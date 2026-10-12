@@ -26,12 +26,12 @@ pub struct Shot {
     _dir: tempfile::TempDir,
 }
 
-/// Failed pixels tolerated per snapshot: absorbs text anti-aliasing differences between GPUs and
-/// drivers (a handful of pixels) while any changed label or layout differs by far more (a one
-/// word label change measured over a thousand).
 /// Frames rendered before an animated screen is compared.
 const ANIMATED_FRAMES: usize = 8;
 
+/// Failed pixels tolerated per snapshot: absorbs text anti-aliasing differences between GPUs and
+/// drivers (a handful of pixels) while any changed label or layout differs by far more (a one
+/// word label change measured over a thousand).
 pub const PIXEL_THRESHOLD: usize = 100;
 
 /// The real app on an in-memory store whose connections file and known_hosts live in a fresh

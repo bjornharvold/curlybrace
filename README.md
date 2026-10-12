@@ -88,8 +88,9 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 ## Compare two collections
 
 Switch from **Browse** to **Compare** next to the Disconnect button, or right-click a collection and
-choose **Compare to...** to start with it as the source. Pick a saved connection, database and
-collection for each side (the two sides can be on different servers), then check and start.
+choose **Compare to...** to start with it as the source. Pick a saved connection for each side (the
+two sides can be on different servers) and press **Connect**, then pick a database and collection
+for each side, press **Check** and **Start**.
 
 - It compares documents by a **key** (default `_id`) and lists what is only in the source, only in
   the target, or different, with the changed fields of each document. Optional filters limit each
