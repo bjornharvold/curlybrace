@@ -2,6 +2,24 @@
   "app": {
     "title": "MongoStudio"
   },
+  "auth": {
+    "gssapi": "Kerberos (GSSAPI)",
+    "none": "None",
+    "plain": "LDAP (PLAIN)",
+    "scram_sha1": "SCRAM-SHA-1",
+    "scram_sha256": "SCRAM-SHA-256",
+    "x509": "X.509"
+  },
+  "cell": {
+    "array": "{n} items",
+    "binary": "Binary ({n} bytes)",
+    "document": "{n} fields",
+    "max_key": "MaxKey",
+    "min_key": "MinKey",
+    "null": "null",
+    "timestamp": "Timestamp({time}, {increment})",
+    "undefined": "undefined"
+  },
   "common": {
     "cancel": "Cancel",
     "close": "Close",
@@ -9,6 +27,26 @@
     "ok": "OK",
     "retry": "Retry",
     "save": "Save"
+  },
+  "connections": {
+    "auth": "Authentication",
+    "connect": "Connect",
+    "name": "Name",
+    "new": "New connection",
+    "password": "Password",
+    "ssh": "Use SSH tunnel",
+    "ssh_host": "SSH host",
+    "ssh_key": "SSH private key file (leave empty for password)",
+    "ssh_port": "SSH port",
+    "ssh_secret": "SSH password / key passphrase",
+    "ssh_user": "SSH user",
+    "test": "Test connection",
+    "title": "Connections",
+    "tls": "Use TLS",
+    "tls_ca": "CA certificate file",
+    "tls_client_cert": "Client certificate and key file",
+    "uri": "Connection string",
+    "username": "Username"
   },
   "errors": {
     "database": "The database reported a problem. Check your connection and try again.",
