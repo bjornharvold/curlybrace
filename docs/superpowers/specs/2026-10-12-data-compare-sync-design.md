@@ -1,7 +1,7 @@
 # Data Compare & Sync: Design
 
 Date: 2026-10-12
-Status: Draft, awaiting user review (multi-pair design added)
+Status: Approved by the maintainer on 2026-10-12 (including multi-pair, sequential pairs and a shared result budget)
 Issue: #8 (epic). Reused later by #9 (masking and reschema) and #11 (task scheduler).
 
 ## Context and intent
