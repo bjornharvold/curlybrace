@@ -9,6 +9,7 @@ async-trait = "0.1.92"
 bson = "2.15"
 dirs = "7.0.0"
 futures = "0.3.34"
+log = "0.4.26"
 keyring = { version = "3.6.3", features = ["apple-native"] }
 mongodb = "3.6.0"
 russh = "0.63.1"

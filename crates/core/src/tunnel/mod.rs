@@ -34,6 +34,14 @@ pub struct Tunnel {
     task: JoinHandle<()>,
 }
 
+impl Tunnel {
+    /// False once the accept loop has ended (the local listener failed repeatedly), after which
+    /// the tunnel no longer serves connections.
+    pub fn is_running(&self) -> bool {
+        !self.task.is_finished()
+    }
+}
+
 impl Drop for Tunnel {
     fn drop(&mut self) {
         // The task owns the listener, the SSH session and every forward.
