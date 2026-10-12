@@ -1,5 +1,6 @@
 //! The pure reducer: `update(state, input) -> (state, commands)`. No I/O, no egui.
 use super::actions;
+use super::compare::{self, CompareAction};
 use super::persistence::PersistError;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use crate::viewmodel::{DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key};
@@ -20,6 +21,7 @@ pub enum Input {
     Editor(EditorAction),
     Connect(Uuid),
     Disconnect,
+    Compare(CompareAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -35,6 +37,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Editor(a) => actions::editor(state, a),
         Input::Connect(id) => actions::connect(state, id),
         Input::Disconnect => actions::disconnect(state),
+        Input::Compare(a) => compare::on_action(state, a),
         Input::DismissBanner => (with_banner(state, None), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
@@ -89,9 +92,9 @@ fn on_event(state: AppState, ev: Event) -> Out {
             context: "disconnect",
             error,
         } => (disconnected(state, Some(("disconnect", error))), Vec::new()),
-        // Compare sessions are independent of the browsing connection; the compare UI consumes
-        // these events itself, so the browsing state does not change.
-        Event::Compare(_) => (state, Vec::new()),
+        // Compare sessions are independent of the browsing connection (and its epoch), so
+        // they are handled before the "not connected" catch-all.
+        Event::Compare(e) => compare::on_event(state, e),
         // Anything else is a late answer from a session that is gone.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases(names) => {

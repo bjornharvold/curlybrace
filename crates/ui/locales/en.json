@@ -59,6 +59,33 @@
     "retry": "Retry",
     "save": "Save"
   },
+  "compare": {
+    "category": {
+      "different": "Different",
+      "only_in_source": "Only in source",
+      "only_in_target": "Only in target"
+    },
+    "detail": {
+      "added": "Added",
+      "changed": "Changed",
+      "removed": "Removed"
+    },
+    "preflight": {
+      "empty_both": "Both collections are empty, so there is nothing to compare.",
+      "needs_index": "The {side} collection has no index on the key fields and is too large to compare without one. Create an index on the key fields first."
+    },
+    "setup": {
+      "filter_invalid": "The filter must be a JSON object, for example { \"status\": \"active\" }.",
+      "incomplete": "Pick a database and a collection on both sides.",
+      "key_invalid": "The key must be one or more field names separated by commas, such as _id or tenant, sku. Each name must be non-empty and listed once.",
+      "rules_invalid": "The field list is not valid. Each name must be non-empty, have no empty path segments, and the list cannot be empty when only some fields are compared.",
+      "view_selected": "A view cannot be compared. Pick a collection."
+    },
+    "side": {
+      "source": "source",
+      "target": "target"
+    }
+  },
   "connections": {
     "allow_invalid_certs": "Allow invalid TLS certificates",
     "allow_invalid_certs_ssh_warning": "Warning: through an SSH tunnel this removes certificate protection on the connection between the SSH bastion and MongoDB.",
@@ -126,6 +153,13 @@
   },
   "failures": {
     "clone": "Could not clone the document",
+    "compare_check": "Could not check the collections before comparing",
+    "compare_collections": "Could not load the collections for the comparison",
+    "compare_databases": "Could not load the databases for the comparison",
+    "compare_detail": "Could not load the document differences",
+    "compare_open": "Could not open the comparison connections",
+    "compare_rows": "Could not load the list of differences",
+    "compare_start": "Could not run the comparison",
     "connect": "Could not connect",
     "delete": "Could not delete the document",
     "delete_secrets": "Could not remove the saved credentials, so the connection was kept. Try again",

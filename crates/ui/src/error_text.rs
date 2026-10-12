@@ -1,4 +1,5 @@
 //! Which error details may be shown or logged, and how failures are logged.
+use curlybrace_core::compare::protocol::CompareEvent;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Event;
 
@@ -19,14 +20,48 @@ pub fn failure_log_line(ev: &Event) -> Option<String> {
     let (context, error) = match ev {
         Event::Failed { context, error } => (*context, error),
         Event::ConnectFailed { error, .. } => ("connect", error),
+        Event::Compare(compare) => return compare_log_line(compare),
         _ => return None,
     };
     (*error != CoreError::Superseded).then(|| format!("{context} failed: {error}"))
 }
 
+/// Compare failures are logged by context and error KIND only: the error text of a compare can
+/// carry document keys or values (duplicate keys, server messages), which are never logged.
+fn compare_log_line(ev: &CompareEvent) -> Option<String> {
+    let (context, error) = match ev {
+        CompareEvent::Failed { context, error, .. } => (*context, error),
+        CompareEvent::OpenFailed { error, .. } => ("compare_open", error),
+        _ => return None,
+    };
+    Some(format!("{context} failed: {}", error.i18n_key()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compare_failures_are_logged_without_error_text() {
+        let failed = Event::Compare(CompareEvent::Failed {
+            session: 1,
+            context: "compare_rows",
+            error: CoreError::Database("E11000 dup key: { sku: \"SECRET-123\" }".into()),
+        });
+        let line = failure_log_line(&failed).unwrap();
+        assert_eq!(line, "compare_rows failed: errors.database");
+        let open = Event::Compare(CompareEvent::OpenFailed {
+            session: 2,
+            error: CoreError::Ssh("secret-host".into()),
+        });
+        let line = failure_log_line(&open).unwrap();
+        assert!(line.starts_with("compare_open failed: "));
+        assert!(!line.contains("secret-host"));
+        assert_eq!(
+            failure_log_line(&Event::Compare(CompareEvent::Opened { session: 1 })),
+            None
+        );
+    }
 
     #[test]
     fn only_user_input_and_server_messages_have_a_visible_detail() {

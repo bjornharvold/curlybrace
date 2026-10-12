@@ -5,6 +5,7 @@
 //! * `panels`: the thin egui layer
 mod actions;
 mod banner;
+pub mod compare;
 pub mod connections;
 pub mod host_key;
 mod panels;

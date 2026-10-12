@@ -81,7 +81,19 @@ mod tests {
             let (head, _) = resolved(b);
             assert!(!head.contains('⟦'), "{b:?}");
         }
-        for context in ["save_connection", "secrets", "runtime", "delete_secrets"] {
+        for context in [
+            "save_connection",
+            "secrets",
+            "runtime",
+            "delete_secrets",
+            "compare_open",
+            "compare_databases",
+            "compare_collections",
+            "compare_check",
+            "compare_start",
+            "compare_rows",
+            "compare_detail",
+        ] {
             let (head, _) = resolved(&Banner::Failure {
                 context,
                 error: CoreError::NotFound,

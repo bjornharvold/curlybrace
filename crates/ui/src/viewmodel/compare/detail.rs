@@ -1,0 +1,80 @@
+//! One differing document: field-level change lines with formatted values.
+use bson::{Bson, Document};
+use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
+use curlybrace_core::compare::key::KeyTuple;
+
+/// One changed field. `kind` is an i18n key; the texts are relaxed extended JSON.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChangeLine {
+    pub path: String,
+    pub kind: &'static str,
+    pub source_text: Option<String>,
+    pub target_text: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DetailView {
+    pub key: KeyTuple,
+    /// Requested, not yet answered.
+    pub loading: bool,
+    pub source: Option<Document>,
+    pub target: Option<Document>,
+    pub changes: Vec<ChangeLine>,
+}
+
+pub fn kind_key(kind: ChangeKind) -> &'static str {
+    match kind {
+        ChangeKind::Added => "compare.detail.added",
+        ChangeKind::Removed => "compare.detail.removed",
+        ChangeKind::Changed => "compare.detail.changed",
+    }
+}
+
+/// One value as compact relaxed extended JSON (the same dialect as the document viewer).
+pub fn value_text(value: &Bson) -> String {
+    value.clone().into_relaxed_extjson().to_string()
+}
+
+impl DetailView {
+    pub fn loading(key: KeyTuple) -> Self {
+        Self {
+            key,
+            loading: true,
+            source: None,
+            target: None,
+            changes: Vec::new(),
+        }
+    }
+
+    pub fn is_for(&self, key: &KeyTuple) -> bool {
+        self.key == *key
+    }
+
+    pub fn loaded(
+        self,
+        source: Option<Document>,
+        target: Option<Document>,
+        changes: &[FieldChange],
+    ) -> Self {
+        Self {
+            loading: false,
+            source,
+            target,
+            changes: changes.iter().map(line).collect(),
+            ..self
+        }
+    }
+}
+
+fn line(change: &FieldChange) -> ChangeLine {
+    ChangeLine {
+        path: change.path.clone(),
+        kind: kind_key(change.kind),
+        source_text: change.source.as_ref().map(value_text),
+        target_text: change.target.as_ref().map(value_text),
+    }
+}
+
+#[cfg(test)]
+#[path = "detail_tests.rs"]
+mod tests;

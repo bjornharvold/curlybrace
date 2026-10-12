@@ -94,6 +94,25 @@ fn flatten(prefix: &str, value: &Value, out: &mut HashMap<String, String>) -> Re
 mod tests {
     use super::*;
 
+    /// Every key the compare view-models name; labels of the views themselves come later.
+    const COMPARE_KEYS: [&str; 15] = [
+        "compare.category.different",
+        "compare.category.only_in_source",
+        "compare.category.only_in_target",
+        "compare.detail.added",
+        "compare.detail.changed",
+        "compare.detail.removed",
+        "compare.preflight.empty_both",
+        "compare.preflight.needs_index",
+        "compare.setup.filter_invalid",
+        "compare.setup.incomplete",
+        "compare.setup.key_invalid",
+        "compare.setup.rules_invalid",
+        "compare.setup.view_selected",
+        "compare.side.source",
+        "compare.side.target",
+    ];
+
     #[test]
     fn flattens_nested_objects() {
         let i = I18n::from_json(r#"{"a":{"b":"x","c":{"d":"y"}}}"#).unwrap();
@@ -195,8 +214,18 @@ mod tests {
             "delete",
             "clone",
             "disconnect",
+            "compare_open",
+            "compare_databases",
+            "compare_collections",
+            "compare_check",
+            "compare_start",
+            "compare_rows",
+            "compare_detail",
         ] {
             assert!(!i.failure(c).starts_with('⟦'), "missing failures.{c}");
+        }
+        for k in COMPARE_KEYS {
+            assert!(!i.t(k).starts_with('⟦'), "missing {k}");
         }
         for k in [
             "app.title",

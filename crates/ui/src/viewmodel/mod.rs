@@ -1,5 +1,6 @@
 //! Pure, egui-free view-model helpers.
 pub mod cell;
+pub mod compare;
 pub mod connection_form;
 pub mod doc_actions;
 pub mod editor;
