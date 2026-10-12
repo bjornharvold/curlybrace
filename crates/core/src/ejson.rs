@@ -10,8 +10,10 @@ use serde_json::Value;
 use crate::error::{CoreError, Result};
 
 fn pretty(value: &Value) -> String {
-    // A `Value` always serializes: all map keys are strings.
-    serde_json::to_string_pretty(value).unwrap_or_else(|_| String::from("{}"))
+    // Infallible by construction: a `Value` has only string keys and finite
+    // numbers, so serialization cannot fail. Never fall back to a placeholder
+    // like "{}": an editor showing it could overwrite a real document.
+    serde_json::to_string_pretty(value).expect("serde_json::Value always serializes")
 }
 
 /// Human-readable relaxed extended JSON (pretty) for the read-only view.
@@ -99,6 +101,15 @@ mod tests {
             back.keys().collect::<Vec<_>>(),
             original.keys().collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn nested_key_order_survives_round_trip() {
+        let d = doc! { "z": 1_i32, "a": doc! { "y": 1_i32, "b": 2_i32 } };
+        let back = roundtrip(&d);
+        assert_eq!(back.keys().collect::<Vec<_>>(), ["z", "a"]);
+        let inner = back.get_document("a").unwrap();
+        assert_eq!(inner.keys().collect::<Vec<_>>(), ["y", "b"]);
     }
 
     #[test]
