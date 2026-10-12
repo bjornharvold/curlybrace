@@ -1,7 +1,8 @@
 //! Application state. Immutable by convention: the reducer consumes a state and returns the next.
-use super::persistence::PersistError;
+use super::persistence::{PersistError, PersistGuard, Recovery};
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
 use crate::views::connections::ConnectionsState;
+use bson::Bson;
 use mongostudio_core::connection::ConnectionConfig;
 use mongostudio_core::error::CoreError;
 use mongostudio_core::store::{Namespace, Page, Query};
@@ -25,8 +26,8 @@ pub enum Banner {
         error: CoreError,
     },
     Persist(PersistError),
-    /// Entries of the saved connection list that were invalid and skipped on load.
-    SkippedEntries(usize),
+    /// What startup found wrong with the saved connection list, and whether it was backed up.
+    Recovery(Recovery),
     /// A data action was attempted without a live connection.
     NotConnected,
     HostForgotten,
@@ -48,6 +49,21 @@ impl HostEndpoint {
     }
 }
 
+/// Identity of the editor content a mutation was saved from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EditorKey {
+    pub original_id: Option<Bson>,
+    pub text: String,
+}
+
+/// The single mutating command in flight.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pending {
+    pub ns: Namespace,
+    /// Set for editor saves, so a failure only lands in the editor it came from.
+    pub editor: Option<EditorKey>,
+}
+
 #[derive(Debug, Default)]
 pub struct AppState {
     pub conn: ConnectionsState,
@@ -58,16 +74,21 @@ pub struct AppState {
     /// Databases whose collection list is in flight.
     pub loading: BTreeSet<String>,
     pub find: FindBarState,
-    /// The query behind the page on screen (and the one results are matched against).
-    pub last_query: Query,
+    /// The latest requested query; only used to recognise stale `Results`.
+    pub issued_query: Query,
+    /// The query that produced the page on screen (paging and re-fetch after edits use it).
+    pub page_query: Query,
+    /// A find is in flight and no page is shown yet.
+    pub loading_page: bool,
     pub page: Option<Page>,
     /// Content key of `page`, computed once when the page arrives.
     pub page_key: Option<PageKey>,
     pub tree: TreeState,
     pub view_mode: ViewMode,
     pub editor: Option<EditorState>,
-    /// A mutating command is in flight; further mutations are ignored.
-    pub pending_mutation: bool,
+    /// The mutating command in flight; further mutations are ignored until it resolves.
+    pub pending: Option<Pending>,
+    pub persist: PersistGuard,
     pub banner: Option<Banner>,
     /// SSH endpoint of the connection being (or last) opened.
     pub ssh_endpoint: Option<HostEndpoint>,
@@ -94,7 +115,7 @@ impl AppState {
     /// `(has_prev, has_next)` for the find bar.
     pub fn paging(&self) -> (bool, bool) {
         (
-            self.last_query.skip > 0,
+            self.page.is_some() && self.page_query.skip > 0,
             self.page.as_ref().is_some_and(|p| p.has_more),
         )
     }
@@ -105,12 +126,14 @@ impl AppState {
             sidebar: SidebarState::default(),
             loading: BTreeSet::new(),
             find: FindBarState::default(),
-            last_query: Query::default(),
+            issued_query: Query::default(),
+            page_query: Query::default(),
+            loading_page: false,
             page: None,
             page_key: None,
             tree: self.tree.results_replaced(),
             editor: None,
-            pending_mutation: false,
+            pending: None,
             forget_confirm: None,
             ..self
         }
@@ -125,13 +148,8 @@ impl AppState {
                     error,
                 }),
                 Some(endpoint),
-            ) if is_host_key_changed(error) => Some(endpoint),
+            ) if *error == CoreError::SshHostKeyChanged => Some(endpoint),
             _ => None,
         }
     }
-}
-
-/// True for the core error raised when a recorded SSH host key no longer matches.
-pub fn is_host_key_changed(error: &CoreError) -> bool {
-    matches!(error, CoreError::Ssh(m) if m.contains(crate::i18n::HOST_KEY_CHANGED_MARKER))
 }

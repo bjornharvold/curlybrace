@@ -73,7 +73,7 @@ impl Harness {
                 "timed out waiting for {what}: banner={:?} editor={:?} pending={}",
                 s.banner,
                 s.editor,
-                s.pending_mutation
+                s.pending.is_some()
             );
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -157,14 +157,16 @@ async fn browse_edit_and_delete_through_the_real_runtime() {
     h.app.dispatch(Input::Doc(DocAction::Edit(bob)));
     let editor = h.app.state().editor.clone().expect("editor opened");
     let text = editor.text.replace("bob", "bobby");
+    // What the user typed into the modal.
+    h.app.state_mut().editor.as_mut().unwrap().text = text.clone();
     h.app.dispatch(Input::Editor(EditorAction::Save {
         original_id: editor.original_id,
         text,
     }));
-    assert!(h.app.state().pending_mutation);
+    assert!(h.app.state().pending.is_some());
     // The current query (name == "bob") is re-run, so the renamed document drops out of it.
     h.until("re-fetched edit", |a| {
-        a.state().editor.is_none() && !a.state().pending_mutation && names(a).is_empty()
+        a.state().editor.is_none() && a.state().pending.is_none() && names(a).is_empty()
     });
     h.app.dispatch(Input::Find(FindAction::Clear));
     h.until("cleared query", |a| names(a) == ["alice", "bobby", "alice"]);
@@ -173,7 +175,7 @@ async fn browse_edit_and_delete_through_the_real_runtime() {
     let id2 = Bson::Int32(2);
     h.app.dispatch(Input::Doc(DocAction::Delete(id2)));
     h.until("re-fetched delete", |a| {
-        names(a) == ["alice", "alice"] && !a.state().pending_mutation
+        names(a) == ["alice", "alice"] && a.state().pending.is_none()
     });
     assert!(h.app.state().banner.is_none());
 

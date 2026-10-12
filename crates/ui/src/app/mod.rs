@@ -86,7 +86,7 @@ impl MongoStudioApp {
     pub fn launch(secrets: Arc<dyn SecretStore>, ctx: egui::Context) -> Self {
         let i18n = I18n::english();
         let config_path = default_connections_path();
-        let (connections, startup_banner) = load_startup(&config_path);
+        let (connections, guard, startup_banner) = load_startup(&config_path);
         let repaint: Repaint = {
             let ctx = ctx.clone();
             Arc::new(move || ctx.request_repaint())
@@ -100,6 +100,7 @@ impl MongoStudioApp {
             .with_config_path(config_path)
             .with_known_hosts_path(known_hosts)
             .with_host_key_requests(requests)
+            .with_persist_guard(guard)
             .with_banner(startup_banner)
     }
 
@@ -124,6 +125,11 @@ impl MongoStudioApp {
         }
     }
 
+    pub fn with_persist_guard(mut self, guard: persistence::PersistGuard) -> Self {
+        self.state.persist = guard;
+        self
+    }
+
     pub fn with_banner(mut self, banner: Option<Banner>) -> Self {
         self.state.banner = banner.or(self.state.banner);
         self
@@ -131,6 +137,11 @@ impl MongoStudioApp {
 
     pub fn state(&self) -> &AppState {
         &self.state
+    }
+
+    /// Direct state access for embedding and tests (typing into the editor, for example).
+    pub fn state_mut(&mut self) -> &mut AppState {
+        &mut self.state
     }
 
     /// `(host, fingerprint)` of the SSH host-key question being shown, if any.
@@ -153,7 +164,9 @@ impl MongoStudioApp {
     fn send(&mut self, commands: Vec<Command>) {
         for command in commands {
             if matches!(command, Command::Connect(_) | Command::Disconnect) {
-                // A pending host-key question belongs to the connection being replaced.
+                // Questions already queued by the runtime belong to the connection being
+                // replaced: collect them first so none survives, then reject them all.
+                self.drain_requests();
                 self.prompt = std::mem::take(&mut self.prompt).rejected_all();
             }
             if self.handle.tx.send(command).is_err() {
@@ -214,8 +227,7 @@ impl MongoStudioApp {
         }
     }
 
-    /// Moves host-key requests and runtime events into the state.
-    fn pump(&mut self) {
+    fn drain_requests(&mut self) {
         let requests: Vec<HostKeyRequest> = self
             .prompt_requests
             .as_ref()
@@ -224,6 +236,12 @@ impl MongoStudioApp {
         for request in requests {
             self.prompt = std::mem::take(&mut self.prompt).offered(request);
         }
+    }
+
+    /// Moves host-key requests and runtime events into the state.
+    fn pump(&mut self) {
+        self.drain_requests();
+        self.prompt = std::mem::take(&mut self.prompt).pruned();
         while let Ok(event) = self.handle.rx.try_recv() {
             self.dispatch(Input::Event(event));
         }

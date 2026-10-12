@@ -1,8 +1,6 @@
 //! Connection manager operations that touch the keychain and the config file. They take the
 //! side-effect seams as arguments (`SecretStore`, path) so tests run against memory and a tempdir.
-use super::persistence::{
-    Loaded, PersistError, back_up_corrupt, load_connections, save_connections,
-};
+use super::persistence::{PersistError, PersistGuard, back_up, save_connections, startup};
 use super::state::{AppState, Banner};
 use crate::viewmodel::{ConnectionForm, save_connection, stored_secret_flags};
 use crate::views::connections::ConnectionsState;
@@ -21,30 +19,23 @@ const ALL_KINDS: [SecretKind; 3] = [
 /// Where the connection list lives; an unknown config dir stays a typed error.
 pub type ConfigPath = Result<PathBuf, PersistError>;
 
-/// The saved list for startup and the banner to show about it (if any).
-/// A corrupt file is copied aside and left untouched until the user saves.
-pub fn load_startup(path: &ConfigPath) -> (Vec<ConnectionConfig>, Option<Banner>) {
+/// The saved list for startup, the save guard and the banner to show about it (if any).
+/// Anything unusual about the file is backed up before it can be overwritten; if that fails
+/// the guard refuses saves.
+pub fn load_startup(path: &ConfigPath) -> (Vec<ConnectionConfig>, PersistGuard, Option<Banner>) {
     let path = match path {
         Ok(p) => p,
-        Err(e) => return (Vec::new(), Some(Banner::Persist(e.clone()))),
-    };
-    match load_connections(path) {
-        Ok(Loaded {
-            connections,
-            skipped: 0,
-        }) => (connections, None),
-        Ok(Loaded {
-            connections,
-            skipped,
-        }) => (connections, Some(Banner::SkippedEntries(skipped))),
         Err(e) => {
-            eprintln!("could not load the connection list: {e:?}");
-            if e == PersistError::Corrupt {
-                let _ = back_up_corrupt(path);
-            }
-            (Vec::new(), Some(Banner::Persist(e)))
+            return (
+                Vec::new(),
+                PersistGuard::default(),
+                Some(Banner::Persist(e.clone())),
+            );
         }
-    }
+    };
+    let started = startup(path, &back_up);
+    let banner = started.recovery.map(Banner::Recovery);
+    (started.connections, started.guard, banner)
 }
 
 fn persist(path: &ConfigPath, list: &[ConnectionConfig]) -> Result<(), PersistError> {
@@ -110,6 +101,9 @@ pub fn save(
         Ok(cfg) => cfg,
         Err(e) => return with_conn_error(state, e),
     };
+    if let Err(e) = state.persist.check() {
+        return refused(state, e);
+    }
     if let Err(error) = save_connection(&cfg, form, secrets) {
         let banner = Some(Banner::Failure {
             context: "save_connection",
@@ -142,8 +136,31 @@ fn upserted(list: &[ConnectionConfig], cfg: ConnectionConfig) -> Vec<ConnectionC
     out
 }
 
-/// Removes the connection, all of its keychain secrets (idempotent) and persists the list.
+fn refused(state: AppState, error: PersistError) -> AppState {
+    AppState {
+        banner: Some(Banner::Persist(error)),
+        ..state
+    }
+}
+
+/// Removes the connection's keychain secrets (all three kinds are always attempted) and then,
+/// only if every deletion succeeded, the config itself. A failure keeps the config so the user
+/// can retry instead of leaving orphaned secrets behind.
 pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &ConfigPath) -> AppState {
+    if let Err(e) = state.persist.check() {
+        return refused(state, e);
+    }
+    let failures: Vec<CoreError> = ALL_KINDS
+        .iter()
+        .filter_map(|kind| secrets.delete(&secret_key(id, *kind)).err())
+        .collect();
+    if let Some(error) = failures.into_iter().next() {
+        let banner = Some(Banner::Failure {
+            context: "delete_secrets",
+            error,
+        });
+        return AppState { banner, ..state };
+    }
     let list: Vec<ConnectionConfig> = state
         .conn
         .connections
@@ -151,17 +168,9 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
         .filter(|c| c.id != id)
         .cloned()
         .collect();
-    let secret_error = ALL_KINDS
-        .iter()
-        .filter_map(|kind| secrets.delete(&secret_key(id, *kind)).err())
-        .next();
-    let persist_error = persist(path, &list).err();
-    let banner = secret_error
-        .map(|error| Banner::Failure {
-            context: "secrets",
-            error,
-        })
-        .or(persist_error.map(Banner::Persist))
+    let banner = persist(path, &list)
+        .err()
+        .map(Banner::Persist)
         .or(state.banner);
     let was_selected = state.conn.selected == Some(id);
     let mut stored = state.conn.stored;
@@ -190,6 +199,7 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
 
 #[cfg(test)]
 mod tests {
+    use super::super::persistence::{Recovery, load_connections};
     use super::*;
     use crate::viewmodel::SecretEdit;
     use mongostudio_core::secrets::MemorySecretStore;
@@ -358,23 +368,126 @@ mod tests {
         assert_eq!(s.banner, None);
     }
 
+    /// Fails `delete` for one secret kind while `broken` is set; records every attempt.
+    struct FlakyStore {
+        inner: MemorySecretStore,
+        fail_suffix: &'static str,
+        broken: std::sync::atomic::AtomicBool,
+        attempts: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl SecretStore for FlakyStore {
+        fn get(&self, key: &str) -> mongostudio_core::error::Result<Option<String>> {
+            self.inner.get(key)
+        }
+        fn set(&self, key: &str, value: &str) -> mongostudio_core::error::Result<()> {
+            self.inner.set(key, value)
+        }
+        fn delete(&self, key: &str) -> mongostudio_core::error::Result<()> {
+            self.attempts.lock().unwrap().push(key.to_string());
+            let broken = self.broken.load(std::sync::atomic::Ordering::SeqCst);
+            if broken && key.ends_with(self.fail_suffix) {
+                return Err(CoreError::Secret("locked".into()));
+            }
+            self.inner.delete(key)
+        }
+    }
+
     #[test]
-    fn startup_reports_skipped_entries_and_corrupt_files_without_overwriting() {
+    fn a_failing_secret_delete_keeps_the_config_attempts_every_kind_and_retry_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FlakyStore {
+            inner: MemorySecretStore::new(),
+            fail_suffix: "ssh-password",
+            broken: std::sync::atomic::AtomicBool::new(false),
+            attempts: Default::default(),
+        };
+        let s = save(AppState::new(vec![]), &form("a", "pw"), &store, &path(&dir));
+        let id = s.conn.connections[0].id;
+        for kind in ALL_KINDS {
+            store.inner.set(&secret_key(id, kind), "x").unwrap();
+        }
+        store.attempts.lock().unwrap().clear();
+        store
+            .broken
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+
+        let s = delete(s, id, &store, &path(&dir));
+        assert_eq!(
+            store.attempts.lock().unwrap().len(),
+            3,
+            "all kinds attempted"
+        );
+        assert_eq!(s.conn.connections.len(), 1, "config kept for a retry");
+        assert!(matches!(
+            s.banner,
+            Some(Banner::Failure {
+                context: "delete_secrets",
+                ..
+            })
+        ));
+        let on_disk = load_connections(&dir.path().join("connections.json")).unwrap();
+        assert_eq!(on_disk.connections.len(), 1);
+
+        store
+            .broken
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let s = delete(s, id, &store, &path(&dir));
+        assert!(s.conn.connections.is_empty());
+        for kind in ALL_KINDS {
+            assert_eq!(store.inner.get(&secret_key(id, kind)).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn a_blocked_guard_refuses_save_and_delete_before_touching_anything() {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = MemorySecretStore::new();
+        let mut start = AppState::new(vec![]);
+        start.persist = PersistGuard::blocked();
+        let s = save(start, &form("a", "pw"), &secrets, &path(&dir));
+        assert_eq!(s.banner, Some(Banner::Persist(PersistError::Blocked)));
+        assert!(s.conn.connections.is_empty());
+        assert!(!dir.path().join("connections.json").exists());
+        let id = form("a", "").id;
+        secrets
+            .set(&secret_key(id, SecretKind::Password), "x")
+            .unwrap();
+        let s = delete(s, id, &secrets, &path(&dir));
+        assert_eq!(
+            secrets.get(&secret_key(id, SecretKind::Password)).unwrap(),
+            Some("x".into())
+        );
+        assert_eq!(s.banner, Some(Banner::Persist(PersistError::Blocked)));
+    }
+
+    #[test]
+    fn startup_reports_recovery_and_never_overwrites_the_original() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("connections.json");
         let good = serde_json::to_value(ConnectionConfig::new("ok", "mongodb://h")).unwrap();
         std::fs::write(&file, serde_json::json!([good, {"id": 1}]).to_string()).unwrap();
-        let (list, banner) = load_startup(&Ok(file.clone()));
-        assert_eq!((list.len(), banner), (1, Some(Banner::SkippedEntries(1))));
+        let (list, guard, banner) = load_startup(&Ok(file.clone()));
+        assert_eq!(list.len(), 1);
+        assert!(guard.check().is_ok());
+        assert_eq!(
+            banner,
+            Some(Banner::Recovery(Recovery::Skipped {
+                count: 1,
+                backed_up: true
+            }))
+        );
 
         std::fs::write(&file, "{ corrupt").unwrap();
-        let (list, banner) = load_startup(&Ok(file.clone()));
+        let (list, _, banner) = load_startup(&Ok(file.clone()));
         assert!(list.is_empty());
-        assert_eq!(banner, Some(Banner::Persist(PersistError::Corrupt)));
+        assert_eq!(
+            banner,
+            Some(Banner::Recovery(Recovery::Corrupt { backed_up: true }))
+        );
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "{ corrupt");
-        assert!(file.with_extension("json.corrupt").exists());
 
-        let (_, banner) = load_startup(&Err(PersistError::ConfigDirUnknown));
+        let (_, _, banner) = load_startup(&Err(PersistError::ConfigDirUnknown));
         assert_eq!(
             banner,
             Some(Banner::Persist(PersistError::ConfigDirUnknown))

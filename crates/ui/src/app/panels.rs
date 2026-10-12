@@ -96,7 +96,12 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
     state.view_mode = show_mode_switcher(ui, state.view_mode, i18n);
     ui.separator();
     let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
-        ui.label(i18n.t("browser.loading"));
+        let empty = if state.loading_page {
+            "browser.loading"
+        } else {
+            "browser.load_failed"
+        };
+        ui.label(i18n.t(empty));
         return;
     };
     let action = show_documents_keyed(ui, state.view_mode, page, key, &mut state.tree, i18n);
@@ -112,7 +117,7 @@ pub fn show_modals(
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
-    let save_enabled = !state.pending_mutation;
+    let save_enabled = state.pending.is_none();
     let saved = state
         .editor
         .as_mut()
@@ -146,18 +151,31 @@ fn show_host_key_prompt(
         ui.label(i18n.t("hostkey.fingerprint"));
         ui.monospace(fingerprint);
         ui.horizontal(|ui| {
+            // Reject comes first and owns the initial focus, so Enter can never trust a key.
+            let reject = ui.button(i18n.t("hostkey.reject"));
+            focus_once(ui, &reject, (host, fingerprint));
+            if reject.clicked() {
+                decision = Some(HostKeyDecision::Reject);
+            }
             if ui.button(i18n.t("hostkey.trust_once")).clicked() {
                 decision = Some(HostKeyDecision::Trust);
             }
             if ui.button(i18n.t("hostkey.trust_remember")).clicked() {
                 decision = Some(HostKeyDecision::TrustAndRemember);
             }
-            if ui.button(i18n.t("hostkey.reject")).clicked() {
-                decision = Some(HostKeyDecision::Reject);
-            }
         });
     });
     decision.or_else(|| modal.should_close().then_some(HostKeyDecision::Reject))
+}
+
+/// Gives `response` keyboard focus the first time the prompt for `question` is drawn.
+fn focus_once(ui: &egui::Ui, response: &egui::Response, question: (&str, &str)) {
+    let id = egui::Id::new(("host_key_focus", question));
+    let seen = ui.data_mut(|d| d.get_temp::<bool>(id).is_some());
+    if !seen {
+        response.request_focus();
+        ui.data_mut(|d| d.insert_temp(id, true));
+    }
 }
 
 fn show_forget_confirm(ctx: &egui::Context, message: &str, i18n: &I18n, out: &mut Vec<UiEvent>) {

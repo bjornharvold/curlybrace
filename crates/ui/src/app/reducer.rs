@@ -1,8 +1,8 @@
 //! The pure reducer: `update(state, input) -> (state, commands)`. No I/O, no egui.
 use super::actions;
 use super::persistence::PersistError;
-use super::state::{AppState, Banner, ConnStatus};
-use crate::viewmodel::{DocAction, EditorAction, FindAction, SidebarAction, page_key};
+use super::state::{AppState, Banner, ConnStatus, Pending};
+use crate::viewmodel::{DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key};
 use mongostudio_core::error::CoreError;
 use mongostudio_core::runtime::{Command, Event};
 use uuid::Uuid;
@@ -63,6 +63,18 @@ fn failure(state: AppState, context: &'static str, error: CoreError) -> AppState
 
 fn on_event(state: AppState, ev: Event) -> Out {
     match ev {
+        // The runtime reports commands of a replaced session as `Superseded`. Connect/Disconnect
+        // already cleared everything tied to that session at dispatch (in-flight markers,
+        // pending mutation), so there is nothing left to undo: consuming the answer is enough.
+        // Clearing markers here could wrongly clear the NEW session's.
+        Event::Failed {
+            context: "connect" | "disconnect",
+            error: CoreError::Superseded,
+        } => epoch_done(state, |s| (s, Vec::new())),
+        Event::Failed {
+            error: CoreError::Superseded,
+            ..
+        } => (state, Vec::new()),
         Event::Connected => epoch_done(state, |s| {
             let s = AppState {
                 status: ConnStatus::Connected,
@@ -95,10 +107,10 @@ fn on_event(state: AppState, ev: Event) -> Out {
             (next, Vec::new())
         }
         Event::Results { ns, query, page } => {
-            let current = state.selected_ns() == Some(&ns) && state.last_query == query;
+            let current = state.selected_ns() == Some(&ns) && state.issued_query == query;
             (
                 if current {
-                    results_replaced(state, page)
+                    results_replaced(state, query, page)
                 } else {
                     state
                 },
@@ -140,29 +152,46 @@ fn disconnected(state: AppState, failed: Option<(&'static str, CoreError)>) -> A
 }
 
 /// Stores a fresh page, memoising its content key once (not per frame).
-fn results_replaced(state: AppState, page: mongostudio_core::store::Page) -> AppState {
+fn results_replaced(
+    state: AppState,
+    query: mongostudio_core::store::Query,
+    page: mongostudio_core::store::Page,
+) -> AppState {
     AppState {
         page_key: Some(page_key(&page)),
         page: Some(page),
+        page_query: query,
+        loading_page: false,
         tree: state.tree.results_replaced(),
         ..state
     }
 }
 
+/// A mutation finished. Only the one in flight (same namespace) is resolved; the editor it came
+/// from is closed, and the page is re-fetched with the query that produced it.
 fn mutated(state: AppState, ns: mongostudio_core::store::Namespace) -> Out {
+    let matches_pending = state.pending.as_ref().is_some_and(|p| p.ns == ns);
+    let editor_done = matches_pending && editor_matches(&state, state.pending.as_ref());
     let state = AppState {
-        pending_mutation: false,
+        pending: if matches_pending { None } else { state.pending },
+        editor: if editor_done { None } else { state.editor },
         ..state
     };
     if state.selected_ns() != Some(&ns) {
         return (state, Vec::new());
     }
-    let query = state.last_query.clone();
-    let state = AppState {
-        editor: None,
-        ..state
-    };
+    let query = state.page_query.clone();
     actions::issue_find(state, query)
+}
+
+/// True when the open editor still holds what `pending` was saved from.
+fn editor_matches(state: &AppState, pending: Option<&Pending>) -> bool {
+    match (&state.editor, pending.and_then(|p| p.editor.as_ref())) {
+        (Some(editor), Some(key)) => {
+            editor.original_id == key.original_id && editor.text == key.text
+        }
+        _ => false,
+    }
 }
 
 /// Failed data commands: the previous page stays visible; the user sees a localized banner.
@@ -176,20 +205,28 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
             context,
             error,
         ),
-        "insert" | "replace" if state.editor.is_some() => {
-            let editor = state.editor.map(|e| crate::viewmodel::EditorState {
+        "find" => failure(
+            AppState {
+                loading_page: false,
+                ..state
+            },
+            context,
+            error,
+        ),
+        "insert" | "replace" if editor_matches(&state, state.pending.as_ref()) => {
+            let editor = state.editor.map(|e| EditorState {
                 error: Some(error),
                 ..e
             });
             AppState {
                 editor,
-                pending_mutation: false,
+                pending: None,
                 ..state
             }
         }
         "insert" | "replace" | "delete" | "clone" => failure(
             AppState {
-                pending_mutation: false,
+                pending: None,
                 ..state
             },
             context,

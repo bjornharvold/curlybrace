@@ -1,7 +1,7 @@
 //! Pure handlers for user actions. Each consumes the state and returns the next state plus the
 //! runtime commands to send. Data commands are only produced while connected (carry item I).
 use super::reducer::Out;
-use super::state::{AppState, Banner, ConnStatus, HostEndpoint};
+use super::state::{AppState, Banner, ConnStatus, EditorKey, HostEndpoint, Pending};
 use crate::viewmodel::{
     DbNode, DocAction, EditorAction, EditorState, FindAction, FindBarState, SidebarAction,
 };
@@ -67,15 +67,18 @@ fn open(state: AppState, ns: Namespace) -> Out {
         ns: ns.clone(),
         query: query.clone(),
     };
+    // `pending` is deliberately kept: a mutation still in flight blocks a second submit even
+    // after the user switched collections.
     let next = AppState {
         sidebar: state.sidebar.selecting(ns),
         find: FindBarState::default(),
-        last_query: query,
+        issued_query: query.clone(),
+        page_query: query,
+        loading_page: true,
         page: None,
         page_key: None,
         tree: state.tree.results_replaced(),
         editor: None,
-        pending_mutation: false,
         ..state
     };
     (next, vec![command])
@@ -112,11 +115,11 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
             issue_find(s, Query::default())
         }
         FindAction::Prev if s.paging().0 => {
-            let query = mongostudio_core::query::prev_page(&s.last_query);
+            let query = mongostudio_core::query::prev_page(&s.page_query);
             issue_find(with_skip_text(s, query.skip), query)
         }
         FindAction::Next if s.paging().1 => {
-            let query = mongostudio_core::query::next_page(&s.last_query);
+            let query = mongostudio_core::query::next_page(&s.page_query);
             issue_find(with_skip_text(s, query.skip), query)
         }
         FindAction::Prev | FindAction::Next => (s, Vec::new()),
@@ -130,7 +133,8 @@ fn with_skip_text(state: AppState, skip: u64) -> AppState {
     AppState { find, ..state }
 }
 
-/// Records `query` as the last issued one and fetches it for the selected collection.
+/// Records `query` as the latest requested one and fetches it for the selected collection.
+/// The displayed page (and its `page_query`) stay as they are until results are accepted.
 pub(super) fn issue_find(state: AppState, query: Query) -> Out {
     let Some(ns) = state.selected_ns().cloned() else {
         return (state, Vec::new());
@@ -140,7 +144,8 @@ pub(super) fn issue_find(state: AppState, query: Query) -> Out {
         query: query.clone(),
     };
     let next = AppState {
-        last_query: query,
+        issued_query: query,
+        loading_page: true,
         ..state
     };
     (next, vec![command])
@@ -150,7 +155,7 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
     match action {
         DocAction::Edit(d) => with_editor(state, EditorState::for_edit(&d)),
         DocAction::Insert => with_editor(state, EditorState::for_new()),
-        DocAction::Clone(source) => mutation(state, |ns| Command::Clone { ns, source }),
+        DocAction::Clone(source) => mutation(state, None, |ns| Command::Clone { ns, source }),
         DocAction::Delete(id) => {
             let on_page = state
                 .page
@@ -159,7 +164,7 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
             if !on_page {
                 return (state, Vec::new());
             }
-            mutation(state, |ns| Command::Delete { ns, id })
+            mutation(state, None, |ns| Command::Delete { ns, id })
         }
     }
 }
@@ -181,25 +186,45 @@ pub(super) fn editor(state: AppState, action: EditorAction) -> Out {
         EditorAction::Save {
             original_id: Some(id),
             text,
-        } => mutation(state, |ns| Command::Replace { ns, id, json: text }),
+        } => {
+            let key = EditorKey {
+                original_id: Some(id.clone()),
+                text: text.clone(),
+            };
+            mutation(state, Some(key), |ns| Command::Replace {
+                ns,
+                id,
+                json: text,
+            })
+        }
         EditorAction::Save {
             original_id: None,
             text,
-        } => mutation(state, |ns| Command::Insert { ns, json: text }),
+        } => {
+            let key = EditorKey {
+                original_id: None,
+                text: text.clone(),
+            };
+            mutation(state, Some(key), |ns| Command::Insert { ns, json: text })
+        }
     }
 }
 
 /// Sends one mutating command; ignored while another mutation is in flight.
-fn mutation(state: AppState, build: impl FnOnce(Namespace) -> Command) -> Out {
+fn mutation(
+    state: AppState,
+    editor: Option<EditorKey>,
+    build: impl FnOnce(Namespace) -> Command,
+) -> Out {
     gated(state, |s| {
-        let Some(ns) = s.selected_ns().cloned().filter(|_| !s.pending_mutation) else {
+        let Some(ns) = s.selected_ns().cloned().filter(|_| s.pending.is_none()) else {
             return (s, Vec::new());
         };
-        let next = AppState {
-            pending_mutation: true,
-            ..s
-        };
-        (next, vec![build(ns)])
+        let pending = Some(Pending {
+            ns: ns.clone(),
+            editor,
+        });
+        (AppState { pending, ..s }, vec![build(ns)])
     })
 }
 

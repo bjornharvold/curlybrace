@@ -5,7 +5,8 @@ use mongostudio_core::runtime::Repaint;
 use mongostudio_core::tunnel::{HostKeyDecision, HostKeyPrompt};
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -19,17 +20,55 @@ pub struct HostKeyRequest {
     pub host: String,
     pub fingerprint: String,
     reply: Sender<HostKeyDecision>,
+    /// Set when the waiting side gave up (timeout) or went away.
+    abandoned: Arc<AtomicBool>,
+}
+
+/// The waiting (runtime) side of a request. Dropping it marks the request abandoned so the UI
+/// stops asking a question nobody is waiting for.
+#[derive(Debug)]
+pub struct Waiter {
+    rx: Receiver<HostKeyDecision>,
+    abandoned: Arc<AtomicBool>,
+}
+
+impl Waiter {
+    pub fn try_recv(&self) -> Result<HostKeyDecision, std::sync::mpsc::TryRecvError> {
+        self.rx.try_recv()
+    }
+
+    /// Waits for the answer; every failure to get one is a `Reject`.
+    pub fn wait(&self, timeout: Duration) -> HostKeyDecision {
+        match self.rx.recv_timeout(timeout) {
+            Ok(decision) => decision,
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
+                HostKeyDecision::Reject
+            }
+        }
+    }
+}
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        self.abandoned.store(true, Ordering::SeqCst);
+    }
 }
 
 impl HostKeyRequest {
-    pub fn new(host: &str, fingerprint: &str) -> (Self, Receiver<HostKeyDecision>) {
+    pub fn new(host: &str, fingerprint: &str) -> (Self, Waiter) {
         let (reply, rx) = channel();
+        let abandoned = Arc::new(AtomicBool::new(false));
         let request = Self {
             host: host.to_owned(),
             fingerprint: fingerprint.to_owned(),
             reply,
+            abandoned: abandoned.clone(),
         };
-        (request, rx)
+        (request, Waiter { rx, abandoned })
+    }
+
+    fn is_abandoned(&self) -> bool {
+        self.abandoned.load(Ordering::SeqCst)
     }
 
     fn answer(self, decision: HostKeyDecision) {
@@ -69,9 +108,7 @@ impl HostKeyPrompt for InteractivePrompt {
             return HostKeyDecision::Reject;
         }
         (self.repaint)();
-        reply
-            .recv_timeout(self.timeout)
-            .unwrap_or(HostKeyDecision::Reject)
+        reply.wait(self.timeout)
     }
 }
 
@@ -84,6 +121,12 @@ pub struct PromptState {
 impl PromptState {
     pub fn offered(mut self, request: HostKeyRequest) -> Self {
         self.queue.push_back(request);
+        self
+    }
+
+    /// Drops requests whose waiter has given up (timed out), so no dead question is shown.
+    pub fn pruned(mut self) -> Self {
+        self.queue.retain(|r| !r.is_abandoned());
         self
     }
 
@@ -112,8 +155,9 @@ impl PromptState {
 }
 
 /// Removes the recorded keys of `host:port` from the app-owned known_hosts file
-/// (atomic rewrite, mode 0600). Other hosts, comments and blank lines are kept; a missing
-/// file is success. Only plain host patterns are matched (the app never writes hashed ones).
+/// (atomic rewrite, mode 0600). Every other line is kept byte for byte (CRLF, whitespace,
+/// comments, lines it cannot parse); a missing file is success. Only plain host patterns are
+/// matched (the app never writes hashed ones).
 pub fn forget_host(known_hosts: &Path, host: &str, port: u16) -> Result<(), PersistError> {
     let text = match std::fs::read_to_string(known_hosts) {
         Ok(text) => text,
@@ -121,13 +165,12 @@ pub fn forget_host(known_hosts: &Path, host: &str, port: u16) -> Result<(), Pers
         Err(e) => return Err(PersistError::Read(e.kind())),
     };
     let targets = patterns_for(host, port);
-    let kept: Vec<String> = text
-        .lines()
+    let out: String = text
+        .split_inclusive('\n')
         .filter_map(|line| strip_targets(line, &targets))
         .collect();
-    let mut out = kept.join("\n");
-    if !out.is_empty() {
-        out.push('\n');
+    if out == text {
+        return Ok(());
     }
     atomic_write(known_hosts, out.as_bytes())
 }
@@ -142,21 +185,30 @@ fn patterns_for(host: &str, port: u16) -> Vec<String> {
     patterns
 }
 
-/// The line without the target patterns, or `None` when nothing is left of it.
-fn strip_targets(line: &str, targets: &[String]) -> Option<String> {
-    let trimmed = line.trim_start();
-    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('@') {
-        return Some(line.to_owned());
+/// The raw line (terminator included) without the target patterns, or `None` when nothing is
+/// left of it. Lines that do not match are returned untouched.
+fn strip_targets(raw: &str, targets: &[String]) -> Option<String> {
+    let body = raw.trim_end_matches(['\r', '\n']);
+    let ending = &raw[body.len()..];
+    let content = body.trim_start();
+    let lead = &body[..body.len() - content.len()];
+    if content.is_empty() || content.starts_with('#') || content.starts_with('@') {
+        return Some(raw.to_owned());
     }
-    let (hosts, rest) = trimmed.split_once(char::is_whitespace)?;
-    let remaining: Vec<&str> = hosts
-        .split(',')
+    let Some(hosts_end) = content.find(char::is_whitespace) else {
+        return Some(raw.to_owned());
+    };
+    let (hosts, rest) = content.split_at(hosts_end);
+    let all: Vec<&str> = hosts.split(',').collect();
+    let remaining: Vec<&str> = all
+        .iter()
+        .copied()
         .filter(|p| !targets.iter().any(|t| t.eq_ignore_ascii_case(p)))
         .collect();
-    if remaining.len() == hosts.split(',').count() {
-        return Some(line.to_owned());
+    if remaining.len() == all.len() {
+        return Some(raw.to_owned());
     }
-    (!remaining.is_empty()).then(|| format!("{} {}", remaining.join(","), rest.trim_start()))
+    (!remaining.is_empty()).then(|| format!("{lead}{}{rest}{ending}", remaining.join(",")))
 }
 
 #[cfg(test)]
@@ -314,5 +366,66 @@ mod tests {
         let p = dir.path().join("known_hosts");
         forget_host(&p, "bastion", 22).unwrap();
         assert!(!p.exists());
+    }
+
+    #[test]
+    fn a_timed_out_request_is_pruned_and_a_live_one_stays() {
+        let (dead, waiter) = HostKeyRequest::new("dead", "f1");
+        let (live, _keep) = HostKeyRequest::new("live", "f2");
+        let state = PromptState::default().offered(dead).offered(live);
+        assert_eq!(state.current().map(|c| c.0), Some("dead"));
+        drop(waiter); // what a timed-out `decide` does
+        let state = state.pruned();
+        assert_eq!(state.current().map(|c| c.0), Some("live"));
+    }
+
+    #[test]
+    fn decide_timeout_abandons_its_request() {
+        let (prompt, rx) = InteractivePrompt::channel(no_repaint(), Duration::from_millis(30));
+        assert_eq!(prompt.decide("h", "f"), HostKeyDecision::Reject);
+        let state = PromptState::default()
+            .offered(rx.try_recv().unwrap())
+            .pruned();
+        assert!(state.current().is_none());
+    }
+
+    #[test]
+    fn forget_keeps_unparseable_and_comment_lines_and_crlf_endings_byte_for_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = format!(
+            "#c\r\nnowhitespace\r\n  other {KEY_A}\r\n\r\nbastion {KEY_B}\r\n[bastion]:2222   {KEY_A}  \r\nlast {KEY_A}"
+        );
+        let p = write(&dir, &text);
+        forget_host(&p, "bastion", 22).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            format!(
+                "#c\r\nnowhitespace\r\n  other {KEY_A}\r\n\r\n[bastion]:2222   {KEY_A}  \r\nlast {KEY_A}"
+            )
+        );
+    }
+
+    #[test]
+    fn forget_with_a_port_removes_only_the_bracketed_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = format!("bastion {KEY_A}\n[bastion]:2222 {KEY_B}\n[bastion]:22222 {KEY_B}\n");
+        let p = write(&dir, &text);
+        forget_host(&p, "bastion", 2222).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            format!("bastion {KEY_A}\n[bastion]:22222 {KEY_B}\n")
+        );
+    }
+
+    #[test]
+    fn forget_without_a_match_does_not_rewrite_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = write(&dir, "weird line without a key\n");
+        forget_host(&p, "bastion", 22).unwrap();
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            "weird line without a key\n"
+        );
     }
 }

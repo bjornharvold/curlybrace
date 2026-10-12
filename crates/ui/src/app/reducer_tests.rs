@@ -1,6 +1,6 @@
 use super::{Input, apply_event, update};
 use crate::app::persistence::PersistError;
-use crate::app::state::{AppState, Banner, ConnStatus, HostEndpoint};
+use crate::app::state::{AppState, Banner, ConnStatus, EditorKey, HostEndpoint, Pending};
 use crate::viewmodel::{DbNode, DocAction, EditorAction, EditorState, FindAction, SidebarAction};
 use crate::viewmodel::{PageKey, page_key};
 use bson::{Bson, Document, doc};
@@ -66,6 +66,17 @@ fn ssh_cfg() -> ConnectionConfig {
     c
 }
 
+/// A mutation in flight in `app.people`, saved from `editor` when given.
+fn pending_from(editor: Option<&EditorState>) -> Option<Pending> {
+    Some(Pending {
+        ns: ns(),
+        editor: editor.map(|e| EditorKey {
+            original_id: e.original_id.clone(),
+            text: e.text.clone(),
+        }),
+    })
+}
+
 fn find_failed() -> Event {
     Event::Failed {
         context: "find",
@@ -121,7 +132,7 @@ fn collections_are_stored_and_clear_the_in_flight_mark() {
 fn results_replace_page_bump_tree_and_memoise_key() {
     let s = browsing();
     let generation = s.tree.generation();
-    let q = s.last_query.clone();
+    let q = s.issued_query.clone();
     let page = page_of(vec![mock_doc_with_id(9_i32)], true, 0);
     let (s, cmds) = event(
         s,
@@ -155,7 +166,7 @@ fn results_for_another_namespace_are_ignored() {
 #[test]
 fn results_for_an_older_query_are_ignored() {
     let mut s = browsing();
-    s.last_query = Query {
+    s.issued_query = Query {
         skip: 50,
         ..Query::default()
     };
@@ -228,16 +239,17 @@ fn failed_list_collections_clears_in_flight_and_banners() {
 }
 
 #[test]
-fn mutated_reruns_the_current_query_and_closes_the_editor() {
+fn mutated_reruns_the_page_query_and_closes_the_editor_it_came_from() {
     let mut s = browsing();
-    s.last_query = Query {
+    s.page_query = Query {
         skip: 50,
         ..Query::default()
     };
-    s.editor = Some(EditorState::for_new());
-    s.pending_mutation = true;
+    let editor = EditorState::for_new();
+    s.pending = pending_from(Some(&editor));
+    s.editor = Some(editor);
     let (s, cmds) = event(s, Event::Mutated { ns: ns() });
-    assert!(!s.pending_mutation && s.editor.is_none());
+    assert!(s.pending.is_none() && s.editor.is_none());
     match cmds.as_slice() {
         [Command::Find { ns: n, query }] => {
             assert_eq!((n, query.skip), (&ns(), 50));
@@ -247,23 +259,55 @@ fn mutated_reruns_the_current_query_and_closes_the_editor() {
 }
 
 #[test]
-fn mutated_for_another_namespace_does_not_refetch() {
+fn mutated_leaves_an_editor_with_other_content_open() {
     let mut s = browsing();
-    s.pending_mutation = true;
+    s.pending = pending_from(Some(&EditorState::for_new()));
+    let mut other = EditorState::for_new();
+    other.text = "{\"typing\": true}".into();
+    s.editor = Some(other);
+    let (s, _) = event(s, Event::Mutated { ns: ns() });
+    assert!(s.editor.is_some());
+}
+
+#[test]
+fn mutated_for_another_namespace_neither_refetches_nor_clears_pending() {
+    let mut s = browsing();
+    s.pending = pending_from(None);
     let (s, cmds) = event(
         s,
         Event::Mutated {
             ns: Namespace::new("app", "pets"),
         },
     );
-    assert!(cmds.is_empty() && !s.pending_mutation);
+    assert!(cmds.is_empty() && s.pending.is_some());
+}
+
+#[test]
+fn open_keeps_a_pending_mutation_so_a_second_submit_is_still_refused() {
+    let mut s = browsing();
+    s.pending = pending_from(None);
+    let (s, _) = run(
+        s,
+        Input::Sidebar(SidebarAction::Open(Namespace::new("app", "pets"))),
+    );
+    assert!(s.pending.is_some());
+    let (s, cmds) = run(s, Input::Doc(DocAction::Insert));
+    let (_, cmds2) = run(
+        s,
+        Input::Editor(EditorAction::Save {
+            original_id: None,
+            text: "{}".into(),
+        }),
+    );
+    assert!(cmds.is_empty() && cmds2.is_empty());
 }
 
 #[test]
 fn failed_mutation_keeps_the_editor_open_with_the_error() {
     let mut s = browsing();
-    s.editor = Some(EditorState::for_new());
-    s.pending_mutation = true;
+    let editor = EditorState::for_new();
+    s.pending = pending_from(Some(&editor));
+    s.editor = Some(editor);
     let (s, _) = event(
         s,
         Event::Failed {
@@ -271,16 +315,41 @@ fn failed_mutation_keeps_the_editor_open_with_the_error() {
             error: CoreError::Database("dup".into()),
         },
     );
-    assert!(!s.pending_mutation);
+    assert!(s.pending.is_none());
     let editor = s.editor.expect("editor stays open");
     assert_eq!(editor.error, Some(CoreError::Database("dup".into())));
     assert!(s.banner.is_none());
 }
 
 #[test]
+fn failed_save_goes_to_a_banner_when_the_editor_changed_meanwhile() {
+    let mut s = browsing();
+    s.pending = pending_from(Some(&EditorState::for_new()));
+    let mut other = EditorState::for_edit(&mock_doc_with_id(2_i32));
+    other.error = None;
+    s.editor = Some(other.clone());
+    let (s, _) = event(
+        s,
+        Event::Failed {
+            context: "replace",
+            error: CoreError::Database("x".into()),
+        },
+    );
+    assert_eq!(s.editor, Some(other));
+    assert!(matches!(
+        s.banner,
+        Some(Banner::Failure {
+            context: "replace",
+            ..
+        })
+    ));
+    assert!(s.pending.is_none());
+}
+
+#[test]
 fn failed_delete_sets_a_banner_and_clears_pending() {
     let mut s = browsing();
-    s.pending_mutation = true;
+    s.pending = pending_from(None);
     let (s, _) = event(
         s,
         Event::Failed {
@@ -288,7 +357,7 @@ fn failed_delete_sets_a_banner_and_clears_pending() {
             error: CoreError::NotFound,
         },
     );
-    assert!(!s.pending_mutation && s.banner.is_some());
+    assert!(s.pending.is_none() && s.banner.is_some());
 }
 
 #[test]
@@ -351,7 +420,7 @@ fn superseded_connect_failure_does_not_end_the_newer_connect() {
         s,
         Event::Failed {
             context: "connect",
-            error: CoreError::Unsupported("connection superseded".into()),
+            error: CoreError::Superseded,
         },
     );
     assert_eq!((s.status, s.banner.clone()), (ConnStatus::Connecting, None));
@@ -446,16 +515,19 @@ fn toggle_only_toggles() {
 #[test]
 fn open_selects_resets_paging_and_finds_the_default_query() {
     let mut s = browsing();
-    s.last_query = Query {
+    s.issued_query = Query {
         skip: 100,
         ..Query::default()
     };
+    s.page_query = s.issued_query.clone();
     s.find.text.filter = "{\"a\":1}".into();
     s.editor = Some(EditorState::for_new());
     let target = Namespace::new("app", "pets");
     let (s, cmds) = run(s, Input::Sidebar(SidebarAction::Open(target.clone())));
     assert_eq!(s.sidebar.selected, Some(target.clone()));
-    assert_eq!(s.last_query, Query::default());
+    assert_eq!(s.issued_query, Query::default());
+    assert_eq!(s.page_query, Query::default());
+    assert!(s.loading_page);
     assert_eq!(s.find.text, QueryText::default());
     assert!(s.editor.is_none() && s.page.is_none() && s.page_key.is_none());
     match cmds.as_slice() {
@@ -503,32 +575,109 @@ fn run_stores_the_query_and_sends_find() {
         ..Query::default()
     };
     let (s, cmds) = run(browsing(), Input::Find(FindAction::Run(q.clone())));
-    assert_eq!(s.last_query, q);
+    assert_eq!(s.issued_query, q);
     assert!(matches!(cmds.as_slice(), [Command::Find { query, .. }] if *query == q));
 }
 
+fn results_for(s: &AppState, has_more: bool) -> Event {
+    Event::Results {
+        ns: ns(),
+        query: s.issued_query.clone(),
+        page: page_of(vec![mock_doc_with_id(1_i32)], has_more, s.issued_query.skip),
+    }
+}
+
 #[test]
-fn next_and_prev_page_from_the_last_issued_query() {
+fn next_and_prev_page_from_the_displayed_pages_query() {
     let mut s = browsing();
     s.page = Some(page_of(vec![mock_doc_with_id(1_i32)], true, 0));
     let (s, cmds) = run(s, Input::Find(FindAction::Next));
-    assert_eq!(s.last_query.skip, 50);
+    assert_eq!(s.issued_query.skip, 50);
     assert!(matches!(cmds.as_slice(), [Command::Find { query, .. }] if query.skip == 50));
+    let ev = results_for(&s, false);
+    let (s, _) = event(s, ev);
+    assert_eq!(s.page_query.skip, 50);
     let (s, cmds) = run(s, Input::Find(FindAction::Prev));
-    assert_eq!(s.last_query.skip, 0);
+    assert_eq!(s.issued_query.skip, 0);
     assert!(matches!(cmds.as_slice(), [Command::Find { query, .. }] if query.skip == 0));
+}
+
+#[test]
+fn failed_find_keeps_page_query_so_paging_and_has_prev_still_follow_the_page() {
+    let mut s = browsing();
+    s.page = Some(page_of(vec![mock_doc_with_id(1_i32)], true, 50));
+    s.page_query = Query {
+        skip: 50,
+        ..Query::default()
+    };
+    let failed = Query {
+        filter: doc! {"x": 1},
+        ..Query::default()
+    };
+    let (s, _) = run(s, Input::Find(FindAction::Run(failed.clone())));
+    assert_eq!(s.issued_query, failed);
+    let (s, _) = event(s, find_failed());
+    assert_eq!(s.page_query.skip, 50);
+    assert_eq!(s.paging(), (true, true), "has_prev derives from page_query");
+    let (s, cmds) = run(s, Input::Find(FindAction::Next));
+    assert!(matches!(
+        cmds.as_slice(),
+        [Command::Find { query, .. }] if query.skip == 100 && query.filter.is_empty()
+    ));
+    let (_, cmds) = run(s, Input::Find(FindAction::Prev));
+    assert!(matches!(cmds.as_slice(), [Command::Find { query, .. }] if query.skip == 0));
+}
+
+#[test]
+fn failed_find_then_an_edit_refetches_the_displayed_pages_query() {
+    let mut s = browsing();
+    let failed = Query {
+        filter: doc! {"x": 1},
+        ..Query::default()
+    };
+    s.pending = pending_from(None);
+    let (s, _) = run(s, Input::Find(FindAction::Run(failed)));
+    let (s, _) = event(s, find_failed());
+    let (s, cmds) = event(s, Event::Mutated { ns: ns() });
+    match cmds.as_slice() {
+        [Command::Find { query, .. }] => assert_eq!(*query, Query::default()),
+        other => panic!("{other:?}"),
+    }
+    // The re-fetch is what results are matched against now, so the edited page is accepted.
+    assert_eq!(s.issued_query, Query::default());
+    let edited = page_of(vec![doc! {"_id": 1_i32, "name": "edited"}], false, 0);
+    let (s, _) = event(
+        s,
+        Event::Results {
+            ns: ns(),
+            query: Query::default(),
+            page: edited.clone(),
+        },
+    );
+    assert_eq!(s.page, Some(edited));
+}
+
+#[test]
+fn failed_first_find_after_open_stops_loading_and_keeps_the_text() {
+    let (s, _) = run(
+        browsing(),
+        Input::Sidebar(SidebarAction::Open(Namespace::new("app", "pets"))),
+    );
+    assert!(s.loading_page && s.page.is_none());
+    let (s, _) = event(s, find_failed());
+    assert!(!s.loading_page && s.page.is_none() && s.banner.is_some());
 }
 
 #[test]
 fn clear_runs_the_default_query() {
     let mut s = browsing();
-    s.last_query = Query {
+    s.issued_query = Query {
         skip: 50,
         filter: doc! {"a": 1},
         ..Query::default()
     };
     let (s, cmds) = run(s, Input::Find(FindAction::Clear));
-    assert_eq!(s.last_query, Query::default());
+    assert_eq!(s.issued_query, Query::default());
     assert!(matches!(cmds.as_slice(), [Command::Find { query, .. }] if *query == Query::default()));
 }
 
@@ -536,7 +685,7 @@ fn clear_runs_the_default_query() {
 fn paging_flags_follow_skip_and_has_more() {
     let mut s = browsing();
     assert_eq!(s.paging(), (false, false));
-    s.last_query.skip = 50;
+    s.page_query.skip = 50;
     s.page = Some(page_of(vec![], true, 50));
     assert_eq!(s.paging(), (true, true));
 }
@@ -579,7 +728,7 @@ fn edit_and_insert_open_the_editor() {
 fn clone_sends_the_source_document() {
     let d = mock_doc_with_id(2_i32);
     let (s, cmds) = run(browsing(), Input::Doc(DocAction::Clone(d.clone())));
-    assert!(s.pending_mutation);
+    assert!(s.pending.is_some());
     assert!(
         matches!(cmds.as_slice(), [Command::Clone { ns: n, source }] if *n == ns() && *source == d)
     );
@@ -588,14 +737,14 @@ fn clone_sends_the_source_document() {
 #[test]
 fn delete_of_a_document_on_the_page_sends_delete() {
     let (s, cmds) = run(browsing(), Input::Doc(DocAction::Delete(Bson::Int32(2))));
-    assert!(s.pending_mutation);
+    assert!(s.pending.is_some());
     assert!(matches!(cmds.as_slice(), [Command::Delete { id, .. }] if *id == Bson::Int32(2)));
 }
 
 #[test]
 fn delete_of_an_id_not_on_the_current_page_is_refused() {
     let (s, cmds) = run(browsing(), Input::Doc(DocAction::Delete(Bson::Int32(99))));
-    assert!(cmds.is_empty() && !s.pending_mutation);
+    assert!(cmds.is_empty() && s.pending.is_none());
 }
 
 fn save(id: Option<Bson>, text: &str) -> Input {
@@ -621,7 +770,7 @@ fn second_save_while_a_mutation_is_pending_sends_nothing() {
     let (s, first) = run(browsing(), save(None, "{}"));
     assert_eq!(first.len(), 1);
     let (s, second) = run(s, save(None, "{}"));
-    assert!(second.is_empty() && s.pending_mutation);
+    assert!(second.is_empty() && s.pending.is_some());
 }
 
 #[test]
@@ -632,56 +781,5 @@ fn cancel_closes_the_editor_without_commands() {
     assert!(s.editor.is_none() && cmds.is_empty());
 }
 
-// ---- host key forgetting ----
-
-fn host_key_changed_state() -> AppState {
-    let mut s = AppState::new(vec![]);
-    s.ssh_endpoint = Some(HostEndpoint {
-        host: "bastion".into(),
-        port: 22,
-    });
-    s.banner = Some(Banner::Failure {
-        context: "connect",
-        error: CoreError::Ssh("the ssh host key has changed; refusing to connect".into()),
-    });
-    s
-}
-
-#[test]
-fn forget_is_offered_only_for_a_changed_host_key() {
-    assert!(host_key_changed_state().forgettable_host().is_some());
-    let mut other = host_key_changed_state();
-    other.banner = Some(Banner::Failure {
-        context: "connect",
-        error: CoreError::Ssh("the ssh host key was rejected".into()),
-    });
-    assert!(other.forgettable_host().is_none());
-}
-
-#[test]
-fn forget_needs_a_confirmation_and_clears_the_banner_on_success() {
-    let (s, _) = run(host_key_changed_state(), Input::ForgetRequested);
-    assert_eq!(
-        s.forget_confirm.as_ref().map(|e| e.host.as_str()),
-        Some("bastion")
-    );
-    let (s, _) = run(s, Input::ForgetCancelled);
-    assert!(s.forget_confirm.is_none() && s.banner.is_some());
-    let (s, _) = run(s, Input::ForgetRequested);
-    let (s, _) = run(s, Input::ForgetFinished(Ok(())));
-    assert!(s.forget_confirm.is_none());
-    assert_eq!(s.banner, Some(Banner::HostForgotten));
-}
-
-#[test]
-fn forget_failure_shows_a_persist_banner() {
-    let (s, _) = run(host_key_changed_state(), Input::ForgetRequested);
-    let (s, _) = run(s, Input::ForgetFinished(Err(PersistError::Corrupt)));
-    assert_eq!(s.banner, Some(Banner::Persist(PersistError::Corrupt)));
-}
-
-#[test]
-fn forget_request_without_a_changed_key_does_nothing() {
-    let (s, _) = run(AppState::new(vec![]), Input::ForgetRequested);
-    assert!(s.forget_confirm.is_none());
-}
+#[path = "reducer_session_tests.rs"]
+mod session;

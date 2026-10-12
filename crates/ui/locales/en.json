@@ -17,6 +17,7 @@
     "not_connected": "Not connected. Connect to a server first."
   },
   "browser": {
+    "load_failed": "Could not load documents. See the message above.",
     "loading": "Loading...",
     "select_collection": "Select a collection in the sidebar."
   },
@@ -108,7 +109,7 @@
     "secret_store": "Could not access the system keychain for saved credentials.",
     "ssh": "The SSH tunnel could not be established. Check the SSH settings.",
     "ssh_host_key_changed": "The SSH host key has changed since it was saved. This can mean someone is intercepting the connection. If you know the key was replaced, forget the host and connect again.",
-    "ssh_host_key_rejected": "The SSH host key was not trusted, so the connection was not made.",
+    "superseded": "The connection changed while this was running, so the result was discarded.",
     "tls_through_tunnel": "TLS certificate verification is not possible through an SSH tunnel. To connect you would have to enable \"Allow invalid TLS certificates\", which removes certificate protection on the connection between the SSH bastion and MongoDB (the SSH leg stays encrypted). Only do this on a network you trust.",
     "unsupported": "This action is not supported for the current connection."
   },
@@ -116,6 +117,7 @@
     "clone": "Could not clone the document",
     "connect": "Could not connect",
     "delete": "Could not delete the document",
+    "delete_secrets": "Could not remove the saved credentials, so the connection was kept. Try again",
     "disconnect": "Could not disconnect",
     "find": "Could not load documents",
     "insert": "Could not insert the document",
@@ -154,10 +156,17 @@
     "trust_remember": "Trust and remember"
   },
   "persist": {
+    "blocked": "Saving is turned off because the saved connections file could not be backed up. Fix the folder permissions and restart MongoStudio.",
     "config_dir_unknown": "Could not find a settings folder, so saved connections cannot be loaded or stored.",
     "corrupt": "The saved connections file is not readable. A copy was kept next to it; saving a connection will replace the file.",
+    "corrupt_backed_up": "The saved connections file was not readable. A backup copy was kept next to it; saving a connection will replace the original file.",
+    "corrupt_backup_failed": "The saved connections file was not readable and a backup copy could not be made. Saving is turned off so nothing is overwritten.",
+    "invalid_path": "The connections file location is not valid.",
     "read_failed": "Could not read the saved connections file.",
-    "skipped_entries": "{n} saved connection(s) were invalid and skipped.",
+    "skipped_backed_up": "{n} saved connection(s) were invalid or from a newer version and were skipped. A backup copy of the original file was kept.",
+    "skipped_backup_failed": "{n} saved connection(s) were invalid or from a newer version and were skipped, and a backup copy could not be made. Saving is turned off so nothing is lost.",
+    "unreadable_backed_up": "The saved connections file could not be read. A backup copy was kept next to it.",
+    "unreadable_backup_failed": "The saved connections file could not be read or backed up. Saving is turned off so nothing is overwritten.",
     "write_failed": "Could not write the saved connections file."
   },
   "sidebar": {

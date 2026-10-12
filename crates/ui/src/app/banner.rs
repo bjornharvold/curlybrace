@@ -1,4 +1,5 @@
 //! Localized banner text. Pure so it can be tested without egui.
+use super::persistence::Recovery;
 use super::state::Banner;
 use crate::I18n;
 
@@ -7,10 +8,16 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
     match banner {
         Banner::Failure { context, error } => (i18n.failure(context), Some(i18n.error(error))),
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
-        Banner::SkippedEntries(n) => (
-            i18n.t_with("persist.skipped_entries", &[("n", &n.to_string())]),
-            None,
-        ),
+        Banner::Recovery(r) => {
+            let count = match r {
+                Recovery::Skipped { count, .. } => *count,
+                _ => 0,
+            };
+            (
+                i18n.t_with(r.i18n_key(), &[("n", &count.to_string())]),
+                None,
+            )
+        }
         Banner::NotConnected => (i18n.t("banner.not_connected"), None),
         Banner::HostForgotten => (i18n.t("banner.host_forgotten"), None),
     }
@@ -43,7 +50,20 @@ mod tests {
             Banner::Persist(PersistError::Read(std::io::ErrorKind::Other)),
             Banner::Persist(PersistError::Corrupt),
             Banner::Persist(PersistError::Write(std::io::ErrorKind::Other)),
-            Banner::SkippedEntries(2),
+            Banner::Persist(PersistError::InvalidPath),
+            Banner::Persist(PersistError::Blocked),
+            Banner::Recovery(Recovery::Corrupt { backed_up: true }),
+            Banner::Recovery(Recovery::Corrupt { backed_up: false }),
+            Banner::Recovery(Recovery::Unreadable { backed_up: true }),
+            Banner::Recovery(Recovery::Unreadable { backed_up: false }),
+            Banner::Recovery(Recovery::Skipped {
+                count: 2,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::Skipped {
+                count: 2,
+                backed_up: false,
+            }),
             Banner::NotConnected,
             Banner::HostForgotten,
         ];
@@ -51,7 +71,7 @@ mod tests {
             let (head, _) = resolved(b);
             assert!(!head.contains('⟦'), "{b:?}");
         }
-        for context in ["save_connection", "secrets", "runtime"] {
+        for context in ["save_connection", "secrets", "runtime", "delete_secrets"] {
             let (head, _) = resolved(&Banner::Failure {
                 context,
                 error: CoreError::NotFound,
@@ -62,7 +82,10 @@ mod tests {
 
     #[test]
     fn skipped_count_is_interpolated() {
-        let (head, _) = resolved(&Banner::SkippedEntries(3));
+        let (head, _) = resolved(&Banner::Recovery(Recovery::Skipped {
+            count: 3,
+            backed_up: true,
+        }));
         assert!(head.contains('3'));
     }
 }
