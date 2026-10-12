@@ -74,9 +74,7 @@ fn show_progress(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) {
             scanned_target,
             ..
         } => {
-            let done = if *cancelled && state.results.is_some() {
-                "compare.run.cancelled"
-            } else if *cancelled {
+            let done = if *cancelled {
                 "compare.run.cancelled_no_results"
             } else {
                 "compare.run.finished"

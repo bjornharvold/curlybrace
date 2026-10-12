@@ -152,7 +152,8 @@ fn cancelling_a_large_run_leaves_the_workspace_usable() {
     click_key(&mut f, "compare.run.start");
     click_key(&mut f, "compare.run.cancel");
     wait_finished(&mut f, LONG);
-    wait_shows_key(&mut f, "compare.run.cancelled");
+    wait_shows_key(&mut f, "compare.run.cancelled_no_results");
+    assert!(f.harness.state().state().compare.results.is_none());
 
     // The same pair again: Check, then Start, now left to run to its end.
     check(&mut f);

@@ -355,11 +355,16 @@ fn a_failed_run_and_a_cancelled_run_render_their_outcome() {
     let (state, _) = update(state, run_done());
     let texts = assert_translated(&workspace_clone(&state), "failed run");
     assert!(has(&texts, "did not finish"));
-    let (state, _) = update(
-        finished_with_results(),
-        ev(CompareEvent::RunDone { session: 1, run: 1 }),
-    );
-    assert_translated(&workspace_clone(&state), "finished run");
+    let cancelled = ev(CompareEvent::PairDone {
+        session: 1,
+        run: 1,
+        pair: 1,
+        outcome: PairOutcome::Cancelled(Summary::default()),
+    });
+    let (state, _) = update(running_state(), cancelled);
+    let (state, _) = update(state, run_done());
+    let texts = assert_translated(&workspace_clone(&state), "cancelled run");
+    assert!(has(&texts, "No results were kept"));
 }
 
 #[test]
