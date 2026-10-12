@@ -33,7 +33,7 @@ You need:
 - macOS (the app links the Keychain and GSS frameworks).
 - Rust 1.87 or newer: `rustup toolchain install 1.87.0`. CI uses exactly 1.87.0, so use that version
   if clippy results differ.
-- Docker, only for the integration tests.
+- A local MongoDB (tier 1) and/or Docker (tier 2), only for the opt-in integration tests.
 
 ```sh
 git clone https://github.com/bjornharvold/the-mongodb-gui.git
@@ -134,32 +134,32 @@ as repository secrets, which only the maintainer can add, so open an issue to co
 
 ## Testing
 
-Unit tests are fast and need nothing installed:
+GitHub runs only the unit tests (and a non-blocking screenshot job); it never starts a database.
 
 ```sh
-cargo test --workspace
+cargo test --workspace          # unit tests, offline, a few seconds: the only thing CI needs
 ```
 
-Integration tests start throwaway MongoDB and SSH containers with Docker:
+Two separate local tiers need a real MongoDB and are never run on GitHub:
 
 ```sh
-MONGOSTUDIO_IT=1 cargo test -p mongostudio-core -- --include-ignored --skip keyring_round_trip
+scripts/integration-tests.sh    # tier 1: needs a MongoDB already running (no docker)
+scripts/container-tests.sh      # tier 2: docker; creates its own ms-it-* containers
 ```
 
-They only ever touch containers they created (`ms-it-*`). Details, cleanup and coverage commands are
-in [docs/superpowers/notes/testing.md](docs/superpowers/notes/testing.md). The target is at least
-80% line coverage for `mongostudio-core`.
-
-UI tests that click the real app against a real MongoDB and screenshot tests are opt-in:
+Tier 1 connects to `MONGOSTUDIO_IT_MONGO_URI` (default `mongodb://127.0.0.1:27017`) and WRITES to
+it, but only to throwaway `msit_*` databases that it drops again: point it at a throwaway server,
+never at production. Tier 2 only ever touches containers it created. Screenshot tests need a GPU:
 
 ```sh
-MONGOSTUDIO_IT=1 cargo test -p mongostudio-ui --test e2e_flows -- --include-ignored
-MONGOSTUDIO_SNAPSHOTS=1 cargo test -p mongostudio-ui --test snapshots -- --include-ignored
+MONGOSTUDIO_SNAPSHOTS=1 cargo test -p mongostudio-ui --test snapshots -- --include-ignored --nocapture
 ```
 
-Set `MONGOSTUDIO_IT_MONGO_URI` to use an existing server instead of a container, and
-`UPDATE_SNAPSHOTS=1` to deliberately rewrite the committed PNGs. Shared container helpers live in
-`crates/testkit`. See the testing notes for details.
+Add `UPDATE_SNAPSHOTS=1` to deliberately rewrite the committed PNGs. Always pass `--nocapture` so
+the reason a gated test skipped (or failed) is visible. Shared helpers live in `crates/testkit`;
+`scripts/check-no-db-in-ci.sh` keeps database tests out of the workflows. Details, cleanup and
+coverage commands are in [docs/superpowers/notes/testing.md](docs/superpowers/notes/testing.md). The
+target is at least 80% line coverage for `mongostudio-core`.
 
 Prefer real values (real `bson` documents from `mock_objects`) over mocks. Mock only boundaries:
 the driver, SSH and the Keychain.
