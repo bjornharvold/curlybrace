@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn dismissing_an_editor_with_unsaved_changes_is_ignored() {
         let mut state = EditorState::for_edit(&mock_doc_with_id(1_i32));
-        state.text.push_str(" ");
+        state.text.push(' ');
         assert_eq!(dismissal_action(&state), None);
         // Typing and undoing back to the original text counts as unchanged.
         let original = EditorState::for_new();
