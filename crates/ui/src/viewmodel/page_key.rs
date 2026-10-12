@@ -7,19 +7,25 @@ use std::hash::{Hash, Hasher};
 pub struct PageKey {
     pub len: usize,
     pub skip: u64,
-    /// Hash of every document's `_id` (or of its field names when it has none).
+    /// Hash of the full BSON content of every document (types and values included).
     pub fingerprint: u64,
 }
 
-/// Identity of `page`: size, offset and a hash of all `_id`s (pages are small).
+/// Marker folded into the hash when a document cannot be serialised.
+const UNSERIALISABLE_MARKER: u8 = 0xFF;
+
+/// Content-sensitive identity of `page`: size, offset and a hash of every document's BSON
+/// bytes (pages are small). Compute it once per frame and pass it down.
 pub fn page_key(page: &Page) -> PageKey {
     let mut hasher = DefaultHasher::new();
     for doc in &page.docs {
-        match doc.get("_id") {
-            Some(id) => format!("{id:?}").hash(&mut hasher),
-            None => doc.keys().collect::<Vec<_>>().hash(&mut hasher),
+        match bson::to_vec(doc) {
+            Ok(bytes) => bytes.hash(&mut hasher),
+            Err(_) => {
+                UNSERIALISABLE_MARKER.hash(&mut hasher);
+                doc.keys().collect::<Vec<_>>().hash(&mut hasher);
+            }
         }
-        doc.len().hash(&mut hasher);
     }
     PageKey {
         len: page.docs.len(),
@@ -64,5 +70,32 @@ mod tests {
         let a = page(vec![doc! { "x": 1_i32 }], 0);
         let b = page(vec![doc! { "y": 1_i32 }], 0);
         assert_ne!(page_key(&a), page_key(&b));
+    }
+
+    #[test]
+    fn value_only_change_with_same_ids_changes_the_key() {
+        let before = page(vec![doc! { "_id": 1_i32, "name": "alice" }], 0);
+        let after = page(vec![doc! { "_id": 1_i32, "name": "alicia" }], 0);
+        assert_ne!(page_key(&before), page_key(&after));
+    }
+
+    #[test]
+    fn value_change_in_a_doc_without_id_changes_the_key() {
+        let before = page(vec![doc! { "n": 1_i32 }], 0);
+        let after = page(vec![doc! { "n": 2_i32 }], 0);
+        assert_ne!(page_key(&before), page_key(&after));
+    }
+
+    #[test]
+    fn int32_vs_int64_of_the_same_number_differ() {
+        let a = page(vec![doc! { "_id": 1_i32, "n": 1_i32 }], 0);
+        let b = page(vec![doc! { "_id": 1_i32, "n": 1_i64 }], 0);
+        assert_ne!(page_key(&a), page_key(&b));
+    }
+
+    #[test]
+    fn identical_content_has_an_equal_key() {
+        let a = page(vec![doc! { "_id": 1_i32, "n": [1_i32, { "k": "v" }] }], 3);
+        assert_eq!(page_key(&a), page_key(&a.clone()));
     }
 }

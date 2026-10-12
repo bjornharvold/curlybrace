@@ -6,20 +6,21 @@
 use super::context_menu::row_context_menu;
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
-use crate::viewmodel::{DocAction, MenuItem, TreeState, menu_items};
+use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState, menu_items};
 use eframe::egui;
 use mongostudio_core::store::Page;
 
 pub fn show_json(
     ui: &mut egui::Ui,
     page: &Page,
+    key: &PageKey,
     state: &mut TreeState,
     i18n: &I18n,
 ) -> Option<DocAction> {
-    let (_, chosen) = render_json(ui, page, state, i18n);
+    let (_, chosen) = render_json(ui, page, key, state, i18n);
     let (doc_index, item) = chosen?;
     let doc = page.docs.get(doc_index)?;
-    let (next, action) = std::mem::take(state).menu_chosen(item, doc, page);
+    let (next, action) = std::mem::take(state).menu_chosen(item, doc, key);
     *state = next;
     action
 }
@@ -30,10 +31,11 @@ type Chosen = Option<(usize, MenuItem)>;
 pub(crate) fn render_json(
     ui: &mut egui::Ui,
     page: &Page,
+    key: &PageKey,
     state: &mut TreeState,
     i18n: &I18n,
 ) -> (egui::scroll_area::ScrollAreaOutput<()>, Chosen) {
-    let lines = state.json_cache(page).shared_lines();
+    let lines = state.json_cache(page, key).shared_lines();
     let height = row_height(ui);
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let color = ui.visuals().text_color();
@@ -71,6 +73,7 @@ pub(crate) fn render_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::viewmodel::page_key;
     use bson::doc;
 
     const LONG_VALUE_CHARS: usize = 5_000;
@@ -96,7 +99,7 @@ mod tests {
         let mut widths = None;
         let _ = ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                let (out, chosen) = render_json(ui, &page, &mut state, &i18n);
+                let (out, chosen) = render_json(ui, &page, &page_key(&page), &mut state, &i18n);
                 assert!(chosen.is_none());
                 widths = Some((out.content_size.x, out.inner_rect.width()));
             });

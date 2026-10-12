@@ -3,7 +3,8 @@ use super::context_menu::row_context_menu;
 use super::metrics::{fixed_row, row_height};
 use crate::I18n;
 use crate::viewmodel::{
-    DocAction, MenuItem, PageRow, TreeRow, TreeState, menu_items, row_value_text, type_label_key,
+    DocAction, MenuItem, PageKey, PageRow, TreeRow, TreeState, menu_items, row_value_text,
+    type_label_key,
 };
 use eframe::egui;
 use mongostudio_core::store::Page;
@@ -22,10 +23,11 @@ struct RowEvent {
 pub fn show_tree(
     ui: &mut egui::Ui,
     page: &Page,
+    key: &PageKey,
     state: &mut TreeState,
     i18n: &I18n,
 ) -> Option<DocAction> {
-    let rows = state.page_rows(page);
+    let rows = state.page_rows(page, key);
     let height = row_height(ui);
     let mut event: Option<(usize, RowEvent)> = None;
     egui::ScrollArea::vertical()
@@ -44,7 +46,7 @@ pub fn show_tree(
             }
         });
     let (index, got) = event?;
-    apply_event(state, rows.get(index)?, page, got)
+    apply_event(state, rows.get(index)?, page, key, got)
 }
 
 /// Feeds one row event through the view state; returns the emitted action, if any.
@@ -52,6 +54,7 @@ fn apply_event(
     state: &mut TreeState,
     row: &PageRow,
     page: &Page,
+    key: &PageKey,
     event: RowEvent,
 ) -> Option<DocAction> {
     let doc_index = row.doc_index();
@@ -60,7 +63,7 @@ fn apply_event(
     }
     let item = event.chosen?;
     let doc = page.docs.get(doc_index)?;
-    let (next, action) = std::mem::take(state).menu_chosen(item, doc, page);
+    let (next, action) = std::mem::take(state).menu_chosen(item, doc, key);
     *state = next;
     action
 }

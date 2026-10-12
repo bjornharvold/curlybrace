@@ -2,7 +2,7 @@
 use super::context_menu::row_context_menu;
 use super::metrics::row_height;
 use crate::I18n;
-use crate::viewmodel::{DocAction, TreeState, cell_text, menu_items, table_columns};
+use crate::viewmodel::{DocAction, PageKey, TreeState, cell_text, menu_items, table_columns};
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use mongostudio_core::store::Page;
@@ -12,6 +12,7 @@ const COLUMN_INITIAL_WIDTH: f32 = 140.0;
 pub fn show_table(
     ui: &mut egui::Ui,
     page: &Page,
+    key: &PageKey,
     state: &mut TreeState,
     i18n: &I18n,
 ) -> Option<DocAction> {
@@ -59,7 +60,7 @@ pub fn show_table(
         });
     let (index, item) = chosen?;
     let doc = page.docs.get(index)?;
-    let (next, action) = std::mem::take(state).menu_chosen(item, doc, page);
+    let (next, action) = std::mem::take(state).menu_chosen(item, doc, key);
     *state = next;
     action
 }

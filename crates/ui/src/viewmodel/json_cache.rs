@@ -1,5 +1,5 @@
 //! Cached JSON view text so large pages are serialised once per result set.
-use super::page_key::{PageKey, page_key};
+use super::page_key::PageKey;
 use mongostudio_core::ejson::doc_to_view_json;
 use mongostudio_core::store::Page;
 use std::rc::Rc;
@@ -24,8 +24,8 @@ pub struct JsonCache {
 
 impl JsonCache {
     /// Rebuilt when the caller's `generation` OR the page identity differs from the cached one.
-    pub fn refreshed(self, generation: u64, page: &Page) -> Self {
-        let key = (generation, page_key(page));
+    pub fn refreshed(self, generation: u64, page_id: PageKey, page: &Page) -> Self {
+        let key = (generation, page_id);
         if self.key == Some(key) {
             return self;
         }
@@ -57,6 +57,7 @@ impl JsonCache {
 
 #[cfg(test)]
 mod tests {
+    use super::super::page_key::page_key;
     use super::*;
     use bson::doc;
 
@@ -76,21 +77,25 @@ mod tests {
         assert!(json[1].contains("\"b\""));
     }
 
+    fn refresh(cache: JsonCache, generation: u64, p: &Page) -> JsonCache {
+        cache.refreshed(generation, page_key(p), p)
+    }
+
     #[test]
     fn same_generation_and_page_reuses_the_cache() {
         let p = page(vec![doc! { "_id": 1_i32, "a": 1_i32 }]);
-        let cache = JsonCache::default().refreshed(1, &p);
+        let cache = refresh(JsonCache::default(), 1, &p);
         let before = cache.shared_lines();
-        let again = cache.refreshed(1, &p);
+        let again = refresh(cache, 1, &p.clone());
         assert!(Rc::ptr_eq(&before, &again.shared_lines()));
     }
 
     #[test]
     fn new_generation_rebuilds() {
         let p = page(vec![doc! { "_id": 1_i32 }]);
-        let cache = JsonCache::default().refreshed(1, &p);
+        let cache = refresh(JsonCache::default(), 1, &p);
         let before = cache.shared_lines();
-        let rebuilt = cache.refreshed(2, &p);
+        let rebuilt = refresh(cache, 2, &p);
         assert!(!Rc::ptr_eq(&before, &rebuilt.shared_lines()));
     }
 
@@ -98,8 +103,8 @@ mod tests {
     fn same_generation_but_different_page_rebuilds() {
         let first = page(vec![doc! { "_id": 1_i32, "a": 1_i32 }]);
         let second = page(vec![doc! { "_id": 2_i32, "z": 9_i32 }]);
-        let cache = JsonCache::default().refreshed(1, &first);
-        let rebuilt = cache.refreshed(1, &second);
+        let cache = refresh(JsonCache::default(), 1, &first);
+        let rebuilt = refresh(cache, 1, &second);
         assert!(rebuilt.lines().iter().any(|l| l.text.contains("\"z\"")));
         assert!(rebuilt.lines().iter().all(|l| !l.text.contains("\"a\"")));
     }
@@ -107,7 +112,7 @@ mod tests {
     #[test]
     fn lines_are_tagged_with_their_document() {
         let p = page(vec![doc! { "a": 1_i32 }, doc! { "b": 2_i32 }]);
-        let cache = JsonCache::default().refreshed(0, &p);
+        let cache = refresh(JsonCache::default(), 0, &p);
         assert!(cache.lines().iter().any(|l| l.doc_index == 1));
         assert_eq!(cache.lines()[0].doc_index, 0);
     }

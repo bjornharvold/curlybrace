@@ -1,7 +1,7 @@
 //! View state shared by the document views: expansion, delete confirmation, caches.
 use super::doc_actions::{DeleteConfirm, DocAction, MenuItem, choose};
 use super::json_cache::JsonCache;
-use super::page_key::{PageKey, page_key};
+use super::page_key::PageKey;
 use super::tree::{TreeRow, flatten_doc};
 use bson::{Bson, Document};
 use mongostudio_core::store::Page;
@@ -108,20 +108,20 @@ impl TreeState {
         }
     }
 
-    /// Context-menu choice on `doc` of `page`; Delete only parks a confirmation.
+    /// Context-menu choice on `doc` of the page keyed `key`; Delete only parks a confirmation.
     pub fn menu_chosen(
         self,
         item: MenuItem,
         doc: &Document,
-        page: &Page,
+        key: &PageKey,
     ) -> (Self, Option<DocAction>) {
-        let (confirm, action) = choose(self.confirm.clone(), item, doc, page_key(page));
+        let (confirm, action) = choose(self.confirm.clone(), item, doc, *key);
         (Self { confirm, ..self }, action)
     }
 
-    /// Emits the parked delete once, and only while `page` is the page it was requested on.
-    pub fn delete_confirmed(self, page: &Page) -> (Self, Option<DocAction>) {
-        let (confirm, action) = self.confirm.clone().confirmed(&page_key(page));
+    /// Emits the parked delete once, and only while `key` is the page it was requested on.
+    pub fn delete_confirmed(self, key: &PageKey) -> (Self, Option<DocAction>) {
+        let (confirm, action) = self.confirm.clone().confirmed(key);
         (Self { confirm, ..self }, action)
     }
 
@@ -132,14 +132,16 @@ impl TreeState {
         }
     }
 
-    /// The `_id` awaiting delete confirmation on `page`, if any.
-    pub fn pending_delete_id(&self, page: &Page) -> Option<&Bson> {
-        self.confirm.pending_id(&page_key(page))
+    /// The `_id` awaiting delete confirmation on the page keyed `key`, if any.
+    pub fn pending_delete_id(&self, key: &PageKey) -> Option<&Bson> {
+        self.confirm.pending_id(key)
     }
 
-    /// Safety net independent of `results_replaced`: when the page identity changed,
-    /// drop expansion, cached rows and any pending delete that belonged to the old page.
-    fn synced_to(&mut self, key: PageKey) {
+    /// Safety net independent of `results_replaced`: when the (content-sensitive) page key
+    /// changed, drop expansion, cached rows and any pending delete of the old page.
+    /// `show_documents` calls this once per frame, for every view mode.
+    pub fn synced_to(&mut self, key: &PageKey) {
+        let key = *key;
         match self.seen_page {
             Some(seen) if seen == key => return,
             Some(_) => {
@@ -154,10 +156,9 @@ impl TreeState {
     }
 
     /// The flattened page, rebuilt after a new result set, a different page or an expansion change.
-    pub fn page_rows(&mut self, page: &Page) -> Rc<Vec<PageRow>> {
-        let page_id = page_key(page);
+    pub fn page_rows(&mut self, page: &Page, page_id: &PageKey) -> Rc<Vec<PageRow>> {
         self.synced_to(page_id);
-        let key = (self.generation, self.revision, page_id);
+        let key = (self.generation, self.revision, *page_id);
         match &self.rows {
             Some((k, rows)) if *k == key => return Rc::clone(rows),
             _ => {}
@@ -168,17 +169,19 @@ impl TreeState {
     }
 
     /// JSON lines for the page, serialised once per generation and page identity.
-    pub fn json_cache(&mut self, page: &Page) -> &JsonCache {
-        self.synced_to(page_key(page));
-        self.json = std::mem::take(&mut self.json).refreshed(self.generation, page);
+    pub fn json_cache(&mut self, page: &Page, key: &PageKey) -> &JsonCache {
+        self.synced_to(key);
+        self.json = std::mem::take(&mut self.json).refreshed(self.generation, *key, page);
         &self.json
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::json_cache::JsonLine;
+    use super::super::page_key::page_key;
     use super::*;
-    use bson::{Bson, doc};
+    use bson::doc;
     use mongostudio_core::test_support::mock_objects::mock_doc_with_id;
 
     fn page_of(docs: Vec<Document>) -> Page {
@@ -200,12 +203,30 @@ mod tests {
         vec!["n".to_string()]
     }
 
+    fn rows_of(state: &mut TreeState, page: &Page) -> Rc<Vec<PageRow>> {
+        state.page_rows(page, &page_key(page))
+    }
+
+    fn json_of(state: &mut TreeState, page: &Page) -> Rc<Vec<JsonLine>> {
+        state.json_cache(page, &page_key(page)).shared_lines()
+    }
+
+    fn pending_of(state: &TreeState, page: &Page) -> Option<Bson> {
+        state.pending_delete_id(&page_key(page)).cloned()
+    }
+
+    fn choose_delete(state: TreeState, page: &Page, index: usize) -> TreeState {
+        state
+            .menu_chosen(MenuItem::Delete, &page.docs[index], &page_key(page))
+            .0
+    }
+
     #[test]
     fn expansion_is_per_document() {
         let page = nested_page();
         let mut state = TreeState::default().expanded_toggled(1, &n_path());
         // 2 headers + 2*2 fields + 1 child, only in document 1.
-        assert_eq!(state.page_rows(&page).len(), 7);
+        assert_eq!(rows_of(&mut state, &page).len(), 7);
         assert!(state.is_expanded(1, &n_path()));
         assert!(!state.is_expanded(0, &n_path()));
     }
@@ -234,13 +255,13 @@ mod tests {
     fn page_rows_are_cached_until_expansion_or_results_change() {
         let page = nested_page();
         let mut state = TreeState::default();
-        let a = state.page_rows(&page);
-        assert!(Rc::ptr_eq(&a, &state.page_rows(&page)));
+        let a = rows_of(&mut state, &page);
+        assert!(Rc::ptr_eq(&a, &rows_of(&mut state, &page)));
         let mut state = state.expanded_toggled(0, &n_path());
-        let b = state.page_rows(&page);
+        let b = rows_of(&mut state, &page);
         assert!(!Rc::ptr_eq(&a, &b));
         let mut state = state.results_replaced();
-        assert!(!Rc::ptr_eq(&b, &state.page_rows(&page)));
+        assert!(!Rc::ptr_eq(&b, &rows_of(&mut state, &page)));
     }
 
     fn id_page(ids: &[i32]) -> Page {
@@ -250,11 +271,12 @@ mod tests {
     #[test]
     fn new_results_clear_pending_delete_and_expansion() {
         let page = id_page(&[5]);
-        let (state, action) = TreeState::default()
-            .expanded_toggled(0, &n_path())
-            .menu_chosen(MenuItem::Delete, &page.docs[0], &page);
-        assert_eq!(action, None);
-        assert_eq!(state.pending_delete_id(&page), Some(&Bson::Int32(5)));
+        let state = choose_delete(
+            TreeState::default().expanded_toggled(0, &n_path()),
+            &page,
+            0,
+        );
+        assert_eq!(pending_of(&state, &page), Some(Bson::Int32(5)));
         let state = state.results_replaced();
         assert_eq!(state.confirm, DeleteConfirm::None);
         assert!(!state.is_expanded(0, &n_path()));
@@ -264,11 +286,12 @@ mod tests {
     #[test]
     fn confirm_flow_emits_once_and_cancel_clears() {
         let page = id_page(&[5]);
-        let (state, _) = TreeState::default().menu_chosen(MenuItem::Delete, &page.docs[0], &page);
-        let (state, first) = state.delete_confirmed(&page);
+        let key = page_key(&page);
+        let state = choose_delete(TreeState::default(), &page, 0);
+        let (state, first) = state.delete_confirmed(&key);
         assert_eq!(first, Some(DocAction::Delete(Bson::Int32(5))));
-        assert_eq!(state.delete_confirmed(&page).1, None);
-        let (state, _) = TreeState::default().menu_chosen(MenuItem::Delete, &page.docs[0], &page);
+        assert_eq!(state.delete_confirmed(&key).1, None);
+        let state = choose_delete(TreeState::default(), &page, 0);
         assert_eq!(state.delete_cancelled().confirm, DeleteConfirm::None);
     }
 
@@ -276,9 +299,9 @@ mod tests {
     fn confirm_after_the_page_changed_without_results_replaced_emits_nothing() {
         let old = id_page(&[5]);
         let new = id_page(&[6]);
-        let (state, _) = TreeState::default().menu_chosen(MenuItem::Delete, &old.docs[0], &old);
-        assert_eq!(state.pending_delete_id(&new), None);
-        let (state, action) = state.delete_confirmed(&new);
+        let state = choose_delete(TreeState::default(), &old, 0);
+        assert_eq!(pending_of(&state, &new), None);
+        let (state, action) = state.delete_confirmed(&page_key(&new));
         assert_eq!(action, None);
         assert_eq!(state.confirm, DeleteConfirm::None);
     }
@@ -288,10 +311,10 @@ mod tests {
         let big = nested_page();
         let small = id_page(&[9]);
         let mut state = TreeState::default();
-        let _ = state.page_rows(&big);
+        let _ = rows_of(&mut state, &big);
         state = state.expanded_toggled(1, &n_path());
-        assert_eq!(state.page_rows(&big).len(), 7);
-        let rows = state.page_rows(&small);
+        assert_eq!(rows_of(&mut state, &big).len(), 7);
+        let rows = rows_of(&mut state, &small);
         assert!(rows.iter().all(|r| r.doc_index() < small.docs.len()));
         assert_eq!(rows.len(), 1 + small.docs[0].len());
         assert!(!state.is_expanded(1, &n_path()));
@@ -301,20 +324,81 @@ mod tests {
     fn json_cache_rebuilds_for_a_different_page_in_the_same_generation() {
         let mut state = TreeState::default();
         let first = page_of(vec![doc! { "_id": 1_i32, "a": 1_i32 }]);
-        assert!(state.json_cache(&first).lines().len() > 1);
+        assert!(json_of(&mut state, &first).len() > 1);
         let second = page_of(vec![doc! { "_id": 2_i32, "z": 1_i32 }]);
-        let fresh = state.json_cache(&second);
-        assert!(fresh.lines().iter().any(|l| l.text.contains("\"z\"")));
-        assert!(fresh.lines().iter().all(|l| !l.text.contains("\"a\"")));
+        let fresh = json_of(&mut state, &second);
+        assert!(fresh.iter().any(|l| l.text.contains("\"z\"")));
+        assert!(fresh.iter().all(|l| !l.text.contains("\"a\"")));
     }
 
     #[test]
-    fn same_page_and_generation_reuses_both_caches() {
+    fn identical_content_reuses_both_caches() {
         let page = nested_page();
         let mut state = TreeState::default();
-        let rows = state.page_rows(&page);
-        let json = state.json_cache(&page).shared_lines();
-        assert!(Rc::ptr_eq(&rows, &state.page_rows(&page)));
-        assert!(Rc::ptr_eq(&json, &state.json_cache(&page).shared_lines()));
+        let rows = rows_of(&mut state, &page);
+        let json = json_of(&mut state, &page);
+        let copy = page.clone();
+        assert!(Rc::ptr_eq(&rows, &rows_of(&mut state, &copy)));
+        assert!(Rc::ptr_eq(&json, &json_of(&mut state, &copy)));
+    }
+
+    fn scalar_text(rows: &[PageRow], key: &str) -> String {
+        rows.iter()
+            .find_map(|r| match r {
+                PageRow::Field { row, .. } if row.key == key => Some(row.value.clone()),
+                _ => None,
+            })
+            .expect("row present")
+    }
+
+    #[test]
+    fn value_only_refetch_rebuilds_rows_and_json_without_results_replaced() {
+        let before = page_of(vec![doc! { "_id": 1_i32, "name": "alice" }]);
+        let after = page_of(vec![doc! { "_id": 1_i32, "name": "alicia" }]);
+        let mut state = TreeState::default();
+        let rows = rows_of(&mut state, &before);
+        assert_eq!(scalar_text(&rows, "name"), "alice");
+        assert!(
+            json_of(&mut state, &before)
+                .iter()
+                .any(|l| l.text.contains("alice"))
+        );
+        let rows = rows_of(&mut state, &after);
+        assert_eq!(scalar_text(&rows, "name"), "alicia");
+        let json = json_of(&mut state, &after);
+        assert!(json.iter().any(|l| l.text.contains("alicia")));
+        assert!(json.iter().all(|l| !l.text.contains("alice\"")));
+    }
+
+    #[test]
+    fn value_change_in_a_doc_without_id_rebuilds_rows() {
+        let before = page_of(vec![doc! { "n": 1_i32 }]);
+        let after = page_of(vec![doc! { "n": 2_i32 }]);
+        let mut state = TreeState::default();
+        assert_eq!(scalar_text(&rows_of(&mut state, &before), "n"), "1");
+        assert_eq!(scalar_text(&rows_of(&mut state, &after), "n"), "2");
+    }
+
+    #[test]
+    fn int32_to_int64_with_same_number_rebuilds_rows() {
+        let before = page_of(vec![doc! { "_id": 1_i32, "n": 1_i32 }]);
+        let after = page_of(vec![doc! { "_id": 1_i32, "n": 1_i64 }]);
+        let mut state = TreeState::default();
+        let a = rows_of(&mut state, &before);
+        assert!(!Rc::ptr_eq(&a, &rows_of(&mut state, &after)));
+    }
+
+    #[test]
+    fn pending_delete_is_invalidated_by_a_value_only_change_with_the_same_id() {
+        let before = page_of(vec![doc! { "_id": 1_i32, "name": "alice" }]);
+        let after = page_of(vec![doc! { "_id": 1_i32, "name": "alicia" }]);
+        let mut state = choose_delete(TreeState::default(), &before, 0);
+        assert_eq!(pending_of(&state, &before), Some(Bson::Int32(1)));
+        assert_eq!(pending_of(&state, &after), None);
+        state.synced_to(&page_key(&after));
+        assert_eq!(state.confirm, DeleteConfirm::None);
+        let (_, action) =
+            choose_delete(TreeState::default(), &before, 0).delete_confirmed(&page_key(&after));
+        assert_eq!(action, None);
     }
 }

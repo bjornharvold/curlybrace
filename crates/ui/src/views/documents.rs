@@ -1,7 +1,7 @@
 //! Document area: mode switcher, insert button, the three views and the delete confirmation.
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
-use crate::viewmodel::{DocAction, TreeState, ViewMode, id_preview};
+use crate::viewmodel::{DocAction, PageKey, TreeState, ViewMode, id_preview, page_key};
 use eframe::egui;
 use mongostudio_core::store::Page;
 
@@ -21,10 +21,11 @@ pub fn show_mode_switcher(ui: &mut egui::Ui, mode: ViewMode, i18n: &I18n) -> Vie
 
 /// Renders the page in `mode`.
 ///
-/// Task 16 carry item: the reducer must still call `TreeState::results_replaced()` whenever
-/// a new page arrives. Caches, expansion and a pending delete are also keyed by the page
-/// identity (`viewmodel::page_key`), so a missed call can no longer show or act on stale
-/// data; the call is defence in depth, not correctness-critical.
+/// Task 16 carry item: the reducer should still call `TreeState::results_replaced()` on
+/// every Results event, including the refresh after a save. The content-sensitive page key
+/// (`viewmodel::page_key`, computed once per frame here and synced into the state for every
+/// view mode) is the safety net that keeps stale rows, JSON, expansion or a pending delete
+/// from being shown or acted on when that call is missed.
 pub fn show_documents(
     ui: &mut egui::Ui,
     mode: ViewMode,
@@ -32,27 +33,29 @@ pub fn show_documents(
     state: &mut TreeState,
     i18n: &I18n,
 ) -> Option<DocAction> {
+    let key = page_key(page);
+    state.synced_to(&key);
     let mut action = None;
     if ui.button(i18n.t("doc.insert")).clicked() {
         action = Some(DocAction::Insert);
     }
     let from_view = match mode {
-        ViewMode::Tree => show_tree(ui, page, state, i18n),
-        ViewMode::Table => show_table(ui, page, state, i18n),
-        ViewMode::Json => show_json(ui, page, state, i18n),
+        ViewMode::Tree => show_tree(ui, page, &key, state, i18n),
+        ViewMode::Table => show_table(ui, page, &key, state, i18n),
+        ViewMode::Json => show_json(ui, page, &key, state, i18n),
     };
-    let from_dialog = show_delete_confirm(ui.ctx(), page, state, i18n);
+    let from_dialog = show_delete_confirm(ui.ctx(), &key, state, i18n);
     action.or(from_view).or(from_dialog)
 }
 
 /// Modal asking to confirm a parked delete; confirming emits `Delete` exactly once.
 fn show_delete_confirm(
     ctx: &egui::Context,
-    page: &Page,
+    key: &PageKey,
     state: &mut TreeState,
     i18n: &I18n,
 ) -> Option<DocAction> {
-    let id = state.pending_delete_id(page)?;
+    let id = state.pending_delete_id(key)?;
     let message = i18n.t_with("doc.confirm_delete", &[("id", &id_preview(id))]);
     let mut confirmed = false;
     let mut cancelled = false;
@@ -64,7 +67,7 @@ fn show_delete_confirm(
         });
     });
     if confirmed {
-        let (next, action) = std::mem::take(state).delete_confirmed(page);
+        let (next, action) = std::mem::take(state).delete_confirmed(key);
         *state = next;
         return action;
     }
@@ -134,10 +137,11 @@ mod tests {
     #[test]
     fn pending_delete_dialog_renders_and_emits_nothing_untouched() {
         let page = page_of(vec![mock_doc_with_id(5_i32)]);
+        let key = page_key(&page);
         let (mut state, _) =
-            TreeState::default().menu_chosen(MenuItem::Delete, &page.docs[0], &page);
+            TreeState::default().menu_chosen(MenuItem::Delete, &page.docs[0], &key);
         assert!(run_frames(ViewMode::Tree, &page, &mut state).is_empty());
-        assert_eq!(state.pending_delete_id(&page), Some(&Bson::Int32(5)));
+        assert_eq!(state.pending_delete_id(&key), Some(&Bson::Int32(5)));
     }
 
     #[test]
@@ -155,7 +159,7 @@ mod tests {
                     });
                 });
             }
-            let rows = state.page_rows(&small);
+            let rows = state.page_rows(&small, &page_key(&small));
             assert!(
                 rows.iter().all(|r| r.doc_index() < small.docs.len()),
                 "{mode:?}"
@@ -167,10 +171,38 @@ mod tests {
     fn stale_pending_delete_on_a_new_page_shows_no_dialog_and_cannot_confirm() {
         let old = page_of(vec![mock_doc_with_id(5_i32)]);
         let new = page_of(vec![mock_doc_with_id(6_i32)]);
-        let (mut state, _) = TreeState::default().menu_chosen(MenuItem::Delete, &old.docs[0], &old);
-        assert!(run_frames(ViewMode::Tree, &new, &mut state).is_empty());
-        assert_eq!(state.pending_delete_id(&new), None);
-        assert_eq!(state.delete_confirmed(&new).1, None);
+        for mode in ViewMode::ALL {
+            let (mut state, _) =
+                TreeState::default().menu_chosen(MenuItem::Delete, &old.docs[0], &page_key(&old));
+            assert!(run_frames(mode, &new, &mut state).is_empty(), "{mode:?}");
+            let key = page_key(&new);
+            assert_eq!(state.pending_delete_id(&key), None, "{mode:?}");
+            assert_eq!(
+                state.confirm,
+                crate::viewmodel::DeleteConfirm::None,
+                "{mode:?}"
+            );
+            assert_eq!(state.delete_confirmed(&key).1, None);
+        }
+    }
+
+    #[test]
+    fn value_only_change_clears_a_pending_delete_in_every_mode() {
+        let before = page_of(vec![doc! { "_id": 5_i32, "name": "alice" }]);
+        let after = page_of(vec![doc! { "_id": 5_i32, "name": "alicia" }]);
+        for mode in ViewMode::ALL {
+            let (mut state, _) = TreeState::default().menu_chosen(
+                MenuItem::Delete,
+                &before.docs[0],
+                &page_key(&before),
+            );
+            assert!(run_frames(mode, &after, &mut state).is_empty());
+            assert_eq!(
+                state.confirm,
+                crate::viewmodel::DeleteConfirm::None,
+                "{mode:?}"
+            );
+        }
     }
 
     #[test]
