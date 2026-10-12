@@ -18,7 +18,14 @@ use crate::store::{CollectionKind, DocumentStore, IndexStatus, Namespace};
 use crate::test_support::InMemoryStore;
 
 /// Hands out the in-memory store registered for the connection's URI.
-pub(super) struct MapConnector(pub HashMap<String, Arc<dyn DocumentStore>>);
+#[derive(Default)]
+pub(super) struct MapConnector {
+    pub stores: HashMap<String, Arc<dyn DocumentStore>>,
+    /// Connecting to these URIs parks until the test releases it.
+    pub parked: HashMap<String, Arc<super::closed_tests::Hooks>>,
+    /// Connecting to this URI panics.
+    pub panic_uri: Option<String>,
+}
 
 #[async_trait::async_trait]
 impl Connector for MapConnector {
@@ -28,7 +35,13 @@ impl Connector for MapConnector {
         _password: Option<&str>,
         _tunnel: Option<std::net::SocketAddr>,
     ) -> Result<Arc<dyn DocumentStore>> {
-        self.0
+        if self.panic_uri.as_deref() == Some(cfg.uri.as_str()) {
+            panic!("connector blew up");
+        }
+        if let Some(hooks) = self.parked.get(&cfg.uri) {
+            hooks.park().await;
+        }
+        self.stores
             .get(&cfg.uri)
             .cloned()
             .ok_or(CoreError::Database("no such server".into()))
@@ -58,17 +71,25 @@ pub(super) fn pair(id: u32, source: Namespace, target: Namespace) -> PairSpec {
 pub(super) fn start(
     servers: Vec<(&str, InMemoryStore)>,
 ) -> (tokio::sync::mpsc::UnboundedSender<Command>, RuntimeHandle) {
-    let map = servers
+    let stores = servers
         .into_iter()
         .map(|(uri, store)| (uri.to_string(), Arc::new(store) as Arc<dyn DocumentStore>))
         .collect();
-    let handle = spawn_runtime_with_connector(
-        None,
-        None,
-        Arc::new(MapConnector(map)),
-        Arc::new(|| {}),
+    start_with(
+        MapConnector {
+            stores,
+            ..MapConnector::default()
+        },
         RuntimeConfig::default(),
-    );
+    )
+}
+
+pub(super) fn start_with(
+    connector: MapConnector,
+    config: RuntimeConfig,
+) -> (tokio::sync::mpsc::UnboundedSender<Command>, RuntimeHandle) {
+    let handle =
+        spawn_runtime_with_connector(None, None, Arc::new(connector), Arc::new(|| {}), config);
     (handle.tx.clone(), handle)
 }
 
@@ -188,7 +209,7 @@ async fn check_reports_counts_and_index_status() {
 }
 
 #[tokio::test]
-async fn commands_for_an_unknown_or_closed_session_fail_with_their_context() {
+async fn commands_for_a_closed_or_unknown_session_fail_with_their_context() {
     let (tx, mut h) = start(seeded());
     open(&mut h, &tx, 1).await;
     tx.send(Command::Compare(CompareCommand::Close { session: 1 }))
@@ -203,6 +224,20 @@ async fn commands_for_an_unknown_or_closed_session_fail_with_their_context() {
         CompareEvent::Failed {
             session: 1,
             context: "compare_check",
+            ..
+        }
+    ));
+    // A session id that was never opened fails the same way.
+    tx.send(Command::Compare(CompareCommand::Databases {
+        session: 99,
+        side: Side::Target,
+    }))
+    .unwrap();
+    assert!(matches!(
+        next_compare(&mut h).await,
+        CompareEvent::Failed {
+            session: 99,
+            context: "compare_databases",
             ..
         }
     ));

@@ -270,7 +270,9 @@ async fn a_compare_answer_arriving_after_close_is_turned_into_a_reject() {
     })
     .await;
     r.h.tx.send(close_compare()).unwrap();
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // Commands are dispatched in order, so this answer proves the Close was processed.
+    r.h.tx.send(Command::ListDatabases).unwrap();
+    assert!(matches!(next(&mut r.h).await, Event::Failed { .. }));
     unblock.send(()).unwrap(); // Trust and remember, too late
     assert_silent(&mut r.h).await;
     assert!(!r.known_hosts.exists(), "nothing was remembered");

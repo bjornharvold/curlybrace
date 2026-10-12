@@ -5,18 +5,26 @@
 //! Answers: `Open` → `Opened` | `OpenFailed`; `Databases`/`Collections`/`Check`/`Rows`/`Detail`
 //! → their answer | `Failed { context }`; `Start` → one `PairDone` per pair, then one `RunDone`
 //! (or `Failed` when refused); `Cancel`, `Discard`, `Close` have no answer of their own.
+//!
+//! Once a session is closed it emits nothing more: every event tied to a session goes through
+//! [`Session::emit_if_open`], which checks "open" and sends under one lock. A command naming an
+//! unknown or already closed session is answered with `Failed`.
 
+#[cfg(test)]
+mod closed_tests;
 mod runner;
 mod session;
 #[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::compare::protocol::{CompareCommand, CompareEvent, PairSpec, Preflight, SessionId};
-use crate::compare::results::Limits;
+use crate::compare::protocol::{
+    CompareCommand, CompareEvent, PairSpec, Preflight, SessionId, Side,
+};
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
 use crate::store::{DocumentStore, IndexStatus};
@@ -28,18 +36,9 @@ use session::{Connections, Session};
 
 pub(super) type Events = UnboundedSender<Event>;
 
-/// Sends a compare event and repaints. Returns false once the receiver is gone.
-pub(super) fn emit(events: &Events, repaint: &Repaint, event: CompareEvent) -> bool {
-    let sent = events.send(Event::Compare(event)).is_ok();
-    if sent {
-        repaint();
-    }
-    sent
-}
-
-/// Entry point from `runtime::dispatch`. Session bookkeeping happens synchronously here so that
-/// command ORDER decides outcomes (an `Open` followed by a `Close` always closes); the slow work
-/// runs in a spawned task.
+/// Entry point from `runtime::dispatch`. Session bookkeeping (create, close, lookup) happens
+/// synchronously here so that command ORDER decides outcomes (an `Open` followed by a `Close`
+/// always closes); the slow work runs in a spawned task.
 pub(super) fn dispatch(
     shared: Arc<Shared>,
     events: Events,
@@ -52,33 +51,83 @@ pub(super) fn dispatch(
             source,
             target,
         } => {
-            let record = shared.compare.create(session, Limits::default());
-            tokio::spawn(open_session(
-                shared,
-                events,
-                repaint,
-                session,
-                record,
-                [source, target],
-            ));
+            let record = shared.compare.create(session, shared.config.compare_limits);
+            spawn_open(shared, events, repaint, session, record, [source, target]);
         }
         CompareCommand::Close { session } => shared.compare.remove(session),
         CompareCommand::Cancel { session, run } => runner::cancel(&shared, session, run),
         CompareCommand::Discard { session, pair } => runner::discard(&shared, session, pair),
-        other => {
-            tokio::spawn(async move {
-                let (session, context) = (command_session(&other), command_context(&other));
-                if let Err(error) = handle(&shared, &events, &repaint, other).await {
-                    let failed = CompareEvent::Failed {
-                        session,
-                        context,
-                        error,
-                    };
-                    emit(&events, &repaint, failed);
-                }
-            });
-        }
+        other => spawn_command(shared, events, repaint, other),
     }
+}
+
+/// Runs the open in an inner task so a panic still ends in exactly one `OpenFailed`
+/// (unless the session was closed meanwhile, which silences everything).
+fn spawn_open(
+    shared: Arc<Shared>,
+    events: Events,
+    repaint: Repaint,
+    id: SessionId,
+    record: Arc<Session>,
+    configs: [ConnectionConfig; 2],
+) {
+    tokio::spawn(async move {
+        let work = tokio::spawn(open_session(
+            shared.clone(),
+            events.clone(),
+            repaint.clone(),
+            id,
+            record.clone(),
+            configs,
+        ));
+        if work.await.is_err() {
+            let error = CoreError::Database("internal error".into());
+            record.emit_if_open(
+                &events,
+                &repaint,
+                CompareEvent::OpenFailed { session: id, error },
+            );
+            shared.compare.remove_exact(id, &record);
+        }
+    });
+}
+
+fn spawn_command(shared: Arc<Shared>, events: Events, repaint: Repaint, command: CompareCommand) {
+    let (id, context) = (command_session(&command), command_context(&command));
+    let Some(session) = shared.compare.get(id).filter(|s| s.is_open()) else {
+        let error = CoreError::Unsupported("the comparison is closed".into());
+        let failed = CompareEvent::Failed {
+            session: id,
+            context,
+            error,
+        };
+        if events.send(Event::Compare(failed)).is_ok() {
+            repaint();
+        }
+        return;
+    };
+    tokio::spawn(async move {
+        let work = tokio::spawn(handle(
+            shared,
+            events.clone(),
+            repaint.clone(),
+            session.clone(),
+            command,
+        ));
+        let outcome = work
+            .await
+            .unwrap_or_else(|_| Err(CoreError::Database("internal error".into())));
+        let event = match outcome {
+            Ok(Some(answer)) => answer,
+            Ok(None) => return,
+            Err(error) => CompareEvent::Failed {
+                session: id,
+                context,
+                error,
+            },
+        };
+        session.emit_if_open(&events, &repaint, event);
+    });
 }
 
 fn command_session(c: &CompareCommand) -> SessionId {
@@ -108,53 +157,29 @@ fn command_context(c: &CompareCommand) -> &'static str {
     }
 }
 
+/// Runs one command against its session. `Ok(Some(event))` is the answer to emit; commands that
+/// stream their own events (`Start`, `Rows`) return `Ok(None)`.
 async fn handle(
-    shared: &Arc<Shared>,
-    events: &Events,
-    repaint: &Repaint,
+    shared: Arc<Shared>,
+    events: Events,
+    repaint: Repaint,
+    session: Arc<Session>,
     command: CompareCommand,
-) -> Result<()> {
-    let session_id = command_session(&command);
-    let session = shared
-        .compare
-        .get(session_id)
-        .filter(|s| s.is_open())
-        .ok_or_else(|| CoreError::Unsupported("the comparison is closed".into()))?;
+) -> Result<Option<CompareEvent>> {
+    let id = command_session(&command);
     let limit = shared.config.command_timeout;
-    match command {
-        CompareCommand::Databases { side, .. } => {
-            let store = connections(&session)?.store(side);
-            let names = bounded(limit, async { store.list_databases().await }).await?;
-            let event = CompareEvent::Databases {
-                session: session_id,
-                side,
-                names,
-            };
-            emit(events, repaint, event);
-        }
+    let answer = match command {
+        CompareCommand::Databases { side, .. } => list_databases(&session, id, side, limit).await?,
         CompareCommand::Collections { side, db, .. } => {
-            let store = connections(&session)?.store(side);
-            let entries = bounded(limit, async { store.list_collection_kinds(&db).await }).await?;
-            let event = CompareEvent::Collections {
-                session: session_id,
-                side,
-                db,
-                entries,
-            };
-            emit(events, repaint, event);
+            list_collections(&session, id, side, db, limit).await?
         }
-        CompareCommand::Check { pair, .. } => {
-            let preflight = bounded(limit, check(&session, &pair)).await?;
-            let event = CompareEvent::Checked {
-                session: session_id,
-                pair: pair.id,
-                preflight,
-            };
-            emit(events, repaint, event);
+        CompareCommand::Check { pair, .. } => check_pair(&session, id, &pair, limit).await?,
+        CompareCommand::Detail { pair, key, .. } => {
+            bounded(limit, runner::detail(&session, id, pair, key)).await?
         }
         CompareCommand::Start { run, pairs, .. } => {
-            let (shared, events, repaint) = (shared.clone(), events.clone(), repaint.clone());
-            runner::start(shared, events, repaint, session, session_id, run, pairs)?;
+            runner::start(shared.clone(), events, repaint, session, id, run, pairs)?;
+            return Ok(None);
         }
         CompareCommand::Rows {
             pair,
@@ -164,23 +189,66 @@ async fn handle(
             ..
         } => {
             runner::rows(
-                &session, events, repaint, session_id, pair, category, offset, rows,
+                &session, &events, &repaint, id, pair, category, offset, rows,
             )?;
-        }
-        CompareCommand::Detail { pair, key, .. } => {
-            let event = bounded(limit, runner::detail(&session, session_id, pair, key)).await?;
-            emit(events, repaint, event);
+            return Ok(None);
         }
         CompareCommand::Open { .. }
         | CompareCommand::Cancel { .. }
         | CompareCommand::Discard { .. }
-        | CompareCommand::Close { .. } => {}
-    }
-    Ok(())
+        | CompareCommand::Close { .. } => return Ok(None),
+    };
+    Ok(Some(answer))
+}
+
+async fn list_databases(
+    session: &Session,
+    id: SessionId,
+    side: Side,
+    limit: Duration,
+) -> Result<CompareEvent> {
+    let store = connections(session)?.store(side);
+    let names = bounded(limit, async { store.list_databases().await }).await?;
+    Ok(CompareEvent::Databases {
+        session: id,
+        side,
+        names,
+    })
+}
+
+async fn list_collections(
+    session: &Session,
+    id: SessionId,
+    side: Side,
+    db: String,
+    limit: Duration,
+) -> Result<CompareEvent> {
+    let store = connections(session)?.store(side);
+    let entries = bounded(limit, async { store.list_collection_kinds(&db).await }).await?;
+    Ok(CompareEvent::Collections {
+        session: id,
+        side,
+        db,
+        entries,
+    })
+}
+
+async fn check_pair(
+    session: &Session,
+    id: SessionId,
+    pair: &PairSpec,
+    limit: Duration,
+) -> Result<CompareEvent> {
+    let preflight = bounded(limit, check(session, pair)).await?;
+    Ok(CompareEvent::Checked {
+        session: id,
+        pair: pair.id,
+        preflight,
+    })
 }
 
 async fn bounded<T>(
-    limit: std::time::Duration,
+    limit: Duration,
     work: impl std::future::Future<Output = Result<T>>,
 ) -> Result<T> {
     tokio::time::timeout(limit, work)
@@ -240,23 +308,15 @@ async fn open_session(
     })
     .await
     .unwrap_or_else(|_| Err(CoreError::Database("timeout".into())));
-    if !session.is_open() {
-        // Closed (or replaced) while connecting: whatever was opened is dropped here.
-        return;
-    }
     match result {
+        // A closed session drops what was opened (connections, tunnels) and stays silent.
         Ok(connections) => {
-            if session.connections.set(connections).is_ok() {
-                emit(&events, &repaint, CompareEvent::Opened { session: id });
-            }
+            session.finish_open(connections, id, &events, &repaint);
         }
         Err(error) => {
+            let failed = CompareEvent::OpenFailed { session: id, error };
+            session.emit_if_open(&events, &repaint, failed);
             shared.compare.remove_exact(id, &session);
-            emit(
-                &events,
-                &repaint,
-                CompareEvent::OpenFailed { session: id, error },
-            );
         }
     }
 }

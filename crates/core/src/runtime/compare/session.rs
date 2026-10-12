@@ -2,17 +2,19 @@
 //! the shared result budget, and the results of finished pairs.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::OnceCell;
 
 use crate::compare::engine::CancelFlag;
-use crate::compare::protocol::{PairId, PairSpec, RunId, Side};
+use crate::compare::protocol::{CompareEvent, PairId, PairSpec, RunId, SessionId, Side};
 use crate::compare::results::{Budget, Limits, ResultSet};
 use crate::runtime::TunnelHandle;
 use crate::runtime::tunneling::Currentness;
 use crate::store::DocumentStore;
+
+use super::{Events, Repaint};
+use crate::runtime::Event;
 
 pub(super) struct Connections {
     pub source: Arc<dyn DocumentStore>,
@@ -45,8 +47,10 @@ pub(super) struct StoredPair {
 }
 
 pub(crate) struct Session {
-    /// False once the session was closed; also answers "is this job still wanted".
-    pub open: AtomicBool,
+    /// True until the session is closed. Held across "is it open" + "send" (see
+    /// [`Session::emit_if_open`]) so a `Close` can never fall between the check and the send:
+    /// once `close()` returned, nothing more is emitted for this session.
+    open: Mutex<bool>,
     pub(super) connections: OnceCell<Connections>,
     pub budget: Budget,
     pub(super) pairs: Mutex<HashMap<PairId, StoredPair>>,
@@ -56,7 +60,7 @@ pub(crate) struct Session {
 impl Session {
     pub fn new(limits: Limits) -> Arc<Self> {
         Arc::new(Self {
-            open: AtomicBool::new(true),
+            open: Mutex::new(true),
             connections: OnceCell::new(),
             budget: Budget::new(limits),
             pairs: Mutex::new(HashMap::new()),
@@ -65,16 +69,52 @@ impl Session {
     }
 
     pub fn is_open(&self) -> bool {
-        self.open.load(Ordering::SeqCst)
+        *self.open.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Marks the session closed, cancels any run and drops every stored result.
     pub fn close(&self) {
-        self.open.store(false, Ordering::SeqCst);
+        *self.open.lock().unwrap_or_else(|e| e.into_inner()) = false;
         if let Some(run) = self.run.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             run.cancel.cancel();
         }
         self.pairs.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
+    /// Sends `event` unless the session is closed; the check and the (non-blocking, unbounded)
+    /// send happen under one lock. Returns true when the event was sent.
+    pub fn emit_if_open(&self, events: &Events, repaint: &Repaint, event: CompareEvent) -> bool {
+        let sent = {
+            let open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+            *open && events.send(Event::Compare(event)).is_ok()
+        };
+        if sent {
+            repaint();
+        }
+        sent
+    }
+
+    /// Stores the connections and announces `Opened`, atomically with respect to `close()`.
+    /// A closed session keeps nothing: the connections are dropped and nothing is sent.
+    pub(super) fn finish_open(
+        &self,
+        connections: Connections,
+        id: SessionId,
+        events: &Events,
+        repaint: &Repaint,
+    ) -> bool {
+        let sent = {
+            let open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+            *open
+                && self.connections.set(connections).is_ok()
+                && events
+                    .send(Event::Compare(CompareEvent::Opened { session: id }))
+                    .is_ok()
+        };
+        if sent {
+            repaint();
+        }
+        sent
     }
 }
 

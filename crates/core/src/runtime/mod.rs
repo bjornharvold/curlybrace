@@ -96,6 +96,8 @@ pub struct RuntimeConfig {
     pub known_hosts_path: Option<PathBuf>,
     pub host_key_prompt: Arc<dyn HostKeyPrompt>,
     pub tunnel_opener: Arc<dyn TunnelOpener>,
+    /// Result budget and preflight thresholds of every compare session.
+    pub compare_limits: crate::compare::results::Limits,
 }
 
 impl Default for RuntimeConfig {
@@ -106,6 +108,7 @@ impl Default for RuntimeConfig {
             known_hosts_path: default_known_hosts_path(),
             host_key_prompt: Arc::new(RejectUnknownHostKeys),
             tunnel_opener: Arc::new(SshTunnelOpener),
+            compare_limits: Default::default(),
         }
     }
 }

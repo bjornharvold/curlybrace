@@ -94,9 +94,9 @@ impl Currentness for ConnectionCurrent {
 /// closed), its question is neither asked nor honoured: the policy (`check_host_key`) records
 /// trust only when it receives Trust/TrustAndRemember, so answering `Reject` here means
 /// nothing is written to known_hosts on behalf of a job the user has left.
-pub(super) struct GatedPrompt {
-    pub inner: Arc<dyn HostKeyPrompt>,
-    pub job: Arc<dyn Currentness>,
+struct GatedPrompt {
+    inner: Arc<dyn HostKeyPrompt>,
+    job: Arc<dyn Currentness>,
 }
 
 impl HostKeyPrompt for GatedPrompt {
