@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The MongoDB GUI: a free MongoDB client for Mac</title>
+<meta name="description" content="Browse, query and edit MongoDB collections in a free, open-source, native Mac app. No account, no trial, no paid tier.">
+<meta name="theme-color" content="#F2F5F7">
+<meta property="og:title" content="The MongoDB GUI: a free MongoDB client for Mac">
+<meta property="og:description" content="Browse, query and edit MongoDB collections in a free, open-source, native Mac app. Builders welcome.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://bjornharvold.github.io/the-mongodb-gui/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2312202C'/%3E%3Ctext x='32' y='43' font-family='monospace' font-size='34' font-weight='700' text-anchor='middle' fill='%23ffffff'%3E%7B%7D%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F2F5F7;
+    --surface: #FFFFFF;
+    --ink: #12202C;
+    --muted: #4A5C6A;
+    --rule: #D3DCE2;
+    --deep: #16303F;
+    --deep-ink: #E8F0F5;
+    --deep-muted: #A9BDCA;
+    --deep-rule: #2C4859;
+    --action: #2447F5;
+    --action-ink: #FFFFFF;
+    --t-string: #0B6B4D;  --t-string-bg: #E1F4EC;
+    --t-number: #1B45C4;  --t-number-bg: #E4EBFF;
+    --t-id:     #6B2FD0;  --t-id-bg:     #EEE6FC;
+    --t-date:   #9A4A06;  --t-date-bg:   #FCEFD9;
+    --t-bool:   #A31F5F;  --t-bool-bg:   #FBE4EF;
+    --sans: "Familjen Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --wrap: 1180px;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 1.125rem/1.55 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid var(--action); outline-offset: 3px; border-radius: 4px; }
+  .skip { position: absolute; left: -999px; top: 8px; background: var(--ink); color: #fff; padding: 8px 14px; border-radius: 6px; z-index: 10; }
+  .skip:focus { left: 8px; }
+  .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 24px; }
+
+  /* Navigation */
+  .nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 0; }
+  .brand { font-weight: 700; font-size: 1.1rem; text-decoration: none; letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 10px; }
+  .brand-mark { font: 500 0.95rem/1 var(--mono); background: var(--ink); color: #fff; border-radius: 8px; padding: 7px 8px; }
+  .nav ul { display: flex; gap: 26px; list-style: none; margin: 0; padding: 0; font-weight: 500; font-size: 1rem; }
+  .nav ul a { text-decoration: none; color: var(--muted); }
+  .nav ul a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 5px; }
+
+  /* Buttons */
+  .btn { display: inline-block; padding: 14px 22px; border-radius: 10px; font-weight: 600; font-size: 1.05rem; text-decoration: none; border: 2px solid transparent; line-height: 1.2; }
+  .btn-primary { background: var(--action); color: var(--action-ink); }
+  .btn-primary:hover { background: #1B38D1; }
+  .btn-quiet { border-color: var(--ink); color: var(--ink); }
+  .btn-quiet:hover { background: var(--ink); color: #fff; }
+  .on-deep .btn-quiet { border-color: var(--deep-ink); color: var(--deep-ink); }
+  .on-deep .btn-quiet:hover { background: var(--deep-ink); color: var(--deep); }
+  .on-deep .btn-primary { background: #fff; color: var(--deep); }
+  .on-deep .btn-primary:hover { background: var(--deep-ink); }
+
+  /* Hero */
+  .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: center; padding: 36px 0 84px; }
+  h1 { font-size: clamp(2.5rem, 5.4vw, 4.4rem); line-height: 1.02; letter-spacing: -0.03em; font-weight: 600; margin: 0 0 22px; }
+  .lede { font-size: 1.3rem; line-height: 1.5; color: var(--muted); margin: 0 0 30px; max-width: 34em; }
+  .actions { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; }
+  .fine { font-size: 0.98rem; color: var(--muted); margin: 0; }
+
+  /* The document switcher: the one memorable element */
+  .figure { margin: 0; }
+  .app { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 0 var(--rule), 0 28px 60px -34px rgba(18, 32, 44, 0.45); }
+  .titlebar { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--rule); background: #EAEFF2; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #C3CED6; }
+  .titlebar span.name { margin-left: 8px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+  .app-body { display: grid; grid-template-columns: 150px minmax(0, 1fr); min-height: 330px; }
+  .side { border-right: 1px solid var(--rule); padding: 12px 10px; font-size: 0.86rem; background: #F7F9FA; }
+  .side b { display: block; font-weight: 600; padding: 3px 6px; }
+  .side ul { list-style: none; margin: 2px 0 8px; padding: 0 0 0 10px; }
+  .side li { padding: 3px 6px; border-radius: 5px; color: var(--muted); }
+  .side li[aria-current] { background: var(--t-number-bg); color: var(--t-number); font-weight: 600; }
+  .main { min-width: 0; display: flex; flex-direction: column; }
+  .query { display: flex; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rule); font: 400 0.72rem/1.3 var(--mono); }
+  .query span { background: #F2F5F7; border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .query span:first-child { flex: 1 1 auto; min-width: 0; }
+  .query span.go { background: var(--action); color: #fff; border-color: var(--action); font-family: var(--sans); font-weight: 600; font-size: 0.8rem; }
+  [role="tablist"] { display: flex; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--rule); }
+  [role="tab"] { font: 600 0.92rem/1 var(--sans); color: var(--muted); background: none; border: 0; padding: 10px 14px 11px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+  [role="tab"]:hover { color: var(--ink); }
+  [role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--action); }
+  [role="tabpanel"] { padding: 14px 14px 16px; overflow-x: auto; font: 400 0.76rem/1.75 var(--mono); }
+  [role="tabpanel"][hidden] { display: none; }
+  .row { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+  .row .k { color: var(--ink); font-weight: 500; }
+  .in1 { padding-left: 20px; } .in2 { padding-left: 40px; }
+  .v-string { color: var(--t-string); } .v-number { color: var(--t-number); }
+  .v-id { color: var(--t-id); } .v-date { color: var(--t-date); } .v-bool { color: var(--t-bool); }
+  .chip { font: 500 0.64rem/1 var(--mono); padding: 3px 6px; border-radius: 5px; }
+  .c-string { background: var(--t-string-bg); color: var(--t-string); }
+  .c-number { background: var(--t-number-bg); color: var(--t-number); }
+  .c-id { background: var(--t-id-bg); color: var(--t-id); }
+  .c-date { background: var(--t-date-bg); color: var(--t-date); }
+  .c-bool { background: var(--t-bool-bg); color: var(--t-bool); }
+  .c-arr { background: #E8EDF0; color: var(--muted); }
+  table.docs { border-collapse: collapse; width: 100%; font: inherit; }
+  table.docs th, table.docs td { text-align: left; padding: 6px 12px 6px 0; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+  table.docs th { font-weight: 500; color: var(--muted); }
+  pre.json { margin: 0; font: inherit; white-space: pre; }
+  .caption { font-size: 0.95rem; color: var(--muted); margin: 14px 4px 0; max-width: 40em; }
+
+  /* Sections */
+  section { padding: 84px 0; }
+  h2 { font-size: clamp(1.9rem, 3.4vw, 2.8rem); line-height: 1.1; letter-spacing: -0.025em; font-weight: 600; margin: 0 0 14px; max-width: 18em; }
+  .section-lede { color: var(--muted); font-size: 1.2rem; max-width: 36em; margin: 0 0 44px; }
+  dl.can { margin: 0; border-top: 1px solid var(--rule); }
+  dl.can > div { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 40px; padding: 26px 0; border-bottom: 1px solid var(--rule); }
+  dl.can dt { font-size: 1.35rem; font-weight: 600; letter-spacing: -0.015em; line-height: 1.25; }
+  dl.can dd { margin: 0; color: var(--muted); max-width: 38em; }
+  dl.can dd b { color: var(--ink); font-weight: 600; }
+
+  .free { background: var(--surface); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .free-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: start; }
+  .free p { margin: 0 0 16px; max-width: 34em; }
+  .free ul { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+  .free li { padding: 16px 0; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; gap: 20px; }
+  .free li span:last-child { color: var(--muted); text-align: right; }
+
+  .steps { counter-reset: step; list-style: none; padding: 0; margin: 0 0 28px; max-width: 46em; }
+  .steps li { counter-increment: step; display: grid; grid-template-columns: 44px 1fr; gap: 14px; padding: 16px 0; border-top: 1px solid var(--rule); }
+  .steps li::before { content: counter(step); font: 500 1rem/1 var(--mono); width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--ink); display: grid; place-items: center; }
+  .steps p { margin: 0 0 8px; }
+  code, kbd { font: 400 0.9em/1.4 var(--mono); background: #E6ECEF; padding: 2px 6px; border-radius: 5px; }
+  pre.cmd { margin: 8px 0 0; background: var(--ink); color: #E8F0F5; padding: 14px 16px; border-radius: 10px; overflow-x: auto; font: 400 0.82rem/1.5 var(--mono); }
+
+  .on-deep { background: var(--deep); color: var(--deep-ink); }
+  .on-deep .section-lede { color: var(--deep-muted); }
+  .build-grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 56px; align-items: start; }
+  ul.wanted { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--deep-rule); }
+  ul.wanted li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; padding: 18px 0; border-bottom: 1px solid var(--deep-rule); }
+  ul.wanted strong { display: block; font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; }
+  ul.wanted span.d { color: var(--deep-muted); font-size: 1rem; }
+  ul.wanted .tag { align-self: start; font: 500 0.78rem/1 var(--mono); border: 1px solid var(--deep-muted); color: var(--deep-ink); border-radius: 999px; padding: 6px 10px; white-space: nowrap; }
+  .build-copy p { max-width: 30em; margin: 0 0 18px; color: var(--deep-ink); }
+  .build-copy .actions { margin-top: 26px; }
+
+  footer { padding: 40px 0 56px; font-size: 0.98rem; color: var(--muted); }
+  footer .cols { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px 40px; }
+  footer p { margin: 0 0 8px; max-width: 46em; }
+  footer nav { display: flex; gap: 22px; flex-wrap: wrap; }
+
+  @media (max-width: 940px) {
+    .hero, .free-grid, .build-grid { grid-template-columns: 1fr; gap: 40px; }
+    dl.can > div { grid-template-columns: 1fr; gap: 8px; }
+    .nav ul { gap: 16px; font-size: 0.95rem; }
+    section { padding: 60px 0; }
+  }
+  @media (max-width: 560px) {
+    .nav { flex-direction: column; align-items: flex-start; gap: 12px; }
+    .app-body { grid-template-columns: 1fr; }
+    .side { display: none; }
+    body { font-size: 1.05rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="wrap">
+  <header class="nav">
+    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">{}</span>The MongoDB GUI</a>
+    <nav aria-label="Primary">
+      <ul>
+        <li><a href="#what-it-does">What it does</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#build">Contribute</a></li>
+        <li><a href="https://github.com/bjornharvold/the-mongodb-gui">GitHub</a></li>
+      </ul>
+    </nav>
+  </header>
+</div>
+
+<main id="main">
+  <div class="wrap" id="top">
+    <section class="hero">
+      <div>
+        <h1>Browse, query and edit MongoDB. It’s free.</h1>
+        <p class="lede">The MongoDB GUI is a native Mac app for working with your collections. No account, no trial, no paid tier, and the source is open.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="https://github.com/bjornharvold/the-mongodb-gui/releases/latest">Download for macOS</a>
+          <a class="btn btn-quiet" href="https://github.com/bjornharvold/the-mongodb-gui">View the source</a>
+        </div>
+        <p class="fine">Early release for Apple Silicon Macs. Licensed MIT or Apache-2.0.</p>
+      </div>
+
+      <figure class="figure">
+        <div class="app" id="demo">
+          <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="name">The MongoDB GUI</span></div>
+          <div class="app-body">
+            <div class="side" aria-hidden="true">
+              <b>acme</b>
+              <ul><li aria-current="true">users</li><li>orders</li><li>sessions</li></ul>
+              <b>analytics</b>
+              <ul><li>events</li><li>reports</li></ul>
+            </div>
+            <div class="main">
+              <div class="query" aria-hidden="true">
+                <span>{"plan": "pro"}</span><span>{"joinedAt": -1}</span><span class="go">Run</span>
+              </div>
+              <div role="tablist" aria-label="Document view">
+                <button role="tab" id="tab-tree" aria-controls="panel-tree" aria-selected="true">Tree</button>
+                <button role="tab" id="tab-table" aria-controls="panel-table" aria-selected="false" tabindex="-1">Table</button>
+                <button role="tab" id="tab-json" aria-controls="panel-json" aria-selected="false" tabindex="-1">JSON</button>
+              </div>
+
+              <div role="tabpanel" id="panel-tree" aria-labelledby="tab-tree" tabindex="0">
+                <div class="row"><span class="k">_id</span><span class="chip c-id">ObjectId</span><span class="v-id">66f1c0a2b7d4e8a1c3f50912</span></div>
+                <div class="row"><span class="k">name</span><span class="chip c-string">String</span><span class="v-string">Ada Lovelace</span></div>
+                <div class="row"><span class="k">plan</span><span class="chip c-string">String</span><span class="v-string">pro</span></div>
+                <div class="row"><span class="k">seats</span><span class="chip c-number">Int32</span><span class="v-number">12</span></div>
+                <div class="row"><span class="k">credit</span><span class="chip c-number">Decimal128</span><span class="v-number">1048.50</span></div>
+                <div class="row"><span class="k">joinedAt</span><span class="chip c-date">Date</span><span class="v-date">2024-03-14 09:30 UTC</span></div>
+                <div class="row"><span class="k">active</span><span class="chip c-bool">Boolean</span><span class="v-bool">true</span></div>
+                <div class="row"><span class="k">tags</span><span class="chip c-arr">Array</span><span>2 items</span></div>
+                <div class="row in1"><span class="k">0</span><span class="chip c-string">String</span><span class="v-string">analyst</span></div>
+                <div class="row in1"><span class="k">1</span><span class="chip c-string">String</span><span class="v-string">founder</span></div>
+              </div>
+
+              <div role="tabpanel" id="panel-table" aria-labelledby="tab-table" tabindex="0" hidden>
+                <table class="docs">
+                  <thead><tr><th>_id</th><th>name</th><th>plan</th><th>seats</th><th>joinedAt</th><th>active</th></tr></thead>
+                  <tbody>
+                    <tr><td class="v-id">66f1c0a2…0912</td><td class="v-string">Ada Lovelace</td><td class="v-string">pro</td><td class="v-number">12</td><td class="v-date">2024-03-14</td><td class="v-bool">true</td></tr>
+                    <tr><td class="v-id">66f1c0a2…0913</td><td class="v-string">Grace Hopper</td><td class="v-string">pro</td><td class="v-number">40</td><td class="v-date">2024-01-22</td><td class="v-bool">true</td></tr>
+                    <tr><td class="v-id">66f1c0a2…0914</td><td class="v-string">Alan Turing</td><td class="v-string">pro</td><td class="v-number">3</td><td class="v-date">2023-11-02</td><td class="v-bool">false</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div role="tabpanel" id="panel-json" aria-labelledby="tab-json" tabindex="0" hidden>
+<pre class="json">{
+  "_id": <span class="v-id">{ "$oid": "66f1c0a2b7d4e8a1c3f50912" }</span>,
+  "name": <span class="v-string">"Ada Lovelace"</span>,
+  "plan": <span class="v-string">"pro"</span>,
+  "seats": <span class="v-number">{ "$numberInt": "12" }</span>,
+  "credit": <span class="v-number">{ "$numberDecimal": "1048.50" }</span>,
+  "joinedAt": <span class="v-date">{ "$date": { "$numberLong": "1710408600000" } }</span>,
+  "active": <span class="v-bool">true</span>,
+  "tags": [<span class="v-string">"analyst"</span>, <span class="v-string">"founder"</span>]
+}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption class="caption">An illustration of the app’s layout, not a screenshot. The same documents, shown three ways. Editing uses the JSON form above, so an <code>Int32</code> stays an <code>Int32</code> and a <code>Decimal128</code> stays a <code>Decimal128</code>. Real screenshots are on the way.</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <section id="what-it-does" style="padding-top:20px">
+      <h2>What you can do with it</h2>
+      <p class="section-lede">The basics, done carefully. Here is what works today.</p>
+      <dl class="can">
+        <div>
+          <dt>Connect the way your servers need</dt>
+          <dd>SCRAM, X.509 and LDAP sign-in, TLS, replica sets and <code>mongodb+srv://</code> URIs. Reach private servers through an <b>SSH tunnel</b> via a bastion host, with the host key checked before anything is sent. Kerberos is included and still experimental.</dd>
+        </div>
+        <div>
+          <dt>Keep passwords out of files</dt>
+          <dd>Passwords and SSH secrets are stored in the <b>macOS Keychain</b>. The saved connection list never contains them, and they never appear in logs or error messages.</dd>
+        </div>
+        <div>
+          <dt>See documents three ways</dt>
+          <dd>Open a collection and switch between a <b>tree</b>, a <b>table</b> and raw <b>JSON</b>. Pages hold 50 documents, and long arrays are summarised so big documents stay readable.</dd>
+        </div>
+        <div>
+          <dt>Query without leaving the page</dt>
+          <dd>Type a filter, sort, projection, skip and limit as JSON and run it. If something is wrong, the app says what, and your previous results stay on screen.</dd>
+        </div>
+        <div>
+          <dt>Edit without losing types</dt>
+          <dd>Insert, edit, clone and delete documents. The editor uses canonical extended JSON, so numbers, decimals, dates, binary data and <code>MinKey</code> keep their exact BSON type. Any <code>_id</code> works: ObjectId, string, number, UUID or a compound value.</dd>
+        </div>
+        <div>
+          <dt>Built to not lose your data</dt>
+          <dd>Deletes ask for confirmation and show the document’s <code>_id</code>. A page shown with a projection is read-only for edit and clone, so a partial copy can never overwrite the full document. Unsaved editor text survives a stray click.</dd>
+        </div>
+      </dl>
+    </section>
+  </div>
+
+  <div class="free">
+    <div class="wrap">
+      <section>
+        <div class="free-grid">
+          <div>
+            <h2>Free, and staying free</h2>
+            <p>There is no account to create, no trial that ends and no feature held back for a paid plan. You can read every line of code, build it yourself and change it.</p>
+            <p>It is an independent project. It is not affiliated with or endorsed by MongoDB, Inc.</p>
+          </div>
+          <ul aria-label="Terms at a glance">
+            <li><span>Price</span><span>Free</span></li>
+            <li><span>License</span><span>MIT or Apache-2.0, your choice</span></li>
+            <li><span>Account or sign-in</span><span>None</span></li>
+            <li><span>Telemetry</span><span>None</span></li>
+            <li><span>Source code</span><span><a href="https://github.com/bjornharvold/the-mongodb-gui">GitHub</a></span></li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <section id="install">
+      <h2>Install it in a minute</h2>
+      <p class="section-lede">For Apple Silicon Macs. The app isn’t notarized by Apple yet, so macOS asks you to confirm the first launch.</p>
+      <ol class="steps">
+        <li><div><p>Download <code>the-mongodb-gui-…-macos-arm64.zip</code> from the <a href="https://github.com/bjornharvold/the-mongodb-gui/releases/latest">latest release</a> and unzip it.</p></div></li>
+        <li><div><p>Move <b>The MongoDB GUI</b> into your Applications folder.</p></div></li>
+        <li><div><p>Right-click the app, choose <b>Open</b>, then <b>Open</b> again. Or clear the quarantine flag once from a terminal:</p>
+<pre class="cmd">xattr -dr com.apple.quarantine "/Applications/The MongoDB GUI.app"</pre></div></li>
+      </ol>
+      <a class="btn btn-primary" href="https://github.com/bjornharvold/the-mongodb-gui/releases/latest">Go to the latest release</a>
+    </section>
+  </div>
+
+  <div class="on-deep">
+    <div class="wrap">
+      <section id="build">
+        <div class="build-grid">
+          <div class="build-copy">
+            <h2>Come build it with us</h2>
+            <p class="section-lede">The app is small and young, and that makes it a good place to leave a mark. The next features are open for anyone to take.</p>
+            <p>You do not need to be a Rust expert. Fixing a bug, writing a test or improving a doc is a real contribution. If you want to build a whole feature or bring the app to another platform, the contributing guide shows how the code is organised and how releases work.</p>
+            <div class="actions">
+              <a class="btn btn-primary" href="https://github.com/bjornharvold/the-mongodb-gui/blob/main/CONTRIBUTING.md">Read the contributing guide</a>
+              <a class="btn btn-quiet" href="https://github.com/bjornharvold/the-mongodb-gui/issues">Pick an issue</a>
+            </div>
+          </div>
+          <ul class="wanted" aria-label="Open work">
+            <li><div><strong>Data Compare and Sync</strong><span class="d">Diff two collections or databases across servers, then apply or export the changes.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong>Data Masking and Reschema</strong><span class="d">Anonymise sensitive fields in copies of data and reshape documents in bulk.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong>SQL and MongoDB</strong><span class="d">A SQL query editor that translates to MongoDB queries.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong>Task Scheduler</strong><span class="d">Run saved jobs on a schedule, with logs.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong>More platforms</strong><span class="d">Intel Mac, Linux and Windows builds. One workflow row and a packaging script.</span></div><span class="tag">Wanted</span></li>
+            <li><div><strong>Signing and notarization</strong><span class="d">So the first launch doesn’t need a confirmation.</span></div><span class="tag">Wanted</span></li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <p><b>The MongoDB GUI</b> is free software, licensed MIT or Apache-2.0.</p>
+        <p>Independent project. Not affiliated with, endorsed by or sponsored by MongoDB, Inc. “MongoDB” is a registered trademark of MongoDB, Inc.</p>
+      </div>
+      <nav aria-label="Footer">
+        <a href="https://github.com/bjornharvold/the-mongodb-gui">Source</a>
+        <a href="https://github.com/bjornharvold/the-mongodb-gui/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/bjornharvold/the-mongodb-gui/releases">Releases</a>
+        <a href="https://github.com/bjornharvold/the-mongodb-gui/blob/main/CONTRIBUTING.md">Contribute</a>
+        <a href="https://github.com/bjornharvold/the-mongodb-gui/security">Security</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('#demo [role="tab"]'));
+    if (!tabs.length) return;
+    function select(tab, focus) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      if (focus) tab.focus();
+    }
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { select(tab, false); });
+      tab.addEventListener('keydown', function (e) {
+        var next = null;
+        if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length];
+        else if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length];
+        else if (e.key === 'Home') next = tabs[0];
+        else if (e.key === 'End') next = tabs[tabs.length - 1];
+        if (next) { e.preventDefault(); select(next, true); }
+      });
+    });
+  })();
+</script>
+</body>
+</html>
