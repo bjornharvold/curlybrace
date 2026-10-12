@@ -26,8 +26,8 @@ three slices**. Only slice 1 is planned in detail now.
    and the target from saved connections. It does not use or disturb the browsing session.
 3. **Match key:** `_id` by default, or one or more chosen fields. The key must be unique per side; a
    duplicate stops the compare with an error naming an example.
-4. **Rules (all four offered):** ignore listed fields, ignore array order, numbers equal across types,
-   ignore field order in documents. Strict BSON equality is the default, except that field order is
+4. **Rules (all four offered):** ignore listed fields (or, added after the documentation cross-check, compare
+   only listed fields), ignore array order, numbers equal across types, ignore field order in documents. Strict BSON equality is the default, except that field order is
    ignored by default.
 5. **Result storage:** match keys plus fingerprints held in memory under a hard cap. Field-level
    detail is fetched on demand. **No document data is written to disk.** Apply re-checks fingerprints.
@@ -74,17 +74,25 @@ pub struct KeySpec { pub fields: Vec<String> }        // dotted paths; non-empty
 pub struct KeyTuple(pub Vec<Bson>);                   // one value per key field, in order
 
 pub struct CompareRules {
-    pub ignore_paths: Vec<String>,                    // dotted; a path through an array maps over its elements
+    pub field_scope: FieldScope,                      // default All; dotted paths, a path through an array maps over its elements
     pub ignore_array_order: bool,                     // default false
     pub numbers_equal_across_types: bool,             // default false
     pub ignore_field_order: bool,                     // default true
     pub include_id: bool,                             // default true when the key contains `_id`, else false
 }
 
+pub enum FieldScope {
+    All,                                              // compare every field
+    AllExcept(Vec<String>),                           // ignore these paths
+    Only(Vec<String>),                                // compare only these paths
+}
+
 /// What to compare inside an open compare session (the session owns the connections).
 pub struct CompareRequest {
     pub source: Namespace,
     pub target: Namespace,
+    pub source_filter: Document,                      // limits which documents are compared; default {}
+    pub target_filter: Document,                      // the UI applies one filter to both sides unless told otherwise
     pub key: KeySpec,
     pub rules: CompareRules,
     pub limits: CompareLimits,
@@ -108,6 +116,7 @@ pub struct DiffEntry {
 }
 
 pub struct CompareSummary {
+    pub duration_ms: u64,
     pub scanned_source: u64, pub scanned_target: u64,
     pub identical: u64, pub only_in_source: u64, pub only_in_target: u64, pub changed: u64,
 }
@@ -128,11 +137,11 @@ excluded from the comparison by default unless it is part of the key, and the us
 ```rust
 async fn estimated_count(&self, ns: &Namespace) -> Result<u64>;
 
-/// Documents whose key tuple is strictly greater than `after` (all of them when `None`), in ascending
-/// key order under BINARY (simple) collation, at most `limit`. A document missing a key field yields
-/// `CoreError::CompareKeyMissing`.
-async fn scan_sorted(&self, ns: &Namespace, key: &KeySpec, after: Option<&KeyTuple>, limit: u32)
-    -> Result<Vec<Document>>;
+/// Documents matching `filter` whose key tuple is strictly greater than `after` (all of them when `None`),
+/// in ascending key order under BINARY (simple) collation, at most `limit`. A document missing a key field
+/// yields `CoreError::CompareKeyMissing`.
+async fn scan_sorted(&self, ns: &Namespace, filter: &Document, key: &KeySpec,
+                     after: Option<&KeyTuple>, limit: u32) -> Result<Vec<Document>>;
 
 /// Whether an index can serve `scan_sorted` for this key (prefix match, simple or no collation).
 async fn key_index_status(&self, ns: &Namespace, key: &KeySpec) -> Result<IndexStatus>; // Indexed | NotIndexed
@@ -141,7 +150,7 @@ async fn key_index_status(&self, ns: &Namespace, key: &KeySpec) -> Result<IndexS
 async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<BulkOutcome>;
 ```
 
-`MongoStore::scan_sorted` builds the keyset filter as an `$or` chain (for key `(a, b)` and
+`MongoStore::scan_sorted` combines the user filter with the keyset condition using `$and`, and builds the keyset filter as an `$or` chain (for key `(a, b)` and
 `after = (x, y)`: `a > x`, or `a == x and b > y`), sorts by the key fields ascending, forces
 `collation: { locale: "simple" }`, and sets `allowDiskUse`. `InMemoryStore` implements the same
 contract with the shared comparator, so engine tests need no server.
@@ -184,8 +193,9 @@ An index whose collation is not simple counts as not indexed, because it cannot 
 Normalization produces a canonical document so that equal-under-the-rules documents hash identically.
 Applied in this order:
 
-1. **Ignore fields.** Remove `ignore_paths`. A path segment applied to an array applies to every element,
-   so `items.price` removes `price` from each element of `items`. Remove `_id` unless `include_id`.
+1. **Field scope.** For `AllExcept(paths)`, remove those paths. For `Only(paths)`, keep only those paths. A path
+   segment applied to an array applies to every element, so `items.price` addresses `price` in each element of
+   `items`. Then remove `_id` unless `include_id`.
 2. **Numbers across types** (when enabled). Every numeric value maps to one canonical form: a value that is
    integral and fits `i64` becomes `Int64`; a finite non-integral `Double` stays `Double`; `Decimal128` is
    normalised (trailing zeros stripped) and becomes `Int64` when integral and in range. Equality is exact:
@@ -198,7 +208,7 @@ Applied in this order:
 
 The fingerprint is the first 16 bytes of SHA-256 over the canonical BSON bytes of the normalized document.
 `sha2` is already in the dependency tree through the MongoDB driver. The fingerprint is computed on the
-**normalized** document, so ignored fields never affect it.
+**normalized** document, so fields outside the scope never affect it.
 
 ## Engine
 
@@ -217,7 +227,8 @@ same key) whatever the rules say. If the key field itself differs in type, the p
 
 Memory is bounded by two batches plus the result set. The result set holds `DiffEntry` values and stops the
 job with `CompareCapExceeded` when it passes `max_differences` or `max_result_bytes` (estimated from key sizes
-plus 40 bytes per entry). Only counts are kept for identical documents.
+plus 40 bytes per entry). Only counts are kept for identical documents. With a filter, `estimated_count` is only an upper bound, so the
+progress view shows documents scanned without a percentage.
 
 ## Runtime integration and job lifecycle
 
@@ -255,6 +266,13 @@ events for unknown or closed job ids, the same way it drops answers from a repla
 
 `CompareFailed.detail` can carry the offending key so the user can see it in the UI. It is never logged.
 
+### Serializable definitions (for the scheduler, #11)
+
+`CompareRequest`, `CompareRules`, `KeySpec`, `FieldScope` and `CompareLimits` derive `Serialize` and
+`Deserialize` and contain no secrets, so a saved compare definition can be stored and run later by the
+scheduler. Saved definitions refer to connections by their saved-connection id, never by embedded
+configuration, and secrets still come only from the Keychain.
+
 ### Connections, secrets and prompts
 
 The job connects with the same `Connector`, secret store and SSH tunnel code as Connect, using the connection
@@ -284,9 +302,15 @@ changes the main area. A running job keeps running while the user switches back 
 - **Running:** progress counters per category and per side, estimated percent, Cancel.
 - **Results:** category tabs with counts (Only in source, Only in target, Changed; Identical shown as a
   number). A virtualised list of keys for the active category. Selecting a row loads the detail.
-- **Detail:** both documents as canonical extended JSON, with the changed paths listed and highlighted,
-  so a type difference (Int32 vs Int64) is visible. Documents are fetched on demand and only for the
-  selected row.
+- **Detail:** both documents side by side as canonical extended JSON, with the changed paths listed and
+  highlighted, so a type difference (Int32 vs Int64) is visible. Changed, source-only and target-only fields use
+  different markers (an icon and a label as well as a colour, so colour is never the only signal). A toggle shows
+  only the differing fields, and expand/collapse works per document and for all. Documents are fetched on demand
+  and only for the selected row.
+- **Entry points:** the Compare workspace switch, and a "Compare to..." entry in the Browse sidebar's collection
+  menu that switches to Compare with that collection prefilled as the source.
+- **Filter and field scope:** the setup form has an optional filter (JSON, applied to both sides) and a choice
+  between all fields, all fields except some, or only some.
 - **Selection** (used by apply): per row, per filtered category, or all. Selection is a set of keys in the
   view-model; no apply happens in slice 1.
 
@@ -303,6 +327,11 @@ New typed variants, each with an `errors.*` i18n key and a static, secret-free m
 | `CompareKeyOrder` | a side's keyset stream is not strictly increasing (comparator or collation mismatch) |
 | `CompareKeyNotIndexed` | no usable index and the collection is above the unindexed limit |
 | `CompareCapExceeded` | the result cap was reached |
+
+When a duplicate key stops a compare, the UI can run **Find duplicate keys** (slice 1b): a server-side
+`$group` on the key with a count above one, limited to the first 20, so the user sees which keys collide and
+how often and can pick a better key. It uses one extra `DocumentStore` method, `duplicate_keys(ns, filter, key,
+limit)`, and the keys are shown in the UI only, never logged. The compare still never pairs duplicates up.
 
 Connection and authentication failures reuse the existing variants. Cancellation is an outcome
 (`CompareCancelled`), not an error.
@@ -326,17 +355,27 @@ Connection and authentication failures reuse the existing variants. Cancellation
   choose "let the target assign new `_id`s".
 - **Confirmation.** A dialog shows the counts per operation kind and names the target connection, database and
   collection. If any delete is planned, the user must type the target collection's name to proceed.
+- **Field-level operations.** Besides whole-document insert, replace and delete, an operation can copy a single
+  field path from one side to the other (`$set`, or `$unset` when the field is absent at the origin). This changes
+  only that field and leaves the rest of the destination document alone. It goes through the same fingerprint
+  re-check, and is reported like any other operation.
+- **Pending changes.** The plan is an ordered list of per-document operations the user builds up. A selection
+  plus an action ("copy to target", "copy to source", "delete here", "copy this field") appends operations, so one
+  apply can send some documents each way. Nothing is written until the user reviews the list and confirms it.
 - **Progress and cancel** like the compare job, as a second job kind.
 
 ## Export (slice 3, designed now)
 
-Two formats of the same plan, written only to a file the user chooses (never to a temp file):
+Two formats of the plan, written only to a file the user chooses (never to a temp file):
 
 - A `mongosh` script that applies the plan with `bulkWrite` and the fingerprints as comments.
 - A JSON file: `{ header, operations }` with canonical extended JSON documents.
 
-Neither contains credentials, connection strings or hosts; the header names the database and collection and
-carries a free-text label. The UI warns that the file contains document data.
+A third output, the **report**, lists the compare's differences (key, category, changed paths) as CSV or to the
+clipboard, and includes the summary (counts and duration). All three are written only on the user's action.
+
+None of them contains credentials, connection strings or hosts; the header names the database and collection and
+carries a free-text label. The UI warns that the files contain document data (the report contains keys, which can be personal data).
 
 ## Security and privacy
 
@@ -352,11 +391,11 @@ carries a free-text label. The UI warns that the file contains document data.
 
 1. **Comparator:** table-driven tests for every BSON type pair and boundary numbers (Int64 above 2^53, Decimal128
    with differing exponents, `NaN`, `-0.0`); **the server conformance test** described above.
-2. **Normalize and fingerprint:** each rule alone and combined, nested arrays, arrays of documents, ignored paths
+2. **Normalize and fingerprint:** each rule alone and combined, all three field scopes (all, all except, only), nested arrays, arrays of documents, ignored paths
    through arrays, exact numeric equality including the `0.1` case.
 3. **Diff:** nested documents, arrays with and without order, every change kind, type-only differences.
-4. **Scanner:** keyset paging over the in-memory store, compound keys, missing key, duplicate key, out-of-order
-   stream, batch boundaries (exactly one batch, one more than a batch).
+4. **Scanner:** keyset paging over the in-memory store, compound keys, a user filter combined with keyset paging,
+   missing key, duplicate key, out-of-order stream, batch boundaries (exactly one batch, one more than a batch).
 5. **Engine:** a property test that, for randomly generated pairs of collections and random rules, the
    merge-join result equals a brute-force set comparison; a memory-bound test with a counting store that asserts
    at most two batches of documents are ever in flight.
@@ -364,14 +403,47 @@ carries a free-text label. The UI warns that the file contains document data.
    commands in the wrong state answer `Failed`, events for closed jobs are dropped, two jobs at once, browsing
    Disconnect while a job runs, a connection that drops mid-run, prompt gating for a cancelled job, and
    connections released on close, cancel and app exit.
-7. **View-models:** form validation, category switching, selection, detail loading and stale detail answers.
+7. **View-models:** form validation (including filter JSON and field scope), category switching, selection, the
+   only-differing-fields toggle, detail loading and stale detail answers, and the sidebar "Compare to..." prefill.
 8. **Integration:** tier 1 (two throwaway databases on one local server); tier 2 (two containers, cross-server,
    including an SSH-tunnelled side). Click-driven UI flows and snapshots for the Compare views use the
    existing headless UI test infrastructure.
-9. **Scale:** a synthetic one-million-document compare against the in-memory store runs within the memory bound
+9. **Duplicate-key helper (slice 1b):** `duplicate_keys` against the in-memory store and a real server, including
+   compound keys and the limit of 20.
+10. **Scale:** a synthetic one-million-document compare against the in-memory store runs within the memory bound
    and finishes in reasonable time (measured and recorded, not asserted to a wall-clock number).
 
 The default `cargo test --workspace` stays offline, database-free and GPU-free, as before.
+
+## Cross-check with public documentation
+
+The design was checked against the published documentation of an existing commercial tool, Studio 3T
+([Data Compare and Sync](https://studio3t.com/knowledge-base/articles/data-compare-and-sync/),
+[How to compare MongoDB collections](https://studio3t.com/knowledge-base/articles/compare-mongodb-collections/)),
+to see which user-visible behaviour people expect. Only documented, user-facing behaviour was used. Nothing
+here was derived from the product's binaries or code, which would conflict with this project's licence and its
+"built from public documentation" statement.
+
+| Their documented behaviour | In this design |
+|---|---|
+| Match on `_id` by default or chosen fields; advice to use unique, indexed fields | Same default. Stronger: the key must be unique (duplicates are an error) and the index is checked in the preflight |
+| Filter to limit which documents are compared | **Added** (`source_filter`, `target_filter`) |
+| Compare all fields, or specify fields to compare or ignore | `FieldScope`: all, all except, or **only** (the "only" mode is new) |
+| Option to treat number types (Int32/Int64) as equal | Same, with exact numeric equality |
+| Batch size, default 1,000 | Same default, in `CompareLimits` and an advanced setting |
+| Start from a collection's context menu or the toolbar | **Added** the sidebar "Compare to..." entry |
+| Overview with duration and counts | `CompareSummary` gained `duration_ms` |
+| Side-by-side differences with colour categories, only-differing-fields, expand/collapse | **Added** to the detail view, with non-colour markers |
+| Multiple Matches view for non-unique keys | **Differs on purpose:** duplicates are an error, with a "Find duplicate keys" helper (slice 1b), not pairing |
+| Copy or delete a document, copy a single field, either direction | Document operations as designed; **added** field-level operations and a per-document pending-changes list |
+| Confirmation before copying | Required, and stricter for deletes |
+| Export to CSV or clipboard | **Added** the report export (slice 3), alongside the script and JSON plan |
+| Schedule comparisons with a task scheduler | Request types are serializable and secret-free so #11 can store them |
+| Compare many collection pairs or whole databases in one run, one tab per pair | **Not included.** Possible follow-up: a list of pairs run one after another as separate jobs |
+| In-place editing of a field inside the diff view | **Not included.** The Browse editor edits documents |
+
+Not documented there and decided here independently: array order, field order, behaviour on large
+collections, failure handling when applying, and what happens to documents changed since the compare.
 
 ## Slice 1 plan outline
 
@@ -385,6 +457,8 @@ Small pull requests, each independently tested and useful:
 5. Compare view-models.
 6. Compare views, the workspace switch, headless UI flows and snapshots.
 7. Docs: README, site, testing notes.
+
+Slice 1b (small, after slice 1): **Find duplicate keys**.
 
 Slices 2 and 3 get their own plans after slice 1 ships.
 
