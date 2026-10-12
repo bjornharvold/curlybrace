@@ -85,7 +85,7 @@ docs/superpowers/notes/gssapi-spike.md      spike result
 - [ ] **Step 1: Init repo and workspace**
 
 ```bash
-cd /Users/crash/git/studio-free-t
+cd path/to/the-mongodb-gui
 git init
 printf '/target\n.DS_Store\n' > .gitignore
 cargo new --lib crates/core --name mongostudio-core

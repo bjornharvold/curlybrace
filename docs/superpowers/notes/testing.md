@@ -36,9 +36,9 @@ network. Each is owned by an RAII guard (`Container`, `SshStack`) whose `Drop` r
 too. Only a hard kill of the test process can leak one: remove leftovers with
 `docker ps -a --filter 'name=^ms-it-' -q | xargs docker rm -f`.
 
-**Never touch containers you did not create.** The developer's own containers `local7979`
-and `local265` must not be stopped, removed or reused by tests or cleanup; the anchored
-`name=^ms-it-` filter above deliberately matches only the test containers.
+**Never touch containers you did not create.** Tests and cleanup must not stop, remove or
+reuse containers they did not start; the anchored `name=^ms-it-` filter above deliberately
+matches only the test containers.
 
 ## Coverage
 
