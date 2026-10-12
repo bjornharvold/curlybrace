@@ -31,6 +31,7 @@ test-support = []
 
 [dev-dependencies]
 tempfile = "3.27.0"
+proptest = "1.5"
 curlybrace-testkit = { path = "../testkit" }
 # Integration tests share the fixtures behind the `test-support` feature.
 curlybrace-core = { path = ".", features = ["test-support"] }

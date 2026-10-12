@@ -126,6 +126,13 @@ impl ResultSet {
     }
 
     pub fn push(&mut self, category: Category, entry: DiffEntry) -> Result<()> {
+        debug_assert!(
+            self.entries
+                .get(&category)
+                .and_then(|all| all.last())
+                .is_none_or(|last| compare_tuples(&last.key, &entry.key).is_lt()),
+            "entries must be pushed in strictly increasing key order"
+        );
         let cost = entry_cost(&entry);
         self.budget.reserve(cost)?;
         self.held_bytes += cost;
