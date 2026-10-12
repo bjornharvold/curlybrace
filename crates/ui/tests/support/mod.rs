@@ -7,4 +7,5 @@ pub mod actions;
 pub mod db;
 pub mod fixture;
 pub mod screen;
+pub mod shots;
 pub mod wait;

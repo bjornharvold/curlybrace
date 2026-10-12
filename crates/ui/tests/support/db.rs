@@ -80,3 +80,54 @@ pub fn people() -> Vec<Document> {
         doc! {"_id": 3_i32, "name": "Alan Turing", "plan": "free", "seats": 3_i32, "active": false},
     ]
 }
+
+/// The landing page's sample documents with richer BSON types, for the screenshots.
+pub fn sample_people() -> Vec<Document> {
+    use bson::{DateTime, Decimal128, oid::ObjectId};
+    let row = |oid: &str,
+               name: &str,
+               plan: &str,
+               seats: i32,
+               credit: &str,
+               joined: &str,
+               active: bool| {
+        doc! {
+            "_id": ObjectId::parse_str(oid).expect("fixed object id"),
+            "name": name,
+            "plan": plan,
+            "seats": seats,
+            "credit": credit.parse::<Decimal128>().expect("fixed decimal"),
+            "joinedAt": DateTime::parse_rfc3339_str(joined).expect("fixed date"),
+            "active": active,
+        }
+    };
+    vec![
+        row(
+            "66f1c0a2b7d4e8a1c3f50912",
+            "Ada Lovelace",
+            "pro",
+            12,
+            "1048.50",
+            "2024-03-14T00:00:00Z",
+            true,
+        ),
+        row(
+            "66f1c0a2b7d4e8a1c3f50913",
+            "Grace Hopper",
+            "team",
+            40,
+            "2210.00",
+            "2024-01-22T00:00:00Z",
+            true,
+        ),
+        row(
+            "66f1c0a2b7d4e8a1c3f50914",
+            "Alan Turing",
+            "free",
+            3,
+            "0.00",
+            "2023-11-02T00:00:00Z",
+            false,
+        ),
+    ]
+}
