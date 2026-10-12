@@ -14,7 +14,18 @@ pub fn fixed_row<R>(
     row_height: f32,
     content: impl FnOnce(&mut egui::Ui) -> R,
 ) -> (egui::Rect, R) {
-    let size = egui::vec2(ui.available_width(), row_height);
+    let width = ui.available_width();
+    fixed_row_sized(ui, row_height, width, content)
+}
+
+/// Like [`fixed_row`] but `width` wide (may exceed the viewport for horizontal scrolling).
+pub fn fixed_row_sized<R>(
+    ui: &mut egui::Ui,
+    row_height: f32,
+    width: f32,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> (egui::Rect, R) {
+    let size = egui::vec2(width, row_height);
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     let builder = egui::UiBuilder::new().max_rect(rect).layout(layout);

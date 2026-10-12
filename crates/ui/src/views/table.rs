@@ -40,7 +40,9 @@ pub fn show_table(
         .body(|body| {
             body.rows(height, page.docs.len(), |mut row| {
                 let index = row.index();
-                let doc = &page.docs[index];
+                let Some(doc) = page.docs.get(index) else {
+                    return;
+                };
                 for name in &columns {
                     row.col(|ui| {
                         let text = doc
@@ -56,7 +58,8 @@ pub fn show_table(
             });
         });
     let (index, item) = chosen?;
-    let (next, action) = std::mem::take(state).menu_chosen(item, &page.docs[index]);
+    let doc = page.docs.get(index)?;
+    let (next, action) = std::mem::take(state).menu_chosen(item, doc, page);
     *state = next;
     action
 }

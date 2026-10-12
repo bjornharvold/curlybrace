@@ -276,6 +276,30 @@ mod tests {
     }
 
     #[test]
+    fn exactly_200_children_have_no_summary_and_201_have_one_with_remaining_1() {
+        for (count, summary) in [
+            (MAX_ROWS_PER_LEVEL, None),
+            (MAX_ROWS_PER_LEVEL + 1, Some(1)),
+        ] {
+            let arr: Vec<Bson> = (0..count as i32).map(Bson::Int32).collect();
+            let d = doc! { "a": arr };
+            let open: HashSet<_> = [path(&["a"])].into();
+            let rows = flatten_doc(&d, &open);
+            match summary {
+                None => {
+                    assert_eq!(rows.len(), 1 + MAX_ROWS_PER_LEVEL);
+                    assert!(rows.iter().all(|r| !r.is_summary()));
+                }
+                Some(n) => {
+                    assert_eq!(rows.len(), 1 + MAX_ROWS_PER_LEVEL + 1);
+                    assert_eq!(rows.iter().filter(|r| r.is_summary()).count(), 1);
+                    assert_eq!(rows.last().unwrap().detail, RowDetail::More(n));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn dots_spaces_and_unicode_keys_are_single_path_segments() {
         let d = doc! { "a.b c": { "ключ ✓": 1_i32 } };
         let open: HashSet<_> = [path(&["a.b c"])].into();

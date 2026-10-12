@@ -33,14 +33,18 @@ pub fn show_tree(
         .auto_shrink([false; 2])
         .show_rows(ui, height, rows.len(), |ui, range| {
             for index in range {
-                let got = show_row(ui, &rows[index], page, state, height, i18n);
+                let Some(row) = rows.get(index) else { continue };
+                if page.docs.get(row.doc_index()).is_none() {
+                    continue;
+                }
+                let got = show_row(ui, row, page, state, height, i18n);
                 if got.clicked || got.chosen.is_some() {
                     event = Some((index, got));
                 }
             }
         });
     let (index, got) = event?;
-    apply_event(state, &rows[index], page, got)
+    apply_event(state, rows.get(index)?, page, got)
 }
 
 /// Feeds one row event through the view state; returns the emitted action, if any.
@@ -55,7 +59,8 @@ fn apply_event(
         *state = std::mem::take(state).row_clicked(doc_index, field);
     }
     let item = event.chosen?;
-    let (next, action) = std::mem::take(state).menu_chosen(item, &page.docs[doc_index]);
+    let doc = page.docs.get(doc_index)?;
+    let (next, action) = std::mem::take(state).menu_chosen(item, doc, page);
     *state = next;
     action
 }
@@ -81,7 +86,11 @@ fn show_row(
         }
     });
     let response = ui.interact(rect, id, egui::Sense::click());
-    let items = menu_items(&page.docs[row.doc_index()]);
+    let items = page
+        .docs
+        .get(row.doc_index())
+        .map(menu_items)
+        .unwrap_or_default();
     let chosen = row_context_menu(&response, &items, i18n);
     RowEvent {
         clicked: response.clicked(),

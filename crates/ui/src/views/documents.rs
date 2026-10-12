@@ -1,7 +1,7 @@
 //! Document area: mode switcher, insert button, the three views and the delete confirmation.
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
-use crate::viewmodel::{DeleteConfirm, DocAction, TreeState, ViewMode, cell_text};
+use crate::viewmodel::{DocAction, TreeState, ViewMode, id_preview};
 use eframe::egui;
 use mongostudio_core::store::Page;
 
@@ -19,7 +19,12 @@ pub fn show_mode_switcher(ui: &mut egui::Ui, mode: ViewMode, i18n: &I18n) -> Vie
     next
 }
 
-/// Renders the page in `mode`. Call `state.results_replaced()` whenever a new page arrives.
+/// Renders the page in `mode`.
+///
+/// Task 16 carry item: the reducer must still call `TreeState::results_replaced()` whenever
+/// a new page arrives. Caches, expansion and a pending delete are also keyed by the page
+/// identity (`viewmodel::page_key`), so a missed call can no longer show or act on stale
+/// data; the call is defence in depth, not correctness-critical.
 pub fn show_documents(
     ui: &mut egui::Ui,
     mode: ViewMode,
@@ -36,20 +41,19 @@ pub fn show_documents(
         ViewMode::Table => show_table(ui, page, state, i18n),
         ViewMode::Json => show_json(ui, page, state, i18n),
     };
-    let from_dialog = show_delete_confirm(ui.ctx(), state, i18n);
+    let from_dialog = show_delete_confirm(ui.ctx(), page, state, i18n);
     action.or(from_view).or(from_dialog)
 }
 
 /// Modal asking to confirm a parked delete; confirming emits `Delete` exactly once.
 fn show_delete_confirm(
     ctx: &egui::Context,
+    page: &Page,
     state: &mut TreeState,
     i18n: &I18n,
 ) -> Option<DocAction> {
-    let DeleteConfirm::Pending(id) = &state.confirm else {
-        return None;
-    };
-    let message = i18n.t_with("doc.confirm_delete", &[("id", &cell_text(id, i18n))]);
+    let id = state.pending_delete_id(page)?;
+    let message = i18n.t_with("doc.confirm_delete", &[("id", &id_preview(id))]);
     let mut confirmed = false;
     let mut cancelled = false;
     let modal = egui::Modal::new(egui::Id::new("delete_confirm")).show(ctx, |ui| {
@@ -60,7 +64,7 @@ fn show_delete_confirm(
         });
     });
     if confirmed {
-        let (next, action) = std::mem::take(state).delete_confirmed();
+        let (next, action) = std::mem::take(state).delete_confirmed(page);
         *state = next;
         return action;
     }
@@ -130,9 +134,43 @@ mod tests {
     #[test]
     fn pending_delete_dialog_renders_and_emits_nothing_untouched() {
         let page = page_of(vec![mock_doc_with_id(5_i32)]);
-        let (mut state, _) = TreeState::default().menu_chosen(MenuItem::Delete, &page.docs[0]);
+        let (mut state, _) =
+            TreeState::default().menu_chosen(MenuItem::Delete, &page.docs[0], &page);
         assert!(run_frames(ViewMode::Tree, &page, &mut state).is_empty());
-        assert_eq!(state.confirm, DeleteConfirm::Pending(Bson::Int32(5)));
+        assert_eq!(state.pending_delete_id(&page), Some(&Bson::Int32(5)));
+    }
+
+    #[test]
+    fn smaller_page_after_a_larger_one_renders_without_panic_or_stale_rows() {
+        for mode in ViewMode::ALL {
+            let big = big_page();
+            let small = page_of(vec![mock_doc_with_id(1_i32)]);
+            let mut state = TreeState::default().expanded_toggled(1, &["big".to_string()]);
+            let ctx = egui::Context::default();
+            let i18n = I18n::english();
+            for page in [&big, &small, &big, &small] {
+                let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        assert_eq!(show_documents(ui, mode, page, &mut state, &i18n), None);
+                    });
+                });
+            }
+            let rows = state.page_rows(&small);
+            assert!(
+                rows.iter().all(|r| r.doc_index() < small.docs.len()),
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn stale_pending_delete_on_a_new_page_shows_no_dialog_and_cannot_confirm() {
+        let old = page_of(vec![mock_doc_with_id(5_i32)]);
+        let new = page_of(vec![mock_doc_with_id(6_i32)]);
+        let (mut state, _) = TreeState::default().menu_chosen(MenuItem::Delete, &old.docs[0], &old);
+        assert!(run_frames(ViewMode::Tree, &new, &mut state).is_empty());
+        assert_eq!(state.pending_delete_id(&new), None);
+        assert_eq!(state.delete_confirmed(&new).1, None);
     }
 
     #[test]
@@ -146,6 +184,20 @@ mod tests {
             });
         });
         assert_eq!(result, ViewMode::Table);
+    }
+
+    /// One sample of every BSON variant, including ones `bson_type_name` maps to "other".
+    fn every_bson_kind() -> Vec<Bson> {
+        let mut kinds: Vec<Bson> = exotic_doc().into_iter().map(|(_, v)| v).collect();
+        kinds.extend([
+            Bson::String("s".into()),
+            Bson::Boolean(true),
+            Bson::Null,
+            Bson::Undefined,
+            Bson::Symbol("y".into()),
+            Bson::JavaScriptCode("1".into()),
+        ]);
+        kinds
     }
 
     #[test]
@@ -162,9 +214,8 @@ mod tests {
             .iter()
             .map(|m| m.label_key().to_string()),
         );
-        for name in [
-            "objectId", "int32", "other", "null", "maxKey", "minKey", "regex",
-        ] {
+        for sample in every_bson_kind() {
+            let name = mongostudio_core::ejson::bson_type_name(&sample);
             keys.push(crate::viewmodel::type_label_key(name));
         }
         keys.extend(["doc.header", "doc.confirm_delete", "tree.more_items"].map(String::from));
