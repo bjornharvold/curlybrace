@@ -3,7 +3,9 @@ pub mod connection;
 pub mod crud;
 pub mod ejson;
 pub mod error;
+pub mod mongo_store;
 pub mod query;
+pub mod runtime;
 pub mod secrets;
 pub mod store;
 #[cfg(any(test, feature = "test-support"))]
