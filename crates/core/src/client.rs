@@ -20,6 +20,11 @@ pub async fn build_client_options(
     tunnel: Option<SocketAddr>,
 ) -> Result<ClientOptions> {
     cfg.validate()?;
+    if tunnel.is_some() && cfg.uri.starts_with("mongodb+srv://") {
+        return Err(CoreError::Unsupported(
+            "ssh tunnels cannot be combined with mongodb+srv uris".into(),
+        ));
+    }
     // Never echo the driver's parse error: it can quote parts of the URI.
     let mut options = ClientOptions::parse(&cfg.uri)
         .await
@@ -222,6 +227,16 @@ mod tests {
         c.auth = AuthMechanism::Gssapi;
         assert!(matches!(
             build_client_options(&c, None, None).await,
+            Err(CoreError::Unsupported(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn tunnel_with_srv_uri_is_unsupported() {
+        let addr: SocketAddr = "127.0.0.1:50000".parse().unwrap();
+        let c = ConnectionConfig::new("a", "mongodb+srv://cluster0.example.com/db");
+        assert!(matches!(
+            build_client_options(&c, None, Some(addr)).await,
             Err(CoreError::Unsupported(_))
         ));
     }

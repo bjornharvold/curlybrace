@@ -15,4 +15,4 @@ tokio = { version = "1.53.2", features = ["full"] }
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 
 [features]
-gssapi = []
+gssapi = ["mongodb/gssapi-auth"]
