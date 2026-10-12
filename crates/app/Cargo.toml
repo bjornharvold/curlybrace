@@ -1,0 +1,15 @@
+[package]
+name = "mongostudio"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+
+[dependencies]
+eframe = "0.32.3"
+mongostudio-core = { path = "../core" }
+mongostudio-ui = { path = "../ui" }
+tokio ={ version = "1.53.2", features = ["rt-multi-thread"] }
+
+[features]
+default = ["gssapi"]
+gssapi = ["mongostudio-core/gssapi"]
