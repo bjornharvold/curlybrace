@@ -43,7 +43,9 @@ fn show_progress(ui: &mut egui::Ui, run: &RunView, i18n: &I18n) {
                     ("target", &scanned_target.to_string()),
                 ],
             );
-            ui.add(egui::ProgressBar::new(0.0).animate(true).text(scanned));
+            // The counters sit under the bar: the animated knob would overlap text drawn on it.
+            ui.add(egui::ProgressBar::new(0.0).animate(true));
+            ui.label(scanned);
             let found = differences.to_string();
             ui.label(i18n.t_with("compare.run.differences", &[("count", &found)]));
             if *cancelled {

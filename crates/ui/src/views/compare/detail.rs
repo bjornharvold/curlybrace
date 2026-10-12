@@ -62,8 +62,8 @@ fn show_changes(ui: &mut egui::Ui, changes: &[ChangeLine], i18n: &I18n) {
                 ui.strong(i18n.t(key));
             }
             ui.end_row();
-            for (index, line) in changes.iter().enumerate() {
-                ui.push_id(index, |ui| show_change(ui, line, i18n));
+            for line in changes {
+                show_change(ui, line, i18n);
                 ui.end_row();
             }
         });
@@ -129,7 +129,11 @@ fn document_box(ui: &mut egui::Ui, id: &str, title_key: &str, json: &Json, i18n:
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 let rich = egui::RichText::new(&**text).monospace();
-                ui.add(egui::Label::new(rich).selectable(true));
+                ui.add(
+                    egui::Label::new(rich)
+                        .selectable(true)
+                        .wrap_mode(egui::TextWrapMode::Extend),
+                );
             });
     });
 }

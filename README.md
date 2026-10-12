@@ -95,11 +95,15 @@ collection for each side (the two sides can be on different servers), then check
   the target, or different, with the changed fields of each document. Optional filters limit each
   side, and the Rules section controls array order, field order, number types, the `_id` field and
   which fields count.
-- **Nothing is written.** The first release only reads and reports; applying or exporting a sync
-  comes later.
-- The key must be **unique** on each side and **indexed**: a duplicate key stops the run with an
-  error, and a side with more than 50,000 documents and no index on the key fields is refused until
-  you create one.
+- **Nothing is written.** This release only reads and reports. Applying a sync and exporting
+  results arrive in later releases ([#8](https://github.com/bjornharvold/curlybrace/issues/8)).
+  The results are kept in memory for the session and can be discarded.
+- The key must be **unique** on each side: a duplicate key stops the run with an error. Each
+  document must have a value for every key field, and a key value cannot be an array or a regular
+  expression.
+- The key fields need an **index** on each side. A collection with up to 50,000 documents is
+  compared without one, but a larger one is refused until you create an index on the key fields
+  (the check tells you which side lacks it, and how many documents each side has).
 - Limits: a run stops at 1,000,000 differences or 256 MiB of kept results; narrow the comparison
   with a filter or fewer fields.
 

@@ -14,6 +14,7 @@ use curlybrace_ui::viewmodel::{
     EditorIntent, EditorState, MenuItem, ViewMode, page_key, resolve_editor,
 };
 use curlybrace_ui::views::connections::ConnectionsState;
+use support::compare_states::{Through, compare_state};
 use support::db::sample_people;
 use support::shots::{Shot, browsing};
 
@@ -92,6 +93,46 @@ shot!(error_banner, vec![production(), staging()], |state| {
         error: CoreError::AuthFailed,
     });
 });
+
+shot!(
+    compare_setup_empty,
+    vec![production(), staging()],
+    compare_state(Through::Empty)
+);
+shot!(
+    compare_preflight_blocked_by_missing_index,
+    vec![production(), staging()],
+    compare_state(Through::Blocked)
+);
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_running_with_progress() {
+    if !snapshots_enabled("compare_running_with_progress") {
+        return;
+    }
+    let setup = compare_state(Through::Running);
+    let mut shot = Shot::new(vec![production(), staging()], setup);
+    shot.snapshot_animated("compare_running_with_progress");
+}
+shot!(
+    compare_results_with_rows,
+    vec![production(), staging()],
+    compare_state(Through::Results)
+);
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_detail_pane() {
+    if !snapshots_enabled("compare_detail_pane") {
+        return;
+    }
+    // Taller than the standard window: the detail sits below the form and the result table.
+    let mut shot = Shot::sized(
+        (1000.0, 1000.0),
+        vec![production(), staging()],
+        compare_state(Through::Detail),
+    );
+    shot.snapshot("compare_detail_pane");
+}
 
 #[test]
 #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
