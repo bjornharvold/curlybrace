@@ -182,11 +182,13 @@ excluded from the comparison by default unless it is part of the key, and the us
 ```rust
 async fn estimated_count(&self, ns: &Namespace) -> Result<u64>;
 
-/// Documents matching `filter` whose key tuple is strictly greater than `after` (all of them when `None`),
-/// in ascending key order under BINARY (simple) collation, at most `limit`. A document missing a key field
-/// yields `CoreError::CompareKeyMissing`.
+/// Documents matching `filter` whose key tuple is AT OR AFTER `from` (all of them when `None`),
+/// in ascending key order under BINARY (simple) collation, at most `limit`. The start key is included so a
+/// duplicate that straddles two batches is still seen (the scanner discards the one overlap row and treats a
+/// second row with the same key as `CompareDuplicateKey`). A document missing a key field yields
+/// `CoreError::CompareKeyMissing`; an unusable key value yields `CompareKeyInvalid`.
 async fn scan_sorted(&self, ns: &Namespace, filter: &Document, key: &KeySpec,
-                     after: Option<&KeyTuple>, limit: u32) -> Result<Vec<Document>>;
+                     from: Option<&KeyTuple>, limit: u32) -> Result<Vec<Document>>;
 
 /// Collections of a database with their kind. `system.*` collections are included here; the pairing helper
 /// excludes them by default. A view can be read but never written, so apply refuses a view as a target.
@@ -200,7 +202,11 @@ async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<BulkOutc
 ```
 
 `MongoStore::scan_sorted` combines the user filter with the keyset condition using `$and`, and builds the keyset filter as an `$or` chain (for key `(a, b)` and
-`after = (x, y)`: `a > x`, or `a == x and b > y`), sorts by the key fields ascending, forces
+`from = (x, y)`: `a > x`, or `a == x and b >= y`). Because the server's `$gt`/`$gte` only match values of the SAME
+type class while its sort order is total across classes, each comparison is type-aware: "`f >= v` within its
+class, OR `f` is not of any class ranked at or below `v`'s" (written with `$not`/`$type`). Without this a key
+that changes type (an `_id` that is an ObjectId in some documents and a string in others) would silently end the
+scan. A tier-1 test pages through mixed-type keys. The scan sorts by the key fields ascending, forces
 `collation: { locale: "simple" }`, and sets `allowDiskUse`. A namespace that does not exist behaves as an empty
 collection for `scan_sorted`, `estimated_count` (0) and `key_index_status` (`Indexed`, vacuously). `InMemoryStore`
 implements the same contract with the shared comparator, so engine tests need no server.
@@ -431,6 +437,7 @@ New typed variants, each with an `errors.*` i18n key and a static, secret-free m
 |---|---|
 | `CompareDuplicateKey` | two documents on one side share a key tuple |
 | `CompareKeyMissing` | a document lacks a key field |
+| `CompareKeyInvalid` | a key field holds an array or a deprecated type (Undefined, Symbol, DbPointer, JavaScript, JavaScriptWithScope): arrays sort by their smallest element, which breaks strict ordering |
 | `CompareKeyOrder` | a side's keyset stream is not strictly increasing (comparator or collation mismatch) |
 | `CompareKeyNotIndexed` | no usable index and the collection is above the unindexed limit |
 | `CompareCapExceeded` | the result cap was reached |
