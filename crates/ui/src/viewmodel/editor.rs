@@ -9,6 +9,8 @@ pub struct EditorState {
     /// `_id` of the document being edited; `None` for a new document.
     pub original_id: Option<Bson>,
     pub text: String,
+    /// The text the editor was opened with; a modal dismissal only discards unchanged text.
+    pub initial_text: String,
     pub error: Option<CoreError>,
 }
 
@@ -30,9 +32,11 @@ pub enum EditorIntent {
 
 impl EditorState {
     pub fn for_edit(doc: &Document) -> Self {
+        let text = doc_to_editor_json(doc);
         Self {
             original_id: id_of(doc).ok().cloned(),
-            text: doc_to_editor_json(doc),
+            initial_text: text.clone(),
+            text,
             error: None,
         }
     }
@@ -41,6 +45,7 @@ impl EditorState {
         Self {
             original_id: None,
             text: "{}".to_string(),
+            initial_text: "{}".to_string(),
             error: None,
         }
     }
@@ -51,6 +56,13 @@ impl EditorState {
             ..self
         }
     }
+}
+
+/// What a modal dismissal (click outside, Escape) does: cancel only an untouched editor, so
+/// unsaved edits are never thrown away by a stray click. The explicit Cancel button is not
+/// affected (it goes through [`resolve_editor`] with `EditorIntent::Cancel`).
+pub fn dismissal_action(state: &EditorState) -> Option<EditorAction> {
+    (state.text == state.initial_text).then_some(EditorAction::Cancel)
 }
 
 /// Validates the text; on failure returns the state with `error` set (text untouched).
@@ -172,5 +184,34 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn dismissing_an_untouched_editor_cancels() {
+        for state in [EditorState::for_new(), EditorState::for_edit(&exotic_doc())] {
+            assert_eq!(dismissal_action(&state), Some(EditorAction::Cancel));
+        }
+    }
+
+    #[test]
+    fn dismissing_an_editor_with_unsaved_changes_is_ignored() {
+        let mut state = EditorState::for_edit(&mock_doc_with_id(1_i32));
+        state.text.push_str(" ");
+        assert_eq!(dismissal_action(&state), None);
+        // Typing and undoing back to the original text counts as unchanged.
+        let original = EditorState::for_new();
+        let mut typed = original.clone();
+        typed.text = "{\"a\": 1}".into();
+        assert_eq!(dismissal_action(&typed), None);
+        typed.text = original.text.clone();
+        assert_eq!(dismissal_action(&typed), Some(EditorAction::Cancel));
+    }
+
+    #[test]
+    fn the_explicit_cancel_intent_always_cancels() {
+        let mut state = EditorState::for_new();
+        state.text = "changed".into();
+        let (_, action) = resolve_editor(&state, EditorIntent::Cancel);
+        assert_eq!(action, Some(EditorAction::Cancel));
     }
 }

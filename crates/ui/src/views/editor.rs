@@ -1,7 +1,7 @@
 //! Modal JSON editor for creating and editing a document.
 //! Validation and state transitions live in `viewmodel::editor`.
 use crate::I18n;
-use crate::viewmodel::{EditorAction, EditorIntent, EditorState, resolve_editor};
+use crate::viewmodel::{EditorAction, EditorIntent, EditorState, dismissal_action, resolve_editor};
 use eframe::egui;
 
 const EDITOR_ROWS: usize = 22;
@@ -42,7 +42,12 @@ pub fn show_editor_with(
         }
         intent = buttons(ui, i18n, save_enabled);
     });
-    let intent = intent.or_else(|| modal.should_close().then_some(EditorIntent::Cancel))?;
+    let Some(intent) = intent else {
+        return modal
+            .should_close()
+            .then(|| dismissal_action(state))
+            .flatten();
+    };
     let (next, action) = resolve_editor(state, intent);
     *state = next;
     action

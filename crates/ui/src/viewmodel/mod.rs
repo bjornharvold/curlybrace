@@ -19,7 +19,9 @@ pub use connection_form::{
 pub use doc_actions::{
     DeleteConfirm, DocAction, MenuItem, choose, id_preview, is_projected, menu_items,
 };
-pub use editor::{EditorAction, EditorIntent, EditorState, resolve_editor, try_save};
+pub use editor::{
+    EditorAction, EditorIntent, EditorState, dismissal_action, resolve_editor, try_save,
+};
 pub use findbar::{
     FindAction, FindBarState, FindIntent, pick_intent, resolve_find_intent, submit_find,
 };
