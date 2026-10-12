@@ -3095,6 +3095,7 @@ name = "mongostudio"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "log",
  "mongostudio-core",
  "mongostudio-ui",
  "tokio",
@@ -3129,6 +3130,7 @@ dependencies = [
  "dirs",
  "eframe",
  "egui_extras",
+ "log",
  "mongostudio-core",
  "serde_json",
  "tempfile",

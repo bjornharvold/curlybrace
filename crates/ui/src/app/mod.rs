@@ -13,6 +13,7 @@ pub mod reducer;
 pub mod state;
 
 use crate::I18n;
+use crate::error_text::failure_log_line;
 use crate::views::connections::ConnectionAction;
 use connections::{ConfigPath, load_startup, refresh_flags};
 use eframe::egui;
@@ -214,7 +215,7 @@ impl MongoStudioApp {
             None => return,
         };
         if let Err(e) = &result {
-            eprintln!("could not update known_hosts: {e:?}");
+            log::warn!("could not update known_hosts: {e:?}");
         }
         self.dispatch(Input::ForgetFinished(result));
     }
@@ -244,6 +245,9 @@ impl MongoStudioApp {
         self.drain_requests();
         self.prompt = std::mem::take(&mut self.prompt).pruned();
         while let Ok(event) = self.handle.rx.try_recv() {
+            if let Some(line) = failure_log_line(&event) {
+                log::warn!("{line}");
+            }
             self.dispatch(Input::Event(event));
         }
     }

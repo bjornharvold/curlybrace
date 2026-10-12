@@ -27,7 +27,7 @@ pub fn show_findbar(
     enter |= text_row(ui, KEY_PROJECTION, &mut state.text.projection, i18n);
     enter |= number_row(ui, &mut state.text, i18n);
     if let Some(e) = &state.last_error {
-        ui.colored_label(ui.visuals().error_fg_color, i18n.error(e));
+        super::error_label::show_error(ui, e, i18n);
     }
     let button = buttons(ui, has_prev, has_next, i18n);
     let intent = pick_intent(button, enter)?;

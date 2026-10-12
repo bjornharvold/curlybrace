@@ -6,6 +6,7 @@ rust-version = "1.87"
 
 [dependencies]
 eframe = "0.32.3"
+log = "0.4.26"
 mongostudio-core = { path = "../core" }
 mongostudio-ui = { path = "../ui" }
 tokio ={ version = "1.53.2", features = ["rt-multi-thread"] }

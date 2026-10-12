@@ -24,6 +24,14 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
     }
 }
 
+/// Raw server/user text to show weakly under a failure banner (see `error_detail`).
+pub fn banner_detail(banner: &Banner) -> Option<&str> {
+    match banner {
+        Banner::Failure { error, .. } => crate::error_text::error_detail(error),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +88,21 @@ mod tests {
             });
             assert!(!head.contains('⟦'), "{context}");
         }
+    }
+
+    #[test]
+    fn only_database_style_failures_expose_a_banner_detail() {
+        let db = Banner::Failure {
+            context: "insert",
+            error: CoreError::Database("E11000 duplicate key".into()),
+        };
+        assert_eq!(banner_detail(&db), Some("E11000 duplicate key"));
+        let ssh = Banner::Failure {
+            context: "connect",
+            error: CoreError::Ssh("x".into()),
+        };
+        assert_eq!(banner_detail(&ssh), None);
+        assert_eq!(banner_detail(&Banner::NotConnected), None);
     }
 
     #[test]

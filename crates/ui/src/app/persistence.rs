@@ -131,7 +131,7 @@ fn recovered(
     let backed_up = match backup(path, tag) {
         Ok(_) => true,
         Err(e) => {
-            eprintln!("could not back up the connection list ({tag}): {e}");
+            log::warn!("could not back up the connection list ({tag}): {e}");
             false
         }
     };

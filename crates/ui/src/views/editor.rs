@@ -38,7 +38,7 @@ pub fn show_editor_with(
             );
         });
         if let Some(e) = &state.error {
-            ui.colored_label(ui.visuals().error_fg_color, i18n.error(e));
+            super::error_label::show_error(ui, e, i18n);
         }
         intent = buttons(ui, i18n, save_enabled);
     });

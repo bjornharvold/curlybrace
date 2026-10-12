@@ -1,7 +1,7 @@
 //! The thin egui layer: draws panels from the state and reports what the user did.
 //! Every decision lives in the reducer and view-models; nothing here has logic worth testing
 //! beyond "it renders" (covered by the headless frame tests in `mod.rs`).
-use super::banner::banner_text;
+use super::banner::{banner_detail, banner_text};
 use super::host_key::PromptState;
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus};
@@ -36,6 +36,9 @@ pub fn show_banner(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut
             ui.colored_label(color, headline);
             if let Some(detail) = detail {
                 ui.label(detail);
+            }
+            if let Some(raw) = banner_detail(banner) {
+                ui.weak(raw);
             }
             if state.forgettable_host().is_some()
                 && ui.button(i18n.t("banner.forget_host")).clicked()

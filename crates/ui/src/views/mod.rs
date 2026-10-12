@@ -3,6 +3,7 @@ pub mod connections;
 pub mod context_menu;
 pub mod documents;
 pub mod editor;
+pub mod error_label;
 pub mod findbar;
 pub mod json;
 pub mod metrics;

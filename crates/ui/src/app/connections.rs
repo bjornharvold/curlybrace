@@ -44,7 +44,7 @@ fn persist(path: &ConfigPath, list: &[ConnectionConfig]) -> Result<(), PersistEr
         Err(e) => Err(e.clone()),
     };
     if let Err(e) = &result {
-        eprintln!("could not save the connection list: {e:?}");
+        log::warn!("could not save the connection list: {e:?}");
     }
     result
 }

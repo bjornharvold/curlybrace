@@ -1,5 +1,6 @@
 //! MongoStudio UI crate.
 pub mod app;
+pub mod error_text;
 pub mod i18n;
 pub mod viewmodel;
 pub mod views;
