@@ -197,6 +197,12 @@ fn tls_section(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
             &mut form.allow_invalid_certs,
             i18n.t("connections.allow_invalid_certs"),
         );
+        if form.ssh_enabled && form.allow_invalid_certs {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                i18n.t("connections.allow_invalid_certs_ssh_warning"),
+            );
+        }
     }
 }
 

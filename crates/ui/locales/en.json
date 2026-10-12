@@ -3,12 +3,22 @@
     "title": "MongoStudio"
   },
   "auth": {
-    "gssapi": "Kerberos (GSSAPI)",
+    "gssapi": "Kerberos (GSSAPI, experimental)",
     "none": "None",
     "plain": "LDAP (PLAIN)",
     "scram_sha1": "SCRAM-SHA-1",
     "scram_sha256": "SCRAM-SHA-256",
     "x509": "X.509"
+  },
+  "banner": {
+    "dismiss": "Dismiss",
+    "forget_host": "Forget this host",
+    "host_forgotten": "The saved SSH host key was removed. Connect again to review the host's key.",
+    "not_connected": "Not connected. Connect to a server first."
+  },
+  "browser": {
+    "loading": "Loading...",
+    "select_collection": "Select a collection in the sidebar."
   },
   "bsontype": {
     "array": "array",
@@ -49,10 +59,13 @@
   },
   "connections": {
     "allow_invalid_certs": "Allow invalid TLS certificates",
+    "allow_invalid_certs_ssh_warning": "Warning: through an SSH tunnel this removes certificate protection on the connection between the SSH bastion and MongoDB.",
     "auth": "Authentication",
     "auth_source": "Authentication database",
     "clear_saved_password": "Remove saved secret",
     "connect": "Connect",
+    "connecting": "Connecting...",
+    "disconnect": "Disconnect",
     "name": "Name",
     "new": "New connection",
     "password": "Password",
@@ -94,6 +107,9 @@
     "not_found": "The item could not be found. It may have been removed.",
     "secret_store": "Could not access the system keychain for saved credentials.",
     "ssh": "The SSH tunnel could not be established. Check the SSH settings.",
+    "ssh_host_key_changed": "The SSH host key has changed since it was saved. This can mean someone is intercepting the connection. If you know the key was replaced, forget the host and connect again.",
+    "ssh_host_key_rejected": "The SSH host key was not trusted, so the connection was not made.",
+    "tls_through_tunnel": "TLS certificate verification is not possible through an SSH tunnel. To connect you would have to enable \"Allow invalid TLS certificates\", which removes certificate protection on the connection between the SSH bastion and MongoDB (the SSH leg stays encrypted). Only do this on a network you trust.",
     "unsupported": "This action is not supported for the current connection."
   },
   "failures": {
@@ -105,7 +121,10 @@
     "insert": "Could not insert the document",
     "list_collections": "Could not load collections",
     "list_databases": "Could not load databases",
-    "replace": "Could not save the document"
+    "replace": "Could not save the document",
+    "runtime": "The background worker stopped. Restart MongoStudio",
+    "save_connection": "Could not save the connection",
+    "secrets": "Could not access saved credentials"
   },
   "findbar": {
     "clear": "Clear",
@@ -120,6 +139,26 @@
     "skip": "Skip",
     "sort": "Sort",
     "sort_hint": "{ \"createdAt\": -1 }"
+  },
+  "forget": {
+    "confirm": "Forget host",
+    "message": "Remove the saved SSH host key for {host}:{port}? You will be asked to trust the host's key again on the next connection.",
+    "title": "Forget SSH host"
+  },
+  "hostkey": {
+    "fingerprint": "SHA256 fingerprint",
+    "message": "The authenticity of the SSH host {host} cannot be established. Verify the fingerprint with the host's administrator before trusting it.",
+    "reject": "Reject",
+    "title": "Unknown SSH host",
+    "trust_once": "Trust once",
+    "trust_remember": "Trust and remember"
+  },
+  "persist": {
+    "config_dir_unknown": "Could not find a settings folder, so saved connections cannot be loaded or stored.",
+    "corrupt": "The saved connections file is not readable. A copy was kept next to it; saving a connection will replace the file.",
+    "read_failed": "Could not read the saved connections file.",
+    "skipped_entries": "{n} saved connection(s) were invalid and skipped.",
+    "write_failed": "Could not write the saved connections file."
   },
   "sidebar": {
     "empty": "No databases",

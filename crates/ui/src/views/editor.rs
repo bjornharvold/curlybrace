@@ -11,6 +11,16 @@ pub fn show_editor(
     state: &mut EditorState,
     i18n: &I18n,
 ) -> Option<EditorAction> {
+    show_editor_with(ctx, state, i18n, true)
+}
+
+/// Like [`show_editor`]; `save_enabled == false` greys out Save (a mutation is in flight).
+pub fn show_editor_with(
+    ctx: &egui::Context,
+    state: &mut EditorState,
+    i18n: &I18n,
+    save_enabled: bool,
+) -> Option<EditorAction> {
     let title_key = if state.original_id.is_some() {
         "editor.title_edit"
     } else {
@@ -30,7 +40,7 @@ pub fn show_editor(
         if let Some(e) = &state.error {
             ui.colored_label(ui.visuals().error_fg_color, i18n.error(e));
         }
-        intent = buttons(ui, i18n);
+        intent = buttons(ui, i18n, save_enabled);
     });
     let intent = intent.or_else(|| modal.should_close().then_some(EditorIntent::Cancel))?;
     let (next, action) = resolve_editor(state, intent);
@@ -38,10 +48,11 @@ pub fn show_editor(
     action
 }
 
-fn buttons(ui: &mut egui::Ui, i18n: &I18n) -> Option<EditorIntent> {
+fn buttons(ui: &mut egui::Ui, i18n: &I18n, save_enabled: bool) -> Option<EditorIntent> {
     ui.horizontal(|ui| {
         let mut intent = None;
-        if ui.button(i18n.t("editor.save")).clicked() {
+        let save = ui.add_enabled(save_enabled, egui::Button::new(i18n.t("editor.save")));
+        if save.clicked() {
             intent = Some(EditorIntent::Save);
         }
         if ui.button(i18n.t("editor.cancel")).clicked() {

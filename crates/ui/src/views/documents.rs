@@ -33,7 +33,21 @@ pub fn show_documents(
     state: &mut TreeState,
     i18n: &I18n,
 ) -> Option<DocAction> {
-    let key = page_key(page);
+    show_documents_keyed(ui, mode, page, &page_key(page), state, i18n)
+}
+
+/// Like [`show_documents`] with the page key supplied by the caller, which memoises it once
+/// per result page instead of rehashing the whole page every frame. `key` MUST be
+/// `page_key(page)`.
+pub fn show_documents_keyed(
+    ui: &mut egui::Ui,
+    mode: ViewMode,
+    page: &Page,
+    key: &PageKey,
+    state: &mut TreeState,
+    i18n: &I18n,
+) -> Option<DocAction> {
+    let key = *key;
     state.synced_to(&key);
     let mut action = None;
     if ui.button(i18n.t("doc.insert")).clicked() {

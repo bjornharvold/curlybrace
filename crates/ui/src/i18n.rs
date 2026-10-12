@@ -63,12 +63,30 @@ impl I18n {
 
     /// User-facing text for a core error (technical detail is never shown).
     pub fn error(&self, e: &CoreError) -> String {
-        self.t(e.i18n_key())
+        self.t(error_key(e))
     }
 
     /// Headline for a failed runtime command context (e.g. `"connect"`).
     pub fn failure(&self, context: &str) -> String {
         self.t(&format!("failures.{context}"))
+    }
+}
+
+/// Substring of the core error raised when a recorded SSH host key changed.
+pub const HOST_KEY_CHANGED_MARKER: &str = "host key has changed";
+const HOST_KEY_REJECTED_MARKER: &str = "host key was rejected";
+const TLS_TUNNEL_MARKER: &str = "cannot be combined with an ssh tunnel";
+
+/// Locale key for an error. A few well-known core errors share a variant with others but need
+/// their own, more honest, copy; they are recognised by the static detail text core emits.
+pub fn error_key(e: &CoreError) -> &'static str {
+    match e {
+        CoreError::Ssh(m) if m.contains(HOST_KEY_CHANGED_MARKER) => "errors.ssh_host_key_changed",
+        CoreError::Ssh(m) if m.contains(HOST_KEY_REJECTED_MARKER) => "errors.ssh_host_key_rejected",
+        CoreError::Unsupported(m) if m.starts_with("tls ") && m.contains(TLS_TUNNEL_MARKER) => {
+            "errors.tls_through_tunnel"
+        }
+        other => other.i18n_key(),
     }
 }
 
@@ -118,6 +136,28 @@ mod tests {
         let i = I18n::from_json("{}").unwrap();
         assert_eq!(i.t("nope.k"), "⟦nope.k⟧");
         assert_eq!(i.t_with("nope.k", &[("a", "b")]), "⟦nope.k⟧");
+    }
+
+    #[test]
+    fn special_core_errors_get_their_own_honest_copy() {
+        let i = I18n::english();
+        let changed = CoreError::Ssh("the ssh host key has changed; refusing to connect".into());
+        let rejected = CoreError::Ssh("the ssh host key was rejected".into());
+        let tls = CoreError::Unsupported(
+            "tls with certificate verification cannot be combined with an ssh tunnel".into(),
+        );
+        let srv =
+            CoreError::Unsupported("ssh tunnels cannot be combined with mongodb+srv uris".into());
+        assert_eq!(error_key(&changed), "errors.ssh_host_key_changed");
+        assert_eq!(error_key(&rejected), "errors.ssh_host_key_rejected");
+        assert_eq!(error_key(&tls), "errors.tls_through_tunnel");
+        assert_eq!(error_key(&srv), "errors.unsupported");
+        assert_eq!(error_key(&CoreError::Ssh("other".into())), "errors.ssh");
+        for e in [&changed, &rejected, &tls] {
+            assert!(!i.error(e).starts_with('⟦'));
+        }
+        let text = i.error(&tls);
+        assert!(text.contains("invalid") && text.contains("certificate protection"));
     }
 
     #[test]
