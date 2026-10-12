@@ -65,6 +65,7 @@
     "auth": "Authentication",
     "auth_source": "Authentication database",
     "clear_saved_password": "Remove saved secret",
+    "confirm_delete": "Delete the connection \"{name}\" and its saved credentials? This cannot be undone.",
     "connect": "Connect",
     "connecting": "Connecting...",
     "disconnect": "Disconnect",

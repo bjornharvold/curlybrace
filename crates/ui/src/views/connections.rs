@@ -25,6 +25,8 @@ pub struct ConnectionsState {
     pub error: Option<CoreError>,
     /// Which secrets exist per connection; filled by the app via `stored_secret_flags`.
     pub stored: HashMap<Uuid, StoredSecrets>,
+    /// Connection whose delete awaits confirmation.
+    pub delete_confirm: Option<Uuid>,
 }
 
 impl ConnectionsState {
@@ -35,13 +37,29 @@ impl ConnectionsState {
         }
     }
 
+    /// First step of deleting: ask for confirmation (nothing is deleted yet).
+    pub fn delete_requested(&mut self, id: Uuid) {
+        self.delete_confirm = Some(id);
+    }
+
+    /// Second step: emits `Delete` once for the confirmed connection.
+    pub fn delete_confirmed(&mut self) -> Option<ConnectionAction> {
+        self.delete_confirm.take().map(ConnectionAction::Delete)
+    }
+
+    pub fn delete_cancelled(&mut self) {
+        self.delete_confirm = None;
+    }
+
     fn select(&mut self, cfg: &ConnectionConfig) {
+        self.delete_confirm = None;
         self.selected = Some(cfg.id);
         self.form = ConnectionForm::from_config(cfg);
         self.error = None;
     }
 
     fn start_new(&mut self) {
+        self.delete_confirm = None;
         self.selected = None;
         self.form = ConnectionForm::default();
         self.error = None;
@@ -59,7 +77,37 @@ pub fn show_connections(
     if let Some(saved) = show_form(ui, state, i18n) {
         action = Some(saved);
     }
-    action
+    show_delete_confirm(ui.ctx(), state, i18n).or(action)
+}
+
+/// Modal asking to confirm a delete; Escape or clicking outside cancels.
+fn show_delete_confirm(
+    ctx: &egui::Context,
+    state: &mut ConnectionsState,
+    i18n: &I18n,
+) -> Option<ConnectionAction> {
+    let id = state.delete_confirm?;
+    let name = state
+        .connections
+        .iter()
+        .find(|c| c.id == id)
+        .map(|c| c.name.clone())
+        .unwrap_or_default();
+    let (mut confirmed, mut cancelled) = (false, false);
+    let modal = egui::Modal::new(egui::Id::new("connection_delete_confirm")).show(ctx, |ui| {
+        ui.label(i18n.t_with("connections.confirm_delete", &[("name", &name)]));
+        ui.horizontal(|ui| {
+            cancelled = ui.button(i18n.t("common.cancel")).clicked();
+            confirmed = ui.button(i18n.t("common.delete")).clicked();
+        });
+    });
+    if confirmed {
+        return state.delete_confirmed();
+    }
+    if cancelled || modal.should_close() {
+        state.delete_cancelled();
+    }
+    None
 }
 
 fn show_list(
@@ -82,7 +130,7 @@ fn show_list(
                 action = Some(ConnectionAction::Connect(cfg.id));
             }
             if ui.button(i18n.t("common.delete")).clicked() {
-                action = Some(ConnectionAction::Delete(cfg.id));
+                state.delete_requested(cfg.id);
             }
         });
     }
@@ -294,5 +342,43 @@ mod tests {
         state.start_new();
         assert_ne!(state.form.id, cfg.id);
         assert!(state.selected.is_none());
+    }
+
+    #[test]
+    fn delete_is_only_emitted_after_the_confirmation_and_only_once() {
+        let cfg = mock_connection();
+        let mut state = ConnectionsState::new(vec![cfg.clone()]);
+        assert_eq!(state.delete_confirmed(), None, "nothing asked yet");
+        state.delete_requested(cfg.id);
+        assert_eq!(state.delete_confirm, Some(cfg.id));
+        assert_eq!(
+            state.delete_confirmed(),
+            Some(ConnectionAction::Delete(cfg.id))
+        );
+        assert_eq!(state.delete_confirmed(), None, "emitted exactly once");
+    }
+
+    #[test]
+    fn cancelling_or_selecting_another_connection_clears_the_confirmation() {
+        let (a, b) = (mock_connection(), mock_connection());
+        let mut state = ConnectionsState::new(vec![a.clone(), b.clone()]);
+        state.delete_requested(a.id);
+        state.delete_cancelled();
+        assert_eq!(state.delete_confirm, None);
+        state.delete_requested(a.id);
+        state.select(&b);
+        assert_eq!(state.delete_confirm, None);
+        state.delete_requested(a.id);
+        state.start_new();
+        assert_eq!(state.delete_confirm, None);
+    }
+
+    #[test]
+    fn the_confirmation_modal_renders_and_names_the_connection() {
+        let cfg = mock_connection();
+        let mut state = ConnectionsState::new(vec![cfg.clone()]);
+        state.delete_requested(cfg.id);
+        assert_eq!(run_frame(&mut state), None);
+        assert_eq!(state.delete_confirm, Some(cfg.id), "still waiting");
     }
 }

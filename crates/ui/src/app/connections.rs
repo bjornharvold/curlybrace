@@ -189,6 +189,7 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
             state.conn.form
         },
         error: None,
+        delete_confirm: None,
     };
     AppState {
         conn,
