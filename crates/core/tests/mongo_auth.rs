@@ -32,7 +32,7 @@ fn auth_container() -> Container {
 }
 
 fn scram_config(container: &Container) -> ConnectionConfig {
-    let mut cfg = container.config();
+    let mut cfg = support::config(container);
     cfg.auth = AuthMechanism::ScramSha256;
     cfg.username = Some(USER.into());
     cfg.auth_source = Some("admin".into());
@@ -71,14 +71,14 @@ async fn scram_sha256_succeeds_and_failures_are_typed_and_bounded() {
 
     // No credentials on an --auth server: `ping` alone would succeed, so connect must
     // refuse up front with a clear authentication error.
-    let anonymous = client::connect(&container.config(), None, None).await;
+    let anonymous = client::connect(&support::config(&container), None, None).await;
     assert!(
         matches!(anonymous, Err(CoreError::AuthFailed)),
         "{anonymous:?}"
     );
 
     // A store built on a client that skipped the check still classifies server rejections.
-    let raw = mongodb::Client::with_uri_str(container.config().uri)
+    let raw = mongodb::Client::with_uri_str(support::config(&container).uri)
         .await
         .unwrap();
     let store = MongoStore::new(raw);

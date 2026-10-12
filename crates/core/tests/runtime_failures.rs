@@ -45,7 +45,9 @@ async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
         query: Query::default(),
     };
 
-    rt.tx.send(Command::Connect(container.config())).unwrap();
+    rt.tx
+        .send(Command::Connect(support::config(&container)))
+        .unwrap();
     assert!(matches!(
         next_event(&mut rt.rx, COMMAND_LIMIT, "connect").await,
         Event::Connected { .. }
@@ -81,7 +83,9 @@ async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
     // A fresh Connect (retried while mongod is still starting) works again.
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        rt.tx.send(Command::Connect(container.config())).unwrap();
+        rt.tx
+            .send(Command::Connect(support::config(&container)))
+            .unwrap();
         match next_event(&mut rt.rx, COMMAND_LIMIT + SLACK, "reconnect").await {
             Event::Connected { .. } => break,
             Event::ConnectFailed { .. } if Instant::now() < deadline => {}
