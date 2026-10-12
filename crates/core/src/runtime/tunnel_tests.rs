@@ -209,7 +209,7 @@ async fn connect_with_password_ssh_opens_tunnel_with_target_and_secret() {
     let (connector, opener) = (recording(None), FakeOpener::new(false));
     let mut h = runtime(secrets, connector.clone(), opener.clone());
     h.tx.send(Command::Connect(cfg)).unwrap();
-    assert_eq!(next(&mut h).await, Event::Connected);
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
     assert_eq!(
         opener.seen.lock().unwrap().clone(),
         vec![Seen {
@@ -238,7 +238,7 @@ async fn private_key_auth_reads_the_passphrase_and_absent_secret_is_none() {
     let opener = FakeOpener::new(false);
     let mut h = runtime(secrets, recording(None), opener.clone());
     h.tx.send(Command::Connect(cfg)).unwrap();
-    assert_eq!(next(&mut h).await, Event::Connected);
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
     let seen = opener.seen.lock().unwrap().clone();
     assert!(seen[0].key_auth);
     assert_eq!(seen[0].secret.as_deref(), Some("phrase"));
@@ -250,7 +250,7 @@ async fn private_key_auth_reads_the_passphrase_and_absent_secret_is_none() {
         opener.clone(),
     );
     h.tx.send(Command::Connect(ssh_cfg(auth))).unwrap();
-    assert_eq!(next(&mut h).await, Event::Connected);
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
     assert_eq!(opener.seen.lock().unwrap()[0].secret, None);
 }
 
@@ -305,10 +305,10 @@ async fn disconnect_closes_the_tunnel() {
     );
     h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
         .unwrap();
-    assert_eq!(next(&mut h).await, Event::Connected);
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
     assert_eq!(opener.drops(), 0);
     h.tx.send(Command::Disconnect).unwrap();
-    assert_eq!(next(&mut h).await, Event::Disconnected);
+    assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
     assert_eq!(opener.drops(), 1);
 }
 
@@ -322,10 +322,10 @@ async fn a_new_connect_closes_the_previous_tunnel() {
     );
     h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
         .unwrap();
-    assert_eq!(next(&mut h).await, Event::Connected);
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
     h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
         .unwrap();
-    assert_eq!(next(&mut h).await, Event::Connected);
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
     assert_eq!(opener.drops(), 1, "only the first tunnel was closed");
 }
 
@@ -345,7 +345,7 @@ async fn superseded_connect_drops_its_tunnel() {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     h.tx.send(Command::Disconnect).unwrap();
-    assert_eq!(next(&mut h).await, Event::Disconnected);
+    assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
     release.send(()).unwrap();
     assert!(matches!(
         next(&mut h).await,

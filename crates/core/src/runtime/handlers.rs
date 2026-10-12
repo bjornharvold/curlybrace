@@ -21,14 +21,30 @@ pub(super) async fn execute(shared: Arc<Shared>, command: Command, generation: u
     }
 }
 
+/// `error` if no newer Connect/Disconnect replaced this command's session, else `Superseded`:
+/// whatever went wrong belongs to a session the user has already left.
+pub(super) fn gate(shared: &Shared, generation: u64, error: CoreError) -> CoreError {
+    if shared.is_current(generation) {
+        error
+    } else {
+        CoreError::Superseded
+    }
+}
+
 async fn run(shared: &Shared, command: Command, generation: u64) -> Result<Event> {
     match command {
-        Command::Connect(cfg) => return connect_store(shared, cfg, generation).await,
+        Command::Connect(cfg) => {
+            return connect_store(shared, cfg, generation)
+                .await
+                .map_err(|e| gate(shared, generation, e));
+        }
         // The store was already dropped by the dispatcher.
-        Command::Disconnect => return Ok(Event::Disconnected),
+        Command::Disconnect => return Ok(Event::Disconnected { epoch: generation }),
         _ => {}
     }
-    let store = current_store(shared).await?;
+    let store = current_store(shared)
+        .await
+        .map_err(|e| gate(shared, generation, e))?;
     let limit = shared.config.command_timeout;
     let result = bounded(limit, data_command(store, command)).await;
     // A newer Connect/Disconnect ended this command's session while it ran: its answer belongs
@@ -112,7 +128,7 @@ async fn connect_store(shared: &Shared, cfg: ConnectionConfig, generation: u64) 
     })
     .await?;
     if shared.install_if_current(generation, store, tunnel) {
-        Ok(Event::Connected)
+        Ok(Event::Connected { epoch: generation })
     } else {
         Err(CoreError::Superseded)
     }

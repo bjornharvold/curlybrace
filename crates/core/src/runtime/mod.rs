@@ -154,8 +154,17 @@ impl Command {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    Connected,
-    Disconnected,
+    /// The connection requested by the `Connect` whose epoch is `epoch` is installed.
+    /// Epochs grow with every Connect/Disconnect request, so a receiver can ignore an outcome
+    /// older than one it already applied. Only a still-current connect reports `Connected`
+    /// or a real `Failed`; a replaced one reports `Failed { error: Superseded }`.
+    Connected {
+        epoch: u64,
+    },
+    /// The `Disconnect` with this `epoch` took effect.
+    Disconnected {
+        epoch: u64,
+    },
     Databases(Vec<String>),
     Collections {
         db: String,
@@ -302,11 +311,16 @@ fn dispatch(
         _ => shared.generation.load(Ordering::SeqCst),
     };
     tokio::spawn(async move {
+        let guard = shared.clone();
         let event = match tokio::spawn(handlers::execute(shared, command, generation)).await {
             Ok(event) => event,
             Err(_) => Event::Failed {
                 context,
-                error: CoreError::Database("internal error".into()),
+                error: handlers::gate(
+                    &guard,
+                    generation,
+                    CoreError::Database("internal error".into()),
+                ),
             },
         };
         if events.send(event).is_ok() {
