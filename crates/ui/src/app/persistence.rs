@@ -189,7 +189,8 @@ pub fn load_connections(path: &Path) -> Result<Loaded, PersistError> {
 
 /// Atomically writes the list (pretty JSON; the type carries no secrets).
 pub fn save_connections(path: &Path, connections: &[ConnectionConfig]) -> Result<(), PersistError> {
-    let bytes = serde_json::to_vec_pretty(connections).map_err(|_| PersistError::Corrupt)?;
+    let bytes = serde_json::to_vec_pretty(connections)
+        .map_err(|_| PersistError::Write(std::io::ErrorKind::InvalidData))?;
     atomic_write(path, &bytes)
 }
 

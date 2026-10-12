@@ -181,7 +181,7 @@ async fn browse_edit_and_delete_through_the_real_runtime() {
 
     // a data action after disconnecting is refused locally
     h.app.dispatch(Input::Disconnect);
-    h.until("disconnected", |a| a.state().epoch_pending == 0);
+    h.until("disconnected", |a| a.state().highest_epoch_seen >= 2);
     h.app.dispatch(Input::Find(FindAction::Clear));
     assert_eq!(h.app.state().banner, Some(Banner::NotConnected));
 }
@@ -254,4 +254,75 @@ async fn a_new_connect_or_disconnect_rejects_a_pending_question() {
         assert_eq!(asker.join().unwrap(), HostKeyDecision::Reject);
         assert!(h.app.pending_host_key().is_none());
     }
+}
+
+type Opened = Result<Arc<dyn DocumentStore>>;
+
+/// Connector whose outcome per connection name is released by the test.
+struct Gated(
+    std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Receiver<Opened>>>,
+);
+
+#[async_trait::async_trait]
+impl Connector for Gated {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _password: Option<&str>,
+        _tunnel: Option<SocketAddr>,
+    ) -> Opened {
+        let gate = self.0.lock().unwrap().remove(&cfg.name).expect("gate");
+        gate.await
+            .unwrap_or_else(|_| Err(mongostudio_core::error::CoreError::Database("gone".into())))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fails_later() {
+    use tokio::sync::oneshot;
+    let (tx_a, rx_a) = oneshot::channel::<Opened>();
+    let (tx_b, rx_b) = oneshot::channel::<Opened>();
+    let gates = std::collections::HashMap::from([("a".to_string(), rx_a), ("b".to_string(), rx_b)]);
+    let handle = spawn_runtime_with_connector(
+        None,
+        None,
+        Arc::new(Gated(std::sync::Mutex::new(gates))),
+        Arc::new(|| {}),
+        RuntimeConfig::default(),
+    );
+    let (a, b) = (
+        ConnectionConfig::new("a", "mongodb://localhost:27017"),
+        ConnectionConfig::new("b", "mongodb://localhost:27017"),
+    );
+    let (id_a, id_b) = (a.id, b.id);
+    let app = MongoStudioApp::new(
+        handle,
+        I18n::english(),
+        vec![a, b],
+        Arc::new(MemorySecretStore::new()),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = Harness {
+        app: app.with_config_path(Ok(dir.path().join("connections.json"))),
+        ctx: egui::Context::default(),
+        _dir: dir,
+    };
+
+    h.app.dispatch(Input::Connect(id_a));
+    h.app.dispatch(Input::Connect(id_b));
+    tx_b.send(Ok(seeded())).ok();
+    h.until("B connected and listed", |a| {
+        a.state().status == ConnStatus::Connected && !a.state().sidebar.databases.is_empty()
+    });
+    // A (superseded) now fails with a genuine error: it must not disturb the session.
+    tx_a.send(Err(mongostudio_core::error::CoreError::Database(
+        "late".into(),
+    )))
+    .ok();
+    for _ in 0..20 {
+        h.frame();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(h.app.state().status, ConnStatus::Connected);
+    assert_eq!(h.app.state().banner, None);
 }

@@ -63,32 +63,29 @@ fn failure(state: AppState, context: &'static str, error: CoreError) -> AppState
 
 fn on_event(state: AppState, ev: Event) -> Out {
     match ev {
-        // The runtime reports commands of a replaced session as `Superseded`. Connect/Disconnect
-        // already cleared everything tied to that session at dispatch (in-flight markers,
-        // pending mutation), so there is nothing left to undo: consuming the answer is enough.
-        // Clearing markers here could wrongly clear the NEW session's.
-        Event::Failed {
-            context: "connect" | "disconnect",
-            error: CoreError::Superseded,
-        } => epoch_done(state, |s| (s, Vec::new())),
+        // The runtime reports every outcome of a replaced session as `Superseded`.
+        // Connect/Disconnect already cleared everything tied to that session at dispatch
+        // (in-flight markers, pending mutation), so there is nothing left to undo: consuming
+        // the answer is enough. Clearing markers here could wrongly clear the NEW session's.
         Event::Failed {
             error: CoreError::Superseded,
             ..
         } => (state, Vec::new()),
-        Event::Connected => epoch_done(state, |s| {
+        Event::Connected { epoch } => at_epoch(state, epoch, |s| {
             let s = AppState {
                 status: ConnStatus::Connected,
                 ..s
             };
             (s, vec![Command::ListDatabases])
         }),
-        Event::Disconnected => epoch_done(state, |s| (disconnected(s, None), Vec::new())),
+        Event::Disconnected { epoch } => {
+            at_epoch(state, epoch, |s| (disconnected(s, None), Vec::new()))
+        }
+        // A real connect/disconnect failure can only come from a still-current request.
         Event::Failed {
             context: context @ ("connect" | "disconnect"),
             error,
-        } => epoch_done(state, move |s| {
-            (disconnected(s, Some((context, error))), Vec::new())
-        }),
+        } => (disconnected(state, Some((context, error))), Vec::new()),
         // Anything else is a late answer from a session that is gone.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases(names) => {
@@ -122,19 +119,15 @@ fn on_event(state: AppState, ev: Event) -> Out {
     }
 }
 
-/// Connect/Disconnect are ordered by request, so only the outcome of the LAST request is
-/// authoritative; earlier (superseded) outcomes are consumed and ignored.
-fn epoch_done(state: AppState, apply: impl FnOnce(AppState) -> Out) -> Out {
-    let latest = state.epoch_pending <= 1;
-    let state = AppState {
-        epoch_pending: state.epoch_pending.saturating_sub(1),
-        ..state
-    };
-    if latest {
-        apply(state)
-    } else {
-        (state, Vec::new())
+/// Applies a Connected/Disconnected outcome unless a newer one was already applied.
+fn at_epoch(state: AppState, epoch: u64, apply: impl FnOnce(AppState) -> Out) -> Out {
+    if epoch < state.highest_epoch_seen {
+        return (state, Vec::new());
     }
+    apply(AppState {
+        highest_epoch_seen: epoch,
+        ..state
+    })
 }
 
 /// A disconnected state with the whole session cleared and an optional failure banner.

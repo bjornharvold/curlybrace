@@ -68,8 +68,9 @@ pub struct Pending {
 pub struct AppState {
     pub conn: ConnectionsState,
     pub status: ConnStatus,
-    /// Connect/Disconnect requests whose event has not arrived yet. Only the last one counts.
-    pub epoch_pending: u32,
+    /// Highest runtime epoch of a Connected/Disconnected outcome applied so far; older ones
+    /// (from requests the user has since replaced) are ignored.
+    pub highest_epoch_seen: u64,
     pub sidebar: SidebarState,
     /// Databases whose collection list is in flight.
     pub loading: BTreeSet<String>,

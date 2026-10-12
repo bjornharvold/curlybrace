@@ -90,8 +90,7 @@ fn find_failed() -> Event {
 fn connected_sets_status_and_lists_databases() {
     let mut s = AppState::new(vec![]);
     s.status = ConnStatus::Connecting;
-    s.epoch_pending = 1;
-    let (s, cmds) = event(s, Event::Connected);
+    let (s, cmds) = event(s, Event::Connected { epoch: 1 });
     assert_eq!(s.status, ConnStatus::Connected);
     assert!(matches!(cmds.as_slice(), [Command::ListDatabases]));
 }
@@ -364,8 +363,7 @@ fn failed_delete_sets_a_banner_and_clears_pending() {
 fn disconnected_clears_session_state() {
     let mut s = browsing();
     s.editor = Some(EditorState::for_new());
-    s.epoch_pending = 1;
-    let (s, _) = event(s, Event::Disconnected);
+    let (s, _) = event(s, Event::Disconnected { epoch: 1 });
     assert_eq!(s.status, ConnStatus::Disconnected);
     assert!(s.sidebar.databases.is_empty() && s.sidebar.selected.is_none());
     assert!(s.page.is_none() && s.page_key.is_none() && s.editor.is_none());
@@ -375,7 +373,6 @@ fn disconnected_clears_session_state() {
 fn failed_connect_leaves_a_disconnected_state_with_a_banner() {
     let mut s = browsing();
     s.status = ConnStatus::Connecting;
-    s.epoch_pending = 1;
     let (s, _) = event(
         s,
         Event::Failed {
@@ -396,8 +393,7 @@ fn failed_connect_leaves_a_disconnected_state_with_a_banner() {
 
 #[test]
 fn failed_disconnect_also_ends_up_disconnected() {
-    let mut s = browsing();
-    s.epoch_pending = 1;
+    let s = browsing();
     let (s, _) = event(
         s,
         Event::Failed {
@@ -406,27 +402,6 @@ fn failed_disconnect_also_ends_up_disconnected() {
         },
     );
     assert_eq!(s.status, ConnStatus::Disconnected);
-}
-
-#[test]
-fn superseded_connect_failure_does_not_end_the_newer_connect() {
-    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
-    let id = cfg.id;
-    let s = AppState::new(vec![cfg]);
-    let (s, c1) = run(s, Input::Connect(id));
-    let (s, c2) = run(s, Input::Connect(id));
-    assert_eq!((c1.len(), c2.len(), s.epoch_pending), (1, 1, 2));
-    let (s, _) = event(
-        s,
-        Event::Failed {
-            context: "connect",
-            error: CoreError::Superseded,
-        },
-    );
-    assert_eq!((s.status, s.banner.clone()), (ConnStatus::Connecting, None));
-    let (s, cmds) = event(s, Event::Connected);
-    assert_eq!(s.status, ConnStatus::Connected);
-    assert!(matches!(cmds.as_slice(), [Command::ListDatabases]));
 }
 
 #[test]
@@ -477,7 +452,6 @@ fn disconnect_clears_the_session_right_away_and_sends_disconnect() {
     let (s, cmds) = run(browsing(), Input::Disconnect);
     assert_eq!(s.status, ConnStatus::Disconnected);
     assert!(s.page.is_none() && s.sidebar.databases.is_empty());
-    assert_eq!(s.epoch_pending, 1);
     assert!(matches!(cmds.as_slice(), [Command::Disconnect]));
 }
 
@@ -783,3 +757,6 @@ fn cancel_closes_the_editor_without_commands() {
 
 #[path = "reducer_session_tests.rs"]
 mod session;
+
+#[path = "reducer_epoch_tests.rs"]
+mod epoch;
