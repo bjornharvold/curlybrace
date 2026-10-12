@@ -1,6 +1,7 @@
 pub mod client;
 pub mod connection;
 pub mod error;
+pub mod query;
 pub mod secrets;
 pub mod store;
 #[cfg(any(test, feature = "test-support"))]
