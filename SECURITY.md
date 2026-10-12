@@ -4,7 +4,7 @@
 
 Please **do not open a public issue** for a security problem. Use GitHub's private reporting:
 
-1. Go to the [Security tab](https://github.com/bjornharvold/the-mongodb-gui/security) of this repository.
+1. Go to the [Security tab](https://github.com/bjornharvold/curlybrace/security) of this repository.
 2. Choose **Report a vulnerability** and describe what you found and how to reproduce it.
 
 You can expect an acknowledgement within a few days. Fixes are released as a new version, and the

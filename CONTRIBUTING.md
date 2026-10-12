@@ -1,4 +1,4 @@
-# Contributing to The MongoDB GUI
+# Contributing to Curlybrace
 
 Thank you for helping. This project is free for everyone and stays that way because people like you
 build it. You do not need to be a Rust expert: small fixes, docs, tests and bug reports all help.
@@ -15,7 +15,7 @@ build it. You do not need to be a Rust expert: small fixes, docs, tests and bug 
 
 ## Ways to contribute
 
-- **Report a bug** or request a feature with an [issue](https://github.com/bjornharvold/the-mongodb-gui/issues/new/choose).
+- **Report a bug** or request a feature with an [issue](https://github.com/bjornharvold/curlybrace/issues/new/choose).
   Never paste passwords, credentialed connection strings or private keys.
 - **Build a feature.** The [roadmap in the README](README.md#roadmap) lists ideas: Data Compare &
   Sync, Data Masking and Reschema, SQL and MongoDB, and a Task Scheduler. Open an issue first so we
@@ -36,9 +36,9 @@ You need:
 - A local MongoDB (tier 1) and/or Docker (tier 2), only for the opt-in integration tests.
 
 ```sh
-git clone https://github.com/bjornharvold/the-mongodb-gui.git
-cd the-mongodb-gui
-cargo run --release -p mongostudio     # launch the app
+git clone https://github.com/bjornharvold/curlybrace.git
+cd curlybrace
+cargo run --release -p curlybrace     # launch the app
 cargo test --workspace                 # unit tests, offline, a few seconds
 ```
 
@@ -56,9 +56,9 @@ A Cargo workspace with four crates (the fourth, `crates/testkit`, is dev-only te
 
 | Crate | Path | What lives there |
 |-------|------|------------------|
-| `mongostudio-core` | `crates/core` | Everything that is not UI: connection model, auth, TLS, the MongoDB driver wrapper (`DocumentStore` trait), query parsing, extended-JSON conversion, CRUD, secrets (Keychain), the SSH tunnel and host-key policy, and the async runtime that the UI talks to through `Command` and `Event` messages. It must not depend on egui. |
-| `mongostudio-ui` | `crates/ui` | The egui views, the **pure view-model functions** that hold all decisions (state transitions, click-to-action mapping, validation), the app state and reducer, persistence of the connection list, and the i18n layer (`locales/en.json`). |
-| `mongostudio` | `crates/app` | The binary: creates the Tokio runtime, wires the Keychain and the host-key prompt, and starts the window. |
+| `curlybrace-core` | `crates/core` | Everything that is not UI: connection model, auth, TLS, the MongoDB driver wrapper (`DocumentStore` trait), query parsing, extended-JSON conversion, CRUD, secrets (Keychain), the SSH tunnel and host-key policy, and the async runtime that the UI talks to through `Command` and `Event` messages. It must not depend on egui. |
+| `curlybrace-ui` | `crates/ui` | The egui views, the **pure view-model functions** that hold all decisions (state transitions, click-to-action mapping, validation), the app state and reducer, persistence of the connection list, and the i18n layer (`locales/en.json`). |
+| `curlybrace` | `crates/app` | The binary: creates the Tokio runtime, wires the Keychain and the host-key prompt, and starts the window. |
 
 Two ideas shape most changes:
 
@@ -90,8 +90,8 @@ not waste effort:
    deliberately does not do, how data flows, how errors are shown, how it is tested.
 3. **Then build it** in small pull requests, each independently useful and tested.
 
-A new feature should fit the existing patterns: the logic in `mongostudio-core` behind a trait so
-it can be tested with an in-memory fake, state transitions as pure functions in `mongostudio-ui`,
+A new feature should fit the existing patterns: the logic in `curlybrace-core` behind a trait so
+it can be tested with an in-memory fake, state transitions as pure functions in `curlybrace-ui`,
 and a thin egui view on top.
 
 ## Adding a platform
@@ -109,7 +109,7 @@ row, macOS arm64. To add a platform:
    - Config directories come from the `dirs` crate, so they should already follow platform norms.
    - eframe may need system libraries on Linux (for example X11 or Wayland development packages).
 2. **Add a packaging script** in `scripts/`, modelled on `scripts/package-macos.sh`. It receives
-   the version and target triple and must write `dist/the-mongodb-gui-v<version>-<os>-<arch>.<ext>`
+   the version and target triple and must write `dist/curlybrace-v<version>-<os>-<arch>.<ext>`
    plus a `.sha256` file next to it.
 3. **Add a matrix row** to `build-binaries.yml`:
 
@@ -144,22 +144,22 @@ Two separate local tiers need a real MongoDB and are never run on GitHub:
 
 ```sh
 scripts/integration-tests.sh    # tier 1: needs a MongoDB already running (no docker)
-scripts/container-tests.sh      # tier 2: docker; creates its own ms-it-* containers
+scripts/container-tests.sh      # tier 2: docker; creates its own cb-it-* containers
 ```
 
-Tier 1 connects to `MONGOSTUDIO_IT_MONGO_URI` (default `mongodb://127.0.0.1:27017`) and WRITES to
-it, but only to throwaway `msit_*` databases that it drops again: point it at a throwaway server,
+Tier 1 connects to `CURLYBRACE_IT_MONGODB_URI` (default `mongodb://127.0.0.1:27017`) and WRITES to
+it, but only to throwaway `cbit_*` databases that it drops again: point it at a throwaway server,
 never at production. Tier 2 only ever touches containers it created. Screenshot tests need a GPU:
 
 ```sh
-MONGOSTUDIO_SNAPSHOTS=1 cargo test -p mongostudio-ui --test snapshots -- --include-ignored --nocapture
+CURLYBRACE_SNAPSHOTS=1 cargo test -p curlybrace-ui --test snapshots -- --include-ignored --nocapture
 ```
 
 Add `UPDATE_SNAPSHOTS=1` to deliberately rewrite the committed PNGs. Always pass `--nocapture` so
 the reason a gated test skipped (or failed) is visible. Shared helpers live in `crates/testkit`;
 `scripts/check-no-db-in-ci.sh` keeps database tests out of the workflows. Details, cleanup and
 coverage commands are in [docs/superpowers/notes/testing.md](docs/superpowers/notes/testing.md). The
-target is at least 80% line coverage for `mongostudio-core`.
+target is at least 80% line coverage for `curlybrace-core`.
 
 Prefer real values (real `bson` documents from `mock_objects`) over mocks. Mock only boundaries:
 the driver, SSH and the Keychain.

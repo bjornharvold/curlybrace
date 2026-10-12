@@ -1,6 +1,6 @@
 [package]
-name = "mongostudio"
-description = "The MongoDB GUI: a free, native MongoDB client for macOS"
+name = "curlybrace"
+description = "Curlybrace: a free, native MongoDB client for macOS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,10 +12,10 @@ authors.workspace = true
 [dependencies]
 eframe = "0.32.3"
 log = "0.4.26"
-mongostudio-core = { path = "../core" }
-mongostudio-ui = { path = "../ui" }
+curlybrace-core = { path = "../core" }
+curlybrace-ui = { path = "../ui" }
 tokio ={ version = "1.53.2", features = ["rt-multi-thread"] }
 
 [features]
 default = ["gssapi"]
-gssapi = ["mongostudio-core/gssapi"]
+gssapi = ["curlybrace-core/gssapi"]

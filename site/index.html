@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The MongoDB GUI: a free MongoDB client for Mac</title>
-<meta name="description" content="Browse, query and edit MongoDB collections in a free, open-source, native Mac app. No account, no trial, no paid tier.">
+<title>Curlybrace: a free MongoDB GUI for Mac</title>
+<meta name="description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query and edit your MongoDB collections. No account, no trial, no paid tier.">
 <meta name="theme-color" content="#F2F5F7">
-<meta property="og:title" content="The MongoDB GUI: a free MongoDB client for Mac">
-<meta property="og:description" content="Browse, query and edit MongoDB collections in a free, open-source, native Mac app. Builders welcome.">
+<meta property="og:title" content="Curlybrace: a free MongoDB GUI for Mac">
+<meta property="og:description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query and edit your MongoDB collections. Builders welcome.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://bjornharvold.github.io/the-mongodb-gui/">
+<meta property="og:url" content="https://bjornharvold.github.io/curlybrace/">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -54,6 +54,7 @@
   .nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 0; }
   .brand { font-weight: 700; font-size: 1.1rem; text-decoration: none; letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 10px; }
   .brand-mark { width: 32px; height: 32px; display: block; }
+  .brand-for { font-weight: 500; font-size: 0.95rem; color: var(--muted); letter-spacing: 0; }
   .nav ul { display: flex; gap: 26px; list-style: none; margin: 0; padding: 0; font-weight: 500; font-size: 1rem; }
   .nav ul a { text-decoration: none; color: var(--muted); }
   .nav ul a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 5px; }
@@ -179,13 +180,13 @@
 
 <div class="wrap">
   <header class="nav">
-    <a class="brand" href="#top"><img class="brand-mark" src="favicon.svg" alt="" width="32" height="32">The MongoDB GUI</a>
+    <a class="brand" href="#top"><img class="brand-mark" src="favicon.svg" alt="" width="32" height="32">Curlybrace<span class="brand-for">for MongoDB</span></a>
     <nav aria-label="Primary">
       <ul>
         <li><a href="#what-it-does">What it does</a></li>
         <li><a href="#install">Install</a></li>
         <li><a href="#build">Contribute</a></li>
-        <li><a href="https://github.com/bjornharvold/the-mongodb-gui">GitHub</a></li>
+        <li><a href="https://github.com/bjornharvold/curlybrace">GitHub</a></li>
       </ul>
     </nav>
   </header>
@@ -195,18 +196,18 @@
   <div class="wrap" id="top">
     <section class="hero">
       <div>
-        <h1>Browse, query and edit MongoDB. It’s free.</h1>
-        <p class="lede">The MongoDB GUI is a native Mac app for working with your collections. No account, no trial, no paid tier, and the source is open.</p>
+        <h1>Curlybrace is a free MongoDB GUI for Mac.</h1>
+        <p class="lede">Browse, query and edit your MongoDB collections in a native Mac app. No account, no trial, no paid tier, and the source is open.</p>
         <div class="actions">
-          <a class="btn btn-primary" href="https://github.com/bjornharvold/the-mongodb-gui/releases/latest">Download for macOS</a>
-          <a class="btn btn-quiet" href="https://github.com/bjornharvold/the-mongodb-gui">View the source</a>
+          <a class="btn btn-primary" href="https://github.com/bjornharvold/curlybrace/releases/latest">Download for macOS</a>
+          <a class="btn btn-quiet" href="https://github.com/bjornharvold/curlybrace">View the source</a>
         </div>
         <p class="fine">Early release for Apple Silicon Macs. Licensed MIT or Apache-2.0.</p>
       </div>
 
       <figure class="figure">
         <div class="app" id="demo">
-          <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="name">The MongoDB GUI</span></div>
+          <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="name">Curlybrace</span></div>
           <div class="app-body">
             <div class="side" aria-hidden="true">
               <b>acme</b>
@@ -315,7 +316,7 @@
             <li><span>License</span><span>MIT or Apache-2.0, your choice</span></li>
             <li><span>Account or sign-in</span><span>None</span></li>
             <li><span>Telemetry</span><span>None</span></li>
-            <li><span>Source code</span><span><a href="https://github.com/bjornharvold/the-mongodb-gui">GitHub</a></span></li>
+            <li><span>Source code</span><span><a href="https://github.com/bjornharvold/curlybrace">GitHub</a></span></li>
           </ul>
         </div>
       </section>
@@ -327,12 +328,12 @@
       <h2>Install it in a minute</h2>
       <p class="section-lede">For Apple Silicon Macs. The app isn’t notarized by Apple yet, so macOS asks you to confirm the first launch.</p>
       <ol class="steps">
-        <li><div><p>Download <code>the-mongodb-gui-…-macos-arm64.zip</code> from the <a href="https://github.com/bjornharvold/the-mongodb-gui/releases/latest">latest release</a> and unzip it.</p></div></li>
-        <li><div><p>Move <b>The MongoDB GUI</b> into your Applications folder.</p></div></li>
+        <li><div><p>Download <code>curlybrace-…-macos-arm64.zip</code> from the <a href="https://github.com/bjornharvold/curlybrace/releases/latest">latest release</a> and unzip it.</p></div></li>
+        <li><div><p>Move <b>Curlybrace</b> into your Applications folder.</p></div></li>
         <li><div><p>Right-click the app, choose <b>Open</b>, then <b>Open</b> again. Or clear the quarantine flag once from a terminal:</p>
-<pre class="cmd">xattr -dr com.apple.quarantine "/Applications/The MongoDB GUI.app"</pre></div></li>
+<pre class="cmd">xattr -dr com.apple.quarantine "/Applications/Curlybrace.app"</pre></div></li>
       </ol>
-      <a class="btn btn-primary" href="https://github.com/bjornharvold/the-mongodb-gui/releases/latest">Go to the latest release</a>
+      <a class="btn btn-primary" href="https://github.com/bjornharvold/curlybrace/releases/latest">Go to the latest release</a>
     </section>
   </div>
 
@@ -345,17 +346,18 @@
             <p class="section-lede">The app is small and young, and that makes it a good place to leave a mark. The next features are open for anyone to take.</p>
             <p>You do not need to be a Rust expert. Fixing a bug, writing a test or improving a doc is a real contribution. If you want to build a whole feature or bring the app to another platform, the contributing guide shows how the code is organised and how releases work.</p>
             <div class="actions">
-              <a class="btn btn-primary" href="https://github.com/bjornharvold/the-mongodb-gui/blob/main/CONTRIBUTING.md">Read the contributing guide</a>
-              <a class="btn btn-quiet" href="https://github.com/bjornharvold/the-mongodb-gui/issues">Pick an issue</a>
+              <a class="btn btn-primary" href="https://github.com/bjornharvold/curlybrace/blob/main/CONTRIBUTING.md">Read the contributing guide</a>
+              <a class="btn btn-quiet" href="https://github.com/bjornharvold/curlybrace/issues">Pick an issue</a>
             </div>
           </div>
           <ul class="wanted" aria-label="Open work">
-            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/8">Data Compare and Sync</a></strong><span class="d">Diff two collections or databases across servers, then apply or export the changes.</span></div><span class="tag">Planned</span></li>
-            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/9">Data Masking and Reschema</a></strong><span class="d">Anonymise sensitive fields in copies of data and reshape documents in bulk.</span></div><span class="tag">Planned</span></li>
-            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/10">SQL and MongoDB</a></strong><span class="d">A SQL query editor that translates to MongoDB queries.</span></div><span class="tag">Planned</span></li>
-            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/11">Task Scheduler</a></strong><span class="d">Run saved jobs on a schedule, with logs.</span></div><span class="tag">Planned</span></li>
-            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/15">More platforms</a></strong><span class="d">Intel Mac, Linux and Windows builds. One workflow row and a packaging script.</span></div><span class="tag">Wanted</span></li>
-            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/17">Signing and notarization</a></strong><span class="d">So the first launch doesn’t need a confirmation.</span></div><span class="tag">Wanted</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/8">Data Compare and Sync</a></strong><span class="d">Diff two collections or databases across servers, then apply or export the changes.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/9">Data Masking and Reschema</a></strong><span class="d">Anonymise sensitive fields in copies of data and reshape documents in bulk.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/10">SQL and MongoDB</a></strong><span class="d">A SQL query editor that translates to MongoDB queries.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/11">Task Scheduler</a></strong><span class="d">Run saved jobs on a schedule, with logs.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/15">More platforms</a></strong><span class="d">Intel Mac, Linux and Windows builds. One workflow row and a packaging script.</span></div><span class="tag">Wanted</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/17">Signing and notarization</a></strong><span class="d">So the first launch doesn’t need a confirmation.</span></div><span class="tag">Wanted</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/24">Homebrew install</a></strong><span class="d">brew install --cask curlybrace, once releases are signed and notarized.</span></div><span class="tag">Planned</span></li>
           </ul>
         </div>
       </section>
@@ -367,15 +369,15 @@
   <div class="wrap">
     <div class="cols">
       <div>
-        <p><b>The MongoDB GUI</b> is free software, licensed MIT or Apache-2.0.</p>
+        <p><b>Curlybrace</b> is free software for MongoDB, licensed MIT or Apache-2.0.</p>
         <p>Independent project. Not affiliated with, endorsed by or sponsored by MongoDB, Inc. “MongoDB” is a registered trademark of MongoDB, Inc.</p>
       </div>
       <nav aria-label="Footer">
-        <a href="https://github.com/bjornharvold/the-mongodb-gui">Source</a>
-        <a href="https://github.com/bjornharvold/the-mongodb-gui/blob/main/CHANGELOG.md">Changelog</a>
-        <a href="https://github.com/bjornharvold/the-mongodb-gui/releases">Releases</a>
-        <a href="https://github.com/bjornharvold/the-mongodb-gui/blob/main/CONTRIBUTING.md">Contribute</a>
-        <a href="https://github.com/bjornharvold/the-mongodb-gui/security">Security</a>
+        <a href="https://github.com/bjornharvold/curlybrace">Source</a>
+        <a href="https://github.com/bjornharvold/curlybrace/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/bjornharvold/curlybrace/releases">Releases</a>
+        <a href="https://github.com/bjornharvold/curlybrace/blob/main/CONTRIBUTING.md">Contribute</a>
+        <a href="https://github.com/bjornharvold/curlybrace/security">Security</a>
       </nav>
     </div>
   </div>

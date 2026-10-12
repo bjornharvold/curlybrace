@@ -1,8 +1,8 @@
 //! Interactive SSH host-key prompt: a blocking `HostKeyPrompt` for the runtime thread, a pure
 //! state machine for the UI side, and `forget_host` for a changed key.
 use super::persistence::{PersistError, atomic_write};
-use mongostudio_core::runtime::Repaint;
-use mongostudio_core::tunnel::{HostKeyDecision, HostKeyPrompt};
+use curlybrace_core::runtime::Repaint;
+use curlybrace_core::tunnel::{HostKeyDecision, HostKeyPrompt};
 use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};

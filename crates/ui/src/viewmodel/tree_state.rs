@@ -4,7 +4,7 @@ use super::json_cache::JsonCache;
 use super::page_key::PageKey;
 use super::tree::{TreeRow, flatten_doc};
 use bson::{Bson, Document};
-use mongostudio_core::store::Page;
+use curlybrace_core::store::Page;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -186,7 +186,7 @@ mod tests {
     use super::super::page_key::page_key;
     use super::*;
     use bson::doc;
-    use mongostudio_core::test_support::mock_objects::mock_doc_with_id;
+    use curlybrace_core::test_support::mock_objects::mock_doc_with_id;
 
     fn page_of(docs: Vec<Document>) -> Page {
         Page {

@@ -1,16 +1,16 @@
 <p align="center"><img src="assets/icon/app-icon-256.png" width="112" height="112" alt="The app icon: a document between curly braces"></p>
 
-# The MongoDB GUI
+# Curlybrace
 
-A free, native MongoDB client for macOS. Browse your collections, run queries, and edit documents
-without an account, a trial, or a license fee.
+**Curlybrace is a free, native MongoDB GUI for macOS.** Browse your MongoDB collections, run queries,
+and edit documents without an account, a trial, or a license fee.
 
-[![CI](https://github.com/bjornharvold/the-mongodb-gui/actions/workflows/ci.yml/badge.svg)](https://github.com/bjornharvold/the-mongodb-gui/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/bjornharvold/the-mongodb-gui?include_prereleases)](https://github.com/bjornharvold/the-mongodb-gui/releases/latest)
+[![CI](https://github.com/bjornharvold/curlybrace/actions/workflows/ci.yml/badge.svg)](https://github.com/bjornharvold/curlybrace/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/bjornharvold/curlybrace?include_prereleases)](https://github.com/bjornharvold/curlybrace/releases/latest)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
-**Website:** <https://bjornharvold.github.io/the-mongodb-gui/> ·
-**Download:** [latest release](https://github.com/bjornharvold/the-mongodb-gui/releases/latest) ·
+**Website:** <https://bjornharvold.github.io/curlybrace/> ·
+**Download:** [latest release](https://github.com/bjornharvold/curlybrace/releases/latest) ·
 **Changes:** [CHANGELOG.md](CHANGELOG.md)
 
 > **Status: early.** The app is at version 0.x. The core browsing and editing flow is built and
@@ -47,15 +47,15 @@ without an account, a trial, or a license fee.
 
 ## Install
 
-1. Download `the-mongodb-gui-vX.Y.Z-macos-arm64.zip` from the
-   [latest release](https://github.com/bjornharvold/the-mongodb-gui/releases/latest) (Apple Silicon).
-2. Optionally check it: `shasum -a 256 -c the-mongodb-gui-vX.Y.Z-macos-arm64.zip.sha256`
-3. Unzip it and move **The MongoDB GUI.app** to `/Applications`.
+1. Download `curlybrace-vX.Y.Z-macos-arm64.zip` from the
+   [latest release](https://github.com/bjornharvold/curlybrace/releases/latest) (Apple Silicon).
+2. Optionally check it: `shasum -a 256 -c curlybrace-vX.Y.Z-macos-arm64.zip.sha256`
+3. Unzip it and move **Curlybrace.app** to `/Applications`.
 4. The app is **not notarized by Apple yet**, so the first launch is blocked by Gatekeeper.
    Right-click the app, choose **Open**, then **Open** again. Or remove the quarantine flag once:
 
    ```sh
-   xattr -dr com.apple.quarantine "/Applications/The MongoDB GUI.app"
+   xattr -dr com.apple.quarantine "/Applications/Curlybrace.app"
    ```
 
 Only macOS on Apple Silicon (arm64) is built today. Other platforms are welcome contributions, see
@@ -82,7 +82,7 @@ To see failure details, launch the app from a terminal with logging on (levels: 
 `info`, `debug`, `trace`; logging is off by default):
 
 ```sh
-MONGOSTUDIO_LOG=warn "/Applications/The MongoDB GUI.app/Contents/MacOS/mongostudio"
+CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 ```
 
 ## Known limitations
@@ -106,31 +106,31 @@ The project focuses on features that free MongoDB tools do not already cover wel
 in rough order; each one gets its own design and plan before code is written, and each is a good
 place to contribute:
 
-- **Data Compare & Sync** ([#8](https://github.com/bjornharvold/the-mongodb-gui/issues/8)): diff two collections or databases (across servers), pick the
+- **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): diff two collections or databases (across servers), pick the
   differences, and apply or export the sync.
-- **Data Masking and Reschema** ([#9](https://github.com/bjornharvold/the-mongodb-gui/issues/9)): anonymise sensitive fields in copies of data and
+- **Data Masking and Reschema** ([#9](https://github.com/bjornharvold/curlybrace/issues/9)): anonymise sensitive fields in copies of data and
   reshape documents in bulk.
-- **SQL and MongoDB** ([#10](https://github.com/bjornharvold/the-mongodb-gui/issues/10)): a SQL query editor that translates to MongoDB queries, plus SQL
+- **SQL and MongoDB** ([#10](https://github.com/bjornharvold/curlybrace/issues/10)): a SQL query editor that translates to MongoDB queries, plus SQL
   import.
-- **Task Scheduler** ([#11](https://github.com/bjornharvold/the-mongodb-gui/issues/11)): save and schedule the jobs above to run unattended, with logs.
-- **More platforms**: [Intel Mac (#14)](https://github.com/bjornharvold/the-mongodb-gui/issues/14), [Linux (#15)](https://github.com/bjornharvold/the-mongodb-gui/issues/15), [Windows (#16)](https://github.com/bjornharvold/the-mongodb-gui/issues/16).
-- **Trust and polish**: [Apple code signing and notarization (#17)](https://github.com/bjornharvold/the-mongodb-gui/issues/17), [inline table editing
-  (#12)](https://github.com/bjornharvold/the-mongodb-gui/issues/12), [`ssh-agent` support (#13)](https://github.com/bjornharvold/the-mongodb-gui/issues/13), [TLS test containers (#18)](https://github.com/bjornharvold/the-mongodb-gui/issues/18),
-  [click-driven UI and screenshot tests (#19)](https://github.com/bjornharvold/the-mongodb-gui/issues/19), [real screenshots (#20)](https://github.com/bjornharvold/the-mongodb-gui/issues/20) and
-  [translations (#21)](https://github.com/bjornharvold/the-mongodb-gui/issues/21).
+- **Task Scheduler** ([#11](https://github.com/bjornharvold/curlybrace/issues/11)): save and schedule the jobs above to run unattended, with logs.
+- **More platforms**: [Intel Mac (#14)](https://github.com/bjornharvold/curlybrace/issues/14), [Linux (#15)](https://github.com/bjornharvold/curlybrace/issues/15), [Windows (#16)](https://github.com/bjornharvold/curlybrace/issues/16).
+- **Trust and polish**: [Homebrew install (#24)](https://github.com/bjornharvold/curlybrace/issues/24) (blocked on signing), [Apple code signing and notarization (#17)](https://github.com/bjornharvold/curlybrace/issues/17), [inline table editing
+  (#12)](https://github.com/bjornharvold/curlybrace/issues/12), [`ssh-agent` support (#13)](https://github.com/bjornharvold/curlybrace/issues/13), [TLS test containers (#18)](https://github.com/bjornharvold/curlybrace/issues/18),
+  [click-driven UI and screenshot tests (#19)](https://github.com/bjornharvold/curlybrace/issues/19), [real screenshots (#20)](https://github.com/bjornharvold/curlybrace/issues/20) and
+  [translations (#21)](https://github.com/bjornharvold/curlybrace/issues/21).
 
 Every item above has an issue with a description and a "done when" checklist. Browse them all by the
-[`help wanted`](https://github.com/bjornharvold/the-mongodb-gui/issues/?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) and
-[`good first issue`](https://github.com/bjornharvold/the-mongodb-gui/issues/?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) labels.
+[`help wanted`](https://github.com/bjornharvold/curlybrace/issues/?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) and
+[`good first issue`](https://github.com/bjornharvold/curlybrace/issues/?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) labels.
 
 ## Build from source
 
 You need macOS and Rust 1.87 or newer (see `rust-version` in `Cargo.toml`).
 
 ```sh
-git clone https://github.com/bjornharvold/the-mongodb-gui.git
-cd the-mongodb-gui
-cargo run --release -p mongostudio      # build and launch
+git clone https://github.com/bjornharvold/curlybrace.git
+cd curlybrace
+cargo run --release -p curlybrace      # build and launch
 cargo test --workspace                  # unit tests (no network or docker needed)
 ```
 
@@ -175,6 +175,6 @@ any additional terms or conditions.
 
 ## Disclaimer
 
-The MongoDB GUI is an independent open-source project. It is not affiliated with, endorsed by, or
+Curlybrace is an independent open-source project. It is not affiliated with, endorsed by, or
 sponsored by MongoDB, Inc. "MongoDB" is a registered trademark of MongoDB, Inc. The app is built
 from public documentation and open-source libraries and contains no proprietary code.

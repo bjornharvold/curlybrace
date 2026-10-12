@@ -1,14 +1,14 @@
 //! Tier 2 (docker): UI failure paths that need control of the server: wrong password (an
-//! `--auth` container) and a server stopped mid-session. Each test starts its own `ms-it-*`
+//! `--auth` container) and a server stopped mid-session. Each test starts its own `cb-it-*`
 //! container and removes it on drop. Run with `scripts/container-tests.sh`.
 mod support;
 
+use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::secrets::{SecretKind, secret_key};
+use curlybrace_testkit::{Container, MongoServer, docker_enabled};
+use curlybrace_ui::app::state::{Banner, ConnStatus};
 use egui_kittest::kittest::Queryable;
-use mongostudio_core::connection::{AuthMechanism, ConnectionConfig};
-use mongostudio_core::error::CoreError;
-use mongostudio_core::secrets::{SecretKind, secret_key};
-use mongostudio_testkit::{Container, MongoServer, docker_enabled};
-use mongostudio_ui::app::state::{Banner, ConnStatus};
 use support::actions::*;
 use support::db::people;
 use support::fixture::{Fixture, Setup};
@@ -62,7 +62,7 @@ fn auth_fixture(test: &str, saved_password: &str) -> Option<Fixture> {
 }
 
 #[test]
-#[ignore = "needs docker: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker: set CURLYBRACE_IT=1"]
 fn wrong_password_shows_the_auth_error_banner_in_time() {
     let Some(mut f) = auth_fixture(test_name!(), "definitely-wrong") else {
         return;
@@ -96,7 +96,7 @@ fn wrong_password_shows_the_auth_error_banner_in_time() {
 }
 
 #[test]
-#[ignore = "needs docker: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker: set CURLYBRACE_IT=1"]
 fn the_right_password_connects_to_the_same_secured_server() {
     let Some(mut f) = auth_fixture(test_name!(), ROOT_PASSWORD) else {
         return;
@@ -111,7 +111,7 @@ fn the_right_password_connects_to_the_same_secured_server() {
 }
 
 #[test]
-#[ignore = "needs docker: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker: set CURLYBRACE_IT=1"]
 fn a_stopped_server_fails_in_time_and_reconnects_after_restart() {
     let Some(mut f) = Fixture::docker_plain(test_name!()) else {
         return;

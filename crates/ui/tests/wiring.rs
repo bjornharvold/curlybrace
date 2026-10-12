@@ -1,20 +1,20 @@
 //! End-to-end wiring without a window: the REAL runtime over an in-memory store, driven by the
 //! app's real frame loop (`run_frame` pumps events through the reducer and sends its commands).
 use bson::{Bson, Document, doc};
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::error::Result;
+use curlybrace_core::runtime::{Connector, Event, RuntimeConfig, spawn_runtime_with_connector};
+use curlybrace_core::secrets::MemorySecretStore;
+use curlybrace_core::store::{DocumentStore, Namespace, Query};
+use curlybrace_core::test_support::InMemoryStore;
+use curlybrace_core::tunnel::{HostKeyDecision, HostKeyPrompt};
+use curlybrace_ui::I18n;
+use curlybrace_ui::app::CurlybraceApp;
+use curlybrace_ui::app::host_key::{HostKeyRequest, InteractivePrompt};
+use curlybrace_ui::app::reducer::{Input, update};
+use curlybrace_ui::app::state::{AppState, Banner, ConnStatus};
+use curlybrace_ui::viewmodel::{DocAction, EditorAction, FindAction, SidebarAction};
 use eframe::egui;
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::error::Result;
-use mongostudio_core::runtime::{Connector, Event, RuntimeConfig, spawn_runtime_with_connector};
-use mongostudio_core::secrets::MemorySecretStore;
-use mongostudio_core::store::{DocumentStore, Namespace, Query};
-use mongostudio_core::test_support::InMemoryStore;
-use mongostudio_core::tunnel::{HostKeyDecision, HostKeyPrompt};
-use mongostudio_ui::I18n;
-use mongostudio_ui::app::MongoStudioApp;
-use mongostudio_ui::app::host_key::{HostKeyRequest, InteractivePrompt};
-use mongostudio_ui::app::reducer::{Input, update};
-use mongostudio_ui::app::state::{AppState, Banner, ConnStatus};
-use mongostudio_ui::viewmodel::{DocAction, EditorAction, FindAction, SidebarAction};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
@@ -48,7 +48,7 @@ fn seeded() -> Arc<dyn DocumentStore> {
 }
 
 struct Harness {
-    app: MongoStudioApp,
+    app: CurlybraceApp,
     ctx: egui::Context,
     _dir: tempfile::TempDir,
 }
@@ -60,7 +60,7 @@ impl Harness {
     }
 
     /// Runs frames until `done` holds; fails after a generous deadline.
-    fn until(&mut self, what: &str, done: impl Fn(&MongoStudioApp) -> bool) {
+    fn until(&mut self, what: &str, done: impl Fn(&CurlybraceApp) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             self.frame();
@@ -80,7 +80,7 @@ impl Harness {
     }
 }
 
-fn names(app: &MongoStudioApp) -> Vec<String> {
+fn names(app: &CurlybraceApp) -> Vec<String> {
     let page = app.state().page.as_ref();
     let docs = page.map(|p| p.docs.clone()).unwrap_or_default();
     docs.iter()
@@ -103,7 +103,7 @@ fn harness_with(requests: Option<Receiver<HostKeyRequest>>) -> (Harness, uuid::U
     );
     let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
     let id = cfg.id;
-    let app = MongoStudioApp::new(
+    let app = CurlybraceApp::new(
         handle,
         I18n::english(),
         vec![cfg],
@@ -272,7 +272,7 @@ impl Connector for Gated {
     ) -> Opened {
         let gate = self.0.lock().unwrap().remove(&cfg.name).expect("gate");
         gate.await
-            .unwrap_or_else(|_| Err(mongostudio_core::error::CoreError::Database("gone".into())))
+            .unwrap_or_else(|_| Err(curlybrace_core::error::CoreError::Database("gone".into())))
     }
 }
 
@@ -302,7 +302,7 @@ async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fai
         ConnectionConfig::new("b", "mongodb://localhost:27017"),
     );
     let (id_a, id_b) = (a.id, b.id);
-    let app = MongoStudioApp::new(
+    let app = CurlybraceApp::new(
         handle,
         I18n::english(),
         vec![a, b],
@@ -322,7 +322,7 @@ async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fai
         a.state().status == ConnStatus::Connected && !a.state().sidebar.databases.is_empty()
     });
     // A (superseded) now fails with a genuine error: it must not disturb the session.
-    tx_a.send(Err(mongostudio_core::error::CoreError::Database(
+    tx_a.send(Err(curlybrace_core::error::CoreError::Database(
         "late".into(),
     )))
     .ok();
@@ -341,7 +341,7 @@ async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fai
 fn step(
     state: AppState,
     input: Input,
-    tx: &tokio::sync::mpsc::UnboundedSender<mongostudio_core::runtime::Command>,
+    tx: &tokio::sync::mpsc::UnboundedSender<curlybrace_core::runtime::Command>,
 ) -> AppState {
     let (state, commands) = update(state, input);
     for command in commands {
@@ -350,7 +350,7 @@ fn step(
     state
 }
 
-async fn recv(h: &mut mongostudio_core::runtime::RuntimeHandle) -> Event {
+async fn recv(h: &mut curlybrace_core::runtime::RuntimeHandle) -> Event {
     tokio::time::timeout(Duration::from_secs(10), h.rx.recv())
         .await
         .expect("event in time")
@@ -404,7 +404,7 @@ async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
         recv(&mut handle).await,
         Event::Failed {
             context: "connect",
-            error: mongostudio_core::error::CoreError::Superseded
+            error: curlybrace_core::error::CoreError::Superseded
         }
     );
 

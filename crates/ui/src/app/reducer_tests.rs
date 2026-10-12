@@ -4,12 +4,12 @@ use crate::app::state::{AppState, Banner, ConnStatus, EditorKey, HostEndpoint, P
 use crate::viewmodel::{DbNode, DocAction, EditorAction, EditorState, FindAction, SidebarAction};
 use crate::viewmodel::{PageKey, page_key};
 use bson::{Bson, Document, doc};
-use mongostudio_core::connection::{ConnectionConfig, SshAuth, SshConfig};
-use mongostudio_core::error::CoreError;
-use mongostudio_core::query::QueryText;
-use mongostudio_core::runtime::{Command, Event};
-use mongostudio_core::store::{Namespace, Page, Query};
-use mongostudio_core::test_support::mock_objects::mock_doc_with_id;
+use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::query::QueryText;
+use curlybrace_core::runtime::{Command, Event};
+use curlybrace_core::store::{Namespace, Page, Query};
+use curlybrace_core::test_support::mock_objects::mock_doc_with_id;
 
 fn ns() -> Namespace {
     Namespace::new("app", "people")

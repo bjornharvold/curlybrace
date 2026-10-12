@@ -1,5 +1,5 @@
 //! SCRAM authentication against `mongo:7 --auth`, directly and through the
-//! real runtime. Tier 2 (docker): own `ms-it-*` container; run with `scripts/container-tests.sh`.
+//! real runtime. Tier 2 (docker): own `cb-it-*` container; run with `scripts/container-tests.sh`.
 
 mod support;
 
@@ -7,13 +7,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bson::doc;
-use mongostudio_core::client::{self, SERVER_SELECTION_TIMEOUT};
-use mongostudio_core::connection::{AuthMechanism, ConnectionConfig};
-use mongostudio_core::error::CoreError;
-use mongostudio_core::mongo_store::MongoStore;
-use mongostudio_core::runtime::{Command, Event, RuntimeConfig, spawn_runtime_with_config};
-use mongostudio_core::secrets::{MemorySecretStore, SecretKind, SecretStore, secret_key};
-use mongostudio_core::store::{DocumentStore, Namespace, Query};
+use curlybrace_core::client::{self, SERVER_SELECTION_TIMEOUT};
+use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::mongo_store::MongoStore;
+use curlybrace_core::runtime::{Command, Event, RuntimeConfig, spawn_runtime_with_config};
+use curlybrace_core::secrets::{MemorySecretStore, SecretKind, SecretStore, secret_key};
+use curlybrace_core::store::{DocumentStore, Namespace, Query};
 use support::{Container, docker_enabled, next_event, no_repaint, wait_ready};
 
 const USER: &str = "root";
@@ -40,7 +40,7 @@ fn scram_config(container: &Container) -> ConnectionConfig {
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
 async fn scram_sha256_succeeds_and_failures_are_typed_and_bounded() {
     if !docker_enabled("scram_sha256_succeeds_and_failures_are_typed_and_bounded") {
         return;
@@ -88,10 +88,7 @@ async fn scram_sha256_succeeds_and_failures_are_typed_and_bounded() {
     ));
 }
 
-fn runtime_with(
-    cfg: &ConnectionConfig,
-    password: &str,
-) -> mongostudio_core::runtime::RuntimeHandle {
+fn runtime_with(cfg: &ConnectionConfig, password: &str) -> curlybrace_core::runtime::RuntimeHandle {
     let secrets = MemorySecretStore::new();
     secrets
         .set(&secret_key(cfg.id, SecretKind::Password), password)
@@ -104,7 +101,7 @@ fn runtime_with(
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
 async fn real_runtime_connects_lists_and_finds_with_a_keychain_password() {
     if !docker_enabled("real_runtime_connects_lists_and_finds_with_a_keychain_password") {
         return;
@@ -149,7 +146,7 @@ async fn real_runtime_connects_lists_and_finds_with_a_keychain_password() {
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
 async fn real_runtime_reports_connect_failed_for_a_wrong_password_in_time() {
     if !docker_enabled("real_runtime_reports_connect_failed_for_a_wrong_password_in_time") {
         return;

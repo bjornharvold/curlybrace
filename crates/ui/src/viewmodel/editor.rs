@@ -1,8 +1,8 @@
 //! Editor modal state: validation runs before a Save action can be produced.
 use bson::{Bson, Document};
-use mongostudio_core::crud::id_of;
-use mongostudio_core::ejson::{doc_to_editor_json, editor_json_to_doc};
-use mongostudio_core::error::CoreError;
+use curlybrace_core::crud::id_of;
+use curlybrace_core::ejson::{doc_to_editor_json, editor_json_to_doc};
+use curlybrace_core::error::CoreError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EditorState {
@@ -95,7 +95,7 @@ pub fn resolve_editor(
 mod tests {
     use super::*;
     use bson::doc;
-    use mongostudio_core::test_support::mock_objects::{exotic_doc, mock_doc_with_id};
+    use curlybrace_core::test_support::mock_objects::{exotic_doc, mock_doc_with_id};
 
     #[test]
     fn for_new_is_empty_object_without_id() {

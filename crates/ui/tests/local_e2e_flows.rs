@@ -2,17 +2,17 @@
 //! `egui_kittest`, against a real MongoDB. After each action both the screen and the database
 //! (read through the driver) are asserted.
 //!
-//! Tier 1 (local server): needs only a MongoDB already running (`MONGOSTUDIO_IT_MONGO_URI`,
+//! Tier 1 (local server): needs only a MongoDB already running (`CURLYBRACE_IT_MONGODB_URI`,
 //! default `mongodb://127.0.0.1:27017`); no docker. Every test writes to its own throwaway
-//! `msit_*` database and drops it. Run with `scripts/integration-tests.sh`. The flows that need
+//! `cbit_*` database and drops it. Run with `scripts/integration-tests.sh`. The flows that need
 //! docker (`--auth`, stopping the server) are in `docker_e2e_failures.rs`.
 mod support;
 
 use bson::{Bson, doc};
+use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
+use curlybrace_ui::app::persistence::{load_connections, save_connections};
+use curlybrace_ui::viewmodel::id_preview;
 use egui_kittest::kittest::Queryable;
-use mongostudio_core::secrets::{SecretKind, SecretStore, secret_key};
-use mongostudio_ui::app::persistence::{load_connections, save_connections};
-use mongostudio_ui::viewmodel::id_preview;
 use support::actions::*;
 use support::db::people;
 use support::fixture::Fixture;
@@ -41,7 +41,7 @@ macro_rules! fixture {
 }
 
 #[test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn add_a_connection_through_the_form_then_browse_it() {
     let mut f = fixture!(local_empty);
     let connect = f.labels.t("connections.connect");
@@ -81,7 +81,7 @@ fn add_a_connection_through_the_form_then_browse_it() {
 }
 
 #[test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn find_bar_filter_sort_projection_and_bad_input() {
     let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
@@ -123,7 +123,7 @@ fn find_bar_filter_sort_projection_and_bad_input() {
 }
 
 #[test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn switching_tree_table_and_json_changes_the_content() {
     let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
@@ -158,7 +158,7 @@ fn switching_tree_table_and_json_changes_the_content() {
 }
 
 #[test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn edit_a_document_through_the_editor_saves_and_refreshes() {
     let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
@@ -196,7 +196,7 @@ fn edit_a_document_through_the_editor_saves_and_refreshes() {
 }
 
 #[test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn clone_a_document_adds_a_new_one() {
     let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
@@ -223,7 +223,7 @@ fn clone_a_document_adds_a_new_one() {
 }
 
 #[test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn delete_asks_for_confirmation_cancel_keeps_confirm_removes() {
     let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
@@ -253,7 +253,7 @@ fn delete_asks_for_confirmation_cancel_keeps_confirm_removes() {
 }
 
 #[test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn a_projected_page_offers_delete_but_not_edit_or_clone() {
     let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
@@ -275,7 +275,7 @@ fn a_projected_page_offers_delete_but_not_edit_or_clone() {
 }
 
 #[test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn deleting_a_saved_connection_asks_first_and_removes_its_secrets() {
     let mut f = fixture!(local);
     let id = f.saved_id();

@@ -1,17 +1,17 @@
 //! Driver-specific helpers for the core integration tests. The generic parts (env gates, the
-//! `ms-it-*` docker guards, the SSH stack) live in `mongostudio-testkit` and are re-exported.
-//! Tests are `#[ignore]` and additionally gated on `MONGOSTUDIO_IT=1` via `local_enabled` / `docker_enabled`, which
+//! `cb-it-*` docker guards, the SSH stack) live in `curlybrace-testkit` and are re-exported.
+//! Tests are `#[ignore]` and additionally gated on `CURLYBRACE_IT=1` via `local_enabled` / `docker_enabled`, which
 //! prints why a test was skipped.
 #![allow(dead_code, unused_imports)]
 
 use std::time::{Duration, Instant};
 
+use curlybrace_core::client;
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::mongo_store::MongoStore;
 use mongodb::Client;
-use mongostudio_core::client;
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::mongo_store::MongoStore;
 
-pub use mongostudio_testkit::{
+pub use curlybrace_testkit::{
     Container, SSH_PASSWORD, SSH_USER, SshStack, docker_enabled, local_enabled,
 };
 
@@ -50,7 +50,7 @@ pub async fn docker_mongo() -> (Container, Client, MongoStore) {
 }
 
 /// Tier 1: the already-running local server. All writes go to databases owned by the returned
-/// guard (`msit_<id>` names), which are dropped when it goes out of scope.
+/// guard (`cbit_<id>` names), which are dropped when it goes out of scope.
 pub struct LocalDbs {
     uri: String,
     pub db: String,
@@ -58,8 +58,8 @@ pub struct LocalDbs {
 }
 
 impl LocalDbs {
-    pub fn ns(&self, collection: &str) -> mongostudio_core::store::Namespace {
-        mongostudio_core::store::Namespace::new(&self.db, collection)
+    pub fn ns(&self, collection: &str) -> curlybrace_core::store::Namespace {
+        curlybrace_core::store::Namespace::new(&self.db, collection)
     }
 }
 
@@ -92,7 +92,7 @@ impl Drop for LocalDbs {
 
 /// Connects to the local server (a failure to reach it FAILS the test with instructions).
 pub async fn local_mongo() -> (LocalDbs, Client, MongoStore) {
-    let uri = mongostudio_testkit::local_uri();
+    let uri = curlybrace_testkit::local_uri();
     let cfg = ConnectionConfig::new("it", &uri);
     let client = match tokio::time::timeout(
         Duration::from_secs(15),
@@ -103,14 +103,14 @@ pub async fn local_mongo() -> (LocalDbs, Client, MongoStore) {
         Ok(client) => client,
         Err(_) => panic!(
             "{}",
-            mongostudio_testkit::unreachable_message(&uri, "timeout")
+            curlybrace_testkit::unreachable_message(&uri, "timeout")
         ),
     };
     let dbs = LocalDbs {
         uri,
-        db: mongostudio_testkit::unique_db_name(""),
+        db: curlybrace_testkit::unique_db_name(""),
         // MongoDB forbids spaces and dots in database names, so this one is unicode only.
-        unicode_db: mongostudio_testkit::unique_db_name("база_данных"),
+        unicode_db: curlybrace_testkit::unique_db_name("база_данных"),
     };
     let store = MongoStore::new(client.clone());
     (dbs, client, store)
@@ -118,10 +118,10 @@ pub async fn local_mongo() -> (LocalDbs, Client, MongoStore) {
 
 /// Waits up to `limit` for the next runtime event; panics with context on timeout.
 pub async fn next_event(
-    rx: &mut tokio::sync::mpsc::UnboundedReceiver<mongostudio_core::runtime::Event>,
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<curlybrace_core::runtime::Event>,
     limit: Duration,
     what: &str,
-) -> mongostudio_core::runtime::Event {
+) -> curlybrace_core::runtime::Event {
     match tokio::time::timeout(limit, rx.recv()).await {
         Ok(Some(event)) => event,
         Ok(None) => panic!("runtime closed while waiting for {what}"),
@@ -130,6 +130,6 @@ pub async fn next_event(
 }
 
 /// A repaint callback that does nothing.
-pub fn no_repaint() -> mongostudio_core::runtime::Repaint {
+pub fn no_repaint() -> curlybrace_core::runtime::Repaint {
     std::sync::Arc::new(|| {})
 }

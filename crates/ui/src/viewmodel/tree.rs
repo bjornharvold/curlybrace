@@ -1,7 +1,7 @@
 //! Pure flattening of a document into tree rows (collapsed containers hide children).
 use crate::I18n;
 use bson::{Bson, Document};
-use mongostudio_core::ejson::bson_type_name;
+use curlybrace_core::ejson::bson_type_name;
 use std::collections::HashSet;
 
 /// Most rows emitted for one document/array level; the rest collapse into a summary row.
@@ -202,7 +202,7 @@ pub fn row_value_text(row: &TreeRow, i18n: &I18n) -> String {
 mod tests {
     use super::*;
     use bson::doc;
-    use mongostudio_core::test_support::mock_objects::exotic_doc;
+    use curlybrace_core::test_support::mock_objects::exotic_doc;
 
     fn none() -> HashSet<Vec<String>> {
         HashSet::new()

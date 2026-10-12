@@ -4,9 +4,9 @@ use super::persistence::{PersistError, PersistGuard, back_up, save_connections, 
 use super::state::{AppState, Banner};
 use crate::viewmodel::{ConnectionForm, save_connection, stored_secret_flags};
 use crate::views::connections::ConnectionsState;
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::error::CoreError;
-use mongostudio_core::secrets::{SecretKind, SecretStore, secret_key};
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::error::CoreError;
+use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -203,7 +203,7 @@ mod tests {
     use super::super::persistence::{Recovery, load_connections};
     use super::*;
     use crate::viewmodel::SecretEdit;
-    use mongostudio_core::secrets::MemorySecretStore;
+    use curlybrace_core::secrets::MemorySecretStore;
 
     fn form(name: &str, password: &str) -> ConnectionForm {
         ConnectionForm {
@@ -220,13 +220,13 @@ mod tests {
 
     struct FailingStore;
     impl SecretStore for FailingStore {
-        fn get(&self, _: &str) -> mongostudio_core::error::Result<Option<String>> {
+        fn get(&self, _: &str) -> curlybrace_core::error::Result<Option<String>> {
             Err(CoreError::Secret("locked".into()))
         }
-        fn set(&self, _: &str, _: &str) -> mongostudio_core::error::Result<()> {
+        fn set(&self, _: &str, _: &str) -> curlybrace_core::error::Result<()> {
             Err(CoreError::Secret("locked".into()))
         }
-        fn delete(&self, _: &str) -> mongostudio_core::error::Result<()> {
+        fn delete(&self, _: &str) -> curlybrace_core::error::Result<()> {
             Err(CoreError::Secret("locked".into()))
         }
     }
@@ -378,13 +378,13 @@ mod tests {
     }
 
     impl SecretStore for FlakyStore {
-        fn get(&self, key: &str) -> mongostudio_core::error::Result<Option<String>> {
+        fn get(&self, key: &str) -> curlybrace_core::error::Result<Option<String>> {
             self.inner.get(key)
         }
-        fn set(&self, key: &str, value: &str) -> mongostudio_core::error::Result<()> {
+        fn set(&self, key: &str, value: &str) -> curlybrace_core::error::Result<()> {
             self.inner.set(key, value)
         }
-        fn delete(&self, key: &str) -> mongostudio_core::error::Result<()> {
+        fn delete(&self, key: &str) -> curlybrace_core::error::Result<()> {
             self.attempts.lock().unwrap().push(key.to_string());
             let broken = self.broken.load(std::sync::atomic::Ordering::SeqCst);
             if broken && key.ends_with(self.fail_suffix) {

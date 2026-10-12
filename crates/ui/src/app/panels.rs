@@ -11,8 +11,8 @@ use crate::views::documents::{show_documents_keyed, show_mode_switcher};
 use crate::views::editor::show_editor_with;
 use crate::views::findbar::show_findbar;
 use crate::views::sidebar::show_sidebar;
+use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
-use mongostudio_core::tunnel::HostKeyDecision;
 
 /// What one frame of drawing produced.
 // Events are built and consumed once per frame; boxing `Input` would only add noise.

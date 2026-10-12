@@ -5,9 +5,9 @@ use super::state::{AppState, Banner, ConnStatus, EditorKey, HostEndpoint, Pendin
 use crate::viewmodel::{
     DbNode, DocAction, EditorAction, EditorState, FindAction, FindBarState, SidebarAction,
 };
-use mongostudio_core::crud::id_of;
-use mongostudio_core::runtime::Command;
-use mongostudio_core::store::{Namespace, Query};
+use curlybrace_core::crud::id_of;
+use curlybrace_core::runtime::Command;
+use curlybrace_core::store::{Namespace, Query};
 use uuid::Uuid;
 
 /// Runs `f` while connected; otherwise drops the request with a banner.
@@ -115,11 +115,11 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
             issue_find(s, Query::default())
         }
         FindAction::Prev if s.paging().0 => {
-            let query = mongostudio_core::query::prev_page(&s.page_query);
+            let query = curlybrace_core::query::prev_page(&s.page_query);
             issue_find(with_skip_text(s, query.skip), query)
         }
         FindAction::Next if s.paging().1 => {
-            let query = mongostudio_core::query::next_page(&s.page_query);
+            let query = curlybrace_core::query::next_page(&s.page_query);
             issue_find(with_skip_text(s, query.skip), query)
         }
         FindAction::Prev | FindAction::Next => (s, Vec::new()),

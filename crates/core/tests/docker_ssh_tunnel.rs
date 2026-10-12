@@ -1,4 +1,4 @@
-//! End-to-end SSH tunnel test. It starts its own `ms-it-*` containers (an
+//! End-to-end SSH tunnel test. It starts its own `cb-it-*` containers (an
 //! openssh-server and a MongoDB on a private network, see `support::SshStack`),
 //! removes them on drop. Tier 2 (docker); run with `scripts/container-tests.sh`.
 
@@ -8,12 +8,10 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use mongostudio_core::client;
-use mongostudio_core::connection::{ConnectionConfig, SshAuth, SshConfig};
-use mongostudio_core::error::CoreError;
-use mongostudio_core::tunnel::{
-    HostKeyDecision, HostKeyPrompt, RejectUnknownHostKeys, open_tunnel,
-};
+use curlybrace_core::client;
+use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::tunnel::{HostKeyDecision, HostKeyPrompt, RejectUnknownHostKeys, open_tunnel};
 use russh::keys::ssh_key::private::Ed25519Keypair;
 use russh::keys::{PrivateKey, known_hosts};
 
@@ -31,7 +29,7 @@ impl HostKeyPrompt for CountingPrompt {
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
 async fn tunnel_end_to_end() {
     if !support::docker_enabled("tunnel_end_to_end") {
         return;

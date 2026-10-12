@@ -16,7 +16,7 @@ fn block<F: IntoFuture>(rt: &Handle, f: F) -> F::Output {
 
 impl TestDb {
     pub fn new(client: Client, rt: Handle) -> Self {
-        let name = mongostudio_testkit::unique_db_name("");
+        let name = curlybrace_testkit::unique_db_name("");
         Self { client, name, rt }
     }
 

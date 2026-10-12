@@ -1,6 +1,6 @@
 //! A server that disappears mid-session must surface as `Failed`, never as a
 //! hang, and a fresh `Connect` must recover once it is back.
-//! Tier 2 (docker): own `ms-it-*` container. Run with `scripts/container-tests.sh`.
+//! Tier 2 (docker): own `cb-it-*` container. Run with `scripts/container-tests.sh`.
 
 mod support;
 
@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bson::doc;
-use mongostudio_core::error::CoreError;
-use mongostudio_core::runtime::{Command, Event, RuntimeConfig, spawn_runtime_with_config};
-use mongostudio_core::secrets::MemorySecretStore;
-use mongostudio_core::store::{DocumentStore, Namespace, Query};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::{Command, Event, RuntimeConfig, spawn_runtime_with_config};
+use curlybrace_core::secrets::MemorySecretStore;
+use curlybrace_core::store::{DocumentStore, Namespace, Query};
 use support::{docker_enabled, docker_mongo, next_event, no_repaint};
 
 const COMMAND_LIMIT: Duration = Duration::from_secs(10);
@@ -19,13 +19,13 @@ const COMMAND_LIMIT: Duration = Duration::from_secs(10);
 const SLACK: Duration = Duration::from_secs(3);
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
 async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
     if !docker_enabled("stopped_server_yields_failed_find_in_time_and_restart_recovers") {
         return;
     }
     let (container, _client, store) = docker_mongo().await;
-    let ns = Namespace::new("msit_drop", "drop");
+    let ns = Namespace::new("cbit_drop", "drop");
     store
         .insert(&ns, doc! { "_id": 1_i32, "v": "kept" })
         .await

@@ -19,6 +19,6 @@ Verdict: **supported-untested**
 
 ## UI implication
 
-- `mongostudio_core::GSSAPI_AVAILABLE` (`cfg!(feature = "gssapi")`) is exposed from `lib.rs` and unit tested in both configurations.
+- `curlybrace_core::GSSAPI_AVAILABLE` (`cfg!(feature = "gssapi")`) is exposed from `lib.rs` and unit tested in both configurations.
 - Task 12's connection form must hide the Kerberos option when it is false.
-- Recommendation: the app crate should enable `mongostudio-core/gssapi` by default for macOS release builds, since GSS.framework ships with the OS and linking adds no install burden. Before advertising Kerberos as supported, test against a real KDC + Kerberized mongod, so keep it labeled experimental until then.
+- Recommendation: the app crate should enable `curlybrace-core/gssapi` by default for macOS release builds, since GSS.framework ships with the OS and linking adds no install burden. Before advertising Kerberos as supported, test against a real KDC + Kerberized mongod, so keep it labeled experimental until then.

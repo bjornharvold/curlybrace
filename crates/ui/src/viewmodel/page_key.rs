@@ -1,5 +1,5 @@
 //! Cheap identity of a result page, so caches and pending actions can never outlive it.
-use mongostudio_core::store::Page;
+use curlybrace_core::store::Page;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 

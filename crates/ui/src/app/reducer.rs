@@ -3,8 +3,8 @@ use super::actions;
 use super::persistence::PersistError;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use crate::viewmodel::{DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key};
-use mongostudio_core::error::CoreError;
-use mongostudio_core::runtime::{Command, Event};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::{Command, Event};
 use uuid::Uuid;
 
 /// Next state plus the commands the shell must send to the runtime.
@@ -167,8 +167,8 @@ fn disconnected(state: AppState, failed: Option<(&'static str, CoreError)>) -> A
 /// Stores a fresh page, memoising its content key once (not per frame).
 fn results_replaced(
     state: AppState,
-    query: mongostudio_core::store::Query,
-    page: mongostudio_core::store::Page,
+    query: curlybrace_core::store::Query,
+    page: curlybrace_core::store::Page,
 ) -> AppState {
     AppState {
         page_key: Some(page_key(&page)),
@@ -182,7 +182,7 @@ fn results_replaced(
 
 /// A mutation finished. Only the one in flight (same namespace) is resolved; the editor it came
 /// from is closed, and the page is re-fetched with the query that produced it.
-fn mutated(state: AppState, ns: mongostudio_core::store::Namespace) -> Out {
+fn mutated(state: AppState, ns: curlybrace_core::store::Namespace) -> Out {
     let matches_pending = state.pending.as_ref().is_some_and(|p| p.ns == ns);
     let editor_done = matches_pending && editor_matches(&state, state.pending.as_ref());
     let state = AppState {

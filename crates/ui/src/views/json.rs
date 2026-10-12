@@ -7,8 +7,8 @@ use super::context_menu::row_context_menu;
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
 use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState, menu_items};
+use curlybrace_core::store::Page;
 use eframe::egui;
-use mongostudio_core::store::Page;
 
 pub fn show_json(
     ui: &mut egui::Ui,

@@ -1,19 +1,19 @@
 //! Screenshot tests: fixed in-memory states rendered with wgpu and compared with committed PNGs
 //! in `tests/snapshots/`. No database is needed.
 //!
-//! Run:    `MONGOSTUDIO_SNAPSHOTS=1 cargo test -p mongostudio-ui --test snapshots -- --include-ignored`
+//! Run:    `CURLYBRACE_SNAPSHOTS=1 cargo test -p curlybrace-ui --test snapshots -- --include-ignored`
 //! Update: add `UPDATE_SNAPSHOTS=1` (deliberately, then review the PNG diff).
 mod support;
 
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::error::CoreError;
-use mongostudio_testkit::snapshots_enabled;
-use mongostudio_ui::app::host_key::HostKeyRequest;
-use mongostudio_ui::app::state::{AppState, Banner};
-use mongostudio_ui::viewmodel::{
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::error::CoreError;
+use curlybrace_testkit::snapshots_enabled;
+use curlybrace_ui::app::host_key::HostKeyRequest;
+use curlybrace_ui::app::state::{AppState, Banner};
+use curlybrace_ui::viewmodel::{
     EditorIntent, EditorState, MenuItem, ViewMode, page_key, resolve_editor,
 };
-use mongostudio_ui::views::connections::ConnectionsState;
+use curlybrace_ui::views::connections::ConnectionsState;
 use support::db::sample_people;
 use support::shots::{Shot, browsing};
 
@@ -21,7 +21,7 @@ use support::shots::{Shot, browsing};
 macro_rules! shot {
     ($name:ident, $connections:expr, $setup:expr) => {
         #[test]
-        #[ignore = "needs a GPU: set MONGOSTUDIO_SNAPSHOTS=1"]
+        #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
         fn $name() {
             if !snapshots_enabled(stringify!($name)) {
                 return;
@@ -46,7 +46,7 @@ fn select_first_connection(state: &mut AppState) {
     let first = state.conn.connections[0].clone();
     state.conn = ConnectionsState {
         selected: Some(first.id),
-        form: mongostudio_ui::viewmodel::ConnectionForm::from_config(&first),
+        form: curlybrace_ui::viewmodel::ConnectionForm::from_config(&first),
         ..std::mem::take(&mut state.conn)
     };
 }
@@ -94,7 +94,7 @@ shot!(error_banner, vec![production(), staging()], |state| {
 });
 
 #[test]
-#[ignore = "needs a GPU: set MONGOSTUDIO_SNAPSHOTS=1"]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
 fn host_key_prompt() {
     if !snapshots_enabled("host_key_prompt") {
         return;
@@ -122,10 +122,10 @@ fn the_app_under_test_uses_temp_paths_not_the_developers_files() {
     let mut harness = Harness::builder()
         .with_size(eframe::egui::vec2(800.0, 600.0))
         .build_state(
-            |ctx, app: &mut mongostudio_ui::app::MongoStudioApp| app.run_frame(ctx),
+            |ctx, app: &mut curlybrace_ui::app::CurlybraceApp| app.run_frame(ctx),
             app,
         );
-    let i18n = mongostudio_ui::I18n::english();
+    let i18n = curlybrace_ui::I18n::english();
     for (key, text) in [
         ("connections.name", "Temp"),
         ("connections.uri", "mongodb://localhost"),

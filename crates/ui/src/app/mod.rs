@@ -16,16 +16,16 @@ use crate::I18n;
 use crate::error_text::failure_log_line;
 use crate::views::connections::ConnectionAction;
 use connections::{ConfigPath, load_startup, refresh_flags};
-use eframe::egui;
-use host_key::{HOST_KEY_PROMPT_TIMEOUT, HostKeyRequest, InteractivePrompt, PromptState};
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::error::CoreError;
-use mongostudio_core::runtime::{
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::{
     COMMAND_TIMEOUT, Command, Repaint, RuntimeConfig, RuntimeHandle, default_known_hosts_path,
     spawn_runtime_with_config,
 };
-use mongostudio_core::secrets::SecretStore;
-use mongostudio_core::tunnel::HostKeyDecision;
+use curlybrace_core::secrets::SecretStore;
+use curlybrace_core::tunnel::HostKeyDecision;
+use eframe::egui;
+use host_key::{HOST_KEY_PROMPT_TIMEOUT, HostKeyRequest, InteractivePrompt, PromptState};
 use panels::UiEvent;
 use persistence::default_connections_path;
 use reducer::{Input, update};
@@ -54,7 +54,7 @@ pub fn runtime_config(
     }
 }
 
-pub struct MongoStudioApp {
+pub struct CurlybraceApp {
     state: AppState,
     handle: RuntimeHandle,
     i18n: I18n,
@@ -65,7 +65,7 @@ pub struct MongoStudioApp {
     prompt_requests: Option<Receiver<HostKeyRequest>>,
 }
 
-impl MongoStudioApp {
+impl CurlybraceApp {
     pub fn new(
         handle: RuntimeHandle,
         i18n: I18n,
@@ -277,7 +277,7 @@ impl MongoStudioApp {
     }
 }
 
-impl eframe::App for MongoStudioApp {
+impl eframe::App for CurlybraceApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.run_frame(ctx);
     }

@@ -1,5 +1,5 @@
-//! A tiny stderr logger, off unless `MONGOSTUDIO_LOG` names a level (`error`..`trace`).
-//! Logged failure texts are secret-free by construction (see `mongostudio_ui::error_text`).
+//! A tiny stderr logger, off unless `CURLYBRACE_LOG` names a level (`error`..`trace`).
+//! Logged failure texts are secret-free by construction (see `curlybrace_ui::error_text`).
 use log::{LevelFilter, Log, Metadata, Record};
 use std::str::FromStr;
 
@@ -34,7 +34,7 @@ pub fn level_from_env(value: Option<&str>) -> LevelFilter {
 }
 
 pub fn init() {
-    let level = level_from_env(std::env::var("MONGOSTUDIO_LOG").ok().as_deref());
+    let level = level_from_env(std::env::var("CURLYBRACE_LOG").ok().as_deref());
     if level != LevelFilter::Off && log::set_logger(&LOGGER).is_ok() {
         log::set_max_level(level);
     }

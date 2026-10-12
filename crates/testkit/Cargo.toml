@@ -1,5 +1,5 @@
 [package]
-name = "mongostudio-testkit"
+name = "curlybrace-testkit"
 description = "Dev-only helpers: throwaway docker containers and env gates for the integration and UI tests"
 version.workspace = true
 edition.workspace = true

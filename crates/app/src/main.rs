@@ -1,8 +1,8 @@
-//! MongoStudio binary: owns the Tokio runtime and starts the eframe window.
+//! Curlybrace binary: owns the Tokio runtime and starts the eframe window.
 mod logging;
 
-use mongostudio_core::secrets::{KeyringSecretStore, SecretStore};
-use mongostudio_ui::{I18n, app::MongoStudioApp};
+use curlybrace_core::secrets::{KeyringSecretStore, SecretStore};
+use curlybrace_ui::{I18n, app::CurlybraceApp};
 use std::sync::Arc;
 
 const DEFAULT_SIZE: [f32; 2] = [1280.0, 800.0];
@@ -40,7 +40,7 @@ fn main() -> eframe::Result {
         &title,
         options,
         Box::new(move |cc| {
-            Ok(Box::new(MongoStudioApp::launch(
+            Ok(Box::new(CurlybraceApp::launch(
                 secrets,
                 cc.egui_ctx.clone(),
             )))

@@ -1,14 +1,14 @@
 //! Text boxes expose their caption as their accessible name, which is what screen readers and
 //! the click-driven UI tests use to find them. Fast, offline, no GPU.
+use curlybrace_ui::I18n;
+use curlybrace_ui::viewmodel::{EditorState, FindBarState};
+use curlybrace_ui::views::connections::{ConnectionsState, show_connections};
+use curlybrace_ui::views::editor::show_editor;
+use curlybrace_ui::views::findbar::show_findbar;
 use eframe::egui;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use mongostudio_ui::I18n;
-use mongostudio_ui::viewmodel::{EditorState, FindBarState};
-use mongostudio_ui::views::connections::{ConnectionsState, show_connections};
-use mongostudio_ui::views::editor::show_editor;
-use mongostudio_ui::views::findbar::show_findbar;
 
 fn size() -> egui::Vec2 {
     egui::vec2(900.0, 700.0)

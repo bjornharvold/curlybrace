@@ -1,10 +1,10 @@
-//! `ms-it-*` docker containers with guaranteed cleanup.
+//! `cb-it-*` docker containers with guaranteed cleanup.
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
 pub const MONGO_IMAGE: &str = "mongo:7";
-const NAME_PREFIX: &str = "ms-it-";
+const NAME_PREFIX: &str = "cb-it-";
 const TCP_READY: Duration = Duration::from_secs(90);
 
 /// Runs `docker <args>`; `Ok(stdout)` on success, `Err(stderr)` otherwise.
@@ -37,7 +37,7 @@ pub(crate) fn published_port(name: &str, container_port: &str) -> u16 {
         .unwrap_or_else(|| panic!("cannot parse docker port output {out:?}"))
 }
 
-/// A running `ms-it-*` container, force-removed on drop.
+/// A running `cb-it-*` container, force-removed on drop.
 pub struct Container {
     pub name: String,
     pub port: u16,

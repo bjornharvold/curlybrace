@@ -36,7 +36,7 @@ pub fn banner_detail(banner: &Banner) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::app::persistence::PersistError;
-    use mongostudio_core::error::CoreError;
+    use curlybrace_core::error::CoreError;
 
     fn resolved(b: &Banner) -> (String, Option<String>) {
         banner_text(b, &I18n::english())

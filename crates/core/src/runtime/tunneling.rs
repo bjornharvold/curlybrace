@@ -64,12 +64,12 @@ impl TunnelOpener for SshTunnelOpener {
     }
 }
 
-/// App-owned `known_hosts`, e.g. `~/Library/Application Support/mongostudio/known_hosts`
+/// App-owned `known_hosts`, e.g. `~/Library/Application Support/curlybrace/known_hosts`
 /// on macOS, never the user's `~/.ssh/known_hosts`. `None` when no config directory can be
 /// determined: there is deliberately NO fallback to a relative path (it would resolve against
 /// the working directory), and an SSH connect without a location fails closed.
 pub fn default_known_hosts_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("mongostudio").join("known_hosts"))
+    dirs::config_dir().map(|dir| dir.join("curlybrace").join("known_hosts"))
 }
 
 /// Wraps the host-key prompt for ONE connect. Once a newer Connect/Disconnect replaced that

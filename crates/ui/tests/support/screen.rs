@@ -1,8 +1,8 @@
 //! Locating widgets by their localized label.
+use curlybrace_ui::I18n;
+use curlybrace_ui::app::CurlybraceApp;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
-use mongostudio_ui::I18n;
-use mongostudio_ui::app::MongoStudioApp;
 
 /// Looks labels up from the real English locale so tests never hardcode UI text.
 pub struct Labels(I18n);
@@ -27,7 +27,7 @@ impl Labels {
     }
 }
 
-pub type H<'a> = Harness<'a, MongoStudioApp>;
+pub type H<'a> = Harness<'a, CurlybraceApp>;
 
 /// True when exactly-or-more nodes carry this label or value text.
 pub fn shows(harness: &H<'_>, text: &str) -> bool {

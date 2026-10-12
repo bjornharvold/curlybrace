@@ -2,8 +2,8 @@
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
 use crate::viewmodel::{DocAction, PageKey, TreeState, ViewMode, id_preview, page_key};
+use curlybrace_core::store::Page;
 use eframe::egui;
-use mongostudio_core::store::Page;
 
 /// Radio-style mode switcher; returns the (possibly changed) mode.
 pub fn show_mode_switcher(ui: &mut egui::Ui, mode: ViewMode, i18n: &I18n) -> ViewMode {
@@ -96,7 +96,7 @@ mod tests {
     use super::*;
     use crate::viewmodel::MenuItem;
     use bson::{Bson, Document, doc};
-    use mongostudio_core::test_support::mock_objects::{exotic_doc, mock_doc_with_id};
+    use curlybrace_core::test_support::mock_objects::{exotic_doc, mock_doc_with_id};
 
     fn page_of(docs: Vec<Document>) -> Page {
         Page {
@@ -261,7 +261,7 @@ mod tests {
             .map(|m| m.label_key().to_string()),
         );
         for sample in every_bson_kind() {
-            let name = mongostudio_core::ejson::bson_type_name(&sample);
+            let name = curlybrace_core::ejson::bson_type_name(&sample);
             keys.push(crate::viewmodel::type_label_key(name));
         }
         keys.extend(["doc.header", "doc.confirm_delete", "tree.more_items"].map(String::from));

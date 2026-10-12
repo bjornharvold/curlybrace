@@ -44,7 +44,7 @@ fn count_text(i18n: &I18n, key: &str, n: usize) -> String {
 mod tests {
     use super::*;
     use bson::{Document, doc, oid::ObjectId};
-    use mongostudio_core::test_support::mock_objects::exotic_doc;
+    use curlybrace_core::test_support::mock_objects::exotic_doc;
 
     fn text(b: &Bson) -> String {
         cell_text(b, &I18n::english())
