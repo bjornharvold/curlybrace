@@ -3,7 +3,8 @@
 use async_trait::async_trait;
 use bson::{Bson, Document};
 
-use crate::error::Result;
+use crate::compare::key::{KeySpec, KeyTuple};
+use crate::error::{CoreError, Result};
 
 /// Documents fetched per page in the browser.
 pub const PAGE_SIZE: u64 = 50;
@@ -54,6 +55,21 @@ pub struct Page {
     pub has_more: bool,
 }
 
+/// Whether an index can serve a compare's key-ordered scan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IndexStatus {
+    Indexed,
+    NotIndexed,
+}
+
+/// What a collection is. A view can be read but never written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollectionKind {
+    Collection,
+    View,
+    Timeseries,
+}
+
 #[async_trait]
 pub trait DocumentStore: Send + Sync {
     async fn list_databases(&self) -> Result<Vec<String>>;
@@ -65,6 +81,46 @@ pub trait DocumentStore: Send + Sync {
     async fn replace(&self, ns: &Namespace, id: &Bson, doc: Document) -> Result<()>;
     /// Deletes the document with `_id == id`; `NotFound` if none matches.
     async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()>;
+
+    /// Estimated number of documents (fast, approximate). A missing collection counts as 0.
+    async fn estimated_count(&self, _ns: &Namespace) -> Result<u64> {
+        Err(CoreError::Unsupported(
+            "this store cannot count documents".into(),
+        ))
+    }
+
+    /// Documents matching `filter` whose key tuple is at or after `from` (all of them when
+    /// `None`), in ascending key order under BINARY (simple) collation, at most `limit`.
+    /// The start key is INCLUDED so a caller can detect a duplicate that straddles two batches.
+    /// A document missing a key field yields `CompareKeyMissing`; an unusable key value
+    /// yields `CompareKeyInvalid`. A missing collection behaves as empty.
+    async fn scan_sorted(
+        &self,
+        _ns: &Namespace,
+        _filter: &Document,
+        _key: &KeySpec,
+        _from: Option<&KeyTuple>,
+        _limit: u32,
+    ) -> Result<Vec<Document>> {
+        Err(CoreError::Unsupported(
+            "this store cannot scan in key order".into(),
+        ))
+    }
+
+    /// Whether an index can serve `scan_sorted` for `key`. A missing collection is `Indexed`
+    /// (there is nothing to sort).
+    async fn key_index_status(&self, _ns: &Namespace, _key: &KeySpec) -> Result<IndexStatus> {
+        Err(CoreError::Unsupported(
+            "this store cannot inspect indexes".into(),
+        ))
+    }
+
+    /// The collections of `db` with their kind (`system.*` included).
+    async fn list_collection_kinds(&self, _db: &str) -> Result<Vec<(String, CollectionKind)>> {
+        Err(CoreError::Unsupported(
+            "this store cannot list collection kinds".into(),
+        ))
+    }
 }
 
 #[cfg(test)]

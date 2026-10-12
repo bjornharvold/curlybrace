@@ -222,3 +222,70 @@ async fn a_current_connect_can_still_trust_and_remember() {
         "{saved}"
     );
 }
+
+// The same gate protects compare sessions: a question of a closed session is rejected.
+
+fn open_compare() -> Command {
+    Command::Compare(crate::compare::protocol::CompareCommand::Open {
+        session: 1,
+        source: ssh_cfg(),
+        target: plain_cfg(),
+    })
+}
+
+fn close_compare() -> Command {
+    Command::Compare(crate::compare::protocol::CompareCommand::Close { session: 1 })
+}
+
+/// No event may arrive: a closed session's open task ends silently.
+async fn assert_silent(h: &mut RuntimeHandle) {
+    let waited = tokio::time::timeout(Duration::from_millis(300), h.rx.recv()).await;
+    assert!(waited.is_err(), "unexpected event: {waited:?}");
+}
+
+#[tokio::test]
+async fn a_closed_compare_session_never_asks_the_host_key_question() {
+    let (release, gate) = oneshot::channel();
+    let mut r = rig(HostKeyDecision::TrustAndRemember, None, Some(gate));
+    r.h.tx.send(open_compare()).unwrap(); // stuck in the opener
+    r.entered.notified().await;
+    r.h.tx.send(close_compare()).unwrap();
+    // Commands are dispatched in order, so this answer proves the Close was processed.
+    r.h.tx.send(Command::ListDatabases).unwrap();
+    assert!(matches!(next(&mut r.h).await, Event::Failed { .. }));
+    release.send(()).unwrap(); // the opener now reaches the host-key policy
+    assert_silent(&mut r.h).await;
+    assert_eq!(r.prompt.calls.load(Ordering::SeqCst), 0, "not asked");
+    assert!(!r.known_hosts.exists(), "known_hosts untouched");
+}
+
+#[tokio::test]
+async fn a_compare_answer_arriving_after_close_is_turned_into_a_reject() {
+    let (unblock, block) = std::sync::mpsc::channel();
+    let mut r = rig(HostKeyDecision::TrustAndRemember, Some(block), None);
+    r.h.tx.send(open_compare()).unwrap(); // asks the user
+    let prompt = r.prompt.clone();
+    until("the question is asked", || {
+        prompt.calls.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    r.h.tx.send(close_compare()).unwrap();
+    // Commands are dispatched in order, so this answer proves the Close was processed.
+    r.h.tx.send(Command::ListDatabases).unwrap();
+    assert!(matches!(next(&mut r.h).await, Event::Failed { .. }));
+    unblock.send(()).unwrap(); // Trust and remember, too late
+    assert_silent(&mut r.h).await;
+    assert!(!r.known_hosts.exists(), "nothing was remembered");
+}
+
+#[tokio::test]
+async fn an_open_compare_session_can_still_trust_and_remember() {
+    let mut r = rig(HostKeyDecision::TrustAndRemember, None, None);
+    r.h.tx.send(open_compare()).unwrap();
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::Compare(crate::compare::protocol::CompareEvent::Opened { session: 1 })
+    );
+    assert_eq!(r.prompt.calls.load(Ordering::SeqCst), 1);
+    assert!(r.known_hosts.exists(), "trust was remembered");
+}

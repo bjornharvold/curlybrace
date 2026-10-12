@@ -1,5 +1,6 @@
 //! Application state. Immutable by convention: the reducer consumes a state and returns the next.
 use super::persistence::{PersistError, PersistGuard, Recovery};
+use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
 use crate::views::connections::ConnectionsState;
 use bson::Bson;
@@ -15,6 +16,14 @@ pub enum ConnStatus {
     Disconnected,
     Connecting,
     Connected,
+}
+
+/// Which top-level workspace is shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Workspace {
+    #[default]
+    Browse,
+    Compare,
 }
 
 /// A dismissible message. Holds keys and typed errors, never English text.
@@ -68,8 +77,13 @@ pub struct Pending {
 
 #[derive(Debug, Default)]
 pub struct AppState {
+    pub workspace: Workspace,
+    /// Compare sessions have their own connections; this survives browsing connect/disconnect.
+    pub compare: CompareState,
     pub conn: ConnectionsState,
     pub status: ConnStatus,
+    /// The saved connection the browsing session was started with (the Compare source default).
+    pub connected: Option<Uuid>,
     /// Mirrors the runtime's request counter: bumped once for EVERY Connect/Disconnect command
     /// sent (the runtime does the same, starting at 0, and the UI is its only sender). An
     /// outcome stamped with an older epoch belongs to a request the user has since replaced.
@@ -144,6 +158,8 @@ impl AppState {
             editor: None,
             pending: None,
             forget_confirm: None,
+            connected: None,
+            workspace: Workspace::Browse,
             ..self
         }
     }

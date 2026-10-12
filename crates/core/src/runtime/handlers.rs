@@ -9,7 +9,7 @@ use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
-use super::tunneling::open_tunnel_if_configured;
+use super::tunneling::{ConnectionCurrent, open_tunnel_if_configured};
 use super::{Command, Event, Shared};
 
 /// Runs `command` to completion, folding any error into `Event::Failed`.
@@ -136,8 +136,8 @@ async fn data_command(store: Arc<dyn DocumentStore>, command: Command) -> Result
             service.clone_document(&ns, &source).await?;
             Event::Mutated { ns }
         }
-        Command::Connect(_) | Command::Disconnect => {
-            unreachable!("connection commands are handled before data dispatch")
+        Command::Connect(_) | Command::Disconnect | Command::Compare(_) => {
+            unreachable!("connection and compare commands are handled before data dispatch")
         }
     })
 }
@@ -173,7 +173,11 @@ async fn connect_store(
     // cancellation anywhere below drops it, which closes it.
     let (store, tunnel) = bounded(limit, async {
         let password = read_password(shared, &cfg).await?;
-        let tunnel = open_tunnel_if_configured(shared, generation, &cfg).await?;
+        let job = Arc::new(ConnectionCurrent {
+            shared: shared.clone(),
+            generation,
+        });
+        let tunnel = open_tunnel_if_configured(shared, job, &cfg).await?;
         let addr = tunnel.as_ref().map(|t| t.local_addr());
         let store = shared
             .connector
@@ -190,7 +194,10 @@ async fn connect_store(
 }
 
 /// The keychain call blocks, so it runs off the async workers.
-async fn read_password(shared: &Shared, cfg: &ConnectionConfig) -> Result<Option<String>> {
+pub(super) async fn read_password(
+    shared: &Shared,
+    cfg: &ConnectionConfig,
+) -> Result<Option<String>> {
     let Some(secrets) = shared.secrets.clone() else {
         return Ok(None);
     };

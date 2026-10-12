@@ -26,6 +26,9 @@ pub struct Shot {
     _dir: tempfile::TempDir,
 }
 
+/// Frames rendered before an animated screen is compared.
+const ANIMATED_FRAMES: usize = 8;
+
 /// Failed pixels tolerated per snapshot: absorbs text anti-aliasing differences between GPUs and
 /// drivers (a handful of pixels) while any changed label or layout differs by far more (a one
 /// word label change measured over a thousand).
@@ -56,7 +59,16 @@ pub fn build_app(
 impl Shot {
     /// Builds the real app on an in-memory store, lets `setup` shape its state, renders with wgpu.
     pub fn new(connections: Vec<ConnectionConfig>, setup: impl FnOnce(&mut AppState)) -> Self {
-        Self::build(connections, setup, None)
+        Self::build(connections, setup, None, SHOT_SIZE)
+    }
+
+    /// Like [`Shot::new`] in a window of `size` (for screens taller than the standard one).
+    pub fn sized(
+        size: (f32, f32),
+        connections: Vec<ConnectionConfig>,
+        setup: impl FnOnce(&mut AppState),
+    ) -> Self {
+        Self::build(connections, setup, None, size)
     }
 
     /// Like [`Shot::new`] with SSH host-key questions arriving on `requests`.
@@ -65,13 +77,14 @@ impl Shot {
         setup: impl FnOnce(&mut AppState),
         requests: Receiver<HostKeyRequest>,
     ) -> Self {
-        Self::build(connections, setup, Some(requests))
+        Self::build(connections, setup, Some(requests), SHOT_SIZE)
     }
 
     fn build(
         connections: Vec<ConnectionConfig>,
         setup: impl FnOnce(&mut AppState),
         requests: Option<Receiver<HostKeyRequest>>,
+        size: (f32, f32),
     ) -> Self {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
@@ -81,7 +94,7 @@ impl Shot {
         let (mut app, dir) = build_app(connections, requests);
         setup(app.state_mut());
         let harness = Harness::builder()
-            .with_size(egui::vec2(SHOT_SIZE.0, SHOT_SIZE.1))
+            .with_size(egui::vec2(size.0, size.1))
             .with_pixels_per_point(1.0)
             .wgpu()
             .build_state(|ctx, app: &mut CurlybraceApp| app.run_frame(ctx), app);
@@ -97,6 +110,19 @@ impl Shot {
     #[track_caller]
     pub fn snapshot(&mut self, name: &str) {
         self.harness.run();
+        self.compare(name);
+    }
+
+    /// For a screen that never comes to rest (an animated progress bar): a fixed number of
+    /// frames instead of waiting for the repaints to stop.
+    #[track_caller]
+    pub fn snapshot_animated(&mut self, name: &str) {
+        self.harness.run_steps(ANIMATED_FRAMES);
+        self.compare(name);
+    }
+
+    #[track_caller]
+    fn compare(&mut self, name: &str) {
         let options = SnapshotOptions::new().failed_pixel_count_threshold(PIXEL_THRESHOLD);
         self.harness.snapshot_options(name, &options);
     }

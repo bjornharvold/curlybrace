@@ -5,8 +5,11 @@ use bson::{Bson, Document, doc};
 use futures::TryStreamExt;
 use mongodb::Client;
 
+use crate::compare::key::{KeySpec, KeyTuple, extract_key};
+use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
-use crate::store::{DocumentStore, Namespace, Page, Query};
+use crate::store::{CollectionKind, DocumentStore, IndexStatus, Namespace, Page, Query};
+use mongodb::options::Collation;
 
 pub struct MongoStore {
     client: Client,
@@ -55,6 +58,41 @@ pub(crate) fn build_page(mut docs: Vec<Document>, q: &Query) -> Page {
         docs,
         skip: q.skip,
         has_more,
+    }
+}
+
+/// The exact query `MongoStore::scan_sorted` sends: the keyset filter, the ascending key sort and
+/// the batch limit, always under simple collation. Public so tier-1 tests can `explain` it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SortedScanQuery {
+    pub filter: Document,
+    pub sort: Document,
+    pub limit: i64,
+}
+
+impl SortedScanQuery {
+    pub fn new(filter: &Document, key: &KeySpec, from: Option<&KeyTuple>, limit: u32) -> Self {
+        Self {
+            filter: keyset_filter(filter, key, from),
+            sort: key
+                .fields
+                .iter()
+                .map(|f| (f.clone(), Bson::Int32(1)))
+                .collect(),
+            limit: i64::from(limit),
+        }
+    }
+
+    /// The equivalent `find` command for `collection` (e.g. to wrap in an `explain`).
+    pub fn find_command(&self, collection: &str) -> Document {
+        doc! {
+            "find": collection,
+            "filter": self.filter.clone(),
+            "sort": self.sort.clone(),
+            "limit": self.limit,
+            "collation": { "locale": "simple" },
+            "allowDiskUse": true,
+        }
     }
 }
 
@@ -121,6 +159,101 @@ impl DocumentStore for MongoStore {
             return Err(CoreError::NotFound);
         }
         Ok(())
+    }
+
+    async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
+        self.collection(ns)
+            .estimated_document_count()
+            .await
+            .map_err(db_err)
+    }
+
+    async fn scan_sorted(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        from: Option<&KeyTuple>,
+        limit: u32,
+    ) -> Result<Vec<Document>> {
+        let query = SortedScanQuery::new(filter, key, from, limit);
+        let cursor = self
+            .collection(ns)
+            .find(query.filter)
+            .sort(query.sort)
+            .limit(query.limit)
+            .collation(Collation::builder().locale("simple").build())
+            .allow_disk_use(true)
+            .await
+            .map_err(db_err)?;
+        let docs: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
+        // A document without a usable key would sort as null and be returned again at the head
+        // of every page, so it fails the scan instead.
+        for doc in &docs {
+            extract_key(doc, key)?;
+        }
+        Ok(docs)
+    }
+
+    async fn key_index_status(&self, ns: &Namespace, key: &KeySpec) -> Result<IndexStatus> {
+        use mongodb::results::CollectionType;
+        let db = self.client.database(&ns.db);
+        // A missing collection has nothing to sort.
+        let mut specs = db
+            .list_collections()
+            .filter(doc! { "name": &ns.collection })
+            .await
+            .map_err(db_err)?;
+        let Some(spec) = specs.try_next().await.map_err(db_err)? else {
+            return Ok(IndexStatus::Indexed);
+        };
+        if spec.collection_type == CollectionType::View {
+            return Ok(IndexStatus::NotIndexed);
+        }
+        let default_is_simple = spec
+            .options
+            .collation
+            .as_ref()
+            .is_none_or(|c| c.locale == "simple");
+        let mut indexes = self.collection(ns).list_indexes().await.map_err(db_err)?;
+        while let Some(model) = indexes.try_next().await.map_err(db_err)? {
+            let options = model.options.unwrap_or_default();
+            let info = IndexInfo {
+                keys: model.keys,
+                sparse: options.sparse.unwrap_or(false),
+                has_partial_filter: options.partial_filter_expression.is_some(),
+                hidden: options.hidden == Some(true),
+                collation_is_simple: options
+                    .collation
+                    .as_ref()
+                    .is_none_or(|c| c.locale == "simple"),
+            };
+            if index_serves_sort(&info, default_is_simple, key) {
+                return Ok(IndexStatus::Indexed);
+            }
+        }
+        Ok(IndexStatus::NotIndexed)
+    }
+
+    async fn list_collection_kinds(&self, db: &str) -> Result<Vec<(String, CollectionKind)>> {
+        use mongodb::results::CollectionType;
+        let mut specs = self
+            .client
+            .database(db)
+            .list_collections()
+            .await
+            .map_err(db_err)?;
+        let mut out = Vec::new();
+        while let Some(spec) = specs.try_next().await.map_err(db_err)? {
+            let kind = match spec.collection_type {
+                CollectionType::View => CollectionKind::View,
+                CollectionType::Timeseries => CollectionKind::Timeseries,
+                _ => CollectionKind::Collection,
+            };
+            out.push((spec.name, kind));
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
     }
 }
 

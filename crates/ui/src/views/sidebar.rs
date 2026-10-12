@@ -1,6 +1,8 @@
 //! Sidebar view: database tree with lazily loaded collections.
 use crate::I18n;
-use crate::viewmodel::{DbNode, SidebarState, collection_click_action, db_click_action};
+use crate::viewmodel::{
+    DbNode, SidebarState, collection_click_action, compare_to_action, db_click_action,
+};
 use eframe::egui;
 use std::ops::Range;
 
@@ -152,13 +154,34 @@ fn show_row(
                 .as_ref()
                 .is_some_and(|ns| ns.db == db && ns.collection == name);
             ui.add_space(ui.spacing().indent);
-            ui.selectable_label(selected, name)
-                .clicked()
-                .then(|| collection_click_action(db, name))
+            let response = ui.selectable_label(selected, name);
+            let menu = collection_menu(&response, db, name, i18n);
+            menu.or_else(|| {
+                response
+                    .clicked()
+                    .then(|| collection_click_action(db, name))
+            })
         }
         Row::Loading => placeholder(ui, &i18n.t("sidebar.loading")),
         Row::NoCollections => placeholder(ui, &i18n.t("sidebar.no_collections")),
     }
+}
+
+/// Right-click menu of a collection: start a comparison with it as the source.
+fn collection_menu(
+    response: &egui::Response,
+    db: &str,
+    name: &str,
+    i18n: &I18n,
+) -> Option<SidebarAction> {
+    let mut chosen = None;
+    response.context_menu(|ui| {
+        if ui.button(i18n.t("sidebar.compare_to")).clicked() {
+            chosen = Some(compare_to_action(db, name));
+            ui.close();
+        }
+    });
+    chosen
 }
 
 /// Non-clickable indented hint row.

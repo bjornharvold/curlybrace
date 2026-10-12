@@ -59,6 +59,123 @@
     "retry": "Retry",
     "save": "Save"
   },
+  "compare": {
+    "back": "Back to browsing",
+    "category": {
+      "different": "Different",
+      "only_in_source": "Only in source",
+      "only_in_target": "Only in target"
+    },
+    "detail": {
+      "absent": "(not present)",
+      "added": "Added",
+      "change_column": "Change",
+      "changed": "Changed",
+      "close": "Close details",
+      "loading": "Loading the document differences...",
+      "no_changes": "The documents have no field differences.",
+      "no_document": "This document does not exist on this side.",
+      "path_column": "Field",
+      "removed": "Removed",
+      "source_document": "Source document",
+      "source_value": "Source value",
+      "target_document": "Target document",
+      "target_value": "Target value",
+      "title": "Differences for key {key}"
+    },
+    "preflight": {
+      "blocked": "A run is blocked.",
+      "check": "Check",
+      "checking": "Checking...",
+      "empty": "Both collections are empty.",
+      "empty_both": "Both collections are empty, so there is nothing to compare.",
+      "index_indexed": "key is indexed",
+      "index_missing": "no index on the key fields",
+      "needs_index": "The {side} collection has no index on the key fields and is too large to compare without one. Create an index on the key fields, then check again.",
+      "ok": "Ready to compare.",
+      "side_summary": "{side}: {count} documents, {index}",
+      "unchecked": "Check the collections before comparing."
+    },
+    "results": {
+      "empty_category": "No documents in this category.",
+      "identical": "No differences. The two collections match under the current rules.",
+      "identical_count": "Identical documents: {count}",
+      "key_column": "Key",
+      "load_failed": "The differences could not be loaded.",
+      "loading": "Loading the differences...",
+      "next": "Next",
+      "open_hint": "Show the field differences of this document",
+      "prev": "Previous",
+      "range": "{first}-{last} of {total}",
+      "retry": "Retry",
+      "tab": "{name} ({count})"
+    },
+    "rules": {
+      "ignore_array_order": "Ignore array order",
+      "ignore_array_order_hint": "Arrays with the same elements in a different order count as equal.",
+      "ignore_field_order": "Ignore field order",
+      "ignore_field_order_hint": "Documents whose fields are listed in a different order count as equal.",
+      "include_id": "The _id field",
+      "include_id_auto": "Follow the key",
+      "include_id_no": "Ignore it",
+      "include_id_yes": "Compare it",
+      "numbers_equal_across_types": "Numbers equal across types",
+      "numbers_equal_across_types_hint": "An int, a long and a double with the same value count as equal.",
+      "paths": "Field names",
+      "paths_hint": "address.city, tags",
+      "scope": "Fields compared",
+      "scope_all": "All fields",
+      "scope_all_except": "All fields except...",
+      "scope_only": "Only these fields...",
+      "title": "Rules"
+    },
+    "run": {
+      "cancel": "Cancel",
+      "cancelled_no_results": "The comparison was cancelled. No results were kept.",
+      "cancelling": "Cancelling...",
+      "differences": "{count} differences found so far",
+      "discard": "Discard results",
+      "failed": "The comparison did not finish.",
+      "finished": "The comparison finished.",
+      "scanned": "Scanned {source} source and {target} target documents",
+      "start": "Start"
+    },
+    "session": {
+      "close": "Close session",
+      "no_connections": "Save a connection first, then come back to compare two collections.",
+      "open": "Connect",
+      "opening": "Connecting to both servers...",
+      "pick_connection": "Pick a connection",
+      "source_connection": "Source connection",
+      "target_connection": "Target connection"
+    },
+    "setup": {
+      "collection": "Collection",
+      "database": "Database",
+      "filter": "Filter (JSON)",
+      "filter_hint": "{ \"status\": \"active\" }",
+      "filter_invalid": "The filter must be a JSON object, for example { \"status\": \"active\" }.",
+      "incomplete": "Pick a database and a collection on both sides.",
+      "key": "Key fields",
+      "key_hint": "_id, or tenant, sku",
+      "key_invalid": "The key must be one or more field names separated by commas, such as _id or tenant, sku. Each name must be non-empty and listed once.",
+      "pick_collection": "Pick a collection",
+      "pick_database": "Pick a database",
+      "reload": "Reload",
+      "reload_hint": "The collection list is empty. Load it again.",
+      "rules_invalid": "The field list is not valid. Each name must be non-empty, have no empty path segments, and the list cannot be empty when only some fields are compared.",
+      "same_collection": "The source and the target are the same collection with the same filter, so there is nothing to compare. Pick another collection or connection, or change a filter.",
+      "source_heading": "Source",
+      "target_heading": "Target",
+      "view_label": "{name} (view)",
+      "view_selected": "A view cannot be compared. Pick a collection."
+    },
+    "side": {
+      "source": "source",
+      "target": "target"
+    },
+    "title": "Compare collections"
+  },
   "connections": {
     "allow_invalid_certs": "Allow invalid TLS certificates",
     "allow_invalid_certs_ssh_warning": "Warning: through an SSH tunnel this removes certificate protection on the connection between the SSH bastion and MongoDB.",
@@ -104,6 +221,13 @@
   },
   "errors": {
     "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",
+    "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Narrow it with a filter, or compare fewer fields.",
+    "compare_duplicate_key": "Two documents on one side have the same key, so they cannot be matched. Choose a key that is unique, or look up which values repeat.",
+    "compare_key_invalid": "A key field holds a value that cannot be used as a key (for example an array). Choose a different key.",
+    "compare_key_missing": "A document has no value for one of the key fields. Choose key fields that every document has.",
+    "compare_key_not_indexed": "No index covers this key, and the collection is too large to compare without one. Create an index on the key fields and try again.",
+    "compare_key_order": "The documents did not arrive in the expected key order, so the comparison was stopped to avoid wrong results. This can happen with an unusual collation; please report it if it persists.",
+    "compare_setup_invalid": "The key or field list is not valid. Each name must be non-empty, have no empty path segments, and be listed only once. Fields can be dotted paths such as address.city.",
     "database": "The database reported a problem. Check your connection and try again.",
     "invalid_document": "This document is not valid. Check its fields and try again.",
     "invalid_json": "This is not valid JSON. Check the syntax and try again.",
@@ -119,6 +243,13 @@
   },
   "failures": {
     "clone": "Could not clone the document",
+    "compare_check": "Could not check the collections before comparing",
+    "compare_collections": "Could not load the collections for the comparison",
+    "compare_databases": "Could not load the databases for the comparison",
+    "compare_detail": "Could not load the document differences",
+    "compare_open": "Could not open the comparison connections",
+    "compare_rows": "Could not load the list of differences",
+    "compare_start": "Could not run the comparison",
     "connect": "Could not connect",
     "delete": "Could not delete the document",
     "delete_secrets": "Could not remove the saved credentials, so the connection was kept. Try again",
@@ -174,6 +305,7 @@
     "write_failed": "Could not write the saved connections file."
   },
   "sidebar": {
+    "compare_to": "Compare to...",
     "empty": "No databases",
     "loading": "Loading...",
     "no_collections": "No collections",
@@ -187,5 +319,11 @@
     "json": "JSON",
     "table": "Table",
     "tree": "Tree"
+  },
+  "workspace": {
+    "browse": "Browse",
+    "browse_hint": "Browse and edit documents",
+    "compare": "Compare",
+    "compare_hint": "Compare two collections"
   }
 }

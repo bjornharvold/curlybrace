@@ -76,8 +76,14 @@ run() { # run <label> <command...>: keep going so every target runs, then report
 }
 run "core local_mongo_crud" \
   cargo test -p curlybrace-core --test local_mongo_crud --locked -- --include-ignored --nocapture "$@"
+run "core local_compare_store" \
+  cargo test -p curlybrace-core --test local_compare_store --locked -- --include-ignored --nocapture "$@"
+run "core local_compare_session" \
+  cargo test -p curlybrace-core --test local_compare_session --locked -- --include-ignored --nocapture "$@"
 run "ui local_e2e_flows" \
   cargo test -p curlybrace-ui --test local_e2e_flows --locked -- --include-ignored --nocapture "$@"
+run "ui local_compare_flows" \
+  cargo test -p curlybrace-ui --test local_compare_flows --locked -- --include-ignored --nocapture "$@"
 
 if [ "${#failed[@]}" -ne 0 ]; then
   echo >&2

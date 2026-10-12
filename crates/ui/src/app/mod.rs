@@ -5,6 +5,7 @@
 //! * `panels`: the thin egui layer
 mod actions;
 mod banner;
+pub mod compare;
 pub mod connections;
 pub mod host_key;
 mod panels;
@@ -180,10 +181,13 @@ impl CurlybraceApp {
         }
     }
 
+    /// The runtime is gone: the browsing session and the compare session (whose connections
+    /// lived in it) are both over.
     fn runtime_stopped(&mut self) {
         let error = CoreError::Database("runtime stopped".into());
         let state = std::mem::take(&mut self.state);
         self.state = AppState {
+            compare: state.compare.clone().session_dropped(),
             status: ConnStatus::Disconnected,
             banner: Some(Banner::Failure {
                 context: "runtime",
@@ -298,5 +302,34 @@ mod tests {
         assert_eq!(config.command_timeout, COMMAND_TIMEOUT);
         assert!(config.connect_timeout > HOST_KEY_PROMPT_TIMEOUT);
         assert_eq!(config.known_hosts_path, Some(PathBuf::from("/kh")));
+    }
+
+    #[test]
+    fn a_stopped_runtime_also_ends_the_compare_session() {
+        use crate::app::compare::CompareAction;
+        use crate::viewmodel::compare::{RunView, SessionPhase};
+        let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
+        drop(commands);
+        let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle = RuntimeHandle { tx, rx };
+        let a = ConnectionConfig::new("a", "mongodb://a");
+        let secrets = Arc::new(curlybrace_core::secrets::MemorySecretStore::default());
+        let mut app = CurlybraceApp::new(handle, I18n::english(), vec![a], secrets);
+        app.state_mut().compare.session = Some(SessionPhase::Ready(4));
+        app.state_mut().compare.next_session = 5;
+        app.state_mut().compare.run = RunView::started(2);
+        // Any command now finds the runtime gone.
+        app.dispatch(Input::Compare(CompareAction::Cancel));
+        let compare = &app.state().compare;
+        assert_eq!(compare.session, None);
+        assert_eq!(compare.run, RunView::Idle);
+        assert_eq!(compare.next_session, 5, "ids are never reused");
+        assert!(matches!(
+            app.state().banner,
+            Some(Banner::Failure {
+                context: "runtime",
+                ..
+            })
+        ));
     }
 }

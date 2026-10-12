@@ -4,6 +4,8 @@
 #![allow(dead_code)]
 
 pub mod actions;
+pub mod compare;
+pub mod compare_states;
 pub mod db;
 pub mod fixture;
 pub mod screen;

@@ -2,13 +2,18 @@
 //!
 //! The UI sends [`Command`]s and drains [`Event`]s. Every command yields
 //! EXACTLY ONE event, followed by one `repaint()` call, on every code path:
-//! success, error, timeout and even a panic inside a handler.
+//! success, error, timeout and even a panic inside a handler. The one exception is
+//! `Command::Compare`: compare sessions are long-lived and independent of the main connection,
+//! so `Cancel`, `Discard` and `Close` have no answer of their own and `Start` answers with a
+//! stream of events (one `PairDone` per pair, then one `RunDone`). The answer rule per compare
+//! command is documented in the `compare` module.
 //!
 //! The spawn functions must be called from within a Tokio runtime (they use
 //! [`tokio::runtime::Handle::current`]); the binary creates and owns that
 //! runtime. Commands run concurrently, so a UI that needs ordering (e.g.
 //! `Connect` before `Find`) must wait for the corresponding event first.
 
+mod compare;
 #[cfg(test)]
 mod epoch_tests;
 mod handlers;
@@ -91,6 +96,8 @@ pub struct RuntimeConfig {
     pub known_hosts_path: Option<PathBuf>,
     pub host_key_prompt: Arc<dyn HostKeyPrompt>,
     pub tunnel_opener: Arc<dyn TunnelOpener>,
+    /// Result budget and preflight thresholds of every compare session.
+    pub compare_limits: crate::compare::results::Limits,
 }
 
 impl Default for RuntimeConfig {
@@ -101,6 +108,7 @@ impl Default for RuntimeConfig {
             known_hosts_path: default_known_hosts_path(),
             host_key_prompt: Arc::new(RejectUnknownHostKeys),
             tunnel_opener: Arc::new(SshTunnelOpener),
+            compare_limits: Default::default(),
         }
     }
 }
@@ -144,6 +152,8 @@ pub enum Command {
         ns: Namespace,
         source: Document,
     },
+    /// A data-compare session command; see [`compare`] for how it is answered.
+    Compare(crate::compare::protocol::CompareCommand),
 }
 
 impl Command {
@@ -159,6 +169,7 @@ impl Command {
             Self::Replace { .. } => "replace",
             Self::Delete { .. } => "delete",
             Self::Clone { .. } => "clone",
+            Self::Compare(_) => "compare",
         }
     }
 }
@@ -205,6 +216,8 @@ pub enum Event {
         context: &'static str,
         error: CoreError,
     },
+    /// An answer or progress report of a compare session (see [`compare`]).
+    Compare(crate::compare::protocol::CompareEvent),
 }
 
 pub struct RuntimeHandle {
@@ -230,6 +243,8 @@ pub(crate) struct Shared {
     pub secrets: Option<Arc<dyn SecretStore>>,
     pub connector: Arc<dyn Connector>,
     pub config: RuntimeConfig,
+    /// Compare sessions: independent of the main connection above.
+    compare: compare::Registry,
 }
 
 impl Shared {
@@ -314,6 +329,7 @@ pub fn spawn_runtime_with_connector(
         secrets,
         connector,
         config,
+        compare: Default::default(),
     });
     tokio::runtime::Handle::current().spawn(async move {
         while let Some(command) = commands.recv().await {
@@ -331,6 +347,10 @@ fn dispatch(
     repaint: Repaint,
     command: Command,
 ) {
+    if let Command::Compare(c) = command {
+        compare::dispatch(shared, events, repaint, c);
+        return;
+    }
     let context = command.context();
     let is_data = !matches!(command, Command::Connect(_) | Command::Disconnect);
     // Synchronous, so request order decides which connection wins.
