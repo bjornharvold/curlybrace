@@ -141,14 +141,24 @@ fn edited(state: AppState, change: impl FnOnce(SetupForm) -> SetupForm) -> Out {
     let compare = CompareState {
         setup: change(state.compare.setup.clone()),
         preflight: PreflightView::Unchecked,
+        // A check still in flight now answers a different form.
+        check_stale: state.compare.check_in_flight,
         ..state.compare.clone()
     };
     none(with_compare(state, compare))
 }
 
+/// Picking what is already picked changes nothing: no command, no preflight reset.
 fn pick_side(state: AppState, side: Side, pick: Pick) -> Out {
-    let session = ready(&state);
-    let listing = match (&pick, session) {
+    let current = state.compare.setup.side(side).clone();
+    let picked = match &pick {
+        Pick::Database(db) => current.clone().with_database(db),
+        Pick::Collection(name) => current.clone().with_collection(name),
+    };
+    if picked == current {
+        return none(state);
+    }
+    let listing = match (&pick, ready(&state)) {
         (Pick::Database(db), Some(session)) => Some(cmd(CompareCommand::Collections {
             session,
             side,
@@ -156,14 +166,7 @@ fn pick_side(state: AppState, side: Side, pick: Pick) -> Out {
         })),
         _ => None,
     };
-    let (next, _) = edited(state, |f| {
-        let form = f.side(side).clone();
-        let form = match &pick {
-            Pick::Database(db) => form.with_database(db),
-            Pick::Collection(name) => form.with_collection(name),
-        };
-        f.with_side(side, form)
-    });
+    let (next, _) = edited(state, |f| f.with_side(side, picked));
     (next, listing.into_iter().collect())
 }
 
@@ -174,11 +177,13 @@ fn check(state: AppState) -> Out {
     let Ok(pair) = state.compare.setup.pair() else {
         return none(state);
     };
-    if state.compare.run.running().is_some() {
+    if state.compare.run.running().is_some() || state.compare.check_in_flight {
         return none(state);
     }
     let compare = CompareState {
         preflight: PreflightView::Checking,
+        check_in_flight: true,
+        check_stale: false,
         ..state.compare.clone()
     };
     (
@@ -192,7 +197,7 @@ fn start(state: AppState) -> Out {
         return none(state);
     };
     let c = &state.compare;
-    if c.run.running().is_some() || !c.preflight.allows_start() {
+    if c.run.running().is_some() || c.check_in_flight || !c.preflight.allows_start() {
         return none(state);
     }
     let Ok(pair) = c.setup.pair() else {
@@ -308,6 +313,18 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
         return none(state);
     }
     match ev {
+        run_event @ (CompareEvent::Progress { .. }
+        | CompareEvent::PairDone { .. }
+        | CompareEvent::RunDone { .. }
+        | CompareEvent::Rows { .. }
+        | CompareEvent::Detail { .. }) => on_run_event(state, run_event),
+        other => on_setup_event(state, other),
+    }
+}
+
+/// Session lifecycle, listings, preflight and command failures.
+fn on_setup_event(state: AppState, ev: CompareEvent) -> Out {
+    match ev {
         CompareEvent::Opened { session } => opened(state, session),
         CompareEvent::OpenFailed { error, .. } => open_failed(state, error),
         CompareEvent::Databases { side, names, .. } => {
@@ -319,6 +336,15 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
         CompareEvent::Checked {
             pair, preflight, ..
         } => checked(state, pair, PreflightView::from(&preflight)),
+        CompareEvent::Failed { context, error, .. } => failed(state, context, error),
+        // Run events are routed to `on_run_event`.
+        _ => none(state),
+    }
+}
+
+/// Progress, results and details of a run.
+fn on_run_event(state: AppState, ev: CompareEvent) -> Out {
+    match ev {
         CompareEvent::Progress {
             run,
             pair,
@@ -355,7 +381,7 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
             changes,
             ..
         } => detail_arrived(state, pair, key, (source, target), &changes),
-        CompareEvent::Failed { context, error, .. } => failed(state, context, error),
+        _ => none(state),
     }
 }
 
@@ -399,15 +425,42 @@ fn listed(state: AppState, side: Side, change: impl FnOnce(SideForm) -> SideForm
     none(with_compare(state, compare))
 }
 
-fn checked(state: AppState, pair: u32, view: PreflightView) -> Out {
-    if pair != PAIR_ID || state.compare.preflight != PreflightView::Checking {
-        return none(state);
-    }
+/// The single outstanding check has been answered (or failed): nothing is in flight any more.
+fn check_settled(state: AppState, preflight: PreflightView) -> AppState {
     let compare = CompareState {
-        preflight: view,
+        preflight,
+        check_in_flight: false,
+        check_stale: false,
         ..state.compare.clone()
     };
-    none(with_compare(state, compare))
+    with_compare(state, compare)
+}
+
+/// Checks carry no request identity, so at most one is in flight; an answer to a check the form
+/// was edited under is dropped (the user checks again).
+fn checked(state: AppState, pair: u32, view: PreflightView) -> Out {
+    if pair != PAIR_ID || !state.compare.check_in_flight {
+        return none(state);
+    }
+    let preflight = if state.compare.check_stale {
+        PreflightView::Unchecked
+    } else {
+        view
+    };
+    none(check_settled(state, preflight))
+}
+
+fn check_failed(state: AppState, error: CoreError) -> Out {
+    if !state.compare.check_in_flight {
+        return none(failure_banner(state, "compare_check", error));
+    }
+    let obsolete = state.compare.check_stale;
+    let next = check_settled(state, PreflightView::Unchecked);
+    none(if obsolete {
+        next
+    } else {
+        failure_banner(next, "compare_check", error)
+    })
 }
 
 fn progress(state: AppState, run: u64, pair: u32, counters: (u64, u64, u64)) -> Out {
@@ -439,6 +492,27 @@ fn progress(state: AppState, run: u64, pair: u32, counters: (u64, u64, u64)) -> 
     none(with_compare(state, compare))
 }
 
+/// What a pair outcome adds to the run: its results and the updated cancelled/failure markers.
+fn settle(
+    outcome: &PairOutcome,
+    cancelled: bool,
+    failure: Option<CoreError>,
+) -> (Option<ResultsView>, bool, Option<CoreError>) {
+    match outcome {
+        PairOutcome::Completed(s) => (Some(ResultsView::new(s)), cancelled, failure),
+        PairOutcome::Cancelled(s) => (Some(ResultsView::new(s)), true, failure),
+        PairOutcome::Failed(e) => (None, cancelled, Some(e.clone())),
+    }
+}
+
+fn first_page(results: Option<&ResultsView>, session: SessionId) -> Vec<Command> {
+    results
+        .and_then(|r| r.request(session))
+        .into_iter()
+        .map(cmd)
+        .collect()
+}
+
 fn pair_done(
     state: AppState,
     session: SessionId,
@@ -461,17 +535,8 @@ fn pair_done(
     if run != current || pair != PAIR_ID {
         return none(state);
     }
-    let (results, cancelled, failure) = match &outcome {
-        PairOutcome::Completed(s) => (Some(ResultsView::new(s)), cancelled, failure),
-        PairOutcome::Cancelled(s) => (Some(ResultsView::new(s)), true, failure),
-        PairOutcome::Failed(e) => (None, cancelled, Some(e.clone())),
-    };
-    let commands = results
-        .as_ref()
-        .and_then(|r| r.request(session))
-        .into_iter()
-        .map(cmd)
-        .collect();
+    let (results, cancelled, failure) = settle(&outcome, cancelled, failure);
+    let commands = first_page(results.as_ref(), session);
     let compare = CompareState {
         run: RunView::Running {
             run,
@@ -558,18 +623,15 @@ fn detail_arrived(
 
 /// A whole command failed: show it, and undo whatever the command had optimistically marked.
 fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
+    if context == "compare_check" {
+        return check_failed(state, error);
+    }
     let c = &state.compare;
+    // `compare_rows` failures carry no offset, so they cannot be matched to a request: the
+    // current request is kept (a newer one may be the live one) and the banner reports it.
     let compare = match context {
-        "compare_check" if c.preflight == PreflightView::Checking => CompareState {
-            preflight: PreflightView::Unchecked,
-            ..c.clone()
-        },
         "compare_start" if c.run.running().is_some() => CompareState {
             run: RunView::Idle,
-            ..c.clone()
-        },
-        "compare_rows" => CompareState {
-            results: c.results.clone().map(ResultsView::request_failed),
             ..c.clone()
         },
         "compare_detail" => CompareState {

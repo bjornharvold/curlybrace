@@ -82,6 +82,11 @@ pub struct CompareState {
     pub next_run: RunId,
     pub setup: SetupForm,
     pub preflight: PreflightView,
+    /// A `Check` has been sent and not answered. At most one is in flight: answers carry no
+    /// request identity, so a second one could not be told from a stale one.
+    pub check_in_flight: bool,
+    /// The form was edited while the check was in flight; its answer will be dropped.
+    pub check_stale: bool,
     pub run: RunView,
     pub results: Option<ResultsView>,
     pub detail: Option<DetailView>,
@@ -96,6 +101,8 @@ impl Default for CompareState {
             next_run: 1,
             setup: SetupForm::default(),
             preflight: PreflightView::default(),
+            check_in_flight: false,
+            check_stale: false,
             run: RunView::default(),
             results: None,
             detail: None,

@@ -100,14 +100,6 @@ impl ResultsView {
         self.requested.is_some()
     }
 
-    /// The outstanding request failed: stop showing a spinner for it.
-    pub fn request_failed(self) -> Self {
-        Self {
-            requested: None,
-            ..self
-        }
-    }
-
     /// The `Rows` command for the outstanding request, if any.
     pub fn request(&self, session: SessionId) -> Option<CompareCommand> {
         self.requested

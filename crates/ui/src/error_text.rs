@@ -1,5 +1,5 @@
 //! Which error details may be shown or logged, and how failures are logged.
-use curlybrace_core::compare::protocol::CompareEvent;
+use curlybrace_core::compare::protocol::{CompareEvent, PairOutcome};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Event;
 
@@ -32,6 +32,10 @@ fn compare_log_line(ev: &CompareEvent) -> Option<String> {
     let (context, error) = match ev {
         CompareEvent::Failed { context, error, .. } => (*context, error),
         CompareEvent::OpenFailed { error, .. } => ("compare_open", error),
+        CompareEvent::PairDone {
+            outcome: PairOutcome::Failed(error),
+            ..
+        } => ("compare_start", error),
         _ => return None,
     };
     Some(format!("{context} failed: {}", error.i18n_key()))
@@ -61,6 +65,23 @@ mod tests {
             failure_log_line(&Event::Compare(CompareEvent::Opened { session: 1 })),
             None
         );
+        let pair = Event::Compare(CompareEvent::PairDone {
+            session: 1,
+            run: 1,
+            pair: 1,
+            outcome: PairOutcome::Failed(CoreError::Database("dup { sku: \"SECRET\" }".into())),
+        });
+        assert_eq!(
+            failure_log_line(&pair).as_deref(),
+            Some("compare_start failed: errors.database")
+        );
+        let done = Event::Compare(CompareEvent::PairDone {
+            session: 1,
+            run: 1,
+            pair: 1,
+            outcome: PairOutcome::Completed(Default::default()),
+        });
+        assert_eq!(failure_log_line(&done), None);
     }
 
     #[test]

@@ -75,7 +75,7 @@ fn documents_are_kept_for_the_side_by_side_view() {
 }
 
 #[test]
-fn matching_keys_use_compare_semantics_free_structural_equality() {
+fn is_for_matches_only_the_requested_key() {
     let d = DetailView::loading(KeyTuple(vec![Bson::Int32(1)]));
     assert!(d.is_for(&KeyTuple(vec![Bson::Int32(1)])));
     assert!(!d.is_for(&KeyTuple(vec![Bson::Int32(2)])));
