@@ -83,7 +83,8 @@ pub struct RuntimeConfig {
     pub command_timeout: Duration,
     /// Bound for a Connect, including an SSH host-key prompt waiting for the user.
     pub connect_timeout: Duration,
-    pub known_hosts_path: PathBuf,
+    /// `None` when the config directory is unknown: SSH connects then fail closed.
+    pub known_hosts_path: Option<PathBuf>,
     pub host_key_prompt: Arc<dyn HostKeyPrompt>,
     pub tunnel_opener: Arc<dyn TunnelOpener>,
 }

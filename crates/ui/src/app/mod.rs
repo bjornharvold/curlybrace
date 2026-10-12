@@ -41,7 +41,10 @@ const CONNECT_SLACK: Duration = Duration::from_secs(30);
 
 /// Runtime settings for the app: interactive host-key prompt, a connect timeout that outlasts
 /// it, and the normal short bound for data commands.
-pub fn runtime_config(known_hosts_path: PathBuf, prompt: Arc<InteractivePrompt>) -> RuntimeConfig {
+pub fn runtime_config(
+    known_hosts_path: Option<PathBuf>,
+    prompt: Arc<InteractivePrompt>,
+) -> RuntimeConfig {
     RuntimeConfig {
         command_timeout: COMMAND_TIMEOUT,
         connect_timeout: HOST_KEY_PROMPT_TIMEOUT + CONNECT_SLACK,
@@ -57,7 +60,7 @@ pub struct MongoStudioApp {
     i18n: I18n,
     secrets: Arc<dyn SecretStore>,
     config_path: ConfigPath,
-    known_hosts: PathBuf,
+    known_hosts: Option<PathBuf>,
     prompt: PromptState,
     prompt_requests: Option<Receiver<HostKeyRequest>>,
 }
@@ -113,7 +116,7 @@ impl MongoStudioApp {
         }
     }
 
-    pub fn with_known_hosts_path(self, known_hosts: PathBuf) -> Self {
+    pub fn with_known_hosts_path(self, known_hosts: Option<PathBuf>) -> Self {
         Self {
             known_hosts,
             ..self
@@ -209,9 +212,10 @@ impl MongoStudioApp {
 
     fn confirm_forget(&mut self) {
         let result = match &self.state.forget_confirm {
-            Some(endpoint) => {
-                host_key::forget_host(&self.known_hosts, &endpoint.host, endpoint.port)
-            }
+            Some(endpoint) => match &self.known_hosts {
+                Some(path) => host_key::forget_host(path, &endpoint.host, endpoint.port),
+                None => Err(persistence::PersistError::ConfigDirUnknown),
+            },
             None => return,
         };
         if let Err(e) = &result {
@@ -290,9 +294,9 @@ mod tests {
     #[test]
     fn data_commands_keep_the_short_timeout_and_connect_outlasts_the_host_key_prompt() {
         let (prompt, _rx) = InteractivePrompt::channel(Arc::new(|| {}), HOST_KEY_PROMPT_TIMEOUT);
-        let config = runtime_config(PathBuf::from("kh"), prompt);
+        let config = runtime_config(Some(PathBuf::from("/kh")), prompt);
         assert_eq!(config.command_timeout, COMMAND_TIMEOUT);
         assert!(config.connect_timeout > HOST_KEY_PROMPT_TIMEOUT);
-        assert_eq!(config.known_hosts_path, PathBuf::from("kh"));
+        assert_eq!(config.known_hosts_path, Some(PathBuf::from("/kh")));
     }
 }

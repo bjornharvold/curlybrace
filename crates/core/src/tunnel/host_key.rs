@@ -67,6 +67,10 @@ pub fn check_host_key(
     key: &PublicKey,
     prompt: &dyn HostKeyPrompt,
 ) -> Result<()> {
+    // A relative path would resolve against the working directory: refuse before any I/O.
+    if !known_hosts.is_absolute() {
+        return Err(unreadable());
+    }
     let host = host.to_ascii_lowercase();
     let recorded = recorded_keys(known_hosts, &host, port)?;
     if recorded.iter().any(|k| k == key) {
@@ -298,6 +302,19 @@ mod tests {
         assert_eq!(
             RejectUnknownHostKeys.decide("h", "SHA256:x"),
             HostKeyDecision::Reject
+        );
+    }
+
+    #[test]
+    fn a_relative_known_hosts_path_fails_closed_before_any_prompt_or_file_access() {
+        let relative = Path::new("ms-relative-known-hosts-test");
+        let prompt = FakePrompt::new(HostKeyDecision::TrustAndRemember);
+        let r = check_host_key(relative, "h.example", 22, &new_key(), &prompt);
+        assert!(is_ssh_err(r));
+        assert_eq!(prompt.call_count(), 0);
+        assert!(
+            !relative.exists(),
+            "nothing was created in the working directory"
         );
     }
 }

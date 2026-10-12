@@ -65,13 +65,11 @@ impl TunnelOpener for SshTunnelOpener {
 }
 
 /// App-owned `known_hosts`, e.g. `~/Library/Application Support/mongostudio/known_hosts`
-/// on macOS. Falls back to a relative path if no config dir can be found, so
-/// the file is still app-owned and never the user's `~/.ssh/known_hosts`.
-pub fn default_known_hosts_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_default()
-        .join("mongostudio")
-        .join("known_hosts")
+/// on macOS, never the user's `~/.ssh/known_hosts`. `None` when no config directory can be
+/// determined: there is deliberately NO fallback to a relative path (it would resolve against
+/// the working directory), and an SSH connect without a location fails closed.
+pub fn default_known_hosts_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|dir| dir.join("mongostudio").join("known_hosts"))
 }
 
 /// Derives the single `host:port` a tunnel must reach from the URI authority.
@@ -126,12 +124,15 @@ pub(super) async fn open_tunnel_if_configured(
     let (target_host, target_port) = parse_target(&cfg.uri)?;
     let secret = read_ssh_secret(shared, cfg, ssh).await?;
     let config = &shared.config;
+    let known_hosts = config.known_hosts_path.as_deref().ok_or_else(|| {
+        CoreError::Ssh("the location for known ssh hosts could not be determined".into())
+    })?;
     let request = TunnelRequest {
         ssh,
         target_host: &target_host,
         target_port,
         secret: secret.as_deref(),
-        known_hosts: &config.known_hosts_path,
+        known_hosts,
         prompt: config.host_key_prompt.clone(),
     };
     config.tunnel_opener.open(request).await.map(Some)

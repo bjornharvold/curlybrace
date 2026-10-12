@@ -159,6 +159,9 @@ impl PromptState {
 /// comments, lines it cannot parse); a missing file is success. Only plain host patterns are
 /// matched (the app never writes hashed ones).
 pub fn forget_host(known_hosts: &Path, host: &str, port: u16) -> Result<(), PersistError> {
+    if !known_hosts.is_absolute() {
+        return Err(PersistError::InvalidPath);
+    }
     let text = match std::fs::read_to_string(known_hosts) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -427,5 +430,15 @@ mod tests {
             std::fs::read_to_string(&p).unwrap(),
             "weird line without a key\n"
         );
+    }
+
+    #[test]
+    fn forget_with_a_relative_path_is_refused_and_touches_nothing() {
+        let relative = Path::new("ms-relative-forget-test");
+        assert_eq!(
+            forget_host(relative, "bastion", 22),
+            Err(PersistError::InvalidPath)
+        );
+        assert!(!relative.exists());
     }
 }

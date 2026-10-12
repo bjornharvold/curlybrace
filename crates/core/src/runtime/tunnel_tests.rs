@@ -383,3 +383,25 @@ async fn failed_driver_connect_drops_the_tunnel() {
     assert!(matches!(next(&mut h).await, Event::ConnectFailed { .. }));
     assert_eq!(opener.drops(), 1);
 }
+
+#[tokio::test]
+async fn an_unknown_config_dir_makes_an_ssh_connect_fail_closed_without_opening() {
+    let opener = FakeOpener::new(false);
+    let config = RuntimeConfig {
+        tunnel_opener: opener.clone(),
+        known_hosts_path: None,
+        ..RuntimeConfig::default()
+    };
+    let repaint: Repaint = Arc::new(|| {});
+    let mut h = spawn_runtime_with_connector(None, None, recording(None), repaint, config);
+    h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
+        .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::ConnectFailed {
+            error: CoreError::Ssh(_),
+            ..
+        }
+    ));
+    assert!(opener.seen.lock().unwrap().is_empty());
+}
