@@ -33,20 +33,14 @@ impl KeySpec {
     /// A key over `fields`: non-empty, no empty path segments, no field listed twice.
     pub fn new(fields: Vec<String>) -> Result<Self> {
         if fields.is_empty() {
-            return Err(CoreError::InvalidDocument(
-                "the key needs at least one field".into(),
-            ));
+            return Err(CoreError::CompareSetupInvalid);
         }
         for (i, field) in fields.iter().enumerate() {
             if field.is_empty() || field.split('.').any(str::is_empty) {
-                return Err(CoreError::InvalidDocument(
-                    "a key field name must not be empty".into(),
-                ));
+                return Err(CoreError::CompareSetupInvalid);
             }
             if fields[..i].contains(field) {
-                return Err(CoreError::InvalidDocument(
-                    "a key field is listed twice".into(),
-                ));
+                return Err(CoreError::CompareSetupInvalid);
             }
         }
         Ok(Self { fields })
@@ -58,6 +52,9 @@ impl KeySpec {
 }
 
 /// One value per key field, in key order.
+///
+/// The derived `PartialEq` is structural (`Int32(1) != Int64(1)`, `NaN != NaN`); key matching must
+/// use `compare_tuples`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeyTuple(pub Vec<Bson>);
 
@@ -144,9 +141,11 @@ pub fn compare_bson(a: &Bson, b: &Bson) -> Ordering {
             (&x.pattern, &x.options).cmp(&(&y.pattern, &y.options))
         }
         _ => match ra {
+            1 => matches!(a, Bson::Null).cmp(&matches!(b, Bson::Null)),
             2 => compare_numbers(a, b),
             3 => text(a).as_bytes().cmp(text(b).as_bytes()),
-            // Null/Undefined and MinKey/MaxKey are equal within their class. The deprecated
+            // Undefined sorts strictly below Null (the server's canonical order); MinKey and
+            // MaxKey are equal within their class. The deprecated
             // classes never occur as keys (extract_key refuses them); this fallback only
             // keeps the order total for a nested value.
             12..=14 => format!("{a:?}").cmp(&format!("{b:?}")),
@@ -266,8 +265,11 @@ mod tests {
     }
 
     #[test]
-    fn null_and_undefined_are_equal_and_symbol_equals_string() {
-        assert_eq!(compare_bson(&Bson::Null, &Bson::Undefined), Equal);
+    fn undefined_sorts_below_null_and_symbol_equals_string() {
+        assert_eq!(compare_bson(&Bson::Undefined, &Bson::Null), Less);
+        assert_eq!(compare_bson(&Bson::Null, &Bson::Undefined), Greater);
+        assert_eq!(compare_bson(&Bson::Null, &Bson::Null), Equal);
+        assert_eq!(compare_bson(&Bson::Undefined, &Bson::Undefined), Equal);
         assert_eq!(
             compare_bson(&Bson::Symbol("a".into()), &Bson::String("a".into())),
             Equal
@@ -393,7 +395,11 @@ mod tests {
             vec!["a.".to_string()],
             vec!["a".to_string(), "a".to_string()],
         ] {
-            assert!(KeySpec::new(bad.clone()).is_err(), "{bad:?}");
+            assert_eq!(
+                KeySpec::new(bad.clone()),
+                Err(CoreError::CompareSetupInvalid),
+                "{bad:?}"
+            );
         }
     }
 

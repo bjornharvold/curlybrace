@@ -59,6 +59,7 @@ mod tests {
             CoreError::CompareKeyOrder,
             CoreError::CompareKeyNotIndexed,
             CoreError::CompareCapExceeded,
+            CoreError::CompareSetupInvalid,
         ] {
             assert_eq!(error_detail(&hidden), None, "{hidden:?}");
         }

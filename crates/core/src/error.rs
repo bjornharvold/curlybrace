@@ -53,6 +53,9 @@ pub enum CoreError {
     /// The shared result budget (differences or bytes) was exhausted.
     #[error("compare: the result limit was reached")]
     CompareCapExceeded,
+    /// The key or field list of a compare is not valid.
+    #[error("compare: the key or field list is not valid")]
+    CompareSetupInvalid,
 }
 
 impl CoreError {
@@ -78,6 +81,7 @@ impl CoreError {
             Self::CompareKeyOrder => "errors.compare_key_order",
             Self::CompareKeyNotIndexed => "errors.compare_key_not_indexed",
             Self::CompareCapExceeded => "errors.compare_cap_exceeded",
+            Self::CompareSetupInvalid => "errors.compare_setup_invalid",
         }
     }
 }
@@ -108,6 +112,7 @@ mod tests {
             CoreError::CompareKeyOrder,
             CoreError::CompareKeyNotIndexed,
             CoreError::CompareCapExceeded,
+            CoreError::CompareSetupInvalid,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         keys.sort();

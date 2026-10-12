@@ -110,6 +110,7 @@
     "compare_key_missing": "A document has no value for one of the key fields. Choose key fields that every document has.",
     "compare_key_not_indexed": "No index covers this key, and the collection is too large to compare without one. Create an index on the key fields and try again.",
     "compare_key_order": "The documents did not arrive in the expected key order, so the comparison was stopped to avoid wrong results. This can happen with an unusual collation; please report it if it persists.",
+    "compare_setup_invalid": "The key or field list is not valid. Each name must be non-empty, have no empty path segments, and be listed only once. Fields can be dotted paths such as address.city.",
     "database": "The database reported a problem. Check your connection and try again.",
     "invalid_document": "This document is not valid. Check its fields and try again.",
     "invalid_json": "This is not valid JSON. Check the syntax and try again.",

@@ -178,6 +178,7 @@ mod tests {
             CoreError::CompareKeyOrder,
             CoreError::CompareKeyNotIndexed,
             CoreError::CompareCapExceeded,
+            CoreError::CompareSetupInvalid,
         ];
         for e in &errors {
             let s = i.error(e);
