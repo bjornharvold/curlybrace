@@ -10,6 +10,25 @@
     "scram_sha256": "SCRAM-SHA-256",
     "x509": "X.509"
   },
+  "bsontype": {
+    "array": "array",
+    "binary": "binary",
+    "bool": "bool",
+    "date": "date",
+    "decimal128": "decimal128",
+    "double": "double",
+    "int32": "int32",
+    "int64": "int64",
+    "maxKey": "maxKey",
+    "minKey": "minKey",
+    "null": "null",
+    "object": "object",
+    "objectId": "ObjectId",
+    "other": "other",
+    "regex": "regex",
+    "string": "string",
+    "timestamp": "timestamp"
+  },
   "cell": {
     "array": "{n} items",
     "binary": "Binary ({n} bytes)",
@@ -53,6 +72,20 @@
     "uri": "Connection string",
     "username": "Username"
   },
+  "doc": {
+    "clone": "Clone",
+    "confirm_delete": "Delete the document with _id {id}? This cannot be undone.",
+    "delete": "Delete",
+    "edit": "Edit",
+    "header": "Document {n}",
+    "insert": "Insert document"
+  },
+  "editor": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "title_edit": "Edit document",
+    "title_new": "New document"
+  },
   "errors": {
     "database": "The database reported a problem. Check your connection and try again.",
     "invalid_document": "This document is not valid. Check its fields and try again.",
@@ -94,5 +127,13 @@
     "no_collections": "No collections",
     "refresh": "Refresh",
     "title": "Databases"
+  },
+  "tree": {
+    "more_items": "{n} more items"
+  },
+  "view": {
+    "json": "JSON",
+    "table": "Table",
+    "tree": "Tree"
   }
 }
