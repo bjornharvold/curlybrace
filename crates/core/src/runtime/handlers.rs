@@ -126,7 +126,7 @@ async fn bounded<T>(
 /// tasks cannot be cancelled); its result is discarded.
 async fn connect_store(shared: &Shared, cfg: ConnectionConfig, generation: u64) -> Result<Event> {
     cfg.validate()?;
-    let limit = shared.config.command_timeout;
+    let limit = shared.config.connect_timeout;
     // The tunnel lives in this scope until installed; a failure, timeout or
     // cancellation anywhere below drops it, which closes it.
     let (store, tunnel) = bounded(limit, async {

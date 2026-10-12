@@ -20,7 +20,7 @@ use host_key::{HOST_KEY_PROMPT_TIMEOUT, HostKeyRequest, InteractivePrompt, Promp
 use mongostudio_core::connection::ConnectionConfig;
 use mongostudio_core::error::CoreError;
 use mongostudio_core::runtime::{
-    Command, Repaint, RuntimeConfig, RuntimeHandle, default_known_hosts_path,
+    COMMAND_TIMEOUT, Command, Repaint, RuntimeConfig, RuntimeHandle, default_known_hosts_path,
     spawn_runtime_with_config,
 };
 use mongostudio_core::secrets::SecretStore;
@@ -35,14 +35,15 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 /// Slack on top of the prompt timeout so a user who answers just in time still connects
-/// (the runtime's command timeout bounds the whole connect, prompt included).
+/// (the runtime's connect timeout bounds the whole connect, prompt included).
 const CONNECT_SLACK: Duration = Duration::from_secs(30);
 
-/// Runtime settings for the app: interactive host-key prompt and a command timeout that
-/// outlasts it.
+/// Runtime settings for the app: interactive host-key prompt, a connect timeout that outlasts
+/// it, and the normal short bound for data commands.
 pub fn runtime_config(known_hosts_path: PathBuf, prompt: Arc<InteractivePrompt>) -> RuntimeConfig {
     RuntimeConfig {
-        command_timeout: HOST_KEY_PROMPT_TIMEOUT + CONNECT_SLACK,
+        command_timeout: COMMAND_TIMEOUT,
+        connect_timeout: HOST_KEY_PROMPT_TIMEOUT + CONNECT_SLACK,
         known_hosts_path,
         host_key_prompt: prompt,
         ..RuntimeConfig::default()
@@ -283,10 +284,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_timeout_outlasts_the_host_key_prompt() {
+    fn data_commands_keep_the_short_timeout_and_connect_outlasts_the_host_key_prompt() {
         let (prompt, _rx) = InteractivePrompt::channel(Arc::new(|| {}), HOST_KEY_PROMPT_TIMEOUT);
         let config = runtime_config(PathBuf::from("kh"), prompt);
-        assert!(config.command_timeout > HOST_KEY_PROMPT_TIMEOUT);
+        assert_eq!(config.command_timeout, COMMAND_TIMEOUT);
+        assert!(config.connect_timeout > HOST_KEY_PROMPT_TIMEOUT);
         assert_eq!(config.known_hosts_path, PathBuf::from("kh"));
     }
 }

@@ -388,6 +388,7 @@ async fn connect_to_unreachable_host_fails_within_bound() {
     let (_, repaint) = counter();
     let config = RuntimeConfig {
         command_timeout: Duration::from_secs(2),
+        connect_timeout: Duration::from_secs(2),
         ..RuntimeConfig::default()
     };
     let mut h = spawn_runtime_with_config(

@@ -518,3 +518,67 @@ async fn a_connect_failing_validation_still_consumes_an_epoch() {
     h.tx.send(Command::Disconnect).unwrap();
     assert_eq!(next(&mut h).await, Event::Disconnected { epoch: 3 });
 }
+
+#[tokio::test]
+async fn a_hanging_find_fails_at_the_command_timeout_even_with_a_long_connect_timeout() {
+    let (_, repaint) = counter();
+    let config = RuntimeConfig {
+        command_timeout: Duration::from_millis(100),
+        connect_timeout: Duration::from_secs(600),
+        ..RuntimeConfig::default()
+    };
+    let mut h = spawn_runtime_with_config(None, Some(Arc::new(SlowStore)), repaint, config);
+    let start = Instant::now();
+    h.tx.send(Command::Find {
+        ns: mock_namespace(),
+        query: Query::default(),
+    })
+    .unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Failed {
+            context: "find",
+            error: CoreError::Database("timeout".into())
+        }
+    );
+    assert!(start.elapsed() < Duration::from_secs(3));
+}
+
+#[tokio::test]
+async fn a_slow_connect_is_not_cut_at_the_command_timeout() {
+    let (connector, mut gates) = GatedConnector::new(&["slow"]);
+    let (_, repaint) = counter();
+    let config = RuntimeConfig {
+        command_timeout: Duration::from_millis(50),
+        connect_timeout: Duration::from_secs(30),
+        ..RuntimeConfig::default()
+    };
+    let mut h = spawn_runtime_with_connector(None, None, connector, repaint, config);
+    h.tx.send(Command::Connect(cfg("slow"))).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await; // well past command_timeout
+    gates
+        .remove("slow")
+        .unwrap()
+        .send(Ok(store_with_db("d")))
+        .ok();
+    assert_eq!(next(&mut h).await, Event::Connected { epoch: 1 });
+}
+
+#[tokio::test]
+async fn a_connect_that_exceeds_the_connect_timeout_fails_with_a_timeout() {
+    let (connector, _gates) = GatedConnector::new(&["never"]);
+    let (_, repaint) = counter();
+    let config = RuntimeConfig {
+        connect_timeout: Duration::from_millis(100),
+        ..RuntimeConfig::default()
+    };
+    let mut h = spawn_runtime_with_connector(None, None, connector, repaint, config);
+    h.tx.send(Command::Connect(cfg("never"))).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::ConnectFailed {
+            epoch: 1,
+            error: CoreError::Database(_)
+        }
+    ));
+}

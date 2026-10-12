@@ -65,17 +65,24 @@ impl Connector for MongoConnector {
 /// Upper bound for any single command (including connect).
 pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Runtime tunables; the timeout is overridable so tests stay fast.
+/// Upper bound for a Connect (connector, SSH tunnel and any host-key prompt the user must answer).
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(150);
+
+/// Runtime tunables; the timeouts are overridable so tests stay fast.
 ///
 /// SSH tunnels: `known_hosts_path` is the app-owned host-key file and
 /// `host_key_prompt` decides about UNKNOWN host keys. The default prompt is
 /// [`RejectUnknownHostKeys`] (safe); the UI (Task 16) supplies an interactive
 /// one. The prompt is synchronous and is called via `spawn_blocking`, so the
 /// UI side may block on a channel until the user answers. Keep
-/// `command_timeout` in mind: it bounds the whole connect, prompt included.
+/// `connect_timeout` in mind: it bounds the whole connect, prompt included, while
+/// `command_timeout` bounds data commands only.
 #[derive(Clone)]
 pub struct RuntimeConfig {
+    /// Bound for each data command (find, insert, ...).
     pub command_timeout: Duration,
+    /// Bound for a Connect, including an SSH host-key prompt waiting for the user.
+    pub connect_timeout: Duration,
     pub known_hosts_path: PathBuf,
     pub host_key_prompt: Arc<dyn HostKeyPrompt>,
     pub tunnel_opener: Arc<dyn TunnelOpener>,
@@ -85,6 +92,7 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             command_timeout: COMMAND_TIMEOUT,
+            connect_timeout: CONNECT_TIMEOUT,
             known_hosts_path: default_known_hosts_path(),
             host_key_prompt: Arc::new(RejectUnknownHostKeys),
             tunnel_opener: Arc::new(SshTunnelOpener),
@@ -96,6 +104,7 @@ impl std::fmt::Debug for RuntimeConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RuntimeConfig")
             .field("command_timeout", &self.command_timeout)
+            .field("connect_timeout", &self.connect_timeout)
             .field("known_hosts_path", &self.known_hosts_path)
             .finish_non_exhaustive()
     }
