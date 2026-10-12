@@ -104,14 +104,22 @@ The project focuses on features that free MongoDB tools do not already cover wel
 in rough order; each one gets its own design and plan before code is written, and each is a good
 place to contribute:
 
-- **Data Compare & Sync**: diff two collections or databases (across servers), pick the differences,
-  and apply or export the sync.
-- **Data Masking and Reschema**: anonymise sensitive fields in copies of data and reshape documents
-  in bulk.
-- **SQL and MongoDB**: a SQL query editor that translates to MongoDB queries, plus SQL import.
-- **Task Scheduler**: save and schedule the jobs above to run unattended, with logs.
-- More platforms (Intel Mac, Linux, Windows), Apple code signing and notarization, inline table
-  editing, TLS test containers, and `ssh-agent` support.
+- **Data Compare & Sync** ([#8](https://github.com/bjornharvold/the-mongodb-gui/issues/8)): diff two collections or databases (across servers), pick the
+  differences, and apply or export the sync.
+- **Data Masking and Reschema** ([#9](https://github.com/bjornharvold/the-mongodb-gui/issues/9)): anonymise sensitive fields in copies of data and
+  reshape documents in bulk.
+- **SQL and MongoDB** ([#10](https://github.com/bjornharvold/the-mongodb-gui/issues/10)): a SQL query editor that translates to MongoDB queries, plus SQL
+  import.
+- **Task Scheduler** ([#11](https://github.com/bjornharvold/the-mongodb-gui/issues/11)): save and schedule the jobs above to run unattended, with logs.
+- **More platforms**: [Intel Mac (#14)](https://github.com/bjornharvold/the-mongodb-gui/issues/14), [Linux (#15)](https://github.com/bjornharvold/the-mongodb-gui/issues/15), [Windows (#16)](https://github.com/bjornharvold/the-mongodb-gui/issues/16).
+- **Trust and polish**: [Apple code signing and notarization (#17)](https://github.com/bjornharvold/the-mongodb-gui/issues/17), [inline table editing
+  (#12)](https://github.com/bjornharvold/the-mongodb-gui/issues/12), [`ssh-agent` support (#13)](https://github.com/bjornharvold/the-mongodb-gui/issues/13), [TLS test containers (#18)](https://github.com/bjornharvold/the-mongodb-gui/issues/18),
+  [click-driven UI and screenshot tests (#19)](https://github.com/bjornharvold/the-mongodb-gui/issues/19), [real screenshots (#20)](https://github.com/bjornharvold/the-mongodb-gui/issues/20) and
+  [translations (#21)](https://github.com/bjornharvold/the-mongodb-gui/issues/21).
+
+Every item above has an issue with a description and a "done when" checklist. Browse them all by the
+[`help wanted`](https://github.com/bjornharvold/the-mongodb-gui/issues/?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) and
+[`good first issue`](https://github.com/bjornharvold/the-mongodb-gui/issues/?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) labels.
 
 ## Build from source
 

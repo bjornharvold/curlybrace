@@ -146,6 +146,8 @@
   ul.wanted { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--deep-rule); }
   ul.wanted li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; padding: 18px 0; border-bottom: 1px solid var(--deep-rule); }
   ul.wanted strong { display: block; font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; }
+  ul.wanted strong a { text-decoration: none; }
+  ul.wanted strong a:hover { text-decoration: underline; text-underline-offset: 5px; }
   ul.wanted span.d { color: var(--deep-muted); font-size: 1rem; }
   ul.wanted .tag { align-self: start; font: 500 0.78rem/1 var(--mono); border: 1px solid var(--deep-muted); color: var(--deep-ink); border-radius: 999px; padding: 6px 10px; white-space: nowrap; }
   .build-copy p { max-width: 30em; margin: 0 0 18px; color: var(--deep-ink); }
@@ -347,12 +349,12 @@
             </div>
           </div>
           <ul class="wanted" aria-label="Open work">
-            <li><div><strong>Data Compare and Sync</strong><span class="d">Diff two collections or databases across servers, then apply or export the changes.</span></div><span class="tag">Planned</span></li>
-            <li><div><strong>Data Masking and Reschema</strong><span class="d">Anonymise sensitive fields in copies of data and reshape documents in bulk.</span></div><span class="tag">Planned</span></li>
-            <li><div><strong>SQL and MongoDB</strong><span class="d">A SQL query editor that translates to MongoDB queries.</span></div><span class="tag">Planned</span></li>
-            <li><div><strong>Task Scheduler</strong><span class="d">Run saved jobs on a schedule, with logs.</span></div><span class="tag">Planned</span></li>
-            <li><div><strong>More platforms</strong><span class="d">Intel Mac, Linux and Windows builds. One workflow row and a packaging script.</span></div><span class="tag">Wanted</span></li>
-            <li><div><strong>Signing and notarization</strong><span class="d">So the first launch doesn’t need a confirmation.</span></div><span class="tag">Wanted</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/8">Data Compare and Sync</a></strong><span class="d">Diff two collections or databases across servers, then apply or export the changes.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/9">Data Masking and Reschema</a></strong><span class="d">Anonymise sensitive fields in copies of data and reshape documents in bulk.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/10">SQL and MongoDB</a></strong><span class="d">A SQL query editor that translates to MongoDB queries.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/11">Task Scheduler</a></strong><span class="d">Run saved jobs on a schedule, with logs.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/15">More platforms</a></strong><span class="d">Intel Mac, Linux and Windows builds. One workflow row and a packaging script.</span></div><span class="tag">Wanted</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/the-mongodb-gui/issues/17">Signing and notarization</a></strong><span class="d">So the first launch doesn’t need a confirmation.</span></div><span class="tag">Wanted</span></li>
           </ul>
         </div>
       </section>
