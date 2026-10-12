@@ -1,7 +1,7 @@
 //! Pure handlers for user actions. Each consumes the state and returns the next state plus the
 //! runtime commands to send. Data commands are only produced while connected (carry item I).
 use super::reducer::Out;
-use super::state::{AppState, Banner, ConnStatus, EditorKey, HostEndpoint, Pending};
+use super::state::{AppState, Banner, ConnStatus, EditorKey, HostEndpoint, Pending, Workspace};
 use crate::viewmodel::{
     DbNode, DocAction, EditorAction, EditorState, FindAction, FindBarState, SidebarAction,
 };
@@ -71,6 +71,8 @@ fn open(state: AppState, ns: Namespace) -> Out {
     // `pending` is deliberately kept: a mutation still in flight blocks a second submit even
     // after the user switched collections.
     let next = AppState {
+        // Opening a collection means looking at it; the compare session is kept.
+        workspace: Workspace::Browse,
         sidebar: state.sidebar.selecting(ns),
         find: FindBarState::default(),
         issued_query: query.clone(),

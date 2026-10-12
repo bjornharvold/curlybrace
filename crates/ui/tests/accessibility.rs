@@ -134,12 +134,87 @@ mod compare_workspace {
         let state = act(AppState::new(vec![a, b]), open);
         let state = step(state, event(CompareEvent::Opened { session: 1 }));
         let state = picked(picked(state, Side::Source), Side::Target);
-        let state = if through == "form" {
-            state
-        } else {
-            finished(state)
+        let state = match through {
+            "form" => state,
+            "checking" => act(state, CompareAction::RunCheck),
+            // Checked fine, then edited: the answer is gone and the preflight is Unchecked.
+            "edited" => act(checked(state), CompareAction::SetKey("sku".into())),
+            // Edited while a check was in flight: its answer will be dropped.
+            "stale" => {
+                let state = act(state, CompareAction::RunCheck);
+                act(state, CompareAction::SetKey("sku".into()))
+            }
+            "checked" => checked(state),
+            _ => finished(state),
         };
         (state.compare, state.conn)
+    }
+
+    fn checked(state: AppState) -> AppState {
+        let state = act(state, CompareAction::RunCheck);
+        let preflight = Preflight {
+            source_count: 3,
+            target_count: 3,
+            source_index: IndexStatus::Indexed,
+            target_index: IndexStatus::Indexed,
+            unindexed_too_large: false,
+        };
+        let answer = CompareEvent::Checked {
+            session: 1,
+            pair: 1,
+            preflight,
+        };
+        step(state, event(answer))
+    }
+
+    fn button_disabled(harness: &Harness<'_, Fixture>, label: &str) -> bool {
+        let button = harness.get_by_role_and_label(Role::Button, label);
+        button.accesskit_node().is_disabled()
+    }
+
+    #[test]
+    fn check_is_disabled_while_a_check_is_in_flight_and_start_follows_the_view_model() {
+        let i18n = I18n::english();
+        let check = i18n.t("compare.preflight.check");
+        let start = i18n.t("compare.run.start");
+        let checking = i18n.t("compare.preflight.checking");
+
+        let mut ready = harness(fixture("form"));
+        ready.run();
+        assert!(
+            !button_disabled(&ready, &check),
+            "a ready form can be checked"
+        );
+        assert!(button_disabled(&ready, &start), "unchecked: no start");
+
+        // The spinner repaints continuously, so step instead of running to rest.
+        let mut in_flight = harness(fixture("checking"));
+        in_flight.run_steps(2);
+        assert!(button_disabled(&in_flight, &checking), "check is in flight");
+        assert!(button_disabled(&in_flight, &start));
+
+        let mut stale = harness(fixture("stale"));
+        stale.run_steps(2);
+        assert!(button_disabled(&stale, &checking));
+        assert!(button_disabled(&stale, &start), "stale answer pending");
+
+        let mut edited = harness(fixture("edited"));
+        edited.run();
+        assert!(!button_disabled(&edited, &check));
+        assert!(button_disabled(&edited, &start), "edit after a good check");
+
+        let mut fresh = harness(fixture("checked"));
+        fresh.run();
+        assert!(!button_disabled(&fresh, &start), "fresh Ok answer starts");
+    }
+
+    #[test]
+    fn connect_is_disabled_for_the_open_pair_and_close_is_enabled() {
+        let i18n = I18n::english();
+        let mut open = harness(fixture("form"));
+        open.run();
+        assert!(button_disabled(&open, &i18n.t("compare.session.open")));
+        assert!(!button_disabled(&open, &i18n.t("compare.session.close")));
     }
 
     fn finished(state: AppState) -> AppState {

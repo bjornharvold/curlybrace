@@ -9,7 +9,7 @@ use crate::viewmodel::compare::{
 };
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{
-    CompareCommand, CompareEvent, PairOutcome, RowView, SessionId, Side,
+    CompareCommand, CompareEvent, PairOutcome, Preflight, RowView, SessionId, Side,
 };
 use curlybrace_core::compare::results::Category;
 use curlybrace_core::error::CoreError;
@@ -174,6 +174,7 @@ fn edited(state: AppState, change: impl FnOnce(SetupForm) -> SetupForm) -> Out {
     let compare = CompareState {
         setup: change(state.compare.setup.clone()),
         preflight: PreflightView::Unchecked,
+        last_check: None,
         // A check still in flight now answers a different form.
         check_stale: state.compare.check_in_flight,
         ..state.compare.clone()
@@ -215,6 +216,7 @@ fn check(state: AppState) -> Out {
     }
     let compare = CompareState {
         preflight: PreflightView::Checking,
+        last_check: None,
         check_in_flight: true,
         check_stale: false,
         ..state.compare.clone()
@@ -368,7 +370,7 @@ fn on_setup_event(state: AppState, ev: CompareEvent) -> Out {
         } => listed(state, side, |s| s.with_collections(&db, entries)),
         CompareEvent::Checked {
             pair, preflight, ..
-        } => checked(state, pair, PreflightView::from(&preflight)),
+        } => checked(state, pair, preflight),
         CompareEvent::Failed { context, error, .. } => failed(state, context, error),
         // Run events are routed to `on_run_event`.
         _ => none(state),
@@ -465,9 +467,14 @@ fn listed(state: AppState, side: Side, change: impl FnOnce(SideForm) -> SideForm
 }
 
 /// The single outstanding check has been answered (or failed): nothing is in flight any more.
-fn check_settled(state: AppState, preflight: PreflightView) -> AppState {
+fn check_settled(
+    state: AppState,
+    preflight: PreflightView,
+    last_check: Option<Preflight>,
+) -> AppState {
     let compare = CompareState {
         preflight,
+        last_check,
         check_in_flight: false,
         check_stale: false,
         ..state.compare.clone()
@@ -477,16 +484,15 @@ fn check_settled(state: AppState, preflight: PreflightView) -> AppState {
 
 /// Checks carry no request identity, so at most one is in flight; an answer to a check the form
 /// was edited under is dropped (the user checks again).
-fn checked(state: AppState, pair: u32, view: PreflightView) -> Out {
+fn checked(state: AppState, pair: u32, answer: Preflight) -> Out {
     if pair != PAIR_ID || !state.compare.check_in_flight {
         return none(state);
     }
-    let preflight = if state.compare.check_stale {
-        PreflightView::Unchecked
-    } else {
-        view
-    };
-    none(check_settled(state, preflight))
+    if state.compare.check_stale {
+        return none(check_settled(state, PreflightView::Unchecked, None));
+    }
+    let view = PreflightView::from(&answer);
+    none(check_settled(state, view, Some(answer)))
 }
 
 fn check_failed(state: AppState, error: CoreError) -> Out {
@@ -494,7 +500,7 @@ fn check_failed(state: AppState, error: CoreError) -> Out {
         return none(failure_banner(state, "compare_check", error));
     }
     let obsolete = state.compare.check_stale;
-    let next = check_settled(state, PreflightView::Unchecked);
+    let next = check_settled(state, PreflightView::Unchecked, None);
     none(if obsolete {
         next
     } else {

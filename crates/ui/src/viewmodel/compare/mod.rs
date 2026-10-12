@@ -4,11 +4,11 @@ pub mod preflight;
 pub mod results;
 pub mod setup;
 
-use curlybrace_core::compare::protocol::{RunId, SessionId};
+use curlybrace_core::compare::protocol::{Preflight, RunId, SessionId};
 use curlybrace_core::error::CoreError;
 use uuid::Uuid;
 
-pub use detail::{ChangeLine, DetailView};
+pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
 pub use setup::{PAIR_ID, Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
@@ -82,6 +82,9 @@ pub struct CompareState {
     pub next_run: RunId,
     pub setup: SetupForm,
     pub preflight: PreflightView,
+    /// The counts and index status behind `preflight`; present exactly while an accepted answer
+    /// is current (cleared by any edit, a failed check or a closed session).
+    pub last_check: Option<Preflight>,
     /// A `Check` has been sent and not answered. At most one is in flight: answers carry no
     /// request identity, so a second one could not be told from a stale one.
     pub check_in_flight: bool,
@@ -101,6 +104,7 @@ impl Default for CompareState {
             next_run: 1,
             setup: SetupForm::default(),
             preflight: PreflightView::default(),
+            last_check: None,
             check_in_flight: false,
             check_stale: false,
             run: RunView::default(),
@@ -122,6 +126,25 @@ impl CompareState {
 }
 
 impl CompareState {
+    /// Whether Connect may fire for the picked pair: both picked, different from what is open,
+    /// and no open in progress.
+    pub fn can_open(&self, draft: (Option<Uuid>, Option<Uuid>)) -> bool {
+        let opening = matches!(self.session, Some(SessionPhase::Opening(_)));
+        match draft {
+            (Some(source), Some(target)) => !opening && self.connections != Some((source, target)),
+            _ => false,
+        }
+    }
+
+    pub fn can_close(&self) -> bool {
+        self.session.is_some()
+    }
+
+    /// Finished results can be thrown away (never while a run is in flight).
+    pub fn can_discard(&self) -> bool {
+        self.is_ready() && matches!(self.run, RunView::Finished { .. })
+    }
+
     pub fn is_ready(&self) -> bool {
         matches!(self.session, Some(SessionPhase::Ready(_)))
     }

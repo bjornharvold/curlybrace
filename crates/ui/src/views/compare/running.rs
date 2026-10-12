@@ -16,9 +16,8 @@ pub fn show_run(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<
         if ui.add_enabled(state.is_running(), cancel).clicked() {
             action = Some(CompareAction::Cancel);
         }
-        let finished = matches!(state.run, RunView::Finished { .. });
         let discard = egui::Button::new(i18n.t("compare.run.discard"));
-        if ui.add_enabled(finished, discard).clicked() {
+        if ui.add_enabled(state.can_discard(), discard).clicked() {
             action = Some(CompareAction::Discard);
         }
     });

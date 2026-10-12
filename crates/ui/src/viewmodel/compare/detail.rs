@@ -35,6 +35,13 @@ pub fn value_text(value: &Bson) -> String {
     value.clone().into_relaxed_extjson().to_string()
 }
 
+/// A whole document as pretty CANONICAL extended JSON, so number types stay visible (an Int32
+/// 1 and an Int64 1 are different values to the comparison and must look different).
+pub fn canonical_json(doc: &Document) -> String {
+    let value = Bson::Document(doc.clone()).into_canonical_extjson();
+    serde_json::to_string_pretty(&value).unwrap_or_default()
+}
+
 impl DetailView {
     pub fn loading(key: KeyTuple) -> Self {
         Self {

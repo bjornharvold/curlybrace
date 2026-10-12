@@ -89,8 +89,11 @@
       "checking": "Checking...",
       "empty": "Both collections are empty.",
       "empty_both": "Both collections are empty, so there is nothing to compare.",
+      "index_indexed": "key is indexed",
+      "index_missing": "no index on the key fields",
       "needs_index": "The {side} collection has no index on the key fields and is too large to compare without one. Create an index on the key fields, then check again.",
       "ok": "Ready to compare.",
+      "side_summary": "{side}: {count} documents, {index}",
       "unchecked": "Check the collections before comparing."
     },
     "results": {

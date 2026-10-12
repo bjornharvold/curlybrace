@@ -11,6 +11,16 @@ fn change(path: &str, kind: ChangeKind, s: Option<Bson>, t: Option<Bson>) -> Fie
 }
 
 #[test]
+fn canonical_json_keeps_int32_and_int64_apart() {
+    let small = canonical_json(&doc! {"n": 1_i32});
+    let long = canonical_json(&doc! {"n": 1_i64});
+    assert_ne!(small, long);
+    assert!(small.contains("$numberInt"), "{small}");
+    assert!(long.contains("$numberLong"), "{long}");
+    assert!(small.contains('\n'), "pretty printed");
+}
+
+#[test]
 fn a_new_detail_is_loading_until_the_answer_arrives() {
     let d = DetailView::loading(KeyTuple(vec![Bson::Int32(1)]));
     assert!(d.loading);

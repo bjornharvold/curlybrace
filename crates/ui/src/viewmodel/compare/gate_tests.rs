@@ -83,3 +83,50 @@ fn start_additionally_needs_an_ok_fresh_preflight() {
     };
     assert!(!blocked.can_start());
 }
+
+#[test]
+fn open_needs_both_picks_a_change_and_no_open_in_progress() {
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+    let fresh = CompareState::default();
+    assert!(fresh.can_open((Some(a), Some(b))));
+    assert!(!fresh.can_open((Some(a), None)));
+    assert!(!fresh.can_open((None, Some(b))));
+    let open = CompareState {
+        connections: Some((a, b)),
+        ..ready()
+    };
+    assert!(!open.can_open((Some(a), Some(b))), "nothing changed");
+    assert!(open.can_open((Some(b), Some(b))));
+    let opening = CompareState {
+        session: Some(SessionPhase::Opening(1)),
+        connections: Some((a, b)),
+        ..CompareState::default()
+    };
+    assert!(!opening.can_open((Some(b), Some(a))));
+}
+
+#[test]
+fn close_and_discard_follow_the_session_and_the_run() {
+    assert!(!CompareState::default().can_close());
+    assert!(ready().can_close());
+    assert!(!ready().can_discard(), "nothing to discard");
+    let finished = CompareState {
+        run: RunView::Finished {
+            run: 1,
+            cancelled: false,
+            failure: None,
+        },
+        ..ready()
+    };
+    assert!(finished.can_discard());
+    let running = CompareState {
+        run: RunView::started(1),
+        ..ready()
+    };
+    assert!(!running.can_discard());
+    let not_ready = CompareState {
+        session: Some(SessionPhase::Opening(1)),
+        ..finished
+    };
+    assert!(!not_ready.can_discard());
+}

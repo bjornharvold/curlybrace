@@ -37,7 +37,14 @@ fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
 
 /// Everything drawn for `state` after the layout settled, and the action of the last frame.
 fn render(state: &AppState) -> (Vec<String>, Option<CompareAction>) {
-    let ctx = egui::Context::default();
+    render_on(&egui::Context::default(), state)
+}
+
+fn frame_texts(ctx: &egui::Context, state: &AppState) -> Vec<String> {
+    render_on(ctx, state).0
+}
+
+fn render_on(ctx: &egui::Context, state: &AppState) -> (Vec<String>, Option<CompareAction>) {
     let i18n = pseudo_locale();
     let input = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
@@ -66,7 +73,7 @@ fn render(state: &AppState) -> (Vec<String>, Option<CompareAction>) {
 /// Texts that are data (names, keys, JSON, numbers), not UI strings.
 fn is_data(text: &str) -> bool {
     let data = [
-        "a", "b", "users", "_id", "0", "1", "2", "3", "x", "name", "extra",
+        "a", "b", "users", "_id", "0", "1", "2", "3", "x", "name", "extra", "sku",
     ];
     data.contains(&text) || text.starts_with(['{', '"']) || text.chars().all(|c| !c.is_alphabetic())
 }
@@ -144,6 +151,55 @@ fn a_database_with_no_listed_collections_offers_reload() {
 fn a_ready_form_with_a_fresh_check_renders() {
     let texts = assert_translated(&workspace(checked_state()), "checked");
     assert!(has(&texts, "Ready to compare"));
+    assert!(has(&texts, "Source»: 10 documents, «key is indexed"));
+    assert!(has(&texts, "Target»: 10 documents, «key is indexed"));
+}
+
+#[test]
+fn counts_disappear_when_the_form_is_edited() {
+    let (state, _) = act(checked_state(), CompareAction::SetKey("sku".into()));
+    let texts = assert_translated(&workspace(state), "edited after check");
+    assert!(!has(&texts, "documents,"));
+}
+
+#[test]
+fn the_blocked_side_shows_its_missing_index() {
+    let blocked = Preflight {
+        unindexed_too_large: true,
+        source_index: IndexStatus::NotIndexed,
+        ..indexed(60_000)
+    };
+    let (state, _) = act(picked_state(), CompareAction::RunCheck);
+    let (state, _) = update(state, checked_event(blocked));
+    let texts = assert_translated(&workspace(state), "blocked sizes");
+    assert!(has(
+        &texts,
+        "Source»: 60000 documents, «no index on the key fields"
+    ));
+    assert!(has(&texts, "Target»: 60000 documents, «key is indexed"));
+}
+
+#[test]
+fn the_pickers_follow_the_open_pair_when_it_changes_behind_their_back() {
+    let (state, a, b) = two_connections();
+    let (opened_ab, _) = act(state, open_action(a, b));
+    let (reopened, _) = act(
+        AppState::new(opened_ab.conn.connections.clone()),
+        open_action(b, a),
+    );
+    let ctx = egui::Context::default();
+    let names = |texts: &[String]| -> Vec<String> {
+        texts
+            .iter()
+            .filter(|t| *t == "a" || *t == "b")
+            .cloned()
+            .collect()
+    };
+    let first = frame_texts(&ctx, &workspace(opened_ab));
+    assert_eq!(names(&first), vec!["a", "b"], "{first:?}");
+    // Same egui context, so the first frame's picks are still in memory.
+    let second = frame_texts(&ctx, &workspace(reopened));
+    assert_eq!(names(&second), vec!["b", "a"], "{second:?}");
 }
 
 #[test]
@@ -166,14 +222,27 @@ fn a_blocked_preflight_explains_the_next_step() {
 fn a_check_in_flight_is_shown_on_the_button() {
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
     let texts = assert_translated(&workspace(state), "checking");
-    assert!(has(&texts, "Checking..."));
+    let shown = texts.iter().filter(|t| t.contains("Checking...")).count();
+    assert_eq!(
+        shown, 1,
+        "the button says it; the status line does not repeat it"
+    );
 }
 
 #[test]
 fn a_running_comparison_shows_its_counters() {
-    let texts = assert_translated(&workspace(running_state()), "running");
-    assert!(has(&texts, "differences found so far"));
-    assert!(has(&texts, "source"));
+    let progress = ev(CompareEvent::Progress {
+        session: 1,
+        run: 1,
+        pair: 1,
+        scanned_source: 1234,
+        scanned_target: 567,
+        differences: 89,
+    });
+    let (state, _) = update(running_state(), progress);
+    let texts = assert_translated(&workspace(state), "running");
+    assert!(has(&texts, "89 differences found so far"));
+    assert!(has(&texts, "Scanned 1234 source and 567 target documents"));
 }
 
 #[test]

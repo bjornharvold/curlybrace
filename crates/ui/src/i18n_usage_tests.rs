@@ -52,6 +52,16 @@ fn source_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// The code of a file that ships: comment lines are dropped, and everything from the first
+/// `#[cfg(test)]` on is cut. Convention: an inline test module is the LAST item of its file.
+fn production_text(src: &str) -> String {
+    let code = src.split("#[cfg(test)]").next().unwrap_or_default();
+    code.lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Every string literal in `src` that looks like a tracked key.
 fn literals(src: &str) -> Vec<String> {
     src.split('"')
@@ -78,7 +88,7 @@ fn referenced() -> BTreeSet<String> {
     // `#[cfg(test)]` modules live in `*_tests.rs` files, so what is left is production code.
     files
         .iter()
-        .flat_map(|f| literals(&std::fs::read_to_string(f).unwrap()))
+        .flat_map(|f| literals(&production_text(&std::fs::read_to_string(f).unwrap())))
         .collect()
 }
 
@@ -100,6 +110,12 @@ fn every_key_the_code_names_exists_in_the_catalogue() {
         .filter(|k| !known.contains(k))
         .collect();
     assert!(missing.is_empty(), "keys missing from en.json: {missing:?}");
+}
+
+#[test]
+fn comments_and_trailing_test_modules_do_not_count_as_use() {
+    let src = "let a = t(\"compare.run.start\");\n// \"compare.run.cancel\"\n#[cfg(test)]\nmod t { \"compare.run.discard\" }";
+    assert_eq!(literals(&production_text(src)), vec!["compare.run.start"]);
 }
 
 #[test]

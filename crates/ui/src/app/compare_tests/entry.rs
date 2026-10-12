@@ -108,6 +108,63 @@ fn compare_to_without_a_connection_only_reports_it() {
 }
 
 #[test]
+fn the_accepted_check_keeps_its_counts_until_the_form_is_edited() {
+    let state = checked_state();
+    let kept = state.compare.last_check.clone().expect("counts kept");
+    assert_eq!((kept.source_count, kept.target_count), (10, 10));
+    let (state, _) = act(state, CompareAction::SetKey("sku".into()));
+    assert!(state.compare.last_check.is_none());
+}
+
+#[test]
+fn counts_are_cleared_by_a_recheck_a_stale_answer_and_a_failed_check() {
+    let (rechecking, _) = act(checked_state(), CompareAction::RunCheck);
+    assert!(rechecking.compare.last_check.is_none(), "while checking");
+
+    let (state, _) = act(picked_state(), CompareAction::RunCheck);
+    let (state, _) = act(state, CompareAction::SetKey("sku".into()));
+    let (state, _) = update(state, checked_event(indexed(3)));
+    assert!(state.compare.last_check.is_none(), "stale answer dropped");
+
+    let (state, _) = act(picked_state(), CompareAction::RunCheck);
+    let failed = ev(CompareEvent::Failed {
+        session: 1,
+        context: "compare_check",
+        error: CoreError::NotFound,
+    });
+    let (state, _) = update(state, failed);
+    assert!(state.compare.last_check.is_none());
+}
+
+#[test]
+fn connect_records_the_connection_and_a_cleared_session_forgets_it() {
+    let (state, a, _) = two_connections();
+    let (state, _) = update(state, Input::Connect(a));
+    assert_eq!(state.connected, Some(a));
+    assert_eq!(state.session_cleared().connected, None);
+    let (state, _) = update(
+        AppState {
+            connected: Some(a),
+            ..AppState::default()
+        },
+        Input::Disconnect,
+    );
+    assert_eq!(state.connected, None);
+}
+
+#[test]
+fn opening_a_collection_from_the_sidebar_leaves_the_compare_workspace() {
+    let (state, a) = connected_state();
+    let (state, _) = compare_to(state);
+    assert_eq!(state.workspace, Workspace::Compare);
+    let ns = Namespace::new("shop", "orders");
+    let (state, _) = update(state, Input::Sidebar(SidebarAction::Open(ns.clone())));
+    assert_eq!(state.workspace, Workspace::Browse);
+    assert_eq!(state.selected_ns(), Some(&ns));
+    assert_eq!(state.compare.connections, Some((a, a)), "session kept");
+}
+
+#[test]
 fn hiding_the_workspace_keeps_the_session_and_the_form() {
     let (state, _) = act(picked_state(), CompareAction::Hide);
     assert_eq!(state.workspace, Workspace::Browse);

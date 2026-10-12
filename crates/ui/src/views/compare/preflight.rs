@@ -2,6 +2,8 @@
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{CompareState, PreflightView};
+use curlybrace_core::compare::protocol::Preflight;
+use curlybrace_core::store::IndexStatus;
 use eframe::egui;
 
 pub fn show_preflight(
@@ -25,19 +27,61 @@ pub fn show_preflight(
         if state.check_in_flight {
             ui.spinner();
         }
-        ui.label(i18n.t(status_key(&state.preflight)));
+        // While checking, the button text and the spinner already say so.
+        if let Some(key) = status_key(&state.preflight) {
+            ui.label(i18n.t(key));
+        }
     });
+    show_sizes(ui, state.last_check.as_ref(), i18n);
     show_message(ui, &state.preflight, i18n);
     action
 }
 
-fn status_key(preflight: &PreflightView) -> &'static str {
+fn status_key(preflight: &PreflightView) -> Option<&'static str> {
     match preflight {
-        PreflightView::Unchecked => "compare.preflight.unchecked",
-        PreflightView::Checking => "compare.preflight.checking",
-        PreflightView::Ok => "compare.preflight.ok",
-        PreflightView::NeedsIndex { .. } => "compare.preflight.blocked",
-        PreflightView::EmptyBoth => "compare.preflight.empty",
+        PreflightView::Unchecked => Some("compare.preflight.unchecked"),
+        PreflightView::Checking => None,
+        PreflightView::Ok => Some("compare.preflight.ok"),
+        PreflightView::NeedsIndex { .. } => Some("compare.preflight.blocked"),
+        PreflightView::EmptyBoth => Some("compare.preflight.empty"),
+    }
+}
+
+/// One line per side: how many documents it has and whether the key is indexed.
+fn show_sizes(ui: &mut egui::Ui, check: Option<&Preflight>, i18n: &I18n) {
+    let Some(check) = check else {
+        return;
+    };
+    let sides = [
+        (
+            "compare.setup.source_heading",
+            check.source_count,
+            check.source_index,
+        ),
+        (
+            "compare.setup.target_heading",
+            check.target_count,
+            check.target_index,
+        ),
+    ];
+    for (heading, count, index) in sides {
+        let index = i18n.t(index_key(index));
+        let line = i18n.t_with(
+            "compare.preflight.side_summary",
+            &[
+                ("side", &i18n.t(heading)),
+                ("count", &count.to_string()),
+                ("index", &index),
+            ],
+        );
+        ui.label(line);
+    }
+}
+
+fn index_key(status: IndexStatus) -> &'static str {
+    match status {
+        IndexStatus::Indexed => "compare.preflight.index_indexed",
+        IndexStatus::NotIndexed => "compare.preflight.index_missing",
     }
 }
 
