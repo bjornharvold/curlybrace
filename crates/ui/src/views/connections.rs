@@ -216,8 +216,10 @@ fn secret_row(ui: &mut egui::Ui, field: SecretField<'_>, i18n: &I18n) {
 
 fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) {
     ui.horizontal(|ui| {
-        ui.label(label);
-        ui.add(egui::TextEdit::singleline(value).password(password));
+        let caption = ui.label(label);
+        // Expose the caption as the box's accessible name (screen readers and UI tests).
+        ui.add(egui::TextEdit::singleline(value).password(password))
+            .labelled_by(caption.id);
     });
 }
 

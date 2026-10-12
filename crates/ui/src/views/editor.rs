@@ -28,14 +28,15 @@ pub fn show_editor_with(
     };
     let mut intent = None;
     let modal = egui::Modal::new(egui::Id::new("document_editor")).show(ctx, |ui| {
-        ui.heading(i18n.t(title_key));
+        let title = ui.heading(i18n.t(title_key));
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add(
                 egui::TextEdit::multiline(&mut state.text)
                     .code_editor()
                     .desired_rows(EDITOR_ROWS)
                     .desired_width(f32::INFINITY),
-            );
+            )
+            .labelled_by(title.id);
         });
         if let Some(e) = &state.error {
             super::error_label::show_error(ui, e, i18n);
