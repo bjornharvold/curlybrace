@@ -29,11 +29,16 @@
     "save": "Save"
   },
   "connections": {
+    "allow_invalid_certs": "Allow invalid TLS certificates",
     "auth": "Authentication",
+    "auth_source": "Authentication database",
+    "clear_saved_password": "Remove saved secret",
     "connect": "Connect",
     "name": "Name",
     "new": "New connection",
     "password": "Password",
+    "password_saved_hint": "A secret is saved in the Keychain. Leave empty to keep it.",
+    "saved_secret_will_clear": "The saved secret will be removed when you save.",
     "ssh": "Use SSH tunnel",
     "ssh_host": "SSH host",
     "ssh_key": "SSH private key file (leave empty for password)",

@@ -60,6 +60,12 @@ mod tests {
     }
 
     #[test]
+    fn out_of_range_date_falls_back_to_millis() {
+        let dt = bson::DateTime::from_millis(i64::MAX);
+        assert_eq!(text(&Bson::DateTime(dt)), i64::MAX.to_string());
+    }
+
+    #[test]
     fn scalars() {
         let oid = ObjectId::new();
         assert_eq!(text(&Bson::ObjectId(oid)), oid.to_hex());

@@ -28,6 +28,61 @@ pub struct ConnectionForm {
     pub ssh_user: String,
     pub ssh_key_path: String,
     pub ssh_secret: String,
+    /// Explicitly delete the stored password (ignored when `password` is non-empty).
+    pub clear_password: bool,
+    /// Explicitly delete the stored ssh secret (ignored when `ssh_secret` is non-empty).
+    pub clear_ssh_secret: bool,
+    pub auth_source: String,
+    pub allow_invalid_certs: bool,
+}
+
+/// What a save should do with one stored secret.
+#[derive(Clone, PartialEq, Eq)]
+pub enum SecretEdit {
+    /// Leave the stored secret as it is.
+    Unchanged,
+    /// Overwrite with this value, verbatim.
+    Set(String),
+    /// Delete the stored secret.
+    Clear,
+}
+
+impl fmt::Debug for SecretEdit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unchanged => f.write_str("Unchanged"),
+            Self::Set(_) => f.write_str("Set(<redacted>)"),
+            Self::Clear => f.write_str("Clear"),
+        }
+    }
+}
+
+impl SecretEdit {
+    fn from_input(value: &str, clear: bool) -> Self {
+        if !value.is_empty() {
+            Self::Set(value.to_owned())
+        } else if clear {
+            Self::Clear
+        } else {
+            Self::Unchanged
+        }
+    }
+}
+
+/// Which secrets are currently stored for a connection (no values).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StoredSecrets {
+    pub password: bool,
+    pub ssh_secret: bool,
+}
+
+/// Looks up which secrets exist for `id` without exposing their values.
+pub fn stored_secret_flags(id: Uuid, secrets: &dyn SecretStore) -> Result<StoredSecrets> {
+    let has = |kind| secrets.get(&secret_key(id, kind)).map(|v| v.is_some());
+    Ok(StoredSecrets {
+        password: has(SecretKind::Password)?,
+        ssh_secret: has(SecretKind::SshPassword)? || has(SecretKind::SshPassphrase)?,
+    })
 }
 
 impl fmt::Debug for ConnectionForm {
@@ -43,6 +98,8 @@ impl fmt::Debug for ConnectionForm {
             .field("ssh_enabled", &self.ssh_enabled)
             .field("ssh_host", &self.ssh_host)
             .field("ssh_secret", &"<redacted>")
+            .field("password_edit", &self.password_edit())
+            .field("ssh_secret_edit", &self.ssh_secret_edit())
             .finish_non_exhaustive()
     }
 }
@@ -65,11 +122,23 @@ impl Default for ConnectionForm {
             ssh_user: String::new(),
             ssh_key_path: String::new(),
             ssh_secret: String::new(),
+            clear_password: false,
+            clear_ssh_secret: false,
+            auth_source: String::new(),
+            allow_invalid_certs: false,
         }
     }
 }
 
 impl ConnectionForm {
+    pub fn password_edit(&self) -> SecretEdit {
+        SecretEdit::from_input(&self.password, self.clear_password)
+    }
+
+    pub fn ssh_secret_edit(&self) -> SecretEdit {
+        SecretEdit::from_input(&self.ssh_secret, self.clear_ssh_secret)
+    }
+
     /// Validates the form and builds a config. Never includes secrets.
     pub fn to_config(&self) -> Result<ConnectionConfig> {
         let cfg = ConnectionConfig {
@@ -78,12 +147,12 @@ impl ConnectionForm {
             uri: self.uri.trim().to_owned(),
             auth: self.auth,
             username: non_blank(&self.username),
-            auth_source: None,
+            auth_source: non_blank(&self.auth_source),
             tls: TlsConfig {
                 enabled: self.tls_enabled,
                 ca_file: non_blank(&self.tls_ca).map(Into::into),
                 client_cert_key_file: non_blank(&self.tls_client_cert).map(Into::into),
-                allow_invalid_certs: false,
+                allow_invalid_certs: self.allow_invalid_certs,
             },
             ssh: self.ssh_config()?,
         };
@@ -125,6 +194,8 @@ impl ConnectionForm {
             auth: c.auth,
             username: c.username.clone().unwrap_or_default(),
             tls_enabled: c.tls.enabled,
+            auth_source: c.auth_source.clone().unwrap_or_default(),
+            allow_invalid_certs: c.tls.allow_invalid_certs,
             tls_ca: path(&c.tls.ca_file),
             tls_client_cert: path(&c.tls.client_cert_key_file),
             ..Self::default()
@@ -182,9 +253,9 @@ pub fn save_connection(
         }
         None => (None, SecretKind::SshPassword),
     };
-    write_secret(secrets, cfg, SecretKind::Password, &form.password)?;
+    write_secret(secrets, cfg, SecretKind::Password, &form.password_edit())?;
     if let Some(kind) = set_kind {
-        write_secret(secrets, cfg, kind, &form.ssh_secret)?;
+        write_secret(secrets, cfg, kind, &form.ssh_secret_edit())?;
         secrets.delete(&secret_key(cfg.id, stale_kind))
     } else {
         secrets.delete(&secret_key(cfg.id, SecretKind::SshPassword))?;
@@ -192,18 +263,18 @@ pub fn save_connection(
     }
 }
 
-/// Stores a non-empty secret verbatim; an empty one removes the entry.
+/// Applies one secret edit; `Unchanged` never touches the store.
 fn write_secret(
     secrets: &dyn SecretStore,
     cfg: &ConnectionConfig,
     kind: SecretKind,
-    value: &str,
+    edit: &SecretEdit,
 ) -> Result<()> {
     let key = secret_key(cfg.id, kind);
-    if value.is_empty() {
-        secrets.delete(&key)
-    } else {
-        secrets.set(&key, value)
+    match edit {
+        SecretEdit::Unchanged => Ok(()),
+        SecretEdit::Set(value) => secrets.set(&key, value),
+        SecretEdit::Clear => secrets.delete(&key),
     }
 }
 
@@ -334,12 +405,15 @@ mod tests {
             username: "bob".into(),
             password: "pw".into(),
             ssh_secret: "s".into(),
+            clear_password: true,
             ssh_key_path: "/k".into(),
             ..ssh_form()
         };
         let cfg = f.to_config().unwrap();
         let back = ConnectionForm::from_config(&cfg);
         assert!(back.password.is_empty() && back.ssh_secret.is_empty());
+        assert_eq!(back.password_edit(), SecretEdit::Unchanged);
+        assert_eq!(back.ssh_secret_edit(), SecretEdit::Unchanged);
         assert_eq!(back.to_config().unwrap(), cfg);
     }
 
@@ -376,14 +450,115 @@ mod tests {
     }
 
     #[test]
-    fn empty_password_deletes_stored_secret() {
-        let f = valid();
+    fn clear_password_deletes_stored_secret_and_is_idempotent() {
+        let f = ConnectionForm {
+            clear_password: true,
+            ..valid()
+        };
         let cfg = f.to_config().unwrap();
         let store = MemorySecretStore::new();
         let key = secret_key(cfg.id, SecretKind::Password);
         store.set(&key, "old").unwrap();
         save_connection(&cfg, &f, &store).unwrap();
         assert_eq!(store.get(&key).unwrap(), None);
+        save_connection(&cfg, &f, &store).unwrap();
+        assert_eq!(store.get(&key).unwrap(), None);
+    }
+
+    #[test]
+    fn editing_without_touching_secrets_keeps_both() {
+        let orig = ConnectionForm {
+            password: "pw".into(),
+            ssh_secret: "sp".into(),
+            ..ssh_form()
+        };
+        let cfg = orig.to_config().unwrap();
+        let store = MemorySecretStore::new();
+        save_connection(&cfg, &orig, &store).unwrap();
+
+        let mut edited = ConnectionForm::from_config(&cfg);
+        edited.name = "renamed".into();
+        assert_eq!(edited.password_edit(), SecretEdit::Unchanged);
+        let cfg2 = edited.to_config().unwrap();
+        save_connection(&cfg2, &edited, &store).unwrap();
+        let get = |k| store.get(&secret_key(cfg.id, k)).unwrap();
+        assert_eq!(get(SecretKind::Password).as_deref(), Some("pw"));
+        assert_eq!(get(SecretKind::SshPassword).as_deref(), Some("sp"));
+    }
+
+    #[test]
+    fn set_overwrites_verbatim() {
+        let store = MemorySecretStore::new();
+        let f = ConnectionForm {
+            password: "n@w:/%41 ü ".into(),
+            ..valid()
+        };
+        let cfg = f.to_config().unwrap();
+        let key = secret_key(cfg.id, SecretKind::Password);
+        store.set(&key, "old").unwrap();
+        save_connection(&cfg, &f, &store).unwrap();
+        assert_eq!(store.get(&key).unwrap().as_deref(), Some("n@w:/%41 ü "));
+    }
+
+    #[test]
+    fn new_connection_without_password_stores_nothing() {
+        let f = valid();
+        let cfg = f.to_config().unwrap();
+        let store = MemorySecretStore::new();
+        save_connection(&cfg, &f, &store).unwrap();
+        assert_eq!(
+            stored_secret_flags(cfg.id, &store).unwrap(),
+            StoredSecrets::default()
+        );
+    }
+
+    #[test]
+    fn stored_flags_report_presence_only() {
+        let store = MemorySecretStore::new();
+        let id = Uuid::new_v4();
+        store
+            .set(&secret_key(id, SecretKind::Password), "x")
+            .unwrap();
+        store
+            .set(&secret_key(id, SecretKind::SshPassphrase), "y")
+            .unwrap();
+        assert_eq!(
+            stored_secret_flags(id, &store).unwrap(),
+            StoredSecrets {
+                password: true,
+                ssh_secret: true
+            }
+        );
+    }
+
+    #[test]
+    fn secret_edit_debug_is_redacted() {
+        assert!(!format!("{:?}", SecretEdit::Set("hunter2".into())).contains("hunter2"));
+    }
+
+    #[test]
+    fn auth_source_and_invalid_certs_round_trip() {
+        let f = ConnectionForm {
+            auth_source: "admin".into(),
+            allow_invalid_certs: true,
+            ..valid()
+        };
+        let cfg = f.to_config().unwrap();
+        assert_eq!(cfg.auth_source.as_deref(), Some("admin"));
+        assert!(cfg.tls.allow_invalid_certs);
+        let back = ConnectionForm::from_config(&cfg);
+        assert_eq!(back.auth_source, "admin");
+        assert!(back.allow_invalid_certs);
+        assert_eq!(back.to_config().unwrap(), cfg);
+    }
+
+    #[test]
+    fn name_with_dots_and_spaces_is_accepted() {
+        let f = ConnectionForm {
+            name: "prod.eu west 1 ".into(),
+            ..valid()
+        };
+        assert_eq!(f.to_config().unwrap().name, "prod.eu west 1");
     }
 
     #[test]
