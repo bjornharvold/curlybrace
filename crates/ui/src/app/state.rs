@@ -159,6 +159,7 @@ impl AppState {
             pending: None,
             forget_confirm: None,
             connected: None,
+            workspace: Workspace::Browse,
             ..self
         }
     }

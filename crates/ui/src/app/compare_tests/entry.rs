@@ -174,3 +174,15 @@ fn hiding_the_workspace_keeps_the_session_and_the_form() {
     ));
     assert!(state.compare.setup.source.picked().is_some());
 }
+
+#[test]
+fn a_cleared_session_returns_to_browse_but_keeps_the_compare_session() {
+    let (state, a) = connected_state();
+    let (state, _) = compare_to(state);
+    assert_eq!(state.workspace, Workspace::Compare);
+    let connections = state.compare.connections;
+    let state = state.session_cleared();
+    assert_eq!(state.workspace, Workspace::Browse);
+    assert_eq!(state.compare.connections, connections);
+    assert_eq!(connections, Some((a, a)));
+}
