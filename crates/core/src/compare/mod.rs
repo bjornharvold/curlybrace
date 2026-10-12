@@ -4,6 +4,7 @@
 pub mod diff;
 pub mod fingerprint;
 pub mod key;
+pub mod keyset;
 pub mod normalize;
 pub(crate) mod number;
 pub mod rules;

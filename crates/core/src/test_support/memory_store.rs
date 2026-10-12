@@ -11,8 +11,9 @@ use bson::{Bson, Document, oid::ObjectId};
 
 use super::bson_order::cmp_bson;
 use super::query_eval::{check_filter, compare, matches, parse_sort, project};
+use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::error::{CoreError, Result};
-use crate::store::{DocumentStore, Namespace, Page, Query};
+use crate::store::{CollectionKind, DocumentStore, IndexStatus, Namespace, Page, Query};
 
 type Collections = BTreeMap<(String, String), Vec<Document>>;
 
@@ -151,14 +152,65 @@ impl DocumentStore for InMemoryStore {
         data.insert(key(ns), docs);
         Ok(())
     }
+
+    async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
+        let guard = self.lock()?;
+        Ok(guard.get(&key(ns)).map_or(0, |docs| docs.len() as u64))
+    }
+
+    async fn scan_sorted(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key_spec: &KeySpec,
+        from: Option<&KeyTuple>,
+        limit: u32,
+    ) -> Result<Vec<Document>> {
+        check_filter(filter)?;
+        let guard = self.lock()?;
+        let docs = guard.get(&key(ns)).map(Vec::as_slice).unwrap_or_default();
+        let mut keyed: Vec<(KeyTuple, &Document)> = Vec::new();
+        for doc in docs {
+            if !matches(doc, filter) {
+                continue;
+            }
+            keyed.push((extract_key(doc, key_spec)?, doc));
+        }
+        keyed.sort_by(|a, b| compare_tuples(&a.0, &b.0));
+        Ok(keyed
+            .into_iter()
+            .filter(|(k, _)| from.is_none_or(|f| compare_tuples(k, f) != std::cmp::Ordering::Less))
+            .take(limit as usize)
+            .map(|(_, d)| d.clone())
+            .collect())
+    }
+
+    async fn key_index_status(&self, _ns: &Namespace, _key: &KeySpec) -> Result<IndexStatus> {
+        Ok(IndexStatus::Indexed)
+    }
+
+    async fn list_collection_kinds(&self, db: &str) -> Result<Vec<(String, CollectionKind)>> {
+        let guard = self.lock()?;
+        let mut names: Vec<String> = guard
+            .keys()
+            .filter(|(d, _)| d == db)
+            .map(|(_, c)| c.clone())
+            .collect();
+        names.sort();
+        Ok(names
+            .into_iter()
+            .map(|n| (n, CollectionKind::Collection))
+            .collect())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::mock_objects::*;
     use super::*;
+    use crate::compare::key::{KeySpec, KeyTuple};
     use crate::error::CoreError;
-    use crate::store::{DocumentStore, Query};
+    use crate::store::{CollectionKind, DocumentStore, IndexStatus, Query};
     use bson::{Bson, doc};
 
     fn numbered(count: i32) -> Vec<bson::Document> {
@@ -314,6 +366,126 @@ mod tests {
         assert_eq!(
             s.list_collections("nope").await.unwrap(),
             Vec::<String>::new()
+        );
+    }
+
+    fn keyed(values: &[i32]) -> InMemoryStore {
+        let ns = Namespace::new("db", "c");
+        InMemoryStore::new().with_docs(
+            &ns,
+            values
+                .iter()
+                .map(
+                    |v| doc! { "_id": *v, "n": *v, "tag": if v % 2 == 0 { "even" } else { "odd" } },
+                )
+                .collect(),
+        )
+    }
+
+    #[tokio::test]
+    async fn scan_sorted_returns_documents_in_key_order_from_an_inclusive_start() {
+        let store = keyed(&[5, 1, 3, 2, 4]);
+        let ns = Namespace::new("db", "c");
+        let all = store
+            .scan_sorted(&ns, &doc! {}, &KeySpec::id(), None, 100)
+            .await
+            .unwrap();
+        let ids: Vec<i32> = all.iter().map(|d| d.get_i32("_id").unwrap()).collect();
+        assert_eq!(ids, [1, 2, 3, 4, 5]);
+        let from = KeyTuple(vec![bson::Bson::Int32(3)]);
+        let tail = store
+            .scan_sorted(&ns, &doc! {}, &KeySpec::id(), Some(&from), 2)
+            .await
+            .unwrap();
+        let ids: Vec<i32> = tail.iter().map(|d| d.get_i32("_id").unwrap()).collect();
+        assert_eq!(
+            ids,
+            [3, 4],
+            "the start key itself is included, then the limit applies"
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_sorted_applies_the_filter_and_compound_keys() {
+        let store = keyed(&[1, 2, 3, 4]);
+        let ns = Namespace::new("db", "c");
+        let evens = store
+            .scan_sorted(&ns, &doc! { "tag": "even" }, &KeySpec::id(), None, 100)
+            .await
+            .unwrap();
+        assert_eq!(evens.len(), 2);
+        let compound = KeySpec::new(vec!["tag".into(), "n".into()]).unwrap();
+        let ordered = store
+            .scan_sorted(&ns, &doc! {}, &compound, None, 100)
+            .await
+            .unwrap();
+        let ns_order: Vec<i32> = ordered.iter().map(|d| d.get_i32("n").unwrap()).collect();
+        assert_eq!(ns_order, [2, 4, 1, 3], "tag then n");
+    }
+
+    #[tokio::test]
+    async fn scan_sorted_orders_mixed_types_like_the_server() {
+        let ns = Namespace::new("db", "c");
+        let store = InMemoryStore::new().with_docs(
+            &ns,
+            vec![
+                doc! { "_id": "b" },
+                doc! { "_id": 2_i64 },
+                doc! { "_id": bson::oid::ObjectId::from_bytes([1; 12]) },
+                doc! { "_id": 1.5_f64 },
+                doc! { "_id": "a" },
+            ],
+        );
+        let all = store
+            .scan_sorted(&ns, &doc! {}, &KeySpec::id(), None, 100)
+            .await
+            .unwrap();
+        let ids: Vec<bson::Bson> = all.iter().map(|d| d.get("_id").unwrap().clone()).collect();
+        assert_eq!(ids[0], bson::Bson::Double(1.5));
+        assert_eq!(ids[1], bson::Bson::Int64(2));
+        assert_eq!(ids[2], bson::Bson::String("a".into()));
+        assert_eq!(ids[3], bson::Bson::String("b".into()));
+        assert!(matches!(ids[4], bson::Bson::ObjectId(_)));
+    }
+
+    #[tokio::test]
+    async fn scan_sorted_refuses_missing_and_invalid_keys() {
+        let ns = Namespace::new("db", "c");
+        let store = InMemoryStore::new()
+            .with_docs(&ns, vec![doc! { "_id": 1 }, doc! { "_id": 2, "k": [1] }]);
+        let spec = KeySpec::new(vec!["k".into()]).unwrap();
+        assert_eq!(
+            store.scan_sorted(&ns, &doc! {}, &spec, None, 10).await,
+            Err(CoreError::CompareKeyMissing)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_namespace_behaves_as_empty() {
+        let store = InMemoryStore::new();
+        let ns = Namespace::new("nope", "nothing");
+        assert_eq!(store.estimated_count(&ns).await.unwrap(), 0);
+        assert!(
+            store
+                .scan_sorted(&ns, &doc! {}, &KeySpec::id(), None, 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            store.key_index_status(&ns, &KeySpec::id()).await.unwrap(),
+            IndexStatus::Indexed
+        );
+    }
+
+    #[tokio::test]
+    async fn counts_and_kinds_reflect_the_stored_collections() {
+        let store = keyed(&[1, 2, 3]);
+        let ns = Namespace::new("db", "c");
+        assert_eq!(store.estimated_count(&ns).await.unwrap(), 3);
+        assert_eq!(
+            store.list_collection_kinds("db").await.unwrap(),
+            vec![("c".to_string(), CollectionKind::Collection)]
         );
     }
 }

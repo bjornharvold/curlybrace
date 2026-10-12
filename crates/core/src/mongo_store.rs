@@ -5,8 +5,11 @@ use bson::{Bson, Document, doc};
 use futures::TryStreamExt;
 use mongodb::Client;
 
+use crate::compare::key::{KeySpec, KeyTuple};
+use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
-use crate::store::{DocumentStore, Namespace, Page, Query};
+use crate::store::{CollectionKind, DocumentStore, IndexStatus, Namespace, Page, Query};
+use mongodb::options::Collation;
 
 pub struct MongoStore {
     client: Client,
@@ -121,6 +124,98 @@ impl DocumentStore for MongoStore {
             return Err(CoreError::NotFound);
         }
         Ok(())
+    }
+
+    async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
+        self.collection(ns)
+            .estimated_document_count()
+            .await
+            .map_err(db_err)
+    }
+
+    async fn scan_sorted(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        from: Option<&KeyTuple>,
+        limit: u32,
+    ) -> Result<Vec<Document>> {
+        let sort: Document = key
+            .fields
+            .iter()
+            .map(|f| (f.clone(), Bson::Int32(1)))
+            .collect();
+        let cursor = self
+            .collection(ns)
+            .find(keyset_filter(filter, key, from))
+            .sort(sort)
+            .limit(i64::from(limit))
+            .collation(Collation::builder().locale("simple").build())
+            .allow_disk_use(true)
+            .await
+            .map_err(db_err)?;
+        cursor.try_collect().await.map_err(db_err)
+    }
+
+    async fn key_index_status(&self, ns: &Namespace, key: &KeySpec) -> Result<IndexStatus> {
+        use mongodb::results::CollectionType;
+        let db = self.client.database(&ns.db);
+        // A missing collection has nothing to sort.
+        let mut specs = db
+            .list_collections()
+            .filter(doc! { "name": &ns.collection })
+            .await
+            .map_err(db_err)?;
+        let Some(spec) = specs.try_next().await.map_err(db_err)? else {
+            return Ok(IndexStatus::Indexed);
+        };
+        if spec.collection_type == CollectionType::View {
+            return Ok(IndexStatus::NotIndexed);
+        }
+        let default_is_simple = spec
+            .options
+            .collation
+            .as_ref()
+            .is_none_or(|c| c.locale == "simple");
+        let mut indexes = self.collection(ns).list_indexes().await.map_err(db_err)?;
+        while let Some(model) = indexes.try_next().await.map_err(db_err)? {
+            let options = model.options.unwrap_or_default();
+            let info = IndexInfo {
+                keys: model.keys,
+                sparse: options.sparse.unwrap_or(false),
+                has_partial_filter: options.partial_filter_expression.is_some(),
+                collation_is_simple: options
+                    .collation
+                    .as_ref()
+                    .is_none_or(|c| c.locale == "simple"),
+            };
+            if index_serves_sort(&info, default_is_simple, key) {
+                return Ok(IndexStatus::Indexed);
+            }
+        }
+        Ok(IndexStatus::NotIndexed)
+    }
+
+    async fn list_collection_kinds(&self, db: &str) -> Result<Vec<(String, CollectionKind)>> {
+        use mongodb::results::CollectionType;
+        let mut specs = self
+            .client
+            .database(db)
+            .list_collections()
+            .await
+            .map_err(db_err)?;
+        let mut out = Vec::new();
+        while let Some(spec) = specs.try_next().await.map_err(db_err)? {
+            let kind = match spec.collection_type {
+                CollectionType::View => CollectionKind::View,
+                CollectionType::Timeseries => CollectionKind::Timeseries,
+                _ => CollectionKind::Collection,
+            };
+            out.push((spec.name, kind));
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
     }
 }
 
