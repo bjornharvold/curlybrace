@@ -14,3 +14,8 @@ updates:
     commit-message:
       prefix: "build"
     open-pull-requests-limit: 5
+    ignore:
+      # bson must stay the same major version as the one the mongodb driver depends on,
+      # otherwise Document/Bson types stop being interchangeable. Bump it with the driver.
+      - dependency-name: "bson"
+        update-types: ["version-update:semver-major"]
