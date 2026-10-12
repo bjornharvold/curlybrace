@@ -10,6 +10,8 @@ pub use connection_form::{
     ConnectionForm, SecretEdit, StoredSecrets, auth_label_key, auth_options, save_connection,
     stored_secret_flags,
 };
-pub use findbar::{FindBarState, submit_find};
-pub use sidebar::{DbNode, SidebarState};
+pub use findbar::{
+    FindAction, FindBarState, FindIntent, pick_intent, resolve_find_intent, submit_find,
+};
+pub use sidebar::{DbNode, SidebarAction, SidebarState, collection_click_action, db_click_action};
 pub use table::table_columns;

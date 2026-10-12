@@ -90,6 +90,8 @@
   },
   "sidebar": {
     "empty": "No databases",
+    "loading": "Loading...",
+    "no_collections": "No collections",
     "refresh": "Refresh",
     "title": "Databases"
   }

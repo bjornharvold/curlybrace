@@ -1,21 +1,17 @@
 //! Find bar view: filter/sort/projection/skip/limit inputs and paging controls.
+//! Intent resolution lives in `viewmodel::findbar` (pure, tested).
 use crate::I18n;
-use crate::viewmodel::{FindBarState, submit_find};
+use crate::viewmodel::{FindBarState, FindIntent, pick_intent, resolve_find_intent};
 use eframe::egui;
 use mongostudio_core::query::QueryText;
-use mongostudio_core::store::Query;
+
+pub use crate::viewmodel::FindAction;
 
 const NUMBER_FIELD_WIDTH: f32 = 70.0;
 
-/// What the user asked for; the caller performs it.
-#[derive(Debug, Clone, PartialEq)]
-#[allow(clippy::large_enum_variant)] // contract: Run carries the Query by value
-pub enum FindAction {
-    Run(Query),
-    Prev,
-    Next,
-    Clear,
-}
+const KEY_FILTER: (&str, &str) = ("findbar.filter", "findbar.filter_hint");
+const KEY_SORT: (&str, &str) = ("findbar.sort", "findbar.sort_hint");
+const KEY_PROJECTION: (&str, &str) = ("findbar.projection", "findbar.projection_hint");
 
 /// `has_prev` / `has_next` come from the caller (current skip > 0 / `Page::has_more`).
 pub fn show_findbar(
@@ -25,29 +21,27 @@ pub fn show_findbar(
     has_next: bool,
     i18n: &I18n,
 ) -> Option<FindAction> {
-    let mut submit = false;
-    submit |= text_row(ui, "findbar.filter", &mut state.text.filter, i18n);
-    submit |= text_row(ui, "findbar.sort", &mut state.text.sort, i18n);
-    submit |= text_row(ui, "findbar.projection", &mut state.text.projection, i18n);
-    submit |= number_row(ui, &mut state.text, i18n);
+    let mut enter = false;
+    enter |= text_row(ui, KEY_FILTER, &mut state.text.filter, i18n);
+    enter |= text_row(ui, KEY_SORT, &mut state.text.sort, i18n);
+    enter |= text_row(ui, KEY_PROJECTION, &mut state.text.projection, i18n);
+    enter |= number_row(ui, &mut state.text, i18n);
     if let Some(e) = &state.last_error {
         ui.colored_label(ui.visuals().error_fg_color, i18n.error(e));
     }
-    let mut action = buttons(ui, has_prev, has_next, &mut submit, i18n);
-    if submit {
-        action = run_query(state);
-    } else if action == Some(FindAction::Clear) {
-        *state = FindBarState::default();
-    }
+    let button = buttons(ui, has_prev, has_next, i18n);
+    let intent = pick_intent(button, enter)?;
+    let (next, action) = resolve_find_intent(state, intent, has_prev, has_next);
+    *state = next;
     action
 }
 
 /// A labelled single-line box; true when Enter was pressed in it.
-fn text_row(ui: &mut egui::Ui, key: &str, value: &mut String, i18n: &I18n) -> bool {
+fn text_row(ui: &mut egui::Ui, keys: (&str, &str), value: &mut String, i18n: &I18n) -> bool {
     ui.horizontal(|ui| {
-        ui.label(i18n.t(key));
+        ui.label(i18n.t(keys.0));
         let edit = egui::TextEdit::singleline(value)
-            .hint_text(i18n.t(&format!("{key}_hint")))
+            .hint_text(i18n.t(keys.1))
             .desired_width(f32::INFINITY);
         let response = ui.add(edit);
         response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
@@ -72,46 +66,26 @@ fn number_row(ui: &mut egui::Ui, text: &mut QueryText, i18n: &I18n) -> bool {
     .inner
 }
 
-fn buttons(
-    ui: &mut egui::Ui,
-    has_prev: bool,
-    has_next: bool,
-    submit: &mut bool,
-    i18n: &I18n,
-) -> Option<FindAction> {
+fn buttons(ui: &mut egui::Ui, has_prev: bool, has_next: bool, i18n: &I18n) -> Option<FindIntent> {
     ui.horizontal(|ui| {
-        let mut action = None;
+        let mut intent = None;
         if ui.button(i18n.t("findbar.run")).clicked() {
-            *submit = true;
+            intent = Some(FindIntent::RunButton);
         }
         if ui.button(i18n.t("findbar.clear")).clicked() {
-            action = Some(FindAction::Clear);
+            intent = Some(FindIntent::ClearButton);
         }
         let prev = ui.add_enabled(has_prev, egui::Button::new(i18n.t("findbar.prev")));
         if prev.clicked() {
-            action = Some(FindAction::Prev);
+            intent = Some(FindIntent::PrevButton);
         }
         let next = ui.add_enabled(has_next, egui::Button::new(i18n.t("findbar.next")));
         if next.clicked() {
-            action = Some(FindAction::Next);
+            intent = Some(FindIntent::NextButton);
         }
-        action
+        intent
     })
     .inner
-}
-
-/// Parses the bar. On error the state keeps its text and shows the error; no action is emitted.
-fn run_query(state: &mut FindBarState) -> Option<FindAction> {
-    match submit_find(state) {
-        Ok(query) => {
-            *state = state.cleared_error();
-            Some(FindAction::Run(query))
-        }
-        Err(failed) => {
-            *state = failed;
-            None
-        }
-    }
 }
 
 #[cfg(test)]
@@ -145,30 +119,5 @@ mod tests {
         let before = s.clone();
         assert_eq!(run_frame(&mut s, true, true), None);
         assert_eq!(s, before, "an idle frame must not change the state");
-    }
-
-    #[test]
-    fn run_query_failure_keeps_text_and_emits_nothing() {
-        let mut s = FindBarState {
-            text: QueryText {
-                filter: "{oops".into(),
-                ..Default::default()
-            },
-            last_error: None,
-        };
-        let text = s.text.clone();
-        assert_eq!(run_query(&mut s), None);
-        assert_eq!(s.text, text);
-        assert!(s.last_error.is_some());
-    }
-
-    #[test]
-    fn run_query_success_clears_error_and_emits_query() {
-        let mut s = FindBarState {
-            last_error: Some(CoreError::InvalidJson("old".into())),
-            ..Default::default()
-        };
-        assert!(matches!(run_query(&mut s), Some(FindAction::Run(_))));
-        assert_eq!(s.last_error, None);
     }
 }

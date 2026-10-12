@@ -1,33 +1,36 @@
 //! Sidebar view: database tree with lazily loaded collections.
 use crate::I18n;
-use crate::viewmodel::{DbNode, SidebarState};
+use crate::viewmodel::{DbNode, SidebarState, collection_click_action, db_click_action};
 use eframe::egui;
-use mongostudio_core::store::Namespace;
 use std::ops::Range;
 
-/// What the user asked for; the caller performs it.
-#[derive(Debug, Clone, PartialEq)]
-pub enum SidebarAction {
-    /// The user expanded a database whose collections are not loaded: the caller should
-    /// toggle it open (`SidebarState::toggled`) and fetch its collections.
-    LoadCollections(String),
-    /// The user collapsed or re-expanded an already loaded database: the caller toggles it.
-    Toggle(String),
-    Open(Namespace),
-    Refresh,
-}
+pub use crate::viewmodel::SidebarAction;
 
 /// One visible line of the flattened tree; borrows from the state (no copies).
 #[derive(Debug, PartialEq)]
 enum Row<'a> {
     Db(&'a DbNode),
-    Collection { db: &'a str, name: &'a str },
+    Collection {
+        db: &'a str,
+        name: &'a str,
+    },
+    /// Expanded database whose collections are still loading.
+    Loading,
+    /// Expanded database with no collections.
+    NoCollections,
 }
 
+/// Height of every rendered row; the single source of truth for `show_rows` and the rows.
+fn row_height(ui: &egui::Ui) -> f32 {
+    ui.spacing().interact_size.y
+}
+
+/// Rows a database occupies: its header plus children or one placeholder when expanded.
 fn rows_of(node: &DbNode) -> usize {
     1 + match (&node.collections, node.expanded) {
-        (Some(c), true) => c.len(),
-        _ => 0,
+        (_, false) => 0,
+        (Some(c), true) => c.len().max(1),
+        (None, true) => 1,
     }
 }
 
@@ -37,17 +40,17 @@ fn total_rows(state: &SidebarState) -> usize {
 
 /// The rows in `range` of the flattened tree, skipping whole collapsed subtrees.
 fn visible_rows(state: &SidebarState, range: Range<usize>) -> Vec<Row<'_>> {
-    let mut out = Vec::with_capacity(range.len());
+    let mut out = Vec::with_capacity(range.len().min(total_rows(state)));
     let mut start = 0;
     for node in &state.databases {
-        let end = start + rows_of(node);
-        if end > range.start && start < range.end {
-            push_node_rows(node, start, &range, &mut out);
-        }
-        start = end;
         if start >= range.end {
             break;
         }
+        let end = start + rows_of(node);
+        if end > range.start {
+            push_node_rows(node, start, &range, &mut out);
+        }
+        start = end;
     }
     out
 }
@@ -58,16 +61,26 @@ fn push_node_rows<'a>(
     range: &Range<usize>,
     out: &mut Vec<Row<'a>>,
 ) {
-    if range.contains(&first) {
-        out.push(Row::Db(node));
+    let mut push = |offset: usize, row: Row<'a>| {
+        if range.contains(&(first + offset)) {
+            out.push(row);
+        }
+    };
+    push(0, Row::Db(node));
+    if !node.expanded {
+        return;
     }
-    let children = node.collections.iter().flatten().take(rows_of(node) - 1);
-    for (i, name) in children.enumerate() {
-        if range.contains(&(first + 1 + i)) {
-            out.push(Row::Collection {
-                db: &node.name,
-                name,
-            });
+    match node.collections.as_deref() {
+        None => push(1, Row::Loading),
+        Some([]) => push(1, Row::NoCollections),
+        Some(names) => {
+            for (i, name) in names.iter().enumerate() {
+                let row = Row::Collection {
+                    db: &node.name,
+                    name,
+                };
+                push(1 + i, row);
+            }
         }
     }
 }
@@ -84,13 +97,13 @@ pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Opt
         ui.label(i18n.t("sidebar.empty"));
         return action;
     }
-    let row_height = ui.text_style_height(&egui::TextStyle::Button);
+    let row_height = row_height(ui);
     egui::ScrollArea::vertical()
         .id_salt("sidebar_tree")
         .auto_shrink([false; 2])
         .show_rows(ui, row_height, total_rows(state), |ui, range| {
             for row in visible_rows(state, range) {
-                if let Some(a) = show_row(ui, state, row) {
+                if let Some(a) = show_fixed_row(ui, state, row, row_height, i18n) {
                     action = Some(a);
                 }
             }
@@ -98,39 +111,63 @@ pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Opt
     action
 }
 
-fn show_row(ui: &mut egui::Ui, state: &SidebarState, row: Row<'_>) -> Option<SidebarAction> {
+/// Renders one row occupying exactly `row_height`, so virtualised scrolling stays exact.
+fn show_fixed_row(
+    ui: &mut egui::Ui,
+    state: &SidebarState,
+    row: Row<'_>,
+    row_height: f32,
+    i18n: &I18n,
+) -> Option<SidebarAction> {
+    let size = egui::vec2(ui.available_width(), row_height);
+    let layout = egui::Layout::left_to_right(egui::Align::Center);
+    ui.allocate_ui_with_layout(size, layout, |ui| {
+        ui.set_min_height(row_height);
+        show_row(ui, state, row, i18n)
+    })
+    .inner
+}
+
+fn show_row(
+    ui: &mut egui::Ui,
+    state: &SidebarState,
+    row: Row<'_>,
+    i18n: &I18n,
+) -> Option<SidebarAction> {
     match row {
         Row::Db(node) => {
             let arrow = if node.expanded { "▾" } else { "▸" };
             let label = format!("{arrow} {}", node.name);
-            if !ui.selectable_label(false, label).clicked() {
-                return None;
-            }
-            let load = !node.expanded && node.collections.is_none();
-            Some(if load {
-                SidebarAction::LoadCollections(node.name.clone())
-            } else {
-                SidebarAction::Toggle(node.name.clone())
-            })
+            ui.selectable_label(false, label)
+                .clicked()
+                .then(|| db_click_action(node))
         }
         Row::Collection { db, name } => {
             let selected = state
                 .selected
                 .as_ref()
                 .is_some_and(|ns| ns.db == db && ns.collection == name);
-            ui.horizontal(|ui| {
-                ui.add_space(ui.spacing().indent);
-                ui.selectable_label(selected, name).clicked()
-            })
-            .inner
-            .then(|| SidebarAction::Open(Namespace::new(db, name)))
+            ui.add_space(ui.spacing().indent);
+            ui.selectable_label(selected, name)
+                .clicked()
+                .then(|| collection_click_action(db, name))
         }
+        Row::Loading => placeholder(ui, &i18n.t("sidebar.loading")),
+        Row::NoCollections => placeholder(ui, &i18n.t("sidebar.no_collections")),
     }
+}
+
+/// Non-clickable indented hint row.
+fn placeholder(ui: &mut egui::Ui, text: &str) -> Option<SidebarAction> {
+    ui.add_space(ui.spacing().indent);
+    ui.weak(text);
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mongostudio_core::store::Namespace;
 
     fn names(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
@@ -164,9 +201,10 @@ mod tests {
     }
 
     #[test]
-    fn flattening_counts_only_expanded_loaded_collections() {
+    fn flattening_counts_children_and_placeholders() {
         let s = populated();
-        assert_eq!(total_rows(&s), 3 + 3);
+        // "my db": 1 + 3, "a.b.c" collapsed: 1, "данные" collapsed: 1
+        assert_eq!(total_rows(&s), 4 + 1 + 1);
         let all = visible_rows(&s, 0..total_rows(&s));
         assert_eq!(all.len(), 6);
         assert!(matches!(all[0], Row::Db(n) if n.name == "my db"));
@@ -181,10 +219,83 @@ mod tests {
     }
 
     #[test]
+    fn expanded_loading_and_empty_dbs_get_one_placeholder_row() {
+        let s = SidebarState::default()
+            .with_databases(names(&["loading", "empty", "closed"]))
+            .toggled("loading")
+            .toggled("empty")
+            .with_collections("empty", vec![])
+            .with_collections("closed", vec![]);
+        assert_eq!(total_rows(&s), 2 + 2 + 1);
+        let all = visible_rows(&s, 0..5);
+        assert!(matches!(all[1], Row::Loading));
+        assert!(matches!(all[3], Row::NoCollections));
+        assert!(matches!(all[4], Row::Db(n) if n.name == "closed"));
+        assert_eq!(all.len(), total_rows(&s));
+        assert_eq!(run_frame(&s), None);
+    }
+
+    #[test]
     fn visible_window_is_a_slice_of_the_flattened_tree() {
         let s = populated();
         let all = visible_rows(&s, 0..6);
         assert_eq!(visible_rows(&s, 2..5), all[2..5]);
         assert!(visible_rows(&s, 6..20).is_empty());
+    }
+
+    fn big_state() -> SidebarState {
+        let dbs: Vec<String> = (0..2000).map(|i| format!("db {i}.x")).collect();
+        let mut s = SidebarState::default().with_databases(dbs);
+        for i in [3, 700, 1999] {
+            let db = format!("db {i}.x");
+            let colls = (0..500).map(|c| format!("c{c}")).collect();
+            s = s.toggled(&db).with_collections(&db, colls);
+        }
+        s
+    }
+
+    #[test]
+    fn row_math_matches_for_any_window_of_a_large_tree() {
+        let s = big_state();
+        let total = total_rows(&s);
+        assert_eq!(total, 2000 + 3 * 500);
+        for start in [0, 2, 3, 500, 1200, total - 10] {
+            let window = start..start + 40;
+            let rows = visible_rows(&s, window.clone());
+            assert_eq!(rows.len(), window.end.min(total) - start);
+            let h = 18.0_f32;
+            assert_eq!(
+                rows.len() as f32 * h,
+                (window.end.min(total) - start) as f32 * h
+            );
+        }
+        let sum: usize = s.databases.iter().map(rows_of).sum();
+        assert_eq!(sum as f32 * 18.0, total as f32 * 18.0);
+    }
+
+    #[test]
+    fn large_tree_renders_in_a_fixed_viewport_with_a_small_window() {
+        let s = big_state();
+        let ctx = egui::Context::default();
+        let i18n = I18n::english();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(300.0, 400.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = None;
+        let mut row_h = 0.0;
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                row_h = row_height(ui) + ui.spacing().item_spacing.y;
+                out = show_sidebar(ui, &s, &i18n);
+            });
+        });
+        assert_eq!(out, None);
+        let window = (400.0 / row_h).ceil() as usize + 1;
+        assert!(visible_rows(&s, 0..window).len() < 100);
+        assert!(window < total_rows(&s) / 20);
     }
 }

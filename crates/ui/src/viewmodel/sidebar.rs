@@ -21,6 +21,37 @@ impl DbNode {
     }
 }
 
+/// What the user asked for in the sidebar; the caller (reducer) performs it.
+///
+/// - `LoadCollections(db)`: mark the database expanded (`toggled`) AND fetch its collections.
+/// - `Toggle(db)`: toggle expansion only, no fetch. While a load is in flight the database is
+///   expanded with `collections == None`, and a click emits `Toggle` (the reducer should dedupe
+///   in-flight loads and may collapse).
+/// - `Open(ns)`: open the collection. It does NOT update the selection; the reducer must call
+///   `SidebarState::selecting`.
+/// - `Refresh`: reload the database list.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SidebarAction {
+    LoadCollections(String),
+    Toggle(String),
+    Open(Namespace),
+    Refresh,
+}
+
+/// Decision for a click on a database header.
+pub fn db_click_action(node: &DbNode) -> SidebarAction {
+    if !node.expanded && node.collections.is_none() {
+        SidebarAction::LoadCollections(node.name.clone())
+    } else {
+        SidebarAction::Toggle(node.name.clone())
+    }
+}
+
+/// Decision for a click on a collection row; names are passed through verbatim.
+pub fn collection_click_action(db: &str, collection: &str) -> SidebarAction {
+    SidebarAction::Open(Namespace::new(db, collection))
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SidebarState {
     pub databases: Vec<DbNode>,
@@ -107,6 +138,43 @@ mod tests {
 
     fn state() -> SidebarState {
         SidebarState::default().with_databases(names(&["app", "my db", "a.b.c", "данные"]))
+    }
+
+    fn node(expanded: bool, collections: Option<Vec<String>>) -> DbNode {
+        DbNode {
+            name: "my db.x".into(),
+            expanded,
+            collections,
+        }
+    }
+
+    #[test]
+    fn db_click_collapsed_unloaded_loads() {
+        assert_eq!(
+            db_click_action(&node(false, None)),
+            SidebarAction::LoadCollections("my db.x".into())
+        );
+    }
+
+    #[test]
+    fn db_click_otherwise_toggles() {
+        let toggle = SidebarAction::Toggle("my db.x".into());
+        assert_eq!(db_click_action(&node(false, Some(vec![]))), toggle);
+        assert_eq!(db_click_action(&node(false, Some(names(&["a"])))), toggle);
+        assert_eq!(db_click_action(&node(true, Some(names(&["a"])))), toggle);
+        assert_eq!(db_click_action(&node(true, Some(vec![]))), toggle);
+        assert_eq!(db_click_action(&node(true, None)), toggle, "load in flight");
+    }
+
+    #[test]
+    fn collection_click_opens_verbatim_names() {
+        for (db, c) in [("my db", "a.b.c"), ("данные", "коллекция"), ("a.b", " x ")]
+        {
+            assert_eq!(
+                collection_click_action(db, c),
+                SidebarAction::Open(Namespace::new(db, c))
+            );
+        }
     }
 
     #[test]

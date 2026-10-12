@@ -19,6 +19,51 @@ impl FindBarState {
     }
 }
 
+/// What the user asked for; the caller performs it.
+#[allow(clippy::large_enum_variant)] // contract: Run carries the Query by value
+#[derive(Debug, Clone, PartialEq)]
+pub enum FindAction {
+    Run(Query),
+    Prev,
+    Next,
+    Clear,
+}
+
+/// A raw user gesture on the find bar, before validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FindIntent {
+    /// Enter pressed in a text box.
+    Enter,
+    RunButton,
+    ClearButton,
+    PrevButton,
+    NextButton,
+}
+
+/// Chooses the intent for a frame; a button click wins over Enter.
+pub fn pick_intent(button: Option<FindIntent>, enter: bool) -> Option<FindIntent> {
+    button.or(enter.then_some(FindIntent::Enter))
+}
+
+/// Maps an intent to the new bar state and the action to emit. Run/Enter emit `Run` only when
+/// the text parses; Prev/Next are ignored when not available; Clear resets text and error.
+pub fn resolve_find_intent(
+    state: &FindBarState,
+    intent: FindIntent,
+    has_prev: bool,
+    has_next: bool,
+) -> (FindBarState, Option<FindAction>) {
+    match intent {
+        FindIntent::Enter | FindIntent::RunButton => match submit_find(state) {
+            Ok(q) => (state.cleared_error(), Some(FindAction::Run(q))),
+            Err(failed) => (failed, None),
+        },
+        FindIntent::ClearButton => (FindBarState::default(), Some(FindAction::Clear)),
+        FindIntent::PrevButton => (state.clone(), has_prev.then_some(FindAction::Prev)),
+        FindIntent::NextButton => (state.clone(), has_next.then_some(FindAction::Next)),
+    }
+}
+
 /// Parses the bar text. On failure returns a new state carrying the error with the text
 /// untouched, so the user can fix what they typed.
 #[allow(clippy::result_large_err)] // signature mandated: Err carries the full new state
@@ -71,5 +116,69 @@ mod tests {
         let cleared = s.cleared_error();
         assert_eq!(cleared.last_error, None);
         assert_eq!(cleared.text, s.text);
+    }
+
+    fn typed(filter: &str) -> FindBarState {
+        FindBarState {
+            text: QueryText {
+                filter: filter.into(),
+                sort: "  {\"a\": 1}\n".into(),
+                ..Default::default()
+            },
+            last_error: None,
+        }
+    }
+
+    #[test]
+    fn parse_failure_keeps_text_byte_for_byte_and_emits_nothing() {
+        let s = typed("  {oops \t");
+        for intent in [FindIntent::Enter, FindIntent::RunButton] {
+            let (next, action) = resolve_find_intent(&s, intent, true, true);
+            assert_eq!(action, None);
+            assert_eq!(next.text, s.text);
+            assert!(matches!(next.last_error, Some(CoreError::InvalidJson(_))));
+        }
+    }
+
+    #[test]
+    fn success_runs_the_query_and_clears_the_error() {
+        let mut s = typed("{\"a\": 1}");
+        s.last_error = Some(CoreError::InvalidJson("old".into()));
+        let (next, action) = resolve_find_intent(&s, FindIntent::RunButton, false, false);
+        assert!(matches!(action, Some(FindAction::Run(q)) if q.filter == bson::doc! {"a": 1}));
+        assert_eq!(next.last_error, None);
+        assert_eq!(next.text, s.text);
+    }
+
+    #[test]
+    fn paging_is_gated_by_availability() {
+        let s = typed("{");
+        let (kept, a) = resolve_find_intent(&s, FindIntent::PrevButton, false, true);
+        assert_eq!((a, &kept), (None, &s));
+        let p = resolve_find_intent(&s, FindIntent::PrevButton, true, false);
+        assert_eq!(p, (s.clone(), Some(FindAction::Prev)));
+        let n = resolve_find_intent(&s, FindIntent::NextButton, true, false);
+        assert_eq!(n, (s.clone(), None));
+        let n = resolve_find_intent(&s, FindIntent::NextButton, false, true);
+        assert_eq!(n, (s, Some(FindAction::Next)));
+    }
+
+    #[test]
+    fn clear_resets_text_and_error() {
+        let mut s = typed("{oops");
+        s.last_error = Some(CoreError::InvalidJson("x".into()));
+        let (next, action) = resolve_find_intent(&s, FindIntent::ClearButton, false, false);
+        assert_eq!(next, FindBarState::default());
+        assert_eq!(action, Some(FindAction::Clear));
+    }
+
+    #[test]
+    fn button_wins_over_enter_in_the_same_frame() {
+        assert_eq!(
+            pick_intent(Some(FindIntent::ClearButton), true),
+            Some(FindIntent::ClearButton)
+        );
+        assert_eq!(pick_intent(None, true), Some(FindIntent::Enter));
+        assert_eq!(pick_intent(None, false), None);
     }
 }
