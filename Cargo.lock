@@ -3110,6 +3110,7 @@ dependencies = [
  "futures",
  "keyring",
  "mongodb",
+ "mongostudio-core",
  "russh",
  "serde",
  "serde_json",

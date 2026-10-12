@@ -24,3 +24,5 @@ test-support = []
 
 [dev-dependencies]
 tempfile = "3.27.0"
+# Integration tests share the fixtures behind the `test-support` feature.
+mongostudio-core = { path = ".", features = ["test-support"] }
