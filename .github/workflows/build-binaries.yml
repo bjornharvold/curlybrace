@@ -1,0 +1,63 @@
+name: Build binaries
+
+# Builds the app for every platform in the matrix below and uploads the archives to the
+# GitHub release for the given tag. Called by release.yml after a release is created;
+# run it by hand (Actions > Build binaries > Run workflow) to rebuild or add assets to
+# an existing release.
+#
+# To support another platform, add a matrix entry and a packaging script. See
+# CONTRIBUTING.md ("Adding a platform").
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to upload to, for example v0.1.0
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to upload to, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            package: scripts/package-macos.sh
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: dtolnay/rust-toolchain@1.87.0
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked -p mongostudio --target ${{ matrix.target }}
+        env:
+          # Keep in step with LSMinimumSystemVersion in scripts/package-macos.sh.
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
+      - name: Package
+        run: ${{ matrix.package }} "${TAG#v}" ${{ matrix.target }}
+        env:
+          TAG: ${{ inputs.tag }}
+      - name: Upload to the release
+        run: gh release upload "$TAG" dist/*.zip dist/*.sha256 --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}

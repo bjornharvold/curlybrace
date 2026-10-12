@@ -1,0 +1,35 @@
+name: Release
+
+# release-please keeps a "release PR" open on main. Merging that PR bumps the version,
+# updates CHANGELOG.md, tags vX.Y.Z and creates the GitHub release; the build job below
+# then attaches the binaries to that release.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
