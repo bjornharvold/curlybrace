@@ -86,7 +86,7 @@ impl Walk {
             rules,
             budget,
         } = input;
-        let batch = budget.limits().batch_size;
+        let batch = budget.limits().batch_size.max(1);
         Self {
             source: KeyScanner::new(source, source_ns, source_filter, key.clone(), batch),
             target: KeyScanner::new(target, target_ns, target_filter, key, batch),
@@ -370,7 +370,13 @@ mod tests {
                 ..Limits::default()
             },
         );
+        let budget = i.budget.clone();
         assert!(matches!(run(i).await, Err(CoreError::CompareCapExceeded)));
+        assert_eq!(
+            budget.used_entries(),
+            0,
+            "the budget is released after the abort"
+        );
     }
 
     #[tokio::test]
@@ -411,6 +417,8 @@ mod tests {
         .unwrap();
         assert_eq!(outcome, EngineOutcome::Cancelled);
         assert!(summary.only_in_source < 500);
+        assert!(summary.scanned_source >= summary.only_in_source);
+        assert!(summary.scanned_source < 500);
     }
 
     #[tokio::test]
@@ -431,6 +439,8 @@ mod tests {
         assert!(reports.len() >= 3);
         for pair in reports.windows(2) {
             assert!(pair[1].scanned_source >= pair[0].scanned_source);
+            assert!(pair[1].scanned_target >= pair[0].scanned_target);
+            assert!(pair[1].differences >= pair[0].differences);
         }
     }
 
@@ -470,10 +480,56 @@ mod tests {
         }
     }
 
-    #[test]
-    fn fingerprints_in_results_match_the_documents() {
+    #[tokio::test]
+    async fn stored_fingerprints_are_those_of_the_documents_on_the_right_side() {
         let rules = CompareRules::for_key(&KeySpec::id());
-        let d = doc! { "_id": 3, "v": 3 };
-        assert!(fingerprint_of(&d, &rules).is_ok());
+        let (s1, t1) = (doc! { "_id": 1, "v": 1 }, doc! { "_id": 1, "v": 2 });
+        let only_s = doc! { "_id": 2, "v": 20 };
+        let only_t = doc! { "_id": 3, "v": 30 };
+        let i = input(
+            vec![s1.clone(), only_s.clone()],
+            vec![t1.clone(), only_t.clone()],
+            Limits::default(),
+        );
+        let (_, _, set) = run(i).await.unwrap();
+        let fp = |d: &Document| Some(fingerprint_of(d, &rules).unwrap());
+        let diff = &set.page(Category::Different, 0, 1)[0];
+        assert_eq!((&diff.source, &diff.target), (&fp(&s1), &fp(&t1)));
+        assert_ne!(diff.source, diff.target);
+        let os = &set.page(Category::OnlyInSource, 0, 1)[0];
+        assert_eq!((&os.source, &os.target), (&fp(&only_s), &None));
+        let ot = &set.page(Category::OnlyInTarget, 0, 1)[0];
+        assert_eq!((&ot.source, &ot.target), (&None, &fp(&only_t)));
+    }
+
+    #[tokio::test]
+    async fn keys_equal_across_numeric_types_join() {
+        let mut i = input(
+            vec![doc! { "_id": 1_i32, "v": 1 }],
+            vec![doc! { "_id": 1_i64, "v": 1 }],
+            Limits::default(),
+        );
+        // `_id` is part of the compared body here, so the values must also compare equal.
+        i.rules.numbers_equal_across_types = true;
+        let (_, summary, set) = run(i).await.unwrap();
+        assert_eq!(summary.equal, 1, "{summary:?}");
+        for c in [
+            Category::OnlyInSource,
+            Category::OnlyInTarget,
+            Category::Different,
+        ] {
+            assert_eq!(set.count(c), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_zero_batch_size_is_clamped_and_still_completes() {
+        let docs: Vec<Document> = (0..7).map(|n| doc! { "_id": n }).collect();
+        let limits = Limits {
+            batch_size: 0,
+            ..Limits::default()
+        };
+        let (outcome, summary, _) = run(input(docs.clone(), docs, limits)).await.unwrap();
+        assert_eq!((outcome, summary.equal), (EngineOutcome::Completed, 7));
     }
 }
