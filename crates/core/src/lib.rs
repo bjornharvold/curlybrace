@@ -1,6 +1,7 @@
 pub mod client;
 pub mod connection;
 pub mod crud;
+pub mod driver_error;
 pub mod ejson;
 pub mod error;
 pub mod mongo_store;

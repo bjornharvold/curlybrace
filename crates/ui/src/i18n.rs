@@ -168,6 +168,8 @@ mod tests {
             CoreError::Database(String::new()),
             CoreError::NotFound,
             CoreError::Superseded,
+            CoreError::AuthFailed,
+            CoreError::Unauthorized,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
         ];

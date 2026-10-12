@@ -25,7 +25,7 @@ impl MongoStore {
 /// Driver errors may quote server text; they are surfaced, but never carry
 /// credentials because the client never holds them in message form.
 fn db_err(e: mongodb::error::Error) -> CoreError {
-    CoreError::Database(e.to_string())
+    crate::driver_error::classify_driver_error(&e)
 }
 
 /// Driver limit for a query: `limit + 1` (to detect `has_more`), or `None`

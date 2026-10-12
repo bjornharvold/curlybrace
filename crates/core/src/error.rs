@@ -26,6 +26,12 @@ pub enum CoreError {
     /// A recorded SSH host key no longer matches the server's (possible interception).
     #[error("ssh: the host key has changed; refusing to connect")]
     SshHostKeyChanged,
+    /// The server rejected the credentials, or requires authentication and none were given.
+    #[error("authentication failed")]
+    AuthFailed,
+    /// The server refused an operation the authenticated user is not allowed to perform.
+    #[error("not authorized")]
+    Unauthorized,
     /// TLS with certificate verification cannot be used through an SSH tunnel.
     #[error("tls with certificate verification cannot be combined with an ssh tunnel")]
     TlsThroughTunnel,
@@ -44,6 +50,8 @@ impl CoreError {
             Self::Database(_) => "errors.database",
             Self::NotFound => "errors.not_found",
             Self::Superseded => "errors.superseded",
+            Self::AuthFailed => "errors.auth_failed",
+            Self::Unauthorized => "errors.unauthorized",
             Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
             Self::TlsThroughTunnel => "errors.tls_through_tunnel",
         }
@@ -66,6 +74,8 @@ mod tests {
             CoreError::Database("x".into()),
             CoreError::NotFound,
             CoreError::Superseded,
+            CoreError::AuthFailed,
+            CoreError::Unauthorized,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
         ];

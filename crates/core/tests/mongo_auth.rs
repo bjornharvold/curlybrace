@@ -57,9 +57,11 @@ async fn scram_sha256_succeeds_and_failures_are_typed_and_bounded() {
 
     let started = Instant::now();
     let wrong = client::connect(&cfg, Some("not-the-password"), None).await;
-    let Err(CoreError::Database(text)) = wrong else {
-        panic!("wrong password must be a database error");
+    let Err(err) = wrong else {
+        panic!("wrong password must fail");
     };
+    assert_eq!(err, CoreError::AuthFailed);
+    let text = err.to_string();
     assert!(
         started.elapsed() < BOUND,
         "wrong password took {:?}",
@@ -67,15 +69,22 @@ async fn scram_sha256_succeeds_and_failures_are_typed_and_bounded() {
     );
     assert!(!text.contains("not-the-password") && !text.contains(PASSWORD));
 
-    // No credentials: `ping` is allowed unauthenticated, so connect succeeds, but
-    // every data command is then rejected with a typed error rather than hanging.
-    let anonymous = client::connect(&container.config(), None, None)
+    // No credentials on an --auth server: `ping` alone would succeed, so connect must
+    // refuse up front with a clear authentication error.
+    let anonymous = client::connect(&container.config(), None, None).await;
+    assert!(
+        matches!(anonymous, Err(CoreError::AuthFailed)),
+        "{anonymous:?}"
+    );
+
+    // A store built on a client that skipped the check still classifies server rejections.
+    let raw = mongodb::Client::with_uri_str(container.config().uri)
         .await
         .unwrap();
-    let store = MongoStore::new(anonymous);
+    let store = MongoStore::new(raw);
     assert!(matches!(
         store.list_databases().await,
-        Err(CoreError::Database(_))
+        Err(CoreError::Unauthorized)
     ));
 }
 
@@ -154,9 +163,9 @@ async fn real_runtime_reports_connect_failed_for_a_wrong_password_in_time() {
     rt.tx.send(Command::Connect(cfg)).unwrap();
     match next_event(&mut rt.rx, BOUND, "connect failure").await {
         Event::ConnectFailed {
-            error: CoreError::Database(text),
+            error: CoreError::AuthFailed,
             ..
-        } => assert!(!text.contains("wrong-password")),
+        } => {}
         other => panic!("expected ConnectFailed, got {other:?}"),
     }
     assert!(started.elapsed() < BOUND);

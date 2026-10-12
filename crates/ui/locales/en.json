@@ -102,6 +102,7 @@
     "title_new": "New document"
   },
   "errors": {
+    "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",
     "database": "The database reported a problem. Check your connection and try again.",
     "invalid_document": "This document is not valid. Check its fields and try again.",
     "invalid_json": "This is not valid JSON. Check the syntax and try again.",
@@ -112,6 +113,7 @@
     "ssh_host_key_changed": "The SSH host key has changed since it was saved. This can mean someone is intercepting the connection. If you know the key was replaced, forget the host and connect again.",
     "superseded": "The connection changed while this was running, so the result was discarded.",
     "tls_through_tunnel": "TLS certificate verification is not possible through an SSH tunnel. To connect you would have to enable \"Allow invalid TLS certificates\", which removes certificate protection on the connection between the SSH bastion and MongoDB (the SSH leg stays encrypted). Only do this on a network you trust.",
+    "unauthorized": "Your user is not allowed to do this on the server.",
     "unsupported": "This action is not supported for the current connection."
   },
   "failures": {
