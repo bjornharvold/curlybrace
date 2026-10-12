@@ -23,6 +23,9 @@ use crate::store::{DocumentStore, Namespace};
 use super::session::{ActiveRun, Session, StoredPair};
 use super::{Events, Repaint, Shared, connections};
 
+/// The most rows one `Rows` answer carries, whatever the request asks for.
+pub(super) const MAX_ROWS_PAGE: usize = 1000;
+
 fn internal_error() -> CoreError {
     CoreError::Database("internal error".into())
 }
@@ -128,8 +131,21 @@ pub(super) fn start(
         session_id,
         run,
     };
-    tokio::spawn(run_all(ctx, pairs, cancel));
+    tokio::spawn(run_contained(ctx, pairs, cancel));
     Ok(())
+}
+
+/// Runs the pairs in an inner task so a panic outside the engine still frees the run slot and
+/// ends the run with its `RunDone` (unless the session was closed).
+async fn run_contained(ctx: RunContext, pairs: Vec<PairSpec>, cancel: CancelFlag) {
+    let work = tokio::spawn(run_all(ctx.clone(), pairs, cancel));
+    if work.await.is_err() {
+        // The slot guard inside `run_all` already freed the slot while unwinding.
+        ctx.emit(CompareEvent::RunDone {
+            session: ctx.session_id,
+            run: ctx.run,
+        });
+    }
 }
 
 async fn run_all(ctx: RunContext, pairs: Vec<PairSpec>, cancel: CancelFlag) {
@@ -155,6 +171,9 @@ async fn run_all(ctx: RunContext, pairs: Vec<PairSpec>, cancel: CancelFlag) {
 }
 
 async fn run_one(ctx: &RunContext, spec: PairSpec, cancel: &CancelFlag) -> PairOutcome {
+    // A re-run replaces the pair's results: drop the old set now (returning its budget share),
+    // so a failed or cancelled re-run never leaves stale rows behind.
+    discard_pair(&ctx.session, spec.id);
     if cancel.is_cancelled() {
         return PairOutcome::Cancelled(Summary::default());
     }
@@ -226,6 +245,7 @@ pub(super) fn rows(
     offset: usize,
     limit: usize,
 ) -> Result<()> {
+    let limit = limit.min(MAX_ROWS_PAGE);
     let (total, rows) = {
         let pairs = session.pairs.lock().unwrap_or_else(|e| e.into_inner());
         let stored = pairs.get(&pair).ok_or_else(no_results)?;
@@ -253,7 +273,8 @@ pub(super) fn rows(
     Ok(())
 }
 
-/// Re-reads both documents for `key` and diffs them under the pair's rules.
+/// Re-reads both documents for `key` and diffs them under the pair's rules. A document that no
+/// longer matches the pair's filter is reported like a deleted one (absent on that side).
 pub(super) async fn detail(
     session: &Session,
     session_id: SessionId,

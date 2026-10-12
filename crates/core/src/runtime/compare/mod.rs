@@ -25,7 +25,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::compare::protocol::{
-    CompareCommand, CompareEvent, PairSpec, Preflight, SessionId, Side,
+    CompareCommand, CompareEvent, PairSpec, Preflight, RunId, SessionId, Side,
 };
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
@@ -59,6 +59,11 @@ pub(super) fn dispatch(
         CompareCommand::Close { session } => shared.compare.remove(session),
         CompareCommand::Cancel { session, run } => runner::cancel(&shared, session, run),
         CompareCommand::Discard { session, pair } => runner::discard(&shared, session, pair),
+        CompareCommand::Start {
+            session,
+            run,
+            pairs,
+        } => start_run(&shared, events, repaint, session, run, pairs),
         other => spawn_command(shared, events, repaint, other),
     }
 }
@@ -94,19 +99,53 @@ fn spawn_open(
     });
 }
 
+/// Answers a command naming an unknown or closed session, synchronously.
+fn answer_closed(events: &Events, repaint: &Repaint, id: SessionId, context: &'static str) {
+    let error = CoreError::Unsupported("the comparison is closed".into());
+    let failed = CompareEvent::Failed {
+        session: id,
+        context,
+        error,
+    };
+    if events.send(Event::Compare(failed)).is_ok() {
+        repaint();
+    }
+}
+
+/// Registers the run synchronously, so command ORDER decides outcomes (a `Cancel` or a second
+/// `Start` right behind this one sees the run); only the run itself happens in a task.
+fn start_run(
+    shared: &Shared,
+    events: Events,
+    repaint: Repaint,
+    id: SessionId,
+    run: RunId,
+    pairs: Vec<PairSpec>,
+) {
+    let Some(session) = shared.compare.get(id).filter(|s| s.is_open()) else {
+        return answer_closed(&events, &repaint, id, "compare_start");
+    };
+    if let Err(error) = runner::start(
+        events.clone(),
+        repaint.clone(),
+        session.clone(),
+        id,
+        run,
+        pairs,
+    ) {
+        let failed = CompareEvent::Failed {
+            session: id,
+            context: "compare_start",
+            error,
+        };
+        session.emit_if_open(&events, &repaint, failed);
+    }
+}
+
 fn spawn_command(shared: Arc<Shared>, events: Events, repaint: Repaint, command: CompareCommand) {
     let (id, context) = (command_session(&command), command_context(&command));
     let Some(session) = shared.compare.get(id).filter(|s| s.is_open()) else {
-        let error = CoreError::Unsupported("the comparison is closed".into());
-        let failed = CompareEvent::Failed {
-            session: id,
-            context,
-            error,
-        };
-        if events.send(Event::Compare(failed)).is_ok() {
-            repaint();
-        }
-        return;
+        return answer_closed(&events, &repaint, id, context);
     };
     tokio::spawn(async move {
         let work = tokio::spawn(handle(
@@ -160,7 +199,7 @@ fn command_context(c: &CompareCommand) -> &'static str {
 }
 
 /// Runs one command against its session. `Ok(Some(event))` is the answer to emit; commands that
-/// stream their own events (`Start`, `Rows`) return `Ok(None)`.
+/// stream their own events (`Rows`) return `Ok(None)`.
 async fn handle(
     shared: Arc<Shared>,
     events: Events,
@@ -179,10 +218,6 @@ async fn handle(
         CompareCommand::Detail { pair, key, .. } => {
             bounded(limit, runner::detail(&session, id, pair, key)).await?
         }
-        CompareCommand::Start { run, pairs, .. } => {
-            runner::start(events, repaint, session, id, run, pairs)?;
-            return Ok(None);
-        }
         CompareCommand::Rows {
             pair,
             category,
@@ -196,6 +231,7 @@ async fn handle(
             return Ok(None);
         }
         CompareCommand::Open { .. }
+        | CompareCommand::Start { .. }
         | CompareCommand::Cancel { .. }
         | CompareCommand::Discard { .. }
         | CompareCommand::Close { .. } => return Ok(None),

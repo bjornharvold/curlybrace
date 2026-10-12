@@ -12,8 +12,8 @@ use tokio::sync::Notify;
 use super::runner;
 use super::session::{Connections, Session};
 use super::tests::{
-    MapConnector, Tx, collect_run, expect_failed, ns, open, pair, same_pair, send_rows, send_start,
-    start_with,
+    MapConnector, Tx, collect_run, expect_failed, next_compare, ns, open, pair, same_pair,
+    send_rows, send_start, start_with,
 };
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::compare::protocol::{CompareCommand, CompareEvent, PairOutcome};
@@ -128,12 +128,35 @@ fn rig(source: GateStore, target: GateStore) -> (Tx, RuntimeHandle) {
     start_with(connector, RuntimeConfig::default())
 }
 
-/// A parked first scan on the source of a one-session rig; returns once the run is mid-scan.
-async fn parked_run(pairs: u32) -> (Tx, RuntimeHandle, Arc<Gate>) {
+/// An opened session whose source parks its first scan on the returned gate.
+async fn gated_rig() -> (Tx, RuntimeHandle, Arc<Gate>) {
     let gate = Arc::new(Gate::default());
     let source = GateStore::new(store_with("c", 5)).gated(&gate);
     let (tx, mut h) = rig(source, GateStore::new(store_with("c", 5)));
     open(&mut h, &tx, 1).await;
+    (tx, h, gate)
+}
+
+/// Proves every command sent so far was handled: a command for an unknown session is answered
+/// `Failed` synchronously from the dispatcher, which handles commands in order.
+async fn barrier(tx: &Tx, h: &mut RuntimeHandle) {
+    let rows = CompareCommand::Rows {
+        session: 99,
+        pair: 1,
+        category: Category::Different,
+        offset: 0,
+        limit: 1,
+    };
+    tx.send(Command::Compare(rows)).unwrap();
+    match next_compare(h).await {
+        CompareEvent::Failed { session: 99, .. } => {}
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A parked first scan on the source of a one-session rig; returns once the run is mid-scan.
+async fn parked_run(pairs: u32) -> (Tx, RuntimeHandle, Arc<Gate>) {
+    let (tx, h, gate) = gated_rig().await;
     send_start(&tx, 7, (1..=pairs).map(same_pair).collect());
     gate.entered.notified().await;
     (tx, h, gate)
@@ -164,6 +187,7 @@ async fn cancel_ends_every_pair_as_cancelled_and_stores_none() {
     let (tx, mut h, gate) = parked_run(3).await;
     let cancel = CompareCommand::Cancel { session: 1, run: 7 };
     tx.send(Command::Compare(cancel)).unwrap();
+    barrier(&tx, &mut h).await;
     gate.release.notify_one();
     let done = collect_run(&mut h).await;
     assert_eq!(done.iter().map(|(p, _)| *p).collect::<Vec<_>>(), [1, 2, 3]);
@@ -173,6 +197,46 @@ async fn cancel_ends_every_pair_as_cancelled_and_stores_none() {
     );
     send_rows(&tx, 1, Category::OnlyInSource);
     expect_failed(&mut h, "compare_rows").await;
+}
+
+#[tokio::test]
+async fn a_cancel_right_behind_a_start_cancels_the_run() {
+    let (tx, mut h, gate) = gated_rig().await;
+    send_start(&tx, 7, vec![same_pair(1), same_pair(2)]);
+    let cancel = CompareCommand::Cancel { session: 1, run: 7 };
+    tx.send(Command::Compare(cancel)).unwrap();
+    barrier(&tx, &mut h).await;
+    gate.release.notify_one();
+    let done = collect_run(&mut h).await;
+    assert_eq!(done.len(), 2);
+    assert!(
+        done.iter()
+            .all(|(_, o)| matches!(o, PairOutcome::Cancelled(_)))
+    );
+}
+
+#[tokio::test]
+async fn two_starts_in_a_row_the_first_wins_and_the_second_is_refused() {
+    let (tx, mut h, gate) = gated_rig().await;
+    send_start(&tx, 7, vec![same_pair(1)]);
+    send_start(&tx, 8, vec![same_pair(1)]);
+    expect_failed(&mut h, "compare_start").await;
+    gate.release.notify_one();
+    let done = collect_run(&mut h).await;
+    assert_eq!(done.len(), 1);
+    assert!(matches!(done[0].1, PairOutcome::Completed(_)));
+}
+
+#[tokio::test]
+async fn a_start_for_an_unknown_session_fails() {
+    let (tx, mut h, _gate) = gated_rig().await;
+    let start = CompareCommand::Start {
+        session: 5,
+        run: 1,
+        pairs: vec![same_pair(1)],
+    };
+    tx.send(Command::Compare(start)).unwrap();
+    expect_failed(&mut h, "compare_start").await;
 }
 
 #[tokio::test]
@@ -193,6 +257,9 @@ async fn closing_mid_run_emits_nothing_after_the_close() {
     let (tx, mut h, gate) = parked_run(2).await;
     tx.send(Command::Compare(CompareCommand::Close { session: 1 }))
         .unwrap();
+    // The session is gone once this synchronous answer arrives: the close was handled.
+    send_rows(&tx, 1, Category::Different);
+    expect_failed(&mut h, "compare_rows").await;
     gate.release.notify_one();
     tokio::time::sleep(Duration::from_millis(400)).await;
     let late = h.rx.try_recv();
@@ -240,7 +307,15 @@ impl Direct {
 
     async fn run(&mut self, run: u64, ids: &[u32]) -> Vec<PairOutcome> {
         let pairs = ids.iter().map(|id| same_pair(*id)).collect();
-        let repaint: crate::runtime::Repaint = Arc::new(|| {});
+        self.run_pairs(run, pairs, Arc::new(|| {})).await
+    }
+
+    async fn run_pairs(
+        &mut self,
+        run: u64,
+        pairs: Vec<crate::compare::protocol::PairSpec>,
+        repaint: crate::runtime::Repaint,
+    ) -> Vec<PairOutcome> {
         runner::start(
             self.tx.clone(),
             repaint,
@@ -346,4 +421,83 @@ async fn pair_events_arrive_in_pair_order_with_progress_between() {
     assert_eq!(dones, [&("done", 1), &("done", 2)]);
     assert_eq!(seen.last(), Some(&("done", 2)));
     assert!(seen.contains(&("progress", 1)));
+}
+
+#[tokio::test]
+async fn a_panic_outside_the_engine_frees_the_slot_and_ends_the_run() {
+    let mut direct = Direct::new(store_with("c", 3), InMemoryStore::new(), Limits::default());
+    // The repaint hook runs after each emission, in the run task, outside the engine.
+    let repaint: crate::runtime::Repaint = Arc::new(|| panic!("repaint blew up"));
+    let outcomes = direct.run_pairs(1, vec![same_pair(1)], repaint).await;
+    assert_eq!(
+        outcomes.len(),
+        1,
+        "the PairDone was sent before the hook panicked"
+    );
+    // The slot is free again: a new run is accepted and finishes.
+    assert_eq!(direct.run(2, &[1]).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_rerun_that_fails_or_is_cancelled_leaves_no_stale_results() {
+    let mut direct = Direct::new(store_with("c", 3), InMemoryStore::new(), Limits::default());
+    direct.run(1, &[1]).await;
+    assert_eq!(direct.session.budget.used_entries(), 3);
+    let mut bad = same_pair(1);
+    bad.key = KeySpec::new(vec!["nope".into()]).unwrap();
+    bad.rules = crate::compare::rules::CompareRules::for_key(&bad.key);
+    let repaint: crate::runtime::Repaint = Arc::new(|| {});
+    let outcomes = direct.run_pairs(2, vec![bad], repaint).await;
+    assert!(matches!(outcomes[0], PairOutcome::Failed(_)));
+    assert_eq!(direct.session.budget.used_entries(), 0);
+    let (events, repaint) = (
+        direct.tx.clone(),
+        Arc::new(|| {}) as crate::runtime::Repaint,
+    );
+    let rows = runner::rows(
+        &direct.session,
+        &events,
+        &repaint,
+        1,
+        1,
+        Category::OnlyInSource,
+        0,
+        10,
+    );
+    assert!(rows.is_err(), "no stale rows after a failed re-run");
+}
+
+#[tokio::test]
+async fn a_rows_page_is_clamped() {
+    let mut direct = Direct::new(
+        store_with("c", (runner::MAX_ROWS_PAGE + 200) as i32),
+        InMemoryStore::new(),
+        Limits::default(),
+    );
+    direct.run(1, &[1]).await;
+    let (events, repaint) = (
+        direct.tx.clone(),
+        Arc::new(|| {}) as crate::runtime::Repaint,
+    );
+    let category = Category::OnlyInSource;
+    runner::rows(
+        &direct.session,
+        &events,
+        &repaint,
+        1,
+        1,
+        category,
+        0,
+        usize::MAX,
+    )
+    .unwrap();
+    loop {
+        if let Event::Compare(CompareEvent::Rows { rows, total, .. }) =
+            direct.rx.recv().await.unwrap()
+        {
+            assert_eq!(rows.len(), runner::MAX_ROWS_PAGE);
+            assert_eq!(total, runner::MAX_ROWS_PAGE + 200);
+            return;
+        }
+    }
 }
