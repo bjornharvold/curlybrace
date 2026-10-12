@@ -44,7 +44,7 @@ jobs:
             --label "autorelease: pending" --json headRefName --jq '.[0].headRefName // ""')
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
       - if: ${{ steps.pr.outputs.branch != '' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.pr.outputs.branch }}
       - if: ${{ steps.pr.outputs.branch != '' }}
