@@ -186,3 +186,25 @@ fn a_cleared_session_returns_to_browse_but_keeps_the_compare_session() {
     assert_eq!(state.compare.connections, connections);
     assert_eq!(connections, Some((a, a)));
 }
+
+#[test]
+fn compare_to_falls_back_to_the_source_when_the_old_target_was_deleted() {
+    let (mut state, a, b) = two_connections();
+    state.conn.connections.retain(|c| c.id != b);
+    let state = AppState {
+        status: ConnStatus::Connected,
+        connected: Some(a),
+        compare: CompareState {
+            connections: Some((a, b)),
+            ..state.compare.clone()
+        },
+        ..state
+    };
+    let (state, cmds) = compare_to(state);
+    assert_eq!(state.compare.connections, Some((a, a)));
+    assert!(matches!(
+        &cmds[..],
+        [Command::Compare(CompareCommand::Open { .. }), ..]
+    ));
+    assert_eq!(state.workspace, Workspace::Compare);
+}

@@ -108,7 +108,12 @@ pub(super) fn compare_to(state: AppState, ns: Namespace) -> Out {
             ..state
         });
     };
-    let target = state.compare.connections.map_or(source, |(_, t)| t);
+    let target = state
+        .compare
+        .connections
+        .map(|(_, t)| t)
+        .filter(|t| state.connection(*t).is_some())
+        .unwrap_or(source);
     let (state, mut commands) = open(state, source, target);
     let (state, listing) = pick_side(state, Side::Source, Pick::Database(ns.db));
     let (state, collection) = pick_side(state, Side::Source, Pick::Collection(ns.collection));
