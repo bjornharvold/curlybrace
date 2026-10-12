@@ -10,7 +10,8 @@
 <meta property="og:description" content="Browse, query and edit MongoDB collections in a free, open-source, native Mac app. Builders welcome.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://bjornharvold.github.io/the-mongodb-gui/">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2312202C'/%3E%3Ctext x='32' y='43' font-family='monospace' font-size='34' font-weight='700' text-anchor='middle' fill='%23ffffff'%3E%7B%7D%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -52,7 +53,7 @@
   /* Navigation */
   .nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 0; }
   .brand { font-weight: 700; font-size: 1.1rem; text-decoration: none; letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 10px; }
-  .brand-mark { font: 500 0.95rem/1 var(--mono); background: var(--ink); color: #fff; border-radius: 8px; padding: 7px 8px; }
+  .brand-mark { width: 32px; height: 32px; display: block; }
   .nav ul { display: flex; gap: 26px; list-style: none; margin: 0; padding: 0; font-weight: 500; font-size: 1rem; }
   .nav ul a { text-decoration: none; color: var(--muted); }
   .nav ul a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 5px; }
@@ -178,7 +179,7 @@
 
 <div class="wrap">
   <header class="nav">
-    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">{}</span>The MongoDB GUI</a>
+    <a class="brand" href="#top"><img class="brand-mark" src="favicon.svg" alt="" width="32" height="32">The MongoDB GUI</a>
     <nav aria-label="Primary">
       <ul>
         <li><a href="#what-it-does">What it does</a></li>

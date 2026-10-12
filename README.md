@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon/app-icon-256.png" width="112" height="112" alt="The app icon: a document between curly braces"></p>
+
 # The MongoDB GUI
 
 A free, native MongoDB client for macOS. Browse your collections, run queries, and edit documents

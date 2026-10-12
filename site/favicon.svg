@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 100 824 824" width="1024" height="1024">
+  <title>App icon: a document between curly braces</title>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1F4560"/>
+      <stop offset="1" stop-color="#0B1822"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2447F5"/>
+      <stop offset="1" stop-color="#58C8FF"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2F6BFF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#2F6BFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+    <path id="brace" d="M 150 0 C 62 0 62 44 62 118 L 62 196 C 62 252 34 276 0 288 C 34 300 62 324 62 380 L 62 458 C 62 532 62 576 150 576"
+          fill="none" stroke="#FFFFFF" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+  </defs>
+
+  <!-- macOS icon body: 824 px squircle centred on a 1024 canvas -->
+  <rect x="100" y="100" width="824" height="824" rx="188" fill="url(#body)"/>
+  <rect x="100" y="100" width="824" height="824" rx="188" fill="url(#sheen)"/>
+  <rect x="101" y="101" width="822" height="822" rx="187" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="2"/>
+
+  <!-- glow behind the document -->
+  <ellipse cx="512" cy="512" rx="190" ry="210" fill="url(#glow)"/>
+
+  <!-- braces -->
+  <use href="#brace" transform="translate(262 224)"/>
+  <use href="#brace" transform="translate(762 224) scale(-1 1)"/>
+
+  <!-- the document: three field rows of different lengths -->
+  <rect x="418" y="436" width="188" height="40" rx="20" fill="url(#bar)"/>
+  <rect x="418" y="504" width="124" height="40" rx="20" fill="url(#bar)" opacity="0.92"/>
+  <rect x="418" y="572" width="160" height="40" rx="20" fill="url(#bar)" opacity="0.82"/>
+</svg>
