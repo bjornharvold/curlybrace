@@ -92,32 +92,29 @@ fn keep_in_value(value: &Bson, child: &PathTree, in_array: bool) -> Option<Bson>
 fn canonical_number(value: &Bson) -> Bson {
     match value {
         Bson::Int32(n) => Bson::Int64(i64::from(*n)),
-        Bson::Double(d) => {
-            if d.is_nan() {
-                Bson::Double(f64::NAN)
-            } else if d.is_finite()
-                && d.fract() == 0.0
-                && *d >= -9_223_372_036_854_775_808.0
-                && *d < 9_223_372_036_854_775_808.0
-            {
-                Bson::Int64(*d as i64)
-            } else {
-                Bson::Double(*d)
-            }
-        }
-        Bson::Decimal128(d) => {
-            let dec = Dec::of(d);
-            if let Some(n) = dec.to_i64() {
-                Bson::Int64(n)
-            } else if let Some(canonical) = dec.to_decimal128() {
-                Bson::Decimal128(canonical)
-            } else {
-                // NaN and the infinities have one representation each.
-                value.clone()
-            }
-        }
+        Bson::Double(d) => canonical_dec(&Dec::from_f64(*d)).unwrap_or(Bson::Double(*d)),
+        Bson::Decimal128(d) => canonical_dec(&Dec::of(d)).unwrap_or_else(|| value.clone()),
         other => other.clone(),
     }
+}
+
+/// One canonical value per numeric value: `Int64` when integral and in range, else an exact
+/// `Decimal128`; NaN and the infinities become the matching `Double`. `None` when the exact
+/// value has no `Decimal128` form (more than 34 digits), so the caller keeps its input.
+fn canonical_dec(dec: &Dec) -> Option<Bson> {
+    match dec {
+        Dec::NaN => return Some(Bson::Double(f64::NAN)),
+        Dec::PosInf => return Some(Bson::Double(f64::INFINITY)),
+        Dec::NegInf => return Some(Bson::Double(f64::NEG_INFINITY)),
+        Dec::Finite { .. } => {}
+    }
+    if let Some(n) = dec.to_i64() {
+        return Some(Bson::Int64(n));
+    }
+    // Round-trip so a conversion that would have to round is never accepted.
+    dec.to_decimal128()
+        .filter(|c| Dec::of(c) == *dec)
+        .map(Bson::Decimal128)
 }
 
 fn element_bytes(value: &Bson) -> Result<Vec<u8>> {
@@ -280,7 +277,13 @@ mod tests {
         for field in ["a", "b", "c"] {
             assert_eq!(loose.get(field), Some(&Bson::Int64(1)), "{field}");
         }
-        assert_eq!(loose.get("d"), Some(&Bson::Double(1.5)));
+        // 1.5 is not integral, so it takes the canonical Decimal128 form, as a decimal 1.5 does.
+        let decimal_1_5 = n(
+            doc! { "k": 1, "d": Bson::Decimal128(Decimal128::from_str("1.5").unwrap()) },
+            &r,
+        );
+        assert!(matches!(loose.get("d"), Some(Bson::Decimal128(_))));
+        assert_eq!(loose.get("d"), decimal_1_5.get("d"));
     }
 
     #[test]
@@ -296,8 +299,9 @@ mod tests {
         // Equal decimals written differently become identical values.
         assert_eq!(out.get("f"), out.get("g"));
         assert_eq!(out.get("z"), Some(&Bson::Int64(0)));
-        // A double is never equal to a decimal unless the decimal is exactly its value.
-        assert_eq!(out.get("big"), Some(&Bson::Double(1e30)));
+        // A double is only equal to a decimal that is exactly its value: 1e30's binary value
+        // is 1000000000000000019884624838656, so it is not Decimal("1E30") (see the sibling test).
+        assert!(matches!(out.get("big"), Some(Bson::Decimal128(_))));
         match out.get("nan") {
             Some(Bson::Double(x)) => assert!(x.is_nan()),
             other => panic!("{other:?}"),
@@ -342,5 +346,62 @@ mod tests {
         let a = doc! { "k": 1, "m": [[2, 1], [4, 3]] };
         let b = doc! { "k": 1, "m": [[3, 4], [1, 2]] };
         assert_eq!(n(a, &r), n(b, &r));
+    }
+
+    #[test]
+    fn a_double_and_a_decimal_of_exactly_equal_value_normalize_identically() {
+        let mut r = rules();
+        r.numbers_equal_across_types = true;
+        let dec = |s: &str| Bson::Decimal128(Decimal128::from_str(s).unwrap());
+        // 2^70 is exactly representable as a double and has a 22-digit decimal expansion.
+        let pairs = [
+            (1.5_f64, "1.5"),
+            (0.5_f64, "0.5"),
+            (-2.25_f64, "-2.25"),
+            (
+                1_180_591_620_717_411_303_424.0_f64,
+                "1180591620717411303424",
+            ),
+        ];
+        for (double, decimal) in pairs {
+            let out = n(doc! { "k": 1, "d": double, "x": dec(decimal) }, &r);
+            assert_eq!(out.get("d"), out.get("x"), "{double} vs {decimal}");
+        }
+        // 1e30 is not exactly 1E30 as a double, so the two stay different.
+        let out = n(doc! { "k": 1, "d": 1e30_f64, "x": dec("1E30") }, &r);
+        assert_ne!(out.get("d"), out.get("x"));
+    }
+
+    #[test]
+    fn special_values_collapse_between_doubles_and_decimals() {
+        let mut r = rules();
+        r.numbers_equal_across_types = true;
+        let dec = |s: &str| Bson::Decimal128(Decimal128::from_str(s).unwrap());
+        let out = n(
+            doc! { "k": 1, "a": dec("Infinity"), "b": f64::INFINITY, "c": dec("-Infinity"),
+            "d": f64::NEG_INFINITY, "e": dec("NaN") },
+            &r,
+        );
+        assert_eq!(out.get("a"), Some(&Bson::Double(f64::INFINITY)));
+        assert_eq!(out.get("b"), out.get("a"));
+        assert_eq!(out.get("c"), Some(&Bson::Double(f64::NEG_INFINITY)));
+        assert_eq!(out.get("d"), out.get("c"));
+        match out.get("e") {
+            Some(Bson::Double(x)) => assert!(x.is_nan()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn array_order_and_number_collapsing_combine() {
+        let mut r = rules();
+        r.ignore_array_order = true;
+        r.numbers_equal_across_types = true;
+        let a = doc! { "k": 1, "xs": [Bson::Int32(1), Bson::Double(1.0)] };
+        let b = doc! { "k": 1, "xs": [Bson::Double(1.0), Bson::Int64(1)] };
+        assert_eq!(n(a, &r), n(b, &r));
+        let c = doc! { "k": 1, "xs": [Bson::Int32(2), Bson::Double(1.5)] };
+        let d = doc! { "k": 1, "xs": [Bson::Double(1.5), Bson::Int64(2)] };
+        assert_eq!(n(c, &r), n(d, &r));
     }
 }

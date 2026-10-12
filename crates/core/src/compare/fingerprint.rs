@@ -8,8 +8,6 @@ use sha2::{Digest, Sha256};
 
 use super::normalize::normalize;
 use super::rules::CompareRules;
-#[cfg(test)]
-use super::rules::FieldScope;
 use crate::error::{CoreError, Result};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -47,6 +45,7 @@ const EXPECTED_ID_1: &str = "2fe93d7561368009c932ffef6a24dbbf";
 mod tests {
     use super::*;
     use crate::compare::key::KeySpec;
+    use crate::compare::rules::FieldScope;
     use bson::doc;
 
     fn rules() -> CompareRules {

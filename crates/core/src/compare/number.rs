@@ -100,7 +100,7 @@ impl Dec {
     }
 
     /// The exact decimal value of a finite double, expanded from its binary form.
-    fn from_f64(d: f64) -> Self {
+    pub(crate) fn from_f64(d: f64) -> Self {
         if d.is_nan() {
             return Self::NaN;
         }
