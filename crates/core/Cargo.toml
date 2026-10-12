@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.87"
 
 [dependencies]
-bson = "3.1.0"
+bson = "2.15"
 keyring = { version = "3.6.3", features = ["apple-native"] }
 mongodb = "3.6.0"
 serde = { version = "1.0.229", features = ["derive"] }

@@ -1,7 +1,7 @@
 use crate::connection::{AuthMechanism, ConnectionConfig};
 use crate::error::{CoreError, Result};
+use bson::doc;
 use mongodb::Client;
-use mongodb::bson::doc;
 use mongodb::options::{
     AuthMechanism as DriverMechanism, ClientOptions, ServerAddress, Tls, TlsOptions,
 };
