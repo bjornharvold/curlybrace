@@ -9,6 +9,8 @@
 //! runtime. Commands run concurrently, so a UI that needs ordering (e.g.
 //! `Connect` before `Find`) must wait for the corresponding event first.
 
+#[cfg(test)]
+mod epoch_tests;
 mod handlers;
 #[cfg(test)]
 mod prompt_gate_tests;
@@ -220,6 +222,11 @@ pub(crate) struct Shared {
     /// Bumped synchronously by the dispatcher on every Connect/Disconnect, so
     /// the order of *requests* (not of completion) decides which one wins.
     generation: AtomicU64,
+    /// Orders epoch bumps against the final check-and-send of data answers: `begin_epoch`
+    /// holds the WRITE side while it bumps; a data answer holds the READ side from its last
+    /// `is_current` check until it is sent, so a bump can never fall in between. This is a
+    /// std lock and is never held across an `.await` (see `handlers::send_answer`).
+    epoch_lock: RwLock<()>,
     pub secrets: Option<Arc<dyn SecretStore>>,
     pub connector: Arc<dyn Connector>,
     pub config: RuntimeConfig,
@@ -238,6 +245,7 @@ impl Shared {
 
     /// Starts a new connection epoch and drops the installed store and tunnel.
     fn begin_epoch(&self) -> u64 {
+        let _bump = self.epoch_lock.write().unwrap_or_else(|e| e.into_inner());
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let mut slot = self.store.write().unwrap_or_else(|e| e.into_inner());
         *slot = None;
@@ -302,6 +310,7 @@ pub fn spawn_runtime_with_connector(
         store: RwLock::new(store),
         tunnel: Mutex::new(None),
         generation: AtomicU64::new(0),
+        epoch_lock: RwLock::new(()),
         secrets,
         connector,
         config,
@@ -323,6 +332,7 @@ fn dispatch(
     command: Command,
 ) {
     let context = command.context();
+    let is_data = !matches!(command, Command::Connect(_) | Command::Disconnect);
     // Synchronous, so request order decides which connection wins.
     let generation = match command {
         Command::Connect(_) | Command::Disconnect => shared.begin_epoch(),
@@ -342,7 +352,7 @@ fn dispatch(
                 ),
             ),
         };
-        if events.send(event).is_ok() {
+        if handlers::send_answer(&guard, generation, is_data, context, event, &events) {
             repaint();
         }
     });

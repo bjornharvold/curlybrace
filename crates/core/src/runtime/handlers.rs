@@ -34,6 +34,44 @@ pub(super) fn failure_event(context: &'static str, generation: u64, error: CoreE
     }
 }
 
+/// The event to send for a data command: `Superseded` if a newer Connect/Disconnect exists.
+pub(super) fn finalize(
+    shared: &Shared,
+    generation: u64,
+    context: &'static str,
+    event: Event,
+) -> Event {
+    if shared.is_current(generation) {
+        event
+    } else {
+        Event::Failed {
+            context,
+            error: CoreError::Superseded,
+        }
+    }
+}
+
+/// Sends a command's event. For data commands the last currentness check and the send happen
+/// under the READ side of `epoch_lock`, so `begin_epoch` (WRITE side) cannot interleave: a stale
+/// answer is either already queued before the new epoch's events or replaced by `Superseded`.
+/// The std lock is held only across non-blocking calls, never across an `.await`.
+pub(super) fn send_answer(
+    shared: &Shared,
+    generation: u64,
+    is_data: bool,
+    context: &'static str,
+    event: Event,
+    events: &tokio::sync::mpsc::UnboundedSender<Event>,
+) -> bool {
+    if !is_data {
+        return events.send(event).is_ok();
+    }
+    let _reading = shared.epoch_lock.read().unwrap_or_else(|e| e.into_inner());
+    events
+        .send(finalize(shared, generation, context, event))
+        .is_ok()
+}
+
 /// `error` if no newer Connect/Disconnect replaced this command's session, else `Superseded`:
 /// whatever went wrong belongs to a session the user has already left.
 pub(super) fn gate(shared: &Shared, generation: u64, error: CoreError) -> CoreError {
