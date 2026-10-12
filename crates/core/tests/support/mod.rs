@@ -133,3 +133,34 @@ pub async fn next_event(
 pub fn no_repaint() -> curlybrace_core::runtime::Repaint {
     std::sync::Arc::new(|| {})
 }
+
+/// Tier 1: like [`local_mongo`], plus a runtime wired to the real driver and the config that
+/// points a compare session at the same server.
+pub async fn local_runtime() -> (
+    LocalDbs,
+    Client,
+    curlybrace_core::runtime::RuntimeHandle,
+    ConnectionConfig,
+) {
+    let (dbs, client, _store) = local_mongo().await;
+    let config = ConnectionConfig::new("local", &dbs.uri);
+    let runtime = curlybrace_core::runtime::spawn_runtime_with_config(
+        None,
+        None,
+        no_repaint(),
+        curlybrace_core::runtime::RuntimeConfig::default(),
+    );
+    (dbs, client, runtime, config)
+}
+
+/// The next compare event from the runtime (other events are skipped); panics after 10 seconds.
+pub async fn next_compare(
+    runtime: &mut curlybrace_core::runtime::RuntimeHandle,
+) -> curlybrace_core::compare::protocol::CompareEvent {
+    loop {
+        let event = next_event(&mut runtime.rx, Duration::from_secs(10), "a compare event").await;
+        if let curlybrace_core::runtime::Event::Compare(e) = event {
+            return e;
+        }
+    }
+}

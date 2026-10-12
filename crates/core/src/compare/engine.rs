@@ -182,7 +182,7 @@ impl Walk {
 pub async fn run_pair(
     input: PairInput,
     cancel: &CancelFlag,
-    on_progress: &mut dyn FnMut(Progress),
+    on_progress: &mut (dyn FnMut(Progress) + Send),
 ) -> Result<(EngineOutcome, Summary, ResultSet)> {
     let batch = u64::from(input.budget.limits().batch_size.max(1));
     let mut walk = Walk::new(input);

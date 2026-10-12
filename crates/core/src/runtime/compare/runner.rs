@@ -1,49 +1,316 @@
-//! Runs pairs and serves their results (completed in Task 8).
+//! Runs the pairs of one compare run and serves their stored results.
+//!
+//! Pairs run one after another; each pair's failure is its own (a panic in the engine is caught
+//! and reported as that pair's failure). A cancel (or a close) ends the remaining pairs as
+//! `Cancelled`. Every pair gets exactly one `PairDone` and the run exactly one `RunDone`, sent
+//! after the last `PairDone`, unless the session was closed (then nothing more is sent: every
+//! emission goes through [`Session::emit_if_open`]).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::compare::key::KeyTuple;
-use crate::compare::protocol::{PairId, PairSpec, RunId, SessionId};
+use crate::compare::diff::diff_normalized;
+use crate::compare::engine::{CancelFlag, EngineOutcome, PairInput, Progress, Summary, run_pair};
+use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
+use crate::compare::normalize::normalize;
+use crate::compare::protocol::{
+    CompareEvent, PairId, PairOutcome, PairSpec, RowView, RunId, SessionId,
+};
 use crate::compare::results::Category;
 use crate::error::{CoreError, Result};
+use crate::store::{DocumentStore, Namespace};
 
-use super::session::Session;
-use super::{Events, Repaint, Shared};
+use super::session::{ActiveRun, Session, StoredPair};
+use super::{Events, Repaint, Shared, connections};
 
-pub(super) fn cancel(_: &Shared, _: SessionId, _: RunId) {}
-pub(super) fn discard(_: &Shared, _: SessionId, _: PairId) {}
+fn internal_error() -> CoreError {
+    CoreError::Database("internal error".into())
+}
+
+fn no_results() -> CoreError {
+    CoreError::Unsupported("no results for this pair".into())
+}
+
+pub(super) fn cancel(shared: &Shared, session: SessionId, run: RunId) {
+    let Some(session) = shared.compare.get(session) else {
+        return;
+    };
+    let guard = session.run.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(active) = guard.as_ref().filter(|a| a.id == run) {
+        active.cancel.cancel();
+    }
+}
+
+pub(super) fn discard(shared: &Shared, session: SessionId, pair: PairId) {
+    if let Some(session) = shared.compare.get(session) {
+        discard_pair(&session, pair);
+    }
+}
+
+pub(super) fn discard_pair(session: &Session, pair: PairId) {
+    // Dropping the stored set (after the lock is released) returns its share of the budget.
+    let removed = session
+        .pairs
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&pair);
+    drop(removed);
+}
+
+/// Frees the "a run is active" slot however the run task ends.
+struct RunSlot(Arc<Session>);
+
+impl RunSlot {
+    fn release(&self) {
+        *self.0.run.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+}
+
+impl Drop for RunSlot {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// Everything one run needs to report back.
+#[derive(Clone)]
+struct RunContext {
+    session: Arc<Session>,
+    events: Events,
+    repaint: Repaint,
+    session_id: SessionId,
+    run: RunId,
+}
+
+impl RunContext {
+    /// Sends `event` unless the session is closed.
+    fn emit(&self, event: CompareEvent) -> bool {
+        self.session
+            .emit_if_open(&self.events, &self.repaint, event)
+    }
+}
 
 pub(super) fn start(
-    _: Arc<Shared>,
-    _: Events,
-    _: Repaint,
-    _: Arc<Session>,
-    _: SessionId,
-    _: RunId,
-    _: Vec<PairSpec>,
+    events: Events,
+    repaint: Repaint,
+    session: Arc<Session>,
+    session_id: SessionId,
+    run: RunId,
+    pairs: Vec<PairSpec>,
 ) -> Result<()> {
-    Err(CoreError::Unsupported("not implemented yet".into()))
+    connections(&session)?;
+    let mut seen = HashSet::new();
+    if !pairs.iter().all(|p| seen.insert(p.id)) {
+        return Err(CoreError::Unsupported("duplicate pair ids".into()));
+    }
+    let cancel = CancelFlag::default();
+    {
+        let mut slot = session.run.lock().unwrap_or_else(|e| e.into_inner());
+        // Checked under the slot lock: a concurrent close either sees this run (and cancels
+        // it) or has already marked the session closed.
+        if !session.is_open() {
+            return Err(CoreError::Unsupported("the comparison is closed".into()));
+        }
+        if slot.is_some() {
+            return Err(CoreError::Unsupported(
+                "a comparison is already running".into(),
+            ));
+        }
+        *slot = Some(ActiveRun {
+            id: run,
+            cancel: cancel.clone(),
+        });
+    }
+    let ctx = RunContext {
+        session,
+        events,
+        repaint,
+        session_id,
+        run,
+    };
+    tokio::spawn(run_all(ctx, pairs, cancel));
+    Ok(())
+}
+
+async fn run_all(ctx: RunContext, pairs: Vec<PairSpec>, cancel: CancelFlag) {
+    let slot = RunSlot(ctx.session.clone());
+    for spec in pairs {
+        let id = spec.id;
+        let outcome = run_one(&ctx, spec, &cancel).await;
+        let done = CompareEvent::PairDone {
+            session: ctx.session_id,
+            run: ctx.run,
+            pair: id,
+            outcome,
+        };
+        if !ctx.emit(done) {
+            return;
+        }
+    }
+    slot.release();
+    ctx.emit(CompareEvent::RunDone {
+        session: ctx.session_id,
+        run: ctx.run,
+    });
+}
+
+async fn run_one(ctx: &RunContext, spec: PairSpec, cancel: &CancelFlag) -> PairOutcome {
+    if cancel.is_cancelled() {
+        return PairOutcome::Cancelled(Summary::default());
+    }
+    let Ok(conns) = connections(&ctx.session) else {
+        return PairOutcome::Failed(CoreError::Unsupported("the comparison is closed".into()));
+    };
+    let input = PairInput {
+        source: conns.source.clone(),
+        source_ns: spec.source.clone(),
+        source_filter: spec.source_filter.clone(),
+        target: conns.target.clone(),
+        target_ns: spec.target.clone(),
+        target_filter: spec.target_filter.clone(),
+        key: spec.key.clone(),
+        rules: spec.rules.clone(),
+        budget: ctx.session.budget.clone(),
+    };
+    let (progress_ctx, pair_id, cancel_c) = (ctx.clone(), spec.id, cancel.clone());
+    // The engine runs in its own task so a panic fails this pair only.
+    let joined = tokio::spawn(async move {
+        let mut report = |p: Progress| {
+            progress_ctx.emit(CompareEvent::Progress {
+                session: progress_ctx.session_id,
+                run: progress_ctx.run,
+                pair: pair_id,
+                scanned_source: p.scanned_source,
+                scanned_target: p.scanned_target,
+                differences: p.differences,
+            });
+        };
+        run_pair(input, &cancel_c, &mut report).await
+    })
+    .await;
+    match joined {
+        Ok(Ok((EngineOutcome::Completed, summary, results))) => {
+            store_pair(&ctx.session, StoredPair { spec, results });
+            PairOutcome::Completed(summary)
+        }
+        // A cancelled or failed pair keeps nothing; dropping its results returns the budget.
+        Ok(Ok((EngineOutcome::Cancelled, summary, _discarded))) => PairOutcome::Cancelled(summary),
+        Ok(Err(error)) => PairOutcome::Failed(error),
+        Err(_) => PairOutcome::Failed(internal_error()),
+    }
+}
+
+/// Keeps a finished pair unless the session closed meanwhile (the check and the insert happen
+/// under the pairs lock, which `close()` also takes after marking the session closed).
+fn store_pair(session: &Session, stored: StoredPair) {
+    let replaced = {
+        let mut pairs = session.pairs.lock().unwrap_or_else(|e| e.into_inner());
+        if session.is_open() {
+            pairs.insert(stored.spec.id, stored)
+        } else {
+            Some(stored)
+        }
+    };
+    // Dropped outside the lock; either way its budget share is returned.
+    drop(replaced);
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn rows(
-    _: &Session,
-    _: &Events,
-    _: &Repaint,
-    _: SessionId,
-    _: PairId,
-    _: Category,
-    _: usize,
-    _: usize,
+    session: &Session,
+    events: &Events,
+    repaint: &Repaint,
+    session_id: SessionId,
+    pair: PairId,
+    category: Category,
+    offset: usize,
+    limit: usize,
 ) -> Result<()> {
-    Err(CoreError::Unsupported("not implemented yet".into()))
+    let (total, rows) = {
+        let pairs = session.pairs.lock().unwrap_or_else(|e| e.into_inner());
+        let stored = pairs.get(&pair).ok_or_else(no_results)?;
+        let rows: Vec<RowView> = stored
+            .results
+            .page(category, offset, limit)
+            .iter()
+            .map(|e| RowView {
+                key: e.key.clone(),
+                has_source: e.source.is_some(),
+                has_target: e.target.is_some(),
+            })
+            .collect();
+        (stored.results.count(category), rows)
+    };
+    let answer = CompareEvent::Rows {
+        session: session_id,
+        pair,
+        category,
+        offset,
+        total,
+        rows,
+    };
+    session.emit_if_open(events, repaint, answer);
+    Ok(())
 }
 
+/// Re-reads both documents for `key` and diffs them under the pair's rules.
 pub(super) async fn detail(
-    _: &Session,
-    _: SessionId,
-    _: PairId,
-    _: KeyTuple,
-) -> Result<crate::compare::protocol::CompareEvent> {
-    Err(CoreError::Unsupported("not implemented yet".into()))
+    session: &Session,
+    session_id: SessionId,
+    pair: PairId,
+    key: KeyTuple,
+) -> Result<CompareEvent> {
+    let spec = {
+        let pairs = session.pairs.lock().unwrap_or_else(|e| e.into_inner());
+        pairs.get(&pair).ok_or_else(no_results)?.spec.clone()
+    };
+    let conns = connections(session)?;
+    let (source, target) = tokio::try_join!(
+        fetch_one(
+            &conns.source,
+            &spec.source,
+            &spec.source_filter,
+            &spec.key,
+            &key
+        ),
+        fetch_one(
+            &conns.target,
+            &spec.target,
+            &spec.target_filter,
+            &spec.key,
+            &key
+        )
+    )?;
+    let changes = match (&source, &target) {
+        (Some(s), Some(t)) => diff_normalized(
+            &normalize(s, &spec.rules)?,
+            &normalize(t, &spec.rules)?,
+            spec.rules.ignore_array_order,
+        )?,
+        _ => Vec::new(),
+    };
+    Ok(CompareEvent::Detail {
+        session: session_id,
+        pair,
+        key,
+        source,
+        target,
+        changes,
+    })
+}
+
+/// The document with exactly `key`, if any (the scan start is inclusive, so the first document
+/// at or after the key is kept only when its key compares equal).
+async fn fetch_one(
+    store: &Arc<dyn DocumentStore>,
+    ns: &Namespace,
+    filter: &bson::Document,
+    spec: &KeySpec,
+    key: &KeyTuple,
+) -> Result<Option<bson::Document>> {
+    let found = store.scan_sorted(ns, filter, spec, Some(key), 1).await?;
+    Ok(found
+        .into_iter()
+        .next()
+        .filter(|d| extract_key(d, spec).is_ok_and(|k| compare_tuples(&k, key).is_eq())))
 }

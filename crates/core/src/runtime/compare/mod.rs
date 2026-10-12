@@ -12,6 +12,8 @@
 
 #[cfg(test)]
 mod closed_tests;
+#[cfg(test)]
+mod run_tests;
 mod runner;
 mod session;
 #[cfg(test)]
@@ -178,7 +180,7 @@ async fn handle(
             bounded(limit, runner::detail(&session, id, pair, key)).await?
         }
         CompareCommand::Start { run, pairs, .. } => {
-            runner::start(shared.clone(), events, repaint, session, id, run, pairs)?;
+            runner::start(events, repaint, session, id, run, pairs)?;
             return Ok(None);
         }
         CompareCommand::Rows {

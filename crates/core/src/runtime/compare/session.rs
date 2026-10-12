@@ -32,15 +32,12 @@ impl Connections {
     }
 }
 
-// Filled in by the runner (Task 8); the fields are not read before then.
-#[allow(dead_code)]
 pub(super) struct ActiveRun {
     pub id: RunId,
     pub cancel: CancelFlag,
 }
 
 /// A finished pair's results plus what is needed to look a row up again.
-#[allow(dead_code)] // read by the runner (Task 8)
 pub(super) struct StoredPair {
     pub spec: PairSpec,
     pub results: ResultSet,

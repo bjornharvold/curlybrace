@@ -7,7 +7,8 @@ use std::time::Duration;
 use bson::doc;
 
 use crate::compare::key::KeySpec;
-use crate::compare::protocol::{CompareCommand, CompareEvent, PairSpec, Side};
+use crate::compare::protocol::{CompareCommand, CompareEvent, PairOutcome, PairSpec, Side};
+use crate::compare::results::Category;
 use crate::compare::rules::CompareRules;
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
@@ -290,4 +291,178 @@ async fn an_open_followed_by_a_close_never_reports_opened() {
     ));
     let late = tokio::time::timeout(Duration::from_millis(200), h.rx.recv()).await;
     assert!(late.is_err(), "a closed session stays silent: {late:?}");
+}
+
+pub(super) async fn collect_run(h: &mut RuntimeHandle) -> Vec<(u32, PairOutcome)> {
+    let mut done = Vec::new();
+    loop {
+        match next_compare(h).await {
+            CompareEvent::PairDone { pair, outcome, .. } => done.push((pair, outcome)),
+            CompareEvent::RunDone { .. } => return done,
+            CompareEvent::Progress { .. } => {}
+            other => panic!("unexpected {other:?} after {} pair events", done.len()),
+        }
+    }
+}
+
+pub(super) type Tx = tokio::sync::mpsc::UnboundedSender<Command>;
+
+pub(super) fn send_start(tx: &Tx, run: u64, pairs: Vec<PairSpec>) {
+    let start = CompareCommand::Start {
+        session: 1,
+        run,
+        pairs,
+    };
+    tx.send(Command::Compare(start)).unwrap();
+}
+
+pub(super) fn send_rows(tx: &Tx, pair: u32, category: Category) {
+    let rows = CompareCommand::Rows {
+        session: 1,
+        pair,
+        category,
+        offset: 0,
+        limit: 10,
+    };
+    tx.send(Command::Compare(rows)).unwrap();
+}
+
+pub(super) fn same_pair(id: u32) -> PairSpec {
+    pair(id, ns("d", "c"), ns("d", "c"))
+}
+
+pub(super) async fn expect_failed(h: &mut RuntimeHandle, expected: &str) {
+    match next_compare(h).await {
+        CompareEvent::Failed { context, .. } => assert_eq!(context, expected),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_run_reports_one_terminal_per_pair_then_the_run_terminal() {
+    let (tx, mut h) = start(seeded());
+    open(&mut h, &tx, 1).await;
+    send_start(&tx, 10, vec![same_pair(1), same_pair(2)]);
+    let done = collect_run(&mut h).await;
+    assert_eq!(done.iter().map(|(p, _)| *p).collect::<Vec<_>>(), [1, 2]);
+    for (_, outcome) in &done {
+        match outcome {
+            PairOutcome::Completed(s) => {
+                assert_eq!((s.equal, s.only_in_source, s.only_in_target), (3, 2, 2))
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    let late = tokio::time::timeout(Duration::from_millis(100), h.rx.recv()).await;
+    assert!(late.is_err(), "nothing follows RunDone: {late:?}");
+}
+
+#[tokio::test]
+async fn duplicate_pair_ids_in_one_run_are_refused() {
+    let (tx, mut h) = start(seeded());
+    open(&mut h, &tx, 1).await;
+    send_start(&tx, 10, vec![same_pair(1), same_pair(1)]);
+    expect_failed(&mut h, "compare_start").await;
+}
+
+#[tokio::test]
+async fn one_failing_pair_does_not_stop_the_others_and_stores_nothing() {
+    let (tx, mut h) = start(seeded());
+    open(&mut h, &tx, 1).await;
+    // The second pair keys on a field no document has.
+    let mut bad = same_pair(2);
+    bad.key = KeySpec::new(vec!["nope".into()]).unwrap();
+    bad.rules = CompareRules::for_key(&bad.key);
+    send_start(&tx, 10, vec![same_pair(1), bad, same_pair(3)]);
+    let done = collect_run(&mut h).await;
+    assert!(matches!(done[0].1, PairOutcome::Completed(_)));
+    assert!(matches!(
+        done[1].1,
+        PairOutcome::Failed(CoreError::CompareKeyMissing)
+    ));
+    assert!(matches!(done[2].1, PairOutcome::Completed(_)));
+    send_rows(&tx, 2, Category::OnlyInSource);
+    expect_failed(&mut h, "compare_rows").await;
+}
+
+#[tokio::test]
+async fn rows_page_the_differences_and_detail_shows_the_field_changes() {
+    let docs = |v: Vec<bson::Document>| InMemoryStore::new().with_docs(&ns("d", "c"), v);
+    let a = docs(vec![doc! { "_id": 1, "v": 1 }, doc! { "_id": 2, "v": 2 }]);
+    let b = docs(vec![doc! { "_id": 1, "v": 9 }, doc! { "_id": 3, "v": 3 }]);
+    let (tx, mut h) = start(vec![("mongodb://a", a), ("mongodb://b", b)]);
+    open(&mut h, &tx, 1).await;
+    send_start(&tx, 1, vec![same_pair(1)]);
+    collect_run(&mut h).await;
+    send_rows(&tx, 1, Category::Different);
+    let key = match next_compare(&mut h).await {
+        CompareEvent::Rows { total: 1, rows, .. } => {
+            assert!(rows[0].has_source && rows[0].has_target);
+            rows[0].key.clone()
+        }
+        other => panic!("{other:?}"),
+    };
+    let detail = CompareCommand::Detail {
+        session: 1,
+        pair: 1,
+        key,
+    };
+    tx.send(Command::Compare(detail)).unwrap();
+    match next_compare(&mut h).await {
+        CompareEvent::Detail {
+            changes,
+            source,
+            target,
+            ..
+        } => {
+            assert_eq!(changes.len(), 1);
+            assert_eq!(changes[0].path, "v");
+            assert!(source.is_some() && target.is_some());
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn detail_of_a_one_sided_row_has_only_that_document_and_unknown_pairs_fail() {
+    let (tx, mut h) = start(seeded());
+    open(&mut h, &tx, 1).await;
+    send_start(&tx, 1, vec![same_pair(1)]);
+    collect_run(&mut h).await;
+    let key = crate::compare::key::KeyTuple(vec![bson::Bson::Int32(0)]);
+    let ask = |pair| {
+        let detail = CompareCommand::Detail {
+            session: 1,
+            pair,
+            key: key.clone(),
+        };
+        tx.send(Command::Compare(detail)).unwrap();
+    };
+    ask(1);
+    match next_compare(&mut h).await {
+        CompareEvent::Detail {
+            source,
+            target,
+            changes,
+            ..
+        } => assert!(source.is_some() && target.is_none() && changes.is_empty()),
+        other => panic!("{other:?}"),
+    }
+    ask(9);
+    expect_failed(&mut h, "compare_detail").await;
+}
+
+#[tokio::test]
+async fn discard_makes_rows_fail() {
+    let (tx, mut h) = start(seeded());
+    open(&mut h, &tx, 1).await;
+    send_start(&tx, 1, vec![same_pair(1)]);
+    collect_run(&mut h).await;
+    let discard = CompareCommand::Discard {
+        session: 1,
+        pair: 1,
+    };
+    tx.send(Command::Compare(discard)).unwrap();
+    send_rows(&tx, 1, Category::Different);
+    expect_failed(&mut h, "compare_rows").await;
 }
