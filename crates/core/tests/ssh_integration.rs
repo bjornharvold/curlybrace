@@ -1,20 +1,8 @@
-//! End-to-end SSH tunnel test against real containers. Ignored by default and
-//! gated on `MONGOSTUDIO_IT`. Setup (any sshd that allows TCP forwarding and a
-//! MongoDB reachable from it):
-//!
-//! ```text
-//! docker network create ms-it-net
-//! docker run -d --name ms-it-sshd --network ms-it-net -p 127.0.0.1:2299:2222 \
-//!   -e PASSWORD_ACCESS=true -e USER_NAME=tester -e USER_PASSWORD=<pw> \
-//!   lscr.io/linuxserver/openssh-server   # then set AllowTcpForwarding yes
-//! docker run -d --name ms-it-mongo --network ms-it-net mongo:7
-//! MONGOSTUDIO_IT=1 MONGOSTUDIO_IT_SSH_PASSWORD=<pw> \
-//!   cargo test -p mongostudio-core --test ssh_integration -- --ignored
-//! ```
-//!
-//! Optional overrides: `MONGOSTUDIO_IT_SSH_HOST` (127.0.0.1),
-//! `MONGOSTUDIO_IT_SSH_PORT` (2299), `MONGOSTUDIO_IT_SSH_USER` (tester),
-//! `MONGOSTUDIO_IT_TARGET` (ms-it-mongo:27017, as seen from the sshd).
+//! End-to-end SSH tunnel test. It starts its own `ms-it-*` containers (an
+//! openssh-server and a MongoDB on a private network, see `support::SshStack`),
+//! removes them on drop, and is gated on `MONGOSTUDIO_IT=1`.
+
+mod support;
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -42,24 +30,21 @@ impl HostKeyPrompt for CountingPrompt {
     }
 }
 
-fn env_or(name: &str, default: &str) -> String {
-    std::env::var(name).unwrap_or_else(|_| default.to_string())
-}
-
 #[tokio::test]
-#[ignore = "needs docker containers; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
 async fn tunnel_end_to_end() {
-    if std::env::var("MONGOSTUDIO_IT").is_err() {
+    if !support::it_enabled("tunnel_end_to_end") {
         return;
     }
-    let password = std::env::var("MONGOSTUDIO_IT_SSH_PASSWORD").expect("ssh password env");
+    let stack = support::SshStack::start();
+    let password = support::SSH_PASSWORD.to_string();
     let ssh = SshConfig {
-        host: env_or("MONGOSTUDIO_IT_SSH_HOST", "127.0.0.1"),
-        port: env_or("MONGOSTUDIO_IT_SSH_PORT", "2299").parse().unwrap(),
-        username: env_or("MONGOSTUDIO_IT_SSH_USER", "tester"),
+        host: "127.0.0.1".into(),
+        port: stack.ssh_port,
+        username: support::SSH_USER.into(),
         auth: SshAuth::Password,
     };
-    let target = env_or("MONGOSTUDIO_IT_TARGET", "ms-it-mongo:27017");
+    let target = stack.target();
     let (thost, tport) = target.split_once(':').unwrap();
     let tport: u16 = tport.parse().unwrap();
     let dir = tempfile::tempdir().unwrap();

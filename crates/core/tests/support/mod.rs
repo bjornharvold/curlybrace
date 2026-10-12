@@ -137,3 +137,107 @@ pub async fn next_event(
 pub fn no_repaint() -> mongostudio_core::runtime::Repaint {
     std::sync::Arc::new(|| {})
 }
+
+pub const SSH_USER: &str = "tester";
+pub const SSH_PASSWORD: &str = "it-ssh-pw-1";
+const SSH_IMAGE: &str = "lscr.io/linuxserver/openssh-server";
+
+/// An sshd container plus a MongoDB reachable only from it, on a private
+/// network. Everything is removed on drop (containers first, then the network).
+pub struct SshStack {
+    network: String,
+    mongo: String,
+    sshd: String,
+    pub ssh_port: u16,
+}
+
+impl SshStack {
+    pub fn start() -> Self {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let stack = Self {
+            network: format!("ms-it-net-{id}"),
+            mongo: format!("ms-it-mongo-{id}"),
+            sshd: format!("ms-it-sshd-{id}"),
+            ssh_port: free_port(),
+        };
+        docker(&["network", "create", &stack.network]).expect("docker network create");
+        docker(&[
+            "run",
+            "-d",
+            "--name",
+            &stack.mongo,
+            "--network",
+            &stack.network,
+            MONGO_IMAGE,
+        ])
+        .expect("start mongo");
+        let publish = format!("127.0.0.1:{}:2222", stack.ssh_port);
+        let user = format!("USER_NAME={SSH_USER}");
+        let pw = format!("USER_PASSWORD={SSH_PASSWORD}");
+        docker(&[
+            "run",
+            "-d",
+            "--name",
+            &stack.sshd,
+            "--network",
+            &stack.network,
+            "-p",
+            &publish,
+            "-e",
+            "PASSWORD_ACCESS=true",
+            "-e",
+            &user,
+            "-e",
+            &pw,
+            SSH_IMAGE,
+        ])
+        .expect("start sshd");
+        stack.enable_forwarding();
+        stack.wait_mongo();
+        stack
+    }
+
+    /// The image ships with `AllowTcpForwarding no`; enable it and reload sshd.
+    fn enable_forwarding(&self) {
+        let script = "test -s /config/sshd.pid && \
+            sed -i 's/^AllowTcpForwarding no/AllowTcpForwarding yes/' /config/sshd/sshd_config && \
+            kill -HUP $(cat /config/sshd.pid)";
+        poll(Duration::from_secs(60), "sshd config", || {
+            docker(&["exec", &self.sshd, "sh", "-c", script]).is_ok()
+        });
+        // Give the reloaded daemon a moment to re-bind before the first dial.
+        poll(Duration::from_secs(30), "sshd port", || {
+            std::net::TcpStream::connect(("127.0.0.1", self.ssh_port)).is_ok()
+        });
+    }
+
+    fn wait_mongo(&self) {
+        let ping = "db.runCommand({ping:1}).ok";
+        poll(Duration::from_secs(90), "mongo in ssh stack", || {
+            docker(&["exec", &self.mongo, "mongosh", "--quiet", "--eval", ping])
+                .is_ok_and(|out| out.ends_with('1'))
+        });
+    }
+
+    /// The Mongo address as the sshd container sees it.
+    pub fn target(&self) -> String {
+        format!("{}:27017", self.mongo)
+    }
+}
+
+fn poll(limit: Duration, what: &str, mut ready: impl FnMut() -> bool) {
+    let deadline = Instant::now() + limit;
+    while !ready() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+impl Drop for SshStack {
+    fn drop(&mut self) {
+        for name in [&self.sshd, &self.mongo] {
+            let _ = docker(&["rm", "-f", "-v", name]);
+        }
+        let _ = docker(&["network", "rm", &self.network]);
+    }
+}
