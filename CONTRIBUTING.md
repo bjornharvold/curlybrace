@@ -52,7 +52,7 @@ cargo test --workspace --locked
 
 ## How the code is organised
 
-A Cargo workspace with three crates:
+A Cargo workspace with four crates (the fourth, `crates/testkit`, is dev-only test support):
 
 | Crate | Path | What lives there |
 |-------|------|------------------|
@@ -149,6 +149,17 @@ MONGOSTUDIO_IT=1 cargo test -p mongostudio-core -- --include-ignored --skip keyr
 They only ever touch containers they created (`ms-it-*`). Details, cleanup and coverage commands are
 in [docs/superpowers/notes/testing.md](docs/superpowers/notes/testing.md). The target is at least
 80% line coverage for `mongostudio-core`.
+
+UI tests that click the real app against a real MongoDB and screenshot tests are opt-in:
+
+```sh
+MONGOSTUDIO_IT=1 cargo test -p mongostudio-ui --test e2e_flows -- --include-ignored
+MONGOSTUDIO_SNAPSHOTS=1 cargo test -p mongostudio-ui --test snapshots -- --include-ignored
+```
+
+Set `MONGOSTUDIO_IT_MONGO_URI` to use an existing server instead of a container, and
+`UPDATE_SNAPSHOTS=1` to deliberately rewrite the committed PNGs. Shared container helpers live in
+`crates/testkit`. See the testing notes for details.
 
 Prefer real values (real `bson` documents from `mock_objects`) over mocks. Mock only boundaries:
 the driver, SSH and the Keychain.
