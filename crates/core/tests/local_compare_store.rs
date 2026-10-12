@@ -13,6 +13,7 @@ use bson::spec::BinarySubtype;
 use bson::{Binary, Bson, DateTime, Decimal128, Document, Regex, Timestamp, doc};
 use curlybrace_core::compare::key::{KeySpec, KeyTuple, compare_bson, compare_tuples, extract_key};
 use curlybrace_core::error::CoreError;
+use curlybrace_core::mongo_store::SortedScanQuery;
 use curlybrace_core::store::{CollectionKind, DocumentStore, IndexStatus, Namespace};
 use futures::TryStreamExt;
 use mongodb::options::Collation;
@@ -289,6 +290,27 @@ async fn index_status_follows_the_real_indexes_and_collations() {
         store.key_index_status(&ns_id, &spec).await.unwrap(),
         IndexStatus::Indexed
     );
+    // A hidden index is invisible to the planner.
+    let ns_hidden = dbs.ns("hidden");
+    let hidden = db.collection::<Document>("hidden");
+    hidden.insert_one(doc! { "email": "a" }).await.unwrap();
+    hidden
+        .create_index(
+            mongodb::IndexModel::builder()
+                .keys(doc! { "email": 1 })
+                .options(
+                    mongodb::options::IndexOptions::builder()
+                        .hidden(true)
+                        .build(),
+                )
+                .build(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store.key_index_status(&ns_hidden, &spec).await.unwrap(),
+        IndexStatus::NotIndexed
+    );
     // A case-insensitive index cannot serve a simple-collation sort.
     let ns_ci = dbs.ns("ci");
     let ci = db.collection::<Document>("ci");
@@ -523,4 +545,111 @@ async fn scan_sorted_refuses_documents_without_a_usable_key() {
         store.scan_sorted(&array, &doc! {}, &spec, None, 10).await,
         Err(CoreError::CompareKeyInvalid)
     );
+}
+
+const PAGE: u32 = 100;
+
+/// `explain` (executionStats) of the exact query `scan_sorted` sends: (keys examined, docs
+/// examined).
+async fn explain_scan(
+    client: &mongodb::Client,
+    ns: &Namespace,
+    spec: &KeySpec,
+    from: Option<&KeyTuple>,
+) -> (i64, i64) {
+    let query = SortedScanQuery::new(&doc! {}, spec, from, PAGE);
+    let out = client
+        .database(&ns.db)
+        .run_command(doc! {
+            "explain": query.find_command(&ns.collection),
+            "verbosity": "executionStats",
+        })
+        .await
+        .unwrap();
+    let stats = out.get_document("executionStats").unwrap();
+    let number = |name: &str| match stats.get(name) {
+        Some(Bson::Int32(n)) => i64::from(*n),
+        Some(Bson::Int64(n)) => *n,
+        other => panic!("{name}: {other:?}"),
+    };
+    (number("totalKeysExamined"), number("totalDocsExamined"))
+}
+
+/// Pages through the whole collection with `scan_sorted` and explains every page's query: the
+/// keys examined must stay O(page size) instead of growing with the page index (a keyset filter
+/// the server cannot turn into index bounds rescans the sort index from its start every batch).
+async fn assert_every_page_is_an_index_range_scan(
+    client: &mongodb::Client,
+    store: &curlybrace_core::mongo_store::MongoStore,
+    ns: &Namespace,
+    spec: &KeySpec,
+    total: usize,
+) {
+    let limit = i64::from(PAGE);
+    let mut from: Option<KeyTuple> = None;
+    let (mut pages, mut seen, mut worst) = (0, 0usize, (0i64, 0i64));
+    loop {
+        let (keys, docs) = explain_scan(client, ns, spec, from.as_ref()).await;
+        worst = (worst.0.max(keys), worst.1.max(docs));
+        assert!(
+            keys <= 3 * limit + 10 && docs <= 3 * limit + 10,
+            "page {pages} from {from:?}: {keys} keys / {docs} docs examined for a limit of {limit}"
+        );
+        let batch = store
+            .scan_sorted(ns, &doc! {}, spec, from.as_ref(), PAGE)
+            .await
+            .unwrap();
+        seen += batch.len() - usize::from(from.is_some());
+        pages += 1;
+        if batch.len() < PAGE as usize {
+            break;
+        }
+        from = Some(extract_key(batch.last().unwrap(), spec).unwrap());
+    }
+    assert_eq!(seen, total, "every document is scanned exactly once");
+    eprintln!(
+        "{}: {pages} pages, at most {} keys / {} docs examined per page",
+        ns.collection, worst.0, worst.1
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn keyset_pages_are_index_range_scans_for_single_and_compound_keys() {
+    if !local_enabled("keyset_pages_are_index_range_scans_for_single_and_compound_keys") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let db = client.database(&dbs.db);
+    let total = 5_000;
+    // Single field, half numbers and half strings, so pages cross a type class.
+    let single: Vec<Document> = (0..total)
+        .map(|n| match n % 2 {
+            0 => doc! { "k": n },
+            _ => doc! { "k": format!("s{n:05}") },
+        })
+        .collect();
+    let ns = dbs.ns("paged_single");
+    insert_labelled(&client, &ns, &single).await;
+    db.collection::<Document>("paged_single")
+        .create_index(mongodb::IndexModel::builder().keys(doc! { "k": 1 }).build())
+        .await
+        .unwrap();
+    let spec = KeySpec::new(vec!["k".into()]).unwrap();
+    assert_every_page_is_an_index_range_scan(&client, &store, &ns, &spec, total as usize).await;
+
+    // Compound key with a low-cardinality prefix.
+    let compound: Vec<Document> = (0..total).map(|n| doc! { "a": n / 500, "b": n }).collect();
+    let ns = dbs.ns("paged_compound");
+    insert_labelled(&client, &ns, &compound).await;
+    db.collection::<Document>("paged_compound")
+        .create_index(
+            mongodb::IndexModel::builder()
+                .keys(doc! { "a": 1, "b": 1 })
+                .build(),
+        )
+        .await
+        .unwrap();
+    let spec = KeySpec::new(vec!["a".into(), "b".into()]).unwrap();
+    assert_every_page_is_an_index_range_scan(&client, &store, &ns, &spec, total as usize).await;
 }

@@ -4,8 +4,15 @@
 //! MongoDB's `$gt` and `$gte` only match values of the SAME type class (numbers with numbers,
 //! strings with strings), while its sort order is total across classes. A plain `$gt` keyset
 //! would therefore skip everything after a change of type class. Each key field's condition is
-//! "at or after `v` within its class, OR of a higher class", where the higher classes are
-//! written as "not one of the classes ranked at or below v's".
+//! "at or after `v` within its class, OR of a higher class", where the higher classes are a
+//! POSITIVE `$type` list of the classes ranked above v's: the planner turns every alternative
+//! into index bounds, so each batch is an index range scan starting at `v` (a negated `$type`
+//! cannot be bounded and rescans the sort index from its start every batch).
+//!
+//! The filter is flattened into one `$or` of conjunctions ("prefix equal AND this alternative"),
+//! so every branch is bounded on the whole compound index and the branches merge in index order.
+//! `array` is never listed: `$type: "array"` cannot be bounded, and an array-valued key is
+//! refused by `extract_key` anyway (it still matches a listed class through its elements).
 
 use bson::{Bson, Document, doc};
 
@@ -31,16 +38,18 @@ const CLASSES: [&[&str]; 16] = [
     &["maxKey"],
 ];
 
-/// The `$type` names of every class ranked at or below `rank` (see `key::type_rank`).
-pub fn type_class_names(rank: u8) -> &'static [&'static str] {
-    // Built once per rank on first use: a rank-indexed prefix of CLASSES, flattened.
+/// The `$type` names of every class ranked strictly above `rank` (see `key::type_rank`),
+/// without `array` (see the module docs). Empty for `maxKey`.
+pub fn higher_class_names(rank: u8) -> &'static [&'static str] {
+    // Built once on first use: a rank-indexed suffix of CLASSES, flattened.
     static TABLE: std::sync::OnceLock<Vec<Vec<&'static str>>> = std::sync::OnceLock::new();
     let table = TABLE.get_or_init(|| {
         (0..CLASSES.len())
             .map(|r| {
-                CLASSES[..=r]
+                CLASSES[r + 1..]
                     .iter()
                     .flat_map(|c| c.iter().copied())
+                    .filter(|name| *name != "array")
                     .collect()
             })
             .collect()
@@ -57,38 +66,63 @@ fn is_nan(value: &Bson) -> bool {
     }
 }
 
-/// "`field` is after `value`": comparison within the class, or any higher class. `inclusive`
-/// makes the in-class comparison `>=`.
-fn after(field: &str, value: &Bson, inclusive: bool) -> Document {
-    let operator = if inclusive { "$gte" } else { "$gt" };
-    let classes: Vec<Bson> = type_class_names(type_rank(value))
-        .iter()
-        .map(|n| Bson::String((*n).into()))
-        .collect();
-    let higher = doc! { field: { "$not": { "$type": classes } } };
-    // `null`, `minKey` and `maxKey` only compare equal to themselves in a query, so the
-    // in-class branch is omitted for them (an exclusive start has nothing in its own class).
-    let own_class_branch = if is_nan(value) {
+/// "`field` is at or after `value` within its own class" (`inclusive`), or strictly after.
+/// `None` when nothing of the class qualifies.
+fn own_class(field: &str, value: &Bson, inclusive: bool) -> Option<Document> {
+    if is_nan(value) {
         // The server sorts NaN below every number, but `$gt: NaN` matches nothing and
         // `$gte: NaN` only NaN. At or after NaN is every number; strictly after is every
         // number that is not NaN.
-        Some(if inclusive {
+        return Some(if inclusive {
             doc! { field: { "$type": "number" } }
         } else {
-            doc! { "$and": [{ field: { "$type": "number" } }, { field: { "$ne": value.clone() } }] }
-        })
-    } else {
-        match value {
-            Bson::Null | Bson::Undefined | Bson::MinKey | Bson::MaxKey => {
-                inclusive.then(|| doc! { field: value.clone() })
-            }
-            _ => Some(doc! { field: { operator: value.clone() } }),
-        }
-    };
-    match own_class_branch {
-        Some(own) => doc! { "$or": [own, higher] },
-        None => higher,
+            doc! { field: { "$type": "number", "$ne": value.clone() } }
+        });
     }
+    match value {
+        // `null`, `minKey` and `maxKey` only compare equal to themselves in a query, so an
+        // exclusive start has nothing in its own class.
+        Bson::Null | Bson::Undefined | Bson::MinKey | Bson::MaxKey => {
+            inclusive.then(|| doc! { field: value.clone() })
+        }
+        _ => {
+            let operator = if inclusive { "$gte" } else { "$gt" };
+            Some(doc! { field: { operator: value.clone() } })
+        }
+    }
+}
+
+/// The alternatives for "`field` is after `value`": the in-class comparison and the positive
+/// list of every higher class. Each is a single-field condition, so it can be bounded.
+fn after(field: &str, value: &Bson, inclusive: bool) -> Vec<Document> {
+    let higher: Vec<Bson> = higher_class_names(type_rank(value))
+        .iter()
+        .map(|n| Bson::String((*n).into()))
+        .collect();
+    let higher = (!higher.is_empty()).then(|| doc! { field: { "$type": higher } });
+    own_class(field, value, inclusive)
+        .into_iter()
+        .chain(higher)
+        .collect()
+}
+
+/// The keyset condition alone: a flat `$or` of "the first i fields equal, field i after".
+fn keyset_branches(key: &KeySpec, from: &KeyTuple) -> Vec<Document> {
+    let last = key.fields.len() - 1;
+    let mut branches = Vec::new();
+    for i in 0..key.fields.len() {
+        let prefix: Document = key.fields[..i]
+            .iter()
+            .zip(&from.0)
+            .map(|(field, value)| (field.clone(), Bson::Document(doc! { "$eq": value.clone() })))
+            .collect();
+        for alternative in after(&key.fields[i], &from.0[i], i == last) {
+            let mut branch = prefix.clone();
+            branch.extend(alternative);
+            branches.push(branch);
+        }
+    }
+    branches
 }
 
 /// The filter for "documents matching `user_filter` whose key is at or after `from`".
@@ -101,28 +135,10 @@ pub fn keyset_filter(user_filter: &Document, key: &KeySpec, from: Option<&KeyTup
         debug_assert!(false, "start key arity differs from the key spec");
         return user_filter.clone();
     }
-    let last = key.fields.len() - 1;
-    let mut branches: Vec<Bson> = Vec::new();
-    for i in 0..key.fields.len() {
-        let mut branch = Document::new();
-        for (field, value) in key.fields[..i].iter().zip(&from.0) {
-            branch.insert(field.clone(), doc! { "$eq": value.clone() });
-        }
-        let tail = after(&key.fields[i], &from.0[i], i == last);
-        if branch.is_empty() {
-            branch = tail;
-        } else {
-            for (k, v) in tail {
-                branch.insert(k, v);
-            }
-        }
-        branches.push(Bson::Document(branch));
-    }
+    let mut branches = keyset_branches(key, from);
+    // Never empty: the last field is inclusive, so its own class always has a branch.
     let keyset = if branches.len() == 1 {
-        match branches.remove(0) {
-            Bson::Document(d) => d,
-            _ => Document::new(),
-        }
+        branches.remove(0)
     } else {
         doc! { "$or": branches }
     };
@@ -139,6 +155,8 @@ pub struct IndexInfo {
     pub keys: Document,
     pub sparse: bool,
     pub has_partial_filter: bool,
+    /// A hidden index is invisible to the query planner, so it cannot serve the sort.
+    pub hidden: bool,
     /// The index sorts by simple (binary) collation: it has an explicit non-simple collation
     /// (`false`) or either an explicit simple one or none at all (`true`; the latter inherits the
     /// collection default, which `index_serves_sort` checks separately).
@@ -146,7 +164,7 @@ pub struct IndexInfo {
 }
 
 /// Whether `index` can serve `sort(key fields ascending)` under simple collation: a plain
-/// (not sparse, partial, hashed or text) index whose leading fields are the key fields in order,
+/// (not hidden, sparse, partial, hashed or text) index whose leading fields are the key fields in order,
 /// all in the same direction (a uniformly reversed index is read backwards), with no
 /// non-simple collation.
 pub fn index_serves_sort(
@@ -154,7 +172,7 @@ pub fn index_serves_sort(
     collection_default_is_simple: bool,
     key: &KeySpec,
 ) -> bool {
-    if index.sparse || index.has_partial_filter {
+    if index.sparse || index.has_partial_filter || index.hidden {
         return false;
     }
     // An index without a collation inherits the collection's default, so a non-simple default
@@ -205,16 +223,21 @@ mod tests {
         assert_eq!(keyset_filter(&doc! {}, &key(&["_id"]), None), doc! {});
     }
 
+    /// The classes above numbers, as a `$type` list.
+    fn above_numbers() -> Vec<&'static str> {
+        higher_class_names(2).to_vec()
+    }
+
     #[test]
     fn a_single_key_is_at_or_after_or_of_a_higher_type_class() {
         let from = KeyTuple(vec![Bson::Int32(5)]);
         let f = keyset_filter(&doc! {}, &key(&["_id"]), Some(&from));
-        // _id >= 5 among numbers, OR the value is not of a type class ranked at or below numbers.
+        // _id >= 5 among numbers, OR the value is of a type class ranked above numbers.
         assert_eq!(
             f,
             doc! { "$or": [
                 { "_id": { "$gte": 5 } },
-                { "_id": { "$not": { "$type": ["minKey", "null", "undefined", "int", "long", "double", "decimal"] } } },
+                { "_id": { "$type": above_numbers() } },
             ] }
         );
     }
@@ -231,51 +254,64 @@ mod tests {
     }
 
     #[test]
-    fn a_compound_key_is_a_lexicographic_or_chain_with_an_inclusive_last_field() {
+    fn a_compound_key_is_a_flat_or_of_conjunctions_with_an_inclusive_last_field() {
         let from = KeyTuple(vec![Bson::Int32(1), Bson::String("x".into())]);
         let f = keyset_filter(&doc! {}, &key(&["a", "b"]), Some(&from));
-        let branches = f.get_array("$or").unwrap();
-        assert_eq!(branches.len(), 2);
-        // Branch 0: a is strictly greater (or a higher class).
         assert_eq!(
-            branches[0],
-            Bson::Document(doc! { "$or": [
+            f,
+            doc! { "$or": [
+                // a is strictly greater, or of a higher class.
                 { "a": { "$gt": 1 } },
-                { "a": { "$not": { "$type": ["minKey", "null", "undefined", "int", "long", "double", "decimal"] } } },
-            ] })
-        );
-        // Branch 1: a equals, and b is at or after.
-        assert_eq!(
-            branches[1],
-            Bson::Document(doc! { "a": { "$eq": 1 }, "$or": [
-                { "b": { "$gte": "x" } },
-                { "b": { "$not": { "$type": ["minKey", "null", "undefined", "int", "long", "double", "decimal", "string", "symbol"] } } },
-            ] })
+                { "a": { "$type": above_numbers() } },
+                // a equals, and b is at or after.
+                { "a": { "$eq": 1 }, "b": { "$gte": "x" } },
+                { "a": { "$eq": 1 }, "b": { "$type": higher_class_names(3).to_vec() } },
+            ] }
         );
     }
 
     #[test]
-    fn the_type_classes_cover_every_rank_in_order() {
-        assert_eq!(type_class_names(0), ["minKey"]);
-        assert_eq!(type_class_names(1), ["minKey", "null", "undefined"]);
-        assert!(type_class_names(15).contains(&"maxKey"));
-        for r in 1..=15 {
-            assert!(
-                type_class_names(r).len() >= type_class_names(r - 1).len(),
-                "rank {r}"
-            );
+    fn the_higher_classes_are_every_class_above_without_array() {
+        assert_eq!(higher_class_names(14), ["maxKey"]);
+        assert!(higher_class_names(15).is_empty(), "nothing is above maxKey");
+        assert_eq!(
+            &higher_class_names(0)[..5],
+            ["null", "undefined", "int", "long", "double"]
+        );
+        for r in 0..=15u8 {
+            let names = higher_class_names(r);
+            assert!(!names.contains(&"array"), "rank {r}");
+            assert!(!names.contains(&"minKey"), "rank {r}");
+            if r < 15 {
+                assert!(names.contains(&"maxKey"), "rank {r}");
+                assert!(names.len() <= higher_class_names(r.saturating_sub(1)).len());
+            }
         }
+        assert!(
+            !higher_class_names(3).contains(&"string"),
+            "not its own class"
+        );
+        assert!(higher_class_names(3).contains(&"object"));
     }
 
-    const NUMBER_CLASSES: [&str; 7] = [
-        "minKey",
-        "null",
-        "undefined",
-        "int",
-        "long",
-        "double",
-        "decimal",
-    ];
+    #[test]
+    fn a_maxkey_start_has_only_its_own_class() {
+        let from = KeyTuple(vec![Bson::MaxKey]);
+        let f = keyset_filter(&doc! {}, &key(&["k"]), Some(&from));
+        assert_eq!(f, doc! { "k": Bson::MaxKey });
+    }
+
+    #[test]
+    fn a_null_prefix_has_no_strictly_greater_null() {
+        let from = KeyTuple(vec![Bson::Null, Bson::Int32(1)]);
+        let f = keyset_filter(&doc! {}, &key(&["a", "b"]), Some(&from));
+        let branches = f.get_array("$or").unwrap();
+        assert_eq!(
+            branches[0],
+            Bson::Document(doc! { "a": { "$type": higher_class_names(1).to_vec() } })
+        );
+        assert_eq!(branches.len(), 3);
+    }
 
     #[test]
     fn a_nan_start_matches_every_number_when_inclusive() {
@@ -285,7 +321,7 @@ mod tests {
             f,
             doc! { "$or": [
                 { "k": { "$type": "number" } },
-                { "k": { "$not": { "$type": NUMBER_CLASSES.to_vec() } } },
+                { "k": { "$type": above_numbers() } },
             ] }
         );
     }
@@ -298,12 +334,13 @@ mod tests {
         let branches = f.get_array("$or").unwrap();
         assert_eq!(
             branches[0],
-            Bson::Document(doc! { "$or": [
-                { "$and": [{ "a": { "$type": "number" } }, { "a": { "$ne": nan.clone() } }] },
-                { "a": { "$not": { "$type": NUMBER_CLASSES.to_vec() } } },
-            ] })
+            Bson::Document(doc! { "a": { "$type": "number", "$ne": nan.clone() } })
         );
-        match &branches[1] {
+        assert_eq!(
+            branches[1],
+            Bson::Document(doc! { "a": { "$type": above_numbers() } })
+        );
+        match &branches[2] {
             Bson::Document(d) => assert_eq!(d.get_document("a").unwrap(), &doc! { "$eq": nan }),
             other => panic!("{other:?}"),
         }
@@ -314,7 +351,7 @@ mod tests {
         let from = KeyTuple(vec![Bson::Document(doc! { "$x": 1 }), Bson::Int32(1)]);
         let f = keyset_filter(&doc! {}, &key(&["a", "b"]), Some(&from));
         let branches = f.get_array("$or").unwrap();
-        match &branches[1] {
+        match &branches[2] {
             Bson::Document(d) => {
                 assert_eq!(d.get_document("a").unwrap(), &doc! { "$eq": { "$x": 1 } })
             }
@@ -345,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn every_variants_class_names_include_its_own_type() {
+    fn every_variants_type_name_sits_in_its_own_rank() {
         use bson::oid::ObjectId;
         use bson::spec::BinarySubtype;
         let samples: Vec<(Bson, &str)> = vec![
@@ -396,10 +433,17 @@ mod tests {
             (Bson::MaxKey, "maxKey"),
         ];
         for (value, name) in samples {
+            let rank = type_rank(&value);
             assert!(
-                type_class_names(type_rank(&value)).contains(&name),
-                "{value:?} should be within the classes up to {name}"
+                !higher_class_names(rank).contains(&name),
+                "{value:?} is not above its own class {name}"
             );
+            if rank > 0 && name != "array" {
+                assert!(
+                    higher_class_names(rank - 1).contains(&name),
+                    "{value:?} is above the class below {name}"
+                );
+            }
         }
     }
 
@@ -408,6 +452,7 @@ mod tests {
             keys,
             sparse: false,
             has_partial_filter: false,
+            hidden: false,
             collation_is_simple: true,
         }
     }
@@ -469,6 +514,11 @@ mod tests {
             ..index(doc! { "a": 1 })
         };
         assert!(!index_serves_sort(&partial, true, &key(&["a"])));
+        let hidden = IndexInfo {
+            hidden: true,
+            ..index(doc! { "a": 1 })
+        };
+        assert!(!index_serves_sort(&hidden, true, &key(&["a"])));
     }
 
     #[test]

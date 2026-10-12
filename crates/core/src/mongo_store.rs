@@ -61,6 +61,41 @@ pub(crate) fn build_page(mut docs: Vec<Document>, q: &Query) -> Page {
     }
 }
 
+/// The exact query `MongoStore::scan_sorted` sends: the keyset filter, the ascending key sort and
+/// the batch limit, always under simple collation. Public so tier-1 tests can `explain` it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SortedScanQuery {
+    pub filter: Document,
+    pub sort: Document,
+    pub limit: i64,
+}
+
+impl SortedScanQuery {
+    pub fn new(filter: &Document, key: &KeySpec, from: Option<&KeyTuple>, limit: u32) -> Self {
+        Self {
+            filter: keyset_filter(filter, key, from),
+            sort: key
+                .fields
+                .iter()
+                .map(|f| (f.clone(), Bson::Int32(1)))
+                .collect(),
+            limit: i64::from(limit),
+        }
+    }
+
+    /// The equivalent `find` command for `collection` (e.g. to wrap in an `explain`).
+    pub fn find_command(&self, collection: &str) -> Document {
+        doc! {
+            "find": collection,
+            "filter": self.filter.clone(),
+            "sort": self.sort.clone(),
+            "limit": self.limit,
+            "collation": { "locale": "simple" },
+            "allowDiskUse": true,
+        }
+    }
+}
+
 fn id_filter(id: &Bson) -> Document {
     doc! { "_id": id.clone() }
 }
@@ -141,16 +176,12 @@ impl DocumentStore for MongoStore {
         from: Option<&KeyTuple>,
         limit: u32,
     ) -> Result<Vec<Document>> {
-        let sort: Document = key
-            .fields
-            .iter()
-            .map(|f| (f.clone(), Bson::Int32(1)))
-            .collect();
+        let query = SortedScanQuery::new(filter, key, from, limit);
         let cursor = self
             .collection(ns)
-            .find(keyset_filter(filter, key, from))
-            .sort(sort)
-            .limit(i64::from(limit))
+            .find(query.filter)
+            .sort(query.sort)
+            .limit(query.limit)
             .collation(Collation::builder().locale("simple").build())
             .allow_disk_use(true)
             .await
@@ -191,6 +222,7 @@ impl DocumentStore for MongoStore {
                 keys: model.keys,
                 sparse: options.sparse.unwrap_or(false),
                 has_partial_filter: options.partial_filter_expression.is_some(),
+                hidden: options.hidden == Some(true),
                 collation_is_simple: options
                     .collation
                     .as_ref()
