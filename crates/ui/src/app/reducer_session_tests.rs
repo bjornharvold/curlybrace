@@ -42,8 +42,8 @@ fn a_changed_host_key_from_a_real_connect_offers_forget_for_that_connects_ssh_en
     let (s, _) = run(AppState::new(vec![cfg]), Input::Connect(id));
     let (s, _) = event(
         s,
-        Event::Failed {
-            context: "connect",
+        Event::ConnectFailed {
+            epoch: 1,
             error: CoreError::SshHostKeyChanged,
         },
     );

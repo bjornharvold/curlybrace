@@ -375,8 +375,8 @@ fn failed_connect_leaves_a_disconnected_state_with_a_banner() {
     s.status = ConnStatus::Connecting;
     let (s, _) = event(
         s,
-        Event::Failed {
-            context: "connect",
+        Event::ConnectFailed {
+            epoch: 1,
             error: CoreError::Ssh("x".into()),
         },
     );

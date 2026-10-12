@@ -4,7 +4,7 @@ use bson::{Bson, Document, doc};
 use eframe::egui;
 use mongostudio_core::connection::ConnectionConfig;
 use mongostudio_core::error::Result;
-use mongostudio_core::runtime::{Connector, RuntimeConfig, spawn_runtime_with_connector};
+use mongostudio_core::runtime::{Connector, Event, RuntimeConfig, spawn_runtime_with_connector};
 use mongostudio_core::secrets::MemorySecretStore;
 use mongostudio_core::store::{DocumentStore, Namespace, Query};
 use mongostudio_core::test_support::InMemoryStore;
@@ -12,8 +12,8 @@ use mongostudio_core::tunnel::{HostKeyDecision, HostKeyPrompt};
 use mongostudio_ui::I18n;
 use mongostudio_ui::app::MongoStudioApp;
 use mongostudio_ui::app::host_key::{HostKeyRequest, InteractivePrompt};
-use mongostudio_ui::app::reducer::Input;
-use mongostudio_ui::app::state::{Banner, ConnStatus};
+use mongostudio_ui::app::reducer::{Input, update};
+use mongostudio_ui::app::state::{AppState, Banner, ConnStatus};
 use mongostudio_ui::viewmodel::{DocAction, EditorAction, FindAction, SidebarAction};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -181,7 +181,6 @@ async fn browse_edit_and_delete_through_the_real_runtime() {
 
     // a data action after disconnecting is refused locally
     h.app.dispatch(Input::Disconnect);
-    h.until("disconnected", |a| a.state().highest_epoch_seen >= 2);
     h.app.dispatch(Input::Find(FindAction::Clear));
     assert_eq!(h.app.state().banner, Some(Banner::NotConnected));
 }
@@ -280,6 +279,14 @@ impl Connector for Gated {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fails_later() {
     use tokio::sync::oneshot;
+    // One repaint per delivered event: lets the test wait for an exact number of answers.
+    let delivered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let repaint: Arc<dyn Fn() + Send + Sync> = {
+        let delivered = delivered.clone();
+        Arc::new(move || {
+            delivered.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        })
+    };
     let (tx_a, rx_a) = oneshot::channel::<Opened>();
     let (tx_b, rx_b) = oneshot::channel::<Opened>();
     let gates = std::collections::HashMap::from([("a".to_string(), rx_a), ("b".to_string(), rx_b)]);
@@ -287,7 +294,7 @@ async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fai
         None,
         None,
         Arc::new(Gated(std::sync::Mutex::new(gates))),
-        Arc::new(|| {}),
+        repaint,
         RuntimeConfig::default(),
     );
     let (a, b) = (
@@ -319,10 +326,95 @@ async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fai
         "late".into(),
     )))
     .ok();
-    for _ in 0..20 {
-        h.frame();
-        std::thread::sleep(Duration::from_millis(5));
+    // Exactly three answers exist: B's Connected, the ListDatabases reply and A's Superseded.
+    // Wait for all of them (not for a quiet period), then look at the final state.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while delivered.load(std::sync::atomic::Ordering::SeqCst) < 3 {
+        assert!(Instant::now() < deadline, "A's answer never arrived");
+        std::thread::sleep(Duration::from_millis(2));
     }
+    h.frame();
     assert_eq!(h.app.state().status, ConnStatus::Connected);
     assert_eq!(h.app.state().banner, None);
+}
+
+fn step(
+    state: AppState,
+    input: Input,
+    tx: &tokio::sync::mpsc::UnboundedSender<mongostudio_core::runtime::Command>,
+) -> AppState {
+    let (state, commands) = update(state, input);
+    for command in commands {
+        tx.send(command).unwrap();
+    }
+    state
+}
+
+async fn recv(h: &mut mongostudio_core::runtime::RuntimeHandle) -> Event {
+    tokio::time::timeout(Duration::from_secs(10), h.rx.recv())
+        .await
+        .expect("event in time")
+        .expect("channel open")
+}
+
+/// The UI's mirrored request counter must equal the epoch the real runtime stamps, including
+/// for a connect that fails `validate()` and for a superseded one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
+    use tokio::sync::oneshot;
+    let (tx_a, rx_a) = oneshot::channel::<Opened>();
+    let (tx_c, rx_c) = oneshot::channel::<Opened>();
+    let gates = std::collections::HashMap::from([("a".to_string(), rx_a), ("c".to_string(), rx_c)]);
+    let mut handle = spawn_runtime_with_connector(
+        None,
+        None,
+        Arc::new(Gated(std::sync::Mutex::new(gates))),
+        Arc::new(|| {}),
+        RuntimeConfig::default(),
+    );
+    let bad = ConnectionConfig::new("", "mongodb://localhost:27017");
+    let a = ConnectionConfig::new("a", "mongodb://localhost:27017");
+    let c = ConnectionConfig::new("c", "mongodb://localhost:27017");
+    let (id_bad, id_a, id_c) = (bad.id, a.id, c.id);
+    let tx = handle.tx.clone();
+    let mut state = AppState::new(vec![bad, a, c]);
+
+    // Connect #1 fails validate(): it still consumes an epoch in the runtime.
+    state = step(state, Input::Connect(id_bad), &tx);
+    assert_eq!(state.latest_requested_epoch, 1);
+    match recv(&mut handle).await {
+        Event::ConnectFailed { epoch, .. } => assert_eq!(epoch, state.latest_requested_epoch),
+        other => panic!("unexpected {other:?}"),
+    }
+    state = update(state, Input::DismissBanner).0;
+
+    // Connects #2 (slow) and #3 (fast): #3 wins, #2 is superseded.
+    state = step(state, Input::Connect(id_a), &tx);
+    state = step(state, Input::Connect(id_c), &tx);
+    assert_eq!(state.latest_requested_epoch, 3);
+    tx_c.send(Ok(seeded())).ok();
+    assert_eq!(
+        recv(&mut handle).await,
+        Event::Connected {
+            epoch: state.latest_requested_epoch
+        }
+    );
+    tx_a.send(Ok(seeded())).ok();
+    assert_eq!(
+        recv(&mut handle).await,
+        Event::Failed {
+            context: "connect",
+            error: mongostudio_core::error::CoreError::Superseded
+        }
+    );
+
+    // Disconnect #4.
+    state = step(state, Input::Disconnect, &tx);
+    assert_eq!(state.latest_requested_epoch, 4);
+    assert_eq!(
+        recv(&mut handle).await,
+        Event::Disconnected {
+            epoch: state.latest_requested_epoch
+        }
+    );
 }

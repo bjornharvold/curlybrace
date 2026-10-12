@@ -74,6 +74,7 @@ fn on_event(state: AppState, ev: Event) -> Out {
         Event::Connected { epoch } => at_epoch(state, epoch, |s| {
             let s = AppState {
                 status: ConnStatus::Connected,
+                banner: s.banner.filter(|b| !is_data_failure(b)),
                 ..s
             };
             (s, vec![Command::ListDatabases])
@@ -81,11 +82,13 @@ fn on_event(state: AppState, ev: Event) -> Out {
         Event::Disconnected { epoch } => {
             at_epoch(state, epoch, |s| (disconnected(s, None), Vec::new()))
         }
-        // A real connect/disconnect failure can only come from a still-current request.
+        Event::ConnectFailed { epoch, error } => at_epoch(state, epoch, |s| {
+            (disconnected(s, Some(("connect", error))), Vec::new())
+        }),
         Event::Failed {
-            context: context @ ("connect" | "disconnect"),
+            context: "disconnect",
             error,
-        } => (disconnected(state, Some((context, error))), Vec::new()),
+        } => (disconnected(state, Some(("disconnect", error))), Vec::new()),
         // Anything else is a late answer from a session that is gone.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases(names) => {
@@ -119,15 +122,32 @@ fn on_event(state: AppState, ev: Event) -> Out {
     }
 }
 
-/// Applies a Connected/Disconnected outcome unless a newer one was already applied.
+/// Applies a connect-family outcome unless a newer Connect/Disconnect was requested since.
 fn at_epoch(state: AppState, epoch: u64, apply: impl FnOnce(AppState) -> Out) -> Out {
-    if epoch < state.highest_epoch_seen {
+    if epoch < state.latest_requested_epoch {
         return (state, Vec::new());
     }
     apply(AppState {
-        highest_epoch_seen: epoch,
+        latest_requested_epoch: state.latest_requested_epoch.max(epoch),
         ..state
     })
+}
+
+/// Banners about data commands of a previous session.
+fn is_data_failure(banner: &Banner) -> bool {
+    matches!(
+        banner,
+        Banner::Failure {
+            context: "find"
+                | "insert"
+                | "replace"
+                | "delete"
+                | "clone"
+                | "list_databases"
+                | "list_collections",
+            ..
+        }
+    )
 }
 
 /// A disconnected state with the whole session cleared and an optional failure banner.

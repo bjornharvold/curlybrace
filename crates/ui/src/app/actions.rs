@@ -236,6 +236,7 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
     let cleared = state.session_cleared();
     let next = AppState {
         status: ConnStatus::Connecting,
+        latest_requested_epoch: cleared.latest_requested_epoch + 1,
         banner: None,
         ssh_endpoint: HostEndpoint::of(&cfg),
         ..cleared
@@ -247,6 +248,7 @@ pub(super) fn disconnect(state: AppState) -> Out {
     let cleared = state.session_cleared();
     let next = AppState {
         status: ConnStatus::Disconnected,
+        latest_requested_epoch: cleared.latest_requested_epoch + 1,
         banner: None,
         ..cleared
     };
