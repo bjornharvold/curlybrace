@@ -29,3 +29,47 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Unit tests
         run: cargo test --workspace --locked
+
+  # Non-required for now: learn from the first runs whether brew's mongod is reliable here.
+  ui-e2e:
+    name: ui-e2e (click-driven tests, native mongod)
+    runs-on: macos-14
+    continue-on-error: true
+    env:
+      MONGOSTUDIO_IT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@91c3abd82c08dd9739cd868596bc2f9e426bd28e # pinned SHA; toolchain is set below
+        with:
+          toolchain: 1.87.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Install MongoDB
+        run: |
+          brew tap mongodb/brew
+          brew install mongodb-community@7.0
+      - name: Start mongod on a free port
+        run: |
+          PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+          DBPATH="$(mktemp -d)"
+          "$(brew --prefix mongodb-community@7.0)/bin/mongod" --dbpath "$DBPATH" --bind_ip 127.0.0.1 --port "$PORT" --fork --logpath "$DBPATH/mongod.log"
+          echo "MONGOSTUDIO_IT_MONGO_URI=mongodb://127.0.0.1:$PORT" >> "$GITHUB_ENV"
+      - name: UI e2e flows (plain-server tests; docker-only tests skip with a printed reason)
+        run: cargo test -p mongostudio-ui --test e2e_flows --locked -- --include-ignored --nocapture
+
+  # Non-required: needs a Metal device; the runners may not have one.
+  ui-snapshots:
+    name: ui-snapshots (wgpu screenshot tests)
+    runs-on: macos-14
+    continue-on-error: true
+    env:
+      MONGOSTUDIO_SNAPSHOTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@91c3abd82c08dd9739cd868596bc2f9e426bd28e # pinned SHA; toolchain is set below
+        with:
+          toolchain: 1.87.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Screenshot tests
+        run: cargo test -p mongostudio-ui --test snapshots --locked -- --include-ignored --nocapture
