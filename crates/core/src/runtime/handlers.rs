@@ -1,7 +1,6 @@
 //! Command execution. Every function maps its outcome to a single [`Event`].
 
 use std::future::Future;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::connection::ConnectionConfig;
@@ -10,6 +9,7 @@ use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
+use super::tunneling::open_tunnel_if_configured;
 use super::{Command, Event, Shared};
 
 /// Runs `command` to completion, folding any error into `Event::Failed`.
@@ -90,16 +90,20 @@ async fn bounded<T>(
 async fn connect_store(shared: &Shared, cfg: ConnectionConfig, generation: u64) -> Result<Event> {
     cfg.validate()?;
     let limit = shared.config.command_timeout;
-    let store = bounded(limit, async {
+    // The tunnel lives in this scope until installed; a failure, timeout or
+    // cancellation anywhere below drops it, which closes it.
+    let (store, tunnel) = bounded(limit, async {
         let password = read_password(shared, &cfg).await?;
-        let tunnel = open_tunnel_if_configured(&cfg).await?;
-        shared
+        let tunnel = open_tunnel_if_configured(shared, &cfg).await?;
+        let addr = tunnel.as_ref().map(|t| t.local_addr());
+        let store = shared
             .connector
-            .connect(&cfg, password.as_deref(), tunnel)
-            .await
+            .connect(&cfg, password.as_deref(), addr)
+            .await?;
+        Ok((store, tunnel))
     })
     .await?;
-    if shared.install_if_current(generation, store) {
+    if shared.install_if_current(generation, store, tunnel) {
         Ok(Event::Connected)
     } else {
         Err(CoreError::Unsupported("connection superseded".into()))
@@ -115,15 +119,4 @@ async fn read_password(shared: &Shared, cfg: &ConnectionConfig) -> Result<Option
     tokio::task::spawn_blocking(move || secrets.get(&key))
         .await
         .map_err(|_| CoreError::Secret("secret lookup failed".into()))?
-}
-
-/// Seam for Task 13: opens an SSH tunnel when the config asks for one.
-/// Until then an SSH config is rejected rather than silently bypassed.
-pub async fn open_tunnel_if_configured(cfg: &ConnectionConfig) -> Result<Option<SocketAddr>> {
-    match cfg.ssh {
-        None => Ok(None),
-        Some(_) => Err(CoreError::Unsupported(
-            "ssh tunnels are not wired yet".into(),
-        )),
-    }
 }

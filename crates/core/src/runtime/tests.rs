@@ -6,12 +6,11 @@ use async_trait::async_trait;
 use bson::{Bson, Document, doc};
 
 use super::*;
-use crate::connection::{SshAuth, SshConfig};
 use crate::error::Result;
 use crate::secrets::MemorySecretStore;
 use crate::store::{PAGE_SIZE, Page};
 use crate::test_support::InMemoryStore;
-use crate::test_support::mock_objects::{mock_connection, mock_doc_with_id, mock_namespace};
+use crate::test_support::mock_objects::{mock_doc_with_id, mock_namespace};
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -327,6 +326,7 @@ async fn slow_store_times_out_within_override() {
     let (_, repaint) = counter();
     let config = RuntimeConfig {
         command_timeout: Duration::from_millis(100),
+        ..RuntimeConfig::default()
     };
     let mut h = spawn_runtime_with_config(None, Some(Arc::new(SlowStore)), repaint, config);
     let start = Instant::now();
@@ -350,6 +350,7 @@ async fn slow_command_does_not_block_others() {
     let (_, repaint) = counter();
     let config = RuntimeConfig {
         command_timeout: Duration::from_secs(10),
+        ..RuntimeConfig::default()
     };
     let mut h = spawn_runtime_with_config(None, Some(Arc::new(SlowStore)), repaint, config);
     h.tx.send(Command::Find {
@@ -387,6 +388,7 @@ async fn connect_to_unreachable_host_fails_within_bound() {
     let (_, repaint) = counter();
     let config = RuntimeConfig {
         command_timeout: Duration::from_secs(2),
+        ..RuntimeConfig::default()
     };
     let mut h = spawn_runtime_with_config(
         Some(Arc::new(MemorySecretStore::new())),
@@ -427,23 +429,6 @@ async fn connect_with_invalid_uri_fails_with_invalid_uri() {
             context: "connect",
             error: CoreError::InvalidUri(_)
         }
-    ));
-}
-
-#[tokio::test]
-async fn tunnel_seam_is_none_without_ssh_and_unsupported_with_it() {
-    let plain = mock_connection();
-    assert_eq!(open_tunnel_if_configured(&plain).await, Ok(None));
-    let mut ssh = mock_connection();
-    ssh.ssh = Some(SshConfig {
-        host: "bastion".into(),
-        port: 22,
-        username: "u".into(),
-        auth: SshAuth::Password,
-    });
-    assert!(matches!(
-        open_tunnel_if_configured(&ssh).await,
-        Err(CoreError::Unsupported(_))
     ));
 }
 
@@ -706,27 +691,6 @@ async fn dropped_receiver_does_not_panic_or_hang_handlers() {
     let mut fresh = spawn_runtime_with_store(seeded(), repaint);
     fresh.tx.send(Command::ListDatabases).unwrap();
     assert!(matches!(next(&mut fresh).await, Event::Databases(_)));
-}
-
-#[tokio::test]
-async fn connect_with_ssh_config_is_unsupported_through_runtime() {
-    let (_, repaint) = counter();
-    let mut h = spawn_runtime(Arc::new(MemorySecretStore::new()), repaint);
-    let mut c = cfg("ssh");
-    c.ssh = Some(SshConfig {
-        host: "bastion".into(),
-        port: 22,
-        username: "u".into(),
-        auth: SshAuth::Password,
-    });
-    h.tx.send(Command::Connect(c)).unwrap();
-    assert!(matches!(
-        next(&mut h).await,
-        Event::Failed {
-            context: "connect",
-            error: CoreError::Unsupported(_)
-        }
-    ));
 }
 
 #[tokio::test]

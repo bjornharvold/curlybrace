@@ -12,10 +12,14 @@
 mod handlers;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tunnel_tests;
+mod tunneling;
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use bson::{Bson, Document};
@@ -25,8 +29,11 @@ use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
 use crate::secrets::SecretStore;
 use crate::store::{DocumentStore, Namespace, Page, Query};
+use crate::tunnel::{HostKeyPrompt, RejectUnknownHostKeys};
 
-pub use handlers::open_tunnel_if_configured;
+pub use tunneling::{
+    SshTunnelOpener, TunnelHandle, TunnelOpener, TunnelRequest, default_known_hosts_path,
+};
 
 /// Opens a store for a connection config. Injectable so tests need no server.
 #[async_trait::async_trait]
@@ -59,16 +66,38 @@ impl Connector for MongoConnector {
 pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Runtime tunables; the timeout is overridable so tests stay fast.
-#[derive(Clone, Copy, Debug)]
+///
+/// SSH tunnels: `known_hosts_path` is the app-owned host-key file and
+/// `host_key_prompt` decides about UNKNOWN host keys. The default prompt is
+/// [`RejectUnknownHostKeys`] (safe); the UI (Task 16) supplies an interactive
+/// one. The prompt is synchronous and is called via `spawn_blocking`, so the
+/// UI side may block on a channel until the user answers. Keep
+/// `command_timeout` in mind: it bounds the whole connect, prompt included.
+#[derive(Clone)]
 pub struct RuntimeConfig {
     pub command_timeout: Duration,
+    pub known_hosts_path: PathBuf,
+    pub host_key_prompt: Arc<dyn HostKeyPrompt>,
+    pub tunnel_opener: Arc<dyn TunnelOpener>,
 }
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             command_timeout: COMMAND_TIMEOUT,
+            known_hosts_path: default_known_hosts_path(),
+            host_key_prompt: Arc::new(RejectUnknownHostKeys),
+            tunnel_opener: Arc::new(SshTunnelOpener),
         }
+    }
+}
+
+impl std::fmt::Debug for RuntimeConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeConfig")
+            .field("command_timeout", &self.command_timeout)
+            .field("known_hosts_path", &self.known_hosts_path)
+            .finish_non_exhaustive()
     }
 }
 
@@ -159,6 +188,8 @@ pub type Repaint = Arc<dyn Fn() + Send + Sync>;
 /// State shared by all handler tasks.
 pub(crate) struct Shared {
     store: RwLock<Option<Arc<dyn DocumentStore>>>,
+    /// Kept alive next to the store; cleared with it on every new epoch.
+    tunnel: Mutex<Option<Box<dyn TunnelHandle>>>,
     /// Bumped synchronously by the dispatcher on every Connect/Disconnect, so
     /// the order of *requests* (not of completion) decides which one wins.
     generation: AtomicU64,
@@ -173,20 +204,36 @@ impl Shared {
         self.store.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Starts a new connection epoch and drops the installed store.
+    /// Starts a new connection epoch and drops the installed store and tunnel.
     fn begin_epoch(&self) -> u64 {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        *self.store.write().unwrap_or_else(|e| e.into_inner()) = None;
+        let mut slot = self.store.write().unwrap_or_else(|e| e.into_inner());
+        *slot = None;
+        let old = self.tunnel.lock().unwrap_or_else(|e| e.into_inner()).take();
+        drop(slot);
+        drop(old);
         generation
     }
 
-    /// Installs `store` only if `generation` is still the latest request.
-    pub fn install_if_current(&self, generation: u64, store: Arc<dyn DocumentStore>) -> bool {
+    /// Installs `store` and its tunnel only if `generation` is still the latest
+    /// request. When superseded, both are dropped (closing the tunnel).
+    pub fn install_if_current(
+        &self,
+        generation: u64,
+        store: Arc<dyn DocumentStore>,
+        tunnel: Option<Box<dyn TunnelHandle>>,
+    ) -> bool {
         let mut slot = self.store.write().unwrap_or_else(|e| e.into_inner());
         if self.generation.load(Ordering::SeqCst) != generation {
             return false;
         }
         *slot = Some(store);
+        let previous = std::mem::replace(
+            &mut *self.tunnel.lock().unwrap_or_else(|e| e.into_inner()),
+            tunnel,
+        );
+        drop(slot);
+        drop(previous);
         true
     }
 }
@@ -221,6 +268,7 @@ pub fn spawn_runtime_with_connector(
     let (events, rx) = unbounded_channel::<Event>();
     let shared = Arc::new(Shared {
         store: RwLock::new(store),
+        tunnel: Mutex::new(None),
         generation: AtomicU64::new(0),
         secrets,
         connector,
