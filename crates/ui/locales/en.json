@@ -73,5 +73,24 @@
     "list_collections": "Could not load collections",
     "list_databases": "Could not load databases",
     "replace": "Could not save the document"
+  },
+  "findbar": {
+    "clear": "Clear",
+    "filter": "Filter",
+    "filter_hint": "{ \"status\": \"active\" }",
+    "limit": "Limit",
+    "next": "Next",
+    "prev": "Previous",
+    "projection": "Projection",
+    "projection_hint": "{ \"name\": 1 }",
+    "run": "Find",
+    "skip": "Skip",
+    "sort": "Sort",
+    "sort_hint": "{ \"createdAt\": -1 }"
+  },
+  "sidebar": {
+    "empty": "No databases",
+    "refresh": "Refresh",
+    "title": "Databases"
   }
 }
