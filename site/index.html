@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Curlybrace: a free MongoDB GUI for Mac</title>
-<meta name="description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query and edit your MongoDB collections. No account, no trial, no paid tier.">
+<meta name="description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query, edit and compare your MongoDB collections. No account, no trial, no paid tier.">
 <meta name="theme-color" content="#F2F5F7">
 <meta property="og:title" content="Curlybrace: a free MongoDB GUI for Mac">
-<meta property="og:description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query and edit your MongoDB collections. Builders welcome.">
+<meta property="og:description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query, edit and compare your MongoDB collections. Builders welcome.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://bjornharvold.github.io/curlybrace/">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -197,7 +197,7 @@
     <section class="hero">
       <div>
         <h1>Curlybrace is a free MongoDB GUI for Mac.</h1>
-        <p class="lede">Browse, query and edit your MongoDB collections in a native Mac app. No account, no trial, no paid tier, and the source is open.</p>
+        <p class="lede">Browse, query, edit and compare your MongoDB collections in a native Mac app. No account, no trial, no paid tier, and the source is open.</p>
         <div class="actions">
           <a class="btn btn-primary" href="https://github.com/bjornharvold/curlybrace/releases/latest">Download for macOS</a>
           <a class="btn btn-quiet" href="https://github.com/bjornharvold/curlybrace">View the source</a>
@@ -272,7 +272,7 @@
   <div class="wrap">
     <section id="what-it-does" style="padding-top:20px">
       <h2>What you can do with it</h2>
-      <p class="section-lede">The basics, done carefully. Here is what works today.</p>
+      <p class="section-lede">The basics, done carefully. Here is what works today, plus one feature arriving in the next release.</p>
       <dl class="can">
         <div>
           <dt>Connect the way your servers need</dt>
@@ -293,6 +293,10 @@
         <div>
           <dt>Edit without losing types</dt>
           <dd>Insert, edit, clone and delete documents. The editor uses canonical extended JSON, so numbers, decimals, dates, binary data and <code>MinKey</code> keep their exact BSON type. Any <code>_id</code> works: ObjectId, string, number, UUID or a compound value.</dd>
+        </div>
+        <div>
+          <dt>Compare two collections</dt>
+          <dd>Pick a source and a target, even on different servers, and see what is only on one side and what differs. Match documents by <code>_id</code> or by your own key, ignore fields or array order, and open any difference to see the changed fields. It is read-only: nothing is written to either database. The key must be unique, and on large collections it needs an index. New in the next release.</dd>
         </div>
         <div>
           <dt>Built to not lose your data</dt>
@@ -351,7 +355,7 @@
             </div>
           </div>
           <ul class="wanted" aria-label="Open work">
-            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/8">Data Compare and Sync</a></strong><span class="d">Diff two collections or databases across servers, then apply or export the changes.</span></div><span class="tag">Planned</span></li>
+            <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/8">Data Compare and Sync</a></strong><span class="d">Comparing two collections works (read-only). Still to build: whole-database compare, applying changes and exporting reports.</span></div><span class="tag">In progress</span></li>
             <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/9">Data Masking and Reschema</a></strong><span class="d">Anonymise sensitive fields in copies of data and reshape documents in bulk.</span></div><span class="tag">Planned</span></li>
             <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/10">SQL and MongoDB</a></strong><span class="d">A SQL query editor that translates to MongoDB queries.</span></div><span class="tag">Planned</span></li>
             <li><div><strong><a href="https://github.com/bjornharvold/curlybrace/issues/11">Task Scheduler</a></strong><span class="d">Run saved jobs on a schedule, with logs.</span></div><span class="tag">Planned</span></li>
