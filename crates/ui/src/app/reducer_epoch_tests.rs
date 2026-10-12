@@ -59,6 +59,8 @@ fn dispatched(steps: &[bool]) -> AppState {
         };
         s = run(s, input).0;
     }
+    // Every step must really have been dispatched (a Connect with an unknown id would not be).
+    assert_eq!(s.latest_requested_epoch as usize, steps.len());
     s
 }
 
