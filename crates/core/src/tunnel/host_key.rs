@@ -74,9 +74,7 @@ pub fn check_host_key(
     }
     if !recorded.is_empty() {
         // Never offer to trust a key that differs from a recorded one.
-        return Err(CoreError::Ssh(
-            "the ssh host key has changed; refusing to connect".into(),
-        ));
+        return Err(CoreError::SshHostKeyChanged);
     }
     match prompt.decide(&display_host(&host, port), &fingerprint(key)) {
         HostKeyDecision::Trust => Ok(()),
@@ -259,7 +257,7 @@ mod tests {
         check_host_key(&path, "h.example", 22, &new_key(), &remember).unwrap();
         let trusting = FakePrompt::new(HostKeyDecision::TrustAndRemember);
         let r = check_host_key(&path, "h.example", 22, &new_key(), &trusting);
-        assert!(is_ssh_err(r));
+        assert_eq!(r, Err(CoreError::SshHostKeyChanged));
         assert_eq!(trusting.call_count(), 0);
     }
 

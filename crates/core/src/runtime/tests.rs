@@ -505,7 +505,7 @@ async fn assert_quiet(h: &mut RuntimeHandle) {
 fn superseded() -> Event {
     Event::Failed {
         context: "connect",
-        error: CoreError::Unsupported("connection superseded".into()),
+        error: CoreError::Superseded,
     }
 }
 
@@ -652,9 +652,104 @@ async fn disconnect_during_find_still_emits_exactly_one_event_for_each() {
     h.tx.send(Command::Disconnect).unwrap();
     assert_eq!(next(&mut h).await, Event::Disconnected);
     release.notify_one();
-    assert!(matches!(next(&mut h).await, Event::Results { .. }));
+    assert_eq!(
+        next(&mut h).await,
+        Event::Failed {
+            context: "find",
+            error: CoreError::Superseded
+        }
+    );
     assert_quiet(&mut h).await;
     assert_eq!(count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn find_without_a_session_change_still_delivers_results() {
+    let (store, started, release) = gated_find();
+    let (_, repaint) = counter();
+    let mut h = spawn_runtime_with_store(store, repaint);
+    h.tx.send(Command::Find {
+        ns: mock_namespace(),
+        query: Query::default(),
+    })
+    .unwrap();
+    started.notified().await;
+    release.notify_one();
+    assert!(matches!(next(&mut h).await, Event::Results { .. }));
+    assert_quiet(&mut h).await;
+}
+
+/// `list_databases` waits for a release; everything else is trivial.
+struct GatedListStore {
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+#[async_trait]
+impl DocumentStore for GatedListStore {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        self.started.notify_one();
+        self.release.notified().await;
+        Ok(vec!["old".into()])
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn find(&self, _ns: &Namespace, _q: &Query) -> Result<Page> {
+        down()
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        down()
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        down()
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        down()
+    }
+}
+
+#[tokio::test]
+async fn list_databases_finishing_after_a_newer_connect_is_superseded() {
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let old: Arc<dyn DocumentStore> = Arc::new(GatedListStore {
+        started: started.clone(),
+        release: release.clone(),
+    });
+    let (connector, mut gates) = GatedConnector::new(&["next"]);
+    let (_, repaint) = counter();
+    let mut h = spawn_runtime_with_connector(
+        None,
+        Some(old),
+        connector,
+        repaint,
+        RuntimeConfig::default(),
+    );
+    h.tx.send(Command::ListDatabases).unwrap();
+    started.notified().await;
+    h.tx.send(Command::Connect(cfg("next"))).unwrap();
+    release.notify_one();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Failed {
+            context: "list_databases",
+            error: CoreError::Superseded
+        }
+    );
+    gates
+        .remove("next")
+        .unwrap()
+        .send(Ok(store_with_db("new_db")))
+        .ok();
+    assert_eq!(next(&mut h).await, Event::Connected);
+    h.tx.send(Command::ListDatabases).unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Databases(vec!["new_db".into()]),
+        "commands of the new session are unaffected"
+    );
+    assert_quiet(&mut h).await;
 }
 
 #[tokio::test]

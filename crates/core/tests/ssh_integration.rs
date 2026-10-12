@@ -123,7 +123,7 @@ async fn tunnel_end_to_end() {
     let changed = dir.path().join("changed_known_hosts");
     known_hosts::learn_known_hosts_path(&ssh.host, ssh.port, other.public_key(), &changed).unwrap();
     let r = open_tunnel(&ssh, thost, tport, Some(&password), &changed, &trust).await;
-    assert!(matches!(r, Err(CoreError::Ssh(_))));
+    assert!(matches!(r, Err(CoreError::SshHostKeyChanged)));
     assert_eq!(
         trust.calls.load(Ordering::SeqCst),
         1,

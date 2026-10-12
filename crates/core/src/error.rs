@@ -20,6 +20,15 @@ pub enum CoreError {
     Database(String),
     #[error("not found")]
     NotFound,
+    /// A newer connect/disconnect made this command's session obsolete; the result was dropped.
+    #[error("superseded by a newer connection request")]
+    Superseded,
+    /// A recorded SSH host key no longer matches the server's (possible interception).
+    #[error("ssh: the host key has changed; refusing to connect")]
+    SshHostKeyChanged,
+    /// TLS with certificate verification cannot be used through an SSH tunnel.
+    #[error("tls with certificate verification cannot be combined with an ssh tunnel")]
+    TlsThroughTunnel,
 }
 
 impl CoreError {
@@ -34,6 +43,9 @@ impl CoreError {
             Self::Unsupported(_) => "errors.unsupported",
             Self::Database(_) => "errors.database",
             Self::NotFound => "errors.not_found",
+            Self::Superseded => "errors.superseded",
+            Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
+            Self::TlsThroughTunnel => "errors.tls_through_tunnel",
         }
     }
 }
@@ -53,6 +65,9 @@ mod tests {
             CoreError::Unsupported("x".into()),
             CoreError::Database("x".into()),
             CoreError::NotFound,
+            CoreError::Superseded,
+            CoreError::SshHostKeyChanged,
+            CoreError::TlsThroughTunnel,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         keys.sort();

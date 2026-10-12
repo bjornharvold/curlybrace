@@ -30,7 +30,15 @@ async fn run(shared: &Shared, command: Command, generation: u64) -> Result<Event
     }
     let store = current_store(shared).await?;
     let limit = shared.config.command_timeout;
-    bounded(limit, data_command(store, command)).await
+    let result = bounded(limit, data_command(store, command)).await;
+    // A newer Connect/Disconnect ended this command's session while it ran: its answer belongs
+    // to a previous server and must not reach the UI (mutations may have committed; the UI
+    // re-fetches after reconnecting).
+    if shared.is_current(generation) {
+        result
+    } else {
+        Err(CoreError::Superseded)
+    }
 }
 
 async fn data_command(store: Arc<dyn DocumentStore>, command: Command) -> Result<Event> {
@@ -106,7 +114,7 @@ async fn connect_store(shared: &Shared, cfg: ConnectionConfig, generation: u64) 
     if shared.install_if_current(generation, store, tunnel) {
         Ok(Event::Connected)
     } else {
-        Err(CoreError::Unsupported("connection superseded".into()))
+        Err(CoreError::Superseded)
     }
 }
 

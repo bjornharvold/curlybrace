@@ -351,7 +351,7 @@ async fn superseded_connect_drops_its_tunnel() {
         next(&mut h).await,
         Event::Failed {
             context: "connect",
-            error: CoreError::Unsupported(_)
+            error: CoreError::Superseded
         }
     ));
     assert_eq!(opener.drops(), 1);

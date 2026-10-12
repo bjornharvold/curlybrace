@@ -131,9 +131,7 @@ fn apply_credential(
 fn reject_unverifiable_tls(options: &ClientOptions) -> Result<()> {
     match &options.tls {
         Some(Tls::Enabled(tls)) if tls.allow_invalid_certificates != Some(true) => {
-            Err(CoreError::Unsupported(
-                "tls with certificate verification cannot be combined with an ssh tunnel".into(),
-            ))
+            Err(CoreError::TlsThroughTunnel)
         }
         _ => Ok(()),
     }
@@ -264,10 +262,10 @@ mod tests {
         let addr: SocketAddr = "127.0.0.1:50000".parse().unwrap();
         let mut c = ConnectionConfig::new("a", "mongodb://db.internal:27017");
         c.tls.enabled = true;
-        assert!(matches!(
-            build_client_options(&c, None, Some(addr)).await,
-            Err(CoreError::Unsupported(_))
-        ));
+        assert_eq!(
+            build_client_options(&c, None, Some(addr)).await.err(),
+            Some(CoreError::TlsThroughTunnel)
+        );
         // Without a tunnel the same TLS config is fine.
         assert!(build_client_options(&c, None, None).await.is_ok());
         c.tls.allow_invalid_certs = true;

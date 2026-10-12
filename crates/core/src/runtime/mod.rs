@@ -204,6 +204,11 @@ impl Shared {
         self.store.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// True while no newer Connect/Disconnect has been requested since `generation`.
+    pub fn is_current(&self, generation: u64) -> bool {
+        self.generation.load(Ordering::SeqCst) == generation
+    }
+
     /// Starts a new connection epoch and drops the installed store and tunnel.
     fn begin_epoch(&self) -> u64 {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
