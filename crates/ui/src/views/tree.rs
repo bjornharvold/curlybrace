@@ -92,7 +92,7 @@ fn show_row(
     let items = page
         .docs
         .get(row.doc_index())
-        .map(menu_items)
+        .map(|doc| menu_items(doc, state.projected))
         .unwrap_or_default();
     let chosen = row_context_menu(&response, &items, i18n);
     RowEvent {

@@ -21,6 +21,7 @@ pub fn show_table(
         return None;
     }
     let height = row_height(ui);
+    let projected = state.projected;
     let mut chosen = None;
     let mut builder = TableBuilder::new(ui)
         .striped(true)
@@ -53,7 +54,9 @@ pub fn show_table(
                         ui.add(egui::Label::new(text).truncate());
                     });
                 }
-                if let Some(item) = row_context_menu(&row.response(), &menu_items(doc), i18n) {
+                if let Some(item) =
+                    row_context_menu(&row.response(), &menu_items(doc, projected), i18n)
+                {
                     chosen = Some((index, item));
                 }
             });

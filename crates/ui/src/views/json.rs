@@ -37,6 +37,7 @@ pub(crate) fn render_json(
 ) -> (egui::scroll_area::ScrollAreaOutput<()>, Chosen) {
     let lines = state.json_cache(page, key).shared_lines();
     let height = row_height(ui);
+    let projected = state.projected;
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let color = ui.visuals().text_color();
     let mut chosen: Chosen = None;
@@ -62,7 +63,7 @@ pub(crate) fn render_json(
                         .sense(egui::Sense::click());
                     ui.add(label)
                 });
-                if let Some(item) = row_context_menu(&response, &menu_items(doc), i18n) {
+                if let Some(item) = row_context_menu(&response, &menu_items(doc, projected), i18n) {
                     chosen = Some((line.doc_index, item));
                 }
             }

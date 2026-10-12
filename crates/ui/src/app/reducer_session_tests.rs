@@ -141,3 +141,46 @@ fn connect_clears_the_previous_servers_data_at_dispatch() {
     let (s, _) = event(s, Event::Databases(vec!["old".into()]));
     assert!(s.sidebar.databases.is_empty());
 }
+
+// ---- projected pages are read-only ----
+
+fn projected_browsing() -> AppState {
+    let mut s = browsing();
+    s.page_query = Query {
+        projection: Some(doc! {"name": 1}),
+        ..Query::default()
+    };
+    s
+}
+
+#[test]
+fn edit_and_clone_are_refused_on_a_projected_page() {
+    let d = mock_doc_with_id(2_i32);
+    for action in [DocAction::Edit(d.clone()), DocAction::Clone(d.clone())] {
+        let (s, cmds) = run(projected_browsing(), Input::Doc(action));
+        assert!(cmds.is_empty());
+        assert!(s.editor.is_none() && s.pending.is_none());
+        assert_eq!(s.banner, Some(Banner::ProjectionReadOnly));
+    }
+}
+
+#[test]
+fn delete_and_insert_stay_allowed_on_a_projected_page() {
+    let (s, cmds) = run(
+        projected_browsing(),
+        Input::Doc(DocAction::Delete(Bson::Int32(2))),
+    );
+    assert!(s.pending.is_some() && cmds.len() == 1);
+    let (s, _) = run(projected_browsing(), Input::Doc(DocAction::Insert));
+    assert!(s.editor.is_some());
+}
+
+#[test]
+fn an_empty_or_missing_projection_is_not_projected() {
+    for projection in [None, Some(doc! {})] {
+        let mut s = browsing();
+        s.page_query.projection = projection;
+        let (s, _) = run(s, Input::Doc(DocAction::Edit(mock_doc_with_id(2_i32))));
+        assert!(s.editor.is_some() && s.banner.is_none());
+    }
+}

@@ -35,14 +35,24 @@ impl MenuItem {
     }
 }
 
+/// True when a query projection makes the displayed documents partial: any non-empty
+/// projection (inclusion or exclusion, `_id: 0` included). `None` or `{}` returns full documents.
+pub fn is_projected(projection: Option<&Document>) -> bool {
+    projection.is_some_and(|p| !p.is_empty())
+}
+
 /// Entries offered for `doc`; Edit and Delete need an `_id` to address the document.
-pub fn menu_items(doc: &Document) -> Vec<MenuItem> {
+/// On a `projected` page the documents are partial copies, so Edit and Clone (which would
+/// write the partial copy back) are not offered; Delete by `_id` and Insert are unaffected.
+pub fn menu_items(doc: &Document, projected: bool) -> Vec<MenuItem> {
     let mut items = Vec::new();
     let has_id = id_of(doc).is_ok();
-    if has_id {
+    if has_id && !projected {
         items.push(MenuItem::Edit);
     }
-    items.push(MenuItem::Clone);
+    if !projected {
+        items.push(MenuItem::Clone);
+    }
     if has_id {
         items.push(MenuItem::Delete);
     }
@@ -193,7 +203,7 @@ mod tests {
     #[test]
     fn doc_without_id_cannot_be_deleted_or_edited() {
         let d = doc! { "name": "x" };
-        let items = menu_items(&d);
+        let items = menu_items(&d, false);
         assert!(!items.contains(&MenuItem::Delete) && !items.contains(&MenuItem::Edit));
         assert!(items.contains(&MenuItem::Clone));
         let (state, action) = choose(DeleteConfirm::None, MenuItem::Delete, &d, key(1));
@@ -231,7 +241,7 @@ mod tests {
     fn every_id_kind_flows_through_menu_confirm_and_editor_exactly() {
         for id in id_kinds() {
             let d = doc! { "_id": id.clone(), "v": 1_i32 };
-            assert_eq!(menu_items(&d).len(), 4, "{id:?}");
+            assert_eq!(menu_items(&d, false).len(), 4, "{id:?}");
             let edit = choose(DeleteConfirm::None, MenuItem::Edit, &d, key(1)).1;
             assert_eq!(edit, Some(DocAction::Edit(d.clone())), "{id:?}");
             let cloned = choose(DeleteConfirm::None, MenuItem::Clone, &d, key(1)).1;
@@ -260,5 +270,32 @@ mod tests {
         let text = id_preview(&long);
         assert_eq!(text.chars().count(), ID_PREVIEW_MAX_CHARS + 1);
         assert!(text.ends_with('…'));
+    }
+
+    #[test]
+    fn projected_pages_offer_neither_edit_nor_clone_but_keep_delete_and_insert() {
+        let d = doc! { "_id": 1_i32, "v": 1_i32 };
+        assert_eq!(
+            menu_items(&d, true),
+            vec![MenuItem::Delete, MenuItem::Insert]
+        );
+        assert_eq!(
+            menu_items(&d, false),
+            vec![
+                MenuItem::Edit,
+                MenuItem::Clone,
+                MenuItem::Delete,
+                MenuItem::Insert
+            ]
+        );
+    }
+
+    #[test]
+    fn any_non_empty_projection_counts_as_projected() {
+        assert!(is_projected(Some(&doc! { "name": 1 })));
+        assert!(is_projected(Some(&doc! { "_id": 0 })));
+        assert!(is_projected(Some(&doc! { "secret": 0, "n": 0 })));
+        assert!(!is_projected(Some(&doc! {})));
+        assert!(!is_projected(None));
     }
 }

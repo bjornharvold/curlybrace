@@ -152,6 +152,11 @@ pub(super) fn issue_find(state: AppState, query: Query) -> Out {
 }
 
 pub(super) fn doc(state: AppState, action: DocAction) -> Out {
+    // A projected page holds partial copies: writing one back (Edit/Clone) would drop fields.
+    if state.page_is_projected() && matches!(action, DocAction::Edit(_) | DocAction::Clone(_)) {
+        let banner = Some(Banner::ProjectionReadOnly);
+        return (AppState { banner, ..state }, Vec::new());
+    }
     match action {
         DocAction::Edit(d) => with_editor(state, EditorState::for_edit(&d)),
         DocAction::Insert => with_editor(state, EditorState::for_new()),

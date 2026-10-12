@@ -104,6 +104,7 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         ui.label(i18n.t(empty));
         return;
     };
+    state.tree.projected = state.page_is_projected();
     let action = show_documents_keyed(ui, state.view_mode, page, key, &mut state.tree, i18n);
     if let Some(action) = action {
         out.push(UiEvent::Input(Input::Doc(action)));

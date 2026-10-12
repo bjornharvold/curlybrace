@@ -14,7 +14,8 @@
     "dismiss": "Dismiss",
     "forget_host": "Forget this host",
     "host_forgotten": "The saved SSH host key was removed. Connect again to review the host's key.",
-    "not_connected": "Not connected. Connect to a server first."
+    "not_connected": "Not connected. Connect to a server first.",
+    "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them."
   },
   "browser": {
     "load_failed": "Could not load documents. See the message above.",

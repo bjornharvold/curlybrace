@@ -31,6 +31,8 @@ pub enum Banner {
     /// A data action was attempted without a live connection.
     NotConnected,
     HostForgotten,
+    /// Edit/Clone were refused because the page is shown with a projection (partial documents).
+    ProjectionReadOnly,
 }
 
 /// An SSH endpoint whose recorded host key the user may drop.
@@ -112,6 +114,11 @@ impl AppState {
 
     pub fn connection(&self, id: Uuid) -> Option<&ConnectionConfig> {
         self.conn.connections.iter().find(|c| c.id == id)
+    }
+
+    /// The displayed page was fetched with a projection, so its documents are partial.
+    pub fn page_is_projected(&self) -> bool {
+        self.page.is_some() && crate::viewmodel::is_projected(self.page_query.projection.as_ref())
     }
 
     /// `(has_prev, has_next)` for the find bar.

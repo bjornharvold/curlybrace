@@ -55,6 +55,9 @@ pub struct TreeState {
     revision: u64,
     expanded: HashMap<usize, HashSet<Vec<String>>>,
     pub confirm: DeleteConfirm,
+    /// The page is shown with a projection: Edit and Clone are not offered. Set by the app
+    /// every frame from the query that produced the page.
+    pub projected: bool,
     json: JsonCache,
     rows: Option<(CacheKey, Rc<Vec<PageRow>>)>,
     /// Identity of the page the state last rendered.
@@ -70,6 +73,7 @@ impl TreeState {
         Self {
             generation: self.generation + 1,
             confirm: self.confirm.results_replaced(),
+            projected: self.projected,
             ..Self::default()
         }
     }
