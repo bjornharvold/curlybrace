@@ -3,10 +3,10 @@ use super::fixture::Fixture;
 use super::screen::{H, dump};
 use super::sidebar::{click_sidebar_row, scroll_sidebar_until_shown};
 use super::wait::{SHORT, settle, wait_until};
+use curlybrace_ui::app::state::ConnStatus;
+use curlybrace_ui::views::sidebar::db_row_label;
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT, Queryable};
-use mongostudio_ui::app::state::ConnStatus;
-use mongostudio_ui::views::sidebar::db_row_label;
 use std::time::Duration;
 
 /// Clicks the text box labelled `label`, replaces its content with `text`.

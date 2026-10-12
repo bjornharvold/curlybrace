@@ -1,5 +1,5 @@
 //! Flat-key translation layer backed by a nested JSON locale file.
-use mongostudio_core::error::CoreError;
+use curlybrace_core::error::CoreError;
 use serde_json::Value;
 use std::collections::HashMap;
 

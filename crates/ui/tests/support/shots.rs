@@ -1,18 +1,18 @@
 //! Fixed in-memory app states for the screenshot tests. No database, no network.
 use super::db::sample_people;
 use bson::Document;
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::runtime::spawn_runtime_with_store;
+use curlybrace_core::secrets::MemorySecretStore;
+use curlybrace_core::store::{Namespace, Page};
+use curlybrace_core::test_support::InMemoryStore;
+use curlybrace_ui::I18n;
+use curlybrace_ui::app::CurlybraceApp;
+use curlybrace_ui::app::host_key::HostKeyRequest;
+use curlybrace_ui::app::state::{AppState, ConnStatus};
+use curlybrace_ui::viewmodel::{SidebarState, ViewMode, page_key};
 use eframe::egui;
 use egui_kittest::{Harness, SnapshotOptions};
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::runtime::spawn_runtime_with_store;
-use mongostudio_core::secrets::MemorySecretStore;
-use mongostudio_core::store::{Namespace, Page};
-use mongostudio_core::test_support::InMemoryStore;
-use mongostudio_ui::I18n;
-use mongostudio_ui::app::MongoStudioApp;
-use mongostudio_ui::app::host_key::HostKeyRequest;
-use mongostudio_ui::app::state::{AppState, ConnStatus};
-use mongostudio_ui::viewmodel::{SidebarState, ViewMode, page_key};
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 
@@ -21,7 +21,7 @@ pub const SHOT_SIZE: (f32, f32) = (1000.0, 700.0);
 
 /// The harness plus the Tokio runtime the app's (idle) runtime task lives on.
 pub struct Shot {
-    pub harness: Harness<'static, MongoStudioApp>,
+    pub harness: Harness<'static, CurlybraceApp>,
     _rt: tokio::runtime::Runtime,
     _dir: tempfile::TempDir,
 }
@@ -36,10 +36,10 @@ pub const PIXEL_THRESHOLD: usize = 100;
 pub fn build_app(
     connections: Vec<ConnectionConfig>,
     requests: Option<Receiver<HostKeyRequest>>,
-) -> (MongoStudioApp, tempfile::TempDir) {
+) -> (CurlybraceApp, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("temp dir");
     let handle = spawn_runtime_with_store(Arc::new(InMemoryStore::new()), Arc::new(|| {}));
-    let mut app = MongoStudioApp::new(
+    let mut app = CurlybraceApp::new(
         handle,
         I18n::english(),
         connections,
@@ -84,7 +84,7 @@ impl Shot {
             .with_size(egui::vec2(SHOT_SIZE.0, SHOT_SIZE.1))
             .with_pixels_per_point(1.0)
             .wgpu()
-            .build_state(|ctx, app: &mut MongoStudioApp| app.run_frame(ctx), app);
+            .build_state(|ctx, app: &mut CurlybraceApp| app.run_frame(ctx), app);
         drop(_enter);
         Self {
             harness,

@@ -6,8 +6,8 @@ use crate::viewmodel::{
     DocAction, MenuItem, PageKey, PageRow, TreeRow, TreeState, menu_items, row_value_text,
     type_label_key,
 };
+use curlybrace_core::store::Page;
 use eframe::egui;
-use mongostudio_core::store::Page;
 
 const ARROW_OPEN: &str = "▾";
 const ARROW_CLOSED: &str = "▸";

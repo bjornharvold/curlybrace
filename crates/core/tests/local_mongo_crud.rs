@@ -1,6 +1,6 @@
 //! Tier 1 (local server): CRUD, paging and document-service flows against an already-running
-//! MongoDB (`MONGOSTUDIO_IT_MONGO_URI`, default `mongodb://127.0.0.1:27017`). No docker. Writes
-//! only to throwaway `msit_*` databases.
+//! MongoDB (`CURLYBRACE_IT_MONGODB_URI`, default `mongodb://127.0.0.1:27017`). No docker. Writes
+//! only to throwaway `cbit_*` databases.
 //! Run with `scripts/integration-tests.sh`.
 
 mod support;
@@ -10,13 +10,13 @@ use std::sync::Arc;
 use bson::oid::ObjectId;
 use bson::spec::{BinarySubtype, ElementType};
 use bson::{Binary, Bson, Document, doc};
-use mongostudio_core::crud::DocumentService;
-use mongostudio_core::ejson::{doc_to_editor_json, editor_json_to_doc};
-use mongostudio_core::error::CoreError;
-use mongostudio_core::mongo_store::MongoStore;
-use mongostudio_core::query::{QueryText, next_page, parse_query};
-use mongostudio_core::store::{DocumentStore, Namespace, Query};
-use mongostudio_core::test_support::mock_objects::exotic_doc;
+use curlybrace_core::crud::DocumentService;
+use curlybrace_core::ejson::{doc_to_editor_json, editor_json_to_doc};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::mongo_store::MongoStore;
+use curlybrace_core::query::{QueryText, next_page, parse_query};
+use curlybrace_core::store::{DocumentStore, Namespace, Query};
+use curlybrace_core::test_support::mock_objects::exotic_doc;
 use support::{local_enabled, local_mongo};
 
 async fn seed_numbered(client: &mongodb::Client, ns: &Namespace, count: i32) {
@@ -37,7 +37,7 @@ fn sorted_by_n() -> Query {
 }
 
 #[tokio::test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn lists_databases_and_collections_with_awkward_names() {
     if !local_enabled("lists_databases_and_collections_with_awkward_names") {
         return;
@@ -72,7 +72,7 @@ async fn lists_databases_and_collections_with_awkward_names() {
 }
 
 #[tokio::test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn pages_of_fifty_over_120_100_and_101_documents() {
     if !local_enabled("pages_of_fifty_over_120_100_and_101_documents") {
         return;
@@ -107,7 +107,7 @@ async fn pages_of_fifty_over_120_100_and_101_documents() {
 }
 
 #[tokio::test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn sort_projection_skip_and_operator_filters() {
     if !local_enabled("sort_projection_skip_and_operator_filters") {
         return;
@@ -216,7 +216,7 @@ async fn all(store: &MongoStore, n: &Namespace) -> Vec<Document> {
 }
 
 #[tokio::test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn replace_and_delete_hit_the_right_document_for_every_id_kind() {
     if !local_enabled("replace_and_delete_hit_the_right_document_for_every_id_kind") {
         return;
@@ -281,7 +281,7 @@ async fn replace_and_delete_hit_the_right_document_for_every_id_kind() {
 }
 
 #[tokio::test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn insert_generates_an_object_id_when_absent() {
     if !local_enabled("insert_generates_an_object_id_when_absent") {
         return;
@@ -301,7 +301,7 @@ fn kinds(d: &Document) -> Vec<(String, ElementType)> {
 }
 
 #[tokio::test]
-#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn exotic_types_survive_insert_find_and_editor_round_trip() {
     if !local_enabled("exotic_types_survive_insert_find_and_editor_round_trip") {
         return;

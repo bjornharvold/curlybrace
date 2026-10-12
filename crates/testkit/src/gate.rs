@@ -1,11 +1,11 @@
 //! Environment gates. Each prints the reason when it says no.
 
-pub const ENV_IT: &str = "MONGOSTUDIO_IT";
+pub const ENV_IT: &str = "CURLYBRACE_IT";
 /// Overrides the local server the tier-1 tests connect to.
-pub const ENV_LOCAL_URI: &str = "MONGOSTUDIO_IT_MONGO_URI";
+pub const ENV_LOCAL_URI: &str = "CURLYBRACE_IT_MONGODB_URI";
 /// Where tier-1 tests connect when [`ENV_LOCAL_URI`] is unset.
 pub const DEFAULT_LOCAL_URI: &str = "mongodb://127.0.0.1:27017";
-pub const ENV_SNAPSHOTS: &str = "MONGOSTUDIO_SNAPSHOTS";
+pub const ENV_SNAPSHOTS: &str = "CURLYBRACE_SNAPSHOTS";
 
 /// Pure gate decision: `value` is the raw env value; only `"1"` enables.
 pub fn enabled_by(value: Option<&str>) -> bool {
@@ -40,7 +40,7 @@ pub fn docker_enabled(test: &str) -> bool {
     )
 }
 
-/// The local server for tier-1 tests: `MONGOSTUDIO_IT_MONGO_URI` (empty counts as unset) or the
+/// The local server for tier-1 tests: `CURLYBRACE_IT_MONGODB_URI` (empty counts as unset) or the
 /// default `mongodb://127.0.0.1:27017`.
 pub fn local_uri() -> String {
     std::env::var(ENV_LOCAL_URI)
@@ -57,7 +57,7 @@ pub fn unreachable_message(uri: &str, error: &str) -> String {
         "no MongoDB server reachable at {uri} ({error}). The local-server tests need a server \
          you already started, for example `mongod --dbpath /tmp/msit-db` or \
          `docker run -d -p 27017:27017 mongo:7`. Set {ENV_LOCAL_URI} to use another address. \
-         They write only to throwaway msit_* databases: point them at a throwaway server."
+         They write only to throwaway cbit_* databases: point them at a throwaway server."
     )
 }
 

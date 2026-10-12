@@ -2,8 +2,8 @@
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
 use crate::I18n;
 use crate::viewmodel::{FindBarState, FindIntent, pick_intent, resolve_find_intent};
+use curlybrace_core::query::QueryText;
 use eframe::egui;
-use mongostudio_core::query::QueryText;
 
 pub use crate::viewmodel::FindAction;
 
@@ -92,7 +92,7 @@ fn buttons(ui: &mut egui::Ui, has_prev: bool, has_next: bool, i18n: &I18n) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mongostudio_core::error::CoreError;
+    use curlybrace_core::error::CoreError;
 
     fn run_frame(state: &mut FindBarState, prev: bool, next: bool) -> Option<FindAction> {
         let ctx = egui::Context::default();

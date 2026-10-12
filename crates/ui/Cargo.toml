@@ -1,6 +1,6 @@
 [package]
-name = "mongostudio-ui"
-description = "egui views, view-models and app state for The MongoDB GUI"
+name = "curlybrace-ui"
+description = "egui views, view-models and app state for Curlybrace"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,7 +15,7 @@ dirs = "7.0.0"
 log = "0.4.26"
 eframe = "0.32.3"
 egui_extras = { version = "0.32.3", default-features = false }
-mongostudio-core = { path = "../core" }
+curlybrace-core = { path = "../core" }
 serde_json = "1.0.154"
 uuid = "1.26.1"
 
@@ -23,7 +23,7 @@ uuid = "1.26.1"
 async-trait = "0.1.92"
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = ["full"] }
-mongostudio-core = { path = "../core", features = ["test-support"] }
+curlybrace-core = { path = "../core", features = ["test-support"] }
 egui_kittest = { version = "0.32.3", features = ["snapshot", "wgpu"] }
 mongodb = "3.6.0"
-mongostudio-testkit = { path = "../testkit" }
+curlybrace-testkit = { path = "../testkit" }

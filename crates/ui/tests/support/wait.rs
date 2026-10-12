@@ -1,7 +1,7 @@
 //! Bounded waiting for the asynchronous runtime. There are no fixed sleeps used as assertions:
 //! every wait ends as soon as its condition holds and FAILS with context at the deadline.
+use curlybrace_ui::app::CurlybraceApp;
 use egui_kittest::Harness;
-use mongostudio_ui::app::MongoStudioApp;
 use std::time::{Duration, Instant};
 
 /// Real-time pause between frames while waiting for the runtime thread.
@@ -15,10 +15,10 @@ pub const SHORT: Duration = Duration::from_secs(20);
 /// Panics with the app state summary once `timeout` has passed.
 #[track_caller]
 pub fn wait_until(
-    harness: &mut Harness<'_, MongoStudioApp>,
+    harness: &mut Harness<'_, CurlybraceApp>,
     what: &str,
     timeout: Duration,
-    mut cond: impl FnMut(&Harness<'_, MongoStudioApp>) -> bool,
+    mut cond: impl FnMut(&Harness<'_, CurlybraceApp>) -> bool,
 ) {
     let deadline = Instant::now() + timeout;
     loop {
@@ -43,6 +43,6 @@ pub fn wait_until(
 
 /// Runs a few frames so a just-queued click or key is processed and the accessibility tree
 /// reflects it. Frames are cheap; this is not a substitute for [`wait_until`] on async work.
-pub fn settle(harness: &mut Harness<'_, MongoStudioApp>) {
+pub fn settle(harness: &mut Harness<'_, CurlybraceApp>) {
     harness.run_steps(3);
 }

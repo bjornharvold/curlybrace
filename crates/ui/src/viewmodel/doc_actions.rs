@@ -1,7 +1,7 @@
 //! Document actions from row context menus and the delete confirmation step.
 use super::page_key::PageKey;
 use bson::{Bson, Document};
-use mongostudio_core::crud::id_of;
+use curlybrace_core::crud::id_of;
 
 /// Longest `_id` preview shown in the delete confirmation, in characters.
 pub const ID_PREVIEW_MAX_CHARS: usize = 80;
@@ -153,7 +153,7 @@ mod tests {
     use crate::viewmodel::editor::EditorState;
     use bson::spec::BinarySubtype;
     use bson::{Binary, doc, oid::ObjectId};
-    use mongostudio_core::test_support::mock_objects::mock_doc_with_id;
+    use curlybrace_core::test_support::mock_objects::mock_doc_with_id;
 
     fn key(n: usize) -> PageKey {
         PageKey {

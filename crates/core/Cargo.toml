@@ -1,6 +1,6 @@
 [package]
-name = "mongostudio-core"
-description = "Driver wrapper, connections, secrets, SSH tunnel and async runtime for The MongoDB GUI"
+name = "curlybrace-core"
+description = "Driver wrapper, connections, secrets, SSH tunnel and async runtime for Curlybrace"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -30,6 +30,6 @@ test-support = []
 
 [dev-dependencies]
 tempfile = "3.27.0"
-mongostudio-testkit = { path = "../testkit" }
+curlybrace-testkit = { path = "../testkit" }
 # Integration tests share the fixtures behind the `test-support` feature.
-mongostudio-core = { path = ".", features = ["test-support"] }
+curlybrace-core = { path = ".", features = ["test-support"] }

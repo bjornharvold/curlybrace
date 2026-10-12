@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::error::{CoreError, Result};
 
-const SERVICE: &str = "mongostudio";
+const SERVICE: &str = "curlybrace";
 
 /// Storage for connection secrets. Values must never be logged or put in errors.
 pub trait SecretStore: Send + Sync {
@@ -65,7 +65,7 @@ impl SecretStore for MemorySecretStore {
     }
 }
 
-/// macOS Keychain-backed store (service `mongostudio`).
+/// macOS Keychain-backed store (service `curlybrace`).
 #[derive(Default)]
 pub struct KeyringSecretStore;
 

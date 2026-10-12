@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "MongoStudio"
+    "title": "Curlybrace"
   },
   "auth": {
     "gssapi": "Kerberos (GSSAPI, experimental)",
@@ -128,7 +128,7 @@
     "list_collections": "Could not load collections",
     "list_databases": "Could not load databases",
     "replace": "Could not save the document",
-    "runtime": "The background worker stopped. Restart MongoStudio",
+    "runtime": "The background worker stopped. Restart Curlybrace",
     "save_connection": "Could not save the connection",
     "secrets": "Could not access saved credentials"
   },
@@ -160,7 +160,7 @@
     "trust_remember": "Trust and remember"
   },
   "persist": {
-    "blocked": "Saving is turned off because the saved connections file could not be backed up. Fix the permissions of the connections file or its folder, then restart MongoStudio.",
+    "blocked": "Saving is turned off because the saved connections file could not be backed up. Fix the permissions of the connections file or its folder, then restart Curlybrace.",
     "config_dir_unknown": "Could not find a settings folder, so saved connections cannot be loaded or stored.",
     "corrupt": "The saved connections file is not valid.",
     "corrupt_backed_up": "The saved connections file was not readable. A backup copy was kept next to it; saving a connection will replace the original file.",

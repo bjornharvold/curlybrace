@@ -1,7 +1,7 @@
 //! Find bar state: raw query text plus the last validation error.
-use mongostudio_core::error::CoreError;
-use mongostudio_core::query::{QueryText, parse_query};
-use mongostudio_core::store::Query;
+use curlybrace_core::error::CoreError;
+use curlybrace_core::query::{QueryText, parse_query};
+use curlybrace_core::store::Query;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FindBarState {
@@ -77,7 +77,7 @@ pub fn submit_find(state: &FindBarState) -> Result<Query, FindBarState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mongostudio_core::store::PAGE_SIZE;
+    use curlybrace_core::store::PAGE_SIZE;
 
     fn with_filter(f: &str) -> FindBarState {
         FindBarState {

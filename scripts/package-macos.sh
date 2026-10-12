@@ -4,7 +4,7 @@
 #   scripts/package-macos.sh <version> <target-triple> [binary-path]
 #
 # Example: scripts/package-macos.sh 0.1.0 aarch64-apple-darwin
-# Output (in ./dist): the-mongodb-gui-v<version>-macos-arm64.zip and a .sha256 file.
+# Output (in ./dist): curlybrace-v<version>-macos-arm64.zip and a .sha256 file.
 #
 # The bundle is ad-hoc signed (a valid signature is required for arm64 binaries to run),
 # but NOT notarized: macOS Gatekeeper asks for confirmation on first launch.
@@ -12,7 +12,7 @@ set -euo pipefail
 
 VERSION="${1:?usage: package-macos.sh <version> <target-triple> [binary-path]}"
 TARGET="${2:?usage: package-macos.sh <version> <target-triple> [binary-path]}"
-BINARY="${3:-target/${TARGET}/release/mongostudio}"
+BINARY="${3:-target/${TARGET}/release/curlybrace}"
 
 # The version ends up inside Info.plist and file names: accept only plain semver.
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
@@ -28,16 +28,16 @@ esac
 
 [[ -x "$BINARY" ]] || { echo "binary not found or not executable: $BINARY" >&2; exit 1; }
 
-APP_NAME="The MongoDB GUI"
-BUNDLE_ID="io.github.bjornharvold.the-mongodb-gui"
+APP_NAME="Curlybrace"
+BUNDLE_ID="io.github.bjornharvold.curlybrace"
 DIST="dist"
 APP="${DIST}/${APP_NAME}.app"
-ASSET="the-mongodb-gui-v${VERSION}-macos-${ARCH_LABEL}"
+ASSET="curlybrace-v${VERSION}-macos-${ARCH_LABEL}"
 
 rm -rf "$DIST"
 mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
-cp "$BINARY" "${APP}/Contents/MacOS/mongostudio"
-chmod 755 "${APP}/Contents/MacOS/mongostudio"
+cp "$BINARY" "${APP}/Contents/MacOS/curlybrace"
+chmod 755 "${APP}/Contents/MacOS/curlybrace"
 cp LICENSE-MIT LICENSE-APACHE "${APP}/Contents/Resources/"
 cp assets/icon/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
 
@@ -49,7 +49,7 @@ cat > "${APP}/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>${APP_NAME}</string>
   <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
-  <key>CFBundleExecutable</key><string>mongostudio</string>
+  <key>CFBundleExecutable</key><string>curlybrace</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>

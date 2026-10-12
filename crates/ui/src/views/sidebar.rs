@@ -171,7 +171,7 @@ fn placeholder(ui: &mut egui::Ui, text: &str) -> Option<SidebarAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mongostudio_core::store::Namespace;
+    use curlybrace_core::store::Namespace;
 
     fn names(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()

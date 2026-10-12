@@ -1,18 +1,18 @@
 //! The real app + real runtime + a real server, assembled for one test.
 use super::db::TestDb;
 use super::screen::Labels;
-use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::runtime::{RuntimeConfig, spawn_runtime_with_config};
-use mongostudio_core::secrets::{MemorySecretStore, SecretStore};
-use mongostudio_testkit::{
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::runtime::{RuntimeConfig, spawn_runtime_with_config};
+use curlybrace_core::secrets::{MemorySecretStore, SecretStore};
+use curlybrace_testkit::{
     Container, MongoServer, docker_enabled, local_enabled, local_server, poll_with,
     unreachable_message,
 };
-use mongostudio_ui::app::MongoStudioApp;
-use mongostudio_ui::app::host_key::InteractivePrompt;
-use mongostudio_ui::app::runtime_config;
+use curlybrace_ui::app::CurlybraceApp;
+use curlybrace_ui::app::host_key::InteractivePrompt;
+use curlybrace_ui::app::runtime_config;
+use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +26,7 @@ const OWNED_READY_LIMIT: Duration = Duration::from_secs(90);
 const LOCAL_READY_LIMIT: Duration = Duration::from_secs(10);
 
 pub struct Fixture {
-    pub harness: Harness<'static, MongoStudioApp>,
+    pub harness: Harness<'static, CurlybraceApp>,
     pub labels: Labels,
     pub secrets: Arc<MemorySecretStore>,
     pub config_path: PathBuf,
@@ -43,7 +43,7 @@ fn launch(
     dir: &TempDir,
     secrets: Arc<MemorySecretStore>,
     saved: Vec<ConnectionConfig>,
-) -> (Harness<'static, MongoStudioApp>, PathBuf) {
+) -> (Harness<'static, CurlybraceApp>, PathBuf) {
     let _enter = rt.enter();
     let config_path = dir.path().join("connections.json");
     let known_hosts = dir.path().join("known_hosts");
@@ -51,13 +51,13 @@ fn launch(
     let config: RuntimeConfig = runtime_config(Some(known_hosts.clone()), prompt);
     let store: Arc<dyn SecretStore> = secrets;
     let handle = spawn_runtime_with_config(Some(store.clone()), None, Arc::new(|| {}), config);
-    let app = MongoStudioApp::new(handle, mongostudio_ui::I18n::english(), saved, store)
+    let app = CurlybraceApp::new(handle, curlybrace_ui::I18n::english(), saved, store)
         .with_config_path(Ok(config_path.clone()))
         .with_known_hosts_path(Some(known_hosts))
         .with_host_key_requests(requests);
     let harness = Harness::builder()
         .with_size(eframe::egui::vec2(WINDOW.0, WINDOW.1))
-        .build_state(|ctx, app: &mut MongoStudioApp| app.run_frame(ctx), app);
+        .build_state(|ctx, app: &mut CurlybraceApp| app.run_frame(ctx), app);
     (harness, config_path)
 }
 
@@ -106,7 +106,7 @@ impl Setup {
 }
 
 impl Fixture {
-    /// Tier 1: the already-running local server (`MONGOSTUDIO_IT_MONGO_URI`, default
+    /// Tier 1: the already-running local server (`CURLYBRACE_IT_MONGODB_URI`, default
     /// `mongodb://127.0.0.1:27017`) with one saved connection to it. `None`, after printing why,
     /// when the integration gate is off. FAILS if the gate is on and no server answers.
     pub fn local(test: &str) -> Option<Self> {
@@ -126,7 +126,7 @@ impl Fixture {
         })
     }
 
-    /// Tier 2: a fresh `ms-it-*` container with a fixed port (so it can be stopped and started)
+    /// Tier 2: a fresh `cb-it-*` container with a fixed port (so it can be stopped and started)
     /// and one saved connection. Needs docker; `None` when the gate is off.
     pub fn docker_plain(test: &str) -> Option<Self> {
         docker_enabled(test).then(|| {

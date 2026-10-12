@@ -7,7 +7,7 @@ pub const SSH_USER: &str = "tester";
 pub const SSH_PASSWORD: &str = "it-ssh-pw-1";
 const SSH_IMAGE: &str = "lscr.io/linuxserver/openssh-server";
 
-/// sshd and MongoDB on a private `ms-it-net-*` network. Everything is removed on drop
+/// sshd and MongoDB on a private `cb-it-net-*` network. Everything is removed on drop
 /// (containers first, then the network).
 pub struct SshStack {
     network: String,
@@ -20,9 +20,9 @@ impl SshStack {
     pub fn start() -> Self {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let mut stack = Self {
-            network: format!("ms-it-net-{id}"),
-            mongo: format!("ms-it-mongo-{id}"),
-            sshd: format!("ms-it-sshd-{id}"),
+            network: format!("cb-it-net-{id}"),
+            mongo: format!("cb-it-mongo-{id}"),
+            sshd: format!("cb-it-sshd-{id}"),
             ssh_port: 0,
         };
         docker(&["network", "create", &stack.network]).expect("docker network create");

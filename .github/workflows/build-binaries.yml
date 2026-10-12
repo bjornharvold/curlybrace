@@ -60,7 +60,7 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - name: Build
-        run: cargo build --release --locked -p mongostudio --target ${{ matrix.target }}
+        run: cargo build --release --locked -p curlybrace --target ${{ matrix.target }}
         env:
           # Keep in step with LSMinimumSystemVersion in scripts/package-macos.sh.
           MACOSX_DEPLOYMENT_TARGET: "12.0"

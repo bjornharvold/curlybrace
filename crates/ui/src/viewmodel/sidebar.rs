@@ -1,6 +1,6 @@
 //! Sidebar tree state: databases, lazily loaded collections, selection.
 //! Every transition consumes the state and returns a new value.
-use mongostudio_core::store::Namespace;
+use curlybrace_core::store::Namespace;
 use std::collections::HashSet;
 
 /// One database row. `collections == None` means "not loaded yet".

@@ -72,7 +72,7 @@ fn buttons(ui: &mut egui::Ui, i18n: &I18n, save_enabled: bool) -> Option<EditorI
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mongostudio_core::test_support::mock_objects::exotic_doc;
+    use curlybrace_core::test_support::mock_objects::exotic_doc;
 
     fn frames(state: &mut EditorState) -> Vec<EditorAction> {
         let ctx = egui::Context::default();

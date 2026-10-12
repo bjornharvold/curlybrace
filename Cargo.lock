@@ -1181,6 +1181,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "curlybrace"
+version = "0.0.0"
+dependencies = [
+ "curlybrace-core",
+ "curlybrace-ui",
+ "eframe",
+ "log",
+ "tokio",
+]
+
+[[package]]
+name = "curlybrace-core"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "bson",
+ "curlybrace-core",
+ "curlybrace-testkit",
+ "dirs",
+ "futures",
+ "keyring",
+ "log",
+ "mongodb",
+ "russh",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "curlybrace-testkit"
+version = "0.0.0"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
+name = "curlybrace-ui"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "bson",
+ "curlybrace-core",
+ "curlybrace-testkit",
+ "dirs",
+ "eframe",
+ "egui_extras",
+ "egui_kittest",
+ "log",
+ "mongodb",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3159,66 +3219,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "mongostudio"
-version = "0.0.0"
-dependencies = [
- "eframe",
- "log",
- "mongostudio-core",
- "mongostudio-ui",
- "tokio",
-]
-
-[[package]]
-name = "mongostudio-core"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "bson",
- "dirs",
- "futures",
- "keyring",
- "log",
- "mongodb",
- "mongostudio-core",
- "mongostudio-testkit",
- "russh",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "mongostudio-testkit"
-version = "0.0.0"
-dependencies = [
- "uuid",
-]
-
-[[package]]
-name = "mongostudio-ui"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "bson",
- "dirs",
- "eframe",
- "egui_extras",
- "egui_kittest",
- "log",
- "mongodb",
- "mongostudio-core",
- "mongostudio-testkit",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
 ]
 
 [[package]]

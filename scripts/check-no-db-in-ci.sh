@@ -15,7 +15,7 @@ set -euo pipefail
 
 root="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 
-patterns='MONGOSTUDIO_IT|container-tests|integration-tests|docker[[:space:]]+(run|compose)|docker-compose|testcontainers|^[[:space:]-]*services[[:space:]]*:|mongo:|mongo-?db|mongod([^[:alnum:]]|$)|mongosh|brew[[:space:]]+install[[:space:]]+mongo'
+patterns='CURLYBRACE_IT|container-tests|integration-tests|docker[[:space:]]+(run|compose)|docker-compose|testcontainers|^[[:space:]-]*services[[:space:]]*:|mongo:|mongo-?db|mongod([^[:alnum:]]|$)|mongosh|brew[[:space:]]+install[[:space:]]+mongo'
 
 dirs=()
 for d in .github/workflows .github/actions; do

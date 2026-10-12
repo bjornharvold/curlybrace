@@ -3,9 +3,9 @@ use super::context_menu::row_context_menu;
 use super::metrics::row_height;
 use crate::I18n;
 use crate::viewmodel::{DocAction, PageKey, TreeState, cell_text, menu_items, table_columns};
+use curlybrace_core::store::Page;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
-use mongostudio_core::store::Page;
 
 const COLUMN_INITIAL_WIDTH: f32 = 140.0;
 

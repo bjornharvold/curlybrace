@@ -1,10 +1,8 @@
 //! Editable connection form: validation, config mapping and secret persistence.
-use mongostudio_core::GSSAPI_AVAILABLE;
-use mongostudio_core::connection::{
-    AuthMechanism, ConnectionConfig, SshAuth, SshConfig, TlsConfig,
-};
-use mongostudio_core::error::{CoreError, Result};
-use mongostudio_core::secrets::{SecretKind, SecretStore, secret_key};
+use curlybrace_core::GSSAPI_AVAILABLE;
+use curlybrace_core::connection::{AuthMechanism, ConnectionConfig, SshAuth, SshConfig, TlsConfig};
+use curlybrace_core::error::{CoreError, Result};
+use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
 use std::fmt;
 use uuid::Uuid;
 
@@ -287,8 +285,8 @@ fn non_blank(s: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::I18n;
-    use mongostudio_core::connection::{SshAuth, TlsConfig};
-    use mongostudio_core::secrets::{MemorySecretStore, SecretKind, secret_key};
+    use curlybrace_core::connection::{SshAuth, TlsConfig};
+    use curlybrace_core::secrets::{MemorySecretStore, SecretKind, secret_key};
 
     fn valid() -> ConnectionForm {
         ConnectionForm {
@@ -601,7 +599,7 @@ mod tests {
         let opts = auth_options();
         assert_eq!(
             opts.contains(&AuthMechanism::Gssapi),
-            mongostudio_core::GSSAPI_AVAILABLE
+            curlybrace_core::GSSAPI_AVAILABLE
         );
         assert!(opts.contains(&AuthMechanism::None) && opts.contains(&AuthMechanism::Plain));
     }

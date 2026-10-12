@@ -4,7 +4,7 @@
 
 ## How it was tested
 
-<!-- Unit tests? Integration tests with MONGOSTUDIO_IT=1? Manual steps? -->
+<!-- Unit tests? Integration tests with CURLYBRACE_IT=1? Manual steps? -->
 
 ## Checklist
 

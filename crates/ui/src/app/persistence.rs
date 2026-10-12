@@ -1,8 +1,8 @@
 //! Connection list persistence: JSON without secrets, atomic 0600 writes.
-use mongostudio_core::connection::ConnectionConfig;
+use curlybrace_core::connection::ConnectionConfig;
 use std::path::{Path, PathBuf};
 
-const APP_DIR: &str = "mongostudio";
+const APP_DIR: &str = "curlybrace";
 const FILE_NAME: &str = "connections.json";
 
 /// Why reading or writing app files failed. Detail goes to the log, never the screen.
@@ -153,7 +153,7 @@ pub struct Loaded {
     pub skipped: usize,
 }
 
-/// `<config dir>/mongostudio/connections.json`; no fallback to the working directory.
+/// `<config dir>/curlybrace/connections.json`; no fallback to the working directory.
 pub fn default_connections_path() -> Result<PathBuf, PersistError> {
     dirs::config_dir()
         .map(|dir| dir.join(APP_DIR).join(FILE_NAME))
@@ -274,7 +274,7 @@ fn write_temp_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mongostudio_core::connection::{SshAuth, SshConfig};
+    use curlybrace_core::connection::{SshAuth, SshConfig};
 
     fn cfg(name: &str) -> ConnectionConfig {
         ConnectionConfig::new(name, "mongodb://localhost:27017")

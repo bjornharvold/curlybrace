@@ -1,6 +1,6 @@
 //! Which error details may be shown or logged, and how failures are logged.
-use mongostudio_core::error::CoreError;
-use mongostudio_core::runtime::Event;
+use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::Event;
 
 /// The raw text that may be shown next to the localized message: only for errors whose text is
 /// the user's own input (`InvalidJson`, `InvalidDocument`) or a server message (`Database`).
@@ -86,8 +86,8 @@ mod tests {
 
     #[tokio::test]
     async fn secret_bearing_inputs_never_reach_error_text() {
-        use mongostudio_core::client::build_client_options;
-        use mongostudio_core::connection::ConnectionConfig;
+        use curlybrace_core::client::build_client_options;
+        use curlybrace_core::connection::ConnectionConfig;
         const SENTINEL: &str = "S3NTINEL-pw";
         let embedded = ConnectionConfig::new("a", &format!("mongodb://u:{SENTINEL}@h:27017"));
         let query = ConnectionConfig::new(

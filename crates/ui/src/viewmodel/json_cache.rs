@@ -1,7 +1,7 @@
 //! Cached JSON view text so large pages are serialised once per result set.
 use super::page_key::PageKey;
-use mongostudio_core::ejson::doc_to_view_json;
-use mongostudio_core::store::Page;
+use curlybrace_core::ejson::doc_to_view_json;
+use curlybrace_core::store::Page;
 use std::rc::Rc;
 
 /// One pretty-printed relaxed extended JSON string per document.

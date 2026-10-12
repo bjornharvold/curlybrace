@@ -3,20 +3,20 @@
 //! the target. Fast, offline, no GPU (runs in the default `cargo test`).
 mod support;
 
+use curlybrace_ui::app::CurlybraceApp;
+use curlybrace_ui::app::state::ConnStatus;
+use curlybrace_ui::viewmodel::SidebarState;
+use curlybrace_ui::views::sidebar::db_row_label;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use mongostudio_ui::app::MongoStudioApp;
-use mongostudio_ui::app::state::ConnStatus;
-use mongostudio_ui::viewmodel::SidebarState;
-use mongostudio_ui::views::sidebar::db_row_label;
 use support::shots::build_app;
 use support::sidebar::{click_sidebar_row, scroll_sidebar_until_shown};
 
 const FILLERS: usize = 200;
-const TARGET: &str = "msit_target";
+const TARGET: &str = "cbit_target";
 
 fn browser_with_many_databases() -> (
-    Harness<'static, MongoStudioApp>,
+    Harness<'static, CurlybraceApp>,
     tokio::runtime::Runtime,
     tempfile::TempDir,
 ) {
@@ -30,7 +30,7 @@ fn browser_with_many_databases() -> (
     state.sidebar = SidebarState::default().with_databases(names);
     let harness = Harness::builder()
         .with_size(eframe::egui::vec2(1000.0, 700.0))
-        .build_state(|ctx, app: &mut MongoStudioApp| app.run_frame(ctx), app);
+        .build_state(|ctx, app: &mut CurlybraceApp| app.run_frame(ctx), app);
     (harness, rt, dir)
 }
 

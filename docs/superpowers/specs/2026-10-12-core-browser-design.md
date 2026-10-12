@@ -37,9 +37,9 @@ Cargo workspace:
 
 | Crate | Responsibility | Depends on |
 |-------|----------------|------------|
-| `mongostudio-core` | `mongodb` driver wrapper, connection model, auth config, SSH tunnel (`russh`), secret storage, `CoreError` | no UI crates |
-| `mongostudio-ui` | egui views and widgets, i18n layer | `core` |
-| `mongostudio` (bin) | app state, wiring, runtime startup | `core`, `ui` |
+| `curlybrace-core` | `mongodb` driver wrapper, connection model, auth config, SSH tunnel (`russh`), secret storage, `CoreError` | no UI crates |
+| `curlybrace-ui` | egui views and widgets, i18n layer | `core` |
+| `curlybrace` (bin) | app state, wiring, runtime startup | `core`, `ui` |
 
 `core` has no egui dependency so later sub-projects stay reusable and testable headless.
 
@@ -84,5 +84,5 @@ documenting it as unsupported if the driver cannot do it. SCRAM, X.509 and LDAP 
 
 ## Open questions
 
-- Project name and license (placeholder crate prefix `mongostudio`).
+- Project name and license (placeholder crate prefix `curlybrace`).
 - Whether tunnel credentials can reuse the system `ssh-agent`.

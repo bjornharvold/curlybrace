@@ -31,7 +31,7 @@ expect 0 "clean workflow passes" "$(fixture clean .github/workflows/ci.yml 'carg
 
 # Docs/config outside workflows and actions may mention MongoDB.
 mkdir -p "$work/docs/.github/ISSUE_TEMPLATE" "$work/docs/.github/workflows"
-echo "MongoDB server version? MONGOSTUDIO_IT=1" >"$work/docs/.github/ISSUE_TEMPLATE/bug.md"
+echo "MongoDB server version? CURLYBRACE_IT=1" >"$work/docs/.github/ISSUE_TEMPLATE/bug.md"
 echo "name: ok" >"$work/docs/.github/workflows/ci.yml"
 expect 0 "templates outside workflows/actions are out of scope" "$work/docs"
 
@@ -40,8 +40,8 @@ while IFS= read -r line; do
   i=$((i + 1))
   expect 1 "workflow forbids: $line" "$(fixture "w$i" .github/workflows/ci.yml "$line")"
 done <<'LINES'
-MONGOSTUDIO_IT=1 cargo test
-monGOSTUDIO_it=1 cargo test
+CURLYBRACE_IT=1 cargo test
+curlyBRACE_it=1 cargo test
 scripts/integration-tests.sh
 scripts/container-tests.sh
 docker run -d mongo:7
@@ -54,13 +54,13 @@ mongosh --eval 1
 cargo test -- --include-ignored
 cargo test -- --ignored
 cargo test --workspace --locked -- --include-ignored
-cargo test -p mongostudio-ui --test snapshots --test local_e2e_flows -- --include-ignored
+cargo test -p curlybrace-ui --test snapshots --test local_e2e_flows -- --include-ignored
 cargo test --test snapshots --workspace -- --include-ignored
 setup-mongodb
 LINES
 
 expect 0 "the DB-free screenshot job may use --include-ignored" \
-  "$(fixture snap .github/workflows/ci.yml 'cargo test -p mongostudio-ui --test snapshots --locked -- --include-ignored')"
+  "$(fixture snap .github/workflows/ci.yml 'cargo test -p curlybrace-ui --test snapshots --locked -- --include-ignored')"
 
 mkdir -p "$work/svc/.github/workflows"
 printf 'jobs:\n  j:\n    services:\n      db:\n        image: postgres\n' >"$work/svc/.github/workflows/ci.yml"

@@ -4,7 +4,7 @@
 
 **Goal:** A macOS egui desktop app that connects to MongoDB (SCRAM/X.509/LDAP/Kerberos best-effort, TLS, SSH tunnel), browses databases/collections, queries with filter/sort/projection/skip/limit, shows documents as tree/table/JSON with paging, and supports document CRUD.
 
-**Architecture:** Cargo workspace. `mongostudio-core` (no UI deps) wraps the `mongodb` driver behind a `DocumentStore` trait, owns connection config, secrets, SSH tunnel and typed errors. `mongostudio-ui` holds egui views plus pure view-model functions. `mongostudio` (bin) wires a background Tokio runtime to the UI over `mpsc` channels.
+**Architecture:** Cargo workspace. `curlybrace-core` (no UI deps) wraps the `mongodb` driver behind a `DocumentStore` trait, owns connection config, secrets, SSH tunnel and typed errors. `curlybrace-ui` holds egui views plus pure view-model functions. `curlybrace` (bin) wires a background Tokio runtime to the UI over `mpsc` channels.
 
 **Tech Stack:** Rust (stable), `mongodb` + `bson` (driver), `tokio`, `async-trait`, `serde`/`serde_json`, `thiserror`, `uuid`, `keyring` (macOS Keychain), `russh` + `russh-keys` (SSH), `eframe`/`egui`/`egui_extras`, `tempfile` (tests), `testcontainers` (integration tests).
 
@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - Platform: macOS only. UI toolkit: egui (pure Rust). No decompilation or porting of any proprietary binary.
-- Workspace crates: `mongostudio-core`, `mongostudio-ui`, `mongostudio` (bin). `core` MUST NOT depend on egui/eframe.
+- Workspace crates: `curlybrace-core`, `curlybrace-ui`, `curlybrace` (bin). `core` MUST NOT depend on egui/eframe.
 - Page size: 50 documents per page.
 - Secrets (passwords, SSH keys/passphrases) live only in the macOS Keychain; config on disk holds references only; secrets never appear in logs or errors.
 - Every user-facing string resolves through an i18n key in the hand-edited nested `crates/ui/locales/en.json`; no literal English in UI code. Report new keys at the end of each UI task.
@@ -64,7 +64,7 @@ crates/ui/
   src/lib.rs
   src/i18n.rs
   src/viewmodel.rs                          table/tree/page pure functions
-  src/app.rs                                MongoStudioApp (eframe::App)
+  src/app.rs                                CurlybraceApp (eframe::App)
   src/views/{mod,connections,sidebar,findbar,tree,table,json,editor}.rs
 crates/app/
   Cargo.toml
@@ -80,15 +80,15 @@ docs/superpowers/notes/gssapi-spike.md      spike result
 - Create: `Cargo.toml`, `crates/core/Cargo.toml`, `crates/core/src/lib.rs`, `crates/core/src/error.rs`, `.gitignore`
 
 **Interfaces:**
-- Produces: `mongostudio_core::error::{CoreError, Result<T>}`; `CoreError::i18n_key(&self) -> &'static str`
+- Produces: `curlybrace_core::error::{CoreError, Result<T>}`; `CoreError::i18n_key(&self) -> &'static str`
 
 - [ ] **Step 1: Init repo and workspace**
 
 ```bash
-cd path/to/the-mongodb-gui
+cd path/to/curlybrace
 git init
 printf '/target\n.DS_Store\n' > .gitignore
-cargo new --lib crates/core --name mongostudio-core
+cargo new --lib crates/core --name curlybrace-core
 ```
 
 `Cargo.toml`:
@@ -131,7 +131,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: Run, expect FAIL** — `cargo test -p mongostudio-core error` -> compile error: `CoreError` not found.
+- [ ] **Step 3: Run, expect FAIL** — `cargo test -p curlybrace-core error` -> compile error: `CoreError` not found.
 
 - [ ] **Step 4: Implement** (above the test module)
 
@@ -179,7 +179,7 @@ impl CoreError {
 
 `lib.rs`: `pub mod error;`
 
-- [ ] **Step 5: Run, expect PASS** — `cargo test -p mongostudio-core error`
+- [ ] **Step 5: Run, expect PASS** — `cargo test -p curlybrace-core error`
 
 - [ ] **Step 6: Commit**
 
@@ -270,7 +270,7 @@ mod tests {
 
 (`SshAuth::Password` is a unit variant, so "password" appears nowhere in a default config's JSON because `ssh` is `null`.)
 
-- [ ] **Step 2: Run, expect FAIL** — `cargo test -p mongostudio-core connection` (types not defined).
+- [ ] **Step 2: Run, expect FAIL** — `cargo test -p curlybrace-core connection` (types not defined).
 
 - [ ] **Step 3: Implement**
 
@@ -375,7 +375,7 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, key: &str) -> Result<()>;
 }
 pub struct MemorySecretStore;           // Default + new(); tests and fallbacks
-pub struct KeyringSecretStore;          // service "mongostudio"
+pub struct KeyringSecretStore;          // service "curlybrace"
 pub fn secret_key(id: Uuid, kind: SecretKind) -> String   // "conn:<id>:password" | ":ssh-password" | ":ssh-passphrase"
 pub enum SecretKind { Password, SshPassword, SshPassphrase }
 ```
@@ -409,7 +409,7 @@ mod tests {
 ```
 
 - [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement.** `MemorySecretStore` wraps `Mutex<HashMap<String,String>>`. `KeyringSecretStore` uses `keyring::Entry::new("mongostudio", key)`; map `keyring::Error::NoEntry` to `Ok(None)` / idempotent delete, every other error to `CoreError::Secret(e.to_string())` (never include the value). `cargo add keyring --features apple-native`.
+- [ ] **Step 3: Implement.** `MemorySecretStore` wraps `Mutex<HashMap<String,String>>`. `KeyringSecretStore` uses `keyring::Entry::new("curlybrace", key)`; map `keyring::Error::NoEntry` to `Ok(None)` / idempotent delete, every other error to `CoreError::Secret(e.to_string())` (never include the value). `cargo add keyring --features apple-native`.
 
 ```rust
 impl SecretStore for KeyringSecretStore {
@@ -435,7 +435,7 @@ impl SecretStore for KeyringSecretStore {
 ```
 
 - [ ] **Step 4: Run, expect PASS.**
-- [ ] **Step 5: Add an `#[ignore]` test** `keyring_round_trip_on_macos` that does set/get/delete against the real Keychain with a random key; run once manually: `cargo test -p mongostudio-core keyring -- --ignored`.
+- [ ] **Step 5: Add an `#[ignore]` test** `keyring_round_trip_on_macos` that does set/get/delete against the real Keychain with a random key; run once manually: `cargo test -p curlybrace-core keyring -- --ignored`.
 - [ ] **Step 6: Commit** `feat(core): add secret store backed by macos keychain`
 
 ---
@@ -540,9 +540,9 @@ Write the `x509_and_plain...` body fully (three assertions) rather than leaving 
 **Interfaces:** Produces the `gssapi` cargo feature (forwarding to the driver's GSSAPI feature if one exists) and a written verdict. Throwaway code is labeled as such.
 
 - [ ] **Step 1:** Check the installed driver version's feature list (`cargo metadata --format-version 1 | jq` on the `mongodb` package, or docs.rs "Feature flags") for a GSSAPI/Kerberos feature.
-- [ ] **Step 2:** If present, add `gssapi = ["mongodb/<feature-name>"]` to `[features]`, run `cargo check -p mongostudio-core --features gssapi`, and confirm `AuthMechanism::Gssapi` compiles in Task 4's builder. If a KDC is available (e.g. a krb5 test container), attempt a real auth; otherwise note it untested.
+- [ ] **Step 2:** If present, add `gssapi = ["mongodb/<feature-name>"]` to `[features]`, run `cargo check -p curlybrace-core --features gssapi`, and confirm `AuthMechanism::Gssapi` compiles in Task 4's builder. If a KDC is available (e.g. a krb5 test container), attempt a real auth; otherwise note it untested.
 - [ ] **Step 3:** Write `gssapi-spike.md` with: driver version, feature name (or "none"), compile result, runtime result, system library requirement (macOS ships GSS.framework), and a verdict: **supported** / **supported-untested** / **unsupported**.
-- [ ] **Step 4:** If unsupported, leave the `gssapi` feature absent; Task 4's `Unsupported` error already covers it, and Task 12's connection form must hide the Kerberos option via `cfg!(feature = "gssapi")` exposed as `mongostudio_core::GSSAPI_AVAILABLE: bool` (add this const in `lib.rs` now).
+- [ ] **Step 4:** If unsupported, leave the `gssapi` feature absent; Task 4's `Unsupported` error already covers it, and Task 12's connection form must hide the Kerberos option via `cfg!(feature = "gssapi")` exposed as `curlybrace_core::GSSAPI_AVAILABLE: bool` (add this const in `lib.rs` now).
 - [ ] **Step 5: Commit** `docs: record gssapi spike verdict`
 
 ---
@@ -771,7 +771,7 @@ pub fn save_connection(cfg: &ConnectionConfig, form: &ConnectionForm, secrets: &
 - [ ] **Step 1: Failing tests** for `table_columns` (heterogeneous docs, `_id` first), `cell_text` (every `exotic_doc` field produces non-empty text, nested sizes), `ConnectionForm::to_config` (bad port `"abc"` -> `Err`, blank name -> `Err`, ssh disabled -> `ssh == None`), `save_connection` (password only in the `MemorySecretStore`, absent from `serde_json::to_string(&cfg)`), `auth_options` excludes Gssapi when unavailable.
 - [ ] **Step 2: Run, expect FAIL.**
 - [ ] **Step 3: Implement** pure functions first, then the egui form (labels via `i18n.t("connections.*")`, validation error shown via `i18n.error`). Add keys: `connections.{title,new,name,uri,auth,username,password,tls,tls_ca,tls_client_cert,ssh,ssh_host,ssh_port,ssh_user,ssh_key,ssh_secret,connect,test}`, `auth.{none,scram_sha1,scram_sha256,x509,gssapi,plain}`.
-- [ ] **Step 4: Run, expect PASS; `cargo check -p mongostudio-ui`.**
+- [ ] **Step 4: Run, expect PASS; `cargo check -p curlybrace-ui`.**
 - [ ] **Step 5: Commit** `feat(ui): add connection manager and view-model helpers`
 
 ---
@@ -871,11 +871,11 @@ pub fn show_editor(ctx, &mut EditorState, &I18n) -> Option<EditorAction>;
 
 **Interfaces:**
 - Consumes: everything above
-- Produces: `pub struct MongoStudioApp` implementing `eframe::App`; `MongoStudioApp::new(handle: RuntimeHandle, i18n: I18n, connections: Vec<ConnectionConfig>, secrets: Arc<dyn SecretStore>) -> Self`. Pure reducer: `pub fn apply_event(state: AppState, ev: Event) -> AppState` (all event handling lives here so it is testable without egui).
+- Produces: `pub struct CurlybraceApp` implementing `eframe::App`; `CurlybraceApp::new(handle: RuntimeHandle, i18n: I18n, connections: Vec<ConnectionConfig>, secrets: Arc<dyn SecretStore>) -> Self`. Pure reducer: `pub fn apply_event(state: AppState, ev: Event) -> AppState` (all event handling lives here so it is testable without egui).
 
 - [ ] **Step 1: Failing tests** on `apply_event`: `Databases` fills the sidebar; `Results` replaces the page and the stored `query`; **`Failed { context: "find" }` keeps the previous page and sets a localized banner key** (Review Focus 3); `Mutated` produces a "re-run current query" flag; `Disconnected` clears sidebar and page; events for a stale namespace (user switched collection) are ignored.
 - [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement** `AppState` (immutable; reducer returns new state), `eframe::App::update`: drain `handle.rx` with `try_recv`, reduce, then draw panels (connections window or `SidePanel` sidebar + central find bar + document views + editor modal) and send `Command`s for returned actions. Persist the connection list (no secrets) as JSON in `~/Library/Application Support/mongostudio/connections.json`; validate on load, report unreadable files via a banner instead of ignoring them. `main.rs`: build a multi-thread Tokio runtime, `spawn_runtime(KeyringSecretStore, repaint)` where `repaint` calls `ctx.request_repaint()`, run `eframe::run_native`.
+- [ ] **Step 3: Implement** `AppState` (immutable; reducer returns new state), `eframe::App::update`: drain `handle.rx` with `try_recv`, reduce, then draw panels (connections window or `SidePanel` sidebar + central find bar + document views + editor modal) and send `Command`s for returned actions. Persist the connection list (no secrets) as JSON in `~/Library/Application Support/curlybrace/connections.json`; validate on load, report unreadable files via a banner instead of ignoring them. `main.rs`: build a multi-thread Tokio runtime, `spawn_runtime(KeyringSecretStore, repaint)` where `repaint` calls `ctx.request_repaint()`, run `eframe::run_native`.
 - [ ] **Step 4: Run, expect PASS; `cargo build --release`.**
 - [ ] **Step 5: Manual smoke test** with a local `mongod` (`docker run -p 27017:27017 mongo:7`): connect, expand, query, view in all three modes, insert, edit, clone, delete; confirm each step. Use the `run` skill if available.
 - [ ] **Step 6: Commit** `feat(app): wire runtime, state reducer and eframe shell`
@@ -887,9 +887,9 @@ pub fn show_editor(ctx, &mut EditorState, &I18n) -> Option<EditorAction>;
 **Files:**
 - Create: `crates/core/tests/mongo_integration.rs`, `crates/core/tests/ssh_integration.rs`; Modify: `crates/core/Cargo.toml` (`[dev-dependencies] testcontainers`)
 
-- [ ] **Step 1: Write integration tests** (marked `#[ignore]` unless `MONGOSTUDIO_IT=1`, so default `cargo test` stays fast): against `mongo:7` plain: connect, list, insert, paged `find` over 120 docs (3 pages, `has_more` correct), replace, delete, each `_id` kind from Task 9; against `mongo:7 --auth` with a SCRAM user and a password containing `@:/%`; wrong password -> `Failed`, within the timeout bound; SSH tunnel to `mongo` via an `openssh-server` container (password auth), including host key unknown/changed behavior; stop the container mid-session and assert the next command returns `Failed` rather than hanging.
-- [ ] **Step 2: Run:** `MONGOSTUDIO_IT=1 cargo test -p mongostudio-core -- --include-ignored`
-- [ ] **Step 3: Coverage:** `cargo install cargo-llvm-cov` then `cargo llvm-cov -p mongostudio-core --features test-support --fail-under-lines 80`. Fix gaps with tests, not exclusions.
+- [ ] **Step 1: Write integration tests** (marked `#[ignore]` unless `CURLYBRACE_IT=1`, so default `cargo test` stays fast): against `mongo:7` plain: connect, list, insert, paged `find` over 120 docs (3 pages, `has_more` correct), replace, delete, each `_id` kind from Task 9; against `mongo:7 --auth` with a SCRAM user and a password containing `@:/%`; wrong password -> `Failed`, within the timeout bound; SSH tunnel to `mongo` via an `openssh-server` container (password auth), including host key unknown/changed behavior; stop the container mid-session and assert the next command returns `Failed` rather than hanging.
+- [ ] **Step 2: Run:** `CURLYBRACE_IT=1 cargo test -p curlybrace-core -- --include-ignored`
+- [ ] **Step 3: Coverage:** `cargo install cargo-llvm-cov` then `cargo llvm-cov -p curlybrace-core --features test-support --fail-under-lines 80`. Fix gaps with tests, not exclusions.
 - [ ] **Step 4: Run the full gate:** `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`
 - [ ] **Step 5: Commit** `test: add container-backed integration tests and coverage gate`
 

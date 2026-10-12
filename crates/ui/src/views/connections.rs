@@ -2,9 +2,9 @@
 use crate::I18n;
 use crate::viewmodel::StoredSecrets;
 use crate::viewmodel::{ConnectionForm, auth_label_key, auth_options};
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::error::CoreError;
 use eframe::egui;
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::error::CoreError;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -299,7 +299,7 @@ fn ssh_section(ui: &mut egui::Ui, form: &mut ConnectionForm, stored: bool, i18n:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mongostudio_core::test_support::mock_objects::mock_connection;
+    use curlybrace_core::test_support::mock_objects::mock_connection;
 
     fn run_frame(state: &mut ConnectionsState) -> Option<ConnectionAction> {
         let ctx = egui::Context::default();

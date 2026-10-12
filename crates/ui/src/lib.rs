@@ -1,4 +1,4 @@
-//! MongoStudio UI crate.
+//! Curlybrace UI crate.
 pub mod app;
 pub mod error_text;
 pub mod i18n;

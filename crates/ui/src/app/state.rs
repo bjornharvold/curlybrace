@@ -3,9 +3,9 @@ use super::persistence::{PersistError, PersistGuard, Recovery};
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
 use crate::views::connections::ConnectionsState;
 use bson::Bson;
-use mongostudio_core::connection::ConnectionConfig;
-use mongostudio_core::error::CoreError;
-use mongostudio_core::store::{Namespace, Page, Query};
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::error::CoreError;
+use curlybrace_core::store::{Namespace, Page, Query};
 use std::collections::BTreeSet;
 use uuid::Uuid;
 
