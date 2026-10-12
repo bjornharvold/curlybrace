@@ -156,14 +156,20 @@ impl Command {
 pub enum Event {
     /// The connection requested by the `Connect` whose epoch is `epoch` is installed.
     /// Epochs grow with every Connect/Disconnect request, so a receiver can ignore an outcome
-    /// older than one it already applied. Only a still-current connect reports `Connected`
-    /// or a real `Failed`; a replaced one reports `Failed { error: Superseded }`.
+    /// older than the latest one it requested. Only a still-current connect reports
+    /// `Connected` or `ConnectFailed`; a replaced one reports `Failed { error: Superseded }`.
     Connected {
         epoch: u64,
     },
     /// The `Disconnect` with this `epoch` took effect.
     Disconnected {
         epoch: u64,
+    },
+    /// The still-current connect with this `epoch` failed for real. A replaced connect never
+    /// reports this: it answers `Failed { context: "connect", error: Superseded }`.
+    ConnectFailed {
+        epoch: u64,
+        error: CoreError,
     },
     Databases(Vec<String>),
     Collections {
@@ -314,14 +320,15 @@ fn dispatch(
         let guard = shared.clone();
         let event = match tokio::spawn(handlers::execute(shared, command, generation)).await {
             Ok(event) => event,
-            Err(_) => Event::Failed {
+            Err(_) => handlers::failure_event(
                 context,
-                error: handlers::gate(
+                generation,
+                handlers::gate(
                     &guard,
                     generation,
                     CoreError::Database("internal error".into()),
                 ),
-            },
+            ),
         };
         if events.send(event).is_ok() {
             repaint();

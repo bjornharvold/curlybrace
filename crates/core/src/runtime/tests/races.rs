@@ -142,8 +142,8 @@ async fn failed_connect_leaves_previous_store_cleared() {
     senders.remove("bad").unwrap().send(down()).ok();
     assert_eq!(
         next(&mut h).await,
-        Event::Failed {
-            context: "connect",
+        Event::ConnectFailed {
+            epoch: 1,
             error: CoreError::Database("down".into())
         }
     );
@@ -361,9 +361,9 @@ async fn connect_with_embedded_password_fails_validation_without_echo() {
     let c = ConnectionConfig::new("x", "mongodb://bob:hunter2@host");
     h.tx.send(Command::Connect(c)).unwrap();
     match next(&mut h).await {
-        Event::Failed {
-            context: "connect",
+        Event::ConnectFailed {
             error: error @ CoreError::InvalidUri(_),
+            ..
         } => {
             assert!(!error.to_string().contains("hunter2"));
             assert!(!format!("{error:?}").contains("hunter2"));
@@ -406,8 +406,8 @@ async fn a_replaced_connect_reports_superseded_even_when_its_own_error_is_real()
     gates.remove("b").unwrap().send(down()).ok();
     assert_eq!(
         next(&mut h).await,
-        Event::Failed {
-            context: "connect",
+        Event::ConnectFailed {
+            epoch: 2,
             error: CoreError::Database("down".into())
         }
     );
@@ -421,9 +421,9 @@ async fn a_current_connect_reports_its_real_validation_error() {
     h.tx.send(Command::Connect(bad)).unwrap();
     assert!(matches!(
         next(&mut h).await,
-        Event::Failed {
-            context: "connect",
-            error: CoreError::InvalidUri(_)
+        Event::ConnectFailed {
+            error: CoreError::InvalidUri(_),
+            ..
         }
     ));
 }
@@ -497,4 +497,24 @@ async fn a_panic_in_a_replaced_session_is_superseded_otherwise_internal_error() 
             error: CoreError::Database("internal error".into())
         }
     );
+}
+
+#[tokio::test]
+async fn a_connect_failing_validation_still_consumes_an_epoch() {
+    let (mut h, mut gates, _) = gated_runtime(&["ok"]);
+    let bad = ConnectionConfig::new("", "mongodb://127.0.0.1:27017");
+    h.tx.send(Command::Connect(bad)).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::ConnectFailed { epoch: 1, .. }
+    ));
+    h.tx.send(Command::Connect(cfg("ok"))).unwrap();
+    gates
+        .remove("ok")
+        .unwrap()
+        .send(Ok(store_with_db("d")))
+        .ok();
+    assert_eq!(next(&mut h).await, Event::Connected { epoch: 2 });
+    h.tx.send(Command::Disconnect).unwrap();
+    assert_eq!(next(&mut h).await, Event::Disconnected { epoch: 3 });
 }

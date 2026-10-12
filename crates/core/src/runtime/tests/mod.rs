@@ -401,9 +401,9 @@ async fn connect_to_unreachable_host_fails_within_bound() {
     h.tx.send(Command::Connect(cfg)).unwrap();
     assert!(matches!(
         next(&mut h).await,
-        Event::Failed {
-            context: "connect",
-            error: CoreError::Database(_)
+        Event::ConnectFailed {
+            error: CoreError::Database(_),
+            ..
         }
     ));
     assert!(start.elapsed() < Duration::from_secs(4));
@@ -425,9 +425,9 @@ async fn connect_with_invalid_uri_fails_with_invalid_uri() {
         .unwrap();
     assert!(matches!(
         next(&mut h).await,
-        Event::Failed {
-            context: "connect",
-            error: CoreError::InvalidUri(_)
+        Event::ConnectFailed {
+            error: CoreError::InvalidUri(_),
+            ..
         }
     ));
 }

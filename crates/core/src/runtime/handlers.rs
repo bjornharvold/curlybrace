@@ -17,7 +17,20 @@ pub(super) async fn execute(shared: Arc<Shared>, command: Command, generation: u
     let context = command.context();
     match run(&shared, command, generation).await {
         Ok(event) => event,
-        Err(error) => Event::Failed { context, error },
+        Err(error) => failure_event(context, generation, error),
+    }
+}
+
+/// The event for a failed command. A real (not superseded) connect failure is stamped with the
+/// connect's own epoch so receivers can tell it from a newer request's outcome.
+pub(super) fn failure_event(context: &'static str, generation: u64, error: CoreError) -> Event {
+    if context == "connect" && error != CoreError::Superseded {
+        Event::ConnectFailed {
+            epoch: generation,
+            error,
+        }
+    } else {
+        Event::Failed { context, error }
     }
 }
 

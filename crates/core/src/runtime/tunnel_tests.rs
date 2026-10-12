@@ -266,9 +266,9 @@ async fn opener_error_becomes_failed_connect() {
         .unwrap();
     assert!(matches!(
         next(&mut h).await,
-        Event::Failed {
-            context: "connect",
-            error: CoreError::Ssh(_)
+        Event::ConnectFailed {
+            error: CoreError::Ssh(_),
+            ..
         }
     ));
     assert!(connector.tunnels.lock().unwrap().is_empty());
@@ -287,7 +287,7 @@ async fn multi_host_uri_with_ssh_is_unsupported_and_never_opens() {
     h.tx.send(Command::Connect(cfg)).unwrap();
     assert!(matches!(
         next(&mut h).await,
-        Event::Failed {
+        Event::ConnectFailed {
             error: CoreError::Unsupported(_),
             ..
         }
@@ -380,6 +380,6 @@ async fn failed_driver_connect_drops_the_tunnel() {
     let mut h = spawn_runtime_with_connector(None, None, Arc::new(Failing), repaint, config);
     h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
         .unwrap();
-    assert!(matches!(next(&mut h).await, Event::Failed { .. }));
+    assert!(matches!(next(&mut h).await, Event::ConnectFailed { .. }));
     assert_eq!(opener.drops(), 1);
 }
