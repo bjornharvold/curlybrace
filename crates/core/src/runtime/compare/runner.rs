@@ -18,9 +18,9 @@ use crate::compare::protocol::{
 };
 use crate::compare::results::Category;
 use crate::error::{CoreError, Result};
-use crate::store::{DocumentStore, Namespace};
+use crate::store::{DocumentStore, IndexStatus, Namespace};
 
-use super::session::{ActiveRun, Session, StoredPair};
+use super::session::{ActiveRun, Connections, Session, StoredPair};
 use super::{Events, Repaint, Shared, connections};
 
 /// The most rows one `Rows` answer carries, whatever the request asks for.
@@ -93,6 +93,13 @@ impl RunContext {
     }
 }
 
+/// Checks what the user entered for a pair: the key (fields are public, so a spec can bypass
+/// `KeySpec::new`) and the rule paths. `CompareSetupInvalid` when either is unusable.
+pub(super) fn validate_spec(spec: &PairSpec) -> Result<()> {
+    KeySpec::new(spec.key.fields.clone())?;
+    spec.rules.validate()
+}
+
 pub(super) fn start(
     events: Events,
     repaint: Repaint,
@@ -106,6 +113,7 @@ pub(super) fn start(
     if !pairs.iter().all(|p| seen.insert(p.id)) {
         return Err(CoreError::Unsupported("duplicate pair ids".into()));
     }
+    pairs.iter().try_for_each(validate_spec)?;
     let cancel = CancelFlag::default();
     {
         let mut slot = session.run.lock().unwrap_or_else(|e| e.into_inner());
@@ -180,6 +188,15 @@ async fn run_one(ctx: &RunContext, spec: PairSpec, cancel: &CancelFlag) -> PairO
     let Ok(conns) = connections(&ctx.session) else {
         return PairOutcome::Failed(CoreError::Unsupported("the comparison is closed".into()));
     };
+    let cap = ctx.session.budget.limits().max_unindexed_documents;
+    match cancel
+        .run_until_cancelled(index_guard(conns, &spec, cap))
+        .await
+    {
+        None => return PairOutcome::Cancelled(Summary::default()),
+        Some(Err(error)) => return PairOutcome::Failed(error),
+        Some(Ok(())) => {}
+    }
     let input = PairInput {
         source: conns.source.clone(),
         source_ns: spec.source.clone(),
@@ -217,6 +234,21 @@ async fn run_one(ctx: &RunContext, spec: PairSpec, cancel: &CancelFlag) -> PairO
         Ok(Err(error)) => PairOutcome::Failed(error),
         Err(_) => PairOutcome::Failed(internal_error()),
     }
+}
+
+/// Refuses a pair that would sort a large collection without an index: re-checked at the start
+/// of every pair (the preflight may be stale, or skipped). `CompareKeyNotIndexed` when a side has
+/// no usable index and more than `cap` documents.
+async fn index_guard(conns: &Connections, spec: &PairSpec, cap: u64) -> Result<()> {
+    let sides = [(&conns.source, &spec.source), (&conns.target, &spec.target)];
+    for (store, ns) in sides {
+        if store.key_index_status(ns, &spec.key).await? == IndexStatus::NotIndexed
+            && store.estimated_count(ns).await? > cap
+        {
+            return Err(CoreError::CompareKeyNotIndexed);
+        }
+    }
+    Ok(())
 }
 
 /// Keeps a finished pair unless the session closed meanwhile (the check and the insert happen

@@ -204,7 +204,12 @@ async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<BulkOutc
 `MongoStore::scan_sorted` combines the user filter with the keyset condition using `$and`, and builds the keyset filter as an `$or` chain (for key `(a, b)` and
 `from = (x, y)`: `a > x`, or `a == x and b >= y`). Because the server's `$gt`/`$gte` only match values of the SAME
 type class while its sort order is total across classes, each comparison is type-aware: "`f >= v` within its
-class, OR `f` is not of any class ranked at or below `v`'s" (written with `$not`/`$type`). Without this a key
+class, OR `f` is of a class ranked above `v`'s" (a POSITIVE `$type` list of the higher classes, `array` left
+out). A negated `$type` cannot be turned into index bounds, so it made every batch rescan the sort index from its
+start; the positive list and a flat `$or` of conjunctions (for `(a, b)`: `a > x`, `a` of a higher class,
+`a == x and b >= y`, `a == x and b` of a higher class) make every batch an index range scan. A tier-1 test
+`explain`s every page of a 5,000-document collection and pins at most about one batch of keys examined per page,
+for a single and a compound key (before: up to 5,000 per page; after: 100 and 102). Without this a key
 that changes type (an `_id` that is an ObjectId in some documents and a string in others) would silently end the
 scan. A tier-1 test pages through mixed-type keys. The scan sorts by the key fields ascending, forces
 `collation: { locale: "simple" }`, and sets `allowDiskUse`. Two corners of the keyset filter are pinned by tests. A NaN start key
@@ -373,6 +378,27 @@ rules:
   rendered string, not an address: slice 2 must add structured path segments to `FieldChange` before any apply
   logic consumes it, because a field name containing a dot or a bracket is ambiguous in the string form.
 
+**Deviations of the slice 1 runtime from the design above** (accepted; revisit in slice 1c):
+
+- Progress is emitted every `batch_size` merge steps per pair, not throttled to about four per second.
+- `PairOutcome` has no `NotRun`: a pair ends `Completed`, `Cancelled` or `Failed`. After a pair fails with
+  `CompareCapExceeded` the later pairs still run (and usually fail the same way); after a cancel they end
+  `Cancelled` without scanning.
+- `Summary` has no `duration_ms`.
+- The preflight has no "warn: unindexed but small" verdict: such a pair shows as ok (`Preflight` carries the index
+  status and counts, and `unindexed_too_large` only for the refusal).
+- `CompareKeyNotIndexed` is raised by the runner itself: at the start of every pair, before any scan, it re-checks
+  `key_index_status` and `estimated_count` of each side and fails that pair when a side is unindexed and above
+  `max_unindexed_documents` (the preflight may be stale or skipped).
+- `Start` (for every pair) and `Check` validate the spec at the runtime boundary (`KeySpec::new` on the key fields,
+  `CompareRules::validate`) and answer `Failed { context }` with `CompareSetupInvalid`.
+- Cancel and Close abandon a store call in flight (the engine races each scan against the cancel signal), so a slow
+  batch does not delay them, and a closed session releases its connections and tunnels at once.
+- Per-batch memory is bounded by the document COUNT (`batch_size` per side), not by bytes: a batch can hold up to
+  `batch_size` x 16 MB per side.
+- `MongoStore::scan_sorted` uses the positive-`$type` keyset described under "`DocumentStore` additions", and
+  `key_index_status` treats a hidden index as not indexed.
+
 `ComparePairFailed.detail` can carry the offending key so the user can see it in the UI. It is never logged.
 
 ### Serializable definitions (for the scheduler, #11)
@@ -474,7 +500,7 @@ New typed variants, each with an `errors.*` i18n key and a static, secret-free m
 | `CompareKeyOrder` | a side's keyset stream is not strictly increasing (comparator or collation mismatch) |
 | `CompareKeyNotIndexed` | no usable index and the collection is above the unindexed limit |
 | `CompareCapExceeded` | the result cap was reached |
-| `CompareSetupInvalid` | the key or the rule field lists are malformed: an empty list, an empty name, an empty path segment or a repeated name (`KeySpec::validate`, `CompareRules::validate`); raised before any scan and shown with its own `errors.compare_setup_invalid` text |
+| `CompareSetupInvalid` | the key or the rule field lists are malformed: an empty list, an empty name, an empty path segment or a repeated name (`KeySpec::new`, `CompareRules::validate`); raised before any scan and shown with its own `errors.compare_setup_invalid` text |
 
 When a duplicate key stops a compare, the UI can run **Find duplicate keys** (slice 1b): a server-side
 `$group` on the key with a count above one, limited to the first 20, so the user sees which keys collide and

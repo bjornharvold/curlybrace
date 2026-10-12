@@ -2,10 +2,12 @@
 //! by the batch size plus the differences found, never by the collection size.
 
 use std::cmp::Ordering;
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use bson::Document;
+use tokio::sync::Notify;
 
 use super::fingerprint::fingerprint_of;
 use super::key::{KeySpec, compare_tuples};
@@ -50,17 +52,49 @@ pub enum EngineOutcome {
     Cancelled,
 }
 
-/// A cheap, cloneable cancellation signal.
+#[derive(Default)]
+struct CancelState {
+    cancelled: AtomicBool,
+    wake: Notify,
+}
+
+/// A cheap, cloneable cancellation signal that can also be awaited, so a store call that never
+/// returns can be abandoned (see [`CancelFlag::run_until_cancelled`]).
 #[derive(Clone, Default)]
-pub struct CancelFlag(Arc<AtomicBool>);
+pub struct CancelFlag(Arc<CancelState>);
 
 impl CancelFlag {
     pub fn cancel(&self) {
-        self.0.store(true, AtomicOrdering::SeqCst);
+        self.0.cancelled.store(true, AtomicOrdering::SeqCst);
+        self.0.wake.notify_waiters();
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(AtomicOrdering::SeqCst)
+        self.0.cancelled.load(AtomicOrdering::SeqCst)
+    }
+
+    /// Resolves once the flag is cancelled (at once if it already is).
+    pub async fn cancelled(&self) {
+        loop {
+            let notified = self.0.wake.notified();
+            tokio::pin!(notified);
+            // Registered before the check, so a cancel in between still wakes this waiter.
+            notified.as_mut().enable();
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    /// Runs `work` unless the flag is (or becomes) cancelled first; `None` when cancelled, in
+    /// which case `work` is dropped mid-flight.
+    pub async fn run_until_cancelled<F: Future>(&self, work: F) -> Option<F::Output> {
+        tokio::select! {
+            biased;
+            () = self.cancelled() => None,
+            output = work => Some(output),
+        }
     }
 }
 
@@ -178,7 +212,8 @@ impl Walk {
 }
 
 /// Walks both streams to the end (or until cancelled) and returns the outcome, the counts and
-/// the differences. Errors (duplicate key, order, cap, store failures) abort the pair.
+/// the differences. Errors (duplicate key, order, cap, store failures) abort the pair. A cancel
+/// abandons a store call in flight, so it takes effect even while the server is slow.
 pub async fn run_pair(
     input: PairInput,
     cancel: &CancelFlag,
@@ -188,13 +223,16 @@ pub async fn run_pair(
     let mut walk = Walk::new(input);
     let mut steps = 0u64;
     loop {
-        if cancel.is_cancelled() {
+        let Some(next) = cancel.run_until_cancelled(walk.next_order()).await else {
             return Ok(walk.finish(EngineOutcome::Cancelled));
-        }
-        let Some(order) = walk.next_order().await? else {
+        };
+        let Some(order) = next? else {
             return Ok(walk.finish(EngineOutcome::Completed));
         };
-        walk.step(order).await?;
+        let Some(stepped) = cancel.run_until_cancelled(walk.step(order)).await else {
+            return Ok(walk.finish(EngineOutcome::Cancelled));
+        };
+        stepped?;
         steps += 1;
         if steps % batch == 0 {
             walk.refresh_scanned();
@@ -442,6 +480,27 @@ mod tests {
             assert!(pair[1].scanned_target >= pair[0].scanned_target);
             assert!(pair[1].differences >= pair[0].differences);
         }
+    }
+
+    #[tokio::test]
+    async fn a_cancel_abandons_work_that_never_finishes() {
+        let cancel = CancelFlag::default();
+        let c2 = cancel.clone();
+        let waiter =
+            tokio::spawn(async move { c2.run_until_cancelled(std::future::pending::<()>()).await });
+        tokio::task::yield_now().await;
+        cancel.cancel();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), waiter)
+            .await
+            .expect("woken by the cancel")
+            .unwrap();
+        assert_eq!(outcome, None);
+        // Already cancelled: resolves at once, even for work that is ready.
+        assert_eq!(cancel.run_until_cancelled(async { 1 }).await, None);
+        assert_eq!(
+            CancelFlag::default().run_until_cancelled(async { 1 }).await,
+            Some(1)
+        );
     }
 
     fn brute_force(

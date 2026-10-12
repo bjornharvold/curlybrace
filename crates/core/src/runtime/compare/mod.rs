@@ -11,6 +11,8 @@
 //! unknown or already closed session is answered with `Failed`.
 
 #[cfg(test)]
+mod abort_tests;
+#[cfg(test)]
 mod closed_tests;
 #[cfg(test)]
 mod run_tests;
@@ -302,6 +304,7 @@ fn connections(session: &Session) -> Result<&Connections> {
 }
 
 async fn check(session: &Session, pair: &PairSpec) -> Result<Preflight> {
+    runner::validate_spec(pair)?;
     let conns = connections(session)?;
     let (source_count, target_count) = tokio::try_join!(
         conns.source.estimated_count(&pair.source),
