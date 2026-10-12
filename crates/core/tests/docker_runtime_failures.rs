@@ -1,5 +1,6 @@
 //! A server that disappears mid-session must surface as `Failed`, never as a
-//! hang, and a fresh `Connect` must recover once it is back. Set `MONGOSTUDIO_IT=1`.
+//! hang, and a fresh `Connect` must recover once it is back.
+//! Tier 2 (docker): own `ms-it-*` container. Run with `scripts/container-tests.sh`.
 
 mod support;
 
@@ -11,7 +12,7 @@ use mongostudio_core::error::CoreError;
 use mongostudio_core::runtime::{Command, Event, RuntimeConfig, spawn_runtime_with_config};
 use mongostudio_core::secrets::MemorySecretStore;
 use mongostudio_core::store::{DocumentStore, Namespace, Query};
-use support::{it_enabled, next_event, no_repaint, plain_mongo};
+use support::{docker_enabled, docker_mongo, next_event, no_repaint};
 
 const COMMAND_LIMIT: Duration = Duration::from_secs(10);
 /// Slack on top of the command timeout for scheduling and event delivery.
@@ -20,11 +21,11 @@ const SLACK: Duration = Duration::from_secs(3);
 #[tokio::test]
 #[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
 async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
-    if !it_enabled("stopped_server_yields_failed_find_in_time_and_restart_recovers") {
+    if !docker_enabled("stopped_server_yields_failed_find_in_time_and_restart_recovers") {
         return;
     }
-    let (container, _client, store) = plain_mongo().await;
-    let ns = Namespace::new("mongostudio_it", "drop");
+    let (container, _client, store) = docker_mongo().await;
+    let ns = Namespace::new("msit_drop", "drop");
     store
         .insert(&ns, doc! { "_id": 1_i32, "v": "kept" })
         .await
@@ -45,7 +46,9 @@ async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
         query: Query::default(),
     };
 
-    rt.tx.send(Command::Connect(container.config())).unwrap();
+    rt.tx
+        .send(Command::Connect(support::config(&container)))
+        .unwrap();
     assert!(matches!(
         next_event(&mut rt.rx, COMMAND_LIMIT, "connect").await,
         Event::Connected { .. }
@@ -81,7 +84,9 @@ async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
     // A fresh Connect (retried while mongod is still starting) works again.
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        rt.tx.send(Command::Connect(container.config())).unwrap();
+        rt.tx
+            .send(Command::Connect(support::config(&container)))
+            .unwrap();
         match next_event(&mut rt.rx, COMMAND_LIMIT + SLACK, "reconnect").await {
             Event::Connected { .. } => break,
             Event::ConnectFailed { .. } if Instant::now() < deadline => {}

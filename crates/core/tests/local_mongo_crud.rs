@@ -1,5 +1,7 @@
-//! CRUD, paging and document-service flows against a real `mongo:7`.
-//! Run with `MONGOSTUDIO_IT=1 cargo test -p mongostudio-core -- --include-ignored`.
+//! Tier 1 (local server): CRUD, paging and document-service flows against an already-running
+//! MongoDB (`MONGOSTUDIO_IT_MONGO_URI`, default `mongodb://127.0.0.1:27017`). No docker. Writes
+//! only to throwaway `msit_*` databases.
+//! Run with `scripts/integration-tests.sh`.
 
 mod support;
 
@@ -15,14 +17,7 @@ use mongostudio_core::mongo_store::MongoStore;
 use mongostudio_core::query::{QueryText, next_page, parse_query};
 use mongostudio_core::store::{DocumentStore, Namespace, Query};
 use mongostudio_core::test_support::mock_objects::exotic_doc;
-use support::{it_enabled, plain_mongo};
-
-// MongoDB forbids spaces and dots in database names, so the db is unicode only.
-const DB: &str = "база_данных";
-
-fn ns(collection: &str) -> Namespace {
-    Namespace::new("mongostudio_it", collection)
-}
+use support::{local_enabled, local_mongo};
 
 async fn seed_numbered(client: &mongodb::Client, ns: &Namespace, count: i32) {
     let docs: Vec<Document> = (0..count).map(|n| doc! { "_id": n, "n": n }).collect();
@@ -42,15 +37,15 @@ fn sorted_by_n() -> Query {
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 async fn lists_databases_and_collections_with_awkward_names() {
-    if !it_enabled("lists_databases_and_collections_with_awkward_names") {
+    if !local_enabled("lists_databases_and_collections_with_awkward_names") {
         return;
     }
-    let (_guard, _client, store) = plain_mongo().await;
+    let (dbs, _client, store) = local_mongo().await;
     let names = ["col.with.dots", "коллекция", "with space"];
     for name in names {
-        let n = Namespace::new(DB, name);
+        let n = Namespace::new(&dbs.unicode_db, name);
         let id = store.insert(&n, doc! { "_id": 1_i32 }).await.unwrap();
         assert_eq!(id, Bson::Int32(1));
     }
@@ -59,27 +54,30 @@ async fn lists_databases_and_collections_with_awkward_names() {
             .list_databases()
             .await
             .unwrap()
-            .contains(&DB.to_string())
+            .contains(&dbs.unicode_db)
     );
-    let mut listed = store.list_collections(DB).await.unwrap();
+    let mut listed = store.list_collections(&dbs.unicode_db).await.unwrap();
     listed.sort();
     let mut want: Vec<String> = names.iter().map(|s| s.to_string()).collect();
     want.sort();
     assert_eq!(listed, want);
     let back = store
-        .find(&Namespace::new(DB, "col.with.dots"), &Query::default())
+        .find(
+            &Namespace::new(&dbs.unicode_db, "col.with.dots"),
+            &Query::default(),
+        )
         .await
         .unwrap();
     assert_eq!(back.docs, vec![doc! { "_id": 1_i32 }]);
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 async fn pages_of_fifty_over_120_100_and_101_documents() {
-    if !it_enabled("pages_of_fifty_over_120_100_and_101_documents") {
+    if !local_enabled("pages_of_fifty_over_120_100_and_101_documents") {
         return;
     }
-    let (_guard, client, store) = plain_mongo().await;
+    let (dbs, client, store) = local_mongo().await;
     // (document count, expected (len, has_more) per page)
     let cases: [(i32, &[(usize, bool)]); 3] = [
         (120, &[(50, true), (50, true), (20, false)]),
@@ -87,7 +85,7 @@ async fn pages_of_fifty_over_120_100_and_101_documents() {
         (101, &[(50, true), (50, true), (1, false)]),
     ];
     for (count, expected) in cases {
-        let n = ns(&format!("paging_{count}"));
+        let n = dbs.ns(&format!("paging_{count}"));
         seed_numbered(&client, &n, count).await;
         let mut q = sorted_by_n();
         let mut next_n = 0;
@@ -109,13 +107,13 @@ async fn pages_of_fifty_over_120_100_and_101_documents() {
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 async fn sort_projection_skip_and_operator_filters() {
-    if !it_enabled("sort_projection_skip_and_operator_filters") {
+    if !local_enabled("sort_projection_skip_and_operator_filters") {
         return;
     }
-    let (_guard, client, store) = plain_mongo().await;
-    let n = ns("queries");
+    let (dbs, client, store) = local_mongo().await;
+    let n = dbs.ns("queries");
     let docs: Vec<Document> = (0..10_i32)
         .map(|i| doc! { "_id": i, "age": i, "name": format!("p{i}") })
         .collect();
@@ -218,19 +216,19 @@ async fn all(store: &MongoStore, n: &Namespace) -> Vec<Document> {
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 async fn replace_and_delete_hit_the_right_document_for_every_id_kind() {
-    if !it_enabled("replace_and_delete_hit_the_right_document_for_every_id_kind") {
+    if !local_enabled("replace_and_delete_hit_the_right_document_for_every_id_kind") {
         return;
     }
-    let (_guard, _client, store) = plain_mongo().await;
+    let (dbs, _client, store) = local_mongo().await;
     let mut counter = 0;
     for (kind, first, second, unknown) in id_kinds() {
         // Both seed orders, and both documents as target, prove that the id
         // filter (not insertion position) picks the document.
         for (order, target_is_first) in [(0, true), (0, false), (1, true), (1, false)] {
             counter += 1;
-            let n = ns(&format!("ids_{counter}"));
+            let n = dbs.ns(&format!("ids_{counter}"));
             let (seed_a, seed_b) = if order == 0 {
                 (&first, &second)
             } else {
@@ -283,13 +281,13 @@ async fn replace_and_delete_hit_the_right_document_for_every_id_kind() {
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 async fn insert_generates_an_object_id_when_absent() {
-    if !it_enabled("insert_generates_an_object_id_when_absent") {
+    if !local_enabled("insert_generates_an_object_id_when_absent") {
         return;
     }
-    let (_guard, _client, store) = plain_mongo().await;
-    let n = ns("autoid");
+    let (dbs, _client, store) = local_mongo().await;
+    let n = dbs.ns("autoid");
     let id = store.insert(&n, doc! { "x": 1_i32 }).await.unwrap();
     assert!(matches!(id, Bson::ObjectId(_)));
     let docs = all(&store, &n).await;
@@ -303,13 +301,13 @@ fn kinds(d: &Document) -> Vec<(String, ElementType)> {
 }
 
 #[tokio::test]
-#[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 async fn exotic_types_survive_insert_find_and_editor_round_trip() {
-    if !it_enabled("exotic_types_survive_insert_find_and_editor_round_trip") {
+    if !local_enabled("exotic_types_survive_insert_find_and_editor_round_trip") {
         return;
     }
-    let (_guard, client, store) = plain_mongo().await;
-    let n = ns("exotic");
+    let (dbs, client, store) = local_mongo().await;
+    let n = dbs.ns("exotic");
     let store = Arc::new(store);
     let svc = DocumentService::new(store.clone());
 

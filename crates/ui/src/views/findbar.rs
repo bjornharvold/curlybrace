@@ -39,11 +39,12 @@ pub fn show_findbar(
 /// A labelled single-line box; true when Enter was pressed in it.
 fn text_row(ui: &mut egui::Ui, keys: (&str, &str), value: &mut String, i18n: &I18n) -> bool {
     ui.horizontal(|ui| {
-        ui.label(i18n.t(keys.0));
+        let caption = ui.label(i18n.t(keys.0));
         let edit = egui::TextEdit::singleline(value)
             .hint_text(i18n.t(keys.1))
             .desired_width(f32::INFINITY);
-        let response = ui.add(edit);
+        // The caption is the box's accessible name (screen readers and UI tests).
+        let response = ui.add(edit).labelled_by(caption.id);
         response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
     })
     .inner
@@ -56,9 +57,9 @@ fn number_row(ui: &mut egui::Ui, text: &mut QueryText, i18n: &I18n) -> bool {
             ("findbar.skip", &mut text.skip),
             ("findbar.limit", &mut text.limit),
         ] {
-            ui.label(i18n.t(key));
+            let caption = ui.label(i18n.t(key));
             let edit = egui::TextEdit::singleline(value).desired_width(NUMBER_FIELD_WIDTH);
-            let response = ui.add(edit);
+            let response = ui.add(edit).labelled_by(caption.id);
             enter |= response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         }
         enter

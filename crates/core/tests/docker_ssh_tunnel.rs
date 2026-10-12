@@ -1,6 +1,6 @@
 //! End-to-end SSH tunnel test. It starts its own `ms-it-*` containers (an
 //! openssh-server and a MongoDB on a private network, see `support::SshStack`),
-//! removes them on drop, and is gated on `MONGOSTUDIO_IT=1`.
+//! removes them on drop. Tier 2 (docker); run with `scripts/container-tests.sh`.
 
 mod support;
 
@@ -33,7 +33,7 @@ impl HostKeyPrompt for CountingPrompt {
 #[tokio::test]
 #[ignore = "needs docker; set MONGOSTUDIO_IT=1"]
 async fn tunnel_end_to_end() {
-    if !support::it_enabled("tunnel_end_to_end") {
+    if !support::docker_enabled("tunnel_end_to_end") {
         return;
     }
     let stack = support::SshStack::start();

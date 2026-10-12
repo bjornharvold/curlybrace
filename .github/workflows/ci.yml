@@ -16,16 +16,48 @@ jobs:
   check:
     # The app links macOS frameworks (Keychain, GSS), so CI runs on Apple Silicon.
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@91c3abd82c08dd9739cd868596bc2f9e426bd28e # pinned SHA; toolchain is set below
         with:
           toolchain: 1.87.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Policy guard (no database-backed tests on GitHub)
+        run: |
+          scripts/check-no-db-in-ci.sh
+          scripts/test-check-no-db-in-ci.sh
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Unit tests
         run: cargo test --workspace --locked
+
+  # Non-required, needs no database: renders fixed in-memory states with wgpu (Metal) and compares
+  # them with the committed PNGs. The runners may not expose a usable GPU.
+  ui-snapshots:
+    name: ui-snapshots (wgpu screenshot tests)
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 30
+    env:
+      MONGOSTUDIO_SNAPSHOTS: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@91c3abd82c08dd9739cd868596bc2f9e426bd28e # pinned SHA; toolchain is set below
+        with:
+          toolchain: 1.87.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Screenshot tests
+        run: cargo test -p mongostudio-ui --test snapshots --locked -- --include-ignored --nocapture
+      - name: Upload the actual and diff images
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: snapshot-diffs
+          path: |
+            crates/ui/tests/snapshots/*.new.png
+            crates/ui/tests/snapshots/*.diff.png
+          if-no-files-found: ignore
