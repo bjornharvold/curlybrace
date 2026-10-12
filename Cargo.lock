@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "curlybrace"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "curlybrace-core",
  "curlybrace-ui",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "curlybrace-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bson",
@@ -1215,14 +1215,14 @@ dependencies = [
 
 [[package]]
 name = "curlybrace-testkit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "uuid",
 ]
 
 [[package]]
 name = "curlybrace-ui"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "bson",
