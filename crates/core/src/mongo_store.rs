@@ -38,6 +38,13 @@ pub(crate) fn fetch_limit(q: &Query) -> Option<i64> {
     })
 }
 
+/// The driver takes an unsigned skip, but the wire protocol caps it at i64.
+pub(crate) fn skip_as_i64(q: &Query) -> Result<u64> {
+    i64::try_from(q.skip)
+        .map(|_| q.skip)
+        .map_err(|_| CoreError::InvalidDocument("skip is too large".into()))
+}
+
 /// Trims the over-fetched row and derives `has_more`.
 pub(crate) fn build_page(mut docs: Vec<Document>, q: &Query) -> Page {
     let has_more = q.limit > 0 && docs.len() as u64 > q.limit;
@@ -71,7 +78,8 @@ impl DocumentStore for MongoStore {
 
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page> {
         let collection = self.collection(ns);
-        let mut action = collection.find(q.filter.clone()).skip(q.skip);
+        let skip = skip_as_i64(q)?;
+        let mut action = collection.find(q.filter.clone()).skip(skip);
         if let Some(limit) = fetch_limit(q) {
             action = action.limit(limit);
         }
@@ -145,6 +153,23 @@ mod tests {
                 ..Query::default()
             }),
             Some(i64::MAX)
+        );
+    }
+
+    #[test]
+    fn skip_beyond_i64_is_a_typed_error() {
+        let ok = Query {
+            skip: i64::MAX as u64,
+            ..Query::default()
+        };
+        assert_eq!(skip_as_i64(&ok), Ok(i64::MAX as u64));
+        let bad = Query {
+            skip: i64::MAX as u64 + 1,
+            ..Query::default()
+        };
+        assert_eq!(
+            skip_as_i64(&bad),
+            Err(CoreError::InvalidDocument("skip is too large".into()))
         );
     }
 

@@ -13,19 +13,47 @@ mod handlers;
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bson::{Bson, Document};
-use tokio::sync::RwLock;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::connection::ConnectionConfig;
-use crate::error::CoreError;
+use crate::error::{CoreError, Result};
 use crate::secrets::SecretStore;
 use crate::store::{DocumentStore, Namespace, Page, Query};
 
 pub use handlers::open_tunnel_if_configured;
+
+/// Opens a store for a connection config. Injectable so tests need no server.
+#[async_trait::async_trait]
+pub trait Connector: Send + Sync {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        password: Option<&str>,
+        tunnel: Option<SocketAddr>,
+    ) -> Result<Arc<dyn DocumentStore>>;
+}
+
+/// Default connector: the real driver.
+pub struct MongoConnector;
+
+#[async_trait::async_trait]
+impl Connector for MongoConnector {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        password: Option<&str>,
+        tunnel: Option<SocketAddr>,
+    ) -> Result<Arc<dyn DocumentStore>> {
+        let client = crate::client::connect(cfg, password, tunnel).await?;
+        Ok(Arc::new(crate::mongo_store::MongoStore::new(client)))
+    }
+}
 
 /// Upper bound for any single command (including connect).
 pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
@@ -130,9 +158,37 @@ pub type Repaint = Arc<dyn Fn() + Send + Sync>;
 
 /// State shared by all handler tasks.
 pub(crate) struct Shared {
-    pub store: RwLock<Option<Arc<dyn DocumentStore>>>,
+    store: RwLock<Option<Arc<dyn DocumentStore>>>,
+    /// Bumped synchronously by the dispatcher on every Connect/Disconnect, so
+    /// the order of *requests* (not of completion) decides which one wins.
+    generation: AtomicU64,
     pub secrets: Option<Arc<dyn SecretStore>>,
+    pub connector: Arc<dyn Connector>,
     pub config: RuntimeConfig,
+}
+
+impl Shared {
+    pub fn current_store(&self) -> Option<Arc<dyn DocumentStore>> {
+        // The guarded value is a plain Option, so a poisoned lock is still valid.
+        self.store.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Starts a new connection epoch and drops the installed store.
+    fn begin_epoch(&self) -> u64 {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        *self.store.write().unwrap_or_else(|e| e.into_inner()) = None;
+        generation
+    }
+
+    /// Installs `store` only if `generation` is still the latest request.
+    pub fn install_if_current(&self, generation: u64, store: Arc<dyn DocumentStore>) -> bool {
+        let mut slot = self.store.write().unwrap_or_else(|e| e.into_inner());
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return false;
+        }
+        *slot = Some(store);
+        true
+    }
 }
 
 /// Starts a runtime with no store; `Command::Connect` installs one.
@@ -151,11 +207,23 @@ pub fn spawn_runtime_with_config(
     repaint: Repaint,
     config: RuntimeConfig,
 ) -> RuntimeHandle {
+    spawn_runtime_with_connector(secrets, store, Arc::new(MongoConnector), repaint, config)
+}
+
+pub fn spawn_runtime_with_connector(
+    secrets: Option<Arc<dyn SecretStore>>,
+    store: Option<Arc<dyn DocumentStore>>,
+    connector: Arc<dyn Connector>,
+    repaint: Repaint,
+    config: RuntimeConfig,
+) -> RuntimeHandle {
     let (tx, mut commands) = unbounded_channel::<Command>();
     let (events, rx) = unbounded_channel::<Event>();
     let shared = Arc::new(Shared {
         store: RwLock::new(store),
+        generation: AtomicU64::new(0),
         secrets,
+        connector,
         config,
     });
     tokio::runtime::Handle::current().spawn(async move {
@@ -175,8 +243,13 @@ fn dispatch(
     command: Command,
 ) {
     let context = command.context();
+    // Synchronous, so request order decides which connection wins.
+    let generation = match command {
+        Command::Connect(_) | Command::Disconnect => shared.begin_epoch(),
+        _ => shared.generation.load(Ordering::SeqCst),
+    };
     tokio::spawn(async move {
-        let event = match tokio::spawn(handlers::execute(shared, command)).await {
+        let event = match tokio::spawn(handlers::execute(shared, command, generation)).await {
             Ok(event) => event,
             Err(_) => Event::Failed {
                 context,

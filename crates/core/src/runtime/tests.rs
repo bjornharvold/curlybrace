@@ -247,7 +247,7 @@ async fn invalid_json_fails_and_runtime_keeps_serving() {
 }
 
 #[tokio::test]
-async fn failing_store_fails_every_command_with_matching_context() {
+async fn failing_store_fails_all_seven_store_commands_with_matching_context() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime_with_store(Arc::new(FailingStore), repaint);
     let expected = [
@@ -445,4 +445,304 @@ async fn tunnel_seam_is_none_without_ssh_and_unsupported_with_it() {
         open_tunnel_if_configured(&ssh).await,
         Err(CoreError::Unsupported(_))
     ));
+}
+
+// ---- connection races (deterministic: gates, not sleeps) ----
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use tokio::sync::{Notify, oneshot};
+
+type Opened = Result<Arc<dyn DocumentStore>>;
+
+/// Connector whose result for each cfg name is released by the test.
+struct GatedConnector {
+    gates: Mutex<HashMap<String, oneshot::Receiver<Opened>>>,
+}
+
+impl GatedConnector {
+    fn new(names: &[&str]) -> (Arc<Self>, HashMap<String, oneshot::Sender<Opened>>) {
+        let mut gates = HashMap::new();
+        let mut senders = HashMap::new();
+        for name in names {
+            let (tx, rx) = oneshot::channel();
+            gates.insert(name.to_string(), rx);
+            senders.insert(name.to_string(), tx);
+        }
+        (
+            Arc::new(Self {
+                gates: Mutex::new(gates),
+            }),
+            senders,
+        )
+    }
+}
+
+#[async_trait]
+impl Connector for GatedConnector {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _p: Option<&str>,
+        _t: Option<std::net::SocketAddr>,
+    ) -> Opened {
+        let gate = self.gates.lock().unwrap().remove(&cfg.name).expect("gate");
+        gate.await.unwrap_or_else(|_| down())
+    }
+}
+
+fn gated_runtime(
+    names: &[&str],
+) -> (
+    RuntimeHandle,
+    HashMap<String, oneshot::Sender<Opened>>,
+    Arc<AtomicUsize>,
+) {
+    let (connector, senders) = GatedConnector::new(names);
+    let (count, repaint) = counter();
+    let h = spawn_runtime_with_connector(None, None, connector, repaint, RuntimeConfig::default());
+    (h, senders, count)
+}
+
+fn cfg(name: &str) -> ConnectionConfig {
+    ConnectionConfig::new(name, "mongodb://127.0.0.1:27017")
+}
+
+fn store_with_db(db: &str) -> Arc<dyn DocumentStore> {
+    Arc::new(InMemoryStore::new().with_docs(&crate::store::Namespace::new(db, "c"), vec![]))
+}
+
+async fn assert_quiet(h: &mut RuntimeHandle) {
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(h.rx.try_recv().is_err(), "unexpected extra event");
+}
+
+fn superseded() -> Event {
+    Event::Failed {
+        context: "connect",
+        error: CoreError::Unsupported("connection superseded".into()),
+    }
+}
+
+#[tokio::test]
+async fn disconnect_during_slow_connect_leaves_runtime_disconnected() {
+    let (mut h, mut gates, _) = gated_runtime(&["slow"]);
+    h.tx.send(Command::Connect(cfg("slow"))).unwrap();
+    h.tx.send(Command::Disconnect).unwrap();
+    assert_eq!(next(&mut h).await, Event::Disconnected);
+    gates
+        .remove("slow")
+        .unwrap()
+        .send(Ok(store_with_db("late")))
+        .ok();
+    assert_eq!(next(&mut h).await, superseded());
+    h.tx.send(Command::Find {
+        ns: mock_namespace(),
+        query: Query::default(),
+    })
+    .unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Failed {
+            context: "find",
+            error: CoreError::Unsupported("not connected".into())
+        }
+    );
+    assert_quiet(&mut h).await;
+}
+
+#[tokio::test]
+async fn second_requested_connect_wins_even_if_first_finishes_last() {
+    let (mut h, mut gates, _) = gated_runtime(&["first", "second"]);
+    h.tx.send(Command::Connect(cfg("first"))).unwrap();
+    h.tx.send(Command::Connect(cfg("second"))).unwrap();
+    gates
+        .remove("second")
+        .unwrap()
+        .send(Ok(store_with_db("second_db")))
+        .ok();
+    assert_eq!(next(&mut h).await, Event::Connected);
+    gates
+        .remove("first")
+        .unwrap()
+        .send(Ok(store_with_db("first_db")))
+        .ok();
+    assert_eq!(next(&mut h).await, superseded());
+    h.tx.send(Command::ListDatabases).unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Databases(vec!["second_db".into()])
+    );
+    assert_quiet(&mut h).await;
+}
+
+#[tokio::test]
+async fn failed_connect_leaves_previous_store_cleared() {
+    let (connector, mut senders) = GatedConnector::new(&["bad"]);
+    let (_, repaint) = counter();
+    let mut h = spawn_runtime_with_connector(
+        None,
+        Some(seeded()),
+        connector,
+        repaint,
+        RuntimeConfig::default(),
+    );
+    h.tx.send(Command::Connect(cfg("bad"))).unwrap();
+    senders.remove("bad").unwrap().send(down()).ok();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Failed {
+            context: "connect",
+            error: CoreError::Database("down".into())
+        }
+    );
+    h.tx.send(Command::ListDatabases).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Failed {
+            error: CoreError::Unsupported(_),
+            ..
+        }
+    ));
+}
+
+/// Find that signals when it started and waits for a release.
+struct GatedFindStore {
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+    finished: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl DocumentStore for GatedFindStore {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn find(&self, _ns: &Namespace, q: &Query) -> Result<Page> {
+        self.started.notify_one();
+        self.release.notified().await;
+        self.finished.fetch_add(1, Ordering::SeqCst);
+        Ok(Page {
+            docs: vec![],
+            skip: q.skip,
+            has_more: false,
+        })
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        down()
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        down()
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        down()
+    }
+}
+
+fn gated_find() -> (Arc<GatedFindStore>, Arc<Notify>, Arc<Notify>) {
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let store = Arc::new(GatedFindStore {
+        started: started.clone(),
+        release: release.clone(),
+        finished: Arc::new(AtomicUsize::new(0)),
+    });
+    (store, started, release)
+}
+
+#[tokio::test]
+async fn disconnect_during_find_still_emits_exactly_one_event_for_each() {
+    let (store, started, release) = gated_find();
+    let (count, repaint) = counter();
+    let mut h = spawn_runtime_with_store(store, repaint);
+    h.tx.send(Command::Find {
+        ns: mock_namespace(),
+        query: Query::default(),
+    })
+    .unwrap();
+    started.notified().await;
+    h.tx.send(Command::Disconnect).unwrap();
+    assert_eq!(next(&mut h).await, Event::Disconnected);
+    release.notify_one();
+    assert!(matches!(next(&mut h).await, Event::Results { .. }));
+    assert_quiet(&mut h).await;
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn dropped_receiver_does_not_panic_or_hang_handlers() {
+    let (store, started, release) = gated_find();
+    let finished = store.finished.clone();
+    let (count, repaint) = counter();
+    let RuntimeHandle { tx, rx } = spawn_runtime_with_store(store, repaint);
+    drop(rx);
+    tx.send(Command::Find {
+        ns: mock_namespace(),
+        query: Query::default(),
+    })
+    .unwrap();
+    started.notified().await;
+    release.notify_one();
+    let deadline = Instant::now() + WAIT;
+    while finished.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        finished.load(Ordering::SeqCst),
+        1,
+        "handler ran to completion"
+    );
+    assert_eq!(
+        count.load(Ordering::SeqCst),
+        0,
+        "no repaint without a receiver"
+    );
+    // The runtime loop is still alive and accepts commands.
+    assert!(tx.send(Command::ListDatabases).is_ok());
+    let (_, repaint) = counter();
+    let mut fresh = spawn_runtime_with_store(seeded(), repaint);
+    fresh.tx.send(Command::ListDatabases).unwrap();
+    assert!(matches!(next(&mut fresh).await, Event::Databases(_)));
+}
+
+#[tokio::test]
+async fn connect_with_ssh_config_is_unsupported_through_runtime() {
+    let (_, repaint) = counter();
+    let mut h = spawn_runtime(Arc::new(MemorySecretStore::new()), repaint);
+    let mut c = cfg("ssh");
+    c.ssh = Some(SshConfig {
+        host: "bastion".into(),
+        port: 22,
+        username: "u".into(),
+        auth: SshAuth::Password,
+    });
+    h.tx.send(Command::Connect(c)).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Failed {
+            context: "connect",
+            error: CoreError::Unsupported(_)
+        }
+    ));
+}
+
+#[tokio::test]
+async fn connect_with_embedded_password_fails_validation_without_echo() {
+    let (_, repaint) = counter();
+    let mut h = spawn_runtime(Arc::new(MemorySecretStore::new()), repaint);
+    let c = ConnectionConfig::new("x", "mongodb://bob:hunter2@host");
+    h.tx.send(Command::Connect(c)).unwrap();
+    match next(&mut h).await {
+        Event::Failed {
+            context: "connect",
+            error: error @ CoreError::InvalidUri(_),
+        } => {
+            assert!(!error.to_string().contains("hunter2"));
+            assert!(!format!("{error:?}").contains("hunter2"));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
 }

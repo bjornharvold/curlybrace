@@ -4,32 +4,28 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::client::connect;
 use crate::connection::ConnectionConfig;
 use crate::crud::DocumentService;
 use crate::error::{CoreError, Result};
-use crate::mongo_store::MongoStore;
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
 use super::{Command, Event, Shared};
 
 /// Runs `command` to completion, folding any error into `Event::Failed`.
-pub(super) async fn execute(shared: Arc<Shared>, command: Command) -> Event {
+pub(super) async fn execute(shared: Arc<Shared>, command: Command, generation: u64) -> Event {
     let context = command.context();
-    match run(&shared, command).await {
+    match run(&shared, command, generation).await {
         Ok(event) => event,
         Err(error) => Event::Failed { context, error },
     }
 }
 
-async fn run(shared: &Shared, command: Command) -> Result<Event> {
+async fn run(shared: &Shared, command: Command, generation: u64) -> Result<Event> {
     match command {
-        Command::Connect(cfg) => return connect_store(shared, cfg).await,
-        Command::Disconnect => {
-            *shared.store.write().await = None;
-            return Ok(Event::Disconnected);
-        }
+        Command::Connect(cfg) => return connect_store(shared, cfg, generation).await,
+        // The store was already dropped by the dispatcher.
+        Command::Disconnect => return Ok(Event::Disconnected),
         _ => {}
     }
     let store = current_store(shared).await?;
@@ -73,10 +69,7 @@ async fn data_command(store: Arc<dyn DocumentStore>, command: Command) -> Result
 
 async fn current_store(shared: &Shared) -> Result<Arc<dyn DocumentStore>> {
     shared
-        .store
-        .read()
-        .await
-        .clone()
+        .current_store()
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
 }
 
@@ -90,17 +83,27 @@ async fn bounded<T>(
         .map_err(|_| CoreError::Database("timeout".into()))?
 }
 
-async fn connect_store(shared: &Shared, cfg: ConnectionConfig) -> Result<Event> {
+/// Opens and installs a store. Superseded connects (a newer Connect or a
+/// Disconnect was requested meanwhile) drop their client and report so.
+/// A timed-out keychain read keeps running in the background (blocking
+/// tasks cannot be cancelled); its result is discarded.
+async fn connect_store(shared: &Shared, cfg: ConnectionConfig, generation: u64) -> Result<Event> {
+    cfg.validate()?;
     let limit = shared.config.command_timeout;
-    let client = bounded(limit, async {
+    let store = bounded(limit, async {
         let password = read_password(shared, &cfg).await?;
         let tunnel = open_tunnel_if_configured(&cfg).await?;
-        connect(&cfg, password.as_deref(), tunnel).await
+        shared
+            .connector
+            .connect(&cfg, password.as_deref(), tunnel)
+            .await
     })
     .await?;
-    let store: Arc<dyn DocumentStore> = Arc::new(MongoStore::new(client));
-    *shared.store.write().await = Some(store);
-    Ok(Event::Connected)
+    if shared.install_if_current(generation, store) {
+        Ok(Event::Connected)
+    } else {
+        Err(CoreError::Unsupported("connection superseded".into()))
+    }
 }
 
 /// The keychain call blocks, so it runs off the async workers.
