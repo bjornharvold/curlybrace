@@ -62,7 +62,7 @@ pub fn next_page(q: &Query) -> Query {
     }
 }
 
-/// The query for the preceding page (`skip -= limit`, saturating at 0).
+/// The query for the preceding page; saturates at 0 and does not realign to page boundaries.
 pub fn prev_page(q: &Query) -> Query {
     Query {
         skip: q.skip.saturating_sub(q.limit),
@@ -111,7 +111,9 @@ mod tests {
         .unwrap();
         let oid = ObjectId::parse_str("507f1f77bcf86cd799439011").unwrap();
         assert_eq!(q.filter.get("_id"), Some(&Bson::ObjectId(oid)));
-        assert!(matches!(q.filter.get("d"), Some(Bson::DateTime(_))));
+        let expected = bson::DateTime::parse_rfc3339_str("2020-01-01T00:00:00Z").unwrap();
+        assert_eq!(q.filter.get("d"), Some(&Bson::DateTime(expected)));
+        assert_eq!(expected.timestamp_millis(), 1_577_836_800_000);
     }
 
     #[test]
@@ -151,12 +153,76 @@ mod tests {
         assert_invalid(&with_filter(&"[".repeat(10_000)));
     }
 
+    /// Deepest accepted container nesting (serde_json allows 127 open containers).
+    const MAX_DEPTH: usize = 127;
+
+    fn nested_objects(depth: usize) -> String {
+        format!("{}1{}", r#"{"a":"#.repeat(depth), "}".repeat(depth))
+    }
+
+    // Pins serde_json's recursion limit (the filter's own
+    // outer object counts). Fails loudly if `unbounded_depth` is ever
+    // enabled by a dependency. Runs on a normal test thread (no big stack).
     #[test]
-    fn deep_but_valid_nesting_does_not_overflow_the_stack() {
-        let depth = 120;
-        let text = format!("{}1{}", r#"{"a":"#.repeat(depth), "}".repeat(depth));
-        // Either outcome is acceptable; crashing is not.
-        let _ = parse_query(&with_filter(&text));
+    fn nesting_limit_is_pinned() {
+        let q = parse_query(&with_filter(&nested_objects(MAX_DEPTH))).unwrap();
+        assert!(q.filter.get_document("a").is_ok());
+        assert_invalid(&with_filter(&nested_objects(MAX_DEPTH + 1)));
+    }
+
+    #[test]
+    fn mixed_object_array_nesting_parses() {
+        let text = format!("{}1{}", r#"{"a":[{"b":"#.repeat(30), "}]}".repeat(30));
+        let q = parse_query(&with_filter(&text)).unwrap();
+        assert!(q.filter.get_array("a").is_ok());
+    }
+
+    #[test]
+    fn invalid_oid_is_an_error() {
+        assert_invalid(&with_filter(r#"{"$oid":"bad"}"#));
+        assert_invalid(&with_filter(r#"{"_id": {"$oid":"bad"}}"#));
+    }
+
+    #[test]
+    fn whitespace_only_text_is_default() {
+        let ws = || " \t\n".to_string();
+        let q = parse_query(&QueryText {
+            filter: ws(),
+            sort: ws(),
+            projection: ws(),
+            skip: ws(),
+            limit: ws(),
+        })
+        .unwrap();
+        assert_eq!(q, Query::default());
+    }
+
+    #[test]
+    fn non_object_sort_and_projection_are_errors() {
+        assert_invalid(&QueryText {
+            projection: "[1]".into(),
+            ..Default::default()
+        });
+        assert_invalid(&QueryText {
+            sort: "5".into(),
+            ..Default::default()
+        });
+    }
+
+    #[test]
+    fn skip_edge_cases() {
+        let skip = |s: &str| {
+            parse_query(&QueryText {
+                skip: s.into(),
+                ..Default::default()
+            })
+        };
+        // Current behaviour: Rust's u64 parser accepts a leading '+'.
+        assert_eq!(skip("+5").unwrap().skip, 5);
+        assert!(matches!(
+            skip("18446744073709551616"),
+            Err(CoreError::InvalidJson(_))
+        ));
     }
 
     #[test]
@@ -171,10 +237,12 @@ mod tests {
 
     #[test]
     fn bad_limit_is_an_error() {
-        assert_invalid(&QueryText {
-            limit: "x".into(),
-            ..Default::default()
-        });
+        for bad in ["x", "-1"] {
+            assert_invalid(&QueryText {
+                limit: bad.into(),
+                ..Default::default()
+            });
+        }
     }
 
     #[test]
