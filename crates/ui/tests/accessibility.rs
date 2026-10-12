@@ -67,6 +67,244 @@ fn find_bar_boxes_are_found_by_their_caption_and_keep_typed_text() {
     }
 }
 
+mod compare_workspace {
+    use super::*;
+    use bson::{Bson, doc};
+    use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
+    use curlybrace_core::compare::engine::Summary;
+    use curlybrace_core::compare::key::KeyTuple;
+    use curlybrace_core::compare::protocol::{CompareEvent, PairOutcome, Preflight, RowView, Side};
+    use curlybrace_core::compare::results::Category;
+    use curlybrace_core::connection::ConnectionConfig;
+    use curlybrace_core::runtime::Event;
+    use curlybrace_core::store::{CollectionKind, IndexStatus};
+    use curlybrace_ui::app::compare::CompareAction;
+    use curlybrace_ui::app::reducer::{Input, update};
+    use curlybrace_ui::app::state::AppState;
+    use curlybrace_ui::viewmodel::compare::{CompareState, Pick};
+    use curlybrace_ui::views::compare::show_compare;
+    use egui_kittest::kittest::NodeT;
+
+    type Fixture = (CompareState, ConnectionsState);
+
+    fn step(state: AppState, input: Input) -> AppState {
+        update(state, input).0
+    }
+
+    fn event(e: CompareEvent) -> Input {
+        Input::Event(Event::Compare(e))
+    }
+
+    fn act(state: AppState, a: CompareAction) -> AppState {
+        step(state, Input::Compare(a))
+    }
+
+    fn key(n: i32) -> KeyTuple {
+        KeyTuple(vec![Bson::Int32(n)])
+    }
+
+    fn picked(state: AppState, side: Side) -> AppState {
+        let state = act(
+            state,
+            CompareAction::PickSide(side, Pick::Database("shop".into())),
+        );
+        let listing = CompareEvent::Collections {
+            session: 1,
+            side,
+            db: "shop".into(),
+            entries: vec![("users".into(), CollectionKind::Collection)],
+        };
+        let state = step(state, event(listing));
+        act(
+            state,
+            CompareAction::PickSide(side, Pick::Collection("users".into())),
+        )
+    }
+
+    /// A session with a ready form, finished results with rows and an open detail.
+    fn fixture(through: &str) -> Fixture {
+        let (a, b) = (
+            ConnectionConfig::new("one", "mongodb://a"),
+            ConnectionConfig::new("two", "mongodb://b"),
+        );
+        let open = CompareAction::Open {
+            source: a.id,
+            target: b.id,
+        };
+        let state = act(AppState::new(vec![a, b]), open);
+        let state = step(state, event(CompareEvent::Opened { session: 1 }));
+        let state = picked(picked(state, Side::Source), Side::Target);
+        let state = if through == "form" {
+            state
+        } else {
+            finished(state)
+        };
+        (state.compare, state.conn)
+    }
+
+    fn finished(state: AppState) -> AppState {
+        let state = act(state, CompareAction::RunCheck);
+        let preflight = Preflight {
+            source_count: 3,
+            target_count: 3,
+            source_index: IndexStatus::Indexed,
+            target_index: IndexStatus::Indexed,
+            unindexed_too_large: false,
+        };
+        let checked = CompareEvent::Checked {
+            session: 1,
+            pair: 1,
+            preflight,
+        };
+        let state = act(step(state, event(checked)), CompareAction::Start);
+        let summary = Summary {
+            different: 2,
+            only_in_source: 1,
+            ..Summary::default()
+        };
+        let done = CompareEvent::PairDone {
+            session: 1,
+            run: 1,
+            pair: 1,
+            outcome: PairOutcome::Completed(summary),
+        };
+        let state = step(state, event(done));
+        let state = step(state, event(CompareEvent::RunDone { session: 1, run: 1 }));
+        let rows = CompareEvent::Rows {
+            session: 1,
+            pair: 1,
+            category: Category::Different,
+            offset: 0,
+            total: 2,
+            rows: (1..=2)
+                .map(|n| RowView {
+                    key: key(n),
+                    has_source: true,
+                    has_target: true,
+                })
+                .collect(),
+        };
+        let state = step(state, event(rows));
+        let state = act(state, CompareAction::Select(key(1)));
+        let change = FieldChange {
+            path: "name".into(),
+            kind: ChangeKind::Changed,
+            source: Some(Bson::String("x".into())),
+            target: Some(Bson::String("y".into())),
+        };
+        let detail = CompareEvent::Detail {
+            session: 1,
+            pair: 1,
+            key: key(1),
+            source: Some(doc! {"_id": 1, "name": "x"}),
+            target: Some(doc! {"_id": 1, "name": "y"}),
+            changes: vec![change],
+        };
+        step(state, event(detail))
+    }
+
+    fn harness(fixture: Fixture) -> Harness<'static, Fixture> {
+        Harness::builder()
+            .with_size(egui::vec2(1100.0, 1400.0))
+            .build_ui_state(
+                |ui, (state, connections): &mut Fixture| {
+                    show_compare(ui, state, connections, &I18n::english());
+                },
+                fixture,
+            )
+    }
+
+    const INTERACTIVE: [Role; 7] = [
+        Role::Button,
+        Role::TextInput,
+        Role::MultilineTextInput,
+        Role::CheckBox,
+        Role::ComboBox,
+        Role::Link,
+        Role::RadioButton,
+    ];
+
+    /// Every interactive node carries its own label or is labelled by another node.
+    fn unlabelled(harness: &Harness<'_, Fixture>) -> (usize, Vec<String>) {
+        let mut interactive = 0;
+        let mut bad = Vec::new();
+        for node in harness.root().children_recursive() {
+            let ak = node.accesskit_node();
+            if !INTERACTIVE.contains(&ak.role()) {
+                continue;
+            }
+            interactive += 1;
+            let named = |text: Option<&str>| text.is_some_and(|t| !t.trim().is_empty());
+            let by_other = ak
+                .labelled_by()
+                .any(|l| named(l.label().as_deref()) || named(l.value().as_deref()));
+            if !(named(ak.label().as_deref()) || by_other) {
+                bad.push(format!("{:?}", ak.role()));
+            }
+        }
+        (interactive, bad)
+    }
+
+    #[test]
+    fn the_setup_form_has_named_controls_including_the_rules() {
+        let mut harness = harness(fixture("form"));
+        harness.run();
+        harness
+            .get_by_label(&I18n::english().t("compare.rules.title"))
+            .click();
+        harness.run();
+        let (interactive, bad) = unlabelled(&harness);
+        assert!(interactive >= 12, "only {interactive} interactive nodes");
+        assert!(bad.is_empty(), "unlabelled controls: {bad:?}");
+        let i18n = I18n::english();
+        for key in [
+            "compare.setup.key",
+            "compare.setup.filter",
+            "compare.rules.ignore_array_order",
+            "compare.rules.scope",
+            "compare.preflight.check",
+            "compare.run.start",
+        ] {
+            harness.get_all_by_label(&i18n.t(key)).next().expect(key);
+        }
+    }
+
+    #[test]
+    fn results_and_detail_controls_are_named() {
+        let mut harness = harness(fixture("detail"));
+        harness.run();
+        let (interactive, bad) = unlabelled(&harness);
+        assert!(interactive >= 15, "only {interactive} interactive nodes");
+        assert!(bad.is_empty(), "unlabelled controls: {bad:?}");
+        let i18n = I18n::english();
+        for key in [
+            "compare.results.prev",
+            "compare.results.next",
+            "compare.detail.close",
+        ] {
+            harness.get_by_label(&i18n.t(key));
+        }
+    }
+
+    #[test]
+    fn clicking_a_key_row_asks_for_its_detail() {
+        // The row is found by its text and reported through the returned action.
+        let (state, connections) = fixture("detail");
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1100.0, 1400.0))
+            .build_ui_state(
+                |ui, (s, c, out): &mut (CompareState, ConnectionsState, Option<CompareAction>)| {
+                    *out = show_compare(ui, s, c, &I18n::english()).or(out.take());
+                },
+                (state, connections, None),
+            );
+        harness.run();
+        harness.get_by_label("2").click();
+        harness.run();
+        assert_eq!(harness.state().2, Some(CompareAction::Select(key(2))));
+    }
+}
+
 #[test]
 fn editor_text_box_is_named_by_the_dialog_title() {
     let i18n = I18n::english();

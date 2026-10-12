@@ -120,3 +120,27 @@ impl CompareState {
         }
     }
 }
+
+impl CompareState {
+    pub fn is_ready(&self) -> bool {
+        matches!(self.session, Some(SessionPhase::Ready(_)))
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.run.running().is_some()
+    }
+
+    /// Whether the Check button may fire: a usable form and no check or run in flight.
+    pub fn can_check(&self) -> bool {
+        self.is_ready() && !self.check_in_flight && !self.is_running() && self.setup.ready()
+    }
+
+    /// Whether Start may fire: the same as `can_check`, and the latest answer is fresh and Ok.
+    pub fn can_start(&self) -> bool {
+        self.can_check() && !self.check_stale && self.preflight.allows_start()
+    }
+}
+
+#[cfg(test)]
+#[path = "gate_tests.rs"]
+mod gate_tests;

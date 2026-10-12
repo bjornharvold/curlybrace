@@ -82,6 +82,8 @@ pub struct AppState {
     pub compare: CompareState,
     pub conn: ConnectionsState,
     pub status: ConnStatus,
+    /// The saved connection the browsing session was started with (the Compare source default).
+    pub connected: Option<Uuid>,
     /// Mirrors the runtime's request counter: bumped once for EVERY Connect/Disconnect command
     /// sent (the runtime does the same, starting at 0, and the UI is its only sender). An
     /// outcome stamped with an older epoch belongs to a request the user has since replaced.
@@ -156,6 +158,7 @@ impl AppState {
             editor: None,
             pending: None,
             forget_confirm: None,
+            connected: None,
             ..self
         }
     }

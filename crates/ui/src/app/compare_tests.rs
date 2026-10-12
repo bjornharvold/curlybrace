@@ -16,6 +16,10 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{CollectionKind, IndexStatus};
 
+#[path = "compare_tests/entry.rs"]
+mod entry;
+#[path = "compare_tests/frames.rs"]
+mod frames;
 #[path = "compare_tests/results.rs"]
 mod results;
 #[path = "compare_tests/run.rs"]

@@ -28,6 +28,7 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         SidebarAction::LoadCollections(db) => gated(state, |s| load_collections(s, db)),
         SidebarAction::Open(ns) => gated(state, |s| open(s, ns)),
         SidebarAction::Refresh => gated(state, refresh),
+        SidebarAction::CompareTo(ns) => gated(state, |s| super::compare::compare_to(s, ns)),
     }
 }
 
@@ -241,6 +242,7 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
     let cleared = state.session_cleared();
     let next = AppState {
         status: ConnStatus::Connecting,
+        connected: Some(id),
         latest_requested_epoch: cleared.latest_requested_epoch + 1,
         banner: None,
         ssh_endpoint: HostEndpoint::of(&cfg),

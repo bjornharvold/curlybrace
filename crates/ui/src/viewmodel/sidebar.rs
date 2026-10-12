@@ -30,12 +30,19 @@ impl DbNode {
 /// - `Open(ns)`: open the collection. It does NOT update the selection; the reducer must call
 ///   `SidebarState::selecting`.
 /// - `Refresh`: reload the database list.
+/// - `CompareTo(ns)`: start a comparison with `ns` as the source side.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SidebarAction {
     LoadCollections(String),
     Toggle(String),
     Open(Namespace),
     Refresh,
+    CompareTo(Namespace),
+}
+
+/// Decision for the "Compare to..." entry of a collection row's context menu.
+pub fn compare_to_action(db: &str, collection: &str) -> SidebarAction {
+    SidebarAction::CompareTo(Namespace::new(db, collection))
 }
 
 /// Decision for a click on a database header.

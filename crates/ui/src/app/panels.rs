@@ -4,8 +4,9 @@
 use super::banner::{banner_detail, banner_text};
 use super::host_key::PromptState;
 use super::reducer::Input;
-use super::state::{AppState, ConnStatus};
+use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
+use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
 use crate::views::documents::{show_documents_keyed, show_mode_switcher};
 use crate::views::editor::show_editor_with;
@@ -77,14 +78,26 @@ pub fn show_browser(
     egui::SidePanel::left("sidebar")
         .resizable(true)
         .show(ctx, |ui| {
-            if ui.button(i18n.t("connections.disconnect")).clicked() {
-                out.push(UiEvent::Input(Input::Disconnect));
-            }
+            ui.horizontal_wrapped(|ui| {
+                if ui.button(i18n.t("connections.disconnect")).clicked() {
+                    out.push(UiEvent::Input(Input::Disconnect));
+                }
+                if let Some(action) = show_workspace_switcher(ui, state.workspace, i18n) {
+                    out.push(UiEvent::Input(Input::Compare(action)));
+                }
+            });
             if let Some(action) = show_sidebar(ui, &state.sidebar, i18n) {
                 out.push(UiEvent::Input(Input::Sidebar(action)));
             }
         });
-    egui::CentralPanel::default().show(ctx, |ui| show_collection(ui, state, i18n, out));
+    egui::CentralPanel::default().show(ctx, |ui| match state.workspace {
+        Workspace::Browse => show_collection(ui, state, i18n, out),
+        Workspace::Compare => {
+            if let Some(action) = show_compare(ui, &state.compare, &state.conn, i18n) {
+                out.push(UiEvent::Input(Input::Compare(action)));
+            }
+        }
+    });
 }
 
 fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {

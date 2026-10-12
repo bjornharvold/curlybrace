@@ -85,6 +85,24 @@ To see failure details, launch the app from a terminal with logging on (levels: 
 CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 ```
 
+## Compare two collections
+
+Switch from **Browse** to **Compare** next to the Disconnect button, or right-click a collection and
+choose **Compare to...** to start with it as the source. Pick a saved connection, database and
+collection for each side (the two sides can be on different servers), then check and start.
+
+- It compares documents by a **key** (default `_id`) and lists what is only in the source, only in
+  the target, or different, with the changed fields of each document. Optional filters limit each
+  side, and the Rules section controls array order, field order, number types, the `_id` field and
+  which fields count.
+- **Nothing is written.** The first release only reads and reports; applying or exporting a sync
+  comes later.
+- The key must be **unique** on each side and **indexed**: a duplicate key stops the run with an
+  error, and a side with more than 50,000 documents and no index on the key fields is refused until
+  you create one.
+- Limits: a run stops at 1,000,000 differences or 256 MiB of kept results; narrow the comparison
+  with a filter or fewer fields.
+
 ## Known limitations
 
 - macOS on Apple Silicon only, unsigned and not notarized.

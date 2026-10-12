@@ -100,6 +100,28 @@ impl ResultsView {
         self.requested.is_some()
     }
 
+    /// Every category is empty: the two collections match under the rules.
+    pub fn is_clean(&self) -> bool {
+        self.counts == Counts::default()
+    }
+
+    pub fn has_prev(&self) -> bool {
+        self.offset > 0
+    }
+
+    pub fn has_next(&self) -> bool {
+        self.offset + PAGE_SIZE < self.total()
+    }
+
+    /// The 1-based `(first, last)` positions of the current page; `(0, 0)` when empty.
+    pub fn shown_range(&self) -> (usize, usize) {
+        let total = self.total();
+        if total == 0 {
+            return (0, 0);
+        }
+        (self.offset + 1, (self.offset + PAGE_SIZE).min(total))
+    }
+
     /// The `Rows` command for the outstanding request, if any.
     pub fn request(&self, session: SessionId) -> Option<CompareCommand> {
         self.requested

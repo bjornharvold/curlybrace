@@ -150,3 +150,31 @@ fn key_labels_are_compact_and_join_fields() {
     let k = KeyTuple(vec![Bson::String("a".into()), Bson::Int32(2)]);
     assert_eq!(key_label(&k), "\"a\", 2");
 }
+
+#[test]
+fn pager_state_follows_the_offset_and_the_total() {
+    let v = loaded(summary(0, 0, 250));
+    assert!(!v.has_prev() && v.has_next());
+    assert_eq!(v.shown_range(), (1, 100));
+    let v = v
+        .paged(1)
+        .unwrap()
+        .accept_rows(Category::Different, 100, 250, rows(100, 100));
+    assert!(v.has_prev() && v.has_next());
+    assert_eq!(v.shown_range(), (101, 200));
+    let v = v
+        .paged(1)
+        .unwrap()
+        .accept_rows(Category::Different, 200, 250, rows(200, 50));
+    assert!(v.has_prev() && !v.has_next());
+    assert_eq!(v.shown_range(), (201, 250));
+}
+
+#[test]
+fn an_empty_category_has_no_pager_and_an_empty_range() {
+    let v = ResultsView::new(&summary(0, 0, 0));
+    assert!(!v.has_prev() && !v.has_next());
+    assert_eq!(v.shown_range(), (0, 0));
+    assert!(v.is_clean());
+    assert!(!loaded(summary(1, 0, 0)).is_clean());
+}

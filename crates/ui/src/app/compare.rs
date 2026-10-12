@@ -14,6 +14,7 @@ use curlybrace_core::compare::protocol::{
 use curlybrace_core::compare::results::Category;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Command;
+use curlybrace_core::store::Namespace;
 use uuid::Uuid;
 
 /// Everything the Compare views can ask for.
@@ -21,7 +22,10 @@ use uuid::Uuid;
 pub enum CompareAction {
     Show,
     Hide,
-    Open { source: Uuid, target: Uuid },
+    Open {
+        source: Uuid,
+        target: Uuid,
+    },
     CloseSession,
     PickSide(Side, Pick),
     SetKey(String),
@@ -35,6 +39,8 @@ pub enum CompareAction {
     Select(KeyTuple),
     Discard,
     Back,
+    /// Re-list the collections of the database picked on a side (a failed listing is retried).
+    Reload(Side),
 }
 
 fn cmd(c: CompareCommand) -> Command {
@@ -78,7 +84,34 @@ pub(super) fn on_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::Select(key) => select(state, key),
         CompareAction::Discard => discard(state),
         CompareAction::Back => back(state),
+        CompareAction::Reload(side) => reload(state, side),
     }
+}
+
+/// Asks again for the collections of the side's picked database; the form is left as it is.
+fn reload(state: AppState, side: Side) -> Out {
+    let command = ready(&state)
+        .zip(state.compare.setup.side(side).database.clone())
+        .map(|(session, db)| cmd(CompareCommand::Collections { session, side, db }));
+    (state, command.into_iter().collect())
+}
+
+/// "Compare to..." on a collection: the source side starts at that collection. The session is
+/// opened for the connected server on both sides unless one is already open for this source.
+pub(super) fn compare_to(state: AppState, ns: Namespace) -> Out {
+    let Some(source) = state.connected.filter(|id| state.connection(*id).is_some()) else {
+        return none(AppState {
+            banner: Some(Banner::NotConnected),
+            ..state
+        });
+    };
+    let target = state.compare.connections.map_or(source, |(_, t)| t);
+    let (state, mut commands) = open(state, source, target);
+    let (state, listing) = pick_side(state, Side::Source, Pick::Database(ns.db));
+    let (state, collection) = pick_side(state, Side::Source, Pick::Collection(ns.collection));
+    commands.extend(listing);
+    commands.extend(collection);
+    (state, commands)
 }
 
 fn back(state: AppState) -> Out {
@@ -400,10 +433,16 @@ fn opened(state: AppState, session: SessionId) -> Out {
         session: Some(SessionPhase::Ready(session)),
         ..state.compare.clone()
     };
-    let commands = [Side::Source, Side::Target]
+    let sides = [Side::Source, Side::Target];
+    let mut commands: Vec<Command> = sides
         .into_iter()
         .map(|side| cmd(CompareCommand::Databases { session, side }))
         .collect();
+    // A side filled in before the session was ready (the sidebar entry) still needs its listing.
+    commands.extend(sides.into_iter().filter_map(|side| {
+        let db = state.compare.setup.side(side).database.clone()?;
+        Some(cmd(CompareCommand::Collections { session, side, db }))
+    }));
     (with_compare(state, compare), commands)
 }
 
