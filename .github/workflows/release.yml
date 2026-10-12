@@ -18,7 +18,6 @@ jobs:
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
       tag_name: ${{ steps.rp.outputs.tag_name }}
-      pr: ${{ steps.rp.outputs.pr }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: rp
@@ -27,19 +26,31 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   # release-please bumps the version in Cargo.toml but cannot update Cargo.lock, and CI builds
-  # with --locked. Refresh the lockfile on the release PR branch so it stays buildable.
+  # with --locked. On every push, find the open release PR (if any) and refresh the lockfile
+  # on its branch so it stays buildable.
   update-lockfile:
     needs: release-please
-    if: ${{ needs.release-please.outputs.pr != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Find the open release PR branch
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+            --label "autorelease: pending" --json headRefName --jq '.[0].headRefName // ""')
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.pr.outputs.branch != '' }}
+        uses: actions/checkout@v4
         with:
-          ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
-      - uses: dtolnay/rust-toolchain@1.87.0
+          ref: ${{ steps.pr.outputs.branch }}
+      - if: ${{ steps.pr.outputs.branch != '' }}
+        uses: dtolnay/rust-toolchain@1.87.0
       - name: Refresh Cargo.lock for the bumped version
+        if: ${{ steps.pr.outputs.branch != '' }}
         run: |
           cargo update --workspace
           if git diff --quiet -- Cargo.lock; then
