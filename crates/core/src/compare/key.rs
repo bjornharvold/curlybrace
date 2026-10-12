@@ -59,7 +59,7 @@ impl KeySpec {
 pub struct KeyTuple(pub Vec<Bson>);
 
 /// Rank of a value's canonical type; values of different ranks never compare equal.
-fn type_rank(b: &Bson) -> u8 {
+pub(crate) fn type_rank(b: &Bson) -> u8 {
     match b {
         Bson::MinKey => 0,
         Bson::Null | Bson::Undefined => 1,
@@ -176,11 +176,13 @@ fn lookup<'a>(doc: &'a Document, path: &str) -> Option<&'a Bson> {
     Some(current)
 }
 
-/// A key value must sort strictly: arrays (the server sorts them by their smallest element) and
-/// deprecated types are refused.
+/// A key value must sort strictly: arrays (the server sorts them by their smallest element),
+/// regular expressions (the server rejects them as `$gte` arguments, so a keyset scan could not
+/// resume from one) and deprecated types are refused.
 fn check_key_value(value: &Bson) -> Result<()> {
     match value {
         Bson::Array(_)
+        | Bson::RegularExpression(_)
         | Bson::Undefined
         | Bson::Symbol(_)
         | Bson::DbPointer(_)
@@ -433,6 +435,10 @@ mod tests {
         for bad in [
             Bson::Array(vec![Bson::Int32(1)]),
             Bson::Undefined,
+            Bson::RegularExpression(Regex {
+                pattern: "a".into(),
+                options: String::new(),
+            }),
             Bson::Symbol("s".into()),
             Bson::JavaScriptCode("x".into()),
         ] {

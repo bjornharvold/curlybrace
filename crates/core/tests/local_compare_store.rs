@@ -11,7 +11,8 @@ use std::cmp::Ordering;
 use bson::oid::ObjectId;
 use bson::spec::BinarySubtype;
 use bson::{Binary, Bson, DateTime, Decimal128, Document, Regex, Timestamp, doc};
-use curlybrace_core::compare::key::{KeySpec, KeyTuple, compare_bson, extract_key};
+use curlybrace_core::compare::key::{KeySpec, KeyTuple, compare_bson, compare_tuples, extract_key};
+use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{CollectionKind, DocumentStore, IndexStatus, Namespace};
 use futures::TryStreamExt;
 use mongodb::options::Collation;
@@ -22,8 +23,9 @@ fn dec(s: &str) -> Bson {
     Bson::Decimal128(Decimal128::from_str(s).unwrap())
 }
 
-/// Keys of every type class, with boundary numbers. Each appears once; some are equal across
-/// numeric types and are therefore listed in `EQUAL_GROUPS` instead of here.
+/// Keys of every type class, with boundary numbers. Each appears once; none compare equal to
+/// another (numbers that are equal across numeric types are covered by
+/// `equal_numbers_of_different_types_are_equal_to_the_server`).
 fn fixture_keys() -> Vec<Bson> {
     vec![
         Bson::MinKey,
@@ -356,5 +358,169 @@ async fn counts_kinds_and_missing_collections_behave() {
     assert!(
         kinds.contains(&("a_view".to_string(), CollectionKind::View)),
         "{kinds:?}"
+    );
+}
+
+/// For every document as the start key, the scan from it must return exactly the documents whose
+/// key is at or after it (by the client comparator), complete and in order. With a limit of 1 the
+/// first row must carry the start key itself.
+async fn assert_every_start_key_resumes(
+    store: &curlybrace_core::mongo_store::MongoStore,
+    ns: &Namespace,
+    spec: &KeySpec,
+    docs: &[Document],
+) {
+    for start in docs {
+        let from = extract_key(start, spec).unwrap();
+        let mut expected: Vec<String> = docs
+            .iter()
+            .filter(|d| compare_tuples(&extract_key(d, spec).unwrap(), &from) != Ordering::Less)
+            .map(|d| d.get_str("id").unwrap().to_string())
+            .collect();
+        expected.sort();
+        let got = store
+            .scan_sorted(ns, &doc! {}, spec, Some(&from), 1000)
+            .await
+            .unwrap();
+        let mut ids: Vec<String> = got
+            .iter()
+            .map(|d| d.get_str("id").unwrap().to_string())
+            .collect();
+        ids.sort();
+        assert_eq!(ids, expected, "resuming from {from:?}");
+        for pair in got.windows(2) {
+            let (a, b) = (
+                extract_key(&pair[0], spec).unwrap(),
+                extract_key(&pair[1], spec).unwrap(),
+            );
+            assert_ne!(
+                compare_tuples(&a, &b),
+                Ordering::Greater,
+                "{a:?} then {b:?}"
+            );
+        }
+        for limit in [1, 2] {
+            let head = store
+                .scan_sorted(ns, &doc! {}, spec, Some(&from), limit)
+                .await
+                .unwrap();
+            assert_eq!(
+                head.len(),
+                usize::try_from(limit).unwrap().min(expected.len())
+            );
+            assert_eq!(
+                compare_tuples(&extract_key(&head[0], spec).unwrap(), &from),
+                Ordering::Equal,
+                "the first row at limit {limit} is the start key {from:?}"
+            );
+        }
+    }
+}
+
+async fn insert_labelled(client: &mongodb::Client, ns: &Namespace, docs: &[Document]) {
+    client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection)
+        .insert_many(docs.to_vec())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn scan_sorted_resumes_from_nan_and_infinity_keys() {
+    if !local_enabled("scan_sorted_resumes_from_nan_and_infinity_keys") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("nan");
+    let keys = [
+        Bson::Double(f64::NAN),
+        dec("NaN"),
+        Bson::Double(f64::NEG_INFINITY),
+        Bson::Int32(-5),
+        Bson::Int32(0),
+        Bson::Double(2.5),
+        dec("7"),
+        Bson::Double(f64::INFINITY),
+        Bson::String("s".into()),
+    ];
+    let docs: Vec<Document> = keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| doc! { "id": format!("d{i}"), "k": k.clone() })
+        .collect();
+    insert_labelled(&client, &ns, &docs).await;
+    let spec = KeySpec::new(vec!["k".into()]).unwrap();
+    assert_every_start_key_resumes(&store, &ns, &spec, &docs).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn scan_sorted_resumes_compound_keys_with_nan_and_document_prefixes() {
+    if !local_enabled("scan_sorted_resumes_compound_keys_with_nan_and_document_prefixes") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("compound_nan");
+    let prefixes = [
+        Bson::Double(f64::NAN),
+        dec("NaN"),
+        Bson::Int32(1),
+        Bson::Double(f64::NEG_INFINITY),
+    ];
+    let mut docs = Vec::new();
+    for (i, a) in prefixes.iter().enumerate() {
+        for b in [1, 2] {
+            docs.push(doc! { "id": format!("n{i}_{b}"), "a": a.clone(), "b": b });
+        }
+    }
+    insert_labelled(&client, &ns, &docs).await;
+    let spec = KeySpec::new(vec!["a".into(), "b".into()]).unwrap();
+    assert_every_start_key_resumes(&store, &ns, &spec, &docs).await;
+
+    // A document-valued prefix whose field name starts with `$`: skipped when the server will
+    // not store it.
+    let ns = dbs.ns("compound_dollar");
+    let dollar: Vec<Document> = [1, 2]
+        .iter()
+        .flat_map(|b| {
+            [doc! { "$x": 1 }, doc! { "y": 1 }]
+                .into_iter()
+                .enumerate()
+                .map(move |(i, a)| doc! { "id": format!("o{i}_{b}"), "a": a, "b": *b })
+        })
+        .collect();
+    let stored = client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection)
+        .insert_many(dollar.clone())
+        .await;
+    if stored.is_ok() {
+        assert_every_start_key_resumes(&store, &ns, &spec, &dollar).await;
+    } else {
+        eprintln!("server refuses $-prefixed field names on insert; sub-case skipped");
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn scan_sorted_refuses_documents_without_a_usable_key() {
+    if !local_enabled("scan_sorted_refuses_documents_without_a_usable_key") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let spec = KeySpec::new(vec!["k".into()]).unwrap();
+    let missing = dbs.ns("missing_key");
+    insert_labelled(&client, &missing, &[doc! { "k": 1 }, doc! { "other": 2 }]).await;
+    assert_eq!(
+        store.scan_sorted(&missing, &doc! {}, &spec, None, 10).await,
+        Err(CoreError::CompareKeyMissing)
+    );
+    let array = dbs.ns("array_key");
+    insert_labelled(&client, &array, &[doc! { "k": 1 }, doc! { "k": [1, 2] }]).await;
+    assert_eq!(
+        store.scan_sorted(&array, &doc! {}, &spec, None, 10).await,
+        Err(CoreError::CompareKeyInvalid)
     );
 }

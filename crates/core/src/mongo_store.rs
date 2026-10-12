@@ -5,7 +5,7 @@ use bson::{Bson, Document, doc};
 use futures::TryStreamExt;
 use mongodb::Client;
 
-use crate::compare::key::{KeySpec, KeyTuple};
+use crate::compare::key::{KeySpec, KeyTuple, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
 use crate::store::{CollectionKind, DocumentStore, IndexStatus, Namespace, Page, Query};
@@ -155,7 +155,13 @@ impl DocumentStore for MongoStore {
             .allow_disk_use(true)
             .await
             .map_err(db_err)?;
-        cursor.try_collect().await.map_err(db_err)
+        let docs: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
+        // A document without a usable key would sort as null and be returned again at the head
+        // of every page, so it fails the scan instead.
+        for doc in &docs {
+            extract_key(doc, key)?;
+        }
+        Ok(docs)
     }
 
     async fn key_index_status(&self, ns: &Namespace, key: &KeySpec) -> Result<IndexStatus> {

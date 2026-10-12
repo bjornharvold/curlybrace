@@ -9,7 +9,8 @@
 
 use bson::{Bson, Document, doc};
 
-use super::key::{KeySpec, KeyTuple};
+use super::key::{KeySpec, KeyTuple, type_rank};
+use super::number::Dec;
 
 const CLASSES: [&[&str]; 16] = [
     &["minKey"],
@@ -48,24 +49,11 @@ pub fn type_class_names(rank: u8) -> &'static [&'static str] {
     &table[idx]
 }
 
-fn rank_of(value: &Bson) -> u8 {
+fn is_nan(value: &Bson) -> bool {
     match value {
-        Bson::MinKey => 0,
-        Bson::Null | Bson::Undefined => 1,
-        Bson::Int32(_) | Bson::Int64(_) | Bson::Double(_) | Bson::Decimal128(_) => 2,
-        Bson::String(_) | Bson::Symbol(_) => 3,
-        Bson::Document(_) => 4,
-        Bson::Array(_) => 5,
-        Bson::Binary(_) => 6,
-        Bson::ObjectId(_) => 7,
-        Bson::Boolean(_) => 8,
-        Bson::DateTime(_) => 9,
-        Bson::Timestamp(_) => 10,
-        Bson::RegularExpression(_) => 11,
-        Bson::DbPointer(_) => 12,
-        Bson::JavaScriptCode(_) => 13,
-        Bson::JavaScriptCodeWithScope(_) => 14,
-        Bson::MaxKey => 15,
+        Bson::Double(d) => d.is_nan(),
+        Bson::Decimal128(d) => Dec::of(d) == Dec::NaN,
+        _ => false,
     }
 }
 
@@ -73,14 +61,29 @@ fn rank_of(value: &Bson) -> u8 {
 /// makes the in-class comparison `>=`.
 fn after(field: &str, value: &Bson, inclusive: bool) -> Document {
     let operator = if inclusive { "$gte" } else { "$gt" };
-    let higher = doc! { field: { "$not": { "$type": type_class_names(rank_of(value)).iter().map(|n| Bson::String((*n).into())).collect::<Vec<_>>() } } };
+    let classes: Vec<Bson> = type_class_names(type_rank(value))
+        .iter()
+        .map(|n| Bson::String((*n).into()))
+        .collect();
+    let higher = doc! { field: { "$not": { "$type": classes } } };
     // `null`, `minKey` and `maxKey` only compare equal to themselves in a query, so the
     // in-class branch is omitted for them (an exclusive start has nothing in its own class).
-    let own_class_branch = match value {
-        Bson::Null | Bson::Undefined | Bson::MinKey | Bson::MaxKey => {
-            inclusive.then(|| doc! { field: value.clone() })
+    let own_class_branch = if is_nan(value) {
+        // The server sorts NaN below every number, but `$gt: NaN` matches nothing and
+        // `$gte: NaN` only NaN. At or after NaN is every number; strictly after is every
+        // number that is not NaN.
+        Some(if inclusive {
+            doc! { field: { "$type": "number" } }
+        } else {
+            doc! { "$and": [{ field: { "$type": "number" } }, { field: { "$ne": value.clone() } }] }
+        })
+    } else {
+        match value {
+            Bson::Null | Bson::Undefined | Bson::MinKey | Bson::MaxKey => {
+                inclusive.then(|| doc! { field: value.clone() })
+            }
+            _ => Some(doc! { field: { operator: value.clone() } }),
         }
-        _ => Some(doc! { field: { operator: value.clone() } }),
     };
     match own_class_branch {
         Some(own) => doc! { "$or": [own, higher] },
@@ -93,12 +96,17 @@ pub fn keyset_filter(user_filter: &Document, key: &KeySpec, from: Option<&KeyTup
     let Some(from) = from else {
         return user_filter.clone();
     };
+    if from.0.len() != key.fields.len() {
+        // A caller bug: the start tuple must have one value per key field.
+        debug_assert!(false, "start key arity differs from the key spec");
+        return user_filter.clone();
+    }
     let last = key.fields.len() - 1;
     let mut branches: Vec<Bson> = Vec::new();
     for i in 0..key.fields.len() {
         let mut branch = Document::new();
         for (field, value) in key.fields[..i].iter().zip(&from.0) {
-            branch.insert(field.clone(), value.clone());
+            branch.insert(field.clone(), doc! { "$eq": value.clone() });
         }
         let tail = after(&key.fields[i], &from.0[i], i == last);
         if branch.is_empty() {
@@ -239,7 +247,7 @@ mod tests {
         // Branch 1: a equals, and b is at or after.
         assert_eq!(
             branches[1],
-            Bson::Document(doc! { "a": 1, "$or": [
+            Bson::Document(doc! { "a": { "$eq": 1 }, "$or": [
                 { "b": { "$gte": "x" } },
                 { "b": { "$not": { "$type": ["minKey", "null", "undefined", "int", "long", "double", "decimal", "string", "symbol"] } } },
             ] })
@@ -255,6 +263,142 @@ mod tests {
             assert!(
                 type_class_names(r).len() >= type_class_names(r - 1).len(),
                 "rank {r}"
+            );
+        }
+    }
+
+    const NUMBER_CLASSES: [&str; 7] = [
+        "minKey",
+        "null",
+        "undefined",
+        "int",
+        "long",
+        "double",
+        "decimal",
+    ];
+
+    #[test]
+    fn a_nan_start_matches_every_number_when_inclusive() {
+        let from = KeyTuple(vec![Bson::Double(f64::NAN)]);
+        let f = keyset_filter(&doc! {}, &key(&["k"]), Some(&from));
+        assert_eq!(
+            f,
+            doc! { "$or": [
+                { "k": { "$type": "number" } },
+                { "k": { "$not": { "$type": NUMBER_CLASSES.to_vec() } } },
+            ] }
+        );
+    }
+
+    #[test]
+    fn a_nan_prefix_excludes_nan_and_is_matched_by_equality() {
+        let nan = Bson::Decimal128("NaN".parse().unwrap());
+        let from = KeyTuple(vec![nan.clone(), Bson::Int32(1)]);
+        let f = keyset_filter(&doc! {}, &key(&["a", "b"]), Some(&from));
+        let branches = f.get_array("$or").unwrap();
+        assert_eq!(
+            branches[0],
+            Bson::Document(doc! { "$or": [
+                { "$and": [{ "a": { "$type": "number" } }, { "a": { "$ne": nan.clone() } }] },
+                { "a": { "$not": { "$type": NUMBER_CLASSES.to_vec() } } },
+            ] })
+        );
+        match &branches[1] {
+            Bson::Document(d) => assert_eq!(d.get_document("a").unwrap(), &doc! { "$eq": nan }),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn prefix_equality_uses_eq_so_document_values_are_not_read_as_operators() {
+        let from = KeyTuple(vec![Bson::Document(doc! { "$x": 1 }), Bson::Int32(1)]);
+        let f = keyset_filter(&doc! {}, &key(&["a", "b"]), Some(&from));
+        let branches = f.get_array("$or").unwrap();
+        match &branches[1] {
+            Bson::Document(d) => {
+                assert_eq!(d.get_document("a").unwrap(), &doc! { "$eq": { "$x": 1 } })
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_mismatched_start_key_falls_back_to_the_users_filter_in_release() {
+        if cfg!(debug_assertions) {
+            return;
+        }
+        let from = KeyTuple(vec![Bson::Int32(1)]);
+        let f = keyset_filter(&doc! { "t": 1 }, &key(&["a", "b"]), Some(&from));
+        assert_eq!(f, doc! { "t": 1 });
+    }
+
+    /// `DbPointer` has no public constructor, so decode one from raw BSON.
+    fn db_pointer() -> Bson {
+        let mut raw: Vec<u8> = vec![26, 0, 0, 0, 0x0C, b'p', 0, 2, 0, 0, 0, b'c', 0];
+        raw.extend([0u8; 12]);
+        raw.push(0);
+        Document::from_reader(raw.as_slice())
+            .unwrap()
+            .get("p")
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn every_variants_class_names_include_its_own_type() {
+        use bson::oid::ObjectId;
+        use bson::spec::BinarySubtype;
+        let samples: Vec<(Bson, &str)> = vec![
+            (Bson::MinKey, "minKey"),
+            (Bson::Null, "null"),
+            (Bson::Undefined, "undefined"),
+            (Bson::Int32(1), "int"),
+            (Bson::Int64(1), "long"),
+            (Bson::Double(1.0), "double"),
+            (Bson::Decimal128("1".parse().unwrap()), "decimal"),
+            (Bson::String("s".into()), "string"),
+            (Bson::Symbol("s".into()), "symbol"),
+            (Bson::Document(doc! {}), "object"),
+            (Bson::Array(vec![]), "array"),
+            (
+                Bson::Binary(bson::Binary {
+                    subtype: BinarySubtype::Generic,
+                    bytes: vec![],
+                }),
+                "binData",
+            ),
+            (Bson::ObjectId(ObjectId::from_bytes([0; 12])), "objectId"),
+            (Bson::Boolean(true), "bool"),
+            (Bson::DateTime(bson::DateTime::from_millis(0)), "date"),
+            (
+                Bson::Timestamp(bson::Timestamp {
+                    time: 0,
+                    increment: 1,
+                }),
+                "timestamp",
+            ),
+            (
+                Bson::RegularExpression(bson::Regex {
+                    pattern: "a".into(),
+                    options: String::new(),
+                }),
+                "regex",
+            ),
+            (db_pointer(), "dbPointer"),
+            (Bson::JavaScriptCode("x".into()), "javascript"),
+            (
+                Bson::JavaScriptCodeWithScope(bson::JavaScriptCodeWithScope {
+                    code: "x".into(),
+                    scope: doc! {},
+                }),
+                "javascriptWithScope",
+            ),
+            (Bson::MaxKey, "maxKey"),
+        ];
+        for (value, name) in samples {
+            assert!(
+                type_class_names(type_rank(&value)).contains(&name),
+                "{value:?} should be within the classes up to {name}"
             );
         }
     }
