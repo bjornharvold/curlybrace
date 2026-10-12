@@ -121,26 +121,36 @@ fn cancel_sends_cancel_for_the_current_run_only_while_running() {
 }
 
 #[test]
-fn a_cancelled_pair_ends_the_run_as_cancelled_and_keeps_partial_results() {
+fn a_cancelled_pair_ends_the_run_as_cancelled_with_no_results_view_and_no_rows_request() {
     let cancelled = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
         pair: 1,
         outcome: PairOutcome::Cancelled(Summary {
             different: 2,
+            scanned_source: 7,
+            scanned_target: 6,
             ..Summary::default()
         }),
     });
-    let (state, _) = update(running_state(), cancelled);
+    let (state, cmds) = update(running_state(), cancelled);
+    assert!(
+        cmds.is_empty(),
+        "the runtime keeps nothing for a cancelled pair"
+    );
+    assert!(state.banner.is_none());
     let (state, _) = update(state, run_done());
     assert!(matches!(
         state.compare.run,
         RunView::Finished {
             cancelled: true,
+            scanned_source: 7,
+            scanned_target: 6,
             ..
         }
     ));
-    assert!(state.compare.results.is_some());
+    assert!(state.compare.results.is_none());
+    assert!(state.compare.can_discard(), "Discard stays available");
 }
 
 #[test]

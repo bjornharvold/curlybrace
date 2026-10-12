@@ -132,6 +132,7 @@
     "run": {
       "cancel": "Cancel",
       "cancelled": "The comparison was cancelled. The results below are partial.",
+      "cancelled_no_results": "The comparison was cancelled. No results were kept.",
       "cancelling": "Cancelling...",
       "differences": "{count} differences found so far",
       "discard": "Discard results",

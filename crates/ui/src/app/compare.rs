@@ -561,7 +561,8 @@ fn settle(
 ) -> (Option<ResultsView>, bool, Option<CoreError>) {
     match outcome {
         PairOutcome::Completed(s) => (Some(ResultsView::new(s)), cancelled, failure),
-        PairOutcome::Cancelled(s) => (Some(ResultsView::new(s)), true, failure),
+        // The runtime keeps nothing for a cancelled pair: no results view, no Rows request.
+        PairOutcome::Cancelled(_) => (None, true, failure),
         PairOutcome::Failed(e) => (None, cancelled, Some(e.clone())),
     }
 }

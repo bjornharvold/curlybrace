@@ -30,7 +30,7 @@ pub fn show_run(
             action = Some(CompareAction::Discard);
         }
     });
-    show_progress(ui, &state.run, state.cancel_requested, i18n);
+    show_progress(ui, state, i18n);
     action
 }
 
@@ -44,8 +44,9 @@ fn scanned_text(source: u64, target: u64, i18n: &I18n) -> String {
     )
 }
 
-fn show_progress(ui: &mut egui::Ui, run: &RunView, cancel_requested: bool, i18n: &I18n) {
-    match run {
+fn show_progress(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) {
+    let cancel_requested = state.cancel_requested;
+    match &state.run {
         RunView::Idle => {}
         RunView::Running {
             scanned_source,
@@ -73,8 +74,10 @@ fn show_progress(ui: &mut egui::Ui, run: &RunView, cancel_requested: bool, i18n:
             scanned_target,
             ..
         } => {
-            let done = if *cancelled {
+            let done = if *cancelled && state.results.is_some() {
                 "compare.run.cancelled"
+            } else if *cancelled {
+                "compare.run.cancelled_no_results"
             } else {
                 "compare.run.finished"
             };
