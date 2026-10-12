@@ -104,6 +104,12 @@
   },
   "errors": {
     "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",
+    "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Narrow it with a filter, or compare fewer fields.",
+    "compare_duplicate_key": "Two documents on one side have the same key, so they cannot be matched. Choose a key that is unique, or look up which values repeat.",
+    "compare_key_invalid": "A key field holds a value that cannot be used as a key (for example an array). Choose a different key.",
+    "compare_key_missing": "A document has no value for one of the key fields. Choose key fields that every document has.",
+    "compare_key_not_indexed": "No index covers this key, and the collection is too large to compare without one. Create an index on the key fields and try again.",
+    "compare_key_order": "The documents did not arrive in the expected key order, so the comparison was stopped to avoid wrong results. This can happen with an unusual collation; please report it if it persists.",
     "database": "The database reported a problem. Check your connection and try again.",
     "invalid_document": "This document is not valid. Check its fields and try again.",
     "invalid_json": "This is not valid JSON. Check the syntax and try again.",

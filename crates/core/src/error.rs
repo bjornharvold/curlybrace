@@ -35,6 +35,24 @@ pub enum CoreError {
     /// TLS with certificate verification cannot be used through an SSH tunnel.
     #[error("tls with certificate verification cannot be combined with an ssh tunnel")]
     TlsThroughTunnel,
+    /// Two documents on one side of a compare share a key tuple.
+    #[error("compare: two documents share the same key")]
+    CompareDuplicateKey,
+    /// A document has no value for one of the key fields.
+    #[error("compare: a document is missing a key field")]
+    CompareKeyMissing,
+    /// A key field holds a value that cannot serve as a key (an array or a deprecated type).
+    #[error("compare: a key field holds a value that cannot be used as a key")]
+    CompareKeyInvalid,
+    /// A side's keyed stream was not strictly increasing: the comparator and the server disagree.
+    #[error("compare: documents arrived out of key order")]
+    CompareKeyOrder,
+    /// No usable index covers the key and the collection is above the unindexed limit.
+    #[error("compare: no usable index covers the key")]
+    CompareKeyNotIndexed,
+    /// The shared result budget (differences or bytes) was exhausted.
+    #[error("compare: the result limit was reached")]
+    CompareCapExceeded,
 }
 
 impl CoreError {
@@ -54,6 +72,12 @@ impl CoreError {
             Self::Unauthorized => "errors.unauthorized",
             Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
             Self::TlsThroughTunnel => "errors.tls_through_tunnel",
+            Self::CompareDuplicateKey => "errors.compare_duplicate_key",
+            Self::CompareKeyMissing => "errors.compare_key_missing",
+            Self::CompareKeyInvalid => "errors.compare_key_invalid",
+            Self::CompareKeyOrder => "errors.compare_key_order",
+            Self::CompareKeyNotIndexed => "errors.compare_key_not_indexed",
+            Self::CompareCapExceeded => "errors.compare_cap_exceeded",
         }
     }
 }
@@ -78,6 +102,12 @@ mod tests {
             CoreError::Unauthorized,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
+            CoreError::CompareDuplicateKey,
+            CoreError::CompareKeyMissing,
+            CoreError::CompareKeyInvalid,
+            CoreError::CompareKeyOrder,
+            CoreError::CompareKeyNotIndexed,
+            CoreError::CompareCapExceeded,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         keys.sort();

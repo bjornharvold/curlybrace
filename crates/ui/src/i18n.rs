@@ -172,6 +172,12 @@ mod tests {
             CoreError::Unauthorized,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
+            CoreError::CompareDuplicateKey,
+            CoreError::CompareKeyMissing,
+            CoreError::CompareKeyInvalid,
+            CoreError::CompareKeyOrder,
+            CoreError::CompareKeyNotIndexed,
+            CoreError::CompareCapExceeded,
         ];
         for e in &errors {
             let s = i.error(e);

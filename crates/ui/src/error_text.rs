@@ -53,6 +53,12 @@ mod tests {
             CoreError::Unauthorized,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
+            CoreError::CompareDuplicateKey,
+            CoreError::CompareKeyMissing,
+            CoreError::CompareKeyInvalid,
+            CoreError::CompareKeyOrder,
+            CoreError::CompareKeyNotIndexed,
+            CoreError::CompareCapExceeded,
         ] {
             assert_eq!(error_detail(&hidden), None, "{hidden:?}");
         }
