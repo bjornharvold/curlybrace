@@ -35,6 +35,7 @@ pub async fn build_client_options(
     apply_credential(&mut options, cfg, password)?;
     apply_tls(&mut options, cfg);
     if let Some(addr) = tunnel {
+        reject_unverifiable_tls(&options)?;
         options.hosts = vec![ServerAddress::Tcp {
             host: addr.ip().to_string(),
             port: Some(addr.port()),
@@ -119,6 +120,23 @@ fn apply_credential(
     credential.source = source.or(credential.source);
     options.credential = Some(credential);
     Ok(())
+}
+
+/// A tunnel makes the driver dial `127.0.0.1`, and it verifies the server
+/// certificate against the dialed name. The rustls build of `mongodb` 3.6 has
+/// no server-name override (`allow_invalid_hostnames` exists only with
+/// `openssl-tls`), so a verified-TLS connection through a tunnel cannot
+/// succeed. Fail early with a clear error instead of an opaque handshake
+/// failure; the user may enable "allow invalid certificates" to proceed.
+fn reject_unverifiable_tls(options: &ClientOptions) -> Result<()> {
+    match &options.tls {
+        Some(Tls::Enabled(tls)) if tls.allow_invalid_certificates != Some(true) => {
+            Err(CoreError::Unsupported(
+                "tls with certificate verification cannot be combined with an ssh tunnel".into(),
+            ))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn apply_tls(options: &mut ClientOptions, cfg: &ConnectionConfig) {
@@ -239,6 +257,24 @@ mod tests {
             build_client_options(&c, None, Some(addr)).await,
             Err(CoreError::Unsupported(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn tunnel_with_verified_tls_is_unsupported_but_relaxed_tls_is_allowed() {
+        let addr: SocketAddr = "127.0.0.1:50000".parse().unwrap();
+        let mut c = ConnectionConfig::new("a", "mongodb://db.internal:27017");
+        c.tls.enabled = true;
+        assert!(matches!(
+            build_client_options(&c, None, Some(addr)).await,
+            Err(CoreError::Unsupported(_))
+        ));
+        // Without a tunnel the same TLS config is fine.
+        assert!(build_client_options(&c, None, None).await.is_ok());
+        c.tls.allow_invalid_certs = true;
+        assert!(build_client_options(&c, None, Some(addr)).await.is_ok());
+        c.tls.enabled = false;
+        c.tls.allow_invalid_certs = false;
+        assert!(build_client_options(&c, None, Some(addr)).await.is_ok());
     }
 
     #[tokio::test]
