@@ -136,7 +136,6 @@ impl Dec {
     }
 
     /// The value as an `i64`, only when it is integral and in range.
-    #[allow(dead_code)] // consumed by the normalization step of the compare feature
     pub(crate) fn to_i64(&self) -> Option<i64> {
         let Self::Finite { neg, digits, exp } = self else {
             return None;
@@ -166,7 +165,6 @@ impl Dec {
     }
 
     /// A canonical `Decimal128` for a finite value (equal values give identical bytes).
-    #[allow(dead_code)] // consumed by the normalization step of the compare feature
     pub(crate) fn to_decimal128(&self) -> Option<Decimal128> {
         let (neg, digits, exp) = match self {
             Self::Finite { neg, digits, exp } => (*neg, digits, *exp),
