@@ -1,0 +1,34 @@
+{
+  "app": {
+    "title": "MongoStudio"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "ok": "OK",
+    "retry": "Retry",
+    "save": "Save"
+  },
+  "errors": {
+    "database": "The database reported a problem. Check your connection and try again.",
+    "invalid_document": "This document is not valid. Check its fields and try again.",
+    "invalid_json": "This is not valid JSON. Check the syntax and try again.",
+    "invalid_uri": "This connection string is not valid. Check it and try again.",
+    "not_found": "The item could not be found. It may have been removed.",
+    "secret_store": "Could not access the system keychain for saved credentials.",
+    "ssh": "The SSH tunnel could not be established. Check the SSH settings.",
+    "unsupported": "This action is not supported for the current connection."
+  },
+  "failures": {
+    "clone": "Could not clone the document",
+    "connect": "Could not connect",
+    "delete": "Could not delete the document",
+    "disconnect": "Could not disconnect",
+    "find": "Could not load documents",
+    "insert": "Could not insert the document",
+    "list_collections": "Could not load collections",
+    "list_databases": "Could not load databases",
+    "replace": "Could not save the document"
+  }
+}

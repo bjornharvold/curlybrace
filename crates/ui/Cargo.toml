@@ -1,0 +1,12 @@
+[package]
+name = "mongostudio-ui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+
+[dependencies]
+mongostudio-core = { path = "../core" }
+serde_json = "1.0.154"
+
+[dev-dependencies]
+mongostudio-core = { path = "../core", features = ["test-support"] }
