@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use crate::connection::{ConnectionConfig, SshAuth, SshConfig};
 use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
-use crate::tunnel::{HostKeyPrompt, Tunnel, open_tunnel_shared};
+use crate::tunnel::{HostKeyDecision, HostKeyPrompt, Tunnel, open_tunnel_shared};
 
 use super::Shared;
 
@@ -72,6 +72,30 @@ pub fn default_known_hosts_path() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join("mongostudio").join("known_hosts"))
 }
 
+/// Wraps the host-key prompt for ONE connect. Once a newer Connect/Disconnect replaced that
+/// connect, its question is neither asked nor honoured: the policy (`check_host_key`) records
+/// trust only when it receives Trust/TrustAndRemember, so answering `Reject` here means
+/// nothing is written to known_hosts on behalf of a connection the user has left.
+struct GatedPrompt {
+    inner: Arc<dyn HostKeyPrompt>,
+    shared: Arc<Shared>,
+    generation: u64,
+}
+
+impl HostKeyPrompt for GatedPrompt {
+    fn decide(&self, host: &str, fingerprint: &str) -> HostKeyDecision {
+        if !self.shared.is_current(self.generation) {
+            return HostKeyDecision::Reject;
+        }
+        let decision = self.inner.decide(host, fingerprint);
+        if self.shared.is_current(self.generation) {
+            decision
+        } else {
+            HostKeyDecision::Reject
+        }
+    }
+}
+
 /// Derives the single `host:port` a tunnel must reach from the URI authority.
 /// Multi-host and `mongodb+srv` URIs cannot be tunnelled through one forward.
 pub(super) fn parse_target(uri: &str) -> Result<(String, u16)> {
@@ -115,7 +139,8 @@ fn split_host_port(hosts: &str) -> Option<(String, u16)> {
 /// Opens the configured tunnel, if any. The secret is read from the keychain
 /// off the async workers; an absent secret is passed on as `None`.
 pub(super) async fn open_tunnel_if_configured(
-    shared: &Shared,
+    shared: &Arc<Shared>,
+    generation: u64,
     cfg: &ConnectionConfig,
 ) -> Result<Option<Box<dyn TunnelHandle>>> {
     let Some(ssh) = &cfg.ssh else {
@@ -133,7 +158,11 @@ pub(super) async fn open_tunnel_if_configured(
         target_port,
         secret: secret.as_deref(),
         known_hosts,
-        prompt: config.host_key_prompt.clone(),
+        prompt: Arc::new(GatedPrompt {
+            inner: config.host_key_prompt.clone(),
+            shared: shared.clone(),
+            generation,
+        }),
     };
     config.tunnel_opener.open(request).await.map(Some)
 }

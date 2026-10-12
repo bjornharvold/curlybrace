@@ -1,0 +1,224 @@
+//! A host-key question from a replaced connect must neither be asked nor be able to record trust.
+
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::Receiver as StdReceiver;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use async_trait::async_trait;
+use russh::keys::PublicKey;
+use russh::keys::ssh_key::{PrivateKey, private::Ed25519Keypair};
+use tokio::sync::{Notify, oneshot};
+
+use super::tunneling::{TunnelHandle, TunnelOpener, TunnelRequest};
+use super::*;
+use crate::connection::{SshAuth, SshConfig};
+use crate::test_support::InMemoryStore;
+use crate::tunnel::{HostKeyDecision, HostKeyPrompt, check_host_key};
+
+const WAIT: Duration = Duration::from_secs(5);
+
+struct NoTunnel;
+
+impl TunnelHandle for NoTunnel {
+    fn local_addr(&self) -> SocketAddr {
+        "127.0.0.1:50998".parse().unwrap()
+    }
+}
+
+/// Runs the REAL host-key policy (`check_host_key`, which writes known_hosts on
+/// TrustAndRemember) with the prompt the runtime hands to openers.
+struct PolicyOpener {
+    key: PublicKey,
+    entered: Arc<Notify>,
+    gate: Mutex<Option<oneshot::Receiver<()>>>,
+}
+
+#[async_trait]
+impl TunnelOpener for PolicyOpener {
+    async fn open(&self, request: TunnelRequest<'_>) -> Result<Box<dyn TunnelHandle>> {
+        self.entered.notify_one();
+        let gate = self.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            let _ = gate.await;
+        }
+        let (known_hosts, prompt, key) = (
+            request.known_hosts.to_path_buf(),
+            request.prompt.clone(),
+            self.key.clone(),
+        );
+        tokio::task::spawn_blocking(move || {
+            check_host_key(&known_hosts, "bastion", 22, &key, prompt.as_ref())
+        })
+        .await
+        .map_err(|_| CoreError::Ssh("join".into()))??;
+        Ok(Box::new(NoTunnel))
+    }
+}
+
+/// Counts calls; optionally blocks until the test releases it, then answers `answer`.
+struct InnerPrompt {
+    answer: HostKeyDecision,
+    calls: AtomicUsize,
+    block: Mutex<Option<StdReceiver<()>>>,
+}
+
+impl HostKeyPrompt for InnerPrompt {
+    fn decide(&self, _host: &str, _fingerprint: &str) -> HostKeyDecision {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let block = self.block.lock().unwrap().take();
+        if let Some(block) = block {
+            let _ = block.recv();
+        }
+        self.answer
+    }
+}
+
+fn inner(answer: HostKeyDecision, block: Option<StdReceiver<()>>) -> Arc<InnerPrompt> {
+    Arc::new(InnerPrompt {
+        answer,
+        calls: AtomicUsize::new(0),
+        block: Mutex::new(block),
+    })
+}
+
+fn ssh_cfg() -> ConnectionConfig {
+    let mut c = ConnectionConfig::new("ssh", "mongodb://db.internal:27018/app");
+    c.ssh = Some(SshConfig {
+        host: "bastion".into(),
+        port: 22,
+        username: "u".into(),
+        auth: SshAuth::Password,
+    });
+    c
+}
+
+fn plain_cfg() -> ConnectionConfig {
+    ConnectionConfig::new("plain", "mongodb://127.0.0.1:27017")
+}
+
+struct Connector0;
+
+#[async_trait]
+impl Connector for Connector0 {
+    async fn connect(
+        &self,
+        _cfg: &ConnectionConfig,
+        _password: Option<&str>,
+        _tunnel: Option<SocketAddr>,
+    ) -> Result<Arc<dyn DocumentStore>> {
+        Ok(Arc::new(InMemoryStore::new()))
+    }
+}
+
+struct Rig {
+    h: RuntimeHandle,
+    prompt: Arc<InnerPrompt>,
+    entered: Arc<Notify>,
+    known_hosts: std::path::PathBuf,
+    _dir: tempfile::TempDir,
+}
+
+fn rig(
+    answer: HostKeyDecision,
+    prompt_block: Option<StdReceiver<()>>,
+    opener_gate: Option<oneshot::Receiver<()>>,
+) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let known_hosts = dir.path().join("known_hosts");
+    let prompt = inner(answer, prompt_block);
+    let entered = Arc::new(Notify::new());
+    let key = PrivateKey::from(Ed25519Keypair::from_seed(&[9; 32]))
+        .public_key()
+        .clone();
+    let config = RuntimeConfig {
+        known_hosts_path: Some(known_hosts.clone()),
+        host_key_prompt: prompt.clone(),
+        tunnel_opener: Arc::new(PolicyOpener {
+            key,
+            entered: entered.clone(),
+            gate: Mutex::new(opener_gate),
+        }),
+        ..RuntimeConfig::default()
+    };
+    let repaint: Repaint = Arc::new(|| {});
+    let h = spawn_runtime_with_connector(None, None, Arc::new(Connector0), repaint, config);
+    Rig {
+        h,
+        prompt,
+        entered,
+        known_hosts,
+        _dir: dir,
+    }
+}
+
+async fn next(h: &mut RuntimeHandle) -> Event {
+    tokio::time::timeout(WAIT, h.rx.recv())
+        .await
+        .expect("event in time")
+        .expect("channel open")
+}
+
+fn superseded() -> Event {
+    Event::Failed {
+        context: "connect",
+        error: CoreError::Superseded,
+    }
+}
+
+async fn until(what: &str, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + WAIT;
+    while !done() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_prompt_requested_after_a_newer_connect_is_not_asked_and_records_nothing() {
+    let (release, gate) = oneshot::channel();
+    let mut r = rig(HostKeyDecision::TrustAndRemember, None, Some(gate));
+    r.h.tx.send(Command::Connect(ssh_cfg())).unwrap(); // epoch 1, stuck in the opener
+    r.entered.notified().await;
+    r.h.tx.send(Command::Connect(plain_cfg())).unwrap(); // epoch 2 replaces it
+    assert_eq!(next(&mut r.h).await, Event::Connected { epoch: 2 });
+    release.send(()).unwrap(); // epoch 1 now reaches the host-key policy
+    assert_eq!(next(&mut r.h).await, superseded());
+    assert_eq!(
+        r.prompt.calls.load(Ordering::SeqCst),
+        0,
+        "inner prompt not asked"
+    );
+    assert!(!r.known_hosts.exists(), "known_hosts untouched");
+}
+
+#[tokio::test]
+async fn an_answer_arriving_after_supersession_is_turned_into_a_reject() {
+    let (unblock, block) = std::sync::mpsc::channel();
+    let mut r = rig(HostKeyDecision::TrustAndRemember, Some(block), None);
+    r.h.tx.send(Command::Connect(ssh_cfg())).unwrap(); // epoch 1 asks the user
+    let prompt = r.prompt.clone();
+    until("the question is asked", || {
+        prompt.calls.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    r.h.tx.send(Command::Connect(plain_cfg())).unwrap(); // epoch 2 replaces it
+    assert_eq!(next(&mut r.h).await, Event::Connected { epoch: 2 });
+    unblock.send(()).unwrap(); // the user "answers" Trust and remember, too late
+    assert_eq!(next(&mut r.h).await, superseded());
+    assert!(!r.known_hosts.exists(), "nothing was remembered");
+}
+
+#[tokio::test]
+async fn a_current_connect_can_still_trust_and_remember() {
+    let mut r = rig(HostKeyDecision::TrustAndRemember, None, None);
+    r.h.tx.send(Command::Connect(ssh_cfg())).unwrap();
+    assert_eq!(next(&mut r.h).await, Event::Connected { epoch: 1 });
+    assert_eq!(r.prompt.calls.load(Ordering::SeqCst), 1);
+    let saved = std::fs::read_to_string(&r.known_hosts).unwrap();
+    assert!(
+        saved.trim_start().starts_with("bastion ssh-ed25519 "),
+        "{saved}"
+    );
+}

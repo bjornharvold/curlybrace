@@ -11,6 +11,8 @@
 
 mod handlers;
 #[cfg(test)]
+mod prompt_gate_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tunnel_tests;

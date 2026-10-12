@@ -44,7 +44,7 @@ pub(super) fn gate(shared: &Shared, generation: u64, error: CoreError) -> CoreEr
     }
 }
 
-async fn run(shared: &Shared, command: Command, generation: u64) -> Result<Event> {
+async fn run(shared: &Arc<Shared>, command: Command, generation: u64) -> Result<Event> {
     match command {
         Command::Connect(cfg) => {
             return connect_store(shared, cfg, generation)
@@ -124,14 +124,18 @@ async fn bounded<T>(
 /// Disconnect was requested meanwhile) drop their client and report so.
 /// A timed-out keychain read keeps running in the background (blocking
 /// tasks cannot be cancelled); its result is discarded.
-async fn connect_store(shared: &Shared, cfg: ConnectionConfig, generation: u64) -> Result<Event> {
+async fn connect_store(
+    shared: &Arc<Shared>,
+    cfg: ConnectionConfig,
+    generation: u64,
+) -> Result<Event> {
     cfg.validate()?;
     let limit = shared.config.connect_timeout;
     // The tunnel lives in this scope until installed; a failure, timeout or
     // cancellation anywhere below drops it, which closes it.
     let (store, tunnel) = bounded(limit, async {
         let password = read_password(shared, &cfg).await?;
-        let tunnel = open_tunnel_if_configured(shared, &cfg).await?;
+        let tunnel = open_tunnel_if_configured(shared, generation, &cfg).await?;
         let addr = tunnel.as_ref().map(|t| t.local_addr());
         let store = shared
             .connector
