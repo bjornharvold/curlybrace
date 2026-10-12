@@ -7,4 +7,6 @@ pub mod key;
 pub mod keyset;
 pub mod normalize;
 pub(crate) mod number;
+pub mod results;
 pub mod rules;
+pub mod scan;
