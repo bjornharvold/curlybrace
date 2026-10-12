@@ -1,5 +1,6 @@
 pub mod client;
 pub mod connection;
+pub mod crud;
 pub mod ejson;
 pub mod error;
 pub mod query;
