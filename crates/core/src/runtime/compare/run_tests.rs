@@ -501,3 +501,47 @@ async fn a_rows_page_is_clamped() {
         }
     }
 }
+
+fn install_run(session: &Session, id: u64) -> crate::compare::engine::CancelFlag {
+    let cancel = crate::compare::engine::CancelFlag::default();
+    *session.run.lock().unwrap() = Some(super::session::ActiveRun {
+        id,
+        cancel: cancel.clone(),
+    });
+    cancel
+}
+
+fn active_run_id(session: &Session) -> Option<u64> {
+    session.run.lock().unwrap().as_ref().map(|a| a.id)
+}
+
+#[test]
+fn a_finished_runs_slot_guard_never_erases_the_next_runs_slot() {
+    let session = Session::new(Limits::default());
+    install_run(&session, 7);
+    let guard = runner::RunSlot::new(session.clone(), 7);
+    guard.release();
+    assert_eq!(active_run_id(&session), None);
+    // The UI starts run 8 right after run 7's RunDone; run 7's task then drops its guard.
+    let cancel_b = install_run(&session, 8);
+    drop(guard);
+    assert_eq!(active_run_id(&session), Some(8));
+    // Cancel{8} still reaches run 8.
+    session
+        .run
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .cancel
+        .cancel();
+    assert!(cancel_b.is_cancelled());
+}
+
+#[test]
+fn a_guard_still_frees_its_own_slot_on_drop() {
+    let session = Session::new(Limits::default());
+    install_run(&session, 7);
+    drop(runner::RunSlot::new(session.clone(), 7));
+    assert_eq!(active_run_id(&session), None);
+}

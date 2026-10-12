@@ -60,12 +60,24 @@ pub(super) fn discard_pair(session: &Session, pair: PairId) {
     drop(removed);
 }
 
-/// Frees the "a run is active" slot however the run task ends.
-struct RunSlot(Arc<Session>);
+/// Frees the "a run is active" slot however the run task ends. It only ever clears the slot
+/// holding its own run: after an explicit release a newer run may already own the slot, and the
+/// later drop must not erase it.
+pub(super) struct RunSlot {
+    session: Arc<Session>,
+    run: RunId,
+}
 
 impl RunSlot {
-    fn release(&self) {
-        *self.0.run.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    pub(super) fn new(session: Arc<Session>, run: RunId) -> Self {
+        Self { session, run }
+    }
+
+    pub(super) fn release(&self) {
+        let mut slot = self.session.run.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.as_ref().is_some_and(|a| a.id == self.run) {
+            *slot = None;
+        }
     }
 }
 
@@ -157,7 +169,7 @@ async fn run_contained(ctx: RunContext, pairs: Vec<PairSpec>, cancel: CancelFlag
 }
 
 async fn run_all(ctx: RunContext, pairs: Vec<PairSpec>, cancel: CancelFlag) {
-    let slot = RunSlot(ctx.session.clone());
+    let slot = RunSlot::new(ctx.session.clone(), ctx.run);
     for spec in pairs {
         let id = spec.id;
         let outcome = run_one(&ctx, spec, &cancel).await;
