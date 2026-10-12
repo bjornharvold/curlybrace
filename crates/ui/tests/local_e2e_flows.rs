@@ -2,25 +2,22 @@
 //! `egui_kittest`, against a real MongoDB. After each action both the screen and the database
 //! (read through the driver) are asserted.
 //!
-//! Run: `MONGOSTUDIO_IT=1 cargo test -p mongostudio-ui --test e2e_flows -- --include-ignored`.
-//! Set `MONGOSTUDIO_IT_MONGO_URI` to use an existing server instead of a container. Tests that
-//! stop the server or need `--auth` require docker and are skipped (with a reason) then.
+//! Tier 1 (local server): needs only a MongoDB already running (`MONGOSTUDIO_IT_MONGO_URI`,
+//! default `mongodb://127.0.0.1:27017`); no docker. Every test writes to its own throwaway
+//! `msit_*` database and drops it. Run with `scripts/integration-tests.sh`. The flows that need
+//! docker (`--auth`, stopping the server) are in `docker_e2e_failures.rs`.
 mod support;
 
 use bson::{Bson, doc};
 use egui_kittest::kittest::Queryable;
-use mongostudio_core::connection::{AuthMechanism, ConnectionConfig};
-use mongostudio_core::error::CoreError;
 use mongostudio_core::secrets::{SecretKind, SecretStore, secret_key};
-use mongostudio_testkit::{Container, MongoServer, it_enabled_with_docker};
 use mongostudio_ui::app::persistence::{load_connections, save_connections};
-use mongostudio_ui::app::state::{Banner, ConnStatus};
 use mongostudio_ui::viewmodel::id_preview;
 use support::actions::*;
 use support::db::people;
-use support::fixture::{Fixture, Setup};
+use support::fixture::Fixture;
 use support::screen::shows_containing;
-use support::wait::{SHORT, settle, wait_until};
+use support::wait::{SHORT, wait_until};
 
 const PEOPLE: &str = "people";
 const NAMES: [&str; 3] = ["Ada Lovelace", "Grace Hopper", "Alan Turing"];
@@ -43,24 +40,10 @@ macro_rules! fixture {
     }};
 }
 
-fn header(f: &Fixture, n: u32) -> String {
-    f.labels.t_with("doc.header", &[("n", &n.to_string())])
-}
-
-fn assert_names_on_screen(f: &Fixture, names: &[&str]) {
-    for name in names {
-        assert!(
-            f.harness.query_all_by_label(name).next().is_some(),
-            "{name} should be on screen:\n{}",
-            support::screen::dump(&f.harness)
-        );
-    }
-}
-
 #[test]
-#[ignore = "needs MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 fn add_a_connection_through_the_form_then_browse_it() {
-    let mut f = fixture!(plain_empty);
+    let mut f = fixture!(local_empty);
     let connect = f.labels.t("connections.connect");
     assert!(
         f.harness.query_all_by_label(&connect).next().is_none(),
@@ -98,9 +81,9 @@ fn add_a_connection_through_the_form_then_browse_it() {
 }
 
 #[test]
-#[ignore = "needs MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 fn find_bar_filter_sort_projection_and_bad_input() {
-    let mut f = fixture!(plain);
+    let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
     let (filter, sort, projection) = (
         f.labels.t("findbar.filter"),
@@ -140,9 +123,9 @@ fn find_bar_filter_sort_projection_and_bad_input() {
 }
 
 #[test]
-#[ignore = "needs MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 fn switching_tree_table_and_json_changes_the_content() {
-    let mut f = fixture!(plain);
+    let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
     let int32 = f.labels.t("bsontype.int32");
     assert_names_on_screen(&f, &["Ada Lovelace"]);
@@ -175,9 +158,9 @@ fn switching_tree_table_and_json_changes_the_content() {
 }
 
 #[test]
-#[ignore = "needs MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 fn edit_a_document_through_the_editor_saves_and_refreshes() {
-    let mut f = fixture!(plain);
+    let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
     let first = header(&f, 1);
 
@@ -213,9 +196,9 @@ fn edit_a_document_through_the_editor_saves_and_refreshes() {
 }
 
 #[test]
-#[ignore = "needs MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 fn clone_a_document_adds_a_new_one() {
-    let mut f = fixture!(plain);
+    let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
     let first = header(&f, 1);
 
@@ -240,9 +223,9 @@ fn clone_a_document_adds_a_new_one() {
 }
 
 #[test]
-#[ignore = "needs MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 fn delete_asks_for_confirmation_cancel_keeps_confirm_removes() {
-    let mut f = fixture!(plain);
+    let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
     let first = header(&f, 1);
     let id = id_preview(&Bson::Int32(1));
@@ -270,9 +253,9 @@ fn delete_asks_for_confirmation_cancel_keeps_confirm_removes() {
 }
 
 #[test]
-#[ignore = "needs MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 fn a_projected_page_offers_delete_but_not_edit_or_clone() {
-    let mut f = fixture!(plain);
+    let mut f = fixture!(local);
     browse(&mut f, PEOPLE);
     let projection = f.labels.t("findbar.projection");
     let first = header(&f, 1);
@@ -292,9 +275,9 @@ fn a_projected_page_offers_delete_but_not_edit_or_clone() {
 }
 
 #[test]
-#[ignore = "needs MongoDB: set MONGOSTUDIO_IT=1"]
+#[ignore = "needs a local MongoDB: set MONGOSTUDIO_IT=1"]
 fn deleting_a_saved_connection_asks_first_and_removes_its_secrets() {
-    let mut f = fixture!(plain);
+    let mut f = fixture!(local);
     let id = f.saved_id();
     let key = secret_key(id, SecretKind::Password);
     f.secrets.set(&key, "saved-pw").unwrap();
@@ -322,13 +305,8 @@ fn deleting_a_saved_connection_asks_first_and_removes_its_secrets() {
 
     f.click_text(&delete);
     wait_shows(&mut f, &ask);
-    // The row button and the modal button share a label; the modal's is drawn last.
-    f.harness
-        .get_all_by_label(&delete)
-        .last()
-        .expect("confirm button")
-        .click();
-    settle(&mut f.harness);
+    // The row button and the modal button share a label: take the one under the question.
+    click_button_below(&mut f, &delete, &ask);
     wait_until(&mut f.harness, "connection removed", SHORT, |h| {
         h.state().state().conn.connections.is_empty()
     });
@@ -342,118 +320,4 @@ fn deleting_a_saved_connection_asks_first_and_removes_its_secrets() {
             .connections
             .is_empty()
     );
-}
-
-const ROOT: &str = "root";
-const ROOT_PASSWORD: &str = "it-root-pw-1";
-
-fn auth_fixture(test: &str, saved_password: &str) -> Option<Fixture> {
-    if !it_enabled_with_docker(test) {
-        return None;
-    }
-    let container = Container::start_mongo(
-        &[
-            format!("MONGO_INITDB_ROOT_USERNAME={ROOT}"),
-            format!("MONGO_INITDB_ROOT_PASSWORD={ROOT_PASSWORD}"),
-        ],
-        &["--auth"],
-    );
-    container.wait_tcp();
-    let uri = container.uri();
-    let mut cfg = ConnectionConfig::new("secured", &uri);
-    cfg.auth = AuthMechanism::ScramSha256;
-    cfg.username = Some(ROOT.into());
-    cfg.auth_source = Some("admin".into());
-    let ready_uri = format!(
-        "mongodb://{ROOT}:{ROOT_PASSWORD}@{}/?authSource=admin",
-        &uri["mongodb://".len()..]
-    );
-    let secrets = vec![(
-        secret_key(cfg.id, SecretKind::Password),
-        saved_password.to_string(),
-    )];
-    let setup = Setup {
-        ready_uri,
-        saved: vec![cfg],
-        secrets,
-    };
-    Some(Fixture::start(MongoServer::Owned(container), setup))
-}
-
-#[test]
-#[ignore = "needs docker: set MONGOSTUDIO_IT=1"]
-fn wrong_password_shows_the_auth_error_banner_in_time() {
-    let Some(mut f) = auth_fixture(test_name!(), "definitely-wrong") else {
-        return;
-    };
-    click_key(&mut f, "connections.connect");
-    let headline = f.labels.i18n().failure("connect");
-    let detail = f.labels.i18n().error(&CoreError::AuthFailed);
-    wait_until(&mut f.harness, "auth failure banner", FAILURE_BOUND, |h| {
-        h.query_all_by_label(&headline).next().is_some()
-    });
-    assert!(
-        f.harness.query_all_by_label(&detail).next().is_some(),
-        "localized auth error"
-    );
-    let state = f.harness.state().state();
-    assert_eq!(state.status, ConnStatus::Disconnected);
-    assert!(matches!(
-        state.banner,
-        Some(Banner::Failure {
-            context: "connect",
-            ..
-        })
-    ));
-    assert!(
-        f.harness
-            .query_all_by_label(&f.labels.t("connections.connect"))
-            .next()
-            .is_some(),
-        "back on the connections screen"
-    );
-}
-
-#[test]
-#[ignore = "needs docker: set MONGOSTUDIO_IT=1"]
-fn the_right_password_connects_to_the_same_secured_server() {
-    let Some(mut f) = auth_fixture(test_name!(), ROOT_PASSWORD) else {
-        return;
-    };
-    click_key(&mut f, "connections.connect");
-    wait_until(&mut f.harness, "connected", FAILURE_BOUND, |h| {
-        h.state().state().status == ConnStatus::Connected
-    });
-    let disconnect = f.labels.t("connections.disconnect");
-    wait_shows(&mut f, &disconnect);
-    assert!(f.harness.state().state().banner.is_none());
-}
-
-#[test]
-#[ignore = "needs docker: set MONGOSTUDIO_IT=1"]
-fn a_stopped_server_fails_in_time_and_reconnects_after_restart() {
-    let Some(mut f) = Fixture::plain_with_docker(test_name!()) else {
-        return;
-    };
-    f.db.insert(PEOPLE, people());
-    browse(&mut f, PEOPLE);
-    let container = f.server.container().expect("owned container");
-
-    container.stop();
-    click_key(&mut f, "findbar.run");
-    let headline = f.labels.i18n().failure("find");
-    wait_until(&mut f.harness, "find failure banner", FAILURE_BOUND, |h| {
-        h.query_all_by_label(&headline).next().is_some()
-    });
-    assert_names_on_screen(&f, &["Ada Lovelace"]);
-
-    f.server.container().unwrap().start();
-    support::fixture::wait_ready_blocking(&f);
-    click_key(&mut f, "banner.dismiss");
-    click_key(&mut f, "connections.disconnect");
-    let connect = f.labels.t("connections.connect");
-    wait_shows(&mut f, &connect);
-    browse(&mut f, PEOPLE);
-    assert_names_on_screen(&f, &NAMES);
-    assert!(f.harness.state().state().banner.is_none());
 }

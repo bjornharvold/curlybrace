@@ -108,3 +108,41 @@ fn host_key_prompt() {
     let mut shot = Shot::with_host_key_requests(vec![production()], |_| {}, rx);
     shot.snapshot("host_key_prompt");
 }
+
+/// Not gated (no GPU, no database): the app the screenshots use must write only inside its temp
+/// dir. Saving a connection through the UI must create the file there, never in the real config
+/// directory.
+#[test]
+fn the_app_under_test_uses_temp_paths_not_the_developers_files() {
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    let _enter = rt.enter();
+    let (app, dir) = support::shots::build_app(vec![], None);
+    let mut harness = Harness::builder()
+        .with_size(eframe::egui::vec2(800.0, 600.0))
+        .build_state(
+            |ctx, app: &mut mongostudio_ui::app::MongoStudioApp| app.run_frame(ctx),
+            app,
+        );
+    let i18n = mongostudio_ui::I18n::english();
+    for (key, text) in [
+        ("connections.name", "Temp"),
+        ("connections.uri", "mongodb://localhost"),
+    ] {
+        let label = i18n.t(key);
+        harness.get_by_label(&label).click();
+        harness.run();
+        harness.get_by_label(&label).type_text(text);
+        harness.run();
+    }
+    harness.get_by_label(&i18n.t("common.save")).click();
+    harness.run();
+    let saved = dir.path().join("connections.json");
+    assert!(
+        saved.exists(),
+        "the connection list is written inside the temp dir"
+    );
+    let text = std::fs::read_to_string(saved).unwrap();
+    assert!(text.contains("Temp"));
+}

@@ -6,22 +6,27 @@
 //! stopped, removed, executed in or reused. This crate does not depend on the driver or on
 //! `mongostudio-core`: callers receive a URI/host/port and build their own config.
 //!
+//! Two local tiers, never run on GitHub:
+//! * tier 1 "local server": needs only a MongoDB already running ([`local_uri`], default
+//!   `mongodb://127.0.0.1:27017`, override `MONGOSTUDIO_IT_MONGO_URI`); never starts containers;
+//!   writes only to throwaway `msit_*` databases ([`unique_db_name`]).
+//! * tier 2 "docker": creates its own `ms-it-*` containers ([`Container`], [`SshStack`]).
+//!
 //! Gates print why a test was skipped (never silent):
-//! * `MONGOSTUDIO_IT=1` enables container/server backed tests ([`it_enabled`]).
-//! * `MONGOSTUDIO_IT_MONGO_URI` points plain-server tests at an existing server instead of a
-//!   container ([`plain_server`]); tests that need container control skip then
-//!   ([`it_enabled_with_docker`]).
+//! * `MONGOSTUDIO_IT=1` enables both tiers ([`local_enabled`], [`docker_enabled`]).
 //! * `MONGOSTUDIO_SNAPSHOTS=1` enables the GPU screenshot tests ([`snapshots_enabled`]).
 
 mod container;
 mod gate;
+mod local;
 mod poll;
 mod ssh;
 
-pub use container::{Container, MONGO_IMAGE, MongoServer, docker, free_port, plain_server};
+pub use container::{Container, MONGO_IMAGE, MongoServer, docker};
 pub use gate::{
-    ENV_EXTERNAL_URI, ENV_IT, ENV_SNAPSHOTS, enabled_by, external_uri, it_enabled,
-    it_enabled_with_docker, snapshots_enabled,
+    DEFAULT_LOCAL_URI, ENV_IT, ENV_LOCAL_URI, ENV_SNAPSHOTS, docker_enabled, enabled_by,
+    local_enabled, local_uri, snapshots_enabled, unreachable_message,
 };
-pub use poll::poll;
+pub use local::{local_server, unique_db_name};
+pub use poll::{poll, poll_with};
 pub use ssh::{SSH_PASSWORD, SSH_USER, SshStack};

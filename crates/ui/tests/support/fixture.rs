@@ -6,19 +6,24 @@ use egui_kittest::kittest::Queryable;
 use mongostudio_core::connection::ConnectionConfig;
 use mongostudio_core::runtime::{RuntimeConfig, spawn_runtime_with_config};
 use mongostudio_core::secrets::{MemorySecretStore, SecretStore};
-use mongostudio_testkit::{MongoServer, it_enabled, it_enabled_with_docker, plain_server};
+use mongostudio_testkit::{
+    Container, MongoServer, docker_enabled, local_enabled, local_server, poll_with,
+    unreachable_message,
+};
 use mongostudio_ui::app::MongoStudioApp;
 use mongostudio_ui::app::host_key::InteractivePrompt;
 use mongostudio_ui::app::runtime_config;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 pub const WINDOW: (f32, f32) = (1000.0, 700.0);
-const READY_LIMIT: Duration = Duration::from_secs(90);
+/// A container needs time to boot; an already-running local server answers at once.
+const OWNED_READY_LIMIT: Duration = Duration::from_secs(90);
+const LOCAL_READY_LIMIT: Duration = Duration::from_secs(10);
 
 pub struct Fixture {
     pub harness: Harness<'static, MongoStudioApp>,
@@ -56,9 +61,10 @@ fn launch(
     (harness, config_path)
 }
 
-pub fn wait_ready(rt: &Runtime, uri: &str) -> mongodb::Client {
-    let deadline = Instant::now() + READY_LIMIT;
-    loop {
+/// Pings `uri` until it answers. Fails (never skips) with `what` once `limit` has passed.
+pub fn wait_ready(rt: &Runtime, uri: &str, limit: Duration) -> mongodb::Client {
+    let mut ready = None;
+    poll_with(limit, "the MongoDB server", || {
         let attempt = rt.block_on(async {
             let client = mongodb::Client::with_uri_str(uri).await?;
             client
@@ -67,12 +73,11 @@ pub fn wait_ready(rt: &Runtime, uri: &str) -> mongodb::Client {
                 .await?;
             Ok::<_, mongodb::error::Error>(client)
         });
-        match attempt {
-            Ok(client) => return client,
-            Err(e) if Instant::now() > deadline => panic!("mongod never became ready: {e}"),
-            Err(_) => std::thread::sleep(Duration::from_millis(500)),
-        }
-    }
+        attempt
+            .map(|client| ready = Some(client))
+            .map_err(|e| e.to_string())
+    });
+    ready.expect("poll_with returned without a client")
 }
 
 /// What the app starts with and how to tell the server is up.
@@ -101,31 +106,34 @@ impl Setup {
 }
 
 impl Fixture {
-    /// A plain server (external via `MONGOSTUDIO_IT_MONGO_URI`, else a container) with one saved
-    /// connection to it. `None`, after printing why, when the integration gate is off.
-    pub fn plain(test: &str) -> Option<Self> {
-        it_enabled(test).then(|| {
-            let server = plain_server();
-            let setup = Setup::saved_connection(&server, true);
+    /// Tier 1: the already-running local server (`MONGOSTUDIO_IT_MONGO_URI`, default
+    /// `mongodb://127.0.0.1:27017`) with one saved connection to it. `None`, after printing why,
+    /// when the integration gate is off. FAILS if the gate is on and no server answers.
+    pub fn local(test: &str) -> Option<Self> {
+        Self::local_with(test, true)
+    }
+
+    /// Tier 1 with no saved connections (the "add one through the form" flow).
+    pub fn local_empty(test: &str) -> Option<Self> {
+        Self::local_with(test, false)
+    }
+
+    fn local_with(test: &str, saved: bool) -> Option<Self> {
+        local_enabled(test).then(|| {
+            let server = local_server();
+            let setup = Setup::saved_connection(&server, saved);
             Self::start(server, setup)
         })
     }
 
-    /// Like [`Fixture::plain`] but needs docker container control (stop/start): skips when an
-    /// external server is configured.
-    pub fn plain_with_docker(test: &str) -> Option<Self> {
-        it_enabled_with_docker(test).then(|| {
-            let server = plain_server();
+    /// Tier 2: a fresh `ms-it-*` container with a fixed port (so it can be stopped and started)
+    /// and one saved connection. Needs docker; `None` when the gate is off.
+    pub fn docker_plain(test: &str) -> Option<Self> {
+        docker_enabled(test).then(|| {
+            let container = Container::start_mongo_restartable(&[], &[]);
+            container.wait_tcp();
+            let server = MongoServer::Owned(container);
             let setup = Setup::saved_connection(&server, true);
-            Self::start(server, setup)
-        })
-    }
-
-    /// No saved connections (the "add one through the form" flow).
-    pub fn plain_empty(test: &str) -> Option<Self> {
-        it_enabled(test).then(|| {
-            let server = plain_server();
-            let setup = Setup::saved_connection(&server, false);
             Self::start(server, setup)
         })
     }
@@ -137,7 +145,7 @@ impl Fixture {
             .enable_all()
             .build()
             .expect("tokio runtime");
-        let client = wait_ready(&rt, &setup.ready_uri);
+        let client = ready_client(&rt, &server, &setup.ready_uri);
         let db = TestDb::new(client, rt.handle().clone());
         let dir = tempfile::tempdir().expect("temp dir");
         let secrets = Arc::new(MemorySecretStore::new());
@@ -185,5 +193,28 @@ impl Drop for Fixture {
 
 /// Blocks until the fixture's server answers a ping again (after a container restart).
 pub fn wait_ready_blocking(f: &Fixture) {
-    wait_ready(f.runtime(), &f.server.uri());
+    wait_ready(f.runtime(), &f.server.uri(), OWNED_READY_LIMIT);
+}
+
+/// Waits for the server; for the local server an unreachable address fails with instructions.
+fn ready_client(rt: &Runtime, server: &MongoServer, ready_uri: &str) -> mongodb::Client {
+    match server {
+        MongoServer::Owned(_) => wait_ready(rt, ready_uri, OWNED_READY_LIMIT),
+        MongoServer::External(uri) => {
+            let attempt: Result<mongodb::Client, String> = rt.block_on(async {
+                let client = mongodb::Client::with_uri_str(ready_uri)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let admin = client.database("admin");
+                let ping = admin.run_command(bson::doc! {"ping": 1});
+                let answered = tokio::time::timeout(LOCAL_READY_LIMIT, ping).await;
+                match answered {
+                    Ok(Ok(_)) => Ok(client),
+                    Ok(Err(e)) => Err(e.to_string()),
+                    Err(_) => Err(format!("no answer within {LOCAL_READY_LIMIT:?}")),
+                }
+            });
+            attempt.unwrap_or_else(|e| panic!("{}", unreachable_message(uri, &e)))
+        }
+    }
 }

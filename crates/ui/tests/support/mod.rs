@@ -8,4 +8,5 @@ pub mod db;
 pub mod fixture;
 pub mod screen;
 pub mod shots;
+pub mod sidebar;
 pub mod wait;

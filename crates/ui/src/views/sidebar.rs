@@ -85,6 +85,13 @@ fn push_node_rows<'a>(
     }
 }
 
+/// The text of a database row: an expand/collapse arrow and the name (one place, shared with the
+/// UI tests so they do not hardcode the glyphs).
+pub fn db_row_label(name: &str, expanded: bool) -> String {
+    let arrow = if expanded { "▾" } else { "▸" };
+    format!("{arrow} {name}")
+}
+
 pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Option<SidebarAction> {
     let mut action = None;
     ui.horizontal(|ui| {
@@ -135,13 +142,10 @@ fn show_row(
     i18n: &I18n,
 ) -> Option<SidebarAction> {
     match row {
-        Row::Db(node) => {
-            let arrow = if node.expanded { "▾" } else { "▸" };
-            let label = format!("{arrow} {}", node.name);
-            ui.selectable_label(false, label)
-                .clicked()
-                .then(|| db_click_action(node))
-        }
+        Row::Db(node) => ui
+            .selectable_label(false, db_row_label(&node.name, node.expanded))
+            .clicked()
+            .then(|| db_click_action(node)),
         Row::Collection { db, name } => {
             let selected = state
                 .selected

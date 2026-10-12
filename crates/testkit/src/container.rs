@@ -1,5 +1,4 @@
 //! `ms-it-*` docker containers with guaranteed cleanup.
-use crate::gate::external_uri;
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -23,9 +22,19 @@ pub fn docker(args: &[&str]) -> Result<String, String> {
 }
 
 /// An unused loopback port (best effort: it is released before docker binds it).
-pub fn free_port() -> u16 {
+fn free_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind an ephemeral port");
     listener.local_addr().expect("local addr").port()
+}
+
+/// The host port docker assigned to `container_port` (e.g. `27017/tcp`) of our own container.
+pub(crate) fn published_port(name: &str, container_port: &str) -> u16 {
+    let out = docker(&["port", name, container_port]).expect("docker port");
+    out.lines()
+        .next()
+        .and_then(|line| line.rsplit(':').next())
+        .and_then(|p| p.trim().parse().ok())
+        .unwrap_or_else(|| panic!("cannot parse docker port output {out:?}"))
 }
 
 /// A running `ms-it-*` container, force-removed on drop.
@@ -35,14 +44,33 @@ pub struct Container {
 }
 
 impl Container {
-    /// Starts a MongoDB container on a random loopback port. `env` entries are `KEY=VALUE` and
-    /// `args` are passed to `mongod`. Returns once the TCP port accepts connections; callers
-    /// that need authentication or a driver ping poll on top of that.
+    /// Starts a MongoDB container; docker picks the loopback host port (`-p 127.0.0.1::27017`),
+    /// which is then read back, so there is no bind-then-drop race. The port may change if the
+    /// container is stopped and started again: use [`Container::start_mongo_restartable`] then.
     pub fn start_mongo(env: &[String], args: &[&str]) -> Self {
+        Self::run_mongo(env, args, "127.0.0.1::27017")
+    }
+
+    /// Like [`Container::start_mongo`] but with a fixed host port that survives stop/start.
+    /// Retries with a new port if the chosen one was taken in the meantime.
+    pub fn start_mongo_restartable(env: &[String], args: &[&str]) -> Self {
+        for attempt in 1..=3 {
+            let publish = format!("127.0.0.1:{}:27017", free_port());
+            if let Some(container) = Self::try_run_mongo(env, args, &publish) {
+                return container;
+            }
+            eprintln!("fixed-port start attempt {attempt} failed, retrying with another port");
+        }
+        panic!("could not start a restartable mongo container");
+    }
+
+    fn run_mongo(env: &[String], args: &[&str], publish: &str) -> Self {
+        Self::try_run_mongo(env, args, publish).expect("docker run failed")
+    }
+
+    fn try_run_mongo(env: &[String], args: &[&str], publish: &str) -> Option<Self> {
         let name = format!("{NAME_PREFIX}{}", uuid::Uuid::new_v4().simple());
-        let port = free_port();
-        let publish = format!("127.0.0.1:{port}:27017");
-        let mut cmd: Vec<&str> = vec!["run", "-d", "--name", &name, "-p", &publish];
+        let mut cmd: Vec<&str> = vec!["run", "-d", "--name", &name, "-p", publish];
         for e in env {
             cmd.push("-e");
             cmd.push(e);
@@ -50,14 +78,16 @@ impl Container {
         cmd.push(MONGO_IMAGE);
         cmd.extend_from_slice(args);
         // Create the guard first so a failed start is still cleaned up.
-        let guard = Self {
+        let mut guard = Self {
             name: name.clone(),
-            port,
+            port: 0,
         };
         if let Err(e) = docker(&cmd) {
-            panic!("docker run failed: {e}");
+            eprintln!("docker run failed: {e}");
+            return None;
         }
-        guard
+        guard.port = published_port(&name, "27017/tcp");
+        Some(guard)
     }
 
     pub fn stop(&self) {
@@ -89,7 +119,8 @@ impl Drop for Container {
     }
 }
 
-/// A plain (no auth) server: an external one from the environment, or a fresh container.
+/// The server a test talks to: the already-running local one (tier 1) or a container this
+/// test owns (tier 2).
 pub enum MongoServer {
     External(String),
     Owned(Container),
@@ -108,18 +139,6 @@ impl MongoServer {
         match self {
             Self::Owned(c) => Some(c),
             Self::External(_) => None,
-        }
-    }
-}
-
-/// Uses `MONGOSTUDIO_IT_MONGO_URI` when set, otherwise starts a `mongo:7` container.
-pub fn plain_server() -> MongoServer {
-    match external_uri() {
-        Some(uri) => MongoServer::External(uri),
-        None => {
-            let container = Container::start_mongo(&[], &[]);
-            container.wait_tcp();
-            MongoServer::Owned(container)
         }
     }
 }

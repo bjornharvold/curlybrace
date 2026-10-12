@@ -1,5 +1,5 @@
 //! An sshd container plus a MongoDB reachable only through it.
-use crate::container::{MONGO_IMAGE, docker, free_port};
+use crate::container::{MONGO_IMAGE, docker, published_port};
 use crate::poll;
 use std::time::Duration;
 
@@ -19,11 +19,11 @@ pub struct SshStack {
 impl SshStack {
     pub fn start() -> Self {
         let id = uuid::Uuid::new_v4().simple().to_string();
-        let stack = Self {
+        let mut stack = Self {
             network: format!("ms-it-net-{id}"),
             mongo: format!("ms-it-mongo-{id}"),
             sshd: format!("ms-it-sshd-{id}"),
-            ssh_port: free_port(),
+            ssh_port: 0,
         };
         docker(&["network", "create", &stack.network]).expect("docker network create");
         docker(&[
@@ -36,7 +36,7 @@ impl SshStack {
             MONGO_IMAGE,
         ])
         .expect("start mongo");
-        let publish = format!("127.0.0.1:{}:2222", stack.ssh_port);
+        let publish = "127.0.0.1::2222";
         let user = format!("USER_NAME={SSH_USER}");
         let pw = format!("USER_PASSWORD={SSH_PASSWORD}");
         docker(&[
@@ -47,7 +47,7 @@ impl SshStack {
             "--network",
             &stack.network,
             "-p",
-            &publish,
+            publish,
             "-e",
             "PASSWORD_ACCESS=true",
             "-e",
@@ -57,6 +57,7 @@ impl SshStack {
             SSH_IMAGE,
         ])
         .expect("start sshd");
+        stack.ssh_port = published_port(&stack.sshd, "2222/tcp");
         stack.enable_forwarding();
         stack.wait_mongo();
         stack

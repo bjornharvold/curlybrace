@@ -1,10 +1,12 @@
 //! Reusable user gestures built from clicks and typing (never from direct state edits).
 use super::fixture::Fixture;
 use super::screen::{H, dump};
+use super::sidebar::{click_sidebar_row, scroll_sidebar_until_shown};
 use super::wait::{SHORT, settle, wait_until};
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT, Queryable};
 use mongostudio_ui::app::state::ConnStatus;
+use mongostudio_ui::views::sidebar::db_row_label;
 use std::time::Duration;
 
 /// Clicks the text box labelled `label`, replaces its content with `text`.
@@ -51,22 +53,36 @@ pub fn wait_gone(f: &mut Fixture, text: &str) {
     });
 }
 
-/// Saved connection -> Connect -> the sidebar lists the test database.
+/// Saved connection -> Connect -> the sidebar lists the test database (scrolling to its row, as
+/// the developer's server may hold many databases).
 #[track_caller]
 pub fn connect(f: &mut Fixture) {
     click_key(f, "connections.connect");
-    let row = format!("▸ {}", f.db.name);
-    wait_shows(f, &row);
+    let empty = f.labels.t("sidebar.empty");
+    wait_until(&mut f.harness, "the database list", SHORT, |h| {
+        h.state().state().status == ConnStatus::Connected
+            && !h.state().state().sidebar.databases.is_empty()
+            && h.query_all_by_label(&empty).next().is_none()
+    });
+    let row = db_row_label(&f.db.name, false);
+    scroll_sidebar_until_shown(&mut f.harness, &row);
     assert_eq!(f.harness.state().state().status, ConnStatus::Connected);
 }
 
 /// Expands the test database and opens `collection`; waits for the first document.
 #[track_caller]
 pub fn open_collection(f: &mut Fixture, collection: &str) {
-    let row = format!("▸ {}", f.db.name);
-    f.click_text(&row);
-    wait_shows(f, collection);
-    f.click_text(collection);
+    click_sidebar_row(&mut f.harness, &db_row_label(&f.db.name, false));
+    let loaded = f.db.name.clone();
+    wait_until(&mut f.harness, "the collection list", SHORT, |h| {
+        h.state()
+            .state()
+            .sidebar
+            .databases
+            .iter()
+            .any(|d| d.name == loaded && d.collections.is_some())
+    });
+    click_sidebar_row(&mut f.harness, collection);
     let first = f.labels.t_with("doc.header", &[("n", "1")]);
     wait_shows(f, &first);
 }
@@ -120,3 +136,37 @@ pub fn appears_before(h: &H<'_>, first: &str, second: &str) -> bool {
 
 /// Bound for a failure that must surface through the runtime's own timeouts.
 pub const FAILURE_BOUND: Duration = Duration::from_secs(60);
+
+/// Clicks the button labelled `button` that sits BELOW the text labelled `anchor` (for a modal
+/// whose button shares its label with one on the screen behind it; the modal's button is under
+/// its message, the other one is not). No reliance on draw order.
+#[track_caller]
+pub fn click_button_below(f: &mut Fixture, button: &str, anchor: &str) {
+    let anchor_bottom = f.harness.get_by_label(anchor).rect().bottom();
+    let target = f
+        .harness
+        .get_all_by_label(button)
+        .find(|n| n.rect().top() >= anchor_bottom)
+        .unwrap_or_else(|| {
+            panic!(
+                "no {button:?} button below {anchor:?}:\n{}",
+                dump(&f.harness)
+            )
+        });
+    target.click();
+    settle(&mut f.harness);
+}
+
+pub fn header(f: &Fixture, n: u32) -> String {
+    f.labels.t_with("doc.header", &[("n", &n.to_string())])
+}
+
+pub fn assert_names_on_screen(f: &Fixture, names: &[&str]) {
+    for name in names {
+        assert!(
+            f.harness.query_all_by_label(name).next().is_some(),
+            "{name} should be on screen:\n{}",
+            dump(&f.harness)
+        );
+    }
+}

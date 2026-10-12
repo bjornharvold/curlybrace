@@ -16,7 +16,7 @@ fn block<F: IntoFuture>(rt: &Handle, f: F) -> F::Output {
 
 impl TestDb {
     pub fn new(client: Client, rt: Handle) -> Self {
-        let name = format!("msit_{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
+        let name = mongostudio_testkit::unique_db_name("");
         Self { client, name, rt }
     }
 

@@ -2,7 +2,7 @@
 use super::db::sample_people;
 use bson::Document;
 use eframe::egui;
-use egui_kittest::Harness;
+use egui_kittest::{Harness, SnapshotOptions};
 use mongostudio_core::connection::ConnectionConfig;
 use mongostudio_core::runtime::spawn_runtime_with_store;
 use mongostudio_core::secrets::MemorySecretStore;
@@ -23,6 +23,34 @@ pub const SHOT_SIZE: (f32, f32) = (1000.0, 700.0);
 pub struct Shot {
     pub harness: Harness<'static, MongoStudioApp>,
     _rt: tokio::runtime::Runtime,
+    _dir: tempfile::TempDir,
+}
+
+/// Failed pixels tolerated per snapshot: absorbs text anti-aliasing differences between GPUs and
+/// drivers (a handful of pixels) while any changed label or layout differs by far more (a one
+/// word label change measured over a thousand).
+pub const PIXEL_THRESHOLD: usize = 100;
+
+/// The real app on an in-memory store whose connections file and known_hosts live in a fresh
+/// temp dir, never in the developer's real config directory.
+pub fn build_app(
+    connections: Vec<ConnectionConfig>,
+    requests: Option<Receiver<HostKeyRequest>>,
+) -> (MongoStudioApp, tempfile::TempDir) {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let handle = spawn_runtime_with_store(Arc::new(InMemoryStore::new()), Arc::new(|| {}));
+    let mut app = MongoStudioApp::new(
+        handle,
+        I18n::english(),
+        connections,
+        Arc::new(MemorySecretStore::new()),
+    )
+    .with_config_path(Ok(dir.path().join("connections.json")))
+    .with_known_hosts_path(Some(dir.path().join("known_hosts")));
+    if let Some(rx) = requests {
+        app = app.with_host_key_requests(rx);
+    }
+    (app, dir)
 }
 
 impl Shot {
@@ -50,16 +78,7 @@ impl Shot {
             .build()
             .expect("tokio runtime");
         let _enter = rt.enter();
-        let handle = spawn_runtime_with_store(Arc::new(InMemoryStore::new()), Arc::new(|| {}));
-        let mut app = MongoStudioApp::new(
-            handle,
-            I18n::english(),
-            connections,
-            Arc::new(MemorySecretStore::new()),
-        );
-        if let Some(rx) = requests {
-            app = app.with_host_key_requests(rx);
-        }
+        let (mut app, dir) = build_app(connections, requests);
         setup(app.state_mut());
         let harness = Harness::builder()
             .with_size(egui::vec2(SHOT_SIZE.0, SHOT_SIZE.1))
@@ -67,14 +86,19 @@ impl Shot {
             .wgpu()
             .build_state(|ctx, app: &mut MongoStudioApp| app.run_frame(ctx), app);
         drop(_enter);
-        Self { harness, _rt: rt }
+        Self {
+            harness,
+            _rt: rt,
+            _dir: dir,
+        }
     }
 
     /// Settles animations, then compares with `tests/snapshots/<name>.png`.
     #[track_caller]
     pub fn snapshot(&mut self, name: &str) {
         self.harness.run();
-        self.harness.snapshot(name);
+        let options = SnapshotOptions::new().failed_pixel_count_threshold(PIXEL_THRESHOLD);
+        self.harness.snapshot_options(name, &options);
     }
 }
 

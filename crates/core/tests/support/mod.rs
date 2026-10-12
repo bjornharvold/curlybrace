@@ -1,6 +1,6 @@
 //! Driver-specific helpers for the core integration tests. The generic parts (env gates, the
 //! `ms-it-*` docker guards, the SSH stack) live in `mongostudio-testkit` and are re-exported.
-//! Tests are `#[ignore]` and additionally gated on `MONGOSTUDIO_IT=1` via [`it_enabled`], which
+//! Tests are `#[ignore]` and additionally gated on `MONGOSTUDIO_IT=1` via `local_enabled` / `docker_enabled`, which
 //! prints why a test was skipped.
 #![allow(dead_code, unused_imports)]
 
@@ -11,7 +11,9 @@ use mongostudio_core::client;
 use mongostudio_core::connection::ConnectionConfig;
 use mongostudio_core::mongo_store::MongoStore;
 
-pub use mongostudio_testkit::{Container, SSH_PASSWORD, SSH_USER, SshStack, it_enabled};
+pub use mongostudio_testkit::{
+    Container, SSH_PASSWORD, SSH_USER, SshStack, docker_enabled, local_enabled,
+};
 
 const READY_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -22,22 +24,96 @@ pub fn config(container: &Container) -> ConnectionConfig {
 
 /// Polls until the server answers a ping (and authenticates, if configured).
 pub async fn wait_ready(cfg: &ConnectionConfig, password: Option<&str>) -> Client {
-    let deadline = Instant::now() + READY_TIMEOUT;
+    wait_ready_for(cfg, password, READY_TIMEOUT).await
+}
+
+async fn wait_ready_for(cfg: &ConnectionConfig, password: Option<&str>, limit: Duration) -> Client {
+    let started = Instant::now();
     loop {
         match client::connect(cfg, password, None).await {
             Ok(client) => return client,
-            Err(e) if Instant::now() > deadline => panic!("mongod never became ready: {e}"),
+            Err(e) if started.elapsed() > limit => {
+                panic!("mongod at {} never became ready: {e}", cfg.uri)
+            }
             Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
         }
     }
 }
 
-/// A plain (no auth) server plus a connected client and store.
-pub async fn plain_mongo() -> (Container, Client, MongoStore) {
-    let container = Container::start_mongo(&[], &[]);
+/// Tier 2: a fresh `mongo:7` container (fixed port, so it can be stopped and started) plus a
+/// connected client and store.
+pub async fn docker_mongo() -> (Container, Client, MongoStore) {
+    let container = Container::start_mongo_restartable(&[], &[]);
     let client = wait_ready(&config(&container), None).await;
     let store = MongoStore::new(client.clone());
     (container, client, store)
+}
+
+/// Tier 1: the already-running local server. All writes go to databases owned by the returned
+/// guard (`msit_<id>` names), which are dropped when it goes out of scope.
+pub struct LocalDbs {
+    uri: String,
+    pub db: String,
+    pub unicode_db: String,
+}
+
+impl LocalDbs {
+    pub fn ns(&self, collection: &str) -> mongostudio_core::store::Namespace {
+        mongostudio_core::store::Namespace::new(&self.db, collection)
+    }
+}
+
+impl Drop for LocalDbs {
+    /// Best effort: removes only this test's own databases (on a helper thread, because Drop can
+    /// run inside an async runtime).
+    fn drop(&mut self) {
+        let (uri, dbs) = (
+            self.uri.clone(),
+            vec![self.db.clone(), self.unicode_db.clone()],
+        );
+        let cleanup = std::thread::spawn(move || {
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                return;
+            };
+            rt.block_on(async {
+                let Ok(client) = Client::with_uri_str(&uri).await else {
+                    return;
+                };
+                for db in dbs {
+                    if let Err(e) = client.database(&db).drop().await {
+                        eprintln!("could not drop test database {db}: {e}");
+                    }
+                }
+            });
+        });
+        let _ = cleanup.join();
+    }
+}
+
+/// Connects to the local server (a failure to reach it FAILS the test with instructions).
+pub async fn local_mongo() -> (LocalDbs, Client, MongoStore) {
+    let uri = mongostudio_testkit::local_uri();
+    let cfg = ConnectionConfig::new("it", &uri);
+    let client = match tokio::time::timeout(
+        Duration::from_secs(15),
+        wait_ready_for(&cfg, None, Duration::from_secs(10)),
+    )
+    .await
+    {
+        Ok(client) => client,
+        Err(_) => panic!(
+            "{}",
+            mongostudio_testkit::unreachable_message(&uri, "timeout")
+        ),
+    };
+    let dbs = LocalDbs {
+        uri,
+        db: mongostudio_testkit::unique_db_name(""),
+        // MongoDB forbids spaces and dots in database names, so this one is unicode only.
+        unicode_db: mongostudio_testkit::unique_db_name("база_данных"),
+    };
+    let store = MongoStore::new(client.clone());
+    (dbs, client, store)
 }
 
 /// Waits up to `limit` for the next runtime event; panics with context on timeout.
