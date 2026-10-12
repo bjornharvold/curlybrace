@@ -114,7 +114,10 @@ mod tests {
     #[test]
     fn numbers_compare_by_value_across_types() {
         assert_eq!(cmp_bson(&Bson::Int32(1), &Bson::Int64(1)), Ordering::Equal);
-        assert_eq!(cmp_bson(&Bson::Double(1.5), &Bson::Int32(2)), Ordering::Less);
+        assert_eq!(
+            cmp_bson(&Bson::Double(1.5), &Bson::Int32(2)),
+            Ordering::Less
+        );
         assert_eq!(
             cmp_bson(&Bson::Double(f64::NAN), &Bson::Int32(-9)),
             Ordering::Less

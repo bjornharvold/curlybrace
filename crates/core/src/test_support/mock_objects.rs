@@ -52,8 +52,19 @@ mod tests {
         let kinds: Vec<_> = d.values().map(Bson::element_type).collect();
         use bson::spec::ElementType::*;
         for want in [
-            Int32, Int64, Double, Decimal128, Binary, DateTime, MinKey, MaxKey,
-            EmbeddedDocument, Array, RegularExpression, ObjectId, Timestamp,
+            Int32,
+            Int64,
+            Double,
+            Decimal128,
+            Binary,
+            DateTime,
+            MinKey,
+            MaxKey,
+            EmbeddedDocument,
+            Array,
+            RegularExpression,
+            ObjectId,
+            Timestamp,
         ] {
             assert!(kinds.contains(&want), "missing {want:?}");
         }

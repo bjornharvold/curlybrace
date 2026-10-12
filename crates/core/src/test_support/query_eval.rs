@@ -41,7 +41,9 @@ pub fn parse_sort(sort: &Document) -> Result<Vec<(String, bool)>> {
             Bson::Int32(-1) | Bson::Int64(-1) => Ok((k.clone(), false)),
             Bson::Double(d) if *d == 1.0 => Ok((k.clone(), true)),
             Bson::Double(d) if *d == -1.0 => Ok((k.clone(), false)),
-            _ => Err(CoreError::InvalidDocument(format!("sort direction for `{k}` must be 1 or -1"))),
+            _ => Err(CoreError::InvalidDocument(format!(
+                "sort direction for `{k}` must be 1 or -1"
+            ))),
         })
         .collect()
 }
@@ -85,7 +87,9 @@ pub fn project(doc: &Document, projection: &Document) -> Result<Document> {
     }
     let inclusion = fields.first().map(|(_, on)| *on);
     if fields.iter().any(|(_, on)| Some(*on) != inclusion) {
-        return Err(CoreError::InvalidDocument("projection mixes inclusion and exclusion".into()));
+        return Err(CoreError::InvalidDocument(
+            "projection mixes inclusion and exclusion".into(),
+        ));
     }
     let names: Vec<&str> = fields.iter().map(|(k, _)| *k).collect();
     Ok(doc

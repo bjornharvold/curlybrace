@@ -162,7 +162,9 @@ mod tests {
     use bson::{Bson, doc};
 
     fn numbered(count: i32) -> Vec<bson::Document> {
-        (0..count).map(|i| doc! { "_id": i, "n": i, "a": i % 2, "b": "x" }).collect()
+        (0..count)
+            .map(|i| doc! { "_id": i, "n": i, "a": i % 2, "b": "x" })
+            .collect()
     }
 
     fn store(count: i32) -> InMemoryStore {
@@ -171,30 +173,52 @@ mod tests {
 
     #[tokio::test]
     async fn find_limits_and_reports_has_more() {
-        let q = Query { limit: 3, ..Query::default() };
+        let q = Query {
+            limit: 3,
+            ..Query::default()
+        };
         let page = store(5).find(&mock_namespace(), &q).await.unwrap();
         assert_eq!(page.docs.len(), 3);
         assert!(page.has_more);
-        let q = Query { limit: 5, ..Query::default() };
+        let q = Query {
+            limit: 5,
+            ..Query::default()
+        };
         let page = store(5).find(&mock_namespace(), &q).await.unwrap();
         assert_eq!((page.docs.len(), page.has_more), (5, false));
     }
 
     #[tokio::test]
     async fn skip_offsets_results() {
-        let q = Query { skip: 3, limit: 10, ..Query::default() };
+        let q = Query {
+            skip: 3,
+            limit: 10,
+            ..Query::default()
+        };
         let page = store(5).find(&mock_namespace(), &q).await.unwrap();
         assert_eq!(page.skip, 3);
-        assert_eq!(page.docs.iter().map(|d| d.get_i32("n").unwrap()).collect::<Vec<_>>(), [3, 4]);
+        assert_eq!(
+            page.docs
+                .iter()
+                .map(|d| d.get_i32("n").unwrap())
+                .collect::<Vec<_>>(),
+            [3, 4]
+        );
     }
 
     #[tokio::test]
     async fn sort_descending_and_multi_key() {
-        let q = Query { sort: Some(doc! { "n": -1 }), ..Query::default() };
+        let q = Query {
+            sort: Some(doc! { "n": -1 }),
+            ..Query::default()
+        };
         let page = store(4).find(&mock_namespace(), &q).await.unwrap();
         let ns: Vec<_> = page.docs.iter().map(|d| d.get_i32("n").unwrap()).collect();
         assert_eq!(ns, [3, 2, 1, 0]);
-        let q = Query { sort: Some(doc! { "a": 1, "n": -1 }), ..Query::default() };
+        let q = Query {
+            sort: Some(doc! { "a": 1, "n": -1 }),
+            ..Query::default()
+        };
         let page = store(4).find(&mock_namespace(), &q).await.unwrap();
         let ns: Vec<_> = page.docs.iter().map(|d| d.get_i32("n").unwrap()).collect();
         assert_eq!(ns, [2, 0, 3, 1]);
@@ -202,20 +226,32 @@ mod tests {
 
     #[tokio::test]
     async fn projection_inclusion_keeps_id() {
-        let q = Query { projection: Some(doc! { "a": 1 }), ..Query::default() };
+        let q = Query {
+            projection: Some(doc! { "a": 1 }),
+            ..Query::default()
+        };
         let page = store(2).find(&mock_namespace(), &q).await.unwrap();
         assert_eq!(page.docs[1], doc! { "_id": 1, "a": 1 });
-        let q = Query { projection: Some(doc! { "a": 1, "_id": 0 }), ..Query::default() };
+        let q = Query {
+            projection: Some(doc! { "a": 1, "_id": 0 }),
+            ..Query::default()
+        };
         let page = store(2).find(&mock_namespace(), &q).await.unwrap();
         assert_eq!(page.docs[1], doc! { "a": 1 });
     }
 
     #[tokio::test]
     async fn equality_filter_matches_top_level_and_rejects_operators() {
-        let q = Query { filter: doc! { "a": 1, "b": "x" }, ..Query::default() };
+        let q = Query {
+            filter: doc! { "a": 1, "b": "x" },
+            ..Query::default()
+        };
         let page = store(6).find(&mock_namespace(), &q).await.unwrap();
         assert_eq!(page.docs.len(), 3);
-        let q = Query { filter: doc! { "n": { "$gt": 2 } }, ..Query::default() };
+        let q = Query {
+            filter: doc! { "n": { "$gt": 2 } },
+            ..Query::default()
+        };
         let err = store(6).find(&mock_namespace(), &q).await.unwrap_err();
         assert!(matches!(err, CoreError::Unsupported(_)));
     }
@@ -224,10 +260,16 @@ mod tests {
     async fn insert_returns_given_or_generated_id() {
         let s = InMemoryStore::new();
         let ns = mock_namespace();
-        assert_eq!(s.insert(&ns, doc! { "_id": 9 }).await.unwrap(), Bson::Int32(9));
+        assert_eq!(
+            s.insert(&ns, doc! { "_id": 9 }).await.unwrap(),
+            Bson::Int32(9)
+        );
         let id = s.insert(&ns, doc! { "x": 1 }).await.unwrap();
         assert!(matches!(id, Bson::ObjectId(_)));
-        let q = Query { filter: doc! { "_id": id }, ..Query::default() };
+        let q = Query {
+            filter: doc! { "_id": id },
+            ..Query::default()
+        };
         assert_eq!(s.find(&ns, &q).await.unwrap().docs.len(), 1);
     }
 
@@ -235,11 +277,19 @@ mod tests {
     async fn replace_and_delete_work_and_report_not_found() {
         let s = store(2);
         let ns = mock_namespace();
-        s.replace(&ns, &Bson::Int32(1), doc! { "_id": 1, "n": 100 }).await.unwrap();
-        let q = Query { filter: doc! { "_id": 1 }, ..Query::default() };
+        s.replace(&ns, &Bson::Int32(1), doc! { "_id": 1, "n": 100 })
+            .await
+            .unwrap();
+        let q = Query {
+            filter: doc! { "_id": 1 },
+            ..Query::default()
+        };
         assert_eq!(s.find(&ns, &q).await.unwrap().docs[0].get_i32("n"), Ok(100));
         s.delete(&ns, &Bson::Int32(1)).await.unwrap();
-        assert_eq!(s.delete(&ns, &Bson::Int32(1)).await, Err(CoreError::NotFound));
+        assert_eq!(
+            s.delete(&ns, &Bson::Int32(1)).await,
+            Err(CoreError::NotFound)
+        );
         let missing = s.replace(&ns, &Bson::Int32(77), doc! { "n": 1 }).await;
         assert_eq!(missing, Err(CoreError::NotFound));
     }
@@ -247,11 +297,23 @@ mod tests {
     #[tokio::test]
     async fn unusual_namespaces_round_trip() {
         let s = InMemoryStore::new();
-        for (db, col) in [("my db", "col.with.dots"), ("my db", "коллекция"), ("数据", "a b")] {
-            s.insert(&crate::store::Namespace::new(db, col), doc! { "x": 1 }).await.unwrap();
+        for (db, col) in [
+            ("my db", "col.with.dots"),
+            ("my db", "коллекция"),
+            ("数据", "a b"),
+        ] {
+            s.insert(&crate::store::Namespace::new(db, col), doc! { "x": 1 })
+                .await
+                .unwrap();
         }
         assert_eq!(s.list_databases().await.unwrap(), ["my db", "数据"]);
-        assert_eq!(s.list_collections("my db").await.unwrap(), ["col.with.dots", "коллекция"]);
-        assert_eq!(s.list_collections("nope").await.unwrap(), Vec::<String>::new());
+        assert_eq!(
+            s.list_collections("my db").await.unwrap(),
+            ["col.with.dots", "коллекция"]
+        );
+        assert_eq!(
+            s.list_collections("nope").await.unwrap(),
+            Vec::<String>::new()
+        );
     }
 }
