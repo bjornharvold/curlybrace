@@ -70,6 +70,9 @@ mod icon_tests {
         let icon = window_icon().expect("the embedded icon PNG must decode");
         assert_eq!((icon.width, icon.height), (256, 256));
         assert_eq!(icon.rgba.len(), 256 * 256 * 4);
-        assert!(icon.rgba.chunks(4).any(|px| px[3] == 255), "icon is not fully transparent");
+        assert!(
+            icon.rgba.chunks(4).any(|px| px[3] == 255),
+            "the icon must contain opaque pixels"
+        );
     }
 }
