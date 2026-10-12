@@ -72,23 +72,40 @@ pub fn default_known_hosts_path() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join("curlybrace").join("known_hosts"))
 }
 
-/// Wraps the host-key prompt for ONE connect. Once a newer Connect/Disconnect replaced that
-/// connect, its question is neither asked nor honoured: the policy (`check_host_key`) records
+/// Whether the job a question belongs to is still wanted.
+pub(crate) trait Currentness: Send + Sync {
+    fn is_current(&self) -> bool;
+}
+
+/// The main connection: current until a newer Connect/Disconnect replaced it.
+pub(super) struct ConnectionCurrent {
+    pub shared: Arc<Shared>,
+    pub generation: u64,
+}
+
+impl Currentness for ConnectionCurrent {
+    fn is_current(&self) -> bool {
+        self.shared.is_current(self.generation)
+    }
+}
+
+/// Wraps the host-key prompt for ONE job (a connect, or a compare session). Once that job is no
+/// longer current (a newer Connect/Disconnect replaced the connect, or the compare session was
+/// closed), its question is neither asked nor honoured: the policy (`check_host_key`) records
 /// trust only when it receives Trust/TrustAndRemember, so answering `Reject` here means
-/// nothing is written to known_hosts on behalf of a connection the user has left.
-struct GatedPrompt {
-    inner: Arc<dyn HostKeyPrompt>,
-    shared: Arc<Shared>,
-    generation: u64,
+/// nothing is written to known_hosts on behalf of a job the user has left.
+pub(super) struct GatedPrompt {
+    pub inner: Arc<dyn HostKeyPrompt>,
+    pub job: Arc<dyn Currentness>,
 }
 
 impl HostKeyPrompt for GatedPrompt {
     fn decide(&self, host: &str, fingerprint: &str) -> HostKeyDecision {
-        if !self.shared.is_current(self.generation) {
+        if !self.job.is_current() {
             return HostKeyDecision::Reject;
         }
         let decision = self.inner.decide(host, fingerprint);
-        if self.shared.is_current(self.generation) {
+        if self.job.is_current() {
             decision
         } else {
             HostKeyDecision::Reject
@@ -140,7 +157,7 @@ fn split_host_port(hosts: &str) -> Option<(String, u16)> {
 /// off the async workers; an absent secret is passed on as `None`.
 pub(super) async fn open_tunnel_if_configured(
     shared: &Arc<Shared>,
-    generation: u64,
+    job: Arc<dyn Currentness>,
     cfg: &ConnectionConfig,
 ) -> Result<Option<Box<dyn TunnelHandle>>> {
     let Some(ssh) = &cfg.ssh else {
@@ -160,8 +177,7 @@ pub(super) async fn open_tunnel_if_configured(
         known_hosts,
         prompt: Arc::new(GatedPrompt {
             inner: config.host_key_prompt.clone(),
-            shared: shared.clone(),
-            generation,
+            job,
         }),
     };
     config.tunnel_opener.open(request).await.map(Some)

@@ -34,6 +34,7 @@ fn shared() -> Arc<Shared> {
         secrets: None,
         connector: Arc::new(NoConnector),
         config: RuntimeConfig::default(),
+        compare: Default::default(),
     })
 }
 

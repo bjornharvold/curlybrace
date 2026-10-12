@@ -89,6 +89,9 @@ fn on_event(state: AppState, ev: Event) -> Out {
             context: "disconnect",
             error,
         } => (disconnected(state, Some(("disconnect", error))), Vec::new()),
+        // Compare sessions are independent of the browsing connection; the compare UI consumes
+        // these events itself, so the browsing state does not change.
+        Event::Compare(_) => (state, Vec::new()),
         // Anything else is a late answer from a session that is gone.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases(names) => {
