@@ -20,6 +20,8 @@ pub enum SetupError {
     Key,
     Filter(Side),
     Rules,
+    /// Both sides are the same collection on the same connection with the same filter.
+    SameCollection,
 }
 
 impl SetupError {
@@ -30,6 +32,7 @@ impl SetupError {
             Self::Key => "compare.setup.key_invalid",
             Self::Filter(_) => "compare.setup.filter_invalid",
             Self::Rules => "compare.setup.rules_invalid",
+            Self::SameCollection => "compare.setup.same_collection",
         }
     }
 }
@@ -248,6 +251,18 @@ impl SetupForm {
         self.rules.to_rules(&self.key()?)
     }
 
+    /// Both sides pick the same namespace with equal (parsed) filters. Whether they are also
+    /// on the same connection is for the caller to know.
+    pub fn same_namespace_and_filter(&self) -> bool {
+        let picked = self.source.picked();
+        picked.is_some()
+            && picked == self.target.picked()
+            && matches!(
+                (self.filter(Side::Source), self.filter(Side::Target)),
+                (Ok(s), Ok(t)) if s == t
+            )
+    }
+
     /// Everything wrong with the form, in display order; empty when it is ready.
     pub fn issues(&self) -> Vec<SetupError> {
         let mut issues = Vec::new();
@@ -271,7 +286,7 @@ impl SetupForm {
         self.issues().is_empty()
     }
 
-    /// The pair to compare, or the first thing that is wrong.
+    /// The pair to compare, or the first thing that is wrong with the form itself.
     pub fn pair(&self) -> Result<PairSpec, SetupError> {
         if let Some(first) = self.issues().into_iter().next() {
             return Err(first);

@@ -221,3 +221,81 @@ fn discard_sends_discard_and_clears_results_and_run() {
     assert!(state.compare.results.is_none());
     assert_eq!(state.compare.run, RunView::Idle);
 }
+
+fn cancelled_done(run: u64) -> Input {
+    ev(CompareEvent::PairDone {
+        session: 1,
+        run,
+        pair: 1,
+        outcome: PairOutcome::Cancelled(Summary::default()),
+    })
+}
+
+#[test]
+fn cancel_is_marked_at_once_and_sent_once() {
+    let (state, cmds) = act(running_state(), CompareAction::Cancel);
+    assert!(matches!(
+        &cmds[..],
+        [Command::Compare(CompareCommand::Cancel {
+            session: 1,
+            run: 1
+        })]
+    ));
+    assert!(state.compare.cancel_requested && !state.compare.can_cancel());
+    let (state, cmds) = act(state, CompareAction::Cancel);
+    assert!(cmds.is_empty(), "a second click sends nothing");
+    let (state, _) = update(state, cancelled_done(1));
+    assert!(
+        !state.compare.cancel_requested,
+        "cleared by the pair terminal"
+    );
+    let (state, _) = update(state, run_done());
+    assert!(!state.compare.cancel_requested);
+}
+
+#[test]
+fn the_cancel_mark_is_cleared_by_the_run_terminal_and_by_a_new_run() {
+    let (state, _) = act(running_state(), CompareAction::Cancel);
+    let (state, _) = update(state, run_done());
+    assert!(!state.compare.cancel_requested);
+    let (state, _) = act(running_state(), CompareAction::Cancel);
+    let stuck = CompareState {
+        run: RunView::Finished {
+            run: 1,
+            cancelled: true,
+            failure: None,
+            scanned_source: 0,
+            scanned_target: 0,
+        },
+        ..state.compare.clone()
+    };
+    let (state, _) = act(
+        AppState {
+            compare: stuck,
+            ..state
+        },
+        CompareAction::Start,
+    );
+    assert!(state.compare.is_running() && !state.compare.cancel_requested);
+}
+
+#[test]
+fn a_finished_run_keeps_the_scanned_counts_of_its_pair() {
+    let summary = Summary {
+        equal: 9,
+        scanned_source: 12,
+        scanned_target: 9,
+        only_in_source: 3,
+        ..Summary::default()
+    };
+    let (state, _) = update(running_state(), pair_done(1, summary));
+    let (state, _) = update(state, run_done());
+    assert!(matches!(
+        state.compare.run,
+        RunView::Finished {
+            scanned_source: 12,
+            scanned_target: 9,
+            ..
+        }
+    ));
+}

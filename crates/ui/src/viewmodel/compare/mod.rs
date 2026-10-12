@@ -4,7 +4,7 @@ pub mod preflight;
 pub mod results;
 pub mod setup;
 
-use curlybrace_core::compare::protocol::{Preflight, RunId, SessionId};
+use curlybrace_core::compare::protocol::{PairSpec, Preflight, RunId, SessionId};
 use curlybrace_core::error::CoreError;
 use uuid::Uuid;
 
@@ -47,6 +47,9 @@ pub enum RunView {
         run: RunId,
         cancelled: bool,
         failure: Option<CoreError>,
+        /// Kept so a run whose filters matched nothing is not mistaken for a real match.
+        scanned_source: u64,
+        scanned_target: u64,
     },
 }
 
@@ -91,6 +94,8 @@ pub struct CompareState {
     /// The form was edited while the check was in flight; its answer will be dropped.
     pub check_stale: bool,
     pub run: RunView,
+    /// Cancel was sent for the run in flight; cleared by its pair and run terminals.
+    pub cancel_requested: bool,
     pub results: Option<ResultsView>,
     pub detail: Option<DetailView>,
 }
@@ -108,6 +113,7 @@ impl Default for CompareState {
             check_in_flight: false,
             check_stale: false,
             run: RunView::default(),
+            cancel_requested: false,
             results: None,
             detail: None,
         }
@@ -153,14 +159,48 @@ impl CompareState {
         self.run.running().is_some()
     }
 
+    /// Everything wrong with the setup, in display order: the form's own issues, then whether
+    /// both sides are the very same collection (which needs the session's connections).
+    pub fn issues(&self) -> Vec<SetupError> {
+        let mut issues = self.setup.issues();
+        let one_connection = self.connections.is_some_and(|(s, t)| s == t);
+        if issues.is_empty() && one_connection && self.setup.same_namespace_and_filter() {
+            issues.push(SetupError::SameCollection);
+        }
+        issues
+    }
+
+    /// The pair to compare, or the first issue.
+    pub fn pair(&self) -> Result<PairSpec, SetupError> {
+        match self.issues().into_iter().next() {
+            Some(first) => Err(first),
+            None => self.setup.pair(),
+        }
+    }
+
     /// Whether the Check button may fire: a usable form and no check or run in flight.
     pub fn can_check(&self) -> bool {
-        self.is_ready() && !self.check_in_flight && !self.is_running() && self.setup.ready()
+        self.can_check_given(self.issues().is_empty())
+    }
+
+    /// `can_check` for a setup whose readiness the caller already knows (computed once a frame).
+    pub fn can_check_given(&self, setup_ready: bool) -> bool {
+        self.is_ready() && !self.check_in_flight && !self.is_running() && setup_ready
     }
 
     /// Whether Start may fire: the same as `can_check`, and the latest answer is fresh and Ok.
     pub fn can_start(&self) -> bool {
-        self.can_check() && !self.check_stale && self.preflight.allows_start()
+        self.can_start_given(self.issues().is_empty())
+    }
+
+    /// `can_start` for a setup whose readiness the caller already knows.
+    pub fn can_start_given(&self, setup_ready: bool) -> bool {
+        self.can_check_given(setup_ready) && !self.check_stale && self.preflight.allows_start()
+    }
+
+    /// Whether Cancel may fire: a run is in flight and no cancel was sent for it yet.
+    pub fn can_cancel(&self) -> bool {
+        self.is_running() && !self.cancel_requested
     }
 }
 

@@ -94,8 +94,9 @@ fn flatten(prefix: &str, value: &Value, out: &mut HashMap<String, String>) -> Re
 mod tests {
     use super::*;
 
-    /// Every key the compare view-models name; labels of the views themselves come later.
-    const COMPARE_KEYS: [&str; 15] = [
+    /// Every key the compare view-models name (the views' own labels are checked by the
+    /// pseudo-locale frame tests in `app::compare_tests::frames`).
+    const COMPARE_KEYS: [&str; 16] = [
         "compare.category.different",
         "compare.category.only_in_source",
         "compare.category.only_in_target",
@@ -108,6 +109,7 @@ mod tests {
         "compare.setup.incomplete",
         "compare.setup.key_invalid",
         "compare.setup.rules_invalid",
+        "compare.setup.same_collection",
         "compare.setup.view_selected",
         "compare.side.source",
         "compare.side.target",

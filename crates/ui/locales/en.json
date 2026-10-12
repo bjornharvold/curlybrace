@@ -99,12 +99,15 @@
     "results": {
       "empty_category": "No documents in this category.",
       "identical": "No differences. The two collections match under the current rules.",
+      "identical_count": "Identical documents: {count}",
       "key_column": "Key",
+      "load_failed": "The differences could not be loaded.",
       "loading": "Loading the differences...",
       "next": "Next",
       "open_hint": "Show the field differences of this document",
       "prev": "Previous",
       "range": "{first}-{last} of {total}",
+      "retry": "Retry",
       "tab": "{name} ({count})"
     },
     "rules": {
@@ -161,6 +164,7 @@
       "reload": "Reload",
       "reload_hint": "The collection list is empty. Load it again.",
       "rules_invalid": "The field list is not valid. Each name must be non-empty, have no empty path segments, and the list cannot be empty when only some fields are compared.",
+      "same_collection": "The source and the target are the same collection with the same filter, so there is nothing to compare. Pick another collection or connection, or change a filter.",
       "source_heading": "Source",
       "target_heading": "Target",
       "view_label": "{name} (view)",

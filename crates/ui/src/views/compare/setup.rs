@@ -2,12 +2,18 @@
 use super::rules::show_rules;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::viewmodel::compare::{Pick, SetupForm, SideForm};
+use crate::viewmodel::compare::{Pick, SetupError, SetupForm, SideForm};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::store::CollectionKind;
 use eframe::egui;
 
-pub fn show_setup(ui: &mut egui::Ui, form: &SetupForm, i18n: &I18n) -> Option<CompareAction> {
+/// `issues`: what is wrong with the setup (`CompareState::issues`, computed once per frame).
+pub fn show_setup(
+    ui: &mut egui::Ui,
+    form: &SetupForm,
+    issues: &[SetupError],
+    i18n: &I18n,
+) -> Option<CompareAction> {
     let mut action = None;
     for side in [Side::Source, Side::Target] {
         let shown = show_side(ui, side, form.side(side), i18n);
@@ -19,7 +25,7 @@ pub fn show_setup(ui: &mut egui::Ui, form: &SetupForm, i18n: &I18n) -> Option<Co
     if let Some(rules) = show_rules(ui, &form.rules, i18n) {
         action = Some(CompareAction::SetRules(rules));
     }
-    for issue in form.issues() {
+    for issue in issues {
         ui.weak(i18n.t(issue.i18n_key()));
     }
     action

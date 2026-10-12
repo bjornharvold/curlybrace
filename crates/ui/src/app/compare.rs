@@ -41,6 +41,8 @@ pub enum CompareAction {
     Back,
     /// Re-list the collections of the database picked on a side (a failed listing is retried).
     Reload(Side),
+    /// Ask again for the results page whose loading failed.
+    RetryRows,
 }
 
 fn cmd(c: CompareCommand) -> Command {
@@ -85,6 +87,7 @@ pub(super) fn on_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::Discard => discard(state),
         CompareAction::Back => back(state),
         CompareAction::Reload(side) => reload(state, side),
+        CompareAction::RetryRows => moved(state, ResultsView::retried),
     }
 }
 
@@ -208,7 +211,7 @@ fn check(state: AppState) -> Out {
     let Some(session) = ready(&state) else {
         return none(state);
     };
-    let Ok(pair) = state.compare.setup.pair() else {
+    let Ok(pair) = state.compare.pair() else {
         return none(state);
     };
     if state.compare.run.running().is_some() || state.compare.check_in_flight {
@@ -235,7 +238,7 @@ fn start(state: AppState) -> Out {
     if c.run.running().is_some() || c.check_in_flight || !c.preflight.allows_start() {
         return none(state);
     }
-    let Ok(pair) = c.setup.pair() else {
+    let Ok(pair) = c.pair() else {
         return none(state);
     };
     let run = c.next_run;
@@ -254,6 +257,7 @@ fn start(state: AppState) -> Out {
     let compare = CompareState {
         run: RunView::started(run),
         next_run: run + 1,
+        cancel_requested: false,
         results: None,
         detail: None,
         ..c.clone()
@@ -261,11 +265,23 @@ fn start(state: AppState) -> Out {
     (with_compare(state, compare), commands)
 }
 
+/// Sends Cancel once per run and marks it at once, so the view can say "cancelling" before
+/// the runtime answers.
 fn cancel(state: AppState) -> Out {
-    match (ready(&state), state.compare.run.running()) {
-        (Some(session), Some(run)) => (state, vec![cmd(CompareCommand::Cancel { session, run })]),
-        _ => none(state),
+    let (Some(session), Some(run)) = (ready(&state), state.compare.run.running()) else {
+        return none(state);
+    };
+    if state.compare.cancel_requested {
+        return none(state);
     }
+    let compare = CompareState {
+        cancel_requested: true,
+        ..state.compare.clone()
+    };
+    (
+        with_compare(state, compare),
+        vec![cmd(CompareCommand::Cancel { session, run })],
+    )
 }
 
 /// Category switch or paging: `change` yields the next results, whose page is then requested.
@@ -582,6 +598,13 @@ fn pair_done(
     }
     let (results, cancelled, failure) = settle(&outcome, cancelled, failure);
     let commands = first_page(results.as_ref(), session);
+    // The pair's own summary has the final counts; a failed pair keeps the last progress.
+    let (scanned_source, scanned_target) = match &outcome {
+        PairOutcome::Completed(s) | PairOutcome::Cancelled(s) => {
+            (s.scanned_source, s.scanned_target)
+        }
+        PairOutcome::Failed(_) => (scanned_source, scanned_target),
+    };
     let compare = CompareState {
         run: RunView::Running {
             run,
@@ -592,6 +615,7 @@ fn pair_done(
             cancelled,
             failure,
         },
+        cancel_requested: false,
         results,
         detail: None,
         ..state.compare.clone()
@@ -608,6 +632,8 @@ fn run_done(state: AppState, run: u64) -> Out {
         run: current,
         cancelled,
         failure,
+        scanned_source,
+        scanned_target,
         ..
     } = state.compare.run.clone()
     else {
@@ -621,7 +647,10 @@ fn run_done(state: AppState, run: u64) -> Out {
             run,
             cancelled,
             failure,
+            scanned_source,
+            scanned_target,
         },
+        cancel_requested: false,
         ..state.compare.clone()
     };
     none(with_compare(state, compare))
@@ -673,10 +702,16 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
     }
     let c = &state.compare;
     // `compare_rows` failures carry no offset, so they cannot be matched to a request: the
-    // current request is kept (a newer one may be the live one) and the banner reports it.
+    // current request is kept (a newer one may be the live one), marked failed so the user can
+    // retry it, and the banner reports it.
     let compare = match context {
+        "compare_rows" => CompareState {
+            results: c.results.clone().map(ResultsView::rows_failed),
+            ..c.clone()
+        },
         "compare_start" if c.run.running().is_some() => CompareState {
             run: RunView::Idle,
+            cancel_requested: false,
             ..c.clone()
         },
         "compare_detail" => CompareState {

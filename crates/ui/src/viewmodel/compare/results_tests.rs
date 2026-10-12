@@ -178,3 +178,43 @@ fn an_empty_category_has_no_pager_and_an_empty_range() {
     assert!(v.is_clean());
     assert!(!loaded(summary(1, 0, 0)).is_clean());
 }
+
+#[test]
+fn identical_documents_are_counted_but_do_not_make_a_difference() {
+    let s = Summary {
+        equal: 42,
+        ..summary(0, 0, 0)
+    };
+    let v = ResultsView::new(&s);
+    assert_eq!(v.counts.identical, 42);
+    assert!(v.is_clean(), "identical documents are not differences");
+    assert_eq!(v.requested, None);
+    let mixed = ResultsView::new(&Summary {
+        equal: 5,
+        ..summary(0, 0, 2)
+    });
+    assert_eq!((mixed.counts.identical, mixed.total()), (5, 2));
+    assert!(!mixed.is_clean());
+}
+
+#[test]
+fn a_failed_page_keeps_its_request_until_retried_or_answered() {
+    let v = ResultsView::new(&summary(0, 0, 3)).rows_failed();
+    assert!(v.load_failed && v.requested == Some((Category::Different, 0)));
+    assert!(!v.is_loading(), "a failed page is not loading any more");
+    let retried = v.retried().expect("a failed page can be retried");
+    assert!(!retried.load_failed && retried.is_loading());
+    assert_eq!(retried.requested, v.requested);
+    assert!(retried.request(1).is_some());
+    assert!(
+        retried.retried().is_none(),
+        "nothing failed: nothing to retry"
+    );
+    let answered = v.clone().accept_rows(Category::Different, 0, 3, rows(0, 3));
+    assert!(!answered.load_failed);
+    let moved = v.in_category(Category::OnlyInSource).unwrap();
+    assert!(!moved.load_failed);
+    // Without an outstanding request nothing is marked failed.
+    let idle = loaded(summary(0, 0, 3)).rows_failed();
+    assert!(!idle.load_failed);
+}

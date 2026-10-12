@@ -74,10 +74,13 @@ fn show_header(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
 /// Everything below the connection pickers, once the session is usable.
 fn show_ready(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
     ui.separator();
-    let setup = show_setup(ui, &state.setup, i18n);
+    // Parsing the form is not free: its issues are computed once per frame.
+    let issues = state.issues();
+    let setup_ready = issues.is_empty();
+    let setup = show_setup(ui, &state.setup, &issues, i18n);
     ui.separator();
-    let preflight = show_preflight(ui, state, i18n);
-    let run = show_run(ui, state, i18n);
+    let preflight = show_preflight(ui, state, setup_ready, i18n);
+    let run = show_run(ui, state, setup_ready, i18n);
     let lower = show_lower(ui, state, i18n);
     setup.or(preflight).or(run).or(lower)
 }

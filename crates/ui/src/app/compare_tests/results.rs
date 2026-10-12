@@ -127,3 +127,42 @@ fn rows_and_detail_after_the_session_was_closed_are_ignored() {
     let (state, cmds) = update(state, ev(answer));
     assert!(cmds.is_empty() && state.compare.detail.is_none());
 }
+
+#[test]
+fn a_failed_page_load_is_retried_with_the_same_request() {
+    let failed = ev(CompareEvent::Failed {
+        session: 1,
+        context: "compare_rows",
+        error: CoreError::Database("timeout".into()),
+    });
+    let (state, _) = update(with_differences(), failed);
+    assert!(state.compare.results.as_ref().unwrap().load_failed);
+    let (state, cmds) = act(state, CompareAction::RetryRows);
+    assert!(matches!(
+        &cmds[..],
+        [Command::Compare(CompareCommand::Rows {
+            session: 1,
+            pair: 1,
+            category: Category::Different,
+            offset: 0,
+            limit: 100
+        })]
+    ));
+    assert!(!state.compare.results.as_ref().unwrap().load_failed);
+    // Nothing failed any more: a second retry sends nothing.
+    let (state, cmds) = act(state, CompareAction::RetryRows);
+    assert!(cmds.is_empty());
+    let (state, _) = update(state, rows_event(Category::Different, 0, 3));
+    assert_eq!(state.compare.results.unwrap().rows.len(), 3);
+}
+
+#[test]
+fn the_identical_count_is_kept_with_the_results() {
+    let summary = Summary {
+        equal: 17,
+        different: 1,
+        ..Summary::default()
+    };
+    let (state, _) = update(running_state(), pair_done(1, summary));
+    assert_eq!(state.compare.results.unwrap().counts.identical, 17);
+}

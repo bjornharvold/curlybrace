@@ -6,9 +6,11 @@ use curlybrace_core::compare::protocol::Preflight;
 use curlybrace_core::store::IndexStatus;
 use eframe::egui;
 
+/// `setup_ready`: the setup has no issues (computed once per frame by the caller).
 pub fn show_preflight(
     ui: &mut egui::Ui,
     state: &CompareState,
+    setup_ready: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let mut action = None;
@@ -21,7 +23,10 @@ pub fn show_preflight(
             "compare.preflight.check"
         };
         let button = egui::Button::new(i18n.t(label));
-        if ui.add_enabled(state.can_check(), button).clicked() {
+        if ui
+            .add_enabled(state.can_check_given(setup_ready), button)
+            .clicked()
+        {
             action = Some(CompareAction::RunCheck);
         }
         if state.check_in_flight {

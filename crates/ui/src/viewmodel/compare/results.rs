@@ -1,4 +1,5 @@
-//! The differences of a finished pair: three category counts and one page of rows.
+//! The differences of a finished pair: three category counts, the identical count and one page
+//! of rows.
 use curlybrace_core::compare::engine::Summary;
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{CompareCommand, RowView, SessionId};
@@ -14,6 +15,8 @@ pub struct Counts {
     pub only_in_source: usize,
     pub only_in_target: usize,
     pub different: usize,
+    /// Matched documents that are equal under the rules: shown as a number, never listed.
+    pub identical: u64,
 }
 
 impl Counts {
@@ -69,6 +72,8 @@ pub struct ResultsView {
     pub rows: Vec<RowView>,
     /// The page asked for and not yet delivered; any other `Rows` answer is stale.
     pub requested: Option<(Category, usize)>,
+    /// Loading `requested` failed; it is kept so the user can retry it.
+    pub load_failed: bool,
 }
 
 impl ResultsView {
@@ -78,6 +83,7 @@ impl ResultsView {
             only_in_source: count(summary.only_in_source),
             only_in_target: count(summary.only_in_target),
             different: count(summary.different),
+            identical: summary.equal,
         };
         let category = DISPLAY_ORDER
             .into_iter()
@@ -89,6 +95,7 @@ impl ResultsView {
             offset: 0,
             rows: Vec::new(),
             requested: (counts.of(category) > 0).then_some((category, 0)),
+            load_failed: false,
         }
     }
 
@@ -97,12 +104,28 @@ impl ResultsView {
     }
 
     pub fn is_loading(&self) -> bool {
-        self.requested.is_some()
+        self.requested.is_some() && !self.load_failed
     }
 
     /// Every category is empty: the two collections match under the rules.
     pub fn is_clean(&self) -> bool {
-        self.counts == Counts::default()
+        DISPLAY_ORDER.into_iter().all(|c| self.counts.of(c) == 0)
+    }
+
+    /// The outstanding page failed to load (a no-op when nothing is outstanding).
+    pub fn rows_failed(self) -> Self {
+        Self {
+            load_failed: self.requested.is_some(),
+            ..self
+        }
+    }
+
+    /// Asks for the failed page again; `None` when nothing failed.
+    pub fn retried(&self) -> Option<Self> {
+        self.load_failed.then(|| Self {
+            load_failed: false,
+            ..self.clone()
+        })
     }
 
     pub fn has_prev(&self) -> bool {
@@ -160,6 +183,7 @@ impl ResultsView {
             offset,
             rows: Vec::new(),
             requested: (self.counts.of(category) > 0).then_some((category, offset)),
+            load_failed: false,
             ..self.clone()
         }
     }
@@ -180,6 +204,7 @@ impl ResultsView {
             counts: self.counts.with(category, total),
             rows: rows.into_iter().take(room).collect(),
             requested: None,
+            load_failed: false,
             ..self
         }
     }

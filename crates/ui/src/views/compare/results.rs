@@ -22,6 +22,8 @@ pub fn show_results(
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let tabs = show_tabs(ui, results, i18n);
+    let identical = results.counts.identical.to_string();
+    ui.label(i18n.t_with("compare.results.identical_count", &[("count", &identical)]));
     if results.is_clean() {
         ui.label(i18n.t("compare.results.identical"));
         return tabs;
@@ -85,6 +87,9 @@ fn show_table(
     selected: Option<&KeyTuple>,
     i18n: &I18n,
 ) -> Option<CompareAction> {
+    if results.load_failed {
+        return show_load_failed(ui, i18n);
+    }
     if results.is_loading() {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -109,6 +114,17 @@ fn show_table(
             }
         });
     action
+}
+
+/// The page could not be loaded: say so and offer to ask again.
+fn show_load_failed(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
+    ui.horizontal(|ui| {
+        let color = ui.visuals().error_fg_color;
+        ui.colored_label(color, i18n.t("compare.results.load_failed"));
+        let retry = ui.button(i18n.t("compare.results.retry"));
+        retry.clicked().then_some(CompareAction::RetryRows)
+    })
+    .inner
 }
 
 /// One key as a selectable monospace line; true when it was clicked.

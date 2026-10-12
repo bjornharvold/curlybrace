@@ -115,6 +115,8 @@ fn close_and_discard_follow_the_session_and_the_run() {
             run: 1,
             cancelled: false,
             failure: None,
+            scanned_source: 0,
+            scanned_target: 0,
         },
         ..ready()
     };
@@ -129,4 +131,63 @@ fn close_and_discard_follow_the_session_and_the_run() {
         ..finished
     };
     assert!(!not_ready.can_discard());
+}
+
+fn on_one_connection(state: CompareState) -> CompareState {
+    let id = Uuid::new_v4();
+    CompareState {
+        connections: Some((id, id)),
+        ..state
+    }
+}
+
+fn same_collection() -> CompareState {
+    let side = curlybrace_core::compare::protocol::Side::Target;
+    let state = ready();
+    let setup = state.setup.clone().with_side(side, picked("a"));
+    on_one_connection(CompareState { setup, ..state })
+}
+
+#[test]
+fn the_same_collection_with_the_same_filter_on_both_sides_is_refused() {
+    let state = same_collection();
+    assert_eq!(state.issues(), vec![SetupError::SameCollection]);
+    assert_eq!(state.pair().err(), Some(SetupError::SameCollection));
+    assert!(!state.can_check() && !state.can_start());
+    assert_eq!(
+        SetupError::SameCollection.i18n_key(),
+        "compare.setup.same_collection"
+    );
+}
+
+#[test]
+fn the_same_collection_differs_by_connection_or_filter() {
+    let side = curlybrace_core::compare::protocol::Side::Target;
+    let state = same_collection();
+    let two_servers = CompareState {
+        connections: Some((Uuid::new_v4(), Uuid::new_v4())),
+        ..state.clone()
+    };
+    assert!(two_servers.issues().is_empty() && two_servers.can_check());
+    let filtered = state.setup.clone().with_side(
+        side,
+        state.setup.side(side).clone().with_filter("{\"x\": 1}"),
+    );
+    let filtered = CompareState {
+        setup: filtered,
+        ..state.clone()
+    };
+    assert!(filtered.issues().is_empty() && filtered.can_check());
+    // Equal filters written differently are still the same filter.
+    let spaced = state
+        .setup
+        .clone()
+        .with_side(side, state.setup.side(side).clone().with_filter("  { }  "));
+    let spaced = CompareState {
+        setup: spaced,
+        ..state.clone()
+    };
+    assert_eq!(spaced.issues(), vec![SetupError::SameCollection]);
+    // Two databases on one connection are fine.
+    assert!(on_one_connection(ready()).issues().is_empty());
 }

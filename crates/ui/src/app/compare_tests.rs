@@ -94,6 +94,29 @@ fn picked_state() -> AppState {
     state
 }
 
+/// One connection on both sides, and the same database and collection picked on both.
+fn same_collection_state() -> AppState {
+    let (state, a, _) = two_connections();
+    let (state, _) = act(state, open_action(a, a));
+    let (mut state, _) = update(state, ev(CompareEvent::Opened { session: 1 }));
+    for side in [Side::Source, Side::Target] {
+        let (s, _) = act(
+            state,
+            CompareAction::PickSide(side, Pick::Database("a".into())),
+        );
+        let listing = CompareEvent::Collections {
+            session: 1,
+            side,
+            db: "a".into(),
+            entries: vec![("users".into(), CollectionKind::Collection)],
+        };
+        let (s, _) = update(s, ev(listing));
+        let pick = CompareAction::PickSide(side, Pick::Collection("users".into()));
+        state = act(s, pick).0;
+    }
+    state
+}
+
 fn indexed(count: u64) -> Preflight {
     Preflight {
         source_count: count,

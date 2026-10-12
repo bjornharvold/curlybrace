@@ -319,3 +319,26 @@ fn a_stale_check_failure_is_quiet_and_never_resets_a_newer_state() {
     let (state, _) = update(state, check_failed_event());
     assert_eq!(state.compare.preflight, PreflightView::Ok);
 }
+
+#[test]
+fn the_same_collection_on_both_sides_cannot_be_checked_or_started() {
+    let state = same_collection_state();
+    assert_eq!(
+        state.compare.issues(),
+        vec![crate::viewmodel::compare::SetupError::SameCollection]
+    );
+    let (state, cmds) = act(state, CompareAction::RunCheck);
+    assert!(cmds.is_empty() && !state.compare.check_in_flight);
+    let (state, cmds) = act(state, CompareAction::Start);
+    assert!(cmds.is_empty() && !state.compare.is_running());
+    // A different filter on one side makes it a real comparison.
+    let (state, _) = act(
+        state,
+        CompareAction::SetFilter(Side::Target, "{\"active\": true}".into()),
+    );
+    let (_, cmds) = act(state, CompareAction::RunCheck);
+    assert!(matches!(
+        &cmds[..],
+        [Command::Compare(CompareCommand::Check { session: 1, .. })]
+    ));
+}

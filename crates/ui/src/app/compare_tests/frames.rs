@@ -371,3 +371,60 @@ fn the_buttons_follow_the_view_model() {
     assert!(!picked_state().compare.can_start());
     assert!(!running_state().compare.can_start());
 }
+
+#[test]
+fn the_identical_count_is_shown_next_to_the_categories() {
+    let summary = Summary {
+        equal: 42,
+        different: 1,
+        ..Summary::default()
+    };
+    let (state, _) = update(running_state(), pair_done(1, summary));
+    let texts = assert_translated(&workspace_clone(&state), "identical count");
+    assert!(has(&texts, "Identical documents: 42"));
+    let (state, _) = update(running_state(), pair_done(1, Summary::default()));
+    let texts = assert_translated(&workspace_clone(&state), "nothing at all");
+    assert!(has(&texts, "Identical documents: 0"));
+}
+
+#[test]
+fn a_finished_run_shows_what_it_scanned() {
+    let summary = Summary {
+        scanned_source: 0,
+        scanned_target: 0,
+        ..Summary::default()
+    };
+    let (state, _) = update(running_state(), pair_done(1, summary));
+    let (state, _) = update(state, run_done());
+    let texts = assert_translated(&workspace_clone(&state), "nothing scanned");
+    assert!(has(&texts, "Scanned 0 source and 0 target documents"));
+    assert!(has(&texts, "The comparison finished"));
+}
+
+#[test]
+fn the_same_collection_on_both_sides_explains_the_next_step() {
+    let texts = assert_translated(&workspace(same_collection_state()), "same collection");
+    assert!(has(&texts, "same collection with the same filter"));
+}
+
+#[test]
+fn a_failed_page_offers_a_retry_that_asks_again() {
+    let failed = ev(CompareEvent::Failed {
+        session: 1,
+        context: "compare_rows",
+        error: CoreError::Database("timeout".into()),
+    });
+    let (state, _) = update(with_differences(), failed);
+    let texts = assert_translated(&workspace_clone(&state), "rows failed");
+    assert!(has(&texts, "The differences could not be loaded"));
+    assert!(has(&texts, "Retry"));
+    assert!(!has(&texts, "Loading the differences"));
+}
+
+#[test]
+fn cancel_says_cancelling_at_once() {
+    let (state, _) = act(running_state(), CompareAction::Cancel);
+    let texts = assert_translated(&workspace_clone(&state), "cancel requested");
+    assert!(has(&texts, "Cancelling..."));
+    assert!(!state.compare.can_cancel());
+}
