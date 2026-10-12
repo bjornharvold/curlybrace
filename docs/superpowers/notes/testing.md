@@ -34,7 +34,11 @@ are always named `ms-it-*`: `mongo:7` on a random 127.0.0.1 port, and for SSH an
 network. Each is owned by an RAII guard (`Container`, `SshStack`) whose `Drop` runs
 `docker rm -f -v` (and `docker network rm`), so cleanup happens on assertion failure
 too. Only a hard kill of the test process can leak one: remove leftovers with
-`docker ps -a --filter name=ms-it- -q | xargs docker rm -f`.
+`docker ps -a --filter 'name=^ms-it-' -q | xargs docker rm -f`.
+
+**Never touch containers you did not create.** The developer's own containers `local7979`
+and `local265` must not be stopped, removed or reused by tests or cleanup; the anchored
+`name=^ms-it-` filter above deliberately matches only the test containers.
 
 ## Coverage
 
