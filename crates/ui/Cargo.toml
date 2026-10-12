@@ -10,7 +10,7 @@ homepage.workspace = true
 authors.workspace = true
 
 [dependencies]
-bson = "2.15"
+bson = "3.1"
 dirs = "7.0.0"
 log = "0.4.26"
 eframe = "0.32.3"
