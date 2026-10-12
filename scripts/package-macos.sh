@@ -14,6 +14,12 @@ VERSION="${1:?usage: package-macos.sh <version> <target-triple> [binary-path]}"
 TARGET="${2:?usage: package-macos.sh <version> <target-triple> [binary-path]}"
 BINARY="${3:-target/${TARGET}/release/mongostudio}"
 
+# The version ends up inside Info.plist and file names: accept only plain semver.
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+  echo "version must look like 1.2.3 or 1.2.3-rc.1 (got: $VERSION)" >&2
+  exit 1
+fi
+
 case "$TARGET" in
   aarch64-apple-darwin) ARCH_LABEL="arm64" ;;
   x86_64-apple-darwin) ARCH_LABEL="x86_64" ;;
