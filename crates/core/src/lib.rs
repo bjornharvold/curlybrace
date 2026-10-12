@@ -2,6 +2,9 @@ pub mod client;
 pub mod connection;
 pub mod error;
 pub mod secrets;
+pub mod store;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 /// True when this build can authenticate with Kerberos (GSSAPI). The UI hides
 /// the Kerberos option when false.

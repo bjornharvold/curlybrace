@@ -5,7 +5,9 @@ edition = "2024"
 rust-version = "1.87"
 
 [dependencies]
+async-trait = "0.1.92"
 bson = "2.15"
+futures = "0.3.34"
 keyring = { version = "3.6.3", features = ["apple-native"] }
 mongodb = "3.6.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -16,3 +18,4 @@ uuid = { version = "1.26.1", features = ["v4", "serde"] }
 
 [features]
 gssapi = ["mongodb/gssapi-auth"]
+test-support = []
