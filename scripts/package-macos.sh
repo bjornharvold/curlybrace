@@ -39,6 +39,7 @@ mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 cp "$BINARY" "${APP}/Contents/MacOS/mongostudio"
 chmod 755 "${APP}/Contents/MacOS/mongostudio"
 cp LICENSE-MIT LICENSE-APACHE "${APP}/Contents/Resources/"
+cp assets/icon/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
 
 cat > "${APP}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -49,6 +50,7 @@ cat > "${APP}/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
   <key>CFBundleExecutable</key><string>mongostudio</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
