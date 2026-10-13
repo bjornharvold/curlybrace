@@ -11,9 +11,11 @@ use bson::{Bson, Document, oid::ObjectId};
 
 use super::bson_order::cmp_bson;
 use super::query_eval::{check_filter, compare, matches, parse_sort, project};
-use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
+use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
-use crate::store::{CollectionKind, DocumentStore, IndexStatus, Namespace, Page, Query};
+use crate::store::{
+    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query,
+};
 
 type Collections = BTreeMap<(String, String), Vec<Document>>;
 
@@ -202,6 +204,39 @@ impl DocumentStore for InMemoryStore {
             .map(|n| (n, CollectionKind::Collection))
             .collect())
     }
+
+    async fn duplicate_keys(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key_spec: &KeySpec,
+        limit: u32,
+    ) -> Result<Vec<DuplicateGroup>> {
+        check_filter(filter)?;
+        let guard = self.lock()?;
+        let docs = guard.get(&key(ns)).map(Vec::as_slice).unwrap_or_default();
+        let mut keyed: Vec<KeyTuple> = docs
+            .iter()
+            .filter(|d| matches(d, filter))
+            .filter_map(|d| key_values(d, key_spec))
+            .collect();
+        keyed.sort_by(compare_tuples);
+        let mut groups: Vec<DuplicateGroup> = Vec::new();
+        for tuple in keyed {
+            match groups.last_mut() {
+                Some(last) if compare_tuples(&last.key, &tuple).is_eq() => last.count += 1,
+                _ => groups.push(DuplicateGroup {
+                    key: tuple,
+                    count: 1,
+                }),
+            }
+        }
+        groups.retain(|g| g.count > 1);
+        // Stable sort: equal counts stay in key order.
+        groups.sort_by(|a, b| b.count.cmp(&a.count));
+        groups.truncate(limit as usize);
+        Ok(groups)
+    }
 }
 
 #[cfg(test)]
@@ -210,7 +245,7 @@ mod tests {
     use super::*;
     use crate::compare::key::{KeySpec, KeyTuple};
     use crate::error::CoreError;
-    use crate::store::{CollectionKind, DocumentStore, IndexStatus, Query};
+    use crate::store::{CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Query};
     use bson::{Bson, doc};
 
     fn numbered(count: i32) -> Vec<bson::Document> {
@@ -486,6 +521,95 @@ mod tests {
         assert_eq!(
             store.list_collection_kinds("db").await.unwrap(),
             vec![("c".to_string(), CollectionKind::Collection)]
+        );
+    }
+
+    fn dup_store() -> InMemoryStore {
+        let ns = Namespace::new("db", "c");
+        InMemoryStore::new().with_docs(
+            &ns,
+            vec![
+                doc! { "_id": 1, "k": 1_i32, "t": "x" },
+                doc! { "_id": 2, "k": 1_i64, "t": "x" },
+                doc! { "_id": 3, "k": 1.0_f64, "t": "y" },
+                doc! { "_id": 4, "k": "a" },
+                doc! { "_id": 5, "k": "a", "t": "x" },
+                doc! { "_id": 6, "k": "b" },
+                doc! { "_id": 7, "t": "x" },
+                doc! { "_id": 8, "t": "x" },
+            ],
+        )
+    }
+
+    #[tokio::test]
+    async fn duplicate_keys_groups_numbers_equal_across_types_and_orders_worst_first() {
+        let ns = Namespace::new("db", "c");
+        let spec = KeySpec::new(vec!["k".into()]).unwrap();
+        let groups = dup_store()
+            .duplicate_keys(&ns, &doc! {}, &spec, 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            groups,
+            vec![
+                DuplicateGroup {
+                    key: KeyTuple(vec![Bson::Int32(1)]),
+                    count: 3
+                },
+                DuplicateGroup {
+                    key: KeyTuple(vec![Bson::String("a".into())]),
+                    count: 2
+                },
+            ],
+            "Int32 1, Int64 1 and Double 1.0 are one key; 'b' is unique; documents without k are not counted"
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_keys_respects_the_filter_the_limit_and_compound_keys() {
+        let ns = Namespace::new("db", "c");
+        let spec = KeySpec::new(vec!["k".into()]).unwrap();
+        let store = dup_store();
+        let only_x = store
+            .duplicate_keys(&ns, &doc! { "t": "x" }, &spec, 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            only_x,
+            vec![DuplicateGroup {
+                key: KeyTuple(vec![Bson::Int32(1)]),
+                count: 2
+            }],
+            "under t == 'x' only _id 1 and 2 share a key; the filter is applied before grouping"
+        );
+        let limited = store.duplicate_keys(&ns, &doc! {}, &spec, 1).await.unwrap();
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0].count, 3);
+        let compound = KeySpec::new(vec!["k".into(), "t".into()]).unwrap();
+        let groups = store
+            .duplicate_keys(&ns, &doc! {}, &compound, 10)
+            .await
+            .unwrap();
+        assert_eq!(groups.len(), 1, "only (1, 'x') repeats: _id 1 and 2");
+        assert_eq!(groups[0].count, 2);
+    }
+
+    #[tokio::test]
+    async fn duplicate_keys_on_a_missing_collection_is_empty_and_nan_collides_with_nan() {
+        let spec = KeySpec::new(vec!["k".into()]).unwrap();
+        let none = InMemoryStore::new();
+        assert!(
+            none.duplicate_keys(&Namespace::new("x", "y"), &doc! {}, &spec, 5)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let ns = Namespace::new("db", "c");
+        let nans = InMemoryStore::new()
+            .with_docs(&ns, vec![doc! { "k": f64::NAN }, doc! { "k": f64::NAN }]);
+        assert_eq!(
+            nans.duplicate_keys(&ns, &doc! {}, &spec, 5).await.unwrap()[0].count,
+            2
         );
     }
 }

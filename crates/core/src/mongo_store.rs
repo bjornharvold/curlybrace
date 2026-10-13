@@ -5,10 +5,12 @@ use bson::{Bson, Document, doc};
 use futures::TryStreamExt;
 use mongodb::Client;
 
-use crate::compare::key::{KeySpec, KeyTuple, extract_key};
+use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
-use crate::store::{CollectionKind, DocumentStore, IndexStatus, Namespace, Page, Query};
+use crate::store::{
+    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query,
+};
 use mongodb::options::Collation;
 
 pub struct MongoStore {
@@ -255,6 +257,100 @@ impl DocumentStore for MongoStore {
         out.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(out)
     }
+
+    async fn duplicate_keys(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        limit: u32,
+    ) -> Result<Vec<DuplicateGroup>> {
+        let cursor = self
+            .collection(ns)
+            .aggregate(duplicate_keys_pipeline(filter, key, limit))
+            .collation(Collation::builder().locale("simple").build())
+            .allow_disk_use(true)
+            .await
+            .map_err(db_err)?;
+        let rows: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
+        let mut groups = rows
+            .iter()
+            .map(|row| group_from_row(row, key.fields.len()))
+            .collect::<Result<Vec<_>>>()?;
+        // `$sort` on the count alone leaves ties in server order: most frequent first, ties in
+        // key order, like the in-memory store.
+        groups.sort_by(|a, b| {
+            b.count
+                .cmp(&a.count)
+                .then_with(|| compare_tuples(&a.key, &b.key))
+        });
+        Ok(groups)
+    }
+}
+
+/// `$expr` terms excluding documents where a key path crosses an array. On the server `a.b` with
+/// an array `a` is "present" when any element has `b` and groups as an array of values, whereas
+/// `key_values` (and the scanner) treat such a path as missing; this keeps the stores agreeing.
+fn no_array_prefix_guards(key: &KeySpec) -> Vec<Document> {
+    key.fields
+        .iter()
+        .flat_map(|path| {
+            path.match_indices('.')
+                .map(|(at, _)| path[..at].to_owned())
+                .collect::<Vec<_>>()
+        })
+        .map(|prefix| doc! { "$not": [{ "$isArray": format!("${prefix}") }] })
+        .collect()
+}
+
+/// The aggregation behind `duplicate_keys`: documents missing a key field are dropped, the rest
+/// are grouped on aliased fields (`k0`, `k1`, ...) so any path is a valid group key, and only
+/// groups of two or more survive. Read-only (no `$out` / `$merge`).
+pub(crate) fn duplicate_keys_pipeline(
+    filter: &Document,
+    key: &KeySpec,
+    limit: u32,
+) -> Vec<Document> {
+    let mut group_id = Document::new();
+    let mut matcher = filter.clone();
+    for (i, path) in key.fields.iter().enumerate() {
+        group_id.insert(format!("k{i}"), format!("${path}"));
+        let present = doc! { path.as_str(): { "$exists": true } };
+        matcher = if matcher.is_empty() {
+            present
+        } else {
+            doc! { "$and": [matcher, present] }
+        };
+    }
+    let guards = no_array_prefix_guards(key);
+    if !guards.is_empty() {
+        matcher = doc! { "$and": [matcher, { "$expr": { "$and": guards } }] };
+    }
+    vec![
+        doc! { "$match": matcher },
+        doc! { "$group": { "_id": group_id, "n": { "$sum": 1_i64 } } },
+        doc! { "$match": { "n": { "$gt": 1_i64 } } },
+        doc! { "$sort": { "n": -1_i32 } },
+        doc! { "$limit": i64::from(limit) },
+    ]
+}
+
+/// One `$group` row as a [`DuplicateGroup`].
+fn group_from_row(row: &Document, fields: usize) -> Result<DuplicateGroup> {
+    let malformed = || CoreError::Database("unexpected aggregation result".into());
+    let id = row.get_document("_id").map_err(|_| malformed())?;
+    let values = (0..fields)
+        .map(|i| id.get(format!("k{i}")).cloned().ok_or_else(malformed))
+        .collect::<Result<Vec<_>>>()?;
+    let count = match row.get("n") {
+        Some(Bson::Int32(n)) => u64::try_from(*n).ok(),
+        Some(Bson::Int64(n)) => u64::try_from(*n).ok(),
+        _ => None,
+    };
+    Ok(DuplicateGroup {
+        key: KeyTuple(values),
+        count: count.ok_or_else(malformed)?,
+    })
 }
 
 #[cfg(test)]
