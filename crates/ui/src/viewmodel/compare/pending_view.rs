@@ -61,6 +61,7 @@ impl CompareState {
                 kind: change.action.kind_for(change.category),
                 documents: match &change.scope {
                     Scope::Keys(keys) => keys.len(),
+                    Scope::Fields { .. } => 1,
                     Scope::Category => self
                         .results
                         .get(&change.pair)

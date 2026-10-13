@@ -32,11 +32,14 @@ pub struct KindCounts {
     pub insert: u64,
     pub replace: u64,
     pub delete: u64,
+    /// Documents updated by field copies (the number of fields is `ReviewPair::field_count`).
+    pub fields: u64,
 }
 
 impl KindCounts {
+    /// Writes, one per document.
     pub fn total(&self) -> u64 {
-        self.insert + self.replace + self.delete
+        self.insert + self.replace + self.delete + self.fields
     }
 
     fn plus(self, kind: ApplyKind, n: u64) -> Self {
@@ -53,8 +56,10 @@ impl KindCounts {
                 delete: self.delete + n,
                 ..self
             },
-            // slice 2c: the UI never produces field ops yet, so they are not counted.
-            ApplyKind::Fields => self,
+            ApplyKind::Fields => Self {
+                fields: self.fields + n,
+                ..self
+            },
         }
     }
 }
@@ -66,6 +71,8 @@ pub struct ReviewPair {
     /// Each distinct action of the pair with the place it writes.
     pub destinations: Vec<(RowAction, Destination)>,
     pub counts: KindCounts,
+    /// Fields copied by the pair's field items; `counts.fields` counts their documents.
+    pub field_count: u64,
 }
 
 /// What the person must type before deletes are confirmed.
@@ -83,6 +90,7 @@ pub enum Warning {
     KeepsDestinationId,
     WholeDocumentOverwrite,
     MaybeDuplicateBusinessKey,
+    FieldCopyKeepsRest,
 }
 
 impl Warning {
@@ -92,6 +100,7 @@ impl Warning {
             Self::KeepsDestinationId => "compare.apply.warning.keeps_destination_id",
             Self::WholeDocumentOverwrite => "compare.apply.warning.whole_document_overwrite",
             Self::MaybeDuplicateBusinessKey => "compare.apply.warning.maybe_duplicate_business_key",
+            Self::FieldCopyKeepsRest => "compare.apply.warning.field_copy_keeps_rest",
         }
     }
 }
@@ -167,7 +176,7 @@ impl Review {
                         .iter()
                         .map(|(a, d)| (*a, d.database.clone(), d.collection.clone()))
                         .collect();
-                    (p.pair, p.entry, p.counts, places)
+                    (p.pair, p.entry, p.counts, p.field_count, places)
                 })
                 .collect()
         };
@@ -193,6 +202,11 @@ impl Review {
     /// Writes the review stands for.
     pub fn op_total(&self) -> u64 {
         self.pairs.iter().map(|p| p.counts.total()).sum()
+    }
+
+    /// Fields the review copies, over all documents.
+    pub fn field_total(&self) -> u64 {
+        self.pairs.iter().map(|p| p.field_count).sum()
     }
 }
 
@@ -222,6 +236,14 @@ struct Resolved<'a> {
 impl Resolved<'_> {
     fn kind(&self) -> ApplyKind {
         self.change.action.kind_for(self.change.category)
+    }
+
+    /// Fields this item copies; other items copy none.
+    fn field_count(&self) -> u64 {
+        match &self.change.scope {
+            Scope::Fields { paths, .. } => paths.len() as u64,
+            _ => 0,
+        }
     }
 
     fn direction(&self) -> Direction {
@@ -281,6 +303,7 @@ fn warnings_for(inputs: &[WarnInput], policy: IdPolicy) -> Vec<Warning> {
     let any = |f: &dyn Fn(&WarnInput) -> bool| inputs.iter().any(f);
     let insert = |w: &WarnInput| w.kind == ApplyKind::Insert;
     let replace = |w: &WarnInput| w.kind == ApplyKind::Replace;
+    let fields = |w: &WarnInput| w.kind == ApplyKind::Fields;
     let found: BTreeSet<Warning> = [
         (
             policy == IdPolicy::Generate && any(&insert),
@@ -298,6 +321,7 @@ fn warnings_for(inputs: &[WarnInput], policy: IdPolicy) -> Vec<Warning> {
             any(&|w| insert(w) && w.business_key),
             Warning::MaybeDuplicateBusinessKey,
         ),
+        (any(&fields), Warning::FieldCopyKeepsRest),
     ]
     .into_iter()
     .filter_map(|(on, warning)| on.then_some(warning))
@@ -315,8 +339,7 @@ fn required_for(places: &[Place]) -> Option<RequiredText> {
         (1, _) => &first.2,
         (_, true) => &first.1,
         _ => return Some(RequiredText::Word),
-    };
-    // A name that is blank once trimmed cannot be typed: fall back to the word.
+    }; // A name that is blank once trimmed cannot be typed: fall back to the word.
     Some(match name.trim().is_empty() {
         true => RequiredText::Word,
         false => RequiredText::Literal(name.clone()),
@@ -335,6 +358,7 @@ fn resolve<'a>(
             let count = match &change.scope {
                 Scope::Keys(keys) => keys.len() as u64,
                 Scope::Category => totals(change.pair, change.category) as u64,
+                Scope::Fields { .. } => 1,
             };
             let entry = entry_of(change.pair)?;
             Some(Resolved {
@@ -361,6 +385,7 @@ fn review_pair(group: &[&Resolved], conns: &ReviewConnections) -> ReviewPair {
         counts: group
             .iter()
             .fold(KindCounts::default(), |c, r| c.plus(r.kind(), r.count)),
+        field_count: group.iter().map(|r| r.field_count()).sum(),
     }
 }
 

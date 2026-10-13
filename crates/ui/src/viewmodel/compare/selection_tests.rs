@@ -210,3 +210,48 @@ fn ord_key_total_order_across_mixed_numerics_and_nan() {
     sorted.sort();
     assert!(sorted.windows(2).all(|w| w[0] <= w[1]));
 }
+
+#[test]
+fn field_actions_are_fields_ops_in_the_named_direction_for_any_category() {
+    for cat in [SRC, TGT, Category::Different] {
+        for a in RowAction::offered_for_fields() {
+            assert_eq!(a.kind_for(cat), ApplyKind::Fields);
+        }
+    }
+    assert_eq!(
+        RowAction::CopyFieldsToTarget.direction(),
+        Direction::SourceToTarget
+    );
+    assert_eq!(
+        RowAction::CopyFieldsToSource.direction(),
+        Direction::TargetToSource
+    );
+}
+
+#[test]
+fn field_actions_are_never_offered_for_whole_rows() {
+    let fields = RowAction::offered_for_fields();
+    assert_eq!(
+        fields,
+        &[RowAction::CopyFieldsToTarget, RowAction::CopyFieldsToSource]
+    );
+    for cat in [SRC, TGT, Category::Different] {
+        assert!(
+            RowAction::offered_for(cat)
+                .iter()
+                .all(|a| !fields.contains(a))
+        );
+    }
+}
+
+#[test]
+fn field_action_keys_are_distinct_literals() {
+    assert_eq!(
+        RowAction::CopyFieldsToTarget.i18n_key(),
+        "compare.apply.action.copy_fields_to_target"
+    );
+    assert_eq!(
+        RowAction::CopyFieldsToSource.i18n_key(),
+        "compare.apply.action.copy_fields_to_source"
+    );
+}

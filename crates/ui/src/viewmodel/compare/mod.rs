@@ -4,12 +4,14 @@ pub mod checks;
 pub mod detail;
 pub mod digest;
 pub mod duplicates;
+pub mod field_select;
 pub mod gates;
 pub mod list_view;
 pub mod overview;
 pub mod pairing_view;
 pub mod pairs;
 pub mod pending;
+pub mod pending_fields;
 pub mod pending_view;
 pub mod preflight;
 pub mod queries;
@@ -32,12 +34,14 @@ pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use digest::PairsDigest;
 pub use duplicates::{DuplicateRow, DuplicatesView};
+pub use field_select::{FieldSelection, PathKey};
 pub use gates::Gates;
 pub use list_view::{ListInputs, ListView, Unmatched, can_pair_with};
 pub use overview::{ActiveRun, PairStatus, RunFacts, RunOverview, RunRow, Totals};
 pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use pending::{PendingChange, PendingList, Scope};
+pub use pending_fields::FieldsQueued;
 pub use pending_view::{PendingGroup, PendingLine, PendingView};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
@@ -99,6 +103,8 @@ pub struct CompareState {
     pub duplicates: DuplicatesView,
     /// The ticked rows of every results tab.
     pub selection: Selection,
+    /// The ticked fields of the documents whose detail is open.
+    pub field_selection: FieldSelection,
     /// The writes queued for the next apply.
     pub pending: PendingList,
     /// The apply workflow: review snapshot, progress and report.
@@ -124,6 +130,7 @@ impl Default for CompareState {
             detail: None,
             duplicates: DuplicatesView::default(),
             selection: Selection::default(),
+            field_selection: FieldSelection::default(),
             pending: PendingList::default(),
             apply: ApplyUi::default(),
         }
@@ -205,11 +212,15 @@ impl CompareState {
         let selection = pairs
             .iter()
             .fold(self.selection.clone(), |s, p| s.without_pair(*p));
+        let field_selection = pairs
+            .iter()
+            .fold(self.field_selection.clone(), |s, p| s.without_pair(*p));
         let pending = pairs
             .iter()
             .fold(self.pending.clone(), |l, p| l.without_pair(*p));
         Self {
             selection,
+            field_selection,
             pending,
             results: self
                 .results

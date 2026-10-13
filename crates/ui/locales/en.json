@@ -62,6 +62,8 @@
   "compare": {
     "apply": {
       "action": {
+        "copy_fields_to_source": "Copy fields to source",
+        "copy_fields_to_target": "Copy fields to target",
         "copy_to_source": "Copy to source",
         "copy_to_target": "Copy to target",
         "delete_from_source": "Delete from source",
@@ -150,6 +152,7 @@
       "unknown_destination": "Unknown destination",
       "unknown_pair": "A pair that is no longer in the list",
       "warning": {
+        "field_copy_keeps_rest": "Copying fields changes only the chosen fields. The rest of each destination document stays as it is, and fields outside the compared scope are never touched.",
         "generated_ids": "New _id values are generated for inserted documents, so they will not match the source on the next compare.",
         "keeps_destination_id": "Replaced documents keep the _id they have in the destination, which differs from the compare key.",
         "maybe_duplicate_business_key": "An insert can create a second document with the same key if the destination has no unique index on it.",

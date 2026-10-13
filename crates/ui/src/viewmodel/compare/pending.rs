@@ -3,10 +3,13 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
 use curlybrace_core::compare::apply::{ApplyKind, ApplyOp, Direction};
+use curlybrace_core::compare::diff::PathSegment;
 use curlybrace_core::compare::key::{KeyTuple, compare_tuples};
 use curlybrace_core::compare::protocol::{BulkApply, PairId};
 use curlybrace_core::compare::results::Category;
 
+use super::field_select::PathKey;
+use super::pending_fields::FieldsQueued;
 use super::selection::{OrdKey, RowAction};
 
 /// Which rows a pending change covers.
@@ -15,6 +18,11 @@ pub enum Scope {
     Keys(Vec<KeyTuple>),
     /// Every row of the change's `category`, resolved by the runtime from the stored results.
     Category,
+    /// Chosen fields of one differing document: one write per document, with all its paths.
+    Fields {
+        key: KeyTuple,
+        paths: Vec<Vec<PathSegment>>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,7 +34,7 @@ pub struct PendingChange {
 }
 
 impl PendingChange {
-    fn same_tab(&self, pair: PairId, cat: Category) -> bool {
+    pub(super) fn same_tab(&self, pair: PairId, cat: Category) -> bool {
         self.pair == pair && self.category == cat
     }
 
@@ -38,6 +46,9 @@ impl PendingChange {
                     && a.iter()
                         .zip(b)
                         .all(|(x, y)| compare_tuples(x, y) == Ordering::Equal)
+            }
+            (Scope::Fields { key: ka, paths: pa }, Scope::Fields { key: kb, paths: pb }) => {
+                compare_tuples(ka, kb) == Ordering::Equal && same_paths(pa, pb)
             }
             _ => false,
         };
@@ -58,7 +69,7 @@ impl PendingChange {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PendingList {
-    changes: Vec<PendingChange>,
+    pub(super) changes: Vec<PendingChange>,
 }
 
 impl PendingList {
@@ -72,7 +83,7 @@ impl PendingList {
         scope: Scope,
     ) -> (Self, usize) {
         debug_assert!(
-            RowAction::offered_for(cat).contains(&action),
+            matches!(scope, Scope::Fields { .. }) || RowAction::offered_for(cat).contains(&action),
             "{action:?} is not offered for {cat:?}"
         );
         let covered = self
@@ -80,6 +91,11 @@ impl PendingList {
             .iter()
             .any(|c| c.same_tab(pair, cat) && c.scope == Scope::Category);
         match scope {
+            Scope::Fields { key, paths } => {
+                // Field items have their own rules; a request a category item covers is ignored.
+                let (list, outcome) = self.with_fields(pair, &key, action, paths);
+                (list, usize::from(outcome == FieldsQueued::Swallowed))
+            }
             Scope::Category => {
                 let mut changes: Vec<_> = self
                     .changes
@@ -114,7 +130,7 @@ impl PendingList {
     }
 
     /// The items with `incoming` removed from the tab's key lists; emptied items go.
-    fn without_keys(
+    pub(super) fn without_keys(
         &self,
         pair: PairId,
         cat: Category,
@@ -133,6 +149,12 @@ impl PendingList {
                         scope: Scope::Keys(kept),
                         ..c.clone()
                     })
+                }
+                // A whole-document change and a field change of one key replace each other.
+                Scope::Fields { key, .. }
+                    if c.same_tab(pair, cat) && incoming.contains(&OrdKey(key.clone())) =>
+                {
+                    None
                 }
                 _ => Some(c.clone()),
             })
@@ -192,6 +214,7 @@ impl PendingList {
             .map(|c| match &c.scope {
                 Scope::Keys(keys) => keys.len() as u64,
                 Scope::Category => totals(c.pair, c.category) as u64,
+                Scope::Fields { .. } => 1,
             })
             .sum()
     }
@@ -207,8 +230,15 @@ impl PendingList {
                     key: key.clone(),
                     kind: c.kind(),
                     direction: c.direction(),
-                    fields: Vec::new(), // slice 2c: filled by Scope::Fields
+                    fields: Vec::new(),
                 })),
+                Scope::Fields { key, paths } => ops.push(ApplyOp {
+                    pair: c.pair,
+                    key: key.clone(),
+                    kind: c.kind(),
+                    direction: c.direction(),
+                    fields: paths.clone(),
+                }),
                 Scope::Category => bulk.push(BulkApply {
                     pair: c.pair,
                     category: c.category,
@@ -229,6 +259,18 @@ fn distinct_keys(keys: Vec<KeyTuple>) -> Vec<KeyTuple> {
         .collect()
 }
 
+/// Both lists hold the same paths, whatever their order.
+fn same_paths(a: &[Vec<PathSegment>], b: &[Vec<PathSegment>]) -> bool {
+    let set = |paths: &[Vec<PathSegment>]| -> BTreeSet<PathKey> {
+        paths.iter().cloned().map(PathKey).collect()
+    };
+    a.len() == b.len() && set(a) == set(b)
+}
+
 #[cfg(test)]
 #[path = "pending_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "pending_fields_tests.rs"]
+mod fields_tests;

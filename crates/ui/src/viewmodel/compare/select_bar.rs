@@ -100,6 +100,7 @@ impl CompareState {
             .filter(|c| c.pair == pair)
             .map(|c| match &c.scope {
                 Scope::Keys(keys) => keys.len(),
+                Scope::Fields { .. } => 1,
                 Scope::Category => self
                     .results
                     .get(&pair)

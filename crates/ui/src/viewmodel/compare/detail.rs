@@ -1,6 +1,8 @@
 //! One differing document: field-level change lines with formatted values.
 use bson::{Bson, Document};
-use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
+use curlybrace_core::compare::apply::Direction;
+use curlybrace_core::compare::apply_fields::{Unaddressable, can_copy};
+use curlybrace_core::compare::diff::{ChangeKind, FieldChange, PathSegment};
 use curlybrace_core::compare::key::KeyTuple;
 
 /// One changed field. `kind` is an i18n key; the texts are relaxed extended JSON.
@@ -10,6 +12,27 @@ pub struct ChangeLine {
     pub kind: &'static str,
     pub source_text: Option<String>,
     pub target_text: Option<String>,
+    /// The structured address of the field; what a field copy sends.
+    pub segments: Vec<PathSegment>,
+    pub change: ChangeKind,
+}
+
+impl ChangeLine {
+    /// Why this field cannot be copied in `direction`, or `None` when it can. The rules are
+    /// core's `can_copy`; a throwaway `FieldChange` carries the address and kind, the values
+    /// play no part.
+    pub fn copy_block(&self, direction: Direction) -> Option<Unaddressable> {
+        can_copy(
+            &FieldChange {
+                path: self.path.clone(),
+                segments: self.segments.clone(),
+                kind: self.change,
+                source: None,
+                target: None,
+            },
+            direction,
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,6 +102,8 @@ fn line(change: &FieldChange) -> ChangeLine {
         kind: kind_key(change.kind),
         source_text: change.source.as_ref().map(value_text),
         target_text: change.target.as_ref().map(value_text),
+        segments: change.segments.clone(),
+        change: change.kind,
     }
 }
 

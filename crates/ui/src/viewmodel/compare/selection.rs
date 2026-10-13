@@ -170,13 +170,17 @@ pub enum RowAction {
     CopyToSource,
     DeleteFromSource,
     DeleteFromTarget,
+    /// Copy chosen fields of a differing document; offered by the detail pane only.
+    CopyFieldsToTarget,
+    CopyFieldsToSource,
 }
 
 impl RowAction {
     /// The kind for a row of `cat`: a copy inserts into an empty destination and replaces over a
-    /// different row; a delete deletes.
+    /// different row; a delete deletes; a field copy updates fields.
     pub fn kind_for(self, cat: Category) -> ApplyKind {
         match (self, cat) {
+            (Self::CopyFieldsToTarget | Self::CopyFieldsToSource, _) => ApplyKind::Fields,
             (Self::CopyToTarget | Self::CopyToSource, Category::Different) => ApplyKind::Replace,
             (Self::CopyToTarget | Self::CopyToSource, _) => ApplyKind::Insert,
             (Self::DeleteFromSource | Self::DeleteFromTarget, _) => ApplyKind::Delete,
@@ -186,8 +190,12 @@ impl RowAction {
     /// Origin to destination: deleting from the source reads the target as the origin.
     pub fn direction(self) -> Direction {
         match self {
-            Self::CopyToTarget | Self::DeleteFromTarget => Direction::SourceToTarget,
-            Self::CopyToSource | Self::DeleteFromSource => Direction::TargetToSource,
+            Self::CopyToTarget | Self::DeleteFromTarget | Self::CopyFieldsToTarget => {
+                Direction::SourceToTarget
+            }
+            Self::CopyToSource | Self::DeleteFromSource | Self::CopyFieldsToSource => {
+                Direction::TargetToSource
+            }
         }
     }
 
@@ -197,7 +205,14 @@ impl RowAction {
             Self::CopyToSource => "compare.apply.action.copy_to_source",
             Self::DeleteFromSource => "compare.apply.action.delete_from_source",
             Self::DeleteFromTarget => "compare.apply.action.delete_from_target",
+            Self::CopyFieldsToTarget => "compare.apply.action.copy_fields_to_target",
+            Self::CopyFieldsToSource => "compare.apply.action.copy_fields_to_source",
         }
+    }
+
+    /// The actions the detail pane of a differing document offers for its chosen fields.
+    pub fn offered_for_fields() -> &'static [RowAction] {
+        &[Self::CopyFieldsToTarget, Self::CopyFieldsToSource]
     }
 
     /// The actions a row of `cat` offers.
