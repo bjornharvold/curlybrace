@@ -6,6 +6,7 @@ pub mod driver_error;
 pub mod ejson;
 pub mod error;
 pub mod mongo_store;
+mod mongo_write;
 pub mod query;
 pub mod runtime;
 pub mod secrets;

@@ -11,7 +11,8 @@ use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
 use crate::store::{
-    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query,
+    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query, WriteOp,
+    WriteOutcome,
 };
 use mongodb::options::{AggregateOptions, Collation};
 
@@ -166,6 +167,11 @@ impl DocumentStore for MongoStore {
             return Err(CoreError::NotFound);
         }
         Ok(())
+    }
+
+    async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<Vec<WriteOutcome>> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_write::bulk_write(&db, &ns.collection, ops, db_err).await
     }
 
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
