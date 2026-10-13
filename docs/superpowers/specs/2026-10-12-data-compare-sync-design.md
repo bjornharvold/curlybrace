@@ -376,7 +376,8 @@ rules:
   without a protocol change: the UI never reuses a `PairId` (see "Slice 1c as built").
 - `FieldChange.path` is the display string (`a.b[2].c`, `a[*]` for an element of an unordered array). It is not an
   address: a field name containing a dot or a bracket is ambiguous in that form. The address is
-  `FieldChange.segments`, a list of `PathSegment`s (added in slice 2a), which field-level apply (2c) consumes.
+  `FieldChange.segments`, a list of `PathSegment`s (added in slice 2a), which field-level apply (2c) consumes. Note for 2c: `segments` address the NORMALIZED document, so a
+  field-level write must read the original value at that path from the real document, not take the normalized one.
 
 **Deviations of the slice 1 runtime from the design above** (accepted; slice 1c's outcome is in "Slice 1c as built"):
 
@@ -643,9 +644,22 @@ Known limitations (2b must account for them):
 - Changes to fields outside the compared scope (`field_scope`, `include_id`, normalized differences) are not
   detected as stale, and a `Replace` overwrites the whole destination document. 2b must warn when `field_scope`
   is not `All`.
-- A whole-call `bulk_write` error or a panic reports the affected ops as failed, though earlier batches may have
-  landed ("outcome unknown"). A re-run converges.
-- The first op per key wins; a later op on the same key is `NotPlanned`.
+- A whole-call `bulk_write` error or a panic reports the affected ops as failed (`ApplyOutcomeUnknown`, static
+  text, no driver text), though the failing call's own earlier commands (for example inserts sent before a
+  failing update or delete in the same `bulk_write` call) may have landed. The outcome is unknown; a re-run
+  converges.
+- The runtime refuses duplicate ops for one key outright. The engine's `NotPlanned` for a repeated key is a
+  second line of defence, not the primary rule.
+- An `Insert` verified absent under `target_filter` can create a second document with the same business key when
+  the existing one lies outside the filter and no unique index exists (an `_id` key gets `ApplyDuplicateKey`
+  instead). A written document may also fall outside the destination filter, so a re-compare does not see it.
+  2b must warn about both.
+- Write commands use the server's default write concern, not the connection URI's `w=`.
+- Verification reads use the primary (`scan_sorted_primary`), whatever the connection's read preference, so a
+  lagging secondary cannot make a stale document look current. The compare scans and the detail view keep the
+  connection's read preference.
+- Write commands are split by encoded size as well as count (at most 500 operations and 15 MiB each; a single
+  oversize document travels alone), so large documents stay under the server's command limit.
 - Verification is serial (two reads per op), so a very large apply is slow before the first batch is written.
 - `CompareEvent::Failed` carries no run id, so the UI must send one `Apply` at a time.
 - A pair discarded while its apply runs finishes on the snapshot it started with.
@@ -654,7 +668,8 @@ Known limitations (2b must account for them):
 
 Tier-1 coverage on a real server (`crates/core/tests/local_compare_apply.rs`): convergence by `_id` and by a
 business key, a stale document, `IdPolicy::Generate` and its non-convergence, a unique-index violation as a
-per-document failure with no value in the text, a view destination, and cancelling 5,000 inserts.
+per-document failure with no value in the text, a view destination, and cancelling 5,000 inserts;
+`local_compare_apply_large.rs` writes 20 documents of about 1 MB (insert, replace, delete) to prove the byte split.
 
 ## Export (slice 3, designed now)
 

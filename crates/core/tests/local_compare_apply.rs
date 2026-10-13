@@ -1,5 +1,6 @@
 //! Tier 1 (local server): `MongoStore::bulk_write` against a real MongoDB. Writes only to
-//! throwaway `cbit_*` databases. Run with `scripts/integration-tests.sh`.
+//! throwaway `cbit_*` databases. Run against your own throwaway server: start a `cb-it-dev-*`
+//! container as described in docs/superpowers/notes/testing.md (never your regular database).
 
 mod support;
 
