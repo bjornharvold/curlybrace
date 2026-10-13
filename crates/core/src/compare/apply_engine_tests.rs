@@ -50,8 +50,8 @@ struct Spy {
     calls: Mutex<Vec<usize>>,
     duplicate_id: Mutex<Option<Bson>>,
     fail_call: Mutex<Option<usize>>,
-    /// How many `scan_sorted` / `scan_sorted_primary` calls reached this store.
     short_reply: AtomicBool,
+    /// How many `scan_sorted` / `scan_sorted_primary` calls reached this store.
     plain_scans: AtomicUsize,
     primary_scans: AtomicUsize,
 }

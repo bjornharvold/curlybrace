@@ -94,7 +94,8 @@ pub(crate) fn split_chunks(
 /// Inserts are sent first, then replaces, then deletes; there is no ordering within a call. An
 /// `Err` may follow commands that already wrote, so after an `Err` nothing may be assumed about
 /// what was written. Callers must not display the text of a `CoreError::Database` from here
-/// (it carries driver text); `apply_engine` replaces every `Err` with `ApplyOutcomeUnknown`. Limitation: the `Missing` probe compares ids under the simple
+/// (it carries driver text); `apply_engine` replaces every `Err` with `ApplyOutcomeUnknown`.
+/// Limitation: the `Missing` probe compares ids under the simple
 /// collation, so on a collection with a non-simple default collation an id that matches only
 /// under that collation may be reported `Missing`.
 pub(crate) async fn bulk_write(
