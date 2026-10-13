@@ -2,19 +2,21 @@
 //! refuses every write for the plan, and a recording store for the apply it must equal.
 
 use super::*;
+
+#[path = "plan_probe_tests.rs"]
+mod probe;
 use crate::compare::apply::{APPLY_BATCH, ApplyKind, ApplyReport, Direction, IdPolicy, SkipReason};
 use crate::compare::apply_engine::apply_pair;
 use crate::compare::diff::PathSegment;
 use crate::compare::engine::{EngineOutcome, PairInput, run_pair};
 use crate::compare::key::{KeySpec, KeyTuple};
-use crate::compare::protocol::PairSpec;
+use crate::compare::protocol::{PairSpec, Side};
 use crate::compare::results::{Budget, Category, Limits, ResultSet};
 use crate::compare::rules::{CompareRules, FieldScope};
-use crate::store::{DocumentStore, Namespace, Page, Query, WriteOp, WriteOutcome};
-use crate::test_support::InMemoryStore;
-use async_trait::async_trait;
+use crate::store::{DocumentStore, Namespace, WriteOp};
 use bson::{Bson, Document, doc};
-use std::sync::{Arc, Mutex};
+use probe::Probe;
+use std::sync::Arc;
 
 use ApplyKind::{Delete, Fields, Insert, Replace};
 use Direction::{SourceToTarget as ST, TargetToSource as TS};
@@ -53,93 +55,6 @@ fn fields_op(n: i32, direction: Direction, paths: &[&[&str]]) -> ApplyOp {
             .iter()
             .map(|p| p.iter().map(|s| PathSegment::Field((*s).into())).collect())
             .collect(),
-    }
-}
-
-/// A store over `InMemoryStore` that records every write it is asked for, or panics on one.
-struct Probe {
-    inner: InMemoryStore,
-    forbid_writes: bool,
-    writes: Mutex<Vec<WriteOp>>,
-    /// Reads of this `_id` fail.
-    fail_id: Mutex<Option<i32>>,
-}
-
-impl Probe {
-    fn new(ns: &Namespace, docs: Vec<Document>, forbid_writes: bool) -> Arc<Self> {
-        Arc::new(Self {
-            inner: InMemoryStore::new().with_docs(ns, docs),
-            forbid_writes,
-            writes: Mutex::new(Vec::new()),
-            fail_id: Mutex::new(None),
-        })
-    }
-
-    fn recorded(&self) -> Vec<WriteOp> {
-        self.writes.lock().unwrap().clone()
-    }
-
-    fn check_read(&self, from: Option<&KeyTuple>) -> crate::error::Result<()> {
-        let failing = *self.fail_id.lock().unwrap();
-        match (failing, from.and_then(|f| f.0.first())) {
-            (Some(id), Some(Bson::Int32(n))) if id == *n => {
-                Err(crate::error::CoreError::Database("read".into()))
-            }
-            _ => Ok(()),
-        }
-    }
-}
-
-#[async_trait]
-impl DocumentStore for Probe {
-    async fn list_databases(&self) -> crate::error::Result<Vec<String>> {
-        self.inner.list_databases().await
-    }
-    async fn list_collections(&self, db: &str) -> crate::error::Result<Vec<String>> {
-        self.inner.list_collections(db).await
-    }
-    async fn find(&self, ns: &Namespace, q: &Query) -> crate::error::Result<Page> {
-        self.inner.find(ns, q).await
-    }
-    async fn insert(&self, ns: &Namespace, doc: Document) -> crate::error::Result<Bson> {
-        self.inner.insert(ns, doc).await
-    }
-    async fn replace(&self, ns: &Namespace, id: &Bson, doc: Document) -> crate::error::Result<()> {
-        self.inner.replace(ns, id, doc).await
-    }
-    async fn delete(&self, ns: &Namespace, id: &Bson) -> crate::error::Result<()> {
-        self.inner.delete(ns, id).await
-    }
-    async fn scan_sorted(
-        &self,
-        ns: &Namespace,
-        filter: &Document,
-        key: &KeySpec,
-        from: Option<&KeyTuple>,
-        limit: u32,
-    ) -> crate::error::Result<Vec<Document>> {
-        self.check_read(from)?;
-        self.inner.scan_sorted(ns, filter, key, from, limit).await
-    }
-    async fn scan_sorted_primary(
-        &self,
-        ns: &Namespace,
-        filter: &Document,
-        key: &KeySpec,
-        from: Option<&KeyTuple>,
-        limit: u32,
-    ) -> crate::error::Result<Vec<Document>> {
-        self.check_read(from)?;
-        self.inner.scan_sorted(ns, filter, key, from, limit).await
-    }
-    async fn bulk_write(
-        &self,
-        ns: &Namespace,
-        ops: Vec<WriteOp>,
-    ) -> crate::error::Result<Vec<WriteOutcome>> {
-        assert!(!self.forbid_writes, "export planning must never write");
-        self.writes.lock().unwrap().extend(ops.iter().cloned());
-        self.inner.bulk_write(ns, ops).await
     }
 }
 
@@ -269,10 +184,11 @@ fn sum(c: &ExportPlanCounts) -> u64 {
 fn writes_by_side(items: &[ExportItem]) -> (Vec<WriteOp>, Vec<WriteOp>) {
     let (mut source, mut target) = (Vec::new(), Vec::new());
     for item in items {
-        if let ExportItem::Write { op, write, .. } = item {
-            match op.direction {
-                ST => target.push(write.clone()),
-                TS => source.push(write.clone()),
+        if let ExportItem::Write { write, .. } = item {
+            match item.destination() {
+                Some(Side::Target) => target.push(write.clone()),
+                Some(Side::Source) => source.push(write.clone()),
+                None => {}
             }
         }
     }
@@ -727,15 +643,75 @@ async fn a_cancel_before_the_start_runs_nothing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failing_sink_stops_the_plan_with_its_error() {
-    let (rig, ops) = many_inserts(2).await;
+    let (rig, ops) = many_inserts(501).await;
+    let (mut calls, mut reported) = (0, 0);
+    let error = crate::error::CoreError::Database("sink".into());
     let result = plan_pair_export(
         rig.input(&ops, IdPolicy::Keep),
         &CancelFlag::default(),
-        &mut |_| Err(crate::error::CoreError::Database("sink".into())),
-        &mut |_| {},
+        &mut |_| {
+            calls += 1;
+            Err(error.clone())
+        },
+        &mut |_| reported += 1,
     )
     .await;
-    assert!(result.is_err());
+    assert_eq!(result.unwrap_err(), error);
+    assert_eq!((calls, reported), (1, 0));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_repeated_in_a_later_batch_is_not_planned_as_in_apply() {
+    let docs: Vec<Document> = (1..=500).map(|i| doc! {"_id": i}).collect();
+    let mut ops: Vec<ApplyOp> = (1..=500).map(|i| op(k(i), Insert, ST)).collect();
+    ops.push(op(k(1), Insert, ST));
+    let out = assert_plan_equals_apply(docs, vec![], rules(), &ops, IdPolicy::Keep).await;
+    assert_eq!(out.batches, vec![500, 1]);
+    assert!(matches!(
+        out.items[500],
+        ExportItem::Skipped {
+            reason: ExportSkip::NotPlanned,
+            ..
+        }
+    ));
+    assert_eq!(
+        (out.counts.written, out.counts.skipped_not_planned),
+        (500, 1)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fields_value_the_shell_cannot_represent_is_unsupported_though_apply_writes_it() {
+    let source = vec![doc! {"_id": 1, "a": Bson::Undefined}];
+    let target = vec![doc! {"_id": 1, "a": 1}];
+    let ops = [fields_op(1, ST, &[&["a"]])];
+    let planning = Rig::plain(source.clone(), target.clone(), true).await;
+    let out = plan(&planning, &ops).await;
+    assert_eq!(skipped(&out, ExportSkip::Unsupported), 1);
+    assert_eq!(out.counts.skipped_unsupported, 1);
+    let applying = Rig::plain(source, target, false).await;
+    let report = apply_pair(
+        applying.input(&ops, IdPolicy::Keep),
+        &CancelFlag::default(),
+        &mut |_| {},
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.applied, 1);
+    assert_eq!(applying.target.recorded().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_item_names_its_destination_side_per_direction() {
+    let rig = Rig::plain(vec![doc! {"_id": 1}], vec![doc! {"_id": 2}], true).await;
+    let out = plan(&rig, &[op(k(1), Insert, ST), op(k(2), Insert, TS)]).await;
+    assert_eq!(out.items[0].destination(), Some(Side::Target));
+    assert_eq!(out.items[1].destination(), Some(Side::Source));
+    let stale = ExportItem::Failed {
+        op: op(k(1), Insert, ST),
+        error: crate::error::CoreError::NotFound,
+    };
+    assert_eq!(stale.destination(), None);
 }
 
 #[test]

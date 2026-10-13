@@ -9,10 +9,11 @@
 
 use super::ExportSkip;
 use super::mongosh::{ShellOp, check_op};
-use crate::compare::apply::{APPLY_BATCH, ApplyOp, OpOutcome};
+use crate::compare::apply::{APPLY_BATCH, ApplyOp, Direction, OpOutcome};
 use crate::compare::apply_engine::{ApplyInput, PlannedOp, Verdict, plan_batch, repeated_keys};
 use crate::compare::engine::CancelFlag;
 use crate::compare::fingerprint::Fingerprint;
+use crate::compare::protocol::Side;
 use crate::error::{CoreError, Result};
 use crate::store::WriteOp;
 
@@ -34,6 +35,20 @@ pub enum ExportItem {
     },
     /// A read error while verifying; value-free.
     Failed { op: ApplyOp, error: CoreError },
+}
+
+impl ExportItem {
+    /// The side a `Write` goes to, derived from the op's direction in this one place (the same
+    /// destination apply writes to); `None` for items that are not writes.
+    pub fn destination(&self) -> Option<Side> {
+        let Self::Write { op, .. } = self else {
+            return None;
+        };
+        Some(match op.direction {
+            Direction::SourceToTarget => Side::Target,
+            Direction::TargetToSource => Side::Source,
+        })
+    }
 }
 
 /// What happened to the ops requested; the fields sum to `ops.len()`.
