@@ -5,9 +5,17 @@ mod support;
 
 use bson::oid::ObjectId;
 use bson::{Bson, Document, doc};
+use curlybrace_core::compare::apply::{ApplyKind, IdPolicy};
+use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent};
+use curlybrace_core::compare::results::Category;
+use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{DocumentStore, Namespace, WriteFailure, WriteOp};
 use futures::TryStreamExt;
-use support::{local_enabled, local_mongo};
+use support::compare_flow::{
+    SESSION, all_docs as sorted_docs, apply, compare, key, keys, op, open, pair, send,
+    summary_tuple,
+};
+use support::{local_enabled, local_mongo, local_runtime, next_compare};
 
 async fn all_docs(client: &mongodb::Client, ns: &Namespace) -> Vec<Document> {
     client
@@ -378,5 +386,350 @@ async fn bulk_write_probe_matches_numeric_and_sub_document_ids() {
             Err(WriteFailure::Missing),
             Err(WriteFailure::Missing)
         ]
+    );
+}
+
+// ---- end-to-end apply flows through the runtime (Command::Compare) ----
+
+fn ids(docs: &[Document]) -> Vec<Bson> {
+    docs.iter().map(|d| d.get("_id").unwrap().clone()).collect()
+}
+
+/// Seeds `docs` into `ns`, creating the collection even when `docs` is empty.
+async fn seed(client: &mongodb::Client, ns: &Namespace, docs: Vec<Document>) {
+    let db = client.database(&ns.db);
+    if docs.is_empty() {
+        db.create_collection(&ns.collection).await.unwrap();
+    } else {
+        db.collection::<Document>(&ns.collection)
+            .insert_many(docs)
+            .await
+            .unwrap();
+    }
+}
+
+/// Insert/replace/delete ops for every row of a pair (source copied onto target).
+async fn all_ops(
+    rt: &mut curlybrace_core::runtime::RuntimeHandle,
+    pair_id: u32,
+) -> Vec<curlybrace_core::compare::apply::ApplyOp> {
+    let mut ops = Vec::new();
+    for (category, kind) in [
+        (Category::OnlyInSource, ApplyKind::Insert),
+        (Category::Different, ApplyKind::Replace),
+        (Category::OnlyInTarget, ApplyKind::Delete),
+    ] {
+        for k in keys(rt, pair_id, category).await {
+            ops.push(op(pair_id, k, kind));
+        }
+    }
+    ops
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn compare_then_apply_then_compare_again_converges() {
+    if !local_enabled("compare_then_apply_then_compare_again_converges") {
+        return;
+    }
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let mut pairs = Vec::new();
+    for (n, name) in ["one", "two"].into_iter().enumerate() {
+        let (src, dst) = (
+            dbs.ns(&format!("{name}_src")),
+            dbs.ns(&format!("{name}_dst")),
+        );
+        let docs = |v: i32| {
+            (1..=5)
+                .map(|i| doc! { "_id": i, "v": v })
+                .collect::<Vec<_>>()
+        };
+        seed(&client, &src, docs(1)).await;
+        // 1,2 missing; 3 differs; 4,5 equal; 6,7 extra
+        let mut target = vec![doc! { "_id": 3, "v": 99 }];
+        target.extend(docs(1).into_iter().skip(3));
+        target.extend([doc! { "_id": 6, "v": 1 }, doc! { "_id": 7, "v": 1 }]);
+        seed(&client, &dst, target).await;
+        pairs.push(pair(n as u32 + 1, src, dst, &["_id"]));
+    }
+    open(&mut rt, &config).await;
+    let first = compare(&mut rt, 1, pairs.clone()).await;
+    assert!(first.iter().all(|(_, s)| summary_tuple(s) == (2, 2, 2, 1)));
+    let mut ops = all_ops(&mut rt, 1).await;
+    ops.extend(all_ops(&mut rt, 2).await);
+    assert_eq!(ops.len(), 10);
+    let applied = apply(&mut rt, 2, ops, IdPolicy::Keep).await;
+    assert_eq!(applied.reports.len(), 2);
+    for (_, r) in &applied.reports {
+        assert_eq!(
+            (r.applied, r.failed, r.stale, r.not_run),
+            (5, 0, 0, 0),
+            "{r:?}"
+        );
+    }
+    for name in ["one", "two"] {
+        let got = sorted_docs(&client, &dbs.ns(&format!("{name}_dst"))).await;
+        let want = sorted_docs(&client, &dbs.ns(&format!("{name}_src"))).await;
+        assert_eq!(got, want);
+    }
+    for (_, s) in compare(&mut rt, 3, pairs).await {
+        assert_eq!(summary_tuple(&s), (5, 0, 0, 0), "second run converges");
+    }
+    send(&rt, CompareCommand::Close { session: SESSION });
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn business_key_apply_keeps_destination_ids_and_converges() {
+    if !local_enabled("business_key_apply_keeps_destination_ids_and_converges") {
+        return;
+    }
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let (src, dst) = (dbs.ns("bk_src"), dbs.ns("bk_dst"));
+    let user = |e: &str, n: i32| doc! { "_id": ObjectId::new(), "email": e, "n": n };
+    seed(
+        &client,
+        &src,
+        vec![user("new@x", 1), user("chg@x", 2), user("same@x", 3)],
+    )
+    .await;
+    let (chg, gone) = (user("chg@x", 20), user("gone@x", 4));
+    seed(&client, &dst, vec![chg.clone(), gone, user("same@x", 3)]).await;
+    let p = pair(1, src.clone(), dst.clone(), &["email"]);
+    assert!(
+        !p.rules.include_id,
+        "business key leaves _id out of the compare"
+    );
+    open(&mut rt, &config).await;
+    let first = compare(&mut rt, 1, vec![p.clone()]).await;
+    assert_eq!(summary_tuple(&first[0].1), (1, 1, 1, 1));
+    let ops = all_ops(&mut rt, 1).await;
+    let applied = apply(&mut rt, 2, ops, IdPolicy::Keep).await;
+    assert_eq!(
+        applied.reports[0].1.applied, 3,
+        "{:?}",
+        applied.reports[0].1
+    );
+    let after = sorted_docs(&client, &dst).await;
+    let chg_after = after
+        .iter()
+        .find(|d| d.get_str("email") == Ok("chg@x"))
+        .unwrap();
+    assert_eq!(
+        chg_after.get("_id"),
+        chg.get("_id"),
+        "replace keeps the destination _id"
+    );
+    assert_eq!(chg_after.get_i32("n"), Ok(2));
+    assert!(after.iter().all(|d| d.get_str("email") != Ok("gone@x")));
+    assert!(after.iter().any(|d| d.get_str("email") == Ok("new@x")));
+    let again = compare(&mut rt, 3, vec![p]).await;
+    assert_eq!(summary_tuple(&again[0].1), (3, 0, 0, 0));
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn a_stale_document_is_skipped_on_a_real_server() {
+    if !local_enabled("a_stale_document_is_skipped_on_a_real_server") {
+        return;
+    }
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let (src, dst) = (dbs.ns("st_src"), dbs.ns("st_dst"));
+    seed(
+        &client,
+        &src,
+        vec![doc! { "_id": 1, "v": 1 }, doc! { "_id": 2, "v": 1 }],
+    )
+    .await;
+    seed(&client, &dst, vec![doc! { "_id": 2, "v": 2 }]).await;
+    open(&mut rt, &config).await;
+    compare(&mut rt, 1, vec![pair(1, src, dst.clone(), &["_id"])]).await;
+    let ops = all_ops(&mut rt, 1).await;
+    // A second client changes the target after the compare.
+    client
+        .database(&dst.db)
+        .collection::<Document>(&dst.collection)
+        .update_one(doc! { "_id": 2 }, doc! { "$set": { "v": 3 } })
+        .await
+        .unwrap();
+    let applied = apply(&mut rt, 2, ops, IdPolicy::Keep).await;
+    let r = &applied.reports[0].1;
+    assert_eq!((r.applied, r.stale, r.failed), (1, 1, 0), "{r:?}");
+    let after = sorted_docs(&client, &dst).await;
+    assert_eq!(
+        after,
+        vec![doc! { "_id": 1, "v": 1 }, doc! { "_id": 2, "v": 3 }]
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn apply_with_generate_ids_assigns_new_ids() {
+    if !local_enabled("apply_with_generate_ids_assigns_new_ids") {
+        return;
+    }
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let (src, dst) = (dbs.ns("gen_src"), dbs.ns("gen_dst"));
+    let docs: Vec<Document> = (1..=3).map(|i| doc! { "_id": i, "a": i * 10 }).collect();
+    seed(&client, &src, docs).await;
+    seed(&client, &dst, vec![]).await;
+    let p = pair(1, src, dst.clone(), &["_id"]);
+    open(&mut rt, &config).await;
+    compare(&mut rt, 1, vec![p.clone()]).await;
+    let ops = all_ops(&mut rt, 1).await;
+    let applied = apply(&mut rt, 2, ops, IdPolicy::Generate).await;
+    assert_eq!(applied.reports[0].1.applied, 3);
+    let after = sorted_docs(&client, &dst).await;
+    assert_eq!(after.len(), 3);
+    assert!(ids(&after).iter().all(|id| matches!(id, Bson::ObjectId(_))));
+    let mut values: Vec<i32> = after.iter().map(|d| d.get_i32("a").unwrap()).collect();
+    values.sort();
+    assert_eq!(values, vec![10, 20, 30]);
+    // Documented non-convergence: the copies have new _ids, so an _id-keyed re-compare still
+    // sees three source-only and three target-only rows.
+    let again = compare(&mut rt, 3, vec![p]).await;
+    assert_eq!(summary_tuple(&again[0].1), (0, 3, 3, 0));
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn a_unique_index_violation_is_a_per_document_failure() {
+    if !local_enabled("a_unique_index_violation_is_a_per_document_failure") {
+        return;
+    }
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let (src, dst) = (dbs.ns("uq_src"), dbs.ns("uq_dst"));
+    let secret = "taken-SECRET@example.com";
+    let user = |id: i32, e: &str| doc! { "_id": id, "email": e };
+    seed(
+        &client,
+        &src,
+        vec![user(10, "a@x"), user(11, secret), user(12, "c@x")],
+    )
+    .await;
+    seed(&client, &dst, vec![user(1, secret)]).await;
+    client
+        .database(&dst.db)
+        .collection::<Document>(&dst.collection)
+        .create_index(
+            mongodb::IndexModel::builder()
+                .keys(doc! { "email": 1 })
+                .options(
+                    mongodb::options::IndexOptions::builder()
+                        .unique(true)
+                        .build(),
+                )
+                .build(),
+        )
+        .await
+        .unwrap();
+    open(&mut rt, &config).await;
+    compare(&mut rt, 1, vec![pair(1, src, dst.clone(), &["_id"])]).await;
+    let ops: Vec<_> = keys(&mut rt, 1, Category::OnlyInSource)
+        .await
+        .into_iter()
+        .map(|k| op(1, k, ApplyKind::Insert))
+        .collect();
+    let applied = apply(&mut rt, 2, ops, IdPolicy::Keep).await;
+    let r = &applied.reports[0].1;
+    assert_eq!((r.applied, r.failed, r.stale), (2, 1, 0), "{r:?}");
+    assert_eq!(r.failures[0].key, key(11));
+    assert!(!format!("{r:?}").contains(secret));
+    assert!(!r.failures[0].error.to_string().contains(secret));
+    assert_eq!(sorted_docs(&client, &dst).await.len(), 3);
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn apply_refuses_a_view_destination() {
+    if !local_enabled("apply_refuses_a_view_destination") {
+        return;
+    }
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let (src, base, view) = (dbs.ns("vw_src"), dbs.ns("vw_base"), dbs.ns("vw_view"));
+    seed(&client, &src, vec![doc! { "_id": 1 }]).await;
+    seed(&client, &base, vec![doc! { "_id": 2 }]).await;
+    client
+        .database(&view.db)
+        .create_collection(&view.collection)
+        .view_on(&base.collection)
+        .pipeline(vec![doc! { "$match": {} }])
+        .await
+        .unwrap();
+    open(&mut rt, &config).await;
+    compare(&mut rt, 1, vec![pair(1, src, view, &["_id"])]).await;
+    let k = keys(&mut rt, 1, Category::OnlyInSource).await.remove(0);
+    send(
+        &rt,
+        CompareCommand::Apply {
+            session: SESSION,
+            run: 2,
+            ops: vec![op(1, k, ApplyKind::Insert)],
+            id_policy: IdPolicy::Keep,
+        },
+    );
+    match next_compare(&mut rt).await {
+        CompareEvent::Failed { context, error, .. } => {
+            assert_eq!(context, "compare_apply");
+            assert_eq!(error, CoreError::ApplyTargetNotWritable);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(sorted_docs(&client, &base).await, vec![doc! { "_id": 2 }]);
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn cancel_mid_apply_on_a_large_set() {
+    if !local_enabled("cancel_mid_apply_on_a_large_set") {
+        return;
+    }
+    const N: i32 = 5_000;
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let (src, dst) = (dbs.ns("big_src"), dbs.ns("big_dst"));
+    let docs: Vec<Document> = (0..N).map(|i| doc! { "_id": i, "v": i }).collect();
+    seed(&client, &src, docs).await;
+    seed(&client, &dst, vec![]).await;
+    open(&mut rt, &config).await;
+    compare(&mut rt, 1, vec![pair(1, src, dst.clone(), &["_id"])]).await;
+    let ops = all_ops(&mut rt, 1).await;
+    assert_eq!(ops.len(), N as usize);
+    send(
+        &rt,
+        CompareCommand::Apply {
+            session: SESSION,
+            run: 2,
+            ops,
+            id_policy: IdPolicy::Keep,
+        },
+    );
+    let mut report = None;
+    let mut cancelled = false;
+    loop {
+        match next_compare(&mut rt).await {
+            CompareEvent::ApplyProgress { .. } if !cancelled => {
+                cancelled = true;
+                send(
+                    &rt,
+                    CompareCommand::Cancel {
+                        session: SESSION,
+                        run: 2,
+                    },
+                );
+            }
+            CompareEvent::ApplyProgress { .. } => {}
+            CompareEvent::ApplyPairDone { report: r, .. } => report = Some(r),
+            CompareEvent::ApplyDone { .. } => break,
+            other => panic!("{other:?}"),
+        }
+    }
+    let r = report.expect("a report for the pair");
+    assert!(cancelled && r.not_run > 0, "{r:?}");
+    assert_eq!(r.applied + r.not_run, N as u64, "{r:?}");
+    assert_eq!(r.failed + r.stale, 0);
+    let count = sorted_docs(&client, &dst).await.len() as u64;
+    assert_eq!(
+        count, r.applied,
+        "the target holds exactly the applied documents"
     );
 }

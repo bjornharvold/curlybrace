@@ -374,9 +374,9 @@ rules:
   recognised only by session, pair, category and offset. The reducer takes a page only when it is the exact
   (category, offset) it asked for, and a new `Start` discards the previous results first. Slice 1c closed this
   without a protocol change: the UI never reuses a `PairId` (see "Slice 1c as built").
-- `FieldChange.path` is display-only in slice 1 (`a.b[2].c`, `a[*]` for an element of an unordered array). It is a
-  rendered string, not an address: slice 2 must add structured path segments to `FieldChange` before any apply
-  logic consumes it, because a field name containing a dot or a bracket is ambiguous in the string form.
+- `FieldChange.path` is the display string (`a.b[2].c`, `a[*]` for an element of an unordered array). It is not an
+  address: a field name containing a dot or a bracket is ambiguous in that form. The address is
+  `FieldChange.segments`, a list of `PathSegment`s (added in slice 2a), which field-level apply (2c) consumes.
 
 **Deviations of the slice 1 runtime from the design above** (accepted; slice 1c's outcome is in "Slice 1c as built"):
 
@@ -604,6 +604,57 @@ it is `NotRun` with a reason (`Cancelled`, `BudgetExhausted`, `SessionFailed` or
   rules and key for the fingerprint re-check, and reports per pair. A pair that has been discarded cannot
   contribute changes. A view cannot be the destination of any write; apply refuses it up front.
 - **Progress and cancel** like the compare job, as a second job kind.
+
+### Slice 2a as built
+
+Slice 2a is the core only: types, engine, runtime command and tier-1 tests. There is no UI for it, and the
+README still describes compare as read-only. What differs from the sketch above:
+
+- **Replace and delete match the destination document by its own `_id`**, not by the key fields. The engine has
+  just re-read that document, so it knows its `_id`; matching on it cannot touch another document even if the key
+  turns out to be duplicated. The replacement carries that `_id` (immutable).
+- **Writes are `insert`/`update`/`delete` write commands (`ordered: false`) through `run_command`**, not the
+  driver's `bulkWrite` (server 8.0+ only). `DocumentStore::bulk_write` (`MongoStore` in `mongo_write.rs`) splits
+  into batches of 500 and returns one outcome per op. Server error text is never surfaced: a duplicate-key message
+  contains the offending value, so failures travel as typed `WriteFailure`s (`Missing`, `DuplicateKey`,
+  `Rejected(code)`) mapped to static `CoreError` texts.
+- **`IdPolicy`** (`Keep` | `Generate`) applies to inserts and is one setting per `Apply` command.
+- **`ApplyKind` is what happens to the destination document, `Direction` is origin to destination.** `Insert`:
+  origin has it, destination does not. `Replace`: both have it and they differ. `Delete`: destination has it,
+  origin does not. "Delete extras in the target" is `Delete` with `SourceToTarget` on an only-in-target row. An op
+  whose kind does not fit the recorded category of its row is `Skipped(NotPlanned)` and never written.
+- **Report shape.** `ApplyReport { applied, stale, not_planned, failed, not_run, failures, more_failures }`, one per
+  pair (`ApplyPairDone`), after `ApplyProgress` events and a final `ApplyDone`. `failures` holds the first 100
+  (`MAX_REPORTED_FAILURES`) with key and typed error; the rest are only counted and `more_failures` is set. Keys
+  are UI-only data: show them, never log them. Cancel stops between batches; unprocessed ops are `not_run`.
+- **Destinations.** A view is refused up front (`Failed` with `ApplyTargetNotWritable`, nothing written). A
+  time-series collection accepts inserts only. A destination collection that does not exist yet is fine for
+  inserts.
+- **One job slot per session.** An apply takes the same slot as a compare run (`RunId` doubles as the apply id,
+  `Cancel { run }` cancels it); starting one while the other is active is refused.
+- **Stored results are not edited.** After an apply the pair's rows are stale by definition; re-run the pair
+  before planning a second apply. A re-run converges because it plans only what still differs.
+- **Two documented non-convergences.** `IdPolicy::Generate` gives inserts new `_id`s, so an `_id`-keyed re-compare
+  shows them again as one source-only and one target-only row each. `include_id = true` with a key other than
+  `_id`: a replace keeps the destination `_id`, so the `_id` difference remains. 2b warns about both.
+
+Known limitations (2b must account for them):
+
+- Changes to fields outside the compared scope (`field_scope`, `include_id`, normalized differences) are not
+  detected as stale, and a `Replace` overwrites the whole destination document. 2b must warn when `field_scope`
+  is not `All`.
+- A whole-call `bulk_write` error or a panic reports the affected ops as failed, though earlier batches may have
+  landed ("outcome unknown"). A re-run converges.
+- The first op per key wins; a later op on the same key is `NotPlanned`.
+- Verification is serial (two reads per op), so a very large apply is slow before the first batch is written.
+- `CompareEvent::Failed` carries no run id, so the UI must send one `Apply` at a time.
+- A pair discarded while its apply runs finishes on the snapshot it started with.
+- `MongoStore`'s `Missing` detection compares ids under the simple collation, so on a collection with a non-simple
+  default collation an id that matches only under that collation may be reported `Missing`.
+
+Tier-1 coverage on a real server (`crates/core/tests/local_compare_apply.rs`): convergence by `_id` and by a
+business key, a stale document, `IdPolicy::Generate` and its non-convergence, a unique-index violation as a
+per-document failure with no value in the text, a view destination, and cancelling 5,000 inserts.
 
 ## Export (slice 3, designed now)
 
