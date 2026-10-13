@@ -6,14 +6,16 @@ use async_trait::async_trait;
 use bson::{Bson, Document, doc};
 use futures::TryStreamExt;
 use mongodb::Client;
+use mongodb::action::Action;
 
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
 use crate::store::{
-    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query,
+    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query, WriteOp,
+    WriteOutcome,
 };
-use mongodb::options::{AggregateOptions, Collation};
+use mongodb::options::{AggregateOptions, Collation, ReadPreference, SelectionCriteria};
 
 pub struct MongoStore {
     client: Client,
@@ -26,6 +28,37 @@ impl MongoStore {
 
     fn collection(&self, ns: &Namespace) -> mongodb::Collection<Document> {
         self.client.database(&ns.db).collection(&ns.collection)
+    }
+
+    /// The key-ordered scan; `criteria` overrides the connection's read preference (`None`
+    /// keeps it).
+    async fn sorted_scan(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        from: Option<&KeyTuple>,
+        limit: u32,
+        criteria: Option<SelectionCriteria>,
+    ) -> Result<Vec<Document>> {
+        let query = SortedScanQuery::new(filter, key, from, limit);
+        let cursor = self
+            .collection(ns)
+            .find(query.filter)
+            .sort(query.sort)
+            .limit(query.limit)
+            .collation(Collation::builder().locale("simple").build())
+            .allow_disk_use(true)
+            .optional(criteria, |action, c| action.selection_criteria(c))
+            .await
+            .map_err(db_err)?;
+        let docs: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
+        // A document without a usable key would sort as null and be returned again at the head
+        // of every page, so it fails the scan instead.
+        for doc in &docs {
+            extract_key(doc, key)?;
+        }
+        Ok(docs)
     }
 }
 
@@ -168,6 +201,11 @@ impl DocumentStore for MongoStore {
         Ok(())
     }
 
+    async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<Vec<WriteOutcome>> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_write::bulk_write(&db, &ns.collection, ops, db_err).await
+    }
+
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
         self.collection(ns)
             .estimated_document_count()
@@ -183,23 +221,20 @@ impl DocumentStore for MongoStore {
         from: Option<&KeyTuple>,
         limit: u32,
     ) -> Result<Vec<Document>> {
-        let query = SortedScanQuery::new(filter, key, from, limit);
-        let cursor = self
-            .collection(ns)
-            .find(query.filter)
-            .sort(query.sort)
-            .limit(query.limit)
-            .collation(Collation::builder().locale("simple").build())
-            .allow_disk_use(true)
+        self.sorted_scan(ns, filter, key, from, limit, None).await
+    }
+
+    async fn scan_sorted_primary(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        from: Option<&KeyTuple>,
+        limit: u32,
+    ) -> Result<Vec<Document>> {
+        let primary = SelectionCriteria::ReadPreference(ReadPreference::Primary);
+        self.sorted_scan(ns, filter, key, from, limit, Some(primary))
             .await
-            .map_err(db_err)?;
-        let docs: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
-        // A document without a usable key would sort as null and be returned again at the head
-        // of every page, so it fails the scan instead.
-        for doc in &docs {
-            extract_key(doc, key)?;
-        }
-        Ok(docs)
     }
 
     async fn key_index_status(&self, ns: &Namespace, key: &KeySpec) -> Result<IndexStatus> {

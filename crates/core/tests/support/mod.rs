@@ -11,6 +11,8 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::mongo_store::MongoStore;
 use mongodb::Client;
 
+pub mod compare_flow;
+
 pub use curlybrace_testkit::{
     Container, SSH_PASSWORD, SSH_USER, SshStack, docker_enabled, local_enabled,
 };

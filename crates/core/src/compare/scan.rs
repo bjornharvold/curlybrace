@@ -110,6 +110,54 @@ impl KeyScanner {
     }
 }
 
+/// The document with exactly `key`, if any (the scan start is inclusive, so the first document
+/// at or after the key is kept only when its key compares equal).
+pub(crate) async fn fetch_one(
+    store: &Arc<dyn DocumentStore>,
+    ns: &Namespace,
+    filter: &bson::Document,
+    spec: &KeySpec,
+    key: &KeyTuple,
+) -> Result<Option<bson::Document>> {
+    let found = store.scan_sorted(ns, filter, spec, Some(key), 1).await?;
+    Ok(found
+        .into_iter()
+        .next()
+        .filter(|d| extract_key(d, spec).is_ok_and(|k| compare_tuples(&k, key).is_eq())))
+}
+
+/// How many documents carry exactly one key.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Unique {
+    Absent,
+    One(bson::Document),
+    /// The key is no longer unique (a duplicate appeared).
+    Several,
+}
+
+/// Like [`fetch_one`], but looks at two rows so a duplicate key is noticed. Used to re-verify
+/// before a write, so it reads from the PRIMARY (`scan_sorted_primary`): a lagging secondary
+/// must not make a stale document look current.
+pub(crate) async fn fetch_unique(
+    store: &Arc<dyn DocumentStore>,
+    ns: &Namespace,
+    filter: &bson::Document,
+    spec: &KeySpec,
+    key: &KeyTuple,
+) -> Result<Unique> {
+    let found = store
+        .scan_sorted_primary(ns, filter, spec, Some(key), 2)
+        .await?;
+    let mut same = found
+        .into_iter()
+        .filter(|d| extract_key(d, spec).is_ok_and(|k| compare_tuples(&k, key).is_eq()));
+    Ok(match (same.next(), same.next()) {
+        (None, _) => Unique::Absent,
+        (Some(doc), None) => Unique::One(doc),
+        (Some(_), Some(_)) => Unique::Several,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

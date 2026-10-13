@@ -56,6 +56,13 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
 
 - `curlybrace-core` `local_mongo_crud` - listing, paging (50/page, 100/101/120 docs),
   sort/projection/filter, replace/delete for every `_id` kind, `DocumentService`, exotic BSON.
+- `curlybrace-core` `local_compare_session` and `local_compare_apply` - a runtime compare of two real databases, and the apply
+  path: `MongoStore::bulk_write` plus end-to-end apply flows (`_id` and business-key convergence, stale documents,
+  `IdPolicy::Generate`, a unique-index violation, a view destination, cancelling 5,000 inserts). They WRITE to
+  `cbit_*` databases, so run them against a throwaway server of your own, for example
+  `docker run -d --rm --name cb-it-dev-2a -p 127.0.0.1:27119:27017 mongo:7`, then
+  `CURLYBRACE_IT=1 CURLYBRACE_IT_MONGODB_URI=mongodb://127.0.0.1:27119 cargo test -p curlybrace-core --test local_compare_apply -- --include-ignored --nocapture`
+  and `docker rm -f cb-it-dev-2a` afterwards.
 - `curlybrace-ui` `local_e2e_flows` - the click-driven flows, see below.
 - `curlybrace-ui` `local_compare_flows` - the Compare workspace: single pair, a database-level compare (Add all same-named, a duplicate key and Find duplicate keys, Re-run) and cancelling a multi-pair run. It drives the reducer through `CurlybraceApp::dispatch` against real `cbit_*` databases.
 

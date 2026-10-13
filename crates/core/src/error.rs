@@ -56,6 +56,19 @@ pub enum CoreError {
     /// The key or field list of a compare is not valid.
     #[error("compare: the key or field list is not valid")]
     CompareSetupInvalid,
+    /// The destination is a view, or a time-series collection for a change it cannot take.
+    #[error("apply: the destination cannot be written to")]
+    ApplyTargetNotWritable,
+    /// The server refused a write. No server text or code is carried (it can quote values).
+    #[error("apply: the server refused the write")]
+    ApplyWriteRejected,
+    /// A write found a unique index (or `_id`) already holding the value.
+    #[error("apply: a document with the same unique value already exists")]
+    ApplyDuplicateKey,
+    /// A write call failed as a whole (connection, write concern, malformed reply, panic): some
+    /// of its operations may have been applied. No driver text is carried.
+    #[error("apply: the result of the write is unknown")]
+    ApplyOutcomeUnknown,
 }
 
 impl CoreError {
@@ -82,6 +95,10 @@ impl CoreError {
             Self::CompareKeyNotIndexed => "errors.compare_key_not_indexed",
             Self::CompareCapExceeded => "errors.compare_cap_exceeded",
             Self::CompareSetupInvalid => "errors.compare_setup_invalid",
+            Self::ApplyTargetNotWritable => "errors.apply_target_not_writable",
+            Self::ApplyWriteRejected => "errors.apply_write_rejected",
+            Self::ApplyDuplicateKey => "errors.apply_duplicate_key",
+            Self::ApplyOutcomeUnknown => "errors.apply_outcome_unknown",
         }
     }
 }
@@ -113,11 +130,27 @@ mod tests {
             CoreError::CompareKeyNotIndexed,
             CoreError::CompareCapExceeded,
             CoreError::CompareSetupInvalid,
+            CoreError::ApplyTargetNotWritable,
+            CoreError::ApplyWriteRejected,
+            CoreError::ApplyDuplicateKey,
+            CoreError::ApplyOutcomeUnknown,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         keys.sort();
         keys.dedup();
         assert_eq!(keys.len(), errors.len());
         assert!(keys.iter().all(|k| k.starts_with("errors.")));
+    }
+
+    #[test]
+    fn apply_error_texts_are_static() {
+        for e in [
+            CoreError::ApplyWriteRejected,
+            CoreError::ApplyDuplicateKey,
+            CoreError::ApplyOutcomeUnknown,
+        ] {
+            let text = e.to_string();
+            assert!(!text.is_empty() && !text.contains('{'));
+        }
     }
 }

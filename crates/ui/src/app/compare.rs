@@ -304,6 +304,9 @@ fn event_session(ev: &CompareEvent) -> SessionId {
         | CompareEvent::Progress { session, .. }
         | CompareEvent::PairDone { session, .. }
         | CompareEvent::RunDone { session, .. }
+        | CompareEvent::ApplyProgress { session, .. }
+        | CompareEvent::ApplyPairDone { session, .. }
+        | CompareEvent::ApplyDone { session, .. }
         | CompareEvent::Rows { session, .. }
         | CompareEvent::Detail { session, .. }
         | CompareEvent::DuplicateKeys { session, .. }
@@ -326,6 +329,10 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
         | CompareEvent::RunDone { .. }
         | CompareEvent::Rows { .. }
         | CompareEvent::Detail { .. }) => on_run_event(state, run_event),
+        // handled in slice 2b: apply events change nothing yet and never raise a banner.
+        CompareEvent::ApplyProgress { .. }
+        | CompareEvent::ApplyPairDone { .. }
+        | CompareEvent::ApplyDone { .. } => none(state),
         other => on_setup_event(state, other),
     }
 }

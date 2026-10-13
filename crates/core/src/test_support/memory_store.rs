@@ -15,6 +15,7 @@ use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_va
 use crate::error::{CoreError, Result};
 use crate::store::{
     CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query,
+    WriteFailure, WriteOp, WriteOutcome,
 };
 
 type Collections = BTreeMap<(String, String), Vec<Document>>;
@@ -66,6 +67,29 @@ fn with_id(doc: Document, id: Bson) -> Document {
     out.insert("_id", id);
     out.extend(doc.into_iter().filter(|(k, _)| k != "_id"));
     out
+}
+
+/// Applies one write to the working copy `docs`.
+fn apply_op(docs: &mut Vec<Document>, op: WriteOp) -> WriteOutcome {
+    match op {
+        WriteOp::Insert { doc } => {
+            let id = id_of(&doc)
+                .cloned()
+                .unwrap_or_else(|| Bson::ObjectId(ObjectId::new()));
+            if position(docs, &id).is_some() {
+                return Err(WriteFailure::DuplicateKey);
+            }
+            docs.push(with_id(doc, id));
+        }
+        WriteOp::Replace { id, doc } => {
+            let at = position(docs, &id).ok_or(WriteFailure::Missing)?;
+            docs[at] = with_id(doc, id);
+        }
+        WriteOp::Delete { id } => {
+            docs.remove(position(docs, &id).ok_or(WriteFailure::Missing)?);
+        }
+    }
+    Ok(())
 }
 
 /// Evaluates a query over `docs`. Fetches `limit + 1` rows to compute
@@ -153,6 +177,14 @@ impl DocumentStore for InMemoryStore {
         docs.remove(position(&docs, id).ok_or(CoreError::NotFound)?);
         data.insert(key(ns), docs);
         Ok(())
+    }
+
+    async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<Vec<WriteOutcome>> {
+        let mut data = self.lock()?;
+        let mut docs = data.get(&key(ns)).cloned().unwrap_or_default();
+        let outcomes = ops.into_iter().map(|op| apply_op(&mut docs, op)).collect();
+        data.insert(key(ns), docs);
+        Ok(outcomes)
     }
 
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {

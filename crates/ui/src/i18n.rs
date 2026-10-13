@@ -200,6 +200,10 @@ mod tests {
             CoreError::CompareKeyNotIndexed,
             CoreError::CompareCapExceeded,
             CoreError::CompareSetupInvalid,
+            CoreError::ApplyTargetNotWritable,
+            CoreError::ApplyWriteRejected,
+            CoreError::ApplyDuplicateKey,
+            CoreError::ApplyOutcomeUnknown,
         ];
         for e in &errors {
             let s = i.error(e);

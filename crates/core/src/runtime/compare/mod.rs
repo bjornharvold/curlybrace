@@ -4,7 +4,8 @@
 //!
 //! Answers: `Open` → `Opened` | `OpenFailed`; `Databases`/`Collections`/`Check`/`Rows`/`Detail`
 //! → their answer | `Failed { context }`; `Start` → one `PairDone` per pair, then one `RunDone`
-//! (or `Failed` when refused); `DuplicateKeys` → `DuplicateKeys` | `Failed { context:
+//! (or `Failed` when refused); `Apply` → `ApplyProgress`*, one `ApplyPairDone` per pair, one
+//! `ApplyDone` (or `Failed { context: "compare_apply" }` when refused); `DuplicateKeys` → `DuplicateKeys` | `Failed { context:
 //! "compare_duplicates" }`; `Cancel`, `Discard`, `Close` have no answer of their own.
 //!
 //! Once a session is closed it emits nothing more: every event tied to a session goes through
@@ -13,6 +14,9 @@
 
 #[cfg(test)]
 mod abort_tests;
+mod apply;
+#[cfg(test)]
+mod apply_tests;
 #[cfg(test)]
 mod closed_tests;
 #[cfg(test)]
@@ -72,6 +76,12 @@ pub(super) fn dispatch(
             run,
             pairs,
         } => start_run(&shared, events, repaint, session, run, pairs),
+        CompareCommand::Apply {
+            session,
+            run,
+            ops,
+            id_policy,
+        } => apply::dispatch(&shared, events, repaint, session, run, ops, id_policy),
         other => spawn_command(shared, events, repaint, other),
     }
 }
@@ -186,6 +196,7 @@ fn command_session(c: &CompareCommand) -> SessionId {
         | CompareCommand::Collections { session, .. }
         | CompareCommand::Check { session, .. }
         | CompareCommand::Start { session, .. }
+        | CompareCommand::Apply { session, .. }
         | CompareCommand::Cancel { session, .. }
         | CompareCommand::Rows { session, .. }
         | CompareCommand::Detail { session, .. }
@@ -201,6 +212,7 @@ fn command_context(c: &CompareCommand) -> &'static str {
         CompareCommand::Collections { .. } => "compare_collections",
         CompareCommand::Check { .. } => "compare_check",
         CompareCommand::Start { .. } => "compare_start",
+        CompareCommand::Apply { .. } => "compare_apply",
         CompareCommand::Rows { .. } => "compare_rows",
         CompareCommand::Detail { .. } => "compare_detail",
         CompareCommand::DuplicateKeys { .. } => "compare_duplicates",
@@ -245,6 +257,7 @@ async fn handle(
         }
         CompareCommand::Open { .. }
         | CompareCommand::Start { .. }
+        | CompareCommand::Apply { .. }
         | CompareCommand::Cancel { .. }
         | CompareCommand::Discard { .. }
         | CompareCommand::Close { .. } => return Ok(None),

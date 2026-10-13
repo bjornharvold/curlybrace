@@ -11,14 +11,15 @@ use std::sync::Arc;
 
 use crate::compare::diff::diff_normalized;
 use crate::compare::engine::{CancelFlag, EngineOutcome, PairInput, Progress, Summary, run_pair};
-use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
+use crate::compare::key::{KeySpec, KeyTuple};
 use crate::compare::normalize::normalize;
 use crate::compare::protocol::{
     CompareEvent, PairId, PairOutcome, PairSpec, RowView, RunId, SessionId,
 };
 use crate::compare::results::Category;
+use crate::compare::scan::fetch_one;
 use crate::error::{CoreError, Result};
-use crate::store::{DocumentStore, IndexStatus, Namespace};
+use crate::store::IndexStatus;
 
 use super::session::{ActiveRun, Connections, Session, StoredPair};
 use super::{Events, Repaint, Shared, connections};
@@ -238,7 +239,13 @@ async fn run_one(ctx: &RunContext, spec: PairSpec, cancel: &CancelFlag) -> PairO
     .await;
     match joined {
         Ok(Ok((EngineOutcome::Completed, summary, results))) => {
-            store_pair(&ctx.session, StoredPair { spec, results });
+            store_pair(
+                &ctx.session,
+                StoredPair {
+                    spec,
+                    results: Arc::new(results),
+                },
+            );
             PairOutcome::Completed(summary)
         }
         // A cancelled or failed pair keeps nothing; dropping its results returns the budget.
@@ -362,20 +369,4 @@ pub(super) async fn detail(
         target,
         changes,
     })
-}
-
-/// The document with exactly `key`, if any (the scan start is inclusive, so the first document
-/// at or after the key is kept only when its key compares equal).
-async fn fetch_one(
-    store: &Arc<dyn DocumentStore>,
-    ns: &Namespace,
-    filter: &bson::Document,
-    spec: &KeySpec,
-    key: &KeyTuple,
-) -> Result<Option<bson::Document>> {
-    let found = store.scan_sorted(ns, filter, spec, Some(key), 1).await?;
-    Ok(found
-        .into_iter()
-        .next()
-        .filter(|d| extract_key(d, spec).is_ok_and(|k| compare_tuples(&k, key).is_eq())))
 }

@@ -21,8 +21,8 @@ use crate::test_support::InMemoryStore;
 /// A rendezvous: the parked side announces itself, the test releases it.
 #[derive(Default)]
 pub(super) struct Hooks {
-    entered: Notify,
-    release: Notify,
+    pub(super) entered: Notify,
+    pub(super) release: Notify,
 }
 
 impl Hooks {

@@ -1,9 +1,11 @@
 use super::*;
 use bson::{Bson, doc};
+use curlybrace_core::compare::diff::PathSegment;
 
 fn change(path: &str, kind: ChangeKind, s: Option<Bson>, t: Option<Bson>) -> FieldChange {
     FieldChange {
         path: path.into(),
+        segments: vec![PathSegment::Field(path.into())],
         kind,
         source: s,
         target: t,

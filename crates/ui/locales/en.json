@@ -283,6 +283,10 @@
     "title_new": "New document"
   },
   "errors": {
+    "apply_duplicate_key": "A document with the same unique value already exists in the destination, so this one was not written.",
+    "apply_outcome_unknown": "The result of this write is unknown; run the comparison again to see what was applied.",
+    "apply_target_not_writable": "The destination cannot be written to (a view, or a time-series collection for this kind of change).",
+    "apply_write_rejected": "The server refused the write.",
     "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",
     "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Results kept for other pairs count against the same limit: discard some of them to free room. You can also narrow the comparison with a filter, or compare fewer fields.",
     "compare_duplicate_key": "Two documents on one side have the same key, so they cannot be matched. Choose a key that is unique, or look up which values repeat.",
@@ -306,6 +310,7 @@
   },
   "failures": {
     "clone": "Could not clone the document",
+    "compare_apply": "Applying the changes failed.",
     "compare_check": "Could not check the collections before comparing",
     "compare_collections": "Could not load the collections for the comparison",
     "compare_databases": "Could not load the databases for the comparison",

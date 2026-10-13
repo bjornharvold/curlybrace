@@ -3,6 +3,7 @@
 
 use bson::Document;
 
+use super::apply::{ApplyOp, ApplyReport, IdPolicy};
 use super::engine::Summary;
 use super::key::{KeySpec, KeyTuple};
 use super::results::Category;
@@ -103,6 +104,14 @@ pub enum CompareCommand {
         session: SessionId,
         pair: PairSpec,
     },
+    /// Writes the chosen operations into the destination of their pairs. Answers with
+    /// `ApplyProgress`, one `ApplyPairDone` per pair and `ApplyDone` (or `Failed` when refused).
+    Apply {
+        session: SessionId,
+        run: RunId,
+        ops: Vec<ApplyOp>,
+        id_policy: IdPolicy,
+    },
     Close {
         session: SessionId,
     },
@@ -163,6 +172,24 @@ pub enum CompareEvent {
         outcome: PairOutcome,
     },
     RunDone {
+        session: SessionId,
+        run: RunId,
+    },
+    ApplyProgress {
+        session: SessionId,
+        run: RunId,
+        pair: PairId,
+        done: u64,
+        total: u64,
+    },
+    /// The outcome of one pair's operations. Failures carry keys: show them, never log them.
+    ApplyPairDone {
+        session: SessionId,
+        run: RunId,
+        pair: PairId,
+        report: ApplyReport,
+    },
+    ApplyDone {
         session: SessionId,
         run: RunId,
     },
