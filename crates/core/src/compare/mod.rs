@@ -8,6 +8,7 @@ pub mod key;
 pub mod keyset;
 pub mod normalize;
 pub(crate) mod number;
+pub mod pairing;
 pub mod protocol;
 pub mod results;
 pub mod rules;
