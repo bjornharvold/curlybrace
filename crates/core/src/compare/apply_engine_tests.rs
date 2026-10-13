@@ -52,6 +52,8 @@ pub(super) struct Spy {
     pub(super) duplicate_id: Mutex<Option<Bson>>,
     pub(super) fail_call: Mutex<Option<usize>>,
     pub(super) short_reply: AtomicBool,
+    /// A document id removed from the inner store right before the next write (a race).
+    pub(super) vanish: Mutex<Option<Bson>>,
     /// How many `scan_sorted` / `scan_sorted_primary` calls reached this store.
     pub(super) plain_scans: AtomicUsize,
     pub(super) primary_scans: AtomicUsize,
@@ -65,6 +67,7 @@ impl Spy {
             duplicate_id: Mutex::new(None),
             fail_call: Mutex::new(None),
             short_reply: AtomicBool::new(false),
+            vanish: Mutex::new(None),
             plain_scans: AtomicUsize::new(0),
             primary_scans: AtomicUsize::new(0),
         }
@@ -121,6 +124,10 @@ impl DocumentStore for Spy {
         };
         if *self.fail_call.lock().unwrap() == Some(call) {
             return Err(CoreError::Database("boom".into()));
+        }
+        let vanished = self.vanish.lock().unwrap().take();
+        if let Some(id) = vanished {
+            self.inner.delete(ns, &id).await?;
         }
         let duplicate = self.duplicate_id.lock().unwrap().clone();
         let is_dup = |o: &WriteOp| matches!(o, WriteOp::Insert { doc } if duplicate.is_some() && doc.get("_id") == duplicate.as_ref());

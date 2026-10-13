@@ -545,3 +545,54 @@ async fn cancel_between_batches_with_fields_ops_reports_not_run() {
     assert_eq!((r.applied, r.not_run, total(&r)), (500, 701, 1201));
     assert_eq!(*f.target.calls.lock().unwrap(), vec![500]);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_array_element_is_not_planned_under_ignore_array_order() {
+    let f = fixture(
+        vec![doc! {"_id": 1, "arr": [1, 2, 3]}],
+        vec![doc! {"_id": 1, "arr": [1, 9, 3]}],
+        |r| r.ignore_array_order = true,
+    )
+    .await;
+    assert_refused(&f, ST, vec![fld("arr"), i(1)]).await;
+    assert_refused(&f, TS, vec![fld("arr"), i(1)]).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_field_write_is_reported_under_its_own_key_next_to_a_replace() {
+    let f = plain(
+        vec![doc! {"_id": 1, "v": 1}, doc! {"_id": 2, "a": 1}],
+        vec![doc! {"_id": 1, "v": 2}, doc! {"_id": 2, "a": 2}],
+    )
+    .await;
+    // The Fields document disappears from the target between verification and the write.
+    *f.target.vanish.lock().unwrap() = Some(Bson::Int32(2));
+    let ops = [
+        op(k(1), Replace, ST),
+        fields_op(k(2), ST, &[vec![fld("a")]]),
+    ];
+    let r = f.apply(&ops).await;
+    assert_eq!(
+        (r.applied, r.failed, r.not_planned, r.stale, total(&r)),
+        (1, 1, 0, 0, 2)
+    );
+    assert_eq!(r.failures.len(), 1);
+    assert_eq!(r.failures[0].key, k(2));
+    assert_eq!(f.target_docs(), vec![doc! {"_id": 1, "v": 1}]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn all_except_never_unsets_a_subtree_holding_out_of_scope_fields() {
+    let f = fixture(
+        vec![doc! {"_id": 1}],
+        vec![doc! {"_id": 1, "meta": {"owner": "o", "sync": "s"}, "x": 1}],
+        |r| r.field_scope = FieldScope::AllExcept(vec!["meta.sync".into()]),
+    )
+    .await;
+    let found = changes(&f.source_docs()[0], &f.target_docs()[0], &f.spec.rules);
+    assert!(
+        found.iter().any(|c| c.segments == [fld("meta")]),
+        "{found:?}"
+    );
+    assert_refused(&f, ST, vec![fld("meta")]).await;
+}

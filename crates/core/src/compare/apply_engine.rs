@@ -5,7 +5,9 @@
 //! `APPLY_BATCH`, one `bulk_write` per destination side per batch.
 //!
 //! A window remains between the re-read and the write (documented in the spec): a document
-//! changed in that gap is overwritten. Keys and documents are data and are never logged.
+//! changed in that gap is overwritten by a whole-document op. A `Fields` op writes only its
+//! chosen paths (by `_id`), so a concurrent change there affects just those paths; other
+//! fields of the document are left as they are. Keys and documents are data and are never logged.
 
 use std::sync::Arc;
 
@@ -156,17 +158,18 @@ fn plan_fields_op(
     source: &Option<Document>,
     target: &Option<Document>,
 ) -> Result<Verdict> {
-    let (Some(source_doc), Some(target_doc)) = (source, target) else {
+    let (Some(origin), Some(dest), side) = orient(op.direction, source, target) else {
         return Ok(not_planned());
+    };
+    let (source_doc, target_doc) = match op.direction {
+        Direction::SourceToTarget => (origin, dest),
+        Direction::TargetToSource => (dest, origin),
     };
     let changes = diff_normalized(
         &normalize(source_doc, rules)?,
         &normalize(target_doc, rules)?,
         rules.ignore_array_order,
     )?;
-    let (Some(origin), Some(dest), side) = orient(op.direction, source, target) else {
-        return Ok(not_planned());
-    };
     let planned = plan_fields(
         &op.fields,
         &changes,
@@ -186,7 +189,7 @@ async fn verify(input: &ApplyInput<'_>, op: &ApplyOp) -> Result<Verdict> {
     }
     let (has_source, has_target) = (entry.source.is_some(), entry.target.is_some());
     if !kind_fits(op.kind, op.direction, has_source, has_target) {
-        return Ok(Verdict::Done(OpOutcome::Skipped(SkipReason::NotPlanned)));
+        return Ok(not_planned());
     }
     let (source, target) = tokio::try_join!(
         input.read(Side::Source, &op.key),
@@ -223,7 +226,7 @@ async fn plan_batch(input: &ApplyInput<'_>, batch: &[ApplyOp], repeated: &[bool]
     let mut planned = Planned::default();
     for (index, op) in batch.iter().enumerate() {
         let verdict = if repeated[index] {
-            Verdict::Done(OpOutcome::Skipped(SkipReason::NotPlanned))
+            not_planned()
         } else {
             verify_op(input, op).await
         };
