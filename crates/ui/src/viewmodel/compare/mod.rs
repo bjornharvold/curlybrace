@@ -1,4 +1,5 @@
 //! View-models of the Compare workspace. Pure and egui-free.
+pub mod apply;
 pub mod checks;
 pub mod detail;
 pub mod digest;
@@ -12,6 +13,7 @@ pub mod pending;
 pub mod preflight;
 pub mod queries;
 pub mod results;
+pub mod review;
 pub mod rows;
 pub mod selection;
 pub mod setup;
@@ -23,6 +25,7 @@ use std::collections::BTreeMap;
 use curlybrace_core::compare::protocol::{PairId, PairSpec, RunId, SessionId};
 use uuid::Uuid;
 
+pub use apply::{ApplyRow, ApplyUi};
 pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use digest::PairsDigest;
@@ -35,6 +38,10 @@ pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use pending::{PendingChange, PendingList, Scope};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
+pub use review::{
+    Destination, KindCounts, RequiredText, Review, ReviewConnections, ReviewEntry, ReviewPair,
+    Warning, build_review,
+};
 pub use rows::{EntrySizes, EntryStatus, OverviewRow, PairRow, RowCounts, RowDetail, StatusIcon};
 pub use selection::{CategorySelection, OrdKey, RowAction, Selection};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
@@ -90,6 +97,8 @@ pub struct CompareState {
     pub selection: Selection,
     /// The writes queued for the next apply.
     pub pending: PendingList,
+    /// The apply workflow: review snapshot, progress and report.
+    pub apply: ApplyUi,
 }
 
 impl Default for CompareState {
@@ -112,6 +121,7 @@ impl Default for CompareState {
             duplicates: DuplicatesView::default(),
             selection: Selection::default(),
             pending: PendingList::default(),
+            apply: ApplyUi::default(),
         }
     }
 }

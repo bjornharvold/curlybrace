@@ -69,6 +69,9 @@ pub struct RunRow {
     /// Last (scanned source, scanned target, differences) reported while running; kept when
     /// the pair ends without a summary (failed).
     pub last_progress: (u64, u64, u64),
+    /// An apply wrote to (or failed against) this pair's sides since it ran: its results are
+    /// stale until it runs again.
+    pub applied: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +119,7 @@ impl RunOverview {
             run,
             status: PairStatus::Pending,
             last_progress: (0, 0, 0),
+            applied: false,
         };
         let mut replaced = Vec::new();
         let mut rows: Vec<RunRow> = self
@@ -234,6 +238,22 @@ impl RunOverview {
             }),
             ..self
         }
+    }
+
+    /// An apply touched the pair: its results no longer describe the collections.
+    pub fn marked_applied(self, pair: PairId) -> Self {
+        let rows = self
+            .rows
+            .into_iter()
+            .map(|row| match row.pair == pair {
+                true => RunRow {
+                    applied: true,
+                    ..row
+                },
+                false => row,
+            })
+            .collect();
+        Self { rows, ..self }
     }
 
     /// The pair's results were thrown away. Live rows cannot be discarded.

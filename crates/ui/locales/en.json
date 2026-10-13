@@ -66,6 +66,12 @@
         "copy_to_target": "Copy to target",
         "delete_from_source": "Delete from source",
         "delete_from_target": "Delete from target"
+      },
+      "warning": {
+        "generated_ids": "New _id values are generated for inserted documents, so they will not match the source on the next compare.",
+        "keeps_destination_id": "Replaced documents keep the _id they have in the destination, which differs from the compare key.",
+        "maybe_duplicate_business_key": "An insert can create a second document with the same key if the destination has no unique index on it.",
+        "whole_document_overwrite": "Replacing writes the whole document, including fields outside the compared field scope."
       }
     },
     "back": "Back to browsing",
