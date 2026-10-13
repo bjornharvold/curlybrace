@@ -65,6 +65,16 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
   and `docker rm -f cb-it-dev-2a` afterwards.
 - `curlybrace-ui` `local_e2e_flows` - the click-driven flows, see below.
 - `curlybrace-ui` `local_compare_flows` - the Compare workspace: single pair, a database-level compare (Add all same-named, a duplicate key and Find duplicate keys, Re-run) and cancelling a multi-pair run. It drives the reducer through `CurlybraceApp::dispatch` against real `cbit_*` databases.
+- `curlybrace-ui` `local_compare_apply_flows` - the click-driven APPLY flows of slice 2b (select rows or "Select all in tab", Copy/Delete, Review changes, the typed confirmation, Apply, the result panel): copy a whole collection to an empty target and re-run, delete only ticked extras behind the typed name, replace and converge, a document changed by a second client (stale), a unique-index collision, cancelling a 50,000-document apply, two pairs in one apply. Like `local_compare_apply` it WRITES to `cbit_*` databases, so `scripts/integration-tests.sh` does not run it: run it against your own container (it inserts about 50 MB in one test):
+
+      docker run -d --rm --name cb-it-dev-2b -p 127.0.0.1:27120:27017 mongo:7
+      until nc -z 127.0.0.1 27120; do sleep 1; done
+      CURLYBRACE_IT=1 CURLYBRACE_IT_MONGODB_URI=mongodb://127.0.0.1:27120 \
+        cargo test -p curlybrace-ui --test local_compare_apply_flows --locked -- --include-ignored --nocapture
+      docker rm -f cb-it-dev-2b
+
+  The gesture helpers (`open_tab`, `tick_rows`, `select_all_in_tab`, `click_action`, `open_review`,
+  `type_confirmation`, `apply_enabled`, `confirm_and_wait`, `rerun`) live in `tests/support/compare.rs`.
 
 The script checks that the server answers on TCP (no `mongosh` needed), sets `CURLYBRACE_IT=1` and
 runs both targets. **Start the server yourself**, for example

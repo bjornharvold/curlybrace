@@ -110,9 +110,20 @@ for each side, press **Add pair**, then **Check** and **Run**.
   the target, or different, with the changed fields of each document. Optional filters limit each
   side, and the Rules section controls array order, field order, number types, the `_id` field and
   which fields count.
-- **Nothing is written.** This release only reads and reports. Applying a sync and exporting
-  results arrive in later releases ([#8](https://github.com/bjornharvold/curlybrace/issues/8)).
-  The results are kept in memory for the session and can be discarded.
+- **Comparing never writes.** Writing only happens when you apply changes, as described next. The
+  results are kept in memory for the session and can be discarded.
+- **Copy and delete differences.** Tick rows of a results tab (or **Select all** in the tab, which covers
+  every row of it, not only the page shown) and choose an action: **Copy to target** or **Copy to
+  source** for documents that exist on one side or differ, **Delete from source** or **Delete from
+  target** for extras. Actions are queued under **Pending changes**; nothing is written until you press
+  **Review changes**, which names the connection, database and collection each action writes to, with
+  the counts per pair. Deleting needs you to type the collection name (or the database name when
+  several collections are affected) before **Apply** is enabled. Each document is checked again just
+  before it is written: a document that changed since the compare is skipped and left alone. The
+  result lists what was applied, skipped, failed (with the document's key) and not run, and you can
+  cancel a running apply. The pair then shows **Applied**: run it again to confirm what is left.
+  Changing single fields of a document and exporting results are still to come
+  ([#8](https://github.com/bjornharvold/curlybrace/issues/8)).
 - The key must be **unique** on each side: a duplicate key stops the run with an error, and
   **Find duplicate keys** then shows which values repeat. Each document must have a value for
   every key field, and a key value cannot be an array or a regular expression.
@@ -144,7 +155,7 @@ in rough order; each one gets its own design and plan before code is written, an
 place to contribute:
 
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): diff two collections or databases (across servers), pick the
-  differences, and apply or export the sync. Comparing collections and whole databases is built (read-only); applying and exporting are still to come.
+  differences, and apply or export the sync. Comparing collections and whole databases is built, and so is copying and deleting differences between two databases (with a confirmation and a per-document report). Still to build: field-level changes and exporting reports.
 - **Data Masking and Reschema** ([#9](https://github.com/bjornharvold/curlybrace/issues/9)): anonymise sensitive fields in copies of data and
   reshape documents in bulk.
 - **SQL and MongoDB** ([#10](https://github.com/bjornharvold/curlybrace/issues/10)): a SQL query editor that translates to MongoDB queries, plus SQL
