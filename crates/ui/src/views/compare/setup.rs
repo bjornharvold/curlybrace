@@ -1,34 +1,62 @@
-//! The single-pair setup form: both sides' database and collection, filters, key and rules.
+//! The setup panel: the database and collection pickers (they only feed Add pair), and the
+//! defaults every pair follows unless it overrides them: key, the two filters and the rules.
 use super::rules::show_rules;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::viewmodel::compare::{Pick, SetupError, SetupForm, SideForm};
+use crate::viewmodel::compare::{CompareState, Pick, SideForm};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::store::CollectionKind;
 use eframe::egui;
 
-/// `issues`: what is wrong with the setup (`CompareState::issues`, computed once per frame).
-pub fn show_setup(
-    ui: &mut egui::Ui,
-    form: &SetupForm,
-    issues: &[SetupError],
-    i18n: &I18n,
-) -> Option<CompareAction> {
+pub fn show_setup(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     for side in [Side::Source, Side::Target] {
-        let shown = show_side(ui, side, form.side(side), i18n);
+        let shown = show_side(ui, side, state.setup.side(side), i18n);
         action = shown.or(action);
     }
+    let add = egui::Button::new(i18n.t("compare.pairs.add_pair"));
+    if ui.add_enabled(state.can_add_pair(), add).clicked() {
+        action = Some(CompareAction::AddPair);
+    }
+    ui.separator();
+    show_defaults(ui, state, i18n).or(action)
+}
+
+/// Key, filters and rules every pair follows, with what is wrong with them (the pickers are not
+/// part of the defaults).
+fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
+    let form = &state.setup;
+    let mut action = None;
+    ui.strong(i18n.t("compare.pairs.defaults_title"));
     if let Some(text) = text_field(ui, "key", form_key(), &form.key_text, i18n) {
         action = Some(CompareAction::SetKey(text));
+    }
+    for side in [Side::Source, Side::Target] {
+        let shown = show_filter(ui, side, form.side(side), i18n);
+        action = shown.or(action);
     }
     if let Some(rules) = show_rules(ui, &form.rules, i18n) {
         action = Some(CompareAction::SetRules(rules));
     }
-    for issue in issues {
+    for issue in form.default_issues() {
         ui.weak(i18n.t(issue.i18n_key()));
     }
     action
+}
+
+fn show_filter(
+    ui: &mut egui::Ui,
+    side: Side,
+    form: &SideForm,
+    i18n: &I18n,
+) -> Option<CompareAction> {
+    ui.push_id(side_id(side), |ui| {
+        ui.label(i18n.t(heading_key(side)));
+        let filter = ("compare.setup.filter", "compare.setup.filter_hint");
+        text_field(ui, "filter", filter, &form.filter_text, i18n)
+            .map(|text| CompareAction::SetFilter(side, text))
+    })
+    .inner
 }
 
 /// Caption and hint keys of a text box.
@@ -38,12 +66,24 @@ fn form_key() -> Keys {
     ("compare.setup.key", "compare.setup.key_hint")
 }
 
-/// A labelled single-line box. Returns the new text when the user changed it.
+/// A labelled single-line box filling the row. Returns the new text when the user changed it.
 pub(super) fn text_field(
     ui: &mut egui::Ui,
     id: &str,
     keys: Keys,
     value: &str,
+    i18n: &I18n,
+) -> Option<String> {
+    text_field_sized(ui, id, keys, value, f32::INFINITY, i18n)
+}
+
+/// [`text_field`] with a bounded box, for rows that also hold a button after it.
+pub(super) fn text_field_sized(
+    ui: &mut egui::Ui,
+    id: &str,
+    keys: Keys,
+    value: &str,
+    width: f32,
     i18n: &I18n,
 ) -> Option<String> {
     let mut buffer = value.to_string();
@@ -52,7 +92,7 @@ pub(super) fn text_field(
             let caption = ui.label(i18n.t(keys.0));
             let edit = egui::TextEdit::singleline(&mut buffer)
                 .hint_text(i18n.t(keys.1))
-                .desired_width(f32::INFINITY);
+                .desired_width(width);
             // The caption is the box's accessible name.
             ui.add(edit).labelled_by(caption.id);
         });
@@ -77,13 +117,11 @@ fn heading_key(side: Side) -> &'static str {
 fn show_side(ui: &mut egui::Ui, side: Side, form: &SideForm, i18n: &I18n) -> Option<CompareAction> {
     ui.push_id(side_id(side), |ui| {
         ui.strong(i18n.t(heading_key(side)));
-        let mut pick = pickers(ui, form, i18n).map(|p| CompareAction::PickSide(side, p));
+        let pick = pickers(ui, form, i18n).map(|p| CompareAction::PickSide(side, p));
         if form.database.is_some() && form.collections.is_empty() {
-            pick = reload_button(ui, side, i18n).or(pick);
+            return reload_button(ui, side, i18n).or(pick);
         }
-        let filter = ("compare.setup.filter", "compare.setup.filter_hint");
-        let typed = text_field(ui, "filter", filter, &form.filter_text, i18n);
-        typed.map(|t| CompareAction::SetFilter(side, t)).or(pick)
+        pick
     })
     .inner
 }

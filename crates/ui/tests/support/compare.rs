@@ -1,12 +1,15 @@
 //! Gestures of the Compare workspace, built from clicks only.
 use super::actions::{click_key, connect, fill_key, wait_shows};
+use super::db::TestDb;
 use super::fixture::Fixture;
 use super::screen::{H, dump};
 use super::wait::{SHORT, settle, wait_until};
 use bson::{Document, doc};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::error::CoreError;
-use curlybrace_ui::viewmodel::compare::{RunView, SessionPhase};
+use curlybrace_ui::app::compare::CompareAction;
+use curlybrace_ui::app::reducer::Input;
+use curlybrace_ui::viewmodel::compare::{EntryId, PairStatus, Pick, SessionPhase, StatusIcon};
 use eframe::egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT, Queryable};
 use std::time::Duration;
@@ -65,18 +68,34 @@ pub fn pick_collection(f: &mut Fixture, side: Side, collection: &str) {
     choose(f, side, "compare.setup.collection", collection);
 }
 
-/// Source and target collections of the test database, then Check, expecting the "ready" line.
+/// Source and target collections of the test database, added as a pair, then Check, expecting
+/// the "Ready" verdict.
 #[track_caller]
 pub fn pick_pair_and_check(f: &mut Fixture, source: &str, target: &str) {
     pick_collection(f, Side::Source, source);
     pick_collection(f, Side::Target, target);
+    add_pair(f);
     check(f);
+}
+
+/// Adds the pair the pickers describe to the list.
+#[track_caller]
+pub fn add_pair(f: &mut Fixture) {
+    click_key(f, "compare.pairs.add_pair");
+    wait_until(&mut f.harness, "the pair in the list", SHORT, |h| {
+        !h.state().state().compare.pairs.entries.is_empty()
+    });
+}
+
+/// A status as the tables draw it: its icon, then its label.
+pub fn status_label(f: &Fixture, icon: StatusIcon, key: &str) -> String {
+    format!("{} {}", icon.glyph(), f.labels.t(key))
 }
 
 #[track_caller]
 pub fn check(f: &mut Fixture) {
     click_key(f, "compare.preflight.check");
-    let ok = f.labels.t("compare.preflight.ok");
+    let ok = status_label(f, StatusIcon::Ok, "compare.preflight.entry_ok");
     wait_shows(f, &ok);
 }
 
@@ -84,17 +103,24 @@ pub fn set_key(f: &mut Fixture, fields: &str) {
     fill_key(f, "compare.setup.key", fields);
 }
 
-/// Clicks Start and waits until the run has produced its outcome (bounded by `limit`).
+/// Clicks Run and waits until the run has produced its outcome (bounded by `limit`).
 #[track_caller]
 pub fn start_and_wait(f: &mut Fixture, limit: Duration) {
-    click_key(f, "compare.run.start");
+    click_key(f, "compare.preflight.run");
     wait_finished(f, limit);
+}
+
+/// The status of the first pair's row in the run overview, if it has run.
+pub fn first_status(f: &Fixture) -> Option<PairStatus> {
+    let compare = &f.harness.state().state().compare;
+    compare.overview.rows.first().map(|row| row.status.clone())
 }
 
 #[track_caller]
 pub fn wait_finished(f: &mut Fixture, limit: Duration) {
     wait_until(&mut f.harness, "the run to finish", limit, |h| {
-        matches!(h.state().state().compare.run, RunView::Finished { .. })
+        let overview = &h.state().state().compare.overview;
+        overview.active.is_none() && !overview.rows.is_empty()
     });
 }
 
@@ -120,4 +146,74 @@ pub fn is_on_screen(h: &H<'_>, text: &str) -> bool {
 pub fn wait_shows_key(f: &mut Fixture, key: &str) {
     let text = f.labels.t(key);
     wait_shows(f, &text);
+}
+
+/// A second throwaway `cbit_*` database (the target side of the database-level flows), dropped
+/// with the guard.
+pub struct Scratch(pub TestDb);
+
+impl Scratch {
+    pub fn new(f: &Fixture) -> Self {
+        Self(TestDb::new(
+            f.db.client.clone(),
+            f.runtime().handle().clone(),
+        ))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        self.0.drop_database();
+    }
+}
+
+/// Feeds the reducer an action, as a click would, and runs a few frames.
+pub fn send(f: &mut Fixture, action: CompareAction) {
+    f.harness.state_mut().dispatch(Input::Compare(action));
+    settle(&mut f.harness);
+}
+
+/// Picks `db` on `side` and waits for the runtime's listing of its collections.
+#[track_caller]
+pub fn pick_database(f: &mut Fixture, side: Side, db: &str) {
+    send(
+        f,
+        CompareAction::PickSide(side, Pick::Database(db.to_string())),
+    );
+    let (db, listed) = (db.to_string(), "the collection listing");
+    wait_until(&mut f.harness, listed, SHORT, |h| {
+        let form = h.state().state().compare.setup.side(side).clone();
+        form.database.as_deref() == Some(db.as_str()) && !form.collections.is_empty()
+    });
+}
+
+/// The list entry whose source collection is `collection`.
+pub fn entry_of(f: &Fixture, collection: &str) -> EntryId {
+    let compare = &f.harness.state().state().compare;
+    let found = compare
+        .pairs
+        .entries
+        .iter()
+        .find(|e| e.source.collection == collection);
+    found
+        .unwrap_or_else(|| panic!("no pair for {collection}"))
+        .id
+}
+
+/// The overview status of `entry`'s row.
+pub fn status_of(f: &Fixture, entry: EntryId) -> PairStatus {
+    let overview = &f.harness.state().state().compare.overview;
+    let row = overview
+        .row_for(entry)
+        .unwrap_or_else(|| panic!("no row for entry {entry}"));
+    row.status.clone()
+}
+
+/// Sends Check and waits until every included entry has a verdict and Run is allowed.
+#[track_caller]
+pub fn check_all(f: &mut Fixture) {
+    send(f, CompareAction::RunCheck);
+    wait_until(&mut f.harness, "every check to pass", SHORT, |h| {
+        h.state().state().compare.can_start()
+    });
 }

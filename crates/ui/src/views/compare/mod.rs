@@ -1,28 +1,34 @@
-//! The Compare workspace: one pair, set up, checked, run and browsed on a single page. Every
+//! The Compare workspace: the pair list set up, checked, run and browsed on one page. Every
 //! decision (what is enabled, what a click means) lives in `viewmodel::compare` and the
 //! reducer; these views render the state and report the user's action.
 mod connect;
 mod detail;
 mod duplicates;
+mod editor;
+mod memo;
+mod overview;
+mod pairs;
 mod preflight;
 mod results;
 mod rules;
-mod running;
 mod setup;
 mod switcher;
+mod table;
 
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::viewmodel::compare::{CompareState, SessionPhase};
+use crate::viewmodel::compare::{CompareState, ListInputs, ListView, SessionPhase};
 use crate::views::connections::ConnectionsState;
 use eframe::egui;
 
 pub use connect::show_connect;
 pub use detail::show_detail;
 pub use duplicates::show_duplicates;
+pub use editor::show_editor;
+pub use overview::show_overview;
+pub use pairs::show_pairs;
 pub use preflight::show_preflight;
-pub use results::show_results;
-pub use running::show_run;
+pub use results::{show_pair_results, show_results};
 pub use setup::show_setup;
 pub use switcher::show_workspace_switcher;
 
@@ -73,38 +79,33 @@ fn show_header(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
     action
 }
 
-/// Everything below the connection pickers, once the session is usable.
+/// Everything below the connection pickers, once the session is usable: the results of the
+/// open pair, or else setup, pairs, preflight and the run overview.
 fn show_ready(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
     ui.separator();
-    // Parsing the form is not free: its issues are computed once per frame.
-    let issues = state.issues();
-    let setup_ready = issues.is_empty();
-    let setup = show_setup(ui, &state.setup, &issues, i18n);
+    if state.open_pair.is_some() {
+        return show_pair_results(ui, state, i18n);
+    }
+    detail::forget_cache(ui);
+    // The per-entry work (parsing keys and filters, the pairing helper) happens once per
+    // change of the list or the defaults, not once per frame.
+    let list = list_view(ui, state);
+    let gates = state.gates(&list.digest);
+    let setup = show_setup(ui, state, i18n);
     ui.separator();
-    let preflight = show_preflight(ui, state, setup_ready, i18n);
-    let run = show_run(ui, state, setup_ready, i18n);
-    let lower = show_lower(ui, state, i18n);
-    setup.or(preflight).or(run).or(lower)
+    let pairs = show_pairs(ui, state, &list, i18n);
+    let editor = show_editor(ui, state, i18n);
+    ui.separator();
+    let preflight = show_preflight(ui, state, &gates, &list, i18n);
+    let overview = show_overview(ui, state, i18n);
+    setup.or(pairs).or(editor).or(preflight).or(overview)
 }
 
-/// Results and the open detail; the detail's cached JSON is dropped once it is gone.
-fn show_lower(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
-    let Some(results) = &state.results else {
-        detail::forget_cache(ui);
-        return None;
-    };
-    ui.separator();
-    let selected = state.detail.as_ref().map(|d| &d.key);
-    let table = show_results(ui, results, selected, i18n);
-    let detail = match &state.detail {
-        Some(d) => {
-            ui.separator();
-            show_detail(ui, d, i18n)
-        }
-        None => {
-            detail::forget_cache(ui);
-            None
-        }
-    };
-    table.or(detail)
+fn list_view(ui: &egui::Ui, state: &CompareState) -> std::sync::Arc<ListView> {
+    memo::memo(
+        ui,
+        "list_view",
+        |inputs: &ListInputs| inputs.is_for(state),
+        || (ListInputs::of(state), ListView::of(state)),
+    )
 }

@@ -14,6 +14,7 @@ use curlybrace_ui::viewmodel::{
     EditorIntent, EditorState, MenuItem, ViewMode, page_key, resolve_editor,
 };
 use curlybrace_ui::views::connections::ConnectionsState;
+use support::compare_multi_states::{overview_mixed, pair_results, pairs_setup};
 use support::compare_states::{Through, compare_state};
 use support::db::sample_people;
 use support::shots::{Shot, browsing};
@@ -147,6 +148,32 @@ fn compare_duplicates_panel() {
         compare_state(Through::Duplicates),
     );
     shot.snapshot("compare_duplicates_panel");
+}
+
+shot!(
+    compare_pairs_setup,
+    vec![production(), staging()],
+    pairs_setup
+);
+shot!(
+    compare_pair_results,
+    vec![production(), staging()],
+    pair_results
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_overview_mixed() {
+    if !snapshots_enabled("compare_overview_mixed") {
+        return;
+    }
+    // Taller than the standard window: the form, the pair list and the panel stack up.
+    let mut shot = Shot::sized(
+        (1000.0, 1200.0),
+        vec![production(), staging()],
+        overview_mixed,
+    );
+    shot.snapshot("compare_overview_mixed");
 }
 
 #[test]

@@ -18,9 +18,11 @@ use curlybrace_ui::app::state::{AppState, Workspace};
 use curlybrace_ui::viewmodel::ViewMode;
 use curlybrace_ui::viewmodel::compare::Pick;
 
-const SESSION: u64 = 1;
+pub const SESSION: u64 = 1;
 const RUN: u64 = 1;
-const PAIR: u32 = 1;
+/// The probe of the one check, then the pair the run that follows it uses.
+const CHECK_PAIR: u32 = 1;
+const RUN_PAIR: u32 = 2;
 
 /// How far the scripted session goes.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -34,23 +36,23 @@ pub enum Through {
     Duplicates,
 }
 
-fn step(state: &mut AppState, input: Input) {
+pub fn step(state: &mut AppState, input: Input) {
     *state = update(std::mem::take(state), input).0;
 }
 
-fn act(state: &mut AppState, action: CompareAction) {
+pub fn act(state: &mut AppState, action: CompareAction) {
     step(state, Input::Compare(action));
 }
 
-fn event(state: &mut AppState, e: CompareEvent) {
+pub fn event(state: &mut AppState, e: CompareEvent) {
     step(state, Input::Event(Event::Compare(e)));
 }
 
-fn key(n: i32) -> KeyTuple {
+pub fn key(n: i32) -> KeyTuple {
     KeyTuple(vec![Bson::Int32(n)])
 }
 
-fn names(v: &[&str]) -> Vec<String> {
+pub fn names(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
 
@@ -78,10 +80,14 @@ fn pick(state: &mut AppState, side: Side, collection: &str) {
     );
 }
 
-fn answer(source_index: IndexStatus, target_index: IndexStatus, too_large: bool) -> CompareEvent {
+pub fn answer(
+    source_index: IndexStatus,
+    target_index: IndexStatus,
+    too_large: bool,
+) -> CompareEvent {
     CompareEvent::Checked {
         session: SESSION,
-        pair: PAIR,
+        pair: CHECK_PAIR,
         preflight: Preflight {
             source_count: 482_113,
             target_count: 480_907,
@@ -92,7 +98,7 @@ fn answer(source_index: IndexStatus, target_index: IndexStatus, too_large: bool)
     }
 }
 
-fn open_session(state: &mut AppState) {
+pub fn open_session(state: &mut AppState) {
     let (source, target) = (state.conn.connections[0].id, state.conn.connections[1].id);
     act(state, CompareAction::Open { source, target });
     event(state, CompareEvent::Opened { session: SESSION });
@@ -119,7 +125,7 @@ fn finish_run(state: &mut AppState) {
     let done = CompareEvent::PairDone {
         session: SESSION,
         run: RUN,
-        pair: PAIR,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Completed(summary),
     };
     event(state, done);
@@ -132,7 +138,7 @@ fn finish_run(state: &mut AppState) {
     );
     let rows = CompareEvent::Rows {
         session: SESSION,
-        pair: PAIR,
+        pair: RUN_PAIR,
         category: Category::Different,
         offset: 0,
         total: 2,
@@ -165,7 +171,7 @@ fn open_detail(state: &mut AppState) {
     ];
     let detail = CompareEvent::Detail {
         session: SESSION,
-        pair: PAIR,
+        pair: RUN_PAIR,
         key: key(2),
         source: Some(
             doc! {"_id": 2_i32, "name": "Grace Hopper", "plan": "team", "seats": 40_i32,
@@ -186,7 +192,7 @@ fn find_duplicates(state: &mut AppState) {
     let failed = CompareEvent::PairDone {
         session: SESSION,
         run: RUN,
-        pair: PAIR,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
     };
     event(state, failed);
@@ -195,7 +201,8 @@ fn find_duplicates(state: &mut AppState) {
         run: RUN,
     };
     event(state, done);
-    act(state, CompareAction::FindDuplicates);
+    // The first entry of the list; its lookup takes the pair id after the run's.
+    act(state, CompareAction::FindDuplicates(0));
     let group = |email: &str, count: u64| DuplicateGroup {
         key: KeyTuple(vec![Bson::String(email.into())]),
         count,
@@ -210,7 +217,7 @@ fn find_duplicates(state: &mut AppState) {
     };
     let answer = CompareEvent::DuplicateKeys {
         session: SESSION,
-        pair: PAIR,
+        pair: RUN_PAIR + 1,
         source,
         target,
     };
@@ -232,6 +239,7 @@ pub fn compare_state(through: Through) -> impl FnOnce(&mut AppState) {
             // The panel lists emails, so the failed key is `email`.
             act(state, CompareAction::SetKey("email".into()));
         }
+        act(state, CompareAction::AddPair);
         act(state, CompareAction::RunCheck);
         if through == Through::Blocked {
             let blocked = answer(IndexStatus::Indexed, IndexStatus::NotIndexed, true);
@@ -247,7 +255,7 @@ pub fn compare_state(through: Through) -> impl FnOnce(&mut AppState) {
             let progress = CompareEvent::Progress {
                 session: SESSION,
                 run: RUN,
-                pair: PAIR,
+                pair: RUN_PAIR,
                 scanned_source: 211_000,
                 scanned_target: 209_500,
                 differences: 1,

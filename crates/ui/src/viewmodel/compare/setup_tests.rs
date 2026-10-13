@@ -3,6 +3,8 @@ use bson::doc;
 use curlybrace_core::compare::rules::FieldScope;
 use curlybrace_core::store::CollectionKind;
 
+const PAIR_ID: PairId = 1;
+
 fn picked(db: &str, coll: &str) -> SideForm {
     SideForm::default()
         .with_database(db)
@@ -142,7 +144,7 @@ fn pair_carries_namespaces_filters_key_and_rules_with_the_fixed_id() {
         Side::Source,
         picked("a", "users").with_filter(r#"{"x": 2}"#),
     );
-    let pair = form.pair().unwrap();
+    let pair = form.pair(PAIR_ID).unwrap();
     assert_eq!(pair.id, PAIR_ID);
     assert_eq!(pair.source, Namespace::new("a", "users"));
     assert_eq!(pair.target, Namespace::new("b", "users"));
@@ -165,4 +167,50 @@ fn collection_listings_for_another_database_are_dropped() {
         .with_database("a")
         .with_collections("zzz", vec![("c".into(), CollectionKind::Collection)]);
     assert!(side.collections.is_empty());
+}
+
+#[test]
+fn pick_pair_refuses_views_and_incomplete_sides() {
+    let form = ready_form();
+    assert!(form.pick_pair().is_ok());
+    let view = form.clone().with_side(Side::Target, picked("b", "v"));
+    assert_eq!(
+        view.pick_pair(),
+        Err(SetupError::ViewSelected(Side::Target))
+    );
+    assert_eq!(
+        SetupForm::default().pick_pair(),
+        Err(SetupError::Incomplete)
+    );
+}
+
+#[test]
+fn default_issues_ignore_the_pickers_and_report_only_the_shared_fields() {
+    // Nothing picked at all: the pickers feed Add pair only, the defaults are fine.
+    assert_eq!(SetupForm::default().default_issues(), vec![]);
+    // A view picked and the same collection on both sides: still not a defaults problem.
+    let form = SetupForm::default()
+        .with_side(Side::Source, picked("a", "v"))
+        .with_side(Side::Target, picked("a", "v"));
+    assert_eq!(form.default_issues(), vec![]);
+}
+
+#[test]
+fn default_issues_list_key_and_filter_problems_in_display_order() {
+    let form = SetupForm::default()
+        .with_key_text("a,,b")
+        .with_side(Side::Target, SideForm::default().with_filter("not json"));
+    assert_eq!(
+        form.default_issues(),
+        vec![SetupError::Key, SetupError::Filter(Side::Target)]
+    );
+}
+
+#[test]
+fn default_issues_report_invalid_rules_once() {
+    let form = SetupForm::default().with_rules(RulesForm {
+        scope: ScopeKind::Only,
+        ..RulesForm::default()
+    });
+    assert_eq!(form.default_issues(), vec![SetupError::Rules]);
 }

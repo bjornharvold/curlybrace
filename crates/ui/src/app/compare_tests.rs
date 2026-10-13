@@ -16,18 +16,36 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{CollectionKind, IndexStatus};
 
+#[path = "compare_tests/checks.rs"]
+mod checks;
 #[path = "compare_tests/duplicates.rs"]
 mod duplicates;
 #[path = "compare_tests/entry.rs"]
 mod entry;
 #[path = "compare_tests/frames.rs"]
 mod frames;
+#[path = "compare_tests/frames_pairs.rs"]
+mod frames_pairs;
+#[path = "compare_tests/multirun.rs"]
+mod multirun;
+#[path = "compare_tests/multirun_results.rs"]
+mod multirun_results;
+#[path = "compare_tests/pairs.rs"]
+mod pairs;
 #[path = "compare_tests/results.rs"]
 mod results;
 #[path = "compare_tests/run.rs"]
 mod run;
 #[path = "compare_tests/setup.rs"]
 mod setup;
+
+/// The probe id of the first check; the first run that follows it uses `RUN_PAIR`.
+const CHECK_PAIR: u32 = 1;
+const RUN_PAIR: u32 = 2;
+/// The pair id a duplicates lookup takes after one check and one run.
+const DUP_PAIR: u32 = 3;
+/// The id of the first entry a list hands out: the one pair the fixtures add.
+const ENTRY: crate::viewmodel::compare::EntryId = 0;
 
 fn two_connections() -> (AppState, uuid::Uuid, uuid::Uuid) {
     let (a, b) = (
@@ -36,6 +54,16 @@ fn two_connections() -> (AppState, uuid::Uuid, uuid::Uuid) {
     );
     let ids = (a.id, b.id);
     (AppState::new(vec![a, b]), ids.0, ids.1)
+}
+
+/// A second handle on the state: AppState is not Clone, the compare part and the connections
+/// are all the reducer tests need.
+fn copy_of(state: &AppState) -> AppState {
+    AppState {
+        compare: state.compare.clone(),
+        conn: crate::views::connections::ConnectionsState::new(state.conn.connections.clone()),
+        ..AppState::default()
+    }
 }
 
 fn ev(e: CompareEvent) -> Input {
@@ -62,7 +90,8 @@ fn opened() -> (AppState, uuid::Uuid, uuid::Uuid) {
     (state, a, b)
 }
 
-fn picked_state() -> AppState {
+/// Both sides picked and the key set, but no pair added yet.
+fn picked_form_state() -> AppState {
     let (mut state, _, _) = opened();
     for (side, db) in [(Side::Source, "a"), (Side::Target, "b")] {
         let (s, cmds) = act(
@@ -96,6 +125,11 @@ fn picked_state() -> AppState {
     state
 }
 
+/// The picked pair added as the list's one entry.
+fn picked_state() -> AppState {
+    act(picked_form_state(), CompareAction::AddPair).0
+}
+
 /// One connection on both sides, and the same database and collection picked on both.
 fn same_collection_state() -> AppState {
     let (state, a, _) = two_connections();
@@ -116,7 +150,7 @@ fn same_collection_state() -> AppState {
         let pick = CompareAction::PickSide(side, Pick::Collection("users".into()));
         state = act(s, pick).0;
     }
-    state
+    act(state, CompareAction::AddPair).0
 }
 
 fn indexed(count: u64) -> Preflight {
@@ -130,9 +164,14 @@ fn indexed(count: u64) -> Preflight {
 }
 
 fn checked_event(preflight: Preflight) -> Input {
+    checked_as(CHECK_PAIR, preflight)
+}
+
+/// The answer to the check sent under `probe`.
+fn checked_as(probe: u32, preflight: Preflight) -> Input {
     ev(CompareEvent::Checked {
         session: 1,
-        pair: 1,
+        pair: probe,
         preflight,
     })
 }
@@ -141,11 +180,11 @@ fn checked_state() -> AppState {
     let (state, cmds) = act(picked_state(), CompareAction::RunCheck);
     assert!(matches!(
         &cmds[..],
-        [Command::Compare(CompareCommand::Check { session: 1, pair })] if pair.id == 1
+        [Command::Compare(CompareCommand::Check { session: 1, pair })] if pair.id == CHECK_PAIR
     ));
     let (state, cmds) = update(state, checked_event(indexed(10)));
     assert!(cmds.is_empty());
-    assert_eq!(state.compare.preflight, PreflightView::Ok);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Ok);
     state
 }
 
@@ -166,7 +205,7 @@ fn pair_done(run: u64, summary: Summary) -> Input {
     ev(CompareEvent::PairDone {
         session: 1,
         run,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Completed(summary),
     })
 }
@@ -186,7 +225,7 @@ fn with_differences() -> AppState {
         &cmds[..],
         [Command::Compare(CompareCommand::Rows {
             session: 1,
-            pair: 1,
+            pair: RUN_PAIR,
             category: Category::Different,
             offset: 0,
             limit: 100
@@ -198,7 +237,7 @@ fn with_differences() -> AppState {
 fn rows_event(category: Category, offset: usize, n: i32) -> Input {
     ev(CompareEvent::Rows {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         category,
         offset,
         total: 250,

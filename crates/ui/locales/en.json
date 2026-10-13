@@ -97,20 +97,80 @@
       "target": "Target",
       "title": "Duplicate keys"
     },
+    "overview": {
+      "cancel": "Cancel",
+      "cancelling": "Cancelling...",
+      "column": {
+        "counts": "Differences",
+        "pair": "Pair",
+        "status": "Status"
+      },
+      "counts": "{different} different, {only_in_source} only in source, {only_in_target} only in target, {identical} identical",
+      "discard": "Discard",
+      "open": "Open",
+      "progress": "Scanned {source} source and {target} target documents, {differences} differences so far",
+      "rerun": "Re-run",
+      "status": {
+        "cancelled": "Cancelled",
+        "completed": "Completed",
+        "discarded": "Discarded",
+        "failed": "Failed",
+        "pending": "Waiting",
+        "running": "Running"
+      },
+      "title": "Run overview",
+      "totals": "Totals",
+      "totals_status": "{completed} completed, {failed} failed, {cancelled} cancelled"
+    },
+    "pairs": {
+      "add_all_same_named": "Add all same-named collections",
+      "add_pair": "Add pair",
+      "column": {
+        "included": "Include this pair in the run",
+        "key": "Key",
+        "source": "Source",
+        "status": "Verdict",
+        "target": "Target"
+      },
+      "counterpart_name_hint": "Name on the other side",
+      "customised": "Customised",
+      "defaults_title": "Defaults for all pairs",
+      "edit_settings": "Edit settings",
+      "editor_done": "Done",
+      "editor_title": "Settings for {pair}",
+      "empty": "No pairs yet. Pick a collection on each side and choose Add pair, or add all same-named collections of two databases.",
+      "invalid": "Invalid settings",
+      "no_counterpart": "No counterpart",
+      "no_counterpart_hint": "These collections exist on one side only. Type the name to compare each with on the other side; a missing collection counts as empty. Indexes and collection options are not compared or copied.",
+      "no_counterpart_row": "{name} (only in {side})",
+      "pair_label": "{source} to {target}",
+      "pair_with_name": "Pair with this name",
+      "remove": "Remove",
+      "show_system": "Include system collections",
+      "source_filter": "Source filter (JSON)",
+      "target_filter": "Target filter (JSON)",
+      "title": "Pairs",
+      "use_default": "Use default"
+    },
     "preflight": {
-      "blocked": "A run is blocked.",
       "check": "Check",
       "checking": "Checking...",
-      "empty": "Both collections are empty.",
       "empty_both": "Both collections are empty, so there is nothing to compare.",
+      "entry_checking": "Checking...",
+      "entry_empty": "Both empty",
+      "entry_failed": "Check failed",
+      "entry_needs_index": "Needs an index on the {side} side",
+      "entry_ok": "Ready",
+      "entry_sizes": "{source_side}: {source_count} documents, {source_index}. {target_side}: {target_count} documents, {target_index}.",
+      "entry_unchecked": "Not checked",
       "index_indexed": "key is indexed",
       "index_missing": "no index on the key fields",
       "needs_index": "The {side} collection has no index on the key fields and is too large to compare without one. Create an index on the key fields, then check again.",
-      "ok": "Ready to compare.",
-      "side_summary": "{side}: {count} documents, {index}",
-      "unchecked": "Check the collections before comparing."
+      "run": "Run",
+      "run_passing": "Run passing"
     },
     "results": {
+      "back_to_overview": "Back to overview",
       "empty_category": "No documents in this category.",
       "identical": "No differences. The two collections match under the current rules.",
       "identical_count": "Identical documents: {count}",
@@ -142,17 +202,6 @@
       "scope_all_except": "All fields except...",
       "scope_only": "Only these fields...",
       "title": "Rules"
-    },
-    "run": {
-      "cancel": "Cancel",
-      "cancelled_no_results": "The comparison was cancelled. No results were kept.",
-      "cancelling": "Cancelling...",
-      "differences": "{count} differences found so far",
-      "discard": "Discard results",
-      "failed": "The comparison did not finish.",
-      "finished": "The comparison finished.",
-      "scanned": "Scanned {source} source and {target} target documents",
-      "start": "Start"
     },
     "session": {
       "close": "Close session",
@@ -235,7 +284,7 @@
   },
   "errors": {
     "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",
-    "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Narrow it with a filter, or compare fewer fields.",
+    "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Results kept for other pairs count against the same limit: discard some of them to free room. You can also narrow the comparison with a filter, or compare fewer fields.",
     "compare_duplicate_key": "Two documents on one side have the same key, so they cannot be matched. Choose a key that is unique, or look up which values repeat.",
     "compare_key_invalid": "A key field holds a value that cannot be used as a key (for example an array). Choose a different key.",
     "compare_key_missing": "A document has no value for one of the key fields. Choose key fields that every document has.",
@@ -321,6 +370,7 @@
     "write_failed": "Could not write the saved connections file."
   },
   "sidebar": {
+    "compare_database_to": "Compare database to...",
     "compare_to": "Compare to...",
     "empty": "No databases",
     "loading": "Loading...",

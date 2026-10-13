@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn pair_done_requests_the_first_page_and_fresh_rows_fill_it() {
     let state = with_rows();
-    assert_eq!(state.compare.results.as_ref().unwrap().rows.len(), 3);
+    assert_eq!(state.compare.open_results().unwrap().rows.len(), 3);
 }
 
 #[test]
@@ -12,7 +12,15 @@ fn stale_rows_are_dropped_by_the_reducer() {
     let state = with_differences();
     let (state, _) = update(state, rows_event(Category::OnlyInSource, 0, 3));
     let (state, _) = update(state, rows_event(Category::Different, 100, 3));
-    assert!(state.compare.results.unwrap().rows.is_empty());
+    assert!(
+        state
+            .compare
+            .open_results()
+            .unwrap()
+            .clone()
+            .rows
+            .is_empty()
+    );
 }
 
 #[test]
@@ -23,7 +31,7 @@ fn a_failed_rows_request_keeps_the_current_request() {
         error: CoreError::NotFound,
     });
     let (state, _) = update(with_differences(), failed);
-    let results = state.compare.results.unwrap();
+    let results = state.compare.open_results().unwrap().clone();
     assert_eq!(results.requested, Some((Category::Different, 0)));
     assert!(matches!(
         state.banner,
@@ -62,14 +70,14 @@ fn select_requests_detail_and_back_and_the_answer_fill_the_view() {
         &cmds[..],
         [Command::Compare(CompareCommand::Detail {
             session: 1,
-            pair: 1,
+            pair: RUN_PAIR,
             ..
         })]
     ));
     assert!(state.compare.detail.as_ref().unwrap().loading);
     let answer = CompareEvent::Detail {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         key,
         source: Some(bson::doc! {"a": 1}),
         target: Some(bson::doc! {"a": 2}),
@@ -89,7 +97,7 @@ fn a_detail_answer_for_another_key_is_dropped() {
     );
     let answer = CompareEvent::Detail {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         key: KeyTuple(vec![Bson::Int32(2)]),
         source: None,
         target: None,
@@ -113,12 +121,12 @@ fn rows_and_detail_after_the_session_was_closed_are_ignored() {
         CompareAction::Select(KeyTuple(vec![Bson::Int32(1)])),
     );
     let (state, _) = act(state, CompareAction::CloseSession);
-    assert!(state.compare.results.is_none() && state.compare.detail.is_none());
+    assert!(state.compare.results.is_empty() && state.compare.detail.is_none());
     let (state, cmds) = update(state, rows_event(Category::Different, 0, 3));
-    assert!(cmds.is_empty() && state.compare.results.is_none());
+    assert!(cmds.is_empty() && state.compare.results.is_empty());
     let answer = CompareEvent::Detail {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         key: KeyTuple(vec![Bson::Int32(1)]),
         source: None,
         target: None,
@@ -136,24 +144,24 @@ fn a_failed_page_load_is_retried_with_the_same_request() {
         error: CoreError::Database("timeout".into()),
     });
     let (state, _) = update(with_differences(), failed);
-    assert!(state.compare.results.as_ref().unwrap().load_failed);
+    assert!(state.compare.open_results().unwrap().load_failed);
     let (state, cmds) = act(state, CompareAction::RetryRows);
     assert!(matches!(
         &cmds[..],
         [Command::Compare(CompareCommand::Rows {
             session: 1,
-            pair: 1,
+            pair: RUN_PAIR,
             category: Category::Different,
             offset: 0,
             limit: 100
         })]
     ));
-    assert!(!state.compare.results.as_ref().unwrap().load_failed);
+    assert!(!state.compare.open_results().unwrap().load_failed);
     // Nothing failed any more: a second retry sends nothing.
     let (state, cmds) = act(state, CompareAction::RetryRows);
     assert!(cmds.is_empty());
     let (state, _) = update(state, rows_event(Category::Different, 0, 3));
-    assert_eq!(state.compare.results.unwrap().rows.len(), 3);
+    assert_eq!(state.compare.open_results().unwrap().clone().rows.len(), 3);
 }
 
 #[test]
@@ -164,5 +172,14 @@ fn the_identical_count_is_kept_with_the_results() {
         ..Summary::default()
     };
     let (state, _) = update(running_state(), pair_done(1, summary));
-    assert_eq!(state.compare.results.unwrap().counts.identical, 17);
+    assert_eq!(
+        state
+            .compare
+            .open_results()
+            .unwrap()
+            .clone()
+            .counts
+            .identical,
+        17
+    );
 }

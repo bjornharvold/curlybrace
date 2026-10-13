@@ -14,7 +14,7 @@ const OPEN: char = '«';
 const MISSING: char = '⟦';
 
 /// Wraps every string of `en.json` in guillemets; `{param}` placeholders are kept.
-fn pseudo_locale() -> I18n {
+pub(super) fn pseudo_locale() -> I18n {
     fn wrap(value: serde_json::Value) -> serde_json::Value {
         match value {
             serde_json::Value::String(s) => serde_json::Value::String(format!("«{s}»")),
@@ -38,7 +38,7 @@ fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
 }
 
 /// Everything drawn for `state` after the layout settled, and the action of the last frame.
-fn render(state: &AppState) -> (Vec<String>, Option<CompareAction>) {
+pub(super) fn render(state: &AppState) -> (Vec<String>, Option<CompareAction>) {
     render_on(&egui::Context::default(), state)
 }
 
@@ -77,10 +77,14 @@ fn is_data(text: &str) -> bool {
     let data = [
         "a", "b", "users", "_id", "0", "1", "2", "3", "x", "name", "extra", "sku",
     ];
-    data.contains(&text) || text.starts_with(['{', '"']) || text.chars().all(|c| !c.is_alphabetic())
+    let dotted = text.contains('.') && !text.contains(char::is_whitespace);
+    data.contains(&text)
+        || dotted
+        || text.starts_with(['{', '"'])
+        || text.chars().all(|c| !c.is_alphabetic())
 }
 
-fn assert_translated(state: &AppState, label: &str) -> Vec<String> {
+pub(super) fn assert_translated(state: &AppState, label: &str) -> Vec<String> {
     let (texts, action) = render(state);
     assert!(!texts.is_empty(), "{label}: nothing was drawn");
     assert_eq!(action, None, "{label}: an idle frame must ask for nothing");
@@ -94,11 +98,11 @@ fn assert_translated(state: &AppState, label: &str) -> Vec<String> {
     texts
 }
 
-fn has(texts: &[String], needle: &str) -> bool {
+pub(super) fn has(texts: &[String], needle: &str) -> bool {
     texts.iter().any(|t| t.contains(needle))
 }
 
-fn workspace(state: AppState) -> AppState {
+pub(super) fn workspace(state: AppState) -> AppState {
     AppState {
         workspace: Workspace::Compare,
         ..state
@@ -131,10 +135,14 @@ fn opening_shows_progress_text() {
 fn ready_with_an_empty_form_lists_the_missing_picks() {
     let (state, _, _) = opened();
     let texts = assert_translated(&workspace(state), "empty form");
-    assert!(has(
+    // The pickers only feed Add pair: the defaults carry no complaint about them.
+    assert!(!has(
         &texts,
         "Pick a database and a collection on both sides"
     ));
+    assert!(has(&texts, "No pairs yet"));
+    assert!(has(&texts, "Add pair"));
+    assert!(has(&texts, "Defaults for all pairs"));
     assert!(has(&texts, "Rules"));
 }
 
@@ -152,16 +160,21 @@ fn a_database_with_no_listed_collections_offers_reload() {
 #[test]
 fn a_ready_form_with_a_fresh_check_renders() {
     let texts = assert_translated(&workspace(checked_state()), "checked");
-    assert!(has(&texts, "Ready to compare"));
-    assert!(has(&texts, "Source»: 10 documents, «key is indexed"));
-    assert!(has(&texts, "Target»: 10 documents, «key is indexed"));
+    // Icon and label together, in the pair table and in the preflight list.
+    assert_eq!(texts.iter().filter(|t| *t == "✔ «Ready»").count(), 2);
+    assert!(has(&texts, "a.users to b.users"));
+    assert!(has(
+        &texts,
+        "Source»: 10 documents, «key is indexed». «Target»: 10 documents, «key is indexed"
+    ));
 }
 
 #[test]
 fn counts_disappear_when_the_form_is_edited() {
     let (state, _) = act(checked_state(), CompareAction::SetKey("sku".into()));
     let texts = assert_translated(&workspace(state), "edited after check");
-    assert!(!has(&texts, "documents,"));
+    assert!(!has(&texts, "Ready»"));
+    assert!(has(&texts, "Not checked"));
 }
 
 #[test]
@@ -174,11 +187,8 @@ fn the_blocked_side_shows_its_missing_index() {
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
     let (state, _) = update(state, checked_event(blocked));
     let texts = assert_translated(&workspace(state), "blocked sizes");
-    assert!(has(
-        &texts,
-        "Source»: 60000 documents, «no index on the key fields"
-    ));
-    assert!(has(&texts, "Target»: 60000 documents, «key is indexed"));
+    assert!(has(&texts, "✖ «Needs an index on the «source» side»"));
+    assert!(!has(&texts, "«target» side"));
 }
 
 #[test]
@@ -224,10 +234,12 @@ fn a_blocked_preflight_explains_the_next_step() {
 fn a_check_in_flight_is_shown_on_the_button() {
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
     let texts = assert_translated(&workspace(state), "checking");
-    let shown = texts.iter().filter(|t| t.contains("Checking...")).count();
+    let button = texts.iter().filter(|t| *t == "«Checking...»").count();
+    assert_eq!(button, 1, "the button says it once");
+    let rows = texts.iter().filter(|t| *t == "⏳ «Checking...»").count();
     assert_eq!(
-        shown, 1,
-        "the button says it; the status line does not repeat it"
+        rows, 2,
+        "the pair's row and its verdict say it with an icon"
     );
 }
 
@@ -236,15 +248,19 @@ fn a_running_comparison_shows_its_counters() {
     let progress = ev(CompareEvent::Progress {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         scanned_source: 1234,
         scanned_target: 567,
         differences: 89,
     });
     let (state, _) = update(running_state(), progress);
     let texts = assert_translated(&workspace(state), "running");
-    assert!(has(&texts, "89 differences found so far"));
-    assert!(has(&texts, "Scanned 1234 source and 567 target documents"));
+    assert!(has(&texts, "▶ «Running»"));
+    assert!(has(
+        &texts,
+        "Scanned 1234 source and 567 target documents, 89 differences so far"
+    ));
+    assert!(has(&texts, "Cancel"), "a run in flight can be cancelled");
 }
 
 #[test]
@@ -298,7 +314,7 @@ fn detail_state() -> AppState {
     ];
     let detail = CompareEvent::Detail {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         key,
         source: Some(doc! {"_id": 1, "name": "x"}),
         target: Some(doc! {"_id": 1, "name": "y", "extra": 1}),
@@ -333,7 +349,7 @@ fn a_document_missing_on_one_side_says_so() {
     let (state, _) = act(with_rows(), CompareAction::Select(key.clone()));
     let only_source = CompareEvent::Detail {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         key,
         source: Some(doc! {"_id": 1}),
         target: None,
@@ -350,30 +366,32 @@ fn a_failed_run_and_a_cancelled_run_render_their_outcome() {
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareCapExceeded),
     });
     let (state, _) = update(running_state(), failed);
     let (state, _) = update(state, run_done());
+    let (state, _) = act(state, CompareAction::BackToOverview);
     let texts = assert_translated(&workspace_clone(&state), "failed run");
-    assert!(has(&texts, "did not finish"));
+    assert!(has(&texts, "✖ «Failed»"));
+    assert!(has(&texts, "more differences than can be kept"));
     let cancelled = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Cancelled(Summary::default()),
     });
     let (state, _) = update(running_state(), cancelled);
     let (state, _) = update(state, run_done());
     let texts = assert_translated(&workspace_clone(&state), "cancelled run");
-    assert!(has(&texts, "No results were kept"));
+    assert!(has(&texts, "⏹ «Cancelled»"));
 }
 
 #[test]
 fn the_buttons_follow_the_view_model() {
     // Check is disabled while a check is in flight; Start only on a fresh Ok preflight.
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
-    assert!(state.compare.check_in_flight && !state.compare.can_check());
+    assert!(state.compare.check_in_flight() && !state.compare.can_check());
     assert!(checked_state().compare.can_start());
     assert!(!picked_state().compare.can_start());
     assert!(!running_state().compare.can_start());
@@ -403,15 +421,25 @@ fn a_finished_run_shows_what_it_scanned() {
     };
     let (state, _) = update(running_state(), pair_done(1, summary));
     let (state, _) = update(state, run_done());
+    let (state, _) = act(state, CompareAction::BackToOverview);
     let texts = assert_translated(&workspace_clone(&state), "nothing scanned");
-    assert!(has(&texts, "Scanned 0 source and 0 target documents"));
-    assert!(has(&texts, "The comparison finished"));
+    assert!(has(&texts, "✔ «Completed»"));
+    assert!(has(
+        &texts,
+        "0 different, 0 only in source, 0 only in target, 0 identical"
+    ));
+    assert!(has(&texts, "1 completed, 0 failed, 0 cancelled"));
 }
 
 #[test]
 fn the_same_collection_on_both_sides_explains_the_next_step() {
-    let texts = assert_translated(&workspace(same_collection_state()), "same collection");
+    let (state, _) = act(
+        same_collection_state(),
+        CompareAction::EditPair(Some(ENTRY)),
+    );
+    let texts = assert_translated(&workspace(state), "same collection");
     assert!(has(&texts, "same collection with the same filter"));
+    assert!(has(&texts, "⚠ «Invalid settings»"));
 }
 
 #[test]
@@ -441,7 +469,7 @@ fn duplicate_failure_state() -> AppState {
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
     });
     let (state, _) = update(running_state(), failed);
@@ -458,7 +486,7 @@ fn duplicate_group(value: &str, count: u64) -> curlybrace_core::store::Duplicate
 fn duplicate_answer(source: DuplicateReport, target: DuplicateReport) -> Input {
     ev(CompareEvent::DuplicateKeys {
         session: 1,
-        pair: 1,
+        pair: DUP_PAIR,
         source,
         target,
     })
@@ -472,6 +500,7 @@ fn has_exact(texts: &[String], needle: &str) -> bool {
 fn a_duplicate_key_failure_offers_find_duplicate_keys() {
     let state = duplicate_failure_state();
     assert!(state.compare.can_find_duplicates());
+    let (state, _) = act(state, CompareAction::BackToOverview);
     let texts = assert_translated(&workspace_clone(&state), "duplicate failure");
     assert!(has(&texts, "Find duplicate keys"));
     assert!(!has(&texts, "Looking up the duplicate keys"));
@@ -483,24 +512,25 @@ fn another_failure_does_not_offer_find_duplicate_keys() {
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareKeyMissing),
     });
     let (state, _) = update(running_state(), failed);
     let (state, _) = update(state, run_done());
+    let (state, _) = act(state, CompareAction::BackToOverview);
     let texts = assert_translated(&workspace_clone(&state), "other failure");
-    assert!(has(&texts, "did not finish"));
-    assert!(
-        !has(&texts, "The comparison finished"),
-        "a failed run is not also 'finished': {texts:?}"
-    );
+    assert!(has(&texts, "✖ «Failed»"));
+    assert!(!has(&texts, "✔ «Completed»"));
     assert!(!has(&texts, "Find duplicate keys"));
     assert!(!has(&texts, "Duplicate keys"));
 }
 
 #[test]
 fn loading_shows_the_loading_text_and_find_is_not_offered() {
-    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let (state, _) = act(
+        duplicate_failure_state(),
+        CompareAction::FindDuplicates(ENTRY),
+    );
     assert!(!state.compare.can_find_duplicates());
     let texts = assert_translated(&workspace_clone(&state), "duplicates loading");
     assert!(has(&texts, "Looking up the duplicate keys"));
@@ -513,11 +543,18 @@ fn loading_shows_the_loading_text_and_find_is_not_offered() {
 
 #[test]
 fn a_stale_lookup_says_the_previous_one_is_still_finishing() {
-    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let (state, _) = act(
+        duplicate_failure_state(),
+        CompareAction::FindDuplicates(ENTRY),
+    );
     let (state, _) = act(state, CompareAction::SetKey("sku".into()));
     assert_eq!(
         state.compare.duplicates,
-        DuplicatesView::Loading { stale: true }
+        DuplicatesView::Loading {
+            entry: ENTRY,
+            pair: DUP_PAIR,
+            stale: true
+        }
     );
     let texts = assert_translated(&workspace_clone(&state), "duplicates stale");
     assert!(has(&texts, "previous lookup is still finishing"));
@@ -531,7 +568,10 @@ fn a_lookup_that_finds_nothing_says_so_once_without_the_key_hint() {
         groups: vec![],
         more: false,
     };
-    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let (state, _) = act(
+        duplicate_failure_state(),
+        CompareAction::FindDuplicates(ENTRY),
+    );
     let (state, _) = update(state, duplicate_answer(empty(), empty()));
     let texts = assert_translated(&workspace_clone(&state), "duplicates none found");
     assert!(has(&texts, "No duplicate keys were found just now"));
@@ -552,7 +592,10 @@ fn loaded_duplicates_list_a_group_per_side() {
         groups: vec![],
         more: false,
     };
-    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let (state, _) = act(
+        duplicate_failure_state(),
+        CompareAction::FindDuplicates(ENTRY),
+    );
     let (state, _) = update(state, duplicate_answer(source, target));
     let texts = assert_translated(&workspace_clone(&state), "duplicates loaded");
     assert!(has_exact(&texts, "«Source»"));
@@ -572,14 +615,20 @@ fn loaded_duplicates_list_a_group_per_side() {
 
 #[test]
 fn a_failed_lookup_offers_try_again_and_the_hint() {
-    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let (state, _) = act(
+        duplicate_failure_state(),
+        CompareAction::FindDuplicates(ENTRY),
+    );
     let failed = ev(CompareEvent::Failed {
         session: 1,
         context: "compare_duplicates",
         error: CoreError::Database("boom".into()),
     });
     let (state, _) = update(state, failed);
-    assert_eq!(state.compare.duplicates, DuplicatesView::Failed);
+    assert_eq!(
+        state.compare.duplicates,
+        DuplicatesView::Failed { entry: ENTRY }
+    );
     let texts = assert_translated(&workspace_clone(&state), "duplicates failed");
     let count = |needle: &str| texts.iter().filter(|t| t.as_str() == needle).count();
     assert_eq!(count("«Try again»"), 1, "one button, not two: {texts:?}");
