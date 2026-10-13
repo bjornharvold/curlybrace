@@ -213,6 +213,9 @@ impl DocumentStore for InMemoryStore {
         limit: u32,
     ) -> Result<Vec<DuplicateGroup>> {
         check_filter(filter)?;
+        if key_spec.has_dollar_component() {
+            return Err(CoreError::CompareSetupInvalid);
+        }
         let guard = self.lock()?;
         let docs = guard.get(&key(ns)).map(Vec::as_slice).unwrap_or_default();
         let mut keyed: Vec<KeyTuple> = docs
@@ -563,6 +566,14 @@ mod tests {
             ],
             "Int32 1, Int64 1 and Double 1.0 are one key; 'b' is unique; documents without k are not counted"
         );
+    }
+
+    #[tokio::test]
+    async fn duplicate_keys_refuses_dollar_prefixed_key_paths() {
+        let ns = Namespace::new("db", "c");
+        let spec = KeySpec::new(vec!["owner.$id".into()]).unwrap();
+        let got = dup_store().duplicate_keys(&ns, &doc! {}, &spec, 10).await;
+        assert_eq!(got, Err(CoreError::CompareSetupInvalid));
     }
 
     #[tokio::test]

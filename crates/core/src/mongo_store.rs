@@ -1,5 +1,7 @@
 //! [`DocumentStore`] backed by the real MongoDB driver.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use bson::{Bson, Document, doc};
 use futures::TryStreamExt;
@@ -29,6 +31,9 @@ impl MongoStore {
 
 /// Driver errors may quote server text; they are surfaced, but never carry
 /// credentials because the client never holds them in message form.
+/// How long past the client-side duplicate bound the server keeps working before it gives up.
+const DUPLICATE_SERVER_GRACE: Duration = Duration::from_secs(10);
+
 fn db_err(e: mongodb::error::Error) -> CoreError {
     crate::driver_error::classify_driver_error(&e)
 }
@@ -269,6 +274,10 @@ impl DocumentStore for MongoStore {
         if limit == 0 {
             return Ok(Vec::new());
         }
+        // The aggregation cannot reference a `$`-prefixed field (e.g. a DBRef `owner.$id`).
+        if key.has_dollar_component() {
+            return Err(CoreError::CompareSetupInvalid);
+        }
         let cursor = self
             .collection(ns)
             .aggregate(duplicate_keys_pipeline(filter, key, limit))
@@ -341,11 +350,12 @@ pub(crate) fn duplicate_keys_pipeline(
 
 /// Options of the duplicate-key aggregation: binary collation, spill to disk, and a server-side
 /// time limit (the runtime's client-side bound only abandons the call; this stops the work).
+/// The server limit is the client bound plus a grace, so the client timeout normally wins.
 pub(crate) fn duplicate_keys_options() -> AggregateOptions {
     AggregateOptions::builder()
         .collation(Collation::builder().locale("simple").build())
         .allow_disk_use(true)
-        .max_time(crate::runtime::DUPLICATE_TIMEOUT)
+        .max_time(crate::runtime::DUPLICATE_TIMEOUT + DUPLICATE_SERVER_GRACE)
         .build()
 }
 
@@ -403,7 +413,10 @@ mod tests {
     #[test]
     fn duplicate_keys_options_carry_the_server_side_time_limit() {
         let options = duplicate_keys_options();
-        assert_eq!(options.max_time, Some(crate::runtime::DUPLICATE_TIMEOUT));
+        assert_eq!(
+            options.max_time,
+            Some(crate::runtime::DUPLICATE_TIMEOUT + DUPLICATE_SERVER_GRACE)
+        );
         assert_eq!(options.allow_disk_use, Some(true));
         assert!(options.collation.is_some());
     }

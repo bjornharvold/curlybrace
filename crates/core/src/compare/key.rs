@@ -36,8 +36,7 @@ impl KeySpec {
             return Err(CoreError::CompareSetupInvalid);
         }
         for (i, field) in fields.iter().enumerate() {
-            // A leading `$` would become an operator or variable in find, $group and $expr.
-            if field.is_empty() || field.split('.').any(|p| p.is_empty() || p.starts_with('$')) {
+            if field.is_empty() || field.split('.').any(str::is_empty) {
                 return Err(CoreError::CompareSetupInvalid);
             }
             if fields[..i].contains(field) {
@@ -45,6 +44,14 @@ impl KeySpec {
             }
         }
         Ok(Self { fields })
+    }
+
+    /// Whether any path component starts with `$` (a DBRef sub-field such as `owner.$id`). Fine
+    /// for find, sort and scan, but an aggregation expression cannot reference such a field.
+    pub fn has_dollar_component(&self) -> bool {
+        self.fields
+            .iter()
+            .any(|f| f.split('.').any(|p| p.starts_with('$')))
     }
 
     pub fn contains_id(&self) -> bool {
@@ -226,15 +233,17 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn key_components_starting_with_a_dollar_are_refused() {
-        for bad in ["$x", "a.$b", "$"] {
-            assert_eq!(
-                KeySpec::new(vec![bad.into()]),
-                Err(CoreError::CompareSetupInvalid),
-                "{bad}"
-            );
+    fn dbref_sub_field_keys_are_accepted_and_flagged() {
+        for ok in ["owner.$id", "$x", "a.$b", "$"] {
+            let spec = KeySpec::new(vec![ok.into()]).expect(ok);
+            assert!(spec.has_dollar_component(), "{ok}");
         }
-        assert!(KeySpec::new(vec!["a$b".into()]).is_ok());
+        let plain = KeySpec::new(vec!["a$b".into(), "a.b".into()]).unwrap();
+        assert!(!plain.has_dollar_component());
+        assert_eq!(
+            KeySpec::new(vec!["a..b".into()]),
+            Err(CoreError::CompareSetupInvalid)
+        );
     }
 
     #[test]

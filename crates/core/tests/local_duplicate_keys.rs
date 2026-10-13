@@ -154,6 +154,23 @@ async fn duplicate_keys_on_a_missing_collection_is_empty() {
 
 #[tokio::test]
 #[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn duplicate_keys_refuses_dollar_prefixed_key_paths() {
+    if !local_enabled("duplicate_keys_refuses_dollar_prefixed_key_paths") {
+        return;
+    }
+    let (dbs, _client, store) = local_mongo().await;
+    let spec = KeySpec::new(vec!["owner.$id".into()]).unwrap();
+    let got = store
+        .duplicate_keys(&dbs.ns("never_created"), &doc! {}, &spec, 5)
+        .await;
+    assert_eq!(
+        got,
+        Err(curlybrace_core::error::CoreError::CompareSetupInvalid)
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn duplicate_keys_cuts_ties_at_the_limit_in_key_order() {
     if !local_enabled("duplicate_keys_cuts_ties_at_the_limit_in_key_order") {
         return;

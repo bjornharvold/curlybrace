@@ -325,9 +325,7 @@ async fn find_duplicates(
             ask(conns.target.clone(), &pair.target, &pair.target_filter),
         )
     };
-    let (source, target) = tokio::time::timeout(timeout, both)
-        .await
-        .map_err(|_| CoreError::Database("timeout".into()))??;
+    let (source, target) = bounded(timeout, both).await?;
     Ok(CompareEvent::DuplicateKeys {
         session: id,
         pair: pair.id,
