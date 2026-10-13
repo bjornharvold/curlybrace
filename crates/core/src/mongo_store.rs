@@ -265,6 +265,10 @@ impl DocumentStore for MongoStore {
         key: &KeySpec,
         limit: u32,
     ) -> Result<Vec<DuplicateGroup>> {
+        // The server rejects `$limit: 0`.
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
         let cursor = self
             .collection(ns)
             .aggregate(duplicate_keys_pipeline(filter, key, limit))
@@ -277,8 +281,7 @@ impl DocumentStore for MongoStore {
             .iter()
             .map(|row| group_from_row(row, key.fields.len()))
             .collect::<Result<Vec<_>>>()?;
-        // `$sort` on the count alone leaves ties in server order: most frequent first, ties in
-        // key order, like the in-memory store.
+        // Normaliser: most frequent first, ties in key order, like the in-memory store.
         groups.sort_by(|a, b| {
             b.count
                 .cmp(&a.count)
@@ -330,7 +333,9 @@ pub(crate) fn duplicate_keys_pipeline(
         doc! { "$match": matcher },
         doc! { "$group": { "_id": group_id, "n": { "$sum": 1_i64 } } },
         doc! { "$match": { "n": { "$gt": 1_i64 } } },
-        doc! { "$sort": { "n": -1_i32 } },
+        // Count descending, then key order (every `_id` has the same fields k0..kN in order), so
+        // ties at the limit are cut deterministically, like the in-memory store.
+        doc! { "$sort": { "n": -1_i32, "_id": 1_i32 } },
         doc! { "$limit": i64::from(limit) },
     ]
 }
@@ -355,6 +360,34 @@ fn group_from_row(row: &Document, fields: usize) -> Result<DuplicateGroup> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn duplicate_keys_pipeline_is_read_only_ordered_and_guards_array_prefixes() {
+        let key = KeySpec::new(vec!["x".into(), "a.b.c".into()]).unwrap();
+        let filter = doc! { "$or": [{ "t": 1 }, { "t": 2 }] };
+        let pipeline = duplicate_keys_pipeline(&filter, &key, 7);
+        let text = format!("{pipeline:?}");
+        assert!(!text.contains("$out") && !text.contains("$merge"));
+        let matcher = pipeline[0].get_document("$match").unwrap();
+        assert!(
+            format!("{matcher:?}").contains(&format!("{filter:?}")),
+            "the user filter stays intact inside $and: {matcher:?}"
+        );
+        let guards = no_array_prefix_guards(&key);
+        let prefixes: Vec<String> = guards.iter().map(|g| format!("{g:?}")).collect();
+        assert_eq!(prefixes.len(), 2);
+        assert!(prefixes[0].contains("$a\"") && prefixes[1].contains("$a.b\""));
+        let id = pipeline[1]
+            .get_document("$group")
+            .unwrap()
+            .get_document("_id")
+            .unwrap();
+        assert_eq!(id.keys().collect::<Vec<_>>(), ["k0", "k1"]);
+        assert_eq!(id.get_str("k1"), Ok("$a.b.c"));
+        let sort = pipeline[3].get_document("$sort").unwrap();
+        assert_eq!(sort.keys().collect::<Vec<_>>(), ["n", "_id"]);
+        assert_eq!(pipeline[4].get_i64("$limit"), Ok(7));
+    }
+
     use super::*;
     use crate::test_support::mock_objects::mock_doc_with_id;
 

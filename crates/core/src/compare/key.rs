@@ -36,7 +36,8 @@ impl KeySpec {
             return Err(CoreError::CompareSetupInvalid);
         }
         for (i, field) in fields.iter().enumerate() {
-            if field.is_empty() || field.split('.').any(str::is_empty) {
+            // A leading `$` would become an operator or variable in find, $group and $expr.
+            if field.is_empty() || field.split('.').any(|p| p.is_empty() || p.starts_with('$')) {
                 return Err(CoreError::CompareSetupInvalid);
             }
             if fields[..i].contains(field) {
@@ -223,6 +224,18 @@ mod tests {
     use bson::{Binary, DateTime, Decimal128, Regex, Timestamp, doc};
     use std::cmp::Ordering::{Equal, Greater, Less};
     use std::str::FromStr;
+
+    #[test]
+    fn key_components_starting_with_a_dollar_are_refused() {
+        for bad in ["$x", "a.$b", "$"] {
+            assert_eq!(
+                KeySpec::new(vec![bad.into()]),
+                Err(CoreError::CompareSetupInvalid),
+                "{bad}"
+            );
+        }
+        assert!(KeySpec::new(vec!["a$b".into()]).is_ok());
+    }
 
     #[test]
     fn key_values_returns_none_for_a_missing_field_and_keeps_unusual_values() {

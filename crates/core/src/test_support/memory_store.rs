@@ -612,4 +612,37 @@ mod tests {
             2
         );
     }
+
+    #[tokio::test]
+    async fn duplicate_keys_cuts_ties_at_the_limit_by_smallest_key_and_zero_limit_is_empty() {
+        let ns = Namespace::new("db", "c");
+        let spec = KeySpec::new(vec!["k".into()]).unwrap();
+        let store = InMemoryStore::new().with_docs(
+            &ns,
+            vec![
+                doc! { "k": "b" },
+                doc! { "k": "b" },
+                doc! { "k": 5 },
+                doc! { "k": 5 },
+                doc! { "k": "a" },
+                doc! { "k": "a" },
+            ],
+        );
+        let one = store.duplicate_keys(&ns, &doc! {}, &spec, 1).await.unwrap();
+        assert_eq!(
+            one,
+            vec![DuplicateGroup {
+                key: KeyTuple(vec![Bson::Int32(5)]),
+                count: 2
+            }],
+            "numbers sort before strings, so 5 wins the tie"
+        );
+        assert!(
+            store
+                .duplicate_keys(&ns, &doc! {}, &spec, 0)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 }

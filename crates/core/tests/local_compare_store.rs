@@ -14,13 +14,11 @@ use bson::{Binary, Bson, DateTime, Decimal128, Document, Regex, Timestamp, doc};
 use curlybrace_core::compare::key::{KeySpec, KeyTuple, compare_bson, compare_tuples, extract_key};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::mongo_store::SortedScanQuery;
-use curlybrace_core::store::{
-    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace,
-};
+use curlybrace_core::store::{CollectionKind, DocumentStore, IndexStatus, Namespace};
 use futures::TryStreamExt;
 use mongodb::options::Collation;
 use std::str::FromStr;
-use support::{local_enabled, local_mongo};
+use support::{insert_labelled, local_enabled, local_mongo};
 
 fn dec(s: &str) -> Bson {
     Bson::Decimal128(Decimal128::from_str(s).unwrap())
@@ -441,15 +439,6 @@ async fn assert_every_start_key_resumes(
     }
 }
 
-async fn insert_labelled(client: &mongodb::Client, ns: &Namespace, docs: &[Document]) {
-    client
-        .database(&ns.db)
-        .collection::<Document>(&ns.collection)
-        .insert_many(docs.to_vec())
-        .await
-        .unwrap();
-}
-
 #[tokio::test]
 #[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn scan_sorted_resumes_from_nan_and_infinity_keys() {
@@ -654,164 +643,4 @@ async fn keyset_pages_are_index_range_scans_for_single_and_compound_keys() {
         .unwrap();
     let spec = KeySpec::new(vec!["a".into(), "b".into()]).unwrap();
     assert_every_page_is_an_index_range_scan(&client, &store, &ns, &spec, total as usize).await;
-}
-
-fn dup_docs() -> Vec<Document> {
-    vec![
-        doc! { "_id": 1, "k": 1_i32, "t": "x" },
-        doc! { "_id": 2, "k": 1_i64, "t": "x" },
-        doc! { "_id": 3, "k": 1.0_f64, "t": "y" },
-        doc! { "_id": 4, "k": "a" },
-        doc! { "_id": 5, "k": "a", "t": "x" },
-        doc! { "_id": 6, "k": "b" },
-        doc! { "_id": 7, "t": "x" },
-        doc! { "_id": 8, "t": "x" },
-    ]
-}
-
-/// Group keys compared with the key comparator (the server keeps whichever of `1`, `1_i64`,
-/// `1.0` it saw first as the representative), counts exactly.
-fn assert_groups(actual: &[DuplicateGroup], expected: &[(Vec<Bson>, u64)]) {
-    assert_eq!(actual.len(), expected.len(), "{actual:?} vs {expected:?}");
-    for (group, (key, count)) in actual.iter().zip(expected) {
-        assert_eq!(group.count, *count, "{group:?}");
-        assert_eq!(
-            compare_tuples(&group.key, &KeyTuple(key.clone())),
-            Ordering::Equal,
-            "{group:?} vs {key:?}"
-        );
-    }
-}
-
-#[tokio::test]
-#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
-async fn duplicate_keys_matches_the_in_memory_semantics() {
-    if !local_enabled("duplicate_keys_matches_the_in_memory_semantics") {
-        return;
-    }
-    let (dbs, client, store) = local_mongo().await;
-    let ns = dbs.ns("dups");
-    insert_labelled(&client, &ns, &dup_docs()).await;
-    let spec = KeySpec::new(vec!["k".into()]).unwrap();
-    let groups = store
-        .duplicate_keys(&ns, &doc! {}, &spec, 10)
-        .await
-        .unwrap();
-    assert_groups(
-        &groups,
-        &[
-            (vec![Bson::Int32(1)], 3),
-            (vec![Bson::String("a".into())], 2),
-        ],
-    );
-    let nans = dbs.ns("dup_nan");
-    insert_labelled(
-        &client,
-        &nans,
-        &[doc! { "k": f64::NAN }, doc! { "k": f64::NAN }],
-    )
-    .await;
-    let groups = store
-        .duplicate_keys(&nans, &doc! {}, &spec, 10)
-        .await
-        .unwrap();
-    assert_eq!(
-        groups.len(),
-        1,
-        "NaN groups with NaN on the server: {groups:?}"
-    );
-    assert_eq!(groups[0].count, 2);
-}
-
-#[tokio::test]
-#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
-async fn duplicate_keys_honours_filter_limit_and_compound_keys() {
-    if !local_enabled("duplicate_keys_honours_filter_limit_and_compound_keys") {
-        return;
-    }
-    let (dbs, client, store) = local_mongo().await;
-    let ns = dbs.ns("dups_opts");
-    insert_labelled(&client, &ns, &dup_docs()).await;
-    let spec = KeySpec::new(vec!["k".into()]).unwrap();
-    let only_x = store
-        .duplicate_keys(&ns, &doc! { "t": "x" }, &spec, 10)
-        .await
-        .unwrap();
-    assert_groups(&only_x, &[(vec![Bson::Int32(1)], 2)]);
-    let limited = store.duplicate_keys(&ns, &doc! {}, &spec, 1).await.unwrap();
-    assert_eq!(limited.len(), 1);
-    assert_eq!(limited[0].count, 3);
-    let compound = KeySpec::new(vec!["k".into(), "t".into()]).unwrap();
-    let groups = store
-        .duplicate_keys(&ns, &doc! {}, &compound, 10)
-        .await
-        .unwrap();
-    assert_groups(
-        &groups,
-        &[(vec![Bson::Int32(1), Bson::String("x".into())], 2)],
-    );
-}
-
-#[tokio::test]
-#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
-async fn duplicate_keys_with_a_dotted_key_and_array_crossing_paths() {
-    if !local_enabled("duplicate_keys_with_a_dotted_key_and_array_crossing_paths") {
-        return;
-    }
-    let (dbs, client, store) = local_mongo().await;
-    let ns = dbs.ns("dups_dotted");
-    insert_labelled(
-        &client,
-        &ns,
-        &[
-            doc! { "a": { "b": 1 } },
-            doc! { "a": { "b": 1 } },
-            // `a.b` crosses an array: the scanner (and `key_values`) treat it as missing.
-            doc! { "a": [{ "b": 1 }] },
-            doc! { "a": [{ "b": 1 }] },
-            doc! { "a": [{ "b": 2 }, { "b": 3 }] },
-            doc! { "a": [{ "b": 2 }, { "b": 3 }] },
-        ],
-    )
-    .await;
-    let spec = KeySpec::new(vec!["a.b".into()]).unwrap();
-    let groups = store
-        .duplicate_keys(&ns, &doc! {}, &spec, 10)
-        .await
-        .unwrap();
-    assert_groups(&groups, &[(vec![Bson::Int32(1)], 2)]);
-}
-
-#[tokio::test]
-#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
-async fn duplicate_keys_on_a_missing_collection_is_empty() {
-    if !local_enabled("duplicate_keys_on_a_missing_collection_is_empty") {
-        return;
-    }
-    let (dbs, _client, store) = local_mongo().await;
-    let spec = KeySpec::id();
-    let groups = store
-        .duplicate_keys(&dbs.ns("never_created"), &doc! {}, &spec, 5)
-        .await
-        .unwrap();
-    assert!(groups.is_empty());
-}
-
-#[tokio::test]
-#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
-async fn duplicate_keys_returns_more_than_the_limit_plus_one_when_asked() {
-    if !local_enabled("duplicate_keys_returns_more_than_the_limit_plus_one_when_asked") {
-        return;
-    }
-    let (dbs, client, store) = local_mongo().await;
-    let ns = dbs.ns("dups_many");
-    let docs: Vec<Document> = (0..60).map(|n| doc! { "k": n / 2 }).collect();
-    insert_labelled(&client, &ns, &docs).await;
-    let spec = KeySpec::new(vec!["k".into()]).unwrap();
-    let groups = store
-        .duplicate_keys(&ns, &doc! {}, &spec, 21)
-        .await
-        .unwrap();
-    assert_eq!(groups.len(), 21);
-    assert!(groups.iter().all(|g| g.count == 2));
 }
