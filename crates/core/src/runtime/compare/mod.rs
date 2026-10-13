@@ -16,6 +16,8 @@
 mod abort_tests;
 mod apply;
 #[cfg(test)]
+mod apply_bulk_tests;
+#[cfg(test)]
 mod apply_tests;
 #[cfg(test)]
 mod closed_tests;
@@ -80,8 +82,17 @@ pub(super) fn dispatch(
             session,
             run,
             ops,
+            bulk,
             id_policy,
-        } => apply::dispatch(&shared, events, repaint, session, run, ops, id_policy),
+        } => apply::dispatch(
+            &shared,
+            events,
+            repaint,
+            session,
+            run,
+            (ops, bulk),
+            id_policy,
+        ),
         other => spawn_command(shared, events, repaint, other),
     }
 }

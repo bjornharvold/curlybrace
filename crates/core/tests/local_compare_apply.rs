@@ -666,6 +666,7 @@ async fn apply_refuses_a_view_destination() {
             session: SESSION,
             run: 2,
             ops: vec![op(1, k, ApplyKind::Insert)],
+            bulk: Vec::new(),
             id_policy: IdPolicy::Keep,
         },
     );
@@ -701,6 +702,7 @@ async fn cancel_mid_apply_on_a_large_set() {
             session: SESSION,
             run: 2,
             ops,
+            bulk: Vec::new(),
             id_policy: IdPolicy::Keep,
         },
     );

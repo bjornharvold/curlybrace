@@ -19,12 +19,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::compare::apply::{ApplyKind, ApplyOp, ApplyReport, Direction, IdPolicy, OpOutcome};
+use crate::compare::apply::{
+    ApplyKind, ApplyOp, ApplyReport, Direction, IdPolicy, OpOutcome, kind_fits,
+};
 use crate::compare::apply_engine::{ApplyInput, apply_pair};
 use crate::compare::engine::CancelFlag;
 use crate::compare::key::compare_tuples;
-use crate::compare::protocol::{CompareEvent, PairId, PairSpec, RunId, SessionId, Side};
-use crate::compare::results::ResultSet;
+use crate::compare::protocol::{BulkApply, CompareEvent, PairId, PairSpec, RunId, SessionId, Side};
+use crate::compare::results::{Category, ResultSet};
 use crate::error::{CoreError, Result};
 use crate::store::{CollectionKind, DocumentStore, Namespace};
 
@@ -65,7 +67,7 @@ pub(super) fn dispatch(
     repaint: Repaint,
     id: SessionId,
     run: RunId,
-    ops: Vec<ApplyOp>,
+    request: (Vec<ApplyOp>, Vec<BulkApply>),
     policy: IdPolicy,
 ) {
     let Some(session) = shared.compare.get(id).filter(|s| s.is_open()) else {
@@ -79,7 +81,7 @@ pub(super) fn dispatch(
         run,
         limit: shared.config.command_timeout,
     };
-    if let Err(error) = start_apply(ctx.clone(), ops, policy) {
+    if let Err(error) = start_apply(ctx.clone(), request, policy) {
         ctx.emit(CompareEvent::Failed {
             session: id,
             context: "compare_apply",
@@ -89,8 +91,14 @@ pub(super) fn dispatch(
 }
 
 /// The synchronous part: validates, takes the job slot, spawns the task.
-fn start_apply(ctx: ApplyContext, ops: Vec<ApplyOp>, policy: IdPolicy) -> Result<()> {
+fn start_apply(
+    ctx: ApplyContext,
+    request: (Vec<ApplyOp>, Vec<BulkApply>),
+    policy: IdPolicy,
+) -> Result<()> {
     connections(&ctx.session)?;
+    let (mut ops, bulk) = request;
+    ops.extend(expand_bulk(&ctx.session, &bulk)?);
     if ops.is_empty() {
         return Err(CoreError::Unsupported("nothing to apply".into()));
     }
@@ -101,6 +109,57 @@ fn start_apply(ctx: ApplyContext, ops: Vec<ApplyOp>, policy: IdPolicy) -> Result
     let slot = take_slot(&ctx.session, ctx.run, &cancel)?;
     tokio::spawn(run_apply_contained(ctx, groups, policy, cancel, slot));
     Ok(())
+}
+
+/// Rows are copied out of the stored results this many at a time.
+const EXPAND_PAGE: usize = 1000;
+
+/// One operation per stored row of each bulk item's category, in stored order. Each pair's results are
+/// read through a cloned `Arc`, so the pairs lock is not held while keys are copied.
+fn expand_bulk(session: &Session, bulk: &[BulkApply]) -> Result<Vec<ApplyOp>> {
+    let mut ops = Vec::new();
+    for item in bulk {
+        let results = snapshot(session, item.pair)
+            .map(|(_, results)| results)
+            .ok_or_else(|| CoreError::Unsupported("no results for this pair".into()))?;
+        ops.extend(bulk_to_ops(item, &results)?);
+    }
+    Ok(ops)
+}
+
+/// Which sides a row of `category` exists on: `(has_source, has_target)`.
+fn category_sides(category: Category) -> (bool, bool) {
+    match category {
+        Category::OnlyInSource => (true, false),
+        Category::OnlyInTarget => (false, true),
+        Category::Different => (true, true),
+    }
+}
+
+/// The operations of one bulk item. The kind must fit the category (checked even when the
+/// category is empty, so the request is judged by what it asks for, not by what is stored).
+fn bulk_to_ops(item: &BulkApply, results: &ResultSet) -> Result<Vec<ApplyOp>> {
+    let (has_source, has_target) = category_sides(item.category);
+    if !kind_fits(item.kind, item.direction, has_source, has_target) {
+        return Err(CoreError::Unsupported(
+            "operation does not fit this category".into(),
+        ));
+    }
+    let mut ops = Vec::with_capacity(results.count(item.category));
+    let mut offset = 0;
+    loop {
+        let page = results.page(item.category, offset, EXPAND_PAGE);
+        if page.is_empty() {
+            return Ok(ops);
+        }
+        offset += page.len();
+        ops.extend(page.iter().map(|entry| ApplyOp {
+            pair: item.pair,
+            key: entry.key.clone(),
+            kind: item.kind,
+            direction: item.direction,
+        }));
+    }
 }
 
 /// No two operations may act on the same `(pair, key)`; key equality is `compare_tuples`.
