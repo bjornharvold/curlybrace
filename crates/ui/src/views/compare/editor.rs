@@ -1,7 +1,7 @@
 //! The editor of one pair's settings: key, the two filters and the rules, each following the
 //! defaults until the user types, with Use default to follow them again.
 use super::rules::show_rules;
-use super::setup::text_field;
+use super::setup::text_field_sized;
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::rows::namespace_label;
@@ -63,13 +63,11 @@ fn show_fields(
             Side::Source => (&o.source_filter, &d.source.filter_text),
             Side::Target => (&o.target_filter, &d.target.filter_text),
         };
-        let id = if side == Side::Source {
-            "source_filter"
-        } else {
-            "target_filter"
+        let (id, keys) = match side {
+            Side::Source => ("source_filter", SOURCE_FILTER_KEYS),
+            Side::Target => ("target_filter", TARGET_FILTER_KEYS),
         };
-        text_override(ui, id, FILTER_KEYS, own, default, i18n)
-            .map(|v| o.clone().with_filter(side, v))
+        text_override(ui, id, keys, own, default, i18n).map(|v| o.clone().with_filter(side, v))
     });
     let rules = rules_override(ui, &o.rules, &d.rules, i18n).map(|v| o.clone().with_rules(v));
     let [source, target] = filters;
@@ -80,7 +78,12 @@ fn show_fields(
 }
 
 const KEY_KEYS: (&str, &str) = ("compare.setup.key", "compare.setup.key_hint");
-const FILTER_KEYS: (&str, &str) = ("compare.setup.filter", "compare.setup.filter_hint");
+const SOURCE_FILTER_KEYS: (&str, &str) =
+    ("compare.pairs.source_filter", "compare.setup.filter_hint");
+const TARGET_FILTER_KEYS: (&str, &str) =
+    ("compare.pairs.target_filter", "compare.setup.filter_hint");
+/// Wide enough to type in, narrow enough that Use default stays on screen.
+const FIELD_WIDTH: f32 = 320.0;
 
 fn set(entry: EntryId, overrides: PairOverrides) -> CompareAction {
     CompareAction::SetPairOverrides(entry, overrides)
@@ -99,7 +102,7 @@ fn text_override(
     let shown = own.as_deref().unwrap_or(default);
     let mut change = None;
     ui.horizontal(|ui| {
-        if let Some(text) = text_field(ui, id, keys, shown, i18n) {
+        if let Some(text) = text_field_sized(ui, id, keys, shown, FIELD_WIDTH, i18n) {
             change = Some(Some(text));
         }
         if use_default_button(ui, own.is_some(), i18n) {

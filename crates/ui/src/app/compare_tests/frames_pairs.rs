@@ -66,6 +66,8 @@ fn the_editor_names_the_pair_and_offers_use_default() {
     let texts = assert_translated(&workspace(state), "editor");
     assert!(has(&texts, "Settings for «a.c1 to b.c1»"), "{texts:?}");
     assert!(has(&texts, "Use default"));
+    assert!(has(&texts, "Source filter (JSON)"));
+    assert!(has(&texts, "Target filter (JSON)"));
     assert!(has(&texts, "Done"));
 }
 

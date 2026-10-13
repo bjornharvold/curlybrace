@@ -244,7 +244,28 @@ fn a_completed_row_shows_counts_and_offers_open_discard_and_rerun() {
     );
     // No results view was kept: Open would do nothing.
     assert!(!r.can_open);
-    assert!(r.can_discard && r.can_rerun);
+    // Discard is live, but Re-run waits for the run in flight to end.
+    assert!(r.can_discard && !r.can_rerun);
+    let over = CompareState {
+        overview: s.overview.clone().run_done(1),
+        ..s
+    };
+    assert!(orow(&over, 0).can_rerun);
+}
+
+#[test]
+fn rerun_also_waits_for_a_check_in_flight() {
+    let s = CompareState {
+        overview: ran(state()).overview.run_done(1),
+        ..state()
+    };
+    assert!(orow(&s, 0).can_rerun);
+    let checking = CompareState {
+        checks: CheckQueue::queued(&[0]),
+        ..s
+    };
+    assert!(!orow(&checking, 0).can_rerun);
+    assert!(!checking.can_rerun(0));
 }
 
 #[test]
@@ -409,4 +430,21 @@ fn the_editor_shows_the_issue_of_the_edited_pair_only() {
         bad.editor_issue(),
         Some(crate::viewmodel::compare::SetupError::Key)
     );
+}
+
+#[test]
+fn a_checked_row_carries_both_sides_counts_and_index_labels() {
+    let s = state();
+    assert_eq!(row(&s, 0).sizes, None, "nothing checked yet");
+    let answer = Preflight {
+        source_count: 12,
+        target_count: 7,
+        source_index: IndexStatus::Indexed,
+        target_index: IndexStatus::NotIndexed,
+        unindexed_too_large: false,
+    };
+    let sizes = row(&checked(s, 0, answer), 0).sizes.expect("sizes");
+    assert_eq!((sizes.source_count, sizes.target_count), (12, 7));
+    assert_eq!(sizes.source_index_key, "compare.preflight.index_indexed");
+    assert_eq!(sizes.target_index_key, "compare.preflight.index_missing");
 }

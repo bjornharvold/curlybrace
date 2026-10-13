@@ -14,6 +14,7 @@ use eframe::egui;
 const PAIR_W: f32 = 330.0;
 const STATUS_W: f32 = 130.0;
 const DETAIL_W: f32 = 420.0;
+const BUTTONS_W: f32 = 380.0;
 
 pub fn show_overview(
     ui: &mut egui::Ui,
@@ -91,7 +92,7 @@ fn show_row(ui: &mut egui::Ui, row: &OverviewRow, i18n: &I18n) -> Option<Compare
             ui.label(status_text(row.icon, &label));
         });
         cell(ui, DETAIL_W, |ui| show_detail(ui, &row.detail, i18n));
-        row_buttons(ui, row, i18n)
+        cell(ui, BUTTONS_W, |ui| row_buttons(ui, row, i18n))
     })
     .inner
 }

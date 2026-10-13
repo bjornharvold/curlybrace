@@ -66,12 +66,24 @@ fn form_key() -> Keys {
     ("compare.setup.key", "compare.setup.key_hint")
 }
 
-/// A labelled single-line box. Returns the new text when the user changed it.
+/// A labelled single-line box filling the row. Returns the new text when the user changed it.
 pub(super) fn text_field(
     ui: &mut egui::Ui,
     id: &str,
     keys: Keys,
     value: &str,
+    i18n: &I18n,
+) -> Option<String> {
+    text_field_sized(ui, id, keys, value, f32::INFINITY, i18n)
+}
+
+/// [`text_field`] with a bounded box, for rows that also hold a button after it.
+pub(super) fn text_field_sized(
+    ui: &mut egui::Ui,
+    id: &str,
+    keys: Keys,
+    value: &str,
+    width: f32,
     i18n: &I18n,
 ) -> Option<String> {
     let mut buffer = value.to_string();
@@ -80,7 +92,7 @@ pub(super) fn text_field(
             let caption = ui.label(i18n.t(keys.0));
             let edit = egui::TextEdit::singleline(&mut buffer)
                 .hint_text(i18n.t(keys.1))
-                .desired_width(f32::INFINITY);
+                .desired_width(width);
             // The caption is the box's accessible name.
             ui.add(edit).labelled_by(caption.id);
         });

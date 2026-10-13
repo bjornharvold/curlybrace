@@ -113,7 +113,7 @@ fn is_idle(status: PairStatus) -> bool {
 /// old results are discarded and the overview is shown. Other entries' results stay.
 pub(super) fn rerun(state: AppState, entry: EntryId) -> Out {
     let c = &state.compare;
-    if c.pairs.get(entry).is_none() || c.overview.entry_is_live(entry) {
+    if !c.can_rerun(entry) {
         return none(state);
     }
     let old: Vec<PairId> = c

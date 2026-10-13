@@ -4,11 +4,12 @@
 use super::table::{MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_label, truncated};
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::viewmodel::compare::{CompareState, Gates, ListView, PairRow};
+use crate::viewmodel::compare::{CompareState, EntrySizes, Gates, ListView, PairRow};
 use eframe::egui;
 
-const PAIR_W: f32 = 420.0;
-const STATUS_W: f32 = 230.0;
+const PAIR_W: f32 = 260.0;
+const STATUS_W: f32 = 220.0;
+const SIZES_W: f32 = 380.0;
 
 pub fn show_preflight(
     ui: &mut egui::Ui,
@@ -85,8 +86,11 @@ fn show_verdict(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) {
         cell(ui, STATUS_W, |ui| {
             ui.label(entry_status_label(&row.status, i18n));
         });
+        if let Some(sizes) = &row.sizes {
+            cell(ui, SIZES_W, |ui| truncated(ui, &sizes_text(sizes, i18n)));
+        }
         if let Some(side_key) = row.status.side_key() {
-            cell(ui, PAIR_W, |ui| {
+            cell(ui, SIZES_W, |ui| {
                 let side = i18n.t(side_key);
                 let next = i18n.t_with("compare.preflight.needs_index", &[("side", &side)]);
                 let color = ui.visuals().error_fg_color;
@@ -95,4 +99,19 @@ fn show_verdict(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) {
             });
         }
     });
+}
+
+/// Per side: document count and whether the key is indexed.
+fn sizes_text(sizes: &EntrySizes, i18n: &I18n) -> String {
+    i18n.t_with(
+        "compare.preflight.entry_sizes",
+        &[
+            ("source_side", &i18n.t("compare.setup.source_heading")),
+            ("source_count", &sizes.source_count.to_string()),
+            ("source_index", &i18n.t(sizes.source_index_key)),
+            ("target_side", &i18n.t("compare.setup.target_heading")),
+            ("target_count", &sizes.target_count.to_string()),
+            ("target_index", &i18n.t(sizes.target_index_key)),
+        ],
+    )
 }

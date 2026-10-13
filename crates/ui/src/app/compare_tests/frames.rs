@@ -163,6 +163,10 @@ fn a_ready_form_with_a_fresh_check_renders() {
     // Icon and label together, in the pair table and in the preflight list.
     assert_eq!(texts.iter().filter(|t| *t == "✔ «Ready»").count(), 2);
     assert!(has(&texts, "a.users to b.users"));
+    assert!(has(
+        &texts,
+        "Source»: 10 documents, «key is indexed». «Target»: 10 documents, «key is indexed"
+    ));
 }
 
 #[test]

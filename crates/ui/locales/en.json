@@ -147,6 +147,8 @@
       "pair_with_name": "Pair with this name",
       "remove": "Remove",
       "show_system": "Include system collections",
+      "source_filter": "Source filter (JSON)",
+      "target_filter": "Target filter (JSON)",
       "title": "Pairs",
       "use_default": "Use default"
     },
@@ -159,7 +161,10 @@
       "entry_failed": "Check failed",
       "entry_needs_index": "Needs an index on the {side} side",
       "entry_ok": "Ready",
+      "entry_sizes": "{source_side}: {source_count} documents, {source_index}. {target_side}: {target_count} documents, {target_index}.",
       "entry_unchecked": "Not checked",
+      "index_indexed": "key is indexed",
+      "index_missing": "no index on the key fields",
       "needs_index": "The {side} collection has no index on the key fields and is too large to compare without one. Create an index on the key fields, then check again.",
       "run": "Run",
       "run_passing": "Run passing"

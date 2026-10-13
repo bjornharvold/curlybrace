@@ -409,6 +409,26 @@ fn rerun_is_refused_while_the_entry_is_running() {
 }
 
 #[test]
+fn rerun_is_refused_while_another_pair_of_the_run_is_still_in_flight() {
+    let state = update(running_three(), completed(1, 4)).0;
+    let (state, cmds) = act(state, CompareAction::Rerun(0));
+    assert!(cmds.is_empty());
+    assert!(state.compare.pairs.entries.iter().all(|e| e.included));
+    assert_eq!(state.compare.pairs.editing, None);
+    assert!(matches!(status(&state, 0), PairStatus::Completed(_)));
+}
+
+#[test]
+fn rerun_is_refused_while_a_check_is_in_flight() {
+    let (state, _) = act(finished_three(), CompareAction::RunCheck);
+    assert!(state.compare.check_in_flight());
+    let (state, cmds) = act(state, CompareAction::Rerun(1));
+    assert!(cmds.is_empty());
+    assert_eq!(state.compare.pairs.editing, None);
+    assert!(matches!(status(&state, 1), PairStatus::Completed(_)));
+}
+
+#[test]
 fn discard_pair_sends_discard_for_the_rows_current_pair_id() {
     let state = finished_three();
     let (state, _) = act(state, CompareAction::OpenPair(1));

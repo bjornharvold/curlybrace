@@ -19,6 +19,7 @@ const TARGET_W: f32 = 200.0;
 const KEY_W: f32 = 90.0;
 const MARKER_W: f32 = 110.0;
 const STATUS_W: f32 = 190.0;
+const BUTTONS_W: f32 = 240.0;
 
 /// The table and the helpers under it. `list` is the memoised view of the pair list.
 pub fn show_pairs(
@@ -53,6 +54,7 @@ fn show_table(
             let mut action = None;
             for index in range {
                 let Some(row) = state.pair_row(index, &list.digest) else {
+                    ui.add_space(ROW_HEIGHT);
                     continue;
                 };
                 let shown = ui.push_id(row.entry, |ui| show_row(ui, &row, i18n)).inner;
@@ -85,19 +87,21 @@ fn show_row(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareActi
             }
         });
         cell(ui, STATUS_W, |ui| status_cell(ui, row, i18n));
-        let buttons = row_buttons(ui, row, i18n);
+        let buttons = cell(ui, BUTTONS_W, |ui| row_buttons(ui, row, i18n));
         included.or(buttons)
     })
     .inner
 }
 
-/// The include box named by the source collection; its hover text says what it does.
+/// The include box beside the source name. The box has no text of its own (so the row keeps
+/// a fixed height); the name labels it for screen readers and carries the full text on hover.
 fn include_box(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareAction> {
     let mut included = row.included;
     let hint = i18n.t("compare.pairs.column.included");
-    let response = ui
-        .add(egui::Checkbox::new(&mut included, row.source.as_str()))
-        .on_hover_text(hint);
+    let response = ui.checkbox(&mut included, "").on_hover_text(hint);
+    let name = ui.add(egui::Label::new(row.source.as_str()).truncate());
+    name.clone().on_hover_text(row.source.as_str());
+    response.clone().labelled_by(name.id);
     response
         .changed()
         .then_some(CompareAction::IncludePair(row.entry, included))

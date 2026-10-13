@@ -2,8 +2,9 @@
 //! overview. Every mapping (status to key and icon, effective key, the marker for a customised
 //! pair, which row actions are live) is decided here; the views only draw it. Pure.
 use curlybrace_core::compare::engine::Summary;
-use curlybrace_core::compare::protocol::Side;
+use curlybrace_core::compare::protocol::{Preflight, Side};
 use curlybrace_core::error::CoreError;
+use curlybrace_core::store::IndexStatus;
 use curlybrace_core::store::Namespace;
 
 use super::CompareState;
@@ -125,6 +126,30 @@ pub fn namespace_label(ns: &Namespace) -> String {
     format!("{}.{}", ns.db, ns.collection)
 }
 
+/// What the last check found for an entry: document counts and index status per side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EntrySizes {
+    pub source_count: u64,
+    pub target_count: u64,
+    pub source_index_key: &'static str,
+    pub target_index_key: &'static str,
+}
+
+impl EntrySizes {
+    fn of(p: &Preflight) -> Self {
+        let key = |status: IndexStatus| match status {
+            IndexStatus::Indexed => "compare.preflight.index_indexed",
+            IndexStatus::NotIndexed => "compare.preflight.index_missing",
+        };
+        Self {
+            source_count: p.source_count,
+            target_count: p.target_count,
+            source_index_key: key(p.source_index),
+            target_index_key: key(p.target_index),
+        }
+    }
+}
+
 /// One line of the pair table (and of the preflight list).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairRow {
@@ -136,6 +161,8 @@ pub struct PairRow {
     pub key: String,
     pub customised: bool,
     pub status: EntryStatus,
+    /// Counts and index status, once the entry has been checked.
+    pub sizes: Option<EntrySizes>,
 }
 
 impl PairRow {
@@ -144,6 +171,7 @@ impl PairRow {
         defaults_key: &str,
         issue: Option<SetupError>,
         status: EntryStatus,
+        sizes: Option<EntrySizes>,
     ) -> Self {
         debug_assert!(issue.is_none() || matches!(status, EntryStatus::Invalid(_)));
         Self {
@@ -158,6 +186,7 @@ impl PairRow {
                 .unwrap_or_else(|| defaults_key.to_string()),
             customised: entry.overrides.is_customised(),
             status,
+            sizes,
         }
     }
 }
@@ -250,7 +279,14 @@ impl CompareState {
         let entry = self.pairs.entries.get(index)?;
         let issue = digest.issue_at(index);
         let status = EntryStatus::of(issue, self.checks.entries.get(&entry.id));
-        Some(PairRow::of(entry, &self.setup.key_text, issue, status))
+        let sizes = self.checks.preflight(entry.id).map(EntrySizes::of);
+        Some(PairRow::of(
+            entry,
+            &self.setup.key_text,
+            issue,
+            status,
+            sizes,
+        ))
     }
 
     /// The names of the open pair's entry (source, target); none when nothing is open or the
@@ -295,7 +331,7 @@ impl CompareState {
             can_open: matches!(status, PairStatus::Completed(_))
                 && self.results.contains_key(&row.pair),
             can_discard: status.is_settled(),
-            can_rerun: !live,
+            can_rerun: !live && self.can_rerun(row.entry),
             offers_duplicates: self.failed_on_duplicate_key(row.entry)
                 && !self.duplicates_failed_for(row.entry),
             can_find_duplicates: self.can_find_duplicates_for(row.entry),

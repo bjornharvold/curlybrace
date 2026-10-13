@@ -32,7 +32,7 @@ pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
-pub use rows::{EntryStatus, OverviewRow, PairRow, RowCounts, RowDetail, StatusIcon};
+pub use rows::{EntrySizes, EntryStatus, OverviewRow, PairRow, RowCounts, RowDetail, StatusIcon};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
 #[cfg(test)]
 pub use testing::RunView;

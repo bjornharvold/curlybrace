@@ -28,6 +28,15 @@ impl CompareState {
         )
     }
 
+    /// Re-run may fire for `entry`: it exists and is not queued or running, and neither a run
+    /// nor a check is in flight (re-running edits the shared check state).
+    pub fn can_rerun(&self, entry: EntryId) -> bool {
+        self.pairs.get(entry).is_some()
+            && !self.overview.entry_is_live(entry)
+            && !self.is_running()
+            && !self.check_in_flight()
+    }
+
     /// The entry's duplicate-keys lookup failed: its panel offers Try again.
     pub fn duplicates_failed_for(&self, entry: EntryId) -> bool {
         matches!(self.duplicates, DuplicatesView::Failed { entry: e } if e == entry)
