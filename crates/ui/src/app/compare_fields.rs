@@ -102,6 +102,10 @@ fn copyable_ticks(
         .collect()
 }
 
+fn is_fields_refusal(banner: &Banner) -> bool {
+    matches!(banner, Banner::FieldsConflict | Banner::FieldsCovered)
+}
+
 fn refused(state: AppState, banner: Banner) -> Out {
     none(AppState {
         banner: Some(banner),
@@ -135,23 +139,15 @@ pub(super) fn add_fields(state: AppState, action: RowAction) -> Out {
                 field_selection: c.field_selection.cleared(editable.pair, key),
                 ..c.clone()
             };
-            none(with_compare(state, compare))
+            // The refusal the person just fixed is no longer true; other banners stay.
+            let banner = state.banner.clone().filter(|b| !is_fields_refusal(b));
+            none(AppState {
+                banner,
+                ..with_compare(state, compare)
+            })
         }
         FieldsQueued::Conflict => refused(state, Banner::FieldsConflict),
         FieldsQueued::Swallowed => refused(state, Banner::FieldsCovered),
         FieldsQueued::Empty => none(state),
-    }
-}
-
-/// The state without the ticks of the open pair: call it, on the state as it was, wherever the
-/// detail is closed or replaced (the ticks are only meaningful for the detail they were made in).
-pub(super) fn fields_dropped(c: CompareState) -> CompareState {
-    let field_selection = match c.open_pair {
-        Some(pair) => c.field_selection.without_pair(pair),
-        None => c.field_selection.clone(),
-    };
-    CompareState {
-        field_selection,
-        ..c
     }
 }

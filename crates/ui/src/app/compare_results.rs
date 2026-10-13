@@ -2,7 +2,6 @@
 //! and discarding or re-running a pair. `Rows` and `Detail` are taken only for the exact
 //! request that is outstanding on a pair that still has results.
 use super::compare::{cmd, none, ready, with_compare};
-use super::compare_fields::fields_dropped;
 use super::compare_pairs::discards;
 use super::reducer::Out;
 use super::state::AppState;
@@ -29,13 +28,13 @@ pub(super) fn open_pair(state: AppState, entry: EntryId) -> Out {
     };
     let switched = c.open_pair != Some(pair);
     // Switching pair closes the detail, and with it the ticks made in it.
-    let base = match switched {
-        true => fields_dropped(c.clone()),
-        false => c.clone(),
+    let base = if switched {
+        c.clone().with_detail(None)
+    } else {
+        c.clone()
     };
     let opened = CompareState {
         open_pair: Some(pair),
-        detail: if switched { None } else { c.detail.clone() },
         ..base
     };
     let compare = match refetch {
@@ -49,8 +48,7 @@ pub(super) fn open_pair(state: AppState, entry: EntryId) -> Out {
 pub(super) fn back_to_overview(state: AppState) -> Out {
     let compare = CompareState {
         open_pair: None,
-        detail: None,
-        ..fields_dropped(state.compare.clone())
+        ..state.compare.clone().with_detail(None)
     };
     none(with_compare(state, compare))
 }
@@ -70,11 +68,11 @@ pub(super) fn moved(
     // The open detail belongs to a row of the tab and page just left. A page arrives later, so
     // it is dropped on any category or page change rather than checked against rows not yet
     // loaded (a late `Detail` for it is then ignored).
-    let compare = CompareState {
-        detail: None,
-        ..fields_dropped(state.compare.clone())
-    }
-    .results_updated(next.pair, |_| next);
+    let compare = state
+        .compare
+        .clone()
+        .with_detail(None)
+        .results_updated(next.pair, |_| next);
     (with_compare(state, compare), commands)
 }
 
@@ -86,10 +84,10 @@ pub(super) fn select(state: AppState, key: KeyTuple) -> Out {
         return none(state);
     };
     // A new request replaces the detail, whether for another key or the same one again.
-    let compare = CompareState {
-        detail: Some(DetailView::loading(key)),
-        ..fields_dropped(state.compare.clone())
-    };
+    let compare = state
+        .compare
+        .clone()
+        .with_detail(Some(DetailView::loading(key)));
     (with_compare(state, compare), vec![cmd(command)])
 }
 
@@ -144,8 +142,7 @@ pub(super) fn rerun(state: AppState, entry: EntryId) -> Out {
         overview,
         pairs: c.pairs.clone().only_included(entry).editing(Some(entry)),
         open_pair: None,
-        detail: None,
-        ..fields_dropped(c.clone())
+        ..c.clone().with_detail(None)
     }
     .without_results(&old)
     .invalidated();

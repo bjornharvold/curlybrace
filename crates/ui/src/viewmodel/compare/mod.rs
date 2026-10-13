@@ -206,6 +206,22 @@ impl CompareState {
         }
     }
 
+    /// Closes (`None`) or replaces the open detail. The field ticks belong to the detail they
+    /// were made in, so the open pair's ticks are ALWAYS dropped here. Call it on the state as it
+    /// was, before `open_pair` changes. Invariant: only a new request (`Select`) creates a loading
+    /// detail; the answer that loads the same key (`detail_arrived`) keeps it and has no ticks yet.
+    pub fn with_detail(self, detail: Option<DetailView>) -> Self {
+        let field_selection = match self.open_pair {
+            Some(pair) => self.field_selection.without_pair(pair),
+            None => self.field_selection.clone(),
+        };
+        Self {
+            detail,
+            field_selection,
+            ..self
+        }
+    }
+
     /// The results of `pairs` are gone; the open pair and its detail go with them.
     pub fn without_results(self, pairs: &[PairId]) -> Self {
         let closed = self.open_pair.is_some_and(|open| pairs.contains(&open));

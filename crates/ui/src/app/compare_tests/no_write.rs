@@ -254,6 +254,43 @@ fn no_sequence_of_actions_without_confirm_sends_apply() {
     }
 }
 
+/// The walk above closes the detail before the field actions run, so they also run here, with a
+/// loaded detail and ticks, in several orders and from states where a write is under review.
+#[test]
+fn the_field_actions_with_a_loaded_detail_never_send_apply() {
+    let a = || PathSegment::Field("a".into());
+    let toggle = || CompareAction::ToggleField(vec![a()]);
+    let queue_t = || CompareAction::AddFieldsToPending(RowAction::CopyFieldsToTarget);
+    let queue_s = || CompareAction::AddFieldsToPending(RowAction::CopyFieldsToSource);
+    let orders = [
+        vec![
+            toggle(),
+            queue_t(),
+            toggle(),
+            queue_s(),
+            CompareAction::ClearFieldSelection,
+        ],
+        vec![
+            queue_s(),
+            CompareAction::ClearFieldSelection,
+            toggle(),
+            queue_t(),
+            toggle(),
+        ],
+    ];
+    let starts: [fn() -> AppState; 2] = [super::fields::ticked, super::fields::reviewing_queued];
+    for build in starts {
+        for order in &orders {
+            let mut state = build();
+            for action in order {
+                let (next, cmds) = act(state, action.clone());
+                assert!(applies(&cmds).is_empty(), "{action:?}");
+                state = next;
+            }
+        }
+    }
+}
+
 #[test]
 fn no_runtime_event_sends_apply() {
     let report = ApplyReport {

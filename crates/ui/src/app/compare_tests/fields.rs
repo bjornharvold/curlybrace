@@ -531,6 +531,60 @@ fn a_path_key_or_direction_swap_between_review_and_confirm_sends_nothing() {
 }
 
 #[test]
+fn opening_another_pair_drops_the_ticks_of_the_pair_left() {
+    use super::multirun::{finished_three, pair_of, rows_for};
+    let state = finished_three();
+    let (a, b) = (pair_of(&state, 0), pair_of(&state, 1));
+    let state = update(state, rows_for(a, 3)).0;
+    let (state, _) = act(state, CompareAction::OpenPair(0));
+    // The pair holds one different document, key 0.
+    let (state, cmds) = act(state, CompareAction::Select(key(0)));
+    assert_eq!(cmds.len(), 1, "the detail is asked for");
+    let answer = ev(CompareEvent::Detail {
+        session: 1,
+        pair: a,
+        key: key(0),
+        source: None,
+        target: None,
+        changes: changes(),
+    });
+    let state = update(state, answer).0;
+    let state = toggle(state, &[pth("a")]);
+    assert_eq!(state.compare.field_selection.count(a, &key(0)), 1);
+    let (state, _) = act(state, CompareAction::OpenPair(1));
+    assert_eq!(state.compare.open_pair, Some(b));
+    assert!(state.compare.detail.is_none());
+    assert_eq!(state.compare.field_selection, FieldSelection::default());
+}
+
+#[test]
+fn fields_can_be_queued_while_a_run_is_active() {
+    // Deliberate: the reducer gate is the whole-document one (it ignores an active run); the
+    // views decide whether to offer the buttons.
+    let running = open_detail(tab(Category::Different, 3, false), key(1));
+    assert!(running.compare.is_running());
+    let state = toggle(running, &[pth("a")]);
+    let (state, cmds) = act(state, CompareAction::AddFieldsToPending(TO_T));
+    assert!(cmds.is_empty());
+    assert_eq!(queued_fields(&state), vec![(TO_T, key(1), vec![pth("a")])]);
+}
+
+#[test]
+fn a_successful_queue_clears_only_the_fields_refusal_banners() {
+    for (banner, cleared) in [
+        (Banner::FieldsConflict, true),
+        (Banner::FieldsCovered, true),
+        (Banner::NotConnected, false),
+    ] {
+        let mut state = ticked();
+        state.banner = Some(banner.clone());
+        let (state, _) = act(state, CompareAction::AddFieldsToPending(TO_T));
+        assert_eq!(state.compare.pending.items().len(), 1);
+        assert_eq!(state.banner.is_none(), cleared, "{banner:?}");
+    }
+}
+
+#[test]
 fn no_field_action_ever_sends_a_command() {
     let actions = [
         CompareAction::ToggleField(pth("a")),

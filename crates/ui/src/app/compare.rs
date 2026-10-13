@@ -329,10 +329,7 @@ pub(super) fn compare_database_to(state: AppState, db: String) -> Out {
 }
 
 fn back(state: AppState) -> Out {
-    let compare = CompareState {
-        detail: None,
-        ..fields::fields_dropped(state.compare.clone())
-    };
+    let compare = state.compare.clone().with_detail(None);
     none(with_compare(state, compare))
 }
 
@@ -565,10 +562,7 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
             overview: c.overview.clone().start_refused(&error),
             ..c.clone()
         },
-        "compare_detail" => CompareState {
-            detail: None,
-            ..fields::fields_dropped(c.clone())
-        },
+        "compare_detail" => c.clone().with_detail(None),
         _ => c.clone(),
     };
     none(failure_banner(with_compare(state, compare), context, error))
