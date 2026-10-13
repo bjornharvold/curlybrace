@@ -297,3 +297,41 @@ fn a_finished_run_keeps_the_scanned_counts_of_its_pair() {
         }
     ));
 }
+
+#[test]
+fn a_failed_pair_after_progress_keeps_the_last_counters() {
+    let progress = ev(CompareEvent::Progress {
+        session: 1,
+        run: 1,
+        pair: RUN_PAIR,
+        scanned_source: 10,
+        scanned_target: 20,
+        differences: 3,
+    });
+    let failed = ev(CompareEvent::PairDone {
+        session: 1,
+        run: 1,
+        pair: RUN_PAIR,
+        outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
+    });
+    let (state, _) = update(running_state(), progress);
+    let (state, _) = update(state, failed);
+    assert!(matches!(
+        state.compare.run_view(),
+        RunView::Running {
+            scanned_source: 10,
+            scanned_target: 20,
+            differences: 3,
+            ..
+        }
+    ));
+    let (state, _) = update(state, run_done());
+    assert!(matches!(
+        state.compare.run_view(),
+        RunView::Finished {
+            scanned_source: 10,
+            scanned_target: 20,
+            ..
+        }
+    ));
+}

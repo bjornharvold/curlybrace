@@ -203,3 +203,13 @@ fn any_settled_ignores_live_and_discarded_rows() {
     assert!(done.any_settled());
     assert!(!done.discarded(10).any_settled());
 }
+
+#[test]
+fn a_failed_pair_keeps_its_last_progress() {
+    let o = running(1, &[(1, 10)])
+        .progressed(1, 10, (7, 6, 2))
+        .pair_done(1, 10, PairOutcome::Failed(CoreError::CompareDuplicateKey));
+    assert_eq!(o.row_for(1).unwrap().last_progress, (7, 6, 2));
+    let fresh = running(1, &[(1, 10)]);
+    assert_eq!(fresh.row_for(1).unwrap().last_progress, (0, 0, 0));
+}

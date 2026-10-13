@@ -26,7 +26,8 @@ impl PairStatus {
         matches!(self, Self::Pending | Self::Running { .. })
     }
 
-    /// Finished, with results the runtime may still hold.
+    /// Finished. Only a completed pair holds results in the runtime; Discard for a cancelled
+    /// or failed one is harmless (idempotent) and keeps the reducer's bookkeeping uniform.
     fn is_settled(&self) -> bool {
         matches!(
             self,
@@ -41,6 +42,9 @@ pub struct RunRow {
     pub pair: PairId,
     pub run: RunId,
     pub status: PairStatus,
+    /// Last (scanned source, scanned target, differences) reported while running; kept when
+    /// the pair ends without a summary (failed).
+    pub last_progress: (u64, u64, u64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,6 +87,7 @@ impl RunOverview {
             pair,
             run,
             status: PairStatus::Pending,
+            last_progress: (0, 0, 0),
         };
         let mut replaced = Vec::new();
         let mut rows: Vec<RunRow> = self
@@ -122,7 +127,11 @@ impl RunOverview {
             scanned_target: tgt,
             differences: found,
         };
-        self.with_live_row(run, pair, status)
+        self.with_live_row(run, pair, |row| RunRow {
+            status,
+            last_progress: (src, tgt, found),
+            ..row
+        })
     }
 
     /// The pair's terminal; ignored unless it is the live row of that run.
@@ -132,7 +141,7 @@ impl RunOverview {
             PairOutcome::Cancelled(s) => PairStatus::Cancelled(s),
             PairOutcome::Failed(e) => PairStatus::Failed(e),
         };
-        self.with_live_row(run, pair, status)
+        self.with_live_row(run, pair, |row| RunRow { status, ..row })
     }
 
     /// The run's terminal. A cancelled run turns the pairs it never finished into cancelled
@@ -236,20 +245,24 @@ impl RunOverview {
         self.active.is_some_and(|a| !a.cancel_requested)
     }
 
-    /// Sets the status of the live row of `run` under `pair`, if there is one.
-    fn with_live_row(self, run: RunId, pair: PairId, status: PairStatus) -> Self {
+    /// Rewrites the live row of `run` under `pair`, if there is one.
+    fn with_live_row(
+        self,
+        run: RunId,
+        pair: PairId,
+        change: impl FnOnce(RunRow) -> RunRow,
+    ) -> Self {
+        let mut change = Some(change);
         let rows = self
             .rows
             .into_iter()
-            .map(
-                |row| match row.run == run && row.pair == pair && row.status.is_live() {
-                    true => RunRow {
-                        status: status.clone(),
-                        ..row
-                    },
-                    false => row,
-                },
-            )
+            .map(|row| {
+                let hit = row.run == run && row.pair == pair && row.status.is_live();
+                match change.take_if(|_| hit) {
+                    Some(change) => change(row),
+                    None => row,
+                }
+            })
             .collect();
         Self { rows, ..self }
     }

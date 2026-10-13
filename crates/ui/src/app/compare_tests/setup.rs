@@ -342,3 +342,15 @@ fn the_same_collection_on_both_sides_cannot_be_checked_or_started() {
         [Command::Compare(CompareCommand::Check { session: 1, .. })]
     ));
 }
+
+#[test]
+fn a_check_failure_with_nothing_in_flight_and_no_orphan_is_reported() {
+    let (state, _) = update(picked_state(), check_failed_event());
+    assert!(matches!(
+        state.banner,
+        Some(Banner::Failure {
+            context: "compare_check",
+            ..
+        })
+    ));
+}

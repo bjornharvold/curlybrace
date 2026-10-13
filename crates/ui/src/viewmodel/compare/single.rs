@@ -49,9 +49,10 @@ fn entry_of(setup: &SetupForm) -> Option<PairEntry> {
     })
 }
 
-/// (scanned source, scanned target, differences) a row shows.
-fn counters(status: &PairStatus) -> (u64, u64, u64) {
-    match status {
+/// (scanned source, scanned target, differences) a row shows; a failed pair keeps its last
+/// progress.
+fn counters(row: &RunRow) -> (u64, u64, u64) {
+    match &row.status {
         PairStatus::Running {
             scanned_source,
             scanned_target,
@@ -62,6 +63,7 @@ fn counters(status: &PairStatus) -> (u64, u64, u64) {
             s.scanned_target,
             s.only_in_source + s.only_in_target + s.different,
         ),
+        PairStatus::Failed(_) => row.last_progress,
         _ => (0, 0, 0),
     }
 }
@@ -75,7 +77,7 @@ fn markers(status: &PairStatus) -> (bool, Option<CoreError>) {
 }
 
 fn running_view(row: &RunRow) -> RunView {
-    let (scanned_source, scanned_target, differences) = counters(&row.status);
+    let (scanned_source, scanned_target, differences) = counters(row);
     let (cancelled, failure) = markers(&row.status);
     RunView::Running {
         run: row.run,
@@ -92,7 +94,7 @@ fn running_view(row: &RunRow) -> RunView {
 }
 
 fn finished_view(row: &RunRow) -> RunView {
-    let (scanned_source, scanned_target, _) = counters(&row.status);
+    let (scanned_source, scanned_target, _) = counters(row);
     let (cancelled, failure) = markers(&row.status);
     RunView::Finished {
         run: row.run,

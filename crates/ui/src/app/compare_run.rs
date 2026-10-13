@@ -218,7 +218,8 @@ fn pair_done(
     }
     let shown = match &outcome {
         PairOutcome::Completed(summary) => Some(ResultsView::new(pair, summary)),
-        // The runtime keeps nothing for a cancelled or failed pair: no results, no Rows request.
+        // Only a completed pair holds results in the runtime: no results and no Rows request
+        // for a cancelled or failed one (a later Discard for it is harmless).
         _ => None,
     };
     let commands = first_page(shown.as_ref(), session);

@@ -382,7 +382,11 @@ fn settled_orphan(state: AppState) -> AppState {
 fn check_failed(state: AppState, error: CoreError) -> Out {
     let c = &state.compare;
     let Some((_, probe)) = c.checks.in_flight() else {
-        return none(settled_orphan(state));
+        // The orphan's failure is obsolete and quiet; with no orphan it is reported.
+        return match c.orphaned_check {
+            Some(_) => none(settled_orphan(state)),
+            None => none(failure_banner(state, "compare_check", error)),
+        };
     };
     let compare = CompareState {
         checks: c.checks.clone().failed(probe),
