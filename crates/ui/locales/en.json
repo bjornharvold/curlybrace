@@ -247,6 +247,7 @@
     "compare_collections": "Could not load the collections for the comparison",
     "compare_databases": "Could not load the databases for the comparison",
     "compare_detail": "Could not load the document differences",
+    "compare_duplicates": "Could not look up the duplicate keys. Try again, or check that both connections are still reachable",
     "compare_open": "Could not open the comparison connections",
     "compare_rows": "Could not load the list of differences",
     "compare_start": "Could not run the comparison",

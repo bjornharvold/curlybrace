@@ -1,6 +1,7 @@
 //! Reducer for the Compare workspace: user actions in, runtime commands out; runtime compare
 //! events in, view-models out. Compare sessions have their own connections, so nothing here
 //! depends on (or is reset by) the main browsing connection.
+use super::compare_duplicates as duplicates;
 use super::reducer::Out;
 use super::state::{AppState, Banner, Workspace};
 use crate::viewmodel::compare::{
@@ -43,22 +44,24 @@ pub enum CompareAction {
     Reload(Side),
     /// Ask again for the results page whose loading failed.
     RetryRows,
+    /// Ask both sides for their most frequent duplicate keys (after a duplicate-key failure).
+    FindDuplicates,
 }
 
-fn cmd(c: CompareCommand) -> Command {
+pub(super) fn cmd(c: CompareCommand) -> Command {
     Command::Compare(c)
 }
 
-fn none(state: AppState) -> Out {
+pub(super) fn none(state: AppState) -> Out {
     (state, Vec::new())
 }
 
-fn with_compare(state: AppState, compare: CompareState) -> AppState {
+pub(super) fn with_compare(state: AppState, compare: CompareState) -> AppState {
     AppState { compare, ..state }
 }
 
 /// The session id, once the session is open and usable.
-fn ready(state: &AppState) -> Option<SessionId> {
+pub(super) fn ready(state: &AppState) -> Option<SessionId> {
     match state.compare.session {
         Some(SessionPhase::Ready(id)) => Some(id),
         _ => None,
@@ -88,6 +91,7 @@ pub(super) fn on_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::Back => back(state),
         CompareAction::Reload(side) => reload(state, side),
         CompareAction::RetryRows => moved(state, ResultsView::retried),
+        CompareAction::FindDuplicates => duplicates::find(state),
     }
 }
 
@@ -185,6 +189,7 @@ fn edited(state: AppState, change: impl FnOnce(SetupForm) -> SetupForm) -> Out {
         last_check: None,
         // A check still in flight now answers a different form.
         check_stale: state.compare.check_in_flight,
+        duplicates: state.compare.duplicates.superseded(),
         ..state.compare.clone()
     };
     none(with_compare(state, compare))
@@ -265,6 +270,7 @@ fn start(state: AppState) -> Out {
         cancel_requested: false,
         results: None,
         detail: None,
+        duplicates: c.duplicates.superseded(),
         ..c.clone()
     };
     (with_compare(state, compare), commands)
@@ -330,6 +336,7 @@ fn discard(state: AppState) -> Out {
         run: RunView::Idle,
         results: None,
         detail: None,
+        duplicates: state.compare.duplicates.superseded(),
         ..state.compare.clone()
     };
     (
@@ -393,6 +400,12 @@ fn on_setup_event(state: AppState, ev: CompareEvent) -> Out {
         CompareEvent::Checked {
             pair, preflight, ..
         } => checked(state, pair, preflight),
+        CompareEvent::DuplicateKeys {
+            pair,
+            source,
+            target,
+            ..
+        } => duplicates::answered(state, pair, source, target),
         CompareEvent::Failed { context, error, .. } => failed(state, context, error),
         // Run events are routed to `on_run_event`.
         _ => none(state),
@@ -442,7 +455,7 @@ fn on_run_event(state: AppState, ev: CompareEvent) -> Out {
     }
 }
 
-fn failure_banner(state: AppState, context: &'static str, error: CoreError) -> AppState {
+pub(super) fn failure_banner(state: AppState, context: &'static str, error: CoreError) -> AppState {
     AppState {
         banner: Some(Banner::Failure { context, error }),
         ..state
@@ -706,6 +719,9 @@ fn detail_arrived(
 fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
     if context == "compare_check" {
         return check_failed(state, error);
+    }
+    if context == "compare_duplicates" {
+        return none(duplicates::failed(state, error));
     }
     let c = &state.compare;
     // `compare_rows` failures carry no offset, so they cannot be matched to a request: the

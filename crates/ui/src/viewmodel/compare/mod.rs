@@ -1,5 +1,6 @@
 //! View-models of the Compare workspace. Pure and egui-free.
 pub mod detail;
+pub mod duplicates;
 pub mod preflight;
 pub mod results;
 pub mod setup;
@@ -9,6 +10,7 @@ use curlybrace_core::error::CoreError;
 use uuid::Uuid;
 
 pub use detail::{ChangeLine, DetailView, canonical_json};
+pub use duplicates::{DuplicateRow, DuplicatesView};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
 pub use setup::{PAIR_ID, Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
@@ -98,6 +100,8 @@ pub struct CompareState {
     pub cancel_requested: bool,
     pub results: Option<ResultsView>,
     pub detail: Option<DetailView>,
+    /// The duplicate-keys panel, offered after a run failed on a duplicate key.
+    pub duplicates: DuplicatesView,
 }
 
 impl Default for CompareState {
@@ -116,6 +120,7 @@ impl Default for CompareState {
             cancel_requested: false,
             results: None,
             detail: None,
+            duplicates: DuplicatesView::default(),
         }
     }
 }
@@ -153,6 +158,22 @@ impl CompareState {
 
     pub fn is_ready(&self) -> bool {
         matches!(self.session, Some(SessionPhase::Ready(_)))
+    }
+
+    /// The finished run's pair failed on a duplicate key (the only failure the panel explains).
+    pub fn run_failed_on_duplicate_key(&self) -> bool {
+        matches!(
+            self.run,
+            RunView::Finished {
+                failure: Some(CoreError::CompareDuplicateKey),
+                ..
+            }
+        )
+    }
+
+    /// Whether Find duplicate keys may fire.
+    pub fn can_find_duplicates(&self) -> bool {
+        self.is_ready() && self.duplicates.can_find(self.run_failed_on_duplicate_key())
     }
 
     pub fn is_running(&self) -> bool {

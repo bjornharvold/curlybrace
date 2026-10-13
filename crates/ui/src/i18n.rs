@@ -223,6 +223,7 @@ mod tests {
             "compare_start",
             "compare_rows",
             "compare_detail",
+            "compare_duplicates",
         ] {
             assert!(!i.failure(c).starts_with('⟦'), "missing failures.{c}");
         }

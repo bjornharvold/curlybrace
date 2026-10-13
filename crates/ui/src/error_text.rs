@@ -44,6 +44,9 @@ fn compare_log_line(ev: &CompareEvent) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use curlybrace_core::compare::key::KeyTuple;
+    use curlybrace_core::compare::protocol::DuplicateReport;
+    use curlybrace_core::store::DuplicateGroup;
 
     #[test]
     fn compare_failures_are_logged_without_error_text() {
@@ -82,6 +85,34 @@ mod tests {
             outcome: PairOutcome::Completed(Default::default()),
         });
         assert_eq!(failure_log_line(&done), None);
+    }
+
+    #[test]
+    fn duplicate_key_lookups_log_the_context_and_error_kind_only() {
+        let failed = Event::Compare(CompareEvent::Failed {
+            session: 1,
+            context: "compare_duplicates",
+            error: CoreError::Database("E11000 dup key: hunter2-secret".into()),
+        });
+        let line = failure_log_line(&failed).unwrap();
+        assert_eq!(line, "compare_duplicates failed: errors.database");
+        assert!(!line.contains("hunter2-secret"));
+        let answer = Event::Compare(CompareEvent::DuplicateKeys {
+            session: 1,
+            pair: 1,
+            source: DuplicateReport {
+                groups: vec![DuplicateGroup {
+                    key: KeyTuple(vec![bson::Bson::String("hunter2-secret".into())]),
+                    count: 2,
+                }],
+                more: false,
+            },
+            target: DuplicateReport {
+                groups: vec![],
+                more: false,
+            },
+        });
+        assert_eq!(failure_log_line(&answer), None);
     }
 
     #[test]

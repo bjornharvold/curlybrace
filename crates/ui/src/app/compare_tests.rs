@@ -16,6 +16,8 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{CollectionKind, IndexStatus};
 
+#[path = "compare_tests/duplicates.rs"]
+mod duplicates;
 #[path = "compare_tests/entry.rs"]
 mod entry;
 #[path = "compare_tests/frames.rs"]

@@ -6,6 +6,7 @@
 mod actions;
 mod banner;
 pub mod compare;
+mod compare_duplicates;
 pub mod connections;
 pub mod host_key;
 mod panels;
