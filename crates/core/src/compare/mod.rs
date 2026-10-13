@@ -2,6 +2,7 @@
 //! engine. Pure core logic with no UI dependency; the runtime drives it (see `runtime::compare`).
 
 pub mod apply;
+pub mod apply_engine;
 pub mod diff;
 pub mod engine;
 pub mod fingerprint;

@@ -110,6 +110,22 @@ impl KeyScanner {
     }
 }
 
+/// The document with exactly `key`, if any (the scan start is inclusive, so the first document
+/// at or after the key is kept only when its key compares equal).
+pub(crate) async fn fetch_one(
+    store: &Arc<dyn DocumentStore>,
+    ns: &Namespace,
+    filter: &bson::Document,
+    spec: &KeySpec,
+    key: &KeyTuple,
+) -> Result<Option<bson::Document>> {
+    let found = store.scan_sorted(ns, filter, spec, Some(key), 1).await?;
+    Ok(found
+        .into_iter()
+        .next()
+        .filter(|d| extract_key(d, spec).is_ok_and(|k| compare_tuples(&k, key).is_eq())))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
