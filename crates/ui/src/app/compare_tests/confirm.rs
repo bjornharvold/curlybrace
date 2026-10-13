@@ -118,7 +118,7 @@ pub(super) fn running_apply() -> AppState {
 
 /// Both only-in-source and only-in-target rows exist; all of each are queued for deletion,
 /// which writes to two databases.
-fn wide_deletes() -> AppState {
+pub(super) fn wide_deletes() -> AppState {
     let both = Summary {
         only_in_source: 3,
         only_in_target: 3,

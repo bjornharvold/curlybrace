@@ -208,6 +208,20 @@
       "target": "Target",
       "title": "Duplicate keys"
     },
+    "export": {
+      "reason": {
+        "apply_busy": "Finish or cancel the review or apply that is open first.",
+        "check_in_flight": "Wait for the check to finish.",
+        "clipboard_too_large": "This report has too many rows for the clipboard. Export it to a file instead.",
+        "empty_pending": "Queue some changes first. There is nothing to export.",
+        "export_busy": "Another export is already open or running.",
+        "mixed_sides": "A script can only write to one side, and these changes write to both. Export a JSON plan instead, or queue changes for one side.",
+        "no_completed_pair": "No pair has finished results yet. Run a comparison first.",
+        "no_pair_chosen": "Choose at least one pair with finished results.",
+        "run_active": "Wait for the comparison to finish.",
+        "session_not_ready": "Open a comparison session first."
+      }
+    },
     "overview": {
       "cancel": "Cancel",
       "cancelling": "Cancelling...",

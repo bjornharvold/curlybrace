@@ -9,6 +9,7 @@ pub mod compare;
 mod compare_apply;
 mod compare_checks;
 mod compare_duplicates;
+mod compare_export;
 mod compare_fields;
 mod compare_pairs;
 mod compare_results;

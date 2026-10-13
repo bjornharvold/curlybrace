@@ -5,9 +5,11 @@ use super::confirm::{
     with_pending,
 };
 use super::*;
-use crate::viewmodel::compare::{ApplyUi, RowAction};
+use crate::viewmodel::compare::{ApplyUi, ExportKind, RowAction};
 use curlybrace_core::compare::apply::{ApplyReport, IdPolicy};
 use curlybrace_core::compare::diff::PathSegment;
+use curlybrace_core::compare::protocol::ExportFormat;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 /// The instance of the variant that follows `action`, `None` after the last one. The match has
@@ -72,7 +74,19 @@ fn successor(action: &CompareAction) -> Option<CompareAction> {
         A::ConfirmApply => A::CancelReview,
         A::CancelReview => A::CancelApply,
         A::CancelApply => A::DismissApplyResult,
-        A::DismissApplyResult => return None,
+        A::DismissApplyResult => A::OpenExport(ExportKind::Plan),
+        A::OpenExport(_) => A::SetExportFormat(ExportFormat::JsonPlan),
+        A::SetExportFormat(_) => A::SetExportLabel("label".into()),
+        A::SetExportLabel(_) => A::SetExportIdPolicy(IdPolicy::Generate),
+        A::SetExportIdPolicy(_) => A::ToggleExportPair(ENTRY),
+        A::ToggleExportPair(_) => A::SetExportIncludePaths(true),
+        A::SetExportIncludePaths(_) => A::ChooseExportFile,
+        A::ChooseExportFile => A::ExportPathChosen(PathBuf::from("/exports/out")),
+        A::ExportPathChosen(_) => A::ExportPathCancelled,
+        A::ExportPathCancelled => A::CopyReport,
+        A::CopyReport => A::CancelExport,
+        A::CancelExport => A::CloseExport,
+        A::CloseExport => return None,
     })
 }
 
@@ -130,10 +144,22 @@ fn slot(action: &CompareAction) -> usize {
         A::ToggleField(_) => 46,
         A::ClearFieldSelection => 47,
         A::AddFieldsToPending(_) => 48,
+        A::OpenExport(_) => 49,
+        A::SetExportFormat(_) => 50,
+        A::SetExportLabel(_) => 51,
+        A::SetExportIdPolicy(_) => 52,
+        A::ToggleExportPair(_) => 53,
+        A::SetExportIncludePaths(_) => 54,
+        A::ChooseExportFile => 55,
+        A::ExportPathChosen(_) => 56,
+        A::ExportPathCancelled => 57,
+        A::CopyReport => 58,
+        A::CancelExport => 59,
+        A::CloseExport => 60,
     }
 }
 
-fn all_actions() -> Vec<CompareAction> {
+pub(super) fn all_actions() -> Vec<CompareAction> {
     std::iter::successors(Some(CompareAction::Show), successor).collect()
 }
 
@@ -217,7 +243,7 @@ fn the_walk_visits_every_variant_once() {
     }
     assert_eq!(all.first(), Some(&CompareAction::Show));
     assert!(all.contains(&CompareAction::ConfirmApply));
-    assert_eq!(all.last(), Some(&CompareAction::DismissApplyResult));
+    assert_eq!(all.last(), Some(&CompareAction::CloseExport));
 }
 
 #[test]

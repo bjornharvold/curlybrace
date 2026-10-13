@@ -148,7 +148,7 @@ impl CompareState {
         if self.review_resolvable() {
             return None;
         }
-        if self.apply.is_busy() {
+        if self.workflow_busy() {
             return Some(ActionBlock::Busy);
         }
         if self.is_running() {

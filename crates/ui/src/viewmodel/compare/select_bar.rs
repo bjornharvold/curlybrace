@@ -58,7 +58,7 @@ pub struct ActionButton {
 impl CompareState {
     /// Why rows of `pair` cannot be ticked (the reducer refuses exactly these).
     pub fn tick_block(&self, pair: PairId) -> Option<ActionBlock> {
-        if self.apply.is_busy() {
+        if self.workflow_busy() {
             return Some(ActionBlock::Busy);
         }
         if self.pair_is_applicable(pair) {

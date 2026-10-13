@@ -59,7 +59,7 @@ pub fn show_pending(
             .unwrap_or_default()
     };
     let view = state.pending_view(&name_of);
-    let busy = state.apply.is_busy();
+    let busy = state.workflow_busy();
     let mut action = None;
     for group in &view.groups {
         action = show_group(ui, state, group, busy, i18n).or(action);
