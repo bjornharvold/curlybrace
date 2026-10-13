@@ -5,8 +5,8 @@ use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{CompareCommand, RowView, SessionId};
 use curlybrace_core::compare::results::Category;
 
+use super::PAIR_ID;
 use super::detail::value_text;
-use super::setup::PAIR_ID;
 
 pub const PAGE_SIZE: usize = 100;
 

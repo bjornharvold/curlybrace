@@ -7,9 +7,6 @@ use curlybrace_core::compare::rules::{CompareRules, FieldScope};
 use curlybrace_core::ejson::editor_json_to_doc;
 use curlybrace_core::store::{CollectionKind, Namespace};
 
-/// The slice-1 workspace compares a single pair, always with this id.
-pub const PAIR_ID: PairId = 1;
-
 /// Why the form cannot produce a [`PairSpec`] yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupError {
@@ -286,8 +283,21 @@ impl SetupForm {
         self.issues().is_empty()
     }
 
-    /// The pair to compare, or the first thing that is wrong with the form itself.
-    pub fn pair(&self) -> Result<PairSpec, SetupError> {
+    /// The namespaces to add as a pair: both sides picked and neither a view.
+    pub fn pick_pair(&self) -> Result<(Namespace, Namespace), SetupError> {
+        for side in [Side::Source, Side::Target] {
+            if self.side(side).is_view() {
+                return Err(SetupError::ViewSelected(side));
+            }
+        }
+        match (self.source.picked(), self.target.picked()) {
+            (Some(source), Some(target)) => Ok((source, target)),
+            _ => Err(SetupError::Incomplete),
+        }
+    }
+
+    /// The pair to compare under `id`, or the first thing that is wrong with the form itself.
+    pub fn pair(&self, id: PairId) -> Result<PairSpec, SetupError> {
         if let Some(first) = self.issues().into_iter().next() {
             return Err(first);
         }
@@ -297,7 +307,7 @@ impl SetupForm {
             return Err(SetupError::Incomplete);
         };
         Ok(PairSpec {
-            id: PAIR_ID,
+            id,
             source,
             target,
             source_filter: self.filter(Side::Source)?,

@@ -1,19 +1,27 @@
 //! View-models of the Compare workspace. Pure and egui-free.
 pub mod detail;
 pub mod duplicates;
+pub mod pairing_view;
+pub mod pairs;
 pub mod preflight;
 pub mod results;
 pub mod setup;
 
-use curlybrace_core::compare::protocol::{PairSpec, Preflight, RunId, SessionId};
+/// Temporary: the single-pair workspace still compares one pair, always with this id. Removed
+/// when the multi-pair state and app land.
+pub const PAIR_ID: PairId = 1;
+
+use curlybrace_core::compare::protocol::{PairId, PairSpec, Preflight, RunId, SessionId};
 use curlybrace_core::error::CoreError;
 use uuid::Uuid;
 
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use duplicates::{DuplicateRow, DuplicatesView};
+pub use pairing_view::{DatabasePairing, PairingRow};
+pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
-pub use setup::{PAIR_ID, Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
+pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
 
 /// Where the compare session stands. It owns its own connections, so the browsing connection
 /// coming and going never changes it.
@@ -199,7 +207,7 @@ impl CompareState {
     pub fn pair(&self) -> Result<PairSpec, SetupError> {
         match self.issues().into_iter().next() {
             Some(first) => Err(first),
-            None => self.setup.pair(),
+            None => self.setup.pair(PAIR_ID),
         }
     }
 

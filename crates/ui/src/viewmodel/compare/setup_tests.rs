@@ -1,4 +1,5 @@
 use super::*;
+use crate::viewmodel::compare::PAIR_ID;
 use bson::doc;
 use curlybrace_core::compare::rules::FieldScope;
 use curlybrace_core::store::CollectionKind;
@@ -142,7 +143,7 @@ fn pair_carries_namespaces_filters_key_and_rules_with_the_fixed_id() {
         Side::Source,
         picked("a", "users").with_filter(r#"{"x": 2}"#),
     );
-    let pair = form.pair().unwrap();
+    let pair = form.pair(PAIR_ID).unwrap();
     assert_eq!(pair.id, PAIR_ID);
     assert_eq!(pair.source, Namespace::new("a", "users"));
     assert_eq!(pair.target, Namespace::new("b", "users"));
@@ -165,4 +166,19 @@ fn collection_listings_for_another_database_are_dropped() {
         .with_database("a")
         .with_collections("zzz", vec![("c".into(), CollectionKind::Collection)]);
     assert!(side.collections.is_empty());
+}
+
+#[test]
+fn pick_pair_refuses_views_and_incomplete_sides() {
+    let form = ready_form();
+    assert!(form.pick_pair().is_ok());
+    let view = form.clone().with_side(Side::Target, picked("b", "v"));
+    assert_eq!(
+        view.pick_pair(),
+        Err(SetupError::ViewSelected(Side::Target))
+    );
+    assert_eq!(
+        SetupForm::default().pick_pair(),
+        Err(SetupError::Incomplete)
+    );
 }
