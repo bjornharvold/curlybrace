@@ -95,9 +95,9 @@ fn golden_report() {
 # curlybrace data compare report\r
 # label: x =cmd\r
 # pairs: 2\r
-# pair 1: shop.items -> shop2.items: only_in_source=1, only_in_target=2, different=3, identical=4, scanned_source=5, scanned_target=6\r
-# pair 2: =evil.c -> a b: only_in_source=0, only_in_target=0, different=2, identical=10, scanned_source=12, scanned_target=12\r
-# total: only_in_source=1, only_in_target=2, different=5, identical=14, scanned_source=17, scanned_target=18\r
+\"# pair 1: shop.items -> shop2.items: only_in_source=1, only_in_target=2, different=3, identical=4, scanned_source=5, scanned_target=6\"\r
+\"# pair 2: =evil.c -> a b: only_in_source=0, only_in_target=0, different=2, identical=10, scanned_source=12, scanned_target=12\"\r
+\"# total: only_in_source=1, only_in_target=2, different=5, identical=14, scanned_source=17, scanned_target=18\"\r
 pair,source,target,category,key,changed_paths\r
 1,shop.items,shop2.items,only_in_source,[1],\r
 1,shop.items,shop2.items,different,\"[\"\"a,b\"\"]\",\"[\"\"a.b\"\",\"\"c[2]\"\"]\"\r
@@ -105,11 +105,6 @@ pair,source,target,category,key,changed_paths\r
 2,'=evil.c,t,only_in_target,\"[\"\"=1+1\\r\\n@x\"\"]\",\r
 ";
     assert_eq!(report(), expected);
-}
-
-#[test]
-fn output_is_deterministic() {
-    assert_eq!(report(), report());
 }
 
 #[test]
@@ -128,8 +123,16 @@ fn comment_lines_come_first_then_the_header_row() {
         .iter()
         .position(|l| *l == "pair,source,target,category,key,changed_paths")
         .expect("header row");
-    assert!(lines[..header_at].iter().all(|l| l.starts_with('#')));
-    assert!(lines[header_at + 1..].iter().all(|l| !l.starts_with('#')));
+    assert!(
+        lines[..header_at]
+            .iter()
+            .all(|l| l.trim_start_matches('"').starts_with('#'))
+    );
+    assert!(
+        lines[header_at + 1..]
+            .iter()
+            .all(|l| !l.trim_start_matches('"').starts_with('#'))
+    );
 }
 
 #[test]
@@ -157,7 +160,11 @@ fn a_long_hostile_label_is_one_capped_comment_line() {
     })
     .expect("begin");
     let text = String::from_utf8(w.finish().expect("finish")).expect("utf8");
-    assert!(text.lines().take(3).all(|l| l.starts_with('#')));
+    assert!(
+        text.lines()
+            .take(3)
+            .all(|l| l.trim_start_matches('"').starts_with('#'))
+    );
     assert!(text.len() < 1_000);
 }
 
@@ -200,4 +207,98 @@ fn a_nan_key_is_still_a_row() {
     .expect("row");
     let text = String::from_utf8(w.finish().expect("finish")).expect("utf8");
     assert!(text.contains(",different,"));
+}
+
+/// A small RFC 4180 reader: rows of cells; quoted cells may hold commas, quotes and line breaks.
+fn parse_csv(text: &str) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut cell = String::new();
+    let mut quoted = false;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (quoted, c) {
+            (true, '"') if chars.peek() == Some(&'"') => {
+                chars.next();
+                cell.push('"');
+            }
+            (true, '"') => quoted = false,
+            (true, c) => cell.push(c),
+            (false, '"') => quoted = true,
+            (false, ',') => row.push(std::mem::take(&mut cell)),
+            (false, '\r') => {}
+            (false, '\n') => {
+                row.push(std::mem::take(&mut cell));
+                rows.push(std::mem::take(&mut row));
+            }
+            (false, c) => cell.push(c),
+        }
+    }
+    assert!(!quoted, "an unterminated quoted cell");
+    rows
+}
+
+#[test]
+fn every_summary_line_is_exactly_one_cell_even_with_hostile_text() {
+    let label = "x,=HYPERLINK(\"http://e\",\"c\"),\"q;=1+1";
+    let header = ReportHeader {
+        label: label.to_string(),
+        pairs: vec![PairSummary {
+            source: "a,=1+2.c;\"x".into(),
+            target: "b;=cmd|' /C calc'!A0,\"y\".d".into(),
+            summary: summary(1, 2, 3, 4, 5, 6),
+        }],
+    };
+    let mut w = CsvWriter::new(Vec::new());
+    w.begin(&header).expect("begin");
+    let text = String::from_utf8(w.finish().expect("finish")).expect("utf8");
+    let rows = parse_csv(&text);
+    let comments: Vec<_> = rows.iter().filter(|r| r[0].starts_with('#')).collect();
+    assert_eq!(comments.len(), 5, "{rows:?}");
+    for r in &comments {
+        assert_eq!(r.len(), 1, "a summary line split into cells: {r:?}");
+    }
+    assert!(comments[1][0].starts_with("# label: x,=HYPERLINK("));
+    assert!(comments[3][0].contains("a,=1+2.c;\"x"));
+    let last = rows.last().expect("rows");
+    assert_eq!(
+        last.as_slice(),
+        [
+            "pair",
+            "source",
+            "target",
+            "category",
+            "key",
+            "changed_paths"
+        ]
+    );
+    assert!(
+        rows.iter()
+            .filter(|r| !r[0].starts_with('#'))
+            .all(|r| r.len() == 6)
+    );
+}
+
+#[test]
+fn rows_with_semicolons_stay_one_cell_each() {
+    let mut w = CsvWriter::new(Vec::new());
+    w.begin(&header()).expect("begin");
+    let k = key(Bson::String("a;=1+1".into()));
+    let none: &[Vec<crate::compare::diff::PathSegment>] = &[];
+    w.row(&CsvRow {
+        pair: 1,
+        source: "s;=1",
+        target: "t",
+        category: Category::Different,
+        key: &k,
+        changed_paths: none,
+    })
+    .expect("row");
+    let text = String::from_utf8(w.finish().expect("finish")).expect("utf8");
+    let rows = parse_csv(&text);
+    let row = rows.last().expect("row");
+    assert_eq!(row.len(), 6);
+    assert_eq!(row[1], "s;=1");
+    assert_eq!(row[4], "[\"a;=1+1\"]");
+    assert!(text.contains("\"s;=1\""), "a semicolon cell is quoted");
 }

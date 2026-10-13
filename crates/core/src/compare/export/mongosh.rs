@@ -15,6 +15,7 @@
 //!   flags such as `x`, and `/.../` literals need slash escaping);
 //! * `Code("...")`, with scope `Code("...", {..})`; `Symbol` is `BSONSymbol("...")`;
 //! * `MinKey()`, `MaxKey()`, `null`, booleans, strings as [`js_string`] literals;
+//! * a regular expression with flags outside `imxlsu` is REFUSED (`BSONRegExp` throws on them);
 //! * `Undefined` and `DbPointer` are REFUSED: the shell has no constructor for them (a bare
 //!   `undefined` is written as `null` by the driver, a silently different value).
 //!
@@ -122,6 +123,11 @@ fn key_literal(key: &str) -> String {
     }
 }
 
+/// The flags `BSONRegExp` accepts (it throws on others, `g` included).
+fn valid_regex_flags(flags: &str) -> bool {
+    flags.chars().all(|c| "imxlsu".contains(c))
+}
+
 /// Every non-container variant. Exhaustive: a new BSON type is a compile error here.
 fn scalar(v: &Bson) -> Result<String, RenderError> {
     Ok(match v {
@@ -137,6 +143,9 @@ fn scalar(v: &Bson) -> Result<String, RenderError> {
         Bson::DateTime(dt) => date(dt.timestamp_millis())?,
         Bson::Timestamp(ts) => format!("Timestamp({{ t: {}, i: {} }})", ts.time, ts.increment),
         Bson::Binary(bin) => binary(bin),
+        Bson::RegularExpression(re) if !valid_regex_flags(&re.options) => {
+            return Err(RenderError::Unrenderable);
+        }
         Bson::RegularExpression(re) => format!(
             "BSONRegExp({}, {})",
             js_string(&re.pattern),
@@ -295,42 +304,36 @@ fn id_filter(id: &Bson) -> Result<String, RenderError> {
     Ok(format!("{{\"_id\": {}}}", render_value(id)?))
 }
 
-/// `{"path": value, ...}` with paths rendered like the store renders them.
-fn path_map<'a, I>(entries: I) -> Result<String, RenderError>
-where
-    I: Iterator<Item = Result<(&'a [PathSegment], String), RenderError>>,
-{
-    let mut parts = Vec::new();
-    for entry in entries {
-        let (path, value) = entry?;
-        parts.push(format!("{}: {}", key_literal(&render_path(path)?), value));
-    }
-    Ok(format!("{{{}}}", parts.join(", ")))
-}
-
-fn update_document(
+/// The `updateOne` filter and update of a field update: EXACTLY the store's statement
+/// (`mongo_write_fields::build_statement`), guards included (array / object shape of the
+/// parents, existence of an indexed element), so the script refuses and guards what the apply
+/// does. Path-name refusals are `BadName`; everything else the store refuses (nothing to do,
+/// unset through an array, conflicting paths) is `Unrenderable`.
+fn update_parts(
+    id: &Bson,
     set: &[(Vec<PathSegment>, Bson)],
     unset: &[Vec<PathSegment>],
-) -> Result<String, RenderError> {
-    let through_array = unset
+) -> Result<(String, String), RenderError> {
+    for path in set
         .iter()
-        .any(|p| p.iter().any(|s| matches!(s, PathSegment::Index(_))));
-    if (set.is_empty() && unset.is_empty()) || through_array {
-        return Err(RenderError::Unrenderable);
+        .map(|(p, _)| p.as_slice())
+        .chain(unset.iter().map(Vec::as_slice))
+    {
+        render_path(path)?;
     }
-    let mut parts = Vec::new();
-    if !set.is_empty() {
-        let map = path_map(
-            set.iter()
-                .map(|(p, v)| render_value(v).map(|text| (p.as_slice(), text))),
-        )?;
-        parts.push(format!("\"$set\": {map}"));
-    }
-    if !unset.is_empty() {
-        let map = path_map(unset.iter().map(|p| Ok((p.as_slice(), "\"\"".to_string()))))?;
-        parts.push(format!("\"$unset\": {map}"));
-    }
-    Ok(format!("{{{}}}", parts.join(", ")))
+    let statement = crate::mongo_write_fields::build_statement(id, set, unset)
+        .map_err(|_| RenderError::Unrenderable)?;
+    let update = statement
+        .statement
+        .get_document("u")
+        .map_err(|_| RenderError::Unrenderable)?;
+    Ok((render_document(&statement.query)?, render_document(update)?))
+}
+
+/// Whether `op` can be rendered at all; the JSON plan uses this so that it refuses exactly the
+/// operations the script refuses.
+pub(crate) fn check_op(op: &ShellOp) -> Result<(), RenderError> {
+    op_item(op).map(|_| ())
 }
 
 /// The `bulkWrite` item for `op`.
@@ -347,11 +350,10 @@ fn op_item(op: &ShellOp) -> Result<String, RenderError> {
         ShellOp::Delete { id } => {
             format!("{{ deleteOne: {{ filter: {} }} }}", id_filter(id)?)
         }
-        ShellOp::UpdateFields { id, set, unset } => format!(
-            "{{ updateOne: {{ filter: {}, update: {} }} }}",
-            id_filter(id)?,
-            update_document(set, unset)?
-        ),
+        ShellOp::UpdateFields { id, set, unset } => {
+            let (filter, update) = update_parts(id, set, unset)?;
+            format!("{{ updateOne: {{ filter: {filter}, update: {update} }} }}")
+        }
     })
 }
 
@@ -386,7 +388,9 @@ enum State {
     Collection { opened: bool },
 }
 
-/// Writes a mongosh script: a comment header, then per target collection ONE
+/// Writes a mongosh script (note: with `ordered: false` a failed item, e.g. a duplicate key,
+/// still makes `bulkWrite` throw, and the shell then stops: later statements do not run; the
+/// header says so): a comment header, then per target collection ONE
 /// `db.getSiblingDB(..).getCollection(..).bulkWrite([..], { ordered: false });` statement
 /// (none when the collection has no writes). Each operation is rendered completely before any
 /// of it is written, so a refused operation leaves the output as it was.
@@ -420,7 +424,9 @@ impl<W: Write> ScriptWriter<W> {
              //\n\
              // Review this script before you run it: it writes to the databases it names.\n\
              // It was written from an earlier comparison, and documents may have changed since.\n\
-             // Skipped operations are listed as comments and are never written.\n",
+             // Skipped operations are listed as comments and are never written.\n\
+             // bulkWrite runs every item of a statement even with ordered: false, but if an item fails (a\n\
+             // duplicate key, say) it throws, and mongosh then stops: the later statements of this script do not run.\n",
             label_line.trim_end(),
             c.insert,
             c.replace,

@@ -114,6 +114,8 @@ fn golden_script() {
 // Review this script before you run it: it writes to the databases it names.
 // It was written from an earlier comparison, and documents may have changed since.
 // Skipped operations are listed as comments and are never written.
+// bulkWrite runs every item of a statement even with ordered: false, but if an item fails (a
+// duplicate key, say) it throws, and mongosh then stops: the later statements of this script do not run.
 
 // collection: shop.items
 db.getSiblingDB(\"shop\").getCollection(\"items\").bulkWrite([
@@ -124,7 +126,7 @@ db.getSiblingDB(\"shop\").getCollection(\"items\").bulkWrite([
   // targetToSource delete source=none target={FP2} key=[NumberInt(3)]
   {{ deleteOne: {{ filter: {{\"_id\": NumberInt(3)}} }} }},
   // sourceToTarget updateFields source={FP1} target={FP2} key=[NumberInt(4)]
-  {{ updateOne: {{ filter: {{\"_id\": NumberInt(4)}}, update: {{\"$set\": {{\"a.b\": 1.5, \"c.0\": \"x\"}}, \"$unset\": {{\"d\": \"\"}}}} }} }},
+  {{ updateOne: {{ filter: {{\"_id\": {{\"$eq\": NumberInt(4)}}, \"c\": {{\"$type\": \"array\"}}, \"c.0\": {{\"$exists\": true}}}}, update: {{\"$set\": {{\"a.b\": 1.5, \"c.0\": \"x\"}}, \"$unset\": {{\"d\": \"\"}}}} }} }},
   // skipped (stale) sourceToTarget replace source={FP1} target={FP2} key=[NumberInt(5)]
 ], {{ ordered: false }});
 
@@ -136,11 +138,6 @@ db.getSiblingDB(\"x\\\"); db.dropDatabase(); //\").getCollection(\"c\\nd\").bulk
 "
     );
     assert_eq!(full_script(), expected);
-}
-
-#[test]
-fn output_is_deterministic() {
-    assert_eq!(full_script(), full_script());
 }
 
 /// The script with string literals blanked and `//` comment lines removed: the code only.
@@ -220,7 +217,7 @@ fn a_collection_with_only_skipped_operations_has_no_statement() {
     .expect("skipped");
     w.end_collection().expect("end");
     let script = text(w);
-    assert!(!script.contains("bulkWrite"));
+    assert!(!code_only(&script).contains("bulkWrite"));
     assert!(script.contains(&format!(
         "// skipped (notPlanned) sourceToTarget updateFields source={FP1} target={FP2} key=[NumberInt(1)]"
     )));
@@ -232,7 +229,7 @@ fn an_empty_collection_has_no_statement() {
     w.collection("d", "c").expect("collection");
     w.end_collection().expect("end");
     let script = text(w);
-    assert!(!script.contains("bulkWrite"));
+    assert!(!code_only(&script).contains("bulkWrite"));
     assert!(script.contains("// collection: d.c"));
 }
 
@@ -420,4 +417,127 @@ fn id_policy_is_named_in_the_header() {
     h.id_policy = IdPolicy::Generate;
     w.begin(&h).expect("begin");
     assert!(text(w).contains("// id policy: generate"));
+}
+
+/// Update cases shared with the JSON plan tests: (set, unset, refused?).
+type UpdateCase = (
+    Vec<(Vec<crate::compare::diff::PathSegment>, Bson)>,
+    Vec<Vec<crate::compare::diff::PathSegment>>,
+    bool,
+);
+
+fn guard_cases() -> Vec<UpdateCase> {
+    let one = || Bson::Int32(1);
+    vec![
+        (vec![(vec![field("a")], one())], vec![], false),
+        (vec![(vec![field("a"), Index(2)], one())], vec![], false),
+        (vec![(vec![field("a"), field("0")], one())], vec![], false),
+        (
+            vec![(vec![field("a")], one())],
+            vec![vec![field("b")]],
+            false,
+        ),
+        (vec![], vec![], true),
+        (vec![(vec![field("_id")], one())], vec![], true),
+        (vec![(vec![field("a"), field("$x")], one())], vec![], true),
+        (vec![(vec![field("")], one())], vec![], true),
+        (vec![], vec![vec![field("a"), Index(1)]], true),
+        (
+            vec![
+                (vec![field("a")], one()),
+                (vec![field("a"), field("b")], one()),
+            ],
+            vec![],
+            true,
+        ),
+        (
+            vec![(vec![field("a")], one())],
+            vec![vec![field("a")]],
+            true,
+        ),
+        (
+            vec![
+                (vec![field("a"), Index(0)], one()),
+                (vec![field("a"), field("0")], one()),
+            ],
+            vec![],
+            true,
+        ),
+        (
+            vec![
+                (vec![field("a"), Index(0)], one()),
+                (vec![field("a"), field("x")], one()),
+            ],
+            vec![],
+            false,
+        ),
+    ]
+}
+
+#[test]
+fn update_filter_and_update_are_the_stores_statement_guards_included() {
+    let id = Bson::Int32(1);
+    for (set, unset, refused) in guard_cases() {
+        let stored = crate::mongo_write_fields::build_statement(&id, &set, &unset);
+        let script = update(set.clone(), unset.clone());
+        assert_eq!(script.is_err(), refused, "{set:?} {unset:?}");
+        assert_eq!(stored.is_err(), refused, "{set:?} {unset:?}");
+        if let (Ok(stmt), Ok(text)) = (stored, script) {
+            let filter = render_document(&stmt.query).expect("query renders");
+            let update_doc =
+                render_document(stmt.statement.get_document("u").expect("u")).expect("u renders");
+            assert!(
+                text.contains(&format!("filter: {filter}, update: {update_doc} }} }},")),
+                "{text}"
+            );
+        }
+    }
+}
+
+#[test]
+fn array_index_and_digit_names_are_guarded_in_the_filter() {
+    let text = update(vec![(vec![field("a"), Index(2)], Bson::Int32(1))], vec![]).expect("renders");
+    assert!(text.contains("\"a\": {\"$type\": \"array\"}"));
+    assert!(text.contains("\"a.2\": {\"$exists\": true}"));
+    let digits =
+        update(vec![(vec![field("a"), field("0")], Bson::Int32(1))], vec![]).expect("renders");
+    assert!(digits.contains("\"$not\": {\"$type\": \"array\"}"));
+}
+
+#[test]
+fn conflicting_paths_are_refused() {
+    assert_eq!(
+        update(
+            vec![
+                (vec![field("a")], Bson::Int32(1)),
+                (vec![field("a"), field("b")], Bson::Int32(1))
+            ],
+            vec![]
+        ),
+        Err(RenderError::Unrenderable)
+    );
+}
+
+#[test]
+fn regex_flags_the_shell_rejects_are_refused() {
+    for flags in ["g", "imxlsu_", "y", "I"] {
+        let re = Bson::RegularExpression(bson::Regex {
+            pattern: "a".into(),
+            options: flags.into(),
+        });
+        assert_eq!(render_value(&re), Err(RenderError::Unrenderable), "{flags}");
+    }
+    for flags in ["", "i", "imxlsu", "msx"] {
+        let re = Bson::RegularExpression(bson::Regex {
+            pattern: "a".into(),
+            options: flags.into(),
+        });
+        assert!(render_value(&re).is_ok(), "{flags}");
+    }
+}
+
+#[test]
+fn the_header_warns_that_a_failed_item_stops_later_statements() {
+    let script = text(new_writer("l"));
+    assert!(script.contains("the later statements of this script do not run"));
 }

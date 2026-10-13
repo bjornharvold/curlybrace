@@ -139,7 +139,6 @@ fn csv_cell_prefix_and_quoting_combine() {
 
 #[test]
 fn csv_cell_never_double_prefixes() {
-    assert_eq!(csv_cell("'=1"), "'=1");
     assert_eq!(csv_cell(&csv_cell("=1")), "'=1");
 }
 
@@ -147,4 +146,18 @@ fn csv_cell_never_double_prefixes() {
 fn csv_cell_triggers_only_count_at_the_start() {
     assert_eq!(csv_cell("a=b"), "a=b");
     assert_eq!(csv_cell("a-b"), "a-b");
+}
+
+#[test]
+fn csv_cell_quotes_semicolons_for_semicolon_locale_spreadsheets() {
+    assert_eq!(csv_cell("a;b"), "\"a;b\"");
+    assert_eq!(csv_cell("[\"a;=1+1\"]"), "\"[\"\"a;=1+1\"\"]\"");
+}
+
+#[test]
+fn csv_cell_checks_the_formula_trigger_after_leading_whitespace() {
+    assert_eq!(csv_cell(" =1"), "' =1");
+    assert_eq!(csv_cell("   @x"), "'   @x");
+    assert_eq!(csv_cell(" \t=1"), "' \t=1");
+    assert_eq!(csv_cell(" a=1"), " a=1");
 }

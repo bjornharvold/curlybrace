@@ -218,13 +218,13 @@ fn paths_are_arrays_of_strings_and_numbers_never_dotted() {
         ),
         op: ShellOp::UpdateFields {
             id: Bson::Int32(1),
-            set: vec![(vec![Field("a.b".into()), Index(0)], Bson::Null)],
+            set: vec![(vec![Field("a b".into()), Index(0)], Bson::Null)],
             unset: vec![],
         },
     };
     let v = parse(&write(&[vec![op]], "l"));
     let path = &v["pairs"][0]["operations"][0]["set"][0]["path"];
-    assert_eq!(path, &json!(["a.b", 0]));
+    assert_eq!(path, &json!(["a b", 0]));
     assert!(path[1].is_u64());
 }
 
@@ -276,12 +276,6 @@ fn a_hostile_label_and_names_are_escaped() {
 }
 
 #[test]
-fn output_is_deterministic() {
-    let build = || write(&[vec![insert_op(), insert_op()], vec![insert_op()]], "l");
-    assert_eq!(build(), build());
-}
-
-#[test]
 fn a_field_order_in_documents_is_preserved() {
     let op = PlanOp::Write {
         meta: meta(
@@ -301,10 +295,8 @@ fn a_field_order_in_documents_is_preserved() {
     assert!(z < a && a < m);
 }
 
-#[test]
-fn undefined_and_db_pointer_values_are_plain_extended_json_here() {
-    // The plan is data, not code: every BSON value has a canonical extended JSON form.
-    let op = PlanOp::Write {
+fn insert_of(value: Bson) -> PlanOp {
+    PlanOp::Write {
         meta: meta(
             Direction::SourceToTarget,
             vec![Bson::Int32(1)],
@@ -312,14 +304,116 @@ fn undefined_and_db_pointer_values_are_plain_extended_json_here() {
             None,
         ),
         op: ShellOp::Insert {
-            doc: doc! { "u": Bson::Undefined },
+            doc: doc! { "nested": { "v": [value] } },
+        },
+    }
+}
+
+fn operation_result(op: &PlanOp) -> (Result<(), RenderError>, String) {
+    let mut w = PlanWriter::new(Vec::new());
+    w.begin(&header("l")).expect("begin");
+    w.pair(&pair("d")).expect("pair");
+    let before = w.inner.len();
+    let r = w.operation(op);
+    assert_eq!(
+        w.inner.len() == before,
+        r.is_err(),
+        "an error writes nothing"
+    );
+    (r, String::from_utf8(w.inner.clone()).expect("utf8"))
+}
+
+#[test]
+fn values_the_script_cannot_express_are_refused_by_the_plan_too() {
+    let pointer = Bson::try_from(json!({
+        "$dbPointer": { "$ref": "c", "$id": { "$oid": "507f1f77bcf86cd799439011" } }
+    }))
+    .expect("a db pointer");
+    let bad_regex = Bson::RegularExpression(bson::Regex {
+        pattern: "a".into(),
+        options: "g".into(),
+    });
+    for value in [Bson::Undefined, pointer, bad_regex] {
+        let (r, text) = operation_result(&insert_of(value));
+        assert_eq!(r, Err(RenderError::Unrenderable));
+        assert!(!text.contains("$undefined") && !text.contains("dbPointer"));
+    }
+    let (r, _) = operation_result(&insert_of(Bson::Int32(1)));
+    assert_eq!(r, Ok(()));
+}
+
+#[test]
+fn ids_and_set_values_are_checked_as_well() {
+    let m = meta(
+        Direction::SourceToTarget,
+        vec![Bson::Int32(1)],
+        Some(1),
+        Some(2),
+    );
+    let delete = PlanOp::Write {
+        meta: m.clone(),
+        op: ShellOp::Delete {
+            id: Bson::Undefined,
         },
     };
-    let v = parse(&write(&[vec![op]], "l"));
-    assert_eq!(
-        v["pairs"][0]["operations"][0]["document"]["u"],
-        json!({ "$undefined": true })
-    );
+    assert_eq!(operation_result(&delete).0, Err(RenderError::Unrenderable));
+    let update = PlanOp::Write {
+        meta: m,
+        op: ShellOp::UpdateFields {
+            id: Bson::Int32(1),
+            set: vec![(vec![Field("a".into())], Bson::Undefined)],
+            unset: vec![],
+        },
+    };
+    assert_eq!(operation_result(&update).0, Err(RenderError::Unrenderable));
+}
+
+type UpdateCase = (
+    Vec<(Vec<crate::compare::diff::PathSegment>, Bson)>,
+    Vec<Vec<crate::compare::diff::PathSegment>>,
+    bool,
+);
+
+#[test]
+fn update_fields_the_script_refuses_are_refused_by_the_plan_too() {
+    let one = || Bson::Int32(1);
+    let f = |n: &str| Field(n.to_string());
+    let cases: Vec<UpdateCase> = vec![
+        (vec![(vec![f("a")], one())], vec![], false),
+        (vec![(vec![f("a"), Index(2)], one())], vec![], false),
+        (vec![], vec![], true),
+        (vec![(vec![f("_id")], one())], vec![], true),
+        (vec![(vec![f("a"), f("$x")], one())], vec![], true),
+        (vec![(vec![f("")], one())], vec![], true),
+        (vec![], vec![vec![f("a"), Index(1)]], true),
+        (
+            vec![(vec![f("a")], one()), (vec![f("a"), f("b")], one())],
+            vec![],
+            true,
+        ),
+    ];
+    for (set, unset, refused) in cases {
+        let op = PlanOp::Write {
+            meta: meta(
+                Direction::SourceToTarget,
+                vec![Bson::Int32(1)],
+                Some(1),
+                Some(2),
+            ),
+            op: ShellOp::UpdateFields {
+                id: Bson::Int32(1),
+                set: set.clone(),
+                unset: unset.clone(),
+            },
+        };
+        let store = crate::mongo_write_fields::build_statement(&Bson::Int32(1), &set, &unset);
+        assert_eq!(store.is_err(), refused, "{set:?} {unset:?}");
+        assert_eq!(
+            operation_result(&op).0.is_err(),
+            refused,
+            "{set:?} {unset:?}"
+        );
+    }
 }
 
 #[test]

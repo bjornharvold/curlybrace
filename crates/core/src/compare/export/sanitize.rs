@@ -64,15 +64,22 @@ fn is_formula_trigger(c: char) -> bool {
     matches!(c, '=' | '+' | '-' | '@' | '\t' | '\r')
 }
 
-/// `s` as one CSV cell (RFC 4180 quoting). A cell a spreadsheet would read as a formula
-/// (starting with `=`, `+`, `-`, `@`, tab or CR) gets a leading `'`.
+/// `s` as one CSV cell (RFC 4180 quoting; `;` is quoted too, because spreadsheets in
+/// semicolon locales split on it). A cell a spreadsheet would read as a formula (starting, after
+/// optional blanks, with `=`, `+`, `-`, `@`, tab or CR) gets a leading `'`.
 pub fn csv_cell(s: &str) -> String {
-    let guarded = if s.chars().next().is_some_and(is_formula_trigger) {
+    // Spreadsheets skip leading blanks before they decide a cell is a formula.
+    let formula = s.chars().next().is_some_and(is_formula_trigger)
+        || s.trim_start()
+            .chars()
+            .next()
+            .is_some_and(is_formula_trigger);
+    let guarded = if formula {
         format!("'{s}")
     } else {
         s.to_string()
     };
-    if guarded.contains([',', '"', '\r', '\n']) {
+    if guarded.contains([',', ';', '"', '\r', '\n']) {
         format!("\"{}\"", guarded.replace('"', "\"\""))
     } else {
         guarded

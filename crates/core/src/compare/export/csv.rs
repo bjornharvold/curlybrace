@@ -1,7 +1,7 @@
 //! The differences report as CSV (RFC 4180, CRLF line ends).
 //!
 //! The file starts with `#` comment lines (the summary: counts per pair and in total, no
-//! durations), then the header row `pair,source,target,category,key,changed_paths`, then one row
+//! durations; each line is ONE csv_cell-quoted field), then the header row `pair,source,target,category,key,changed_paths`, then one row
 //! per difference. `key` is the key tuple as a relaxed extended JSON array; `changed_paths` is
 //! empty, or a JSON array of display paths (`a.b`, `c[2]`). It never carries values. Every cell
 //! goes through [`csv_cell`], so a spreadsheet cannot read one as a formula.
@@ -140,7 +140,9 @@ impl<W: Write> CsvWriter<W> {
         }
         let mut text = String::new();
         for line in summary_lines(header) {
-            text.push_str(&line);
+            // One quoted field per line: commas, quotes and semicolons in a label or a name
+            // must not split the line into cells (the `#` start needs no formula prefix).
+            text.push_str(&csv_cell(&line));
             text.push_str(EOL);
         }
         text.push_str(HEADER_ROW);

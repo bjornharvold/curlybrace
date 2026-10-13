@@ -12,14 +12,14 @@
 //!
 //! Keys, documents and values are canonical extended JSON; field paths are arrays of segments
 //! (a string for a field, a number for an array index), never dotted strings. Fingerprints are
-//! hex or `null`. Unlike the script, every BSON value is representable here.
+//! hex or `null`. The plan refuses exactly the operations the script refuses (`RenderError::Unrenderable`/`BadName`).
 
 use std::io::Write;
 
 use bson::{Bson, Document};
 use serde_json::{Map, Number, Value, json};
 
-use super::mongosh::ShellOp;
+use super::mongosh::{ShellOp, check_op};
 use super::{
     ExportHeader, OpMeta, RenderError, direction_name, fingerprint_hex, id_policy_name, kind_name,
     skip_name,
@@ -267,7 +267,12 @@ impl<W: Write> PlanWriter<W> {
             return Err(RenderError::Sequence);
         };
         let value = match op {
-            PlanOp::Write { meta, op } => write_value(meta, op)?,
+            PlanOp::Write { meta, op } => {
+                // Refuse what the script refuses (unsupported values, unaddressable or
+                // conflicting update paths), so the two exports never disagree.
+                check_op(op)?;
+                write_value(meta, op)?
+            }
             PlanOp::Skipped { meta, kind, reason } => skipped_value(meta, *kind, *reason),
         };
         let text = format!("{}\n{}", if ops > 0 { "," } else { "" }, to_text(&value)?);
