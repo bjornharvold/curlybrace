@@ -12,7 +12,7 @@ use super::export_tests::{
 };
 use super::tests::{collect_run, same_pair, send_start};
 use crate::compare::apply::ApplyKind;
-use crate::compare::protocol::{CompareCommand, CompareEvent, ExportFormat, ExportOutcome};
+use crate::compare::protocol::{CompareCommand, CompareEvent, ExportFormat};
 use crate::error::CoreError;
 use crate::runtime::Command;
 
@@ -43,9 +43,15 @@ async fn cancel_mid_export_removes_the_file_reports_it_and_frees_the_slot() {
     let outcome = outcome_of(&events);
     assert!(outcome.cancelled && outcome.partial_removed);
     assert_eq!(outcome.bytes, 0);
-    assert!(
-        outcome.not_run > 0,
-        "the pairs after the cancel did not run"
+    assert_eq!(
+        (
+            outcome.written,
+            outcome.skipped,
+            outcome.failed,
+            outcome.not_run
+        ),
+        (0, 0, 0, 3),
+        "the file is gone, so nothing counts as exported"
     );
     assert!(!path.exists());
     assert_silent(&mut r.h).await;
@@ -310,5 +316,63 @@ async fn an_export_before_the_session_is_open_or_after_close_is_refused() {
         other => panic!("{other:?}"),
     }
     assert!(!path.exists());
-    let _ = ExportOutcome::default();
+}
+
+#[tokio::test]
+async fn an_export_for_a_session_that_was_never_opened_is_refused() {
+    let mut r = rig().await;
+    let path = r.path("never.js");
+    r.tx.send(Command::Compare(CompareCommand::Export {
+        session: 99,
+        run: 5,
+        request: request(ExportFormat::Mongosh, standard_ops()),
+        path: path.clone(),
+    }))
+    .unwrap();
+    match super::tests::next_compare(&mut r.h).await {
+        CompareEvent::Failed {
+            session: 99,
+            context: "compare_export",
+            ..
+        } => {}
+        other => panic!("{other:?}"),
+    }
+    assert!(!path.exists());
+}
+
+#[tokio::test]
+async fn a_write_failing_after_the_file_exists_removes_it_and_frees_the_slot() {
+    let mut r = rig().await;
+    let path = r.path("failing.js");
+    super::export_sink::test_hooks::fail_writes_after(&path, 0);
+    let events = export(
+        &mut r,
+        5,
+        request(ExportFormat::Mongosh, standard_ops()),
+        &path,
+    )
+    .await;
+    assert!(matches!(
+        events.last(),
+        Some(CompareEvent::Failed {
+            context: "compare_export",
+            error: CoreError::ExportWriteFailed,
+            ..
+        })
+    ));
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e, CompareEvent::ExportDone { .. }))
+    );
+    assert!(!path.exists(), "the partial file was removed");
+    let ok = r.path("ok.js");
+    let events = export(
+        &mut r,
+        6,
+        request(ExportFormat::Mongosh, standard_ops()),
+        &ok,
+    )
+    .await;
+    assert_eq!(outcome_of(&events).written, 3, "the slot was freed");
 }

@@ -205,6 +205,7 @@ mod tests {
             CoreError::ApplyDuplicateKey,
             CoreError::ApplyOutcomeUnknown,
             CoreError::ExportWriteFailed,
+            CoreError::ExportFileNotRemoved,
         ];
         for e in &errors {
             let s = i.error(e);

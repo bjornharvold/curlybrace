@@ -29,11 +29,12 @@ use bson::{Binary, Bson, Document};
 
 use super::sanitize::{comment_text, js_string};
 use super::{
-    ExportHeader, ExportSkip, OpMeta, RenderError, direction_name, fingerprint_hex, id_policy_name,
-    kind_name, skip_name,
+    ExportHeader, ExportSkip, OpMeta, RenderError, destination_comment, direction_name,
+    fingerprint_hex, id_policy_name, kind_name, skip_name,
 };
 use crate::compare::apply::ApplyKind;
 use crate::compare::diff::PathSegment;
+use crate::compare::protocol::Side;
 use crate::store::WriteOp;
 
 /// Deepest nesting rendered; BSON itself stops at 100 levels.
@@ -398,6 +399,19 @@ pub struct ScriptWriter<W: Write> {
     inner: W,
     state: State,
     statement_open: String,
+    destination: Option<Side>,
+}
+
+/// First line of a script that is still being written: running it quits at once.
+pub const INCOMPLETE_LINE: &str = "quit(1); // incomplete export: do not run";
+
+/// The first line of a finished script, as long as [`INCOMPLETE_LINE`].
+fn complete_line() -> String {
+    format!(
+        "{:<width$}",
+        "// complete export",
+        width = INCOMPLETE_LINE.len()
+    )
 }
 
 impl<W: Write> ScriptWriter<W> {
@@ -406,6 +420,7 @@ impl<W: Write> ScriptWriter<W> {
             inner,
             state: State::New,
             statement_open: String::new(),
+            destination: None,
         }
     }
 
@@ -415,11 +430,23 @@ impl<W: Write> ScriptWriter<W> {
             return Err(RenderError::Sequence);
         }
         let c = header.counts;
+        let w = header.count_width;
+        let first = if header.complete {
+            complete_line()
+        } else {
+            INCOMPLETE_LINE.to_string()
+        };
+        let destination = header.destination.map_or(String::new(), |side| {
+            format!("{}\n", destination_comment(side))
+        });
+        self.destination = header.destination;
         let label_line = format!("// label: {}", comment_text(&header.label));
         let text = format!(
-            "// curlybrace data compare: mongosh script\n\
+            "{first}\n\
+             // curlybrace data compare: mongosh script\n\
              {}\n\
-             // operations: insert {}, replace {}, delete {}, updateFields {}, skipped {}\n\
+             {destination}\
+             // operations: insert {:>w$}, replace {:>w$}, delete {:>w$}, updateFields {:>w$}, skipped {:>w$}\n\
              // id policy: {}\n\
              //\n\
              // Review this script before you run it: it writes to the databases it names.\n\
@@ -448,8 +475,11 @@ impl<W: Write> ScriptWriter<W> {
         if [db, name].iter().any(|n| n.is_empty() || n.contains('\0')) {
             return Err(RenderError::BadName);
         }
+        let destination = self.destination.map_or(String::new(), |side| {
+            format!("{}\n", destination_comment(side))
+        });
         let text = format!(
-            "\n// collection: {}\n",
+            "\n// collection: {}\n{destination}",
             comment_text(&format!("{db}.{name}"))
         );
         self.inner.write_all(text.as_bytes())?;

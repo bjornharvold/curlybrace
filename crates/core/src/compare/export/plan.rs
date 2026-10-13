@@ -82,6 +82,8 @@ impl ExportPlanCounts {
                 ExportSkip::Stale => self.skipped_stale += 1,
                 ExportSkip::NotPlanned => self.skipped_not_planned += 1,
                 ExportSkip::Unsupported => self.skipped_unsupported += 1,
+                // Never produced by planning (the runtime lists failed items so).
+                ExportSkip::Unreadable => self.failed += 1,
             },
             ExportItem::Failed { .. } => self.failed += 1,
         }

@@ -20,6 +20,7 @@ use thiserror::Error;
 use crate::compare::apply::{ApplyKind, Direction, IdPolicy, SkipReason};
 use crate::compare::fingerprint::Fingerprint;
 use crate::compare::key::KeyTuple;
+use crate::compare::protocol::Side;
 
 /// Why something could not be rendered. Value-free by design: no name, key or document text.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
@@ -61,6 +62,19 @@ pub struct ExportHeader {
     pub label: String,
     pub counts: ExportCounts,
     pub id_policy: IdPolicy,
+    /// Counts are space-padded to this width, so a header with other counts (and the other
+    /// `complete` value) has the SAME length and can overwrite it in place.
+    pub count_width: usize,
+    /// False while the export is being written: the script then starts with `quit(1);` and the
+    /// plan says `"complete":false`, so a file cut short can neither run nor pass as whole.
+    pub complete: bool,
+    /// The side all writes of a script go to (scripts only; one side per script).
+    pub destination: Option<Side>,
+}
+
+/// Digits needed to print `n` (at least 1): the count width for an export of `n` operations.
+pub fn count_width(n: u64) -> usize {
+    n.to_string().len()
 }
 
 /// What every exported operation says about where it came from.
@@ -111,6 +125,8 @@ pub enum ExportSkip {
     Stale,
     NotPlanned,
     Unsupported,
+    /// A document could not be read while verifying the operation.
+    Unreadable,
 }
 
 impl From<SkipReason> for ExportSkip {
@@ -128,5 +144,22 @@ pub(crate) fn skip_name(reason: ExportSkip) -> &'static str {
         ExportSkip::Stale => "stale",
         ExportSkip::NotPlanned => "notPlanned",
         ExportSkip::Unsupported => "unsupported",
+        ExportSkip::Unreadable => "unreadable",
+    }
+}
+
+/// Which side of the comparison an operation writes to, as written in plans.
+pub(crate) fn destination_name(direction: Direction) -> &'static str {
+    match direction {
+        Direction::SourceToTarget => "target",
+        Direction::TargetToSource => "source",
+    }
+}
+
+/// The destination comment of a script.
+pub(crate) fn destination_comment(side: Side) -> &'static str {
+    match side {
+        Side::Target => "// destination: target side of the comparison",
+        Side::Source => "// destination: source side of the comparison",
     }
 }

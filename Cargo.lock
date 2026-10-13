@@ -1202,6 +1202,7 @@ dependencies = [
  "dirs",
  "futures",
  "keyring",
+ "libc",
  "log",
  "mongodb",
  "proptest",

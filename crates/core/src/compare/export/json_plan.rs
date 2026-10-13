@@ -21,8 +21,8 @@ use serde_json::{Map, Number, Value, json};
 
 use super::mongosh::{ShellOp, check_op};
 use super::{
-    ExportHeader, ExportSkip, OpMeta, RenderError, direction_name, fingerprint_hex, id_policy_name,
-    kind_name, skip_name,
+    ExportHeader, ExportSkip, OpMeta, RenderError, destination_name, direction_name,
+    fingerprint_hex, id_policy_name, kind_name, skip_name,
 };
 use crate::compare::apply::ApplyKind;
 use crate::compare::diff::PathSegment;
@@ -88,21 +88,37 @@ fn sets_value(set: &[(Vec<PathSegment>, Bson)]) -> Result<Value, RenderError> {
         .map(Value::Array)
 }
 
+const COUNTS_SLOT: &str = "@@counts@@";
+
 fn header_value(header: &ExportHeader) -> Value {
-    let c = header.counts;
     json!({
         "format": PLAN_FORMAT,
         "version": PLAN_VERSION,
         "label": header.label,
-        "counts": {
-            "insert": c.insert,
-            "replace": c.replace,
-            "delete": c.delete,
-            "updateFields": c.update_fields,
-            "skipped": c.skipped,
-        },
+        "complete": false,
+        "counts": COUNTS_SLOT,
         "idPolicy": id_policy_name(header.id_policy),
     })
+}
+
+/// The header text. Its LENGTH depends only on the label, the id policy and the count width, not
+/// on the counts or the flag: counts are space-padded to `count_width` and `"complete":true `
+/// has the length of `"complete":false`, so a header written as incomplete can later be
+/// overwritten in place by the final one. (A raw `"` cannot occur inside the escaped label, so
+/// the markers cannot be forged by it.)
+pub(crate) fn header_text(header: &ExportHeader) -> Result<String, RenderError> {
+    let c = header.counts;
+    let w = header.count_width;
+    let counts = format!(
+        "{{\"insert\":{:>w$},\"replace\":{:>w$},\"delete\":{:>w$},\"updateFields\":{:>w$},\"skipped\":{:>w$}}}",
+        c.insert, c.replace, c.delete, c.update_fields, c.skipped
+    );
+    let slot = format!("\"{COUNTS_SLOT}\"");
+    let mut text = to_text(&header_value(header))?.replace(&slot, &counts);
+    if header.complete {
+        text = text.replace("\"complete\":false", "\"complete\":true ");
+    }
+    Ok(text)
 }
 
 fn valid_namespace(ns: &Namespace) -> bool {
@@ -126,6 +142,10 @@ fn common(op: &str, meta: &OpMeta) -> Map<String, Value> {
     m.insert(
         "direction".into(),
         Value::String(direction_name(meta.direction).to_string()),
+    );
+    m.insert(
+        "destination".into(),
+        Value::String(destination_name(meta.direction).to_string()),
     );
     m.insert(
         "key".into(),
@@ -208,10 +228,7 @@ impl<W: Write> PlanWriter<W> {
         if self.state != State::New {
             return Err(RenderError::Sequence);
         }
-        let text = format!(
-            "{{\"header\":{},\"pairs\":[",
-            to_text(&header_value(header))?
-        );
+        let text = format!("{{\"header\":{},\"pairs\":[", header_text(header)?);
         self.inner.write_all(text.as_bytes())?;
         self.state = State::Pairs {
             any_pair: false,

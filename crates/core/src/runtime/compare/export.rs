@@ -6,20 +6,34 @@
 //! the apply planner's (`plan_pair_export`): documents are only READ, never written.
 //!
 //! Answers: `ExportProgress`* then exactly one `ExportDone`, unless the session was closed (then
-//! nothing more is sent). A refusal found after the slot was taken (the destination rules) and a
-//! failure to create or write the file are a `Failed { context: "compare_export" }` without
-//! `ExportDone`, sent after the slot was freed and the file removed.
+//! nothing more is sent). **For the UI:** a refusal found after the slot was taken (the
+//! destination rules) and a failure to create or write the file are a
+//! `Failed { context: "compare_export" }` WITHOUT `ExportDone`; it is the end of the export, sent
+//! after the slot was freed and the partial file removed. Its error is `ExportFileNotRemoved`
+//! when the removal itself failed (the person must delete the file); otherwise no file is left.
+//! In `ExportDone` of a cancelled export (or one that panicked) the file is gone and the counts
+//! say nothing was exported (`not_run` = all operations); `partial_removed` is false only when no
+//! file existed yet or its removal failed.
 //!
-//! File lifecycle: the file is created at the chosen path (truncating, owner-only), no temp file
-//! is made and nothing is renamed. It stays only if the export completed, was not cancelled and
-//! the session is still open and heard `ExportDone`; in every other case (cancel, close, error,
-//! panic) the partial file is removed (`FileGuard`) and `partial_removed` says so.
+//! Scripts have ONE destination side: a request whose operations write to both sides is refused
+//! for a script (`Unsupported("export one direction at a time")`); a JSON plan may mix them.
+//! The pairs are read once, when the request is accepted: a pair discarded afterwards is still
+//! exported from the results the person saw.
+//!
+//! File lifecycle: the file is created at the chosen path (owner-only, never following a
+//! symlink), no temp file is made and nothing is renamed. It starts as INCOMPLETE (a script
+//! whose first line is `quit(1);`, a plan with `"complete":false`) with a header of fixed
+//! length; only after the body was written and synced is the header overwritten IN PLACE by the
+//! final one (true counts, "complete"), so a file cut short by a crash cannot run or pass as
+//! whole. It stays only if the export completed, was not cancelled and the session is still open
+//! and heard `ExportDone`; in every other case (cancel, close, error, panic) the partial file is
+//! removed (`FileGuard`).
 //!
 //! File IO: the file is written with std buffered IO from the planner's batch sink (at most 500
 //! operations rendered per step, 64 KiB buffer, so memory is bounded); each such write is short
 //! and the waiting (document reads) is async, so it runs on the runtime thread instead of being
-//! shipped to a blocking thread per batch. Creating the file and patching the header at the end
-//! (which may rewrite the whole file once) run in `spawn_blocking`.
+//! shipped to a blocking thread per batch. Creating the file and the final sync + header
+//! overwrite run in `spawn_blocking`.
 //!
 //! Keys, documents and paths are data and are never logged.
 
@@ -29,21 +43,21 @@ use std::sync::Arc;
 use crate::compare::apply::{ApplyOp, IdPolicy};
 use crate::compare::apply_engine::ApplyInput;
 use crate::compare::engine::CancelFlag;
-use crate::compare::export::plan::{ExportItem, plan_pair_export};
-use crate::compare::export::{ExportCounts, ExportHeader};
+use crate::compare::export::plan::{ExportItem, destination_side, plan_pair_export};
+use crate::compare::export::{ExportCounts, ExportHeader, count_width};
 use crate::compare::protocol::{
-    CompareEvent, ExportFormat, ExportOutcome, ExportRequest, RunId, SessionId,
+    CompareEvent, ExportFormat, ExportOutcome, ExportRequest, RunId, SessionId, Side,
 };
 use crate::error::{CoreError, Result};
 use crate::store::DocumentStore;
 
 use super::apply::{
-    JobContext, check_destinations, expand_bulk, group_by_pair, internal_error, refuse_duplicates,
-    refuse_misshapen, require_results, snapshot, take_slot,
+    Group, JobContext, check_destinations, expand_bulk, group_by_pair, internal_error,
+    refuse_duplicates, refuse_misshapen, require_results, snapshot, take_slot,
 };
-use super::export_file::{FileGuard, replace_header, validate_path};
+use super::export_file::{FileGuard, overwrite_header, validate_path};
 use super::export_sink::{
-    FormatWriter, Resolved, Section, Tally, Unit, header_bytes, render_error, sections,
+    ExportSink, FormatWriter, Resolved, Section, Tally, Unit, header_bytes, render_error, sections,
 };
 use super::runner::RunSlot;
 use super::{Events, Repaint, Shared, answer_closed, connections};
@@ -53,7 +67,9 @@ struct ExportJob {
     format: ExportFormat,
     label: String,
     policy: IdPolicy,
-    groups: Vec<(u32, Vec<ApplyOp>)>,
+    resolved: Vec<Resolved>,
+    /// The one side a script writes to (`None` for a plan).
+    destination: Option<Side>,
     path: PathBuf,
     cancel: CancelFlag,
 }
@@ -106,16 +122,19 @@ fn start_export(ctx: JobContext, request: ExportRequest, path: PathBuf) -> Resul
     }
     refuse_misshapen(&ops)?;
     refuse_duplicates(&ops)?;
+    let destination = script_destination(format, &ops)?;
     let groups = group_by_pair(ops);
     require_results(&ctx.session, &groups)?;
     validate_path(&path)?;
+    let resolved = resolve(&ctx.session, groups)?;
     let cancel = CancelFlag::default();
     let slot = take_slot(&ctx.session, ctx.run, &cancel)?;
     let job = ExportJob {
         format,
         label,
         policy,
-        groups,
+        resolved,
+        destination,
         path,
         cancel,
     };
@@ -123,13 +142,63 @@ fn start_export(ctx: JobContext, request: ExportRequest, path: PathBuf) -> Resul
     Ok(())
 }
 
+/// A script writes to one side only (its statements name db and collection but not a server);
+/// a plan carries the direction of every operation. `None` for a plan.
+fn script_destination(format: ExportFormat, ops: &[ApplyOp]) -> Result<Option<Side>> {
+    if format == ExportFormat::JsonPlan {
+        return Ok(None);
+    }
+    let first = ops.first().map(destination_side);
+    if ops.iter().any(|op| Some(destination_side(op)) != first) {
+        return Err(CoreError::Unsupported(
+            "export one direction at a time".into(),
+        ));
+    }
+    Ok(first)
+}
+
+/// The pairs of the request with their ops, read once now.
+fn resolve(session: &super::session::Session, groups: Vec<Group>) -> Result<Vec<Resolved>> {
+    groups
+        .into_iter()
+        .map(|(pair, ops)| {
+            let (spec, results) = snapshot(session, pair).ok_or(CoreError::NotFound)?;
+            Ok(Resolved { spec, results, ops })
+        })
+        .collect()
+}
+
+fn groups_of(resolved: &[Resolved]) -> Vec<Group> {
+    resolved
+        .iter()
+        .map(|r| (r.spec.id, r.ops.clone()))
+        .collect()
+}
+
+/// An outcome in which nothing was exported: the file is gone (or never existed).
+fn nothing_exported(total: u64, cancelled: bool, partial_removed: bool) -> ExportOutcome {
+    ExportOutcome {
+        not_run: total,
+        cancelled,
+        partial_removed,
+        ..ExportOutcome::default()
+    }
+}
+
 /// Checks the destinations, creates the file and runs the writing in an inner task, so a panic
 /// there still frees the slot, removes the file and ends with an `ExportDone`.
 async fn run_export(ctx: JobContext, job: ExportJob, slot: RunSlot) {
-    if let Err(error) = check_destinations(&ctx.session, ctx.limit, &job.groups).await {
+    let total: u64 = job.resolved.iter().map(|r| r.ops.len() as u64).sum();
+    if let Err(error) = check_destinations(&ctx.session, ctx.limit, &groups_of(&job.resolved)).await
+    {
         // Freed first: a command sent on seeing the `Failed` must find the slot free.
         slot.release();
         ctx.emit(failed(&ctx, error));
+        return;
+    }
+    if job.cancel.is_cancelled() {
+        slot.release();
+        ctx.emit(done(&ctx, nothing_exported(total, true, false)));
         return;
     }
     let path = job.path.clone();
@@ -139,10 +208,10 @@ async fn run_export(ctx: JobContext, job: ExportJob, slot: RunSlot) {
         Ok(Err(error)) => return refuse(&ctx, slot, error),
         Err(_) => return refuse(&ctx, slot, internal_error()),
     };
-    let total: u64 = job.groups.iter().map(|(_, ops)| ops.len() as u64).sum();
     let cancel = job.cancel.clone();
-    let joined = tokio::spawn(write_export(ctx.clone(), job, file, total)).await;
-    conclude(&ctx, slot, guard, &cancel, total, joined).await;
+    let sink = ExportSink::new(file, &job.path);
+    let joined = tokio::spawn(write_export(ctx.clone(), job, sink, total)).await;
+    conclude(&ctx, slot, guard, &cancel, total, joined);
 }
 
 fn refuse(ctx: &JobContext, slot: RunSlot, error: CoreError) {
@@ -153,8 +222,9 @@ fn refuse(ctx: &JobContext, slot: RunSlot, error: CoreError) {
 type Joined = std::result::Result<Result<ExportOutcome>, tokio::task::JoinError>;
 
 /// Decides whether the file stays, then frees the slot and reports. The file stays only when the
-/// export ran to the end, was not cancelled, and `ExportDone` reached an open session.
-async fn conclude(
+/// export ran to the end, was not cancelled, and `ExportDone` reached an open session. A failed
+/// removal is reported (`partial_removed: false`, or `ExportFileNotRemoved` for a failure).
+fn conclude(
     ctx: &JobContext,
     slot: RunSlot,
     guard: FileGuard,
@@ -166,39 +236,28 @@ async fn conclude(
     match joined {
         Ok(Ok(outcome)) if !cancelled && ctx.session.is_open() => {
             slot.release();
-            let sent = ctx.emit(done(ctx, outcome));
-            if sent {
+            if ctx.emit(done(ctx, outcome)) {
                 guard.commit();
             } else {
+                // Closed meanwhile: nobody can be told, the file must still go.
                 guard.remove();
             }
         }
-        Ok(Ok(outcome)) => {
+        Ok(Err(error)) => {
             let removed = guard.remove();
             slot.release();
-            let outcome = ExportOutcome {
-                cancelled,
-                partial_removed: removed,
-                bytes: 0,
-                ..outcome
+            let error = if removed {
+                error
+            } else {
+                CoreError::ExportFileNotRemoved
             };
-            ctx.emit(done(ctx, outcome));
-        }
-        Ok(Err(error)) => {
-            guard.remove();
-            slot.release();
             ctx.emit(failed(ctx, error));
         }
-        Err(_) => {
+        // Cancelled, closed or panicked: the file goes and nothing counts as exported.
+        _ => {
             let removed = guard.remove();
             slot.release();
-            let outcome = ExportOutcome {
-                not_run: total,
-                cancelled,
-                partial_removed: removed,
-                ..ExportOutcome::default()
-            };
-            ctx.emit(done(ctx, outcome));
+            ctx.emit(done(ctx, nothing_exported(total, cancelled, removed)));
         }
     }
 }
@@ -211,32 +270,16 @@ fn done(ctx: &JobContext, outcome: ExportOutcome) -> CompareEvent {
     }
 }
 
-/// The pairs of the request as they are now. A pair discarded since the request cannot be
-/// planned: its ops count as failed (apply reports them as `NotFound`).
-fn resolve(ctx: &JobContext, groups: Vec<(u32, Vec<ApplyOp>)>) -> (Vec<Resolved>, u64) {
-    let mut resolved = Vec::new();
-    let mut missing = 0u64;
-    for (pair, ops) in groups {
-        match snapshot(&ctx.session, pair) {
-            Some((spec, results)) => resolved.push(Resolved { spec, results, ops }),
-            None => missing += ops.len() as u64,
-        }
-    }
-    (resolved, missing)
-}
-
-/// The header with every count an upper bound of the true one, so the true header is never
-/// longer; it is replaced by the true one at the end.
-fn provisional_header(base: &ExportHeader, total: u64) -> ExportHeader {
+/// The header of an export of `total` operations: counts padded to a fixed width, marked
+/// incomplete until the end.
+fn base_header(job: &ExportJob, total: u64) -> ExportHeader {
     ExportHeader {
-        counts: ExportCounts {
-            insert: total,
-            replace: total,
-            delete: total,
-            update_fields: total,
-            skipped: total,
-        },
-        ..base.clone()
+        label: job.label.clone(),
+        counts: ExportCounts::default(),
+        id_policy: job.policy,
+        count_width: count_width(total),
+        complete: false,
+        destination: job.destination,
     }
 }
 
@@ -244,19 +287,13 @@ fn provisional_header(base: &ExportHeader, total: u64) -> ExportHeader {
 async fn write_export(
     ctx: JobContext,
     job: ExportJob,
-    file: std::fs::File,
+    sink: ExportSink,
     total: u64,
 ) -> Result<ExportOutcome> {
-    let base = ExportHeader {
-        label: job.label,
-        counts: ExportCounts::default(),
-        id_policy: job.policy,
-    };
-    let provisional = provisional_header(&base, total);
-    let first = header_bytes(job.format, &provisional).map_err(render_error)?;
-    let mut writer = FormatWriter::new(job.format, file);
-    writer.begin(&provisional).map_err(render_error)?;
-    let (resolved, missing) = resolve(&ctx, job.groups);
+    let base = base_header(&job, total);
+    let first_len = header_bytes(job.format, &base).map_err(render_error)?.len() as u64;
+    let mut writer = FormatWriter::new(job.format, sink);
+    writer.begin(&base).map_err(render_error)?;
     let conns = connections(&ctx.session)?;
     let mut run = Run {
         ctx: &ctx,
@@ -264,18 +301,15 @@ async fn write_export(
         policy: job.policy,
         cancel: &job.cancel,
         total,
-        done: missing,
+        done: 0,
         not_run: 0,
-        tally: Tally {
-            failed: missing,
-            ..Tally::default()
-        },
+        tally: Tally::default(),
         writer,
     };
-    for section in sections(job.format, &resolved) {
-        run.section(&resolved, section).await?;
+    for section in sections(job.format, &job.resolved) {
+        run.section(&job.resolved, section).await?;
     }
-    finish(run, (job.format, base), first.len() as u64).await
+    finish(run, (job.format, base), first_len).await
 }
 
 /// The state of the writing.
@@ -334,35 +368,42 @@ impl Run<'_> {
     }
 }
 
-/// Closes the document, writes the true header over the provisional one and sizes the outcome.
+/// Closes the document, syncs it and overwrites the incomplete header by the final one (same
+/// length, one small write). Skipped when cancelled: the file is about to be removed.
 async fn finish(
     run: Run<'_>,
     (format, base): (ExportFormat, ExportHeader),
-    provisional_len: u64,
+    first_len: u64,
 ) -> Result<ExportOutcome> {
     let Run {
         writer,
         tally,
         not_run,
+        cancel,
         ..
     } = run;
+    if cancel.is_cancelled() {
+        return Ok(ExportOutcome::default());
+    }
     let file = writer.finish().map_err(render_error)?;
     let header = ExportHeader {
         counts: tally.counts,
+        complete: true,
         ..base
     };
     let bytes = header_bytes(format, &header).map_err(render_error)?;
     let length = tokio::task::spawn_blocking(move || {
         let mut file = file;
-        replace_header(&mut file, provisional_len, &bytes)
+        overwrite_header(&mut file, first_len, &bytes)?;
+        file.metadata().map(|m| m.len())
     })
     .await
     .map_err(|_| internal_error())?
     .map_err(|_| CoreError::ExportWriteFailed)?;
     Ok(ExportOutcome {
         written: tally.written(),
-        skipped: tally.counts.skipped,
-        failed: tally.failed,
+        skipped: tally.skipped(),
+        failed: tally.unreadable,
         not_run,
         bytes: length,
         cancelled: false,

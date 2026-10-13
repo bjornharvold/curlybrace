@@ -215,6 +215,9 @@ fn oracle_script(counts: ExportCounts, sections: &[(&str, &str, Vec<ExportItem>)
         label: LABEL.into(),
         counts,
         id_policy: IdPolicy::Keep,
+        count_width: 1,
+        complete: true,
+        destination: Some(crate::compare::protocol::Side::Target),
     };
     let mut w = ScriptWriter::new(Vec::new());
     w.begin(&header).unwrap();
@@ -545,27 +548,26 @@ async fn a_hostile_label_and_collection_name_cannot_add_statements_or_lines() {
 }
 
 #[tokio::test]
-async fn several_pairs_and_both_directions_still_give_one_statement_per_destination() {
+async fn several_pairs_in_one_direction_give_one_statement_per_destination() {
     let mut r = rig_with(
         ApplyStore::new(source_store()),
         ApplyStore::new(target_store()),
         vec![same_pair(1), pair(3, ns("d", "c2"), ns("d", "c"))],
     )
     .await;
-    let mut to_source = op(1, 2, ApplyKind::Replace);
-    to_source.direction = Direction::TargetToSource;
-    let ops = vec![
-        op(1, 1, ApplyKind::Insert),
-        to_source,
-        op(3, 1, ApplyKind::Insert),
-    ];
+    let ops = vec![op(1, 1, ApplyKind::Insert), op(3, 1, ApplyKind::Insert)];
     let path = r.path("multi.js");
     export(&mut r, 5, request(ExportFormat::Mongosh, ops), &path).await;
     let content = text(&path);
-    // Target d.c (pairs 1 and 3 share it) and source d.c are two collections on two servers.
-    assert_eq!(content.matches(".bulkWrite(").count(), 2);
+    assert_eq!(content.matches(".bulkWrite(").count(), 1);
     assert_eq!(content.matches("insertOne").count(), 2);
-    assert_eq!(content.matches("replaceOne").count(), 1);
+    assert_eq!(
+        content
+            .matches("// destination: target side of the comparison")
+            .count(),
+        2,
+        "once in the header and once on the statement"
+    );
 }
 
 #[tokio::test]
@@ -619,6 +621,11 @@ async fn stale_and_unsupported_operations_are_listed_as_skipped_never_written() 
     assert!(
         content.contains("skipped 2"),
         "header counts the skipped ops"
+    );
+    assert_eq!(
+        super::export_content_tests::header_total(&content),
+        3,
+        "the header adds up to the ops requested"
     );
     let plan = r.path("skips.json");
     export(&mut r, 6, request(ExportFormat::JsonPlan, ops), &plan).await;
@@ -683,6 +690,7 @@ async fn the_stores_are_never_written() {
     let events = export(&mut r, 5, request(ExportFormat::Mongosh, ops), &path).await;
     assert_eq!(outcome_of(&events).failed, 0);
     assert_eq!((r.source.writes(), r.target.writes()), (0, 0));
+    assert!(text(&path).starts_with("// complete export"));
 }
 
 #[tokio::test]
@@ -714,11 +722,11 @@ async fn a_large_export_streams_in_batches_and_gets_its_true_header() {
         content.len() as u64,
         "the shifted file has its true size"
     );
-    assert!(
-        content.contains(
-            "// operations: insert 1200, replace 0, delete 0, updateFields 0, skipped 0\n"
-        )
-    );
+    assert!(content.contains(
+        "// operations: insert 1200, replace    0, delete    0, updateFields    0, skipped    0\n"
+    ));
+    assert!(content.starts_with("// complete export"));
+    assert!(!content.contains("quit(1)"));
     assert_eq!(content.matches("insertOne").count(), 1200);
     assert!(content.ends_with("], { ordered: false });\n"));
     let dones: Vec<u64> = events

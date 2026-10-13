@@ -27,6 +27,8 @@ mod closed_tests;
 #[cfg(test)]
 mod duplicates_tests;
 mod export;
+#[cfg(test)]
+mod export_content_tests;
 mod export_file;
 #[cfg(test)]
 mod export_file_tests;

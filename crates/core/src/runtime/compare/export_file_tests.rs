@@ -3,7 +3,7 @@
 use std::fs;
 use std::io::Write;
 
-use super::export_file::{FileGuard, replace_header, validate_path};
+use super::export_file::{FileGuard, overwrite_header, validate_path};
 
 #[test]
 fn validate_path_accepts_a_new_file_and_an_existing_regular_file() {
@@ -78,28 +78,53 @@ fn contents(dir: &tempfile::TempDir) -> Vec<u8> {
 }
 
 #[test]
-fn replace_header_shifts_the_body_across_chunks_and_truncates() {
-    let body: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
-    let mut content = b"HEADER-LONGER".to_vec();
-    content.extend(&body);
-    let (dir, mut file) = file_with(&content);
-    let len = replace_header(&mut file, 13, b"HDR").unwrap();
-    let mut expected = b"HDR".to_vec();
-    expected.extend(&body);
-    assert_eq!(len, expected.len() as u64);
-    assert_eq!(contents(&dir), expected);
-}
-
-#[test]
-fn replace_header_with_an_equal_length_header_only_overwrites_the_head() {
+fn overwrite_header_replaces_only_the_head_in_place() {
     let (dir, mut file) = file_with(b"AAAA body");
-    assert_eq!(replace_header(&mut file, 4, b"BBBB").unwrap(), 9);
+    overwrite_header(&mut file, 4, b"BBBB").unwrap();
     assert_eq!(contents(&dir), b"BBBB body");
 }
 
 #[test]
-fn replace_header_refuses_a_longer_header_without_touching_the_file() {
-    let (dir, mut file) = file_with(b"AAAA body");
-    assert!(replace_header(&mut file, 4, b"BBBBB").is_err());
-    assert_eq!(contents(&dir), b"AAAA body");
+fn overwrite_header_refuses_another_length_without_touching_the_file() {
+    for header in [&b"BBBBB"[..], b"BBB"] {
+        let (dir, mut file) = file_with(b"AAAA body");
+        assert!(overwrite_header(&mut file, 4, header).is_err());
+        assert_eq!(contents(&dir), b"AAAA body");
+    }
+}
+
+#[test]
+fn a_trailing_separator_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut with_slash = dir.path().join("x.js").into_os_string();
+    with_slash.push("/");
+    assert!(validate_path(std::path::Path::new(&with_slash)).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn create_never_follows_a_symlink_or_empties_a_hard_linked_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("real.txt");
+    fs::write(&real, "KEEP").unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    assert!(FileGuard::create(&link).is_err());
+    let hard = dir.path().join("hard");
+    fs::hard_link(&real, &hard).unwrap();
+    assert!(FileGuard::create(&hard).is_err());
+    assert!(FileGuard::create(&real).is_err(), "it now has two links");
+    assert_eq!(fs::read_to_string(&real).unwrap(), "KEEP");
+    assert!(hard.exists() && link.exists(), "refusals remove nothing");
+}
+
+#[cfg(unix)]
+#[test]
+fn create_does_not_block_on_a_fifo() {
+    let dir = tempfile::tempdir().unwrap();
+    let fifo = dir.path().join("fifo");
+    let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    assert!(FileGuard::create(&fifo).is_err());
+    assert!(fifo.exists());
 }

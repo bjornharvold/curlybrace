@@ -19,6 +19,9 @@ fn header(label: &str) -> ExportHeader {
             skipped: 5,
         },
         id_policy: IdPolicy::Generate,
+        count_width: 1,
+        complete: true,
+        destination: None,
     }
 }
 
@@ -78,6 +81,7 @@ fn header_fields() {
             "format": "curlybrace-compare-plan",
             "version": 1,
             "label": "Nightly",
+            "complete": true,
             "counts": { "insert": 1, "replace": 2, "delete": 3, "updateFields": 4, "skipped": 5 },
             "idPolicy": "generate"
         })
@@ -133,6 +137,7 @@ fn insert_carries_canonical_extended_json() {
         json!({
             "op": "insert",
             "direction": "sourceToTarget",
+            "destination": "target",
             "key": [{ "$numberInt": "1" }],
             "sourceFingerprint": "ab".repeat(16),
             "targetFingerprint": null,
@@ -437,4 +442,35 @@ fn an_empty_namespace_is_a_bad_name() {
     let mut bad = pair("d");
     bad.target = Namespace::new("", "c");
     assert_eq!(w.pair(&bad), Err(RenderError::BadName));
+}
+
+fn header_len(complete: bool, width: usize, n: u64) -> usize {
+    let mut h = header("same label");
+    h.count_width = width;
+    h.complete = complete;
+    h.counts = ExportCounts {
+        insert: n,
+        replace: n,
+        delete: n,
+        update_fields: n,
+        skipped: n,
+    };
+    let mut bytes = Vec::new();
+    PlanWriter::new(&mut bytes).begin(&h).unwrap();
+    let text = String::from_utf8(bytes).unwrap();
+    assert_eq!(text.contains("\"complete\":true "), complete);
+    assert_eq!(text.contains("\"complete\":false"), !complete);
+    text.len()
+}
+
+#[test]
+fn the_header_has_the_same_length_incomplete_and_complete_for_any_total() {
+    for total in [0u64, 9, 10, 1200] {
+        let width = crate::compare::export::count_width(total);
+        assert_eq!(
+            header_len(false, width, 0),
+            header_len(true, width, total),
+            "total {total}"
+        );
+    }
 }

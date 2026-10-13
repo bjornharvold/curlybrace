@@ -7,12 +7,10 @@
 //! never logged and never carried in an error.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::error::{CoreError, Result};
-
-const COPY_CHUNK: usize = 64 * 1024;
 
 fn invalid_path() -> CoreError {
     CoreError::Unsupported("invalid export path".into())
@@ -22,7 +20,11 @@ fn invalid_path() -> CoreError {
 /// an existing directory, a symlink (it could point anywhere) or any other non-regular file.
 /// A missing file is fine (it is created). Synchronous: two metadata calls.
 pub(super) fn validate_path(path: &Path) -> Result<()> {
-    if !path.is_absolute() || path.file_name().is_none() {
+    let trailing_separator = path
+        .as_os_str()
+        .to_string_lossy()
+        .ends_with(std::path::is_separator);
+    if !path.is_absolute() || path.file_name().is_none() || trailing_separator {
         return Err(invalid_path());
     }
     let parent_is_dir = path
@@ -51,19 +53,18 @@ pub(super) struct FileGuard {
 impl FileGuard {
     /// Creates (or truncates) the file at `path`, readable and writable by its owner only, even
     /// when it existed before with wider permissions. The guard is armed from here on.
+    ///
+    /// On unix the open does not follow a symlink at `path` and does not block on a fifo; what
+    /// was opened is then checked (a regular file with one link) BEFORE it is truncated, so a
+    /// link to somebody else's file is never emptied. Anything else is an invalid path.
     pub(super) fn create(path: &Path) -> Result<(File, Self)> {
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let file = options
-            .open(path)
-            .map_err(|_| CoreError::ExportWriteFailed)?;
+        let file = open_checked(path)?;
         let guard = Self {
             path: path.to_path_buf(),
             armed: true,
         };
         restrict(&file)?;
+        file.set_len(0).map_err(|_| CoreError::ExportWriteFailed)?;
         Ok((file, guard))
     }
 
@@ -91,6 +92,35 @@ impl Drop for FileGuard {
 }
 
 #[cfg(unix)]
+fn open_checked(path: &Path) -> Result<File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    let file = options.open(path).map_err(|e| match e.raw_os_error() {
+        Some(libc::ELOOP) => invalid_path(),
+        _ => CoreError::ExportWriteFailed,
+    })?;
+    let meta = file.metadata().map_err(|_| CoreError::ExportWriteFailed)?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return Err(invalid_path());
+    }
+    Ok(file)
+}
+
+#[cfg(not(unix))]
+fn open_checked(path: &Path) -> Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(path)
+        .map_err(|_| CoreError::ExportWriteFailed)
+}
+
+#[cfg(unix)]
 fn restrict(file: &File) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     file.set_permissions(fs::Permissions::from_mode(0o600))
@@ -102,41 +132,20 @@ fn restrict(_: &File) -> Result<()> {
     Ok(())
 }
 
-/// Replaces the first `old_len` bytes of `file` by `header`, which must not be longer, and
-/// shifts the rest of the file down in place (bounded memory, no second file). Returns the new
-/// length. Used because the header holds counts that are only known after the last operation.
-pub(super) fn replace_header(file: &mut File, old_len: u64, header: &[u8]) -> io::Result<u64> {
-    let total = file.metadata()?.len();
-    let new_len = header.len() as u64;
-    let shift = old_len
-        .checked_sub(new_len)
-        .filter(|_| old_len <= total)
-        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+/// Overwrites the first `expected_len` bytes of `file` with `header`, which must have exactly
+/// that length: a small in-place write, nothing is moved. Data is synced before (so the body is
+/// on disk before the file claims to be complete) and after (before the caller keeps the file).
+pub(super) fn overwrite_header(
+    file: &mut File,
+    expected_len: u64,
+    header: &[u8],
+) -> io::Result<()> {
+    if header.len() as u64 != expected_len {
+        return Err(io::Error::from(io::ErrorKind::InvalidInput));
+    }
+    file.sync_all()?;
     file.seek(SeekFrom::Start(0))?;
     file.write_all(header)?;
-    if shift > 0 {
-        shift_down(file, old_len, total, shift)?;
-        file.set_len(total - shift)?;
-    }
     file.flush()?;
-    Ok(total - shift)
-}
-
-/// Copies `from..total` to `from - shift..`, front to back: a chunk is always written below the
-/// bytes still to be read.
-fn shift_down(file: &mut File, from: u64, total: u64, shift: u64) -> io::Result<()> {
-    let mut buf = vec![0u8; COPY_CHUNK];
-    let mut at = from;
-    while at < total {
-        let want = COPY_CHUNK.min((total - at) as usize);
-        file.seek(SeekFrom::Start(at))?;
-        let read = file.read(&mut buf[..want])?;
-        if read == 0 {
-            break;
-        }
-        file.seek(SeekFrom::Start(at - shift))?;
-        file.write_all(&buf[..read])?;
-        at += read as u64;
-    }
-    Ok(())
+    file.sync_all()
 }

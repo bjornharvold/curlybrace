@@ -10,7 +10,7 @@ use crate::compare::apply::{ApplyKind, ApplyOp};
 use crate::compare::export::json_plan::{PlanOp, PlanPair, PlanWriter};
 use crate::compare::export::mongosh::{ScriptWriter, ShellOp};
 use crate::compare::export::plan::{ExportItem, destination_side};
-use crate::compare::export::{ExportCounts, ExportHeader, OpMeta, RenderError};
+use crate::compare::export::{ExportCounts, ExportHeader, ExportSkip, OpMeta, RenderError};
 use crate::compare::protocol::{ExportFormat, PairSpec, Side};
 use crate::compare::results::ResultSet;
 use crate::error::CoreError;
@@ -115,8 +115,9 @@ fn push_unit(out: &mut Vec<Section>, head: Head, unit: Unit) {
 /// What the written items add up to; the source of the header counts and of the outcome.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Tally {
+    /// `skipped` includes the unreadable ops, so the header counts add up to the ops requested.
     pub counts: ExportCounts,
-    pub failed: u64,
+    pub unreadable: u64,
 }
 
 impl Tally {
@@ -130,9 +131,17 @@ impl Tally {
                 ApplyKind::Fields => self.counts.update_fields += 1,
             },
             ExportItem::Skipped { .. } => self.counts.skipped += 1,
-            ExportItem::Failed { .. } => self.failed += 1,
+            ExportItem::Failed { .. } => {
+                self.counts.skipped += 1;
+                self.unreadable += 1;
+            }
         }
         self
+    }
+
+    /// Skipped ops other than the unreadable ones (stale, not planned, unsupported).
+    pub(super) fn skipped(&self) -> u64 {
+        self.counts.skipped - self.unreadable
     }
 
     pub(super) fn written(&self) -> u64 {
@@ -151,7 +160,46 @@ pub(super) fn render_error(error: RenderError) -> CoreError {
     }
 }
 
-type Out = BufWriter<File>;
+/// The file under the buffer. It can be told to fail after some bytes, which only tests do.
+pub(super) struct ExportSink {
+    file: File,
+    fail_after: Option<u64>,
+    written: u64,
+}
+
+impl ExportSink {
+    pub(super) fn new(file: File, path: &std::path::Path) -> Self {
+        #[cfg(test)]
+        let fail_after = test_hooks::fail_after(path);
+        #[cfg(not(test))]
+        let fail_after = {
+            let _ = path;
+            None
+        };
+        Self {
+            file,
+            fail_after,
+            written: 0,
+        }
+    }
+}
+
+impl std::io::Write for ExportSink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.fail_after.is_some_and(|limit| self.written >= limit) {
+            return Err(std::io::Error::other("injected write failure"));
+        }
+        let n = self.file.write(buf)?;
+        self.written += n as u64;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+}
+
+type Out = BufWriter<ExportSink>;
 
 /// The writer of the chosen format over the export file.
 pub(super) enum FormatWriter {
@@ -160,8 +208,8 @@ pub(super) enum FormatWriter {
 }
 
 impl FormatWriter {
-    pub(super) fn new(format: ExportFormat, file: File) -> Self {
-        let out = BufWriter::with_capacity(BUFFER, file);
+    pub(super) fn new(format: ExportFormat, sink: ExportSink) -> Self {
+        let out = BufWriter::with_capacity(BUFFER, sink);
         match format {
             ExportFormat::Mongosh => Self::Script(ScriptWriter::new(out)),
             ExportFormat::JsonPlan => Self::Plan(PlanWriter::new(out)),
@@ -190,7 +238,7 @@ impl FormatWriter {
         }
     }
 
-    /// Writes the item. A failed item is not listed (the outcome counts it).
+    /// Writes the item. An op that could not be read is listed as skipped (`unreadable`).
     pub(super) fn item(&mut self, item: ExportItem) -> Result<(), RenderError> {
         match item {
             ExportItem::Write {
@@ -205,7 +253,10 @@ impl FormatWriter {
                 source_fp,
                 target_fp,
             } => self.skip(meta(&op, source_fp, target_fp), op.kind, reason),
-            ExportItem::Failed { .. } => Ok(()),
+            ExportItem::Failed { op, .. } => {
+                let meta = meta(&op, None, None);
+                self.skip(meta, op.kind, ExportSkip::Unreadable)
+            }
         }
     }
 
@@ -220,7 +271,7 @@ impl FormatWriter {
         &mut self,
         meta: OpMeta,
         kind: ApplyKind,
-        reason: crate::compare::export::ExportSkip,
+        reason: ExportSkip,
     ) -> Result<(), RenderError> {
         match self {
             Self::Script(w) => w.skipped(&meta, kind, reason),
@@ -235,6 +286,7 @@ impl FormatWriter {
             Self::Plan(w) => w.finish()?,
         };
         out.into_inner()
+            .map(|sink| sink.file)
             .map_err(|e| RenderError::Io(e.error().kind()))
     }
 }
@@ -264,4 +316,22 @@ pub(super) fn header_bytes(
         ExportFormat::JsonPlan => PlanWriter::new(&mut bytes).begin(header)?,
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+pub(super) mod test_hooks {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    static FAILING: Mutex<Vec<(PathBuf, u64)>> = Mutex::new(Vec::new());
+
+    /// Writes to the export file at `path` fail once `bytes` were written.
+    pub(in super::super) fn fail_writes_after(path: &Path, bytes: u64) {
+        FAILING.lock().unwrap().push((path.to_path_buf(), bytes));
+    }
+
+    pub(super) fn fail_after(path: &Path) -> Option<u64> {
+        let failing = FAILING.lock().unwrap();
+        failing.iter().find(|(p, _)| p == path).map(|(_, n)| *n)
+    }
 }

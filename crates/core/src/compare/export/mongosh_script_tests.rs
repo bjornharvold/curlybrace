@@ -31,6 +31,9 @@ fn header(label: &str) -> ExportHeader {
             skipped: 1,
         },
         id_policy: IdPolicy::Keep,
+        count_width: 1,
+        complete: true,
+        destination: None,
     }
 }
 
@@ -104,8 +107,10 @@ fn full_script() -> String {
 
 #[test]
 fn golden_script() {
+    let first = format!("{:<w$}", "// complete export", w = INCOMPLETE_LINE.len());
     let expected = format!(
         "\
+{first}
 // curlybrace data compare: mongosh script
 // label: evil ); db.dropDatabase(); //
 // operations: insert 1, replace 1, delete 2, updateFields 1, skipped 1
@@ -540,4 +545,60 @@ fn regex_flags_the_shell_rejects_are_refused() {
 fn the_header_warns_that_a_failed_item_stops_later_statements() {
     let script = text(new_writer("l"));
     assert!(script.contains("the later statements of this script do not run"));
+}
+
+fn header_text_of(complete: bool, width: usize, n: u64) -> String {
+    let mut h = header("same label");
+    h.count_width = width;
+    h.complete = complete;
+    h.counts = ExportCounts {
+        insert: n,
+        replace: n,
+        delete: n,
+        update_fields: n,
+        skipped: n,
+    };
+    let mut bytes = Vec::new();
+    ScriptWriter::new(&mut bytes).begin(&h).unwrap();
+    String::from_utf8(bytes).unwrap()
+}
+
+#[test]
+fn the_header_has_the_same_length_incomplete_and_complete_for_any_total() {
+    for total in [0u64, 9, 10, 1200] {
+        let width = crate::compare::export::count_width(total);
+        let before = header_text_of(false, width, 0);
+        let after = header_text_of(true, width, total);
+        assert_eq!(before.len(), after.len(), "total {total}");
+        assert!(before.starts_with(&format!("{INCOMPLETE_LINE}\n")));
+        assert!(after.starts_with("// complete export"));
+        assert!(!after.contains("quit(1)"));
+    }
+}
+
+#[test]
+fn an_incomplete_script_quits_before_anything_else() {
+    let text = header_text_of(false, 1, 0);
+    assert_eq!(
+        text.lines().next(),
+        Some("quit(1); // incomplete export: do not run")
+    );
+}
+
+#[test]
+fn a_destination_is_written_in_the_header_and_on_every_statement() {
+    let mut h = header("l");
+    h.destination = Some(crate::compare::protocol::Side::Source);
+    let mut w = ScriptWriter::new(Vec::new());
+    w.begin(&h).unwrap();
+    w.collection("a", "b").unwrap();
+    w.end_collection().unwrap();
+    w.collection("a", "c").unwrap();
+    w.end_collection().unwrap();
+    let text = String::from_utf8(w.finish().unwrap()).unwrap();
+    assert_eq!(
+        text.matches("// destination: source side of the comparison\n")
+            .count(),
+        3
+    );
 }

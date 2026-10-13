@@ -72,6 +72,9 @@ pub enum CoreError {
     /// An export file could not be created or written. No path or system text is carried.
     #[error("export: the file could not be written")]
     ExportWriteFailed,
+    /// An export failed and the partial file could not be removed; the person must delete it.
+    #[error("export: the partial file could not be removed")]
+    ExportFileNotRemoved,
 }
 
 impl CoreError {
@@ -103,6 +106,7 @@ impl CoreError {
             Self::ApplyDuplicateKey => "errors.apply_duplicate_key",
             Self::ApplyOutcomeUnknown => "errors.apply_outcome_unknown",
             Self::ExportWriteFailed => "errors.export_write_failed",
+            Self::ExportFileNotRemoved => "errors.export_file_not_removed",
         }
     }
 }
@@ -139,6 +143,7 @@ mod tests {
             CoreError::ApplyDuplicateKey,
             CoreError::ApplyOutcomeUnknown,
             CoreError::ExportWriteFailed,
+            CoreError::ExportFileNotRemoved,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         keys.sort();
