@@ -75,12 +75,12 @@ fn show_progress(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option
             scanned_target,
             ..
         } => {
-            let done = if *cancelled {
-                "compare.run.cancelled_no_results"
-            } else {
-                "compare.run.finished"
-            };
-            ui.label(i18n.t(done));
+            // A failed run did not finish: only the failure line speaks for it.
+            if *cancelled {
+                ui.label(i18n.t("compare.run.cancelled_no_results"));
+            } else if failure.is_none() {
+                ui.label(i18n.t("compare.run.finished"));
+            }
             ui.label(scanned_text(*scanned_source, *scanned_target, i18n));
             show_failure(ui, failure.as_ref(), i18n);
         }
