@@ -17,11 +17,11 @@ use super::apply::{
 };
 use super::engine::CancelFlag;
 use super::fingerprint::{Fingerprint, fingerprint_of};
-use super::key::KeyTuple;
+use super::key::{KeyTuple, compare_tuples};
 use super::protocol::PairSpec;
 use super::results::{Category, DiffEntry, ResultSet};
 use super::rules::CompareRules;
-use super::scan::fetch_one;
+use super::scan::{Unique, fetch_unique};
 use crate::error::{CoreError, Result};
 use crate::store::{DocumentStore, Namespace, WriteOp, WriteOutcome};
 
@@ -89,8 +89,8 @@ impl ApplyInput<'_> {
     }
 
     /// The document with `key` on `side`, as the pair's filter sees it.
-    async fn read(&self, side: Side, key: &KeyTuple) -> Result<Option<Document>> {
-        fetch_one(
+    async fn read(&self, side: Side, key: &KeyTuple) -> Result<Unique> {
+        fetch_unique(
             self.store(side),
             self.namespace(side),
             self.filter(side),
@@ -107,6 +107,13 @@ impl ApplyInput<'_> {
         CATEGORIES
             .iter()
             .find_map(|c| self.results.find(*c, &op.key))
+    }
+}
+
+fn into_option(found: Unique) -> Option<Document> {
+    match found {
+        Unique::One(doc) => Some(doc),
+        Unique::Absent | Unique::Several => None,
     }
 }
 
@@ -133,6 +140,11 @@ async fn verify(input: &ApplyInput<'_>, op: &ApplyOp) -> Result<Verdict> {
         input.read(Side::Source, &op.key),
         input.read(Side::Target, &op.key)
     )?;
+    let (Unique::Absent | Unique::One(_), Unique::Absent | Unique::One(_)) = (&source, &target)
+    else {
+        return Ok(Verdict::Done(OpOutcome::Skipped(SkipReason::Stale)));
+    };
+    let (source, target) = (into_option(source), into_option(target));
     let rules = &input.spec.rules;
     if !unchanged(rules, entry.source, source.as_ref())?
         || !unchanged(rules, entry.target, target.as_ref())?
@@ -155,10 +167,15 @@ async fn verify_op(input: &ApplyInput<'_>, op: &ApplyOp) -> Verdict {
     }
 }
 
-async fn plan_batch(input: &ApplyInput<'_>, batch: &[ApplyOp]) -> Planned {
+async fn plan_batch(input: &ApplyInput<'_>, batch: &[ApplyOp], repeated: &[bool]) -> Planned {
     let mut planned = Planned::default();
     for (index, op) in batch.iter().enumerate() {
-        match verify_op(input, op).await {
+        let verdict = if repeated[index] {
+            Verdict::Done(OpOutcome::Skipped(SkipReason::NotPlanned))
+        } else {
+            verify_op(input, op).await
+        };
+        match verdict {
             Verdict::Done(outcome) => planned.done.push(Some(outcome)),
             Verdict::Write(side, write) => {
                 planned.done.push(None);
@@ -228,18 +245,37 @@ fn merge_outcomes(
         .collect()
 }
 
-async fn apply_batch(input: &ApplyInput<'_>, batch: &[ApplyOp]) -> Vec<OpOutcome> {
+async fn apply_batch(
+    input: &ApplyInput<'_>,
+    batch: &[ApplyOp],
+    repeated: &[bool],
+) -> Vec<OpOutcome> {
     let Planned {
         done,
         to_source,
         to_target,
-    } = plan_batch(input, batch).await;
+    } = plan_batch(input, batch, repeated).await;
     let (mut written, to_target_done) = tokio::join!(
         write_group(input, Side::Source, to_source),
         write_group(input, Side::Target, to_target)
     );
     written.extend(to_target_done);
     merge_outcomes(done, written)
+}
+
+/// Flags every op whose key (under key equality) already appeared earlier in `ops`: only the
+/// first op per key may run, so two ops can never act on the same document in one apply.
+fn repeated_keys(ops: &[ApplyOp]) -> Vec<bool> {
+    let mut order: Vec<usize> = (0..ops.len()).collect();
+    // Stable: within equal keys the original order is kept, so the first stays first.
+    order.sort_by(|a, b| compare_tuples(&ops[*a].key, &ops[*b].key));
+    let mut flags = vec![false; ops.len()];
+    for pair in order.windows(2) {
+        if compare_tuples(&ops[pair[0]].key, &ops[pair[1]].key).is_eq() {
+            flags[pair[1]] = true;
+        }
+    }
+    flags
 }
 
 /// Verifies and applies `ops` in batches of `APPLY_BATCH`; `progress(done_in_pair)` after each
@@ -251,11 +287,16 @@ pub async fn apply_pair(
 ) -> Result<ApplyReport> {
     let mut report = ApplyReport::default();
     let mut done = 0usize;
-    for batch in input.ops.chunks(APPLY_BATCH) {
+    let repeated = repeated_keys(input.ops);
+    for (batch, flags) in input
+        .ops
+        .chunks(APPLY_BATCH)
+        .zip(repeated.chunks(APPLY_BATCH))
+    {
         if cancel.is_cancelled() {
             break;
         }
-        let outcomes = apply_batch(&input, batch).await;
+        let outcomes = apply_batch(&input, batch, flags).await;
         for (op, outcome) in batch.iter().zip(&outcomes) {
             report.record(&op.key, outcome);
         }

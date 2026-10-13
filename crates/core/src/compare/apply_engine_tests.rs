@@ -127,7 +127,8 @@ impl DocumentStore for Spy {
 struct Fixture {
     spec: PairSpec,
     results: ResultSet,
-    source: Arc<InMemoryStore>,
+    source_inner: Arc<InMemoryStore>,
+    source: Arc<Spy>,
     target_inner: Arc<InMemoryStore>,
     target: Arc<Spy>,
 }
@@ -140,7 +141,8 @@ impl Fixture {
         rules: CompareRules,
         filter: Document,
     ) -> Self {
-        let source = Arc::new(InMemoryStore::new().with_docs(&src_ns(), source));
+        let source_inner = Arc::new(InMemoryStore::new().with_docs(&src_ns(), source));
+        let source = Arc::new(Spy::new(source_inner.clone()));
         let target_inner = Arc::new(InMemoryStore::new().with_docs(&tgt_ns(), target));
         let target = Arc::new(Spy::new(target_inner.clone()));
         let spec = PairSpec {
@@ -156,6 +158,7 @@ impl Fixture {
         Self {
             spec,
             results,
+            source_inner,
             source,
             target_inner,
             target,
@@ -190,7 +193,7 @@ impl Fixture {
     }
 
     fn source_docs(&self) -> Vec<Document> {
-        all(&self.source, &src_ns())
+        all(&self.source_inner, &src_ns())
     }
 
     fn target_docs(&self) -> Vec<Document> {
@@ -566,4 +569,107 @@ async fn the_generate_policy_inserts_without_the_origin_id() {
     let docs = f.target_docs();
     assert_eq!(docs.len(), 1);
     assert_ne!(docs[0].get("_id"), Some(&Bson::Int32(1)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_ops_on_one_key_run_only_the_first() {
+    let f = Fixture::by_id(vec![doc! {"_id": 3, "v": 1}], vec![doc! {"_id": 3, "v": 2}]).await;
+    let r = f
+        .apply(&[op(k(3), Replace, ST), op(k(3), Replace, TS)])
+        .await;
+    assert_eq!((r.applied, r.not_planned, total(&r)), (1, 1, 2));
+    assert_eq!(*f.target.calls.lock().unwrap(), vec![1]);
+    assert!(f.source.calls.lock().unwrap().is_empty());
+    assert_eq!(f.source_docs(), vec![doc! {"_id": 3, "v": 1}]);
+    assert_eq!(f.target_docs(), vec![doc! {"_id": 3, "v": 1}]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repeated_insert_is_written_once() {
+    let f = Fixture::by_id(vec![doc! {"_id": 1}], vec![]).await;
+    let r = f.apply(&[op(k(1), Insert, ST), op(k(1), Insert, ST)]).await;
+    assert_eq!((r.applied, r.not_planned, r.failed), (1, 1, 0));
+    assert_eq!(*f.target.calls.lock().unwrap(), vec![1]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn keys_that_differ_only_in_numeric_type_count_as_the_same_key() {
+    let f = Fixture::by_id(vec![doc! {"_id": 1}], vec![]).await;
+    let wide = KeyTuple(vec![Bson::Int64(1)]);
+    let r = f.apply(&[op(k(1), Insert, ST), op(wide, Insert, ST)]).await;
+    assert_eq!((r.applied, r.not_planned, r.failed), (1, 1, 0));
+    assert_eq!(f.target_docs().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn writes_to_both_sides_in_one_batch_keep_each_outcome_with_its_op() {
+    let f = Fixture::by_id(
+        vec![doc! {"_id": 1}, doc! {"_id": 3, "v": 1}],
+        vec![doc! {"_id": 3, "v": 2}, doc! {"_id": 4}],
+    )
+    .await;
+    *f.target.duplicate_id.lock().unwrap() = Some(Bson::Int32(1));
+    let ops = [
+        op(k(4), Insert, TS),
+        op(k(1), Insert, ST),
+        op(k(3), Replace, ST),
+    ];
+    let r = f.apply(&ops).await;
+    assert_eq!((r.applied, r.failed, total(&r)), (2, 1, 3));
+    assert_eq!(r.failures[0].key, k(1));
+    assert_eq!(*f.source.calls.lock().unwrap(), vec![1]);
+    assert_eq!(*f.target.calls.lock().unwrap(), vec![2]);
+    assert_eq!(f.source_docs().len(), 3);
+    assert_eq!(
+        f.target_docs(),
+        vec![doc! {"_id": 3, "v": 1}, doc! {"_id": 4}]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_delete_is_stale_when_the_origin_gained_the_document() {
+    let f = Fixture::by_id(vec![], vec![doc! {"_id": 4, "v": 1}]).await;
+    let appeared = doc! {"_id": 4, "v": 1};
+    f.source_inner
+        .insert(&src_ns(), appeared.clone())
+        .await
+        .unwrap();
+    let r = f.apply(&[op(k(4), Delete, ST)]).await;
+    assert_eq!((r.stale, total(&r)), (1, 1));
+    assert_eq!(f.target_docs(), vec![appeared]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_target_to_source_replace_is_stale_when_the_target_changed() {
+    let f = Fixture::by_id(vec![doc! {"_id": 3, "v": 1}], vec![doc! {"_id": 3, "v": 2}]).await;
+    f.target_inner
+        .replace(&tgt_ns(), &Bson::Int32(3), doc! {"_id": 3, "v": 9})
+        .await
+        .unwrap();
+    let r = f.apply(&[op(k(3), Replace, TS)]).await;
+    assert_eq!((r.stale, r.applied, total(&r)), (1, 0, 1));
+    assert_eq!(f.source_docs(), vec![doc! {"_id": 3, "v": 1}]);
+    assert!(f.source.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_duplicate_key_that_appeared_since_the_compare_makes_the_op_stale() {
+    let key = KeySpec::new(vec!["email".into()]).unwrap();
+    let rules = CompareRules::for_key(&key);
+    let f = Fixture::build(
+        vec![doc! {"_id": 1, "email": "a", "v": 2}],
+        vec![doc! {"_id": 50, "email": "a", "v": 1}],
+        key,
+        rules,
+        doc! {},
+    )
+    .await;
+    f.target_inner
+        .insert(&tgt_ns(), doc! {"_id": 51, "email": "a", "v": 1})
+        .await
+        .unwrap();
+    let r = f.apply(&[op(email("a"), Replace, ST)]).await;
+    assert_eq!((r.stale, r.applied, total(&r)), (1, 0, 1));
+    assert_eq!(*f.target.calls.lock().unwrap(), Vec::<usize>::new());
+    assert_eq!(f.target_docs().len(), 2);
 }
