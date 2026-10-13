@@ -13,11 +13,17 @@
 //! Guards: a dotted path cannot tell an array index from a field called `"0"`, so on a document
 //! where an array was expected the server would create a field named `"0"`. Every path with an
 //! `Index` adds `"<prefix up to the array>": { $type: "array" }` to `q` (one clause per distinct
-//! prefix), and a numeric `Field` name adds `{ $type: "object" }` for its parent. If a guard
-//! makes the update match nothing, the op is reported `Missing`: that conflates "no such
-//! document" with "the array vanished or changed shape"; both mean the document is no longer as
-//! the plan expected. Not guarded: an index beyond the end of an array (the server would pad
-//! with nulls); the planner only plans indexes that exist on both sides.
+//! prefix) and `"<prefix>.<i>": { $exists: true }` (so an index past the end reports `Missing`
+//! instead of padding nulls). A numeric `Field` name adds an exact object-only guard for its
+//! parent, `{ $type: "object", $not: { $type: "array" } }` (a bare `$type: "object"` also
+//! matches an array holding an object). If a guard makes the update match nothing, the op is
+//! reported `Missing`: that conflates "no such document" with "the document changed shape";
+//! both mean it is no longer as the plan expected. An `$unset` through an array is refused
+//! (`Rejected(2)`): the server would null the element instead of removing it.
+//!
+//! Race: if a concurrent writer restores the expected shape between the update and the probe,
+//! an op whose guard failed is reported `Ok` without having been applied (the same class of
+//! race as for replaces, whose probe also runs after the command).
 //!
 //! Missing detection is the same as for replaces (reply `n` short, then a Primary-read probe),
 //! except that the probe uses each op's full `q`, guards included. No server text is copied.
@@ -69,7 +75,9 @@ pub(crate) fn render_path(path: &[PathSegment]) -> std::result::Result<String, W
     let parts: std::result::Result<Vec<String>, WriteFailure> = path
         .iter()
         .map(|segment| match segment {
-            PathSegment::Field(n) if n.is_empty() || n.contains('.') || n.starts_with('$') => {
+            PathSegment::Field(n)
+                if n.is_empty() || n.contains(['.', '\0']) || n.starts_with('$') =>
+            {
                 Err(rejected(BAD_VALUE))
             }
             PathSegment::Field(n) => Ok(n.clone()),
@@ -80,32 +88,87 @@ pub(crate) fn render_path(path: &[PathSegment]) -> std::result::Result<String, W
     Ok(parts?.join("."))
 }
 
-/// `(prefix, required type)` for every place where the dotted form is ambiguous.
-fn guards_for(path: &[PathSegment]) -> Vec<(String, &'static str)> {
-    (1..path.len())
-        .filter_map(|i| {
-            let wanted = match &path[i] {
-                PathSegment::Index(_) => "array",
-                PathSegment::Field(n) if n.bytes().all(|b| b.is_ascii_digit()) => "object",
-                _ => return None,
-            };
-            render_path(&path[..i]).ok().map(|prefix| (prefix, wanted))
-        })
-        .collect()
+/// What the query requires at one dotted key.
+#[derive(Clone, Copy, Default, PartialEq)]
+struct Guard {
+    kind: Option<&'static str>,
+    exists: bool,
 }
 
-/// The query: the `$eq` id plus one guard clause per distinct prefix. Two paths wanting
-/// different types at one prefix cannot both hold: refused as a conflict.
-fn build_query(id: &Bson, paths: &[&[PathSegment]]) -> std::result::Result<Document, WriteFailure> {
-    let mut wanted: BTreeMap<String, &'static str> = BTreeMap::new();
-    for (prefix, kind) in paths.iter().flat_map(|p| guards_for(p)) {
-        if wanted.insert(prefix, kind).is_some_and(|old| old != kind) {
-            return Err(rejected(CONFLICTING_UPDATES));
+/// The guards one path needs: `(dotted key, requirement)`.
+fn guards_for(path: &[PathSegment]) -> Vec<(String, Guard)> {
+    let mut out = Vec::new();
+    for i in 1..path.len() {
+        let Ok(prefix) = render_path(&path[..i]) else {
+            continue;
+        };
+        match &path[i] {
+            PathSegment::Index(n) => {
+                out.push((
+                    prefix.clone(),
+                    Guard {
+                        kind: Some("array"),
+                        exists: false,
+                    },
+                ));
+                out.push((
+                    format!("{prefix}.{n}"),
+                    Guard {
+                        kind: None,
+                        exists: true,
+                    },
+                ));
+            }
+            PathSegment::Field(n) if n.bytes().all(|b| b.is_ascii_digit()) => {
+                out.push((
+                    prefix,
+                    Guard {
+                        kind: Some("object"),
+                        exists: false,
+                    },
+                ));
+            }
+            _ => {}
         }
     }
+    out
+}
+
+fn guard_clause(guard: Guard) -> Document {
+    let mut clause = Document::new();
+    match guard.kind {
+        Some("object") => {
+            clause.insert("$type", "object");
+            clause.insert("$not", doc! { "$type": "array" });
+        }
+        Some(kind) => {
+            clause.insert("$type", kind);
+        }
+        None => {}
+    }
+    if guard.exists {
+        clause.insert("$exists", true);
+    }
+    clause
+}
+
+/// The query: the `$eq` id plus one clause per distinct key. Two paths wanting different types
+/// at one prefix cannot both hold: refused as a conflict.
+fn build_query(id: &Bson, paths: &[&[PathSegment]]) -> std::result::Result<Document, WriteFailure> {
+    let mut wanted: BTreeMap<String, Guard> = BTreeMap::new();
+    for (key, guard) in paths.iter().flat_map(|p| guards_for(p)) {
+        let slot = wanted.entry(key).or_default();
+        if slot.kind.is_some() && guard.kind.is_some() && slot.kind != guard.kind {
+            return Err(rejected(CONFLICTING_UPDATES));
+        }
+        *slot = Guard {
+            kind: slot.kind.or(guard.kind),
+            exists: slot.exists || guard.exists,
+        };
+    }
     let mut query = id_query(id);
-    for (prefix, kind) in wanted {
-        query.insert(prefix, doc! { "$type": kind });
+    for (key, guard) in wanted {
+        query.insert(key, guard_clause(guard));
     }
     Ok(query)
 }
@@ -126,6 +189,12 @@ pub(crate) fn build_statement(
     unset: &[Vec<PathSegment>],
 ) -> std::result::Result<FieldStatement, WriteFailure> {
     if set.is_empty() && unset.is_empty() {
+        return Err(rejected(BAD_VALUE));
+    }
+    if unset
+        .iter()
+        .any(|p| p.iter().any(|s| matches!(s, PathSegment::Index(_))))
+    {
         return Err(rejected(BAD_VALUE));
     }
     let set_keys = set.iter().map(|(p, _)| render_path(p));
@@ -235,6 +304,8 @@ mod tests {
             (vec![f("ünï"), f("sp ace")], "ünï.sp ace"),
             (vec![f("a$")], "a$"),
         ];
+        assert_eq!(code(render_path(&[f("a\0b")])), rejected(2));
+        assert_eq!(code(render_path(&[f("a"), f("\0")])), rejected(2));
         for (path, want) in ok {
             assert_eq!(render_path(&path).as_deref(), Ok(want), "{path:?}");
         }
@@ -321,8 +392,12 @@ mod tests {
         let want = doc! {
             "_id": { "$eq": 7 },
             "arr": { "$type": "array" },
+            "arr.0": { "$exists": true },
+            "arr.2": { "$exists": true },
             "m": { "$type": "array" },
+            "m.1": { "$exists": true },
             "m.1.n": { "$type": "array" },
+            "m.1.n.3": { "$exists": true },
         };
         assert_eq!(got.query, want);
         assert_eq!(got.statement.get_document("q").unwrap(), &want);
@@ -343,7 +418,10 @@ mod tests {
         let got = build_statement(&id(), &[(vec![f("a"), f("0")], Bson::Null)], &[]).unwrap();
         assert_eq!(
             got.query,
-            doc! { "_id": { "$eq": 7 }, "a": { "$type": "object" } }
+            doc! {
+                "_id": { "$eq": 7 },
+                "a": { "$type": "object", "$not": { "$type": "array" } },
+            }
         );
         let top = build_statement(&id(), &[(vec![f("0")], Bson::Null)], &[]).unwrap();
         assert_eq!(top.query, doc! { "_id": { "$eq": 7 } });
@@ -368,7 +446,10 @@ mod tests {
             (vec![a(&[f("a"), f("b")])], vec![vec![f("a")]]),
             (vec![a(&[f("x")])], vec![vec![f("x")]]),
             (vec![a(&[f("a"), f("1")]), a(&[f("a"), I(1)])], vec![]),
-            (vec![a(&[f("a"), f("1")])], vec![vec![f("a"), I(1), f("z")]]),
+            (
+                vec![a(&[f("a"), f("1")]), a(&[f("a"), I(1), f("z")])],
+                vec![],
+            ),
         ];
         for (set, unset) in cases {
             assert_eq!(
@@ -381,15 +462,41 @@ mod tests {
 
     #[test]
     fn bad_names_empty_ops_and_id_are_refused() {
-        for bad in [vec![f("a.b")], vec![f("$x")], vec![f("")], vec![f("_id")]] {
-            let set = vec![(vec![f("ok")], Bson::Null), (bad.clone(), Bson::Null)];
-            assert!(build_statement(&id(), &set, &[]).is_err(), "{bad:?}");
-            assert!(
-                build_statement(&id(), &[], &[bad.clone()]).is_err(),
-                "{bad:?}"
+        let bad: Vec<(Vec<PathSegment>, i32)> = vec![
+            (vec![f("a.b")], 2),
+            (vec![f("$x")], 2),
+            (vec![f("")], 2),
+            (vec![f("n\0")], 2),
+            (vec![f("_id")], 66),
+        ];
+        for (path, want) in bad {
+            let set = vec![(vec![f("ok")], Bson::Null), (path.clone(), Bson::Null)];
+            assert_eq!(
+                code(build_statement(&id(), &set, &[])),
+                rejected(want),
+                "{path:?}"
+            );
+            let unset = [path.clone()];
+            assert_eq!(
+                code(build_statement(&id(), &[], &unset)),
+                rejected(want),
+                "{path:?}"
             );
         }
         assert_eq!(code(build_statement(&id(), &[], &[])), rejected(2));
+    }
+
+    #[test]
+    fn an_unset_through_an_array_is_refused() {
+        for path in [vec![f("arr"), I(0)], vec![f("arr"), I(2), f("k")]] {
+            let got = build_statement(&id(), &[], &[path.clone()]);
+            assert_eq!(code(got), rejected(2), "{path:?}");
+            let set = vec![(vec![f("s")], Bson::Null)];
+            assert_eq!(
+                code(build_statement(&id(), &set, &[path.clone()])),
+                rejected(2)
+            );
+        }
     }
 
     #[test]

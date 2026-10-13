@@ -199,6 +199,18 @@ async fn update_fields_refuses_dotted_dollar_and_id_paths_without_touching_neigh
         let reset = update(Bson::Int32(1), set1(vec![f("x")], 1), vec![]);
         store.bulk_write(&ns, vec![reset]).await.unwrap();
     }
+    let seed_arr = doc! { "_id": 2, "arr": [1, { "k": 1 }] };
+    support::insert_labelled(&client, &ns, &[seed_arr.clone()]).await;
+    for path in [vec![f("arr"), I(0)], vec![f("arr"), I(1), f("k")]] {
+        let op = update(Bson::Int32(2), vec![], vec![path.clone()]);
+        let out = store.bulk_write(&ns, vec![op]).await.unwrap();
+        assert_eq!(out, vec![Err(WriteFailure::Rejected(2))], "{path:?}");
+    }
+    assert_eq!(
+        all_docs(&client, &ns).await[1],
+        seed_arr,
+        "unset through an array"
+    );
     let conflict = update(
         Bson::Int32(1),
         set1(vec![f("a")], 0),
@@ -249,7 +261,7 @@ async fn update_fields_mixes_with_insert_replace_delete_in_one_call_and_keeps_in
     assert_eq!(out[3], Err(WriteFailure::Missing));
     assert_eq!(out[4], Ok(()));
     assert_eq!(out[5], Ok(()));
-    assert!(matches!(out[6], Err(WriteFailure::Rejected(_))));
+    assert_eq!(out[6], Err(WriteFailure::Rejected(66)));
     assert_eq!(out[7], Err(WriteFailure::Missing));
     assert_eq!(
         all_docs(&client, &ns).await,
@@ -341,4 +353,104 @@ async fn update_fields_does_not_create_a_field_named_by_an_index_on_a_document()
         "{out:?}"
     );
     assert_eq!(all_docs(&client, &ns).await, seed.to_vec());
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn update_fields_numeric_field_name_does_not_match_an_array_of_objects() {
+    if !enabled("update_fields_numeric_field_name_does_not_match_an_array_of_objects") {
+        return;
+    }
+    // Two documents: one op per id (the engine refuses duplicates; the probe cannot tell them apart).
+    let seed = [
+        doc! { "_id": 1, "arr": [{ "x": 1 }] },
+        doc! { "_id": 2, "obj": { "0": 1 } },
+    ];
+    let (_dbs, client, store, ns) = setup("numfield", &seed).await;
+    let ops = vec![
+        update(Bson::Int32(1), set1(vec![f("arr"), f("0")], 5), vec![]),
+        update(Bson::Int32(2), set1(vec![f("obj"), f("0")], 6), vec![]),
+    ];
+    let out = store.bulk_write(&ns, ops).await.unwrap();
+    assert_eq!(out, vec![Err(WriteFailure::Missing), Ok(())]);
+    assert_eq!(
+        all_docs(&client, &ns).await,
+        vec![
+            doc! { "_id": 1, "arr": [{ "x": 1 }] },
+            doc! { "_id": 2, "obj": { "0": 6 } }
+        ]
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn update_fields_index_past_the_end_is_missing_and_does_not_pad() {
+    if !enabled("update_fields_index_past_the_end_is_missing_and_does_not_pad") {
+        return;
+    }
+    let seed = [doc! { "_id": 1, "arr": [1, 2] }];
+    let (_dbs, client, store, ns) = setup("pad", &seed).await;
+    let ops = vec![
+        update(Bson::Int32(1), set1(vec![f("arr"), I(5)], 9), vec![]),
+        update(Bson::Int32(1), set1(vec![f("arr"), I(2)], 9), vec![]),
+    ];
+    let out = store.bulk_write(&ns, ops).await.unwrap();
+    assert_eq!(out, vec![Err(WriteFailure::Missing); 2]);
+    assert_eq!(all_docs(&client, &ns).await, seed.to_vec());
+    let ok = update(Bson::Int32(1), set1(vec![f("arr"), I(1)], 9), vec![]);
+    assert_eq!(store.bulk_write(&ns, vec![ok]).await.unwrap(), vec![Ok(())]);
+    assert_eq!(
+        all_docs(&client, &ns).await,
+        vec![doc! { "_id": 1, "arr": [1, 9] }]
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn update_fields_sets_through_nested_arrays_when_the_shape_is_right() {
+    if !enabled("update_fields_sets_through_nested_arrays_when_the_shape_is_right") {
+        return;
+    }
+    let seed = [doc! { "_id": 1, "a": [0, { "b": [10, 20], "c": 1 }] }];
+    let (_dbs, client, store, ns) = setup("nested", &seed).await;
+    let set = vec![
+        (vec![f("a"), I(1), f("b"), I(0)], Bson::Int32(11)),
+        (vec![f("a"), I(1), f("c")], Bson::Int32(2)),
+    ];
+    let out = store
+        .bulk_write(&ns, vec![update(Bson::Int32(1), set, vec![])])
+        .await
+        .unwrap();
+    assert_eq!(out, vec![Ok(())]);
+    assert_eq!(
+        all_docs(&client, &ns).await,
+        vec![doc! { "_id": 1, "a": [0, { "b": [11, 20], "c": 2 }] }]
+    );
+}
+
+/// Pins what the server does with a VALUE that has `$`-prefixed keys.
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn update_fields_value_with_dollar_keys_is_written_literally() {
+    if !enabled("update_fields_value_with_dollar_keys_is_written_literally") {
+        return;
+    }
+    let (_dbs, client, store, ns) = setup("dollarval", &[doc! { "_id": 1, "v": 0 }]).await;
+    let value = Bson::Document(doc! { "$gt": 1, "$set": { "z": 1 } });
+    let out = store
+        .bulk_write(
+            &ns,
+            vec![update(
+                Bson::Int32(1),
+                set1(vec![f("v")], value.clone()),
+                vec![],
+            )],
+        )
+        .await
+        .unwrap();
+    assert_eq!(out, vec![Ok(())]);
+    assert_eq!(
+        all_docs(&client, &ns).await,
+        vec![doc! { "_id": 1, "v": value }]
+    );
 }

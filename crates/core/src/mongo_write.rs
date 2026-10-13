@@ -137,7 +137,7 @@ pub(crate) struct Writer<'a> {
     db: &'a Database,
     coll: Collection<Document>,
     pub(crate) coll_name: &'a str,
-    pub(crate) db_err: fn(mongodb::error::Error) -> CoreError,
+    db_err: fn(mongodb::error::Error) -> CoreError,
 }
 
 impl Writer<'_> {
