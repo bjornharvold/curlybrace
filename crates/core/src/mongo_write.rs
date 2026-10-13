@@ -18,6 +18,15 @@ use crate::store::{WriteFailure, WriteOp, WriteOutcome};
 /// Most operations sent in one write command.
 pub(crate) const MAX_OPS_PER_COMMAND: usize = 500;
 
+/// Encoded-size budget of the operations in one write command. The server caps a command at
+/// 16 MiB (`maxBsonObjectSize`, plus a little headroom for the command envelope); 15 MiB leaves
+/// room for the envelope and per-element overhead.
+pub(crate) const MAX_BYTES_PER_COMMAND: usize = 15 * 1024 * 1024;
+
+/// Bytes added around a document inside a command array (index key, wrapper fields like
+/// `q`, `u`, `multi`); generous on purpose.
+const ELEMENT_OVERHEAD: usize = 128;
+
 /// The server's duplicate-key error code.
 const DUPLICATE_KEY_CODE: i32 = 11000;
 
@@ -43,6 +52,38 @@ fn group_ops(ops: Vec<WriteOp>) -> Groups {
             }
             groups
         })
+}
+
+/// The encoded size of one command element built from `doc`, with overhead. A document that
+/// cannot be encoded counts as a whole command, so it travels alone and the server reports it.
+fn element_size(doc: &Document) -> usize {
+    bson::to_vec(doc).map_or(MAX_BYTES_PER_COMMAND, |bytes| {
+        bytes.len().saturating_add(ELEMENT_OVERHEAD)
+    })
+}
+
+/// Consecutive ranges over `sizes`, each holding at most `max_ops` items and at most
+/// `max_bytes` in total. An item larger than `max_bytes` gets a range of its own. Order is kept.
+pub(crate) fn split_chunks(
+    sizes: &[usize],
+    max_ops: usize,
+    max_bytes: usize,
+) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let (mut start, mut bytes) = (0usize, 0usize);
+    for (index, size) in sizes.iter().enumerate() {
+        let full =
+            index > start && (index - start >= max_ops || bytes.saturating_add(*size) > max_bytes);
+        if full {
+            ranges.push(start..index);
+            (start, bytes) = (index, 0);
+        }
+        bytes = bytes.saturating_add(*size);
+    }
+    if start < sizes.len() {
+        ranges.push(start..sizes.len());
+    }
+    ranges
 }
 
 /// Applies `ops` to `coll_name` in `db`: one outcome per op, index-aligned.
@@ -94,7 +135,9 @@ impl Writer<'_> {
 
     async fn run_inserts(&self, items: &[(usize, Document)]) -> Result<Failures> {
         let mut failures = Vec::new();
-        for chunk in items.chunks(MAX_OPS_PER_COMMAND) {
+        let sizes: Vec<usize> = items.iter().map(|(_, d)| element_size(d)).collect();
+        for range in split_chunks(&sizes, MAX_OPS_PER_COMMAND, MAX_BYTES_PER_COMMAND) {
+            let chunk = &items[range];
             let documents: Vec<Bson> = chunk
                 .iter()
                 .map(|(_, d)| Bson::Document(d.clone()))
@@ -109,7 +152,12 @@ impl Writer<'_> {
 
     async fn run_replaces(&self, items: &[(usize, Bson, Document)]) -> Result<Failures> {
         let mut failures = Vec::new();
-        for chunk in items.chunks(MAX_OPS_PER_COMMAND) {
+        let sizes: Vec<usize> = items
+            .iter()
+            .map(|(_, id, d)| element_size(d).saturating_add(element_size(&id_query(id))))
+            .collect();
+        for range in split_chunks(&sizes, MAX_OPS_PER_COMMAND, MAX_BYTES_PER_COMMAND) {
+            let chunk = &items[range];
             let updates: Vec<Bson> = chunk
                 .iter()
                 .map(|(_, id, d)| {
@@ -141,7 +189,12 @@ impl Writer<'_> {
 
     async fn run_deletes(&self, items: &[(usize, Bson)]) -> Result<Failures> {
         let mut failures = Vec::new();
-        for chunk in items.chunks(MAX_OPS_PER_COMMAND) {
+        let sizes: Vec<usize> = items
+            .iter()
+            .map(|(_, id)| element_size(&id_query(id)))
+            .collect();
+        for range in split_chunks(&sizes, MAX_OPS_PER_COMMAND, MAX_BYTES_PER_COMMAND) {
+            let chunk = &items[range];
             // Deleted documents are gone afterwards, so what existed is read first.
             let ids: Vec<&Bson> = chunk.iter().map(|c| &c.1).collect();
             let present = self.existing_ids(&ids).await?;
@@ -353,5 +406,44 @@ mod tests {
         let failed = vec![(1, WriteFailure::Rejected(5))];
         let got = missing_among(items.into_iter(), &present, &failed);
         assert_eq!(got, vec![(2, WriteFailure::Missing)]);
+    }
+
+    const MIB: usize = 1024 * 1024;
+
+    fn lens(ranges: &[std::ops::Range<usize>]) -> Vec<usize> {
+        ranges.iter().map(|r| r.len()).collect()
+    }
+
+    #[test]
+    fn many_small_documents_split_by_count() {
+        let got = split_chunks(&vec![100; 1_201], 500, 15 * MIB);
+        assert_eq!(lens(&got), vec![500, 500, 201]);
+        assert_eq!((got[0].start, got[1].start, got[2].start), (0, 500, 1_000));
+    }
+
+    #[test]
+    fn large_documents_split_by_bytes_and_keep_order() {
+        let got = split_chunks(&vec![MIB; 40], 500, 15 * MIB);
+        assert_eq!(lens(&got), vec![15, 15, 10]);
+        let flat: Vec<usize> = got.iter().flat_map(|r| r.clone()).collect();
+        assert_eq!(flat, (0..40).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn one_huge_document_goes_alone() {
+        let got = split_chunks(&[10, 10, 20 * MIB, 10, 10], 500, 15 * MIB);
+        assert_eq!(lens(&got), vec![2, 1, 2]);
+    }
+
+    #[test]
+    fn an_empty_list_has_no_chunks() {
+        assert!(split_chunks(&[], 500, 15 * MIB).is_empty());
+    }
+
+    #[test]
+    fn element_size_counts_the_encoded_document() {
+        let small = element_size(&doc! { "a": 1 });
+        let big = element_size(&doc! { "a": "x".repeat(MIB) });
+        assert!(big > MIB && big < small + MIB + 64);
     }
 }
