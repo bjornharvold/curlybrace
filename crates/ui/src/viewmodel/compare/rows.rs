@@ -163,6 +163,8 @@ pub struct PairRow {
     pub status: EntryStatus,
     /// Counts and index status, once the entry has been checked.
     pub sizes: Option<EntrySizes>,
+    /// Remove is live (no run or check active, the entry's row not queued or running).
+    pub can_remove: bool,
 }
 
 impl PairRow {
@@ -172,6 +174,7 @@ impl PairRow {
         issue: Option<SetupError>,
         status: EntryStatus,
         sizes: Option<EntrySizes>,
+        can_remove: bool,
     ) -> Self {
         debug_assert!(issue.is_none() || matches!(status, EntryStatus::Invalid(_)));
         Self {
@@ -187,6 +190,7 @@ impl PairRow {
             customised: entry.overrides.is_customised(),
             status,
             sizes,
+            can_remove,
         }
     }
 }
@@ -286,6 +290,7 @@ impl CompareState {
             issue,
             status,
             sizes,
+            self.can_remove(entry.id),
         ))
     }
 

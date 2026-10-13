@@ -131,7 +131,8 @@ fn row_buttons(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareA
     if ui.button(i18n.t("compare.pairs.edit_settings")).clicked() {
         action = Some(CompareAction::EditPair(Some(row.entry)));
     }
-    if ui.button(i18n.t("compare.pairs.remove")).clicked() {
+    let remove = egui::Button::new(i18n.t("compare.pairs.remove"));
+    if ui.add_enabled(row.can_remove, remove).clicked() {
         action = Some(CompareAction::RemovePair(row.entry));
     }
     action

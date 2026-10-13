@@ -448,3 +448,16 @@ fn a_checked_row_carries_both_sides_counts_and_index_labels() {
     assert_eq!(sizes.source_index_key, "compare.preflight.index_indexed");
     assert_eq!(sizes.target_index_key, "compare.preflight.index_missing");
 }
+
+#[test]
+fn a_pair_row_can_be_removed_only_while_nothing_is_active() {
+    let s = state();
+    assert!(row(&s, 0).can_remove);
+    let running = ran(s.clone());
+    assert!(!row(&running, 0).can_remove, "a run is active");
+    let checking = CompareState {
+        checks: CheckQueue::queued(&[0]),
+        ..s
+    };
+    assert!(!row(&checking, 0).can_remove, "a check is queued");
+}

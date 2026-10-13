@@ -133,11 +133,6 @@ impl CompareState {
         self.session.is_some()
     }
 
-    /// Finished results can be thrown away (never while a run is in flight).
-    pub fn can_discard(&self) -> bool {
-        self.is_ready() && !self.is_running() && self.overview.any_settled()
-    }
-
     pub fn is_ready(&self) -> bool {
         matches!(self.session, Some(SessionPhase::Ready(_)))
     }

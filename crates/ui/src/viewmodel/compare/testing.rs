@@ -92,6 +92,11 @@ fn finished_view(row: &RunRow) -> RunView {
 }
 
 impl CompareState {
+    /// Finished results can be thrown away (never while a run is in flight).
+    pub fn can_discard(&self) -> bool {
+        self.is_ready() && !self.is_running() && self.overview.any_settled()
+    }
+
     /// What is wrong with the picker form as a pair: its own issues, then whether both sides
     /// are the very same collection.
     pub fn issues(&self) -> Vec<SetupError> {

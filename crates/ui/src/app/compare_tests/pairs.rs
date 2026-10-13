@@ -219,6 +219,10 @@ fn removing_an_entry_invalidates_the_other_verdicts() {
     let state = multi_state(&["alpha", "beta"]);
     let (state, _) = act(state, CompareAction::RunCheck);
     let state = update(state, checked_as(1, indexed(5))).0;
+    // A check is still out: Remove waits.
+    let (state, _) = act(state, CompareAction::RemovePair(1));
+    assert_eq!(sources(&state), vec!["alpha", "beta"]);
+    let state = update(state, checked_as(2, indexed(5))).0;
     let (state, _) = act(state, CompareAction::RemovePair(1));
     assert_eq!(sources(&state), vec!["alpha"]);
     assert!(all_unchecked(&state));

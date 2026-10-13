@@ -284,7 +284,7 @@
   },
   "errors": {
     "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",
-    "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Narrow it with a filter, or compare fewer fields.",
+    "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Results kept for other pairs count against the same limit: discard some of them to free room. You can also narrow the comparison with a filter, or compare fewer fields.",
     "compare_duplicate_key": "Two documents on one side have the same key, so they cannot be matched. Choose a key that is unique, or look up which values repeat.",
     "compare_key_invalid": "A key field holds a value that cannot be used as a key (for example an array). Choose a different key.",
     "compare_key_missing": "A document has no value for one of the key fields. Choose key fields that every document has.",

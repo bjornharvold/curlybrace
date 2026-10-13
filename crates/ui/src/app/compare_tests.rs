@@ -28,6 +28,8 @@ mod frames;
 mod frames_pairs;
 #[path = "compare_tests/multirun.rs"]
 mod multirun;
+#[path = "compare_tests/multirun_results.rs"]
+mod multirun_results;
 #[path = "compare_tests/pairs.rs"]
 mod pairs;
 #[path = "compare_tests/results.rs"]

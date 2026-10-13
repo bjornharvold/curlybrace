@@ -96,10 +96,10 @@ fn is_view(side: &SideForm, name: &str) -> bool {
         .any(|(n, kind)| n == name && *kind == CollectionKind::View)
 }
 
-/// Removes an entry unless its pair is queued or running; its results are discarded with it.
+/// Removes an entry unless a run or check is active or its pair is queued or running; its results are discarded with it.
 pub(super) fn remove_pair(state: AppState, entry: EntryId) -> Out {
     let c = &state.compare;
-    if c.pairs.get(entry).is_none() || c.overview.entry_is_live(entry) {
+    if !c.can_remove(entry) {
         return none(state);
     }
     let (overview, held) = c.overview.clone().removed_entry(entry);

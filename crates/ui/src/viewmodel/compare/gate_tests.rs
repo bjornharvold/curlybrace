@@ -268,8 +268,8 @@ fn gates_agree_with_the_single_button_questions() {
 }
 
 #[test]
-fn some_refused_is_set_only_when_an_included_entry_was_checked_and_refused() {
-    let gates = |s: &CompareState| s.gates(&s.digest()).some_refused;
+fn some_not_passing_is_set_only_when_an_included_entry_was_checked_and_refused() {
+    let gates = |s: &CompareState| s.gates(&s.digest()).some_not_passing;
     assert!(!gates(&ready()), "unchecked is not refused");
     assert!(!gates(&checked(ready(), 5, true)));
     let refused = checked(ready(), 5, false);
@@ -282,4 +282,122 @@ fn some_refused_is_set_only_when_an_included_entry_was_checked_and_refused() {
         !gates(&excluded),
         "an excluded entry is not part of the run"
     );
+}
+
+// ---- Run semantics: every VALID included entry must pass; the others are skipped ----
+
+fn ns(db: &str, c: &str) -> Namespace {
+    Namespace::new(db.to_string(), c.to_string())
+}
+
+/// Entries 0 and 2 build, entry 1 has an invalid key; all three included.
+fn with_an_invalid_entry() -> CompareState {
+    let base = ready();
+    let pairs = PairList::default()
+        .added(ns("a", "x"), ns("b", "x"))
+        .added(ns("a", "y"), ns("b", "y"))
+        .added(ns("a", "z"), ns("b", "z"))
+        .with_overrides(
+            1,
+            PairOverrides {
+                key_text: Some("a,,b".into()),
+                ..PairOverrides::default()
+            },
+        );
+    CompareState { pairs, ..base }
+}
+
+/// Answers the queued checks one by one: `outcomes[i]` is the preflight of the i-th checkable
+/// entry, `None` for a failed check.
+fn answered(state: CompareState, ids: &[EntryId], outcomes: &[Option<Preflight>]) -> CompareState {
+    let mut checks = CheckQueue::queued(ids);
+    for (i, (id, outcome)) in ids.iter().zip(outcomes).enumerate() {
+        let probe = 100 + i as u32;
+        checks = checks.sending(*id, probe);
+        checks = match outcome {
+            Some(p) => checks.answered(probe, p.clone()).0,
+            None => checks.failed(probe),
+        };
+    }
+    CompareState { checks, ..state }
+}
+
+#[test]
+fn an_invalid_entry_does_not_block_run_for_the_valid_ones() {
+    let state = answered(
+        with_an_invalid_entry(),
+        &[0, 2],
+        &[Some(pre(5, true)), Some(pre(5, true))],
+    );
+    let gates = state.gates(&state.digest());
+    assert!(gates.start, "Run covers the valid entries only");
+    assert!(gates.start_passing);
+    assert!(
+        gates.some_not_passing,
+        "the invalid one is skipped and said so"
+    );
+}
+
+#[test]
+fn a_failed_check_does_not_block_run_passing_and_is_offered_as_skipped() {
+    let state = answered(
+        with_an_invalid_entry(),
+        &[0, 2],
+        &[Some(pre(5, true)), None],
+    );
+    let gates = state.gates(&state.digest());
+    assert!(
+        !gates.start,
+        "a valid entry whose check failed did not pass"
+    );
+    assert!(gates.start_passing);
+    assert!(gates.some_not_passing);
+}
+
+#[test]
+fn a_refused_entry_blocks_run_but_not_run_passing() {
+    let state = answered(
+        with_an_invalid_entry(),
+        &[0, 2],
+        &[Some(pre(5, true)), Some(pre(5, false))],
+    );
+    let gates = state.gates(&state.digest());
+    assert!(!gates.start && gates.start_passing && gates.some_not_passing);
+}
+
+#[test]
+fn nothing_is_not_passing_when_every_included_entry_passed() {
+    let state = checked(ready(), 5, true);
+    assert!(!state.gates(&state.digest()).some_not_passing);
+}
+
+#[test]
+fn all_entries_invalid_enables_neither_run() {
+    let defaults = SetupForm::default().with_key_text("a,,b");
+    let state = CompareState {
+        setup: defaults,
+        ..with_an_invalid_entry()
+    };
+    let gates = state.gates(&state.digest());
+    assert!(!gates.start && !gates.start_passing);
+}
+
+// ---- Remove ----
+
+#[test]
+fn remove_waits_for_runs_checks_and_live_rows() {
+    let idle = checked(ready(), 5, true);
+    assert!(idle.can_remove(ENTRY));
+    assert!(!idle.can_remove(99), "unknown entry");
+    assert!(!running(idle.clone()).can_remove(ENTRY));
+    let queued = CompareState {
+        checks: CheckQueue::queued(&[ENTRY]),
+        ..idle.clone()
+    };
+    assert!(!queued.can_remove(ENTRY));
+    let sent = CompareState {
+        checks: CheckQueue::queued(&[ENTRY]).sending(ENTRY, 7),
+        ..idle
+    };
+    assert!(!sent.can_remove(ENTRY));
 }

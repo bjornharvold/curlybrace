@@ -48,7 +48,7 @@ fn show_buttons(
         if ui.add_enabled(gates.start, run).clicked() {
             action = Some(CompareAction::Start);
         }
-        if gates.some_refused {
+        if gates.some_not_passing {
             let passing = egui::Button::new(i18n.t("compare.preflight.run_passing"));
             if ui.add_enabled(gates.start_passing, passing).clicked() {
                 action = Some(CompareAction::StartPassing);

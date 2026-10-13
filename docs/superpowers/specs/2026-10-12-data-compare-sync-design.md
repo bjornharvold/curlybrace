@@ -453,18 +453,22 @@ never end the browsing session, and a browsing Disconnect never cancels a job. C
 - **Defaults and overrides.** The top-of-form fields (key, rules, the two filters) are the defaults. An entry
   holds optional overrides; no override follows the default, so changing a default never overwrites a deliberate
   override. A marker in the list shows a customised entry; **Use default** clears an override.
-- **Run selection.** Each entry has an *included* flag (default on). **Run** starts the included entries, and
-  needs every checkable included entry to have passed. When the preflight refused some, **Run passing** starts
-  only the included entries that passed. A refused entry that does run fails on its own with
-  `CompareKeyNotIndexed` (the runner re-checks).
+- **Run selection.** Each entry has an *included* flag (default on). **Run** covers the *valid* included
+  entries (those whose settings build) and needs each of them to have passed its check; invalid entries are
+  skipped and shown with their issue, so one broken entry never blocks the rest. **Run passing** is offered
+  whenever an included entry will not run under Run (invalid, its check failed, or the preflight refused it) and
+  starts only the valid entries that passed. A refused entry that is run anyway is not possible from the UI; the
+  runner would still fail it on its own with `CompareKeyNotIndexed` (it re-checks).
 - **Re-run** selects that entry for editing, includes only it and clears its verdict; the user changes the key
-  and checks and runs again. Other entries keep their results. Re-run (and Remove) is disabled while a run is
-  active or a check is in flight, and for an entry whose row is still pending or running.
+  and checks and runs again. Other entries keep their results. Re-run and Remove are disabled while a run is
+  active or a check is queued or in flight, and for an entry whose row is still pending or running (the
+  view-model gates `can_rerun` and `can_remove`; the reducer refuses the same cases).
 - **Per-pair results.** Each pair keeps its own `ResultsView` (category, page, rows); opening a pair from the
   overview and going back keeps them, and the open detail is cleared when the pair changes. Apply selection does
   not exist yet (slice 2). When exactly one pair finishes, its results open automatically.
-- **Duplicates panel.** **Find duplicate keys** is a button on a failed row; the panel is drawn under the
-  overview table, headed by the pair's names (the table uses fixed row heights).
+- **Duplicates panel.** **Find duplicate keys** is a button on a failed row and uses a fresh `PairId` of its own
+  (never the failed run's); the panel is drawn under the overview table, headed by the pair's names (the table
+  uses fixed row heights).
 - **No per-pair duration** (the pure reducer has no clock, and `Summary` has no `duration_ms`), so the overview
   shows status, counts and the error but no duration. A pair that fails on the shared budget shows
   `CompareCapExceeded`. Progress is shown for the running pair and is not throttled.
@@ -476,6 +480,10 @@ never end the browsing session, and a browsing Disconnect never cancels a job. C
 - Pairing rules: a name that is a view on either side is never offered; time-series collections count as
   collections; `system.*` is hidden unless switched on; names match exactly; collections without a counterpart
   are listed and can be paired with a typed name (a missing collection counts as empty).
+- Known limitations: a `Rows` failure names no pair, so it marks every pair that is waiting for a page as failed
+  (each can be retried when opened); the pickers influence the view check of an entry whose database is the
+  picked one (a view is recognised only in the picked database's listing); a collection without a counterpart
+  stays listed after it was paired; the testkit default URI is pre-existing and unrelated.
 - Known limits: closing a session does not abort an in-flight `Find duplicate keys` call; narrow windows truncate
   pair names and counts (hover shows the full text).
 

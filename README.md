@@ -99,10 +99,12 @@ for each side, press **Add pair**, then **Check** and **Run**.
   whole-database compare; when the target is on a different connection, the same database name is
   picked there for you.
 - The key, rules and filters at the top are **defaults for every pair**; open a pair to override them
-  for just that pair. The check shows a verdict per pair. **Run** starts the included pairs, and
-  **Run passing** skips the ones the check refused.
-- The run overview shows each pair's status and counts with totals, and you can cancel the run. Open
-  a pair for its results, discard it, or **Re-run** it (for instance with a different key).
+  for just that pair with **Edit settings**. The check shows a verdict per pair. **Run** starts the
+  included pairs that can be checked and needs each of them to pass; **Run passing** starts just the
+  ones that passed, skipping invalid pairs, failed checks and refused pairs.
+- The run overview shows each pair's status and counts with totals, and you can cancel the run. **Open**
+  a finished pair for its results, **Discard** it, or **Re-run** it (it opens in Edit settings, for instance
+  to change the key).
 
 - It compares documents by a **key** (default `_id`) and lists what is only in the source, only in
   the target, or different, with the changed fields of each document. Optional filters limit each
