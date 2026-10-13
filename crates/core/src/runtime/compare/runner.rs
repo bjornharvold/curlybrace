@@ -244,6 +244,7 @@ async fn run_one(ctx: &RunContext, spec: PairSpec, cancel: &CancelFlag) -> PairO
                 StoredPair {
                     spec,
                     results: Arc::new(results),
+                    summary,
                 },
             );
             PairOutcome::Completed(summary)

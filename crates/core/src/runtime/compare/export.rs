@@ -98,7 +98,7 @@ pub(super) fn dispatch(
     }
 }
 
-fn failed(ctx: &JobContext, error: CoreError) -> CompareEvent {
+pub(super) fn failed(ctx: &JobContext, error: CoreError) -> CompareEvent {
     CompareEvent::Failed {
         session: ctx.session_id,
         context: "compare_export",
@@ -176,7 +176,11 @@ fn groups_of(resolved: &[Resolved]) -> Vec<Group> {
 }
 
 /// An outcome in which nothing was exported: the file is gone (or never existed).
-fn nothing_exported(total: u64, cancelled: bool, nothing_remains: bool) -> ExportOutcome {
+pub(super) fn nothing_exported(
+    total: u64,
+    cancelled: bool,
+    nothing_remains: bool,
+) -> ExportOutcome {
     ExportOutcome {
         not_run: total,
         cancelled,
@@ -215,7 +219,7 @@ async fn run_export(ctx: JobContext, job: ExportJob, slot: RunSlot) {
     conclude(&ctx, slot, guard, &cancel, total, joined);
 }
 
-fn refuse(ctx: &JobContext, slot: RunSlot, error: CoreError) {
+pub(super) fn refuse(ctx: &JobContext, slot: RunSlot, error: CoreError) {
     slot.release();
     ctx.emit(failed(ctx, error));
 }
@@ -263,7 +267,7 @@ fn conclude(
     }
 }
 
-fn done(ctx: &JobContext, outcome: ExportOutcome) -> CompareEvent {
+pub(super) fn done(ctx: &JobContext, outcome: ExportOutcome) -> CompareEvent {
     CompareEvent::ExportDone {
         session: ctx.session_id,
         run: ctx.run,

@@ -128,9 +128,36 @@ pub enum CompareCommand {
         request: ExportRequest,
         path: PathBuf,
     },
+    /// Writes a CSV report of the stored differences of `request.pairs` to a file (same file
+    /// rules and answers as `Export`) or, for the clipboard, returns it as `ExportText` before
+    /// the one `ExportDone` (rows in `written`). Refused as `Failed { context: "compare_export" }`
+    /// when a pair has no results, no pair is named, the path is unusable or the clipboard
+    /// report would hold more than `CLIPBOARD_MAX_ROWS` (`export::report`) rows.
+    ExportReport {
+        session: SessionId,
+        run: RunId,
+        request: ReportRequest,
+        target: ReportTarget,
+    },
     Close {
         session: SessionId,
     },
+}
+
+/// What an `ExportReport` command asks for. `label` is free text that ends up in the file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReportRequest {
+    pub pairs: Vec<PairId>,
+    /// Fill `changed_paths` of the different rows (re-reads both documents of each; paths only).
+    pub include_paths: bool,
+    pub label: String,
+}
+
+/// Where a report goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReportTarget {
+    File(PathBuf),
+    Clipboard,
 }
 
 /// The file format of an export.
@@ -262,6 +289,13 @@ pub enum CompareEvent {
         session: SessionId,
         run: RunId,
         outcome: ExportOutcome,
+    },
+    /// The clipboard report: carries keys (personal data possibly); sent once, before
+    /// `ExportDone`. Show or copy it, never log it.
+    ExportText {
+        session: SessionId,
+        run: RunId,
+        text: String,
     },
     Rows {
         session: SessionId,

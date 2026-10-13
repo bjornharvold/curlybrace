@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::OnceCell;
 
-use crate::compare::engine::CancelFlag;
+use crate::compare::engine::{CancelFlag, Summary};
 use crate::compare::protocol::{CompareEvent, PairId, PairSpec, RunId, SessionId, Side};
 use crate::compare::results::{Budget, Limits, ResultSet};
 use crate::runtime::TunnelHandle;
@@ -42,6 +42,9 @@ pub(super) struct StoredPair {
     pub spec: PairSpec,
     /// Shared so an apply can read it without holding the pairs lock across awaits.
     pub results: Arc<ResultSet>,
+    /// What the run reported for this pair (identical and scanned counts; the report export
+    /// prints them).
+    pub summary: Summary,
 }
 
 pub(crate) struct Session {

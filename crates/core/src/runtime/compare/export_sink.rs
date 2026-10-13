@@ -199,7 +199,19 @@ impl std::io::Write for ExportSink {
     }
 }
 
-type Out = BufWriter<ExportSink>;
+pub(super) type Out = BufWriter<ExportSink>;
+
+/// The file under the writer's buffer.
+pub(super) fn buffered(sink: ExportSink) -> Out {
+    BufWriter::with_capacity(BUFFER, sink)
+}
+
+/// Flushes `out` and hands the file back.
+pub(super) fn into_file(out: Out) -> Result<File, RenderError> {
+    out.into_inner()
+        .map(|sink| sink.file)
+        .map_err(|e| RenderError::Io(e.error().kind()))
+}
 
 /// The writer of the chosen format over the export file.
 pub(super) enum FormatWriter {
@@ -209,7 +221,7 @@ pub(super) enum FormatWriter {
 
 impl FormatWriter {
     pub(super) fn new(format: ExportFormat, sink: ExportSink) -> Self {
-        let out = BufWriter::with_capacity(BUFFER, sink);
+        let out = buffered(sink);
         match format {
             ExportFormat::Mongosh => Self::Script(ScriptWriter::new(out)),
             ExportFormat::JsonPlan => Self::Plan(PlanWriter::new(out)),
@@ -285,9 +297,7 @@ impl FormatWriter {
             Self::Script(w) => w.finish()?,
             Self::Plan(w) => w.finish()?,
         };
-        out.into_inner()
-            .map(|sink| sink.file)
-            .map_err(|e| RenderError::Io(e.error().kind()))
+        into_file(out)
     }
 }
 

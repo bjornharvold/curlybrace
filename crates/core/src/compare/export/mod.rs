@@ -11,6 +11,7 @@ pub mod csv;
 pub mod json_plan;
 pub mod mongosh;
 pub mod plan;
+pub mod report;
 pub mod sanitize;
 
 use std::io;

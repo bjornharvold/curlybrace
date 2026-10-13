@@ -421,6 +421,7 @@ fn event_session(ev: &CompareEvent) -> SessionId {
         | CompareEvent::ApplyDone { session, .. }
         | CompareEvent::ExportProgress { session, .. }
         | CompareEvent::ExportDone { session, .. }
+        | CompareEvent::ExportText { session, .. }
         | CompareEvent::Rows { session, .. }
         | CompareEvent::Detail { session, .. }
         | CompareEvent::DuplicateKeys { session, .. }
@@ -447,7 +448,9 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
         | CompareEvent::ApplyPairDone { .. }
         | CompareEvent::ApplyDone { .. }) => apply::on_event(state, apply_event),
         // slice 3: export events have no reducer yet (the export state machine is a later task).
-        CompareEvent::ExportProgress { .. } | CompareEvent::ExportDone { .. } => none(state),
+        CompareEvent::ExportProgress { .. }
+        | CompareEvent::ExportDone { .. }
+        | CompareEvent::ExportText { .. } => none(state), // slice 3
         other => on_setup_event(state, other),
     }
 }
