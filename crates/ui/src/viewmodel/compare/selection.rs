@@ -83,6 +83,11 @@ impl Selection {
         Self { by }
     }
 
+    /// The ticked rows of a tab; `None` when nothing is ticked.
+    pub fn get(&self, pair: PairId, cat: Category) -> Option<&CategorySelection> {
+        self.by.get(&(pair, cat.into()))
+    }
+
     /// Ticks or unticks one row. Unticking under `all` turns `all` off and seeds the explicit
     /// keys with `loaded` (the keys of the loaded page) minus `key`: rows that are not loaded
     /// become unselected, since "all but one" is not representable. Otherwise `loaded` is unused.

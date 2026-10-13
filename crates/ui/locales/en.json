@@ -67,6 +67,7 @@
         "delete_from_source": "Delete from source",
         "delete_from_target": "Delete from target"
       },
+      "confirm_word": "delete",
       "warning": {
         "generated_ids": "New _id values are generated for inserted documents, so they will not match the source on the next compare.",
         "keeps_destination_id": "Replaced documents keep the _id they have in the destination, which differs from the compare key.",

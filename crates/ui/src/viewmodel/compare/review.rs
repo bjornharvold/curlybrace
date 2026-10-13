@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use curlybrace_core::compare::apply::{ApplyKind, Direction, IdPolicy};
-use curlybrace_core::compare::protocol::PairId;
+use curlybrace_core::compare::protocol::{PairId, SessionId};
 use curlybrace_core::compare::results::Category;
 use curlybrace_core::store::Namespace;
 use uuid::Uuid;
@@ -14,6 +14,10 @@ use super::overview::RunFacts;
 use super::pairs::EntryId;
 use super::pending::{PendingChange, PendingList, Scope};
 use super::selection::RowAction;
+
+/// The i18n key of the word typed to confirm deletes that span several databases or
+/// connections; the view translates it and hands the result to `ReviewApply`.
+pub const CONFIRM_WORD_KEY: &str = "compare.apply.confirm_word";
 
 /// Where one write lands, by name (a snapshot).
 #[derive(Clone, Debug, PartialEq)]
@@ -99,6 +103,11 @@ pub struct Review {
     pub confirm_text: String,
     pub required: Option<RequiredText>,
     pub warnings: Vec<Warning>,
+    /// The localized confirmation word the view passed when the review was opened; what
+    /// `RequiredText::Word` is compared with. Blank until `bound`.
+    pub word: String,
+    /// The session the review was taken for; 0 until `bound` (no real session has that id).
+    pub session: SessionId,
     /// What the warnings derive from, kept so a changed id policy recomputes them.
     pub(super) warn_inputs: Vec<WarnInput>,
 }
@@ -121,6 +130,39 @@ impl Review {
                 !required.is_empty() && self.confirm_text.trim() == required
             }
         }
+    }
+
+    /// Ties the review to the session it was taken for and the localized confirmation word.
+    pub fn bound(self, session: SessionId, word: &str) -> Self {
+        Self {
+            session,
+            word: word.to_string(),
+            ..self
+        }
+    }
+
+    /// The typed confirmation passes against the stored word.
+    pub fn confirmation_passes(&self) -> bool {
+        self.confirm_enabled(&self.word)
+    }
+
+    /// Both reviews stand for the same writes: same pairs, entries, actions, destinations (by
+    /// database and collection, not by display name) and counts.
+    pub fn same_writes(&self, other: &Self) -> bool {
+        let essence = |r: &Self| -> Vec<_> {
+            r.pairs
+                .iter()
+                .map(|p| {
+                    let places: Vec<_> = p
+                        .destinations
+                        .iter()
+                        .map(|(a, d)| (*a, d.database.clone(), d.collection.clone()))
+                        .collect();
+                    (p.pair, p.entry, p.counts, places)
+                })
+                .collect()
+        };
+        essence(self) == essence(other)
     }
 
     pub fn with_confirm_text(self, text: &str) -> Self {
@@ -352,6 +394,8 @@ pub fn build_review(
         confirm_text: String::new(),
         required: required_for(&deletes),
         warnings: warnings_for(&warn_inputs, id_policy),
+        word: String::new(),
+        session: 0,
         warn_inputs,
     })
 }

@@ -68,6 +68,18 @@ impl ApplyUi {
         matches!(self, Self::Running { .. })
     }
 
+    /// The run id of the running apply.
+    pub fn running_run(&self) -> Option<RunId> {
+        match self {
+            Self::Running { run, .. } => Some(*run),
+            _ => None,
+        }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        matches!(self, Self::Finished { .. })
+    }
+
     pub fn review(&self) -> Option<&Review> {
         match self {
             Self::Reviewing(review) => Some(review),

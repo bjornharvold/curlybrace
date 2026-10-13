@@ -35,6 +35,8 @@ fn review(pairs: &[(PairId, u64)]) -> Review {
         confirm_text: String::new(),
         required: None,
         warnings: vec![],
+        word: String::new(),
+        session: 0,
         warn_inputs: vec![],
     }
 }

@@ -1,16 +1,20 @@
 //! Reducer for the Compare workspace: user actions in, runtime commands out; runtime compare
 //! events in, view-models out. Compare sessions have their own connections, so nothing here
 //! depends on (or is reset by) the main browsing connection.
+use super::compare_apply as apply;
 use super::compare_checks as checks;
 use super::compare_duplicates as duplicates;
 use super::compare_pairs as pairs;
 use super::compare_results::{back_to_overview, discard_pair, moved, open_pair, rerun, select};
 use super::compare_run::{cancel, on_run_event, start, start_passing};
+use super::compare_select as selecting;
 use super::reducer::Out;
 use super::state::{AppState, Banner, Workspace};
 use crate::viewmodel::compare::{
-    CompareState, EntryId, PairOverrides, Pick, ResultsView, RulesForm, SessionPhase, SideForm,
+    CompareState, EntryId, PairOverrides, Pick, ResultsView, RowAction, RulesForm, SessionPhase,
+    SideForm,
 };
+use curlybrace_core::compare::apply::IdPolicy;
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent, SessionId, Side};
 use curlybrace_core::compare::results::Category;
@@ -74,6 +78,31 @@ pub enum CompareAction {
     /// Ask both sides for their most frequent duplicate keys of an entry that failed on a
     /// duplicate key.
     FindDuplicates(EntryId),
+    /// Tick or untick one row of the loaded page of the open results tab.
+    ToggleRow(KeyTuple),
+    /// Tick every row of the loaded page.
+    SelectPage,
+    /// Tick every row of the tab, loaded or not.
+    SelectAllInCategory,
+    ClearSelection,
+    /// Queue the action for the ticked rows of the open tab (nothing is written).
+    AddToPending(RowAction),
+    /// Queue the action for one loaded row of the open tab (from its detail).
+    AddKeyToPending(KeyTuple, RowAction),
+    RemovePending(usize),
+    ClearPending,
+    /// Open the review dialog; `word` is the localized `compare.apply.confirm_word`, which the
+    /// review stores and the typed confirmation is later checked against.
+    ReviewApply {
+        word: String,
+    },
+    SetConfirmText(String),
+    SetIdPolicy(IdPolicy),
+    /// The one action that can start a write: a no-op unless a review is open and confirmed.
+    ConfirmApply,
+    CancelReview,
+    CancelApply,
+    DismissApplyResult,
 }
 
 pub(super) fn cmd(c: CompareCommand) -> Command {
@@ -143,6 +172,21 @@ fn on_pair_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::Reload(side) => reload(state, side),
         CompareAction::RetryRows => moved(state, ResultsView::retried),
         CompareAction::FindDuplicates(entry) => duplicates::find(state, entry),
+        CompareAction::ToggleRow(_)
+        | CompareAction::SelectPage
+        | CompareAction::SelectAllInCategory
+        | CompareAction::ClearSelection
+        | CompareAction::AddToPending(_)
+        | CompareAction::AddKeyToPending(..)
+        | CompareAction::RemovePending(_)
+        | CompareAction::ClearPending
+        | CompareAction::ReviewApply { .. }
+        | CompareAction::SetConfirmText(_)
+        | CompareAction::SetIdPolicy(_)
+        | CompareAction::ConfirmApply
+        | CompareAction::CancelReview
+        | CompareAction::CancelApply
+        | CompareAction::DismissApplyResult => on_apply_action(state, action),
         // Handled by `on_action`; listed so a new variant must be routed on purpose.
         CompareAction::Show
         | CompareAction::Hide
@@ -152,6 +196,28 @@ fn on_pair_action(state: AppState, action: CompareAction) -> Out {
         | CompareAction::SetKey(_)
         | CompareAction::SetFilter(..)
         | CompareAction::SetRules(_) => none(state),
+    }
+}
+
+/// Selection, pending changes and the apply workflow.
+fn on_apply_action(state: AppState, action: CompareAction) -> Out {
+    match action {
+        CompareAction::ToggleRow(key) => selecting::toggle_row(state, key),
+        CompareAction::SelectPage => selecting::select_page(state),
+        CompareAction::SelectAllInCategory => selecting::select_all(state),
+        CompareAction::ClearSelection => selecting::clear_selection(state),
+        CompareAction::AddToPending(a) => selecting::add_selection(state, a),
+        CompareAction::AddKeyToPending(key, a) => selecting::add_key(state, key, a),
+        CompareAction::RemovePending(index) => selecting::remove_pending(state, index),
+        CompareAction::ClearPending => selecting::clear_pending(state),
+        CompareAction::ReviewApply { word } => apply::review(state, &word),
+        CompareAction::SetConfirmText(text) => apply::set_confirm_text(state, &text),
+        CompareAction::SetIdPolicy(policy) => apply::set_id_policy(state, policy),
+        CompareAction::ConfirmApply => apply::confirm_apply(state),
+        CompareAction::CancelReview => apply::cancel_review(state),
+        CompareAction::CancelApply => apply::cancel_apply(state),
+        CompareAction::DismissApplyResult => apply::dismiss_result(state),
+        _ => none(state),
     }
 }
 
@@ -329,10 +395,9 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
         | CompareEvent::RunDone { .. }
         | CompareEvent::Rows { .. }
         | CompareEvent::Detail { .. }) => on_run_event(state, run_event),
-        // handled in slice 2b: apply events change nothing yet and never raise a banner.
-        CompareEvent::ApplyProgress { .. }
+        apply_event @ (CompareEvent::ApplyProgress { .. }
         | CompareEvent::ApplyPairDone { .. }
-        | CompareEvent::ApplyDone { .. } => none(state),
+        | CompareEvent::ApplyDone { .. }) => apply::on_event(state, apply_event),
         other => on_setup_event(state, other),
     }
 }
@@ -430,6 +495,9 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
     }
     if context == "compare_duplicates" {
         return none(duplicates::failed(state, error));
+    }
+    if context == "compare_apply" {
+        return apply::failed(state, error);
     }
     if context == "compare_rows" {
         return rows_failed(state, error);

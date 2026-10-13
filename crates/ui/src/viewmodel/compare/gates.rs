@@ -102,7 +102,8 @@ impl CompareState {
                 .all(|c| self.pair_is_applicable(c.pair))
     }
 
-    fn pair_is_applicable(&self, pair: PairId) -> bool {
+    /// The pair completed and no apply has touched it since: rows may be ticked and queued.
+    pub fn pair_is_applicable(&self, pair: PairId) -> bool {
         self.overview
             .rows
             .iter()

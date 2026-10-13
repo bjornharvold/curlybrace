@@ -39,8 +39,8 @@ pub use pending::{PendingChange, PendingList, Scope};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
 pub use review::{
-    Destination, KindCounts, RequiredText, Review, ReviewConnections, ReviewEntry, ReviewPair,
-    Warning, build_review,
+    CONFIRM_WORD_KEY, Destination, KindCounts, RequiredText, Review, ReviewConnections,
+    ReviewEntry, ReviewPair, Warning, build_review,
 };
 pub use rows::{EntrySizes, EntryStatus, OverviewRow, PairRow, RowCounts, RowDetail, StatusIcon};
 pub use selection::{CategorySelection, OrdKey, RowAction, Selection};
