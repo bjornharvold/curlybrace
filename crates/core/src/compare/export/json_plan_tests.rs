@@ -1,0 +1,346 @@
+use bson::{Bson, doc};
+use serde_json::{Value, json};
+
+use super::*;
+use crate::compare::apply::{Direction, IdPolicy};
+use crate::compare::diff::PathSegment::{Field, Index};
+use crate::compare::export::ExportCounts;
+use crate::compare::fingerprint::Fingerprint;
+use crate::compare::key::KeyTuple;
+
+fn header(label: &str) -> ExportHeader {
+    ExportHeader {
+        label: label.to_string(),
+        counts: ExportCounts {
+            insert: 1,
+            replace: 2,
+            delete: 3,
+            update_fields: 4,
+            skipped: 5,
+        },
+        id_policy: IdPolicy::Generate,
+    }
+}
+
+fn pair(db: &str) -> PlanPair {
+    PlanPair {
+        source: Namespace::new(db, "items"),
+        target: Namespace::new("tdb", "titems"),
+        key: vec!["sku".to_string(), "a.b".to_string()],
+    }
+}
+
+fn meta(direction: Direction, key: Vec<Bson>, source: Option<u8>, target: Option<u8>) -> OpMeta {
+    OpMeta {
+        direction,
+        key: KeyTuple(key),
+        source: source.map(|b| Fingerprint([b; 16])),
+        target: target.map(|b| Fingerprint([b; 16])),
+    }
+}
+
+fn insert_op() -> PlanOp {
+    PlanOp::Write {
+        meta: meta(
+            Direction::SourceToTarget,
+            vec![Bson::Int32(1)],
+            Some(0xab),
+            None,
+        ),
+        op: ShellOp::Insert {
+            doc: doc! { "_id": 1_i64, "d": 2.5, "when": bson::DateTime::from_millis(0) },
+        },
+    }
+}
+
+fn write(ops_per_pair: &[Vec<PlanOp>], label: &str) -> String {
+    let mut w = PlanWriter::new(Vec::new());
+    w.begin(&header(label)).expect("begin");
+    for (i, ops) in ops_per_pair.iter().enumerate() {
+        w.pair(&pair(&format!("db{i}"))).expect("pair");
+        for op in ops {
+            w.operation(op).expect("operation");
+        }
+    }
+    String::from_utf8(w.finish().expect("finish")).expect("utf8")
+}
+
+fn parse(text: &str) -> Value {
+    serde_json::from_str(text).unwrap_or_else(|e| panic!("invalid JSON ({e}):\n{text}"))
+}
+
+#[test]
+fn header_fields() {
+    let v = parse(&write(&[], "Nightly"));
+    assert_eq!(
+        v["header"],
+        json!({
+            "format": "curlybrace-compare-plan",
+            "version": 1,
+            "label": "Nightly",
+            "counts": { "insert": 1, "replace": 2, "delete": 3, "updateFields": 4, "skipped": 5 },
+            "idPolicy": "generate"
+        })
+    );
+    assert_eq!(v["pairs"], json!([]));
+}
+
+#[test]
+fn zero_one_and_many_operations_parse() {
+    let zero = parse(&write(&[vec![]], "l"));
+    assert_eq!(zero["pairs"][0]["operations"], json!([]));
+
+    let one = parse(&write(&[vec![insert_op()]], "l"));
+    assert_eq!(
+        one["pairs"][0]["operations"].as_array().map(Vec::len),
+        Some(1)
+    );
+
+    let many = parse(&write(
+        &[
+            vec![insert_op(), insert_op(), insert_op()],
+            vec![],
+            vec![insert_op()],
+        ],
+        "l",
+    ));
+    let pairs = many["pairs"].as_array().expect("pairs");
+    assert_eq!(pairs.len(), 3);
+    assert_eq!(pairs[0]["operations"].as_array().map(Vec::len), Some(3));
+    assert_eq!(pairs[1]["operations"].as_array().map(Vec::len), Some(0));
+    assert_eq!(pairs[2]["operations"].as_array().map(Vec::len), Some(1));
+}
+
+#[test]
+fn pair_shape() {
+    let v = parse(&write(&[vec![]], "l"));
+    assert_eq!(
+        v["pairs"][0],
+        json!({
+            "source": { "db": "db0", "collection": "items" },
+            "target": { "db": "tdb", "collection": "titems" },
+            "key": ["sku", "a.b"],
+            "operations": []
+        })
+    );
+}
+
+#[test]
+fn insert_carries_canonical_extended_json() {
+    let v = parse(&write(&[vec![insert_op()]], "l"));
+    assert_eq!(
+        v["pairs"][0]["operations"][0],
+        json!({
+            "op": "insert",
+            "direction": "sourceToTarget",
+            "key": [{ "$numberInt": "1" }],
+            "sourceFingerprint": "ab".repeat(16),
+            "targetFingerprint": null,
+            "document": {
+                "_id": { "$numberLong": "1" },
+                "d": { "$numberDouble": "2.5" },
+                "when": { "$date": { "$numberLong": "0" } }
+            }
+        })
+    );
+}
+
+#[test]
+fn replace_delete_and_update_shapes() {
+    let ops = vec![
+        PlanOp::Write {
+            meta: meta(
+                Direction::TargetToSource,
+                vec![Bson::String("k".into())],
+                Some(1),
+                Some(2),
+            ),
+            op: ShellOp::Replace {
+                id: Bson::Int32(2),
+                doc: doc! { "_id": 2 },
+            },
+        },
+        PlanOp::Write {
+            meta: meta(
+                Direction::SourceToTarget,
+                vec![Bson::Int32(3)],
+                None,
+                Some(2),
+            ),
+            op: ShellOp::Delete { id: Bson::Int32(3) },
+        },
+        PlanOp::Write {
+            meta: meta(
+                Direction::SourceToTarget,
+                vec![Bson::Int32(4)],
+                Some(1),
+                Some(2),
+            ),
+            op: ShellOp::UpdateFields {
+                id: Bson::Int32(4),
+                set: vec![(
+                    vec![Field("a".into()), Index(2), Field("b".into())],
+                    Bson::Int64(5),
+                )],
+                unset: vec![vec![Field("c".into())]],
+            },
+        },
+    ];
+    let v = parse(&write(&[ops], "l"));
+    let o = &v["pairs"][0]["operations"];
+    assert_eq!(o[0]["op"], "replace");
+    assert_eq!(o[0]["direction"], "targetToSource");
+    assert_eq!(o[0]["key"], json!(["k"]));
+    assert_eq!(o[0]["id"], json!({ "$numberInt": "2" }));
+    assert_eq!(o[0]["document"], json!({ "_id": { "$numberInt": "2" } }));
+    assert_eq!(o[0]["sourceFingerprint"], "01".repeat(16));
+    assert_eq!(o[0]["targetFingerprint"], "02".repeat(16));
+    assert_eq!(o[1]["op"], "delete");
+    assert_eq!(o[1]["id"], json!({ "$numberInt": "3" }));
+    assert_eq!(o[1]["sourceFingerprint"], Value::Null);
+    assert!(o[1].get("document").is_none());
+    assert_eq!(o[2]["op"], "updateFields");
+    assert_eq!(
+        o[2]["set"],
+        json!([{ "path": ["a", 2, "b"], "value": { "$numberLong": "5" } }])
+    );
+    assert_eq!(o[2]["unset"], json!([["c"]]));
+}
+
+#[test]
+fn paths_are_arrays_of_strings_and_numbers_never_dotted() {
+    let op = PlanOp::Write {
+        meta: meta(
+            Direction::SourceToTarget,
+            vec![Bson::Int32(1)],
+            Some(1),
+            Some(2),
+        ),
+        op: ShellOp::UpdateFields {
+            id: Bson::Int32(1),
+            set: vec![(vec![Field("a.b".into()), Index(0)], Bson::Null)],
+            unset: vec![],
+        },
+    };
+    let v = parse(&write(&[vec![op]], "l"));
+    let path = &v["pairs"][0]["operations"][0]["set"][0]["path"];
+    assert_eq!(path, &json!(["a.b", 0]));
+    assert!(path[1].is_u64());
+}
+
+#[test]
+fn skipped_operations_carry_their_reason_and_never_a_document() {
+    let ops = vec![
+        PlanOp::Skipped {
+            meta: meta(
+                Direction::SourceToTarget,
+                vec![Bson::Int32(1)],
+                Some(1),
+                Some(2),
+            ),
+            kind: ApplyKind::Replace,
+            reason: SkipReason::Stale,
+        },
+        PlanOp::Skipped {
+            meta: meta(
+                Direction::TargetToSource,
+                vec![Bson::Int32(2)],
+                Some(1),
+                None,
+            ),
+            kind: ApplyKind::Fields,
+            reason: SkipReason::NotPlanned,
+        },
+    ];
+    let v = parse(&write(&[ops], "l"));
+    let o = &v["pairs"][0]["operations"];
+    assert_eq!(o[0]["op"], "skipped");
+    assert_eq!(o[0]["kind"], "replace");
+    assert_eq!(o[0]["reason"], "stale");
+    assert_eq!(o[1]["kind"], "updateFields");
+    assert_eq!(o[1]["reason"], "notPlanned");
+    for entry in o.as_array().expect("array") {
+        assert!(entry.get("document").is_none() && entry.get("set").is_none());
+        assert!(entry.get("direction").is_some() && entry.get("key").is_some());
+    }
+}
+
+#[test]
+fn a_hostile_label_and_names_are_escaped() {
+    let label = "evil\"}, \"pairs\": [] //\n\u{2028}\u{0}</script>";
+    let text = write(&[vec![]], label);
+    let v = parse(&text);
+    assert_eq!(v["header"]["label"], label);
+    assert!(v["pairs"].as_array().is_some_and(|p| p.len() == 1));
+    assert!(!text.contains("\u{2028}"));
+}
+
+#[test]
+fn output_is_deterministic() {
+    let build = || write(&[vec![insert_op(), insert_op()], vec![insert_op()]], "l");
+    assert_eq!(build(), build());
+}
+
+#[test]
+fn a_field_order_in_documents_is_preserved() {
+    let op = PlanOp::Write {
+        meta: meta(
+            Direction::SourceToTarget,
+            vec![Bson::Int32(1)],
+            Some(1),
+            None,
+        ),
+        op: ShellOp::Insert {
+            doc: doc! { "z": 1, "a": 2, "m": 3 },
+        },
+    };
+    let text = write(&[vec![op]], "l");
+    let z = text.find("\"z\"").expect("z");
+    let a = text.find("\"a\"").expect("a");
+    let m = text.find("\"m\"").expect("m");
+    assert!(z < a && a < m);
+}
+
+#[test]
+fn undefined_and_db_pointer_values_are_plain_extended_json_here() {
+    // The plan is data, not code: every BSON value has a canonical extended JSON form.
+    let op = PlanOp::Write {
+        meta: meta(
+            Direction::SourceToTarget,
+            vec![Bson::Int32(1)],
+            Some(1),
+            None,
+        ),
+        op: ShellOp::Insert {
+            doc: doc! { "u": Bson::Undefined },
+        },
+    };
+    let v = parse(&write(&[vec![op]], "l"));
+    assert_eq!(
+        v["pairs"][0]["operations"][0]["document"]["u"],
+        json!({ "$undefined": true })
+    );
+}
+
+#[test]
+fn calling_the_writer_out_of_order_is_a_sequence_error() {
+    let mut w = PlanWriter::new(Vec::new());
+    assert_eq!(w.pair(&pair("d")), Err(RenderError::Sequence));
+    assert_eq!(w.operation(&insert_op()), Err(RenderError::Sequence));
+    w.begin(&header("l")).expect("begin");
+    assert_eq!(w.begin(&header("l")), Err(RenderError::Sequence));
+    assert_eq!(w.operation(&insert_op()), Err(RenderError::Sequence));
+    assert!(matches!(
+        PlanWriter::new(Vec::new()).finish(),
+        Err(RenderError::Sequence)
+    ));
+}
+
+#[test]
+fn an_empty_namespace_is_a_bad_name() {
+    let mut w = PlanWriter::new(Vec::new());
+    w.begin(&header("l")).expect("begin");
+    let mut bad = pair("d");
+    bad.target = Namespace::new("", "c");
+    assert_eq!(w.pair(&bad), Err(RenderError::BadName));
+}

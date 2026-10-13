@@ -7,6 +7,7 @@ pub mod apply_engine;
 pub mod apply_fields;
 pub mod diff;
 pub mod engine;
+pub mod export;
 pub mod fingerprint;
 pub mod key;
 pub mod keyset;
