@@ -127,8 +127,19 @@ for each side, press **Add pair**, then **Check** and **Run**.
   only is removed from the other); the rest of the destination document stays as it is. A field that
   cannot be copied on its own (the `_id`, a name with a dot or starting with `$`, an item of an array whose
   order is ignored, or an array item that was added or removed) is shown disabled with the reason. Field copies are queued and reviewed like the
-  other actions. Exporting results is still to come
-  ([#8](https://github.com/bjornharvold/curlybrace/issues/8)).
+  other actions.
+- **Export.** Instead of (or before) applying, **Export changes...** in the pending list writes the queued
+  changes to a file you choose: a **mongosh script** (one `bulkWrite` per collection, the fingerprints as
+  comments, for one side of the comparison at a time) or a **JSON plan** (canonical extended JSON, which also
+  works for changes to both sides). Each document is checked again when you export, and anything that changed
+  since the compare, or that the shell cannot express (for example an `undefined` or DBPointer value), is listed
+  as skipped in the file and never written as an operation. **Export report...** in the overview writes the
+  differences (pair, key, category and, if you ask for it, the changed field paths, never values) as a **CSV
+  file** or copies them to the **clipboard** (up to 10,000 rows). The files contain **document data** (the
+  report contains keys, which can be personal data) and no connection names, hosts or passwords; they are
+  created with owner-only permissions, written only where you choose and removed if the export fails or is
+  cancelled. A script is a snapshot of an earlier comparison: the documents may have changed again by the time
+  you run it, so read it first. Exporting never writes to a database.
 - The key must be **unique** on each side: a duplicate key stops the run with an error, and
   **Find duplicate keys** then shows which values repeat. Each document must have a value for
   every key field, and a key value cannot be an array or a regular expression.
@@ -160,7 +171,7 @@ in rough order; each one gets its own design and plan before code is written, an
 place to contribute:
 
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): diff two collections or databases (across servers), pick the
-  differences, and apply or export the sync. Comparing collections and whole databases is built, and so is copying and deleting differences, including single fields of a changed document, between two databases (with a confirmation and a per-document report). Still to build: exporting reports.
+  differences, and apply or export the sync. Comparing collections and whole databases is built, and so is copying and deleting differences, including single fields of a changed document, between two databases (with a confirmation and a per-document report), and exporting the pending changes as a mongosh script or JSON plan and the differences as a CSV report. The compare feature itself has nothing left to build; feedback and fixes are welcome.
 - **Data Masking and Reschema** ([#9](https://github.com/bjornharvold/curlybrace/issues/9)): anonymise sensitive fields in copies of data and
   reshape documents in bulk.
 - **SQL and MongoDB** ([#10](https://github.com/bjornharvold/curlybrace/issues/10)): a SQL query editor that translates to MongoDB queries, plus SQL

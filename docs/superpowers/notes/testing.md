@@ -21,6 +21,7 @@ unreachable the test FAILS with instructions; it never skips.
 |----------|--------|
 | `CURLYBRACE_IT=1` | Enables tier 1 and tier 2 (the scripts set it). |
 | `CURLYBRACE_IT_MONGODB_URI` | Tier 1 only. Server to connect to; default `mongodb://127.0.0.1:27017`. |
+| `CURLYBRACE_IT_MONGOSH_CONTAINER` | Export tier-1 tests only. Name of YOUR OWN `cb-it-dev-*` container whose `mongosh` runs the generated scripts (`docker exec -i`). Unset = the `mongosh` tests skip with a message. Names not starting with `cb-it-dev-` are refused (panic), and the container's published port 27017 must equal the host:port of `CURLYBRACE_IT_MONGODB_URI`. |
 | `CURLYBRACE_SNAPSHOTS=1` | Enables the screenshot tests. |
 | `UPDATE_SNAPSHOTS=1` | Rewrites the committed PNGs instead of comparing. |
 
@@ -84,6 +85,39 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
       docker rm -f cb-it-dev-2c
 
   Its gesture helpers (`open_detail`, `tick_fields`, `copy_fields`, `apply_ticked_fields`, `field_disabled`, `field_ticked`, `has_field`) are in `tests/support/compare.rs`.
+
+- `curlybrace-core` `local_compare_export` and `local_compare_export_files`, `curlybrace-ui` `local_compare_export_flows` - the slice 3
+  EXPORT flows. `local_compare_export` runs the exported mongosh script with the REAL `mongosh` against the server it
+  seeded: the script must leave the target equal to an in-process apply, a document of every BSON type must survive
+  byte for byte (Int32/Int64/Double incl. -0/NaN/Infinity, Decimal128, dates before 1970 and after 9999, ObjectId, BinData
+  and UUID, regex with flags, Timestamp, MinKey/MaxKey, Code with scope, Symbol; Undefined and DBPointer are checked as
+  skipped), hostile names and values change nothing but the intended collection (a sentinel collection and a sentinel
+  database stay), field operations touch only the chosen fields, stale operations are not written, and an unfinished
+  script (`quit(1)` first line, or cut at several offsets) changes nothing. `local_compare_export_files` needs no
+  `mongosh`: the JSON plan, the CSV report (parsed with a reader written in the test), the report with paths (no
+  values), cancelling an export of 40,000 operations (the partial file is removed) and the one-destination-side rule.
+  `local_compare_export_flows` drives the REAL app with a fake `FilePicker` (`tests/support/export_flow.rs`, the
+  native dialog is never opened): it exports a plan (script and JSON) from the pending list and a report from the
+  overview into a temp directory, checks the files and the finished panel, that both collections are unchanged, and
+  that the clipboard report is copied exactly once. They WRITE to `cbit_*` databases (the exports themselves write
+  none), so use your own container. The container is also the one the generated scripts run in:
+
+      docker run -d --rm --name cb-it-dev-3 -p 127.0.0.1:27122:27017 mongo:7
+      until nc -z 127.0.0.1 27122; do sleep 1; done
+      export CURLYBRACE_IT=1 CURLYBRACE_IT_MONGODB_URI=mongodb://127.0.0.1:27122 \
+             CURLYBRACE_IT_MONGOSH_CONTAINER=cb-it-dev-3
+      cargo test -p curlybrace-core --test local_compare_export --test local_compare_export_files --locked -- --include-ignored --nocapture
+      cargo test -p curlybrace-ui --test local_compare_export_flows --locked -- --include-ignored --nocapture
+      docker rm -f cb-it-dev-3
+
+  How a script is run (`tests/support/mongosh.rs`; the 27017 below is INSIDE the container, not the host's):
+
+      docker exec -i cb-it-dev-3 mongosh --quiet "mongodb://127.0.0.1:27017/<cbit_db>?directConnection=true" < script.js
+
+  The helper never execs into another container: the name must start with `cb-it-dev-` (letters, digits, `-`, `_`), the
+  default database must be a `cbit_*` name, and the container must publish 27017 on the host:port of
+  `CURLYBRACE_IT_MONGODB_URI`. `mongosh` reading a script from stdin is a REPL: it keeps going after a failed statement
+  and may exit 0, so the tests judge by the database and by printed errors, not only by the exit status.
 
 The script checks that the server answers on TCP (no `mongosh` needed), sets `CURLYBRACE_IT=1` and
 runs both targets. **Start the server yourself**, for example

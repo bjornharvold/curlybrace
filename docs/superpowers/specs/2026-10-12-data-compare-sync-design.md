@@ -38,7 +38,8 @@ changes the events.
    only listed fields), ignore array order, numbers equal across types, ignore field order in documents. Strict BSON equality is the default, except that field order is
    ignored by default.
 5. **Result storage:** match keys plus fingerprints held in memory under a hard cap. Field-level
-   detail is fetched on demand. **No document data is written to disk.** Apply re-checks fingerprints.
+   detail is fetched on demand. **No document data is written to disk except by an explicit export to a
+   file the person chooses** (slice 3). Apply re-checks fingerprints.
 6. **UI:** a Compare workspace next to Browse, a top-level switch in the main window.
 7. **Engine:** sorted merge-join over two keyset-paged streams. Not a hash of one whole side.
 8. **`_id` on copy:** when the key is not `_id`, a copied document keeps its source `_id` by default and
@@ -742,7 +743,7 @@ Limits and known gaps as of slice 2b:
   the results view, which looks rows up with `==`).
 - `CompareEvent::Failed` carries no run id, so a `Failed` for `compare_apply` cannot be tied to a run; the UI
   sends one `Apply` at a time and treats it as the current one.
-- Exporting a report is slice 3.
+- Exporting a report is slice 3 (built, see "Slice 3 as built").
 - Quitting the app while an apply runs gives no warning and no report. Each document write is atomic, so
   nothing is left half-written; a close confirmation is a later improvement.
 - Adding keys that a whole-tab pending item already covers is ignored: the ticks stay, and the detail pane's
@@ -849,14 +850,155 @@ Two formats of the plan, written only to a file the user chooses (never to a tem
 - A JSON file: `{ header, pairs: [ { source, target, operations } ] }` with canonical extended JSON documents.
 
 A third output, the **report**, lists the compare's differences (pair, key, category, changed paths) as CSV or to the
-clipboard, and includes the summary (counts and duration). All three are written only on the user's action.
+clipboard, and includes the summary (counts; the duration was dropped as built, see below). All three are written only on the user's action.
 
 None of them contains credentials, connection strings or hosts; the header names the database and collection and
 carries a free-text label. The UI warns that the files contain document data (the report contains keys, which can be personal data).
 
+### Slice 3 as built
+
+Plan: `docs/superpowers/plans/2026-10-14-data-compare-slice-3.md`. The runtime does the work; the UI never holds
+document data (the one exception is the clipboard report text, capped as below).
+
+**The three outputs.**
+
+- *mongosh script.* A comment header (sanitised label, counts, id policy, a note that a failed item makes `bulkWrite`
+  throw and the shell then stops later statements, `// destination: target|source side of the comparison`), then per
+  destination collection one statement
+  `db.getSiblingDB("<db>").getCollection("<name>").bulkWrite([ ... ], { ordered: false });`. Each operation is
+  preceded by a comment with the direction, kind, both fingerprints (hex) and the key. Operations are `insertOne`,
+  `replaceOne` and `deleteOne` (filter `{"_id": ...}`) and `updateOne` (`$set` and `$unset` with dotted paths built
+  from the segments, using the guards of the store's own update statement). A collection with no writes has no
+  statement (an empty `bulkWrite([])` throws). No variables, no `const`/`let`.
+- *JSON plan.* `{ "header": {format "curlybrace-compare-plan", version 1, label, complete, counts, idPolicy}, "pairs":
+  [ {source, target, key, operations} ] }`, compact, one operation per line. Documents and keys are canonical extended
+  JSON; field paths are arrays of segments. Each operation has `op` (`insert|replace|delete|updateFields|skipped`),
+  `direction`, `destination`, `key` and both fingerprints; skipped ones carry `kind` and `reason` and never a document.
+  A plan may mix both directions; there is no script for that (below).
+- *Report.* A CSV of the stored differences of the chosen pairs: header
+  `pair,source,target,category,key,changed_paths`, `category` = `only_in_source|only_in_target|different`, `key` = a
+  relaxed extended JSON array. The **pair column is the 1-based position of the pair in the report**, not a pair id.
+  `changed_paths` is empty unless "include changed field paths" is on; then it is a JSON array of display paths
+  (`a.b`, `list[1]`) cut at 200 paths plus a `"..."` element, paths only, never values. Display paths are ambiguous
+  for field names that contain dots. Target: a file, or the clipboard.
+
+**Commands and events** (`compare/protocol.rs`). `CompareCommand::Export { session, run, request: ExportRequest {
+format: Mongosh|JsonPlan, label, id_policy, ops, bulk }, path }`; `CompareCommand::ExportReport { session, run,
+request: ReportRequest { pairs, include_paths, label }, target: File(path)|Clipboard }`. Events:
+`ExportProgress { done, total }` (zero or more), `ExportText { text }` (clipboard only, strictly before the done
+event, never logged), and exactly one `ExportDone { outcome }`, or `Failed { context: "compare_export" }` with no
+`ExportDone` when the request is refused or a write fails (the UI treats that as the end of the export).
+`ExportOutcome { written, skipped, failed, not_run, bytes, cancelled, partial_removed, file_left }`.
+
+- For a **plan**: `written` are operations in the file, `skipped` are operations listed but not written (changed since
+  the compare, not applicable, or unsupported by the shell), `failed` are operations that could not be verified
+  (also listed in the file as skipped), `not_run` the rest after a cancel. The groups are separate and add up to the
+  operations requested.
+- For a **report**: `written` is the number of rows; `skipped` (documents changed since the compare) and `failed`
+  (documents unreadable) are counted **inside** `written`: those rows are still listed, with an empty paths cell.
+- A cancelled, closed or panicked export reports `nothing exported` (`written`/`skipped`/`failed` 0, `bytes` 0,
+  `not_run` = total). `partial_removed` is true when no file remains; `file_left` is true only when removing the
+  partial file failed, which the UI shows prominently.
+
+**Planning reuses the apply planner** (`plan_pair_export` over `plan_batch`): the same re-read of both documents on
+the primary, both fingerprints equal to the recorded ones, kind fits, a fresh diff for field operations, scope-safe
+field paths, and the same destination rules (a view is refused, a time-series collection gets inserts only). What an
+apply would skip (stale, not applicable) is listed as a comment or a `skipped` entry with its reason and is never
+exported as a write. Export never writes to a database and never marks a pair applied.
+
+**File lifecycle** (`runtime/compare/export_file.rs`, `export_sink.rs`). Validated before the job slot is taken: the
+path is absolute, has a file name, its parent exists and is a directory, the path is not a directory. The file is
+opened with owner-only permissions (0600, also restricted when it already existed), `O_NOFOLLOW`, no truncate at open
+(then `fstat`: regular file, one link, then `set_len(0)`), so a symlink, hard link or FIFO at the path is refused. It
+is written through a 64 KiB buffered writer **at the chosen path, never to a temp file**. A `FileGuard` removes the
+file on cancel, failure, panic or session close; a failed removal is reported (`file_left`, or
+`Failed { ExportFileNotRemoved }`). The counts are only known after planning, so the **header has a fixed width**:
+counts are space-padded to the digits of the total, and the first line of a script is
+`quit(1); // incomplete export: do not run` while it is being written. After the body, the file is synced, the header
+is overwritten **in place with a same-length final one** (script: the first line becomes `// complete export` padded
+with spaces; JSON: `"complete":false` becomes `"complete":true `), synced again and committed. A crash in between
+leaves a script that exits at its first line, never one that applies half of itself. A script with a cut body is
+still unfinished text to the shell: a cut inside the single `bulkWrite` expression is never evaluated, but a cut at a
+statement boundary of a multi-collection script runs the complete statements before it (a script cut by hand is not
+protected).
+
+**One destination side per script.** A script names collections only, so statements for the source side and the target
+side of the comparison would be indistinguishable. A request with writes to both sides is refused for the script
+(`Unsupported("export one direction at a time")`) before the slot is taken, and accepted as a JSON plan (each
+operation carries `destination`). Several pairs or directions writing the same destination collection still give
+exactly one `bulkWrite` for it.
+
+**Sanitising.** The label is free text from the person: control characters, CR/LF, U+2028/2029 and bidi override
+characters become spaces, whitespace is collapsed and the text is capped at 200 characters before it goes into a
+script or CSV comment; elsewhere it is a JS or JSON string literal (JSON additionally escapes U+2028/2029). Database
+and collection names in comments are sanitised the same way and are JS string literals in code. CSV: RFC 4180
+quoting (also for `;`), CRLF line ends, a cell whose first non-blank character is `=`, `+`, `-`, `@`, TAB or CR gets a
+leading `'`. The summary (`# label`, per-pair and total counts, no durations) is written as `#` lines, **each
+exactly one CSV cell**, so a hostile label cannot start a second cell. The last line is `# end of report: N rows`.
+Headers never carry connection names, hosts, URIs or secrets.
+
+**Renderer decisions** (verified against `mongosh` 2.13 and a real `mongo:7`). Regex is `BSONRegExp("pattern",
+"flags")` (a JS `RegExp` throws on the BSON-only flag `x`); Symbol is `BSONSymbol("s")`; integral and negative-zero
+doubles are `Double(1)` / `Double(-0)` (a bare `1` is an Int32 in the shell), NaN and the infinities are the JS
+globals, fractional doubles are bare shortest round-trip literals; Timestamp is `Timestamp({ t: T, i: I })`;
+dates are `ISODate("...Z")` for years 0000-9999 and `new Date(<ms>)` within the JS date range; Int32 `NumberInt`,
+Int64 `NumberLong("...")`, Decimal128 `NumberDecimal("...")`, ObjectId, `BinData(subtype, "base64")`, `UUID("...")`,
+`MinKey()`, `MaxKey()`, `Code("...")` and `Code("...", {scope})`. A key `__proto__` is written as a computed key so
+it is an own field. Nesting deeper than 128 is refused. **Undefined and DbPointer have no shell constructor, and
+regex flags outside `imxlsu` or dates beyond the JS range cannot be expressed; a document holding one is skipped as
+unsupported (listed, never written, never changed to another type).** The JSON plan has no such limit.
+
+**Clipboard.** Report text only, at most 10,000 rows (`CLIPBOARD_MAX_ROWS`, counted from the stored differences of
+the chosen pairs); a larger report is refused before the slot is taken and the UI says to export to a file. The text
+equals the file's content and arrives as `ExportText`; the app layer copies it once (`ctx.copy_text`).
+
+**UI flow** (`ExportUi`): `Idle`, `Configuring` (the modal), `Choosing` (the file dialog is open), `Running`,
+`Finished`, `Copied`. `ExportPathChosen(path)` is honoured only in `Choosing` and `start_export` is the only function
+that builds `Export` or `ExportReport`, so nothing is exported without the person choosing a file (or pressing
+Copy). The app opens the native save dialog (`rfd`, behind a `FilePicker` trait so tests inject a fake; on macOS it
+dispatches to the main thread) when the state is `Choosing` and no dialog is pending, answers
+`ExportPathChosen`/`ExportPathCancelled` once, and drops an answer whose draft is no longer current. Cancel exists in
+`Choosing` and `Running` (one `Cancel`). Gates: a connected session with finished pairs; plan export needs a
+non-empty pending list, report export a pair with stored results; no export while a run, check, review or apply is
+open, and while an export is `Choosing` or `Running` the same busy rules as an apply refuse Start, Check, Re-run,
+Remove, Discard, Find duplicates, Apply, Review and closing the session. The script format is disabled with a reason
+when the pending list writes to both sides. The modal warns that the file contains document data (the report: keys
+can be personal data), that the plan is a snapshot, and that skipped operations are listed in the file.
+
+**Limits and known gaps.**
+
+- No per-row selection for the report (it covers whole pairs; pick the pairs in the dialog) and no Identical rows.
+- No import or restore from a plan or script.
+- The summary has no per-pair duration: `Summary` carries none.
+- `include_paths` re-reads both documents of every different row, one after the other: slow for big results.
+- An `ordered: false` `bulkWrite` that hits a failing item throws, and the shell then runs no later statement of the
+  script (the items of the failing statement that could be applied were applied).
+- A script and a plan are a snapshot of an earlier comparison: the documents may have changed again before it is run.
+  The server is not asked again when the script runs; `replaceOne`/`deleteOne` filter on `_id` only.
+- The CSV has no completeness marker besides the end line; a hard kill (SIGKILL) can leave a truncated report. The
+  report does not mark pairs whose results an apply made stale (`RunRow.applied`).
+- A failure while removing a partial file after the session closed cannot be reported (no events after close).
+- A path is checked and then opened (a small check-then-open window on the parent directory).
+- The real native dialog is not exercised by any automated test. **Manual smoke test on macOS before a release:**
+  the panel opens with the suggested name (`curlybrace-plan.js`/`.json`, `curlybrace-report.csv`); the UI stays
+  responsive while it is open; Cancel in the panel returns to the modal; an existing file asks before overwriting;
+  no second panel appears; the window repaints after the answer; quitting while the panel is open; Copy report copies
+  exactly once; the panel opens on the display of the app window (second display).
+
+Tier-1 coverage on a real server (`crates/core/tests/local_compare_export.rs`, `local_compare_export_files.rs`,
+`crates/ui/tests/local_compare_export_flows.rs`): the script is run with the REAL `mongosh` inside a throwaway
+container and must leave the target equal to an in-process apply; a document of every BSON type survives the script
+byte for byte; hostile names and values change nothing but the intended collection; field operations update only
+the chosen fields; stale operations are listed and not written; a cut or unfinished script changes nothing; the JSON
+plan and CSV report match the stored differences; cancelling removes the partial file; the click-driven UI flows
+export a plan and a report through a fake file dialog without writing to either database.
+
 ## Security and privacy
 
-- No document data is written to disk by this feature. Results are keys and fingerprints in memory only.
+- No document data is written to disk except by an explicit export to a file the person chooses. Results are
+  keys and fingerprints in memory only; an export (slice 3) is the one place where documents (the plan) or keys
+  (the report) leave the process, only on the person's action, never to a temp file, with the file lifecycle
+  described in "Slice 3 as built".
 - Logs carry job ids, counts, durations and error kinds. They never carry keys, field values or documents.
   This matters because keys may be personal data such as emails.
 - Secrets come only from the Keychain. Each job's tunnels and connections are closed on completion,
@@ -922,7 +1064,7 @@ here was derived from the product's binaries or code, which would conflict with 
 | Multiple Matches view for non-unique keys | **Differs on purpose:** duplicates are an error, with a "Find duplicate keys" helper (slice 1b), not pairing |
 | Copy or delete a document, copy a single field, either direction | Document operations as designed; **added** field-level operations and a per-document pending-changes list |
 | Confirmation before copying | Required, and stricter for deletes |
-| Export to CSV or clipboard | **Added** the report export (slice 3), alongside the script and JSON plan |
+| Export to CSV or clipboard | **Added and built** (slice 3): the report as a CSV file or clipboard text, alongside the mongosh script and the JSON plan; the summary has no durations (see "Slice 3 as built") |
 | Schedule comparisons with a task scheduler | Request types are serializable and secret-free so #11 can store them |
 | Compare many collection pairs or whole databases in one run, one tab per pair | **Designed in** (slice 1c): a pair list with same-name pairing and hand pairing, pairs run one after another, a run overview, and one results view per pair reached from it instead of one tab per pair |
 | In-place editing of a field inside the diff view | **Not included.** The Browse editor edits documents |
@@ -950,7 +1092,8 @@ Slice 1c (built): **multi-pair UI**: the pairing helper, the pair list and per-p
 overview, per-pair results and the "Compare database to..." entry. The protocol and runner are already
 pair-aware from slice 1, so this slice changes no events.
 
-Slices 2 and 3 get their own plans after slice 1 ships.
+Slices 2 and 3 got their own plans after slice 1 shipped. All of them are built: slice 2a-2c (apply) and slice 3
+(export, see "Slice 3 as built"); the compare epic has nothing left to build.
 
 ## Acceptance for the whole feature (from #8)
 
