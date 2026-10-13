@@ -37,7 +37,7 @@ struct Gate {
 
 /// An in-memory store that can report another collection kind, park its next scan or bulk write
 /// on a gate, panic in its next bulk write, and counts the bulk writes it received.
-struct ApplyStore {
+pub(super) struct ApplyStore {
     inner: InMemoryStore,
     kinds: Vec<(&'static str, CollectionKind)>,
     scan_gate: Mutex<Option<Arc<Gate>>>,
@@ -48,11 +48,14 @@ struct ApplyStore {
 }
 
 impl ApplyStore {
-    fn new(inner: InMemoryStore) -> Arc<Self> {
+    pub(super) fn new(inner: InMemoryStore) -> Arc<Self> {
         Self::with_kinds(inner, Vec::new())
     }
 
-    fn with_kinds(inner: InMemoryStore, kinds: Vec<(&'static str, CollectionKind)>) -> Arc<Self> {
+    pub(super) fn with_kinds(
+        inner: InMemoryStore,
+        kinds: Vec<(&'static str, CollectionKind)>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             inner,
             kinds,
@@ -72,11 +75,11 @@ impl ApplyStore {
         *self.bulk_gate.lock().unwrap() = Some(gate.clone());
     }
 
-    fn writes(&self) -> usize {
+    pub(super) fn writes(&self) -> usize {
         self.bulk_calls.load(Ordering::SeqCst)
     }
 
-    async fn docs(&self, ns: &Namespace) -> Vec<Document> {
+    pub(super) async fn docs(&self, ns: &Namespace) -> Vec<Document> {
         let q = Query {
             sort: Some(doc! { "_id": 1 }),
             ..Query::default()
@@ -149,7 +152,7 @@ impl DocumentStore for ApplyStore {
     }
 }
 
-fn source_store() -> InMemoryStore {
+pub(super) fn source_store() -> InMemoryStore {
     InMemoryStore::new()
         .with_docs(
             &ns("d", "c"),
@@ -161,17 +164,17 @@ fn source_store() -> InMemoryStore {
         .with_docs(&ns("d", "c2"), vec![doc! { "_id": 1, "v": SENTINEL }])
 }
 
-fn target_store() -> InMemoryStore {
+pub(super) fn target_store() -> InMemoryStore {
     InMemoryStore::new()
         .with_docs(&ns("d", "c"), vec![doc! { "_id": 2, "v": "old" }])
         .with_docs(&ns("d", "c3"), vec![doc! { "_id": 7, "v": "t" }])
 }
 
-struct Rig {
-    tx: Tx,
-    h: RuntimeHandle,
-    source: Arc<ApplyStore>,
-    target: Arc<ApplyStore>,
+pub(super) struct Rig {
+    pub(super) tx: Tx,
+    pub(super) h: RuntimeHandle,
+    pub(super) source: Arc<ApplyStore>,
+    pub(super) target: Arc<ApplyStore>,
 }
 
 fn connector(source: &Arc<ApplyStore>, target: &Arc<ApplyStore>) -> MapConnector {
@@ -192,7 +195,7 @@ fn connector(source: &Arc<ApplyStore>, target: &Arc<ApplyStore>) -> MapConnector
 }
 
 /// An opened session (id 1) whose pairs 1 (`d.c`) and 2 (`d.c2` onto `d.c2`) have been compared.
-async fn rig(source: Arc<ApplyStore>, target: Arc<ApplyStore>) -> Rig {
+pub(super) async fn rig(source: Arc<ApplyStore>, target: Arc<ApplyStore>) -> Rig {
     let (tx, mut h) = start_with(connector(&source, &target), RuntimeConfig::default());
     super::tests::open(&mut h, &tx, 1).await;
     send_start(&tx, 1, vec![same_pair(1), c2_pair()]);
@@ -213,7 +216,7 @@ fn c2_pair() -> crate::compare::protocol::PairSpec {
     super::tests::pair(2, ns("d", "c2"), ns("d", "c2"))
 }
 
-async fn default_rig() -> Rig {
+pub(super) async fn default_rig() -> Rig {
     rig(
         ApplyStore::new(source_store()),
         ApplyStore::new(target_store()),
@@ -221,11 +224,11 @@ async fn default_rig() -> Rig {
     .await
 }
 
-fn key(id: i32) -> KeyTuple {
+pub(super) fn key(id: i32) -> KeyTuple {
     KeyTuple(vec![Bson::Int32(id)])
 }
 
-fn op(pair: u32, id: i32, kind: ApplyKind) -> ApplyOp {
+pub(super) fn op(pair: u32, id: i32, kind: ApplyKind) -> ApplyOp {
     ApplyOp {
         pair,
         key: key(id),
@@ -234,18 +237,19 @@ fn op(pair: u32, id: i32, kind: ApplyKind) -> ApplyOp {
     }
 }
 
-fn send_apply(tx: &Tx, run: RunId, ops: Vec<ApplyOp>) {
+pub(super) fn send_apply(tx: &Tx, run: RunId, ops: Vec<ApplyOp>) {
     let apply = CompareCommand::Apply {
         session: 1,
         run,
         ops,
+        bulk: Vec::new(),
         id_policy: IdPolicy::Keep,
     };
     tx.send(Command::Compare(apply)).unwrap();
 }
 
 /// Events up to and including `ApplyDone`.
-async fn collect_apply(h: &mut RuntimeHandle) -> Vec<CompareEvent> {
+pub(super) async fn collect_apply(h: &mut RuntimeHandle) -> Vec<CompareEvent> {
     let mut events = Vec::new();
     loop {
         let event = next_compare(h).await;
@@ -257,7 +261,7 @@ async fn collect_apply(h: &mut RuntimeHandle) -> Vec<CompareEvent> {
     }
 }
 
-fn pair_reports(events: &[CompareEvent]) -> Vec<(u32, ApplyReport)> {
+pub(super) fn pair_reports(events: &[CompareEvent]) -> Vec<(u32, ApplyReport)> {
     events
         .iter()
         .filter_map(|e| match e {
@@ -284,13 +288,13 @@ async fn barrier(tx: &Tx, h: &mut RuntimeHandle) {
 }
 
 /// Bounds a wait so a regression fails instead of hanging.
-async fn within<T>(f: impl std::future::Future<Output = T>) -> T {
+pub(super) async fn within<T>(f: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(10), f)
         .await
         .expect("timed out")
 }
 
-async fn assert_silent(h: &mut RuntimeHandle) {
+pub(super) async fn assert_silent(h: &mut RuntimeHandle) {
     let late = tokio::time::timeout(Duration::from_millis(200), h.rx.recv()).await;
     assert!(late.is_err(), "no event expected: {late:?}");
 }

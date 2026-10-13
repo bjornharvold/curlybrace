@@ -16,26 +16,38 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{CollectionKind, IndexStatus};
 
+#[path = "compare_tests/apply_events.rs"]
+mod apply_events;
 #[path = "compare_tests/checks.rs"]
 mod checks;
+#[path = "compare_tests/confirm.rs"]
+mod confirm;
 #[path = "compare_tests/duplicates.rs"]
 mod duplicates;
 #[path = "compare_tests/entry.rs"]
 mod entry;
 #[path = "compare_tests/frames.rs"]
 mod frames;
+#[path = "compare_tests/frames_apply.rs"]
+mod frames_apply;
 #[path = "compare_tests/frames_pairs.rs"]
 mod frames_pairs;
+#[path = "compare_tests/frames_select.rs"]
+mod frames_select;
 #[path = "compare_tests/multirun.rs"]
 mod multirun;
 #[path = "compare_tests/multirun_results.rs"]
 mod multirun_results;
+#[path = "compare_tests/no_write.rs"]
+mod no_write;
 #[path = "compare_tests/pairs.rs"]
 mod pairs;
 #[path = "compare_tests/results.rs"]
 mod results;
 #[path = "compare_tests/run.rs"]
 mod run;
+#[path = "compare_tests/selecting.rs"]
+mod selecting;
 #[path = "compare_tests/setup.rs"]
 mod setup;
 

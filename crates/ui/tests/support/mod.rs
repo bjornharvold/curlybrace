@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod compare;
+pub mod compare_apply_states;
 pub mod compare_multi_states;
 pub mod compare_states;
 pub mod db;

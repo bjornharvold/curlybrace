@@ -77,7 +77,7 @@ fn check_start_browse_a_difference_and_discard() {
 
     f.click_text(&different);
     wait_shows(&mut f, "2");
-    f.click_text("2");
+    open_row(&mut f, "2");
     let title = f.labels.t_with("compare.detail.title", &[("key", "2")]);
     wait_shows(&mut f, &title);
     wait_shows_key(&mut f, "compare.detail.changed");

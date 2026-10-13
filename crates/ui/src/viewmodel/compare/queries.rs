@@ -35,6 +35,7 @@ impl CompareState {
             && !self.overview.entry_is_live(entry)
             && !self.is_running()
             && !self.check_in_flight()
+            && !self.apply.is_busy()
     }
 
     /// The entry's duplicate-keys lookup failed: its panel offers Try again.
@@ -49,6 +50,7 @@ impl CompareState {
         self.is_ready()
             && !self.is_running()
             && !self.check_in_flight()
+            && !self.apply.is_busy()
             && self.checks.allows_start(entry)
             && self
                 .duplicates

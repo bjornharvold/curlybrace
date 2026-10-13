@@ -29,6 +29,12 @@ pub fn open_compare(f: &mut Fixture) {
             Some(SessionPhase::Ready(_))
         )
     });
+    // The database lists of both sides arrive after Ready; a picker opened earlier is empty.
+    wait_until(&mut f.harness, "both database lists", SHORT, |h| {
+        let setup = &h.state().state().compare.setup;
+        !setup.side(Side::Source).databases.is_empty()
+            && !setup.side(Side::Target).databases.is_empty()
+    });
 }
 
 /// Opens the combo box named by `caption_key` on `side` (source comes first on screen) and
@@ -216,4 +222,115 @@ pub fn check_all(f: &mut Fixture) {
     wait_until(&mut f.harness, "every check to pass", SHORT, |h| {
         h.state().state().compare.can_start()
     });
+}
+
+// ---- Apply gestures: clicks and typing only ----
+
+/// Clicks the results tab `category_key` (for example `compare.category.only_in_source`) whose
+/// title shows `count`, and waits until that tab's rows are loaded.
+#[track_caller]
+pub fn open_tab(f: &mut Fixture, category_key: &str, count: usize) {
+    let name = f.labels.t(category_key);
+    let title = f.labels.t_with(
+        "compare.results.tab",
+        &[("name", &name), ("count", &count.to_string())],
+    );
+    f.click_text(&title);
+    wait_until(&mut f.harness, "the tab's rows", SHORT, |h| {
+        let results = h.state().state().compare.open_results().cloned();
+        results.is_some_and(|r| r.total() == count && !r.is_loading() && !r.rows.is_empty())
+    });
+}
+
+/// Ticks the checkbox of each row, named by its key text.
+#[track_caller]
+pub fn tick_rows(f: &mut Fixture, keys: &[&str]) {
+    for key in keys {
+        let checkbox = f
+            .harness
+            .get_all_by_role_and_label(Role::CheckBox, key)
+            .next()
+            .unwrap_or_else(|| panic!("no checkbox for row {key:?}:\n{}", dump(&f.harness)));
+        checkbox.click();
+        settle(&mut f.harness);
+    }
+}
+
+/// Clicks "Select all N in this tab" (every row of the tab, loaded or not).
+#[track_caller]
+pub fn select_all_in_tab(f: &mut Fixture, count: usize) {
+    let label = f.labels.t_with(
+        "compare.results.select_all",
+        &[("count", &count.to_string())],
+    );
+    f.click_text(&label);
+}
+
+/// Clicks the action button (`compare.apply.action.copy_to_target` and the like) of the bar.
+pub fn click_action(f: &mut Fixture, action_key: &str) {
+    click_key(f, action_key);
+}
+
+/// Clicks "Review changes..." and waits for the dialog.
+#[track_caller]
+pub fn open_review(f: &mut Fixture) {
+    click_key(f, "compare.apply.pending.review");
+    wait_until(&mut f.harness, "the review dialog", SHORT, |h| {
+        h.state().state().compare.apply.review().is_some()
+    });
+}
+
+/// Types `text` into the confirmation box of the review dialog.
+pub fn type_confirmation(f: &mut Fixture, text: &str) {
+    fill_key(f, "compare.apply.review.confirm_prompt", text);
+}
+
+/// Whether the dialog's Apply button is enabled right now.
+#[track_caller]
+pub fn apply_enabled(f: &Fixture) -> bool {
+    let label = f.labels.t("compare.apply.review.apply");
+    let button = f.harness.get_by_label(&label);
+    !button.accesskit_node().is_disabled()
+}
+
+/// Clicks Apply and waits until the Finished panel is up (bounded by `limit`).
+#[track_caller]
+pub fn confirm_and_wait(f: &mut Fixture, limit: Duration) {
+    click_key(f, "compare.apply.review.apply");
+    wait_until(&mut f.harness, "the apply to finish", limit, |h| {
+        h.state().state().compare.apply.is_finished()
+    });
+    wait_shows_key(f, "compare.apply.finished.title");
+}
+
+/// Dismisses the Finished panel.
+pub fn dismiss_result(f: &mut Fixture) {
+    click_key(f, "compare.apply.finished.dismiss");
+}
+
+/// Re-runs the pair of `collection` (Re-run, Check, Run) and returns its new summary.
+#[track_caller]
+pub fn rerun(f: &mut Fixture, collection: &str) -> curlybrace_core::compare::engine::Summary {
+    let entry = entry_of(f, collection);
+    send(f, CompareAction::Rerun(entry));
+    check_all(f);
+    send(f, CompareAction::Start);
+    wait_finished(f, SHORT);
+    match status_of(f, entry) {
+        PairStatus::Completed(summary) => summary,
+        other => panic!("{collection} should have completed, found {other:?}"),
+    }
+}
+
+/// Clicks the key line of a results row (not its checkbox, which carries the same name) to
+/// open the row's detail.
+#[track_caller]
+pub fn open_row(f: &mut Fixture, key: &str) {
+    let line = f
+        .harness
+        .query_all_by_label(key)
+        .find(|n| n.accesskit_node().role() != Role::CheckBox)
+        .unwrap_or_else(|| panic!("no row {key:?}:\n{}", dump(&f.harness)));
+    line.click();
+    settle(&mut f.harness);
 }

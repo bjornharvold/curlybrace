@@ -1,6 +1,8 @@
 //! The Compare workspace: the pair list set up, checked, run and browsed on one page. Every
 //! decision (what is enabled, what a click means) lives in `viewmodel::compare` and the
 //! reducer; these views render the state and report the user's action.
+mod apply;
+mod apply_result;
 mod connect;
 mod detail;
 mod duplicates;
@@ -8,9 +10,11 @@ mod editor;
 mod memo;
 mod overview;
 mod pairs;
+mod pending;
 mod preflight;
 mod results;
 mod rules;
+mod select;
 mod setup;
 mod switcher;
 mod table;
@@ -63,9 +67,10 @@ fn layout(
             ui.label(i18n.t("compare.session.opening"));
             None
         }
-        Some(SessionPhase::Ready(_)) => show_ready(ui, state, i18n),
+        Some(SessionPhase::Ready(_)) => show_ready(ui, state, connections, i18n),
     };
-    header.or(connect).or(body)
+    let review = apply::show_review(ui.ctx(), state, i18n);
+    header.or(connect).or(body).or(review)
 }
 
 fn show_header(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
@@ -81,11 +86,30 @@ fn show_header(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
 
 /// Everything below the connection pickers, once the session is usable: the results of the
 /// open pair, or else setup, pairs, preflight and the run overview.
-fn show_ready(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
+fn show_ready(
+    ui: &mut egui::Ui,
+    state: &CompareState,
+    connections: &ConnectionsState,
+    i18n: &I18n,
+) -> Option<CompareAction> {
     ui.separator();
-    if state.open_pair.is_some() {
-        return show_pair_results(ui, state, i18n);
-    }
+    let progress = apply::show_progress(ui, state, i18n);
+    let rest = if state.open_pair.is_some() {
+        let results = show_pair_results(ui, state, i18n);
+        let pending = pending::show_pending(ui, state, connections, i18n);
+        results.or(pending)
+    } else {
+        show_setup_and_runs(ui, state, connections, i18n)
+    };
+    progress.or(rest)
+}
+
+fn show_setup_and_runs(
+    ui: &mut egui::Ui,
+    state: &CompareState,
+    connections: &ConnectionsState,
+    i18n: &I18n,
+) -> Option<CompareAction> {
     detail::forget_cache(ui);
     // The per-entry work (parsing keys and filters, the pairing helper) happens once per
     // change of the list or the defaults, not once per frame.
@@ -98,7 +122,13 @@ fn show_ready(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Co
     ui.separator();
     let preflight = show_preflight(ui, state, &gates, &list, i18n);
     let overview = show_overview(ui, state, i18n);
-    setup.or(pairs).or(editor).or(preflight).or(overview)
+    let pending = pending::show_pending(ui, state, connections, i18n);
+    setup
+        .or(pairs)
+        .or(editor)
+        .or(preflight)
+        .or(overview)
+        .or(pending)
 }
 
 fn list_view(ui: &egui::Ui, state: &CompareState) -> std::sync::Arc<ListView> {

@@ -1,4 +1,5 @@
 //! View-models of the Compare workspace. Pure and egui-free.
+pub mod apply;
 pub mod checks;
 pub mod detail;
 pub mod digest;
@@ -8,10 +9,15 @@ pub mod list_view;
 pub mod overview;
 pub mod pairing_view;
 pub mod pairs;
+pub mod pending;
+pub mod pending_view;
 pub mod preflight;
 pub mod queries;
 pub mod results;
+pub mod review;
 pub mod rows;
+pub mod select_bar;
+pub mod selection;
 pub mod setup;
 #[cfg(test)]
 pub mod testing;
@@ -21,18 +27,27 @@ use std::collections::BTreeMap;
 use curlybrace_core::compare::protocol::{PairId, PairSpec, RunId, SessionId};
 use uuid::Uuid;
 
+pub use apply::{ApplyRow, ApplySummary, ApplyUi};
 pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use digest::PairsDigest;
 pub use duplicates::{DuplicateRow, DuplicatesView};
 pub use gates::Gates;
 pub use list_view::{ListInputs, ListView, Unmatched, can_pair_with};
-pub use overview::{ActiveRun, PairStatus, RunOverview, RunRow, Totals};
+pub use overview::{ActiveRun, PairStatus, RunFacts, RunOverview, RunRow, Totals};
 pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
+pub use pending::{PendingChange, PendingList, Scope};
+pub use pending_view::{PendingGroup, PendingLine, PendingView};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
+pub use review::{
+    CONFIRM_WORD_KEY, Destination, KindCounts, RequiredText, Review, ReviewConnections,
+    ReviewEntry, ReviewPair, Warning, build_review,
+};
 pub use rows::{EntrySizes, EntryStatus, OverviewRow, PairRow, RowCounts, RowDetail, StatusIcon};
+pub use select_bar::{ActionBlock, ActionButton, SelectionBar, page_ticked, visible_ticks};
+pub use selection::{CategorySelection, OrdKey, RowAction, Selection};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
 #[cfg(test)]
 pub use testing::RunView;
@@ -82,6 +97,12 @@ pub struct CompareState {
     pub detail: Option<DetailView>,
     /// The duplicate-keys panel, offered after a run failed on a duplicate key.
     pub duplicates: DuplicatesView,
+    /// The ticked rows of every results tab.
+    pub selection: Selection,
+    /// The writes queued for the next apply.
+    pub pending: PendingList,
+    /// The apply workflow: review snapshot, progress and report.
+    pub apply: ApplyUi,
 }
 
 impl Default for CompareState {
@@ -102,6 +123,9 @@ impl Default for CompareState {
             open_pair: None,
             detail: None,
             duplicates: DuplicatesView::default(),
+            selection: Selection::default(),
+            pending: PendingList::default(),
+            apply: ApplyUi::default(),
         }
     }
 }
@@ -124,13 +148,16 @@ impl CompareState {
     pub fn can_open(&self, draft: (Option<Uuid>, Option<Uuid>)) -> bool {
         let opening = matches!(self.session, Some(SessionPhase::Opening(_)));
         match draft {
-            (Some(source), Some(target)) => !opening && self.connections != Some((source, target)),
+            (Some(source), Some(target)) => {
+                !opening && !self.apply.is_busy() && self.connections != Some((source, target))
+            }
             _ => false,
         }
     }
 
+    /// A session can be closed unless an apply is being reviewed or runs on it.
     pub fn can_close(&self) -> bool {
-        self.session.is_some()
+        self.session.is_some() && !self.apply.is_busy()
     }
 
     pub fn is_ready(&self) -> bool {
@@ -175,7 +202,15 @@ impl CompareState {
     /// The results of `pairs` are gone; the open pair and its detail go with them.
     pub fn without_results(self, pairs: &[PairId]) -> Self {
         let closed = self.open_pair.is_some_and(|open| pairs.contains(&open));
+        let selection = pairs
+            .iter()
+            .fold(self.selection.clone(), |s, p| s.without_pair(*p));
+        let pending = pairs
+            .iter()
+            .fold(self.pending.clone(), |l, p| l.without_pair(*p));
         Self {
+            selection,
+            pending,
             results: self
                 .results
                 .into_iter()

@@ -489,7 +489,12 @@ mod compare_workspace {
                 (state, connections, None),
             );
         harness.run();
-        harness.get_by_label("2").click();
+        // The row's checkbox carries the same name; the row itself is the other node.
+        harness
+            .get_all_by_label("2")
+            .find(|n| n.accesskit_node().role() != Role::CheckBox)
+            .expect("the row")
+            .click();
         harness.run();
         assert_eq!(harness.state().2, Some(CompareAction::Select(key(2))));
     }

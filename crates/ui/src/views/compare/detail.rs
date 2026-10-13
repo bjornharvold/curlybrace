@@ -1,7 +1,8 @@
 //! The detail pane: field-level change lines and the two documents as JSON.
+use super::select::action_buttons;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::viewmodel::compare::{ChangeLine, DetailView, canonical_json, key_label};
+use crate::viewmodel::compare::{ActionButton, ChangeLine, DetailView, canonical_json, key_label};
 use bson::Document;
 use curlybrace_core::compare::key::KeyTuple;
 use eframe::egui;
@@ -23,13 +24,25 @@ pub fn forget_cache(ui: &egui::Ui) {
     ui.data_mut(|d| d.remove::<JsonCache>(cache_id()));
 }
 
-pub fn show_detail(ui: &mut egui::Ui, detail: &DetailView, i18n: &I18n) -> Option<CompareAction> {
+/// The detail pane. `buttons` are the per-document actions for its one key (add to pending).
+pub fn show_detail(
+    ui: &mut egui::Ui,
+    detail: &DetailView,
+    buttons: &[ActionButton],
+    i18n: &I18n,
+) -> Option<CompareAction> {
     let mut action = None;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let key = key_label(&detail.key);
         ui.strong(i18n.t_with("compare.detail.title", &[("key", &key)]));
         if ui.button(i18n.t("compare.detail.close")).clicked() {
             action = Some(CompareAction::Back);
+        }
+        if let Some(row_action) = action_buttons(ui, buttons, i18n) {
+            action = Some(CompareAction::AddKeyToPending(
+                detail.key.clone(),
+                row_action,
+            ));
         }
     });
     if detail.loading {
@@ -154,7 +167,7 @@ mod tests {
             out.clear();
             let output = ctx.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    show_detail(ui, detail, &i18n);
+                    show_detail(ui, detail, &[], &i18n);
                 });
             });
             for clipped in &output.shapes {

@@ -63,6 +63,38 @@ impl TestDb {
         block(&self.rt, coll.count_documents(doc! {})).expect("count")
     }
 
+    /// Creates `collection` empty (a compare side must exist to be picked).
+    pub fn create_collection(&self, collection: &str) {
+        let db = self.client.database(&self.name);
+        block(&self.rt, db.create_collection(collection)).expect("create_collection");
+    }
+
+    /// A unique index on `field`.
+    pub fn create_unique_index(&self, collection: &str, field: &str) {
+        use mongodb::IndexModel;
+        use mongodb::options::IndexOptions;
+        let coll = self
+            .client
+            .database(&self.name)
+            .collection::<Document>(collection);
+        let options = IndexOptions::builder().unique(true).build();
+        let model = IndexModel::builder()
+            .keys(doc! {field: 1})
+            .options(options)
+            .build();
+        block(&self.rt, coll.create_index(model)).expect("create_index");
+    }
+
+    /// `$set` on every document matching `filter` (a second client changing the data).
+    pub fn set_fields(&self, collection: &str, filter: Document, fields: Document) {
+        let coll = self
+            .client
+            .database(&self.name)
+            .collection::<Document>(collection);
+        let update = doc! {"$set": fields};
+        block(&self.rt, coll.update_many(filter, update)).expect("update_many");
+    }
+
     /// Best effort cleanup of this test's database.
     pub fn drop_database(&self) {
         let db = self.client.database(&self.name);

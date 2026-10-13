@@ -3,7 +3,7 @@
 
 use bson::Document;
 
-use super::apply::{ApplyOp, ApplyReport, IdPolicy};
+use super::apply::{ApplyKind, ApplyOp, ApplyReport, Direction, IdPolicy};
 use super::engine::Summary;
 use super::key::{KeySpec, KeyTuple};
 use super::results::Category;
@@ -104,17 +104,29 @@ pub enum CompareCommand {
         session: SessionId,
         pair: PairSpec,
     },
-    /// Writes the chosen operations into the destination of their pairs. Answers with
-    /// `ApplyProgress`, one `ApplyPairDone` per pair and `ApplyDone` (or `Failed` when refused).
+    /// Writes the chosen operations into the destination of their pairs. `bulk` items are
+    /// expanded by the runtime into one operation per stored row of their category, appended
+    /// after `ops`. Answers with `ApplyProgress`, one `ApplyPairDone` per pair and `ApplyDone`
+    /// (or `Failed` when refused).
     Apply {
         session: SessionId,
         run: RunId,
         ops: Vec<ApplyOp>,
+        bulk: Vec<BulkApply>,
         id_policy: IdPolicy,
     },
     Close {
         session: SessionId,
     },
+}
+
+/// "Every row of this category of this pair" (resolved by the runtime from the stored results).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BulkApply {
+    pub pair: PairId,
+    pub category: Category,
+    pub kind: ApplyKind,
+    pub direction: Direction,
 }
 
 /// How one pair ended. A run reports exactly one of these per pair.

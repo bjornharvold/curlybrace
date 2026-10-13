@@ -6,11 +6,13 @@
 mod actions;
 mod banner;
 pub mod compare;
+mod compare_apply;
 mod compare_checks;
 mod compare_duplicates;
 mod compare_pairs;
 mod compare_results;
 mod compare_run;
+mod compare_select;
 pub mod connections;
 pub mod host_key;
 mod panels;

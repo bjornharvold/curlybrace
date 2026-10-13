@@ -355,7 +355,7 @@ only that pair (`ComparePairFailed`); the next pair starts. Only a session-level
 
 **Slice 1 runtime, as built.** The names above are the design vocabulary; the shipped protocol
 (`compare::protocol`) uses `Open`/`Opened`/`OpenFailed`, `Databases`, `Collections`, `Check`/`Checked`, `Start`,
-`Progress`, `PairDone`, `RunDone`, `Rows`, `Detail`, `Discard`, `Cancel`, `Close` and `Failed { context }`. Its answer
+`Progress`, `PairDone`, `RunDone`, `Rows`, `Detail`, `Discard`, `Cancel`, `Close`, `Apply { ops, bulk, id_policy }` (with `ApplyProgress`, `ApplyPairDone`, `ApplyDone`; slices 2a and 2b) and `Failed { context }`. Its answer
 rules:
 
 - `Open` answers `Opened` or `OpenFailed`. `Databases`, `Collections`, `Check`, `Rows` and `Detail` answer with their
@@ -465,8 +465,8 @@ never end the browsing session, and a browsing Disconnect never cancels a job. C
   active or a check is queued or in flight, and for an entry whose row is still pending or running (the
   view-model gates `can_rerun` and `can_remove`; the reducer refuses the same cases).
 - **Per-pair results.** Each pair keeps its own `ResultsView` (category, page, rows); opening a pair from the
-  overview and going back keeps them, and the open detail is cleared when the pair changes. Apply selection does
-  not exist yet (slice 2). When exactly one pair finishes, its results open automatically.
+  overview and going back keeps them, and the open detail is cleared when the pair changes. (As of slice 2b rows can be selected and queued for apply; see "Slice 2b as built". This note describes slice 1c.) Apply selection did
+  not exist yet in slice 1c (slice 2). When exactly one pair finishes, its results open automatically.
 - **Duplicates panel.** **Find duplicate keys** is a button on a failed row and uses a fresh `PairId` of its own
   (never the failed run's); the panel is drawn under the overview table, headed by the pair's names (the table
   uses fixed row heights).
@@ -512,7 +512,7 @@ workspace moves through four views: **Setup**, **Preflight**, **Run overview** a
 - **Entry points:** the Compare workspace switch, and a "Compare to..." entry in the Browse sidebar's collection
   menu that switches to Compare with that collection prefilled as the source.
 - **Selection** (used by apply): per row, per filtered category, or all. Selection is a set of keys in the
-  view-model, scoped to a pair; no apply happens in slice 1.
+  view-model, scoped to a pair; no apply happens in slice 1 (as of slice 2b selection is per pair and category and drives apply, see "Slice 2b as built").
 
 The slice 1 UI always holds a pair list of exactly one entry. The state, the view-models and the protocol are
 already pair-aware, so slice 1c only adds UI.
@@ -670,6 +670,91 @@ Tier-1 coverage on a real server (`crates/core/tests/local_compare_apply.rs`): c
 business key, a stale document, `IdPolicy::Generate` and its non-convergence, a unique-index violation as a
 per-document failure with no value in the text, a view destination, and cancelling 5,000 inserts;
 `local_compare_apply_large.rs` writes 20 documents of about 1 MB (insert, replace, delete) to prove the byte split.
+
+### Slice 2b as built
+
+Slice 2b is the apply UI over the 2a core: select differences, queue copy and delete actions, review, confirm,
+watch progress, read the result. Field-level actions are not part of it (slice 2c). What it does and how:
+
+- **Pending changes: one action per (pair, key), replace on conflict.** The pending list is ordered; each item is
+  either an explicit list of keys or a whole category of one pair, with an `ApplyKind` and a `Direction`. Adding
+  an action for rows that already have one replaces it. Adding a whole-category item removes the explicit key
+  items of that category. Adding keys that a whole-category item already covers is ignored (nothing changes, and
+  the selection stays, so the person sees that nothing happened). This is what makes the core's "duplicate ops
+  are refused" rule unreachable from the UI.
+- **Selection** is per (pair, category), kept in the view-model (not in the results, which paging clears): a set
+  of keys plus an "all in tab" flag meaning every row of the tab, including pages not loaded, in O(1) memory.
+  Paging keeps it; a re-run, discard, remove or closing the session drops it. Only rows on the loaded page can be
+  ticked.
+- **The `bulk` protocol addition.** `Apply { session, run, ops, bulk, id_policy }`: `bulk` is a list of
+  `BulkApply { pair, category, kind, direction }`. The runtime expands each into one `ApplyOp` per stored row of
+  that category (appended after `ops`, in stored order) from the results it holds, before validation, so the UI
+  never pages a million keys. The engine, the re-verification and the report are unchanged. Refusals (the whole
+  `Apply` answers `Failed`, nothing is written): a pair with no stored results, a kind that does not fit the
+  category, a `(pair, category)` repeated in `bulk`, a duplicate op for one key across `ops` and `bulk`, and an
+  empty request.
+- **Action to kind, per category** (pinned by tests against core's `kind_fits`). Only in source: *Copy to target*
+  (`Insert`, source to target) and *Delete from source* (`Delete`, target to source). Only in target: *Copy to
+  source* (`Insert`, target to source) and *Delete from target* (`Delete`, source to target). Different: *Copy to
+  target* and *Copy to source* (`Replace` in each direction). Nothing else is offered.
+- **Typed confirmation.** If any pending change is a `Delete`, Apply stays disabled until the person types, exactly
+  (trimmed, case-sensitive), the destination collection name when all deletes write to one collection; the
+  destination database name when they write to several collections of one database; the localized word
+  `compare.apply.confirm_word` when they span databases or connections. The text to type is shown above the
+  box. Inserts and replaces need no typed text.
+- **Snapshot.** Starting a review takes a snapshot of the destination names (connection name, database and
+  collection per destination, per pair) and of the run facts (the pending list, the pair rules, the ids). The
+  dialog is drawn from it, so a renamed or deleted connection cannot change what the person confirmed. Confirm
+  rebuilds the review and sends `Apply` only if it writes exactly what was reviewed (same pairs, entries,
+  actions, destinations, kinds and keys); otherwise the dialog closes and nothing is sent. The `Apply` sent
+  uses the reviewed pending list, a fresh run id and the chosen `IdPolicy` (default: keep the original ids).
+- **After an apply the pair is marked `applied`.** Stored results are not edited (2a), so a pair that was written
+  to (any applied or failed document) shows an Applied status in the overview and a note in its header; its
+  pending changes and selection are cleared and its row actions are disabled until it is run again. **A re-run
+  is required** to see what is left, and clears the marker. A pair that wrote nothing (all stale, all not run)
+  keeps its pending changes and is not marked.
+- **Warnings** in the review (text, never blocking): inserts that let the destination assign new `_id`s will not
+  converge on a re-compare; a replace on a pair that compares `_id` while keyed on other fields keeps the
+  destination's `_id`; a replace on a pair whose field scope is not "all" overwrites the whole destination
+  document, including fields outside the compared scope; an insert can create a second document with the same
+  business key when the destination has no unique index on it.
+- **Gating.** While a review is open or an apply runs: no Start, Re-run, Remove, Discard, Find duplicate keys or
+  new Check; the pending list and the selection are read-only; closing or replacing the session (Close session,
+  Open, "Compare to...", sidebar picks that change a connection) is refused. Review is disabled while a compare
+  run is active or a check is queued or in flight, and for pairs without a finished comparison (the core also
+  refuses). A refused `Apply` (`Failed { context: compare_apply }`) raises the normal failure banner, returns to
+  idle and keeps the pending changes. Late progress or done events from an earlier run id change nothing.
+- **What the result panel shows.** While running: a bar and "done of total" per pair, and Cancel (once). When
+  finished: the totals as applied, skipped because the document changed since the compare, not applicable,
+  failed and not run (these add up to the documents requested; writes a pair's report does not account for
+  count as not run), one line of counts per pair, a note when the apply was cancelled, up to 100 failed
+  documents with the pair, the key (as data) and the localized text of the typed error (never the driver's
+  text; a "more failures are not shown" note beyond that), the explanation of an unknown outcome
+  (`ApplyOutcomeUnknown`) when one is listed, and the reminder to run the pairs again.
+- **Per-document actions in the detail pane** add that one key to the pending list; they do not write.
+
+Limits and known gaps as of slice 2b:
+
+- No field-level actions yet (`$set`/`$unset` of one path): slice 2c.
+- "Select all" is per category (a tab), not per filter; the results have no filter yet.
+- Results are stale after an apply; the person must run the pair again (see above).
+- A row whose key contains `NaN` can be ticked and applied but cannot open its detail (a pre-existing limit of
+  the results view, which looks rows up with `==`).
+- `CompareEvent::Failed` carries no run id, so a `Failed` for `compare_apply` cannot be tied to a run; the UI
+  sends one `Apply` at a time and treats it as the current one.
+- Exporting a report is slice 3.
+- Quitting the app while an apply runs gives no warning and no report. Each document write is atomic, so
+  nothing is left half-written; a close confirmation is a later improvement.
+- Adding keys that a whole-tab pending item already covers is ignored: the ticks stay, and the detail pane's
+  button gives no feedback.
+- Slice 3's export should warn about results made stale by an apply (`RunRow.applied`).
+
+Tier-1 coverage on a real server (`crates/ui/tests/local_compare_apply_flows.rs`, click-driven): copying a whole
+250-document collection into an empty target through "Select all" (the bulk path) and a re-run with no
+differences; deleting only the ticked extras behind the typed collection name; replacing changed documents and
+converging; a document changed by a second client between the compare and the apply (skipped, left alone); a
+unique-index collision listed as a failure while its neighbours apply; cancelling a 50,000-document apply (counts
+add up, pair marked Applied); two pairs in one apply reported separately.
 
 ## Export (slice 3, designed now)
 

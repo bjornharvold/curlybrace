@@ -2,8 +2,10 @@
 //! the fresh `PairId` it ran with, and the one run in flight. Pure; every step returns a new
 //! overview, and events for another run or pair change nothing.
 use curlybrace_core::compare::engine::Summary;
-use curlybrace_core::compare::protocol::{PairId, PairOutcome, RunId};
+use curlybrace_core::compare::protocol::{PairId, PairOutcome, PairSpec, RunId};
+use curlybrace_core::compare::rules::FieldScope;
 use curlybrace_core::error::CoreError;
+use curlybrace_core::store::Namespace;
 
 use super::pairs::EntryId;
 use super::rows::StatusIcon;
@@ -60,6 +62,29 @@ impl PairStatus {
     }
 }
 
+/// What a run used, snapshotted when it started: an apply reviews and writes against these
+/// facts, never against the entry as edited since.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RunFacts {
+    pub source: Namespace,
+    pub target: Namespace,
+    pub key_has_id: bool,
+    pub include_id: bool,
+    pub scope_is_all: bool,
+}
+
+impl RunFacts {
+    pub fn of(spec: &PairSpec) -> Self {
+        Self {
+            source: spec.source.clone(),
+            target: spec.target.clone(),
+            key_has_id: spec.key.contains_id(),
+            include_id: spec.rules.include_id,
+            scope_is_all: spec.rules.field_scope == FieldScope::All,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunRow {
     pub entry: EntryId,
@@ -69,6 +94,11 @@ pub struct RunRow {
     /// Last (scanned source, scanned target, differences) reported while running; kept when
     /// the pair ends without a summary (failed).
     pub last_progress: (u64, u64, u64),
+    /// An apply wrote to (or failed against) this pair's sides since it ran: its results are
+    /// stale until it runs again.
+    pub applied: bool,
+    /// The settings the run used; `None` for a row started without them (never reviewable).
+    pub facts: Option<RunFacts>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +133,16 @@ impl RunOverview {
     /// Begins `run` over `pairs`: each entry's row is replaced by a Pending one, rows of other
     /// entries stay. Returns the pairs the replaced rows still held, for the reducer to discard.
     pub fn started(self, run: RunId, pairs: &[(EntryId, PairId)]) -> (Self, Vec<PairId>) {
+        self.started_with(run, pairs, &|_| None)
+    }
+
+    /// `started`, snapshotting the settings each entry runs with.
+    pub fn started_with(
+        self,
+        run: RunId,
+        pairs: &[(EntryId, PairId)],
+        facts_of: &dyn Fn(EntryId) -> Option<RunFacts>,
+    ) -> (Self, Vec<PairId>) {
         let in_run = |entry: EntryId| pairs.iter().any(|(e, _)| *e == entry);
         let superseded = self
             .rows
@@ -116,6 +156,8 @@ impl RunOverview {
             run,
             status: PairStatus::Pending,
             last_progress: (0, 0, 0),
+            applied: false,
+            facts: facts_of(entry),
         };
         let mut replaced = Vec::new();
         let mut rows: Vec<RunRow> = self
@@ -234,6 +276,22 @@ impl RunOverview {
             }),
             ..self
         }
+    }
+
+    /// An apply touched the pair: its results no longer describe the collections.
+    pub fn marked_applied(self, pair: PairId) -> Self {
+        let rows = self
+            .rows
+            .into_iter()
+            .map(|row| match row.pair == pair {
+                true => RunRow {
+                    applied: true,
+                    ..row
+                },
+                false => row,
+            })
+            .collect();
+        Self { rows, ..self }
     }
 
     /// The pair's results were thrown away. Live rows cannot be discarded.

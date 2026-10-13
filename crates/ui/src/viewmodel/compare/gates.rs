@@ -8,7 +8,9 @@
 use super::CompareState;
 use super::checks::EntryCheck;
 use super::digest::PairsDigest;
+use super::overview::PairStatus;
 use super::pairs::EntryId;
+use curlybrace_core::compare::protocol::PairId;
 
 /// The enabled state of the workspace's buttons for one frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -17,6 +19,8 @@ pub struct Gates {
     pub start: bool,
     pub start_passing: bool,
     pub cancel: bool,
+    /// Review changes may fire: see `CompareState::can_review`.
+    pub review: bool,
     /// Some included entry will not run under Run: invalid, its check failed, or it was
     /// refused. Run passing is offered.
     pub some_not_passing: bool,
@@ -30,12 +34,16 @@ impl CompareState {
 
     /// The buttons' gates for `digest`, which must be this state's digest.
     pub fn gates(&self, digest: &PairsDigest) -> Gates {
-        let idle = self.is_ready() && !self.is_running() && !self.check_in_flight();
+        let idle = self.is_ready()
+            && !self.is_running()
+            && !self.check_in_flight()
+            && !self.apply.is_busy();
         Gates {
             check: idle && !digest.valid.is_empty(),
             start: idle && self.start_gate(digest, false),
             start_passing: idle && self.start_gate(digest, true),
             cancel: self.can_cancel(),
+            review: self.can_review(),
             some_not_passing: self.some_not_passing(digest),
         }
     }
@@ -75,7 +83,43 @@ impl CompareState {
         self.pairs.get(entry).is_some()
             && !self.is_running()
             && !self.check_in_flight()
+            && !self.apply.is_busy()
             && !self.overview.entry_is_live(entry)
+    }
+
+    /// The state allows a review: a ready session, something pending, every pending pair
+    /// completed and not stale, and no run, check or apply in the way.
+    pub(super) fn can_review_now(&self) -> bool {
+        self.is_ready()
+            && !self.pending.is_empty()
+            && !self.is_running()
+            && !self.check_in_flight()
+            && !self.apply.is_busy()
+            && self
+                .pending
+                .items()
+                .iter()
+                .all(|c| self.pair_is_applicable(c.pair))
+    }
+
+    /// The pair completed and no apply has touched it since: rows may be ticked and queued.
+    pub fn pair_is_applicable(&self, pair: PairId) -> bool {
+        self.overview
+            .rows
+            .iter()
+            .find(|r| r.pair == pair)
+            .is_some_and(|r| matches!(r.status, PairStatus::Completed(_)) && !r.applied)
+    }
+
+    /// Discard may fire for `entry`: its latest run has settled (not live, not discarded yet)
+    /// and no apply is reviewing or running. The reducer's discard and the row's button both
+    /// use this.
+    pub fn can_discard_entry(&self, entry: EntryId) -> bool {
+        !self.apply.is_busy()
+            && self
+                .overview
+                .row_for(entry)
+                .is_some_and(|r| r.status.is_settled())
     }
 
     fn start_gate(&self, digest: &PairsDigest, passing_only: bool) -> bool {

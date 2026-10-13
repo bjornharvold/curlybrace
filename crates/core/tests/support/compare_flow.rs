@@ -141,6 +141,7 @@ pub async fn apply(
             session: SESSION,
             run,
             ops,
+            bulk: Vec::new(),
             id_policy,
         },
     );
