@@ -26,6 +26,8 @@ mod confirm;
 mod duplicates;
 #[path = "compare_tests/entry.rs"]
 mod entry;
+#[path = "compare_tests/fields.rs"]
+mod fields;
 #[path = "compare_tests/frames.rs"]
 mod frames;
 #[path = "compare_tests/frames_apply.rs"]

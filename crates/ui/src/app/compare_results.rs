@@ -2,6 +2,7 @@
 //! and discarding or re-running a pair. `Rows` and `Detail` are taken only for the exact
 //! request that is outstanding on a pair that still has results.
 use super::compare::{cmd, none, ready, with_compare};
+use super::compare_fields::fields_dropped;
 use super::compare_pairs::discards;
 use super::reducer::Out;
 use super::state::AppState;
@@ -27,10 +28,15 @@ pub(super) fn open_pair(state: AppState, entry: EntryId) -> Out {
         _ => Vec::new(),
     };
     let switched = c.open_pair != Some(pair);
+    // Switching pair closes the detail, and with it the ticks made in it.
+    let base = match switched {
+        true => fields_dropped(c.clone()),
+        false => c.clone(),
+    };
     let opened = CompareState {
         open_pair: Some(pair),
         detail: if switched { None } else { c.detail.clone() },
-        ..c.clone()
+        ..base
     };
     let compare = match refetch {
         Some(next) => opened.results_updated(pair, |_| next),
@@ -44,7 +50,7 @@ pub(super) fn back_to_overview(state: AppState) -> Out {
     let compare = CompareState {
         open_pair: None,
         detail: None,
-        ..state.compare.clone()
+        ..fields_dropped(state.compare.clone())
     };
     none(with_compare(state, compare))
 }
@@ -66,7 +72,7 @@ pub(super) fn moved(
     // loaded (a late `Detail` for it is then ignored).
     let compare = CompareState {
         detail: None,
-        ..state.compare.clone()
+        ..fields_dropped(state.compare.clone())
     }
     .results_updated(next.pair, |_| next);
     (with_compare(state, compare), commands)
@@ -79,9 +85,10 @@ pub(super) fn select(state: AppState, key: KeyTuple) -> Out {
     let Some(command) = results.select(session, &key) else {
         return none(state);
     };
+    // A new request replaces the detail, whether for another key or the same one again.
     let compare = CompareState {
         detail: Some(DetailView::loading(key)),
-        ..state.compare.clone()
+        ..fields_dropped(state.compare.clone())
     };
     (with_compare(state, compare), vec![cmd(command)])
 }
@@ -138,7 +145,7 @@ pub(super) fn rerun(state: AppState, entry: EntryId) -> Out {
         pairs: c.pairs.clone().only_included(entry).editing(Some(entry)),
         open_pair: None,
         detail: None,
-        ..c.clone()
+        ..fields_dropped(c.clone())
     }
     .without_results(&old)
     .invalidated();

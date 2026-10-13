@@ -101,6 +101,14 @@ fn is_for_matches_only_the_requested_key() {
     assert!(!d.is_for(&KeyTuple(vec![Bson::Int32(2)])));
 }
 
+#[test]
+fn is_for_compares_keys_by_value_so_a_nan_key_matches_itself() {
+    let nan = KeyTuple(vec![Bson::Double(f64::NAN)]);
+    assert!(nan != nan.clone(), "NaN is never == to itself");
+    assert!(DetailView::loading(nan.clone()).is_for(&nan));
+    assert!(!DetailView::loading(nan).is_for(&KeyTuple(vec![Bson::Int32(1)])));
+}
+
 fn line_at(segments: Vec<PathSegment>, change: ChangeKind) -> ChangeLine {
     ChangeLine {
         path: String::new(),

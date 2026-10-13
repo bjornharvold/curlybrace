@@ -3,7 +3,8 @@ use bson::{Bson, Document};
 use curlybrace_core::compare::apply::Direction;
 use curlybrace_core::compare::apply_fields::{Unaddressable, can_copy};
 use curlybrace_core::compare::diff::{ChangeKind, FieldChange, PathSegment};
-use curlybrace_core::compare::key::KeyTuple;
+use curlybrace_core::compare::key::{KeyTuple, compare_tuples};
+use std::cmp::Ordering;
 
 /// One changed field. `kind` is an i18n key; the texts are relaxed extended JSON.
 #[derive(Clone, Debug, PartialEq)]
@@ -76,8 +77,9 @@ impl DetailView {
         }
     }
 
+    /// By value: a key holding NaN is not `==` to itself.
     pub fn is_for(&self, key: &KeyTuple) -> bool {
-        self.key == *key
+        compare_tuples(&self.key, key) == Ordering::Equal
     }
 
     pub fn loaded(

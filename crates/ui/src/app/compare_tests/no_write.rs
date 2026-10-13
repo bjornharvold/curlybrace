@@ -7,6 +7,7 @@ use super::confirm::{
 use super::*;
 use crate::viewmodel::compare::{ApplyUi, RowAction};
 use curlybrace_core::compare::apply::{ApplyReport, IdPolicy};
+use curlybrace_core::compare::diff::PathSegment;
 use uuid::Uuid;
 
 /// The instance of the variant that follows `action`, `None` after the last one. The match has
@@ -61,7 +62,10 @@ fn successor(action: &CompareAction) -> Option<CompareAction> {
         A::AddToPending(_) => A::AddKeyToPending(key(2), RowAction::CopyToSource),
         A::AddKeyToPending(..) => A::RemovePending(0),
         A::RemovePending(_) => A::ClearPending,
-        A::ClearPending => A::ReviewApply { word: WORD.into() },
+        A::ClearPending => A::ToggleField(vec![PathSegment::Field("a".into())]),
+        A::ToggleField(_) => A::ClearFieldSelection,
+        A::ClearFieldSelection => A::AddFieldsToPending(RowAction::CopyFieldsToTarget),
+        A::AddFieldsToPending(_) => A::ReviewApply { word: WORD.into() },
         A::ReviewApply { .. } => A::SetConfirmText(String::new()),
         A::SetConfirmText(_) => A::SetIdPolicy(IdPolicy::Generate),
         A::SetIdPolicy(_) => A::ConfirmApply,
@@ -123,6 +127,9 @@ fn slot(action: &CompareAction) -> usize {
         A::CancelReview => 43,
         A::CancelApply => 44,
         A::DismissApplyResult => 45,
+        A::ToggleField(_) => 46,
+        A::ClearFieldSelection => 47,
+        A::AddFieldsToPending(_) => 48,
     }
 }
 
@@ -185,6 +192,12 @@ fn states() -> Vec<StartState> {
         ("running", running_apply, false),
         ("finished", finished_apply, false),
         ("idle, nothing pending", checked_state, false),
+        ("detail open, fields ticked", super::fields::ticked, false),
+        (
+            "reviewing a fields item",
+            super::fields::reviewing_queued,
+            true,
+        ),
     ]
 }
 

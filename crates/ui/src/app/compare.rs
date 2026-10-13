@@ -4,6 +4,7 @@
 use super::compare_apply as apply;
 use super::compare_checks as checks;
 use super::compare_duplicates as duplicates;
+use super::compare_fields as fields;
 use super::compare_pairs as pairs;
 use super::compare_results::{back_to_overview, discard_pair, moved, open_pair, rerun, select};
 use super::compare_run::{cancel, on_run_event, start, start_passing};
@@ -15,6 +16,7 @@ use crate::viewmodel::compare::{
     SideForm,
 };
 use curlybrace_core::compare::apply::IdPolicy;
+use curlybrace_core::compare::diff::PathSegment;
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent, SessionId, Side};
 use curlybrace_core::compare::results::Category;
@@ -91,6 +93,13 @@ pub enum CompareAction {
     AddKeyToPending(KeyTuple, RowAction),
     RemovePending(usize),
     ClearPending,
+    /// Tick or untick one changed field (by its path) of the open, loaded detail.
+    ToggleField(Vec<PathSegment>),
+    /// Untick every field of the open detail.
+    ClearFieldSelection,
+    /// Queue the ticked fields of the open detail (`CopyFieldsToTarget` or `CopyFieldsToSource`
+    /// only; nothing is written).
+    AddFieldsToPending(RowAction),
     /// Open the review dialog. `word` must come from `i18n.t(CONFIRM_WORD_KEY)`: the review
     /// stores it and a Word-type typed confirmation is later checked against it. A blank word
     /// can never confirm.
@@ -181,6 +190,9 @@ fn on_pair_action(state: AppState, action: CompareAction) -> Out {
         | CompareAction::AddKeyToPending(..)
         | CompareAction::RemovePending(_)
         | CompareAction::ClearPending
+        | CompareAction::ToggleField(_)
+        | CompareAction::ClearFieldSelection
+        | CompareAction::AddFieldsToPending(_)
         | CompareAction::ReviewApply { .. }
         | CompareAction::SetConfirmText(_)
         | CompareAction::SetIdPolicy(_)
@@ -211,6 +223,9 @@ fn on_apply_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::AddKeyToPending(key, a) => selecting::add_key(state, key, a),
         CompareAction::RemovePending(index) => selecting::remove_pending(state, index),
         CompareAction::ClearPending => selecting::clear_pending(state),
+        CompareAction::ToggleField(path) => fields::toggle_field(state, path),
+        CompareAction::ClearFieldSelection => fields::clear_fields(state),
+        CompareAction::AddFieldsToPending(a) => fields::add_fields(state, a),
         CompareAction::ReviewApply { word } => apply::review(state, &word),
         CompareAction::SetConfirmText(text) => apply::set_confirm_text(state, &text),
         CompareAction::SetIdPolicy(policy) => apply::set_id_policy(state, policy),
@@ -316,7 +331,7 @@ pub(super) fn compare_database_to(state: AppState, db: String) -> Out {
 fn back(state: AppState) -> Out {
     let compare = CompareState {
         detail: None,
-        ..state.compare.clone()
+        ..fields::fields_dropped(state.compare.clone())
     };
     none(with_compare(state, compare))
 }
@@ -552,7 +567,7 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
         },
         "compare_detail" => CompareState {
             detail: None,
-            ..c.clone()
+            ..fields::fields_dropped(c.clone())
         },
         _ => c.clone(),
     };

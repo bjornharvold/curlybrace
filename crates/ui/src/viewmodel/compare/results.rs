@@ -1,9 +1,10 @@
 //! The differences of a finished pair: three category counts, the identical count and one page
 //! of rows.
 use curlybrace_core::compare::engine::Summary;
-use curlybrace_core::compare::key::KeyTuple;
+use curlybrace_core::compare::key::{KeyTuple, compare_tuples};
 use curlybrace_core::compare::protocol::{CompareCommand, PairId, RowView, SessionId};
 use curlybrace_core::compare::results::Category;
+use std::cmp::Ordering;
 
 use super::detail::value_text;
 
@@ -220,9 +221,10 @@ impl ResultsView {
 
     /// The detail request for a key on the current page; `None` for any other key.
     pub fn select(&self, session: SessionId, key: &KeyTuple) -> Option<CompareCommand> {
+        // By value: a key holding NaN is not `==` to itself, yet its row can be opened.
         self.rows
             .iter()
-            .any(|r| r.key == *key)
+            .any(|r| compare_tuples(&r.key, key) == Ordering::Equal)
             .then(|| CompareCommand::Detail {
                 session,
                 pair: self.pair,

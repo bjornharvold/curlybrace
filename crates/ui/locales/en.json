@@ -12,6 +12,8 @@
   },
   "banner": {
     "dismiss": "Dismiss",
+    "fields_conflict": "These fields overlap (one is inside another), so they cannot be copied in one update. Untick one of them.",
+    "fields_covered": "A change for the whole Different tab is already queued and covers these fields. Remove it first to copy single fields.",
     "forget_host": "Forget this host",
     "host_forgotten": "The saved SSH host key was removed. Connect again to review the host's key.",
     "not_connected": "Not connected. Connect to a server first.",

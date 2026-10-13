@@ -42,6 +42,11 @@ pub enum Banner {
     HostForgotten,
     /// Edit/Clone were refused because the page is shown with a projection (partial documents).
     ProjectionReadOnly,
+    /// Queueing fields was refused: the ticked fields (with the ones already queued for the
+    /// document) overlap, so one update cannot write them.
+    FieldsConflict,
+    /// Queueing fields was refused: a whole-category change of the tab already covers them.
+    FieldsCovered,
 }
 
 /// An SSH endpoint whose recorded host key the user may drop.

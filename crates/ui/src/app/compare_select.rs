@@ -14,9 +14,9 @@ use curlybrace_core::compare::results::Category;
 use std::cmp::Ordering;
 
 /// The results tab the person can tick rows in.
-struct Tab<'a> {
-    pair: PairId,
-    cat: Category,
+pub(super) struct Tab<'a> {
+    pub(super) pair: PairId,
+    pub(super) cat: Category,
     view: &'a ResultsView,
 }
 
@@ -25,7 +25,7 @@ impl Tab<'_> {
         self.view.rows.iter().map(|r| r.key.clone()).collect()
     }
 
-    fn has_row(&self, key: &KeyTuple) -> bool {
+    pub(super) fn has_row(&self, key: &KeyTuple) -> bool {
         // By value: a key holding NaN is not `==` to itself.
         self.view
             .rows
@@ -34,8 +34,9 @@ impl Tab<'_> {
     }
 }
 
-/// The open tab, if ticking and queueing are allowed on it right now.
-fn open_tab(c: &CompareState) -> Option<Tab<'_>> {
+/// The open tab, if ticking and queueing are allowed on it right now. The gate of every
+/// selection and queueing action, the field ones included.
+pub(super) fn open_tab(c: &CompareState) -> Option<Tab<'_>> {
     if c.apply.is_busy() {
         return None;
     }
