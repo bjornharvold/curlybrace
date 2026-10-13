@@ -7,6 +7,7 @@ pub mod ejson;
 pub mod error;
 pub mod mongo_store;
 mod mongo_write;
+mod mongo_write_fields;
 pub mod query;
 pub mod runtime;
 pub mod secrets;
