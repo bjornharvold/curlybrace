@@ -2,7 +2,7 @@ use bson::{Bson, doc};
 use serde_json::{Value, json};
 
 use super::*;
-use crate::compare::apply::{Direction, IdPolicy};
+use crate::compare::apply::{Direction, IdPolicy, SkipReason};
 use crate::compare::diff::PathSegment::{Field, Index};
 use crate::compare::export::ExportCounts;
 use crate::compare::fingerprint::Fingerprint;
@@ -239,7 +239,7 @@ fn skipped_operations_carry_their_reason_and_never_a_document() {
                 Some(2),
             ),
             kind: ApplyKind::Replace,
-            reason: SkipReason::Stale,
+            reason: SkipReason::Stale.into(),
         },
         PlanOp::Skipped {
             meta: meta(
@@ -249,7 +249,7 @@ fn skipped_operations_carry_their_reason_and_never_a_document() {
                 None,
             ),
             kind: ApplyKind::Fields,
-            reason: SkipReason::NotPlanned,
+            reason: SkipReason::NotPlanned.into(),
         },
     ];
     let v = parse(&write(&[ops], "l"));

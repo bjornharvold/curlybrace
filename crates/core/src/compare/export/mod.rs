@@ -10,13 +10,14 @@
 pub mod csv;
 pub mod json_plan;
 pub mod mongosh;
+pub mod plan;
 pub mod sanitize;
 
 use std::io;
 
 use thiserror::Error;
 
-use crate::compare::apply::{ApplyKind, Direction, IdPolicy};
+use crate::compare::apply::{ApplyKind, Direction, IdPolicy, SkipReason};
 use crate::compare::fingerprint::Fingerprint;
 use crate::compare::key::KeyTuple;
 
@@ -102,11 +103,30 @@ pub(crate) fn id_policy_name(policy: IdPolicy) -> &'static str {
     }
 }
 
+/// Why an operation is listed but not exported as a write. `Stale` and `NotPlanned` are the
+/// apply planner's own reasons; `Unsupported` is export-only (a value or path the shell cannot
+/// represent), so the apply engine's [`SkipReason`] keeps its meaning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportSkip {
+    Stale,
+    NotPlanned,
+    Unsupported,
+}
+
+impl From<SkipReason> for ExportSkip {
+    fn from(reason: SkipReason) -> Self {
+        match reason {
+            SkipReason::Stale => Self::Stale,
+            SkipReason::NotPlanned => Self::NotPlanned,
+        }
+    }
+}
+
 /// Name of a skip reason as written in plans and comments.
-pub(crate) fn skip_name(reason: crate::compare::apply::SkipReason) -> &'static str {
-    use crate::compare::apply::SkipReason;
+pub(crate) fn skip_name(reason: ExportSkip) -> &'static str {
     match reason {
-        SkipReason::Stale => "stale",
-        SkipReason::NotPlanned => "notPlanned",
+        ExportSkip::Stale => "stale",
+        ExportSkip::NotPlanned => "notPlanned",
+        ExportSkip::Unsupported => "unsupported",
     }
 }

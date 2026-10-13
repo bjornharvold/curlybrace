@@ -21,10 +21,10 @@ use serde_json::{Map, Number, Value, json};
 
 use super::mongosh::{ShellOp, check_op};
 use super::{
-    ExportHeader, OpMeta, RenderError, direction_name, fingerprint_hex, id_policy_name, kind_name,
-    skip_name,
+    ExportHeader, ExportSkip, OpMeta, RenderError, direction_name, fingerprint_hex, id_policy_name,
+    kind_name, skip_name,
 };
-use crate::compare::apply::{ApplyKind, SkipReason};
+use crate::compare::apply::ApplyKind;
 use crate::compare::diff::PathSegment;
 use crate::store::Namespace;
 
@@ -50,7 +50,7 @@ pub enum PlanOp {
     Skipped {
         meta: OpMeta,
         kind: ApplyKind,
-        reason: SkipReason,
+        reason: ExportSkip,
     },
 }
 
@@ -158,7 +158,7 @@ fn write_value(meta: &OpMeta, op: &ShellOp) -> Result<Value, RenderError> {
     Ok(Value::Object(m))
 }
 
-fn skipped_value(meta: &OpMeta, kind: ApplyKind, reason: SkipReason) -> Value {
+fn skipped_value(meta: &OpMeta, kind: ApplyKind, reason: ExportSkip) -> Value {
     let mut m = common("skipped", meta);
     m.insert("kind".into(), Value::String(kind_name(kind).to_string()));
     m.insert(

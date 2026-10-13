@@ -29,10 +29,10 @@ use bson::{Binary, Bson, Document};
 
 use super::sanitize::{comment_text, js_string};
 use super::{
-    ExportHeader, OpMeta, RenderError, direction_name, fingerprint_hex, id_policy_name, kind_name,
-    skip_name,
+    ExportHeader, ExportSkip, OpMeta, RenderError, direction_name, fingerprint_hex, id_policy_name,
+    kind_name, skip_name,
 };
-use crate::compare::apply::{ApplyKind, SkipReason};
+use crate::compare::apply::ApplyKind;
 use crate::compare::diff::PathSegment;
 use crate::store::WriteOp;
 
@@ -481,14 +481,14 @@ impl<W: Write> ScriptWriter<W> {
         &mut self,
         meta: &OpMeta,
         kind: ApplyKind,
-        reason: SkipReason,
+        reason: impl Into<ExportSkip>,
     ) -> Result<(), RenderError> {
         if !matches!(self.state, State::Collection { .. }) {
             return Err(RenderError::Sequence);
         }
         let line = format!(
             "  // skipped ({}) {}\n",
-            skip_name(reason),
+            skip_name(reason.into()),
             describe(meta, kind_name(kind))
         );
         self.inner.write_all(line.as_bytes())?;
