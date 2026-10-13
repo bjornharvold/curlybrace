@@ -143,7 +143,15 @@ fn on_pair_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::Reload(side) => reload(state, side),
         CompareAction::RetryRows => moved(state, ResultsView::retried),
         CompareAction::FindDuplicates(entry) => duplicates::find(state, entry),
-        _ => none(state),
+        // Handled by `on_action`; listed so a new variant must be routed on purpose.
+        CompareAction::Show
+        | CompareAction::Hide
+        | CompareAction::Open { .. }
+        | CompareAction::CloseSession
+        | CompareAction::PickSide(..)
+        | CompareAction::SetKey(_)
+        | CompareAction::SetFilter(..)
+        | CompareAction::SetRules(_) => none(state),
     }
 }
 
@@ -371,6 +379,19 @@ fn listed(state: AppState, side: Side, change: impl FnOnce(SideForm) -> SideForm
     none(with_compare(state, compare))
 }
 
+/// `compare_rows` failures carry no pair or offset, so they cannot be matched to a request:
+/// every view waiting for a page is marked failed (its request is kept so the user can retry
+/// it, also after opening a pair that was not on show) and the banner reports it. With no view
+/// waiting, the request was dropped by us (a Discard raced it) and nothing is reported.
+fn rows_failed(state: AppState, error: CoreError) -> Out {
+    let (compare, any) = state.compare.clone().rows_failed_all();
+    let next = with_compare(state, compare);
+    match any {
+        true => none(failure_banner(next, "compare_rows", error)),
+        false => none(next),
+    }
+}
+
 /// A whole command failed: show it, and undo whatever the command had optimistically marked.
 fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
     if context == "compare_check" {
@@ -379,15 +400,11 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
     if context == "compare_duplicates" {
         return none(duplicates::failed(state, error));
     }
+    if context == "compare_rows" {
+        return rows_failed(state, error);
+    }
     let c = &state.compare;
-    // `compare_rows` failures carry no offset, so they cannot be matched to a request: the
-    // current request is kept (a newer one may be the live one), marked failed so the user can
-    // retry it, and the banner reports it.
     let compare = match context {
-        "compare_rows" => match c.open_pair {
-            Some(pair) => c.clone().results_updated(pair, ResultsView::rows_failed),
-            None => c.clone(),
-        },
         // The runtime refused the whole start: only this run's pending rows fail.
         "compare_start" if c.is_running() => CompareState {
             overview: c.overview.clone().start_refused(&error),

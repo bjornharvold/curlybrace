@@ -112,6 +112,11 @@ pub(super) fn remove_pair(state: AppState, entry: EntryId) -> Out {
     }
     .without_results(&held)
     .invalidated();
+    // Removing one entry makes only that entry's duplicates panel obsolete.
+    let compare = CompareState {
+        duplicates: state.compare.duplicates.superseded_for(entry),
+        ..compare
+    };
     (with_compare(state, compare), commands)
 }
 

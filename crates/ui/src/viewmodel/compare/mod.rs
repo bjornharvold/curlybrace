@@ -219,6 +219,19 @@ impl CompareState {
         }
     }
 
+    /// A `Rows` request failed. The failure names no pair, so every view that waits for a page
+    /// is marked failed (retry works once the pair is opened); the flag says whether any did
+    /// (none: the failure belongs to a request we dropped ourselves, e.g. by Discard).
+    pub fn rows_failed_all(self) -> (Self, bool) {
+        let any = self.results.values().any(ResultsView::is_loading);
+        let results = self
+            .results
+            .into_iter()
+            .map(|(pair, view)| (pair, view.rows_failed()))
+            .collect();
+        (Self { results, ..self }, any)
+    }
+
     /// The results of `pair` passed through `change`; unknown pairs change nothing.
     pub fn results_updated(
         self,
@@ -257,7 +270,13 @@ impl CompareState {
 
     fn start_gate(&self, passing_only: bool) -> bool {
         let any_valid = self.has_valid_entry();
-        let included = self.included_ids();
+        // Run passing only has to wait for the entries that can be checked at all; an included
+        // entry with an issue is never queued and must not block the passing ones.
+        let included = if passing_only {
+            self.checkable_entries()
+        } else {
+            self.included_ids()
+        };
         let idle = self.is_ready() && !self.is_running() && !self.check_in_flight();
         if !idle || !any_valid || !self.checks.all_settled(&included) {
             return false;

@@ -94,7 +94,7 @@ pub(super) fn discard_pair(state: AppState, entry: EntryId) -> Out {
     let commands = discards(ready(&state), &[pair]);
     let compare = CompareState {
         overview: c.overview.clone().discarded(pair),
-        duplicates: c.duplicates.superseded(),
+        duplicates: c.duplicates.superseded_for(entry),
         ..c.clone()
     }
     .without_results(&[pair]);

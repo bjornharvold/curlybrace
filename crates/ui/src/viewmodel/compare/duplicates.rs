@@ -72,6 +72,15 @@ impl DuplicatesView {
             .collect()
     }
 
+    /// `superseded`, but only when the panel belongs to `entry`: dropping or removing one
+    /// entry's results leaves another entry's panel alone.
+    pub fn superseded_for(&self, entry: EntryId) -> Self {
+        match self.entry() == Some(entry) {
+            true => self.superseded(),
+            false => self.clone(),
+        }
+    }
+
     /// The form was edited or the run restarted or discarded: a request in flight is now stale
     /// (its answer is dropped), anything else is out of date.
     pub fn superseded(&self) -> Self {

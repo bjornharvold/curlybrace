@@ -36,7 +36,9 @@ fn started_replaces_rows_of_rerun_entries_and_returns_the_old_pair_ids() {
         next.active,
         Some(ActiveRun {
             run: 2,
-            cancel_requested: false
+            cancel_requested: false,
+            failure_noted: false,
+            pairs: 1,
         })
     );
 }
@@ -130,7 +132,31 @@ fn run_done_clears_active() {
     );
     let done = o.run_done(1);
     assert!(!done.is_running() && done.active.is_none());
-    assert_eq!(status_of(&done, 1), PairStatus::Pending, "untouched");
+    assert_eq!(
+        status_of(&done, 1),
+        PairStatus::Failed(CoreError::Database("internal error".into())),
+        "a pair the run never reported ends as failed, so it is never stuck live"
+    );
+    assert!(!done.entry_is_live(1));
+}
+
+#[test]
+fn the_failure_banner_flag_is_per_run_and_set_once() {
+    let o = running(1, &[(1, 10), (2, 11)]);
+    let (o, first) = o.failure_noted(1);
+    assert!(first);
+    let (o, again) = o.failure_noted(1);
+    assert!(!again);
+    let (_, other_run) = o.failure_noted(2);
+    assert!(!other_run, "only the active run has a flag");
+    let (next, _) = running(1, &[(1, 10)]).run_done(1).started(2, &[(1, 20)]);
+    assert!(next.failure_noted(2).1, "a new run starts unflagged");
+}
+
+#[test]
+fn the_run_remembers_how_many_pairs_it_started() {
+    let o = running(1, &[(1, 10), (2, 11), (3, 12)]);
+    assert_eq!(o.active.unwrap().pairs, 3);
 }
 
 #[test]
@@ -273,8 +299,6 @@ fn run_counters_and_live_entries() {
     let o = running(1, &[(1, 10), (2, 11), (3, 12)])
         .pair_done(1, 10, PairOutcome::Failed(CoreError::CompareDuplicateKey))
         .pair_done(1, 11, PairOutcome::Completed(summary(1, 0)));
-    assert_eq!((o.rows_in(1), o.rows_in(2)), (3, 0));
-    assert_eq!((o.failures_in(1), o.failures_in(2)), (1, 0));
     assert!(!o.entry_is_live(1) && !o.entry_is_live(2));
     assert!(o.entry_is_live(3), "pending counts as live");
     assert!(!o.entry_is_live(99));

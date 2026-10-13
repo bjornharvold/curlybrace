@@ -51,6 +51,10 @@ pub struct RunRow {
 pub struct ActiveRun {
     pub run: RunId,
     pub cancel_requested: bool,
+    /// The failure banner was raised for a pair of this run (once per run).
+    pub failure_noted: bool,
+    /// How many pairs the run started (a snapshot: rows change as pairs end).
+    pub pairs: usize,
 }
 
 /// Sums over the completed pairs, plus how many pairs ended each way.
@@ -112,6 +116,8 @@ impl RunOverview {
             active: Some(ActiveRun {
                 run,
                 cancel_requested: false,
+                failure_noted: false,
+                pairs: pairs.len(),
             }),
         };
         (next, superseded)
@@ -147,24 +153,28 @@ impl RunOverview {
         self.with_live_row(run, pair, |row| RunRow { status, ..row })
     }
 
-    /// The run's terminal. A cancelled run turns the pairs it never finished into cancelled
-    /// ones; otherwise the rows stay as they are.
+    /// The run's terminal. No pair of it stays live: one the runtime never reported ends as
+    /// cancelled when Cancel was sent, otherwise as failed with the runtime's own
+    /// `Database("internal error")` (a pair lost without an outcome), so such a row can
+    /// always be removed or re-run.
     pub fn run_done(self, run: RunId) -> Self {
         let Some(active) = self.active.filter(|a| a.run == run) else {
             return self;
         };
+        let lost = match active.cancel_requested {
+            true => PairStatus::Cancelled(Summary::default()),
+            false => PairStatus::Failed(CoreError::Database("internal error".into())),
+        };
         let rows = self
             .rows
             .into_iter()
-            .map(
-                |row| match active.cancel_requested && row.run == run && row.status.is_live() {
-                    true => RunRow {
-                        status: PairStatus::Cancelled(Summary::default()),
-                        ..row
-                    },
-                    false => row,
+            .map(|row| match row.run == run && row.status.is_live() {
+                true => RunRow {
+                    status: lost.clone(),
+                    ..row
                 },
-            )
+                false => row,
+            })
             .collect();
         Self { rows, active: None }
     }
@@ -234,17 +244,19 @@ impl RunOverview {
         self.row_for(entry).is_some_and(|r| r.status.is_live())
     }
 
-    /// How many pairs `run` started.
-    pub fn rows_in(&self, run: RunId) -> usize {
-        self.rows.iter().filter(|r| r.run == run).count()
-    }
-
-    /// How many pairs of `run` ended failed.
-    pub fn failures_in(&self, run: RunId) -> usize {
-        self.rows
-            .iter()
-            .filter(|r| r.run == run && matches!(r.status, PairStatus::Failed(_)))
-            .count()
+    /// Marks the active run's failure banner as raised; the flag says whether this was the
+    /// first time (only then is the banner raised). Another run has no flag: `false`.
+    pub fn failure_noted(self, run: RunId) -> (Self, bool) {
+        match self.active {
+            Some(a) if a.run == run && !a.failure_noted => {
+                let active = Some(ActiveRun {
+                    failure_noted: true,
+                    ..a
+                });
+                (Self { active, ..self }, true)
+            }
+            _ => (self, false),
+        }
     }
 
     pub fn row_for(&self, entry: EntryId) -> Option<&RunRow> {

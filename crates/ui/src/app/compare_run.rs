@@ -165,7 +165,8 @@ fn first_page(results: Option<&ResultsView>, session: SessionId) -> Vec<Command>
 /// A pair ended. Only the active run's live row is settled; a completed pair gets its results
 /// (and their first page), a cancelled or failed one none. A run of one pair opens its results
 /// at once when nothing is open; the open detail stays unless the open pair changes. The
-/// banner is raised for the first failed pair of a run only.
+/// banner is raised for the first failed pair of a run only (a per-run flag), and "a run of one
+/// pair" counts the pairs the run started, not the rows left.
 fn pair_done(
     state: AppState,
     session: SessionId,
@@ -174,12 +175,15 @@ fn pair_done(
     outcome: PairOutcome,
 ) -> Out {
     let c = &state.compare;
-    let first_failure =
-        matches!(outcome, PairOutcome::Failed(_)) && c.overview.failures_in(run) == 0;
     let overview = c.overview.clone().pair_done(run, pair, outcome.clone());
     if overview == c.overview {
         return none(state);
     }
+    let started = overview.active.map_or(0, |a| a.pairs);
+    let (overview, first_failure) = match outcome {
+        PairOutcome::Failed(_) => overview.failure_noted(run),
+        _ => (overview, false),
+    };
     let shown = match &outcome {
         PairOutcome::Completed(summary) => Some(ResultsView::new(pair, summary)),
         // Only a completed pair holds results in the runtime: no results and no Rows request
@@ -187,7 +191,7 @@ fn pair_done(
         _ => None,
     };
     let commands = first_page(shown.as_ref(), session);
-    let opens = shown.is_some() && c.open_pair.is_none() && overview.rows_in(run) == 1;
+    let opens = shown.is_some() && c.open_pair.is_none() && started == 1;
     let compare = CompareState {
         overview,
         results: c

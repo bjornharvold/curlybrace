@@ -2,6 +2,7 @@
 //! discarding, re-running and the late events that must not change anything.
 use super::pairs::{multi_state, sources, status};
 use super::*;
+use crate::viewmodel::compare::DuplicatesView;
 use crate::viewmodel::compare::{EntryId, PairStatus};
 use curlybrace_core::compare::protocol::PairSpec;
 
@@ -257,7 +258,7 @@ fn banner_is_raised_once_per_run_for_failed_pairs() {
 }
 
 #[test]
-fn cancel_is_sent_once_and_pending_rows_end_by_events() {
+fn cancel_is_sent_once_and_rows_end_only_by_runtime_events() {
     let (state, cmds) = act(running_three(), CompareAction::Cancel);
     assert!(matches!(
         &cmds[..],
@@ -276,7 +277,14 @@ fn cancel_is_sent_once_and_pending_rows_end_by_events() {
         );
     }
     let cancelled = done(1, 4, PairOutcome::Cancelled(Summary::default()));
-    let state = feed(state, [cancelled, run_done_of(1)]);
+    let (state, _) = update(state, cancelled);
+    assert!(matches!(status(&state, 0), PairStatus::Cancelled(_)));
+    assert_eq!(
+        status(&state, 1),
+        PairStatus::Pending,
+        "still waiting for the runtime"
+    );
+    let state = update(state, run_done_of(1)).0;
     assert!(!state.compare.is_running());
     for entry in 0..3 {
         assert!(matches!(status(&state, entry), PairStatus::Cancelled(_)));
@@ -501,7 +509,10 @@ fn pair_done_requires_the_matching_active_run() {
     let state = update(running_three(), run_done_of(1)).0;
     let (state, cmds) = update(state, completed(1, 4));
     assert!(cmds.is_empty() && state.compare.results.is_empty());
-    assert_eq!(status(&state, 0), PairStatus::Pending);
+    assert!(
+        matches!(status(&state, 0), PairStatus::Failed(_)),
+        "ended by RunDone"
+    );
     // Nor may an event of another run settle the active run's row.
     let (state, _) = act(finished_three(), CompareAction::Start);
     let (state, cmds) = update(state, completed(1, 7));
@@ -593,4 +604,182 @@ fn rows_for_a_pair_without_results_are_dropped() {
     let state = finished_three();
     let (state, cmds) = update(state, rows_for(99, 2));
     assert!(cmds.is_empty() && state.compare.results.len() == 3);
+}
+
+#[test]
+fn run_done_without_cancel_ends_lost_rows_so_remove_and_rerun_work() {
+    let state = feed(running_three(), [completed(1, 4), run_done_of(1)]);
+    assert!(!state.compare.is_running());
+    for entry in [1, 2] {
+        assert_eq!(
+            status(&state, entry),
+            PairStatus::Failed(CoreError::Database("internal error".into()))
+        );
+    }
+    let (after, _) = act(copy_of(&state), CompareAction::RemovePair(1));
+    assert_eq!(sources(&after), vec!["alpha", "gamma"]);
+    let (after, _) = act(state, CompareAction::Rerun(2));
+    assert_eq!(after.compare.pairs.editing, Some(2));
+}
+
+#[test]
+fn rows_failure_marks_a_non_open_pairs_first_page_and_opening_it_retries() {
+    // Two pairs complete; their first pages are outstanding; nothing is open.
+    let state = feed(running_three(), [completed(1, 4), completed(1, 5)]);
+    assert!(state.compare.open_pair.is_none());
+    let failed = ev(CompareEvent::Failed {
+        session: 1,
+        context: "compare_rows",
+        error: CoreError::NotFound,
+    });
+    let (state, _) = update(state, failed);
+    assert!(state.compare.results[&4].load_failed && state.compare.results[&5].load_failed);
+    assert!(matches!(
+        state.banner,
+        Some(Banner::Failure {
+            context: "compare_rows",
+            ..
+        })
+    ));
+    let (state, _) = act(state, CompareAction::OpenPair(1));
+    let (state, cmds) = act(state, CompareAction::RetryRows);
+    assert!(matches!(
+        &cmds[..],
+        [Command::Compare(CompareCommand::Rows { pair: 5, .. })]
+    ));
+    assert!(!state.compare.results[&5].load_failed);
+    assert!(
+        state.compare.results[&4].load_failed,
+        "the other keeps its failure"
+    );
+}
+
+#[test]
+fn a_rows_failure_with_nothing_outstanding_raises_no_banner() {
+    // Our own Discard raced the first-page request: no view waits for a page any more.
+    let state = feed(running_three(), [completed(1, 4)]);
+    let (state, _) = act(state, CompareAction::DiscardPair(0));
+    let failed = ev(CompareEvent::Failed {
+        session: 1,
+        context: "compare_rows",
+        error: CoreError::NotFound,
+    });
+    let (state, _) = update(state, failed);
+    assert!(state.banner.is_none());
+}
+
+#[test]
+fn start_passing_is_not_blocked_by_an_invalid_included_entry() {
+    use crate::viewmodel::compare::PairOverrides;
+    let state = multi_state(&NAMES);
+    let broken = PairOverrides {
+        key_text: Some("a,,b".into()),
+        ..PairOverrides::default()
+    };
+    let (state, _) = act(state, CompareAction::SetPairOverrides(1, broken));
+    let first = state.compare.next_pair;
+    let (mut state, _) = act(state, CompareAction::RunCheck);
+    for probe in first..first + 2 {
+        state = update(state, checked_as(probe, indexed(5))).0;
+    }
+    let (state, cmds) = act(state, CompareAction::Start);
+    assert!(
+        cmds.is_empty(),
+        "Run still needs every included entry to pass"
+    );
+    let (_, cmds) = act(state, CompareAction::StartPassing);
+    let names: Vec<String> = started_specs(&cmds)
+        .iter()
+        .map(|s| s.source.collection.clone())
+        .collect();
+    assert_eq!(names, vec!["alpha", "gamma"]);
+}
+
+#[test]
+fn the_auto_open_rule_counts_the_pairs_the_run_started() {
+    // Three pairs started: the first finishing must not open itself, whatever the rows say.
+    let (state, _) = update(running_three(), completed(1, 4));
+    assert!(state.compare.open_pair.is_none());
+    // Even after the other two rows left (removed) the run is still a three-pair run.
+    let (state, _) = update(state, completed(1, 5));
+    let (state, _) = act(state, CompareAction::RemovePair(1));
+    let (state, _) = act(state, CompareAction::RemovePair(0));
+    assert_eq!(state.compare.overview.rows.len(), 1, "one row is left");
+    let (state, _) = update(state, completed(1, 6));
+    assert!(state.compare.open_pair.is_none());
+}
+
+#[test]
+fn start_clears_the_open_pair_and_detail_when_the_open_pair_is_superseded() {
+    let state = feed(finished_three(), [rows_for(4, 1)]);
+    let (state, _) = act(state, CompareAction::OpenPair(0));
+    let (state, _) = act(state, CompareAction::Select(KeyTuple(vec![Bson::Int32(0)])));
+    assert!(state.compare.detail.is_some());
+    let (state, _) = act(state, CompareAction::Start);
+    assert!(state.compare.open_pair.is_none() && state.compare.detail.is_none());
+}
+
+#[test]
+fn start_keeps_an_open_pair_that_is_not_superseded() {
+    let state = feed(finished_three(), [rows_for(5, 1)]);
+    let (state, _) = act(state, CompareAction::OpenPair(1));
+    let (state, _) = act(state, CompareAction::Rerun(0));
+    // Rerun leaves the overview (open pair cleared), so open it again before the run.
+    let (state, _) = act(state, CompareAction::OpenPair(1));
+    let state = checked_all(state, 1);
+    let (state, _) = act(state, CompareAction::Start);
+    assert_eq!(
+        state.compare.open_pair,
+        Some(5),
+        "entry 1 was not part of the run"
+    );
+}
+
+#[test]
+fn run_check_is_refused_while_an_orphaned_check_is_outstanding() {
+    let (state, _) = act(multi_state(&NAMES), CompareAction::RunCheck);
+    let (state, _) = act(state, CompareAction::SetKey("sku".into()));
+    assert!(state.compare.check_in_flight(), "the orphan is still out");
+    let (state, cmds) = act(state, CompareAction::RunCheck);
+    assert!(cmds.is_empty());
+    let (state, _) = update(state, checked_as(1, indexed(5)));
+    let (_, cmds) = act(state, CompareAction::RunCheck);
+    assert_eq!(cmds.len(), 1, "the orphan's answer unlocks checking again");
+}
+
+#[test]
+fn removing_or_discarding_another_entry_keeps_a_duplicates_panel() {
+    let failures = [
+        done(1, 4, PairOutcome::Failed(CoreError::CompareDuplicateKey)),
+        completed(1, 5),
+        completed(1, 6),
+        run_done_of(1),
+    ];
+    let state = feed(running_three(), failures);
+    let (loading, _) = act(state, CompareAction::FindDuplicates(0));
+    assert!(matches!(
+        loading.compare.duplicates,
+        DuplicatesView::Loading {
+            entry: 0,
+            stale: false,
+            ..
+        }
+    ));
+    let (kept, _) = act(copy_of(&loading), CompareAction::DiscardPair(1));
+    assert_eq!(kept.compare.duplicates.entry(), Some(0));
+    assert!(matches!(
+        kept.compare.duplicates,
+        DuplicatesView::Loading { stale: false, .. }
+    ));
+    let (kept, _) = act(copy_of(&loading), CompareAction::RemovePair(2));
+    assert!(matches!(
+        kept.compare.duplicates,
+        DuplicatesView::Loading { stale: false, .. }
+    ));
+    // Its own entry going away does supersede the lookup.
+    let (gone, _) = act(loading, CompareAction::RemovePair(0));
+    assert!(matches!(
+        gone.compare.duplicates,
+        DuplicatesView::Loading { stale: true, .. }
+    ));
 }
