@@ -6,6 +6,7 @@
 pub mod actions;
 pub mod compare;
 pub mod compare_apply_states;
+pub mod compare_field_shots;
 pub mod compare_field_states;
 pub mod compare_multi_states;
 pub mod compare_states;

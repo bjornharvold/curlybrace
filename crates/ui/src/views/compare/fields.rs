@@ -6,6 +6,9 @@ use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{ChangeLine, FieldBar, FieldBlock, FieldRow, RowAction};
 use eframe::egui;
 
+/// Width the reason text wraps at.
+const REASON_WIDTH: f32 = 360.0;
+
 const COLUMNS: [&str; 4] = [
     "compare.detail.change_column",
     "compare.detail.path_column",
@@ -45,6 +48,8 @@ fn show_grid(
             for key in COLUMNS {
                 ui.strong(i18n.t(key));
             }
+            // The reason column has no title either.
+            ui.allocate_space(egui::Vec2::ZERO);
             ui.end_row();
             for (line, row) in changes.iter().zip(&bar.rows) {
                 action = show_change(ui, line, row, i18n).or(action.take());
@@ -69,7 +74,27 @@ fn show_change(
             None => ui.weak(i18n.t("compare.detail.absent")),
         };
     }
+    show_reason(ui, row, i18n);
     toggled.then(|| CompareAction::ToggleField(line.segments.clone()))
+}
+
+/// Why a field cannot be copied on its own, in plain sight (not only on hover), wrapped to a
+/// fixed width so a long sentence does not stretch the grid. Other blocks (busy, no run) apply to
+/// every row and are explained by the buttons.
+fn show_reason(ui: &mut egui::Ui, row: &FieldRow, i18n: &I18n) {
+    match row.block {
+        Some(block @ FieldBlock::Unaddressable(_)) => {
+            ui.scope(|ui| {
+                ui.set_max_width(REASON_WIDTH);
+                ui.add(
+                    egui::Label::new(egui::RichText::new(i18n.t(block.i18n_key())).weak()).wrap(),
+                );
+            });
+        }
+        _ => {
+            ui.allocate_space(egui::Vec2::ZERO);
+        }
+    }
 }
 
 /// A checkbox without visible text whose accessible name is the field path. Disabled, it says

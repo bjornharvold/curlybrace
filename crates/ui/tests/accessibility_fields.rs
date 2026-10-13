@@ -134,7 +134,7 @@ mod compare_fields {
 
     #[test]
     fn a_dollar_named_a_dotted_and_an_unordered_array_field_are_disabled_with_their_reason() {
-        let mut h = harness(with_field_detail());
+        let h = harness(with_field_detail());
         assert!(!checkbox_disabled(&h, NAME));
         assert!(!checkbox_disabled(&h, CITY));
         for (path, reason) in [
@@ -143,9 +143,9 @@ mod compare_fields {
             (ANY, "compare.apply.field_reason.any_element"),
         ] {
             assert!(checkbox_disabled(&h, path), "{path}");
-            h.get_by_role_and_label(Role::CheckBox, path).hover();
-            h.run_steps(30);
-            h.get_by_label(&t(reason));
+            // Shown next to the field without hovering (one line per blocked field).
+            let expected = if reason.ends_with("bad_name") { 2 } else { 1 };
+            assert_eq!(h.query_all_by_label(&t(reason)).count(), expected, "{path}");
         }
     }
 

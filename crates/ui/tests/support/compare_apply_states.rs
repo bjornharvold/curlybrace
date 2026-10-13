@@ -291,7 +291,7 @@ pub mod shots {
     /// The confirmation word the screenshots review with.
     const WORD: &str = "delete";
 
-    fn page(state: &mut AppState, entry: u32, category: Category, keys: &[i32]) {
+    pub fn page(state: &mut AppState, entry: u32, category: Category, keys: &[i32]) {
         let rows = keys
             .iter()
             .map(|n| RowView {
@@ -351,7 +351,7 @@ pub mod shots {
     }
 
     /// The first pair's Different tab is open.
-    fn customers_open(state: &mut AppState) {
+    pub fn customers_open(state: &mut AppState) {
         finished_run(state);
         cs::act(state, CompareAction::OpenPair(0));
         page(state, 0, Category::Different, &[17, 42, 108]);
@@ -397,6 +397,11 @@ pub mod shots {
 
     fn confirmed(state: &mut AppState) -> RunId {
         pending_panel(state);
+        confirm_pending(state)
+    }
+
+    /// Reviews and confirms the pending list (typing the required word, if any).
+    pub fn confirm_pending(state: &mut AppState) -> RunId {
         cs::act(state, CompareAction::ReviewApply { word: WORD.into() });
         let review = state.compare.apply.review().expect("review").clone();
         let text = review.required_text(WORD).unwrap_or_default().to_string();
@@ -433,7 +438,7 @@ pub mod shots {
         }
     }
 
-    fn report_of(state: &mut AppState, run: RunId, entry: u32, report: ApplyReport) {
+    pub fn report_of(state: &mut AppState, run: RunId, entry: u32, report: ApplyReport) {
         let event = CompareEvent::ApplyPairDone {
             session: SESSION,
             run,
