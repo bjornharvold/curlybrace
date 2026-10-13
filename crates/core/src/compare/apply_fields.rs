@@ -6,6 +6,8 @@ use bson::{Bson, Document};
 
 use crate::compare::apply::Direction;
 use crate::compare::diff::{ChangeKind, FieldChange, PathSegment};
+use crate::compare::normalize::apply_scope;
+use crate::compare::rules::FieldScope;
 use crate::error::{CoreError, Result};
 use crate::store::WriteOp;
 
@@ -94,7 +96,7 @@ fn array_refused(change: &FieldChange) -> bool {
 
 /// Why a change cannot be copied in `direction`, or `None` when it can. The origin-free half of
 /// [`field_write`]; the UI uses it to enable a checkbox, and `field_write` calls it so the two
-/// cannot disagree.
+/// cannot disagree. `direction` is reserved: today the rules are direction-independent.
 pub fn can_copy(change: &FieldChange, _direction: Direction) -> Option<Unaddressable> {
     let segments = &change.segments;
     if segments.is_empty() {
@@ -172,20 +174,44 @@ fn unique_change<'a>(changes: &'a [FieldChange], path: &[PathSegment]) -> Result
     }
 }
 
+/// Exact BSON equality of two optional values, presence included (`NaN` equals `NaN`).
+fn same_value(a: Option<&Bson>, b: Option<&Bson>) -> bool {
+    let bytes = |v: &Bson| bson::to_vec(&Document::from_iter([("v".to_string(), v.clone())])).ok();
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => bytes(x).is_some_and(|bx| Some(bx) == bytes(y)),
+        _ => false,
+    }
+}
+
+/// The value at `path` is the same in `doc` and in its field-scoped projection, so writing or
+/// removing it cannot touch a field outside the compared scope, and the address in the
+/// normalized diff points at the same value in the original document.
+fn scope_keeps(path: &[PathSegment], doc: &Document, scoped: &Document) -> bool {
+    same_value(value_at(doc, path), value_at(scoped, path))
+}
+
 /// Builds the update for the requested `paths` from the fresh diff of the two documents. Every
-/// path must be exactly one reported, copyable change; otherwise nothing is planned.
+/// path must be exactly one reported, copyable change whose value is untouched by the field
+/// `scope` in both documents; otherwise nothing is planned.
 pub fn plan_fields(
     paths: &[Vec<PathSegment>],
     changes: &[FieldChange],
     direction: Direction,
     origin: &Document,
-    dest_id: &Bson,
+    dest: &Document,
+    scope: &FieldScope,
 ) -> Result<WriteOp> {
     if paths.is_empty() || paths_conflict(paths) {
         return Err(invalid());
     }
+    let dest_id = dest.get("_id").ok_or_else(invalid)?;
+    let (scoped_origin, scoped_dest) = (apply_scope(origin, scope), apply_scope(dest, scope));
     let (mut set, mut unset) = (Vec::new(), Vec::new());
     for path in paths {
+        if !scope_keeps(path, origin, &scoped_origin) || !scope_keeps(path, dest, &scoped_dest) {
+            return Err(invalid());
+        }
         let change = unique_change(changes, path)?;
         match field_write(change, direction, origin).map_err(|_| invalid())? {
             FieldWrite::Set(segments, value) => set.push((segments, value)),
@@ -202,7 +228,10 @@ pub fn plan_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compare::diff::render_path;
+    use crate::compare::diff::{diff_normalized, render_path};
+    use crate::compare::key::KeySpec;
+    use crate::compare::normalize::normalize;
+    use crate::compare::rules::CompareRules;
     use Direction::{SourceToTarget as ST, TargetToSource as TS};
     use bson::doc;
 
@@ -303,6 +332,16 @@ mod tests {
             let c = change(segments.clone(), kind);
             let got = field_write(&c, dir, &o);
             let reason = can_copy(&c, dir);
+            // The expected can_copy per row: the rule reasons, except that a missing origin
+            // value (NotAChange from the value lookup) is not visible without the origin.
+            let origin_dependent =
+                segments == [f("a"), f("arr"), i(0), f("k")] && kind == ChangeKind::Changed;
+            let want_can = match &want {
+                _ if origin_dependent => None,
+                Ok(_) => None,
+                Err(r) => Some(*r),
+            };
+            assert_eq!(reason, want_can, "can_copy {:?} {kind:?} {dir:?}", c.path);
             let label = format!("{:?} {kind:?} {dir:?}", c.path);
             match (want, got) {
                 (Ok("set"), Ok(FieldWrite::Set(s, _))) => assert_eq!(s, segments, "{label}"),
@@ -450,7 +489,7 @@ mod tests {
             vec![f("a"), f("arr"), i(1)],
             vec![f("only_src")],
         ];
-        let op = plan_fields(&paths, &changes(), ST, &src(), &Bson::Int32(42)).unwrap();
+        let op = plan_fields(&paths, &changes(), ST, &src(), &dest(42), &FieldScope::All).unwrap();
         assert_eq!(
             op,
             WriteOp::UpdateFields {
@@ -473,13 +512,14 @@ mod tests {
             &changes(),
             TS,
             &tgt,
-            &Bson::Int32(1),
+            &tgt,
+            &FieldScope::All,
         )
         .unwrap();
         assert_eq!(
             op,
             WriteOp::UpdateFields {
-                id: Bson::Int32(1),
+                id: Bson::Int32(9),
                 set: vec![(vec![f("only_tgt")], Bson::String("t".into()))],
                 unset: vec![],
             }
@@ -489,13 +529,14 @@ mod tests {
             &changes(),
             TS,
             &tgt,
-            &Bson::Int32(1),
+            &tgt,
+            &FieldScope::All,
         )
         .unwrap();
         assert_eq!(
             op,
             WriteOp::UpdateFields {
-                id: Bson::Int32(1),
+                id: Bson::Int32(9),
                 set: vec![],
                 unset: vec![vec![f("only_src")]],
             }
@@ -508,8 +549,10 @@ mod tests {
 
     #[test]
     fn plan_fields_refuses_empty_conflicting_unknown_and_unaddressable_paths() {
-        let id = Bson::Int32(1);
-        let plan = |paths: &[Vec<PathSegment>]| plan_fields(paths, &changes(), ST, &src(), &id);
+        let d = dest(1);
+        let plan = |paths: &[Vec<PathSegment>]| {
+            plan_fields(paths, &changes(), ST, &src(), &d, &FieldScope::All)
+        };
         assert_eq!(plan(&[]), Err(invalid()));
         assert_eq!(plan(&[vec![f("n")], vec![f("n")]]), Err(invalid()));
         assert_eq!(
@@ -529,7 +572,14 @@ mod tests {
     #[test]
     fn plan_fields_refuses_a_set_whose_origin_value_is_gone() {
         let origin = doc! { "_id": 1 };
-        let r = plan_fields(&[vec![f("n")]], &changes(), ST, &origin, &Bson::Int32(1));
+        let r = plan_fields(
+            &[vec![f("n")]],
+            &changes(),
+            ST,
+            &origin,
+            &dest(1),
+            &FieldScope::All,
+        );
         assert_eq!(r, Err(invalid()));
     }
 
@@ -537,19 +587,171 @@ mod tests {
     fn plan_fields_refuses_a_path_reported_twice() {
         let mut two = changes();
         two.push(change(vec![f("n")], ChangeKind::Changed));
-        let r = plan_fields(&[vec![f("n")]], &two, ST, &src(), &Bson::Int32(1));
+        let r = plan_fields(
+            &[vec![f("n")]],
+            &two,
+            ST,
+            &src(),
+            &dest(1),
+            &FieldScope::All,
+        );
         assert_eq!(r, Err(invalid()));
     }
 
     #[test]
     fn the_error_text_carries_no_values() {
-        let r = plan_fields(
-            &[vec![f("secret")]],
-            &changes(),
-            ST,
-            &src(),
-            &Bson::Int32(1),
+        let origin = doc! { "_id": 1, "secret": "hunter2-distinctive" };
+        let ch = vec![change(vec![f("secret")], ChangeKind::Changed)];
+        let scope = FieldScope::Only(vec!["other".into()]);
+        for bad in [
+            plan_fields(
+                &[vec![f("nope")]],
+                &ch,
+                ST,
+                &origin,
+                &dest(1),
+                &FieldScope::All,
+            ),
+            plan_fields(&[vec![f("secret")]], &ch, ST, &origin, &dest(1), &scope),
+        ] {
+            let text = format!("{:?} {}", bad.clone().unwrap_err(), bad.unwrap_err());
+            assert!(
+                !text.contains("secret") && !text.contains("hunter2"),
+                "{text}"
+            );
+        }
+    }
+
+    fn dest(id: i32) -> Document {
+        doc! { "_id": id }
+    }
+
+    /// The fresh diff under `rules`, as the engine computes it.
+    fn diff_under(src: &Document, tgt: &Document, scope: &FieldScope) -> Vec<FieldChange> {
+        let mut rules = CompareRules::for_key(&KeySpec::new(vec!["_id".into()]).unwrap());
+        rules.field_scope = scope.clone();
+        let (s, t) = (
+            normalize(src, &rules).unwrap(),
+            normalize(tgt, &rules).unwrap(),
         );
-        assert!(!r.unwrap_err().to_string().contains("secret"));
+        diff_normalized(&s, &t, false).unwrap()
+    }
+
+    fn plan_with(
+        scope: &FieldScope,
+        src: &Document,
+        tgt: &Document,
+        paths: &[Vec<PathSegment>],
+    ) -> Result<WriteOp> {
+        let ch = diff_under(src, tgt, scope);
+        plan_fields(paths, &ch, ST, src, tgt, scope)
+    }
+
+    #[test]
+    fn a_scope_that_shifts_array_indexes_is_refused() {
+        // Only(items.price) drops the scalar 5, so the diff's items[1] is original items[2].
+        let scope = FieldScope::Only(vec!["items.price".into()]);
+        let src = doc! { "_id": 1, "items": [5, { "price": 1 }, { "price": 2 }] };
+        let tgt = doc! { "_id": 1, "items": [{ "price": 1 }, { "price": 3 }] };
+        let path = vec![f("items"), i(1), f("price")];
+        assert!(
+            diff_under(&src, &tgt, &scope)
+                .iter()
+                .any(|c| c.segments == path)
+        );
+        assert_eq!(plan_with(&scope, &src, &tgt, &[path]), Err(invalid()));
+    }
+
+    #[test]
+    fn all_except_keeps_array_positions_so_an_untouched_leaf_is_planned() {
+        let scope = FieldScope::AllExcept(vec!["items.skip".into()]);
+        let src = doc! { "_id": 1, "items": [{ "skip": 1, "price": 1 }, { "price": 2 }] };
+        let tgt = doc! { "_id": 1, "items": [{ "skip": 9, "price": 5 }, { "price": 2 }] };
+        let path = vec![f("items"), i(0), f("price")];
+        let op = plan_with(&scope, &src, &tgt, &[path.clone()]).unwrap();
+        let WriteOp::UpdateFields { set, .. } = op else {
+            panic!("expected UpdateFields")
+        };
+        assert_eq!(set, vec![(path, Bson::Int32(1))]);
+    }
+
+    #[test]
+    fn all_except_refuses_a_changed_value_that_hides_an_out_of_scope_field() {
+        let scope = FieldScope::AllExcept(vec!["items.skip".into()]);
+        let src = doc! { "_id": 1, "items": [5] };
+        let tgt = doc! { "_id": 1, "items": [{ "skip": 1, "price": 1 }] };
+        let path = vec![f("items"), i(0)];
+        assert!(
+            diff_under(&src, &tgt, &scope)
+                .iter()
+                .any(|c| c.segments == path)
+        );
+        assert_eq!(plan_with(&scope, &src, &tgt, &[path]), Err(invalid()));
+    }
+
+    #[test]
+    fn a_removed_subtree_with_out_of_scope_fields_is_refused() {
+        let scope = FieldScope::Only(vec!["meta.owner".into()]);
+        let src = doc! { "_id": 1, "meta": { "owner": "o", "sync": "s" } };
+        let tgt = doc! { "_id": 1 };
+        let ch = diff_under(&src, &tgt, &scope);
+        assert_eq!(ch.len(), 1);
+        assert_eq!(ch[0].kind, ChangeKind::Removed);
+        assert_eq!(
+            plan_with(&scope, &src, &tgt, &[vec![f("meta")]]),
+            Err(invalid())
+        );
+    }
+
+    #[test]
+    fn an_unset_of_a_subtree_with_out_of_scope_fields_is_refused() {
+        let scope = FieldScope::AllExcept(vec!["meta.sync".into()]);
+        let src = doc! { "_id": 1 };
+        let tgt = doc! { "_id": 1, "meta": { "owner": "o", "sync": "s" } };
+        let ch = diff_under(&src, &tgt, &scope);
+        assert_eq!(ch[0].kind, ChangeKind::Added);
+        assert_eq!(
+            plan_with(&scope, &src, &tgt, &[vec![f("meta")]]),
+            Err(invalid())
+        );
+    }
+
+    #[test]
+    fn a_changed_scalar_against_a_scoped_document_is_refused() {
+        let scope = FieldScope::Only(vec!["meta.owner".into()]);
+        let src = doc! { "_id": 1, "meta": 5 };
+        let tgt = doc! { "_id": 1, "meta": { "owner": "o", "sync": "s" } };
+        let r = plan_with(&scope, &src, &tgt, &[vec![f("meta")]]);
+        assert_eq!(r, Err(invalid()));
+    }
+
+    #[test]
+    fn a_scope_that_keeps_the_subtree_intact_plans_normally() {
+        let src = doc! { "_id": 1, "meta": { "owner": "a" }, "other": 1 };
+        let tgt = doc! { "_id": 2, "meta": { "owner": "b" }, "other": 2 };
+        for scope in [
+            FieldScope::Only(vec!["meta".into()]),
+            FieldScope::AllExcept(vec!["other".into()]),
+        ] {
+            let op = plan_with(&scope, &src, &tgt, &[vec![f("meta"), f("owner")]]).unwrap();
+            assert_eq!(
+                op,
+                WriteOp::UpdateFields {
+                    id: Bson::Int32(2),
+                    set: vec![(vec![f("meta"), f("owner")], Bson::String("a".into()))],
+                    unset: vec![],
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn scope_all_is_a_no_op() {
+        let d = doc! { "_id": 1, "a": [1, { "b": 2 }], "c": { "d": 3 } };
+        assert_eq!(apply_scope(&d, &FieldScope::All), d);
+        let src = doc! { "_id": 1, "items": [5, { "price": 1 }] };
+        let tgt = doc! { "_id": 1, "items": [5, { "price": 2 }] };
+        let path = vec![f("items"), i(1), f("price")];
+        assert!(plan_with(&FieldScope::All, &src, &tgt, &[path]).is_ok());
     }
 }

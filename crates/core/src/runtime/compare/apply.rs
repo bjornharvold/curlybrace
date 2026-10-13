@@ -160,7 +160,10 @@ fn category_sides(category: Category) -> (bool, bool) {
 /// category is empty, so the request is judged by what it asks for, not by what is stored).
 fn bulk_to_ops(item: &BulkApply, results: &ResultSet) -> Result<Vec<ApplyOp>> {
     let (has_source, has_target) = category_sides(item.category);
-    if !kind_fits(item.kind, item.direction, has_source, has_target) {
+    // Field copies are chosen per document; there is no category-wide field copy.
+    if item.kind == ApplyKind::Fields
+        || !kind_fits(item.kind, item.direction, has_source, has_target)
+    {
         return Err(CoreError::Unsupported(
             "operation does not fit this category".into(),
         ));

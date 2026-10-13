@@ -9,12 +9,14 @@
 
 use bson::{Bson, Document};
 
+use crate::compare::apply_fields::paths_conflict;
 use crate::compare::diff::PathSegment;
 use crate::store::WriteFailure;
 
 const IMMUTABLE_FIELD: i32 = 66;
 const PATH_NOT_VIABLE: i32 = 28;
 const BAD_VALUE: i32 = 2;
+const CONFLICTING_UPDATES: i32 = 40;
 
 fn rejected(code: i32) -> WriteFailure {
     WriteFailure::Rejected(code)
@@ -86,10 +88,15 @@ pub(super) fn update_fields(
     set: &[(Vec<PathSegment>, Bson)],
     unset: &[Vec<PathSegment>],
 ) -> Result<Document, WriteFailure> {
-    set.iter()
-        .map(|(p, _)| p)
-        .chain(unset)
-        .try_for_each(|p| check_path(p))?;
+    let all: Vec<Vec<PathSegment>> = set
+        .iter()
+        .map(|(p, _)| p.clone())
+        .chain(unset.iter().cloned())
+        .collect();
+    all.iter().try_for_each(|p| check_path(p))?;
+    if paths_conflict(&all) {
+        return Err(rejected(CONFLICTING_UPDATES));
+    }
     let mut root = Bson::Document(doc.clone());
     for (path, value) in set {
         set_in(&mut root, path, value.clone())?;
@@ -279,6 +286,32 @@ mod tests {
             assert!(matches!(o1[0], Err(WriteFailure::Rejected(_))), "{path:?}");
             assert!(matches!(o2[0], Err(WriteFailure::Rejected(_))), "{path:?}");
             assert_eq!(get(&s, &ns, 1).await.get_i32("_id").unwrap(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn conflicting_paths_across_set_and_unset_are_rejected_and_nothing_is_written() {
+        let cases = [
+            (
+                vec![(vec![f("a"), f("b")], Bson::Int32(0))],
+                vec![vec![f("a")]],
+            ),
+            (
+                vec![
+                    (vec![f("a")], Bson::Int32(0)),
+                    (vec![f("a")], Bson::Int32(1)),
+                ],
+                vec![],
+            ),
+            (vec![(vec![f("x")], Bson::Int32(0))], vec![vec![f("x")]]),
+        ];
+        for (set, unset) in cases {
+            let (out, s, ns) = run(vec![update(1, set, unset)]).await;
+            assert_eq!(out, vec![Err(WriteFailure::Rejected(40))]);
+            assert_eq!(
+                get(&s, &ns, 1).await.get_document("a").unwrap(),
+                &doc! { "b": 1, "c": 2 }
+            );
         }
     }
 
