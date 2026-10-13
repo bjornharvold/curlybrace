@@ -113,22 +113,33 @@ impl PendingList {
                 });
                 (Self { changes }, 0)
             }
-            Scope::Keys(keys) => {
-                let distinct = distinct_keys(keys);
-                if covered {
-                    return (self.clone(), distinct.len());
-                }
-                let incoming: BTreeSet<OrdKey> = distinct.iter().cloned().map(OrdKey).collect();
-                let mut changes = self.without_keys(pair, cat, &incoming);
-                changes.push(PendingChange {
-                    pair,
-                    category: cat,
-                    action,
-                    scope: Scope::Keys(distinct),
-                });
-                (Self { changes }, 0)
-            }
+            Scope::Keys(keys) => self.with_keys(pair, cat, action, keys, covered),
         }
+    }
+
+    /// Queues explicit keys: the keys a category item covers are ignored (and counted), the others
+    /// replace whatever the same rows had.
+    fn with_keys(
+        &self,
+        pair: PairId,
+        cat: Category,
+        action: RowAction,
+        keys: Vec<KeyTuple>,
+        covered: bool,
+    ) -> (Self, usize) {
+        let distinct = distinct_keys(keys);
+        if covered {
+            return (self.clone(), distinct.len());
+        }
+        let incoming: BTreeSet<OrdKey> = distinct.iter().cloned().map(OrdKey).collect();
+        let mut changes = self.without_keys(pair, cat, &incoming);
+        changes.push(PendingChange {
+            pair,
+            category: cat,
+            action,
+            scope: Scope::Keys(distinct),
+        });
+        (Self { changes }, 0)
     }
 
     /// The items with `incoming` removed from the tab's key lists; emptied items go.

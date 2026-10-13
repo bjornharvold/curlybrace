@@ -788,11 +788,14 @@ The rulings, then the UI and the limits.
   compared scope are never touched.
 - **Destination rules.** A view is refused as a destination for any write (as in 2a); a time-series destination is
   refused (`ApplyTargetNotWritable`) for field operations, as for replace and delete: only inserts are allowed there.
-- **Store guards.** The update filter matches `_id` with `$eq`, and carries guards: an element index is guarded
-  by the array's existence and shape, a nested path by `$exists` / object type checks of its parents. A guard
-  that does not match yields `Missing` (the document is reported as not applicable, nothing written). `$unset`
-  through an array is refused. Names containing NUL are refused. Update commands are split by bytes like the
-  batches of 2a, so one huge update cannot exceed the command limit.
+- **Store guards.** The update filter matches `_id` with `$eq`. Guards exist only where a path needs them: an
+  `Index` segment adds a `$type: "array"` clause for the array before it (one per distinct prefix) and
+  `$exists: true` on the element itself (so an index past the end is `Missing`, never padded with nulls); a field
+  name made only of digits adds an object-and-not-array guard for its parent (a bare object type check also
+  matches an array holding an object). Plain nested field names get no guards. A guard that does not match yields
+  `Missing` (reported as not applicable, nothing written). `$unset` through an array is refused. Names containing
+  NUL are refused. Update commands are split by bytes like the batches of 2a, so one huge update cannot exceed the
+  command limit.
 - **UI model.**
   - Field selection is kept per open detail (the ticked paths of one (pair, key)); `with_detail` clears it when
     the detail changes, a re-run or the pair going away.
@@ -801,10 +804,10 @@ The rulings, then the UI and the limits.
     replaces it; a whole-document action replaces a `Fields` item and vice versa. Overlapping paths (one inside
     another) cannot be queued together (banner `fields_conflict`), and fields for a key already covered by a
     whole-category item are ignored with a banner (`fields_covered`).
-  - The detail pane has a checkbox per changed field (named by its path), the buttons "Copy fields to target" and
-    "Copy fields to source", the count of ticked fields and Clear. A field that cannot be copied has its
+  - The detail pane has a checkbox per changed field (named by its path), the buttons "Copy selected fields to target" and
+    "Copy selected fields to source", the count of ticked fields and Clear. A field that cannot be copied has its
     checkbox disabled with the reason shown next to it (empty or dotted or `$` names, `_id`, `AnyElement`,
-    array items that cannot be added or removed one by one). Checkboxes exist only on the Different tab.
+    array items that are added or removed, which cannot be added or removed one by one). Checkboxes exist only on the Different tab.
   - **Gating** is the same as in 2b, except that the field checkboxes stay enabled during a compare run or a
     check (like the row checkboxes); only the queue buttons are blocked then, as they are by a review or a
     running apply.

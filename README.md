@@ -122,11 +122,11 @@ for each side, press **Add pair**, then **Check** and **Run**.
   before it is written: a document that changed since the compare is skipped and left alone. The
   result lists what was applied, skipped, failed (with the document's key) and not run, and you can
   cancel a running apply. The pair then shows **Applied**: run it again to confirm what is left.
-- To change only some fields of a changed document, open it, tick the fields and choose **Copy fields
-  to target** or **Copy fields to source**. Only those fields are written (a field that exists on one side
+- To change only some fields of a changed document, open it, tick the fields and choose **Copy selected fields
+  to target** or **Copy selected fields to source**. Only those fields are written (a field that exists on one side
   only is removed from the other); the rest of the destination document stays as it is. A field that
   cannot be copied on its own (the `_id`, a name with a dot or starting with `$`, an item of an array whose
-  order is ignored) is shown disabled with the reason. Field copies are queued and reviewed like the
+  order is ignored, or an array item that was added or removed) is shown disabled with the reason. Field copies are queued and reviewed like the
   other actions. Exporting results is still to come
   ([#8](https://github.com/bjornharvold/curlybrace/issues/8)).
 - The key must be **unique** on each side: a duplicate key stops the run with an error, and
