@@ -173,6 +173,7 @@ fn bulk_to_ops(item: &BulkApply, results: &ResultSet) -> Result<Vec<ApplyOp>> {
             key: entry.key.clone(),
             kind: item.kind,
             direction: item.direction,
+            fields: Vec::new(),
         })
         .collect())
 }

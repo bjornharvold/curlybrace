@@ -120,6 +120,7 @@ pub fn op(pair: PairId, k: KeyTuple, kind: ApplyKind) -> ApplyOp {
         key: k,
         kind,
         direction: Direction::SourceToTarget,
+        fields: Vec::new(),
     }
 }
 

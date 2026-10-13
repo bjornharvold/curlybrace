@@ -40,6 +40,7 @@ fn op(key: KeyTuple, kind: ApplyKind, direction: Direction) -> ApplyOp {
         key,
         kind,
         direction,
+        fields: Vec::new(),
     }
 }
 

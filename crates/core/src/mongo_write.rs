@@ -52,6 +52,8 @@ fn group_ops(ops: Vec<WriteOp>) -> Groups {
                 WriteOp::Insert { doc } => groups.inserts.push((pos, doc)),
                 WriteOp::Replace { id, doc } => groups.replaces.push((pos, id, doc)),
                 WriteOp::Delete { id } => groups.deletes.push((pos, id)),
+                // Refused up front by `bulk_write` until the Mongo implementation exists.
+                WriteOp::UpdateFields { .. } => {}
             }
             groups
         })
@@ -104,6 +106,15 @@ pub(crate) async fn bulk_write(
     ops: Vec<WriteOp>,
     db_err: fn(mongodb::error::Error) -> CoreError,
 ) -> Result<Vec<WriteOutcome>> {
+    if ops
+        .iter()
+        .any(|op| matches!(op, WriteOp::UpdateFields { .. }))
+    {
+        // slice 2c: implemented in the next step; refuse instead of silently skipping.
+        return Err(CoreError::Unsupported(
+            "field updates are not supported by this store yet".into(),
+        ));
+    }
     let total = ops.len();
     let groups = group_ops(ops);
     let writer = Writer {

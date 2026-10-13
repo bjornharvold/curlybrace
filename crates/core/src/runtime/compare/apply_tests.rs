@@ -234,6 +234,7 @@ pub(super) fn op(pair: u32, id: i32, kind: ApplyKind) -> ApplyOp {
         key: key(id),
         kind,
         direction: Direction::SourceToTarget,
+        fields: Vec::new(),
     }
 }
 

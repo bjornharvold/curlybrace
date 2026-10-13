@@ -207,6 +207,7 @@ impl PendingList {
                     key: key.clone(),
                     kind: c.kind(),
                     direction: c.direction(),
+                    fields: Vec::new(), // slice 2c: filled by Scope::Fields
                 })),
                 Scope::Category => bulk.push(BulkApply {
                     pair: c.pair,

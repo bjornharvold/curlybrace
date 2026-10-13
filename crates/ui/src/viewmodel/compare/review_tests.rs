@@ -470,6 +470,7 @@ fn counts_match_the_command_ops_for_random_pending_lists() {
                     ApplyKind::Insert => p.counts.insert,
                     ApplyKind::Replace => p.counts.replace,
                     ApplyKind::Delete => p.counts.delete,
+                    ApplyKind::Fields => 0, // slice 2c
                 })
                 .sum();
             assert_eq!(counted, from_ops + from_bulk, "case {case} {kind:?}");

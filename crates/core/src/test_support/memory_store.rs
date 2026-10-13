@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use bson::{Bson, Document, oid::ObjectId};
 
 use super::bson_order::cmp_bson;
+use super::memory_fields::update_fields;
 use super::query_eval::{check_filter, compare, matches, parse_sort, project};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
@@ -87,6 +88,10 @@ fn apply_op(docs: &mut Vec<Document>, op: WriteOp) -> WriteOutcome {
         }
         WriteOp::Delete { id } => {
             docs.remove(position(docs, &id).ok_or(WriteFailure::Missing)?);
+        }
+        WriteOp::UpdateFields { id, set, unset } => {
+            let at = position(docs, &id).ok_or(WriteFailure::Missing)?;
+            docs[at] = update_fields(&docs[at], &set, &unset)?;
         }
     }
     Ok(())

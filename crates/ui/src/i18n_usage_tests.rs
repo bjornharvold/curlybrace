@@ -85,6 +85,8 @@ fn referenced() -> BTreeSet<String> {
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
         &mut files,
     );
+    // Core returns i18n keys for the UI (as string literals) from these production files.
+    files.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/src/compare/apply_fields.rs"));
     // `#[cfg(test)]` modules live in `*_tests.rs` files, so what is left is production code.
     files
         .iter()

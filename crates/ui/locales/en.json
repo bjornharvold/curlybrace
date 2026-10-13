@@ -70,6 +70,13 @@
       "applied_note": "Changes were applied to this pair. Run it again to see the current differences.",
       "confirm_word": "delete",
       "destination": "{connection} / {namespace}",
+      "field_reason": {
+        "any_element": "This field is inside an array whose order is ignored, so it cannot be copied on its own.",
+        "array_element": "Array items cannot be added or removed one by one. Copy the whole array instead.",
+        "bad_name": "The field name is empty, contains a dot or starts with a dollar sign, so it cannot be copied on its own.",
+        "id": "The _id of a document cannot be changed.",
+        "not_a_change": "There is no value to copy for this field."
+      },
       "finished": {
         "cancelled_note": "The apply was cancelled. Writes that had not started were not made.",
         "dismiss": "Dismiss",

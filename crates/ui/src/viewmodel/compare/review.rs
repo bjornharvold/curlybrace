@@ -53,6 +53,8 @@ impl KindCounts {
                 delete: self.delete + n,
                 ..self
             },
+            // slice 2c: the UI never produces field ops yet, so they are not counted.
+            ApplyKind::Fields => self,
         }
     }
 }

@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use bson::{Bson, Document};
 
+use crate::compare::diff::PathSegment;
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 
@@ -91,6 +92,14 @@ pub enum WriteOp {
     },
     Delete {
         id: Bson,
+    },
+    /// Updates named fields of the document with `_id == id`; the rest is untouched. Every path
+    /// is a field-or-index address that the planner has already vetted (never `_id`, never an
+    /// unordered-array element). A store that cannot render a segment fails the op.
+    UpdateFields {
+        id: Bson,
+        set: Vec<(Vec<PathSegment>, Bson)>,
+        unset: Vec<Vec<PathSegment>>,
     },
 }
 
