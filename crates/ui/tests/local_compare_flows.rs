@@ -5,9 +5,13 @@
 mod support;
 
 use bson::doc;
+use curlybrace_core::compare::engine::Summary;
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::error::CoreError;
-use curlybrace_ui::viewmodel::compare::{PairStatus, StatusIcon};
+use curlybrace_ui::app::compare::CompareAction;
+use curlybrace_ui::viewmodel::compare::{
+    DuplicatesView, EntryId, PairOverrides, PairStatus, StatusIcon,
+};
 use support::actions::*;
 use support::compare::*;
 use support::fixture::Fixture;
@@ -211,4 +215,177 @@ fn cancelling_a_large_run_leaves_the_workspace_usable() {
     start_and_wait(&mut f, LONG);
     wait_shows_key(&mut f, "compare.results.back_to_overview");
     wait_shows_key(&mut f, "compare.results.identical");
+}
+
+/// Source database: one collection per outcome (identical, different, source-only, duplicate
+/// key) against a target that lacks `only_src`.
+fn seed_two_databases(f: &Fixture, target: &Scratch) {
+    let same: Vec<_> = (0..40_i32).map(|i| doc! {"_id": i, "n": i}).collect();
+    let changed = |n: i32| (0..150_i32).map(move |i| doc! {"_id": i, "n": i + n});
+    f.db.insert("same_a", same.clone());
+    target.0.insert("same_a", same);
+    f.db.insert("same_b", changed(0).collect());
+    target.0.insert("same_b", changed(1).collect());
+    f.db.insert("only_src", (0..7_i32).map(|i| doc! {"_id": i}).collect());
+    let dup = |sku: &str, id: i32| doc! {"_id": id, "sku": sku};
+    f.db.insert("dup", vec![dup("a", 1), dup("a", 2), dup("b", 3)]);
+    target.0.insert("dup", vec![dup("a", 1)]);
+}
+
+/// Add all same-named, the one with no counterpart, its own key for `dup`, then Check and Run.
+#[track_caller]
+fn build_pairs_and_run(f: &mut Fixture, target: &Scratch) {
+    open_compare(f);
+    let source_db = f.db.name.clone();
+    pick_database(f, Side::Source, &source_db);
+    pick_database(f, Side::Target, &target.0.name);
+    send(f, CompareAction::AddAllSameNamed);
+    let (side, name) = (Side::Source, "only_src".to_string());
+    send(
+        f,
+        CompareAction::AddUnmatched {
+            side,
+            as_name: name.clone(),
+            name,
+        },
+    );
+    assert_eq!(f.harness.state().state().compare.pairs.entries.len(), 4);
+    let dup = entry_of(f, "dup");
+    let own_key = PairOverrides::default().with_key_text(Some("sku".into()));
+    send(f, CompareAction::SetPairOverrides(dup, own_key));
+    check_all(f);
+    send(f, CompareAction::Start);
+    wait_finished(f, SHORT);
+}
+
+fn completed(f: &Fixture, collection: &str) -> Summary {
+    match status_of(f, entry_of(f, collection)) {
+        PairStatus::Completed(summary) => summary,
+        other => panic!("{collection} should have completed, found {other:?}"),
+    }
+}
+
+#[test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+fn a_database_level_compare_runs_every_pair_and_recovers_from_a_duplicate_key() {
+    let mut f = fixture!();
+    let target = Scratch::new(&f);
+    seed_two_databases(&f, &target);
+    build_pairs_and_run(&mut f, &target);
+
+    let (a, b, only) = (
+        completed(&f, "same_a"),
+        completed(&f, "same_b"),
+        completed(&f, "only_src"),
+    );
+    assert_eq!((a.equal, a.different, a.only_in_source), (40, 0, 0));
+    assert_eq!((b.different, b.equal), (150, 0));
+    assert_eq!((only.only_in_source, only.only_in_target), (7, 0));
+    let dup = entry_of(&f, "dup");
+    let failed = PairStatus::Failed(CoreError::CompareDuplicateKey);
+    assert_eq!(status_of(&f, dup), failed);
+    let compare = &f.harness.state().state().compare;
+    assert!(
+        compare.open_pair.is_none(),
+        "several pairs: the overview stays"
+    );
+    assert_eq!(compare.overview.totals().completed, 3);
+
+    browse_two_pages(&mut f);
+    find_then_rerun_with_a_unique_key(&mut f, dup);
+}
+
+/// Opens `same_b` and pages its 150 differing rows (100, then 50).
+#[track_caller]
+fn browse_two_pages(f: &mut Fixture) {
+    let entry = entry_of(f, "same_b");
+    send(f, CompareAction::OpenPair(entry));
+    wait_page(f, 0, 100);
+    send(f, CompareAction::Page(1));
+    wait_page(f, 100, 50);
+    send(f, CompareAction::BackToOverview);
+    assert!(f.harness.state().state().compare.open_pair.is_none());
+}
+
+#[track_caller]
+fn wait_page(f: &mut Fixture, offset: usize, rows: usize) {
+    wait_until(&mut f.harness, "the page of rows", SHORT, |h| {
+        let results = h.state().state().compare.open_results().cloned();
+        results.is_some_and(|r| r.offset == offset && r.rows.len() == rows && !r.is_loading())
+    });
+}
+
+/// Find duplicate keys on the failed row, then Re-run it keyed on `_id`.
+#[track_caller]
+fn find_then_rerun_with_a_unique_key(f: &mut Fixture, dup: EntryId) {
+    send(f, CompareAction::FindDuplicates(dup));
+    wait_until(&mut f.harness, "the duplicate keys", SHORT, |h| {
+        matches!(
+            h.state().state().compare.duplicates,
+            DuplicatesView::Loaded { .. }
+        )
+    });
+    match &f.harness.state().state().compare.duplicates {
+        DuplicatesView::Loaded {
+            entry,
+            source,
+            target,
+        } => {
+            assert_eq!(*entry, dup);
+            assert_eq!(source.groups.len(), 1, "only \"a\" repeats");
+            assert_eq!(source.groups[0].count, 2);
+            assert!(target.groups.is_empty());
+        }
+        other => panic!("expected the loaded panel, found {other:?}"),
+    }
+    send(f, CompareAction::Rerun(dup));
+    let unique = PairOverrides::default().with_key_text(Some("_id".into()));
+    send(f, CompareAction::SetPairOverrides(dup, unique));
+    check_all(f);
+    send(f, CompareAction::Start);
+    wait_finished(f, SHORT);
+    let rerun = completed(f, "dup");
+    assert_eq!((rerun.equal, rerun.only_in_source), (1, 2));
+    assert_eq!(
+        completed(f, "same_a").equal,
+        40,
+        "other rows keep their results"
+    );
+}
+
+#[test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+fn cancelling_a_multi_pair_run_ends_every_row_once() {
+    let mut f = fixture!();
+    let target = Scratch::new(&f);
+    seed_two_databases(&f, &target);
+    // About 30 MB per side: far more than is scanned between Start and Cancel.
+    f.db.insert("big", padded(0..30_000, 1_000));
+    target.0.insert("big", padded(0..30_000, 1_000));
+    open_compare(&mut f);
+    let source_db = f.db.name.clone();
+    pick_database(&mut f, Side::Source, &source_db);
+    pick_database(&mut f, Side::Target, &target.0.name);
+    send(&mut f, CompareAction::AddAllSameNamed);
+    let dup = entry_of(&f, "dup");
+    let unique_key = PairOverrides::default().with_key_text(Some("_id".into()));
+    send(&mut f, CompareAction::SetPairOverrides(dup, unique_key));
+    check_all(&mut f);
+
+    send(&mut f, CompareAction::Start);
+    send(&mut f, CompareAction::Cancel);
+    wait_finished(&mut f, LONG);
+    let overview = f.harness.state().state().compare.overview.clone();
+    assert_eq!(overview.rows.len(), 4);
+    for row in &overview.rows {
+        assert!(row.status.is_settled(), "{:?} is not terminal", row.status);
+    }
+    let totals = overview.totals();
+    assert_eq!(totals.completed + totals.failed + totals.cancelled, 4);
+    assert!(
+        totals.cancelled >= 1,
+        "the large pair was cancelled: {totals:?}"
+    );
+    assert!(overview.active.is_none(), "RunDone ended the run");
+    assert!(!f.harness.state().state().compare.is_running());
 }

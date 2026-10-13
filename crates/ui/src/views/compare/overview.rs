@@ -3,7 +3,9 @@
 //! Rows are drawn with `show_rows`; the totals are summed once per change of the overview.
 use super::duplicates::show_duplicates;
 use super::memo::memo;
-use super::table::{MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, header, status_text, truncated};
+use super::table::{
+    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, header, status_text, truncated, widths,
+};
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{
@@ -11,10 +13,13 @@ use crate::viewmodel::compare::{
 };
 use eframe::egui;
 
-const PAIR_W: f32 = 330.0;
-const STATUS_W: f32 = 130.0;
-const DETAIL_W: f32 = 420.0;
-const BUTTONS_W: f32 = 380.0;
+/// Pair, status, counts and the row's buttons.
+const COLUMNS: [Col; 4] = [
+    Col::Flex(3.0),
+    Col::Fixed(120.0),
+    Col::Flex(3.5),
+    Col::Fixed(300.0),
+];
 
 pub fn show_overview(
     ui: &mut egui::Ui,
@@ -26,18 +31,20 @@ pub fn show_overview(
     }
     ui.separator();
     let cancel = show_title(ui, state, i18n);
-    header(ui, &columns(i18n));
-    let rows = show_rows(ui, state, i18n);
-    show_totals(ui, &state.overview, i18n);
+    let widths = widths(ui, &COLUMNS);
+    header(ui, &widths, &titles(i18n));
+    let rows = show_rows(ui, state, &widths, i18n);
+    show_totals(ui, &state.overview, &widths, i18n);
     let duplicates = show_duplicates(ui, state, i18n);
     cancel.or(rows).or(duplicates)
 }
 
-fn columns(i18n: &I18n) -> Vec<(f32, String)> {
+fn titles(i18n: &I18n) -> Vec<String> {
     vec![
-        (PAIR_W, i18n.t("compare.overview.column.pair")),
-        (STATUS_W, i18n.t("compare.overview.column.status")),
-        (DETAIL_W, i18n.t("compare.overview.column.counts")),
+        i18n.t("compare.overview.column.pair"),
+        i18n.t("compare.overview.column.status"),
+        i18n.t("compare.overview.column.counts"),
+        String::new(),
     ]
 }
 
@@ -60,7 +67,12 @@ fn show_title(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Co
     action
 }
 
-fn show_rows(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
+fn show_rows(
+    ui: &mut egui::Ui,
+    state: &CompareState,
+    widths: &[f32],
+    i18n: &I18n,
+) -> Option<CompareAction> {
     egui::ScrollArea::vertical()
         .id_salt("compare_overview_rows")
         .max_height(MAX_ROWS_HEIGHT)
@@ -72,7 +84,9 @@ fn show_rows(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Com
                     ui.add_space(ROW_HEIGHT);
                     continue;
                 };
-                let shown = ui.push_id(row.entry, |ui| show_row(ui, &row, i18n)).inner;
+                let shown = ui
+                    .push_id(row.entry, |ui| show_row(ui, widths, &row, i18n))
+                    .inner;
                 action = shown.or(action);
             }
             action
@@ -80,19 +94,19 @@ fn show_rows(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Com
         .inner
 }
 
-fn show_row(ui: &mut egui::Ui, row: &OverviewRow, i18n: &I18n) -> Option<CompareAction> {
+fn show_row(ui: &mut egui::Ui, w: &[f32], row: &OverviewRow, i18n: &I18n) -> Option<CompareAction> {
     let pair = i18n.t_with(
         "compare.pairs.pair_label",
         &[("source", &row.source), ("target", &row.target)],
     );
     ui.horizontal(|ui| {
-        cell(ui, PAIR_W, |ui| truncated(ui, &pair));
-        cell(ui, STATUS_W, |ui| {
+        cell(ui, w[0], |ui| truncated(ui, &pair));
+        cell(ui, w[1], |ui| {
             let label = i18n.t(row.status_key);
-            ui.label(status_text(row.icon, &label));
+            truncated(ui, &status_text(row.icon, &label));
         });
-        cell(ui, DETAIL_W, |ui| show_detail(ui, &row.detail, i18n));
-        cell(ui, BUTTONS_W, |ui| row_buttons(ui, row, i18n))
+        cell(ui, w[2], |ui| show_detail(ui, &row.detail, i18n));
+        cell(ui, w[3], |ui| row_buttons(ui, row, i18n))
     })
     .inner
 }
@@ -170,7 +184,7 @@ fn row_buttons(ui: &mut egui::Ui, row: &OverviewRow, i18n: &I18n) -> Option<Comp
 }
 
 /// The totals line. Summed over every row once per change of the overview, not once per frame.
-fn show_totals(ui: &mut egui::Ui, overview: &RunOverview, i18n: &I18n) {
+fn show_totals(ui: &mut egui::Ui, overview: &RunOverview, w: &[f32], i18n: &I18n) {
     let totals = memo(
         ui,
         "overview_totals",
@@ -193,10 +207,10 @@ fn show_totals(ui: &mut egui::Ui, overview: &RunOverview, i18n: &I18n) {
     );
     let counts = counts_text(&RowCounts::from(&*totals), i18n);
     ui.horizontal(|ui| {
-        cell(ui, PAIR_W, |ui| {
+        cell(ui, w[0], |ui| {
             ui.strong(i18n.t("compare.overview.totals"));
         });
-        cell(ui, STATUS_W, |ui| truncated(ui, &status));
-        cell(ui, DETAIL_W, |ui| truncated(ui, &counts));
+        cell(ui, w[1], |ui| truncated(ui, &status));
+        cell(ui, w[2], |ui| truncated(ui, &counts));
     });
 }

@@ -18,7 +18,7 @@ use curlybrace_ui::app::state::{AppState, Workspace};
 use curlybrace_ui::viewmodel::ViewMode;
 use curlybrace_ui::viewmodel::compare::Pick;
 
-const SESSION: u64 = 1;
+pub const SESSION: u64 = 1;
 const RUN: u64 = 1;
 /// The probe of the one check, then the pair the run that follows it uses.
 const CHECK_PAIR: u32 = 1;
@@ -36,23 +36,23 @@ pub enum Through {
     Duplicates,
 }
 
-fn step(state: &mut AppState, input: Input) {
+pub fn step(state: &mut AppState, input: Input) {
     *state = update(std::mem::take(state), input).0;
 }
 
-fn act(state: &mut AppState, action: CompareAction) {
+pub fn act(state: &mut AppState, action: CompareAction) {
     step(state, Input::Compare(action));
 }
 
-fn event(state: &mut AppState, e: CompareEvent) {
+pub fn event(state: &mut AppState, e: CompareEvent) {
     step(state, Input::Event(Event::Compare(e)));
 }
 
-fn key(n: i32) -> KeyTuple {
+pub fn key(n: i32) -> KeyTuple {
     KeyTuple(vec![Bson::Int32(n)])
 }
 
-fn names(v: &[&str]) -> Vec<String> {
+pub fn names(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
 
@@ -80,7 +80,11 @@ fn pick(state: &mut AppState, side: Side, collection: &str) {
     );
 }
 
-fn answer(source_index: IndexStatus, target_index: IndexStatus, too_large: bool) -> CompareEvent {
+pub fn answer(
+    source_index: IndexStatus,
+    target_index: IndexStatus,
+    too_large: bool,
+) -> CompareEvent {
     CompareEvent::Checked {
         session: SESSION,
         pair: CHECK_PAIR,
@@ -94,7 +98,7 @@ fn answer(source_index: IndexStatus, target_index: IndexStatus, too_large: bool)
     }
 }
 
-fn open_session(state: &mut AppState) {
+pub fn open_session(state: &mut AppState) {
     let (source, target) = (state.conn.connections[0].id, state.conn.connections[1].id);
     act(state, CompareAction::Open { source, target });
     event(state, CompareEvent::Opened { session: SESSION });

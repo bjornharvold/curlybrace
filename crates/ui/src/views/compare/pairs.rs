@@ -3,7 +3,8 @@
 //! collections that have no counterpart. Rows are drawn with `show_rows` (only the visible
 //! ones); every row's content comes from `CompareState::pair_row`.
 use super::table::{
-    MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_label, header, status_text, truncated,
+    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_label, header, status_text, truncated,
+    widths,
 };
 use crate::I18n;
 use crate::app::compare::CompareAction;
@@ -14,12 +15,17 @@ use crate::viewmodel::compare::{
 use curlybrace_core::compare::protocol::Side;
 use eframe::egui;
 
-const SOURCE_W: f32 = 220.0;
-const TARGET_W: f32 = 200.0;
-const KEY_W: f32 = 90.0;
-const MARKER_W: f32 = 110.0;
-const STATUS_W: f32 = 190.0;
-const BUTTONS_W: f32 = 240.0;
+/// Source, target, key, marker, status and the row's buttons; the names and the status share
+/// what the window leaves after the columns that need a width of their own.
+const COLUMNS: [Col; 6] = [
+    Col::Flex(2.2),
+    Col::Flex(2.0),
+    Col::Fixed(80.0),
+    Col::Fixed(100.0),
+    Col::Flex(2.6),
+    Col::Fixed(190.0),
+];
+const UNMATCHED_NAME_W: f32 = 200.0;
 
 /// The table and the helpers under it. `list` is the memoised view of the pair list.
 pub fn show_pairs(
@@ -45,7 +51,8 @@ fn show_table(
         ui.label(i18n.t("compare.pairs.empty"));
         return None;
     }
-    header(ui, &columns(i18n));
+    let widths = widths(ui, &COLUMNS);
+    header(ui, &widths, &titles(i18n));
     egui::ScrollArea::vertical()
         .id_salt("compare_pair_rows")
         .max_height(MAX_ROWS_HEIGHT)
@@ -57,7 +64,9 @@ fn show_table(
                     ui.add_space(ROW_HEIGHT);
                     continue;
                 };
-                let shown = ui.push_id(row.entry, |ui| show_row(ui, &row, i18n)).inner;
+                let shown = ui
+                    .push_id(row.entry, |ui| show_row(ui, &widths, &row, i18n))
+                    .inner;
                 action = shown.or(action);
             }
             action
@@ -65,29 +74,30 @@ fn show_table(
         .inner
 }
 
-fn columns(i18n: &I18n) -> Vec<(f32, String)> {
+fn titles(i18n: &I18n) -> Vec<String> {
     vec![
-        (SOURCE_W, i18n.t("compare.pairs.column.source")),
-        (TARGET_W, i18n.t("compare.pairs.column.target")),
-        (KEY_W, i18n.t("compare.pairs.column.key")),
-        (MARKER_W, String::new()),
-        (STATUS_W, i18n.t("compare.pairs.column.status")),
+        i18n.t("compare.pairs.column.source"),
+        i18n.t("compare.pairs.column.target"),
+        i18n.t("compare.pairs.column.key"),
+        String::new(),
+        i18n.t("compare.pairs.column.status"),
+        String::new(),
     ]
 }
 
-fn show_row(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareAction> {
+fn show_row(ui: &mut egui::Ui, w: &[f32], row: &PairRow, i18n: &I18n) -> Option<CompareAction> {
     ui.horizontal(|ui| {
-        let included = cell(ui, SOURCE_W, |ui| include_box(ui, row, i18n));
-        cell(ui, TARGET_W, |ui| truncated(ui, &row.target));
-        cell(ui, KEY_W, |ui| truncated(ui, &row.key));
-        cell(ui, MARKER_W, |ui| {
+        let included = cell(ui, w[0], |ui| include_box(ui, row, i18n));
+        cell(ui, w[1], |ui| truncated(ui, &row.target));
+        cell(ui, w[2], |ui| truncated(ui, &row.key));
+        cell(ui, w[3], |ui| {
             if row.customised {
                 let text = i18n.t("compare.pairs.customised");
                 ui.label(status_text(StatusIcon::Customised, &text));
             }
         });
-        cell(ui, STATUS_W, |ui| status_cell(ui, row, i18n));
-        let buttons = cell(ui, BUTTONS_W, |ui| row_buttons(ui, row, i18n));
+        cell(ui, w[4], |ui| status_cell(ui, row, i18n));
+        let buttons = cell(ui, w[5], |ui| row_buttons(ui, row, i18n));
         included.or(buttons)
     })
     .inner
@@ -108,10 +118,12 @@ fn include_box(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareA
 }
 
 fn status_cell(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) {
-    let label = ui.label(entry_status_label(&row.status, i18n));
-    if let Some(key) = row.status.hover_key() {
-        label.on_hover_text(i18n.t(key));
-    }
+    let text = entry_status_label(&row.status, i18n);
+    let label = ui.add(egui::Label::new(text.as_str()).truncate());
+    match row.status.hover_key() {
+        Some(key) => label.on_hover_text(i18n.t(key)),
+        None => label.on_hover_text(text),
+    };
 }
 
 fn row_buttons(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareAction> {
@@ -183,10 +195,11 @@ fn show_unmatched_row(ui: &mut egui::Ui, item: &Unmatched, i18n: &I18n) -> Optio
     let mut typed: String = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     let mut action = None;
     ui.horizontal(|ui| {
-        cell(ui, SOURCE_W + TARGET_W, |ui| truncated(ui, &text));
+        let name_w = (ui.available_width() - UNMATCHED_NAME_W - 140.0).max(120.0);
+        cell(ui, name_w, |ui| truncated(ui, &text));
         let hint = i18n.t("compare.pairs.counterpart_name_hint");
         let edit = egui::TextEdit::singleline(&mut typed).hint_text(hint);
-        ui.add(edit.desired_width(TARGET_W));
+        ui.add(edit.desired_width(UNMATCHED_NAME_W));
         let pair = egui::Button::new(i18n.t("compare.pairs.pair_with_name"));
         if ui.add_enabled(can_pair_with(&typed), pair).clicked() {
             action = Some(CompareAction::AddUnmatched {

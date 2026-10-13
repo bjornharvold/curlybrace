@@ -1,12 +1,15 @@
 //! Gestures of the Compare workspace, built from clicks only.
 use super::actions::{click_key, connect, fill_key, wait_shows};
+use super::db::TestDb;
 use super::fixture::Fixture;
 use super::screen::{H, dump};
 use super::wait::{SHORT, settle, wait_until};
 use bson::{Document, doc};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::error::CoreError;
-use curlybrace_ui::viewmodel::compare::{PairStatus, SessionPhase, StatusIcon};
+use curlybrace_ui::app::compare::CompareAction;
+use curlybrace_ui::app::reducer::Input;
+use curlybrace_ui::viewmodel::compare::{EntryId, PairStatus, Pick, SessionPhase, StatusIcon};
 use eframe::egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT, Queryable};
 use std::time::Duration;
@@ -143,4 +146,74 @@ pub fn is_on_screen(h: &H<'_>, text: &str) -> bool {
 pub fn wait_shows_key(f: &mut Fixture, key: &str) {
     let text = f.labels.t(key);
     wait_shows(f, &text);
+}
+
+/// A second throwaway `cbit_*` database (the target side of the database-level flows), dropped
+/// with the guard.
+pub struct Scratch(pub TestDb);
+
+impl Scratch {
+    pub fn new(f: &Fixture) -> Self {
+        Self(TestDb::new(
+            f.db.client.clone(),
+            f.runtime().handle().clone(),
+        ))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        self.0.drop_database();
+    }
+}
+
+/// Feeds the reducer an action, as a click would, and runs a few frames.
+pub fn send(f: &mut Fixture, action: CompareAction) {
+    f.harness.state_mut().dispatch(Input::Compare(action));
+    settle(&mut f.harness);
+}
+
+/// Picks `db` on `side` and waits for the runtime's listing of its collections.
+#[track_caller]
+pub fn pick_database(f: &mut Fixture, side: Side, db: &str) {
+    send(
+        f,
+        CompareAction::PickSide(side, Pick::Database(db.to_string())),
+    );
+    let (db, listed) = (db.to_string(), "the collection listing");
+    wait_until(&mut f.harness, listed, SHORT, |h| {
+        let form = h.state().state().compare.setup.side(side).clone();
+        form.database.as_deref() == Some(db.as_str()) && !form.collections.is_empty()
+    });
+}
+
+/// The list entry whose source collection is `collection`.
+pub fn entry_of(f: &Fixture, collection: &str) -> EntryId {
+    let compare = &f.harness.state().state().compare;
+    let found = compare
+        .pairs
+        .entries
+        .iter()
+        .find(|e| e.source.collection == collection);
+    found
+        .unwrap_or_else(|| panic!("no pair for {collection}"))
+        .id
+}
+
+/// The overview status of `entry`'s row.
+pub fn status_of(f: &Fixture, entry: EntryId) -> PairStatus {
+    let overview = &f.harness.state().state().compare.overview;
+    let row = overview
+        .row_for(entry)
+        .unwrap_or_else(|| panic!("no row for entry {entry}"));
+    row.status.clone()
+}
+
+/// Sends Check and waits until every included entry has a verdict and Run is allowed.
+#[track_caller]
+pub fn check_all(f: &mut Fixture) {
+    send(f, CompareAction::RunCheck);
+    wait_until(&mut f.harness, "every check to pass", SHORT, |h| {
+        h.state().state().compare.can_start()
+    });
 }
