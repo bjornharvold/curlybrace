@@ -35,6 +35,13 @@ impl DuplicatesView {
         matches!(self, Self::Loading { .. })
     }
 
+    /// A loaded lookup that found no duplicate group on either side (the data changed since the
+    /// run failed, or the key is not the culprit).
+    pub fn is_empty_result(&self) -> bool {
+        matches!(self, Self::Loaded { source, target }
+            if source.groups.is_empty() && target.groups.is_empty())
+    }
+
     /// The groups of a report as rows, most frequent first (the order the report has).
     pub fn rows(report: &DuplicateReport) -> Vec<DuplicateRow> {
         report

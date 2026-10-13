@@ -43,6 +43,9 @@ fn show_body(ui: &mut egui::Ui, view: &DuplicatesView, i18n: &I18n) {
     match view {
         DuplicatesView::Idle => {}
         DuplicatesView::Loading { stale } => show_loading(ui, *stale, i18n),
+        DuplicatesView::Loaded { .. } if view.is_empty_result() => {
+            ui.label(i18n.t("compare.duplicates.none_found"));
+        }
         DuplicatesView::Loaded { source, target } => {
             show_side(ui, "source", "compare.duplicates.source", source, i18n);
             show_side(ui, "target", "compare.duplicates.target", target, i18n);

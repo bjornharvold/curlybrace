@@ -526,6 +526,20 @@ fn a_stale_lookup_says_the_previous_one_is_still_finishing() {
 }
 
 #[test]
+fn a_lookup_that_finds_nothing_says_so_once_without_the_key_hint() {
+    let empty = || DuplicateReport {
+        groups: vec![],
+        more: false,
+    };
+    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let (state, _) = update(state, duplicate_answer(empty(), empty()));
+    let texts = assert_translated(&workspace_clone(&state), "duplicates none found");
+    assert!(has(&texts, "No duplicate keys were found just now"));
+    assert!(!has(&texts, "No duplicate keys on this side"));
+    assert!(!has(&texts, "Choose key fields that are unique"));
+}
+
+#[test]
 fn loaded_duplicates_list_a_group_per_side() {
     let source = DuplicateReport {
         groups: vec![

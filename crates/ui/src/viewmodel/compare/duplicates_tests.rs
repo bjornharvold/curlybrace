@@ -65,6 +65,21 @@ fn a_compound_key_shows_every_value_in_field_order() {
 }
 
 #[test]
+fn only_a_loaded_view_with_no_groups_on_either_side_is_an_empty_result() {
+    let loaded = |source: DuplicateReport, target: DuplicateReport| DuplicatesView::Loaded {
+        source,
+        target,
+    };
+    let one = || report(vec![group(vec![Bson::Int32(1)], 2)]);
+    assert!(loaded(report(vec![]), report(vec![])).is_empty_result());
+    assert!(!loaded(one(), report(vec![])).is_empty_result());
+    assert!(!loaded(report(vec![]), one()).is_empty_result());
+    assert!(!DuplicatesView::Idle.is_empty_result());
+    assert!(!DuplicatesView::Failed.is_empty_result());
+    assert!(!DuplicatesView::Loading { stale: false }.is_empty_result());
+}
+
+#[test]
 fn empty_reports_are_a_loaded_view() {
     let view = DuplicatesView::Loaded {
         source: report(vec![]),
