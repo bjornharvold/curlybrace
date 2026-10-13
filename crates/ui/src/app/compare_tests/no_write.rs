@@ -81,7 +81,7 @@ fn successor(action: &CompareAction) -> Option<CompareAction> {
         A::SetExportIdPolicy(_) => A::ToggleExportPair(ENTRY),
         A::ToggleExportPair(_) => A::SetExportIncludePaths(true),
         A::SetExportIncludePaths(_) => A::ChooseExportFile,
-        A::ChooseExportFile => A::ExportPathChosen(PathBuf::from("/exports/out")),
+        A::ChooseExportFile => A::ExportPathChosen(PathBuf::from("/exports/out").into()),
         A::ExportPathChosen(_) => A::ExportPathCancelled,
         A::ExportPathCancelled => A::CopyReport,
         A::CopyReport => A::CancelExport,

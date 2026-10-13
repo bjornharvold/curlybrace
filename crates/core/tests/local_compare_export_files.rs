@@ -269,7 +269,7 @@ async fn report_csv_matches_the_stored_differences() {
         &mut rt,
         2,
         report_request(1, false, label),
-        ReportTarget::File(path.clone()),
+        ReportTarget::File(path.clone().into()),
     )
     .await
     .unwrap();
@@ -380,7 +380,7 @@ async fn report_with_paths_lists_paths_and_no_values() {
         &mut rt,
         2,
         report_request(1, true, "paths"),
-        ReportTarget::File(path.clone()),
+        ReportTarget::File(path.clone().into()),
     )
     .await
     .unwrap();
@@ -468,7 +468,7 @@ async fn cancel_removes_the_partial_file() {
         session: SESSION,
         run: 2,
         request: request(ExportFormat::Mongosh, ops),
-        path: path.clone(),
+        path: path.clone().into(),
     };
     let outcome = run_and_cancel(&mut rt, command, 2, Some(&path)).await;
     assert!(
@@ -519,7 +519,7 @@ async fn cancel_removes_the_partial_report_with_paths() {
         session: SESSION,
         run: 2,
         request: report_request(1, true, "big"),
-        target: ReportTarget::File(path.clone()),
+        target: ReportTarget::File(path.clone().into()),
     };
     let outcome = run_and_cancel(&mut rt, command, 2, Some(&path)).await;
     assert!(

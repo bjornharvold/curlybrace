@@ -572,3 +572,154 @@ async fn stale_documents_are_listed_as_skipped_and_not_exported_as_writes() {
         ]
     );
 }
+
+fn key_order(d: &Document) -> Vec<String> {
+    d.keys().cloned().collect()
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn javascript_key_order_is_kept_or_the_document_is_skipped() {
+    let Some(container) =
+        enabled_with_mongosh("javascript_key_order_is_kept_or_the_document_is_skipped")
+    else {
+        return;
+    };
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let (src, dst) = (dbs.ns("order_src"), dbs.ns("order_dst"));
+    // JavaScript lists canonical array-index keys ("2", "10") first, ascending, whatever the
+    // literal order: a document whose BSON order differs is skipped, never written reordered.
+    // "01", "-1", "4294967295" are not array indexes and keep their place.
+    let docs = vec![
+        doc! { "_id": 1, "b": 1, "10": 2, "2": 3 },
+        doc! { "_id": 2, "n": { "2": 1, "10": 2, "b": 3, "01": 4, "-1": 5, "4294967295": 6 } },
+        doc! { "_id": 3, "n": { "b": 1, "2": 2 } },
+        doc! { "_id": { "2": 1, "b": 2 }, "v": "sub-document id, in order" },
+        doc! { "_id": { "b": 1, "2": 2 }, "v": "sub-document id, out of order" },
+    ];
+    seed(&client, &src, docs.clone()).await;
+    seed(&client, &dst, vec![]).await;
+    open(&mut rt, &config).await;
+    compare(
+        &mut rt,
+        1,
+        vec![pair(1, src.clone(), dst.clone(), &["_id"])],
+    )
+    .await;
+    let ops = all_ops(&mut rt, 1).await;
+    assert_eq!(ops.len(), 5);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("order.js");
+    let outcome = export_ok(&mut rt, 2, script_request(ops.clone()), &path).await;
+    assert_eq!(
+        (outcome.written, outcome.skipped, outcome.failed),
+        (2, 3, 0),
+        "{outcome:?}"
+    );
+    let script = read(&path);
+    assert_eq!(script.matches("// skipped").count(), 3, "{script}");
+    // The JSON plan refuses exactly the same operations (exported before the script changes the target).
+    let plan = dir.path().join("order.json");
+    let outcome = export_ok(&mut rt, 3, request(ExportFormat::JsonPlan, ops), &plan).await;
+    assert_eq!((outcome.written, outcome.skipped), (2, 3), "{outcome:?}");
+    let run = run_script(&container, &dbs.db, &script);
+    assert!(run.succeeded() && !run.printed_error(), "{run:?}");
+
+    let got = all_docs(&client, &dst).await;
+    assert_eq!(got.len(), 2, "{got:?}");
+    let nested = got
+        .iter()
+        .find(|d| d.get_i32("_id") == Ok(2))
+        .expect("doc 2");
+    assert_eq!(
+        key_order(nested.get_document("n").unwrap()),
+        ["2", "10", "b", "01", "-1", "4294967295"]
+    );
+    let sub = got
+        .iter()
+        .find_map(|d| d.get_document("_id").ok())
+        .expect("the sub-document id");
+    assert_eq!(key_order(sub), ["2", "b"]);
+    assert!(
+        got.iter()
+            .all(|d| d.get_i32("_id") != Ok(1) && d.get_i32("_id") != Ok(3))
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn a_failing_statement_stops_later_statements_and_exits_non_zero() {
+    let Some(container) =
+        enabled_with_mongosh("a_failing_statement_stops_later_statements_and_exits_non_zero")
+    else {
+        return;
+    };
+    let (dbs, client, mut rt, config) = local_runtime().await;
+    let (src1, dst1) = (dbs.ns("fail_src1"), dbs.ns("fail_dst1"));
+    let (src2, dst2) = (dbs.ns("fail_src2"), dbs.ns("fail_dst2"));
+    let user = |id: i32, e: &str| doc! { "_id": id, "email": e };
+    seed(
+        &client,
+        &src1,
+        vec![
+            user(10, "ok@x"),
+            user(11, "TAKEN-SECRET@x"),
+            user(12, "ok2@x"),
+        ],
+    )
+    .await;
+    seed(&client, &dst1, vec![user(1, "TAKEN-SECRET@x")]).await;
+    client
+        .database(&dst1.db)
+        .collection::<Document>(&dst1.collection)
+        .create_index(
+            mongodb::IndexModel::builder()
+                .keys(doc! { "email": 1 })
+                .options(
+                    mongodb::options::IndexOptions::builder()
+                        .unique(true)
+                        .build(),
+                )
+                .build(),
+        )
+        .await
+        .unwrap();
+    seed(&client, &src2, vec![user(20, "later@x")]).await;
+    seed(&client, &dst2, vec![]).await;
+    open(&mut rt, &config).await;
+    compare(
+        &mut rt,
+        1,
+        vec![
+            pair(1, src1, dst1.clone(), &["_id"]),
+            pair(2, src2, dst2.clone(), &["_id"]),
+        ],
+    )
+    .await;
+    let mut ops = all_ops(&mut rt, 1).await;
+    ops.extend(all_ops(&mut rt, 2).await);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("fail.js");
+    let outcome = export_ok(&mut rt, 2, script_request(ops), &path).await;
+    assert_eq!(outcome.written, 5, "{outcome:?}");
+    let script = read(&path);
+
+    let run = run_script(&container, &dbs.db, &script);
+    assert_eq!(run.code, Some(2), "{run:?}");
+    assert!(run.output().contains("a bulkWrite failed"), "{run:?}");
+    assert!(
+        !run.output().contains("TAKEN-SECRET"),
+        "the notice carries no values: {run:?}"
+    );
+    // The unordered statement applied what it could; the next statement did not run.
+    assert_eq!(
+        count(&client, &dst1).await,
+        2,
+        "ok@x and ok2@x landed, the old row was deleted"
+    );
+    assert_eq!(
+        count(&client, &dst2).await,
+        0,
+        "the later statement did not run"
+    );
+}

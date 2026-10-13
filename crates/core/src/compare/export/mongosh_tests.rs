@@ -321,12 +321,12 @@ fn arrays_and_documents_nest() {
 #[test]
 fn field_names_are_always_json_string_keys() {
     let rendered = render_document(&doc! {
-        "a b": 1, "$x": 2, "123": 3, "": 4, "q\"uote": 5, "new\nline": 6, "ünï": 7
+        "123": 3, "a b": 1, "$x": 2, "": 4, "q\"uote": 5, "new\nline": 6, "ünï": 7
     })
     .expect("renders");
     assert_eq!(
         rendered,
-        "{\"a b\": NumberInt(1), \"$x\": NumberInt(2), \"123\": NumberInt(3), \"\": NumberInt(4), \
+        "{\"123\": NumberInt(3), \"a b\": NumberInt(1), \"$x\": NumberInt(2), \"\": NumberInt(4), \
          \"q\\\"uote\": NumberInt(5), \"new\\nline\": NumberInt(6), \"ünï\": NumberInt(7)}"
     );
 }
@@ -464,4 +464,35 @@ fn shell_op_mirrors_the_store_write_op() {
         }),
         ShellOp::UpdateFields { id, set, unset }
     );
+}
+
+// ---- JavaScript key order ----
+
+fn refused(d: Document) -> bool {
+    render_document(&d) == Err(RenderError::Unrenderable)
+}
+
+#[test]
+fn array_index_keys_that_javascript_would_reorder_are_refused() {
+    // JS lists canonical array-index keys first, ascending: {"_id","b","10","2"} would become 2,10,_id,b.
+    assert!(refused(doc! { "_id": 1, "b": 1, "10": 2, "2": 3 }));
+    assert!(refused(doc! { "b": 1, "0": 2 }));
+    assert!(refused(doc! { "10": 1, "2": 1 }));
+    assert!(refused(doc! { "_id": 1, "n": { "x": 1, "5": 1 } }));
+    assert!(refused(doc! { "_id": { "k": 1, "3": 1 } }));
+    assert!(refused(doc! { "a": [ { "z": 1, "7": 1 } ] }));
+}
+
+#[test]
+fn keys_already_in_javascript_order_or_not_array_indexes_are_kept() {
+    for d in [
+        doc! { "2": 1, "10": 1, "_id": 1, "b": 1 },
+        doc! { "b": 1, "01": 1, "-1": 1, "4294967295": 1, "4294967296": 1, "1.5": 1, "+1": 1 },
+        doc! { "4294967294": 1, "a": 1 },
+        doc! { "0": 1 },
+    ] {
+        assert!(render_document(&d).is_ok(), "{d:?}");
+    }
+    // 4294967294 is the largest array index; 4294967295 is not one.
+    assert!(refused(doc! { "a": 1, "4294967294": 1 }));
 }

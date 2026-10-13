@@ -91,7 +91,7 @@ pub fn export_choosing(state: &mut AppState) {
 
 fn running_plan(state: &mut AppState) {
     export_choosing(state);
-    cs::act(state, CompareAction::ExportPathChosen(long_path()));
+    cs::act(state, CompareAction::ExportPathChosen(long_path().into()));
     assert!(state.compare.export.is_running(), "the job runs");
 }
 
@@ -140,7 +140,7 @@ pub fn export_finished_with_file_left(state: &mut AppState) {
 pub fn export_finished_report(state: &mut AppState) {
     export_report_modal(state);
     cs::act(state, CompareAction::ChooseExportFile);
-    cs::act(state, CompareAction::ExportPathChosen(long_path()));
+    cs::act(state, CompareAction::ExportPathChosen(long_path().into()));
     let outcome = ExportOutcome {
         written: 4_705,
         skipped: 3,

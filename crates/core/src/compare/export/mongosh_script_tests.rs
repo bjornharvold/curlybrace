@@ -119,10 +119,13 @@ fn golden_script() {
 // Review this script before you run it: it writes to the databases it names.
 // It was written from an earlier comparison, and documents may have changed since.
 // Skipped operations are listed as comments and are never written.
-// bulkWrite runs every item of a statement even with ordered: false, but if an item fails (a
-// duplicate key, say) it throws, and mongosh then stops: the later statements of this script do not run.
+// Each bulkWrite is wrapped in try/catch. If a statement fails (a duplicate key, say), the items that
+// could be applied were applied, the script prints a notice, exits with code 2 and runs no later statement.
+// Pairs that write the same collection were each planned against the documents as they are now: a later
+// pair is not re-checked against what an earlier one of this script changes.
 
 // collection: shop.items
+try {{
 db.getSiblingDB(\"shop\").getCollection(\"items\").bulkWrite([
   // sourceToTarget insert source={FP1} target=none key=[NumberInt(1)]
   {{ insertOne: {{ document: {{\"_id\": NumberInt(1), \"name\": \"a\"}} }} }},
@@ -134,12 +137,15 @@ db.getSiblingDB(\"shop\").getCollection(\"items\").bulkWrite([
   {{ updateOne: {{ filter: {{\"_id\": {{\"$eq\": NumberInt(4)}}, \"c\": {{\"$type\": \"array\"}}, \"c.0\": {{\"$exists\": true}}}}, update: {{\"$set\": {{\"a.b\": 1.5, \"c.0\": \"x\"}}, \"$unset\": {{\"d\": \"\"}}}} }} }},
   // skipped (stale) sourceToTarget replace source={FP1} target={FP2} key=[NumberInt(5)]
 ], {{ ordered: false }});
+}} catch (e) {{ print(\"curlybrace export: a bulkWrite failed; later statements were not run\"); quit(2); }}
 
 // collection: x\"); db.dropDatabase(); //.c d
+try {{
 db.getSiblingDB(\"x\\\"); db.dropDatabase(); //\").getCollection(\"c\\nd\").bulkWrite([
   // targetToSource delete source=none target={FP2} key=[\"k\\\"); db.dropDatabase(); //\"]
   {{ deleteOne: {{ filter: {{\"_id\": \"k\\\"); db.dropDatabase(); //\"}} }} }},
 ], {{ ordered: false }});
+}} catch (e) {{ print(\"curlybrace export: a bulkWrite failed; later statements were not run\"); quit(2); }}
 "
     );
     assert_eq!(full_script(), expected);
@@ -194,6 +200,8 @@ fn exactly_one_bulk_write_statement_per_collection_with_unordered_writes() {
     let code = code_only(&script);
     assert_eq!(code.matches("bulkWrite(").count(), 2);
     assert_eq!(code.matches("], { ordered: false });").count(), 2);
+    assert_eq!(code.matches("try {").count(), 2);
+    assert_eq!(code.matches("quit(2);").count(), 2);
     assert_eq!(code.matches(".getSiblingDB(").count(), 2);
 }
 
@@ -205,8 +213,8 @@ fn no_variables_leak_between_statements() {
     }
     assert_eq!(
         code.matches(';').count(),
-        2,
-        "exactly one terminated statement each"
+        6,
+        "per statement: the bulkWrite, the notice and the quit"
     );
 }
 
@@ -544,7 +552,7 @@ fn regex_flags_the_shell_rejects_are_refused() {
 #[test]
 fn the_header_warns_that_a_failed_item_stops_later_statements() {
     let script = text(new_writer("l"));
-    assert!(script.contains("the later statements of this script do not run"));
+    assert!(script.contains("exits with code 2 and runs no later statement"));
 }
 
 fn header_text_of(complete: bool, width: usize, n: u64) -> String {

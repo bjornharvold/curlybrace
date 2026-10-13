@@ -132,13 +132,15 @@ for each side, press **Add pair**, then **Check** and **Run**.
   changes to a file you choose: a **mongosh script** (one `bulkWrite` per collection, the fingerprints as
   comments, for one side of the comparison at a time) or a **JSON plan** (canonical extended JSON, which also
   works for changes to both sides). Each document is checked again when you export, and anything that changed
-  since the compare, or that the shell cannot express (for example an `undefined` or DBPointer value), is listed
+  since the compare, or that the shell cannot express (for example an `undefined` or DBPointer value, or a document with number-like field names that JavaScript would reorder), is listed
   as skipped in the file and never written as an operation. **Export report...** in the overview writes the
   differences (pair, key, category and, if you ask for it, the changed field paths, never values) as a **CSV
   file** or copies them to the **clipboard** (up to 10,000 rows). The files contain **document data** (the
   report contains keys, which can be personal data) and no connection names, hosts or passwords; they are
-  created with owner-only permissions, written only where you choose and removed if the export fails or is
-  cancelled. A script is a snapshot of an earlier comparison: the documents may have changed again by the time
+  created with owner-only permissions and written only where you choose. If the export fails or is cancelled
+  no unfinished file is left; once it has started, a file that was already at that path has been replaced and
+  is removed too, so choose a new name if you want to keep the old one. A script stops at the first failing
+  collection (exit code 2) and runs nothing after it. A script is a snapshot of an earlier comparison: the documents may have changed again by the time
   you run it, so read it first. Exporting never writes to a database.
 - The key must be **unique** on each side: a duplicate key stops the run with an error, and
   **Find duplicate keys** then shows which values repeat. Each document must have a value for

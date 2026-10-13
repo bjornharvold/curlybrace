@@ -1,7 +1,7 @@
 //! The messages of the compare feature, wrapped by `runtime::Command::Compare` /
 //! `runtime::Event::Compare`. Pure data: no behaviour.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bson::Document;
 
@@ -126,7 +126,7 @@ pub enum CompareCommand {
         session: SessionId,
         run: RunId,
         request: ExportRequest,
-        path: PathBuf,
+        path: ExportPath,
     },
     /// Writes a CSV report of the stored differences of `request.pairs` to a file (same file
     /// rules and answers as `Export`) or, for the clipboard, returns it as `ExportText` before
@@ -147,6 +147,125 @@ pub enum CompareCommand {
     },
 }
 
+/// The file an export writes. A path can hold a user name: `Debug` never prints it, so a `{:?}` of a
+/// command can not leak it into a log.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ExportPath(PathBuf);
+
+impl ExportPath {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self(path.into())
+    }
+
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn into_path_buf(self) -> PathBuf {
+        self.0
+    }
+}
+
+impl From<PathBuf> for ExportPath {
+    fn from(path: PathBuf) -> Self {
+        Self(path)
+    }
+}
+
+impl std::fmt::Debug for ExportPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ExportPath(..)")
+    }
+}
+
+/// The clipboard report. It lists keys, which can be personal data: `Debug` prints only its size.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ReportText(String);
+
+impl ReportText {
+    pub fn new(text: String) -> Self {
+        Self(text)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl From<&str> for ReportText {
+    fn from(text: &str) -> Self {
+        Self(text.to_string())
+    }
+}
+
+impl From<String> for ReportText {
+    fn from(text: String) -> Self {
+        Self(text)
+    }
+}
+
+impl std::fmt::Debug for ReportText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ReportText(<{} bytes>)", self.0.len())
+    }
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use super::*;
+
+    #[test]
+    fn debug_output_never_carries_the_path_or_the_report() {
+        let path = ExportPath::new("/Users/secret-name/plan.js");
+        let text = ReportText::new(
+            "pair,key
+1,alice@example.com"
+                .into(),
+        );
+        for shown in [
+            format!("{path:?}"),
+            format!("{text:?}"),
+            format!(
+                "{:?}",
+                CompareCommand::ExportReport {
+                    session: 1,
+                    run: 2,
+                    request: ReportRequest {
+                        pairs: vec![1],
+                        include_paths: false,
+                        label: String::new()
+                    },
+                    target: ReportTarget::File(path.clone()),
+                }
+            ),
+            format!("{:?}", ReportTarget::File(path.clone())),
+            format!(
+                "{:?}",
+                CompareEvent::ExportText {
+                    session: 1,
+                    run: 2,
+                    text: text.clone()
+                }
+            ),
+        ] {
+            assert!(
+                !shown.contains("secret-name") && !shown.contains("alice"),
+                "{shown}"
+            );
+        }
+        assert_eq!(path.as_path(), Path::new("/Users/secret-name/plan.js"));
+        assert_eq!(
+            text.as_str(),
+            "pair,key
+1,alice@example.com"
+        );
+    }
+}
+
 /// What an `ExportReport` command asks for. `label` is free text that ends up in the file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReportRequest {
@@ -159,7 +278,7 @@ pub struct ReportRequest {
 /// Where a report goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReportTarget {
-    File(PathBuf),
+    File(ExportPath),
     Clipboard,
 }
 
@@ -304,7 +423,7 @@ pub enum CompareEvent {
     ExportText {
         session: SessionId,
         run: RunId,
-        text: String,
+        text: ReportText,
     },
     Rows {
         session: SessionId,

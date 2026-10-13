@@ -103,7 +103,7 @@ pub async fn export(
             session: SESSION,
             run,
             request,
-            path: path.to_path_buf(),
+            path: path.to_path_buf().into(),
         },
     );
     loop {
@@ -148,7 +148,7 @@ pub async fn report(
     loop {
         match next_compare(rt).await {
             CompareEvent::ExportProgress { .. } => {}
-            CompareEvent::ExportText { text: t, .. } => text = Some(t),
+            CompareEvent::ExportText { text: t, .. } => text = Some(t.into_string()),
             CompareEvent::ExportDone { outcome, .. } => return Ok((text, outcome)),
             CompareEvent::Failed { context, error, .. } => return Err((context, error)),
             other => panic!("{other:?}"),

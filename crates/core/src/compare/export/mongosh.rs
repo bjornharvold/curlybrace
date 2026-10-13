@@ -102,6 +102,9 @@ fn write_document(out: &mut String, d: &Document, depth: usize) -> Result<(), Re
     if depth > MAX_DEPTH {
         return Err(RenderError::Unrenderable);
     }
+    if !keeps_javascript_order(d) {
+        return Err(RenderError::Unrenderable);
+    }
     out.push('{');
     for (i, (key, value)) in d.iter().enumerate() {
         if i > 0 {
@@ -113,6 +116,34 @@ fn write_document(out: &mut String, d: &Document, depth: usize) -> Result<(), Re
     }
     out.push('}');
     Ok(())
+}
+
+/// True for a canonical JavaScript array index: decimal digits without a leading zero, at most
+/// 4294967294 (verified with mongosh: "01", "-1", "4294967295" and "1.5" are ordinary keys).
+fn is_array_index(key: &str) -> bool {
+    let canonical =
+        key == "0" || (!key.starts_with('0') && key.bytes().all(|b| b.is_ascii_digit()));
+    canonical && !key.is_empty() && key.parse::<u64>().is_ok_and(|n| n <= 4_294_967_294)
+}
+
+/// JavaScript lists array-index keys first, ascending, whatever the literal order. A document
+/// whose BSON key order differs from that cannot be written as an object literal without being
+/// reordered, so it is refused (skipped as unsupported) instead of mangled.
+fn keeps_javascript_order(d: &Document) -> bool {
+    let mut seen_other = false;
+    let mut last_index: Option<u64> = None;
+    for key in d.keys() {
+        if is_array_index(key) {
+            let n: u64 = key.parse().unwrap_or(0);
+            if seen_other || last_index.is_some_and(|l| n < l) {
+                return false;
+            }
+            last_index = Some(n);
+        } else {
+            seen_other = true;
+        }
+    }
+    true
 }
 
 /// An object key: always a string literal; `__proto__` computed so it is an own property.
@@ -389,10 +420,11 @@ enum State {
     Collection { opened: bool },
 }
 
-/// Writes a mongosh script (note: with `ordered: false` a failed item, e.g. a duplicate key,
-/// still makes `bulkWrite` throw, and the shell then stops: later statements do not run; the
-/// header says so): a comment header, then per target collection ONE
-/// `db.getSiblingDB(..).getCollection(..).bulkWrite([..], { ordered: false });` statement
+/// Writes a mongosh script (a failed item, e.g. a duplicate key, makes `bulkWrite` throw; the
+/// `try`/`catch` around it prints a notice and quits with code 2, so later statements do not run;
+/// the header says so): a comment header, then per target collection ONE
+/// `try { db.getSiblingDB(..).getCollection(..).bulkWrite([..], { ordered: false }); } catch ..`
+/// statement
 /// (none when the collection has no writes). Each operation is rendered completely before any
 /// of it is written, so a refused operation leaves the output as it was.
 pub struct ScriptWriter<W: Write> {
@@ -401,6 +433,11 @@ pub struct ScriptWriter<W: Write> {
     statement_open: String,
     destination: Option<Side>,
 }
+
+/// The end of a collection's statement: a failed `bulkWrite` (a duplicate key, say) prints a fixed
+/// notice without values and quits with code 2, so no later statement runs (checked with mongosh
+/// for stdin and for a file).
+const CLOSE_STATEMENT: &str = "], { ordered: false });\n} catch (e) { print(\"curlybrace export: a bulkWrite failed; later statements were not run\"); quit(2); }\n";
 
 /// First line of a script that is still being written: running it quits at once.
 pub const INCOMPLETE_LINE: &str = "quit(1); // incomplete export: do not run";
@@ -452,8 +489,10 @@ impl<W: Write> ScriptWriter<W> {
              // Review this script before you run it: it writes to the databases it names.\n\
              // It was written from an earlier comparison, and documents may have changed since.\n\
              // Skipped operations are listed as comments and are never written.\n\
-             // bulkWrite runs every item of a statement even with ordered: false, but if an item fails (a\n\
-             // duplicate key, say) it throws, and mongosh then stops: the later statements of this script do not run.\n",
+             // Each bulkWrite is wrapped in try/catch. If a statement fails (a duplicate key, say), the items that\n\
+             // could be applied were applied, the script prints a notice, exits with code 2 and runs no later statement.\n\
+             // Pairs that write the same collection were each planned against the documents as they are now: a later\n\
+             // pair is not re-checked against what an earlier one of this script changes.\n",
             label_line.trim_end(),
             c.insert,
             c.replace,
@@ -484,7 +523,7 @@ impl<W: Write> ScriptWriter<W> {
         );
         self.inner.write_all(text.as_bytes())?;
         self.statement_open = format!(
-            "db.getSiblingDB({}).getCollection({}).bulkWrite([\n",
+            "try {{\ndb.getSiblingDB({}).getCollection({}).bulkWrite([\n",
             js_string(db),
             js_string(name)
         );
@@ -531,7 +570,7 @@ impl<W: Write> ScriptWriter<W> {
             return Err(RenderError::Sequence);
         };
         if opened {
-            self.inner.write_all(b"], { ordered: false });\n")?;
+            self.inner.write_all(CLOSE_STATEMENT.as_bytes())?;
         }
         self.state = State::Idle;
         Ok(())

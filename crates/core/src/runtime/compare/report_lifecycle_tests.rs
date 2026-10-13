@@ -240,7 +240,7 @@ async fn a_symlink_target_is_refused_and_its_destination_is_left_alone() {
         &mut r,
         5,
         report_request(vec![1], false),
-        ReportTarget::File(link),
+        ReportTarget::File(link.into()),
     )
     .await;
     assert!(matches!(events.as_slice(), [CompareEvent::Failed { .. }]));

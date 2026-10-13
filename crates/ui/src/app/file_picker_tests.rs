@@ -161,7 +161,7 @@ fn a_chosen_path_starts_the_export_with_that_path_exactly_once() {
     assert!(matches!(
         &commands[0],
         curlybrace_core::runtime::Command::Compare(CompareCommand::Export { path, .. })
-            if path == &PathBuf::from("/out/plan.js")
+            if path.as_path() == std::path::Path::new("/out/plan.js")
     ));
     assert!(app.state().compare.export.running_run().is_some());
 }
@@ -443,4 +443,46 @@ fn no_clipboard_text_copies_nothing() {
     let (mut app, _commands) = bare_app();
     let ctx = egui::Context::default();
     assert!(frame(&mut app, &ctx).is_empty());
+}
+
+#[test]
+fn cancel_then_choose_again_opens_a_fresh_dialog_and_drops_the_old_answer() {
+    let (picker, release) = FakePicker::gated(Some("/out/plan.js"));
+    let (mut app, mut commands) = choosing_app(picker.clone());
+    let ctx = egui::Context::default();
+    frame(&mut app, &ctx);
+    wait_for_calls(&picker, 1);
+    // The first dialog never answers; the person cancels and chooses again.
+    app.dispatch(Input::Compare(CompareAction::ExportPathCancelled));
+    app.dispatch(Input::Compare(CompareAction::ChooseExportFile));
+    assert!(matches!(app.state().compare.export, ExportUi::Choosing(_)));
+    frame(&mut app, &ctx);
+    wait_for_calls(&picker, 2);
+    // Both dialogs now answer; only the second one may start an export.
+    release.send(()).unwrap();
+    release.send(()).unwrap();
+    let start = Instant::now();
+    let mut exports = 0;
+    while exports == 0 {
+        frame(&mut app, &ctx);
+        exports += sent(&mut commands)
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    curlybrace_core::runtime::Command::Compare(CompareCommand::Export { .. })
+                )
+            })
+            .count();
+        assert!(
+            start.elapsed().as_secs() < WAIT_SECONDS,
+            "no export started"
+        );
+        std::thread::yield_now();
+    }
+    for _ in 0..5 {
+        frame(&mut app, &ctx);
+    }
+    exports += sent(&mut commands).len();
+    assert_eq!(exports, 1, "the old dialog's answer must be dropped");
 }

@@ -167,12 +167,12 @@ fn back_to_modal(state: AppState) -> Out {
 }
 
 /// The dialog answered. Only an open dialog (`Choosing`) can start the file export.
-fn path_chosen(state: AppState, path: PathBuf) -> Out {
+fn path_chosen(state: AppState, path: crate::viewmodel::compare::RedactedPath) -> Out {
     let draft = match &state.compare.export {
         ExportUi::Choosing(draft) => draft.clone(),
         _ => return none(state),
     };
-    start_export(state, draft, Some(path))
+    start_export(state, draft, Some(path.as_path().to_path_buf()))
 }
 
 /// Copies the report to the clipboard from the modal; no file, no dialog.
@@ -230,7 +230,7 @@ fn command_for(
                     ops,
                     bulk,
                 },
-                path: path.clone(),
+                path: path.clone().into(),
             })
         }
         (ExportKind::Plan, None) => None,
@@ -242,7 +242,9 @@ fn command_for(
                 include_paths: draft.report.include_paths,
                 label: draft.report.label.clone(),
             },
-            target: path.map_or(ReportTarget::Clipboard, |p| ReportTarget::File(p.clone())),
+            target: path.map_or(ReportTarget::Clipboard, |p| {
+                ReportTarget::File(p.clone().into())
+            }),
         }),
     }
 }
@@ -277,7 +279,9 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
         CompareEvent::ExportProgress {
             run, done, total, ..
         } => before.clone().progressed(run, done, total),
-        CompareEvent::ExportText { run, text, .. } => before.clone().text_arrived(run, text),
+        CompareEvent::ExportText { run, text, .. } => {
+            before.clone().text_arrived(run, text.into_string())
+        }
         CompareEvent::ExportDone { run, outcome, .. } => before.clone().finished(run, outcome),
         _ => return none(state),
     };

@@ -63,7 +63,7 @@ fn choosing_and_running_refuse_the_apply_busy_set() {
         ("running a plan", || {
             act(
                 choosing(control_baseline()),
-                CompareAction::ExportPathChosen(super::export::out_path()),
+                CompareAction::ExportPathChosen(super::export::out_path().into()),
             )
             .0
         }),

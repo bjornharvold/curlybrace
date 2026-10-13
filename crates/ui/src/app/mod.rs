@@ -195,6 +195,12 @@ impl CurlybraceApp {
     pub fn dispatch(&mut self, input: Input) {
         let (state, commands) = update(std::mem::take(&mut self.state), input);
         self.state = state;
+        // A dialog only belongs to an export that is waiting for it: when the person cancelled
+        // (or the export is gone) the old dialog is forgotten, its late answer is never read, and
+        // choosing again opens a fresh one.
+        if !matches!(self.state.compare.export, ExportUi::Choosing(_)) {
+            self.pick = None;
+        }
         self.send(commands);
     }
 
@@ -328,7 +334,7 @@ impl CurlybraceApp {
             return;
         }
         let action = match path {
-            Some(path) => CompareAction::ExportPathChosen(path),
+            Some(path) => CompareAction::ExportPathChosen(path.into()),
             None => CompareAction::ExportPathCancelled,
         };
         self.dispatch(Input::Compare(action));

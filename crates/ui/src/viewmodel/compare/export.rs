@@ -85,6 +85,12 @@ impl std::fmt::Debug for ClipboardText {
 #[derive(Clone, PartialEq, Eq)]
 pub struct RedactedPath(PathBuf);
 
+impl From<PathBuf> for RedactedPath {
+    fn from(path: PathBuf) -> Self {
+        Self(path)
+    }
+}
+
 impl RedactedPath {
     pub fn new(path: PathBuf) -> Self {
         Self(path)

@@ -126,7 +126,7 @@ pub enum CompareAction {
     /// The file dialog opens (the app layer does that); the reducer sends nothing.
     ChooseExportFile,
     /// The only action that starts a file export: honoured in `Choosing` only.
-    ExportPathChosen(std::path::PathBuf),
+    ExportPathChosen(crate::viewmodel::compare::RedactedPath),
     ExportPathCancelled,
     /// Copy the report to the clipboard (small reports; no file).
     CopyReport,

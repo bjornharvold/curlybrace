@@ -229,7 +229,7 @@
         "file_left": "The unfinished file could not be removed and is still at the path above. Do not run or import it. Delete it yourself.",
         "not_run": "Not run: {count}",
         "nothing_copied": "Nothing was copied to the clipboard.",
-        "partial_removed": "The unfinished file was removed.",
+        "partial_removed": "No unfinished file is left. If the export had already started, a file that was at this path before was replaced and is now removed too.",
         "path": "File",
         "report_rows": "Rows written: {count}",
         "report_stale": "Of these, rows whose documents changed since the comparison (empty paths cell): {count}",

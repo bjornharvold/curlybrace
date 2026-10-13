@@ -47,7 +47,10 @@ pub(super) fn choosing(state: AppState) -> AppState {
 }
 
 pub(super) fn started(state: AppState) -> (AppState, Vec<Command>) {
-    act(choosing(state), CompareAction::ExportPathChosen(out_path()))
+    act(
+        choosing(state),
+        CompareAction::ExportPathChosen(out_path().into()),
+    )
 }
 
 pub(super) fn running_plan() -> AppState {
@@ -265,7 +268,7 @@ fn choose_export_file_moves_configuring_to_choosing_only() {
 
 #[test]
 fn the_path_is_honoured_in_choosing_only() {
-    let path = || CompareAction::ExportPathChosen(out_path());
+    let path = || CompareAction::ExportPathChosen(out_path().into());
     for state in [with_pending(), plan_modal(), running_plan()] {
         let before = state.compare.export.clone();
         let (after, cmds) = act(state, path());
@@ -296,7 +299,10 @@ fn a_plan_command_carries_exactly_the_options() {
     else {
         panic!("a plan export, got {:?}", sent[0]);
     };
-    assert_eq!((*session, *sent_run, path), (1, run, &out_path()));
+    assert_eq!(
+        (*session, *sent_run, path.as_path()),
+        (1, run, out_path().as_path())
+    );
     assert_eq!(request.format, ExportFormat::JsonPlan);
     assert_eq!(request.label, "Q3 sync");
     assert_eq!(request.id_policy, IdPolicy::Generate);
@@ -334,7 +340,7 @@ fn a_report_command_carries_only_completed_pairs_and_the_options() {
     assert_eq!(request.pairs, vec![RUN_PAIR]);
     assert!(request.include_paths);
     assert_eq!(request.label, "nightly");
-    assert_eq!(target, &ReportTarget::File(out_path()));
+    assert_eq!(target, &ReportTarget::File(out_path().into()));
 }
 
 #[test]
@@ -356,7 +362,7 @@ fn a_changed_state_refuses_the_start_and_sends_nothing() {
         plan: PlanOptions::default(),
         report: ReportOptions::default(),
     });
-    let (state, cmds) = act(state, CompareAction::ExportPathChosen(out_path()));
+    let (state, cmds) = act(state, CompareAction::ExportPathChosen(out_path().into()));
     assert!(exports(&cmds).is_empty());
     assert!(matches!(state.compare.export, ExportUi::Configuring(_)));
 }
@@ -561,7 +567,7 @@ fn a_failed_export_raises_the_banner_and_returns_to_the_modal() {
     let (state, _) = update(dialog, failed());
     assert!(is_failure_banner(&state));
     assert!(matches!(state.compare.export, ExportUi::Choosing(_)));
-    let (state, cmds) = act(state, CompareAction::ExportPathChosen(out_path()));
+    let (state, cmds) = act(state, CompareAction::ExportPathChosen(out_path().into()));
     assert_eq!(
         exports(&cmds).len(),
         1,
@@ -640,4 +646,24 @@ fn close_export_closes_the_modal_and_the_result_but_not_a_job() {
     let (state, _) = update(state, done_event(run, ExportOutcome::default()));
     let (state, _) = act(state, CompareAction::CloseExport);
     assert_eq!(state.compare.export, ExportUi::Idle);
+}
+
+#[test]
+fn debug_output_of_the_chosen_path_and_the_export_command_never_shows_the_path() {
+    let secret = PathBuf::from("/Users/secret-name/out.js");
+    let action = CompareAction::ExportPathChosen(secret.clone().into());
+    assert!(!format!("{action:?}").contains("secret-name"));
+    let (state, cmds) = act(choosing(plan_modal()), action);
+    let _ = state;
+    let sent = exports(&cmds);
+    assert_eq!(sent.len(), 1);
+    assert!(
+        !format!("{:?}", sent[0]).contains("secret-name"),
+        "{:?}",
+        sent[0]
+    );
+    let CompareCommand::Export { path, .. } = sent[0] else {
+        panic!("a plan export");
+    };
+    assert_eq!(path.as_path(), secret.as_path());
 }

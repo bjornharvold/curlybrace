@@ -187,7 +187,7 @@ fn a_cancelled_export_with_its_partial_file_removed_is_translated() {
     };
     let texts = assert_translated(&workspace(finish(running_plan(), outcome)), "cancelled");
     assert!(has(&texts, "The export was cancelled"));
-    assert!(has(&texts, "unfinished file was removed"));
+    assert!(has(&texts, "No unfinished file is left"));
 }
 
 #[test]

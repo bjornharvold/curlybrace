@@ -326,7 +326,7 @@ async fn an_export_for_a_session_that_was_never_opened_is_refused() {
         session: 99,
         run: 5,
         request: request(ExportFormat::Mongosh, standard_ops()),
-        path: path.clone(),
+        path: path.clone().into(),
     }))
     .unwrap();
     match super::tests::next_compare(&mut r.h).await {

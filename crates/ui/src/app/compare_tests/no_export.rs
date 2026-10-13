@@ -17,7 +17,7 @@ use std::path::PathBuf;
 type StartState = (&'static str, fn() -> AppState, Option<CompareAction>);
 
 fn path_chosen() -> Option<CompareAction> {
-    Some(CompareAction::ExportPathChosen(out_path()))
+    Some(CompareAction::ExportPathChosen(out_path().into()))
 }
 
 /// Every action of the exhaustive chain plus the other payloads of the export actions.
@@ -28,7 +28,7 @@ fn actions() -> Vec<CompareAction> {
         CompareAction::SetExportIdPolicy(IdPolicy::Keep),
         CompareAction::SetExportIncludePaths(false),
         CompareAction::ToggleExportPair(99),
-        CompareAction::ExportPathChosen(PathBuf::from("/exports/other")),
+        CompareAction::ExportPathChosen(PathBuf::from("/exports/other").into()),
     ];
     all_actions().into_iter().chain(extra).collect()
 }
@@ -143,10 +143,10 @@ fn only_the_path_chosen_from_the_dialog_and_the_clipboard_copy_send_an_export() 
 fn a_second_path_chosen_sends_nothing() {
     let (state, cmds) = act(
         choosing(plan_modal()),
-        CompareAction::ExportPathChosen(out_path()),
+        CompareAction::ExportPathChosen(out_path().into()),
     );
     assert_eq!(exports(&cmds).len(), 1);
-    let again = CompareAction::ExportPathChosen(out_path());
+    let again = CompareAction::ExportPathChosen(out_path().into());
     let (state, cmds) = act(state, again.clone());
     assert!(exports(&cmds).is_empty());
     let (_, cmds) = act(state, again);
@@ -156,7 +156,7 @@ fn a_second_path_chosen_sends_nothing() {
 #[test]
 fn a_dialog_answer_after_the_modal_was_cancelled_sends_nothing() {
     let (state, _) = act(choosing(plan_modal()), CompareAction::ExportPathCancelled);
-    let (_, cmds) = act(state, CompareAction::ExportPathChosen(out_path()));
+    let (_, cmds) = act(state, CompareAction::ExportPathChosen(out_path().into()));
     assert!(exports(&cmds).is_empty(), "the dialog is no longer open");
 }
 

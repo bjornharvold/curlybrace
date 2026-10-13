@@ -88,7 +88,10 @@ pub fn choosing(state: AppState) -> AppState {
 }
 
 pub fn running(state: AppState) -> AppState {
-    let state = act(choosing(state), CompareAction::ExportPathChosen(out_path()));
+    let state = act(
+        choosing(state),
+        CompareAction::ExportPathChosen(out_path().into()),
+    );
     assert!(state.compare.export.is_running(), "the job runs");
     state
 }

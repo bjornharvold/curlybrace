@@ -53,12 +53,15 @@ impl DocumentStore for Probe {
         self.inner.find(ns, q).await
     }
     async fn insert(&self, ns: &Namespace, doc: Document) -> crate::error::Result<Bson> {
+        assert!(!self.forbid_writes, "export planning must never write");
         self.inner.insert(ns, doc).await
     }
     async fn replace(&self, ns: &Namespace, id: &Bson, doc: Document) -> crate::error::Result<()> {
+        assert!(!self.forbid_writes, "export planning must never write");
         self.inner.replace(ns, id, doc).await
     }
     async fn delete(&self, ns: &Namespace, id: &Bson) -> crate::error::Result<()> {
+        assert!(!self.forbid_writes, "export planning must never write");
         self.inner.delete(ns, id).await
     }
     async fn scan_sorted(

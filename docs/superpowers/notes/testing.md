@@ -89,7 +89,8 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
 - `curlybrace-core` `local_compare_export` and `local_compare_export_files`, `curlybrace-ui` `local_compare_export_flows` - the slice 3
   EXPORT flows. `local_compare_export` runs the exported mongosh script with the REAL `mongosh` against the server it
   seeded: the script must leave the target equal to an in-process apply, a document of every BSON type must survive
-  byte for byte (Int32/Int64/Double incl. -0/NaN/Infinity, Decimal128, dates before 1970 and after 9999, ObjectId, BinData
+  byte for byte, field by field (documents whose key order JavaScript would change, e.g. a nested `"2"` after `"b"`, are skipped
+  and checked as such) (Int32/Int64/Double incl. -0/NaN/Infinity, Decimal128, dates before 1970 and after 9999, ObjectId, BinData
   and UUID, regex with flags, Timestamp, MinKey/MaxKey, Code with scope, Symbol; Undefined and DBPointer are checked as
   skipped), hostile names and values change nothing but the intended collection (a sentinel collection and a sentinel
   database stay), field operations touch only the chosen fields, stale operations are not written, and an unfinished
@@ -116,8 +117,10 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
 
   The helper never execs into another container: the name must start with `cb-it-dev-` (letters, digits, `-`, `_`), the
   default database must be a `cbit_*` name, and the container must publish 27017 on the host:port of
-  `CURLYBRACE_IT_MONGODB_URI`. `mongosh` reading a script from stdin is a REPL: it keeps going after a failed statement
-  and may exit 0, so the tests judge by the database and by printed errors, not only by the exit status.
+  `CURLYBRACE_IT_MONGODB_URI`. `mongosh` reading a script from stdin is a REPL and would keep going after a failed
+  statement and exit 0; the exported script therefore wraps each statement in `try`/`catch` and `quit(2)`, which a
+  tier-1 test pins in stdin mode (exit code 2, no later statement). A cut, unfinished script still exits 0 and does
+  nothing, so the tests judge by the database and printed errors, not only by the exit status.
 
 The script checks that the server answers on TCP (no `mongosh` needed), sets `CURLYBRACE_IT=1` and
 runs both targets. **Start the server yourself**, for example

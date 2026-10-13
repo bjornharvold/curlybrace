@@ -120,7 +120,7 @@ pub(super) fn send_export(tx: &Tx, run: u64, request: ExportRequest, path: &Path
         session: 1,
         run,
         request,
-        path: path.to_path_buf(),
+        path: path.to_path_buf().into(),
     }))
     .unwrap();
 }
@@ -728,7 +728,7 @@ async fn a_large_export_streams_in_batches_and_gets_its_true_header() {
     assert!(content.starts_with("// complete export"));
     assert!(!content.contains("quit(1)"));
     assert_eq!(content.matches("insertOne").count(), 1200);
-    assert!(content.ends_with("], { ordered: false });\n"));
+    assert!(content.ends_with("quit(2); }\n"));
     let dones: Vec<u64> = events
         .iter()
         .filter_map(|e| match e {

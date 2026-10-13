@@ -862,10 +862,11 @@ document data (the one exception is the clipboard report text, capped as below).
 
 **The three outputs.**
 
-- *mongosh script.* A comment header (sanitised label, counts, id policy, a note that a failed item makes `bulkWrite`
-  throw and the shell then stops later statements, `// destination: target|source side of the comparison`), then per
+- *mongosh script.* A comment header (sanitised label, counts, id policy, a note on failure handling and on pairs that share
+  a collection, `// destination: target|source side of the comparison`), then per
   destination collection one statement
-  `db.getSiblingDB("<db>").getCollection("<name>").bulkWrite([ ... ], { ordered: false });`. Each operation is
+  `try { db.getSiblingDB("<db>").getCollection("<name>").bulkWrite([ ... ], { ordered: false }); } catch (e) { print("<fixed
+  notice, no values>"); quit(2); }`. Each operation is
   preceded by a comment with the direction, kind, both fingerprints (hex) and the key. Operations are `insertOne`,
   `replaceOne` and `deleteOne` (filter `{"_id": ...}`) and `updateOne` (`$set` and `$unset` with dotted paths built
   from the segments, using the guards of the store's own update statement). A collection with no writes has no
@@ -971,8 +972,21 @@ can be personal data), that the plan is a snapshot, and that skipped operations 
 - No import or restore from a plan or script.
 - The summary has no per-pair duration: `Summary` carries none.
 - `include_paths` re-reads both documents of every different row, one after the other: slow for big results.
-- An `ordered: false` `bulkWrite` that hits a failing item throws, and the shell then runs no later statement of the
-  script (the items of the failing statement that could be applied were applied).
+- Failure handling: `mongosh < file.js` is a REPL that would continue after a failed statement and exit 0. Each
+  collection statement is therefore wrapped in `try { ... } catch (e) { print(<fixed notice, no values>); quit(2); }`
+  (verified with mongosh for stdin and for a file): the first failing `bulkWrite` (a duplicate key, say) applies the
+  items that could be applied (`ordered: false`), prints the notice, exits with code 2 and runs no later statement.
+  The `quit(1)` first line of an unfinished script is kept.
+- Key order: JavaScript lists canonical array-index keys (`"0"`, `"2"`, `"10"` .. `"4294967294"`) first and ascending in
+  any object literal, whatever the literal order (`"01"`, `"-1"`, `"4294967295"` are ordinary keys). A document,
+  nested document, `_id` sub-document or `$set` value whose BSON key order differs from the order JavaScript would
+  produce is therefore refused (`Unrenderable`) and listed as `skipped (unsupported)` in BOTH the script and the JSON
+  plan, never written reordered. A top-level document with such a key is always skipped (`_id` comes first).
+- Two pairs that write the same destination collection with overlapping keys are each planned against the documents
+  as they are NOW: the export does not simulate the first pair's writes. An apply would skip the second pair's
+  operation as stale; the script writes both (the later one wins). The script header says so.
+- Linux: with only the `xdg-portal` feature of `rfd` and no portal service the dialog returns nothing, so the person
+  lands back in the modal; release binaries are macOS-only today.
 - A script and a plan are a snapshot of an earlier comparison: the documents may have changed again before it is run.
   The server is not asked again when the script runs; `replaceOne`/`deleteOne` filter on `_id` only.
 - The CSV has no completeness marker besides the end line; a hard kill (SIGKILL) can leave a truncated report. The
@@ -988,7 +1002,7 @@ can be personal data), that the plan is a snapshot, and that skipped operations 
 Tier-1 coverage on a real server (`crates/core/tests/local_compare_export.rs`, `local_compare_export_files.rs`,
 `crates/ui/tests/local_compare_export_flows.rs`): the script is run with the REAL `mongosh` inside a throwaway
 container and must leave the target equal to an in-process apply; a document of every BSON type survives the script
-byte for byte; hostile names and values change nothing but the intended collection; field operations update only
+byte for byte (documents whose key order JavaScript would change are skipped, see the limits); hostile names and values change nothing but the intended collection; field operations update only
 the chosen fields; stale operations are listed and not written; a cut or unfinished script changes nothing; the JSON
 plan and CSV report match the stored differences; cancelling removes the partial file; the click-driven UI flows
 export a plan and a report through a fake file dialog without writing to either database.

@@ -50,7 +50,8 @@ use crate::compare::export::report::{
     pair_summary, report_header, row_count,
 };
 use crate::compare::protocol::{
-    CompareEvent, ExportOutcome, PairId, PairSpec, ReportRequest, ReportTarget, RunId, SessionId,
+    CompareEvent, ExportOutcome, PairId, PairSpec, ReportRequest, ReportTarget, ReportText, RunId,
+    SessionId,
 };
 use crate::compare::results::{Category, DiffEntry, ResultSet};
 use crate::compare::scan::{Unique, fetch_unique};
@@ -138,7 +139,7 @@ fn check_target(target: &ReportTarget, rows: usize) -> Result<()> {
             "report too large for the clipboard".into(),
         )),
         ReportTarget::Clipboard => Ok(()),
-        ReportTarget::File(path) => validate_path(path),
+        ReportTarget::File(path) => validate_path(path.as_path()),
     }
 }
 
@@ -184,7 +185,7 @@ async fn run_report(ctx: JobContext, job: ReportJob, slot: RunSlot) {
         return;
     }
     let (guard, joined) = match job.target.clone() {
-        ReportTarget::File(path) => match create_file(&path).await {
+        ReportTarget::File(path) => match create_file(path.as_path()).await {
             Ok((sink, guard)) => {
                 let joined = tokio::spawn(write_file(ctx.clone(), job, sink)).await;
                 (Some(guard), joined)
@@ -245,7 +246,7 @@ fn emit_text(ctx: &JobContext, text: String) -> bool {
     ctx.emit(CompareEvent::ExportText {
         session: ctx.session_id,
         run: ctx.run,
-        text,
+        text: ReportText::new(text),
     })
 }
 

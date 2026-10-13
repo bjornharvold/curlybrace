@@ -121,7 +121,14 @@ pub(super) fn dispatch(
             run,
             request,
             path,
-        } => export::dispatch(&shared, events, repaint, session, run, (request, path)),
+        } => export::dispatch(
+            &shared,
+            events,
+            repaint,
+            session,
+            run,
+            (request, path.into_path_buf()),
+        ),
         CompareCommand::ExportReport {
             session,
             run,

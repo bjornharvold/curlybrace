@@ -158,19 +158,19 @@ pub(super) async fn report(
 
 pub(super) fn file_target(r: &ExRig, name: &str) -> (ReportTarget, std::path::PathBuf) {
     let path = r.path(name);
-    (ReportTarget::File(path.clone()), path)
+    (ReportTarget::File(path.clone().into()), path)
 }
 
 pub(super) fn text_of(events: &[CompareEvent]) -> String {
-    let texts: Vec<&String> = events
+    let texts: Vec<&str> = events
         .iter()
         .filter_map(|e| match e {
-            CompareEvent::ExportText { text, .. } => Some(text),
+            CompareEvent::ExportText { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect();
     assert_eq!(texts.len(), 1, "exactly one ExportText");
-    texts[0].clone()
+    texts[0].to_string()
 }
 
 pub(super) fn failure_of(events: &[CompareEvent]) -> CoreError {
@@ -596,7 +596,7 @@ async fn an_invalid_path_is_refused_up_front() {
             &mut r,
             5,
             report_request(vec![1], false),
-            ReportTarget::File(bad),
+            ReportTarget::File(bad.into()),
         )
         .await;
         assert_eq!(
