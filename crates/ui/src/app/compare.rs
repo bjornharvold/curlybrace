@@ -1,18 +1,18 @@
 //! Reducer for the Compare workspace: user actions in, runtime commands out; runtime compare
 //! events in, view-models out. Compare sessions have their own connections, so nothing here
 //! depends on (or is reset by) the main browsing connection.
+use super::compare_checks as checks;
 use super::compare_duplicates as duplicates;
-use super::compare_run::{cancel, discard, moved, on_run_event, select, start};
+use super::compare_pairs as pairs;
+use super::compare_results::{back_to_overview, discard_pair, moved, open_pair, rerun, select};
+use super::compare_run::{cancel, on_run_event, start, start_passing};
 use super::reducer::Out;
 use super::state::{AppState, Banner, Workspace};
 use crate::viewmodel::compare::{
-    CheckQueue, CompareState, Pick, ResultsView, RulesForm, RunOverview, SINGLE_ENTRY,
-    SessionPhase, SetupForm, SideForm,
+    CompareState, EntryId, PairOverrides, Pick, ResultsView, RulesForm, SessionPhase, SideForm,
 };
 use curlybrace_core::compare::key::KeyTuple;
-use curlybrace_core::compare::protocol::{
-    CompareCommand, CompareEvent, PairId, Preflight, SessionId, Side,
-};
+use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent, SessionId, Side};
 use curlybrace_core::compare::results::Category;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Command;
@@ -33,20 +33,47 @@ pub enum CompareAction {
     SetKey(String),
     SetFilter(Side, String),
     SetRules(RulesForm),
+    /// Add the pair the pickers describe to the list.
+    AddPair,
+    /// Add every same-named collection pair of the two picked databases the list lacks.
+    AddAllSameNamed,
+    /// Pair a collection with no counterpart on `side` with a name typed for the other side.
+    AddUnmatched {
+        side: Side,
+        name: String,
+        as_name: String,
+    },
+    RemovePair(EntryId),
+    IncludePair(EntryId, bool),
+    EditPair(Option<EntryId>),
+    SetPairOverrides(EntryId, PairOverrides),
+    ToggleSystemCollections(bool),
+    /// Check the included entries, one at a time.
     RunCheck,
+    /// Run the included entries.
     Start,
+    /// Run only the included entries that passed their check.
+    StartPassing,
     Cancel,
     SelectCategory(Category),
     Page(i64),
     Select(KeyTuple),
-    Discard,
+    /// Show the results of an entry's finished pair.
+    OpenPair(EntryId),
+    BackToOverview,
+    /// Throw away an entry's finished results.
+    DiscardPair(EntryId),
+    /// Select an entry to edit and check again, keeping its old results out of the way.
+    Rerun(EntryId),
+    /// Close the open detail (back to the table).
     Back,
     /// Re-list the collections of the database picked on a side (a failed listing is retried).
     Reload(Side),
     /// Ask again for the results page whose loading failed.
     RetryRows,
-    /// Ask both sides for their most frequent duplicate keys (after a duplicate-key failure).
-    FindDuplicates,
+    /// Ask both sides for their most frequent duplicate keys of an entry that failed on a
+    /// duplicate key.
+    FindDuplicates(EntryId),
 }
 
 pub(super) fn cmd(c: CompareCommand) -> Command {
@@ -76,23 +103,47 @@ pub(super) fn on_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::Open { source, target } => open(state, source, target),
         CompareAction::CloseSession => close(state),
         CompareAction::PickSide(side, pick) => pick_side(state, side, pick),
-        CompareAction::SetKey(text) => edited(state, |f| f.with_key_text(&text)),
-        CompareAction::SetFilter(side, text) => edited(state, |f| {
+        CompareAction::SetKey(text) => pairs::defaults_edit(state, |f| f.with_key_text(&text)),
+        CompareAction::SetFilter(side, text) => pairs::defaults_edit(state, |f| {
             let form = f.side(side).clone().with_filter(&text);
             f.with_side(side, form)
         }),
-        CompareAction::SetRules(rules) => edited(state, |f| f.with_rules(rules)),
-        CompareAction::RunCheck => check(state),
+        CompareAction::SetRules(rules) => pairs::defaults_edit(state, |f| f.with_rules(rules)),
+        other => on_pair_action(state, other),
+    }
+}
+
+/// The pair list, the check queue, runs and results.
+fn on_pair_action(state: AppState, action: CompareAction) -> Out {
+    match action {
+        CompareAction::AddPair => pairs::add_pair(state),
+        CompareAction::AddAllSameNamed => pairs::add_all_same_named(state),
+        CompareAction::AddUnmatched {
+            side,
+            name,
+            as_name,
+        } => pairs::add_unmatched(state, side, &name, &as_name),
+        CompareAction::RemovePair(entry) => pairs::remove_pair(state, entry),
+        CompareAction::IncludePair(entry, on) => pairs::include_pair(state, entry, on),
+        CompareAction::EditPair(entry) => pairs::edit_pair(state, entry),
+        CompareAction::SetPairOverrides(entry, o) => pairs::set_overrides(state, entry, o),
+        CompareAction::ToggleSystemCollections(on) => pairs::toggle_system(state, on),
+        CompareAction::RunCheck => checks::run_check(state),
         CompareAction::Start => start(state),
+        CompareAction::StartPassing => start_passing(state),
         CompareAction::Cancel => cancel(state),
         CompareAction::SelectCategory(c) => moved(state, |r| r.in_category(c)),
         CompareAction::Page(delta) => moved(state, |r| r.paged(delta)),
         CompareAction::Select(key) => select(state, key),
-        CompareAction::Discard => discard(state),
+        CompareAction::OpenPair(entry) => open_pair(state, entry),
+        CompareAction::BackToOverview => back_to_overview(state),
+        CompareAction::DiscardPair(entry) => discard_pair(state, entry),
+        CompareAction::Rerun(entry) => rerun(state, entry),
         CompareAction::Back => back(state),
         CompareAction::Reload(side) => reload(state, side),
         CompareAction::RetryRows => moved(state, ResultsView::retried),
-        CompareAction::FindDuplicates => duplicates::find(state),
+        CompareAction::FindDuplicates(entry) => duplicates::find(state, entry),
+        _ => none(state),
     }
 }
 
@@ -182,23 +233,6 @@ fn close(state: AppState) -> Out {
     )
 }
 
-/// Applies a form edit; any edit makes the earlier verdicts stale, and a check still in
-/// flight is dropped with them (its probe id will no longer match).
-fn edited(state: AppState, change: impl FnOnce(SetupForm) -> SetupForm) -> Out {
-    let c = &state.compare;
-    let compare = CompareState {
-        checks: c.checks.clone().invalidated(),
-        orphaned_check: c
-            .checks
-            .in_flight()
-            .map(|(_, probe)| probe)
-            .or(c.orphaned_check),
-        duplicates: c.duplicates.superseded(),
-        ..c.clone().with_setup(change(c.setup.clone()))
-    };
-    none(with_compare(state, compare))
-}
-
 /// Picking what is already picked changes nothing: no command, no preflight reset.
 fn pick_side(state: AppState, side: Side, pick: Pick) -> Out {
     let current = state.compare.setup.side(side).clone();
@@ -217,32 +251,13 @@ fn pick_side(state: AppState, side: Side, pick: Pick) -> Out {
         })),
         _ => None,
     };
-    let (next, _) = edited(state, |f| f.with_side(side, picked));
-    (next, listing.into_iter().collect())
-}
-
-/// Sends the single entry's check under a fresh probe id, so only its own answer is accepted.
-fn check(state: AppState) -> Out {
-    let Some(session) = ready(&state) else {
-        return none(state);
-    };
-    let c = &state.compare;
-    if c.is_running() || c.check_in_flight() {
-        return none(state);
-    }
-    let probe = c.next_pair;
-    let Ok(pair) = c.pair_for(probe) else {
-        return none(state);
-    };
+    // The pickers only feed Add pair: no entry depends on them, so no verdict goes stale.
+    let setup = state.compare.setup.clone().with_side(side, picked);
     let compare = CompareState {
-        checks: CheckQueue::queued(&[SINGLE_ENTRY]).sending(SINGLE_ENTRY, probe),
-        next_pair: probe + 1,
-        ..c.clone()
+        setup,
+        ..state.compare.clone()
     };
-    (
-        with_compare(state, compare),
-        vec![cmd(CompareCommand::Check { session, pair })],
-    )
+    (with_compare(state, compare), listing.into_iter().collect())
 }
 
 // ---- events ----
@@ -296,7 +311,7 @@ fn on_setup_event(state: AppState, ev: CompareEvent) -> Out {
         } => listed(state, side, |s| s.with_collections(&db, entries)),
         CompareEvent::Checked {
             pair, preflight, ..
-        } => checked(state, pair, preflight),
+        } => checks::checked(state, pair, preflight),
         CompareEvent::DuplicateKeys {
             pair,
             source,
@@ -349,60 +364,17 @@ fn open_failed(state: AppState, error: CoreError) -> Out {
 fn listed(state: AppState, side: Side, change: impl FnOnce(SideForm) -> SideForm) -> Out {
     let form = change(state.compare.setup.side(side).clone());
     let setup = state.compare.setup.clone().with_side(side, form);
-    let compare = state.compare.clone().with_setup(setup);
-    none(with_compare(state, compare))
-}
-
-/// An answer is taken only under the probe that is in flight; the orphan's (the form was edited
-/// under it) is dropped and the user checks again.
-fn checked(state: AppState, probe: PairId, answer: Preflight) -> Out {
-    if state.compare.orphaned_check == Some(probe) {
-        return none(settled_orphan(state));
-    }
-    let (checks, fresh) = state.compare.checks.clone().answered(probe, answer);
-    if !fresh {
-        return none(state);
-    }
     let compare = CompareState {
-        checks,
+        setup,
         ..state.compare.clone()
     };
     none(with_compare(state, compare))
-}
-
-fn settled_orphan(state: AppState) -> AppState {
-    let compare = CompareState {
-        orphaned_check: None,
-        ..state.compare.clone()
-    };
-    with_compare(state, compare)
-}
-
-/// A failed check names no probe: it is the orphan's (quiet) or the one in flight.
-fn check_failed(state: AppState, error: CoreError) -> Out {
-    let c = &state.compare;
-    let Some((_, probe)) = c.checks.in_flight() else {
-        // The orphan's failure is obsolete and quiet; with no orphan it is reported.
-        return match c.orphaned_check {
-            Some(_) => none(settled_orphan(state)),
-            None => none(failure_banner(state, "compare_check", error)),
-        };
-    };
-    let compare = CompareState {
-        checks: c.checks.clone().failed(probe),
-        ..c.clone()
-    };
-    none(failure_banner(
-        with_compare(state, compare),
-        "compare_check",
-        error,
-    ))
 }
 
 /// A whole command failed: show it, and undo whatever the command had optimistically marked.
 fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
     if context == "compare_check" {
-        return check_failed(state, error);
+        return checks::check_failed(state, error);
     }
     if context == "compare_duplicates" {
         return none(duplicates::failed(state, error));
@@ -416,8 +388,9 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
             Some(pair) => c.clone().results_updated(pair, ResultsView::rows_failed),
             None => c.clone(),
         },
+        // The runtime refused the whole start: only this run's pending rows fail.
         "compare_start" if c.is_running() => CompareState {
-            overview: RunOverview::default(),
+            overview: c.overview.clone().start_refused(&error),
             ..c.clone()
         },
         "compare_detail" => CompareState {

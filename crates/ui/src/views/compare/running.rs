@@ -6,20 +6,11 @@ use crate::viewmodel::compare::{CompareState, RunView};
 use curlybrace_core::error::CoreError;
 use eframe::egui;
 
-/// `setup_ready`: the setup has no issues (computed once per frame by the caller).
-pub fn show_run(
-    ui: &mut egui::Ui,
-    state: &CompareState,
-    setup_ready: bool,
-    i18n: &I18n,
-) -> Option<CompareAction> {
+pub fn show_run(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
         let start = egui::Button::new(i18n.t("compare.run.start"));
-        if ui
-            .add_enabled(state.can_start_given(setup_ready), start)
-            .clicked()
-        {
+        if ui.add_enabled(state.can_start(), start).clicked() {
             action = Some(CompareAction::Start);
         }
         let cancel = egui::Button::new(i18n.t("compare.run.cancel"));
@@ -27,8 +18,12 @@ pub fn show_run(
             action = Some(CompareAction::Cancel);
         }
         let discard = egui::Button::new(i18n.t("compare.run.discard"));
-        if ui.add_enabled(state.can_discard(), discard).clicked() {
-            action = Some(CompareAction::Discard);
+        let focus = state.focus_entry();
+        if ui
+            .add_enabled(focus.is_some() && state.can_discard(), discard)
+            .clicked()
+        {
+            action = focus.map(CompareAction::DiscardPair);
         }
     });
     let duplicates = show_progress(ui, state, i18n);

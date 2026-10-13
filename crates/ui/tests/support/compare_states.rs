@@ -197,7 +197,8 @@ fn find_duplicates(state: &mut AppState) {
         run: RUN,
     };
     event(state, done);
-    act(state, CompareAction::FindDuplicates);
+    // The first entry of the list; its lookup takes the pair id after the run's.
+    act(state, CompareAction::FindDuplicates(0));
     let group = |email: &str, count: u64| DuplicateGroup {
         key: KeyTuple(vec![Bson::String(email.into())]),
         count,
@@ -212,7 +213,7 @@ fn find_duplicates(state: &mut AppState) {
     };
     let answer = CompareEvent::DuplicateKeys {
         session: SESSION,
-        pair: RUN_PAIR,
+        pair: RUN_PAIR + 1,
         source,
         target,
     };
@@ -234,6 +235,7 @@ pub fn compare_state(through: Through) -> impl FnOnce(&mut AppState) {
             // The panel lists emails, so the failed key is `email`.
             act(state, CompareAction::SetKey("email".into()));
         }
+        act(state, CompareAction::AddPair);
         act(state, CompareAction::RunCheck);
         if through == Through::Blocked {
             let blocked = answer(IndexStatus::Indexed, IndexStatus::NotIndexed, true);

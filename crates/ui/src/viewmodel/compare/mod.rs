@@ -2,13 +2,13 @@
 pub mod checks;
 pub mod detail;
 pub mod duplicates;
+pub mod focus;
 pub mod overview;
 pub mod pairing_view;
 pub mod pairs;
 pub mod preflight;
 pub mod results;
 pub mod setup;
-pub mod single;
 
 use std::collections::BTreeMap;
 
@@ -18,13 +18,13 @@ use uuid::Uuid;
 pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use duplicates::{DuplicateRow, DuplicatesView};
+pub use focus::RunView;
 pub use overview::{ActiveRun, PairStatus, RunOverview, RunRow, Totals};
 pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
-pub use single::{RunView, SINGLE_ENTRY};
 
 /// Where the compare session stands. It owns its own connections, so the browsing connection
 /// coming and going never changes it.
@@ -56,9 +56,10 @@ pub struct CompareState {
     /// The shared defaults and the pickers feeding Add pair.
     pub setup: SetupForm,
     pub checks: CheckQueue,
-    /// Probe of a check the form was edited under and whose answer has not arrived yet. Answers
-    /// and failures carry no request identity, so while this is set no new check is sent: the
-    /// next answer or failure is the orphan's and is dropped.
+    /// Probe of a check an edit made stale and whose answer has not arrived yet. A failure
+    /// carries no probe and the runtime may still be working on the old check, so while this is
+    /// set no new check is sent (one `Check` in flight): the next answer or failure is the
+    /// orphan's and is dropped.
     pub orphaned_check: Option<PairId>,
     pub overview: RunOverview,
     pub pairs: PairList,
@@ -148,44 +149,74 @@ impl CompareState {
         self.connections.is_some_and(|(s, t)| s == t)
     }
 
-    /// The setup's pair under the runtime id `id`, or the first issue.
-    pub fn pair_for(&self, id: PairId) -> Result<PairSpec, SetupError> {
-        match self.issues().into_iter().next() {
-            Some(first) => Err(first),
-            None => self.setup.pair(id),
-        }
+    /// The spec of an entry under the runtime id `id`; `None` for an unknown entry.
+    pub fn spec_for(&self, entry: EntryId, id: PairId) -> Option<Result<PairSpec, SetupError>> {
+        let found = self.pairs.get(entry)?;
+        Some(found.spec(id, &self.setup, self.one_connection()))
     }
 
-    /// Whether the Check button may fire: a usable form and no check or run in flight.
+    /// The included entries whose spec builds: what a check queues.
+    pub fn checkable_entries(&self) -> Vec<EntryId> {
+        let same = self.one_connection();
+        self.pairs
+            .entries
+            .iter()
+            .filter(|e| e.included && e.issues(&self.setup, same).is_empty())
+            .map(|e| e.id)
+            .collect()
+    }
+
+    /// Whether the Check button may fire: a session, nothing in flight and something to check.
     pub fn can_check(&self) -> bool {
-        self.can_check_given(self.issues().is_empty())
+        self.is_ready() && !self.check_in_flight() && !self.is_running() && self.has_valid_entry()
     }
 
-    /// `can_check` for a setup whose readiness the caller already knows (computed once a frame).
-    pub fn can_check_given(&self, setup_ready: bool) -> bool {
-        self.is_ready() && !self.check_in_flight() && !self.is_running() && setup_ready
-    }
-
-    /// Whether Start may fire: at least one included entry is usable and every included entry
-    /// has a fresh verdict that allows it.
+    /// Whether Run may fire: at least one included entry is usable and every included entry has
+    /// a fresh verdict that allows it.
     pub fn can_start(&self) -> bool {
-        self.start_gate(self.has_valid_entry(), false)
-    }
-
-    /// `can_start` for a setup whose readiness the caller already knows.
-    pub fn can_start_given(&self, setup_ready: bool) -> bool {
-        self.start_gate(setup_ready, false)
+        self.start_gate(false)
     }
 
     /// Whether Run passing may fire: like `can_start`, but refused entries are skipped, so only
     /// one passing entry has to exist.
     pub fn can_start_passing(&self) -> bool {
-        self.start_gate(self.has_valid_entry(), true)
+        self.start_gate(true)
     }
 
     /// Whether Cancel may fire: a run is in flight and no cancel was sent for it yet.
     pub fn can_cancel(&self) -> bool {
         self.overview.can_cancel()
+    }
+
+    /// An edit: every verdict is dropped, a check still out becomes the orphan and a duplicates
+    /// lookup in flight goes stale.
+    pub fn invalidated(self) -> Self {
+        let orphan = self
+            .checks
+            .in_flight()
+            .map(|(_, probe)| probe)
+            .or(self.orphaned_check);
+        Self {
+            checks: self.checks.invalidated(),
+            orphaned_check: orphan,
+            duplicates: self.duplicates.superseded(),
+            ..self
+        }
+    }
+
+    /// The results of `pairs` are gone; the open pair and its detail go with them.
+    pub fn without_results(self, pairs: &[PairId]) -> Self {
+        let closed = self.open_pair.is_some_and(|open| pairs.contains(&open));
+        Self {
+            results: self
+                .results
+                .into_iter()
+                .filter(|(pair, _)| !pairs.contains(pair))
+                .collect(),
+            open_pair: self.open_pair.filter(|open| !pairs.contains(open)),
+            detail: if closed { None } else { self.detail },
+            ..self
+        }
     }
 
     /// The results of `pair` passed through `change`; unknown pairs change nothing.
@@ -216,7 +247,7 @@ impl CompareState {
             .collect()
     }
 
-    fn has_valid_entry(&self) -> bool {
+    pub fn has_valid_entry(&self) -> bool {
         let same = self.one_connection();
         self.pairs
             .entries
@@ -224,7 +255,8 @@ impl CompareState {
             .any(|e| e.included && e.issues(&self.setup, same).is_empty())
     }
 
-    fn start_gate(&self, any_valid: bool, passing_only: bool) -> bool {
+    fn start_gate(&self, passing_only: bool) -> bool {
+        let any_valid = self.has_valid_entry();
         let included = self.included_ids();
         let idle = self.is_ready() && !self.is_running() && !self.check_in_flight();
         if !idle || !any_valid || !self.checks.all_settled(&included) {

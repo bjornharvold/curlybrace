@@ -238,3 +238,22 @@ fn a_failed_page_keeps_its_request_until_retried_or_answered() {
     let idle = loaded(summary(0, 0, 3)).rows_failed();
     assert!(!idle.load_failed);
 }
+
+#[test]
+fn a_view_with_no_page_and_none_awaited_is_fetched_again() {
+    let summary = Summary {
+        different: 3,
+        ..Summary::default()
+    };
+    let loading = ResultsView::new(7, &summary);
+    assert!(
+        loading.refetched().is_none(),
+        "the first page is on its way"
+    );
+    let emptied = loading.accept_rows(Category::Different, 0, 3, Vec::new());
+    let again = emptied.refetched().expect("nothing shown, nothing awaited");
+    assert_eq!(again.requested, Some((Category::Different, 0)));
+    assert!(again.refetched().is_none());
+    let clean = ResultsView::new(8, &Summary::default());
+    assert!(clean.refetched().is_none(), "nothing to fetch");
+}

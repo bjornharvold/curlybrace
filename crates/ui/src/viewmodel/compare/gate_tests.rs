@@ -10,13 +10,29 @@ fn picked(db: &str) -> SideForm {
         .with_collection("c")
 }
 
+/// The id of the first entry a list hands out.
+const ENTRY: EntryId = 0;
+
+/// The state with `setup` as its form and the one pair its pickers describe as the only entry.
+fn with_setup(state: CompareState, setup: SetupForm) -> CompareState {
+    let pairs = match setup.pick_pair() {
+        Ok((source, target)) => PairList::default().added(source, target),
+        Err(_) => PairList::default(),
+    };
+    CompareState {
+        setup,
+        pairs,
+        ..state
+    }
+}
+
 fn ready() -> CompareState {
     let setup = SetupForm::default()
         .with_side(Side::Source, picked("a"))
         .with_side(Side::Target, picked("b"));
     CompareState {
         session: Some(SessionPhase::Ready(1)),
-        ..CompareState::default().with_setup(setup)
+        ..with_setup(CompareState::default(), setup)
     }
 }
 
@@ -37,15 +53,15 @@ fn pre(count: u64, indexed: bool) -> Preflight {
 
 /// The entry checked with `count` documents on each side.
 fn checked(state: CompareState, count: u64, indexed: bool) -> CompareState {
-    let checks = CheckQueue::queued(&[SINGLE_ENTRY])
-        .sending(SINGLE_ENTRY, 5)
+    let checks = CheckQueue::queued(&[ENTRY])
+        .sending(ENTRY, 5)
         .answered(5, pre(count, indexed))
         .0;
     CompareState { checks, ..state }
 }
 
 fn running(state: CompareState) -> CompareState {
-    let overview = RunOverview::default().started(1, &[(SINGLE_ENTRY, 9)]).0;
+    let overview = RunOverview::default().started(1, &[(ENTRY, 9)]).0;
     CompareState { overview, ..state }
 }
 
@@ -59,11 +75,11 @@ fn check_needs_a_ready_session_a_ready_form_and_nothing_in_flight() {
     };
     assert!(!opening.can_check());
     let in_flight = CompareState {
-        checks: CheckQueue::queued(&[SINGLE_ENTRY]).sending(SINGLE_ENTRY, 5),
+        checks: CheckQueue::queued(&[ENTRY]).sending(ENTRY, 5),
         ..ready()
     };
     assert!(!in_flight.can_check());
-    let incomplete = ready().with_setup(SetupForm::default());
+    let incomplete = with_setup(ready(), SetupForm::default());
     assert!(!incomplete.can_check());
     assert!(!running(ready()).can_check());
 }
@@ -80,7 +96,7 @@ fn start_additionally_needs_an_ok_fresh_preflight() {
         };
         assert!(!edited.can_start());
         let in_flight = CompareState {
-            checks: CheckQueue::queued(&[SINGLE_ENTRY]).sending(SINGLE_ENTRY, 6),
+            checks: CheckQueue::queued(&[ENTRY]).sending(ENTRY, 6),
             ..state.clone()
         };
         assert!(!in_flight.can_start());
@@ -93,7 +109,7 @@ fn start_additionally_needs_an_ok_fresh_preflight() {
 fn start_needs_an_included_entry_and_every_included_entry_to_pass() {
     let state = checked(ready(), 5, true);
     let none_included = CompareState {
-        pairs: state.pairs.clone().included(SINGLE_ENTRY, false),
+        pairs: state.pairs.clone().included(ENTRY, false),
         ..state.clone()
     };
     assert!(!none_included.can_start() && !none_included.can_start_passing());
@@ -114,8 +130,8 @@ fn run_passing_skips_refused_entries_but_still_waits_for_every_check() {
         ..state.clone()
     };
     assert!(!unchecked.can_start_passing(), "one entry is not settled");
-    let (checks, _) = CheckQueue::queued(&[SINGLE_ENTRY, second_id])
-        .sending(SINGLE_ENTRY, 5)
+    let (checks, _) = CheckQueue::queued(&[ENTRY, second_id])
+        .sending(ENTRY, 5)
         .answered(5, pre(5, true))
         .0
         .sending(second_id, 6)
@@ -156,7 +172,7 @@ fn close_and_discard_follow_the_session_and_the_run() {
     assert!(ready().can_close());
     assert!(!ready().can_discard(), "nothing to discard");
     let overview = RunOverview::default()
-        .started(1, &[(SINGLE_ENTRY, 9)])
+        .started(1, &[(ENTRY, 9)])
         .0
         .pair_done(1, 9, PairOutcome::Completed(Summary::default()))
         .run_done(1);
@@ -185,14 +201,17 @@ fn same_collection() -> CompareState {
     let side = Side::Target;
     let state = ready();
     let setup = state.setup.clone().with_side(side, picked("a"));
-    on_one_connection(state.with_setup(setup))
+    on_one_connection(with_setup(state, setup))
 }
 
 #[test]
 fn the_same_collection_with_the_same_filter_on_both_sides_is_refused() {
     let state = same_collection();
     assert_eq!(state.issues(), vec![SetupError::SameCollection]);
-    assert_eq!(state.pair_for(1).err(), Some(SetupError::SameCollection));
+    assert_eq!(
+        state.spec_for(ENTRY, 1).and_then(Result::err),
+        Some(SetupError::SameCollection)
+    );
     assert!(!state.can_check() && !state.can_start());
     assert_eq!(
         SetupError::SameCollection.i18n_key(),

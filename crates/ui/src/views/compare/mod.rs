@@ -82,7 +82,7 @@ fn show_ready(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Co
     let setup = show_setup(ui, &state.setup, &issues, i18n);
     ui.separator();
     let preflight = show_preflight(ui, state, setup_ready, i18n);
-    let run = show_run(ui, state, setup_ready, i18n);
+    let run = show_run(ui, state, i18n);
     let lower = show_lower(ui, state, i18n);
     setup.or(preflight).or(run).or(lower)
 }

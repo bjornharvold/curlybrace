@@ -184,14 +184,21 @@ fn a_failed_pair_shows_a_banner_and_no_results() {
 }
 
 #[test]
-fn a_refused_start_returns_the_run_to_idle() {
+fn a_refused_start_fails_the_pending_row_and_ends_the_run() {
     let refused = ev(CompareEvent::Failed {
         session: 1,
         context: "compare_start",
         error: CoreError::CompareSetupInvalid,
     });
     let (state, _) = update(running_state(), refused);
-    assert_eq!(state.compare.run_view(), RunView::Idle);
+    assert!(!state.compare.is_running());
+    assert!(matches!(
+        state.compare.run_view(),
+        RunView::Finished {
+            failure: Some(CoreError::CompareSetupInvalid),
+            ..
+        }
+    ));
     assert!(matches!(
         state.banner,
         Some(Banner::Failure {
@@ -223,7 +230,7 @@ fn restarting_discards_the_previous_results_first_and_uses_a_new_run_id() {
 
 #[test]
 fn discard_sends_discard_and_clears_results_and_run() {
-    let (state, cmds) = act(finished_with_results(), CompareAction::Discard);
+    let (state, cmds) = act(finished_with_results(), CompareAction::DiscardPair(ENTRY));
     assert!(matches!(
         &cmds[..],
         [Command::Compare(CompareCommand::Discard {

@@ -75,7 +75,12 @@ pub fn pick_pair_and_check(f: &mut Fixture, source: &str, target: &str) {
 
 #[track_caller]
 pub fn check(f: &mut Fixture) {
+    // Until the pair list has its own views, the first click adds the picked pair.
+    let adding = f.harness.state().state().compare.pairs.entries.is_empty();
     click_key(f, "compare.preflight.check");
+    if adding {
+        click_key(f, "compare.preflight.check");
+    }
     let ok = f.labels.t("compare.preflight.ok");
     wait_shows(f, &ok);
 }

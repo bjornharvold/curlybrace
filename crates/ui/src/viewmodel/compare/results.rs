@@ -190,6 +190,13 @@ impl ResultsView {
         }
     }
 
+    /// A view that shows no page and waits for none (it was never opened, or its first page was
+    /// dropped): the same page asked for again. `None` when a page is shown, awaited or empty.
+    pub fn refetched(&self) -> Option<Self> {
+        (self.rows.is_empty() && self.requested.is_none() && self.total() > 0)
+            .then(|| self.moved_to(self.category, self.offset))
+    }
+
     /// Takes the answer only if it is the page that was asked for. Rows past `total` are cut.
     pub fn accept_rows(
         self,

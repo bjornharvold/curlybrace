@@ -134,8 +134,11 @@ impl RunOverview {
         })
     }
 
-    /// The pair's terminal; ignored unless it is the live row of that run.
+    /// The pair's terminal; ignored unless `run` is the active run and the pair its live row.
     pub fn pair_done(self, run: RunId, pair: PairId, outcome: PairOutcome) -> Self {
+        if self.active.map(|a| a.run) != Some(run) {
+            return self;
+        }
         let status = match outcome {
             PairOutcome::Completed(s) => PairStatus::Completed(s),
             PairOutcome::Cancelled(s) => PairStatus::Cancelled(s),
@@ -157,6 +160,28 @@ impl RunOverview {
                 |row| match active.cancel_requested && row.run == run && row.status.is_live() {
                     true => RunRow {
                         status: PairStatus::Cancelled(Summary::default()),
+                        ..row
+                    },
+                    false => row,
+                },
+            )
+            .collect();
+        Self { rows, active: None }
+    }
+
+    /// The runtime refused the whole start of the active run: its rows that never began end
+    /// as failed and the run is over. Rows of other runs, and their results, stay.
+    pub fn start_refused(self, error: &CoreError) -> Self {
+        let Some(active) = self.active else {
+            return self;
+        };
+        let rows = self
+            .rows
+            .into_iter()
+            .map(
+                |row| match row.run == active.run && row.status == PairStatus::Pending {
+                    true => RunRow {
+                        status: PairStatus::Failed(error.clone()),
                         ..row
                     },
                     false => row,
@@ -202,6 +227,24 @@ impl RunOverview {
             .map(|r| r.pair);
         let rows = self.rows.into_iter().filter(|r| r.entry != entry).collect();
         (Self { rows, ..self }, held)
+    }
+
+    /// The entry has a row that has not ended yet (queued or running in the active run).
+    pub fn entry_is_live(&self, entry: EntryId) -> bool {
+        self.row_for(entry).is_some_and(|r| r.status.is_live())
+    }
+
+    /// How many pairs `run` started.
+    pub fn rows_in(&self, run: RunId) -> usize {
+        self.rows.iter().filter(|r| r.run == run).count()
+    }
+
+    /// How many pairs of `run` ended failed.
+    pub fn failures_in(&self, run: RunId) -> usize {
+        self.rows
+            .iter()
+            .filter(|r| r.run == run && matches!(r.status, PairStatus::Failed(_)))
+            .count()
     }
 
     pub fn row_for(&self, entry: EntryId) -> Option<&RunRow> {

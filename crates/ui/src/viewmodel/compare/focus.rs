@@ -1,19 +1,16 @@
-//! The single-pair workspace on top of the multi-pair state: until the pair list has its own
-//! views and reducer, the setup form always yields one entry, and the progress panel reads that
-//! entry's row. Pure; replaced when the multi-pair views land.
-use curlybrace_core::compare::protocol::{PairId, Preflight, RunId};
+//! The one-pair look of the Compare views until the pair list has views of its own: every
+//! accessor here reads the first included entry (the focus). The reducer never uses them; it
+//! works on entries and runtime pairs. Pure.
+use curlybrace_core::compare::protocol::Preflight;
 use curlybrace_core::error::CoreError;
 
 use super::overview::{PairStatus, RunRow};
-use super::pairs::{EntryId, PairEntry, PairList, PairOverrides};
+use super::pairs::EntryId;
 use super::preflight::PreflightView;
-use super::setup::SetupForm;
 use super::{CompareState, ResultsView};
+use curlybrace_core::compare::protocol::RunId;
 
-/// The id of the one entry the setup form stands for.
-pub const SINGLE_ENTRY: EntryId = 1;
-
-/// The run of the single entry, as the progress panel shows it.
+/// The run of the focused entry, as the progress panel shows it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum RunView {
     #[default]
@@ -35,18 +32,6 @@ pub enum RunView {
         scanned_source: u64,
         scanned_target: u64,
     },
-}
-
-/// The one entry the pickers describe; none until both sides are picked and usable.
-fn entry_of(setup: &SetupForm) -> Option<PairEntry> {
-    let (source, target) = setup.pick_pair().ok()?;
-    Some(PairEntry {
-        id: SINGLE_ENTRY,
-        source,
-        target,
-        included: true,
-        overrides: PairOverrides::default(),
-    })
 }
 
 /// (scanned source, scanned target, differences) a row shows; a failed pair keeps its last
@@ -106,49 +91,41 @@ fn finished_view(row: &RunRow) -> RunView {
 }
 
 impl CompareState {
-    /// Replaces the setup form and re-derives the one entry from its pickers.
-    pub fn with_setup(self, setup: SetupForm) -> Self {
-        let entries = entry_of(&setup).into_iter().collect();
-        let pairs = PairList {
-            entries,
-            next_entry: SINGLE_ENTRY + 1,
-            editing: None,
-        };
-        Self {
-            setup,
-            pairs,
-            ..self
-        }
+    /// The entry the one-pair views show: the first included one.
+    pub fn focus_entry(&self) -> Option<EntryId> {
+        self.pairs.entries.iter().find(|e| e.included).map(|e| e.id)
     }
 
-    fn single_row(&self) -> Option<&RunRow> {
-        self.overview.row_for(SINGLE_ENTRY)
+    fn focus_row(&self) -> Option<&RunRow> {
+        self.overview.row_for(self.focus_entry()?)
     }
 
     pub fn run_view(&self) -> RunView {
-        let Some(row) = self.single_row() else {
+        let Some(row) = self.focus_row() else {
             return RunView::Idle;
         };
-        match (self.is_running(), &row.status) {
+        let in_flight = self.overview.active.is_some_and(|a| a.run == row.run);
+        match (in_flight, &row.status) {
             (_, PairStatus::Discarded) => RunView::Idle,
             (true, _) => running_view(row),
             (false, _) => finished_view(row),
         }
     }
 
-    /// The latest verdict of the entry, `Checking` while its check is queued or in flight.
+    /// The latest verdict of the focused entry, `Checking` while its check is queued or out.
     pub fn preflight_view(&self) -> PreflightView {
         use super::checks::EntryCheck;
-        match self.checks.entries.get(&SINGLE_ENTRY) {
+        let check = self.focus_entry().and_then(|e| self.checks.entries.get(&e));
+        match check {
             Some(EntryCheck::Queued | EntryCheck::Checking(_)) => PreflightView::Checking,
             Some(EntryCheck::Done(view, _)) => *view,
             _ => PreflightView::Unchecked,
         }
     }
 
-    /// The counts and index status behind an accepted verdict.
+    /// The counts and index status behind the focused entry's verdict.
     pub fn last_check(&self) -> Option<&Preflight> {
-        self.checks.preflight(SINGLE_ENTRY)
+        self.checks.preflight(self.focus_entry()?)
     }
 
     /// A check is out (even one whose answer will be dropped).
@@ -165,27 +142,30 @@ impl CompareState {
         self.open_pair.and_then(|pair| self.results.get(&pair))
     }
 
-    /// The runtime pair of the single entry's latest run, while its results may still exist.
-    pub fn single_pair(&self) -> Option<PairId> {
-        self.single_row().map(|row| row.pair)
+    /// The entry's latest run failed on a duplicate key (the only failure the panel explains).
+    pub fn failed_on_duplicate_key(&self, entry: EntryId) -> bool {
+        matches!(
+            self.overview.row_for(entry).map(|r| &r.status),
+            Some(PairStatus::Failed(CoreError::CompareDuplicateKey))
+        )
     }
 
-    /// The run of the single entry failed on a duplicate key (the only failure the panel
-    /// explains).
-    pub fn run_failed_on_duplicate_key(&self) -> bool {
-        !self.is_running()
-            && matches!(
-                self.single_row().map(|r| &r.status),
-                Some(PairStatus::Failed(CoreError::CompareDuplicateKey))
-            )
-    }
-
-    /// Whether Find duplicate keys may fire: the run failed on a duplicate key and the setup is
-    /// unchanged since (an edit resets the verdict, so Find waits for a fresh check).
-    pub fn can_find_duplicates(&self) -> bool {
+    /// Whether Find duplicate keys may fire for `entry`: its run failed on a duplicate key, no
+    /// run, check or lookup is out, and its setup is unchanged since (an edit resets the
+    /// verdict, so Find waits for a fresh check).
+    pub fn can_find_duplicates_for(&self, entry: EntryId) -> bool {
         self.is_ready()
-            && self.checks.allows_start(SINGLE_ENTRY)
+            && !self.is_running()
             && !self.check_in_flight()
-            && self.duplicates.can_find(self.run_failed_on_duplicate_key())
+            && self.checks.allows_start(entry)
+            && self
+                .duplicates
+                .can_find(self.failed_on_duplicate_key(entry))
+    }
+
+    /// `can_find_duplicates_for` the focused entry.
+    pub fn can_find_duplicates(&self) -> bool {
+        self.focus_entry()
+            .is_some_and(|entry| self.can_find_duplicates_for(entry))
     }
 }

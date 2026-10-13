@@ -137,6 +137,7 @@ mod compare_workspace {
         let state = act(AppState::new(vec![a, b]), open);
         let state = step(state, event(CompareEvent::Opened { session: 1 }));
         let state = picked(picked(state, Side::Source), Side::Target);
+        let state = act(state, CompareAction::AddPair);
         let state = match through {
             "form" => state,
             "checking" => act(state, CompareAction::RunCheck),
@@ -149,7 +150,7 @@ mod compare_workspace {
             }
             "checked" => checked(state),
             "duplicates" => duplicate_failure(state),
-            "duplicates_loading" => act(duplicate_failure(state), CompareAction::FindDuplicates),
+            "duplicates_loading" => act(duplicate_failure(state), CompareAction::FindDuplicates(0)),
             "duplicates_loaded" => duplicates_loaded(duplicate_failure(state)),
             _ => finished(state),
         };
@@ -188,14 +189,14 @@ mod compare_workspace {
 
     /// Find was clicked and both sides answered: one group on the source, none on the target.
     fn duplicates_loaded(state: AppState) -> AppState {
-        let state = act(state, CompareAction::FindDuplicates);
+        let state = act(state, CompareAction::FindDuplicates(0));
         let group = DuplicateGroup {
             key: KeyTuple(vec![Bson::String("dup@example.com".into())]),
             count: 2,
         };
         let answer = CompareEvent::DuplicateKeys {
             session: 1,
-            pair: 2, // the run follows the check, so it has the next pair id
+            pair: 3, // a lookup takes a fresh id: after the check (1) and the run (2)
             source: DuplicateReport {
                 groups: vec![group],
                 more: true,

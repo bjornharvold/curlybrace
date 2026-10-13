@@ -6,7 +6,8 @@ use curlybrace_core::compare::protocol::Preflight;
 use curlybrace_core::store::IndexStatus;
 use eframe::egui;
 
-/// `setup_ready`: the setup has no issues (computed once per frame by the caller).
+/// `setup_ready`: the setup has no issues (computed once per frame by the caller). Until the
+/// pair list has views of its own, the button first adds the picked pair, then checks the list.
 pub fn show_preflight(
     ui: &mut egui::Ui,
     state: &CompareState,
@@ -23,11 +24,18 @@ pub fn show_preflight(
             "compare.preflight.check"
         };
         let button = egui::Button::new(i18n.t(label));
-        if ui
-            .add_enabled(state.can_check_given(setup_ready), button)
-            .clicked()
-        {
-            action = Some(CompareAction::RunCheck);
+        let adding = state.pairs.entries.is_empty();
+        let enabled = if adding {
+            setup_ready && state.is_ready()
+        } else {
+            state.can_check()
+        };
+        if ui.add_enabled(enabled, button).clicked() {
+            action = Some(if adding {
+                CompareAction::AddPair
+            } else {
+                CompareAction::RunCheck
+            });
         }
         if state.check_in_flight() {
             ui.spinner();

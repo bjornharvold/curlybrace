@@ -125,3 +125,13 @@ fn pending_covers_queued_and_checking_only() {
     let queue = queue.sending(2, 8).failed(8);
     assert!(!queue.has_pending());
 }
+
+#[test]
+fn a_skipped_entry_ends_as_failed_and_the_queue_moves_on() {
+    let queue = CheckQueue::queued(&[1, 2]).skipped(1);
+    assert_eq!(queue.entries.get(&1), Some(&EntryCheck::Failed));
+    assert_eq!(queue.next_to_send(), Some(2));
+    // Only a queued entry can be skipped.
+    let checking = CheckQueue::queued(&[1]).sending(1, 5).skipped(1);
+    assert_eq!(checking.in_flight(), Some((1, 5)));
+}

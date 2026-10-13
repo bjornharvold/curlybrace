@@ -82,6 +82,15 @@ impl CheckQueue {
         }
     }
 
+    /// The entry cannot be sent (its spec no longer builds): it ends as failed, so the queue
+    /// moves on instead of waiting for an answer that will never come.
+    pub fn skipped(self, id: EntryId) -> Self {
+        self.map_entry(id, |check| match check {
+            EntryCheck::Queued => EntryCheck::Failed,
+            other => other,
+        })
+    }
+
     pub fn verdict(&self, id: EntryId) -> Option<&PreflightView> {
         match self.entries.get(&id) {
             Some(EntryCheck::Done(view, _)) => Some(view),

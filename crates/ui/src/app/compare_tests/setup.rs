@@ -183,13 +183,15 @@ fn failures_of_other_sessions_are_ignored_and_current_ones_become_banners() {
 }
 
 #[test]
-fn picking_a_view_keeps_the_form_not_ready() {
+fn picking_a_view_keeps_the_form_not_ready_and_adds_no_pair() {
     let (state, cmds) = act(
-        picked_state(),
+        picked_form_state(),
         CompareAction::PickSide(Side::Target, Pick::Collection("v".into())),
     );
     assert!(cmds.is_empty());
     assert!(!state.compare.setup.ready());
+    let (state, cmds) = act(state, CompareAction::AddPair);
+    assert!(cmds.is_empty() && state.compare.pairs.entries.is_empty());
     let (_, cmds) = act(state, CompareAction::RunCheck);
     assert!(cmds.is_empty());
 }

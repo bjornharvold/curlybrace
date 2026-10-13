@@ -6,7 +6,10 @@
 mod actions;
 mod banner;
 pub mod compare;
+mod compare_checks;
 mod compare_duplicates;
+mod compare_pairs;
+mod compare_results;
 mod compare_run;
 pub mod connections;
 pub mod host_key;
@@ -309,7 +312,7 @@ mod tests {
     #[test]
     fn a_stopped_runtime_also_ends_the_compare_session() {
         use crate::app::compare::CompareAction;
-        use crate::viewmodel::compare::{RunOverview, RunView, SINGLE_ENTRY, SessionPhase};
+        use crate::viewmodel::compare::{RunOverview, RunView, SessionPhase};
         let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
         drop(commands);
         let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -319,8 +322,7 @@ mod tests {
         let mut app = CurlybraceApp::new(handle, I18n::english(), vec![a], secrets);
         app.state_mut().compare.session = Some(SessionPhase::Ready(4));
         app.state_mut().compare.next_session = 5;
-        app.state_mut().compare.overview =
-            RunOverview::default().started(2, &[(SINGLE_ENTRY, 1)]).0;
+        app.state_mut().compare.overview = RunOverview::default().started(2, &[(0, 1)]).0;
         // Any command now finds the runtime gone.
         app.dispatch(Input::Compare(CompareAction::Cancel));
         let compare = &app.state().compare;

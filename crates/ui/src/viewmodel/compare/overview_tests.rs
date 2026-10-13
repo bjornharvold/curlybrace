@@ -213,3 +213,69 @@ fn a_failed_pair_keeps_its_last_progress() {
     let fresh = running(1, &[(1, 10)]);
     assert_eq!(fresh.row_for(1).unwrap().last_progress, (0, 0, 0));
 }
+
+#[test]
+fn pair_done_needs_the_active_run() {
+    // The run ended without a terminal for its rows: a late PairDone settles nothing.
+    let ended = running(1, &[(1, 10)]).run_done(1);
+    assert_eq!(
+        ended
+            .clone()
+            .pair_done(1, 10, PairOutcome::Completed(summary(1, 0))),
+        ended
+    );
+    // An event of an earlier run does not settle the active run's row either.
+    let o = running(2, &[(1, 10)]);
+    assert_eq!(
+        o.clone()
+            .pair_done(1, 10, PairOutcome::Completed(summary(1, 0))),
+        o
+    );
+}
+
+#[test]
+fn a_refused_start_fails_only_the_pending_rows_of_the_active_run() {
+    let finished = running(1, &[(1, 10), (2, 11)])
+        .pair_done(1, 10, PairOutcome::Completed(summary(1, 0)))
+        .pair_done(1, 11, PairOutcome::Completed(summary(0, 2)))
+        .run_done(1);
+    let (o, _) = finished.started(2, &[(2, 20), (3, 21)]);
+    let refused = o.start_refused(&CoreError::CompareSetupInvalid);
+    assert!(refused.active.is_none());
+    assert!(matches!(status_of(&refused, 1), PairStatus::Completed(_)));
+    for entry in [2, 3] {
+        assert_eq!(
+            status_of(&refused, entry),
+            PairStatus::Failed(CoreError::CompareSetupInvalid)
+        );
+    }
+}
+
+#[test]
+fn a_refused_start_keeps_the_rows_of_the_run_that_already_ended() {
+    let o = running(1, &[(1, 10), (2, 11)]).pair_done(1, 10, PairOutcome::Completed(summary(1, 0)));
+    let refused = o.start_refused(&CoreError::CompareSetupInvalid);
+    assert!(matches!(status_of(&refused, 1), PairStatus::Completed(_)));
+    assert!(matches!(status_of(&refused, 2), PairStatus::Failed(_)));
+}
+
+#[test]
+fn a_refused_start_with_no_run_changes_nothing() {
+    let idle = running(1, &[(1, 10)]).run_done(1);
+    assert_eq!(
+        idle.clone().start_refused(&CoreError::CompareSetupInvalid),
+        idle
+    );
+}
+
+#[test]
+fn run_counters_and_live_entries() {
+    let o = running(1, &[(1, 10), (2, 11), (3, 12)])
+        .pair_done(1, 10, PairOutcome::Failed(CoreError::CompareDuplicateKey))
+        .pair_done(1, 11, PairOutcome::Completed(summary(1, 0)));
+    assert_eq!((o.rows_in(1), o.rows_in(2)), (3, 0));
+    assert_eq!((o.failures_in(1), o.failures_in(2)), (1, 0));
+    assert!(!o.entry_is_live(1) && !o.entry_is_live(2));
+    assert!(o.entry_is_live(3), "pending counts as live");
+    assert!(!o.entry_is_live(99));
+}

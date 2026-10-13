@@ -13,6 +13,7 @@ pub fn show_duplicates(
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let view = &state.duplicates;
+    let focus = state.focus_entry();
     let offered = state.can_find_duplicates();
     if !offered && *view == DuplicatesView::Idle {
         return None;
@@ -22,10 +23,11 @@ pub fn show_duplicates(
         ui.strong(i18n.t("compare.duplicates.title"));
         // One button for the whole panel; its label says Try again once a lookup has failed.
         let key = match view {
-            DuplicatesView::Failed => "compare.duplicates.retry",
+            DuplicatesView::Failed { .. } => "compare.duplicates.retry",
             _ => "compare.duplicates.find",
         };
-        let button = find_button(ui, offered, key, i18n);
+        let button = find_button(ui, offered, key, i18n)
+            .and_then(|()| focus.map(CompareAction::FindDuplicates));
         show_body(ui, view, i18n);
         button
     })
@@ -33,25 +35,25 @@ pub fn show_duplicates(
 }
 
 /// The Find / Try again button; disabled whenever the view model does not offer the lookup.
-fn find_button(ui: &mut egui::Ui, offered: bool, key: &str, i18n: &I18n) -> Option<CompareAction> {
+fn find_button(ui: &mut egui::Ui, offered: bool, key: &str, i18n: &I18n) -> Option<()> {
     let button = egui::Button::new(i18n.t(key));
     let clicked = ui.add_enabled(offered, button).clicked();
-    clicked.then_some(CompareAction::FindDuplicates)
+    clicked.then_some(())
 }
 
 fn show_body(ui: &mut egui::Ui, view: &DuplicatesView, i18n: &I18n) {
     match view {
         DuplicatesView::Idle => {}
-        DuplicatesView::Loading { stale } => show_loading(ui, *stale, i18n),
+        DuplicatesView::Loading { stale, .. } => show_loading(ui, *stale, i18n),
         DuplicatesView::Loaded { .. } if view.is_empty_result() => {
             ui.label(i18n.t("compare.duplicates.none_found"));
         }
-        DuplicatesView::Loaded { source, target } => {
+        DuplicatesView::Loaded { source, target, .. } => {
             show_side(ui, "source", "compare.duplicates.source", source, i18n);
             show_side(ui, "target", "compare.duplicates.target", target, i18n);
             show_hint(ui, i18n);
         }
-        DuplicatesView::Failed => show_hint(ui, i18n),
+        DuplicatesView::Failed { .. } => show_hint(ui, i18n),
     }
 }
 

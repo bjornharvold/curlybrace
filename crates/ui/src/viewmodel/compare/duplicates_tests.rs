@@ -17,18 +17,41 @@ fn report(groups: Vec<DuplicateGroup>) -> DuplicateReport {
     }
 }
 
+fn loading(stale: bool) -> DuplicatesView {
+    DuplicatesView::Loading {
+        entry: 3,
+        pair: 9,
+        stale,
+    }
+}
+
+#[test]
+fn the_panel_remembers_which_entry_it_belongs_to() {
+    assert_eq!(DuplicatesView::Idle.entry(), None);
+    assert_eq!(loading(false).entry(), Some(3));
+    assert_eq!(DuplicatesView::Failed { entry: 4 }.entry(), Some(4));
+    let loaded = DuplicatesView::Loaded {
+        entry: 5,
+        source: report(vec![]),
+        target: report(vec![]),
+    };
+    assert_eq!(loaded.entry(), Some(5));
+    assert_eq!(loading(false).superseded().entry(), Some(3));
+}
+
 #[test]
 fn find_is_offered_only_after_a_duplicate_key_failure_and_never_while_loading() {
     assert!(DuplicatesView::Idle.can_find(true));
     assert!(!DuplicatesView::Idle.can_find(false));
-    assert!(DuplicatesView::Failed.can_find(true));
+    assert!(DuplicatesView::Failed { entry: 3 }.can_find(true));
     let loaded = DuplicatesView::Loaded {
+        entry: 3,
         source: report(vec![]),
         target: report(vec![]),
     };
     assert!(loaded.can_find(true));
     for stale in [false, true] {
-        assert!(!DuplicatesView::Loading { stale }.can_find(true));
+        assert!(!loading(stale).can_find(true));
     }
 }
 
@@ -67,6 +90,7 @@ fn a_compound_key_shows_every_value_in_field_order() {
 #[test]
 fn only_a_loaded_view_with_no_groups_on_either_side_is_an_empty_result() {
     let loaded = |source: DuplicateReport, target: DuplicateReport| DuplicatesView::Loaded {
+        entry: 3,
         source,
         target,
     };
@@ -75,17 +99,18 @@ fn only_a_loaded_view_with_no_groups_on_either_side_is_an_empty_result() {
     assert!(!loaded(one(), report(vec![])).is_empty_result());
     assert!(!loaded(report(vec![]), one()).is_empty_result());
     assert!(!DuplicatesView::Idle.is_empty_result());
-    assert!(!DuplicatesView::Failed.is_empty_result());
-    assert!(!DuplicatesView::Loading { stale: false }.is_empty_result());
+    assert!(!DuplicatesView::Failed { entry: 3 }.is_empty_result());
+    assert!(!loading(false).is_empty_result());
 }
 
 #[test]
 fn empty_reports_are_a_loaded_view() {
     let view = DuplicatesView::Loaded {
+        entry: 3,
         source: report(vec![]),
         target: report(vec![]),
     };
-    let DuplicatesView::Loaded { source, target } = &view else {
+    let DuplicatesView::Loaded { source, target, .. } = &view else {
         unreachable!()
     };
     assert!(DuplicatesView::rows(source).is_empty());
@@ -94,9 +119,9 @@ fn empty_reports_are_a_loaded_view() {
 
 #[test]
 fn superseding_stales_a_request_in_flight_and_clears_everything_else() {
+    assert_eq!(loading(false).superseded(), loading(true));
     assert_eq!(
-        DuplicatesView::Loading { stale: false }.superseded(),
-        DuplicatesView::Loading { stale: true }
+        DuplicatesView::Failed { entry: 3 }.superseded(),
+        DuplicatesView::Idle
     );
-    assert_eq!(DuplicatesView::Failed.superseded(), DuplicatesView::Idle);
 }
