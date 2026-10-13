@@ -16,7 +16,12 @@ use crate::runtime::Command;
 use crate::store::CollectionKind;
 use crate::test_support::InMemoryStore;
 
-fn bulk(pair: u32, category: Category, kind: ApplyKind, direction: Direction) -> BulkApply {
+pub(super) fn bulk(
+    pair: u32,
+    category: Category,
+    kind: ApplyKind,
+    direction: Direction,
+) -> BulkApply {
     BulkApply {
         pair,
         category,
