@@ -34,7 +34,7 @@ pub fn show_pair_results(
     let detail = match &state.detail {
         Some(d) => {
             ui.separator();
-            show_detail(ui, d, &state.detail_buttons(), i18n)
+            show_detail(ui, d, &state.detail_buttons(&d.key), i18n)
         }
         None => {
             forget_cache(ui);

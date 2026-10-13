@@ -13,7 +13,9 @@ fn labelled_checkbox(ui: &mut egui::Ui, ticked: bool, enabled: bool, label: &str
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, ticked, label)
     });
-    response.clicked()
+    let clicked = response.clicked();
+    response.on_hover_text(label);
+    clicked
 }
 
 /// The checkbox of one row, named by the row's key text.
@@ -21,9 +23,15 @@ pub fn row_checkbox(ui: &mut egui::Ui, ticked: bool, enabled: bool, key_text: &s
     labelled_checkbox(ui, ticked, enabled, key_text)
 }
 
-/// The header checkbox for the loaded page.
+/// The header checkbox. Unticked it selects the loaded page; ticked (the whole page is
+/// selected) a click clears the selection of the whole tab, and its name says so.
 pub fn header_checkbox(ui: &mut egui::Ui, ticked: bool, enabled: bool, i18n: &I18n) -> bool {
-    let label = i18n.t("compare.results.select_page");
+    let key = if ticked {
+        "compare.results.clear_selection_hint"
+    } else {
+        "compare.results.select_page"
+    };
+    let label = i18n.t(key);
     labelled_checkbox(ui, ticked, enabled, &label)
 }
 

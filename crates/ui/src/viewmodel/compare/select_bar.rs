@@ -3,6 +3,9 @@
 //!
 //! Everything is a membership lookup for the rows on screen. The selection is never walked, so an
 //! "all in category" selection of a million rows costs the same as one ticked row.
+use std::cmp::Ordering;
+
+use curlybrace_core::compare::key::{KeyTuple, compare_tuples};
 use curlybrace_core::compare::protocol::PairId;
 use curlybrace_core::compare::results::Category;
 
@@ -24,6 +27,8 @@ pub enum ActionBlock {
     Checking,
     /// Nothing is ticked.
     NothingSelected,
+    /// The detail's key is not on the loaded page of the open tab.
+    NotOnPage,
 }
 
 impl ActionBlock {
@@ -35,6 +40,7 @@ impl ActionBlock {
             Self::Running => "compare.apply.reason.running",
             Self::Checking => "compare.apply.reason.checking",
             Self::NothingSelected => "compare.apply.reason.nothing_selected",
+            Self::NotOnPage => "compare.apply.reason.not_on_page",
         }
     }
 }
@@ -116,12 +122,24 @@ impl CompareState {
             .collect()
     }
 
-    /// The buttons for the one key open in the detail pane (it belongs to the open tab).
-    pub fn detail_buttons(&self) -> Vec<ActionButton> {
-        match self.open_results() {
-            Some(r) => self.action_buttons(r.pair, r.category, 1),
-            None => Vec::new(),
+    /// The buttons for the one key open in the detail pane. They are all blocked with
+    /// `NotOnPage` unless the key is a row of the open tab's loaded page (the reducer only
+    /// queues loaded rows).
+    pub fn detail_buttons(&self, key: &KeyTuple) -> Vec<ActionButton> {
+        let Some(r) = self.open_results() else {
+            return Vec::new();
+        };
+        let on_page = r
+            .rows
+            .iter()
+            .any(|row| compare_tuples(&row.key, key) == Ordering::Equal);
+        let mut buttons = self.action_buttons(r.pair, r.category, 1);
+        if !on_page {
+            for button in &mut buttons {
+                button.block = Some(ActionBlock::NotOnPage);
+            }
         }
+        buttons
     }
 }
 

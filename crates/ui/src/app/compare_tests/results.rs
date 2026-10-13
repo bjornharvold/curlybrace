@@ -183,3 +183,29 @@ fn the_identical_count_is_kept_with_the_results() {
         17
     );
 }
+
+#[test]
+fn switching_tab_or_page_closes_the_detail_and_a_late_answer_is_dropped() {
+    let key = KeyTuple(vec![Bson::Int32(1)]);
+    let (open, _) = act(with_rows(), CompareAction::Select(key.clone()));
+    assert!(open.compare.detail.is_some());
+    let (tab, _) = act(open, CompareAction::SelectCategory(Category::OnlyInSource));
+    assert!(tab.compare.detail.is_none(), "tab change clears the detail");
+
+    let (open, _) = act(with_rows(), CompareAction::Select(key.clone()));
+    let (paged, _) = act(open, CompareAction::Page(1));
+    assert!(paged.compare.detail.is_none(), "page change clears it");
+    let late = CompareEvent::Detail {
+        session: 1,
+        pair: RUN_PAIR,
+        key,
+        source: None,
+        target: None,
+        changes: vec![],
+    };
+    let (after, _) = update(paged, ev(late));
+    assert!(
+        after.compare.detail.is_none(),
+        "a late answer opens nothing"
+    );
+}

@@ -14,7 +14,7 @@ use curlybrace_core::store::{CollectionKind, IndexStatus};
 use curlybrace_ui::app::compare::CompareAction;
 use curlybrace_ui::app::reducer::{Input, update};
 use curlybrace_ui::app::state::AppState;
-use curlybrace_ui::viewmodel::compare::{ApplyUi, Pick};
+use curlybrace_ui::viewmodel::compare::{ActiveRun, ApplyUi, Pick};
 
 pub const PAIR: PairId = 2;
 /// Rows per category in the fixture.
@@ -175,6 +175,26 @@ pub fn applied(state: AppState) -> AppState {
         ..state.compare.clone()
     };
     AppState { compare, ..state }
+}
+
+/// Another compare run is in flight.
+pub fn run_active(state: AppState) -> AppState {
+    let active = ActiveRun {
+        run: 5,
+        cancel_requested: false,
+        failure_noted: false,
+        pairs: 1,
+    };
+    let mut compare = state.compare.clone();
+    compare.overview.active = Some(active);
+    AppState { compare, ..state }
+}
+
+/// A check is in flight.
+pub fn check_out(state: AppState) -> AppState {
+    let state = act(state, CompareAction::RunCheck);
+    assert!(state.compare.check_in_flight(), "the fixture sent a check");
+    state
 }
 
 /// An apply is running (the lists are read-only).

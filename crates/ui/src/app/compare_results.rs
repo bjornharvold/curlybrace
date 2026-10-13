@@ -61,7 +61,14 @@ pub(super) fn moved(
         return none(state);
     };
     let commands = next.request(session).into_iter().map(cmd).collect();
-    let compare = state.compare.clone().results_updated(next.pair, |_| next);
+    // The open detail belongs to a row of the tab and page just left. A page arrives later, so
+    // it is dropped on any category or page change rather than checked against rows not yet
+    // loaded (a late `Detail` for it is then ignored).
+    let compare = CompareState {
+        detail: None,
+        ..state.compare.clone()
+    }
+    .results_updated(next.pair, |_| next);
     (with_compare(state, compare), commands)
 }
 

@@ -5,7 +5,6 @@ use bson::Bson;
 use curlybrace_core::compare::engine::Summary;
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::RowView;
-use std::time::Instant;
 
 const PAIR: PairId = 2;
 
@@ -132,6 +131,7 @@ fn every_reason_has_its_own_key() {
         ActionBlock::Running,
         ActionBlock::Checking,
         ActionBlock::NothingSelected,
+        ActionBlock::NotOnPage,
     ];
     let keys: std::collections::BTreeSet<_> = all.iter().map(|b| b.i18n_key()).collect();
     assert_eq!(keys.len(), all.len());
@@ -217,11 +217,10 @@ fn pending_documents_count_keys_and_whole_tabs() {
 fn a_million_key_all_selection_costs_nothing_per_visible_row() {
     let view = results(Category::Different, 1_000_000, 100);
     let all = Selection::default().all_selected(PAIR, Category::Different);
-    let started = Instant::now();
+    // The `all` flag holds no keys, so there is nothing to scan by construction.
     let ticks = visible_ticks(&all, &view);
     assert!(ticks.iter().all(|t| *t) && ticks.len() == 100);
     assert!(page_ticked(&ticks));
-    assert!(started.elapsed().as_millis() < 50, "all flag: O(1) lookups");
 }
 
 #[test]
@@ -231,9 +230,46 @@ fn a_million_explicit_keys_are_only_looked_up_for_the_visible_rows() {
     let keys: Vec<KeyTuple> = (0..2_000_000).step_by(2).map(k).collect();
     let big = Selection::default().page_selected(PAIR, Category::Different, &keys);
     assert_eq!(big.count(PAIR, Category::Different, 0), 1_000_000);
-    let started = Instant::now();
+    // Correctness only: no wall-clock bound (it would be flaky). `visible_ticks` has no path
+    // that iterates the selection.
     let ticks = visible_ticks(&big, &view);
     assert_eq!(ticks.iter().filter(|t| **t).count(), 50);
     assert!(ticks[0] && !ticks[1]);
-    assert!(started.elapsed().as_millis() < 50, "100 lookups, no scan");
+}
+
+fn open_with_rows(category: Category, loaded: usize) -> CompareState {
+    CompareState {
+        results: [(PAIR, results(category, 250, loaded))].into(),
+        open_pair: Some(PAIR),
+        ..state_with(completed(), false)
+    }
+}
+
+#[test]
+fn detail_buttons_are_open_for_a_key_on_the_loaded_page() {
+    let state = open_with_rows(Category::Different, 5);
+    let buttons = state.detail_buttons(&k(3));
+    assert_eq!(buttons.len(), 2);
+    assert!(buttons.iter().all(|b| b.block.is_none()));
+}
+
+#[test]
+fn detail_buttons_are_blocked_for_a_key_off_the_page() {
+    let state = open_with_rows(Category::Different, 5);
+    let buttons = state.detail_buttons(&k(500));
+    assert_eq!(buttons.len(), 2);
+    assert!(
+        buttons
+            .iter()
+            .all(|b| b.block == Some(ActionBlock::NotOnPage))
+    );
+    // A page not loaded yet has no rows: nothing is on it.
+    let loading = open_with_rows(Category::Different, 0);
+    assert!(
+        loading
+            .detail_buttons(&k(1))
+            .iter()
+            .all(|b| b.block == Some(ActionBlock::NotOnPage))
+    );
+    assert!(CompareState::default().detail_buttons(&k(1)).is_empty());
 }

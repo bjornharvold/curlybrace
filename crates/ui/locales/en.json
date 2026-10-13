@@ -75,6 +75,7 @@
         "busy": "An apply is in progress.",
         "checking": "A check is running. Wait until it finishes.",
         "not_completed": "This pair has no finished comparison to act on.",
+        "not_on_page": "This document is not on the page shown. Open it from the list again.",
         "nothing_selected": "Select at least one document first.",
         "running": "A comparison is running. Wait until it finishes."
       },
@@ -197,6 +198,7 @@
     "results": {
       "back_to_overview": "Back to overview",
       "clear": "Clear selection",
+      "clear_selection_hint": "Clear the selection of every page of this tab",
       "empty_category": "No documents in this category.",
       "identical": "No differences. The two collections match under the current rules.",
       "identical_count": "Identical documents: {count}",

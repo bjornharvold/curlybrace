@@ -5,7 +5,8 @@ mod support;
 
 mod compare_apply_selection {
     use super::support::compare_apply_states::{
-        DIFFERENT, act, applied, applying, finished, in_category, key, with_detail,
+        DIFFERENT, act, applied, applying, check_out, finished, in_category, key, run_active,
+        with_detail,
     };
     use curlybrace_core::compare::results::Category;
     use curlybrace_ui::I18n;
@@ -224,6 +225,50 @@ mod compare_apply_selection {
         );
         assert!(disabled(&harness, &action_label(RowAction::CopyToTarget)));
         assert!(disabled(&harness, &t("compare.results.clear")));
+    }
+
+    #[test]
+    fn the_header_checkbox_clears_when_the_whole_page_is_ticked_and_selects_otherwise() {
+        // Not ticked: select the page.
+        let mut unticked = harness(finished());
+        unticked
+            .get_by_role_and_label(Role::CheckBox, &t("compare.results.select_page"))
+            .click();
+        unticked.run();
+        assert_eq!(unticked.state().2, Some(CompareAction::SelectPage));
+
+        // Partly ticked: still select the page.
+        let mut partly = harness(ticked(finished(), 1));
+        partly
+            .get_by_role_and_label(Role::CheckBox, &t("compare.results.select_page"))
+            .click();
+        partly.run();
+        assert_eq!(partly.state().2, Some(CompareAction::SelectPage));
+
+        // Whole page ticked: the box clears the tab, and its name says so.
+        let state = act(finished(), CompareAction::SelectPage);
+        let mut all = harness(state);
+        all.get_by_role_and_label(Role::CheckBox, &t("compare.results.clear_selection_hint"))
+            .click();
+        all.run();
+        assert_eq!(all.state().2, Some(CompareAction::ClearSelection));
+    }
+
+    #[test]
+    fn a_running_compare_or_check_disables_actions_with_their_reason() {
+        let copy = action_label(RowAction::CopyToTarget);
+        let mut running = harness(run_active(ticked(finished(), 1)));
+        assert!(disabled(&running, &copy));
+        running.get_by_role_and_label(Role::Button, &copy).hover();
+        running.run_steps(30);
+        running.get_by_label(&t("compare.apply.reason.running"));
+
+        let mut checking = harness(check_out(ticked(finished(), 1)));
+        checking.run_steps(2);
+        assert!(disabled(&checking, &copy));
+        checking.get_by_role_and_label(Role::Button, &copy).hover();
+        checking.run_steps(30);
+        checking.get_by_label(&t("compare.apply.reason.checking"));
     }
 
     #[test]

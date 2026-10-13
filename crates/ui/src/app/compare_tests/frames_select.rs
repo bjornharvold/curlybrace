@@ -38,6 +38,19 @@ fn an_applied_pair_shows_the_translated_note() {
 }
 
 #[test]
+fn a_detail_off_the_page_renders_with_its_actions_blocked_and_translated() {
+    let mut state = workspace(tab_of(Category::Different));
+    let off_page = KeyTuple(vec![Bson::Int32(99)]);
+    state.compare.detail = Some(crate::viewmodel::compare::DetailView::loading(off_page));
+    let buttons = state
+        .compare
+        .detail_buttons(&KeyTuple(vec![Bson::Int32(99)]));
+    assert!(buttons.iter().all(|b| b.block.is_some()));
+    let texts = assert_translated(&state, "detail off page");
+    assert!(has(&texts, "Copy to source"));
+}
+
+#[test]
 fn the_detail_actions_are_translated() {
     let key = KeyTuple(vec![Bson::Int32(1)]);
     let (state, _) = act(tab_of(Category::Different), CompareAction::Select(key));
