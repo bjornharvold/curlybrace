@@ -12,9 +12,9 @@ const TGT: Category = Category::OnlyInTarget;
 
 #[test]
 fn toggle_on_and_off() {
-    let on = Selection::default().toggled(1, SRC, &k(1));
+    let on = Selection::default().toggled(1, SRC, &k(1), &[]);
     assert!(on.is_selected(1, SRC, &k(1)));
-    let off = on.toggled(1, SRC, &k(1));
+    let off = on.toggled(1, SRC, &k(1), &[]);
     assert!(!off.is_selected(1, SRC, &k(1)));
     assert!(off.is_empty_for(1, SRC));
     assert!(on.is_selected(1, SRC, &k(1)), "original untouched");
@@ -38,7 +38,7 @@ fn all_counts_total_without_enumerating() {
 #[test]
 fn all_clears_previous_keys() {
     let s = Selection::default()
-        .toggled(1, SRC, &k(1))
+        .toggled(1, SRC, &k(1), &[])
         .all_selected(1, SRC);
     let entry = &s.by[&(1, CatKey::from(SRC))];
     assert!(entry.all);
@@ -46,24 +46,33 @@ fn all_clears_previous_keys() {
 }
 
 #[test]
-fn unticking_under_all_turns_all_off_and_keeps_other_loaded_rows() {
+fn unticking_under_all_seeds_keys_with_loaded_minus_the_key() {
+    let loaded = [k(1), k(2), k(3)];
     let s = Selection::default()
         .all_selected(1, SRC)
-        .page_selected(1, SRC, &[k(1), k(2), k(3)])
-        .toggled(1, SRC, &k(2));
+        .toggled(1, SRC, &k(2), &loaded);
     assert!(!s.is_selected(1, SRC, &k(2)));
     assert!(s.is_selected(1, SRC, &k(1)));
     assert!(s.is_selected(1, SRC, &k(3)));
-    assert!(!s.is_selected(1, SRC, &k(99)), "all is off");
+    assert!(
+        !s.is_selected(1, SRC, &k(99)),
+        "unloaded rows become unselected"
+    );
     assert_eq!(s.count(1, SRC, 1000), 2);
+}
+
+#[test]
+fn ticking_when_not_under_all_ignores_loaded() {
+    let s = Selection::default().toggled(1, SRC, &k(1), &[k(5), k(6)]);
+    assert_eq!(s.count(1, SRC, 1000), 1);
 }
 
 #[test]
 fn cleared_and_without_pair() {
     let s = Selection::default()
-        .toggled(1, SRC, &k(1))
-        .toggled(1, TGT, &k(1))
-        .toggled(2, SRC, &k(1));
+        .toggled(1, SRC, &k(1), &[])
+        .toggled(1, TGT, &k(1), &[])
+        .toggled(2, SRC, &k(1), &[]);
     let c = s.cleared(1, SRC);
     assert!(c.is_empty_for(1, SRC));
     assert!(!c.is_empty_for(1, TGT));
@@ -74,7 +83,7 @@ fn cleared_and_without_pair() {
 
 #[test]
 fn independent_per_pair_and_category() {
-    let s = Selection::default().toggled(1, SRC, &k(1));
+    let s = Selection::default().toggled(1, SRC, &k(1), &[]);
     assert!(!s.is_selected(2, SRC, &k(1)));
     assert!(!s.is_selected(1, TGT, &k(1)));
     assert!(!s.is_selected(1, Category::Different, &k(1)));
@@ -85,7 +94,7 @@ fn ord_key_treats_numeric_types_as_equal() {
     let a = OrdKey(KeyTuple(vec![Bson::Int32(1)]));
     let b = OrdKey(KeyTuple(vec![Bson::Int64(1)]));
     assert_eq!(a, b);
-    let s = Selection::default().toggled(1, SRC, &a.0);
+    let s = Selection::default().toggled(1, SRC, &a.0, &[]);
     assert!(s.is_selected(1, SRC, &b.0));
 }
 
@@ -172,4 +181,32 @@ fn i18n_keys() {
         RowAction::DeleteFromTarget.i18n_key(),
         "compare.apply.action.delete_from_target"
     );
+}
+
+fn nan() -> KeyTuple {
+    KeyTuple(vec![Bson::Double(f64::NAN)])
+}
+
+#[test]
+fn ord_key_total_order_across_mixed_numerics_and_nan() {
+    let seq = [
+        k(1),
+        KeyTuple(vec![Bson::Int64(1)]),
+        KeyTuple(vec![Bson::Double(1.0)]),
+        k(2),
+        KeyTuple(vec![Bson::Double(2.5)]),
+        nan(),
+        nan(),
+    ];
+    for a in &seq {
+        for b in &seq {
+            let ab = OrdKey(a.clone()).cmp(&OrdKey(b.clone()));
+            let ba = OrdKey(b.clone()).cmp(&OrdKey(a.clone()));
+            assert_eq!(ab, ba.reverse(), "{a:?} {b:?}");
+        }
+    }
+    assert_eq!(OrdKey(nan()), OrdKey(nan()));
+    let mut sorted: Vec<OrdKey> = seq.iter().cloned().map(OrdKey).collect();
+    sorted.sort();
+    assert!(sorted.windows(2).all(|w| w[0] <= w[1]));
 }

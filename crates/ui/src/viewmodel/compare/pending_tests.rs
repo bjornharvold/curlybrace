@@ -26,13 +26,13 @@ fn adds_keys_in_order() {
 #[test]
 fn category_replaces_keys_and_other_category_items() {
     let (l, _) = PendingList::default().with_action(1, SRC, RowAction::CopyToTarget, keys(&[1]));
-    let (l, _) = l.with_action(1, SRC, RowAction::DeleteFromSource, Scope::Category(SRC));
+    let (l, _) = l.with_action(1, SRC, RowAction::DeleteFromSource, Scope::Category);
     let (l, _) = l.with_action(2, SRC, RowAction::CopyToTarget, keys(&[7]));
-    let (l, ignored) = l.with_action(1, SRC, RowAction::CopyToTarget, Scope::Category(SRC));
+    let (l, ignored) = l.with_action(1, SRC, RowAction::CopyToTarget, Scope::Category);
     assert_eq!(ignored, 0);
     assert_eq!(l.items().len(), 2);
     assert_eq!(l.items()[0].pair, 2, "other pair untouched");
-    assert_eq!(l.items()[1].scope, Scope::Category(SRC));
+    assert_eq!(l.items()[1].scope, Scope::Category);
     assert_eq!(l.items()[1].action, RowAction::CopyToTarget);
 }
 
@@ -50,7 +50,7 @@ fn keys_replace_in_other_key_items_and_drop_emptied() {
 #[test]
 fn category_item_swallows_keys() {
     let (l, _) =
-        PendingList::default().with_action(1, SRC, RowAction::CopyToTarget, Scope::Category(SRC));
+        PendingList::default().with_action(1, SRC, RowAction::CopyToTarget, Scope::Category);
     let (l2, ignored) = l.with_action(1, SRC, RowAction::DeleteFromSource, keys(&[1, 2, 3]));
     assert_eq!(ignored, 3);
     assert_eq!(l2, l);
@@ -84,7 +84,7 @@ fn command_parts() {
         2,
         Category::Different,
         RowAction::CopyToSource,
-        Scope::Category(Category::Different),
+        Scope::Category,
     );
     let (ops, bulk) = l.to_command_parts();
     assert_eq!(ops.len(), 2);
@@ -106,7 +106,7 @@ fn op_count_uses_totals_and_lengths() {
         2,
         Category::Different,
         RowAction::CopyToTarget,
-        Scope::Category(Category::Different),
+        Scope::Category,
     );
     let totals = |pair: PairId, cat: Category| {
         assert_eq!((pair, cat), (2, Category::Different));
@@ -121,7 +121,7 @@ fn compare_state_drops_selection_and_pending_with_results_and_session() {
     let (pending, _) =
         PendingList::default().with_action(1, SRC, RowAction::CopyToTarget, keys(&[1]));
     let state = CompareState {
-        selection: Selection::default().toggled(1, SRC, &k(1)),
+        selection: Selection::default().toggled(1, SRC, &k(1), &[]),
         pending,
         ..CompareState::default()
     };
@@ -131,4 +131,82 @@ fn compare_state_drops_selection_and_pending_with_results_and_session() {
     assert!(!kept.pending.is_empty() && !kept.selection.is_empty_for(1, SRC));
     let dropped = state.session_dropped();
     assert!(dropped.pending.is_empty() && dropped.selection.is_empty_for(1, SRC));
+}
+
+fn i64k(n: i64) -> KeyTuple {
+    KeyTuple(vec![Bson::Int64(n)])
+}
+
+fn nan() -> KeyTuple {
+    KeyTuple(vec![Bson::Double(f64::NAN)])
+}
+
+#[test]
+fn compare_equal_but_structurally_different_keys_are_displaced() {
+    let (l, _) = PendingList::default().with_action(
+        1,
+        SRC,
+        RowAction::CopyToTarget,
+        Scope::Keys(vec![k(1), nan()]),
+    );
+    let (l, _) = l.with_action(
+        1,
+        SRC,
+        RowAction::DeleteFromSource,
+        Scope::Keys(vec![i64k(1), nan()]),
+    );
+    assert_eq!(l.items().len(), 1, "first item emptied and dropped");
+    assert_eq!(l.items()[0].action, RowAction::DeleteFromSource);
+}
+
+#[test]
+fn keys_are_deduplicated_on_entry_and_ignored_counts_distinct() {
+    let (l, _) = PendingList::default().with_action(
+        1,
+        SRC,
+        RowAction::CopyToTarget,
+        Scope::Keys(vec![k(1), i64k(1), k(2), k(1)]),
+    );
+    assert_eq!(l.items()[0].scope, Scope::Keys(vec![k(1), k(2)]));
+    assert_eq!(l.op_count(&|_, _| 0), 2);
+    let (c, _) =
+        PendingList::default().with_action(1, SRC, RowAction::CopyToTarget, Scope::Category);
+    let (_, ignored) = c.with_action(
+        1,
+        SRC,
+        RowAction::DeleteFromSource,
+        Scope::Keys(vec![k(1), i64k(1), k(2)]),
+    );
+    assert_eq!(ignored, 2);
+}
+
+#[test]
+fn ten_thousand_by_ten_thousand_overlap() {
+    let a: Vec<KeyTuple> = (0..10_000).map(k).collect();
+    let b: Vec<KeyTuple> = (5_000..15_000).map(i64k).collect();
+    let (l, _) =
+        PendingList::default().with_action(1, SRC, RowAction::CopyToTarget, Scope::Keys(a));
+    let (l, _) = l.with_action(1, SRC, RowAction::DeleteFromSource, Scope::Keys(b));
+    assert_eq!(l.op_count(&|_, _| 0), 15_000);
+}
+
+#[test]
+fn command_parts_insert_keys_and_category_delete() {
+    let (l, _) = PendingList::default().with_action(1, SRC, RowAction::CopyToTarget, keys(&[1]));
+    let (l, _) = l.with_action(
+        2,
+        Category::OnlyInTarget,
+        RowAction::DeleteFromTarget,
+        Scope::Category,
+    );
+    let (ops, bulk) = l.to_command_parts();
+    assert_eq!(
+        (ops[0].kind, ops[0].direction),
+        (ApplyKind::Insert, Direction::SourceToTarget)
+    );
+    assert_eq!(bulk[0].category, Category::OnlyInTarget);
+    assert_eq!(
+        (bulk[0].kind, bulk[0].direction),
+        (ApplyKind::Delete, Direction::SourceToTarget)
+    );
 }

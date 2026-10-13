@@ -1,7 +1,8 @@
 //! Which rows of a results tab are ticked, and which action a row offers. Pure.
 //!
 //! Selection is per (pair, category) and lives here rather than in `ResultsView`, because the
-//! latter is replaced whenever the person pages.
+//! latter is replaced whenever the person pages. Unticking one row under "all" keeps only the
+//! loaded page's other rows selected; rows on unloaded pages become unselected.
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -82,13 +83,21 @@ impl Selection {
         Self { by }
     }
 
-    /// Ticks or unticks one row. Unticking under `all` turns `all` off and keeps the keys that
-    /// were ticked explicitly (the loaded page's other rows).
-    pub fn toggled(&self, pair: PairId, cat: Category, key: &KeyTuple) -> Self {
+    /// Ticks or unticks one row. Unticking under `all` turns `all` off and seeds the explicit
+    /// keys with `loaded` (the keys of the loaded page) minus `key`: rows that are not loaded
+    /// become unselected, since "all but one" is not representable. Otherwise `loaded` is unused.
+    pub fn toggled(
+        &self,
+        pair: PairId,
+        cat: Category,
+        key: &KeyTuple,
+        loaded: &[KeyTuple],
+    ) -> Self {
         let mut entry = self.entry(pair, cat);
         let ord = OrdKey(key.clone());
         if entry.all {
             entry.all = false;
+            entry.keys = loaded.iter().cloned().map(OrdKey).collect();
             entry.keys.remove(&ord);
         } else if !entry.keys.remove(&ord) {
             entry.keys.insert(ord);
@@ -159,19 +168,13 @@ pub enum RowAction {
 }
 
 impl RowAction {
-    /// The kind for a row that exists on one side only: a copy inserts, a delete deletes.
-    pub fn kind(self) -> ApplyKind {
-        match self {
-            Self::CopyToTarget | Self::CopyToSource => ApplyKind::Insert,
-            Self::DeleteFromSource | Self::DeleteFromTarget => ApplyKind::Delete,
-        }
-    }
-
-    /// The kind for a row of `cat`: a copy over a different row replaces the destination.
+    /// The kind for a row of `cat`: a copy inserts into an empty destination and replaces over a
+    /// different row; a delete deletes.
     pub fn kind_for(self, cat: Category) -> ApplyKind {
-        match (self.kind(), cat) {
-            (ApplyKind::Insert, Category::Different) => ApplyKind::Replace,
-            (kind, _) => kind,
+        match (self, cat) {
+            (Self::CopyToTarget | Self::CopyToSource, Category::Different) => ApplyKind::Replace,
+            (Self::CopyToTarget | Self::CopyToSource, _) => ApplyKind::Insert,
+            (Self::DeleteFromSource | Self::DeleteFromTarget, _) => ApplyKind::Delete,
         }
     }
 

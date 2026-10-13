@@ -1,17 +1,19 @@
 //! The queued writes of the Compare workspace, one action per (pair, key). Pure.
+use std::collections::BTreeSet;
+
 use curlybrace_core::compare::apply::{ApplyKind, ApplyOp, Direction};
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{BulkApply, PairId};
 use curlybrace_core::compare::results::Category;
 
-use super::selection::RowAction;
+use super::selection::{OrdKey, RowAction};
 
 /// Which rows a pending change covers.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Scope {
     Keys(Vec<KeyTuple>),
-    /// Every row of the category, resolved by the runtime from the stored results.
-    Category(Category),
+    /// Every row of the change's `category`, resolved by the runtime from the stored results.
+    Category,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,44 +53,64 @@ impl PendingList {
         action: RowAction,
         scope: Scope,
     ) -> (Self, usize) {
+        debug_assert!(
+            RowAction::offered_for(cat).contains(&action),
+            "{action:?} is not offered for {cat:?}"
+        );
         let covered = self
             .changes
             .iter()
-            .any(|c| c.same_tab(pair, cat) && matches!(c.scope, Scope::Category(_)));
-        let added = PendingChange {
-            pair,
-            category: cat,
-            action,
-            scope,
-        };
-        match &added.scope {
-            Scope::Category(_) => {
+            .any(|c| c.same_tab(pair, cat) && c.scope == Scope::Category);
+        match scope {
+            Scope::Category => {
                 let mut changes: Vec<_> = self
                     .changes
                     .iter()
                     .filter(|c| !c.same_tab(pair, cat))
                     .cloned()
                     .collect();
-                changes.push(added);
+                changes.push(PendingChange {
+                    pair,
+                    category: cat,
+                    action,
+                    scope,
+                });
                 (Self { changes }, 0)
             }
-            Scope::Keys(keys) if covered => (self.clone(), keys.len()),
             Scope::Keys(keys) => {
-                let mut changes = self.without_keys(pair, cat, keys);
-                changes.push(added);
+                let distinct = distinct_keys(keys);
+                if covered {
+                    return (self.clone(), distinct.len());
+                }
+                let incoming: BTreeSet<OrdKey> = distinct.iter().cloned().map(OrdKey).collect();
+                let mut changes = self.without_keys(pair, cat, &incoming);
+                changes.push(PendingChange {
+                    pair,
+                    category: cat,
+                    action,
+                    scope: Scope::Keys(distinct),
+                });
                 (Self { changes }, 0)
             }
         }
     }
 
-    /// The items with `keys` of the tab removed from their key lists; emptied items go.
-    fn without_keys(&self, pair: PairId, cat: Category, keys: &[KeyTuple]) -> Vec<PendingChange> {
+    /// The items with `incoming` removed from the tab's key lists; emptied items go.
+    fn without_keys(
+        &self,
+        pair: PairId,
+        cat: Category,
+        incoming: &BTreeSet<OrdKey>,
+    ) -> Vec<PendingChange> {
         self.changes
             .iter()
             .filter_map(|c| match &c.scope {
                 Scope::Keys(have) if c.same_tab(pair, cat) => {
-                    let kept: Vec<KeyTuple> =
-                        have.iter().filter(|k| !keys.contains(k)).cloned().collect();
+                    let kept: Vec<KeyTuple> = have
+                        .iter()
+                        .filter(|k| !incoming.contains(&OrdKey((*k).clone())))
+                        .cloned()
+                        .collect();
                     (!kept.is_empty()).then(|| PendingChange {
                         scope: Scope::Keys(kept),
                         ..c.clone()
@@ -140,7 +162,7 @@ impl PendingList {
             .iter()
             .map(|c| match &c.scope {
                 Scope::Keys(keys) => keys.len() as u64,
-                Scope::Category(cat) => totals(c.pair, *cat) as u64,
+                Scope::Category => totals(c.pair, c.category) as u64,
             })
             .sum()
     }
@@ -157,9 +179,9 @@ impl PendingList {
                     kind: c.kind(),
                     direction: c.direction(),
                 })),
-                Scope::Category(category) => bulk.push(BulkApply {
+                Scope::Category => bulk.push(BulkApply {
                     pair: c.pair,
-                    category: *category,
+                    category: c.category,
                     kind: c.kind(),
                     direction: c.direction(),
                 }),
@@ -167,6 +189,14 @@ impl PendingList {
         }
         (ops, bulk)
     }
+}
+
+/// The keys without repeats (by `compare_tuples` equality), in first-seen order.
+fn distinct_keys(keys: Vec<KeyTuple>) -> Vec<KeyTuple> {
+    let mut seen = BTreeSet::new();
+    keys.into_iter()
+        .filter(|k| seen.insert(OrdKey(k.clone())))
+        .collect()
 }
 
 #[cfg(test)]
