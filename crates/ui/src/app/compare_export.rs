@@ -289,7 +289,12 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
 /// The export ended without a `ExportDone` (refused, or the file could not be written): the
 /// banner shows it and the modal is open again with the options kept.
 pub(super) fn failed(state: AppState, error: CoreError) -> Out {
-    let export = state.compare.export.clone().reconfiguring();
+    // Only a running job is ended by a failure. One that arrives while the dialog is open is
+    // stale (nothing was sent yet): the banner shows and the dialog's answer still counts.
+    let export = match state.compare.export {
+        ExportUi::Running { .. } => state.compare.export.clone().reconfiguring(),
+        _ => state.compare.export.clone(),
+    };
     none(failure_banner(
         with_export(state, export),
         "compare_export",

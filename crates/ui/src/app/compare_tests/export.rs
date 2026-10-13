@@ -1,15 +1,13 @@
 //! The export workflow of the reducer: gates, the one command builder, events and the busy rules.
-use super::confirm::{WORD, tab, tab_of, toggled, wide_deletes, with_pending};
+use super::confirm::{tab, tab_of, toggled, wide_deletes, with_pending};
 use super::*;
 use crate::viewmodel::compare::{
-    ExportBlock, ExportDraft, ExportKind, ExportUi, PlanOptions, ReportOptions,
+    ExportBlock, ExportDraft, ExportKind, ExportUi, PlanOptions, RedactedPath, ReportOptions,
 };
 use curlybrace_core::compare::apply::IdPolicy;
-use curlybrace_core::compare::export::report::CLIPBOARD_MAX_ROWS;
 use curlybrace_core::compare::protocol::{ExportFormat, ExportOutcome, ReportTarget};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use uuid::Uuid;
 
 pub(super) fn out_path() -> PathBuf {
     PathBuf::from("/exports/out.js")
@@ -60,7 +58,7 @@ pub(super) fn running_report() -> AppState {
     started(report_modal()).0
 }
 
-fn running_clipboard() -> AppState {
+pub(super) fn running_clipboard() -> AppState {
     let (state, cmds) = act(report_modal(), CompareAction::CopyReport);
     assert_eq!(exports(&cmds).len(), 1);
     state
@@ -71,7 +69,7 @@ fn next_run(state: &AppState) -> u64 {
     state.compare.next_run
 }
 
-fn done_event(run: u64, outcome: ExportOutcome) -> Input {
+pub(super) fn done_event(run: u64, outcome: ExportOutcome) -> Input {
     ev(CompareEvent::ExportDone {
         session: 1,
         run,
@@ -88,11 +86,11 @@ fn progress(session: u64, run: u64, done: u64, total: u64) -> Input {
     })
 }
 
-fn run_of(state: &AppState) -> u64 {
+pub(super) fn run_of(state: &AppState) -> u64 {
     state.compare.export.running_run().expect("an export runs")
 }
 
-fn is_failure_banner(state: &AppState) -> bool {
+pub(super) fn is_failure_banner(state: &AppState) -> bool {
     matches!(
         state.banner,
         Some(Banner::Failure {
@@ -160,15 +158,16 @@ fn every_reason_blocks_open_and_names_its_key() {
         ExportBlock::NoPairChosen,
         ExportBlock::MixedSides,
         ExportBlock::ClipboardTooLarge,
+        ExportBlock::ClipboardReportOnly,
     ]
     .iter()
     .map(|b| b.i18n_key())
     .collect();
-    assert_eq!(keys.len(), 10, "one distinct key per reason");
+    assert_eq!(keys.len(), 11, "one distinct key per reason");
     assert!(keys.iter().all(|k| k.starts_with("compare.export.reason.")));
 }
 
-fn draft_of(state: &AppState) -> ExportDraft {
+pub(super) fn draft_of(state: &AppState) -> ExportDraft {
     state.compare.export.draft().expect("a draft").clone()
 }
 
@@ -386,137 +385,85 @@ fn a_script_for_writes_on_both_sides_is_refused_at_the_gate_json_is_not() {
     assert!(json.compare.export.is_running());
 }
 
-// ---- clipboard ----
-
-#[test]
-fn copy_report_sends_one_clipboard_command_and_keeps_the_text_in_state_until_taken() {
-    let (state, cmds) = act(report_modal(), CompareAction::CopyReport);
-    let sent = exports(&cmds);
-    assert_eq!(sent.len(), 1);
-    assert!(matches!(
-        sent[0],
-        CompareCommand::ExportReport {
-            target: ReportTarget::Clipboard,
-            ..
-        }
-    ));
-    let run = run_of(&state);
-    let text = ev(CompareEvent::ExportText {
-        session: 1,
-        run,
-        text: "pair,key\r\n1,secret-key\r\n".into(),
-    });
-    let (state, cmds) = update(state, text);
-    assert!(cmds.is_empty());
-    assert!(
-        !format!("{:?}", state.compare).contains("secret-key"),
-        "never in Debug output"
-    );
-    let outcome = ExportOutcome {
-        written: 1,
-        ..ExportOutcome::default()
-    };
-    let (state, _) = update(state, done_event(run, outcome));
-    assert!(matches!(
-        state.compare.export,
-        ExportUi::Copied { rows: 1, .. }
-    ));
-    let (state, text) = state.take_clipboard_text();
-    assert_eq!(text.as_deref(), Some("pair,key\r\n1,secret-key\r\n"));
-    assert!(matches!(
-        state.compare.export,
-        ExportUi::Copied {
-            rows: 1,
-            text: None
-        }
-    ));
-    let (_, again) = state.take_clipboard_text();
-    assert_eq!(again, None, "handed over once");
-}
-
-#[test]
-fn copy_report_is_for_reports_within_the_cap() {
-    let (state, cmds) = act(plan_modal(), CompareAction::CopyReport);
-    assert!(cmds.is_empty() && matches!(state.compare.export, ExportUi::Configuring(_)));
-    let (state, cmds) = act(with_pending(), CompareAction::CopyReport);
-    assert!(cmds.is_empty() && state.compare.export == ExportUi::Idle);
-    let at_cap = with_rows_in_report(CLIPBOARD_MAX_ROWS);
-    let (_, cmds) = act(at_cap, CompareAction::CopyReport);
-    assert_eq!(exports(&cmds).len(), 1, "the cap itself fits");
-    let over = with_rows_in_report(CLIPBOARD_MAX_ROWS + 1);
-    let draft = draft_of(&over);
-    assert_eq!(
-        over.compare.copy_block(&draft),
-        Some(ExportBlock::ClipboardTooLarge)
-    );
-    let (over, cmds) = act(over, CompareAction::CopyReport);
-    assert!(cmds.is_empty() && matches!(over.compare.export, ExportUi::Configuring(_)));
-    let (_, cmds) = act(over, CompareAction::ChooseExportFile);
-    assert!(cmds.is_empty(), "choosing a file stays possible");
-}
-
-/// The report modal for a pair whose stored counts add up to `rows`.
-fn with_rows_in_report(rows: usize) -> AppState {
-    let mut state = report_modal();
-    let view = state
-        .compare
-        .results
-        .get(&RUN_PAIR)
-        .cloned()
-        .expect("results");
-    let mut counts = view.counts;
-    counts.different = rows;
-    counts.only_in_source = 0;
-    counts.only_in_target = 0;
-    state.compare.results.insert(
-        RUN_PAIR,
-        crate::viewmodel::compare::ResultsView { counts, ..view },
-    );
+/// A compare run is still active and rows are queued (queued while it ran).
+pub(super) fn run_with_pending() -> AppState {
+    let ticked = toggled(tab(Category::Different, 3, false), &[0, 1]);
+    let (state, _) = act(ticked, CompareAction::AddToPending(RowAction::CopyToTarget));
+    assert!(state.compare.is_running() && !state.compare.pending.is_empty());
     state
 }
 
 #[test]
-fn a_cancelled_clipboard_report_drops_its_text() {
-    let state = running_clipboard();
-    let run = run_of(&state);
-    let text = ev(CompareEvent::ExportText {
-        session: 1,
-        run,
-        text: "x".into(),
-    });
-    let (state, _) = update(state, text);
-    let outcome = ExportOutcome {
-        cancelled: true,
-        ..ExportOutcome::default()
+fn the_clipboard_is_for_reports_only() {
+    let plan = draft_of(&plan_modal());
+    assert_eq!(
+        plan_modal().compare.copy_block(&plan),
+        Some(ExportBlock::ClipboardReportOnly)
+    );
+    let report = draft_of(&report_modal());
+    assert_eq!(report_modal().compare.copy_block(&report), None);
+}
+
+/// Re-runs the entry of a finished tab and finishes it again; its runtime pair is new.
+fn rerun_finished(state: AppState) -> AppState {
+    let (state, _) = act(state, CompareAction::Rerun(ENTRY));
+    let (state, cmds) = act(state, CompareAction::RunCheck);
+    let probe = match &cmds[..] {
+        [Command::Compare(CompareCommand::Check { pair, .. })] => pair.id,
+        other => panic!("one check, got {other:?}"),
     };
-    let (state, _) = update(state, done_event(run, outcome));
-    assert!(matches!(
-        state.compare.export,
-        ExportUi::Finished { path: None, .. }
-    ));
-    assert_eq!(state.take_clipboard_text().1, None);
+    let (state, _) = update(state, checked_as(probe, indexed(10)));
+    let (state, _) = act(state, CompareAction::Start);
+    let row = state.compare.overview.row_for(ENTRY).expect("row").clone();
+    let outcome = PairOutcome::Completed(super::confirm::summary_of(Category::Different, 3));
+    let done = ev(CompareEvent::PairDone {
+        session: 1,
+        run: row.run,
+        pair: row.pair,
+        outcome,
+    });
+    let (state, _) = update(state, done);
+    let run_done = ev(CompareEvent::RunDone {
+        session: 1,
+        run: row.run,
+    });
+    update(state, run_done).0
 }
 
 #[test]
-fn text_for_a_file_export_or_another_run_is_not_kept() {
-    let file = running_report();
-    let run = run_of(&file);
-    let text = |run| {
-        ev(CompareEvent::ExportText {
-            session: 1,
-            run,
-            text: "keys".into(),
-        })
-    };
-    let (file, _) = update(file, text(run));
-    let (file, _) = update(file, done_event(run, ExportOutcome::default()));
-    assert!(matches!(file.compare.export, ExportUi::Finished { .. }));
-    assert_eq!(file.take_clipboard_text().1, None);
-    let clip = running_clipboard();
-    let run = run_of(&clip);
-    let before = clip.compare.export.clone();
-    let (clip, _) = update(clip, text(run + 5));
-    assert_eq!(clip.compare.export, before);
+fn a_report_uses_the_pair_ids_current_at_send_time() {
+    let (state, _) = act(report_modal(), CompareAction::Rerun(ENTRY));
+    assert!(
+        state.compare.completed_entries().is_empty(),
+        "the old results are gone while it re-runs"
+    );
+    let (blocked, cmds) = act(state, CompareAction::ChooseExportFile);
+    assert!(cmds.is_empty() && matches!(blocked.compare.export, ExportUi::Configuring(_)));
+    let done = rerun_finished(report_modal());
+    let fresh = done.compare.overview.row_for(ENTRY).expect("row").pair;
+    assert_ne!(fresh, RUN_PAIR, "the re-run took a new runtime pair");
+    let (_, cmds) = started(done);
+    match exports(&cmds)[..] {
+        [CompareCommand::ExportReport { request, .. }] => assert_eq!(request.pairs, vec![fresh]),
+        ref other => panic!("one report export, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_run_started_behind_an_open_modal_refuses_the_dialog() {
+    let (state, _) = act(plan_modal(), CompareAction::Start);
+    assert!(
+        state.compare.is_running(),
+        "positive control: the run started"
+    );
+    let draft = draft_of(&state);
+    assert_eq!(
+        state.compare.file_block(&draft),
+        Some(ExportBlock::RunActive)
+    );
+    let (state, cmds) = act(state, CompareAction::ChooseExportFile);
+    assert!(cmds.is_empty());
+    assert!(matches!(state.compare.export, ExportUi::Configuring(_)));
 }
 
 // ---- events ----
@@ -571,7 +518,7 @@ fn done_shows_the_outcome_including_cancel_and_what_file_remains() {
         ExportUi::Finished {
             outcome,
             kind: ExportKind::Plan,
-            path: Some(out_path()),
+            path: Some(RedactedPath::new(out_path())),
         }
     );
     let removed = ExportOutcome {
@@ -608,9 +555,19 @@ fn a_failed_export_raises_the_banner_and_returns_to_the_modal() {
     assert!(cmds.is_empty() && is_failure_banner(&state));
     assert!(matches!(state.compare.export, ExportUi::Configuring(_)));
     assert_eq!(draft_of(&state).plan.label, "kept");
-    let (state, _) = update(choosing(plan_modal()), failed());
+    // A Failed while the dialog is open is stale (nothing was sent): the banner shows, the
+    // dialog's answer is still honoured.
+    let dialog = choosing(plan_modal());
+    let (state, _) = update(dialog, failed());
     assert!(is_failure_banner(&state));
-    assert!(matches!(state.compare.export, ExportUi::Configuring(_)));
+    assert!(matches!(state.compare.export, ExportUi::Choosing(_)));
+    let (state, cmds) = act(state, CompareAction::ExportPathChosen(out_path()));
+    assert_eq!(
+        exports(&cmds).len(),
+        1,
+        "the answer still starts the export"
+    );
+    assert!(state.compare.export.is_running());
     let (idle, _) = update(with_pending(), failed());
     assert!(is_failure_banner(&idle) && idle.compare.export == ExportUi::Idle);
     let (modal, _) = update(plan_modal(), failed());
@@ -671,106 +628,4 @@ fn close_export_closes_the_modal_and_the_result_but_not_a_job() {
     let (state, _) = update(state, done_event(run, ExportOutcome::default()));
     let (state, _) = act(state, CompareAction::CloseExport);
     assert_eq!(state.compare.export, ExportUi::Idle);
-}
-
-// ---- busy rules ----
-
-fn refused_while_busy() -> Vec<CompareAction> {
-    vec![
-        CompareAction::Start,
-        CompareAction::StartPassing,
-        CompareAction::RunCheck,
-        CompareAction::Rerun(ENTRY),
-        CompareAction::RemovePair(ENTRY),
-        CompareAction::DiscardPair(ENTRY),
-        CompareAction::FindDuplicates(ENTRY),
-        CompareAction::ReviewApply { word: WORD.into() },
-        CompareAction::ToggleRow(super::confirm::key(2)),
-        CompareAction::SelectAllInCategory,
-        CompareAction::AddToPending(RowAction::CopyToSource),
-        CompareAction::RemovePending(0),
-        CompareAction::ClearPending,
-        CompareAction::CloseSession,
-        CompareAction::OpenExport(ExportKind::Plan),
-        CompareAction::OpenExport(ExportKind::Report),
-    ]
-}
-
-fn assert_refused(state: AppState, action: CompareAction, what: &str) {
-    let export = state.compare.export.clone();
-    let pending = state.compare.pending.clone();
-    let entries = state.compare.pairs.entries.len();
-    let (after, cmds) = act(state, action.clone());
-    assert!(cmds.is_empty(), "{action:?} sent {cmds:?} {what}");
-    assert_eq!(after.compare.export, export, "{action:?} {what}");
-    assert!(
-        after.compare.pending.same_changes(&pending),
-        "{action:?} {what}"
-    );
-    assert_eq!(
-        after.compare.pairs.entries.len(),
-        entries,
-        "{action:?} {what}"
-    );
-    assert!(after.compare.session.is_some(), "{action:?} {what}");
-}
-
-#[test]
-fn choosing_and_running_refuse_the_apply_busy_set() {
-    type Build = (&'static str, fn() -> AppState);
-    let builds: [Build; 3] = [
-        ("choosing a plan", || choosing(plan_modal())),
-        ("running a plan", running_plan),
-        ("running a clipboard report", running_clipboard),
-    ];
-    for (what, build) in builds {
-        for action in refused_while_busy() {
-            assert_refused(build(), action, what);
-        }
-        let (other, _) = (build(), ());
-        let (b, c) = (Uuid::from_u128(8), Uuid::from_u128(9));
-        assert_refused(other, open_action(b, c), what);
-    }
-}
-
-#[test]
-fn the_same_actions_work_again_once_the_export_is_closed() {
-    let state = running_plan();
-    let run = run_of(&state);
-    let (state, _) = update(state, done_event(run, ExportOutcome::default()));
-    let (state, _) = act(state, CompareAction::CloseExport);
-    let (queued, _) = act(copy_of(&state), CompareAction::RemovePending(0));
-    assert!(queued.compare.pending.is_empty(), "remove works again");
-    let (state, cmds) = act(state, CompareAction::CloseSession);
-    assert!(matches!(
-        &cmds[..],
-        [Command::Compare(CompareCommand::Close { session: 1 })]
-    ));
-    assert!(state.compare.session.is_none());
-    let (chosen_back, _) = act(choosing(plan_modal()), CompareAction::ExportPathCancelled);
-    let (_, cmds) = act(chosen_back, CompareAction::ClearPending);
-    assert!(cmds.is_empty());
-}
-
-#[test]
-fn closing_the_session_drops_the_export_state() {
-    for state in [plan_modal(), running_plan_finished()] {
-        let (state, cmds) = act(state, CompareAction::CloseSession);
-        assert_eq!(cmds.len(), 1);
-        assert_eq!(state.compare.export, ExportUi::Idle);
-    }
-}
-
-fn running_plan_finished() -> AppState {
-    let state = running_plan();
-    let run = run_of(&state);
-    update(state, done_event(run, ExportOutcome::default())).0
-}
-
-/// A compare run is still active and rows are queued (queued while it ran).
-fn run_with_pending() -> AppState {
-    let ticked = toggled(tab(Category::Different, 3, false), &[0, 1]);
-    let (state, _) = act(ticked, CompareAction::AddToPending(RowAction::CopyToTarget));
-    assert!(state.compare.is_running() && !state.compare.pending.is_empty());
-    state
 }

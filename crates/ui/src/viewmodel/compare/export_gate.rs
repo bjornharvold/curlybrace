@@ -27,6 +27,8 @@ pub enum ExportBlock {
     MixedSides,
     /// Clipboard: the chosen pairs hold more differences than the clipboard takes.
     ClipboardTooLarge,
+    /// Only a report goes to the clipboard; a plan is a file.
+    ClipboardReportOnly,
 }
 
 impl ExportBlock {
@@ -42,6 +44,7 @@ impl ExportBlock {
             Self::NoPairChosen => "compare.export.reason.no_pair_chosen",
             Self::MixedSides => "compare.export.reason.mixed_sides",
             Self::ClipboardTooLarge => "compare.export.reason.clipboard_too_large",
+            Self::ClipboardReportOnly => "compare.export.reason.clipboard_report_only",
         }
     }
 }
@@ -134,10 +137,10 @@ impl CompareState {
         }
     }
 
-    /// Why the report cannot go to the clipboard now (a plan never does: `NoCompletedPair`).
+    /// Why the report cannot go to the clipboard now (a plan never does).
     pub fn copy_block(&self, draft: &ExportDraft) -> Option<ExportBlock> {
         if draft.kind != ExportKind::Report {
-            return Some(ExportBlock::NoCompletedPair);
+            return Some(ExportBlock::ClipboardReportOnly);
         }
         if let Some(block) = self.file_block(draft) {
             return Some(block);

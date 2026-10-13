@@ -7,13 +7,42 @@ use super::export::{
 };
 use super::no_write::all_actions;
 use super::*;
+use crate::viewmodel::compare::{ExportKind, ExportUi};
+use curlybrace_core::compare::apply::IdPolicy;
+use curlybrace_core::compare::protocol::ExportFormat;
 use curlybrace_core::compare::protocol::ExportOutcome;
+use std::path::PathBuf;
 
 /// (name, builder, the action that may send an export there, if any)
 type StartState = (&'static str, fn() -> AppState, Option<CompareAction>);
 
 fn path_chosen() -> Option<CompareAction> {
     Some(CompareAction::ExportPathChosen(out_path()))
+}
+
+/// Every action of the exhaustive chain plus the other payloads of the export actions.
+fn actions() -> Vec<CompareAction> {
+    let extra = [
+        CompareAction::OpenExport(ExportKind::Report),
+        CompareAction::SetExportFormat(ExportFormat::Mongosh),
+        CompareAction::SetExportIdPolicy(IdPolicy::Keep),
+        CompareAction::SetExportIncludePaths(false),
+        CompareAction::ToggleExportPair(99),
+        CompareAction::ExportPathChosen(PathBuf::from("/exports/other")),
+    ];
+    all_actions().into_iter().chain(extra).collect()
+}
+
+fn cancelling_plan() -> AppState {
+    let state = act(running_plan(), CompareAction::CancelExport).0;
+    assert!(matches!(
+        state.compare.export,
+        ExportUi::Running {
+            cancel_requested: true,
+            ..
+        }
+    ));
+    state
 }
 
 fn finished() -> AppState {
@@ -74,6 +103,7 @@ fn states() -> Vec<StartState> {
         ),
         ("plan running", running_plan, None),
         ("report running", running_report, None),
+        ("plan running, cancel requested", cancelling_plan, None),
         ("finished", finished, None),
         ("copied", copied, None),
     ]
@@ -93,7 +123,7 @@ fn allowed(action: &CompareAction, only: &Option<CompareAction>) -> bool {
 #[test]
 fn only_the_path_chosen_from_the_dialog_and_the_clipboard_copy_send_an_export() {
     for (name, build, only) in states() {
-        for action in all_actions() {
+        for action in actions() {
             let (state, cmds) = act(build(), action.clone());
             let sent = exports(&cmds).len();
             assert_eq!(
@@ -133,7 +163,7 @@ fn a_dialog_answer_after_the_modal_was_cancelled_sends_nothing() {
 /// Walks every action but the two senders, in both orders, from every state.
 #[test]
 fn no_sequence_without_the_two_senders_sends_an_export() {
-    let walk: Vec<CompareAction> = all_actions()
+    let walk: Vec<CompareAction> = actions()
         .into_iter()
         .filter(|a| {
             !matches!(

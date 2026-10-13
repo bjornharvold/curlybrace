@@ -7,7 +7,7 @@
 //! lives in `ClipboardText` (redacted `Debug`, no `Display`) from the runtime's `ExportText`
 //! until the app layer takes it once (`ExportUi::text_taken`); nothing else reads it.
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use curlybrace_core::compare::apply::IdPolicy;
 use curlybrace_core::compare::protocol::{ExportFormat, ExportOutcome, RunId};
@@ -77,6 +77,27 @@ impl std::fmt::Debug for ClipboardText {
     }
 }
 
+/// The file chosen for an export. A path can hold a user name: it is shown in the UI (through
+/// `as_path`) but `Debug` never prints it, so state dumps and logs stay clean.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RedactedPath(PathBuf);
+
+impl RedactedPath {
+    pub fn new(path: PathBuf) -> Self {
+        Self(path)
+    }
+
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for RedactedPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RedactedPath(..)")
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum ExportUi {
     #[default]
@@ -89,7 +110,7 @@ pub enum ExportUi {
         run: RunId,
         draft: ExportDraft,
         /// Where the file goes; `None` for the clipboard.
-        path: Option<PathBuf>,
+        path: Option<RedactedPath>,
         total: u64,
         done: u64,
         cancel_requested: bool,
@@ -100,7 +121,7 @@ pub enum ExportUi {
         outcome: ExportOutcome,
         kind: ExportKind,
         /// The file written (or attempted); `None` for the clipboard.
-        path: Option<PathBuf>,
+        path: Option<RedactedPath>,
     },
     /// The clipboard report is ready: `text` waits for the app layer, then it is `None`.
     Copied {
@@ -172,7 +193,7 @@ impl ExportUi {
             Self::Choosing(draft) | Self::Configuring(draft) => Self::Running {
                 run,
                 draft,
-                path,
+                path: path.map(RedactedPath::new),
                 total: 0,
                 done: 0,
                 cancel_requested: false,

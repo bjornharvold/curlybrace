@@ -119,7 +119,7 @@ fn finished_keeps_the_outcome_kind_and_path() {
         ExportUi::Finished {
             outcome,
             kind: ExportKind::Report,
-            path: Some(PathBuf::from("/o")),
+            path: Some(RedactedPath::new(PathBuf::from("/o"))),
         }
     );
     let stale = running(Some("/o")).finished(8, outcome);
@@ -135,6 +135,21 @@ fn closing_leaves_a_job_alone() {
     assert!(running(None).closed().is_running());
     let waiting = ExportUi::Configuring(draft(ExportKind::Plan)).choosing();
     assert_eq!(waiting.clone().closed(), waiting);
+}
+
+#[test]
+fn the_chosen_path_is_not_in_debug_output_but_is_readable() {
+    let state = running(Some("/home/jane.doe/out.csv"));
+    assert!(!format!("{state:?}").contains("jane.doe"));
+    let done = state.finished(7, ExportOutcome::default());
+    assert!(!format!("{done:?}").contains("jane.doe"));
+    match done {
+        ExportUi::Finished { path: Some(p), .. } => {
+            assert_eq!(p.as_path(), std::path::Path::new("/home/jane.doe/out.csv"));
+            assert_eq!(format!("{p:?}"), "RedactedPath(..)");
+        }
+        other => panic!("finished with a path, got {other:?}"),
+    }
 }
 
 #[test]

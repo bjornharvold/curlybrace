@@ -212,6 +212,7 @@
       "reason": {
         "apply_busy": "Finish or cancel the review or apply that is open first.",
         "check_in_flight": "Wait for the check to finish.",
+        "clipboard_report_only": "Only a report can be copied to the clipboard. Export the plan to a file.",
         "clipboard_too_large": "This report has too many rows for the clipboard. Export it to a file instead.",
         "empty_pending": "Queue some changes first. There is nothing to export.",
         "export_busy": "Another export is already open or running.",

@@ -28,6 +28,10 @@ mod duplicates;
 mod entry;
 #[path = "compare_tests/export.rs"]
 mod export;
+#[path = "compare_tests/export_busy.rs"]
+mod export_busy;
+#[path = "compare_tests/export_clipboard.rs"]
+mod export_clipboard;
 #[path = "compare_tests/fields.rs"]
 mod fields;
 #[path = "compare_tests/frames.rs"]

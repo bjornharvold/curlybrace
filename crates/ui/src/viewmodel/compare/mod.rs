@@ -37,7 +37,9 @@ pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use digest::PairsDigest;
 pub use duplicates::{DuplicateRow, DuplicatesView};
-pub use export::{ClipboardText, ExportDraft, ExportKind, ExportUi, PlanOptions, ReportOptions};
+pub use export::{
+    ClipboardText, ExportDraft, ExportKind, ExportUi, PlanOptions, RedactedPath, ReportOptions,
+};
 pub use export_gate::ExportBlock;
 pub use field_bar::{FieldBar, FieldBlock, FieldRow};
 pub use field_select::{FieldSelection, PathKey};
