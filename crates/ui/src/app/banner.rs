@@ -94,6 +94,7 @@ mod tests {
             "compare_rows",
             "compare_detail",
             "compare_duplicates",
+            "compare_duplicates_timeout",
         ] {
             let (head, _) = resolved(&Banner::Failure {
                 context,

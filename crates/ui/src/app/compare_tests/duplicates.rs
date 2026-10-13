@@ -184,6 +184,25 @@ fn an_answer_with_nothing_requested_is_ignored() {
 }
 
 #[test]
+fn a_timed_out_lookup_gets_its_own_banner_context() {
+    let timeout = ev(CompareEvent::Failed {
+        session: 1,
+        context: "compare_duplicates",
+        error: CoreError::Database("timeout".into()),
+    });
+    let (state, _) = update(loading(), timeout);
+    assert_eq!(state.compare.duplicates, DuplicatesView::Failed);
+    assert!(matches!(
+        state.banner,
+        Some(Banner::Failure {
+            context: "compare_duplicates_timeout",
+            ..
+        })
+    ));
+    assert!(state.compare.can_find_duplicates(), "Try again is offered");
+}
+
+#[test]
 fn a_failed_request_clears_loading_and_shows_the_banner() {
     let (state, _) = update(loading(), failed_event("compare_duplicates"));
     assert_eq!(state.compare.duplicates, DuplicatesView::Failed);

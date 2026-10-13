@@ -57,15 +57,21 @@ pub(super) fn answered(
 
 /// The request failed: the banner reports it, unless it was stale (then the view just resets).
 pub(super) fn failed(state: AppState, error: CoreError) -> AppState {
+    let context = failure_context(&error);
     let DuplicatesView::Loading { stale } = state.compare.duplicates else {
-        return failure_banner(state, "compare_duplicates", error);
+        return failure_banner(state, context, error);
     };
     if stale {
         return with_view(state, DuplicatesView::Idle);
     }
-    failure_banner(
-        with_view(state, DuplicatesView::Failed),
-        "compare_duplicates",
-        error,
-    )
+    failure_banner(with_view(state, DuplicatesView::Failed), context, error)
+}
+
+/// The runtime's bound on the lookup is reported as `Database("timeout")`; that gets advice of
+/// its own (narrow the collections) instead of the generic "try again".
+fn failure_context(error: &CoreError) -> &'static str {
+    match error {
+        CoreError::Database(detail) if detail == "timeout" => "compare_duplicates_timeout",
+        _ => "compare_duplicates",
+    }
 }
