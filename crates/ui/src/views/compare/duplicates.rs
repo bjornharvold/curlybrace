@@ -20,8 +20,14 @@ pub fn show_duplicates(
     ui.push_id("compare_duplicates", |ui| {
         ui.add_space(4.0);
         ui.strong(i18n.t("compare.duplicates.title"));
-        let find = find_button(ui, offered, "compare.duplicates.find", i18n);
-        show_body(ui, view, offered, i18n).or(find)
+        // One button for the whole panel; its label says Try again once a lookup has failed.
+        let key = match view {
+            DuplicatesView::Failed => "compare.duplicates.retry",
+            _ => "compare.duplicates.find",
+        };
+        let button = find_button(ui, offered, key, i18n);
+        show_body(ui, view, i18n);
+        button
     })
     .inner
 }
@@ -33,29 +39,16 @@ fn find_button(ui: &mut egui::Ui, offered: bool, key: &str, i18n: &I18n) -> Opti
     clicked.then_some(CompareAction::FindDuplicates)
 }
 
-fn show_body(
-    ui: &mut egui::Ui,
-    view: &DuplicatesView,
-    offered: bool,
-    i18n: &I18n,
-) -> Option<CompareAction> {
+fn show_body(ui: &mut egui::Ui, view: &DuplicatesView, i18n: &I18n) {
     match view {
-        DuplicatesView::Idle => None,
-        DuplicatesView::Loading { stale } => {
-            show_loading(ui, *stale, i18n);
-            None
-        }
+        DuplicatesView::Idle => {}
+        DuplicatesView::Loading { stale } => show_loading(ui, *stale, i18n),
         DuplicatesView::Loaded { source, target } => {
             show_side(ui, "source", "compare.duplicates.source", source, i18n);
             show_side(ui, "target", "compare.duplicates.target", target, i18n);
             show_hint(ui, i18n);
-            None
         }
-        DuplicatesView::Failed => {
-            let retry = find_button(ui, offered, "compare.duplicates.retry", i18n);
-            show_hint(ui, i18n);
-            retry
-        }
+        DuplicatesView::Failed => show_hint(ui, i18n),
     }
 }
 
