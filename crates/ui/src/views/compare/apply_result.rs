@@ -201,16 +201,22 @@ fn show_failures(
                 });
             }
         });
-    let more = all.len() > MAX_LISTED || reports.iter().any(|(_, r)| r.more_failures);
-    if more {
+    let hidden = reports.iter().any(|(_, r)| r.more_failures);
+    if all.len() > MAX_LISTED || hidden {
         ui.label(i18n.t("compare.apply.finished.more_failures"));
     }
-    if all
+    let unknown = all
         .iter()
-        .any(|(_, f)| matches!(f.error, CoreError::ApplyOutcomeUnknown))
-    {
+        .any(|(_, f)| matches!(f.error, CoreError::ApplyOutcomeUnknown));
+    // Failures that are not listed may include unknown outcomes: say so softly.
+    let note = match (unknown, hidden || all.len() > MAX_LISTED) {
+        (true, _) => Some("compare.apply.finished.outcome_unknown_note"),
+        (false, true) => Some("compare.apply.finished.maybe_unknown_note"),
+        (false, false) => None,
+    };
+    if let Some(key) = note {
         let color = ui.visuals().warn_fg_color;
-        ui.colored_label(color, i18n.t("compare.apply.finished.outcome_unknown_note"));
+        ui.colored_label(color, i18n.t(key));
     }
 }
 

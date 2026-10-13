@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use super::pending::Scope;
 use super::review::Destination;
+use super::rows::namespace_label;
 use super::select_bar::ActionBlock;
 use super::{CompareState, EntryId, RowAction};
 
@@ -18,6 +19,8 @@ pub struct PendingLine {
     pub kind: ApplyKind,
     /// Documents the item stands for (a whole-tab item counts the stored total).
     pub documents: usize,
+    /// The item covers every document of its tab.
+    pub whole_tab: bool,
     pub destination: Destination,
 }
 
@@ -63,6 +66,7 @@ impl CompareState {
                         .get(&change.pair)
                         .map_or(0, |r| r.counts.of(change.category)),
                 },
+                whole_tab: change.scope == Scope::Category,
                 destination: self.destination_of(change.pair, change.action, name_of),
             };
             match groups.iter_mut().find(|g| g.pair == change.pair) {
@@ -109,9 +113,32 @@ impl CompareState {
         }
     }
 
+    /// Review can be built: the cheap per-frame twin of `can_review` (no clone, no build).
+    /// Everything the review needs is there: a session pair, run facts for every pending pair
+    /// and stored results for every whole-tab item.
+    pub fn review_resolvable(&self) -> bool {
+        self.can_review_now()
+            && self.connections.is_some()
+            && self.pending.items().iter().all(|c| {
+                self.review_entry(c.pair).is_some()
+                    && (c.scope != Scope::Category || self.results.contains_key(&c.pair))
+            })
+    }
+
+    /// The (source, target) names of the pair as its run saw them, so the pair label and the
+    /// destination come from the same snapshot; the entry's current names when the run left
+    /// no facts.
+    pub fn pair_labels(&self, pair: PairId) -> Option<(String, String)> {
+        let row = self.overview.rows.iter().find(|r| r.pair == pair)?;
+        match &row.facts {
+            Some(f) => Some((namespace_label(&f.source), namespace_label(&f.target))),
+            None => self.entry_labels(row.entry),
+        }
+    }
+
     /// Why Review changes is closed; `None` when it can fire.
     pub fn review_block(&self) -> Option<ActionBlock> {
-        if self.can_review() {
+        if self.review_resolvable() {
             return None;
         }
         if self.apply.is_busy() {

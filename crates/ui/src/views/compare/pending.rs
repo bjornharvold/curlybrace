@@ -14,25 +14,23 @@ use uuid::Uuid;
 
 /// "connection / database.collection" of a destination.
 pub fn destination_text(destination: &Destination, i18n: &I18n) -> String {
+    if destination.database.is_empty() && destination.collection.is_empty() {
+        return i18n.t("compare.apply.unknown_destination");
+    }
+    let connection = match destination.connection.is_empty() {
+        true => i18n.t("compare.apply.unknown_connection"),
+        false => destination.connection.clone(),
+    };
     let namespace = format!("{}.{}", destination.database, destination.collection);
     i18n.t_with(
         "compare.apply.destination",
-        &[
-            ("connection", &destination.connection),
-            ("namespace", &namespace),
-        ],
+        &[("connection", &connection), ("namespace", &namespace)],
     )
 }
 
 /// The "source -> target" names of the pair, or a placeholder when its entry is gone.
 pub fn pair_text(state: &CompareState, pair: PairId, i18n: &I18n) -> String {
-    let labels = state
-        .overview
-        .rows
-        .iter()
-        .find(|r| r.pair == pair)
-        .and_then(|r| state.entry_labels(r.entry));
-    match labels {
+    match state.pair_labels(pair) {
         Some((source, target)) => i18n.t_with(
             "compare.pairs.pair_label",
             &[("source", &source), ("target", &target)],
@@ -95,9 +93,11 @@ fn show_line(
     busy: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
-    let key = match line.kind {
-        ApplyKind::Delete => "compare.apply.pending.delete",
-        ApplyKind::Insert | ApplyKind::Replace => "compare.apply.pending.copy",
+    let key = match (line.kind, line.whole_tab) {
+        (ApplyKind::Delete, false) => "compare.apply.pending.delete",
+        (ApplyKind::Delete, true) => "compare.apply.pending.delete_all",
+        (_, false) => "compare.apply.pending.copy",
+        (_, true) => "compare.apply.pending.copy_all",
     };
     let text = i18n.t_with(
         key,
@@ -107,11 +107,16 @@ fn show_line(
         ],
     );
     ui.horizontal(|ui| {
-        ui.label(text);
+        ui.label(&text);
         let remove = ui.add_enabled(
             !busy,
             egui::Button::new(i18n.t("compare.apply.pending.remove")),
         );
+        let named = i18n.t_with("compare.apply.pending.remove_named", &[("line", &text)]);
+        // The visible text stays short; screen readers hear which item it removes.
+        remove.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, !busy, named.clone())
+        });
         let remove = match busy {
             true => remove.on_disabled_hover_text(i18n.t(ActionBlock::Busy.i18n_key())),
             false => remove,
@@ -142,7 +147,9 @@ fn show_buttons(
         if ui.add_enabled(!busy, clear).clicked() {
             action = Some(CompareAction::ClearPending);
         }
-        if let Some(reason) = block {
+        // Behind the review dialog "an apply is in progress" would be misleading.
+        let reviewing = state.apply.review().is_some();
+        if let Some(reason) = block.filter(|r| !(reviewing && *r == ActionBlock::Busy)) {
             let color = ui.visuals().warn_fg_color;
             ui.colored_label(color, i18n.t(reason.i18n_key()));
         }

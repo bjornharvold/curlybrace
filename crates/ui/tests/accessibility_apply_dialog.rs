@@ -13,7 +13,7 @@ mod compare_apply_dialog {
     use curlybrace_ui::I18n;
     use curlybrace_ui::app::compare::CompareAction;
     use curlybrace_ui::app::state::AppState;
-    use curlybrace_ui::viewmodel::compare::{ApplyRow, ApplyUi, RequiredText};
+    use curlybrace_ui::viewmodel::compare::{ApplyRow, ApplyUi, RequiredText, RowAction};
     use curlybrace_ui::views::compare::show_compare;
     use eframe::egui;
     use eframe::egui::accesskit::Role;
@@ -99,6 +99,16 @@ mod compare_apply_dialog {
 
     // ---- pending panel ----
 
+    fn replace_line() -> String {
+        tw(
+            "compare.apply.pending.copy",
+            &[
+                ("destination", &destination("two", "shop.users")),
+                ("count", "2"),
+            ],
+        )
+    }
+
     #[test]
     fn the_pending_panel_names_the_destination_and_the_count() {
         let harness = harness(with_replace());
@@ -127,28 +137,13 @@ mod compare_apply_dialog {
     }
 
     #[test]
-    fn a_whole_tab_item_shows_the_stored_total() {
-        let state = act(with_replace(), CompareAction::ClearPending);
-        let state = act(state, CompareAction::SelectAllInCategory);
-        let state = act(
-            state,
-            CompareAction::AddToPending(curlybrace_ui::viewmodel::compare::RowAction::CopyToTarget),
-        );
-        let harness = harness(state);
-        let total = super::support::compare_apply_states::DIFFERENT.to_string();
-        harness.get_by_label(&tw(
-            "compare.apply.pending.copy",
-            &[
-                ("destination", &destination("two", "shop.users")),
-                ("count", &total),
-            ],
-        ));
-    }
-
-    #[test]
     fn remove_clear_and_review_emit_their_actions() {
         let mut h = harness(with_replace());
-        click(&mut h, &t("compare.apply.pending.remove"));
+        let named = tw(
+            "compare.apply.pending.remove_named",
+            &[("line", &replace_line())],
+        );
+        click(&mut h, &named);
         assert_eq!(actions(&h), vec![CompareAction::RemovePending(0)]);
 
         let mut h = harness(with_replace());
@@ -211,10 +206,8 @@ mod compare_apply_dialog {
     fn apply_is_disabled_until_the_collection_name_is_typed_exactly() {
         let apply = t("compare.apply.review.apply");
         let mut h = harness(reviewing(with_delete()));
-        h.get_by_label(&tw(
-            "compare.apply.review.confirm_prompt",
-            &[("text", "users")],
-        ));
+        h.get_by_label(&t("compare.apply.review.confirm_prompt"));
+        h.get_by_label("users");
         assert!(disabled(&h, &apply));
         for wrong in ["user", "Users", "users2"] {
             type_confirmation(&mut h, wrong);
@@ -242,10 +235,8 @@ mod compare_apply_dialog {
         let mut review = state.compare.apply.review().unwrap().clone();
         review.required = Some(RequiredText::Literal("shop".into()));
         let mut h = harness(with_apply(state, ApplyUi::Reviewing(review)));
-        h.get_by_label(&tw(
-            "compare.apply.review.confirm_prompt",
-            &[("text", "shop")],
-        ));
+        h.get_by_label(&t("compare.apply.review.confirm_prompt"));
+        h.get_by_label("shop");
         let apply = t("compare.apply.review.apply");
         type_confirmation(&mut h, "users");
         assert!(disabled(&h, &apply));
@@ -262,10 +253,8 @@ mod compare_apply_dialog {
             Some(RequiredText::Word)
         );
         let mut h = harness(state);
-        h.get_by_label(&tw(
-            "compare.apply.review.confirm_prompt",
-            &[("text", "delete")],
-        ));
+        h.get_by_label(&t("compare.apply.review.confirm_prompt"));
+        h.get_by_label("delete");
         let apply = t("compare.apply.review.apply");
         type_confirmation(&mut h, "Delete");
         assert!(disabled(&h, &apply));
@@ -464,14 +453,47 @@ mod compare_apply_dialog {
     }
 
     #[test]
-    fn failures_are_capped_and_the_more_note_shows() {
-        let failures: Vec<_> = (1001..=1100).map(|n| (n, CoreError::NotFound)).collect();
-        let mut capped = report(0, 0, 150, failures);
-        capped.more_failures = true;
-        let h = harness(finished(capped, false, 150));
+    fn failures_are_capped_across_pairs_and_the_more_note_shows_because_the_list_was_cut() {
+        let first: Vec<_> = (1001..=1080).map(|n| (n, CoreError::NotFound)).collect();
+        let second: Vec<_> = (1081..=1160).map(|n| (n, CoreError::NotFound)).collect();
+        let apply = ApplyUi::Finished {
+            reports: vec![
+                (PAIR, report(0, 0, 80, first)),
+                (PAIR + 40, report(0, 0, 80, second)),
+            ],
+            cancelled: false,
+            requested: 160,
+        };
+        let h = harness(with_apply(with_replace(), apply));
         h.get_by_label("1100");
         assert!(h.query_by_label("1101").is_none());
         h.get_by_label(&t("compare.apply.finished.more_failures"));
+    }
+
+    #[test]
+    fn the_more_note_also_shows_when_the_core_cut_the_list() {
+        let mut cut = report(0, 0, 150, vec![(7, CoreError::NotFound)]);
+        cut.more_failures = true;
+        let h = harness(finished(cut, false, 150));
+        h.get_by_label(&t("compare.apply.finished.more_failures"));
+        h.get_by_label(&t("compare.apply.finished.maybe_unknown_note"));
+    }
+
+    #[test]
+    fn no_more_note_when_nothing_was_cut() {
+        let h = harness(finished(
+            report(0, 0, 1, vec![(7, CoreError::NotFound)]),
+            false,
+            1,
+        ));
+        assert!(
+            h.query_by_label(&t("compare.apply.finished.more_failures"))
+                .is_none()
+        );
+        assert!(
+            h.query_by_label(&t("compare.apply.finished.maybe_unknown_note"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -481,5 +503,167 @@ mod compare_apply_dialog {
         cancelled.get_by_label(&note);
         let done = harness(finished(report(4, 0, 0, vec![]), false, 4));
         assert!(done.query_by_label(&note).is_none());
+    }
+
+    // ---- review fixes ----
+
+    #[test]
+    fn labels_come_from_the_run_not_from_the_entry_edited_since() {
+        let edit = |mut state: AppState| {
+            state.compare.pairs.entries[0].target.collection = "renamed".into();
+            state
+        };
+        let run = pair_label("shop.users", "shop.users");
+        let edited = pair_label("shop.users", "shop.renamed");
+        let panel = harness(edit(with_replace()));
+        panel.get_by_label(&run);
+        // The pair table legitimately shows the edited entry; the dialog adds no such label.
+        let before = panel.get_all_by_label(&edited).count();
+        let dialog = harness(edit(reviewing(with_replace())));
+        assert_eq!(dialog.get_all_by_label(&edited).count(), before);
+        assert!(dialog.get_all_by_label(&run).count() > panel.get_all_by_label(&run).count());
+    }
+
+    fn pair_label(source: &str, target: &str) -> String {
+        tw(
+            "compare.pairs.pair_label",
+            &[("source", source), ("target", target)],
+        )
+    }
+
+    #[test]
+    fn long_destinations_wrap_inside_the_dialog() {
+        let mut state = with_delete();
+        let long = "x".repeat(70);
+        state.conn.connections[1].name = format!("{long} {long}");
+        let h = harness(reviewing(state));
+        let title = h.get_by_label(&t("compare.apply.review.title")).rect();
+        let line = h
+            .get_all_by_label_contains(&long)
+            .map(|n| n.rect())
+            .filter(|r| r.top() > title.top())
+            .collect::<Vec<_>>();
+        assert!(!line.is_empty());
+        for rect in line {
+            assert!(
+                rect.right() <= title.left() + 620.0,
+                "{rect:?} vs {title:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_connection_names_use_a_translated_fallback() {
+        let mut state = with_replace();
+        state.conn.connections.clear();
+        let h = harness(state);
+        let destination = destination(&t("compare.apply.unknown_connection"), "shop.users");
+        let line = tw(
+            "compare.apply.pending.copy",
+            &[("destination", &destination), ("count", "2")],
+        );
+        h.get_by_label(&line);
+    }
+
+    #[test]
+    fn a_whole_tab_item_says_every_document_of_the_tab() {
+        let state = act(with_replace(), CompareAction::ClearPending);
+        let state = act(state, CompareAction::SelectAllInCategory);
+        let state = act(state, CompareAction::AddToPending(RowAction::CopyToTarget));
+        let count = super::support::compare_apply_states::DIFFERENT.to_string();
+        let line = tw(
+            "compare.apply.pending.copy_all",
+            &[
+                ("destination", &destination("two", "shop.users")),
+                ("count", &count),
+            ],
+        );
+        harness(state).get_by_label(&line);
+        let line = tw(
+            "compare.apply.pending.delete_all",
+            &[("destination", "x"), ("count", "1")],
+        );
+        assert!(line.contains("every document"));
+    }
+
+    #[test]
+    fn the_pending_panel_behind_the_dialog_does_not_claim_an_apply_is_running() {
+        let h = harness(reviewing(with_replace()));
+        assert!(h.query_by_label(&t("compare.apply.reason.busy")).is_none());
+        let h = harness(running(1, false));
+        h.get_by_label(&t("compare.apply.reason.busy"));
+    }
+
+    #[test]
+    fn the_dialog_names_its_count_cells_and_puts_them_in_their_columns() {
+        let h = harness(reviewing(with_insert()));
+        for (kind, count) in [("insert", "2"), ("replace", "0"), ("delete", "0")] {
+            let name = t(&format!("compare.apply.kind.{kind}"));
+            let cell = tw(
+                "compare.apply.review.count_cell",
+                &[("kind", &name), ("count", count)],
+            );
+            let header = h.get_by_label(&name).rect();
+            let cell = h.get_by_label(&cell).rect();
+            assert!((header.left() - cell.left()).abs() < 1.0, "{kind}");
+        }
+    }
+
+    #[test]
+    fn the_keep_radio_is_the_default_choice() {
+        let h = harness(reviewing(with_insert()));
+        let keep_label = t("compare.apply.id_policy.keep");
+        let generate_label = t("compare.apply.id_policy.generate");
+        let keep = h.get_by_label(&keep_label);
+        assert_eq!(
+            keep.accesskit_node().toggled(),
+            Some(egui::accesskit::Toggled::True)
+        );
+        let generate = h.get_by_label(&generate_label);
+        assert_eq!(
+            generate.accesskit_node().toggled(),
+            Some(egui::accesskit::Toggled::False)
+        );
+    }
+
+    #[test]
+    fn surrounding_spaces_in_the_typed_text_are_ignored() {
+        let mut h = harness(reviewing(with_delete()));
+        type_confirmation(&mut h, " users ");
+        assert!(!disabled(&h, &t("compare.apply.review.apply")));
+    }
+
+    #[test]
+    fn enter_and_space_right_after_opening_confirm_nothing() {
+        let mut h = harness(reviewing(with_replace()));
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        h.key_press(egui::Key::Space);
+        h.run_steps(3);
+        assert!(!actions(&h).contains(&CompareAction::ConfirmApply));
+    }
+
+    #[test]
+    fn review_resolvable_agrees_with_can_review() {
+        let states: Vec<AppState> = vec![
+            with_replace(),
+            with_insert(),
+            with_delete(),
+            with_deletes_on_both_sides(),
+            reviewing(with_replace()),
+            run_active(with_replace()),
+            check_out(with_replace()),
+            applied(with_replace()),
+            running(1, false),
+            super::support::compare_apply_states::finished(),
+            act(with_replace(), CompareAction::ClearPending),
+        ];
+        for (i, state) in states.iter().enumerate() {
+            assert_eq!(
+                state.compare.review_resolvable(),
+                state.compare.can_review(),
+                "state {i}"
+            );
+        }
     }
 }

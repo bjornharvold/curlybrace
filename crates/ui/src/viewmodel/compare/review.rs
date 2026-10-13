@@ -453,7 +453,7 @@ impl CompareState {
     }
 
     /// The pair's entry and the facts its run used (not the entry as edited since).
-    fn review_entry(&self, pair: PairId) -> Option<ReviewEntry> {
+    pub(super) fn review_entry(&self, pair: PairId) -> Option<ReviewEntry> {
         let row = self.overview.rows.iter().find(|r| r.pair == pair)?;
         Some(ReviewEntry {
             entry: row.entry,

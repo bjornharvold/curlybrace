@@ -12,7 +12,7 @@ pub use super::apply_result::show_progress;
 
 const MODAL_WIDTH: f32 = 600.0;
 const TABLE_MAX_HEIGHT: f32 = 280.0;
-const CONFIRM_WIDTH: f32 = 220.0;
+const DESTINATION_WIDTH: f32 = 200.0;
 
 /// The dialog, while a review is open. Escape or a click outside it cancels the review.
 pub fn show_review(
@@ -76,10 +76,29 @@ fn show_pairs(ui: &mut egui::Ui, state: &CompareState, review: &Review, i18n: &I
 
 fn show_pair_row(ui: &mut egui::Ui, state: &CompareState, pair: &ReviewPair, i18n: &I18n) {
     ui.label(pair_text(state, pair.pair, i18n));
-    ui.label(pair.counts.insert.to_string());
-    ui.label(pair.counts.replace.to_string());
-    ui.label(pair.counts.delete.to_string());
+    count_cell(
+        ui,
+        "compare.apply.kind.insert",
+        pair.counts.insert,
+        false,
+        i18n,
+    );
+    count_cell(
+        ui,
+        "compare.apply.kind.replace",
+        pair.counts.replace,
+        false,
+        i18n,
+    );
+    count_cell(
+        ui,
+        "compare.apply.kind.delete",
+        pair.counts.delete,
+        true,
+        i18n,
+    );
     ui.vertical(|ui| {
+        ui.set_max_width(DESTINATION_WIDTH);
         for (action, destination) in &pair.destinations {
             let line = i18n.t_with(
                 "compare.apply.review.destination_line",
@@ -92,6 +111,20 @@ fn show_pair_row(ui: &mut egui::Ui, state: &CompareState, pair: &ReviewPair, i18
         }
     });
     ui.end_row();
+}
+
+/// A count, named for screen readers by its kind. Deletes stand out when there are any.
+fn count_cell(ui: &mut egui::Ui, kind_key: &str, count: u64, danger: bool, i18n: &I18n) {
+    let mut text = egui::RichText::new(count.to_string());
+    if danger && count > 0 {
+        text = text.strong().color(ui.visuals().error_fg_color);
+    }
+    let name = i18n.t_with(
+        "compare.apply.review.count_cell",
+        &[("kind", &i18n.t(kind_key)), ("count", &count.to_string())],
+    );
+    let label = ui.label(text);
+    label.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, name.clone()));
 }
 
 /// The toggle for the identifiers of inserted documents; only when something is inserted.
@@ -126,19 +159,16 @@ fn show_warnings(ui: &mut egui::Ui, review: &Review, i18n: &I18n) {
     }
 }
 
-/// The typed confirmation, when deletes need one. The box shows what the review stores.
+/// The typed confirmation, when deletes need one: the prompt on its own wrapping line, the text
+/// to type below it (bold, monospace) and a full-width box. The box shows what the review stores.
 fn show_confirmation(ui: &mut egui::Ui, review: &Review, i18n: &I18n) -> Option<CompareAction> {
     let required = review.required_text(&review.word)?;
     ui.separator();
-    let prompt = i18n.t_with("compare.apply.review.confirm_prompt", &[("text", required)]);
+    let caption = ui.label(i18n.t("compare.apply.review.confirm_prompt"));
+    ui.label(egui::RichText::new(required).strong().monospace());
     let mut text = review.confirm_text.clone();
-    let changed = ui
-        .horizontal(|ui| {
-            let caption = ui.label(prompt);
-            let edit = egui::TextEdit::singleline(&mut text).desired_width(CONFIRM_WIDTH);
-            ui.add(edit).labelled_by(caption.id).changed()
-        })
-        .inner;
+    let edit = egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY);
+    let changed = ui.add(edit).labelled_by(caption.id).changed();
     changed.then_some(CompareAction::SetConfirmText(text))
 }
 
