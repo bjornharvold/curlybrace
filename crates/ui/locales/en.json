@@ -60,6 +60,14 @@
     "save": "Save"
   },
   "compare": {
+    "apply": {
+      "action": {
+        "copy_to_source": "Copy to source",
+        "copy_to_target": "Copy to target",
+        "delete_from_source": "Delete from source",
+        "delete_from_target": "Delete from target"
+      }
+    },
     "back": "Back to browsing",
     "category": {
       "different": "Different",

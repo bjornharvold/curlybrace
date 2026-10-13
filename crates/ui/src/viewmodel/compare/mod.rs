@@ -8,10 +8,12 @@ pub mod list_view;
 pub mod overview;
 pub mod pairing_view;
 pub mod pairs;
+pub mod pending;
 pub mod preflight;
 pub mod queries;
 pub mod results;
 pub mod rows;
+pub mod selection;
 pub mod setup;
 #[cfg(test)]
 pub mod testing;
@@ -30,9 +32,11 @@ pub use list_view::{ListInputs, ListView, Unmatched, can_pair_with};
 pub use overview::{ActiveRun, PairStatus, RunOverview, RunRow, Totals};
 pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
+pub use pending::{PendingChange, PendingList, Scope};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
 pub use rows::{EntrySizes, EntryStatus, OverviewRow, PairRow, RowCounts, RowDetail, StatusIcon};
+pub use selection::{CategorySelection, OrdKey, RowAction, Selection};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
 #[cfg(test)]
 pub use testing::RunView;
@@ -82,6 +86,10 @@ pub struct CompareState {
     pub detail: Option<DetailView>,
     /// The duplicate-keys panel, offered after a run failed on a duplicate key.
     pub duplicates: DuplicatesView,
+    /// The ticked rows of every results tab.
+    pub selection: Selection,
+    /// The writes queued for the next apply.
+    pub pending: PendingList,
 }
 
 impl Default for CompareState {
@@ -102,6 +110,8 @@ impl Default for CompareState {
             open_pair: None,
             detail: None,
             duplicates: DuplicatesView::default(),
+            selection: Selection::default(),
+            pending: PendingList::default(),
         }
     }
 }
@@ -175,7 +185,15 @@ impl CompareState {
     /// The results of `pairs` are gone; the open pair and its detail go with them.
     pub fn without_results(self, pairs: &[PairId]) -> Self {
         let closed = self.open_pair.is_some_and(|open| pairs.contains(&open));
+        let selection = pairs
+            .iter()
+            .fold(self.selection.clone(), |s, p| s.without_pair(*p));
+        let pending = pairs
+            .iter()
+            .fold(self.pending.clone(), |l, p| l.without_pair(*p));
         Self {
+            selection,
+            pending,
             results: self
                 .results
                 .into_iter()
