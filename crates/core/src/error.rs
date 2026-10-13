@@ -69,6 +69,9 @@ pub enum CoreError {
     /// of its operations may have been applied. No driver text is carried.
     #[error("apply: the result of the write is unknown")]
     ApplyOutcomeUnknown,
+    /// An export file could not be created or written. No path or system text is carried.
+    #[error("export: the file could not be written")]
+    ExportWriteFailed,
 }
 
 impl CoreError {
@@ -99,6 +102,7 @@ impl CoreError {
             Self::ApplyWriteRejected => "errors.apply_write_rejected",
             Self::ApplyDuplicateKey => "errors.apply_duplicate_key",
             Self::ApplyOutcomeUnknown => "errors.apply_outcome_unknown",
+            Self::ExportWriteFailed => "errors.export_write_failed",
         }
     }
 }
@@ -134,6 +138,7 @@ mod tests {
             CoreError::ApplyWriteRejected,
             CoreError::ApplyDuplicateKey,
             CoreError::ApplyOutcomeUnknown,
+            CoreError::ExportWriteFailed,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         keys.sort();

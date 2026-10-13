@@ -204,6 +204,7 @@ mod tests {
             CoreError::ApplyWriteRejected,
             CoreError::ApplyDuplicateKey,
             CoreError::ApplyOutcomeUnknown,
+            CoreError::ExportWriteFailed,
         ];
         for e in &errors {
             let s = i.error(e);
@@ -228,6 +229,7 @@ mod tests {
             "compare_rows",
             "compare_detail",
             "compare_duplicates",
+            "compare_export",
             "compare_duplicates_timeout",
         ] {
             assert!(!i.failure(c).starts_with('⟦'), "missing failures.{c}");

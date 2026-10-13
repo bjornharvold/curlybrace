@@ -42,9 +42,10 @@ pub(super) struct ApplyStore {
     kinds: Vec<(&'static str, CollectionKind)>,
     scan_gate: Mutex<Option<Arc<Gate>>>,
     bulk_gate: Mutex<Option<Arc<Gate>>>,
-    panic_bulk: AtomicBool,
-    panic_kinds: AtomicBool,
-    bulk_calls: AtomicUsize,
+    pub(super) panic_bulk: AtomicBool,
+    pub(super) panic_kinds: AtomicBool,
+    pub(super) panic_scan: AtomicBool,
+    pub(super) bulk_calls: AtomicUsize,
 }
 
 impl ApplyStore {
@@ -63,11 +64,12 @@ impl ApplyStore {
             bulk_gate: Mutex::new(None),
             panic_bulk: AtomicBool::new(false),
             panic_kinds: AtomicBool::new(false),
+            panic_scan: AtomicBool::new(false),
             bulk_calls: AtomicUsize::new(0),
         })
     }
 
-    fn park_next_scan(&self, gate: &Arc<Gate>) {
+    pub(super) fn park_next_scan(&self, gate: &Arc<Gate>) {
         *self.scan_gate.lock().unwrap() = Some(gate.clone());
     }
 
@@ -130,6 +132,7 @@ impl DocumentStore for ApplyStore {
         from: Option<&KeyTuple>,
         limit: u32,
     ) -> Result<Vec<Document>> {
+        assert!(!self.panic_scan.load(Ordering::SeqCst), "store blew up");
         park(&self.scan_gate).await;
         self.inner.scan_sorted(ns, filter, key, from, limit).await
     }

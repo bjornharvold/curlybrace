@@ -22,11 +22,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::compare::apply::{
-    ApplyKind, ApplyOp, ApplyReport, Direction, IdPolicy, OpOutcome, kind_fits,
-};
+use crate::compare::apply::{ApplyKind, ApplyOp, ApplyReport, IdPolicy, OpOutcome, kind_fits};
 use crate::compare::apply_engine::{ApplyInput, apply_pair};
 use crate::compare::engine::CancelFlag;
+use crate::compare::export::plan::destination_side;
 use crate::compare::key::compare_tuples;
 use crate::compare::protocol::{BulkApply, CompareEvent, PairId, PairSpec, RunId, SessionId, Side};
 use crate::compare::results::{Category, ResultSet};
@@ -45,29 +44,29 @@ pub(super) struct ApplyRequest {
 }
 
 /// The operations of one pair, in request order.
-type Group = (PairId, Vec<ApplyOp>);
+pub(super) type Group = (PairId, Vec<ApplyOp>);
 
-/// Everything one apply needs to report back.
+/// Everything one apply (or export) needs to report back.
 #[derive(Clone)]
-struct ApplyContext {
-    session: Arc<Session>,
-    events: Events,
-    repaint: Repaint,
-    session_id: SessionId,
-    run: RunId,
+pub(super) struct JobContext {
+    pub(super) session: Arc<Session>,
+    pub(super) events: Events,
+    pub(super) repaint: Repaint,
+    pub(super) session_id: SessionId,
+    pub(super) run: RunId,
     /// Bound for the destination listing calls.
-    limit: Duration,
+    pub(super) limit: Duration,
 }
 
-impl ApplyContext {
+impl JobContext {
     /// Sends `event` unless the session is closed.
-    fn emit(&self, event: CompareEvent) -> bool {
+    pub(super) fn emit(&self, event: CompareEvent) -> bool {
         self.session
             .emit_if_open(&self.events, &self.repaint, event)
     }
 }
 
-fn internal_error() -> CoreError {
+pub(super) fn internal_error() -> CoreError {
     CoreError::Database("internal error".into())
 }
 
@@ -82,7 +81,7 @@ pub(super) fn dispatch(
     let Some(session) = shared.compare.get(id).filter(|s| s.is_open()) else {
         return answer_closed(&events, &repaint, id, "compare_apply");
     };
-    let ctx = ApplyContext {
+    let ctx = JobContext {
         session,
         events,
         repaint,
@@ -100,7 +99,7 @@ pub(super) fn dispatch(
 }
 
 /// The synchronous part: validates, takes the job slot, spawns the task.
-fn start_apply(ctx: ApplyContext, request: ApplyRequest) -> Result<()> {
+fn start_apply(ctx: JobContext, request: ApplyRequest) -> Result<()> {
     connections(&ctx.session)?;
     let ApplyRequest {
         mut ops,
@@ -124,7 +123,7 @@ fn start_apply(ctx: ApplyContext, request: ApplyRequest) -> Result<()> {
 /// One operation per stored row of each bulk item's category, in stored order. Each pair's
 /// results are read through a cloned `Arc`, so the pairs lock is not held while keys are copied.
 /// A repeated `(pair, category)` is refused even when it would expand to nothing.
-fn expand_bulk(session: &Session, bulk: &[BulkApply]) -> Result<Vec<ApplyOp>> {
+pub(super) fn expand_bulk(session: &Session, bulk: &[BulkApply]) -> Result<Vec<ApplyOp>> {
     refuse_repeated_categories(bulk)?;
     let mut ops = Vec::new();
     for item in bulk {
@@ -184,7 +183,7 @@ fn bulk_to_ops(item: &BulkApply, results: &ResultSet) -> Result<Vec<ApplyOp>> {
 
 /// A `Fields` op names at least one path; every other kind names none. Judged before anything
 /// else about the request, so a malformed op never reaches the slot or a store.
-fn refuse_misshapen(ops: &[ApplyOp]) -> Result<()> {
+pub(super) fn refuse_misshapen(ops: &[ApplyOp]) -> Result<()> {
     let misshapen = ops
         .iter()
         .any(|op| (op.kind == ApplyKind::Fields) == op.fields.is_empty());
@@ -197,7 +196,7 @@ fn refuse_misshapen(ops: &[ApplyOp]) -> Result<()> {
 }
 
 /// No two operations may act on the same `(pair, key)`; key equality is `compare_tuples`.
-fn refuse_duplicates(ops: &[ApplyOp]) -> Result<()> {
+pub(super) fn refuse_duplicates(ops: &[ApplyOp]) -> Result<()> {
     let mut order: Vec<&ApplyOp> = ops.iter().collect();
     order.sort_by(|a, b| a.pair.cmp(&b.pair).then(compare_tuples(&a.key, &b.key)));
     let repeated = order
@@ -210,7 +209,7 @@ fn refuse_duplicates(ops: &[ApplyOp]) -> Result<()> {
 }
 
 /// Groups by pair in first-appearance order, keeping each pair's request order.
-fn group_by_pair(ops: Vec<ApplyOp>) -> Vec<Group> {
+pub(super) fn group_by_pair(ops: Vec<ApplyOp>) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     for op in ops {
         match groups.iter_mut().find(|(pair, _)| *pair == op.pair) {
@@ -221,7 +220,7 @@ fn group_by_pair(ops: Vec<ApplyOp>) -> Vec<Group> {
     groups
 }
 
-fn require_results(session: &Session, groups: &[Group]) -> Result<()> {
+pub(super) fn require_results(session: &Session, groups: &[Group]) -> Result<()> {
     let pairs = session.pairs.lock().unwrap_or_else(|e| e.into_inner());
     if groups.iter().all(|(pair, _)| pairs.contains_key(pair)) {
         return Ok(());
@@ -230,7 +229,11 @@ fn require_results(session: &Session, groups: &[Group]) -> Result<()> {
 }
 
 /// Takes the one job slot of the session (the same slot a compare run uses).
-fn take_slot(session: &Arc<Session>, run: RunId, cancel: &CancelFlag) -> Result<RunSlot> {
+pub(super) fn take_slot(
+    session: &Arc<Session>,
+    run: RunId,
+    cancel: &CancelFlag,
+) -> Result<RunSlot> {
     let mut slot = session.run.lock().unwrap_or_else(|e| e.into_inner());
     // Checked under the slot lock: a concurrent close either sees this job (and cancels it) or
     // has already marked the session closed.
@@ -252,7 +255,7 @@ fn take_slot(session: &Arc<Session>, run: RunId, cancel: &CancelFlag) -> Result<
 /// Runs the apply in an inner task so a panic outside a pair still frees the slot (the guard
 /// drops while unwinding) and ends the apply with its `ApplyDone` (unless the session closed).
 async fn run_apply_contained(
-    ctx: ApplyContext,
+    ctx: JobContext,
     groups: Vec<Group>,
     policy: IdPolicy,
     cancel: CancelFlag,
@@ -268,13 +271,13 @@ async fn run_apply_contained(
 }
 
 async fn run_apply_all(
-    ctx: ApplyContext,
+    ctx: JobContext,
     groups: Vec<Group>,
     policy: IdPolicy,
     cancel: CancelFlag,
     slot: RunSlot,
 ) {
-    if let Err(error) = check_destinations(&ctx, &groups).await {
+    if let Err(error) = check_destinations(&ctx.session, ctx.limit, &groups).await {
         // Freed first: a command sent on seeing the `Failed` must find the slot free.
         slot.release();
         ctx.emit(CompareEvent::Failed {
@@ -306,13 +309,6 @@ async fn run_apply_all(
 /// One destination database to list, and what the operations want to do in its collections.
 type Writes = HashMap<(Side, String), Vec<(String, ApplyKind)>>;
 
-fn destination_side(op: &ApplyOp) -> Side {
-    match op.direction {
-        Direction::SourceToTarget => Side::Target,
-        Direction::TargetToSource => Side::Source,
-    }
-}
-
 /// What each operation will do to which destination collection, per `(side, database)`. A pair
 /// discarded since the request is skipped: its operations fail as `NotFound` and write nothing.
 fn planned_writes(session: &Session, groups: &[Group]) -> Writes {
@@ -334,7 +330,7 @@ fn planned_writes(session: &Session, groups: &[Group]) -> Writes {
     writes
 }
 
-fn destination_namespace(spec: &PairSpec, side: Side) -> &Namespace {
+pub(super) fn destination_namespace(spec: &PairSpec, side: Side) -> &Namespace {
     match side {
         Side::Source => &spec.source,
         Side::Target => &spec.target,
@@ -343,19 +339,23 @@ fn destination_namespace(spec: &PairSpec, side: Side) -> &Namespace {
 
 /// Before any write: no destination may be a view, and a time-series destination takes inserts
 /// only (so not field updates either). A collection that does not exist yet is fine (the server creates it on insert).
-async fn check_destinations(ctx: &ApplyContext, groups: &[Group]) -> Result<()> {
-    let writes = planned_writes(&ctx.session, groups);
+pub(super) async fn check_destinations(
+    session: &Arc<Session>,
+    limit: Duration,
+    groups: &[Group],
+) -> Result<()> {
+    let writes = planned_writes(session, groups);
     // Its own task: a panicking store ends in a refusal like any other, not in a bare `ApplyDone`.
-    tokio::spawn(check_writes(ctx.clone(), writes))
+    tokio::spawn(check_writes(session.clone(), limit, writes))
         .await
         .unwrap_or_else(|_| Err(internal_error()))
 }
 
-async fn check_writes(ctx: ApplyContext, writes: Writes) -> Result<()> {
-    let conns = connections(&ctx.session)?;
+async fn check_writes(session: Arc<Session>, limit: Duration, writes: Writes) -> Result<()> {
+    let conns = connections(&session)?;
     for ((side, db), wanted) in writes {
         let store = conns.store(side);
-        let kinds = bounded(ctx.limit, async { store.list_collection_kinds(&db).await }).await?;
+        let kinds = bounded(limit, async { store.list_collection_kinds(&db).await }).await?;
         for (collection, kind) in wanted {
             let actual = kinds.iter().find(|(name, _)| *name == collection);
             let writable = match actual.map(|(_, k)| *k) {
@@ -382,7 +382,7 @@ fn failed_report(ops: &[ApplyOp], error: &CoreError) -> ApplyReport {
 
 /// The pair's spec and results as they are now (`None` when it was discarded). The pairs lock
 /// is released before this returns, so nothing is held across an await.
-fn snapshot(session: &Session, pair: PairId) -> Option<(PairSpec, Arc<ResultSet>)> {
+pub(super) fn snapshot(session: &Session, pair: PairId) -> Option<(PairSpec, Arc<ResultSet>)> {
     let pairs = session.pairs.lock().unwrap_or_else(|e| e.into_inner());
     pairs
         .get(&pair)
@@ -390,7 +390,7 @@ fn snapshot(session: &Session, pair: PairId) -> Option<(PairSpec, Arc<ResultSet>
 }
 
 async fn apply_group(
-    ctx: &ApplyContext,
+    ctx: &JobContext,
     pair: PairId,
     ops: Vec<ApplyOp>,
     policy: IdPolicy,
@@ -440,7 +440,7 @@ async fn apply_group(
 }
 
 async fn run_engine(
-    ctx: &ApplyContext,
+    ctx: &JobContext,
     spec: &PairSpec,
     results: &ResultSet,
     stores: (Arc<dyn DocumentStore>, Arc<dyn DocumentStore>),

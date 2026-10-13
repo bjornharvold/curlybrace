@@ -37,17 +37,29 @@ pub enum ExportItem {
     Failed { op: ApplyOp, error: CoreError },
 }
 
+/// The side an op writes to, derived from its direction in this one place (the same destination
+/// apply writes to).
+pub fn destination_side(op: &ApplyOp) -> Side {
+    match op.direction {
+        Direction::SourceToTarget => Side::Target,
+        Direction::TargetToSource => Side::Source,
+    }
+}
+
 impl ExportItem {
-    /// The side a `Write` goes to, derived from the op's direction in this one place (the same
-    /// destination apply writes to); `None` for items that are not writes.
+    /// The op this item is about.
+    pub fn op(&self) -> &ApplyOp {
+        match self {
+            Self::Write { op, .. } | Self::Skipped { op, .. } | Self::Failed { op, .. } => op,
+        }
+    }
+
+    /// The side a `Write` goes to ([`destination_side`]); `None` for items that are not writes.
     pub fn destination(&self) -> Option<Side> {
-        let Self::Write { op, .. } = self else {
-            return None;
-        };
-        Some(match op.direction {
-            Direction::SourceToTarget => Side::Target,
-            Direction::TargetToSource => Side::Source,
-        })
+        match self {
+            Self::Write { op, .. } => Some(destination_side(op)),
+            _ => None,
+        }
     }
 }
 

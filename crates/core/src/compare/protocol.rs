@@ -1,6 +1,8 @@
 //! The messages of the compare feature, wrapped by `runtime::Command::Compare` /
 //! `runtime::Event::Compare`. Pure data: no behaviour.
 
+use std::path::PathBuf;
+
 use bson::Document;
 
 use super::apply::{ApplyKind, ApplyOp, ApplyReport, Direction, IdPolicy};
@@ -115,9 +117,51 @@ pub enum CompareCommand {
         bulk: Vec<BulkApply>,
         id_policy: IdPolicy,
     },
+    /// Writes the pending changes, planned like an `Apply` would but never applied, to the file
+    /// at `path` (absolute, existing parent directory, not a directory) as a mongosh script or a
+    /// JSON plan. `ops` and `bulk` have the shapes of `Apply`. Answers with `ExportProgress`*
+    /// and one `ExportDone`, or `Failed { context: "compare_export" }` when refused or when the
+    /// file could not be written (the partial file is removed in every case).
+    Export {
+        session: SessionId,
+        run: RunId,
+        request: ExportRequest,
+        path: PathBuf,
+    },
     Close {
         session: SessionId,
     },
+}
+
+/// The file format of an export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportFormat {
+    Mongosh,
+    JsonPlan,
+}
+
+/// What an `Export` command asks for. `label` is free text that ends up in the file.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExportRequest {
+    pub format: ExportFormat,
+    pub label: String,
+    pub id_policy: IdPolicy,
+    pub ops: Vec<ApplyOp>,
+    pub bulk: Vec<BulkApply>,
+}
+
+/// How an export ended. `skipped` is stale + not planned + unsupported (listed in the file, never
+/// written as operations); `failed` are operations that could not be verified. When `cancelled`
+/// (or the file could not be kept) the file was removed (`partial_removed`) and `bytes` is 0.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ExportOutcome {
+    pub written: u64,
+    pub skipped: u64,
+    pub failed: u64,
+    pub not_run: u64,
+    pub bytes: u64,
+    pub cancelled: bool,
+    pub partial_removed: bool,
 }
 
 /// "Every row of this category of this pair" (resolved by the runtime from the stored results).
@@ -204,6 +248,17 @@ pub enum CompareEvent {
     ApplyDone {
         session: SessionId,
         run: RunId,
+    },
+    ExportProgress {
+        session: SessionId,
+        run: RunId,
+        done: u64,
+        total: u64,
+    },
+    ExportDone {
+        session: SessionId,
+        run: RunId,
+        outcome: ExportOutcome,
     },
     Rows {
         session: SessionId,
