@@ -70,6 +70,13 @@ pub enum CollectionKind {
     Timeseries,
 }
 
+/// A key tuple shared by `count` (two or more) documents.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DuplicateGroup {
+    pub key: KeyTuple,
+    pub count: u64,
+}
+
 #[async_trait]
 pub trait DocumentStore: Send + Sync {
     async fn list_databases(&self) -> Result<Vec<String>>;
@@ -119,6 +126,21 @@ pub trait DocumentStore: Send + Sync {
     async fn list_collection_kinds(&self, _db: &str) -> Result<Vec<(String, CollectionKind)>> {
         Err(CoreError::Unsupported(
             "this store cannot list collection kinds".into(),
+        ))
+    }
+
+    /// Key tuples shared by two or more documents matching `filter`, at most `limit`, most
+    /// frequent first (ties in key order). Documents lacking a key field are not counted. A
+    /// missing collection has no duplicates.
+    async fn duplicate_keys(
+        &self,
+        _ns: &Namespace,
+        _filter: &Document,
+        _key: &KeySpec,
+        _limit: u32,
+    ) -> Result<Vec<DuplicateGroup>> {
+        Err(CoreError::Unsupported(
+            "this store cannot find duplicate keys".into(),
         ))
     }
 }

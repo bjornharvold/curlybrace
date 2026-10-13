@@ -46,6 +46,14 @@ impl KeySpec {
         Ok(Self { fields })
     }
 
+    /// Whether any path component starts with `$` (a DBRef sub-field such as `owner.$id`). Fine
+    /// for find, sort and scan, but an aggregation expression cannot reference such a field.
+    pub fn has_dollar_component(&self) -> bool {
+        self.fields
+            .iter()
+            .any(|f| f.split('.').any(|p| p.starts_with('$')))
+    }
+
     pub fn contains_id(&self) -> bool {
         self.fields.iter().any(|f| f == "_id")
     }
@@ -176,6 +184,17 @@ fn lookup<'a>(doc: &'a Document, path: &str) -> Option<&'a Bson> {
     Some(current)
 }
 
+/// The key tuple of `doc`, or `None` when a key field is missing or unreachable. Unlike
+/// `extract_key` it does not refuse arrays or deprecated types (the duplicate finder reports
+/// whatever collides).
+pub fn key_values(doc: &Document, spec: &KeySpec) -> Option<KeyTuple> {
+    spec.fields
+        .iter()
+        .map(|path| lookup(doc, path).cloned())
+        .collect::<Option<Vec<_>>>()
+        .map(KeyTuple)
+}
+
 /// A key value must sort strictly: arrays (the server sorts them by their smallest element),
 /// regular expressions (the server rejects them as `$gte` arguments, so a keyset scan could not
 /// resume from one) and deprecated types are refused.
@@ -212,6 +231,43 @@ mod tests {
     use bson::{Binary, DateTime, Decimal128, Regex, Timestamp, doc};
     use std::cmp::Ordering::{Equal, Greater, Less};
     use std::str::FromStr;
+
+    #[test]
+    fn dbref_sub_field_keys_are_accepted_and_flagged() {
+        for ok in ["owner.$id", "$x", "a.$b", "$"] {
+            let spec = KeySpec::new(vec![ok.into()]).expect(ok);
+            assert!(spec.has_dollar_component(), "{ok}");
+        }
+        let plain = KeySpec::new(vec!["a$b".into(), "a.b".into()]).unwrap();
+        assert!(!plain.has_dollar_component());
+        assert_eq!(
+            KeySpec::new(vec!["a..b".into()]),
+            Err(CoreError::CompareSetupInvalid)
+        );
+    }
+
+    #[test]
+    fn key_values_returns_none_for_a_missing_field_and_keeps_unusual_values() {
+        let spec = KeySpec::new(vec!["k".into()]).unwrap();
+        assert_eq!(key_values(&doc! { "x": 1 }, &spec), None);
+        assert_eq!(
+            key_values(&doc! { "k": [1, 2] }, &spec),
+            Some(KeyTuple(vec![Bson::Array(vec![
+                Bson::Int32(1),
+                Bson::Int32(2)
+            ])]))
+        );
+        let nested = KeySpec::new(vec!["a.b".into()]).unwrap();
+        assert_eq!(
+            key_values(&doc! { "a": { "b": 3 } }, &nested),
+            Some(KeyTuple(vec![Bson::Int32(3)]))
+        );
+        assert_eq!(
+            key_values(&doc! { "a": [{ "b": 3 }] }, &nested),
+            None,
+            "a path never crosses an array"
+        );
+    }
 
     fn strictly_increasing(values: &[Bson]) {
         for pair in values.windows(2) {

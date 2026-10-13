@@ -9,7 +9,7 @@ use super::results::Category;
 use super::rules::CompareRules;
 use crate::connection::ConnectionConfig;
 use crate::error::CoreError;
-use crate::store::{CollectionKind, IndexStatus, Namespace};
+use crate::store::{CollectionKind, DuplicateGroup, IndexStatus, Namespace};
 
 pub type SessionId = u64;
 pub type PairId = u32;
@@ -30,6 +30,17 @@ pub struct PairSpec {
     pub target_filter: Document,
     pub key: KeySpec,
     pub rules: CompareRules,
+}
+
+/// Most groups shown per side; the runtime asks the store for one more to learn whether there
+/// are more.
+pub const DUPLICATE_KEYS_LIMIT: u32 = 20;
+
+/// The most frequent duplicate key groups of one side; `more` when there are further groups.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DuplicateReport {
+    pub groups: Vec<DuplicateGroup>,
+    pub more: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,6 +97,11 @@ pub enum CompareCommand {
     Discard {
         session: SessionId,
         pair: PairId,
+    },
+    /// Which key tuples occur more than once on each side of the pair.
+    DuplicateKeys {
+        session: SessionId,
+        pair: PairSpec,
     },
     Close {
         session: SessionId,
@@ -165,6 +181,13 @@ pub enum CompareEvent {
         source: Option<Document>,
         target: Option<Document>,
         changes: Vec<super::diff::FieldChange>,
+    },
+    /// Duplicate key groups of both sides. Carries key values: show them, never log them.
+    DuplicateKeys {
+        session: SessionId,
+        pair: PairId,
+        source: DuplicateReport,
+        target: DuplicateReport,
     },
     /// A command failed as a whole. `context` is an i18n suffix such as `"compare_check"`.
     Failed {

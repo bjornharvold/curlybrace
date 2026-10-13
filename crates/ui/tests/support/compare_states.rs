@@ -5,10 +5,13 @@ use bson::{Bson, doc};
 use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
 use curlybrace_core::compare::engine::Summary;
 use curlybrace_core::compare::key::KeyTuple;
-use curlybrace_core::compare::protocol::{CompareEvent, PairOutcome, Preflight, RowView, Side};
+use curlybrace_core::compare::protocol::{
+    CompareEvent, DuplicateReport, PairOutcome, Preflight, RowView, Side,
+};
 use curlybrace_core::compare::results::Category;
+use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Event;
-use curlybrace_core::store::{CollectionKind, IndexStatus};
+use curlybrace_core::store::{CollectionKind, DuplicateGroup, IndexStatus};
 use curlybrace_ui::app::compare::CompareAction;
 use curlybrace_ui::app::reducer::{Input, update};
 use curlybrace_ui::app::state::{AppState, Workspace};
@@ -27,6 +30,8 @@ pub enum Through {
     Running,
     Results,
     Detail,
+    /// A run that failed on a duplicate key, then the Find duplicate keys answer.
+    Duplicates,
 }
 
 fn step(state: &mut AppState, input: Input) {
@@ -175,6 +180,43 @@ fn open_detail(state: &mut AppState) {
     event(state, detail);
 }
 
+/// The run fails on a duplicate key; Find duplicate keys is asked and answered: two groups on
+/// the source (one "and more"), none on the target.
+fn find_duplicates(state: &mut AppState) {
+    let failed = CompareEvent::PairDone {
+        session: SESSION,
+        run: RUN,
+        pair: PAIR,
+        outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
+    };
+    event(state, failed);
+    let done = CompareEvent::RunDone {
+        session: SESSION,
+        run: RUN,
+    };
+    event(state, done);
+    act(state, CompareAction::FindDuplicates);
+    let group = |email: &str, count: u64| DuplicateGroup {
+        key: KeyTuple(vec![Bson::String(email.into())]),
+        count,
+    };
+    let source = DuplicateReport {
+        groups: vec![group("ada@example.com", 12), group("grace@example.com", 3)],
+        more: true,
+    };
+    let target = DuplicateReport {
+        groups: vec![],
+        more: false,
+    };
+    let answer = CompareEvent::DuplicateKeys {
+        session: SESSION,
+        pair: PAIR,
+        source,
+        target,
+    };
+    event(state, answer);
+}
+
 /// A connected browser switched to the Compare workspace, scripted up to `through`.
 pub fn compare_state(through: Through) -> impl FnOnce(&mut AppState) {
     move |state| {
@@ -186,6 +228,10 @@ pub fn compare_state(through: Through) -> impl FnOnce(&mut AppState) {
         }
         pick(state, Side::Source, "customers");
         pick(state, Side::Target, "customers_copy");
+        if through == Through::Duplicates {
+            // The panel lists emails, so the failed key is `email`.
+            act(state, CompareAction::SetKey("email".into()));
+        }
         act(state, CompareAction::RunCheck);
         if through == Through::Blocked {
             let blocked = answer(IndexStatus::Indexed, IndexStatus::NotIndexed, true);
@@ -207,6 +253,10 @@ pub fn compare_state(through: Through) -> impl FnOnce(&mut AppState) {
                 differences: 1,
             };
             event(state, progress);
+            return;
+        }
+        if through == Through::Duplicates {
+            find_duplicates(state);
             return;
         }
         finish_run(state);

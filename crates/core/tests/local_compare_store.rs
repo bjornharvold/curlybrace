@@ -18,7 +18,7 @@ use curlybrace_core::store::{CollectionKind, DocumentStore, IndexStatus, Namespa
 use futures::TryStreamExt;
 use mongodb::options::Collation;
 use std::str::FromStr;
-use support::{local_enabled, local_mongo};
+use support::{insert_labelled, local_enabled, local_mongo};
 
 fn dec(s: &str) -> Bson {
     Bson::Decimal128(Decimal128::from_str(s).unwrap())
@@ -437,15 +437,6 @@ async fn assert_every_start_key_resumes(
             );
         }
     }
-}
-
-async fn insert_labelled(client: &mongodb::Client, ns: &Namespace, docs: &[Document]) {
-    client
-        .database(&ns.db)
-        .collection::<Document>(&ns.collection)
-        .insert_many(docs.to_vec())
-        .await
-        .unwrap();
 }
 
 #[tokio::test]

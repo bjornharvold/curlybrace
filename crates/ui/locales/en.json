@@ -83,6 +83,20 @@
       "target_value": "Target value",
       "title": "Differences for key {key}"
     },
+    "duplicates": {
+      "find": "Find duplicate keys",
+      "hint": "Choose key fields that are unique, such as an email address or a combination of fields, then check again.",
+      "loading": "Looking up the duplicate keys...",
+      "more": "More values repeat than are listed here.",
+      "none_found": "No duplicate keys were found just now. The data may have changed since the comparison ran. Check the setup, then run the comparison again.",
+      "none_on_side": "No duplicate keys on this side.",
+      "retry": "Try again",
+      "row": "{key}  ×{count}",
+      "source": "Source",
+      "stale": "The previous lookup is still finishing. You can look again once it is done.",
+      "target": "Target",
+      "title": "Duplicate keys"
+    },
     "preflight": {
       "blocked": "A run is blocked.",
       "check": "Check",
@@ -247,6 +261,8 @@
     "compare_collections": "Could not load the collections for the comparison",
     "compare_databases": "Could not load the databases for the comparison",
     "compare_detail": "Could not load the document differences",
+    "compare_duplicates": "Could not look up the duplicate keys. Try again, or check that both connections are still reachable",
+    "compare_duplicates_timeout": "The lookup took longer than two minutes. Add a filter on the collections so fewer documents are searched, then try again",
     "compare_open": "Could not open the comparison connections",
     "compare_rows": "Could not load the list of differences",
     "compare_start": "Could not run the comparison",

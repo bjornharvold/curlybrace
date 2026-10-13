@@ -74,6 +74,10 @@ impl Connector for MongoConnector {
 /// Upper bound for any single command (including connect).
 pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Upper bound for the duplicate-key aggregation of a compare pair (it may scan a whole
+/// collection).
+pub const DUPLICATE_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Upper bound for a Connect (connector, SSH tunnel and any host-key prompt the user must answer).
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(150);
 
@@ -92,6 +96,8 @@ pub struct RuntimeConfig {
     pub command_timeout: Duration,
     /// Bound for a Connect, including an SSH host-key prompt waiting for the user.
     pub connect_timeout: Duration,
+    /// Bound for the duplicate-key search of a compare pair.
+    pub duplicate_timeout: Duration,
     /// `None` when the config directory is unknown: SSH connects then fail closed.
     pub known_hosts_path: Option<PathBuf>,
     pub host_key_prompt: Arc<dyn HostKeyPrompt>,
@@ -105,6 +111,7 @@ impl Default for RuntimeConfig {
         Self {
             command_timeout: COMMAND_TIMEOUT,
             connect_timeout: CONNECT_TIMEOUT,
+            duplicate_timeout: DUPLICATE_TIMEOUT,
             known_hosts_path: default_known_hosts_path(),
             host_key_prompt: Arc::new(RejectUnknownHostKeys),
             tunnel_opener: Arc::new(SshTunnelOpener),
@@ -118,6 +125,7 @@ impl std::fmt::Debug for RuntimeConfig {
         f.debug_struct("RuntimeConfig")
             .field("command_timeout", &self.command_timeout)
             .field("connect_timeout", &self.connect_timeout)
+            .field("duplicate_timeout", &self.duplicate_timeout)
             .field("known_hosts_path", &self.known_hosts_path)
             .finish_non_exhaustive()
     }

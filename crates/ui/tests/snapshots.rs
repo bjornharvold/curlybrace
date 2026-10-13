@@ -136,6 +136,21 @@ fn compare_detail_pane() {
 
 #[test]
 #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_duplicates_panel() {
+    if !snapshots_enabled("compare_duplicates_panel") {
+        return;
+    }
+    // Taller than the standard window: the panel sits below the form and the run outcome.
+    let mut shot = Shot::sized(
+        (1000.0, 1000.0),
+        vec![production(), staging()],
+        compare_state(Through::Duplicates),
+    );
+    shot.snapshot("compare_duplicates_panel");
+}
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
 fn host_key_prompt() {
     if !snapshots_enabled("host_key_prompt") {
         return;

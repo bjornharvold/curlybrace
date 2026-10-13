@@ -1,15 +1,19 @@
 //! [`DocumentStore`] backed by the real MongoDB driver.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use bson::{Bson, Document, doc};
 use futures::TryStreamExt;
 use mongodb::Client;
 
-use crate::compare::key::{KeySpec, KeyTuple, extract_key};
+use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
-use crate::store::{CollectionKind, DocumentStore, IndexStatus, Namespace, Page, Query};
-use mongodb::options::Collation;
+use crate::store::{
+    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query,
+};
+use mongodb::options::{AggregateOptions, Collation};
 
 pub struct MongoStore {
     client: Client,
@@ -24,6 +28,9 @@ impl MongoStore {
         self.client.database(&ns.db).collection(&ns.collection)
     }
 }
+
+/// How long past the client-side duplicate bound the server keeps working before it gives up.
+const DUPLICATE_SERVER_GRACE: Duration = Duration::from_secs(10);
 
 /// Driver errors may quote server text; they are surfaced, but never carry
 /// credentials because the client never holds them in message form.
@@ -255,12 +262,164 @@ impl DocumentStore for MongoStore {
         out.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(out)
     }
+
+    async fn duplicate_keys(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        limit: u32,
+    ) -> Result<Vec<DuplicateGroup>> {
+        // The server rejects `$limit: 0`.
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        // The aggregation cannot reference a `$`-prefixed field (e.g. a DBRef `owner.$id`).
+        if key.has_dollar_component() {
+            return Err(CoreError::CompareSetupInvalid);
+        }
+        let cursor = self
+            .collection(ns)
+            .aggregate(duplicate_keys_pipeline(filter, key, limit))
+            .with_options(duplicate_keys_options())
+            .await
+            .map_err(db_err)?;
+        let rows: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
+        let mut groups = rows
+            .iter()
+            .map(|row| group_from_row(row, key.fields.len()))
+            .collect::<Result<Vec<_>>>()?;
+        // Normaliser: most frequent first, ties in key order, like the in-memory store.
+        groups.sort_by(|a, b| {
+            b.count
+                .cmp(&a.count)
+                .then_with(|| compare_tuples(&a.key, &b.key))
+        });
+        Ok(groups)
+    }
+}
+
+/// `$expr` terms excluding documents where a key path crosses an array. On the server `a.b` with
+/// an array `a` is "present" when any element has `b` and groups as an array of values, whereas
+/// `key_values` (and the scanner) treat such a path as missing; this keeps the stores agreeing.
+fn no_array_prefix_guards(key: &KeySpec) -> Vec<Document> {
+    key.fields
+        .iter()
+        .flat_map(|path| {
+            path.match_indices('.')
+                .map(|(at, _)| path[..at].to_owned())
+                .collect::<Vec<_>>()
+        })
+        .map(|prefix| doc! { "$not": [{ "$isArray": format!("${prefix}") }] })
+        .collect()
+}
+
+/// The aggregation behind `duplicate_keys`: documents missing a key field are dropped, the rest
+/// are grouped on aliased fields (`k0`, `k1`, ...) so any path is a valid group key, and only
+/// groups of two or more survive. Read-only (no `$out` / `$merge`).
+pub(crate) fn duplicate_keys_pipeline(
+    filter: &Document,
+    key: &KeySpec,
+    limit: u32,
+) -> Vec<Document> {
+    let mut group_id = Document::new();
+    let mut matcher = filter.clone();
+    for (i, path) in key.fields.iter().enumerate() {
+        group_id.insert(format!("k{i}"), format!("${path}"));
+        let present = doc! { path.as_str(): { "$exists": true } };
+        matcher = if matcher.is_empty() {
+            present
+        } else {
+            doc! { "$and": [matcher, present] }
+        };
+    }
+    let guards = no_array_prefix_guards(key);
+    if !guards.is_empty() {
+        matcher = doc! { "$and": [matcher, { "$expr": { "$and": guards } }] };
+    }
+    vec![
+        doc! { "$match": matcher },
+        doc! { "$group": { "_id": group_id, "n": { "$sum": 1_i64 } } },
+        doc! { "$match": { "n": { "$gt": 1_i64 } } },
+        // Count descending, then key order (every `_id` has the same fields k0..kN in order), so
+        // ties at the limit are cut deterministically, like the in-memory store.
+        doc! { "$sort": { "n": -1_i32, "_id": 1_i32 } },
+        doc! { "$limit": i64::from(limit) },
+    ]
+}
+
+/// Options of the duplicate-key aggregation: binary collation, spill to disk, and a server-side
+/// time limit (the runtime's client-side bound only abandons the call; this stops the work).
+/// The server limit is the client bound plus a grace, so the client timeout normally wins.
+pub(crate) fn duplicate_keys_options() -> AggregateOptions {
+    AggregateOptions::builder()
+        .collation(Collation::builder().locale("simple").build())
+        .allow_disk_use(true)
+        .max_time(crate::runtime::DUPLICATE_TIMEOUT + DUPLICATE_SERVER_GRACE)
+        .build()
+}
+
+/// One `$group` row as a [`DuplicateGroup`].
+fn group_from_row(row: &Document, fields: usize) -> Result<DuplicateGroup> {
+    let malformed = || CoreError::Database("unexpected aggregation result".into());
+    let id = row.get_document("_id").map_err(|_| malformed())?;
+    let values = (0..fields)
+        .map(|i| id.get(format!("k{i}")).cloned().ok_or_else(malformed))
+        .collect::<Result<Vec<_>>>()?;
+    let count = match row.get("n") {
+        Some(Bson::Int32(n)) => u64::try_from(*n).ok(),
+        Some(Bson::Int64(n)) => u64::try_from(*n).ok(),
+        _ => None,
+    };
+    Ok(DuplicateGroup {
+        key: KeyTuple(values),
+        count: count.ok_or_else(malformed)?,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::mock_objects::mock_doc_with_id;
+
+    #[test]
+    fn duplicate_keys_pipeline_is_read_only_ordered_and_guards_array_prefixes() {
+        let key = KeySpec::new(vec!["x".into(), "a.b.c".into()]).unwrap();
+        let filter = doc! { "$or": [{ "t": 1 }, { "t": 2 }] };
+        let pipeline = duplicate_keys_pipeline(&filter, &key, 7);
+        let text = format!("{pipeline:?}");
+        assert!(!text.contains("$out") && !text.contains("$merge"));
+        let matcher = pipeline[0].get_document("$match").unwrap();
+        assert!(
+            format!("{matcher:?}").contains(&format!("{filter:?}")),
+            "the user filter stays intact inside $and: {matcher:?}"
+        );
+        let guards = no_array_prefix_guards(&key);
+        let prefixes: Vec<String> = guards.iter().map(|g| format!("{g:?}")).collect();
+        assert_eq!(prefixes.len(), 2);
+        assert!(prefixes[0].contains("$a\"") && prefixes[1].contains("$a.b\""));
+        let id = pipeline[1]
+            .get_document("$group")
+            .unwrap()
+            .get_document("_id")
+            .unwrap();
+        assert_eq!(id.keys().collect::<Vec<_>>(), ["k0", "k1"]);
+        assert_eq!(id.get_str("k1"), Ok("$a.b.c"));
+        let sort = pipeline[3].get_document("$sort").unwrap();
+        assert_eq!(sort.keys().collect::<Vec<_>>(), ["n", "_id"]);
+        assert_eq!(pipeline[4].get_i64("$limit"), Ok(7));
+    }
+
+    #[test]
+    fn duplicate_keys_options_carry_the_server_side_time_limit() {
+        let options = duplicate_keys_options();
+        assert_eq!(
+            options.max_time,
+            Some(crate::runtime::DUPLICATE_TIMEOUT + DUPLICATE_SERVER_GRACE)
+        );
+        assert_eq!(options.allow_disk_use, Some(true));
+        assert!(options.collation.is_some());
+    }
 
     fn docs(n: i32) -> Vec<Document> {
         (0..n).map(mock_doc_with_id).collect()

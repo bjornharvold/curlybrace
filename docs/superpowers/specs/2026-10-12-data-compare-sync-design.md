@@ -507,6 +507,15 @@ When a duplicate key stops a compare, the UI can run **Find duplicate keys** (sl
 how often and can pick a better key. It uses one extra `DocumentStore` method, `duplicate_keys(ns, filter, key,
 limit)`, and the keys are shown in the UI only, never logged. The compare still never pairs duplicates up.
 
+*As built (slice 1b):* both sides are asked, each with `limit + 1` groups so a surplus becomes the report's
+`more` flag. Documents without the key field are excluded, and a dotted path that crosses an array counts as
+missing. The server sorts `{n: -1, _id: 1}` so ties are deterministic, and the lookup has its own
+`duplicate_timeout` (120 s). One request is in flight at a time; editing the setup, Start or Discard makes an
+in-flight answer stale, and it is dropped. Find is offered only while the setup is unchanged since the failed
+run (the preflight is still Ok). Known limitation: closing the session does not abort an in-flight lookup; it
+is silenced, and the connection is released when the call returns or times out. Key components that start
+with `$` are rejected.
+
 Connection and authentication failures reuse the existing variants. Cancellation is an outcome
 (`ComparePairCancelled`, `CompareRunCancelled`), not an error. A pair that does not run is not an error either:
 it is `NotRun` with a reason (`Cancelled`, `BudgetExhausted`, `SessionFailed` or `Refused(error)`).

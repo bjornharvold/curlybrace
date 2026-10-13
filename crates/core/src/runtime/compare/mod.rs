@@ -4,7 +4,8 @@
 //!
 //! Answers: `Open` → `Opened` | `OpenFailed`; `Databases`/`Collections`/`Check`/`Rows`/`Detail`
 //! → their answer | `Failed { context }`; `Start` → one `PairDone` per pair, then one `RunDone`
-//! (or `Failed` when refused); `Cancel`, `Discard`, `Close` have no answer of their own.
+//! (or `Failed` when refused); `DuplicateKeys` → `DuplicateKeys` | `Failed { context:
+//! "compare_duplicates" }`; `Cancel`, `Discard`, `Close` have no answer of their own.
 //!
 //! Once a session is closed it emits nothing more: every event tied to a session goes through
 //! [`Session::emit_if_open`], which checks "open" and sends under one lock. A command naming an
@@ -15,6 +16,8 @@ mod abort_tests;
 #[cfg(test)]
 mod closed_tests;
 #[cfg(test)]
+mod duplicates_tests;
+#[cfg(test)]
 mod run_tests;
 mod runner;
 mod session;
@@ -24,14 +27,17 @@ mod tests;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bson::Document;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::compare::protocol::{
-    CompareCommand, CompareEvent, PairSpec, Preflight, RunId, SessionId, Side,
+    CompareCommand, CompareEvent, DUPLICATE_KEYS_LIMIT, DuplicateReport, PairSpec, Preflight,
+    RunId, SessionId, Side,
 };
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
-use crate::store::{DocumentStore, IndexStatus};
+
+use crate::store::{DocumentStore, IndexStatus, Namespace};
 
 use super::tunneling::{Currentness, open_tunnel_if_configured};
 use super::{Event, Repaint, Shared, TunnelHandle};
@@ -184,6 +190,7 @@ fn command_session(c: &CompareCommand) -> SessionId {
         | CompareCommand::Rows { session, .. }
         | CompareCommand::Detail { session, .. }
         | CompareCommand::Discard { session, .. }
+        | CompareCommand::DuplicateKeys { session, .. }
         | CompareCommand::Close { session } => *session,
     }
 }
@@ -196,6 +203,7 @@ fn command_context(c: &CompareCommand) -> &'static str {
         CompareCommand::Start { .. } => "compare_start",
         CompareCommand::Rows { .. } => "compare_rows",
         CompareCommand::Detail { .. } => "compare_detail",
+        CompareCommand::DuplicateKeys { .. } => "compare_duplicates",
         _ => "compare",
     }
 }
@@ -217,6 +225,9 @@ async fn handle(
             list_collections(&session, id, side, db, limit).await?
         }
         CompareCommand::Check { pair, .. } => check_pair(&session, id, &pair, limit).await?,
+        CompareCommand::DuplicateKeys { pair, .. } => {
+            find_duplicates(&session, id, &pair, shared.config.duplicate_timeout).await?
+        }
         CompareCommand::Detail { pair, key, .. } => {
             bounded(limit, runner::detail(&session, id, pair, key)).await?
         }
@@ -284,6 +295,42 @@ async fn check_pair(
         session: id,
         pair: pair.id,
         preflight,
+    })
+}
+
+/// Asks both sides for their duplicate key groups, bounded as a whole by `timeout`.
+async fn find_duplicates(
+    session: &Session,
+    id: SessionId,
+    pair: &PairSpec,
+    timeout: Duration,
+) -> Result<CompareEvent> {
+    runner::validate_spec(pair)?;
+    let conns = connections(session)?;
+    let ask = |store: Arc<dyn DocumentStore>, ns: &Namespace, filter: &Document| {
+        let (ns, filter, key) = (ns.clone(), filter.clone(), pair.key.clone());
+        async move {
+            let shown = DUPLICATE_KEYS_LIMIT as usize;
+            let mut groups = store
+                .duplicate_keys(&ns, &filter, &key, DUPLICATE_KEYS_LIMIT + 1)
+                .await?;
+            let more = groups.len() > shown;
+            groups.truncate(shown);
+            Ok::<_, CoreError>(DuplicateReport { groups, more })
+        }
+    };
+    let both = async {
+        tokio::try_join!(
+            ask(conns.source.clone(), &pair.source, &pair.source_filter),
+            ask(conns.target.clone(), &pair.target, &pair.target_filter),
+        )
+    };
+    let (source, target) = bounded(timeout, both).await?;
+    Ok(CompareEvent::DuplicateKeys {
+        session: id,
+        pair: pair.id,
+        source,
+        target,
     })
 }
 

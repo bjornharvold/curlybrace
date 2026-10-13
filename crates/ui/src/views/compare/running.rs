@@ -1,4 +1,5 @@
 //! Start / Cancel, the progress counters of a run and its outcome.
+use super::duplicates::show_duplicates;
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{CompareState, RunView};
@@ -30,8 +31,8 @@ pub fn show_run(
             action = Some(CompareAction::Discard);
         }
     });
-    show_progress(ui, state, i18n);
-    action
+    let duplicates = show_progress(ui, state, i18n);
+    action.or(duplicates)
 }
 
 fn scanned_text(source: u64, target: u64, i18n: &I18n) -> String {
@@ -44,7 +45,7 @@ fn scanned_text(source: u64, target: u64, i18n: &I18n) -> String {
     )
 }
 
-fn show_progress(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) {
+fn show_progress(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
     let cancel_requested = state.cancel_requested;
     match &state.run {
         RunView::Idle => {}
@@ -74,16 +75,17 @@ fn show_progress(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) {
             scanned_target,
             ..
         } => {
-            let done = if *cancelled {
-                "compare.run.cancelled_no_results"
-            } else {
-                "compare.run.finished"
-            };
-            ui.label(i18n.t(done));
+            // A failed run did not finish: only the failure line speaks for it.
+            if *cancelled {
+                ui.label(i18n.t("compare.run.cancelled_no_results"));
+            } else if failure.is_none() {
+                ui.label(i18n.t("compare.run.finished"));
+            }
             ui.label(scanned_text(*scanned_source, *scanned_target, i18n));
             show_failure(ui, failure.as_ref(), i18n);
         }
     }
+    show_duplicates(ui, state, i18n)
 }
 
 fn show_failure(ui: &mut egui::Ui, failure: Option<&CoreError>, i18n: &I18n) {

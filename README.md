@@ -99,9 +99,9 @@ for each side, press **Check** and **Start**.
 - **Nothing is written.** This release only reads and reports. Applying a sync and exporting
   results arrive in later releases ([#8](https://github.com/bjornharvold/curlybrace/issues/8)).
   The results are kept in memory for the session and can be discarded.
-- The key must be **unique** on each side: a duplicate key stops the run with an error. Each
-  document must have a value for every key field, and a key value cannot be an array or a regular
-  expression.
+- The key must be **unique** on each side: a duplicate key stops the run with an error, and
+  **Find duplicate keys** then shows which values repeat. Each document must have a value for
+  every key field, and a key value cannot be an array or a regular expression.
 - The key fields need an **index** on each side. A collection with up to 50,000 documents is
   compared without one, but a larger one is refused until you create an index on the key fields
   (the check tells you which side lacks it, and how many documents each side has).

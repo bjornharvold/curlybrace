@@ -13,6 +13,9 @@ const CODE_AUTHENTICATION_FAILED: i32 = 18;
 /// Server error code `Unauthorized`.
 const CODE_UNAUTHORIZED: i32 = 13;
 
+/// Server error code `MaxTimeMSExpired`: an operation hit its server-side time limit.
+const CODE_MAX_TIME_MS_EXPIRED: i32 = 50;
+
 /// Pure classification from the facts extracted from a driver error: the server error code
 /// (when it has one), whether the driver itself reported an authentication failure, and the
 /// driver's text for the generic case.
@@ -21,6 +24,8 @@ pub fn classify_parts(code: Option<i32>, is_auth_kind: bool, text: &str) -> Core
         _ if is_auth_kind => CoreError::AuthFailed,
         Some(CODE_AUTHENTICATION_FAILED) => CoreError::AuthFailed,
         Some(CODE_UNAUTHORIZED) => CoreError::Unauthorized,
+        // Same value as the client-side bound reports, so the UI shows its timeout advice.
+        Some(CODE_MAX_TIME_MS_EXPIRED) => CoreError::Database("timeout".into()),
         _ => CoreError::Database(text.to_owned()),
     }
 }
@@ -67,6 +72,18 @@ mod tests {
         );
         assert_eq!(
             classify_parts(None, false, "timeout"),
+            CoreError::Database("timeout".into())
+        );
+    }
+
+    #[test]
+    fn server_time_limit_expiry_is_reported_as_a_timeout() {
+        assert_eq!(
+            classify_parts(Some(50), false, "operation exceeded time limit"),
+            CoreError::Database("timeout".into())
+        );
+        assert_eq!(
+            classify_driver_error(&command_error(50)),
             CoreError::Database("timeout".into())
         );
     }

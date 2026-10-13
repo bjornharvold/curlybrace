@@ -3,6 +3,7 @@
 //! reducer; these views render the state and report the user's action.
 mod connect;
 mod detail;
+mod duplicates;
 mod preflight;
 mod results;
 mod rules;
@@ -18,6 +19,7 @@ use eframe::egui;
 
 pub use connect::show_connect;
 pub use detail::show_detail;
+pub use duplicates::show_duplicates;
 pub use preflight::show_preflight;
 pub use results::show_results;
 pub use running::show_run;

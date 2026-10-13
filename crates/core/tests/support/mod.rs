@@ -164,3 +164,17 @@ pub async fn next_compare(
         }
     }
 }
+
+/// Inserts `docs` into `ns` through the driver.
+pub async fn insert_labelled(
+    client: &mongodb::Client,
+    ns: &curlybrace_core::store::Namespace,
+    docs: &[bson::Document],
+) {
+    client
+        .database(&ns.db)
+        .collection::<bson::Document>(&ns.collection)
+        .insert_many(docs.to_vec())
+        .await
+        .unwrap();
+}

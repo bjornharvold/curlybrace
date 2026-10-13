@@ -78,6 +78,8 @@ run "core local_mongo_crud" \
   cargo test -p curlybrace-core --test local_mongo_crud --locked -- --include-ignored --nocapture "$@"
 run "core local_compare_store" \
   cargo test -p curlybrace-core --test local_compare_store --locked -- --include-ignored --nocapture "$@"
+run "core local_duplicate_keys" \
+  cargo test -p curlybrace-core --test local_duplicate_keys --locked -- --include-ignored --nocapture "$@"
 run "core local_compare_session" \
   cargo test -p curlybrace-core --test local_compare_session --locked -- --include-ignored --nocapture "$@"
 run "ui local_e2e_flows" \
