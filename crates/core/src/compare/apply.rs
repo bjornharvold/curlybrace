@@ -118,15 +118,16 @@ pub fn kind_fits(
     }
 }
 
+fn invalid() -> CoreError {
+    CoreError::InvalidDocument(String::new())
+}
+
 fn require(doc: Option<&Document>) -> Result<&Document> {
-    doc.ok_or(CoreError::InvalidDocument(String::new()))
+    doc.ok_or_else(invalid)
 }
 
 fn dest_id(dest: Option<&Document>) -> Result<Bson> {
-    require(dest)?
-        .get("_id")
-        .cloned()
-        .ok_or(CoreError::InvalidDocument(String::new()))
+    require(dest)?.get("_id").cloned().ok_or_else(invalid)
 }
 
 /// The write for one verified op. `origin`/`dest` are the freshly re-read documents.
@@ -250,7 +251,8 @@ mod tests {
     #[test]
     fn plan_write_delete_uses_the_destination_id() {
         let d = doc! {"_id": "z", "x": 0};
-        let op = plan_write(ApplyKind::Delete, None, Some(&d), IdPolicy::Keep).unwrap();
+        let o = doc! {"_id": "other", "x": 1};
+        let op = plan_write(ApplyKind::Delete, Some(&o), Some(&d), IdPolicy::Keep).unwrap();
         assert_eq!(
             op,
             WriteOp::Delete {
@@ -266,11 +268,13 @@ mod tests {
         for kind in [ApplyKind::Replace, ApplyKind::Delete] {
             for dest in [None, Some(&no_id)] {
                 let r = plan_write(kind, Some(&o), dest, IdPolicy::Keep);
-                assert!(matches!(r, Err(CoreError::InvalidDocument(_))), "{kind:?}");
+                assert_eq!(r, Err(invalid()), "{kind:?}");
             }
         }
-        assert!(plan_write(ApplyKind::Insert, None, None, IdPolicy::Keep).is_err());
-        assert!(plan_write(ApplyKind::Replace, None, Some(&o), IdPolicy::Keep).is_err());
+        let r = plan_write(ApplyKind::Insert, None, None, IdPolicy::Keep);
+        assert!(matches!(r, Err(CoreError::InvalidDocument(_))));
+        let r = plan_write(ApplyKind::Replace, None, Some(&o), IdPolicy::Keep);
+        assert!(matches!(r, Err(CoreError::InvalidDocument(_))));
     }
 
     #[test]
@@ -280,12 +284,22 @@ mod tests {
         r.record(&key, &OpOutcome::Applied);
         r.record(&key, &OpOutcome::Skipped(SkipReason::Stale));
         r.record(&key, &OpOutcome::Skipped(SkipReason::NotPlanned));
-        for _ in 0..150 {
+        for _ in 0..MAX_REPORTED_FAILURES {
             r.record(&key, &OpOutcome::Failed(CoreError::NotFound));
         }
-        assert_eq!((r.applied, r.stale, r.not_planned), (1, 1, 1));
+        assert_eq!(r.failures.len(), MAX_REPORTED_FAILURES);
+        assert!(!r.more_failures);
+        for _ in 0..50 {
+            r.record(&key, &OpOutcome::Failed(CoreError::NotFound));
+        }
+        assert_eq!((r.applied, r.stale, r.not_planned, r.not_run), (1, 1, 1, 0));
         assert_eq!(r.failed, 150);
         assert_eq!(r.failures.len(), MAX_REPORTED_FAILURES);
+        assert!(
+            r.failures
+                .iter()
+                .all(|f| f.error == CoreError::NotFound && f.key == key)
+        );
         assert!(r.more_failures);
     }
 
