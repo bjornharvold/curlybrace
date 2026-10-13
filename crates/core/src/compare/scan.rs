@@ -135,7 +135,9 @@ pub(crate) enum Unique {
     Several,
 }
 
-/// Like [`fetch_one`], but looks at two rows so a duplicate key is noticed.
+/// Like [`fetch_one`], but looks at two rows so a duplicate key is noticed. Used to re-verify
+/// before a write, so it reads from the PRIMARY (`scan_sorted_primary`): a lagging secondary
+/// must not make a stale document look current.
 pub(crate) async fn fetch_unique(
     store: &Arc<dyn DocumentStore>,
     ns: &Namespace,
@@ -143,7 +145,9 @@ pub(crate) async fn fetch_unique(
     spec: &KeySpec,
     key: &KeyTuple,
 ) -> Result<Unique> {
-    let found = store.scan_sorted(ns, filter, spec, Some(key), 2).await?;
+    let found = store
+        .scan_sorted_primary(ns, filter, spec, Some(key), 2)
+        .await?;
     let mut same = found
         .into_iter()
         .filter(|d| extract_key(d, spec).is_ok_and(|k| compare_tuples(&k, key).is_eq()));

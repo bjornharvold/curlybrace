@@ -11,6 +11,7 @@ use crate::test_support::InMemoryStore;
 use async_trait::async_trait;
 use bson::{Bson, doc};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ApplyKind::{Delete, Insert, Replace};
 use Direction::{SourceToTarget as ST, TargetToSource as TS};
@@ -49,6 +50,9 @@ struct Spy {
     calls: Mutex<Vec<usize>>,
     duplicate_id: Mutex<Option<Bson>>,
     fail_call: Mutex<Option<usize>>,
+    /// How many `scan_sorted` / `scan_sorted_primary` calls reached this store.
+    plain_scans: AtomicUsize,
+    primary_scans: AtomicUsize,
 }
 
 impl Spy {
@@ -58,6 +62,8 @@ impl Spy {
             calls: Mutex::new(Vec::new()),
             duplicate_id: Mutex::new(None),
             fail_call: Mutex::new(None),
+            plain_scans: AtomicUsize::new(0),
+            primary_scans: AtomicUsize::new(0),
         }
     }
 }
@@ -90,6 +96,18 @@ impl DocumentStore for Spy {
         from: Option<&KeyTuple>,
         limit: u32,
     ) -> Result<Vec<Document>> {
+        self.plain_scans.fetch_add(1, Ordering::SeqCst);
+        self.inner.scan_sorted(ns, filter, key, from, limit).await
+    }
+    async fn scan_sorted_primary(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        from: Option<&KeyTuple>,
+        limit: u32,
+    ) -> Result<Vec<Document>> {
+        self.primary_scans.fetch_add(1, Ordering::SeqCst);
         self.inner.scan_sorted(ns, filter, key, from, limit).await
     }
     async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<Vec<WriteOutcome>> {
@@ -672,4 +690,20 @@ async fn a_duplicate_key_that_appeared_since_the_compare_makes_the_op_stale() {
     assert_eq!((r.stale, r.applied, total(&r)), (1, 0, 1));
     assert_eq!(*f.target.calls.lock().unwrap(), Vec::<usize>::new());
     assert_eq!(f.target_docs().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn verification_reads_both_sides_from_the_primary_and_the_compare_does_not() {
+    let f = Fixture::by_id(vec![doc! {"_id": 1, "v": 1}], vec![doc! {"_id": 1, "v": 2}]).await;
+    for spy in [&f.source, &f.target] {
+        assert_eq!(spy.primary_scans.load(Ordering::SeqCst), 0, "compare scans");
+        assert!(spy.plain_scans.load(Ordering::SeqCst) > 0);
+        spy.plain_scans.store(0, Ordering::SeqCst);
+    }
+    let r = f.apply(&[op(k(1), Replace, ST)]).await;
+    assert_eq!(r.applied, 1);
+    for spy in [&f.source, &f.target] {
+        assert!(spy.primary_scans.load(Ordering::SeqCst) >= 1);
+        assert_eq!(spy.plain_scans.load(Ordering::SeqCst), 0, "verification");
+    }
 }

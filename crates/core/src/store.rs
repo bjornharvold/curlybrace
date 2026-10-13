@@ -153,6 +153,21 @@ pub trait DocumentStore: Send + Sync {
         ))
     }
 
+    /// Like [`scan_sorted`](Self::scan_sorted) but the read is served by the PRIMARY, whatever
+    /// read preference the connection has. Used to re-verify documents right before a write, so
+    /// a lagging secondary cannot make stale data look current. The default delegates to
+    /// `scan_sorted` (stores without replicas have nothing to choose).
+    async fn scan_sorted_primary(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        from: Option<&KeyTuple>,
+        limit: u32,
+    ) -> Result<Vec<Document>> {
+        self.scan_sorted(ns, filter, key, from, limit).await
+    }
+
     /// Whether an index can serve `scan_sorted` for `key`. A missing collection is `Indexed`
     /// (there is nothing to sort).
     async fn key_index_status(&self, _ns: &Namespace, _key: &KeySpec) -> Result<IndexStatus> {
