@@ -7,6 +7,7 @@ mod connect;
 mod detail;
 mod duplicates;
 mod editor;
+mod fields;
 mod memo;
 mod overview;
 mod pairs;

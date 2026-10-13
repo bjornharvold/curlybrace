@@ -80,7 +80,7 @@ pub(super) fn ticked() -> AppState {
 }
 
 /// `a` and `b` queued for a copy to the target; the detail stays open.
-fn queued() -> AppState {
+pub(super) fn queued() -> AppState {
     act(ticked(), CompareAction::AddFieldsToPending(TO_T)).0
 }
 

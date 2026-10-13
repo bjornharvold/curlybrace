@@ -40,6 +40,7 @@ fn show_body(
     show_pairs(ui, state, review, i18n);
     let total = review.op_total().to_string();
     ui.strong(i18n.t_with("compare.apply.review.total", &[("count", &total)]));
+    show_field_line(ui, review, i18n);
     let policy = show_id_policy(ui, review, i18n);
     show_warnings(ui, review, i18n);
     let typed = show_confirmation(ui, review, i18n);
@@ -55,13 +56,14 @@ fn show_pairs(ui: &mut egui::Ui, state: &CompareState, review: &Review, i18n: &I
         .show(ui, |ui| {
             egui::Grid::new("compare_review_grid")
                 .striped(true)
-                .num_columns(5)
+                .num_columns(6)
                 .show(ui, |ui| {
                     for title in [
                         "compare.apply.review.column_pair",
                         "compare.apply.kind.insert",
                         "compare.apply.kind.replace",
                         "compare.apply.kind.delete",
+                        "compare.apply.kind.fields",
                         "compare.apply.review.column_writes",
                     ] {
                         ui.strong(i18n.t(title));
@@ -97,6 +99,13 @@ fn show_pair_row(ui: &mut egui::Ui, state: &CompareState, pair: &ReviewPair, i18
         true,
         i18n,
     );
+    count_cell(
+        ui,
+        "compare.apply.kind.fields",
+        pair.counts.fields,
+        false,
+        i18n,
+    );
     ui.vertical(|ui| {
         ui.set_max_width(DESTINATION_WIDTH);
         for (action, destination) in &pair.destinations {
@@ -125,6 +134,19 @@ fn count_cell(ui: &mut egui::Ui, kind_key: &str, count: u64, danger: bool, i18n:
     );
     let label = ui.label(text);
     label.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, name.clone()));
+}
+
+/// "Fields: N, documents: M" when the review copies single fields.
+fn show_field_line(ui: &mut egui::Ui, review: &Review, i18n: &I18n) {
+    let documents: u64 = review.pairs.iter().map(|p| p.counts.fields).sum();
+    if documents == 0 {
+        return;
+    }
+    let (fields, documents) = (review.field_total().to_string(), documents.to_string());
+    ui.label(i18n.t_with(
+        "compare.apply.review.fields_line",
+        &[("fields", &fields), ("documents", &documents)],
+    ));
 }
 
 /// The toggle for the identifiers of inserted documents; only when something is inserted.

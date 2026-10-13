@@ -19,6 +19,8 @@ pub struct PendingLine {
     pub kind: ApplyKind,
     /// Documents the item stands for (a whole-tab item counts the stored total).
     pub documents: usize,
+    /// Fields the item copies (0 unless it is a field copy of one document).
+    pub fields: usize,
     /// The item covers every document of its tab.
     pub whole_tab: bool,
     pub destination: Destination,
@@ -66,6 +68,10 @@ impl CompareState {
                         .results
                         .get(&change.pair)
                         .map_or(0, |r| r.counts.of(change.category)),
+                },
+                fields: match &change.scope {
+                    Scope::Fields { paths, .. } => paths.len(),
+                    _ => 0,
                 },
                 whole_tab: change.scope == Scope::Category,
                 destination: self.destination_of(change.pair, change.action, name_of),
