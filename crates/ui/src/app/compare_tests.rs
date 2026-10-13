@@ -27,7 +27,7 @@ mod duplicates;
 #[path = "compare_tests/entry.rs"]
 mod entry;
 #[path = "compare_tests/export.rs"]
-mod export;
+pub(in crate::app) mod export;
 #[path = "compare_tests/export_busy.rs"]
 mod export_busy;
 #[path = "compare_tests/export_clipboard.rs"]

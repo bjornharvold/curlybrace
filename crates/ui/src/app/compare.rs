@@ -603,4 +603,4 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
 
 #[cfg(test)]
 #[path = "compare_tests.rs"]
-mod tests;
+pub(in crate::app) mod tests;

@@ -24,7 +24,7 @@ pub(super) fn exports(cmds: &[Command]) -> Vec<&CompareCommand> {
         .collect()
 }
 
-pub(super) fn plan_modal() -> AppState {
+pub(in crate::app) fn plan_modal() -> AppState {
     let (state, cmds) = act(with_pending(), CompareAction::OpenExport(ExportKind::Plan));
     assert!(cmds.is_empty());
     assert!(matches!(state.compare.export, ExportUi::Configuring(_)));

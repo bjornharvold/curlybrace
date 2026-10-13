@@ -1,9 +1,10 @@
 //! The seam to the native "save as" dialog.
 //!
-//! The reducer never touches a dialog: it only moves the export to `Choosing`. The app layer
-//! starts the picker on that edge (`UiEvent::PickExportFile`, emitted by the view together with
-//! `CompareAction::ChooseExportFile`, the reducer transition first), waits for the answer
-//! without blocking the UI thread, and turns it into `ExportPathChosen` / `ExportPathCancelled`.
+//! The reducer never touches a dialog: it only moves the export to `Choosing`. At the end of
+//! every frame the app layer opens the picker if an export waits in `Choosing` and none is open
+//! (views only emit `CompareAction::ChooseExportFile`), waits for the answer without blocking
+//! the UI thread, and turns it into `ExportPathChosen` / `ExportPathCancelled` if that export
+//! is still the one waiting.
 //! Paths are never logged.
 use curlybrace_core::compare::protocol::ExportFormat;
 use curlybrace_core::runtime::Repaint;
@@ -11,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
-use crate::viewmodel::compare::ExportKind;
+use crate::viewmodel::compare::{ExportDraft, ExportKind};
 
 /// Asks the person where to save a file. Blocking; the app calls it on a worker thread.
 pub trait FilePicker: Send + Sync {
@@ -72,10 +73,16 @@ pub enum PickPoll {
 /// One dialog in flight.
 #[derive(Debug)]
 pub struct PendingPick {
+    /// The export the dialog was opened for: an answer for any other state is stale.
+    draft: ExportDraft,
     answers: Receiver<Option<PathBuf>>,
 }
 
 impl PendingPick {
+    pub fn into_draft(self) -> ExportDraft {
+        self.draft
+    }
+
     pub fn poll(&self) -> PickPoll {
         match self.answers.try_recv() {
             Ok(path) => PickPoll::Done(path),
@@ -88,6 +95,7 @@ impl PendingPick {
 /// Runs the picker on a worker thread so the UI thread never blocks; wakes the UI afterwards.
 pub fn start_pick(
     picker: Arc<dyn FilePicker>,
+    draft: ExportDraft,
     suggested_name: &'static str,
     extension: &'static str,
     repaint: Repaint,
@@ -101,5 +109,5 @@ pub fn start_pick(
     let _ = std::thread::Builder::new()
         .name("curlybrace-file-picker".into())
         .spawn(work);
-    PendingPick { answers }
+    PendingPick { draft, answers }
 }

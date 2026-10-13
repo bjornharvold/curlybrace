@@ -38,7 +38,7 @@ use curlybrace_core::runtime::{
 use curlybrace_core::secrets::SecretStore;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
-use file_picker::{FilePicker, NoFilePicker, PendingPick, PickPoll, start_pick};
+use file_picker::{FilePicker, NoFilePicker, PendingPick, PickPoll, start_pick, suggested_file};
 use host_key::{HOST_KEY_PROMPT_TIMEOUT, HostKeyRequest, InteractivePrompt, PromptState};
 use panels::UiEvent;
 use persistence::default_connections_path;
@@ -265,10 +265,6 @@ impl CurlybraceApp {
             UiEvent::Connection(action) => self.handle_connection_action(action),
             UiEvent::HostKey(decision) => self.answer_host_key(decision),
             UiEvent::ForgetConfirmed => self.confirm_forget(),
-            UiEvent::PickExportFile {
-                suggested_name,
-                extension,
-            } => self.start_picker(suggested_name, extension),
         }
     }
 
@@ -296,28 +292,41 @@ impl CurlybraceApp {
         self.poll_picker();
     }
 
-    /// Opens the save dialog on a worker thread, only for an export waiting in `Choosing` and
-    /// never while another dialog is open. The answer comes back through `poll_picker`.
-    fn start_picker(&mut self, suggested_name: &'static str, extension: &'static str) {
-        let waiting = matches!(self.state.compare.export, ExportUi::Choosing(_));
-        if !waiting || self.pick.is_some() {
+    /// Opens the save dialog on a worker thread whenever an export waits in `Choosing` and no
+    /// dialog is open (so a view only emits `ChooseExportFile`). The answer comes back through
+    /// `poll_picker`; the reducer leaves `Choosing` on it, so a dialog is never reopened by
+    /// itself after an answer.
+    fn ensure_picker(&mut self) {
+        let ExportUi::Choosing(draft) = &self.state.compare.export else {
+            return;
+        };
+        if self.pick.is_some() {
             return;
         }
+        let (name, extension) = suggested_file(draft.kind, draft.plan.format);
         self.pick = Some(start_pick(
             self.picker.clone(),
-            suggested_name,
+            draft.clone(),
+            name,
             extension,
             self.repaint.clone(),
         ));
     }
 
-    /// Turns the dialog's answer, once it is there, into the matching compare action.
+    /// Turns the dialog's answer, once it is there, into the matching compare action, but only
+    /// when the export it was opened for is still the one waiting; a stale answer is dropped.
     fn poll_picker(&mut self) {
-        let PickPoll::Done(path) = self.pick.as_ref().map_or(PickPoll::Waiting, |p| p.poll())
-        else {
+        let Some(PickPoll::Done(path)) = self.pick.as_ref().map(|p| p.poll()) else {
             return;
         };
-        self.pick = None;
+        let draft = self.pick.take().map(PendingPick::into_draft);
+        let still_waiting = matches!(
+            (&self.state.compare.export, &draft),
+            (ExportUi::Choosing(current), Some(asked)) if current == asked
+        );
+        if !still_waiting {
+            return;
+        }
         let action = match path {
             Some(path) => CompareAction::ExportPathChosen(path),
             None => CompareAction::ExportPathCancelled,
@@ -328,6 +337,12 @@ impl CurlybraceApp {
     /// Copies the clipboard report, if one is waiting, exactly once: the state keeps no copy.
     /// The text is never logged.
     fn flush_clipboard(&mut self, ctx: &egui::Context) {
+        if !matches!(
+            self.state.compare.export,
+            ExportUi::Copied { text: Some(_), .. }
+        ) {
+            return;
+        }
         let (state, text) = std::mem::take(&mut self.state).take_clipboard_text();
         self.state = state;
         if let Some(text) = text {
@@ -353,6 +368,7 @@ impl CurlybraceApp {
         for event in self.draw(ctx) {
             self.apply_ui_event(event);
         }
+        self.ensure_picker();
         self.flush_clipboard(ctx);
     }
 }

@@ -24,16 +24,6 @@ pub enum UiEvent {
     Connection(ConnectionAction),
     HostKey(HostKeyDecision),
     ForgetConfirmed,
-    /// Open the save dialog for the export. Emitted by the view together with
-    /// `CompareAction::ChooseExportFile` (the reducer transition to `Choosing` happens first);
-    /// the app answers with `ExportPathChosen` / `ExportPathCancelled`. The values come from
-    /// `file_picker::suggested_file`.
-    // Constructed by the export views (Task 7); remove this allow there.
-    #[allow(dead_code)]
-    PickExportFile {
-        suggested_name: &'static str,
-        extension: &'static str,
-    },
 }
 
 pub fn show_banner(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
