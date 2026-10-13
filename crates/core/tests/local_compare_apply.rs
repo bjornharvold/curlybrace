@@ -265,3 +265,118 @@ async fn bulk_write_into_a_view_is_rejected() {
     );
     assert_eq!(all_docs(&client, &ns).await, vec![doc! { "_id": 1 }]);
 }
+
+/// Replacement text comes from user data. A document made only of `$set` must never run as an
+/// operator update: the op's `_id` goes first, so the server sees a replacement with a
+/// `$`-field and refuses it.
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn bulk_write_never_reads_a_replacement_as_an_operator_update() {
+    if !local_enabled("bulk_write_never_reads_a_replacement_as_an_operator_update") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("operator");
+    support::insert_labelled(&client, &ns, &[doc! { "_id": 1, "keep": "me" }]).await;
+    let ops = vec![WriteOp::Replace {
+        id: Bson::Int32(1),
+        doc: doc! { "$set": { "x": 1 } },
+    }];
+    let outcomes = store.bulk_write(&ns, ops).await.unwrap();
+    assert!(
+        matches!(outcomes[0], Err(WriteFailure::Rejected(_))),
+        "{outcomes:?}"
+    );
+    assert_eq!(
+        all_docs(&client, &ns).await,
+        vec![doc! { "_id": 1, "keep": "me" }]
+    );
+}
+
+/// An `_id` that is a sub-document with `$` keys is a literal value, not a query operator.
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn bulk_write_treats_operator_shaped_ids_as_literals() {
+    if !local_enabled("bulk_write_treats_operator_shaped_ids_as_literals") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("literal_ids");
+    let seed = [doc! { "_id": "a", "v": 1 }, doc! { "_id": "b", "v": 1 }];
+    support::insert_labelled(&client, &ns, &seed).await;
+    let evil = Bson::Document(doc! { "$gt": "" });
+    let ops = vec![
+        WriteOp::Delete { id: evil.clone() },
+        WriteOp::Replace {
+            id: evil.clone(),
+            doc: doc! { "_id": evil.clone(), "v": 2 },
+        },
+    ];
+    let outcomes = store.bulk_write(&ns, ops).await.unwrap();
+    assert!(
+        outcomes
+            .iter()
+            .all(|o| matches!(o, Err(WriteFailure::Missing | WriteFailure::Rejected(_)))),
+        "{outcomes:?}"
+    );
+    assert_eq!(all_docs(&client, &ns).await, seed.to_vec());
+}
+
+/// The Missing probe compares ids as the server does: stored `1.0` is found by `Int32(1)`.
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn bulk_write_probe_matches_numeric_and_sub_document_ids() {
+    if !local_enabled("bulk_write_probe_matches_numeric_and_sub_document_ids") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("probe");
+    let sub = Bson::Document(doc! { "k": 1 });
+    let seed = [doc! { "_id": 1.0 }, doc! { "_id": sub.clone() }];
+    support::insert_labelled(&client, &ns, &seed).await;
+    let absent_sub = Bson::Document(doc! { "k": 2 });
+    let replaces = vec![
+        WriteOp::Replace {
+            id: Bson::Int32(1),
+            doc: doc! { "v": 1 },
+        },
+        WriteOp::Replace {
+            id: sub.clone(),
+            doc: doc! { "v": 1 },
+        },
+        WriteOp::Replace {
+            id: Bson::Int32(7),
+            doc: doc! { "v": 1 },
+        },
+        WriteOp::Replace {
+            id: absent_sub.clone(),
+            doc: doc! { "v": 1 },
+        },
+    ];
+    let outcomes = store.bulk_write(&ns, replaces).await.unwrap();
+    assert_eq!(
+        outcomes,
+        vec![
+            Ok(()),
+            Ok(()),
+            Err(WriteFailure::Missing),
+            Err(WriteFailure::Missing)
+        ]
+    );
+    let deletes = vec![
+        WriteOp::Delete { id: Bson::Int32(1) },
+        WriteOp::Delete { id: sub },
+        WriteOp::Delete { id: Bson::Int32(7) },
+        WriteOp::Delete { id: absent_sub },
+    ];
+    let outcomes = store.bulk_write(&ns, deletes).await.unwrap();
+    assert_eq!(
+        outcomes,
+        vec![
+            Ok(()),
+            Ok(()),
+            Err(WriteFailure::Missing),
+            Err(WriteFailure::Missing)
+        ]
+    );
+}
