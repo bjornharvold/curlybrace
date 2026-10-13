@@ -547,6 +547,11 @@ async fn a_panicking_store_stops_the_apply_frees_the_slot_and_ends_with_apply_do
     assert_eq!(reports.len(), 2, "each pair still gets its terminal");
     assert_eq!((reports[0].1.failed, reports[0].1.applied), (1, 0));
     assert_eq!(
+        reports[0].1.failures[0].error,
+        CoreError::ApplyOutcomeUnknown,
+        "a panic during the write leaves the outcome unknown"
+    );
+    assert_eq!(
         (reports[1].1.not_run, reports[1].1.failed),
         (1, 0),
         "the panic stops the rest"

@@ -62,10 +62,6 @@ const CATEGORIES: [Category; 3] = [
     Category::Different,
 ];
 
-fn internal_error() -> CoreError {
-    CoreError::Database("internal error".into())
-}
-
 impl ApplyInput<'_> {
     fn store(&self, side: Side) -> &Arc<dyn DocumentStore> {
         match side {
@@ -196,7 +192,9 @@ fn to_outcome(outcome: WriteOutcome) -> OpOutcome {
     )
 }
 
-/// One `bulk_write` for `group`; a whole-call error fails every op of the group.
+/// One `bulk_write` for `group`. A whole-call error (or a reply that does not line up with the
+/// ops) fails every op of the group as `ApplyOutcomeUnknown`: earlier commands of the call may
+/// have landed, and driver text is never passed on.
 async fn write_group(
     input: &ApplyInput<'_>,
     side: Side,
@@ -215,8 +213,7 @@ async fn write_group(
             .into_iter()
             .zip(outcomes.into_iter().map(to_outcome))
             .collect(),
-        Ok(_) => fail_all(indexes, &internal_error()),
-        Err(error) => fail_all(indexes, &error),
+        Ok(_) | Err(_) => fail_all(indexes, &CoreError::ApplyOutcomeUnknown),
     }
 }
 
@@ -228,7 +225,7 @@ fn fail_all(indexes: Vec<usize>, error: &CoreError) -> Vec<(usize, OpOutcome)> {
 }
 
 /// The final outcome of every op of the batch, in order. An op that was neither decided nor
-/// written (cannot happen) is reported failed rather than applied.
+/// written (cannot happen) is reported `ApplyOutcomeUnknown` rather than applied.
 fn merge_outcomes(
     done: Vec<Option<OpOutcome>>,
     written: Vec<(usize, OpOutcome)>,
@@ -241,7 +238,7 @@ fn merge_outcomes(
     }
     slots
         .into_iter()
-        .map(|o| o.unwrap_or_else(|| OpOutcome::Failed(internal_error())))
+        .map(|o| o.unwrap_or(OpOutcome::Failed(CoreError::ApplyOutcomeUnknown)))
         .collect()
 }
 

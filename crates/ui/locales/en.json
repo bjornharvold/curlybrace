@@ -283,6 +283,8 @@
     "title_new": "New document"
   },
   "errors": {
+    "apply_duplicate_key": "A document with the same unique value already exists in the destination, so this one was not written.",
+    "apply_outcome_unknown": "The result of this write is unknown; run the comparison again to see what was applied.",
     "apply_target_not_writable": "The destination cannot be written to (a view, or a time-series collection for this kind of change).",
     "apply_write_rejected": "The server refused the write.",
     "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",

@@ -2,7 +2,10 @@
 //! (`insert` / `update` / `delete`, `ordered: false`).
 //!
 //! Server text (`errmsg`) is never copied into a result: duplicate-key messages quote the key
-//! values.
+//! values. A command whose reply cannot be trusted (write concern error, unreadable
+//! `writeErrors`) fails the call with `ApplyOutcomeUnknown`: it may have written. A driver
+//! error (`db_err`) is also a whole-call failure; `apply_engine` maps every `Err` to
+//! `ApplyOutcomeUnknown`.
 
 use std::cmp::Ordering;
 
@@ -91,7 +94,7 @@ pub(crate) fn split_chunks(
 /// Inserts are sent first, then replaces, then deletes; there is no ordering within a call. An
 /// `Err` may follow commands that already wrote, so after an `Err` nothing may be assumed about
 /// what was written. Callers must not display the text of a `CoreError::Database` from here
-/// (it can carry driver text). Limitation: the `Missing` probe compares ids under the simple
+/// (it carries driver text); `apply_engine` replaces every `Err` with `ApplyOutcomeUnknown`. Limitation: the `Missing` probe compares ids under the simple
 /// collation, so on a collection with a non-simple default collation an id that matches only
 /// under that collation may be reported `Missing`.
 pub(crate) async fn bulk_write(
@@ -255,11 +258,12 @@ fn replacement(id: &Bson, doc: &Document) -> Document {
         .collect()
 }
 
-/// A reply whose write concern was not satisfied is a failure of the whole command (what was
-/// written is unknown). No server text is kept.
+/// A reply whose write concern was not satisfied is a failure of the whole command: the write
+/// reached the primary but was not acknowledged as asked, so `ApplyOutcomeUnknown`. No server
+/// text is kept.
 fn check_write_concern(reply: &Document) -> Result<()> {
     if reply.contains_key("writeConcernError") {
-        return Err(CoreError::Database("write concern not satisfied".into()));
+        return Err(CoreError::ApplyOutcomeUnknown);
     }
     Ok(())
 }
@@ -274,12 +278,13 @@ fn matched_count(reply: &Document) -> usize {
 }
 
 /// `writeErrors` of a reply as failures: `position_of` maps the command-local index back to the
-/// op's position. Only the numeric code is kept.
+/// op's position. Only the numeric code is kept. A reply that cannot be mapped means the command
+/// ran but its result cannot be read: `ApplyOutcomeUnknown`.
 fn map_write_errors(
     reply: &Document,
     position_of: impl Fn(usize) -> Option<usize>,
 ) -> Result<Failures> {
-    let unmappable = || CoreError::Database("unexpected write error reply".into());
+    let unmappable = || CoreError::ApplyOutcomeUnknown;
     let Ok(errors) = reply.get_array("writeErrors") else {
         return Ok(Vec::new());
     };
@@ -357,7 +362,10 @@ mod tests {
     #[test]
     fn an_unmappable_write_error_fails_the_whole_call() {
         let reply = doc! { "writeErrors": [{ "index": 7, "code": 1 }] };
-        assert!(map_write_errors(&reply, |i| (i < 3).then_some(i)).is_err());
+        assert_eq!(
+            map_write_errors(&reply, |i| (i < 3).then_some(i)),
+            Err(CoreError::ApplyOutcomeUnknown)
+        );
         let reply = doc! { "writeErrors": ["junk"] };
         assert!(map_write_errors(&reply, Some).is_err());
     }
@@ -367,6 +375,7 @@ mod tests {
         let reply =
             doc! { "ok": 1, "n": 1, "writeConcernError": { "code": 64, "errmsg": "SECRET" } };
         let err = check_write_concern(&reply).unwrap_err();
+        assert_eq!(err, CoreError::ApplyOutcomeUnknown);
         assert!(!format!("{err:?}").contains("SECRET"));
         assert!(check_write_concern(&doc! { "ok": 1 }).is_ok());
     }

@@ -11,7 +11,7 @@ use crate::test_support::InMemoryStore;
 use async_trait::async_trait;
 use bson::{Bson, doc};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use ApplyKind::{Delete, Insert, Replace};
 use Direction::{SourceToTarget as ST, TargetToSource as TS};
@@ -51,6 +51,7 @@ struct Spy {
     duplicate_id: Mutex<Option<Bson>>,
     fail_call: Mutex<Option<usize>>,
     /// How many `scan_sorted` / `scan_sorted_primary` calls reached this store.
+    short_reply: AtomicBool,
     plain_scans: AtomicUsize,
     primary_scans: AtomicUsize,
 }
@@ -62,6 +63,7 @@ impl Spy {
             calls: Mutex::new(Vec::new()),
             duplicate_id: Mutex::new(None),
             fail_call: Mutex::new(None),
+            short_reply: AtomicBool::new(false),
             plain_scans: AtomicUsize::new(0),
             primary_scans: AtomicUsize::new(0),
         }
@@ -129,6 +131,10 @@ impl DocumentStore for Spy {
             .map(|(o, _)| o)
             .collect();
         let mut real = self.inner.bulk_write(ns, passed).await?.into_iter();
+        if self.short_reply.load(Ordering::SeqCst) {
+            real.next();
+            return Ok(Vec::new());
+        }
         Ok(flags
             .iter()
             .map(|d| {
@@ -413,10 +419,7 @@ async fn one_duplicate_key_failure_does_not_stop_its_neighbours() {
     assert_eq!((r.applied, r.failed, total(&r)), (2, 1, 3));
     assert_eq!(r.failures.len(), 1);
     assert_eq!(r.failures[0].key, k(2));
-    assert_eq!(
-        r.failures[0].error,
-        CoreError::Database("duplicate key".into())
-    );
+    assert_eq!(r.failures[0].error, CoreError::ApplyDuplicateKey);
     assert_eq!(f.target_docs(), vec![doc! {"_id": 1}, doc! {"_id": 3}]);
 }
 
@@ -484,7 +487,8 @@ async fn a_whole_call_error_marks_that_group_failed_and_the_next_batch_still_run
     assert_eq!((r.failed, r.applied, total(&r)), (500, 501, 1001));
     assert_eq!(r.failures.len(), 100);
     assert!(r.more_failures);
-    assert_eq!(r.failures[0].error, CoreError::Database("boom".into()));
+    assert_eq!(r.failures[0].error, CoreError::ApplyOutcomeUnknown);
+    assert!(!format!("{:?}", r.failures[0]).contains("boom"));
     assert_eq!(*f.target.calls.lock().unwrap(), vec![500, 500, 1]);
     assert_eq!(f.target_docs().len(), 501);
 }
@@ -706,4 +710,17 @@ async fn verification_reads_both_sides_from_the_primary_and_the_compare_does_not
         assert!(spy.primary_scans.load(Ordering::SeqCst) >= 1);
         assert_eq!(spy.plain_scans.load(Ordering::SeqCst), 0, "verification");
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reply_with_the_wrong_number_of_outcomes_is_outcome_unknown() {
+    let f = Fixture::by_id(vec![doc! {"_id": 1}, doc! {"_id": 2}], vec![]).await;
+    f.target.short_reply.store(true, Ordering::SeqCst);
+    let r = f.apply(&[op(k(1), Insert, ST), op(k(2), Insert, ST)]).await;
+    assert_eq!((r.failed, r.applied), (2, 0));
+    assert!(
+        r.failures
+            .iter()
+            .all(|x| x.error == CoreError::ApplyOutcomeUnknown)
+    );
 }

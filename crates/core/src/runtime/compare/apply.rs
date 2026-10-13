@@ -338,9 +338,10 @@ async fn apply_group(
         Ok(Ok(report)) => report,
         Ok(Err(error)) => failed_report(&ops, &error),
         Err(_) => {
-            // A panic stops the whole apply: later pairs are reported `not_run`.
+            // A panic stops the whole apply: later pairs are reported `not_run`. Writes of this
+            // pair may have happened, so its ops are failed as outcome unknown.
             cancel.cancel();
-            failed_report(&ops, &internal_error())
+            failed_report(&ops, &CoreError::ApplyOutcomeUnknown)
         }
     }
 }

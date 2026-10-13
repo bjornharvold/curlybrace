@@ -163,7 +163,7 @@ pub fn plan_write(
 pub fn map_write_failure(f: WriteFailure) -> CoreError {
     match f {
         WriteFailure::Missing => CoreError::NotFound,
-        WriteFailure::DuplicateKey => CoreError::Database("duplicate key".into()),
+        WriteFailure::DuplicateKey => CoreError::ApplyDuplicateKey,
         WriteFailure::Rejected(_) => CoreError::ApplyWriteRejected,
     }
 }
@@ -311,7 +311,7 @@ mod tests {
         );
         assert_eq!(
             map_write_failure(WriteFailure::DuplicateKey),
-            CoreError::Database("duplicate key".into())
+            CoreError::ApplyDuplicateKey
         );
         let e = map_write_failure(WriteFailure::Rejected(121));
         assert_eq!(e, CoreError::ApplyWriteRejected);
