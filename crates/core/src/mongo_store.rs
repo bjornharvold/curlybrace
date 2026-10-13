@@ -29,11 +29,11 @@ impl MongoStore {
     }
 }
 
-/// Driver errors may quote server text; they are surfaced, but never carry
-/// credentials because the client never holds them in message form.
 /// How long past the client-side duplicate bound the server keeps working before it gives up.
 const DUPLICATE_SERVER_GRACE: Duration = Duration::from_secs(10);
 
+/// Driver errors may quote server text; they are surfaced, but never carry
+/// credentials because the client never holds them in message form.
 fn db_err(e: mongodb::error::Error) -> CoreError {
     crate::driver_error::classify_driver_error(&e)
 }
