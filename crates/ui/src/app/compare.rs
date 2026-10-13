@@ -91,8 +91,9 @@ pub enum CompareAction {
     AddKeyToPending(KeyTuple, RowAction),
     RemovePending(usize),
     ClearPending,
-    /// Open the review dialog; `word` is the localized `compare.apply.confirm_word`, which the
-    /// review stores and the typed confirmation is later checked against.
+    /// Open the review dialog. `word` must come from `i18n.t(CONFIRM_WORD_KEY)`: the review
+    /// stores it and a Word-type typed confirmation is later checked against it. A blank word
+    /// can never confirm.
     ReviewApply {
         word: String,
     },
@@ -217,7 +218,38 @@ fn on_apply_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::CancelReview => apply::cancel_review(state),
         CompareAction::CancelApply => apply::cancel_apply(state),
         CompareAction::DismissApplyResult => apply::dismiss_result(state),
-        _ => none(state),
+        // Routed by `on_action` and `on_pair_action`; listed so a new variant must be placed.
+        CompareAction::Show
+        | CompareAction::Hide
+        | CompareAction::Open { .. }
+        | CompareAction::CloseSession
+        | CompareAction::PickSide(..)
+        | CompareAction::SetKey(_)
+        | CompareAction::SetFilter(..)
+        | CompareAction::SetRules(_)
+        | CompareAction::AddPair
+        | CompareAction::AddAllSameNamed
+        | CompareAction::AddUnmatched { .. }
+        | CompareAction::RemovePair(_)
+        | CompareAction::IncludePair(..)
+        | CompareAction::EditPair(_)
+        | CompareAction::SetPairOverrides(..)
+        | CompareAction::ToggleSystemCollections(_)
+        | CompareAction::RunCheck
+        | CompareAction::Start
+        | CompareAction::StartPassing
+        | CompareAction::Cancel
+        | CompareAction::SelectCategory(_)
+        | CompareAction::Page(_)
+        | CompareAction::Select(_)
+        | CompareAction::OpenPair(_)
+        | CompareAction::BackToOverview
+        | CompareAction::DiscardPair(_)
+        | CompareAction::Rerun(_)
+        | CompareAction::Back
+        | CompareAction::Reload(_)
+        | CompareAction::RetryRows
+        | CompareAction::FindDuplicates(_) => none(state),
     }
 }
 
@@ -299,6 +331,10 @@ fn open(state: AppState, source: Uuid, target: Uuid) -> Out {
     if shown.compare.session.is_some() && shown.compare.connections == Some((source, target)) {
         return none(shown);
     }
+    // Replacing the session would drop an apply that is being reviewed or runs.
+    if shown.compare.apply.is_busy() {
+        return none(shown);
+    }
     let mut commands = Vec::new();
     if let Some(old) = shown.compare.session {
         commands.push(cmd(CompareCommand::Close { session: old.id() }));
@@ -319,7 +355,7 @@ fn open(state: AppState, source: Uuid, target: Uuid) -> Out {
 }
 
 fn close(state: AppState) -> Out {
-    let Some(phase) = state.compare.session else {
+    let Some(phase) = state.compare.session.filter(|_| state.compare.can_close()) else {
         return none(state);
     };
     let dropped = state.compare.clone().session_dropped();

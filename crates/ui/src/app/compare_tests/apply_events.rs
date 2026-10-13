@@ -188,16 +188,85 @@ fn a_failed_event_of_another_session_is_ignored() {
     assert!(state.banner.is_none());
 }
 
+/// Every user path that would close or replace the session, fired on `state`.
+fn session_leaving_paths(state: &AppState) -> Vec<Input> {
+    use crate::viewmodel::SidebarAction;
+    use curlybrace_core::store::Namespace;
+    let (a, b) = state.compare.connections.unwrap();
+    vec![
+        Input::Compare(CompareAction::CloseSession),
+        Input::Compare(open_action(b, a)),
+        Input::Sidebar(SidebarAction::CompareTo(Namespace::new("shop", "orders"))),
+        Input::Sidebar(SidebarAction::CompareDatabaseTo("shop".into())),
+    ]
+}
+
 #[test]
-fn closing_or_replacing_the_session_returns_to_idle() {
-    let (closed, _) = act(running_apply(), CompareAction::CloseSession);
-    assert_eq!(closed.compare.apply, ApplyUi::Idle);
-    let running = running_apply();
-    let (a, b) = running.compare.connections.unwrap();
-    let (replaced, _) = act(running, open_action(b, a));
+fn closing_or_replacing_the_session_is_refused_while_an_apply_runs_or_is_reviewed() {
+    for build in [running_apply, super::confirm::confirmed] {
+        let probe = build();
+        for index in 0..session_leaving_paths(&probe).len() {
+            let mut state = build();
+            // A sidebar entry replaces the session only from another connection.
+            state.connected = Some(state.compare.connections.unwrap().1);
+            let input = session_leaving_paths(&state).remove(index);
+            let before = copy_of(&state);
+            let (after, cmds) = update(state, input);
+            assert!(cmds.is_empty(), "path {index}: {cmds:?}");
+            assert_eq!(after.compare.apply, before.compare.apply, "path {index}");
+            assert_eq!(
+                after.compare.session, before.compare.session,
+                "path {index}"
+            );
+            assert_eq!(after.compare.connections, before.compare.connections);
+        }
+    }
+}
+
+#[test]
+fn closing_and_replacing_work_once_the_apply_is_over() {
+    let (state, _) = update(running_apply(), done_ev(1, 2));
+    let (state, _) = act(state, CompareAction::DismissApplyResult);
+    let (a, b) = state.compare.connections.unwrap();
+    let (replaced, cmds) = act(copy_of(&state), open_action(b, a));
+    assert!(!cmds.is_empty());
     assert_eq!(replaced.compare.apply, ApplyUi::Idle);
-    let (reviewing, _) = act(super::confirm::confirmed(), CompareAction::CloseSession);
-    assert_eq!(reviewing.compare.apply, ApplyUi::Idle);
+    let (closed, cmds) = act(state, CompareAction::CloseSession);
+    assert!(matches!(
+        &cmds[..],
+        [Command::Compare(CompareCommand::Close { session: 1 })]
+    ));
+    assert_eq!(closed.compare.apply, ApplyUi::Idle);
+}
+
+#[test]
+fn the_session_is_lost_to_the_runtime_even_while_applying() {
+    let failed = ev(CompareEvent::OpenFailed {
+        session: 1,
+        error: CoreError::NotFound,
+    });
+    // Event-driven loss is not ours to refuse.
+    let (state, _) = update(running_apply(), failed);
+    assert_eq!(state.compare.apply, ApplyUi::Idle);
+}
+
+#[test]
+fn the_close_and_open_gates_follow_the_apply() {
+    let state = running_apply().compare;
+    let (a, b) = state.connections.unwrap();
+    assert!(!state.can_close());
+    assert!(!state.can_open((Some(b), Some(a))));
+    let (dismissed, _) = update(
+        update(
+            update(running_apply(), done_ev(1, 2)).0,
+            Input::Compare(CompareAction::DismissApplyResult),
+        )
+        .0,
+        Input::Compare(CompareAction::Show),
+    );
+    let idle = dismissed.compare;
+    let (a, b) = idle.connections.unwrap();
+    assert!(idle.can_close() && idle.can_open((Some(b), Some(a))));
 }
 
 /// Every action that starts or changes other work, fired while `state` applies (or reviews).
@@ -253,6 +322,44 @@ fn the_pending_list_and_selection_are_read_only_while_busy() {
             );
         }
     }
+}
+
+fn dismissed_after_done() -> AppState {
+    let (state, _) = update(running_apply(), done_ev(1, 2));
+    act(state, CompareAction::DismissApplyResult).0
+}
+
+#[test]
+fn each_blocked_action_sends_its_command_once_the_apply_is_over() {
+    // The positive control of the busy-gate test: the refusal there is the apply's doing.
+    for action in [
+        CompareAction::Start,
+        CompareAction::StartPassing,
+        CompareAction::RunCheck,
+        CompareAction::Rerun(ENTRY),
+        CompareAction::RemovePair(ENTRY),
+        CompareAction::DiscardPair(ENTRY),
+    ] {
+        let (_, cmds) = act(dismissed_after_done(), action.clone());
+        assert!(!cmds.is_empty(), "{action:?} works when nothing applies");
+    }
+}
+
+#[test]
+fn find_duplicates_is_refused_only_because_of_the_apply() {
+    let busy = |apply: ApplyUi| {
+        let mut state = super::duplicates::duplicate_failure();
+        state.compare.apply = apply;
+        act(state, CompareAction::FindDuplicates(ENTRY)).1
+    };
+    let running = running_apply().compare.apply;
+    assert!(busy(running).is_empty());
+    assert!(busy(super::confirm::confirmed().compare.apply).is_empty());
+    assert_eq!(
+        busy(ApplyUi::Idle).len(),
+        1,
+        "control: Idle sends the lookup"
+    );
 }
 
 #[test]

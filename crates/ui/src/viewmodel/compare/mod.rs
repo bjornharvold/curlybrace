@@ -144,13 +144,16 @@ impl CompareState {
     pub fn can_open(&self, draft: (Option<Uuid>, Option<Uuid>)) -> bool {
         let opening = matches!(self.session, Some(SessionPhase::Opening(_)));
         match draft {
-            (Some(source), Some(target)) => !opening && self.connections != Some((source, target)),
+            (Some(source), Some(target)) => {
+                !opening && !self.apply.is_busy() && self.connections != Some((source, target))
+            }
             _ => false,
         }
     }
 
+    /// A session can be closed unless an apply is being reviewed or runs on it.
     pub fn can_close(&self) -> bool {
-        self.session.is_some()
+        self.session.is_some() && !self.apply.is_busy()
     }
 
     pub fn is_ready(&self) -> bool {

@@ -102,7 +102,8 @@ pub(super) fn confirm_apply(state: AppState) -> Out {
     if !reviewed.confirmation_passes() {
         return none(state);
     }
-    let (ops, bulk) = c.pending.to_command_parts();
+    // The reviewed list, which `rebuilt` has just proven equal to the current one.
+    let (ops, bulk) = reviewed.pending.to_command_parts();
     let run = c.next_run;
     let command = CompareCommand::Apply {
         session: reviewed.session,

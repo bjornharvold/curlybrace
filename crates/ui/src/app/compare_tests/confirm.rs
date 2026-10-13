@@ -398,14 +398,33 @@ fn confirm_after_the_counts_changed_sends_nothing() {
 }
 
 #[test]
-fn confirm_after_a_session_replacement_sends_nothing() {
-    let state = confirmed();
-    let (a, b) = state.compare.connections.unwrap();
-    let (state, _) = act(state, CompareAction::CloseSession);
+fn confirm_after_the_same_number_of_other_keys_sends_nothing() {
+    let mut state = confirmed();
+    let (swapped, _) = state.compare.pending.cleared().with_action(
+        RUN_PAIR,
+        Category::Different,
+        RowAction::CopyToTarget,
+        Scope::Keys(vec![key(0), key(2)]),
+    );
+    assert_eq!(
+        swapped.op_count(&|_, _| 0),
+        state.compare.pending.op_count(&|_, _| 0),
+        "same count, other keys"
+    );
+    state.compare.pending = swapped;
+    let (state, cmds) = act(state, CompareAction::ConfirmApply);
+    assert!(applies(&cmds).is_empty());
     assert_eq!(state.compare.apply, ApplyUi::Idle);
-    let (state, _) = act(state, open_action(a, b));
-    let (_, cmds) = act(state, CompareAction::ConfirmApply);
-    assert!(cmds.is_empty());
+}
+
+#[test]
+fn the_command_is_built_from_the_reviewed_list() {
+    let (state, cmds) = act(confirmed(), CompareAction::ConfirmApply);
+    let reviewed = state.compare.pending.to_command_parts();
+    let [CompareCommand::Apply { ops, bulk, .. }] = applies(&cmds)[..] else {
+        panic!("one apply")
+    };
+    assert_eq!((ops.clone(), bulk.clone()), reviewed);
 }
 
 #[test]

@@ -108,6 +108,8 @@ pub struct Review {
     pub word: String,
     /// The session the review was taken for; 0 until `bound` (no real session has that id).
     pub session: SessionId,
+    /// The pending list this review was built from; an apply sends exactly this list.
+    pub pending: PendingList,
     /// What the warnings derive from, kept so a changed id policy recomputes them.
     pub(super) warn_inputs: Vec<WarnInput>,
 }
@@ -146,9 +148,14 @@ impl Review {
         self.confirm_enabled(&self.word)
     }
 
-    /// Both reviews stand for the same writes: same pairs, entries, actions, destinations (by
-    /// database and collection, not by display name) and counts.
+    /// Both reviews stand for the same writes: the same pending list (keys included), pairs,
+    /// entries, actions, destinations (by database and collection, not by display name) and
+    /// counts.
     pub fn same_writes(&self, other: &Self) -> bool {
+        self.pending == other.pending && self.same_destinations(other)
+    }
+
+    fn same_destinations(&self, other: &Self) -> bool {
         let essence = |r: &Self| -> Vec<_> {
             r.pairs
                 .iter()
@@ -396,6 +403,7 @@ pub fn build_review(
         warnings: warnings_for(&warn_inputs, id_policy),
         word: String::new(),
         session: 0,
+        pending: pending.clone(),
         warn_inputs,
     })
 }

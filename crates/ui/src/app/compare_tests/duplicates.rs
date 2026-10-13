@@ -33,7 +33,7 @@ fn failed_event(context: &'static str) -> Input {
 }
 
 /// A run that finished on a duplicate key.
-fn duplicate_failure() -> AppState {
+pub(super) fn duplicate_failure() -> AppState {
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
