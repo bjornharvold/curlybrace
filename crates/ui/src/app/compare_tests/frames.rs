@@ -490,6 +490,10 @@ fn another_failure_does_not_offer_find_duplicate_keys() {
     let (state, _) = update(state, run_done());
     let texts = assert_translated(&workspace_clone(&state), "other failure");
     assert!(has(&texts, "did not finish"));
+    assert!(
+        !has(&texts, "The comparison finished"),
+        "a failed run is not also 'finished': {texts:?}"
+    );
     assert!(!has(&texts, "Find duplicate keys"));
     assert!(!has(&texts, "Duplicate keys"));
 }
@@ -563,7 +567,13 @@ fn a_failed_lookup_offers_try_again_and_the_hint() {
     let (state, _) = update(state, failed);
     assert_eq!(state.compare.duplicates, DuplicatesView::Failed);
     let texts = assert_translated(&workspace_clone(&state), "duplicates failed");
-    assert!(has(&texts, "Try again"));
+    let count = |needle: &str| texts.iter().filter(|t| t.as_str() == needle).count();
+    assert_eq!(count("«Try again»"), 1, "one button, not two: {texts:?}");
+    assert_eq!(
+        count("«Find duplicate keys»"),
+        0,
+        "no second button: {texts:?}"
+    );
     assert!(has(&texts, "Choose key fields that are unique"));
     assert!(!has(&texts, "Looking up the duplicate keys"));
 }
