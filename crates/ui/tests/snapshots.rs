@@ -15,6 +15,7 @@ use curlybrace_ui::viewmodel::{
 };
 use curlybrace_ui::views::connections::ConnectionsState;
 use support::compare_apply_states::shots as apply;
+use support::compare_export_shots as export;
 use support::compare_field_shots as fields;
 use support::compare_multi_states::{overview_mixed, pair_results, pairs_setup};
 use support::compare_states::{Through, compare_state};
@@ -210,6 +211,55 @@ apply_shot!(
 apply_shot!(compare_fields_pending, fields::pending_with_fields);
 apply_shot!(compare_fields_review, fields::review_with_fields);
 apply_shot!(compare_fields_finished, fields::finished_with_field_updates);
+
+apply_shot!(
+    compare_export_pending_button,
+    export::pending_panel_with_export_button
+);
+apply_shot!(compare_export_plan_modal, export::export_plan_modal);
+apply_shot!(
+    compare_export_plan_modal_mixed_sides,
+    export::export_plan_modal_mixed_sides
+);
+apply_shot!(compare_export_report_modal, export::export_report_modal);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_export_choosing() {
+    if !snapshots_enabled("compare_export_choosing") {
+        return;
+    }
+    // The spinner keeps repainting while the save dialog is open.
+    let mut shot = Shot::sized_waiting_for_dialog(
+        (1000.0, 1200.0),
+        vec![production(), staging()],
+        export::export_choosing,
+    );
+    shot.snapshot_animated("compare_export_choosing");
+}
+apply_shot!(
+    compare_export_finished_with_file_left,
+    export::export_finished_with_file_left
+);
+apply_shot!(
+    compare_export_finished_report,
+    export::export_finished_report
+);
+apply_shot!(compare_export_copied, export::export_copied);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_export_running() {
+    if !snapshots_enabled("compare_export_running") {
+        return;
+    }
+    let mut shot = Shot::sized(
+        (1000.0, 1200.0),
+        vec![production(), staging()],
+        export::export_running,
+    );
+    shot.snapshot_animated("compare_export_running");
+}
 
 #[test]
 #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]

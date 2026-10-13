@@ -127,7 +127,7 @@
       "pending_badge": "Pending changes: {count}",
       "reason": {
         "applied": "Changes were applied to this pair. Run it again first.",
-        "busy": "An apply is in progress.",
+        "busy": "An apply or an export is in progress.",
         "checking": "A check is running. Wait until it finishes.",
         "no_fields": "Tick at least one field first.",
         "not_completed": "This pair has no finished comparison to act on.",
