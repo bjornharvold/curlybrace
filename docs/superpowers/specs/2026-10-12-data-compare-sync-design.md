@@ -981,7 +981,7 @@ can be personal data), that the plan is a snapshot, and that skipped operations 
   any object literal, whatever the literal order (`"01"`, `"-1"`, `"4294967295"` are ordinary keys). A document,
   nested document, `_id` sub-document or `$set` value whose BSON key order differs from the order JavaScript would
   produce is therefore refused (`Unrenderable`) and listed as `skipped (unsupported)` in BOTH the script and the JSON
-  plan, never written reordered. A top-level document with such a key is always skipped (`_id` comes first).
+  plan, never written reordered. A top-level document with such a key is skipped whenever `_id` precedes it (every replace, and inserts that keep `_id`).
 - Two pairs that write the same destination collection with overlapping keys are each planned against the documents
   as they are NOW: the export does not simulate the first pair's writes. An apply would skip the second pair's
   operation as stale; the script writes both (the later one wins). The script header says so.

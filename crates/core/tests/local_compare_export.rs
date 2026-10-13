@@ -462,8 +462,8 @@ async fn a_script_cut_short_never_runs() {
     let path = dir.path().join("cut.js");
     export_ok(&mut rt, 2, script_request(ops), &path).await;
     let script = read(&path);
-    // The one statement ends with `)` + `;`; every cut before that `)` leaves an unfinished
-    // expression, which the shell never evaluates.
+    // The one statement ends with the catch block's `quit(2)` call; every cut before that final `)`
+    // leaves an unfinished expression, which the shell never evaluates.
     let end = script.rfind(')').expect("the closing parenthesis");
     let first_line = script.find('\n').unwrap() + 1;
     let mut offsets = vec![0, 1, first_line, first_line - 1];

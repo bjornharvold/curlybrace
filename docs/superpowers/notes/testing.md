@@ -119,8 +119,8 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
   default database must be a `cbit_*` name, and the container must publish 27017 on the host:port of
   `CURLYBRACE_IT_MONGODB_URI`. `mongosh` reading a script from stdin is a REPL and would keep going after a failed
   statement and exit 0; the exported script therefore wraps each statement in `try`/`catch` and `quit(2)`, which a
-  tier-1 test pins in stdin mode (exit code 2, no later statement). A cut, unfinished script still exits 0 and does
-  nothing, so the tests judge by the database and printed errors, not only by the exit status.
+  tier-1 test pins in stdin mode (exit code 2, no later statement). A cut statement is never run (in stdin mode the complete statements
+  before the cut do run; the exit status can still be 0), so the tests judge by the database and printed errors, not only by the exit status.
 
 The script checks that the server answers on TCP (no `mongosh` needed), sets `CURLYBRACE_IT=1` and
 runs both targets. **Start the server yourself**, for example
