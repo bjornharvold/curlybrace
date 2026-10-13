@@ -9,7 +9,7 @@ use super::table::{
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{
-    CompareState, OverviewRow, RowCounts, RowDetail, RunOverview, Totals,
+    CompareState, ExportKind, OverviewRow, RowCounts, RowDetail, RunOverview, Totals,
 };
 use eframe::egui;
 
@@ -35,8 +35,9 @@ pub fn show_overview(
     header(ui, &widths, &titles(i18n));
     let rows = show_rows(ui, state, &widths, i18n);
     show_totals(ui, &state.overview, &widths, i18n);
+    let export = super::export::show_entry(ui, state, ExportKind::Report, i18n);
     let duplicates = show_duplicates(ui, state, i18n);
-    cancel.or(rows).or(duplicates)
+    cancel.or(rows).or(export).or(duplicates)
 }
 
 fn titles(i18n: &I18n) -> Vec<String> {

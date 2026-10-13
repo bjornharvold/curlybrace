@@ -209,6 +209,47 @@
       "title": "Duplicate keys"
     },
     "export": {
+      "cancel": "Cancel",
+      "choose_file": "Choose file and export",
+      "choosing": {
+        "hint": "Choose where to save the file in the window that opened. Nothing is written until you confirm there.",
+        "waiting": "Waiting for the file dialog…"
+      },
+      "copied": {
+        "note": "The clipboard now holds the report. Keys can be personal data: paste it only where that is fine.",
+        "rows": "Rows copied: {count}",
+        "title": "Report copied"
+      },
+      "copy": "Copy to clipboard",
+      "dismiss": "Dismiss",
+      "finished": {
+        "bytes": "Size: {count} bytes",
+        "cancelled": "The export was cancelled.",
+        "failed": "Failed: {count}",
+        "file_left": "The unfinished file could not be removed and is still at the path above. Do not run or import it. Delete it yourself.",
+        "not_run": "Not run: {count}",
+        "partial_removed": "The unfinished file was removed.",
+        "path": "File",
+        "report_rows": "Rows written: {count}",
+        "report_stale": "Of these, rows whose documents changed since the comparison (empty paths cell): {count}",
+        "report_unreadable": "Of these, rows whose documents could not be read (empty paths cell): {count}",
+        "skipped": "Skipped: {count}",
+        "title": "Export finished",
+        "written": "Written: {count}"
+      },
+      "format": {
+        "json": "JSON plan",
+        "label": "File format",
+        "mongosh": "mongosh script"
+      },
+      "include_paths": "Include the changed field paths",
+      "include_paths_note": "Slow for big results: both documents of every different row are read again, one after the other. Only field paths are written, never values.",
+      "label": {
+        "caption": "Label (optional, written into the file)"
+      },
+      "open_plan": "Export changes…",
+      "open_report": "Export report…",
+      "pairs_title": "Pairs to include",
       "reason": {
         "apply_busy": "Finish or cancel the review or apply that is open first.",
         "check_in_flight": "Wait for the check to finish.",
@@ -221,7 +262,24 @@
         "no_pair_chosen": "Choose at least one pair with finished results.",
         "run_active": "Wait for the comparison to finish.",
         "session_not_ready": "Open a comparison session first."
-      }
+      },
+      "running": {
+        "cancel": "Cancel export",
+        "cancelling": "Cancelling…",
+        "progress": "{done} of {total}",
+        "title": "Exporting"
+      },
+      "title": {
+        "plan": "Export the pending changes",
+        "report": "Export the differences as a report"
+      },
+      "warning": {
+        "data": "The file will contain document data. Keep it where only the right people can read it.",
+        "report_keys": "Keys can be personal data. The report lists the key of every difference.",
+        "skipped": "Operations that can no longer be applied are listed in the file as skipped, never as changes.",
+        "stale": "The plan is a snapshot: the documents may have changed since the comparison."
+      },
+      "warnings_title": "Before you export"
     },
     "overview": {
       "cancel": "Cancel",

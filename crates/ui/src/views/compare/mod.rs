@@ -7,6 +7,8 @@ mod connect;
 mod detail;
 mod duplicates;
 mod editor;
+mod export;
+mod export_result;
 mod fields;
 mod memo;
 mod overview;
@@ -71,7 +73,8 @@ fn layout(
         Some(SessionPhase::Ready(_)) => show_ready(ui, state, connections, i18n),
     };
     let review = apply::show_review(ui.ctx(), state, i18n);
-    header.or(connect).or(body).or(review)
+    let export = export::show_export(ui.ctx(), state, i18n);
+    header.or(connect).or(body).or(review).or(export)
 }
 
 fn show_header(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {

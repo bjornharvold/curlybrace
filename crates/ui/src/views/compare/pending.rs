@@ -4,7 +4,7 @@
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{
-    ActionBlock, CONFIRM_WORD_KEY, CompareState, Destination, PendingGroup, PendingLine,
+    ActionBlock, CONFIRM_WORD_KEY, CompareState, Destination, ExportKind, PendingGroup, PendingLine,
 };
 use crate::views::connections::ConnectionsState;
 use curlybrace_core::compare::apply::ApplyKind;
@@ -66,7 +66,9 @@ pub fn show_pending(
     }
     let total = view.documents().to_string();
     ui.label(i18n.t_with("compare.apply.pending.total", &[("count", &total)]));
-    show_buttons(ui, state, busy, i18n).or(action)
+    let buttons = show_buttons(ui, state, busy, i18n);
+    let export = super::export::show_entry(ui, state, ExportKind::Plan, i18n);
+    buttons.or(export).or(action)
 }
 
 fn show_group(
