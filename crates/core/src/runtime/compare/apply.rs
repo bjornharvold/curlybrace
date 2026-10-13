@@ -8,6 +8,11 @@
 //! (then nothing more is sent: every emission goes through [`Session::emit_if_open`]). A refusal
 //! found by the destination checks (before any write) is a `Failed` and has no `ApplyDone`.
 //!
+//! A pair discarded before its turn fails its ops as `NotFound`; a pair already running finishes
+//! on the results snapshot it started with (batches are not re-checked against a discard). A
+//! panic in a pair fails that pair and cancels the rest (`not_run`); `ApplyDone` still follows.
+//! `Failed` carries no run id, so the UI must send one `Apply` at a time.
+//!
 //! Keys and documents are data and are never logged.
 
 use std::collections::HashMap;
@@ -177,6 +182,8 @@ async fn run_apply_all(
     slot: RunSlot,
 ) {
     if let Err(error) = check_destinations(&ctx, &groups).await {
+        // Freed first: a command sent on seeing the `Failed` must find the slot free.
+        slot.release();
         ctx.emit(CompareEvent::Failed {
             session: ctx.session_id,
             context: "compare_apply",
@@ -244,8 +251,16 @@ fn destination_namespace(spec: &PairSpec, side: Side) -> &Namespace {
 /// Before any write: no destination may be a view, and a time-series destination takes inserts
 /// only. A collection that does not exist yet is fine (the server creates it on insert).
 async fn check_destinations(ctx: &ApplyContext, groups: &[Group]) -> Result<()> {
+    let writes = planned_writes(&ctx.session, groups);
+    // Its own task: a panicking store ends in a refusal like any other, not in a bare `ApplyDone`.
+    tokio::spawn(check_writes(ctx.clone(), writes))
+        .await
+        .unwrap_or_else(|_| Err(internal_error()))
+}
+
+async fn check_writes(ctx: ApplyContext, writes: Writes) -> Result<()> {
     let conns = connections(&ctx.session)?;
-    for ((side, db), wanted) in planned_writes(&ctx.session, groups) {
+    for ((side, db), wanted) in writes {
         let store = conns.store(side);
         let kinds = bounded(ctx.limit, async { store.list_collection_kinds(&db).await }).await?;
         for (collection, kind) in wanted {
@@ -322,7 +337,11 @@ async fn apply_group(
     match joined {
         Ok(Ok(report)) => report,
         Ok(Err(error)) => failed_report(&ops, &error),
-        Err(_) => failed_report(&ops, &internal_error()),
+        Err(_) => {
+            // A panic stops the whole apply: later pairs are reported `not_run`.
+            cancel.cancel();
+            failed_report(&ops, &internal_error())
+        }
     }
 }
 

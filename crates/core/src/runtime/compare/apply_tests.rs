@@ -43,6 +43,7 @@ struct ApplyStore {
     scan_gate: Mutex<Option<Arc<Gate>>>,
     bulk_gate: Mutex<Option<Arc<Gate>>>,
     panic_bulk: AtomicBool,
+    panic_kinds: AtomicBool,
     bulk_calls: AtomicUsize,
 }
 
@@ -58,6 +59,7 @@ impl ApplyStore {
             scan_gate: Mutex::new(None),
             bulk_gate: Mutex::new(None),
             panic_bulk: AtomicBool::new(false),
+            panic_kinds: AtomicBool::new(false),
             bulk_calls: AtomicUsize::new(0),
         })
     }
@@ -129,6 +131,7 @@ impl DocumentStore for ApplyStore {
         self.inner.scan_sorted(ns, filter, key, from, limit).await
     }
     async fn list_collection_kinds(&self, db: &str) -> Result<Vec<(String, CollectionKind)>> {
+        assert!(!self.panic_kinds.load(Ordering::SeqCst), "store blew up");
         let mut listed = self.inner.list_collection_kinds(db).await?;
         for (name, kind) in &self.kinds {
             match listed.iter_mut().find(|(n, _)| n == name) {
@@ -159,7 +162,9 @@ fn source_store() -> InMemoryStore {
 }
 
 fn target_store() -> InMemoryStore {
-    InMemoryStore::new().with_docs(&ns("d", "c"), vec![doc! { "_id": 2, "v": "old" }])
+    InMemoryStore::new()
+        .with_docs(&ns("d", "c"), vec![doc! { "_id": 2, "v": "old" }])
+        .with_docs(&ns("d", "c3"), vec![doc! { "_id": 7, "v": "t" }])
 }
 
 struct Rig {
@@ -278,6 +283,13 @@ async fn barrier(tx: &Tx, h: &mut RuntimeHandle) {
     }
 }
 
+/// Bounds a wait so a regression fails instead of hanging.
+async fn within<T>(f: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(10), f)
+        .await
+        .expect("timed out")
+}
+
 async fn assert_silent(h: &mut RuntimeHandle) {
     let late = tokio::time::timeout(Duration::from_millis(200), h.rx.recv()).await;
     assert!(late.is_err(), "no event expected: {late:?}");
@@ -292,7 +304,7 @@ async fn apply_writes_the_selected_rows_and_reports_per_pair() {
         op(2, 1, ApplyKind::Insert),
     ];
     send_apply(&r.tx, 5, ops);
-    let events = collect_apply(&mut r.h).await;
+    let events = within(collect_apply(&mut r.h)).await;
     let shape: Vec<&str> = events
         .iter()
         .map(|e| match e {
@@ -329,22 +341,22 @@ async fn apply_is_refused_while_a_run_is_active_and_a_run_while_an_apply_is_acti
     let scan = Arc::new(Gate::default());
     r.source.park_next_scan(&scan);
     send_start(&r.tx, 8, vec![same_pair(1)]);
-    scan.entered.notified().await;
+    within(scan.entered.notified()).await;
     send_apply(&r.tx, 9, vec![op(1, 1, ApplyKind::Insert)]);
     expect_failed(&mut r.h, "compare_apply").await;
     scan.release.notify_one();
-    collect_run(&mut r.h).await;
+    within(collect_run(&mut r.h)).await;
 
     let bulk = Arc::new(Gate::default());
     r.target.park_next_bulk(&bulk);
     send_apply(&r.tx, 10, vec![op(1, 1, ApplyKind::Insert)]);
-    bulk.entered.notified().await;
+    within(bulk.entered.notified()).await;
     send_start(&r.tx, 11, vec![same_pair(1)]);
     expect_failed(&mut r.h, "compare_start").await;
     send_apply(&r.tx, 12, vec![op(1, 1, ApplyKind::Insert)]);
     expect_failed(&mut r.h, "compare_apply").await;
     bulk.release.notify_one();
-    let events = collect_apply(&mut r.h).await;
+    let events = within(collect_apply(&mut r.h)).await;
     assert_eq!(pair_reports(&events)[0].1.applied, 1);
 }
 
@@ -385,7 +397,7 @@ async fn a_pair_discarded_after_the_request_fails_its_ops_as_not_found() {
         5,
         vec![op(1, 1, ApplyKind::Insert), op(2, 1, ApplyKind::Insert)],
     );
-    gate.entered.notified().await;
+    within(gate.entered.notified()).await;
     let discard = CompareCommand::Discard {
         session: 1,
         pair: 2,
@@ -393,7 +405,7 @@ async fn a_pair_discarded_after_the_request_fails_its_ops_as_not_found() {
     r.tx.send(Command::Compare(discard)).unwrap();
     barrier(&r.tx, &mut r.h).await;
     gate.release.notify_one();
-    let reports = pair_reports(&collect_apply(&mut r.h).await);
+    let reports = pair_reports(&within(collect_apply(&mut r.h)).await);
     assert_eq!(reports[0].1.applied, 1);
     assert_eq!(reports[1].1.failed, 1);
     assert_eq!(reports[1].1.failures[0].error, CoreError::NotFound);
@@ -420,10 +432,9 @@ async fn apply_into_a_view_is_refused_up_front_and_writes_nothing() {
     }
     assert_eq!(r.target.writes(), 0);
     assert_eq!(r.target.docs(&ns("d", "c")).await.len(), 1);
-    assert_silent(&mut r.h).await;
-    // The slot was freed by the refusal.
+    // The slot was freed before the `Failed` was sent: an immediate Start is accepted.
     send_start(&r.tx, 6, vec![same_pair(1)]);
-    assert_eq!(collect_run(&mut r.h).await.len(), 1);
+    assert_eq!(within(collect_run(&mut r.h)).await.len(), 1);
 }
 
 #[tokio::test]
@@ -437,7 +448,7 @@ async fn apply_to_a_timeseries_destination_allows_insert_only() {
     }
     assert_eq!(r.target.writes(), 0);
     send_apply(&r.tx, 6, vec![op(1, 1, ApplyKind::Insert)]);
-    let reports = pair_reports(&collect_apply(&mut r.h).await);
+    let reports = pair_reports(&within(collect_apply(&mut r.h)).await);
     assert_eq!(reports[0].1.applied, 1);
 }
 
@@ -457,7 +468,7 @@ async fn duplicate_ops_are_refused() {
         } => assert_eq!(text, "duplicate operation"),
         other => panic!("{other:?}"),
     }
-    // The same key in another pair is not a duplicate; no ops at all is refused too.
+    // No ops at all is refused too.
     send_apply(&r.tx, 6, Vec::new());
     expect_failed(&mut r.h, "compare_apply").await;
     assert_eq!(r.target.writes(), 0);
@@ -473,12 +484,12 @@ async fn cancel_mid_apply_emits_pair_done_with_not_run_then_apply_done_and_frees
         5,
         vec![op(1, 1, ApplyKind::Insert), op(2, 1, ApplyKind::Insert)],
     );
-    gate.entered.notified().await;
+    within(gate.entered.notified()).await;
     let cancel = CompareCommand::Cancel { session: 1, run: 5 };
     r.tx.send(Command::Compare(cancel)).unwrap();
     barrier(&r.tx, &mut r.h).await;
     gate.release.notify_one();
-    let events = collect_apply(&mut r.h).await;
+    let events = within(collect_apply(&mut r.h)).await;
     let reports = pair_reports(&events);
     assert_eq!(reports.len(), 2);
     assert_eq!(reports[0].1.applied, 1, "the batch in flight finishes");
@@ -486,7 +497,7 @@ async fn cancel_mid_apply_emits_pair_done_with_not_run_then_apply_done_and_frees
     assert_eq!(reports[1].1.applied, 0);
     assert!(r.target.docs(&ns("d", "c2")).await.is_empty());
     send_start(&r.tx, 6, vec![same_pair(1)]);
-    assert_eq!(collect_run(&mut r.h).await.len(), 1);
+    assert_eq!(within(collect_run(&mut r.h)).await.len(), 1);
 }
 
 #[tokio::test]
@@ -503,12 +514,16 @@ async fn closing_the_session_mid_apply_emits_nothing_more() {
         5,
         vec![op(1, 1, ApplyKind::Insert), op(2, 1, ApplyKind::Insert)],
     );
-    gate.entered.notified().await;
+    within(gate.entered.notified()).await;
     r.tx.send(Command::Compare(CompareCommand::Close { session: 1 }))
         .unwrap();
     barrier(&r.tx, &mut r.h).await;
     gate.release.notify_one();
     assert_silent(&mut r.h).await;
+    assert!(
+        r.target.docs(&ns("d", "c2")).await.is_empty(),
+        "pair 2 untouched"
+    );
     for _ in 0..200 {
         if Arc::strong_count(&r.target) <= baseline {
             return;
@@ -519,7 +534,7 @@ async fn closing_the_session_mid_apply_emits_nothing_more() {
 }
 
 #[tokio::test]
-async fn a_panicking_store_still_frees_the_slot_and_ends_with_apply_done() {
+async fn a_panicking_store_stops_the_apply_frees_the_slot_and_ends_with_apply_done() {
     let mut r = default_rig().await;
     r.target.panic_bulk.store(true, Ordering::SeqCst);
     send_apply(
@@ -527,17 +542,80 @@ async fn a_panicking_store_still_frees_the_slot_and_ends_with_apply_done() {
         5,
         vec![op(1, 1, ApplyKind::Insert), op(2, 1, ApplyKind::Insert)],
     );
-    let events = collect_apply(&mut r.h).await;
+    let events = within(collect_apply(&mut r.h)).await;
     let reports = pair_reports(&events);
     assert_eq!(reports.len(), 2, "each pair still gets its terminal");
-    assert!(reports.iter().all(|(_, r)| r.failed == 1 && r.applied == 0));
+    assert_eq!((reports[0].1.failed, reports[0].1.applied), (1, 0));
+    assert_eq!(
+        (reports[1].1.not_run, reports[1].1.failed),
+        (1, 0),
+        "the panic stops the rest"
+    );
+    assert_eq!(r.target.writes(), 1, "pair 2 never reached the store");
+    assert!(r.target.docs(&ns("d", "c2")).await.is_empty());
     assert!(matches!(
         events.last(),
         Some(CompareEvent::ApplyDone { run: 5, .. })
     ));
     r.target.panic_bulk.store(false, Ordering::SeqCst);
     send_start(&r.tx, 6, vec![same_pair(1)]);
-    assert_eq!(collect_run(&mut r.h).await.len(), 1);
+    assert_eq!(within(collect_run(&mut r.h)).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_panicking_destination_check_is_a_refusal_and_frees_the_slot() {
+    let mut r = default_rig().await;
+    r.target.panic_kinds.store(true, Ordering::SeqCst);
+    send_apply(&r.tx, 5, vec![op(1, 1, ApplyKind::Insert)]);
+    expect_failed(&mut r.h, "compare_apply").await;
+    r.target.panic_kinds.store(false, Ordering::SeqCst);
+    send_start(&r.tx, 6, vec![same_pair(1)]);
+    assert_eq!(within(collect_run(&mut r.h)).await.len(), 1);
+    assert_eq!(r.target.writes(), 0);
+}
+
+fn to_source(mut op: ApplyOp) -> ApplyOp {
+    op.direction = Direction::TargetToSource;
+    op
+}
+
+#[tokio::test]
+async fn target_to_source_into_a_view_is_refused_and_into_a_missing_collection_allowed() {
+    let source = ApplyStore::with_kinds(source_store(), vec![("c", CollectionKind::View)]);
+    let mut r = rig(source, ApplyStore::new(target_store())).await;
+    send_apply(&r.tx, 5, vec![to_source(op(1, 2, ApplyKind::Replace))]);
+    match next_compare(&mut r.h).await {
+        CompareEvent::Failed { error, .. } => assert_eq!(error, CoreError::ApplyTargetNotWritable),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(r.source.writes(), 0);
+    // Pair 3: its source collection does not exist yet; the insert creates it.
+    send_start(
+        &r.tx,
+        6,
+        vec![super::tests::pair(3, ns("d", "c3"), ns("d", "c3"))],
+    );
+    within(collect_run(&mut r.h)).await;
+    send_apply(&r.tx, 7, vec![to_source(op(3, 7, ApplyKind::Insert))]);
+    let reports = pair_reports(&within(collect_apply(&mut r.h)).await);
+    assert_eq!(reports[0].1.applied, 1);
+    assert_eq!(r.source.docs(&ns("d", "c3")).await.len(), 1);
+}
+
+#[tokio::test]
+async fn keys_equal_across_numeric_types_are_duplicate_ops() {
+    let mut r = default_rig().await;
+    let mut wide = op(1, 1, ApplyKind::Insert);
+    wide.key = KeyTuple(vec![Bson::Int64(1)]);
+    send_apply(&r.tx, 5, vec![op(1, 1, ApplyKind::Insert), wide]);
+    match next_compare(&mut r.h).await {
+        CompareEvent::Failed {
+            error: CoreError::Unsupported(text),
+            ..
+        } => assert_eq!(text, "duplicate operation"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(r.target.writes(), 0);
 }
 
 #[tokio::test]
@@ -556,7 +634,7 @@ async fn an_apply_before_opened_is_refused() {
         target: cfg("mongodb://b"),
     }))
     .unwrap();
-    hooks.entered.notified().await;
+    within(hooks.entered.notified()).await;
     send_apply(&tx, 5, vec![op(1, 1, ApplyKind::Insert)]);
     expect_failed(&mut h, "compare_apply").await;
     hooks.release.notify_one();
@@ -582,7 +660,7 @@ async fn no_event_contains_a_document_value_in_its_debug_output_except_op_failur
         op(2, 1, ApplyKind::Insert),
     ];
     send_apply(&r.tx, 5, ops);
-    let events = collect_apply(&mut r.h).await;
+    let events = within(collect_apply(&mut r.h)).await;
     let text = format!("{events:?}");
     assert!(!text.contains(SENTINEL), "{text}");
     assert!(!text.contains("changed") && !text.contains("old"), "{text}");
