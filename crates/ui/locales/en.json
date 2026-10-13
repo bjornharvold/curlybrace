@@ -308,6 +308,7 @@
   },
   "failures": {
     "clone": "Could not clone the document",
+    "compare_apply": "Applying the changes failed.",
     "compare_check": "Could not check the collections before comparing",
     "compare_collections": "Could not load the collections for the comparison",
     "compare_databases": "Could not load the databases for the comparison",

@@ -239,7 +239,13 @@ async fn run_one(ctx: &RunContext, spec: PairSpec, cancel: &CancelFlag) -> PairO
     .await;
     match joined {
         Ok(Ok((EngineOutcome::Completed, summary, results))) => {
-            store_pair(&ctx.session, StoredPair { spec, results });
+            store_pair(
+                &ctx.session,
+                StoredPair {
+                    spec,
+                    results: Arc::new(results),
+                },
+            );
             PairOutcome::Completed(summary)
         }
         // A cancelled or failed pair keeps nothing; dropping its results returns the budget.

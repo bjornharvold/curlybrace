@@ -40,7 +40,8 @@ pub(super) struct ActiveRun {
 /// A finished pair's results plus what is needed to look a row up again.
 pub(super) struct StoredPair {
     pub spec: PairSpec,
-    pub results: ResultSet,
+    /// Shared so an apply can read it without holding the pairs lock across awaits.
+    pub results: Arc<ResultSet>,
 }
 
 pub(crate) struct Session {

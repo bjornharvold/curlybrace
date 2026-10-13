@@ -283,7 +283,7 @@ fn repeated_keys(ops: &[ApplyOp]) -> Vec<bool> {
 pub async fn apply_pair(
     input: ApplyInput<'_>,
     cancel: &CancelFlag,
-    progress: &mut dyn FnMut(u64),
+    progress: &mut (dyn FnMut(u64) + Send),
 ) -> Result<ApplyReport> {
     let mut report = ApplyReport::default();
     let mut done = 0usize;
