@@ -16,25 +16,25 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use ApplyKind::{Delete, Insert, Replace};
 use Direction::{SourceToTarget as ST, TargetToSource as TS};
 
-const PAIR: u32 = 1;
+pub(super) const PAIR: u32 = 1;
 
-fn src_ns() -> Namespace {
+pub(super) fn src_ns() -> Namespace {
     Namespace::new("db", "a")
 }
 
-fn tgt_ns() -> Namespace {
+pub(super) fn tgt_ns() -> Namespace {
     Namespace::new("db", "b")
 }
 
-fn k(n: i32) -> KeyTuple {
+pub(super) fn k(n: i32) -> KeyTuple {
     KeyTuple(vec![Bson::Int32(n)])
 }
 
-fn email(s: &str) -> KeyTuple {
+pub(super) fn email(s: &str) -> KeyTuple {
     KeyTuple(vec![Bson::String(s.into())])
 }
 
-fn op(key: KeyTuple, kind: ApplyKind, direction: Direction) -> ApplyOp {
+pub(super) fn op(key: KeyTuple, kind: ApplyKind, direction: Direction) -> ApplyOp {
     ApplyOp {
         pair: PAIR,
         key,
@@ -46,15 +46,15 @@ fn op(key: KeyTuple, kind: ApplyKind, direction: Direction) -> ApplyOp {
 
 /// Wraps a target store: records the size of every `bulk_write` call and can inject
 /// failures.
-struct Spy {
-    inner: Arc<InMemoryStore>,
-    calls: Mutex<Vec<usize>>,
-    duplicate_id: Mutex<Option<Bson>>,
-    fail_call: Mutex<Option<usize>>,
-    short_reply: AtomicBool,
+pub(super) struct Spy {
+    pub(super) inner: Arc<InMemoryStore>,
+    pub(super) calls: Mutex<Vec<usize>>,
+    pub(super) duplicate_id: Mutex<Option<Bson>>,
+    pub(super) fail_call: Mutex<Option<usize>>,
+    pub(super) short_reply: AtomicBool,
     /// How many `scan_sorted` / `scan_sorted_primary` calls reached this store.
-    plain_scans: AtomicUsize,
-    primary_scans: AtomicUsize,
+    pub(super) plain_scans: AtomicUsize,
+    pub(super) primary_scans: AtomicUsize,
 }
 
 impl Spy {
@@ -149,17 +149,17 @@ impl DocumentStore for Spy {
     }
 }
 
-struct Fixture {
-    spec: PairSpec,
-    results: ResultSet,
-    source_inner: Arc<InMemoryStore>,
-    source: Arc<Spy>,
-    target_inner: Arc<InMemoryStore>,
-    target: Arc<Spy>,
+pub(super) struct Fixture {
+    pub(super) spec: PairSpec,
+    pub(super) results: ResultSet,
+    pub(super) source_inner: Arc<InMemoryStore>,
+    pub(super) source: Arc<Spy>,
+    pub(super) target_inner: Arc<InMemoryStore>,
+    pub(super) target: Arc<Spy>,
 }
 
 impl Fixture {
-    async fn build(
+    pub(super) async fn build(
         source: Vec<Document>,
         target: Vec<Document>,
         key: KeySpec,
@@ -190,13 +190,13 @@ impl Fixture {
         }
     }
 
-    async fn by_id(source: Vec<Document>, target: Vec<Document>) -> Self {
+    pub(super) async fn by_id(source: Vec<Document>, target: Vec<Document>) -> Self {
         let key = KeySpec::id();
         let rules = CompareRules::for_key(&key);
         Self::build(source, target, key, rules, doc! {}).await
     }
 
-    fn input<'a>(&'a self, ops: &'a [ApplyOp]) -> ApplyInput<'a> {
+    pub(super) fn input<'a>(&'a self, ops: &'a [ApplyOp]) -> ApplyInput<'a> {
         ApplyInput {
             spec: &self.spec,
             results: &self.results,
@@ -207,26 +207,26 @@ impl Fixture {
         }
     }
 
-    async fn apply(&self, ops: &[ApplyOp]) -> ApplyReport {
+    pub(super) async fn apply(&self, ops: &[ApplyOp]) -> ApplyReport {
         apply_pair(self.input(ops), &CancelFlag::default(), &mut |_| {})
             .await
             .unwrap()
     }
 
-    async fn recompare(&self) -> ResultSet {
+    pub(super) async fn recompare(&self) -> ResultSet {
         compare(&self.spec, self.source.clone(), self.target.clone()).await
     }
 
-    fn source_docs(&self) -> Vec<Document> {
+    pub(super) fn source_docs(&self) -> Vec<Document> {
         all(&self.source_inner, &src_ns())
     }
 
-    fn target_docs(&self) -> Vec<Document> {
+    pub(super) fn target_docs(&self) -> Vec<Document> {
         all(&self.target_inner, &tgt_ns())
     }
 }
 
-async fn compare(
+pub(super) async fn compare(
     spec: &PairSpec,
     source: Arc<dyn DocumentStore>,
     target: Arc<dyn DocumentStore>,
@@ -249,7 +249,7 @@ async fn compare(
     set
 }
 
-fn all(store: &InMemoryStore, ns: &Namespace) -> Vec<Document> {
+pub(super) fn all(store: &InMemoryStore, ns: &Namespace) -> Vec<Document> {
     let q = Query {
         limit: 5000,
         ..Query::default()
@@ -259,11 +259,11 @@ fn all(store: &InMemoryStore, ns: &Namespace) -> Vec<Document> {
     docs
 }
 
-fn block_on<T>(f: impl std::future::Future<Output = Result<T>>) -> T {
+pub(super) fn block_on<T>(f: impl std::future::Future<Output = Result<T>>) -> T {
     tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(f)).unwrap()
 }
 
-fn total(r: &ApplyReport) -> u64 {
+pub(super) fn total(r: &ApplyReport) -> u64 {
     r.applied + r.stale + r.not_planned + r.failed + r.not_run
 }
 
@@ -548,7 +548,7 @@ async fn applying_then_comparing_again_finds_no_difference_for_a_business_key() 
     assert_no_differences(&f.recompare().await);
 }
 
-fn assert_no_differences(set: &ResultSet) {
+pub(super) fn assert_no_differences(set: &ResultSet) {
     for c in CATEGORIES {
         assert_eq!(set.count(c), 0, "{c:?}");
     }
