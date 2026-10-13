@@ -1,14 +1,20 @@
 //! View-models of the Compare workspace. Pure and egui-free.
 pub mod checks;
 pub mod detail;
+pub mod digest;
 pub mod duplicates;
-pub mod focus;
+pub mod gates;
+pub mod list_view;
 pub mod overview;
 pub mod pairing_view;
 pub mod pairs;
 pub mod preflight;
+pub mod queries;
 pub mod results;
+pub mod rows;
 pub mod setup;
+#[cfg(test)]
+pub mod testing;
 
 use std::collections::BTreeMap;
 
@@ -17,14 +23,19 @@ use uuid::Uuid;
 
 pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
+pub use digest::PairsDigest;
 pub use duplicates::{DuplicateRow, DuplicatesView};
-pub use focus::RunView;
+pub use gates::Gates;
+pub use list_view::{ListInputs, ListView, Unmatched, can_pair_with};
 pub use overview::{ActiveRun, PairStatus, RunOverview, RunRow, Totals};
 pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
+pub use rows::{EntryStatus, OverviewRow, PairRow, RowCounts, RowDetail, StatusIcon};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
+#[cfg(test)]
+pub use testing::RunView;
 
 /// Where the compare session stands. It owns its own connections, so the browsing connection
 /// coming and going never changes it.
@@ -135,16 +146,6 @@ impl CompareState {
         self.overview.is_running()
     }
 
-    /// Everything wrong with the setup, in display order: the form's own issues, then whether
-    /// both sides are the very same collection (which needs the session's connections).
-    pub fn issues(&self) -> Vec<SetupError> {
-        let mut issues = self.setup.issues();
-        if issues.is_empty() && self.one_connection() && self.setup.same_namespace_and_filter() {
-            issues.push(SetupError::SameCollection);
-        }
-        issues
-    }
-
     pub(super) fn one_connection(&self) -> bool {
         self.connections.is_some_and(|(s, t)| s == t)
     }
@@ -153,34 +154,6 @@ impl CompareState {
     pub fn spec_for(&self, entry: EntryId, id: PairId) -> Option<Result<PairSpec, SetupError>> {
         let found = self.pairs.get(entry)?;
         Some(found.spec(id, &self.setup, self.one_connection()))
-    }
-
-    /// The included entries whose spec builds: what a check queues.
-    pub fn checkable_entries(&self) -> Vec<EntryId> {
-        let same = self.one_connection();
-        self.pairs
-            .entries
-            .iter()
-            .filter(|e| e.included && e.issues(&self.setup, same).is_empty())
-            .map(|e| e.id)
-            .collect()
-    }
-
-    /// Whether the Check button may fire: a session, nothing in flight and something to check.
-    pub fn can_check(&self) -> bool {
-        self.is_ready() && !self.check_in_flight() && !self.is_running() && self.has_valid_entry()
-    }
-
-    /// Whether Run may fire: at least one included entry is usable and every included entry has
-    /// a fresh verdict that allows it.
-    pub fn can_start(&self) -> bool {
-        self.start_gate(false)
-    }
-
-    /// Whether Run passing may fire: like `can_start`, but refused entries are skipped, so only
-    /// one passing entry has to exist.
-    pub fn can_start_passing(&self) -> bool {
-        self.start_gate(true)
     }
 
     /// Whether Cancel may fire: a run is in flight and no cancel was sent for it yet.
@@ -248,43 +221,6 @@ impl CompareState {
                 ..self
             },
             None => self,
-        }
-    }
-
-    fn included_ids(&self) -> Vec<EntryId> {
-        self.pairs
-            .entries
-            .iter()
-            .filter(|e| e.included)
-            .map(|e| e.id)
-            .collect()
-    }
-
-    pub fn has_valid_entry(&self) -> bool {
-        let same = self.one_connection();
-        self.pairs
-            .entries
-            .iter()
-            .any(|e| e.included && e.issues(&self.setup, same).is_empty())
-    }
-
-    fn start_gate(&self, passing_only: bool) -> bool {
-        let any_valid = self.has_valid_entry();
-        // Run passing only has to wait for the entries that can be checked at all; an included
-        // entry with an issue is never queued and must not block the passing ones.
-        let included = if passing_only {
-            self.checkable_entries()
-        } else {
-            self.included_ids()
-        };
-        let idle = self.is_ready() && !self.is_running() && !self.check_in_flight();
-        if !idle || !any_valid || !self.checks.all_settled(&included) {
-            return false;
-        }
-        let passes = |id: &EntryId| self.checks.allows_start(*id);
-        match passing_only {
-            true => included.iter().any(passes),
-            false => !included.is_empty() && included.iter().all(passes),
         }
     }
 }

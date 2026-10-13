@@ -250,3 +250,36 @@ fn the_same_collection_differs_by_connection_or_filter() {
     // Two databases on one connection are fine.
     assert!(on_one_connection(ready()).issues().is_empty());
 }
+
+#[test]
+fn gates_agree_with_the_single_button_questions() {
+    for state in [
+        ready(),
+        checked(ready(), 5, true),
+        checked(ready(), 5, false),
+        running(ready()),
+    ] {
+        let gates = state.gates(&state.digest());
+        assert_eq!(gates.check, state.can_check());
+        assert_eq!(gates.start, state.can_start());
+        assert_eq!(gates.start_passing, state.can_start_passing());
+        assert_eq!(gates.cancel, state.can_cancel());
+    }
+}
+
+#[test]
+fn some_refused_is_set_only_when_an_included_entry_was_checked_and_refused() {
+    let gates = |s: &CompareState| s.gates(&s.digest()).some_refused;
+    assert!(!gates(&ready()), "unchecked is not refused");
+    assert!(!gates(&checked(ready(), 5, true)));
+    let refused = checked(ready(), 5, false);
+    assert!(gates(&refused));
+    let excluded = CompareState {
+        pairs: refused.pairs.clone().included(ENTRY, false),
+        ..refused
+    };
+    assert!(
+        !gates(&excluded),
+        "an excluded entry is not part of the run"
+    );
+}

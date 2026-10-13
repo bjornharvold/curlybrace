@@ -137,9 +137,12 @@ mod compare_workspace {
         let state = act(AppState::new(vec![a, b]), open);
         let state = step(state, event(CompareEvent::Opened { session: 1 }));
         let state = picked(picked(state, Side::Source), Side::Target);
-        let state = act(state, CompareAction::AddPair);
         let state = match through {
-            "form" => state,
+            "picked" => state,
+            _ => act(state, CompareAction::AddPair),
+        };
+        let state = match through {
+            "form" | "picked" => state,
             "checking" => act(state, CompareAction::RunCheck),
             // Checked fine, then edited: the answer is gone and the preflight is Unchecked.
             "edited" => act(checked(state), CompareAction::SetKey("sku".into())),
@@ -215,10 +218,39 @@ mod compare_workspace {
     }
 
     #[test]
+    fn add_pair_is_its_own_button_and_check_never_adds_the_picked_pair() {
+        let i18n = I18n::english();
+        let mut picked = harness(fixture("picked"));
+        picked.run();
+        assert!(!button_disabled(&picked, &i18n.t("compare.pairs.add_pair")));
+        assert!(
+            button_disabled(&picked, &i18n.t("compare.preflight.check")),
+            "nothing in the list to check"
+        );
+
+        // Clicking it reports AddPair (and only that).
+        let (state, connections) = fixture("picked");
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1100.0, 1400.0))
+            .build_ui_state(
+                |ui, (s, c, out): &mut (CompareState, ConnectionsState, Option<CompareAction>)| {
+                    *out = show_compare(ui, s, c, &I18n::english()).or(out.take());
+                },
+                (state, connections, None),
+            );
+        harness.run();
+        harness
+            .get_by_label(&i18n.t("compare.pairs.add_pair"))
+            .click();
+        harness.run();
+        assert_eq!(harness.state().2, Some(CompareAction::AddPair));
+    }
+
+    #[test]
     fn check_is_disabled_while_a_check_is_in_flight_and_start_follows_the_view_model() {
         let i18n = I18n::english();
         let check = i18n.t("compare.preflight.check");
-        let start = i18n.t("compare.run.start");
+        let start = i18n.t("compare.preflight.run");
         let checking = i18n.t("compare.preflight.checking");
 
         let mut ready = harness(fixture("form"));
@@ -380,7 +412,7 @@ mod compare_workspace {
             "compare.rules.ignore_array_order",
             "compare.rules.scope",
             "compare.preflight.check",
-            "compare.run.start",
+            "compare.preflight.run",
         ] {
             harness.get_all_by_label(&i18n.t(key)).next().expect(key);
         }
@@ -391,10 +423,12 @@ mod compare_workspace {
         let mut harness = harness(fixture("detail"));
         harness.run();
         let (interactive, bad) = unlabelled(&harness);
-        assert!(interactive >= 15, "only {interactive} interactive nodes");
+        // The results screen replaces the setup: tabs, pager, rows, detail and Back.
+        assert!(interactive >= 10, "only {interactive} interactive nodes");
         assert!(bad.is_empty(), "unlabelled controls: {bad:?}");
         let i18n = I18n::english();
         for key in [
+            "compare.results.back_to_overview",
             "compare.results.prev",
             "compare.results.next",
             "compare.detail.close",

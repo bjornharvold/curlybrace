@@ -6,6 +6,7 @@ use curlybrace_core::compare::protocol::{PairId, PairOutcome, RunId};
 use curlybrace_core::error::CoreError;
 
 use super::pairs::EntryId;
+use super::rows::StatusIcon;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PairStatus {
@@ -22,13 +23,36 @@ pub enum PairStatus {
 }
 
 impl PairStatus {
+    /// The label of the status (always shown with its icon, never colour alone).
+    pub fn i18n_key(&self) -> &'static str {
+        match self {
+            Self::Pending => "compare.overview.status.pending",
+            Self::Running { .. } => "compare.overview.status.running",
+            Self::Completed(_) => "compare.overview.status.completed",
+            Self::Cancelled(_) => "compare.overview.status.cancelled",
+            Self::Failed(_) => "compare.overview.status.failed",
+            Self::Discarded => "compare.overview.status.discarded",
+        }
+    }
+
+    pub fn icon(&self) -> StatusIcon {
+        match self {
+            Self::Pending => StatusIcon::Pending,
+            Self::Running { .. } => StatusIcon::Running,
+            Self::Completed(_) => StatusIcon::Ok,
+            Self::Cancelled(_) => StatusIcon::Cancelled,
+            Self::Failed(_) => StatusIcon::Failed,
+            Self::Discarded => StatusIcon::Discarded,
+        }
+    }
+
     fn is_live(&self) -> bool {
         matches!(self, Self::Pending | Self::Running { .. })
     }
 
     /// Finished. Only a completed pair holds results in the runtime; Discard for a cancelled
     /// or failed one is harmless (idempotent) and keeps the reducer's bookkeeping uniform.
-    fn is_settled(&self) -> bool {
+    pub fn is_settled(&self) -> bool {
         matches!(
             self,
             Self::Completed(_) | Self::Cancelled(_) | Self::Failed(_)

@@ -271,6 +271,14 @@ impl SetupForm {
                 issues.push(SetupError::ViewSelected(side));
             }
         }
+        issues.extend(self.default_issues());
+        issues
+    }
+
+    /// What is wrong with the shared fields alone (key, filters, rules), ignoring the pickers:
+    /// the pickers only feed Add pair, so the defaults panel reports just these.
+    pub fn default_issues(&self) -> Vec<SetupError> {
+        let mut issues = Vec::new();
         issues.extend(self.key().err());
         for side in [Side::Source, Side::Target] {
             issues.extend(self.filter(side).err());

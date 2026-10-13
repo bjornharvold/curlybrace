@@ -237,3 +237,55 @@ fn only_included_unticks_the_others() {
     let list = list.included(first, true);
     assert!(list.entries[0].included);
 }
+
+#[test]
+fn has_pair_knows_the_exact_namespaces() {
+    let list = list_of_two();
+    assert!(list.has_pair(&ns("a", "users"), &ns("b", "users")));
+    assert!(!list.has_pair(&ns("a", "users"), &ns("b", "orders")));
+}
+
+#[test]
+fn overrides_are_set_and_cleared_one_field_at_a_time() {
+    let o = PairOverrides::default()
+        .with_key_text(Some("sku".into()))
+        .with_filter(Side::Target, Some("{}".into()))
+        .with_rules(Some(rules_only()));
+    assert_eq!(o.key_text.as_deref(), Some("sku"));
+    assert_eq!(o.target_filter.as_deref(), Some("{}"));
+    assert_eq!(o.source_filter, None);
+    assert!(o.is_customised());
+    let cleared = o
+        .with_key_text(None)
+        .with_filter(Side::Target, None)
+        .with_rules(None);
+    assert!(!cleared.is_customised());
+}
+
+#[test]
+fn issues_name_a_view_on_either_side_without_cloning_the_listing() {
+    let side = |db: &str| {
+        SideForm::default().with_database(db).with_collections(
+            db,
+            vec![
+                ("users".to_string(), CollectionKind::Collection),
+                ("v".to_string(), CollectionKind::View),
+            ],
+        )
+    };
+    let d = SetupForm::default()
+        .with_side(Side::Source, side("a"))
+        .with_side(Side::Target, side("b"));
+    let list = PairList::default().added(ns("a", "v"), ns("b", "v"));
+    let issues = list.entries[0].issues(&d, false);
+    assert_eq!(
+        issues,
+        vec![
+            SetupError::ViewSelected(Side::Source),
+            SetupError::ViewSelected(Side::Target)
+        ]
+    );
+    // A view of another database than the picked one is not known to be a view.
+    let other = PairList::default().added(ns("z", "v"), ns("b", "users"));
+    assert_eq!(other.entries[0].issues(&d, false), vec![]);
+}

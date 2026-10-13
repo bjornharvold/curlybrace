@@ -183,3 +183,34 @@ fn pick_pair_refuses_views_and_incomplete_sides() {
         Err(SetupError::Incomplete)
     );
 }
+
+#[test]
+fn default_issues_ignore_the_pickers_and_report_only_the_shared_fields() {
+    // Nothing picked at all: the pickers feed Add pair only, the defaults are fine.
+    assert_eq!(SetupForm::default().default_issues(), vec![]);
+    // A view picked and the same collection on both sides: still not a defaults problem.
+    let form = SetupForm::default()
+        .with_side(Side::Source, picked("a", "v"))
+        .with_side(Side::Target, picked("a", "v"));
+    assert_eq!(form.default_issues(), vec![]);
+}
+
+#[test]
+fn default_issues_list_key_and_filter_problems_in_display_order() {
+    let form = SetupForm::default()
+        .with_key_text("a,,b")
+        .with_side(Side::Target, SideForm::default().with_filter("not json"));
+    assert_eq!(
+        form.default_issues(),
+        vec![SetupError::Key, SetupError::Filter(Side::Target)]
+    );
+}
+
+#[test]
+fn default_issues_report_invalid_rules_once() {
+    let form = SetupForm::default().with_rules(RulesForm {
+        scope: ScopeKind::Only,
+        ..RulesForm::default()
+    });
+    assert_eq!(form.default_issues(), vec![SetupError::Rules]);
+}

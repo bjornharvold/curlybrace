@@ -1,7 +1,7 @@
 //! The list of collection pairs the Compare workspace will run, each following the shared
 //! defaults unless the user overrode a field for that pair. Pure; every edit returns a new list.
 use curlybrace_core::compare::protocol::{PairId, PairSpec, Side};
-use curlybrace_core::store::Namespace;
+use curlybrace_core::store::{CollectionKind, Namespace};
 
 use super::setup::{RulesForm, SetupError, SetupForm, SideForm};
 
@@ -18,6 +18,30 @@ pub struct PairOverrides {
 }
 
 impl PairOverrides {
+    pub fn with_key_text(self, text: Option<String>) -> Self {
+        Self {
+            key_text: text,
+            ..self
+        }
+    }
+
+    pub fn with_filter(self, side: Side, text: Option<String>) -> Self {
+        match side {
+            Side::Source => Self {
+                source_filter: text,
+                ..self
+            },
+            Side::Target => Self {
+                target_filter: text,
+                ..self
+            },
+        }
+    }
+
+    pub fn with_rules(self, rules: Option<RulesForm>) -> Self {
+        Self { rules, ..self }
+    }
+
     pub fn is_customised(&self) -> bool {
         self.key_text.is_some()
             || self.source_filter.is_some()
@@ -51,13 +75,59 @@ impl PairEntry {
         }
     }
 
+    /// What is wrong with this entry. Its views are found in the defaults' listing without
+    /// copying it, so checking hundreds of entries stays cheap.
     pub fn issues(&self, defaults: &SetupForm, same_connection: bool) -> Vec<SetupError> {
-        let effective = self.effective(defaults);
-        let mut issues = effective.issues();
+        let mut issues: Vec<SetupError> = [Side::Source, Side::Target]
+            .into_iter()
+            .filter(|side| self.is_view_on(*side, defaults))
+            .map(SetupError::ViewSelected)
+            .collect();
+        let effective = self.effective_without_listing(defaults);
+        issues.extend(effective.issues());
         if issues.is_empty() && same_connection && effective.same_namespace_and_filter() {
             issues.push(SetupError::SameCollection);
         }
         issues
+    }
+
+    fn namespace(&self, side: Side) -> &Namespace {
+        match side {
+            Side::Source => &self.source,
+            Side::Target => &self.target,
+        }
+    }
+
+    /// The side's namespace is a view in the defaults' listing (known only for the database
+    /// the defaults' picker holds).
+    fn is_view_on(&self, side: Side, defaults: &SetupForm) -> bool {
+        let ns = self.namespace(side);
+        let listing = defaults.side(side);
+        listing.database.as_deref() == Some(ns.db.as_str())
+            && listing
+                .collections
+                .iter()
+                .any(|(n, kind)| *n == ns.collection && *kind == CollectionKind::View)
+    }
+
+    /// `effective` over defaults stripped of their listings: enough to parse key, filters and
+    /// rules without copying the (possibly long) lists of databases and collections.
+    fn effective_without_listing(&self, defaults: &SetupForm) -> SetupForm {
+        let bare = |side: Side| {
+            let full = defaults.side(side);
+            SideForm {
+                database: full.database.clone(),
+                filter_text: full.filter_text.clone(),
+                ..SideForm::default()
+            }
+        };
+        let stripped = SetupForm {
+            source: bare(Side::Source),
+            target: bare(Side::Target),
+            key_text: defaults.key_text.clone(),
+            rules: defaults.rules.clone(),
+        };
+        self.effective(&stripped)
     }
 
     pub fn spec(
@@ -164,6 +234,13 @@ impl PairList {
             editing: id,
             ..self
         }
+    }
+
+    /// The exact pair is already in the list.
+    pub fn has_pair(&self, source: &Namespace, target: &Namespace) -> bool {
+        self.entries
+            .iter()
+            .any(|e| e.source == *source && e.target == *target)
     }
 
     pub fn get(&self, id: EntryId) -> Option<&PairEntry> {

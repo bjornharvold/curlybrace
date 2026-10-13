@@ -7,7 +7,7 @@ mod support;
 use bson::doc;
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::error::CoreError;
-use curlybrace_ui::viewmodel::compare::RunView;
+use curlybrace_ui::viewmodel::compare::{PairStatus, StatusIcon};
 use support::actions::*;
 use support::compare::*;
 use support::fixture::Fixture;
@@ -61,19 +61,6 @@ fn check_start_browse_a_difference_and_discard() {
     );
     open_compare(&mut f);
     pick_pair_and_check(&mut f, "left", "right");
-    let sides = f.labels.t_with(
-        "compare.preflight.side_summary",
-        &[
-            ("side", &f.labels.t("compare.setup.source_heading")),
-            ("count", "3"),
-            ("index", &f.labels.t("compare.preflight.index_indexed")),
-        ],
-    );
-    assert!(
-        shows_containing(&f.harness, &sides),
-        "counts and index shown"
-    );
-
     start_and_wait(&mut f, SHORT);
     let different = tab(&f, "compare.category.different", 1);
     wait_shows(&mut f, &different);
@@ -81,8 +68,8 @@ fn check_start_browse_a_difference_and_discard() {
     let only_target = tab(&f, "compare.category.only_in_target", 1);
     wait_shows(&mut f, &only_source);
     wait_shows(&mut f, &only_target);
-    let finished = f.labels.t("compare.run.finished");
-    wait_shows(&mut f, &finished);
+    // The only pair finished, so its results are open.
+    wait_shows_key(&mut f, "compare.results.back_to_overview");
 
     f.click_text(&different);
     wait_shows(&mut f, "2");
@@ -101,11 +88,12 @@ fn check_start_browse_a_difference_and_discard() {
     assert_eq!(f.db.count("left"), 3, "nothing is ever written");
     assert_eq!(f.db.count("right"), 3);
 
-    click_key(&mut f, "compare.run.discard");
+    click_key(&mut f, "compare.results.back_to_overview");
+    click_key(&mut f, "compare.overview.discard");
     wait_gone(&mut f, &different);
     wait_gone(&mut f, &title);
     assert!(f.harness.state().state().compare.results.is_empty());
-    assert_eq!(f.harness.state().state().compare.run_view(), RunView::Idle);
+    assert_eq!(first_status(&f), Some(PairStatus::Discarded));
 }
 
 #[test]
@@ -124,11 +112,12 @@ fn a_duplicate_key_is_reported_and_leaves_no_partial_results() {
     open_compare(&mut f);
     pick_collection(&mut f, Side::Source, "left");
     pick_collection(&mut f, Side::Target, "right");
+    add_pair(&mut f);
     set_key(&mut f, "sku");
     check(&mut f);
 
     start_and_wait(&mut f, SHORT);
-    let failed = f.labels.t("compare.run.failed");
+    let failed = status_label(&f, StatusIcon::Failed, "compare.overview.status.failed");
     wait_shows(&mut f, &failed);
     let message = error_text(&f, &CoreError::CompareDuplicateKey);
     wait_shows(&mut f, &message);
@@ -158,6 +147,7 @@ fn finding_duplicate_keys_lists_the_colliding_values() {
     open_compare(&mut f);
     pick_collection(&mut f, Side::Source, "left");
     pick_collection(&mut f, Side::Target, "right");
+    add_pair(&mut f);
     set_key(&mut f, "email");
     check(&mut f);
     start_and_wait(&mut f, SHORT);
@@ -183,12 +173,14 @@ fn finding_duplicate_keys_lists_the_colliding_values() {
     // The hint's next step: a unique key, checked again, then the compare completes.
     set_key(&mut f, "_id");
     check(&mut f);
-    click_key(&mut f, "compare.run.start");
+    click_key(&mut f, "compare.preflight.run");
     wait_until(&mut f.harness, "a completed compare", SHORT, |h| {
-        matches!(
-            h.state().state().compare.run_view(),
-            RunView::Finished { failure: None, .. }
-        )
+        let overview = &h.state().state().compare.overview;
+        overview.active.is_none()
+            && matches!(
+                overview.rows.first().map(|r| &r.status),
+                Some(PairStatus::Completed(_))
+            )
     });
     assert_eq!(f.db.count("left"), 3, "nothing is ever written");
 }
@@ -203,15 +195,20 @@ fn cancelling_a_large_run_leaves_the_workspace_usable() {
     open_compare(&mut f);
     pick_pair_and_check(&mut f, "left", "right");
 
-    click_key(&mut f, "compare.run.start");
-    click_key(&mut f, "compare.run.cancel");
+    click_key(&mut f, "compare.preflight.run");
+    click_key(&mut f, "compare.overview.cancel");
     wait_finished(&mut f, LONG);
-    wait_shows_key(&mut f, "compare.run.cancelled_no_results");
+    let cancelled = status_label(
+        &f,
+        StatusIcon::Cancelled,
+        "compare.overview.status.cancelled",
+    );
+    wait_shows(&mut f, &cancelled);
     assert!(f.harness.state().state().compare.results.is_empty());
 
     // The same pair again: Check, then Start, now left to run to its end.
     check(&mut f);
     start_and_wait(&mut f, LONG);
-    wait_shows_key(&mut f, "compare.run.finished");
+    wait_shows_key(&mut f, "compare.results.back_to_overview");
     wait_shows_key(&mut f, "compare.results.identical");
 }

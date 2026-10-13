@@ -1,44 +1,51 @@
-//! Find duplicate keys: the button under a duplicate-key failure and the panel with what the
-//! lookup found. Whether the button is live is `CompareState::can_find_duplicates`.
+//! Find duplicate keys: the panel under the run overview with what the lookup found (Find itself
+//! is on the pair's overview row, Try again in this panel).
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::viewmodel::compare::{CompareState, DuplicatesView};
+use crate::viewmodel::compare::{CompareState, DuplicatesView, EntryId};
 use curlybrace_core::compare::protocol::DuplicateReport;
 use eframe::egui;
 
-/// Nothing is drawn until the lookup is offered or a request exists. Returns the action taken.
+/// Nothing is drawn until a lookup was asked for; the panel names the pair it belongs to.
+/// (Find is offered on the pair's overview row; this panel offers Try again after a failure.)
 pub fn show_duplicates(
     ui: &mut egui::Ui,
     state: &CompareState,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let view = &state.duplicates;
-    let focus = state.focus_entry();
-    let offered = state.can_find_duplicates();
-    if !offered && *view == DuplicatesView::Idle {
-        return None;
-    }
+    let entry = view.entry()?;
     ui.push_id("compare_duplicates", |ui| {
         ui.add_space(4.0);
         ui.strong(i18n.t("compare.duplicates.title"));
-        // One button for the whole panel; its label says Try again once a lookup has failed.
-        let key = match view {
-            DuplicatesView::Failed { .. } => "compare.duplicates.retry",
-            _ => "compare.duplicates.find",
-        };
-        let button = find_button(ui, offered, key, i18n)
-            .and_then(|()| focus.map(CompareAction::FindDuplicates));
+        if let Some((source, target)) = state.entry_labels(entry) {
+            let pair = i18n.t_with(
+                "compare.pairs.pair_label",
+                &[("source", &source), ("target", &target)],
+            );
+            ui.weak(pair);
+        }
+        let retry = retry_button(ui, state, entry, i18n);
         show_body(ui, view, i18n);
-        button
+        retry
     })
     .inner
 }
 
-/// The Find / Try again button; disabled whenever the view model does not offer the lookup.
-fn find_button(ui: &mut egui::Ui, offered: bool, key: &str, i18n: &I18n) -> Option<()> {
-    let button = egui::Button::new(i18n.t(key));
-    let clicked = ui.add_enabled(offered, button).clicked();
-    clicked.then_some(())
+/// Try again, once a lookup has failed and the view model offers the lookup again.
+fn retry_button(
+    ui: &mut egui::Ui,
+    state: &CompareState,
+    entry: EntryId,
+    i18n: &I18n,
+) -> Option<CompareAction> {
+    if !matches!(state.duplicates, DuplicatesView::Failed { .. }) {
+        return None;
+    }
+    let button = egui::Button::new(i18n.t("compare.duplicates.retry"));
+    let enabled = state.can_find_duplicates_for(entry);
+    let clicked = ui.add_enabled(enabled, button).clicked();
+    clicked.then_some(CompareAction::FindDuplicates(entry))
 }
 
 fn show_body(ui: &mut egui::Ui, view: &DuplicatesView, i18n: &I18n) {

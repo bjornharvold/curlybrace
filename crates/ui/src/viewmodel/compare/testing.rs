@@ -1,13 +1,14 @@
-//! The one-pair look of the Compare views until the pair list has views of its own: every
-//! accessor here reads the first included entry (the focus). The reducer never uses them; it
-//! works on entries and runtime pairs. Pure.
+//! Test-only: the one-pair look of the Compare state the reducer tests assert on. Every accessor
+//! reads the first included entry (the focus). The views and the reducer never use them; they
+//! work on entries and runtime pairs.
 use curlybrace_core::compare::protocol::Preflight;
 use curlybrace_core::error::CoreError;
 
+use super::CompareState;
 use super::overview::{PairStatus, RunRow};
 use super::pairs::EntryId;
 use super::preflight::PreflightView;
-use super::{CompareState, ResultsView};
+use super::setup::SetupError;
 use curlybrace_core::compare::protocol::RunId;
 
 /// The run of the focused entry, as the progress panel shows it.
@@ -91,6 +92,16 @@ fn finished_view(row: &RunRow) -> RunView {
 }
 
 impl CompareState {
+    /// What is wrong with the picker form as a pair: its own issues, then whether both sides
+    /// are the very same collection.
+    pub fn issues(&self) -> Vec<SetupError> {
+        let mut issues = self.setup.issues();
+        if issues.is_empty() && self.one_connection() && self.setup.same_namespace_and_filter() {
+            issues.push(SetupError::SameCollection);
+        }
+        issues
+    }
+
     /// The entry the one-pair views show: the first included one.
     pub fn focus_entry(&self) -> Option<EntryId> {
         self.pairs.entries.iter().find(|e| e.included).map(|e| e.id)
@@ -126,41 +137,6 @@ impl CompareState {
     /// The counts and index status behind the focused entry's verdict.
     pub fn last_check(&self) -> Option<&Preflight> {
         self.checks.preflight(self.focus_entry()?)
-    }
-
-    /// A check is out (even one whose answer will be dropped).
-    pub fn check_in_flight(&self) -> bool {
-        self.checks.has_pending() || self.orphaned_check.is_some()
-    }
-
-    pub fn cancel_requested(&self) -> bool {
-        self.overview.active.is_some_and(|a| a.cancel_requested)
-    }
-
-    /// The results on show.
-    pub fn open_results(&self) -> Option<&ResultsView> {
-        self.open_pair.and_then(|pair| self.results.get(&pair))
-    }
-
-    /// The entry's latest run failed on a duplicate key (the only failure the panel explains).
-    pub fn failed_on_duplicate_key(&self, entry: EntryId) -> bool {
-        matches!(
-            self.overview.row_for(entry).map(|r| &r.status),
-            Some(PairStatus::Failed(CoreError::CompareDuplicateKey))
-        )
-    }
-
-    /// Whether Find duplicate keys may fire for `entry`: its run failed on a duplicate key, no
-    /// run, check or lookup is out, and its setup is unchanged since (an edit resets the
-    /// verdict, so Find waits for a fresh check).
-    pub fn can_find_duplicates_for(&self, entry: EntryId) -> bool {
-        self.is_ready()
-            && !self.is_running()
-            && !self.check_in_flight()
-            && self.checks.allows_start(entry)
-            && self
-                .duplicates
-                .can_find(self.failed_on_duplicate_key(entry))
     }
 
     /// `can_find_duplicates_for` the focused entry.

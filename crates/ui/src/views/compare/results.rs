@@ -1,7 +1,8 @@
 //! Category tabs with counts, the key table of the current page and the pager.
+use super::detail::{forget_cache, show_detail};
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::viewmodel::compare::{ResultsView, category_key, key_label};
+use crate::viewmodel::compare::{CompareState, ResultsView, category_key, key_label};
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::RowView;
 use curlybrace_core::compare::results::Category;
@@ -14,6 +15,53 @@ const TAB_ORDER: [Category; 3] = [
     Category::OnlyInSource,
     Category::OnlyInTarget,
 ];
+
+/// The screen of one pair's results: its names, Back to overview, then the results table and
+/// the open detail. Nothing is drawn (and the detail cache is dropped) when no pair is open.
+pub fn show_pair_results(
+    ui: &mut egui::Ui,
+    state: &CompareState,
+    i18n: &I18n,
+) -> Option<CompareAction> {
+    let Some(results) = state.open_results() else {
+        forget_cache(ui);
+        return None;
+    };
+    let back = show_heading(ui, state, i18n);
+    let selected = state.detail.as_ref().map(|d| &d.key);
+    let table = show_results(ui, results, selected, i18n);
+    let detail = match &state.detail {
+        Some(d) => {
+            ui.separator();
+            show_detail(ui, d, i18n)
+        }
+        None => {
+            forget_cache(ui);
+            None
+        }
+    };
+    back.or(table).or(detail)
+}
+
+fn show_heading(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
+    let mut action = None;
+    ui.horizontal(|ui| {
+        if ui
+            .button(i18n.t("compare.results.back_to_overview"))
+            .clicked()
+        {
+            action = Some(CompareAction::BackToOverview);
+        }
+        if let Some((source, target)) = state.open_pair_labels() {
+            let pair = i18n.t_with(
+                "compare.pairs.pair_label",
+                &[("source", &source), ("target", &target)],
+            );
+            ui.heading(pair);
+        }
+    });
+    action
+}
 
 pub fn show_results(
     ui: &mut egui::Ui,

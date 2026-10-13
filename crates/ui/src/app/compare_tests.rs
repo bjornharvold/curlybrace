@@ -24,6 +24,8 @@ mod duplicates;
 mod entry;
 #[path = "compare_tests/frames.rs"]
 mod frames;
+#[path = "compare_tests/frames_pairs.rs"]
+mod frames_pairs;
 #[path = "compare_tests/multirun.rs"]
 mod multirun;
 #[path = "compare_tests/pairs.rs"]

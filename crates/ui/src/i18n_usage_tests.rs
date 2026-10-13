@@ -123,3 +123,48 @@ fn the_scanner_recognises_keys_and_ignores_other_text() {
     let found = literals(r#"t("compare.run.start"); let x = "a.b"; "compare.Bad.Key"; "1.5""#);
     assert_eq!(found, vec!["compare.run.start".to_string()]);
 }
+
+/// The object keys of `json` in file order with their nesting depth (2-space indentation).
+fn keys_in_file_order(json: &str) -> Vec<(usize, String)> {
+    json.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let rest = trimmed.strip_prefix('"')?;
+            let (key, after) = rest.split_once('"')?;
+            after
+                .starts_with(':')
+                .then(|| ((line.len() - trimmed.len()) / 2, key.to_string()))
+        })
+        .collect()
+}
+
+/// The first key that is not after its previous sibling, if any.
+fn first_disorder(json: &str) -> Option<String> {
+    let mut last: Vec<Option<String>> = Vec::new();
+    for (depth, key) in keys_in_file_order(json) {
+        last.truncate(depth + 1);
+        last.resize(depth + 1, None);
+        if last[depth]
+            .as_ref()
+            .is_some_and(|previous| *previous >= key)
+        {
+            return Some(key);
+        }
+        last[depth] = Some(key);
+    }
+    None
+}
+
+#[test]
+fn en_json_is_nested_and_alphabetical_at_every_level() {
+    let disorder = first_disorder(include_str!("../locales/en.json"));
+    assert_eq!(disorder, None, "key out of order");
+}
+
+#[test]
+fn the_order_check_notices_an_out_of_order_key() {
+    let json = "{\n  \"b\": {\n    \"y\": \"1\",\n    \"x\": \"2\"\n  }\n}";
+    assert_eq!(first_disorder(json), Some("x".to_string()));
+    let fine = "{\n  \"b\": {\n    \"x\": \"1\",\n    \"y\": \"2\"\n  },\n  \"c\": {\n    \"a\": \"3\"\n  }\n}";
+    assert_eq!(first_disorder(fine), None);
+}
