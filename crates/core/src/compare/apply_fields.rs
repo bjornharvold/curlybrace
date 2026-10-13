@@ -184,16 +184,33 @@ fn same_value(a: Option<&Bson>, b: Option<&Bson>) -> bool {
     }
 }
 
-/// The value at `path` is the same in `doc` and in its field-scoped projection, so writing or
-/// removing it cannot touch a field outside the compared scope, and the address in the
-/// normalized diff points at the same value in the original document.
+/// Every array above an `Index` of `path` has the same length in `doc` and in `scoped`. The scope
+/// filter keeps order, so equal lengths mean no element was dropped and indexes line up.
+fn arrays_aligned(path: &[PathSegment], doc: &Document, scoped: &Document) -> bool {
+    (1..path.len()).all(|n| {
+        if !matches!(path[n], PathSegment::Index(_)) {
+            return true;
+        }
+        match (value_at(doc, &path[..n]), value_at(scoped, &path[..n])) {
+            (Some(Bson::Array(a)), Some(Bson::Array(b))) => a.len() == b.len(),
+            (None, None) => true,
+            _ => false,
+        }
+    })
+}
+
+/// `path` addresses the same thing in `doc` and in its field-scoped projection: the arrays above
+/// it line up and the value is identical, so writing or removing it cannot touch a field outside
+/// the compared scope, and the address in the normalized diff points at the same value in the
+/// original document.
 fn scope_keeps(path: &[PathSegment], doc: &Document, scoped: &Document) -> bool {
-    same_value(value_at(doc, path), value_at(scoped, path))
+    arrays_aligned(path, doc, scoped) && same_value(value_at(doc, path), value_at(scoped, path))
 }
 
 /// Builds the update for the requested `paths` from the fresh diff of the two documents. Every
 /// path must be exactly one reported, copyable change whose value is untouched by the field
-/// `scope` in both documents; otherwise nothing is planned.
+/// `scope` in both documents; otherwise nothing is planned. Callers must pass the full ORIGINAL
+/// documents and the same `rules.field_scope` and `rules.ignore_array_order` used for the diff.
 pub fn plan_fields(
     paths: &[Vec<PathSegment>],
     changes: &[FieldChange],
@@ -743,6 +760,49 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn a_shifted_array_is_refused_even_when_the_leaf_value_happens_to_match() {
+        let scope = FieldScope::Only(vec!["items.price".into()]);
+        let src = doc! { "_id": 1, "items": [{ "price": 3 }, { "price": 5 }, { "price": 4 }] };
+        let tgt = doc! { "_id": 1, "items": [7, { "price": 3 }, { "price": 3 }, { "price": 4 }] };
+        let path = vec![f("items"), i(1), f("price")];
+        let ch = diff_under(&src, &tgt, &scope);
+        assert!(ch.iter().any(|c| c.segments == path));
+        let paths = [path];
+        // Destination shifted (source to target), then origin shifted (target to source).
+        let to_target = plan_fields(&paths, &ch, ST, &src, &tgt, &scope);
+        let to_source = plan_fields(&paths, &ch, TS, &tgt, &src, &scope);
+        assert_eq!(to_target, Err(invalid()));
+        assert_eq!(to_source, Err(invalid()));
+    }
+
+    #[test]
+    fn a_nested_array_that_loses_an_inner_array_is_refused() {
+        let scope = FieldScope::Only(vec!["a.price".into()]);
+        let src = doc! { "_id": 1, "a": [[5], [{ "price": 2 }], [{ "price": 2 }]] };
+        let tgt = doc! { "_id": 1, "a": [[{ "price": 2 }], [{ "price": 9 }]] };
+        let path = vec![f("a"), i(1), i(0), f("price")];
+        let ch = diff_under(&src, &tgt, &scope);
+        assert!(ch.iter().any(|c| c.segments == path), "{ch:?}");
+        assert_eq!(
+            plan_fields(&[path], &ch, ST, &src, &tgt, &scope),
+            Err(invalid())
+        );
+    }
+
+    #[test]
+    fn an_intact_array_under_only_still_plans() {
+        let scope = FieldScope::Only(vec!["items.price".into()]);
+        let src = doc! { "_id": 1, "items": [{ "price": 1, "x": 0 }, { "price": 2 }] };
+        let tgt = doc! { "_id": 2, "items": [{ "price": 1 }, { "price": 8 }] };
+        let path = vec![f("items"), i(1), f("price")];
+        let op = plan_with(&scope, &src, &tgt, &[path.clone()]).unwrap();
+        let WriteOp::UpdateFields { set, .. } = op else {
+            panic!("expected UpdateFields")
+        };
+        assert_eq!(set, vec![(path, Bson::Int32(2))]);
     }
 
     #[test]
