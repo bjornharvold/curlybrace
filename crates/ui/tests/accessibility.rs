@@ -73,11 +73,14 @@ mod compare_workspace {
     use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
     use curlybrace_core::compare::engine::Summary;
     use curlybrace_core::compare::key::KeyTuple;
-    use curlybrace_core::compare::protocol::{CompareEvent, PairOutcome, Preflight, RowView, Side};
+    use curlybrace_core::compare::protocol::{
+        CompareEvent, DuplicateReport, PairOutcome, Preflight, RowView, Side,
+    };
     use curlybrace_core::compare::results::Category;
     use curlybrace_core::connection::ConnectionConfig;
+    use curlybrace_core::error::CoreError;
     use curlybrace_core::runtime::Event;
-    use curlybrace_core::store::{CollectionKind, IndexStatus};
+    use curlybrace_core::store::{CollectionKind, DuplicateGroup, IndexStatus};
     use curlybrace_ui::app::compare::CompareAction;
     use curlybrace_ui::app::reducer::{Input, update};
     use curlybrace_ui::app::state::AppState;
@@ -145,6 +148,9 @@ mod compare_workspace {
                 act(state, CompareAction::SetKey("sku".into()))
             }
             "checked" => checked(state),
+            "duplicates" => duplicate_failure(state),
+            "duplicates_loading" => act(duplicate_failure(state), CompareAction::FindDuplicates),
+            "duplicates_loaded" => duplicates_loaded(duplicate_failure(state)),
             _ => finished(state),
         };
         (state.compare, state.conn)
@@ -163,6 +169,41 @@ mod compare_workspace {
             session: 1,
             pair: 1,
             preflight,
+        };
+        step(state, event(answer))
+    }
+
+    /// Checked, started, and the run ended on a duplicate key.
+    fn duplicate_failure(state: AppState) -> AppState {
+        let state = act(checked(state), CompareAction::Start);
+        let failed = CompareEvent::PairDone {
+            session: 1,
+            run: 1,
+            pair: 1,
+            outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
+        };
+        let state = step(state, event(failed));
+        step(state, event(CompareEvent::RunDone { session: 1, run: 1 }))
+    }
+
+    /// Find was clicked and both sides answered: one group on the source, none on the target.
+    fn duplicates_loaded(state: AppState) -> AppState {
+        let state = act(state, CompareAction::FindDuplicates);
+        let group = DuplicateGroup {
+            key: KeyTuple(vec![Bson::String("dup@example.com".into())]),
+            count: 2,
+        };
+        let answer = CompareEvent::DuplicateKeys {
+            session: 1,
+            pair: 1,
+            source: DuplicateReport {
+                groups: vec![group],
+                more: true,
+            },
+            target: DuplicateReport {
+                groups: vec![],
+                more: false,
+            },
         };
         step(state, event(answer))
     }
@@ -359,6 +400,44 @@ mod compare_workspace {
         ] {
             harness.get_by_label(&i18n.t(key));
         }
+    }
+
+    #[test]
+    fn the_duplicate_failure_panel_has_named_controls() {
+        let i18n = I18n::english();
+        let find = i18n.t("compare.duplicates.find");
+        let mut offered = harness(fixture("duplicates"));
+        offered.run();
+        assert!(
+            !button_disabled(&offered, &find),
+            "offered after the failure"
+        );
+        let (interactive, bad) = unlabelled(&offered);
+        assert!(interactive >= 12, "only {interactive} interactive nodes");
+        assert!(bad.is_empty(), "unlabelled controls: {bad:?}");
+
+        let mut loading = harness(fixture("duplicates_loading"));
+        loading.run_steps(2);
+        assert!(button_disabled(&loading, &find), "disabled while loading");
+
+        let mut loaded = harness(fixture("duplicates_loaded"));
+        loaded.run();
+        let (_, bad) = unlabelled(&loaded);
+        assert!(bad.is_empty(), "unlabelled controls: {bad:?}");
+        for key in [
+            "compare.duplicates.source",
+            "compare.duplicates.target",
+            "compare.duplicates.more",
+            "compare.duplicates.none_on_side",
+        ] {
+            let label = i18n.t(key);
+            loaded.get_all_by_label(&label).next().expect(key);
+        }
+        let row = i18n.t_with(
+            "compare.duplicates.row",
+            &[("key", "\"dup@example.com\""), ("count", "2")],
+        );
+        loaded.get_by_label(&row);
     }
 
     #[test]

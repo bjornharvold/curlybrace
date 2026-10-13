@@ -83,6 +83,19 @@
       "target_value": "Target value",
       "title": "Differences for key {key}"
     },
+    "duplicates": {
+      "find": "Find duplicate keys",
+      "hint": "Choose key fields that are unique, such as an email address or a combination of fields, then check again.",
+      "loading": "Looking up the duplicate keys...",
+      "more": "More values repeat than are listed here.",
+      "none_on_side": "No duplicate keys on this side.",
+      "retry": "Try again",
+      "row": "{key}  ×{count}",
+      "source": "Source",
+      "stale": "The previous lookup is still finishing. You can look again once it is done.",
+      "target": "Target",
+      "title": "Duplicate keys"
+    },
     "preflight": {
       "blocked": "A run is blocked.",
       "check": "Check",

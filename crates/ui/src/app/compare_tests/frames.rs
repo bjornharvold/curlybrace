@@ -3,9 +3,11 @@
 //! string is wrapped in guillemets, so a literal English string shows up as unwrapped text.
 use super::*;
 use crate::I18n;
+use crate::viewmodel::compare::DuplicatesView;
 use crate::views::compare::show_compare;
 use bson::doc;
 use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
+use curlybrace_core::compare::protocol::DuplicateReport;
 use eframe::egui;
 
 const OPEN: char = '«';
@@ -432,4 +434,136 @@ fn cancel_says_cancelling_at_once() {
     let texts = assert_translated(&workspace_clone(&state), "cancel requested");
     assert!(has(&texts, "Cancelling..."));
     assert!(!state.compare.can_cancel());
+}
+
+/// A run that finished on a duplicate key (the state that offers Find duplicate keys).
+fn duplicate_failure_state() -> AppState {
+    let failed = ev(CompareEvent::PairDone {
+        session: 1,
+        run: 1,
+        pair: 1,
+        outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
+    });
+    let (state, _) = update(running_state(), failed);
+    update(state, run_done()).0
+}
+
+fn duplicate_group(value: &str, count: u64) -> curlybrace_core::store::DuplicateGroup {
+    curlybrace_core::store::DuplicateGroup {
+        key: KeyTuple(vec![Bson::String(value.into())]),
+        count,
+    }
+}
+
+fn duplicate_answer(source: DuplicateReport, target: DuplicateReport) -> Input {
+    ev(CompareEvent::DuplicateKeys {
+        session: 1,
+        pair: 1,
+        source,
+        target,
+    })
+}
+
+fn has_exact(texts: &[String], needle: &str) -> bool {
+    texts.iter().any(|t| t == needle)
+}
+
+#[test]
+fn a_duplicate_key_failure_offers_find_duplicate_keys() {
+    let state = duplicate_failure_state();
+    assert!(state.compare.can_find_duplicates());
+    let texts = assert_translated(&workspace_clone(&state), "duplicate failure");
+    assert!(has(&texts, "Find duplicate keys"));
+    assert!(!has(&texts, "Looking up the duplicate keys"));
+    assert!(!has(&texts, "Try again"));
+}
+
+#[test]
+fn another_failure_does_not_offer_find_duplicate_keys() {
+    let failed = ev(CompareEvent::PairDone {
+        session: 1,
+        run: 1,
+        pair: 1,
+        outcome: PairOutcome::Failed(CoreError::CompareKeyMissing),
+    });
+    let (state, _) = update(running_state(), failed);
+    let (state, _) = update(state, run_done());
+    let texts = assert_translated(&workspace_clone(&state), "other failure");
+    assert!(has(&texts, "did not finish"));
+    assert!(!has(&texts, "Find duplicate keys"));
+    assert!(!has(&texts, "Duplicate keys"));
+}
+
+#[test]
+fn loading_shows_the_loading_text_and_find_is_not_offered() {
+    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    assert!(!state.compare.can_find_duplicates());
+    let texts = assert_translated(&workspace_clone(&state), "duplicates loading");
+    assert!(has(&texts, "Looking up the duplicate keys"));
+    assert!(
+        has(&texts, "Find duplicate keys"),
+        "the button stays, disabled"
+    );
+    assert!(!has(&texts, "still finishing"));
+}
+
+#[test]
+fn a_stale_lookup_says_the_previous_one_is_still_finishing() {
+    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let (state, _) = act(state, CompareAction::SetKey("sku".into()));
+    assert_eq!(
+        state.compare.duplicates,
+        DuplicatesView::Loading { stale: true }
+    );
+    let texts = assert_translated(&workspace_clone(&state), "duplicates stale");
+    assert!(has(&texts, "previous lookup is still finishing"));
+    assert!(!has(&texts, "Looking up the duplicate keys"));
+    assert!(has(&texts, "Duplicate keys"), "never a blank panel");
+}
+
+#[test]
+fn loaded_duplicates_list_a_group_per_side() {
+    let source = DuplicateReport {
+        groups: vec![
+            duplicate_group("dup@example.com", 7),
+            duplicate_group("other@example.com", 2),
+        ],
+        more: true,
+    };
+    let target = DuplicateReport {
+        groups: vec![],
+        more: false,
+    };
+    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let (state, _) = update(state, duplicate_answer(source, target));
+    let texts = assert_translated(&workspace_clone(&state), "duplicates loaded");
+    assert!(has_exact(&texts, "«Source»"));
+    assert!(has_exact(&texts, "«Target»"));
+    let row = |key: &str, count: &str| texts.iter().any(|t| t.contains(key) && t.contains(count));
+    assert!(row("dup@example.com", "×7"));
+    assert!(row("other@example.com", "×2"));
+    assert!(has(&texts, "More values repeat"));
+    let none = texts
+        .iter()
+        .filter(|t| t.contains("No duplicate keys on this side"))
+        .count();
+    assert_eq!(none, 1, "only the empty target says so");
+    assert!(has(&texts, "Choose key fields that are unique"));
+    assert!(!has(&texts, "Looking up the duplicate keys"));
+}
+
+#[test]
+fn a_failed_lookup_offers_try_again_and_the_hint() {
+    let (state, _) = act(duplicate_failure_state(), CompareAction::FindDuplicates);
+    let failed = ev(CompareEvent::Failed {
+        session: 1,
+        context: "compare_duplicates",
+        error: CoreError::Database("boom".into()),
+    });
+    let (state, _) = update(state, failed);
+    assert_eq!(state.compare.duplicates, DuplicatesView::Failed);
+    let texts = assert_translated(&workspace_clone(&state), "duplicates failed");
+    assert!(has(&texts, "Try again"));
+    assert!(has(&texts, "Choose key fields that are unique"));
+    assert!(!has(&texts, "Looking up the duplicate keys"));
 }

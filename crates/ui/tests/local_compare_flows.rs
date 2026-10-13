@@ -141,6 +141,60 @@ fn a_duplicate_key_is_reported_and_leaves_no_partial_results() {
 
 #[test]
 #[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+fn finding_duplicate_keys_lists_the_colliding_values() {
+    let mut f = fixture!();
+    f.db.insert(
+        "left",
+        vec![
+            doc! {"_id": 1_i32, "email": "dup@example.com"},
+            doc! {"_id": 2_i32, "email": "dup@example.com"},
+            doc! {"_id": 3_i32, "email": "solo@example.com"},
+        ],
+    );
+    f.db.insert(
+        "right",
+        vec![doc! {"_id": 1_i32, "email": "dup@example.com"}],
+    );
+    open_compare(&mut f);
+    pick_collection(&mut f, Side::Source, "left");
+    pick_collection(&mut f, Side::Target, "right");
+    set_key(&mut f, "email");
+    check(&mut f);
+    start_and_wait(&mut f, SHORT);
+    let message = error_text(&f, &CoreError::CompareDuplicateKey);
+    wait_shows(&mut f, &message);
+
+    click_key(&mut f, "compare.duplicates.find");
+    let row = f.labels.t_with(
+        "compare.duplicates.row",
+        &[("key", "\"dup@example.com\""), ("count", "2")],
+    );
+    wait_shows(&mut f, &row);
+    wait_shows_key(&mut f, "compare.duplicates.none_on_side");
+    assert!(shows_containing(
+        &f.harness,
+        &f.labels.t("compare.duplicates.hint")
+    ));
+    assert!(
+        !shows_containing(&f.harness, "solo@example.com"),
+        "only repeated values are listed"
+    );
+
+    // The hint's next step: a unique key, checked again, then the compare completes.
+    set_key(&mut f, "_id");
+    check(&mut f);
+    click_key(&mut f, "compare.run.start");
+    wait_until(&mut f.harness, "a completed compare", SHORT, |h| {
+        matches!(
+            h.state().state().compare.run,
+            RunView::Finished { failure: None, .. }
+        )
+    });
+    assert_eq!(f.db.count("left"), 3, "nothing is ever written");
+}
+
+#[test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 fn cancelling_a_large_run_leaves_the_workspace_usable() {
     let mut f = fixture!();
     // About 30 MB per side: far too much to scan between the Start click and the Cancel click.

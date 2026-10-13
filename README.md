@@ -96,6 +96,7 @@ for each side, press **Check** and **Start**.
   the target, or different, with the changed fields of each document. Optional filters limit each
   side, and the Rules section controls array order, field order, number types, the `_id` field and
   which fields count.
+- If the key is not unique the compare stops and **Find duplicate keys** shows which values repeat.
 - **Nothing is written.** This release only reads and reports. Applying a sync and exporting
   results arrive in later releases ([#8](https://github.com/bjornharvold/curlybrace/issues/8)).
   The results are kept in memory for the session and can be discarded.
