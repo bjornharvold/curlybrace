@@ -355,6 +355,7 @@ fn event_session(ev: &CompareEvent) -> SessionId {
         | CompareEvent::RunDone { session, .. }
         | CompareEvent::Rows { session, .. }
         | CompareEvent::Detail { session, .. }
+        | CompareEvent::DuplicateKeys { session, .. }
         | CompareEvent::Failed { session, .. } => *session,
     }
 }
