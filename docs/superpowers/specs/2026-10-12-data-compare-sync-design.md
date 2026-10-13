@@ -743,6 +743,11 @@ Limits and known gaps as of slice 2b:
 - `CompareEvent::Failed` carries no run id, so a `Failed` for `compare_apply` cannot be tied to a run; the UI
   sends one `Apply` at a time and treats it as the current one.
 - Exporting a report is slice 3.
+- Quitting the app while an apply runs gives no warning and no report. Each document write is atomic, so
+  nothing is left half-written; a close confirmation is a later improvement.
+- Adding keys that a whole-tab pending item already covers is ignored: the ticks stay, and the detail pane's
+  button gives no feedback.
+- Slice 3's export should warn about results made stale by an apply (`RunRow.applied`).
 
 Tier-1 coverage on a real server (`crates/ui/tests/local_compare_apply_flows.rs`, click-driven): copying a whole
 250-document collection into an empty target through "Select all" (the bulk path) and a re-run with no

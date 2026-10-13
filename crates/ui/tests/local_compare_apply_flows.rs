@@ -27,6 +27,16 @@ macro_rules! test_name {
 
 macro_rules! fixture {
     () => {{
+        // These flows write (one inserts about 50 MB): never fall back to the default server.
+        if std::env::var_os("CURLYBRACE_IT").is_some()
+            && std::env::var_os("CURLYBRACE_IT_MONGODB_URI").is_none()
+        {
+            eprintln!(
+                "SKIPPED {}: set CURLYBRACE_IT_MONGODB_URI to a throwaway server (not 27017)",
+                test_name!()
+            );
+            return;
+        }
         let Some(f) = Fixture::local(test_name!()) else {
             return;
         };

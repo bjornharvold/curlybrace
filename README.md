@@ -117,8 +117,8 @@ for each side, press **Add pair**, then **Check** and **Run**.
   source** for documents that exist on one side or differ, **Delete from source** or **Delete from
   target** for extras. Actions are queued under **Pending changes**; nothing is written until you press
   **Review changes**, which names the connection, database and collection each action writes to, with
-  the counts per pair. Deleting needs you to type the collection name (or the database name when
-  several collections are affected) before **Apply** is enabled. Each document is checked again just
+  the counts per pair. Deleting needs you to type the collection name (the database name when
+  several collections are affected, or a confirmation word when they span several databases or connections) before **Apply** is enabled. Each document is checked again just
   before it is written: a document that changed since the compare is skipped and left alone. The
   result lists what was applied, skipped, failed (with the document's key) and not run, and you can
   cancel a running apply. The pair then shows **Applied**: run it again to confirm what is left.

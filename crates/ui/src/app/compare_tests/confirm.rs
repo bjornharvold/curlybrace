@@ -331,6 +331,7 @@ fn a_whole_category_goes_out_as_a_bulk_item_and_the_id_policy_is_sent() {
     assert_eq!(*id_policy, IdPolicy::Generate);
     assert_eq!(bulk.len(), 1);
     assert_eq!(bulk[0].kind, ApplyKind::Insert);
+    assert_eq!(bulk[0].direction, Direction::SourceToTarget);
     assert_eq!(bulk[0].category, Category::OnlyInSource);
 }
 
