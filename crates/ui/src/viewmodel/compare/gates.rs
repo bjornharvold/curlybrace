@@ -87,9 +87,9 @@ impl CompareState {
             && !self.overview.entry_is_live(entry)
     }
 
-    /// Review changes may fire: a ready session, something pending, every pending pair
+    /// The state allows a review: a ready session, something pending, every pending pair
     /// completed and not stale, and no run, check or apply in the way.
-    pub fn can_review(&self) -> bool {
+    pub(super) fn can_review_now(&self) -> bool {
         self.is_ready()
             && !self.pending.is_empty()
             && !self.is_running()
@@ -108,6 +108,17 @@ impl CompareState {
             .iter()
             .find(|r| r.pair == pair)
             .is_some_and(|r| matches!(r.status, PairStatus::Completed(_)) && !r.applied)
+    }
+
+    /// Discard may fire for `entry`: its latest run has settled (not live, not discarded yet)
+    /// and no apply is reviewing or running. The reducer's discard and the row's button both
+    /// use this.
+    pub fn can_discard_entry(&self, entry: EntryId) -> bool {
+        !self.apply.is_busy()
+            && self
+                .overview
+                .row_for(entry)
+                .is_some_and(|r| r.status.is_settled())
     }
 
     fn start_gate(&self, digest: &PairsDigest, passing_only: bool) -> bool {

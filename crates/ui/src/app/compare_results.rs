@@ -86,7 +86,7 @@ pub(super) fn discard_pair(state: AppState, entry: EntryId) -> Out {
     let Some(row) = c
         .overview
         .row_for(entry)
-        .filter(|r| !is_idle(r.status.clone()))
+        .filter(|_| c.can_discard_entry(entry))
     else {
         return none(state);
     };

@@ -335,7 +335,7 @@ impl CompareState {
             detail: RowDetail::of(status),
             can_open: matches!(status, PairStatus::Completed(_))
                 && self.results.contains_key(&row.pair),
-            can_discard: status.is_settled() && !self.apply.is_busy(),
+            can_discard: self.can_discard_entry(row.entry),
             can_rerun: !live && self.can_rerun(row.entry),
             offers_duplicates: self.failed_on_duplicate_key(row.entry)
                 && !self.duplicates_failed_for(row.entry),

@@ -1,7 +1,6 @@
 use super::*;
 use bson::Bson;
 use curlybrace_core::compare::key::KeyTuple;
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use super::super::selection::RowAction as A;
@@ -36,10 +35,13 @@ fn conns() -> ReviewConnections {
 fn entry(id: EntryId, source: Namespace, target: Namespace) -> ReviewEntry {
     ReviewEntry {
         entry: id,
-        source,
-        target,
-        key: KeySpec::id(),
-        rules: CompareRules::for_key(&KeySpec::id()),
+        facts: RunFacts {
+            source,
+            target,
+            key_has_id: true,
+            include_id: true,
+            scope_is_all: true,
+        },
     }
 }
 
@@ -127,28 +129,6 @@ fn delete_from_source_writes_the_source() {
         r.pairs[0].destinations,
         vec![(A::DeleteFromSource, dest("src-conn", "c", "y"))]
     );
-}
-
-#[test]
-fn the_review_is_a_snapshot_of_the_names() {
-    let names = RefCell::new("before".to_string());
-    let build = |n: &str| {
-        let c = ReviewConnections {
-            source: (Uuid::from_u128(1), n.to_string()),
-            target: (Uuid::from_u128(2), "t".into()),
-        };
-        build_review(
-            &list(&[(1, SRC, A::DeleteFromSource, keys(&[1]))]),
-            IdPolicy::Keep,
-            &c,
-            &|p| entries().get(&p).cloned(),
-            &totals,
-        )
-        .unwrap()
-    };
-    let r = build(&names.borrow());
-    *names.borrow_mut() = "after".into();
-    assert_eq!(r.pairs[0].destinations[0].1.connection, "before");
 }
 
 #[test]
@@ -340,8 +320,8 @@ fn changing_the_policy_recomputes_the_warnings_and_keeps_the_typing() {
 #[test]
 fn a_replace_with_include_id_and_a_business_key_warns() {
     let e = with_entry(|e| {
-        e.key = KeySpec::new(vec!["sku".into()]).unwrap();
-        e.rules.include_id = true;
+        e.facts.key_has_id = false;
+        e.facts.include_id = true;
     });
     let w = warnings(
         &e,
@@ -350,8 +330,8 @@ fn a_replace_with_include_id_and_a_business_key_warns() {
     );
     assert_eq!(w, vec![Warning::KeepsDestinationId]);
     let e = with_entry(|e| {
-        e.key = KeySpec::new(vec!["sku".into()]).unwrap();
-        e.rules.include_id = false;
+        e.facts.key_has_id = false;
+        e.facts.include_id = false;
     });
     let w = warnings(
         &e,
@@ -363,25 +343,20 @@ fn a_replace_with_include_id_and_a_business_key_warns() {
 
 #[test]
 fn a_replace_under_a_narrow_field_scope_warns() {
-    for scope in [
-        FieldScope::Only(vec!["a".into()]),
-        FieldScope::AllExcept(vec!["a".into()]),
-    ] {
-        let e = with_entry(|e| e.rules.field_scope = scope.clone());
-        let w = warnings(
-            &e,
-            &[(1, DIFF, A::CopyToTarget, keys(&[1]))],
-            IdPolicy::Keep,
-        );
-        assert_eq!(w, vec![Warning::WholeDocumentOverwrite]);
-        let w = warnings(&e, &[(1, SRC, A::CopyToTarget, keys(&[1]))], IdPolicy::Keep);
-        assert_eq!(w, vec![], "an insert is not a replace");
-    }
+    let e = with_entry(|e| e.facts.scope_is_all = false);
+    let w = warnings(
+        &e,
+        &[(1, DIFF, A::CopyToTarget, keys(&[1]))],
+        IdPolicy::Keep,
+    );
+    assert_eq!(w, vec![Warning::WholeDocumentOverwrite]);
+    let w = warnings(&e, &[(1, SRC, A::CopyToTarget, keys(&[1]))], IdPolicy::Keep);
+    assert_eq!(w, vec![], "an insert is not a replace");
 }
 
 #[test]
 fn an_insert_under_a_business_key_may_duplicate_it() {
-    let e = with_entry(|e| e.key = KeySpec::new(vec!["sku".into()]).unwrap());
+    let e = with_entry(|e| e.facts.key_has_id = false);
     let w = warnings(
         &e,
         &[(1, SRC, A::CopyToTarget, keys(&[1]))],
@@ -402,5 +377,122 @@ fn every_warning_key_is_a_compare_apply_key() {
         Warning::MaybeDuplicateBusinessKey,
     ] {
         assert!(w.i18n_key().starts_with("compare.apply.warning."));
+    }
+}
+
+#[test]
+fn a_name_with_spaces_is_typed_trimmed_and_a_blank_name_needs_the_word() {
+    let mut e = entries();
+    e.insert(3, entry(30, ns("a", "x"), ns("b", " x ")));
+    e.insert(4, entry(40, ns("a", "x"), ns("b", "  ")));
+    let one = |pair| {
+        review_with(
+            &e,
+            &list(&[(pair, TGT, A::DeleteFromTarget, keys(&[1]))]),
+            IdPolicy::Keep,
+        )
+        .unwrap()
+    };
+    let spaced = one(3);
+    assert_eq!(spaced.required, Some(RequiredText::Literal(" x ".into())));
+    assert!(
+        spaced
+            .clone()
+            .with_confirm_text("x")
+            .confirm_enabled("DELETE")
+    );
+    assert!(
+        spaced
+            .clone()
+            .with_confirm_text(" x ")
+            .confirm_enabled("DELETE")
+    );
+    assert!(!spaced.with_confirm_text("").confirm_enabled("DELETE"));
+    let blank = one(4);
+    assert_eq!(blank.required, Some(RequiredText::Word));
+    assert!(
+        !blank
+            .clone()
+            .with_confirm_text("")
+            .confirm_enabled("DELETE")
+    );
+    assert!(blank.with_confirm_text("DELETE").confirm_enabled("DELETE"));
+}
+
+/// A small deterministic generator (LCG) so the property test needs no dependency.
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self, bound: u64) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (self.0 >> 33) % bound
+    }
+}
+
+fn random_list(rng: &mut Lcg) -> PendingList {
+    let cats = [SRC, TGT, DIFF];
+    (0..rng.next(8) + 1).fold(PendingList::default(), |list, _| {
+        let pair = rng.next(3) as PairId + 1;
+        let cat = cats[rng.next(3) as usize];
+        let offered = A::offered_for(cat);
+        let action = offered[rng.next(offered.len() as u64) as usize];
+        let scope = match rng.next(3) {
+            0 => Scope::Category,
+            _ => keys(&(0..rng.next(5) as i32 + 1).collect::<Vec<_>>()),
+        };
+        list.with_action(pair, cat, action, scope).0
+    })
+}
+
+#[test]
+fn counts_match_the_command_ops_for_random_pending_lists() {
+    let mut e = entries();
+    e.insert(3, entry(30, ns("e", "p"), ns("f", "q")));
+    let mut rng = Lcg(42);
+    for case in 0..200 {
+        let pending = random_list(&mut rng);
+        let r = review_with(&e, &pending, IdPolicy::Keep).expect("a review");
+        let (ops, bulk) = pending.to_command_parts();
+        for kind in [ApplyKind::Insert, ApplyKind::Replace, ApplyKind::Delete] {
+            let from_ops = ops.iter().filter(|o| o.kind == kind).count() as u64;
+            let from_bulk: u64 = bulk
+                .iter()
+                .filter(|b| b.kind == kind)
+                .map(|b| totals(b.pair, b.category) as u64)
+                .sum();
+            let counted: u64 = r
+                .pairs
+                .iter()
+                .map(|p| match kind {
+                    ApplyKind::Insert => p.counts.insert,
+                    ApplyKind::Replace => p.counts.replace,
+                    ApplyKind::Delete => p.counts.delete,
+                })
+                .sum();
+            assert_eq!(counted, from_ops + from_bulk, "case {case} {kind:?}");
+        }
+        assert_eq!(r.op_total(), pending.op_count(&totals), "case {case}");
+    }
+}
+
+#[test]
+fn every_warning_key_exists_in_en_json() {
+    let root: serde_json::Value =
+        serde_json::from_str(include_str!("../../../locales/en.json")).unwrap();
+    for w in [
+        Warning::GeneratedIds,
+        Warning::KeepsDestinationId,
+        Warning::WholeDocumentOverwrite,
+        Warning::MaybeDuplicateBusinessKey,
+    ] {
+        let pointer = format!("/{}", w.i18n_key().replace('.', "/"));
+        assert!(
+            root.pointer(&pointer).is_some_and(|v| v.is_string()),
+            "{} missing",
+            w.i18n_key()
+        );
     }
 }

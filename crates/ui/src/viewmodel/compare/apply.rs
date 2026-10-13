@@ -28,15 +28,30 @@ pub enum ApplyUi {
         cancel_requested: bool,
     },
     Finished {
+        /// One report per reviewed pair; a pair that never reported counts all its writes as
+        /// not run.
         reports: Vec<(PairId, ApplyReport)>,
         cancelled: bool,
-        /// Operations the reports account for: applied + stale + not planned + failed + not run.
-        ops_sent: u64,
+        /// The writes the confirmed review asked for.
+        requested: u64,
     },
 }
 
-fn accounted(report: &ApplyReport) -> u64 {
-    report.applied + report.stale + report.not_planned + report.failed + report.not_run
+/// What happened to the requested writes, over all pairs. The five counts add up to the
+/// requested total.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ApplySummary {
+    pub applied: u64,
+    pub stale: u64,
+    pub not_planned: u64,
+    pub failed: u64,
+    pub not_run: u64,
+}
+
+impl ApplySummary {
+    pub fn total(&self) -> u64 {
+        self.applied + self.stale + self.not_planned + self.failed + self.not_run
+    }
 }
 
 impl ApplyUi {
@@ -136,23 +151,52 @@ impl ApplyUi {
         match self {
             Self::Running {
                 run: current,
+                total,
                 rows,
                 cancel_requested,
-                ..
             } if current == run => {
-                let reports: Vec<(PairId, ApplyReport)> = rows
+                let reports = rows
                     .into_iter()
-                    .filter_map(|row| row.report.map(|r| (row.pair, r)))
+                    .map(|row| {
+                        let never_ran = ApplyReport {
+                            not_run: row.total,
+                            ..ApplyReport::default()
+                        };
+                        (row.pair, row.report.unwrap_or(never_ran))
+                    })
                     .collect();
-                let ops_sent = reports.iter().map(|(_, r)| accounted(r)).sum();
                 Self::Finished {
                     reports,
                     cancelled: cancel_requested,
-                    ops_sent,
+                    requested: total,
                 }
             }
             other => other,
         }
+    }
+
+    /// The totals over all pairs once finished. Writes no report accounts for (a count that
+    /// falls short of `requested`) are added to `not_run`, so the counts add up to `requested`.
+    pub fn summary(&self) -> Option<ApplySummary> {
+        let Self::Finished {
+            reports, requested, ..
+        } = self
+        else {
+            return None;
+        };
+        let sum = reports
+            .iter()
+            .fold(ApplySummary::default(), |s, (_, r)| ApplySummary {
+                applied: s.applied + r.applied,
+                stale: s.stale + r.stale,
+                not_planned: s.not_planned + r.not_planned,
+                failed: s.failed + r.failed,
+                not_run: s.not_run + r.not_run,
+            });
+        Some(ApplySummary {
+            not_run: sum.not_run + requested.saturating_sub(sum.total()),
+            ..sum
+        })
     }
 
     /// The pairs whose results are now stale: an apply that wrote anything or failed.

@@ -6,7 +6,7 @@ use super::compare_pairs::discards;
 use super::compare_results::{detail_arrived, rows_arrived};
 use super::reducer::Out;
 use super::state::AppState;
-use crate::viewmodel::compare::{CompareState, EntryId, ResultsView, RunOverview};
+use crate::viewmodel::compare::{CompareState, EntryId, ResultsView, RunFacts, RunOverview};
 use curlybrace_core::compare::protocol::{
     CompareCommand, CompareEvent, PairId, PairOutcome, PairSpec, SessionId,
 };
@@ -54,7 +54,13 @@ fn begin(state: AppState, passing_only: bool) -> Out {
     }
     let run = c.next_run;
     let ids: Vec<(EntryId, PairId)> = planned.iter().map(|(e, s)| (*e, s.id)).collect();
-    let (overview, superseded) = c.overview.clone().started(run, &ids);
+    let facts_of = |entry: EntryId| {
+        planned
+            .iter()
+            .find(|(e, _)| *e == entry)
+            .map(|(_, spec)| RunFacts::of(spec))
+    };
+    let (overview, superseded) = c.overview.clone().started_with(run, &ids, &facts_of);
     let mut commands = discards(Some(session), &superseded);
     commands.push(cmd(CompareCommand::Start {
         session,

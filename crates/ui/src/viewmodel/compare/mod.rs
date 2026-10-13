@@ -25,14 +25,14 @@ use std::collections::BTreeMap;
 use curlybrace_core::compare::protocol::{PairId, PairSpec, RunId, SessionId};
 use uuid::Uuid;
 
-pub use apply::{ApplyRow, ApplyUi};
+pub use apply::{ApplyRow, ApplySummary, ApplyUi};
 pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use digest::PairsDigest;
 pub use duplicates::{DuplicateRow, DuplicatesView};
 pub use gates::Gates;
 pub use list_view::{ListInputs, ListView, Unmatched, can_pair_with};
-pub use overview::{ActiveRun, PairStatus, RunOverview, RunRow, Totals};
+pub use overview::{ActiveRun, PairStatus, RunFacts, RunOverview, RunRow, Totals};
 pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use pending::{PendingChange, PendingList, Scope};

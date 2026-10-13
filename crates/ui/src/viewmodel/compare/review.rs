@@ -4,14 +4,13 @@
 use std::collections::BTreeSet;
 
 use curlybrace_core::compare::apply::{ApplyKind, Direction, IdPolicy};
-use curlybrace_core::compare::key::KeySpec;
 use curlybrace_core::compare::protocol::PairId;
 use curlybrace_core::compare::results::Category;
-use curlybrace_core::compare::rules::{CompareRules, FieldScope};
 use curlybrace_core::store::Namespace;
 use uuid::Uuid;
 
 use super::CompareState;
+use super::overview::RunFacts;
 use super::pairs::EntryId;
 use super::pending::{PendingChange, PendingList, Scope};
 use super::selection::RowAction;
@@ -93,6 +92,7 @@ impl Warning {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Review {
+    /// In pending-list order of each pair's first item; so are a pair's `destinations`.
     pub pairs: Vec<ReviewPair>,
     pub id_policy: IdPolicy,
     /// What the person typed so far.
@@ -116,7 +116,10 @@ impl Review {
     pub fn confirm_enabled(&self, word: &str) -> bool {
         match self.required_text(word) {
             None => true,
-            Some(required) => !required.is_empty() && self.confirm_text.trim() == required,
+            Some(required) => {
+                let required = required.trim();
+                !required.is_empty() && self.confirm_text.trim() == required
+            }
         }
     }
 
@@ -149,14 +152,11 @@ pub struct ReviewConnections {
     pub target: (Uuid, String),
 }
 
-/// What the review needs of a pair entry.
+/// What the review needs of a pair: the facts of the run that produced its results.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReviewEntry {
     pub entry: EntryId,
-    pub source: Namespace,
-    pub target: Namespace,
-    pub key: KeySpec,
-    pub rules: CompareRules,
+    pub facts: RunFacts,
 }
 
 /// One written place: connection identity plus names.
@@ -179,8 +179,8 @@ impl Resolved<'_> {
 
     fn namespace(&self) -> &Namespace {
         match self.direction() {
-            Direction::SourceToTarget => &self.entry.target,
-            Direction::TargetToSource => &self.entry.source,
+            Direction::SourceToTarget => &self.entry.facts.target,
+            Direction::TargetToSource => &self.entry.facts.source,
         }
     }
 
@@ -207,11 +207,12 @@ impl Resolved<'_> {
     }
 
     fn kinds(&self) -> WarnInput {
+        let facts = &self.entry.facts;
         WarnInput {
             kind: self.kind(),
-            include_id_without_id_key: self.entry.rules.include_id && !self.entry.key.contains_id(),
-            narrow_scope: self.entry.rules.field_scope != FieldScope::All,
-            business_key: !self.entry.key.contains_id(),
+            include_id_without_id_key: facts.include_id && !facts.key_has_id,
+            narrow_scope: !facts.scope_is_all,
+            business_key: !facts.key_has_id,
         }
     }
 }
@@ -258,13 +259,16 @@ fn warnings_for(inputs: &[WarnInput], policy: IdPolicy) -> Vec<Warning> {
 fn required_for(places: &[Place]) -> Option<RequiredText> {
     let distinct: BTreeSet<&Place> = places.iter().collect();
     let first = distinct.iter().next()?;
-    if distinct.len() == 1 {
-        return Some(RequiredText::Literal(first.2.clone()));
-    }
     let one_database = distinct.iter().all(|p| p.0 == first.0 && p.1 == first.1);
-    Some(match one_database {
-        true => RequiredText::Literal(first.1.clone()),
-        false => RequiredText::Word,
+    let name = match (distinct.len(), one_database) {
+        (1, _) => &first.2,
+        (_, true) => &first.1,
+        _ => return Some(RequiredText::Word),
+    };
+    // A name that is blank once trimmed cannot be typed: fall back to the word.
+    Some(match name.trim().is_empty() {
+        true => RequiredText::Word,
+        false => RequiredText::Literal(name.clone()),
     })
 }
 
@@ -357,10 +361,35 @@ impl CompareState {
     /// can no longer be resolved. `name_of` resolves a connection id to its display name; it is
     /// asked once, here, and the review keeps the answers.
     pub fn review(&self, id_policy: IdPolicy, name_of: &dyn Fn(Uuid) -> String) -> Option<Review> {
-        if !self.can_review() {
+        if !self.can_review_now() {
             return None;
         }
+        self.review_unchecked(id_policy, name_of)
+    }
+
+    /// Review changes may fire: everything `review` needs holds, so the button never does
+    /// nothing.
+    pub fn can_review(&self) -> bool {
+        self.can_review_now()
+            && self
+                .review_unchecked(IdPolicy::Keep, &|_| String::new())
+                .is_some()
+    }
+
+    fn review_unchecked(
+        &self,
+        id_policy: IdPolicy,
+        name_of: &dyn Fn(Uuid) -> String,
+    ) -> Option<Review> {
         let (source, target) = self.connections?;
+        let whole_category_without_results = self
+            .pending
+            .items()
+            .iter()
+            .any(|c| c.scope == Scope::Category && !self.results.contains_key(&c.pair));
+        if whole_category_without_results {
+            return None;
+        }
         let conns = ReviewConnections {
             source: (source, name_of(source)),
             target: (target, name_of(target)),
@@ -371,16 +400,12 @@ impl CompareState {
         build_review(&self.pending, id_policy, &conns, &entry_of, &totals)
     }
 
+    /// The pair's entry and the facts its run used (not the entry as edited since).
     fn review_entry(&self, pair: PairId) -> Option<ReviewEntry> {
         let row = self.overview.rows.iter().find(|r| r.pair == pair)?;
-        let entry = self.pairs.get(row.entry)?;
-        let form = entry.effective(&self.setup);
         Some(ReviewEntry {
-            entry: entry.id,
-            source: entry.source.clone(),
-            target: entry.target.clone(),
-            key: form.key().ok()?,
-            rules: form.rules().ok()?,
+            entry: row.entry,
+            facts: row.facts.clone()?,
         })
     }
 }
