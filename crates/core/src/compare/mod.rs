@@ -1,6 +1,7 @@
 //! Data compare: key ordering, normalization, fingerprints, diff, scanning and the merge-join
 //! engine. Pure core logic with no UI dependency; the runtime drives it (see `runtime::compare`).
 
+pub mod apply;
 pub mod diff;
 pub mod engine;
 pub mod fingerprint;
