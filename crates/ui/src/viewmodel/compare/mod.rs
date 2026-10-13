@@ -7,10 +7,6 @@ pub mod preflight;
 pub mod results;
 pub mod setup;
 
-/// Temporary: the single-pair workspace still compares one pair, always with this id. Removed
-/// when the multi-pair state and app land.
-pub const PAIR_ID: PairId = 1;
-
 use curlybrace_core::compare::protocol::{PairId, PairSpec, Preflight, RunId, SessionId};
 use curlybrace_core::error::CoreError;
 use uuid::Uuid;
@@ -22,6 +18,10 @@ pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
+
+/// Temporary: the single-pair workspace still compares one pair, always with this id. Removed
+/// when the multi-pair state and app land.
+pub const PAIR_ID: PairId = 1;
 
 /// Where the compare session stands. It owns its own connections, so the browsing connection
 /// coming and going never changes it.

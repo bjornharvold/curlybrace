@@ -46,8 +46,11 @@ fn added_assigns_stable_increasing_ids() {
 
 #[test]
 fn added_ignores_an_exact_duplicate_pair() {
-    let list = list_of_two().added(ns("a", "users"), ns("b", "users"));
+    let before = list_of_two();
+    let next = before.next_entry;
+    let list = before.added(ns("a", "users"), ns("b", "users"));
     assert_eq!(list.entries.len(), 2);
+    assert_eq!(list.next_entry, next);
     let crossed = list.added(ns("a", "users"), ns("b", "orders"));
     assert_eq!(crossed.entries.len(), 3);
 }
@@ -209,6 +212,18 @@ fn invalid_override_key_reports_key_error_for_that_entry_only() {
         SetupError::Key
     );
     assert!(list.entries[1].issues(&defaults(), false).is_empty());
+}
+
+#[test]
+fn an_entry_in_another_database_drops_the_listing_and_still_resolves() {
+    let list = PairList::default().added(ns("other", "users"), ns("b", "users"));
+    let defaults = defaults();
+    let effective = list.entries[0].effective(&defaults);
+    assert_eq!(effective.source.database.as_deref(), Some("other"));
+    assert!(effective.source.collections.is_empty());
+    assert_eq!(effective.target.collections, defaults.target.collections);
+    let spec = list.entries[0].spec(3, &defaults, false).unwrap();
+    assert_eq!(spec.source, ns("other", "users"));
 }
 
 #[test]

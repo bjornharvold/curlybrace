@@ -119,3 +119,27 @@ fn no_database_picked_gives_no_rows() {
     assert!(pairing.rows(&one_side, &list).is_empty());
     assert!(pairing.matched_to_add(&one_side, &list).is_empty());
 }
+
+#[test]
+fn a_large_listing_with_many_entries_is_resolved_in_one_pass() {
+    let names: Vec<String> = (0..500).map(|i| format!("c{i:03}")).collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let form = setup(coll(&refs), coll(&refs));
+    let list = names.iter().fold(PairList::default(), |l, n| {
+        l.added(
+            Namespace::new("a", n.clone()),
+            Namespace::new("b", n.clone()),
+        )
+    });
+    let rows = DatabasePairing::default().rows(&form, &list);
+    assert_eq!(rows.len(), 500);
+    assert!(
+        rows.iter()
+            .all(|r| matches!(r, PairingRow::Matched { paired: true, .. }))
+    );
+    assert!(
+        DatabasePairing::default()
+            .matched_to_add(&form, &list)
+            .is_empty()
+    );
+}

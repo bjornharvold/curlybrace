@@ -1,5 +1,7 @@
 //! The database-level pairing helper's view: what it offers for the two picked databases and
 //! which of those pairs are already in the list. Pure and egui-free.
+use std::collections::HashSet;
+
 use curlybrace_core::compare::pairing::{PairingOptions, Suggestion, suggest};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::store::Namespace;
@@ -23,11 +25,12 @@ impl DatabasePairing {
     /// Matched names first, then those without a counterpart; empty until both databases are
     /// picked.
     pub fn rows(&self, setup: &SetupForm, list: &PairList) -> Vec<PairingRow> {
+        let paired = paired_names(setup, list);
         self.suggestions(setup)
             .into_iter()
             .map(|s| match s {
                 Suggestion::Matched { name } => {
-                    let paired = is_paired(setup, list, &name);
+                    let paired = paired.contains(name.as_str());
                     PairingRow::Matched { name, paired }
                 }
                 Suggestion::OnlyInSource { name } => PairingRow::NoCounterpart {
@@ -77,15 +80,18 @@ impl DatabasePairing {
     }
 }
 
-fn is_paired(setup: &SetupForm, list: &PairList, name: &str) -> bool {
+/// The names already paired same-name across the two picked databases; built once per call.
+fn paired_names<'a>(setup: &SetupForm, list: &'a PairList) -> HashSet<&'a str> {
     let (Some(sdb), Some(tdb)) = (&setup.source.database, &setup.target.database) else {
-        return false;
+        return HashSet::new();
     };
-    let source = Namespace::new(sdb.clone(), name);
-    let target = Namespace::new(tdb.clone(), name);
     list.entries
         .iter()
-        .any(|e| e.source == source && e.target == target)
+        .filter(|e| {
+            e.source.db == *sdb && e.target.db == *tdb && e.source.collection == e.target.collection
+        })
+        .map(|e| e.source.collection.as_str())
+        .collect()
 }
 
 #[cfg(test)]

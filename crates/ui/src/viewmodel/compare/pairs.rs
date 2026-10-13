@@ -147,12 +147,15 @@ impl PairList {
     }
 
     pub fn with_overrides(self, id: EntryId, overrides: PairOverrides) -> Self {
-        self.map_entries(|e| match e.id == id {
-            true => PairEntry {
-                overrides: overrides.clone(),
-                ..e
-            },
-            false => e,
+        let mut pending = Some(overrides);
+        self.map_entries(|e| {
+            if e.id != id {
+                return e;
+            }
+            match pending.take() {
+                Some(overrides) => PairEntry { overrides, ..e },
+                None => e,
+            }
         })
     }
 
