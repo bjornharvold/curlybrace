@@ -72,6 +72,60 @@ fn successor(action: &CompareAction) -> Option<CompareAction> {
     })
 }
 
+/// The position of a variant: one arm per variant, no wildcard. The walk must visit exactly the
+/// slots `0..=max`, so a mislinked `successor` or an unreachable new variant fails.
+fn slot(action: &CompareAction) -> usize {
+    use CompareAction as A;
+    match action {
+        A::Show => 0,
+        A::Hide => 1,
+        A::Open { .. } => 2,
+        A::CloseSession => 3,
+        A::PickSide(..) => 4,
+        A::SetKey(_) => 5,
+        A::SetFilter(..) => 6,
+        A::SetRules(_) => 7,
+        A::AddPair => 8,
+        A::AddAllSameNamed => 9,
+        A::AddUnmatched { .. } => 10,
+        A::RemovePair(_) => 11,
+        A::IncludePair(..) => 12,
+        A::EditPair(_) => 13,
+        A::SetPairOverrides(..) => 14,
+        A::ToggleSystemCollections(_) => 15,
+        A::RunCheck => 16,
+        A::Start => 17,
+        A::StartPassing => 18,
+        A::Cancel => 19,
+        A::SelectCategory(_) => 20,
+        A::Page(_) => 21,
+        A::Select(_) => 22,
+        A::OpenPair(_) => 23,
+        A::BackToOverview => 24,
+        A::DiscardPair(_) => 25,
+        A::Rerun(_) => 26,
+        A::Back => 27,
+        A::Reload(_) => 28,
+        A::RetryRows => 29,
+        A::FindDuplicates(_) => 30,
+        A::ToggleRow(_) => 31,
+        A::SelectPage => 32,
+        A::SelectAllInCategory => 33,
+        A::ClearSelection => 34,
+        A::AddToPending(_) => 35,
+        A::AddKeyToPending(..) => 36,
+        A::RemovePending(_) => 37,
+        A::ClearPending => 38,
+        A::ReviewApply { .. } => 39,
+        A::SetConfirmText(_) => 40,
+        A::SetIdPolicy(_) => 41,
+        A::ConfirmApply => 42,
+        A::CancelReview => 43,
+        A::CancelApply => 44,
+        A::DismissApplyResult => 45,
+    }
+}
+
 fn all_actions() -> Vec<CompareAction> {
     std::iter::successors(Some(CompareAction::Show), successor).collect()
 }
@@ -137,7 +191,14 @@ fn states() -> Vec<StartState> {
 #[test]
 fn the_walk_visits_every_variant_once() {
     let all = all_actions();
-    assert!(all.len() > 40, "walk stopped early: {}", all.len());
+    let mut slots: Vec<usize> = all.iter().map(slot).collect();
+    slots.sort_unstable();
+    let max = *slots.last().unwrap();
+    assert_eq!(
+        slots,
+        (0..=max).collect::<Vec<_>>(),
+        "gap or repeat in the walk"
+    );
     for (i, a) in all.iter().enumerate() {
         assert!(!all[..i].contains(a), "{a:?} twice");
     }

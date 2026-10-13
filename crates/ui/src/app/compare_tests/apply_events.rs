@@ -224,6 +224,34 @@ fn closing_or_replacing_the_session_is_refused_while_an_apply_runs_or_is_reviewe
 }
 
 #[test]
+fn sidebar_entries_to_another_connection_change_nothing_while_applying() {
+    use crate::viewmodel::SidebarAction;
+    use curlybrace_core::store::Namespace;
+    let entries = || {
+        [
+            SidebarAction::CompareTo(Namespace::new("shop", "orders")),
+            SidebarAction::CompareDatabaseTo("shop".into()),
+        ]
+    };
+    for build in [running_apply, super::confirm::confirmed] {
+        for entry in entries() {
+            let mut state = build();
+            state.status = ConnStatus::Connected;
+            // Another connection than the session's source: the entry would replace the session.
+            state.connected = Some(state.compare.connections.unwrap().1);
+            let before = copy_of(&state);
+            let (after, cmds) = update(state, Input::Sidebar(entry.clone()));
+            assert!(after.banner.is_none(), "{entry:?}: connected, so no banner");
+            assert!(cmds.is_empty(), "{entry:?}: {cmds:?}");
+            assert_eq!(after.compare.setup, before.compare.setup, "{entry:?}");
+            assert_eq!(after.compare.apply, before.compare.apply, "{entry:?}");
+            assert_eq!(after.compare.connections, before.compare.connections);
+            assert_eq!(after.workspace, Workspace::Compare, "{entry:?}");
+        }
+    }
+}
+
+#[test]
 fn closing_and_replacing_work_once_the_apply_is_over() {
     let (state, _) = update(running_apply(), done_ev(1, 2));
     let (state, _) = act(state, CompareAction::DismissApplyResult);

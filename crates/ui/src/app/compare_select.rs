@@ -8,9 +8,10 @@ use super::state::AppState;
 use crate::viewmodel::compare::{
     CompareState, PendingList, ResultsView, RowAction, Scope, Selection,
 };
-use curlybrace_core::compare::key::KeyTuple;
+use curlybrace_core::compare::key::{KeyTuple, compare_tuples};
 use curlybrace_core::compare::protocol::PairId;
 use curlybrace_core::compare::results::Category;
+use std::cmp::Ordering;
 
 /// The results tab the person can tick rows in.
 struct Tab<'a> {
@@ -25,7 +26,11 @@ impl Tab<'_> {
     }
 
     fn has_row(&self, key: &KeyTuple) -> bool {
-        self.view.rows.iter().any(|r| r.key == *key)
+        // By value: a key holding NaN is not `==` to itself.
+        self.view
+            .rows
+            .iter()
+            .any(|r| compare_tuples(&r.key, key) == Ordering::Equal)
     }
 }
 

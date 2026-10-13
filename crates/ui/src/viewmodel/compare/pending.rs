@@ -1,8 +1,9 @@
 //! The queued writes of the Compare workspace, one action per (pair, key). Pure.
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
 use curlybrace_core::compare::apply::{ApplyKind, ApplyOp, Direction};
-use curlybrace_core::compare::key::KeyTuple;
+use curlybrace_core::compare::key::{KeyTuple, compare_tuples};
 use curlybrace_core::compare::protocol::{BulkApply, PairId};
 use curlybrace_core::compare::results::Category;
 
@@ -27,6 +28,23 @@ pub struct PendingChange {
 impl PendingChange {
     fn same_tab(&self, pair: PairId, cat: Category) -> bool {
         self.pair == pair && self.category == cat
+    }
+
+    fn same_change(&self, other: &Self) -> bool {
+        let same_scope = match (&self.scope, &other.scope) {
+            (Scope::Category, Scope::Category) => true,
+            (Scope::Keys(a), Scope::Keys(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b)
+                        .all(|(x, y)| compare_tuples(x, y) == Ordering::Equal)
+            }
+            _ => false,
+        };
+        self.pair == other.pair
+            && self.category == other.category
+            && self.action == other.action
+            && same_scope
     }
 
     fn kind(&self) -> ApplyKind {
@@ -146,6 +164,17 @@ impl PendingList {
 
     pub fn cleared(&self) -> Self {
         Self::default()
+    }
+
+    /// Both lists queue the same changes in the same order. Keys are compared by value
+    /// (`compare_tuples`), so a key holding NaN equals its own clone, which `==` does not say.
+    pub fn same_changes(&self, other: &Self) -> bool {
+        self.changes.len() == other.changes.len()
+            && self
+                .changes
+                .iter()
+                .zip(&other.changes)
+                .all(|(a, b)| a.same_change(b))
     }
 
     pub fn items(&self) -> &[PendingChange] {

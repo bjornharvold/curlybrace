@@ -417,6 +417,63 @@ fn confirm_after_the_same_number_of_other_keys_sends_nothing() {
     assert_eq!(state.compare.apply, ApplyUi::Idle);
 }
 
+/// Rows whose keys hold NaN (directly and nested in a document), which are not `==` to
+/// themselves, queued for a copy.
+fn nan_pending() -> AppState {
+    let keys = vec![
+        KeyTuple(vec![Bson::Double(f64::NAN)]),
+        KeyTuple(vec![Bson::Document(
+            bson::doc! {"a": Bson::Double(f64::NAN)},
+        )]),
+    ];
+    assert!(
+        keys[0] != keys[0].clone(),
+        "NaN keys are never == to themselves"
+    );
+    let rows = ev(CompareEvent::Rows {
+        session: 1,
+        pair: RUN_PAIR,
+        category: Category::Different,
+        offset: 0,
+        total: 2,
+        rows: keys
+            .iter()
+            .map(|key| RowView {
+                key: key.clone(),
+                has_source: true,
+                has_target: true,
+            })
+            .collect(),
+    });
+    let (state, _) = update(
+        running_state(),
+        pair_done(1, summary_of(Category::Different, 2)),
+    );
+    let (state, _) = update(state, rows);
+    let (state, _) = update(state, run_done());
+    let state = keys
+        .into_iter()
+        .fold(state, |s, k| act(s, CompareAction::ToggleRow(k)).0);
+    let (state, _) = act(state, CompareAction::AddToPending(RowAction::CopyToTarget));
+    assert_eq!(
+        state.compare.pending.op_count(&|_, _| 0),
+        2,
+        "both NaN keys queued"
+    );
+    state
+}
+
+#[test]
+fn nan_keys_review_confirm_and_send_exactly_one_apply() {
+    let state = reviewing(nan_pending());
+    let (state, cmds) = act(state, CompareAction::ConfirmApply);
+    let [CompareCommand::Apply { ops, .. }] = applies(&cmds)[..] else {
+        panic!("one apply, got {cmds:?}")
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(state.compare.apply.is_running());
+}
+
 #[test]
 fn the_command_is_built_from_the_reviewed_list() {
     let (state, cmds) = act(confirmed(), CompareAction::ConfirmApply);

@@ -152,7 +152,7 @@ impl Review {
     /// entries, actions, destinations (by database and collection, not by display name) and
     /// counts.
     pub fn same_writes(&self, other: &Self) -> bool {
-        self.pending == other.pending && self.same_destinations(other)
+        self.pending.same_changes(&other.pending) && self.same_destinations(other)
     }
 
     fn same_destinations(&self, other: &Self) -> bool {

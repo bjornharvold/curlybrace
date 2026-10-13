@@ -277,6 +277,11 @@ fn from_sidebar(state: AppState, then: impl FnOnce(AppState, Vec<Command>, bool)
         .map(|(_, t)| t)
         .filter(|t| state.connection(*t).is_some())
         .unwrap_or(source);
+    // Opening for other connections would replace the session an apply is reviewed or runs on:
+    // show the workspace and leave the session and the pickers alone.
+    if state.compare.apply.is_busy() && state.compare.connections != Some((source, target)) {
+        return none(with_workspace(state, Workspace::Compare));
+    }
     let (state, commands) = open(state, source, target);
     then(state, commands, source != target)
 }
