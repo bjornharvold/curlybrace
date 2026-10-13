@@ -32,6 +32,8 @@ enum Mode {
     Gated(Arc<Gate>),
     Panics,
     Never,
+    /// Takes this long (tokio sleep) before answering.
+    Slow(Duration),
 }
 
 #[derive(Default)]
@@ -89,6 +91,7 @@ impl DocumentStore for ProbeStore {
             }
             Mode::Panics => panic!("store blew up"),
             Mode::Never => std::future::pending().await,
+            Mode::Slow(delay) => tokio::time::sleep(*delay).await,
         }
         self.inner.duplicate_keys(ns, filter, key, limit).await
     }
@@ -353,4 +356,20 @@ async fn a_slow_aggregation_times_out_with_its_own_timeout() {
         outcome.expect("fails within the duplicate timeout"),
         ("compare_duplicates", timeout)
     );
+}
+
+#[tokio::test]
+async fn a_lookup_slower_than_the_command_timeout_still_succeeds_within_the_duplicate_timeout() {
+    let config = RuntimeConfig {
+        command_timeout: Duration::from_millis(20),
+        duplicate_timeout: Duration::from_secs(2),
+        ..RuntimeConfig::default()
+    };
+    let source = store(twice_each(1), Mode::Slow(Duration::from_millis(100)));
+    let target = store(vec![], Mode::Plain);
+    let (tx, mut h) = rig(source, target, config).await;
+    ask(&tx, dup_pair());
+    let (source, target) = reports(&mut h).await;
+    assert_eq!(source.groups.len(), 1);
+    assert!(target.groups.is_empty());
 }
