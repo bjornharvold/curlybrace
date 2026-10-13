@@ -4,7 +4,8 @@
 use bson::{Document, doc};
 
 use super::apply_tests::{
-    ApplyStore, Rig, collect_apply, default_rig, op, pair_reports, rig, within,
+    ApplyStore, Rig, collect_apply, default_rig, op, pair_reports, rig, source_store, target_store,
+    within,
 };
 use super::tests::ns;
 use crate::compare::apply::{ApplyKind, Direction, IdPolicy};
@@ -154,6 +155,18 @@ async fn an_empty_category_expands_to_nothing_and_an_otherwise_empty_request_is_
     // Pair 1 has no only-in-target rows; the request would write nothing.
     send_bulk(&r, 5, vec![], vec![empty.clone()]);
     expect_unsupported(&mut r, "nothing to apply").await;
+    // Fit is judged even when nothing is stored.
+    let misfit = bulk(
+        1,
+        Category::OnlyInTarget,
+        ApplyKind::Insert,
+        Direction::SourceToTarget,
+    );
+    send_bulk(&r, 7, vec![], vec![misfit]);
+    expect_unsupported(&mut r, "operation does not fit this category").await;
+    // The same empty category twice is a repeat even though it expands to nothing.
+    send_bulk(&r, 8, vec![], vec![empty.clone(), empty.clone()]);
+    expect_unsupported(&mut r, "duplicate operation").await;
     // An explicit op alongside still applies.
     send_bulk(&r, 6, vec![op(1, 1, ApplyKind::Insert)], vec![empty]);
     let reports = pair_reports(&within(collect_apply(&mut r.h)).await);
@@ -178,4 +191,58 @@ async fn bulk_expansion_keeps_the_view_and_timeseries_destination_rules() {
         other => panic!("{other:?}"),
     }
     assert_eq!(r.target.writes(), 0);
+}
+
+#[tokio::test]
+async fn exactly_the_six_fitting_combinations_are_accepted() {
+    use ApplyKind::{Delete, Insert, Replace};
+    use Category::{Different, OnlyInSource, OnlyInTarget};
+    use Direction::{SourceToTarget as ST, TargetToSource as TS};
+    let allowed = [
+        (OnlyInSource, Insert, ST),
+        (OnlyInSource, Delete, TS),
+        (OnlyInTarget, Delete, ST),
+        (OnlyInTarget, Insert, TS),
+        (Different, Replace, ST),
+        (Different, Replace, TS),
+    ];
+    let mut r = default_rig().await;
+    let mut run = 10;
+    for category in [OnlyInSource, OnlyInTarget, Different] {
+        for kind in [Insert, Replace, Delete] {
+            for direction in [ST, TS] {
+                if allowed.contains(&(category, kind, direction)) {
+                    continue;
+                }
+                run += 1;
+                send_bulk(&r, run, vec![], vec![bulk(1, category, kind, direction)]);
+                expect_unsupported(&mut r, "operation does not fit this category").await;
+            }
+        }
+    }
+    assert_eq!(run, 22, "12 refused combinations");
+    assert_eq!(r.source.writes() + r.target.writes(), 0);
+}
+
+#[tokio::test]
+async fn a_bulk_replace_into_a_timeseries_destination_is_refused_but_an_insert_is_allowed() {
+    let target = ApplyStore::with_kinds(target_store(), vec![("c", CollectionKind::Timeseries)]);
+    let mut r = rig(ApplyStore::new(source_store()), target).await;
+    let replace = bulk(
+        1,
+        Category::Different,
+        ApplyKind::Replace,
+        Direction::SourceToTarget,
+    );
+    send_bulk(&r, 5, vec![], vec![replace]);
+    match super::tests::next_compare(&mut r.h).await {
+        CompareEvent::Failed { error, .. } => {
+            assert_eq!(error, CoreError::ApplyTargetNotWritable)
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(r.target.writes(), 0);
+    send_bulk(&r, 6, vec![], vec![insert_all_in_source(1)]);
+    let reports = pair_reports(&within(collect_apply(&mut r.h)).await);
+    assert_eq!(reports[0].1.applied, 1);
 }

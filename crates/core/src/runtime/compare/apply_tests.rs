@@ -152,7 +152,7 @@ impl DocumentStore for ApplyStore {
     }
 }
 
-fn source_store() -> InMemoryStore {
+pub(super) fn source_store() -> InMemoryStore {
     InMemoryStore::new()
         .with_docs(
             &ns("d", "c"),
@@ -164,7 +164,7 @@ fn source_store() -> InMemoryStore {
         .with_docs(&ns("d", "c2"), vec![doc! { "_id": 1, "v": SENTINEL }])
 }
 
-fn target_store() -> InMemoryStore {
+pub(super) fn target_store() -> InMemoryStore {
     InMemoryStore::new()
         .with_docs(&ns("d", "c"), vec![doc! { "_id": 2, "v": "old" }])
         .with_docs(&ns("d", "c3"), vec![doc! { "_id": 7, "v": "t" }])

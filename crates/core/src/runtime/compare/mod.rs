@@ -90,8 +90,11 @@ pub(super) fn dispatch(
             repaint,
             session,
             run,
-            (ops, bulk),
-            id_policy,
+            apply::ApplyRequest {
+                ops,
+                bulk,
+                id_policy,
+            },
         ),
         other => spawn_command(shared, events, repaint, other),
     }
