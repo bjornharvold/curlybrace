@@ -370,6 +370,7 @@
     "write_failed": "Could not write the saved connections file."
   },
   "sidebar": {
+    "compare_database_to": "Compare database to...",
     "compare_to": "Compare to...",
     "empty": "No databases",
     "loading": "Loading...",

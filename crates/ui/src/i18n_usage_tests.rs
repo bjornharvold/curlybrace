@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 const PREFIXES: [&str; 2] = ["compare.", "workspace."];
 /// Keys outside the prefixes that the Compare feature added.
-const EXTRA_KEYS: [&str; 1] = ["sidebar.compare_to"];
+const EXTRA_KEYS: [&str; 2] = ["sidebar.compare_database_to", "sidebar.compare_to"];
 
 fn leaves(prefix: &str, value: &Value, out: &mut BTreeSet<String>) {
     match value {

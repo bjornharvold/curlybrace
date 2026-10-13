@@ -29,6 +29,9 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         SidebarAction::Open(ns) => gated(state, |s| open(s, ns)),
         SidebarAction::Refresh => gated(state, refresh),
         SidebarAction::CompareTo(ns) => gated(state, |s| super::compare::compare_to(s, ns)),
+        SidebarAction::CompareDatabaseTo(db) => {
+            gated(state, |s| super::compare::compare_database_to(s, db))
+        }
     }
 }
 

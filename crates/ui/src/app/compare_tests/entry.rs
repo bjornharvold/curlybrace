@@ -1,4 +1,5 @@
 //! Entry points: reloading a failed listing, "Compare to..." from the sidebar, hiding.
+use super::pairs::multi_state;
 use super::*;
 use crate::viewmodel::SidebarAction;
 use curlybrace_core::store::Namespace;
@@ -97,6 +98,85 @@ fn compare_to_on_a_ready_session_keeps_it_and_lists_the_new_database() {
         })]
     ));
     assert_eq!(state.workspace, Workspace::Compare);
+}
+
+fn compare_database_to(state: AppState) -> (AppState, Vec<Command>) {
+    update(
+        state,
+        Input::Sidebar(SidebarAction::CompareDatabaseTo("shop".into())),
+    )
+}
+
+#[test]
+fn opens_a_session_and_picks_the_source_database() {
+    let (state, a) = connected_state();
+    let (state, cmds) = compare_database_to(state);
+    assert_eq!(state.workspace, Workspace::Compare);
+    assert_eq!(state.compare.connections, Some((a, a)));
+    let source = &state.compare.setup.source;
+    assert_eq!(source.database.as_deref(), Some("shop"));
+    assert!(source.collection.is_none());
+    assert!(matches!(
+        &cmds[..],
+        [Command::Compare(CompareCommand::Open { session: 1, .. })]
+    ));
+}
+
+#[test]
+fn picks_the_same_database_on_the_target_when_the_connections_differ() {
+    let (state, a, b) = two_connections();
+    let state = AppState {
+        status: ConnStatus::Connected,
+        connected: Some(a),
+        ..state
+    };
+    let (state, _) = act(state, open_action(a, b));
+    let (state, _) = update(state, ev(CompareEvent::Opened { session: 1 }));
+    let (state, cmds) = compare_database_to(state);
+    assert_eq!(state.compare.setup.source.database.as_deref(), Some("shop"));
+    assert_eq!(state.compare.setup.target.database.as_deref(), Some("shop"));
+    for side in [Side::Source, Side::Target] {
+        assert!(cmds.iter().any(|c| matches!(
+            c,
+            Command::Compare(CompareCommand::Collections { side: s, db, .. })
+                if *s == side && db == "shop"
+        )));
+    }
+}
+
+#[test]
+fn leaves_the_target_database_unpicked_on_one_connection() {
+    let (state, _) = connected_state();
+    let (state, _) = compare_database_to(state);
+    assert!(state.compare.setup.target.database.is_none());
+}
+
+#[test]
+fn not_connected_shows_the_banner() {
+    let (state, cmds) = compare_database_to(AppState::default());
+    assert!(cmds.is_empty());
+    assert_eq!(state.workspace, Workspace::Browse);
+    assert_eq!(state.banner, Some(Banner::NotConnected));
+}
+
+#[test]
+fn an_open_session_for_the_same_connections_is_reused_and_keeps_the_pair_list() {
+    let state = multi_state(&["users", "orders"]);
+    let (a, _) = state.compare.connections.expect("session connections");
+    let state = AppState {
+        status: ConnStatus::Connected,
+        connected: Some(a),
+        ..state
+    };
+    let kept = state.compare.pairs.clone();
+    assert_eq!(kept.entries.len(), 2);
+    let (state, cmds) = compare_database_to(state);
+    assert_eq!(state.compare.session, Some(SessionPhase::Ready(1)));
+    assert_eq!(state.compare.pairs, kept);
+    assert!(
+        cmds.iter()
+            .all(|c| !matches!(c, Command::Compare(CompareCommand::Open { .. })))
+    );
 }
 
 #[test]

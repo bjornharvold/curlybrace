@@ -29,8 +29,8 @@ pub use findbar::{
 pub use json_cache::{JsonCache, view_json_cache};
 pub use page_key::{PageKey, page_key};
 pub use sidebar::{
-    DbNode, SidebarAction, SidebarState, collection_click_action, compare_to_action,
-    db_click_action,
+    DbNode, SidebarAction, SidebarState, collection_click_action, compare_database_to_action,
+    compare_to_action, db_click_action,
 };
 pub use table::table_columns;
 pub use tree::{

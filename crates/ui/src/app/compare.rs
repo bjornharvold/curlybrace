@@ -163,9 +163,10 @@ fn reload(state: AppState, side: Side) -> Out {
     (state, command.into_iter().collect())
 }
 
-/// "Compare to..." on a collection: the source side starts at that collection. The session is
-/// opened for the connected server on both sides unless one is already open for this source.
-pub(super) fn compare_to(state: AppState, ns: Namespace) -> Out {
+/// Opens (or reuses) the session a sidebar entry starts from: the connected server on the source
+/// side, and the session's current target (else the same server) on the target side. Without a
+/// connection the banner is shown instead. The flag tells whether the sides use different servers.
+fn from_sidebar(state: AppState, then: impl FnOnce(AppState, Vec<Command>, bool) -> Out) -> Out {
     let Some(source) = state.connected.filter(|id| state.connection(*id).is_some()) else {
         return none(AppState {
             banner: Some(Banner::NotConnected),
@@ -178,12 +179,35 @@ pub(super) fn compare_to(state: AppState, ns: Namespace) -> Out {
         .map(|(_, t)| t)
         .filter(|t| state.connection(*t).is_some())
         .unwrap_or(source);
-    let (state, mut commands) = open(state, source, target);
-    let (state, listing) = pick_side(state, Side::Source, Pick::Database(ns.db));
-    let (state, collection) = pick_side(state, Side::Source, Pick::Collection(ns.collection));
-    commands.extend(listing);
-    commands.extend(collection);
-    (state, commands)
+    let (state, commands) = open(state, source, target);
+    then(state, commands, source != target)
+}
+
+/// "Compare to..." on a collection: the source side starts at that collection. The session is
+/// opened for the connected server on both sides unless one is already open for this source.
+pub(super) fn compare_to(state: AppState, ns: Namespace) -> Out {
+    from_sidebar(state, |state, mut commands, _| {
+        let (state, listing) = pick_side(state, Side::Source, Pick::Database(ns.db));
+        let (state, collection) = pick_side(state, Side::Source, Pick::Collection(ns.collection));
+        commands.extend(listing);
+        commands.extend(collection);
+        (state, commands)
+    })
+}
+
+/// "Compare database to..." on a database header: the source side starts at that database, and
+/// the target side at the same-named database when it is on another connection.
+pub(super) fn compare_database_to(state: AppState, db: String) -> Out {
+    from_sidebar(state, |state, mut commands, differs| {
+        let (state, listing) = pick_side(state, Side::Source, Pick::Database(db.clone()));
+        commands.extend(listing);
+        if !differs {
+            return (state, commands);
+        }
+        let (state, listing) = pick_side(state, Side::Target, Pick::Database(db));
+        commands.extend(listing);
+        (state, commands)
+    })
 }
 
 fn back(state: AppState) -> Out {

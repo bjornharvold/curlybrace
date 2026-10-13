@@ -1,7 +1,8 @@
 //! Sidebar view: database tree with lazily loaded collections.
 use crate::I18n;
 use crate::viewmodel::{
-    DbNode, SidebarState, collection_click_action, compare_to_action, db_click_action,
+    DbNode, SidebarState, collection_click_action, compare_database_to_action, compare_to_action,
+    db_click_action,
 };
 use eframe::egui;
 use std::ops::Range;
@@ -144,10 +145,11 @@ fn show_row(
     i18n: &I18n,
 ) -> Option<SidebarAction> {
     match row {
-        Row::Db(node) => ui
-            .selectable_label(false, db_row_label(&node.name, node.expanded))
-            .clicked()
-            .then(|| db_click_action(node)),
+        Row::Db(node) => {
+            let response = ui.selectable_label(false, db_row_label(&node.name, node.expanded));
+            let menu = database_menu(&response, &node.name, i18n);
+            menu.or_else(|| response.clicked().then(|| db_click_action(node)))
+        }
         Row::Collection { db, name } => {
             let selected = state
                 .selected
@@ -165,6 +167,18 @@ fn show_row(
         Row::Loading => placeholder(ui, &i18n.t("sidebar.loading")),
         Row::NoCollections => placeholder(ui, &i18n.t("sidebar.no_collections")),
     }
+}
+
+/// Right-click menu of a database: start a comparison with it as the source.
+fn database_menu(response: &egui::Response, db: &str, i18n: &I18n) -> Option<SidebarAction> {
+    let mut chosen = None;
+    response.context_menu(|ui| {
+        if ui.button(i18n.t("sidebar.compare_database_to")).clicked() {
+            chosen = Some(compare_database_to_action(db));
+            ui.close();
+        }
+    });
+    chosen
 }
 
 /// Right-click menu of a collection: start a comparison with it as the source.

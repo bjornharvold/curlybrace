@@ -31,6 +31,7 @@ impl DbNode {
 ///   `SidebarState::selecting`.
 /// - `Refresh`: reload the database list.
 /// - `CompareTo(ns)`: start a comparison with `ns` as the source side.
+/// - `CompareDatabaseTo(db)`: start a comparison with database `db` as the source side.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SidebarAction {
     LoadCollections(String),
@@ -38,11 +39,17 @@ pub enum SidebarAction {
     Open(Namespace),
     Refresh,
     CompareTo(Namespace),
+    CompareDatabaseTo(String),
 }
 
 /// Decision for the "Compare to..." entry of a collection row's context menu.
 pub fn compare_to_action(db: &str, collection: &str) -> SidebarAction {
     SidebarAction::CompareTo(Namespace::new(db, collection))
+}
+
+/// Decision for the "Compare database to..." entry of a database header's context menu.
+pub fn compare_database_to_action(db: &str) -> SidebarAction {
+    SidebarAction::CompareDatabaseTo(db.to_string())
 }
 
 /// Decision for a click on a database header.
@@ -138,6 +145,14 @@ impl SidebarState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compare_database_to_action_names_the_database() {
+        assert_eq!(
+            compare_database_to_action("my db"),
+            SidebarAction::CompareDatabaseTo("my db".to_string())
+        );
+    }
 
     fn names(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
