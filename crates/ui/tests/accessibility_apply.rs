@@ -31,7 +31,7 @@ mod compare_apply_selection {
                 },
                 (state.compare, state.conn, None),
             );
-        harness.run();
+        harness.run_steps(5);
         harness
     }
 

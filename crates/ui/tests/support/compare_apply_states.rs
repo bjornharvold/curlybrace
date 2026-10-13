@@ -14,7 +14,7 @@ use curlybrace_core::store::{CollectionKind, IndexStatus};
 use curlybrace_ui::app::compare::CompareAction;
 use curlybrace_ui::app::reducer::{Input, update};
 use curlybrace_ui::app::state::AppState;
-use curlybrace_ui::viewmodel::compare::{ActiveRun, ApplyUi, Pick};
+use curlybrace_ui::viewmodel::compare::{ActiveRun, ApplyUi, Pick, RowAction};
 
 pub const PAIR: PairId = 2;
 /// Rows per category in the fixture.
@@ -205,6 +205,62 @@ pub fn applying(state: AppState) -> AppState {
         rows: Vec::new(),
         cancel_requested: false,
     };
+    let compare = curlybrace_ui::viewmodel::compare::CompareState {
+        apply,
+        ..state.compare.clone()
+    };
+    AppState { compare, ..state }
+}
+
+/// The localized confirmation word the tests open reviews with.
+pub const WORD: &str = "delete";
+
+/// Rows 1 and 2 of `category`'s tab ticked and queued with `action`.
+pub fn queued(category: Category, action: RowAction) -> AppState {
+    let state = in_category(category);
+    let state = act(state, CompareAction::ToggleRow(key(1)));
+    let state = act(state, CompareAction::ToggleRow(key(2)));
+    let state = act(state, CompareAction::AddToPending(action));
+    assert_eq!(state.compare.pending.items().len(), 1, "queued");
+    state
+}
+
+/// Two Different rows queued to copy to the target (a replace).
+pub fn with_replace() -> AppState {
+    queued(Category::Different, RowAction::CopyToTarget)
+}
+
+/// Two only-in-source rows queued to copy to the target (an insert).
+pub fn with_insert() -> AppState {
+    queued(Category::OnlyInSource, RowAction::CopyToTarget)
+}
+
+/// Two only-in-target rows queued for deletion from the target (`two / shop.users`).
+pub fn with_delete() -> AppState {
+    queued(Category::OnlyInTarget, RowAction::DeleteFromTarget)
+}
+
+/// Deletes on both connections: the review asks for the localized word.
+pub fn with_deletes_on_both_sides() -> AppState {
+    let state = queued(Category::OnlyInSource, RowAction::DeleteFromSource);
+    let state = act(state, CompareAction::SelectCategory(Category::OnlyInTarget));
+    let state = rows_of(state, Category::OnlyInTarget, ONLY_IN_TARGET);
+    let state = act(state, CompareAction::ToggleRow(key(1)));
+    act(
+        state,
+        CompareAction::AddToPending(RowAction::DeleteFromTarget),
+    )
+}
+
+/// The review dialog open for the pending list.
+pub fn reviewing(state: AppState) -> AppState {
+    let state = act(state, CompareAction::ReviewApply { word: WORD.into() });
+    assert!(state.compare.apply.review().is_some(), "review is open");
+    state
+}
+
+/// The apply stands in `apply`.
+pub fn with_apply(state: AppState, apply: ApplyUi) -> AppState {
     let compare = curlybrace_ui::viewmodel::compare::CompareState {
         apply,
         ..state.compare.clone()

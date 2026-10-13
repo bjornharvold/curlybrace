@@ -28,6 +28,8 @@ mod duplicates;
 mod entry;
 #[path = "compare_tests/frames.rs"]
 mod frames;
+#[path = "compare_tests/frames_apply.rs"]
+mod frames_apply;
 #[path = "compare_tests/frames_pairs.rs"]
 mod frames_pairs;
 #[path = "compare_tests/frames_select.rs"]

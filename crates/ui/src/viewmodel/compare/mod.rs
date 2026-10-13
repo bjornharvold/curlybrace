@@ -10,6 +10,7 @@ pub mod overview;
 pub mod pairing_view;
 pub mod pairs;
 pub mod pending;
+pub mod pending_view;
 pub mod preflight;
 pub mod queries;
 pub mod results;
@@ -37,6 +38,7 @@ pub use overview::{ActiveRun, PairStatus, RunFacts, RunOverview, RunRow, Totals}
 pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use pending::{PendingChange, PendingList, Scope};
+pub use pending_view::{PendingGroup, PendingLine, PendingView};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
 pub use review::{

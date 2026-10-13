@@ -69,6 +69,44 @@
       },
       "applied_note": "Changes were applied to this pair. Run it again to see the current differences.",
       "confirm_word": "delete",
+      "destination": "{connection} / {namespace}",
+      "finished": {
+        "cancelled_note": "The apply was cancelled. Writes that had not started were not made.",
+        "dismiss": "Dismiss",
+        "failures_title": "Failed documents",
+        "more_failures": "More failures are not shown.",
+        "outcome_unknown_note": "For some documents the database did not confirm the write, so it may or may not have happened. Run the pair again to see what is there.",
+        "pair_counts": "Applied: {applied}, changed since the compare: {stale}, not applicable: {not_planned}, failed: {failed}, not run: {not_run}",
+        "requested": "Documents requested: {count}",
+        "rerun_note": "Run these pairs again to see what is left.",
+        "title": "Apply finished"
+      },
+      "id_policy": {
+        "generate": "Let the destination assign new _id values",
+        "keep": "Keep the original _id values",
+        "label": "Identifiers of inserted documents"
+      },
+      "kind": {
+        "delete": "Delete",
+        "insert": "Insert",
+        "replace": "Replace"
+      },
+      "outcome": {
+        "applied": "Applied: {count}",
+        "failed": "Failed: {count}",
+        "not_applicable": "Not applicable: {count}",
+        "not_run": "Not run: {count}",
+        "stale": "Skipped, the document changed since the compare: {count}"
+      },
+      "pending": {
+        "clear": "Clear",
+        "copy": "Copy to {destination}. Documents: {count}",
+        "delete": "Delete from {destination}. Documents: {count}",
+        "remove": "Remove",
+        "review": "Review changes…",
+        "title": "Pending changes",
+        "total": "Documents in total: {count}"
+      },
       "pending_badge": "Pending changes: {count}",
       "reason": {
         "applied": "Changes were applied to this pair. Run it again first.",
@@ -79,6 +117,24 @@
         "nothing_selected": "Select at least one document first.",
         "running": "A comparison is running. Wait until it finishes."
       },
+      "review": {
+        "apply": "Apply",
+        "cancel": "Cancel",
+        "column_pair": "Pair",
+        "column_writes": "Where it writes",
+        "confirm_prompt": "To confirm the deletes, type {text}",
+        "destination_line": "{action}: {destination}",
+        "title": "Review before applying",
+        "total": "Documents to write: {count}",
+        "warnings_title": "Check before you apply"
+      },
+      "running": {
+        "cancel": "Cancel apply",
+        "cancelling": "Cancelling…",
+        "progress": "{done} of {total}",
+        "title": "Applying changes"
+      },
+      "unknown_pair": "A pair that is no longer in the list",
       "warning": {
         "generated_ids": "New _id values are generated for inserted documents, so they will not match the source on the next compare.",
         "keeps_destination_id": "Replaced documents keep the _id they have in the destination, which differs from the compare key.",
