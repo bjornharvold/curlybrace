@@ -228,6 +228,10 @@ pub fn compare_state(through: Through) -> impl FnOnce(&mut AppState) {
         }
         pick(state, Side::Source, "customers");
         pick(state, Side::Target, "customers_copy");
+        if through == Through::Duplicates {
+            // The panel lists emails, so the failed key is `email`.
+            act(state, CompareAction::SetKey("email".into()));
+        }
         act(state, CompareAction::RunCheck);
         if through == Through::Blocked {
             let blocked = answer(IndexStatus::Indexed, IndexStatus::NotIndexed, true);
