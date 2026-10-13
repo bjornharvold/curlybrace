@@ -18,7 +18,7 @@ use super::compare::{CompareAction, cmd, failure_banner, none, ready, with_compa
 use super::reducer::Out;
 use super::state::AppState;
 use crate::viewmodel::compare::{
-    CompareState, ExportDraft, ExportKind, ExportUi, PlanOptions, ReportOptions,
+    CompareState, ExportDraft, ExportKind, ExportUi, LABEL_MAX_CHARS, PlanOptions, ReportOptions,
 };
 use curlybrace_core::compare::protocol::{
     CompareCommand, CompareEvent, ExportRequest, ReportRequest, ReportTarget,
@@ -81,6 +81,7 @@ pub(super) fn on_action(state: AppState, action: CompareAction) -> Out {
 
 /// The label belongs to the kind the modal shows; it is stored as typed (core sanitises it).
 fn with_label(d: ExportDraft, label: String) -> ExportDraft {
+    let label: String = label.chars().take(LABEL_MAX_CHARS).collect();
     match d.kind {
         ExportKind::Plan => ExportDraft {
             plan: PlanOptions { label, ..d.plan },

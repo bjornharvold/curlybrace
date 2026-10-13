@@ -615,6 +615,18 @@ fn cancel_sends_one_cancel_for_the_running_export() {
 }
 
 #[test]
+fn the_label_is_capped_in_the_reducer_for_both_kinds() {
+    use crate::viewmodel::compare::LABEL_MAX_CHARS;
+    let long = "é".repeat(LABEL_MAX_CHARS + 50);
+    let (state, _) = act(plan_modal(), CompareAction::SetExportLabel(long.clone()));
+    let draft = state.compare.export.configuring().unwrap();
+    assert_eq!(draft.plan.label.chars().count(), LABEL_MAX_CHARS);
+    let (state, _) = act(report_modal(), CompareAction::SetExportLabel(long));
+    let draft = state.compare.export.configuring().unwrap();
+    assert_eq!(draft.report.label.chars().count(), LABEL_MAX_CHARS);
+}
+
+#[test]
 fn close_export_closes_the_modal_and_the_result_but_not_a_job() {
     let (state, _) = act(plan_modal(), CompareAction::CloseExport);
     assert_eq!(state.compare.export, ExportUi::Idle);

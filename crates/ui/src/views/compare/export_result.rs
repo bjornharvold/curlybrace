@@ -12,13 +12,18 @@ use eframe::egui;
 const BAR_WIDTH: f32 = 320.0;
 
 /// The dialog is open: only a waiting text. The dialog's answer is the only way out.
-pub fn show_choosing(ui: &mut egui::Ui, kind: ExportKind, i18n: &I18n) {
+pub fn show_choosing(ui: &mut egui::Ui, kind: ExportKind, i18n: &I18n) -> Option<CompareAction> {
     ui.heading(i18n.t(title_key(kind)));
     ui.horizontal(|ui| {
         ui.spinner();
         ui.label(i18n.t("compare.export.choosing.waiting"));
     });
     ui.label(egui::RichText::new(i18n.t("compare.export.choosing.hint")).weak());
+    // Back to the options; a late answer of the dialog is then dropped by the app.
+    let cancel = ui.button(i18n.t("compare.export.cancel"));
+    cancel
+        .clicked()
+        .then_some(CompareAction::ExportPathCancelled)
 }
 
 /// The running job, the result of a file export or the copied report.
@@ -55,10 +60,12 @@ fn show_running(
         total => (done as f32 / total as f32).clamp(0.0, 1.0),
     };
     ui.horizontal(|ui| {
-        ui.add(egui::ProgressBar::new(fraction).desired_width(BAR_WIDTH));
-        let params = [("done", done.to_string()), ("total", total.to_string())];
-        let params: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        ui.label(i18n.t_with("compare.export.running.progress", &params));
+        let bar = ui.add(egui::ProgressBar::new(fraction).desired_width(BAR_WIDTH));
+        let name = i18n.t("compare.export.running.bar_name");
+        bar.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, name.clone())
+        });
+        ui.label(progress_text(done, total, i18n));
     });
     ui.horizontal(|ui| {
         let cancel = egui::Button::new(i18n.t("compare.export.running.cancel"));
@@ -69,6 +76,20 @@ fn show_running(
         clicked.then_some(CompareAction::CancelExport)
     })
     .inner
+}
+
+/// "done of total", or only the rows done while the total is not known.
+fn progress_text(done: u64, total: u64, i18n: &I18n) -> String {
+    match total {
+        0 => i18n.t_with(
+            "compare.export.running.rows",
+            &[("count", &done.to_string())],
+        ),
+        total => i18n.t_with(
+            "compare.export.running.progress",
+            &[("done", &done.to_string()), ("total", &total.to_string())],
+        ),
+    }
 }
 
 fn count_line(ui: &mut egui::Ui, key: &str, count: u64, i18n: &I18n) {
@@ -86,9 +107,13 @@ fn show_finished(
     if outcome.cancelled {
         ui.label(i18n.t("compare.export.finished.cancelled"));
     }
-    match kind {
-        ExportKind::Plan => show_plan_counts(ui, outcome, i18n),
-        ExportKind::Report => show_report_counts(ui, outcome, i18n),
+    match (kind, path) {
+        // A copy that ended without a file wrote nothing: never claim rows.
+        (ExportKind::Report, None) => {
+            ui.label(i18n.t("compare.export.finished.nothing_copied"));
+        }
+        (ExportKind::Plan, _) => show_plan_counts(ui, outcome, i18n),
+        (ExportKind::Report, Some(_)) => show_report_counts(ui, outcome, i18n),
     }
     if let Some(path) = path {
         show_file(ui, outcome, path, i18n);

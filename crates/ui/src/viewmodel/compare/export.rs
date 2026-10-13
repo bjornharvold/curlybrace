@@ -14,6 +14,9 @@ use curlybrace_core::compare::protocol::{ExportFormat, ExportOutcome, RunId};
 
 use super::pairs::EntryId;
 
+/// Most characters a label keeps (the box and the reducer both cap it; core sanitises it again).
+pub const LABEL_MAX_CHARS: usize = 200;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportKind {
     /// The pending changes as a mongosh script or a JSON plan.

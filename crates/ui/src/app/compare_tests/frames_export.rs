@@ -102,6 +102,44 @@ fn a_report_over_the_clipboard_cap_names_the_reason() {
 fn waiting_for_the_dialog_is_translated() {
     let texts = assert_translated(&workspace(choosing(plan_modal())), "choosing");
     assert!(has(&texts, "Waiting for the file dialog"));
+    assert!(has(&texts, "Cancel"));
+}
+
+#[test]
+fn the_mixed_sides_and_no_pair_reasons_are_translated_in_the_modal() {
+    use super::confirm::wide_deletes;
+    let (state, _) = update(
+        wide_deletes(),
+        Input::Compare(CompareAction::OpenExport(ExportKind::Plan)),
+    );
+    let format = curlybrace_core::compare::protocol::ExportFormat::Mongosh;
+    let (state, _) = update(
+        state,
+        Input::Compare(CompareAction::SetExportFormat(format)),
+    );
+    let texts = assert_translated(&workspace(state), "mixed sides");
+    assert!(has(&texts, "A script can only write to one side"));
+    let entry = report_modal().compare.completed_entries()[0].0;
+    let (state, _) = update(
+        report_modal(),
+        Input::Compare(CompareAction::ToggleExportPair(entry)),
+    );
+    let texts = assert_translated(&workspace(state), "no pair chosen");
+    assert!(has(&texts, "Choose at least one pair"));
+}
+
+#[test]
+fn a_cancelled_clipboard_copy_is_translated() {
+    let cancel = Input::Compare(CompareAction::CancelExport);
+    let state = update(running_clipboard(), cancel).0;
+    let outcome = ExportOutcome {
+        cancelled: true,
+        ..ExportOutcome::default()
+    };
+    let texts = assert_translated(&workspace(finish(state, outcome)), "cancelled copy");
+    assert!(has(&texts, "Nothing was copied to the clipboard."));
+    assert!(has(&texts, "The export was cancelled"));
+    assert!(!has(&texts, "Rows written"));
 }
 
 #[test]
@@ -112,12 +150,12 @@ fn the_running_states_are_translated() {
     assert!(has(&texts, "3 of 8"));
     assert!(has(&texts, "Cancel export"));
     let texts = assert_translated(&workspace(running_report()), "running report");
-    assert!(has(&texts, "0 of 0"));
+    assert!(has(&texts, "Rows: 0"));
     let texts = assert_translated(&workspace(running_clipboard()), "running clipboard");
     assert!(has(&texts, "Cancel export"));
     let cancelled = update(running_plan(), Input::Compare(CompareAction::CancelExport)).0;
     let texts = assert_translated(&workspace(cancelled), "cancelling");
-    assert!(has(&texts, "Cancelling…"));
+    assert!(has(&texts, "Cancelling..."));
 }
 
 #[test]

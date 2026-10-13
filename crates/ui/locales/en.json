@@ -228,6 +228,7 @@
         "failed": "Failed: {count}",
         "file_left": "The unfinished file could not be removed and is still at the path above. Do not run or import it. Delete it yourself.",
         "not_run": "Not run: {count}",
+        "nothing_copied": "Nothing was copied to the clipboard.",
         "partial_removed": "The unfinished file was removed.",
         "path": "File",
         "report_rows": "Rows written: {count}",
@@ -264,9 +265,11 @@
         "session_not_ready": "Open a comparison session first."
       },
       "running": {
+        "bar_name": "Export progress",
         "cancel": "Cancel export",
-        "cancelling": "Cancelling…",
+        "cancelling": "Cancelling...",
         "progress": "{done} of {total}",
+        "rows": "Rows: {count}",
         "title": "Exporting"
       },
       "title": {

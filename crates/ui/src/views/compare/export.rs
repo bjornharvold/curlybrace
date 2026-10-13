@@ -8,15 +8,13 @@ use super::pending::pair_text;
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{
-    CompareState, ExportBlock, ExportDraft, ExportKind, ExportUi, PendingView,
+    CompareState, ExportBlock, ExportDraft, ExportKind, ExportUi, LABEL_MAX_CHARS, PendingView,
 };
 use curlybrace_core::compare::apply::{ApplyKind, IdPolicy};
 use curlybrace_core::compare::protocol::ExportFormat;
 use eframe::egui;
 
 const MODAL_WIDTH: f32 = 560.0;
-/// Most characters the label box takes (core sanitises what is typed again).
-pub(super) const LABEL_MAX_CHARS: usize = 200;
 
 /// The entry button of `kind` and, when it is closed, the reason next to it.
 pub fn show_entry(
@@ -32,7 +30,9 @@ pub fn show_entry(
     };
     ui.horizontal(|ui| {
         let button = egui::Button::new(i18n.t(key));
-        let clicked = ui.add_enabled(block.is_none(), button).clicked();
+        let response = ui.add_enabled(block.is_none(), button);
+        let response = hover_reason(response, block, i18n);
+        let clicked = response.clicked();
         if let Some(reason) = block {
             let color = ui.visuals().warn_fg_color;
             ui.colored_label(color, i18n.t(reason.i18n_key()));
@@ -40,6 +40,18 @@ pub fn show_entry(
         clicked.then_some(CompareAction::OpenExport(kind))
     })
     .inner
+}
+
+/// A disabled button also carries its reason as hover text, so assistive tech can link them.
+fn hover_reason(
+    response: egui::Response,
+    block: Option<ExportBlock>,
+    i18n: &I18n,
+) -> egui::Response {
+    match block {
+        Some(reason) => response.on_disabled_hover_text(i18n.t(reason.i18n_key())),
+        None => response,
+    }
 }
 
 /// The modal, while an export is open. Escape or a click outside closes it only while the options
@@ -64,10 +76,7 @@ fn show_body(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Com
     ui.set_width(MODAL_WIDTH);
     match &state.export {
         ExportUi::Configuring(draft) => show_options(ui, state, draft, i18n),
-        ExportUi::Choosing(draft) => {
-            export_result::show_choosing(ui, draft.kind, i18n);
-            None
-        }
+        ExportUi::Choosing(draft) => export_result::show_choosing(ui, draft.kind, i18n),
         other => export_result::show(ui, other, i18n),
     }
 }
@@ -245,12 +254,14 @@ fn show_buttons(
     let mut action = None;
     ui.horizontal(|ui| {
         let choose = egui::Button::new(i18n.t("compare.export.choose_file"));
-        if ui.add_enabled(file.is_none(), choose).clicked() {
+        let choose = hover_reason(ui.add_enabled(file.is_none(), choose), file, i18n);
+        if choose.clicked() {
             action = Some(CompareAction::ChooseExportFile);
         }
         if draft.kind == ExportKind::Report {
             let button = egui::Button::new(i18n.t("compare.export.copy"));
-            if ui.add_enabled(copy.is_none(), button).clicked() {
+            let button = hover_reason(ui.add_enabled(copy.is_none(), button), copy, i18n);
+            if button.clicked() {
                 action = Some(CompareAction::CopyReport);
             }
         }

@@ -132,6 +132,16 @@ pub fn finished_with(state: AppState, outcome: ExportOutcome) -> AppState {
     event(state, done)
 }
 
+/// A clipboard copy that was cancelled: the job ended with nothing copied.
+pub fn cancelled_clipboard() -> AppState {
+    let state = act(running_clipboard(), CompareAction::CancelExport);
+    let outcome = ExportOutcome {
+        cancelled: true,
+        ..ExportOutcome::default()
+    };
+    finished_with(state, outcome)
+}
+
 /// The clipboard report arrived and the job ended: the result shows `rows` copied.
 pub fn copied(rows: u64) -> AppState {
     let state = running_clipboard();

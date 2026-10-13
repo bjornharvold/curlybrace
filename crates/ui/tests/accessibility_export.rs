@@ -6,9 +6,10 @@ mod support;
 mod compare_export {
     use super::support::compare_apply_states::{act, applying, check_out, run_active};
     use super::support::compare_export_states::{
-        choosing, copied, finished_with, out_path, overview, overview_without_results, plan,
-        plan_deletes, plan_mixed, plan_modal, plan_with_inserts, progressed, report_modal,
-        report_modal_with_rows, running_clipboard, running_plan, running_report,
+        cancelled_clipboard, choosing, copied, finished_with, out_path, overview,
+        overview_without_results, plan, plan_deletes, plan_mixed, plan_modal, plan_with_inserts,
+        progressed, report_modal, report_modal_with_rows, running_clipboard, running_plan,
+        running_report,
     };
     use super::support::compare_multi_states::pair_results;
     use curlybrace_core::compare::apply::IdPolicy;
@@ -278,15 +279,29 @@ mod compare_export {
     #[test]
     fn a_hostile_label_renders_as_text() {
         let hostile = "a\"b\n$(rm -rf /)\u{2028}</script>'; DROP\r\n\0";
-        let state = act(plan_modal(), CompareAction::SetExportLabel(hostile.into()));
-        let h = harness(state);
-        h.get_by_label(&t("compare.export.title.plan"));
-        let state = act(
-            report_modal(),
-            CompareAction::SetExportLabel(hostile.into()),
-        );
-        let h = harness(state);
-        h.get_by_label(&t("compare.export.title.report"));
+        for (state, title) in [
+            (plan_modal(), "compare.export.title.plan"),
+            (report_modal(), "compare.export.title.report"),
+        ] {
+            let state = act(state, CompareAction::SetExportLabel(hostile.into()));
+            let h = harness(state);
+            h.get_by_label(&t(title));
+            let values: Vec<String> = h
+                .query_all_by_role(Role::TextInput)
+                .filter_map(|n| n.value())
+                .collect();
+            assert!(
+                values
+                    .iter()
+                    .any(|v| v.contains("$(rm -rf /)") && v.contains("</script>")),
+                "a box shows the label: {values:?}"
+            );
+            assert_eq!(
+                h.query_all_by_label_contains("$(rm").count(),
+                0,
+                "no other node carries the text"
+            );
+        }
     }
 
     #[test]
@@ -412,13 +427,12 @@ mod compare_export {
     // ---- waiting, running, results ----
 
     #[test]
-    fn choosing_shows_the_waiting_text_and_no_buttons() {
+    fn choosing_shows_the_waiting_text_and_only_a_cancel() {
         let h = harness(choosing(plan_modal()));
         h.get_by_label(&t("compare.export.choosing.waiting"));
         for key in [
             "compare.export.choose_file",
             "compare.export.copy",
-            "compare.export.cancel",
             "compare.export.running.cancel",
             "compare.export.dismiss",
         ] {
@@ -426,6 +440,40 @@ mod compare_export {
         }
         let h = harness(choosing(report_modal()));
         h.get_by_label(&t("compare.export.choosing.waiting"));
+        assert!(has_button(&h, "compare.export.cancel"));
+    }
+
+    #[test]
+    fn cancel_while_waiting_emits_path_cancelled_once() {
+        let mut h = harness(choosing(plan_modal()));
+        click(&mut h, &t("compare.export.cancel"));
+        assert_eq!(actions(&h), vec![CompareAction::ExportPathCancelled]);
+        // The reducer moved back to the options: no second Cancel of that kind.
+        assert!(has_button(&h, "compare.export.choose_file"));
+    }
+
+    fn click_backdrop(h: &mut Harness<'_, Run>) {
+        let pos = egui::pos2(4.0, 4.0);
+        let events = &mut h.input_mut().events;
+        events.push(egui::Event::PointerMoved(pos));
+        for pressed in [true, false] {
+            events.push(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(5);
+    }
+
+    #[test]
+    fn a_backdrop_click_does_nothing_while_waiting_or_running() {
+        for state in [choosing(plan_modal()), running_plan()] {
+            let mut h = harness(state);
+            click_backdrop(&mut h);
+            assert!(actions(&h).is_empty(), "{:?}", actions(&h));
+        }
     }
 
     #[test]
@@ -438,6 +486,10 @@ mod compare_export {
         ));
         assert!(!has_button(&h, "compare.export.dismiss"));
         assert!(!has_button(&h, "compare.export.cancel"));
+        h.get_by_role_and_label(
+            Role::ProgressIndicator,
+            &t("compare.export.running.bar_name"),
+        );
         click(&mut h, &t("compare.export.running.cancel"));
         assert_eq!(actions(&h), vec![CompareAction::CancelExport]);
         // Cancelling: the button is spent and says so.
@@ -452,15 +504,9 @@ mod compare_export {
     #[test]
     fn running_with_an_unknown_total_is_safe() {
         let h = harness(running_plan());
-        h.get_by_label(&tw(
-            "compare.export.running.progress",
-            &[("done", "0"), ("total", "0")],
-        ));
+        h.get_by_label(&count_line("compare.export.running.rows", 0));
         let h = harness(running_clipboard());
-        h.get_by_label(&tw(
-            "compare.export.running.progress",
-            &[("done", "0"), ("total", "0")],
-        ));
+        h.get_by_label(&count_line("compare.export.running.rows", 0));
     }
 
     fn plan_outcome() -> ExportOutcome {
@@ -538,6 +584,45 @@ mod compare_export {
             &h,
             &count_line("compare.export.finished.written", 10)
         ));
+    }
+
+    #[test]
+    fn a_cancelled_clipboard_copy_claims_nothing_was_written() {
+        let mut h = harness(cancelled_clipboard());
+        h.get_by_label(&t("compare.export.finished.nothing_copied"));
+        h.get_by_label(&t("compare.export.finished.cancelled"));
+        for key in [
+            "written",
+            "report_rows",
+            "skipped",
+            "failed",
+            "report_stale",
+        ] {
+            let key = format!("compare.export.finished.{key}");
+            assert!(!shown(&h, &count_line(&key, 0)), "{key}");
+        }
+        click(&mut h, &t("compare.export.dismiss"));
+        assert_eq!(actions(&h), vec![CompareAction::CloseExport]);
+    }
+
+    #[test]
+    fn progress_without_a_total_shows_only_what_is_done() {
+        let h = harness(progressed(running_plan(), 5, 0));
+        h.get_by_label(&count_line("compare.export.running.rows", 5));
+        assert!(!shown(
+            &h,
+            &tw(
+                "compare.export.running.progress",
+                &[("done", "5"), ("total", "0")]
+            )
+        ));
+    }
+
+    #[test]
+    fn export_report_is_disabled_while_an_apply_is_open() {
+        let h = harness(applying(overview()));
+        assert!(disabled(&h, &t("compare.export.open_report")));
+        assert!(shown(&h, &reason(ExportBlock::ApplyBusy)));
     }
 
     #[test]

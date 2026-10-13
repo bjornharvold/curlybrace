@@ -257,6 +257,42 @@ fn a_late_answer_for_a_closed_or_changed_export_is_dropped() {
 }
 
 #[test]
+fn a_late_answer_after_the_person_cancelled_while_waiting_starts_nothing() {
+    let (picker, release) = FakePicker::gated(Some("/out/plan.js"));
+    let (mut app, mut commands) = choosing_app(picker.clone());
+    let ctx = egui::Context::default();
+    frame(&mut app, &ctx);
+    wait_for_calls(&picker, 1);
+    // Cancel in the modal while the dialog is still open.
+    app.dispatch(Input::Compare(CompareAction::ExportPathCancelled));
+    assert!(matches!(
+        app.state().compare.export,
+        ExportUi::Configuring(_)
+    ));
+    release.send(()).unwrap();
+    let start = Instant::now();
+    while app
+        .pick
+        .as_ref()
+        .is_some_and(|p| p.poll() == PickPoll::Waiting)
+    {
+        assert!(start.elapsed().as_secs() < WAIT_SECONDS, "never answered");
+        std::thread::yield_now();
+    }
+    for _ in 0..3 {
+        frame(&mut app, &ctx);
+    }
+    assert!(
+        sent(&mut commands).is_empty(),
+        "the late answer started a job"
+    );
+    assert!(matches!(
+        app.state().compare.export,
+        ExportUi::Configuring(_)
+    ));
+}
+
+#[test]
 fn a_new_draft_after_a_stale_answer_gets_its_own_dialog() {
     let (picker, release) = FakePicker::gated(None);
     let (mut app, _commands) = choosing_app(picker.clone());
