@@ -15,6 +15,7 @@ pub mod queries;
 pub mod results;
 pub mod review;
 pub mod rows;
+pub mod select_bar;
 pub mod selection;
 pub mod setup;
 #[cfg(test)]
@@ -43,6 +44,7 @@ pub use review::{
     ReviewEntry, ReviewPair, Warning, build_review,
 };
 pub use rows::{EntrySizes, EntryStatus, OverviewRow, PairRow, RowCounts, RowDetail, StatusIcon};
+pub use select_bar::{ActionBlock, ActionButton, SelectionBar, page_ticked, visible_ticks};
 pub use selection::{CategorySelection, OrdKey, RowAction, Selection};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
 #[cfg(test)]

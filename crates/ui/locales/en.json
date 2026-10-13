@@ -67,7 +67,17 @@
         "delete_from_source": "Delete from source",
         "delete_from_target": "Delete from target"
       },
+      "applied_note": "Changes were applied to this pair. Run it again to see the current differences.",
       "confirm_word": "delete",
+      "pending_badge": "Pending changes: {count}",
+      "reason": {
+        "applied": "Changes were applied to this pair. Run it again first.",
+        "busy": "An apply is in progress.",
+        "checking": "A check is running. Wait until it finishes.",
+        "not_completed": "This pair has no finished comparison to act on.",
+        "nothing_selected": "Select at least one document first.",
+        "running": "A comparison is running. Wait until it finishes."
+      },
       "warning": {
         "generated_ids": "New _id values are generated for inserted documents, so they will not match the source on the next compare.",
         "keeps_destination_id": "Replaced documents keep the _id they have in the destination, which differs from the compare key.",
@@ -186,6 +196,7 @@
     },
     "results": {
       "back_to_overview": "Back to overview",
+      "clear": "Clear selection",
       "empty_category": "No documents in this category.",
       "identical": "No differences. The two collections match under the current rules.",
       "identical_count": "Identical documents: {count}",
@@ -197,6 +208,9 @@
       "prev": "Previous",
       "range": "{first}-{last} of {total}",
       "retry": "Retry",
+      "select_all": "Select all {count} in this tab",
+      "select_page": "Select the documents on this page",
+      "selected": "Selected: {count}",
       "tab": "{name} ({count})"
     },
     "rules": {

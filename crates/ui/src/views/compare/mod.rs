@@ -11,6 +11,7 @@ mod pairs;
 mod preflight;
 mod results;
 mod rules;
+mod select;
 mod setup;
 mod switcher;
 mod table;
