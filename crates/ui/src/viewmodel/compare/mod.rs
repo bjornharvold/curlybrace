@@ -1,27 +1,30 @@
 //! View-models of the Compare workspace. Pure and egui-free.
+pub mod checks;
 pub mod detail;
 pub mod duplicates;
+pub mod overview;
 pub mod pairing_view;
 pub mod pairs;
 pub mod preflight;
 pub mod results;
 pub mod setup;
+pub mod single;
 
-use curlybrace_core::compare::protocol::{PairId, PairSpec, Preflight, RunId, SessionId};
-use curlybrace_core::error::CoreError;
+use std::collections::BTreeMap;
+
+use curlybrace_core::compare::protocol::{PairId, PairSpec, RunId, SessionId};
 use uuid::Uuid;
 
+pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use duplicates::{DuplicateRow, DuplicatesView};
+pub use overview::{ActiveRun, PairStatus, RunOverview, RunRow, Totals};
 pub use pairing_view::{DatabasePairing, PairingRow};
 pub use pairs::{EntryId, PairEntry, PairList, PairOverrides};
 pub use preflight::{PreflightMessage, PreflightView};
 pub use results::{Counts, PAGE_SIZE, ResultsView, category_key, key_label};
 pub use setup::{Pick, RulesForm, ScopeKind, SetupError, SetupForm, SideForm};
-
-/// Temporary: the single-pair workspace still compares one pair, always with this id. Removed
-/// when the multi-pair state and app land.
-pub const PAIR_ID: PairId = 1;
+pub use single::{RunView, SINGLE_ENTRY};
 
 /// Where the compare session stands. It owns its own connections, so the browsing connection
 /// coming and going never changes it.
@@ -39,74 +42,31 @@ impl SessionPhase {
     }
 }
 
-/// The run of the single pair, as the progress panel shows it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum RunView {
-    #[default]
-    Idle,
-    Running {
-        run: RunId,
-        finished_pairs: u32,
-        scanned_source: u64,
-        scanned_target: u64,
-        differences: u64,
-        cancelled: bool,
-        failure: Option<CoreError>,
-    },
-    Finished {
-        run: RunId,
-        cancelled: bool,
-        failure: Option<CoreError>,
-        /// Kept so a run whose filters matched nothing is not mistaken for a real match.
-        scanned_source: u64,
-        scanned_target: u64,
-    },
-}
-
-impl RunView {
-    pub fn started(run: RunId) -> Self {
-        Self::Running {
-            run,
-            finished_pairs: 0,
-            scanned_source: 0,
-            scanned_target: 0,
-            differences: 0,
-            cancelled: false,
-            failure: None,
-        }
-    }
-
-    /// The run in flight, if any.
-    pub fn running(&self) -> Option<RunId> {
-        match self {
-            Self::Running { run, .. } => Some(*run),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct CompareState {
     pub session: Option<SessionPhase>,
     /// The connections the current session was opened for.
     pub connections: Option<(Uuid, Uuid)>,
-    /// Ids are chosen here and never reused, so a late event can never match a newer session.
+    /// Ids are chosen here and never reused, so a late event can never match a newer session,
+    /// run or pair.
     pub next_session: SessionId,
     pub next_run: RunId,
+    /// The next runtime `PairId`: every run and every check probe takes a fresh one.
+    pub next_pair: PairId,
+    /// The shared defaults and the pickers feeding Add pair.
     pub setup: SetupForm,
-    pub preflight: PreflightView,
-    /// The counts and index status behind `preflight`; present exactly while an accepted answer
-    /// is current (cleared by any edit, a failed check or a closed session).
-    pub last_check: Option<Preflight>,
-    /// A `Check` has been sent and not answered. At most one is in flight: answers carry no
-    /// request identity, so a second one could not be told from a stale one.
-    pub check_in_flight: bool,
-    /// The form was edited while the check was in flight; its answer will be dropped.
-    pub check_stale: bool,
-    pub run: RunView,
-    /// Cancel was sent for the run in flight; cleared by its pair and run terminals.
-    pub cancel_requested: bool,
-    pub results: Option<ResultsView>,
+    pub checks: CheckQueue,
+    /// Probe of a check the form was edited under and whose answer has not arrived yet. Answers
+    /// and failures carry no request identity, so while this is set no new check is sent: the
+    /// next answer or failure is the orphan's and is dropped.
+    pub orphaned_check: Option<PairId>,
+    pub overview: RunOverview,
+    pub pairs: PairList,
+    pub pairing: DatabasePairing,
+    /// The results of every finished pair that has not been discarded, by runtime pair.
+    pub results: BTreeMap<PairId, ResultsView>,
+    /// The pair whose results are shown.
+    pub open_pair: Option<PairId>,
     pub detail: Option<DetailView>,
     /// The duplicate-keys panel, offered after a run failed on a duplicate key.
     pub duplicates: DuplicatesView,
@@ -119,14 +79,15 @@ impl Default for CompareState {
             connections: None,
             next_session: 1,
             next_run: 1,
+            next_pair: 1,
             setup: SetupForm::default(),
-            preflight: PreflightView::default(),
-            last_check: None,
-            check_in_flight: false,
-            check_stale: false,
-            run: RunView::default(),
-            cancel_requested: false,
-            results: None,
+            checks: CheckQueue::default(),
+            orphaned_check: None,
+            overview: RunOverview::default(),
+            pairs: PairList::default(),
+            pairing: DatabasePairing::default(),
+            results: BTreeMap::new(),
+            open_pair: None,
             detail: None,
             duplicates: DuplicatesView::default(),
         }
@@ -139,6 +100,7 @@ impl CompareState {
         Self {
             next_session: self.next_session,
             next_run: self.next_run,
+            next_pair: self.next_pair,
             ..Self::default()
         }
     }
@@ -161,53 +123,36 @@ impl CompareState {
 
     /// Finished results can be thrown away (never while a run is in flight).
     pub fn can_discard(&self) -> bool {
-        self.is_ready() && matches!(self.run, RunView::Finished { .. })
+        self.is_ready() && !self.is_running() && self.overview.any_settled()
     }
 
     pub fn is_ready(&self) -> bool {
         matches!(self.session, Some(SessionPhase::Ready(_)))
     }
 
-    /// The finished run's pair failed on a duplicate key (the only failure the panel explains).
-    pub fn run_failed_on_duplicate_key(&self) -> bool {
-        matches!(
-            self.run,
-            RunView::Finished {
-                failure: Some(CoreError::CompareDuplicateKey),
-                ..
-            }
-        )
-    }
-
-    /// Whether Find duplicate keys may fire: the run failed on a duplicate key and the setup is
-    /// unchanged since (an edit resets the preflight, so Find waits for a fresh check).
-    pub fn can_find_duplicates(&self) -> bool {
-        self.is_ready()
-            && !self.check_stale
-            && self.preflight.allows_start()
-            && self.duplicates.can_find(self.run_failed_on_duplicate_key())
-    }
-
     pub fn is_running(&self) -> bool {
-        self.run.running().is_some()
+        self.overview.is_running()
     }
 
     /// Everything wrong with the setup, in display order: the form's own issues, then whether
     /// both sides are the very same collection (which needs the session's connections).
     pub fn issues(&self) -> Vec<SetupError> {
         let mut issues = self.setup.issues();
-        let one_connection = self.connections.is_some_and(|(s, t)| s == t);
-        if issues.is_empty() && one_connection && self.setup.same_namespace_and_filter() {
+        if issues.is_empty() && self.one_connection() && self.setup.same_namespace_and_filter() {
             issues.push(SetupError::SameCollection);
         }
         issues
     }
 
-    /// The pair to compare, or the first issue.
-    pub fn pair(&self) -> Result<PairSpec, SetupError> {
+    pub(super) fn one_connection(&self) -> bool {
+        self.connections.is_some_and(|(s, t)| s == t)
+    }
+
+    /// The setup's pair under the runtime id `id`, or the first issue.
+    pub fn pair_for(&self, id: PairId) -> Result<PairSpec, SetupError> {
         match self.issues().into_iter().next() {
             Some(first) => Err(first),
-            None => self.setup.pair(PAIR_ID),
+            None => self.setup.pair(id),
         }
     }
 
@@ -218,22 +163,78 @@ impl CompareState {
 
     /// `can_check` for a setup whose readiness the caller already knows (computed once a frame).
     pub fn can_check_given(&self, setup_ready: bool) -> bool {
-        self.is_ready() && !self.check_in_flight && !self.is_running() && setup_ready
+        self.is_ready() && !self.check_in_flight() && !self.is_running() && setup_ready
     }
 
-    /// Whether Start may fire: the same as `can_check`, and the latest answer is fresh and Ok.
+    /// Whether Start may fire: at least one included entry is usable and every included entry
+    /// has a fresh verdict that allows it.
     pub fn can_start(&self) -> bool {
-        self.can_start_given(self.issues().is_empty())
+        self.start_gate(self.has_valid_entry(), false)
     }
 
     /// `can_start` for a setup whose readiness the caller already knows.
     pub fn can_start_given(&self, setup_ready: bool) -> bool {
-        self.can_check_given(setup_ready) && !self.check_stale && self.preflight.allows_start()
+        self.start_gate(setup_ready, false)
+    }
+
+    /// Whether Run passing may fire: like `can_start`, but refused entries are skipped, so only
+    /// one passing entry has to exist.
+    pub fn can_start_passing(&self) -> bool {
+        self.start_gate(self.has_valid_entry(), true)
     }
 
     /// Whether Cancel may fire: a run is in flight and no cancel was sent for it yet.
     pub fn can_cancel(&self) -> bool {
-        self.is_running() && !self.cancel_requested
+        self.overview.can_cancel()
+    }
+
+    /// The results of `pair` passed through `change`; unknown pairs change nothing.
+    pub fn results_updated(
+        self,
+        pair: PairId,
+        change: impl FnOnce(ResultsView) -> ResultsView,
+    ) -> Self {
+        match self.results.get(&pair).cloned() {
+            Some(view) => Self {
+                results: self
+                    .results
+                    .into_iter()
+                    .chain([(pair, change(view))])
+                    .collect(),
+                ..self
+            },
+            None => self,
+        }
+    }
+
+    fn included_ids(&self) -> Vec<EntryId> {
+        self.pairs
+            .entries
+            .iter()
+            .filter(|e| e.included)
+            .map(|e| e.id)
+            .collect()
+    }
+
+    fn has_valid_entry(&self) -> bool {
+        let same = self.one_connection();
+        self.pairs
+            .entries
+            .iter()
+            .any(|e| e.included && e.issues(&self.setup, same).is_empty())
+    }
+
+    fn start_gate(&self, any_valid: bool, passing_only: bool) -> bool {
+        let included = self.included_ids();
+        let idle = self.is_ready() && !self.is_running() && !self.check_in_flight();
+        if !idle || !any_valid || !self.checks.all_settled(&included) {
+            return false;
+        }
+        let passes = |id: &EntryId| self.checks.allows_start(*id);
+        match passing_only {
+            true => included.iter().any(passes),
+            false => !included.is_empty() && included.iter().all(passes),
+        }
     }
 }
 

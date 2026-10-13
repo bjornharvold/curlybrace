@@ -29,6 +29,10 @@ mod run;
 #[path = "compare_tests/setup.rs"]
 mod setup;
 
+/// The probe id of the first check; the first run that follows it uses `RUN_PAIR`.
+const CHECK_PAIR: u32 = 1;
+const RUN_PAIR: u32 = 2;
+
 fn two_connections() -> (AppState, uuid::Uuid, uuid::Uuid) {
     let (a, b) = (
         ConnectionConfig::new("a", "mongodb://a"),
@@ -130,9 +134,14 @@ fn indexed(count: u64) -> Preflight {
 }
 
 fn checked_event(preflight: Preflight) -> Input {
+    checked_as(CHECK_PAIR, preflight)
+}
+
+/// The answer to the check sent under `probe`.
+fn checked_as(probe: u32, preflight: Preflight) -> Input {
     ev(CompareEvent::Checked {
         session: 1,
-        pair: 1,
+        pair: probe,
         preflight,
     })
 }
@@ -141,11 +150,11 @@ fn checked_state() -> AppState {
     let (state, cmds) = act(picked_state(), CompareAction::RunCheck);
     assert!(matches!(
         &cmds[..],
-        [Command::Compare(CompareCommand::Check { session: 1, pair })] if pair.id == 1
+        [Command::Compare(CompareCommand::Check { session: 1, pair })] if pair.id == CHECK_PAIR
     ));
     let (state, cmds) = update(state, checked_event(indexed(10)));
     assert!(cmds.is_empty());
-    assert_eq!(state.compare.preflight, PreflightView::Ok);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Ok);
     state
 }
 
@@ -166,7 +175,7 @@ fn pair_done(run: u64, summary: Summary) -> Input {
     ev(CompareEvent::PairDone {
         session: 1,
         run,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Completed(summary),
     })
 }
@@ -186,7 +195,7 @@ fn with_differences() -> AppState {
         &cmds[..],
         [Command::Compare(CompareCommand::Rows {
             session: 1,
-            pair: 1,
+            pair: RUN_PAIR,
             category: Category::Different,
             offset: 0,
             limit: 100
@@ -198,7 +207,7 @@ fn with_differences() -> AppState {
 fn rows_event(category: Category, offset: usize, n: i32) -> Input {
     ev(CompareEvent::Rows {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         category,
         offset,
         total: 250,

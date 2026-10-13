@@ -236,7 +236,7 @@ fn a_running_comparison_shows_its_counters() {
     let progress = ev(CompareEvent::Progress {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         scanned_source: 1234,
         scanned_target: 567,
         differences: 89,
@@ -298,7 +298,7 @@ fn detail_state() -> AppState {
     ];
     let detail = CompareEvent::Detail {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         key,
         source: Some(doc! {"_id": 1, "name": "x"}),
         target: Some(doc! {"_id": 1, "name": "y", "extra": 1}),
@@ -333,7 +333,7 @@ fn a_document_missing_on_one_side_says_so() {
     let (state, _) = act(with_rows(), CompareAction::Select(key.clone()));
     let only_source = CompareEvent::Detail {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         key,
         source: Some(doc! {"_id": 1}),
         target: None,
@@ -350,7 +350,7 @@ fn a_failed_run_and_a_cancelled_run_render_their_outcome() {
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareCapExceeded),
     });
     let (state, _) = update(running_state(), failed);
@@ -360,7 +360,7 @@ fn a_failed_run_and_a_cancelled_run_render_their_outcome() {
     let cancelled = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Cancelled(Summary::default()),
     });
     let (state, _) = update(running_state(), cancelled);
@@ -373,7 +373,7 @@ fn a_failed_run_and_a_cancelled_run_render_their_outcome() {
 fn the_buttons_follow_the_view_model() {
     // Check is disabled while a check is in flight; Start only on a fresh Ok preflight.
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
-    assert!(state.compare.check_in_flight && !state.compare.can_check());
+    assert!(state.compare.check_in_flight() && !state.compare.can_check());
     assert!(checked_state().compare.can_start());
     assert!(!picked_state().compare.can_start());
     assert!(!running_state().compare.can_start());
@@ -441,7 +441,7 @@ fn duplicate_failure_state() -> AppState {
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
     });
     let (state, _) = update(running_state(), failed);
@@ -458,7 +458,7 @@ fn duplicate_group(value: &str, count: u64) -> curlybrace_core::store::Duplicate
 fn duplicate_answer(source: DuplicateReport, target: DuplicateReport) -> Input {
     ev(CompareEvent::DuplicateKeys {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         source,
         target,
     })
@@ -483,7 +483,7 @@ fn another_failure_does_not_offer_find_duplicate_keys() {
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareKeyMissing),
     });
     let (state, _) = update(running_state(), failed);

@@ -2,10 +2,9 @@
 //! of rows.
 use curlybrace_core::compare::engine::Summary;
 use curlybrace_core::compare::key::KeyTuple;
-use curlybrace_core::compare::protocol::{CompareCommand, RowView, SessionId};
+use curlybrace_core::compare::protocol::{CompareCommand, PairId, RowView, SessionId};
 use curlybrace_core::compare::results::Category;
 
-use super::PAIR_ID;
 use super::detail::value_text;
 
 pub const PAGE_SIZE: usize = 100;
@@ -66,6 +65,8 @@ fn count(n: u64) -> usize {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResultsView {
+    /// The runtime pair these results belong to.
+    pub pair: PairId,
     pub counts: Counts,
     pub category: Category,
     pub offset: usize,
@@ -78,7 +79,7 @@ pub struct ResultsView {
 
 impl ResultsView {
     /// Starts on the first category that has differences and asks for its first page.
-    pub fn new(summary: &Summary) -> Self {
+    pub fn new(pair: PairId, summary: &Summary) -> Self {
         let counts = Counts {
             only_in_source: count(summary.only_in_source),
             only_in_target: count(summary.only_in_target),
@@ -90,6 +91,7 @@ impl ResultsView {
             .find(|c| counts.of(*c) > 0)
             .unwrap_or(Category::Different);
         Self {
+            pair,
             counts,
             category,
             offset: 0,
@@ -150,7 +152,7 @@ impl ResultsView {
         self.requested
             .map(|(category, offset)| CompareCommand::Rows {
                 session,
-                pair: PAIR_ID,
+                pair: self.pair,
                 category,
                 offset,
                 limit: PAGE_SIZE,
@@ -216,7 +218,7 @@ impl ResultsView {
             .any(|r| r.key == *key)
             .then(|| CompareCommand::Detail {
                 session,
-                pair: PAIR_ID,
+                pair: self.pair,
                 key: key.clone(),
             })
     }

@@ -199,7 +199,7 @@ fn repicking_the_same_database_or_collection_changes_nothing() {
     for pick in [Pick::Database("a".into()), Pick::Collection("users".into())] {
         let (after, cmds) = act(checked_state(), CompareAction::PickSide(Side::Source, pick));
         assert!(cmds.is_empty(), "no listing is requested again");
-        assert_eq!(after.compare.preflight, PreflightView::Ok);
+        assert_eq!(after.compare.preflight_view(), PreflightView::Ok);
     }
 }
 
@@ -208,7 +208,7 @@ fn start_is_refused_until_the_form_is_ready_and_the_preflight_allows_it() {
     let (state, _, _) = opened();
     let (state, cmds) = act(state, CompareAction::Start);
     assert!(cmds.is_empty(), "nothing is picked yet");
-    assert_eq!(state.compare.run, RunView::Idle);
+    assert_eq!(state.compare.run_view(), RunView::Idle);
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn start_needs_a_check_and_editing_the_form_invalidates_it() {
     let (_, cmds) = act(picked_state(), CompareAction::Start);
     assert!(cmds.is_empty(), "not checked yet");
     let (state, _) = act(checked_state(), CompareAction::SetKey("sku".into()));
-    assert_eq!(state.compare.preflight, PreflightView::Unchecked);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Unchecked);
     let (_, cmds) = act(state, CompareAction::Start);
     assert!(cmds.is_empty());
 }
@@ -231,12 +231,12 @@ fn an_unindexed_large_collection_blocks_start() {
     };
     let (state, _) = update(state, checked_event(blocked));
     assert_eq!(
-        state.compare.preflight,
+        state.compare.preflight_view(),
         PreflightView::NeedsIndex { side: Side::Target }
     );
     let (state, cmds) = act(state, CompareAction::Start);
     assert!(cmds.is_empty());
-    assert_eq!(state.compare.run, RunView::Idle);
+    assert_eq!(state.compare.run_view(), RunView::Idle);
 }
 
 #[test]
@@ -251,20 +251,20 @@ fn only_one_check_is_in_flight_and_a_stale_answer_is_dropped() {
     let (state, cmds) = act(picked_state(), CompareAction::RunCheck);
     assert_eq!(cmds.len(), 1);
     let (state, _) = act(state, CompareAction::SetFilter(Side::Source, "{}".into()));
-    assert_eq!(state.compare.preflight, PreflightView::Unchecked);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Unchecked);
     let (state, cmds) = act(state, CompareAction::RunCheck);
     assert!(cmds.is_empty(), "no second check while one is in flight");
 
     let (state, _) = update(state, checked_event(indexed(1)));
-    assert_eq!(state.compare.preflight, PreflightView::Unchecked);
-    assert!(!state.compare.check_in_flight);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Unchecked);
+    assert!(!state.compare.check_in_flight());
     let (state, cmds) = act(state, CompareAction::Start);
     assert!(cmds.is_empty(), "the dropped answer does not unlock Start");
 
     let (state, cmds) = act(state, CompareAction::RunCheck);
     assert_eq!(cmds.len(), 1, "the user can check again");
-    let (state, _) = update(state, checked_event(indexed(1)));
-    assert_eq!(state.compare.preflight, PreflightView::Ok);
+    let (state, _) = update(state, checked_as(2, indexed(1)));
+    assert_eq!(state.compare.preflight_view(), PreflightView::Ok);
 }
 
 #[test]
@@ -277,7 +277,7 @@ fn start_is_refused_while_a_check_is_in_flight() {
 #[test]
 fn a_checked_answer_with_nothing_in_flight_is_dropped() {
     let (state, _) = update(picked_state(), checked_event(indexed(1)));
-    assert_eq!(state.compare.preflight, PreflightView::Unchecked);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Unchecked);
 }
 
 fn check_failed_event() -> Input {
@@ -291,10 +291,10 @@ fn check_failed_event() -> Input {
 #[test]
 fn a_failed_check_returns_the_preflight_to_unchecked_with_a_banner() {
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
-    assert_eq!(state.compare.preflight, PreflightView::Checking);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Checking);
     let (state, _) = update(state, check_failed_event());
-    assert_eq!(state.compare.preflight, PreflightView::Unchecked);
-    assert!(!state.compare.check_in_flight);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Unchecked);
+    assert!(!state.compare.check_in_flight());
     assert!(matches!(
         state.banner,
         Some(Banner::Failure {
@@ -309,15 +309,15 @@ fn a_stale_check_failure_is_quiet_and_never_resets_a_newer_state() {
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
     let (state, _) = act(state, CompareAction::SetKey("sku".into()));
     let (state, _) = update(state, check_failed_event());
-    assert!(!state.compare.check_in_flight);
+    assert!(!state.compare.check_in_flight());
     assert!(state.banner.is_none(), "the failed check was obsolete");
 
     let (state, cmds) = act(state, CompareAction::RunCheck);
     assert_eq!(cmds.len(), 1);
-    let (state, _) = update(state, checked_event(indexed(2)));
-    assert_eq!(state.compare.preflight, PreflightView::Ok);
+    let (state, _) = update(state, checked_as(2, indexed(2)));
+    assert_eq!(state.compare.preflight_view(), PreflightView::Ok);
     let (state, _) = update(state, check_failed_event());
-    assert_eq!(state.compare.preflight, PreflightView::Ok);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Ok);
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn the_same_collection_on_both_sides_cannot_be_checked_or_started() {
         vec![crate::viewmodel::compare::SetupError::SameCollection]
     );
     let (state, cmds) = act(state, CompareAction::RunCheck);
-    assert!(cmds.is_empty() && !state.compare.check_in_flight);
+    assert!(cmds.is_empty() && !state.compare.check_in_flight());
     let (state, cmds) = act(state, CompareAction::Start);
     assert!(cmds.is_empty() && !state.compare.is_running());
     // A different filter on one side makes it a real comparison.

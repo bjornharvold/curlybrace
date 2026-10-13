@@ -89,7 +89,7 @@ fn show_ready(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Co
 
 /// Results and the open detail; the detail's cached JSON is dropped once it is gone.
 fn show_lower(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
-    let Some(results) = &state.results else {
+    let Some(results) = state.open_results() else {
         detail::forget_cache(ui);
         return None;
     };

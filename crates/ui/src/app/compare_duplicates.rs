@@ -3,7 +3,7 @@
 use super::compare::{cmd, failure_banner, none, ready, with_compare};
 use super::reducer::Out;
 use super::state::AppState;
-use crate::viewmodel::compare::{CompareState, DuplicatesView, PAIR_ID};
+use crate::viewmodel::compare::{CompareState, DuplicatesView};
 use curlybrace_core::compare::protocol::{CompareCommand, DuplicateReport};
 use curlybrace_core::error::CoreError;
 
@@ -23,7 +23,11 @@ pub(super) fn find(state: AppState) -> Out {
     if !state.compare.can_find_duplicates() {
         return none(state);
     }
-    let Ok(pair) = state.compare.pair() else {
+    // The lookup runs under the id of the failed run's pair, which also names its answer.
+    let Some(id) = state.compare.single_pair() else {
+        return none(state);
+    };
+    let Ok(pair) = state.compare.pair_for(id) else {
         return none(state);
     };
     let loading = DuplicatesView::Loading { stale: false };
@@ -44,7 +48,8 @@ pub(super) fn answered(
     let DuplicatesView::Loading { stale } = state.compare.duplicates else {
         return none(state);
     };
-    if pair != PAIR_ID {
+    // A stale request was superseded by a new run (and a new pair id): its answer is dropped.
+    if !stale && state.compare.single_pair() != Some(pair) {
         return none(state);
     }
     let view = if stale {

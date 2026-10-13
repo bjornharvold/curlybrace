@@ -37,7 +37,7 @@ fn duplicate_failure() -> AppState {
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
     });
     let (state, _) = update(running_state(), failed);
@@ -60,17 +60,17 @@ fn loading() -> AppState {
 }
 
 fn loaded() -> AppState {
-    update(loading(), answer(1, 1)).0
+    update(loading(), answer(1, RUN_PAIR)).0
 }
 
 #[test]
 fn find_duplicates_sends_the_command_for_the_current_pair() {
     let state = duplicate_failure();
-    let expected = state.compare.pair().unwrap();
+    let expected = state.compare.pair_for(2).unwrap();
     let (state, cmds) = act(state, CompareAction::FindDuplicates);
     match &cmds[..] {
         [Command::Compare(CompareCommand::DuplicateKeys { session: 1, pair })] => {
-            assert_eq!(pair.id, 1);
+            assert_eq!(pair.id, RUN_PAIR);
             assert_eq!(pair.key, expected.key);
             assert_eq!(pair.source, expected.source);
             assert_eq!(pair.target, expected.target);
@@ -88,7 +88,7 @@ fn it_is_refused_unless_the_run_failed_on_a_duplicate_key() {
     let other_failure = ev(CompareEvent::PairDone {
         session: 1,
         run: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareKeyMissing),
     });
     let (failed, _) = update(running_state(), other_failure);
@@ -112,7 +112,7 @@ fn a_second_request_while_loading_sends_nothing() {
 
 #[test]
 fn the_answer_populates_the_view() {
-    let (state, cmds) = update(loading(), answer(1, 1));
+    let (state, cmds) = update(loading(), answer(1, RUN_PAIR));
     assert!(cmds.is_empty());
     assert_eq!(
         state.compare.duplicates,
@@ -132,7 +132,7 @@ fn an_edit_while_loading_marks_the_answer_stale_and_it_is_dropped() {
         DuplicatesView::Loading { stale: true }
     );
     assert!(!state.compare.can_find_duplicates());
-    let (state, cmds) = update(state, answer(1, 1));
+    let (state, cmds) = update(state, answer(1, RUN_PAIR));
     assert!(cmds.is_empty());
     assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
     assert!(
@@ -157,7 +157,7 @@ fn a_loaded_panel_is_cleared_by_an_edit() {
 
 #[test]
 fn answers_for_another_session_or_pair_are_ignored() {
-    for input in [answer(9, 1), answer(1, 2)] {
+    for input in [answer(9, RUN_PAIR), answer(1, 7)] {
         let (state, cmds) = update(loading(), input);
         assert!(cmds.is_empty());
         assert_eq!(
@@ -169,12 +169,12 @@ fn answers_for_another_session_or_pair_are_ignored() {
 
 #[test]
 fn an_answer_with_nothing_requested_is_ignored() {
-    let (state, _) = update(duplicate_failure(), answer(1, 1));
+    let (state, _) = update(duplicate_failure(), answer(1, RUN_PAIR));
     assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
     let before = loaded().compare.duplicates;
     let different = ev(CompareEvent::DuplicateKeys {
         session: 1,
-        pair: 1,
+        pair: RUN_PAIR,
         source: report("other-s", 9),
         target: report("other-t", 8),
     });
@@ -243,10 +243,10 @@ fn open_failed() -> Input {
 #[test]
 fn a_late_answer_for_a_dropped_session_is_ignored() {
     let (closed, _) = act(loading(), CompareAction::CloseSession);
-    let (after, _) = update(closed, answer(1, 1));
+    let (after, _) = update(closed, answer(1, RUN_PAIR));
     assert_eq!(after.compare.duplicates, DuplicatesView::Idle);
     let (dropped, _) = update(loading(), open_failed());
-    let (after, _) = update(dropped, answer(1, 1));
+    let (after, _) = update(dropped, answer(1, RUN_PAIR));
     assert_eq!(after.compare.duplicates, DuplicatesView::Idle);
 }
 
@@ -268,7 +268,7 @@ fn opening_another_pair_resets_the_panel() {
         let (state, other) = with_other_connection(start);
         let (state, _) = act(state, open_action(source, other));
         assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
-        let (state, _) = update(state, answer(1, 1));
+        let (state, _) = update(state, answer(1, RUN_PAIR));
         assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
     }
 }
@@ -292,7 +292,7 @@ fn start_while_loading_then_a_new_duplicate_failure_still_drops_the_old_answer()
     let failed = ev(CompareEvent::PairDone {
         session: 1,
         run: 2,
-        pair: 1,
+        pair: RUN_PAIR + 1,
         outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
     });
     let (state, _) = update(state, failed);
@@ -301,7 +301,7 @@ fn start_while_loading_then_a_new_duplicate_failure_still_drops_the_old_answer()
     assert!(!state.compare.can_find_duplicates());
     let (state, cmds) = act(state, CompareAction::FindDuplicates);
     assert!(cmds.is_empty(), "nothing is sent while the old one is out");
-    let (state, _) = update(state, answer(1, 1));
+    let (state, _) = update(state, answer(1, RUN_PAIR));
     assert_eq!(state.compare.duplicates, DuplicatesView::Idle, "not Loaded");
     let (state, cmds) = act(state, CompareAction::FindDuplicates);
     assert!(matches!(
@@ -325,6 +325,6 @@ fn find_is_offered_only_while_the_setup_is_unchanged_since_the_failed_run() {
     assert!(cmds.is_empty());
     assert_eq!(edited.compare.duplicates, DuplicatesView::Idle);
     let (rechecked, _) = act(edited, CompareAction::RunCheck);
-    let (rechecked, _) = update(rechecked, checked_event(indexed(10)));
+    let (rechecked, _) = update(rechecked, checked_as(3, indexed(10)));
     assert!(rechecked.compare.can_find_duplicates());
 }

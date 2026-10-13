@@ -2,6 +2,8 @@ use super::*;
 use bson::Bson;
 use curlybrace_core::compare::engine::Summary;
 
+const PAIR: PairId = 7;
+
 fn key(n: i32) -> KeyTuple {
     KeyTuple(vec![Bson::Int32(n)])
 }
@@ -26,7 +28,7 @@ fn summary(src: u64, tgt: u64, diff: u64) -> Summary {
 }
 
 fn loaded(s: Summary) -> ResultsView {
-    let v = ResultsView::new(&s);
+    let v = ResultsView::new(PAIR, &s);
     let (cat, off) = v.requested.expect("a first page is requested");
     let total = v.counts.of(cat);
     v.accept_rows(cat, off, total, rows(0, total.min(PAGE_SIZE) as i32))
@@ -34,19 +36,19 @@ fn loaded(s: Summary) -> ResultsView {
 
 #[test]
 fn counts_come_from_the_summary_and_the_first_non_empty_category_is_current() {
-    let v = ResultsView::new(&summary(3, 0, 0));
+    let v = ResultsView::new(PAIR, &summary(3, 0, 0));
     assert_eq!(v.counts.only_in_source, 3);
     assert_eq!(v.counts.only_in_target, 0);
     assert_eq!(v.counts.different, 0);
     assert_eq!(v.category, Category::OnlyInSource);
     assert_eq!(v.requested, Some((Category::OnlyInSource, 0)));
-    let both = ResultsView::new(&summary(3, 0, 2));
+    let both = ResultsView::new(PAIR, &summary(3, 0, 2));
     assert_eq!(both.category, Category::Different);
 }
 
 #[test]
 fn an_empty_result_requests_nothing() {
-    let v = ResultsView::new(&summary(0, 0, 0));
+    let v = ResultsView::new(PAIR, &summary(0, 0, 0));
     assert_eq!(v.requested, None);
     assert!(v.request(1).is_none());
 }
@@ -80,8 +82,23 @@ fn a_page_change_requests_rows_at_the_new_offset() {
             limit,
         } => assert_eq!(
             (session, pair, category, offset, limit),
-            (7, PAIR_ID, Category::Different, 100, 100)
+            (7, PAIR, Category::Different, 100, 100)
         ),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn request_and_select_use_the_views_own_pair_id() {
+    let v = ResultsView::new(41, &summary(0, 0, 3));
+    assert_eq!(v.pair, 41);
+    match v.request(1).unwrap() {
+        CompareCommand::Rows { pair, .. } => assert_eq!(pair, 41),
+        other => panic!("{other:?}"),
+    }
+    let v = v.accept_rows(Category::Different, 0, 3, rows(0, 3));
+    match v.select(1, &key(1)).unwrap() {
+        CompareCommand::Detail { pair, .. } => assert_eq!(pair, 41),
         other => panic!("{other:?}"),
     }
 }
@@ -108,7 +125,7 @@ fn select_returns_a_detail_command_for_a_listed_key_only() {
             pair,
             key: k,
         } => {
-            assert_eq!((session, pair, k), (2, PAIR_ID, key(1)));
+            assert_eq!((session, pair, k), (2, PAIR, key(1)));
         }
         other => panic!("{other:?}"),
     }
@@ -117,14 +134,14 @@ fn select_returns_a_detail_command_for_a_listed_key_only() {
 
 #[test]
 fn rows_beyond_the_total_are_ignored() {
-    let v = ResultsView::new(&summary(0, 0, 2));
+    let v = ResultsView::new(PAIR, &summary(0, 0, 2));
     let v = v.accept_rows(Category::Different, 0, 2, rows(0, 5));
     assert_eq!(v.rows.len(), 2);
 }
 
 #[test]
 fn stale_rows_are_dropped() {
-    let fresh = ResultsView::new(&summary(0, 0, 250));
+    let fresh = ResultsView::new(PAIR, &summary(0, 0, 250));
     let wrong_offset = fresh
         .clone()
         .accept_rows(Category::Different, 100, 250, rows(0, 3));
@@ -172,7 +189,7 @@ fn pager_state_follows_the_offset_and_the_total() {
 
 #[test]
 fn an_empty_category_has_no_pager_and_an_empty_range() {
-    let v = ResultsView::new(&summary(0, 0, 0));
+    let v = ResultsView::new(PAIR, &summary(0, 0, 0));
     assert!(!v.has_prev() && !v.has_next());
     assert_eq!(v.shown_range(), (0, 0));
     assert!(v.is_clean());
@@ -185,21 +202,24 @@ fn identical_documents_are_counted_but_do_not_make_a_difference() {
         equal: 42,
         ..summary(0, 0, 0)
     };
-    let v = ResultsView::new(&s);
+    let v = ResultsView::new(PAIR, &s);
     assert_eq!(v.counts.identical, 42);
     assert!(v.is_clean(), "identical documents are not differences");
     assert_eq!(v.requested, None);
-    let mixed = ResultsView::new(&Summary {
-        equal: 5,
-        ..summary(0, 0, 2)
-    });
+    let mixed = ResultsView::new(
+        PAIR,
+        &Summary {
+            equal: 5,
+            ..summary(0, 0, 2)
+        },
+    );
     assert_eq!((mixed.counts.identical, mixed.total()), (5, 2));
     assert!(!mixed.is_clean());
 }
 
 #[test]
 fn a_failed_page_keeps_its_request_until_retried_or_answered() {
-    let v = ResultsView::new(&summary(0, 0, 3)).rows_failed();
+    let v = ResultsView::new(PAIR, &summary(0, 0, 3)).rows_failed();
     assert!(v.load_failed && v.requested == Some((Category::Different, 0)));
     assert!(!v.is_loading(), "a failed page is not loading any more");
     let retried = v.retried().expect("a failed page can be retried");

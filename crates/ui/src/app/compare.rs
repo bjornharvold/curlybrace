@@ -6,12 +6,12 @@ use super::compare_run::{cancel, discard, moved, on_run_event, select, start};
 use super::reducer::Out;
 use super::state::{AppState, Banner, Workspace};
 use crate::viewmodel::compare::{
-    CompareState, PAIR_ID, Pick, PreflightView, ResultsView, RulesForm, RunView, SessionPhase,
-    SetupForm, SideForm,
+    CheckQueue, CompareState, Pick, ResultsView, RulesForm, RunOverview, SINGLE_ENTRY,
+    SessionPhase, SetupForm, SideForm,
 };
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{
-    CompareCommand, CompareEvent, Preflight, SessionId, Side,
+    CompareCommand, CompareEvent, PairId, Preflight, SessionId, Side,
 };
 use curlybrace_core::compare::results::Category;
 use curlybrace_core::error::CoreError;
@@ -182,16 +182,19 @@ fn close(state: AppState) -> Out {
     )
 }
 
-/// Applies a form edit; any edit makes the earlier preflight answer stale.
+/// Applies a form edit; any edit makes the earlier verdicts stale, and a check still in
+/// flight is dropped with them (its probe id will no longer match).
 fn edited(state: AppState, change: impl FnOnce(SetupForm) -> SetupForm) -> Out {
+    let c = &state.compare;
     let compare = CompareState {
-        setup: change(state.compare.setup.clone()),
-        preflight: PreflightView::Unchecked,
-        last_check: None,
-        // A check still in flight now answers a different form.
-        check_stale: state.compare.check_in_flight,
-        duplicates: state.compare.duplicates.superseded(),
-        ..state.compare.clone()
+        checks: c.checks.clone().invalidated(),
+        orphaned_check: c
+            .checks
+            .in_flight()
+            .map(|(_, probe)| probe)
+            .or(c.orphaned_check),
+        duplicates: c.duplicates.superseded(),
+        ..c.clone().with_setup(change(c.setup.clone()))
     };
     none(with_compare(state, compare))
 }
@@ -218,22 +221,23 @@ fn pick_side(state: AppState, side: Side, pick: Pick) -> Out {
     (next, listing.into_iter().collect())
 }
 
+/// Sends the single entry's check under a fresh probe id, so only its own answer is accepted.
 fn check(state: AppState) -> Out {
     let Some(session) = ready(&state) else {
         return none(state);
     };
-    let Ok(pair) = state.compare.pair() else {
-        return none(state);
-    };
-    if state.compare.run.running().is_some() || state.compare.check_in_flight {
+    let c = &state.compare;
+    if c.is_running() || c.check_in_flight() {
         return none(state);
     }
+    let probe = c.next_pair;
+    let Ok(pair) = c.pair_for(probe) else {
+        return none(state);
+    };
     let compare = CompareState {
-        preflight: PreflightView::Checking,
-        last_check: None,
-        check_in_flight: true,
-        check_stale: false,
-        ..state.compare.clone()
+        checks: CheckQueue::queued(&[SINGLE_ENTRY]).sending(SINGLE_ENTRY, probe),
+        next_pair: probe + 1,
+        ..c.clone()
     };
     (
         with_compare(state, compare),
@@ -344,53 +348,51 @@ fn open_failed(state: AppState, error: CoreError) -> Out {
 
 fn listed(state: AppState, side: Side, change: impl FnOnce(SideForm) -> SideForm) -> Out {
     let form = change(state.compare.setup.side(side).clone());
+    let setup = state.compare.setup.clone().with_side(side, form);
+    let compare = state.compare.clone().with_setup(setup);
+    none(with_compare(state, compare))
+}
+
+/// An answer is taken only under the probe that is in flight; the orphan's (the form was edited
+/// under it) is dropped and the user checks again.
+fn checked(state: AppState, probe: PairId, answer: Preflight) -> Out {
+    if state.compare.orphaned_check == Some(probe) {
+        return none(settled_orphan(state));
+    }
+    let (checks, fresh) = state.compare.checks.clone().answered(probe, answer);
+    if !fresh {
+        return none(state);
+    }
     let compare = CompareState {
-        setup: state.compare.setup.clone().with_side(side, form),
+        checks,
         ..state.compare.clone()
     };
     none(with_compare(state, compare))
 }
 
-/// The single outstanding check has been answered (or failed): nothing is in flight any more.
-fn check_settled(
-    state: AppState,
-    preflight: PreflightView,
-    last_check: Option<Preflight>,
-) -> AppState {
+fn settled_orphan(state: AppState) -> AppState {
     let compare = CompareState {
-        preflight,
-        last_check,
-        check_in_flight: false,
-        check_stale: false,
+        orphaned_check: None,
         ..state.compare.clone()
     };
     with_compare(state, compare)
 }
 
-/// Checks carry no request identity, so at most one is in flight; an answer to a check the form
-/// was edited under is dropped (the user checks again).
-fn checked(state: AppState, pair: u32, answer: Preflight) -> Out {
-    if pair != PAIR_ID || !state.compare.check_in_flight {
-        return none(state);
-    }
-    if state.compare.check_stale {
-        return none(check_settled(state, PreflightView::Unchecked, None));
-    }
-    let view = PreflightView::from(&answer);
-    none(check_settled(state, view, Some(answer)))
-}
-
+/// A failed check names no probe: it is the orphan's (quiet) or the one in flight.
 fn check_failed(state: AppState, error: CoreError) -> Out {
-    if !state.compare.check_in_flight {
-        return none(failure_banner(state, "compare_check", error));
-    }
-    let obsolete = state.compare.check_stale;
-    let next = check_settled(state, PreflightView::Unchecked, None);
-    none(if obsolete {
-        next
-    } else {
-        failure_banner(next, "compare_check", error)
-    })
+    let c = &state.compare;
+    let Some((_, probe)) = c.checks.in_flight() else {
+        return none(settled_orphan(state));
+    };
+    let compare = CompareState {
+        checks: c.checks.clone().failed(probe),
+        ..c.clone()
+    };
+    none(failure_banner(
+        with_compare(state, compare),
+        "compare_check",
+        error,
+    ))
 }
 
 /// A whole command failed: show it, and undo whatever the command had optimistically marked.
@@ -406,13 +408,12 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
     // current request is kept (a newer one may be the live one), marked failed so the user can
     // retry it, and the banner reports it.
     let compare = match context {
-        "compare_rows" => CompareState {
-            results: c.results.clone().map(ResultsView::rows_failed),
-            ..c.clone()
+        "compare_rows" => match c.open_pair {
+            Some(pair) => c.clone().results_updated(pair, ResultsView::rows_failed),
+            None => c.clone(),
         },
-        "compare_start" if c.run.running().is_some() => CompareState {
-            run: RunView::Idle,
-            cancel_requested: false,
+        "compare_start" if c.is_running() => CompareState {
+            overview: RunOverview::default(),
             ..c.clone()
         },
         "compare_detail" => CompareState {

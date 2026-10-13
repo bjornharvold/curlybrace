@@ -20,7 +20,9 @@ use curlybrace_ui::viewmodel::compare::Pick;
 
 const SESSION: u64 = 1;
 const RUN: u64 = 1;
-const PAIR: u32 = 1;
+/// The probe of the one check, then the pair the run that follows it uses.
+const CHECK_PAIR: u32 = 1;
+const RUN_PAIR: u32 = 2;
 
 /// How far the scripted session goes.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -81,7 +83,7 @@ fn pick(state: &mut AppState, side: Side, collection: &str) {
 fn answer(source_index: IndexStatus, target_index: IndexStatus, too_large: bool) -> CompareEvent {
     CompareEvent::Checked {
         session: SESSION,
-        pair: PAIR,
+        pair: CHECK_PAIR,
         preflight: Preflight {
             source_count: 482_113,
             target_count: 480_907,
@@ -119,7 +121,7 @@ fn finish_run(state: &mut AppState) {
     let done = CompareEvent::PairDone {
         session: SESSION,
         run: RUN,
-        pair: PAIR,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Completed(summary),
     };
     event(state, done);
@@ -132,7 +134,7 @@ fn finish_run(state: &mut AppState) {
     );
     let rows = CompareEvent::Rows {
         session: SESSION,
-        pair: PAIR,
+        pair: RUN_PAIR,
         category: Category::Different,
         offset: 0,
         total: 2,
@@ -165,7 +167,7 @@ fn open_detail(state: &mut AppState) {
     ];
     let detail = CompareEvent::Detail {
         session: SESSION,
-        pair: PAIR,
+        pair: RUN_PAIR,
         key: key(2),
         source: Some(
             doc! {"_id": 2_i32, "name": "Grace Hopper", "plan": "team", "seats": 40_i32,
@@ -186,7 +188,7 @@ fn find_duplicates(state: &mut AppState) {
     let failed = CompareEvent::PairDone {
         session: SESSION,
         run: RUN,
-        pair: PAIR,
+        pair: RUN_PAIR,
         outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
     };
     event(state, failed);
@@ -210,7 +212,7 @@ fn find_duplicates(state: &mut AppState) {
     };
     let answer = CompareEvent::DuplicateKeys {
         session: SESSION,
-        pair: PAIR,
+        pair: RUN_PAIR,
         source,
         target,
     };
@@ -247,7 +249,7 @@ pub fn compare_state(through: Through) -> impl FnOnce(&mut AppState) {
             let progress = CompareEvent::Progress {
                 session: SESSION,
                 run: RUN,
-                pair: PAIR,
+                pair: RUN_PAIR,
                 scanned_source: 211_000,
                 scanned_target: 209_500,
                 differences: 1,

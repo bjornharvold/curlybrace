@@ -104,8 +104,8 @@ fn check_start_browse_a_difference_and_discard() {
     click_key(&mut f, "compare.run.discard");
     wait_gone(&mut f, &different);
     wait_gone(&mut f, &title);
-    assert!(f.harness.state().state().compare.results.is_none());
-    assert_eq!(f.harness.state().state().compare.run, RunView::Idle);
+    assert!(f.harness.state().state().compare.results.is_empty());
+    assert_eq!(f.harness.state().state().compare.run_view(), RunView::Idle);
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn a_duplicate_key_is_reported_and_leaves_no_partial_results() {
     wait_shows(&mut f, &failed);
     let message = error_text(&f, &CoreError::CompareDuplicateKey);
     wait_shows(&mut f, &message);
-    assert!(f.harness.state().state().compare.results.is_none());
+    assert!(f.harness.state().state().compare.results.is_empty());
     assert!(
         !shows_containing(&f.harness, &f.labels.t("compare.category.different")),
         "no result tabs after a failed run"
@@ -186,7 +186,7 @@ fn finding_duplicate_keys_lists_the_colliding_values() {
     click_key(&mut f, "compare.run.start");
     wait_until(&mut f.harness, "a completed compare", SHORT, |h| {
         matches!(
-            h.state().state().compare.run,
+            h.state().state().compare.run_view(),
             RunView::Finished { failure: None, .. }
         )
     });
@@ -207,7 +207,7 @@ fn cancelling_a_large_run_leaves_the_workspace_usable() {
     click_key(&mut f, "compare.run.cancel");
     wait_finished(&mut f, LONG);
     wait_shows_key(&mut f, "compare.run.cancelled_no_results");
-    assert!(f.harness.state().state().compare.results.is_none());
+    assert!(f.harness.state().state().compare.results.is_empty());
 
     // The same pair again: Check, then Start, now left to run to its end.
     check(&mut f);

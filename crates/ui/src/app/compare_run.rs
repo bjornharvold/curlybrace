@@ -3,13 +3,12 @@
 use super::compare::{cmd, failure_banner, none, ready, with_compare};
 use super::reducer::Out;
 use super::state::AppState;
-use crate::viewmodel::compare::{CompareState, DetailView, PAIR_ID, ResultsView, RunView};
+use crate::viewmodel::compare::{CompareState, DetailView, ResultsView, RunOverview, SINGLE_ENTRY};
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{
     CompareCommand, CompareEvent, PairOutcome, RowView, SessionId,
 };
 use curlybrace_core::compare::results::Category;
-use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Command;
 
 pub(super) fn start(state: AppState) -> Out {
@@ -17,30 +16,40 @@ pub(super) fn start(state: AppState) -> Out {
         return none(state);
     };
     let c = &state.compare;
-    if c.run.running().is_some() || c.check_in_flight || !c.preflight.allows_start() {
+    if !c.can_start() {
         return none(state);
     }
-    let Ok(pair) = c.pair() else {
+    let run = c.next_run;
+    let pair_id = c.next_pair;
+    let Ok(pair) = c.pair_for(pair_id) else {
         return none(state);
     };
-    let run = c.next_run;
-    let mut commands = Vec::new();
-    if c.run != RunView::Idle {
-        commands.push(cmd(CompareCommand::Discard {
-            session,
-            pair: PAIR_ID,
-        }));
-    }
+    let (overview, superseded) = c.overview.clone().started(run, &[(SINGLE_ENTRY, pair_id)]);
+    let mut commands: Vec<Command> = superseded
+        .iter()
+        .map(|pair| {
+            cmd(CompareCommand::Discard {
+                session,
+                pair: *pair,
+            })
+        })
+        .collect();
     commands.push(cmd(CompareCommand::Start {
         session,
         run,
         pairs: vec![pair],
     }));
     let compare = CompareState {
-        run: RunView::started(run),
+        overview,
         next_run: run + 1,
-        cancel_requested: false,
-        results: None,
+        next_pair: pair_id + 1,
+        results: c
+            .results
+            .iter()
+            .filter(|(pair, _)| !superseded.contains(pair))
+            .map(|(pair, view)| (*pair, view.clone()))
+            .collect(),
+        open_pair: None,
         detail: None,
         duplicates: c.duplicates.superseded(),
         ..c.clone()
@@ -51,19 +60,22 @@ pub(super) fn start(state: AppState) -> Out {
 /// Sends Cancel once per run and marks it at once, so the view can say "cancelling" before
 /// the runtime answers.
 pub(super) fn cancel(state: AppState) -> Out {
-    let (Some(session), Some(run)) = (ready(&state), state.compare.run.running()) else {
+    let (Some(session), Some(active)) = (ready(&state), state.compare.overview.active) else {
         return none(state);
     };
-    if state.compare.cancel_requested {
+    if !state.compare.can_cancel() {
         return none(state);
     }
     let compare = CompareState {
-        cancel_requested: true,
+        overview: state.compare.overview.clone().cancelling(),
         ..state.compare.clone()
     };
     (
         with_compare(state, compare),
-        vec![cmd(CompareCommand::Cancel { session, run })],
+        vec![cmd(CompareCommand::Cancel {
+            session,
+            run: active.run,
+        })],
     )
 }
 
@@ -72,22 +84,19 @@ pub(super) fn moved(
     state: AppState,
     change: impl FnOnce(&ResultsView) -> Option<ResultsView>,
 ) -> Out {
-    let (Some(session), Some(results)) = (ready(&state), state.compare.results.as_ref()) else {
+    let (Some(session), Some(results)) = (ready(&state), state.compare.open_results()) else {
         return none(state);
     };
     let Some(next) = change(results) else {
         return none(state);
     };
     let commands = next.request(session).into_iter().map(cmd).collect();
-    let compare = CompareState {
-        results: Some(next),
-        ..state.compare.clone()
-    };
+    let compare = state.compare.clone().results_updated(next.pair, |_| next);
     (with_compare(state, compare), commands)
 }
 
 pub(super) fn select(state: AppState, key: KeyTuple) -> Out {
-    let (Some(session), Some(results)) = (ready(&state), state.compare.results.as_ref()) else {
+    let (Some(session), Some(results)) = (ready(&state), state.compare.open_results()) else {
         return none(state);
     };
     let Some(command) = results.select(session, &key) else {
@@ -101,25 +110,29 @@ pub(super) fn select(state: AppState, key: KeyTuple) -> Out {
 }
 
 pub(super) fn discard(state: AppState) -> Out {
-    let Some(session) = ready(&state) else {
+    let (Some(session), Some(pair)) = (ready(&state), state.compare.single_pair()) else {
         return none(state);
     };
-    if state.compare.run.running().is_some() {
+    if !state.compare.can_discard() {
         return none(state);
     }
+    let c = &state.compare;
     let compare = CompareState {
-        run: RunView::Idle,
-        results: None,
+        overview: c.overview.clone().discarded(pair),
+        results: c
+            .results
+            .iter()
+            .filter(|(id, _)| **id != pair)
+            .map(|(id, view)| (*id, view.clone()))
+            .collect(),
+        open_pair: c.open_pair.filter(|open| *open != pair),
         detail: None,
-        duplicates: state.compare.duplicates.superseded(),
-        ..state.compare.clone()
+        duplicates: c.duplicates.superseded(),
+        ..c.clone()
     };
     (
         with_compare(state, compare),
-        vec![cmd(CompareCommand::Discard {
-            session,
-            pair: PAIR_ID,
-        })],
+        vec![cmd(CompareCommand::Discard { session, pair })],
     )
 }
 
@@ -167,46 +180,20 @@ pub(super) fn on_run_event(state: AppState, ev: CompareEvent) -> Out {
 }
 
 fn progress(state: AppState, run: u64, pair: u32, counters: (u64, u64, u64)) -> Out {
-    let RunView::Running {
-        run: current,
-        finished_pairs,
-        cancelled,
-        failure,
-        ..
-    } = state.compare.run.clone()
-    else {
-        return none(state);
-    };
-    if run != current || pair != PAIR_ID {
-        return none(state);
-    }
-    let compare = CompareState {
-        run: RunView::Running {
-            run,
-            finished_pairs,
-            scanned_source: counters.0,
-            scanned_target: counters.1,
-            differences: counters.2,
-            cancelled,
-            failure,
-        },
-        ..state.compare.clone()
-    };
-    none(with_compare(state, compare))
+    let overview = state
+        .compare
+        .overview
+        .clone()
+        .progressed(run, pair, counters);
+    none(with_overview(state, overview))
 }
 
-/// What a pair outcome adds to the run: its results and the updated cancelled/failure markers.
-fn settle(
-    outcome: &PairOutcome,
-    cancelled: bool,
-    failure: Option<CoreError>,
-) -> (Option<ResultsView>, bool, Option<CoreError>) {
-    match outcome {
-        PairOutcome::Completed(s) => (Some(ResultsView::new(s)), cancelled, failure),
-        // The runtime keeps nothing for a cancelled pair: no results view, no Rows request.
-        PairOutcome::Cancelled(_) => (None, true, failure),
-        PairOutcome::Failed(e) => (None, cancelled, Some(e.clone())),
-    }
+fn with_overview(state: AppState, overview: RunOverview) -> AppState {
+    let compare = CompareState {
+        overview,
+        ..state.compare.clone()
+    };
+    with_compare(state, compare)
 }
 
 fn first_page(results: Option<&ResultsView>, session: SessionId) -> Vec<Command> {
@@ -224,44 +211,31 @@ fn pair_done(
     pair: u32,
     outcome: PairOutcome,
 ) -> Out {
-    let RunView::Running {
-        run: current,
-        finished_pairs,
-        scanned_source,
-        scanned_target,
-        differences,
-        cancelled,
-        failure,
-    } = state.compare.run.clone()
-    else {
-        return none(state);
-    };
-    if run != current || pair != PAIR_ID {
+    let c = &state.compare;
+    let overview = c.overview.clone().pair_done(run, pair, outcome.clone());
+    if overview == c.overview {
         return none(state);
     }
-    let (results, cancelled, failure) = settle(&outcome, cancelled, failure);
-    let commands = first_page(results.as_ref(), session);
-    // The pair's own summary has the final counts; a failed pair keeps the last progress.
-    let (scanned_source, scanned_target) = match &outcome {
-        PairOutcome::Completed(s) | PairOutcome::Cancelled(s) => {
-            (s.scanned_source, s.scanned_target)
-        }
-        PairOutcome::Failed(_) => (scanned_source, scanned_target),
+    let shown = match &outcome {
+        PairOutcome::Completed(summary) => Some(ResultsView::new(pair, summary)),
+        // The runtime keeps nothing for a cancelled or failed pair: no results, no Rows request.
+        _ => None,
     };
+    let commands = first_page(shown.as_ref(), session);
     let compare = CompareState {
-        run: RunView::Running {
-            run,
-            finished_pairs: finished_pairs + 1,
-            scanned_source,
-            scanned_target,
-            differences,
-            cancelled,
-            failure,
+        overview,
+        results: c
+            .results
+            .iter()
+            .map(|(id, view)| (*id, view.clone()))
+            .chain(shown.map(|view| (pair, view)))
+            .collect(),
+        open_pair: match outcome {
+            PairOutcome::Completed(_) => Some(pair),
+            _ => c.open_pair,
         },
-        cancel_requested: false,
-        results,
         detail: None,
-        ..state.compare.clone()
+        ..c.clone()
     };
     let next = with_compare(state, compare);
     match outcome {
@@ -271,32 +245,8 @@ fn pair_done(
 }
 
 fn run_done(state: AppState, run: u64) -> Out {
-    let RunView::Running {
-        run: current,
-        cancelled,
-        failure,
-        scanned_source,
-        scanned_target,
-        ..
-    } = state.compare.run.clone()
-    else {
-        return none(state);
-    };
-    if run != current {
-        return none(state);
-    }
-    let compare = CompareState {
-        run: RunView::Finished {
-            run,
-            cancelled,
-            failure,
-            scanned_source,
-            scanned_target,
-        },
-        cancel_requested: false,
-        ..state.compare.clone()
-    };
-    none(with_compare(state, compare))
+    let overview = state.compare.overview.clone().run_done(run);
+    none(with_overview(state, overview))
 }
 
 fn rows_arrived(
@@ -305,16 +255,10 @@ fn rows_arrived(
     (category, offset, total): (Category, usize, usize),
     rows: Vec<RowView>,
 ) -> Out {
-    let Some(results) = state.compare.results.clone() else {
-        return none(state);
-    };
-    if pair != PAIR_ID {
-        return none(state);
-    }
-    let compare = CompareState {
-        results: Some(results.accept_rows(category, offset, total, rows)),
-        ..state.compare.clone()
-    };
+    let compare = state
+        .compare
+        .clone()
+        .results_updated(pair, |r| r.accept_rows(category, offset, total, rows));
     none(with_compare(state, compare))
 }
 
@@ -328,7 +272,7 @@ fn detail_arrived(
     let Some(detail) = state.compare.detail.clone() else {
         return none(state);
     };
-    if pair != PAIR_ID || !detail.loading || !detail.is_for(&key) {
+    if state.compare.open_pair != Some(pair) || !detail.loading || !detail.is_for(&key) {
         return none(state);
     }
     let compare = CompareState {

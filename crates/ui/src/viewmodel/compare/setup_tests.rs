@@ -1,8 +1,9 @@
 use super::*;
-use crate::viewmodel::compare::PAIR_ID;
 use bson::doc;
 use curlybrace_core::compare::rules::FieldScope;
 use curlybrace_core::store::CollectionKind;
+
+const PAIR_ID: PairId = 1;
 
 fn picked(db: &str, coll: &str) -> SideForm {
     SideForm::default()

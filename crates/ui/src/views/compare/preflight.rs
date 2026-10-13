@@ -17,7 +17,7 @@ pub fn show_preflight(
     ui.horizontal(|ui| {
         // While a check is in flight another cannot start, and an edit meanwhile leaves the
         // answer stale: the button says so instead of silently doing nothing.
-        let label = if state.check_in_flight {
+        let label = if state.check_in_flight() {
             "compare.preflight.checking"
         } else {
             "compare.preflight.check"
@@ -29,16 +29,16 @@ pub fn show_preflight(
         {
             action = Some(CompareAction::RunCheck);
         }
-        if state.check_in_flight {
+        if state.check_in_flight() {
             ui.spinner();
         }
         // While checking, the button text and the spinner already say so.
-        if let Some(key) = status_key(&state.preflight) {
+        if let Some(key) = status_key(&state.preflight_view()) {
             ui.label(i18n.t(key));
         }
     });
-    show_sizes(ui, state.last_check.as_ref(), i18n);
-    show_message(ui, &state.preflight, i18n);
+    show_sizes(ui, state.last_check(), i18n);
+    show_message(ui, &state.preflight_view(), i18n);
     action
 }
 

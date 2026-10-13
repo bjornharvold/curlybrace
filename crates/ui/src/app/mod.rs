@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn a_stopped_runtime_also_ends_the_compare_session() {
         use crate::app::compare::CompareAction;
-        use crate::viewmodel::compare::{RunView, SessionPhase};
+        use crate::viewmodel::compare::{RunOverview, RunView, SINGLE_ENTRY, SessionPhase};
         let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
         drop(commands);
         let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -319,12 +319,13 @@ mod tests {
         let mut app = CurlybraceApp::new(handle, I18n::english(), vec![a], secrets);
         app.state_mut().compare.session = Some(SessionPhase::Ready(4));
         app.state_mut().compare.next_session = 5;
-        app.state_mut().compare.run = RunView::started(2);
+        app.state_mut().compare.overview =
+            RunOverview::default().started(2, &[(SINGLE_ENTRY, 1)]).0;
         // Any command now finds the runtime gone.
         app.dispatch(Input::Compare(CompareAction::Cancel));
         let compare = &app.state().compare;
         assert_eq!(compare.session, None);
-        assert_eq!(compare.run, RunView::Idle);
+        assert_eq!(compare.run_view(), RunView::Idle);
         assert_eq!(compare.next_session, 5, "ids are never reused");
         assert!(matches!(
             app.state().banner,

@@ -179,7 +179,7 @@ mod compare_workspace {
         let failed = CompareEvent::PairDone {
             session: 1,
             run: 1,
-            pair: 1,
+            pair: 2, // the run follows the check, so it has the next pair id
             outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
         };
         let state = step(state, event(failed));
@@ -195,7 +195,7 @@ mod compare_workspace {
         };
         let answer = CompareEvent::DuplicateKeys {
             session: 1,
-            pair: 1,
+            pair: 2, // the run follows the check, so it has the next pair id
             source: DuplicateReport {
                 groups: vec![group],
                 more: true,
@@ -281,14 +281,14 @@ mod compare_workspace {
         let done = CompareEvent::PairDone {
             session: 1,
             run: 1,
-            pair: 1,
+            pair: 2, // the run follows the check, so it has the next pair id
             outcome: PairOutcome::Completed(summary),
         };
         let state = step(state, event(done));
         let state = step(state, event(CompareEvent::RunDone { session: 1, run: 1 }));
         let rows = CompareEvent::Rows {
             session: 1,
-            pair: 1,
+            pair: 2, // the run follows the check, so it has the next pair id
             category: Category::Different,
             offset: 0,
             total: 2,
@@ -310,7 +310,7 @@ mod compare_workspace {
         };
         let detail = CompareEvent::Detail {
             session: 1,
-            pair: 1,
+            pair: 2, // the run follows the check, so it has the next pair id
             key: key(1),
             source: Some(doc! {"_id": 1, "name": "x"}),
             target: Some(doc! {"_id": 1, "name": "y"}),

@@ -94,7 +94,10 @@ pub fn start_and_wait(f: &mut Fixture, limit: Duration) {
 #[track_caller]
 pub fn wait_finished(f: &mut Fixture, limit: Duration) {
     wait_until(&mut f.harness, "the run to finish", limit, |h| {
-        matches!(h.state().state().compare.run, RunView::Finished { .. })
+        matches!(
+            h.state().state().compare.run_view(),
+            RunView::Finished { .. }
+        )
     });
 }
 

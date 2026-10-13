@@ -28,7 +28,7 @@ fn reload_without_a_picked_database_or_a_ready_session_does_nothing() {
 #[test]
 fn reload_does_not_reset_the_preflight() {
     let (state, _) = act(checked_state(), CompareAction::Reload(Side::Source));
-    assert_eq!(state.compare.preflight, PreflightView::Ok);
+    assert_eq!(state.compare.preflight_view(), PreflightView::Ok);
 }
 
 fn connected_state() -> (AppState, uuid::Uuid) {
@@ -110,21 +110,21 @@ fn compare_to_without_a_connection_only_reports_it() {
 #[test]
 fn the_accepted_check_keeps_its_counts_until_the_form_is_edited() {
     let state = checked_state();
-    let kept = state.compare.last_check.clone().expect("counts kept");
+    let kept = state.compare.last_check().cloned().expect("counts kept");
     assert_eq!((kept.source_count, kept.target_count), (10, 10));
     let (state, _) = act(state, CompareAction::SetKey("sku".into()));
-    assert!(state.compare.last_check.is_none());
+    assert!(state.compare.last_check().is_none());
 }
 
 #[test]
 fn counts_are_cleared_by_a_recheck_a_stale_answer_and_a_failed_check() {
     let (rechecking, _) = act(checked_state(), CompareAction::RunCheck);
-    assert!(rechecking.compare.last_check.is_none(), "while checking");
+    assert!(rechecking.compare.last_check().is_none(), "while checking");
 
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
     let (state, _) = act(state, CompareAction::SetKey("sku".into()));
     let (state, _) = update(state, checked_event(indexed(3)));
-    assert!(state.compare.last_check.is_none(), "stale answer dropped");
+    assert!(state.compare.last_check().is_none(), "stale answer dropped");
 
     let (state, _) = act(picked_state(), CompareAction::RunCheck);
     let failed = ev(CompareEvent::Failed {
@@ -133,7 +133,7 @@ fn counts_are_cleared_by_a_recheck_a_stale_answer_and_a_failed_check() {
         error: CoreError::NotFound,
     });
     let (state, _) = update(state, failed);
-    assert!(state.compare.last_check.is_none());
+    assert!(state.compare.last_check().is_none());
 }
 
 #[test]

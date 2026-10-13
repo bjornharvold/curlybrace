@@ -46,8 +46,8 @@ fn scanned_text(source: u64, target: u64, i18n: &I18n) -> String {
 }
 
 fn show_progress(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
-    let cancel_requested = state.cancel_requested;
-    match &state.run {
+    let cancel_requested = state.cancel_requested();
+    match &state.run_view() {
         RunView::Idle => {}
         RunView::Running {
             scanned_source,
