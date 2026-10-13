@@ -119,3 +119,13 @@ fn a_document_that_changed_since_the_compare_is_stale() {
         ChangedPaths::Stale
     );
 }
+
+#[test]
+fn a_fresh_diff_without_paths_counts_as_stale() {
+    let same = doc! { "_id": 1, "a": 1 };
+    let entry = entry_for(&same, &same);
+    assert_eq!(
+        changed_paths(&spec(), &entry, &same, &same).unwrap(),
+        ChangedPaths::Stale
+    );
+}

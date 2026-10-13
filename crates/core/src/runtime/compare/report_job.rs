@@ -14,10 +14,11 @@
 //! `ExportDone` of a cancelled report (or one that panicked) nothing was exported (`not_run` =
 //! all rows), no text was sent and no file remains.
 //!
-//! Accounting: `written` is the rows written. With `include_paths`, a different row whose
-//! documents changed or vanished since the compare (or are no longer unique) gets an empty
-//! `changed_paths` cell and counts in `skipped`; one whose documents could not be read counts in
-//! `failed`. Both rows are still listed.
+//! Accounting (different from a plan export): `written` is the rows written. With
+//! `include_paths`, a different row whose documents changed or vanished since the compare (or
+//! are no longer unique, or whose fresh diff finds nothing) gets an empty `changed_paths` cell
+//! and counts in `skipped`; one whose documents could not be read counts in `failed`. Both are
+//! counted INSIDE `written`: those rows are still listed.
 //!
 //! The summary needs no header overwrite: the per-pair counts are known from the stored results
 //! before the first row, so the file is written once, front to back. It has no "incomplete"
@@ -26,6 +27,15 @@
 //! plan export (see `export.rs` for the lifecycle). Memory is bounded: rows are written one at a
 //! time through a 64 KiB buffer (the clipboard text, at most [`CLIPBOARD_MAX_ROWS`] rows, is
 //! built in memory).
+//!
+//! The clipboard cap counts rows. With `include_paths` one row can carry many paths, so the
+//! `changed_paths` cell is cut at 200 paths plus a `"..."` element: the size stays bounded.
+//!
+//! Format notes: the `pair` column is the 1-based position of the pair in the report (it matches
+//! `# pair N` in the summary), not the pair id. Display paths are ambiguous for field names that
+//! contain `.` or `[`. `changed_paths` is a JSON array of display paths; this replaces the
+//! `; `-joined form of the brief (an intentional deviation: a JSON array survives names that
+//! contain `;`). The last line `# end of report: N rows` marks a complete file.
 //!
 //! Keys, names and paths are data and are never logged.
 
@@ -373,6 +383,8 @@ impl<W: Write> Writing<'_, W> {
                 if self.job.cancel.is_cancelled() {
                     return Ok(false);
                 }
+                // Share the worker fairly: a page of rows without reads has no await.
+                tokio::task::yield_now().await;
                 for entry in pair.results.page(category, offset, ROW_BATCH) {
                     if !self.row(position, pair, category, entry).await? {
                         return Ok(false);
@@ -419,13 +431,13 @@ impl<W: Write> Writing<'_, W> {
         };
         self.csv.row(&row).map_err(render_error)?;
         self.tally = self.tally.with(&read);
-        self.progress();
+        self.progress(category);
         Ok(true)
     }
 
-    fn progress(&self) {
+    fn progress(&self, category: Category) {
         let done = self.tally.rows;
-        let step = if self.job.include_paths {
+        let step = if self.job.include_paths && category == Category::Different {
             PATH_PROGRESS
         } else {
             ROW_BATCH as u64

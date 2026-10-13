@@ -10,11 +10,12 @@ use super::export_tests::{
     ExRig, SRC_NAME, SRC_URI, TGT_NAME, TGT_URI, collect_export, outcome_of, rig_with,
 };
 use super::tests::{next_compare, ns, pair, same_pair};
-use crate::compare::key::KeyTuple;
+use crate::compare::key::{KeySpec, KeyTuple};
 use crate::compare::protocol::{
-    CompareCommand, CompareEvent, ExportOutcome, PairId, ReportRequest, ReportTarget,
+    CompareCommand, CompareEvent, ExportOutcome, PairId, PairSpec, ReportRequest, ReportTarget,
 };
 use crate::compare::results::Category;
+use crate::compare::rules::CompareRules;
 use crate::error::CoreError;
 use crate::runtime::Command;
 use crate::store::DocumentStore;
@@ -231,7 +232,19 @@ pub(super) fn data_rows(text: &str) -> Vec<Vec<String>> {
         .iter()
         .position(|r| r[0] == "pair")
         .expect("the header row");
-    rows[header + 1..].to_vec()
+    rows[header + 1..]
+        .iter()
+        .filter(|r| !r[0].starts_with('#'))
+        .cloned()
+        .collect()
+}
+
+/// The end marker: the last row, which must be ONE cell.
+pub(super) fn footer(text: &str) -> String {
+    let rows = parse_csv(text);
+    let last = rows.last().expect("rows");
+    assert_eq!(last.len(), 1, "the end marker must be one cell: {last:?}");
+    last[0].clone()
 }
 
 pub(super) fn comment_lines(text: &str) -> Vec<String> {
@@ -282,6 +295,7 @@ async fn rows_equal_the_stored_differences_of_every_category_for_two_pairs_in_re
     }
     assert_eq!(expected.len(), 3 + 8, "3 rows of pair 2 and 8 of pair 1");
     assert_eq!(data_rows(&text), expected);
+    assert_eq!(footer(&text), "# end of report: 11 rows");
     assert_eq!(
         (
             outcome.written,
@@ -330,6 +344,7 @@ async fn a_pair_without_differences_yields_the_summary_and_the_header_only() {
     let (text, outcome) = file_report(&mut r, 5, vec![3], true).await;
     assert!(data_rows(&text).is_empty());
     assert_eq!(comment_lines(&text).len(), 5);
+    assert_eq!(footer(&text), "# end of report: 0 rows");
     assert_eq!(
         (
             outcome.written,
@@ -347,9 +362,7 @@ async fn include_paths_fills_different_rows_with_display_paths_and_never_values(
     let mut r = report_rig().await;
     let (text, outcome) = file_report(&mut r, 5, vec![1, 2], true).await;
     assert!(!text.contains(SENTINEL), "a value reached the report");
-    for forbidden in ["\"x\"", "SENTINEL"] {
-        assert!(!text.contains(forbidden));
-    }
+    assert!(!text.contains("\"x\""), "the other side's value leaked");
     let paths_of = |pair_pos: &str, key: &str| -> Vec<String> {
         let rows = data_rows(&text);
         let row = rows
@@ -448,12 +461,13 @@ pub(super) fn assert_event_order(events: &[CompareEvent]) {
     let (last, rest) = events.split_last().unwrap();
     assert!(matches!(last, CompareEvent::ExportDone { .. }), "{last:?}");
     let mut seen_text = false;
-    let mut done = 0;
+    let mut last_done = 0;
     for event in rest {
         match event {
             CompareEvent::ExportProgress { done: d, total, .. } => {
                 assert!(!seen_text && d <= total);
-                done = done.max(*d);
+                assert!(*d >= last_done, "progress went back");
+                last_done = *d;
             }
             CompareEvent::ExportText { .. } => {
                 assert!(!seen_text, "one ExportText");
@@ -462,7 +476,6 @@ pub(super) fn assert_event_order(events: &[CompareEvent]) {
             other => panic!("{other:?}"),
         }
     }
-    let _ = done;
 }
 
 #[tokio::test]
@@ -613,19 +626,24 @@ async fn big_rig(rows: i32) -> ExRig {
 #[tokio::test]
 async fn a_clipboard_report_over_the_cap_is_refused_before_the_slot_is_taken() {
     let mut r = big_rig(10_001).await;
-    let events = report(
-        &mut r,
+    // Both commands are sent back to back: the second finds the slot free only if the refusal
+    // never took it.
+    let (file, _) = file_target(&r, "big.csv");
+    send_report(
+        &r.tx,
         5,
         report_request(vec![1], false),
         ReportTarget::Clipboard,
-    )
-    .await;
+    );
+    send_report(&r.tx, 6, report_request(vec![1], false), file);
+    let events = within(collect_export(&mut r.h)).await;
     assert_eq!(
         failure_of(&events),
         CoreError::Unsupported("report too large for the clipboard".into())
     );
-    // The slot was never taken: a file report of the same pair runs at once.
-    let (text, outcome) = file_report(&mut r, 6, vec![1], false).await;
+    let events = within(collect_export(&mut r.h)).await;
+    let outcome = outcome_of(&events);
+    let text = std::fs::read_to_string(r.path("big.csv")).unwrap();
     assert_eq!(outcome.written, 10_001);
     assert_eq!(data_rows(&text).len(), 10_001);
 }
@@ -643,4 +661,71 @@ async fn a_clipboard_report_of_exactly_the_cap_is_accepted() {
     assert_eq!(data_rows(&text_of(&events)).len(), 10_000);
     assert_eq!(outcome_of(&events).written, 10_000);
     assert_event_order(&events);
+}
+
+fn key_pair(id: u32) -> PairSpec {
+    let key = KeySpec {
+        fields: vec!["k".into()],
+    };
+    PairSpec {
+        key: key.clone(),
+        rules: CompareRules::for_key(&key),
+        ..pair(id, ns("d", "k"), ns("d", "k"))
+    }
+}
+
+#[tokio::test]
+async fn a_key_that_became_non_unique_is_stale_and_counted_as_skipped() {
+    let doc = |id: i32, v: i32| doc! { "_id": id, "k": "a", "v": v };
+    let mut r = rig_with(
+        ApplyStore::new(InMemoryStore::new().with_docs(&ns("d", "k"), vec![doc(1, 1)])),
+        ApplyStore::new(InMemoryStore::new().with_docs(&ns("d", "k"), vec![doc(1, 2)])),
+        vec![key_pair(1)],
+    )
+    .await;
+    r.source.insert(&ns("d", "k"), doc(2, 3)).await.unwrap();
+    let (text, outcome) = file_report(&mut r, 5, vec![1], true).await;
+    let rows = data_rows(&text);
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0][5].is_empty());
+    assert_eq!(
+        (outcome.written, outcome.skipped, outcome.failed),
+        (1, 1, 0)
+    );
+}
+
+#[tokio::test]
+async fn a_collection_name_with_a_comma_and_a_quote_stays_one_cell_and_the_footer_too() {
+    let name = "we,i\"rd";
+    let with = |v: i32| InMemoryStore::new().with_docs(&ns("d", name), vec![int_doc(1, v)]);
+    let mut r = rig_with(
+        ApplyStore::new(with(1)),
+        ApplyStore::new(with(2)),
+        vec![pair(1, ns("d", name), ns("d", name))],
+    )
+    .await;
+    let (text, _) = file_report(&mut r, 5, vec![1], true).await;
+    let rows = data_rows(&text);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].len(), 6);
+    assert_eq!(rows[0][1], format!("d.{name}"));
+    assert_eq!(comment_lines(&text).len(), 5);
+    assert_eq!(footer(&text), "# end of report: 1 rows");
+}
+
+#[tokio::test]
+async fn a_report_after_re_running_a_pair_shows_the_new_summary() {
+    let mut r = report_rig().await;
+    let extra = text_doc("zzz", doc! { "v": 1 });
+    r.source.insert(&ns("d", "c"), extra).await.unwrap();
+    super::tests::send_start(&r.tx, 2, vec![same_pair(1)]);
+    super::tests::collect_run(&mut r.h).await;
+    let (text, outcome) = file_report(&mut r, 5, vec![1], false).await;
+    let lines = comment_lines(&text);
+    assert_eq!(
+        lines[3],
+        "# pair 1: d.c -> d.c: only_in_source=3, only_in_target=1, different=5, identical=1, \
+         scanned_source=9, scanned_target=7"
+    );
+    assert_eq!(outcome.written, 9);
 }

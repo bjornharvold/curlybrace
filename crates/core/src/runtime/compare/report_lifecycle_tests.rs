@@ -245,4 +245,6 @@ async fn a_symlink_target_is_refused_and_its_destination_is_left_alone() {
     .await;
     assert!(matches!(events.as_slice(), [CompareEvent::Failed { .. }]));
     assert_eq!(std::fs::read_to_string(&victim).unwrap(), "precious");
+    let (_, again) = file_report(&mut r, 6, vec![1], false).await;
+    assert_eq!(again.written, 8, "the slot was freed");
 }

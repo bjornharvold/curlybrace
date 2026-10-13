@@ -2,7 +2,8 @@
 //!
 //! The file starts with `#` comment lines (the summary: counts per pair and in total, no
 //! durations; each line is ONE csv_cell-quoted field), then the header row `pair,source,target,category,key,changed_paths`, then one row
-//! per difference. `key` is the key tuple as a relaxed extended JSON array; `changed_paths` is
+//! per difference, then the end marker `# end of report: N rows` (one cell; a file without it was
+//! cut short). `key` is the key tuple as a relaxed extended JSON array; `changed_paths` is
 //! empty, or a JSON array of display paths (`a.b`, `c[2]`). It never carries values. Every cell
 //! goes through [`csv_cell`], so a spreadsheet cannot read one as a formula.
 
@@ -16,6 +17,11 @@ use crate::compare::diff::{PathSegment, render_path};
 use crate::compare::engine::Summary;
 use crate::compare::key::KeyTuple;
 use crate::compare::results::Category;
+
+/// Most paths in one `changed_paths` cell; more are cut and followed by [`CUT_MARKER`].
+pub const MAX_PATHS: usize = 200;
+/// The last element of a cut `changed_paths` array.
+pub const CUT_MARKER: &str = "...";
 
 const EOL: &str = "\r\n";
 const HEADER_ROW: &str = "pair,source,target,category,key,changed_paths";
@@ -108,7 +114,14 @@ fn paths_cell(paths: &[Vec<PathSegment>]) -> Result<String, RenderError> {
     if paths.is_empty() {
         return Ok(String::new());
     }
-    let shown: Vec<String> = paths.iter().map(|p| render_path(p)).collect();
+    let mut shown: Vec<String> = paths
+        .iter()
+        .take(MAX_PATHS)
+        .map(|p| render_path(p))
+        .collect();
+    if paths.len() > MAX_PATHS {
+        shown.push(CUT_MARKER.to_string());
+    }
     serde_json::to_string(&shown).map_err(|_| RenderError::Unrenderable)
 }
 
@@ -123,6 +136,7 @@ enum State {
 pub struct CsvWriter<W: Write> {
     inner: W,
     state: State,
+    rows: u64,
 }
 
 impl<W: Write> CsvWriter<W> {
@@ -130,6 +144,7 @@ impl<W: Write> CsvWriter<W> {
         Self {
             inner,
             state: State::New,
+            rows: 0,
         }
     }
 
@@ -172,14 +187,19 @@ impl<W: Write> CsvWriter<W> {
             .join(",");
         self.inner.write_all(line.as_bytes())?;
         self.inner.write_all(EOL.as_bytes())?;
+        self.rows += 1;
         Ok(())
     }
 
-    /// Flushes and returns the sink.
+    /// Writes the end marker (one quoted cell: `# end of report: N rows`, so a cut-short file is
+    /// recognisable), flushes and returns the sink.
     pub fn finish(mut self) -> Result<W, RenderError> {
         if self.state != State::Rows {
             return Err(RenderError::Sequence);
         }
+        let footer = csv_cell(&format!("# end of report: {} rows", self.rows));
+        self.inner.write_all(footer.as_bytes())?;
+        self.inner.write_all(EOL.as_bytes())?;
         self.inner.flush()?;
         Ok(self.inner)
     }

@@ -133,6 +133,9 @@ pub enum CompareCommand {
     /// the one `ExportDone` (rows in `written`). Refused as `Failed { context: "compare_export" }`
     /// when a pair has no results, no pair is named, the path is unusable or the clipboard
     /// report would hold more than `CLIPBOARD_MAX_ROWS` (`export::report`) rows.
+    /// The cap counts rows; with `include_paths` one row can carry many paths, so the
+    /// `changed_paths` cell is cut at 200 paths plus a `"..."` element. The outcome counts are
+    /// those of a report (see `ExportOutcome`: `skipped` and `failed` are inside `written`).
     ExportReport {
         session: SessionId,
         run: RunId,
@@ -180,6 +183,12 @@ pub struct ExportRequest {
 /// How an export ended. `skipped` is stale + not planned + unsupported (listed in the file, never
 /// written as operations); `failed` are operations that could not be verified. When `cancelled`
 /// (or the file could not be kept) the counts say nothing was exported and `bytes` is 0.
+///
+/// For a REPORT the counts mean something else: `written` is the rows written; `skipped` is the
+/// rows whose documents changed since the compare (stale, or a fresh diff with no paths;
+/// `changed_paths` left empty) and `failed` the rows whose documents could not be read (empty
+/// cell). Both are counted INSIDE `written` (those rows are still listed), whereas for a plan
+/// `written`, `skipped` and `failed` are separate groups of operations.
 /// `partial_removed` is true when no export file remains (it was removed, or none was ever
 /// created); `file_left` is true only when one remains because its removal failed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

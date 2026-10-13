@@ -102,6 +102,11 @@ pub fn changed_paths(
         &normalize(target, rules)?,
         rules.ignore_array_order,
     )?;
+    // A row recorded as different whose fresh diff finds nothing cannot give an honest empty
+    // cell: it is counted as stale.
+    if changes.is_empty() {
+        return Ok(ChangedPaths::Stale);
+    }
     Ok(ChangedPaths::Paths(
         changes.into_iter().map(|c| c.segments).collect(),
     ))

@@ -103,6 +103,7 @@ pair,source,target,category,key,changed_paths\r
 1,shop.items,shop2.items,different,\"[\"\"a,b\"\"]\",\"[\"\"a.b\"\",\"\"c[2]\"\"]\"\r
 2,'=evil.c,\"a\nb\",different,\"[\"\"\u{fc}n\u{ef}\"\"]\",\"[\"\"\u{e9},x\"\"]\"\r
 2,'=evil.c,t,only_in_target,\"[\"\"=1+1\\r\\n@x\"\"]\",\r
+# end of report: 4 rows\r
 ";
     assert_eq!(report(), expected);
 }
@@ -131,7 +132,8 @@ fn comment_lines_come_first_then_the_header_row() {
     assert!(
         lines[header_at + 1..]
             .iter()
-            .all(|l| !l.trim_start_matches('"').starts_with('#'))
+            .all(|l| !l.trim_start_matches('"').starts_with('#')
+                || l.starts_with("# end of report: "))
     );
 }
 
@@ -147,7 +149,11 @@ fn a_report_without_rows_still_has_summary_and_header() {
     assert!(text.starts_with("# curlybrace data compare report\r\n"));
     assert!(text.contains("# pairs: 0\r\n"));
     assert!(text.contains("# total: only_in_source=0, only_in_target=0, different=0"));
-    assert!(text.ends_with("pair,source,target,category,key,changed_paths\r\n"));
+    assert!(
+        text.contains(
+            "pair,source,target,category,key,changed_paths\r\n# end of report: 0 rows\r\n"
+        )
+    );
 }
 
 #[test]
@@ -253,14 +259,15 @@ fn every_summary_line_is_exactly_one_cell_even_with_hostile_text() {
     w.begin(&header).expect("begin");
     let text = String::from_utf8(w.finish().expect("finish")).expect("utf8");
     let rows = parse_csv(&text);
-    let comments: Vec<_> = rows.iter().filter(|r| r[0].starts_with('#')).collect();
+    let comments: Vec<_> = rows.iter().take_while(|r| r[0] != "pair").collect();
     assert_eq!(comments.len(), 5, "{rows:?}");
+    assert_eq!(rows.last().unwrap().as_slice(), ["# end of report: 0 rows"]);
     for r in &comments {
         assert_eq!(r.len(), 1, "a summary line split into cells: {r:?}");
     }
     assert!(comments[1][0].starts_with("# label: x,=HYPERLINK("));
     assert!(comments[3][0].contains("a,=1+2.c;\"x"));
-    let last = rows.last().expect("rows");
+    let last = &rows[rows.len() - 2];
     assert_eq!(
         last.as_slice(),
         [
@@ -296,9 +303,55 @@ fn rows_with_semicolons_stay_one_cell_each() {
     .expect("row");
     let text = String::from_utf8(w.finish().expect("finish")).expect("utf8");
     let rows = parse_csv(&text);
-    let row = rows.last().expect("row");
+    let row = &rows[rows.len() - 2];
+    assert_eq!(rows.last().unwrap().len(), 1);
     assert_eq!(row.len(), 6);
     assert_eq!(row[1], "s;=1");
     assert_eq!(row[4], "[\"a;=1+1\"]");
     assert!(text.contains("\"s;=1\""), "a semicolon cell is quoted");
+}
+
+#[test]
+fn the_end_marker_counts_the_rows_and_is_one_cell() {
+    let mut w = CsvWriter::new(Vec::new());
+    w.begin(&header()).expect("begin");
+    let none: &[Vec<crate::compare::diff::PathSegment>] = &[];
+    for n in 0..3 {
+        w.row(&CsvRow {
+            pair: 1,
+            source: "s",
+            target: "t",
+            category: Category::Different,
+            key: &key(Bson::Int32(n)),
+            changed_paths: none,
+        })
+        .expect("row");
+    }
+    let text = String::from_utf8(w.finish().expect("finish")).expect("utf8");
+    let rows = parse_csv(&text);
+    assert_eq!(rows.last().unwrap().as_slice(), ["# end of report: 3 rows"]);
+}
+
+#[test]
+fn a_huge_path_list_is_cut_with_a_marker() {
+    let many: Vec<Vec<crate::compare::diff::PathSegment>> =
+        (0..250).map(|n| vec![Field(format!("f{n}"))]).collect();
+    let mut w = CsvWriter::new(Vec::new());
+    w.begin(&header()).expect("begin");
+    w.row(&CsvRow {
+        pair: 1,
+        source: "s",
+        target: "t",
+        category: Category::Different,
+        key: &key(Bson::Int32(1)),
+        changed_paths: &many,
+    })
+    .expect("row");
+    let text = String::from_utf8(w.finish().expect("finish")).expect("utf8");
+    let rows = parse_csv(&text);
+    let cell = &rows[rows.len() - 2][5];
+    let shown: Vec<String> = serde_json::from_str(cell).unwrap();
+    assert_eq!(shown.len(), MAX_PATHS + 1);
+    assert_eq!(shown.last().unwrap(), "...");
+    assert_eq!(shown[0], "f0");
 }
