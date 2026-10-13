@@ -20,7 +20,7 @@ collections, including differently named ones). A single-pair compare is simply 
 |---|---|---|
 | 1 | Diff engine, **pair-aware** compare session and runtime protocol, read-only Compare workspace with a single pair | **No** |
 | 1b | "Find duplicate keys" helper | No |
-| 1c | Multi-pair UI: database-level pairing, pair list, run overview | No |
+| 1c | Multi-pair UI: database-level pairing, pair list, run overview (**built**) | No |
 | 2 | Apply (copy source to target, target to source, delete extras; field-level; pending changes) | Yes, behind confirmation |
 | 3 | Export: `mongosh` script, extended JSON, CSV report | No |
 
@@ -372,13 +372,13 @@ rules:
   marks a check stale when the form is edited meanwhile and drops its answer.
 - `Rows` events carry no run id (known limitation, accepted in slice 1): a late page of an earlier run is
   recognised only by session, pair, category and offset. The reducer takes a page only when it is the exact
-  (category, offset) it asked for, and a new `Start` discards the previous results first; slice 1c must add a run
-  id before several runs overlap on one session.
+  (category, offset) it asked for, and a new `Start` discards the previous results first. Slice 1c closed this
+  without a protocol change: the UI never reuses a `PairId` (see "Slice 1c as built").
 - `FieldChange.path` is display-only in slice 1 (`a.b[2].c`, `a[*]` for an element of an unordered array). It is a
   rendered string, not an address: slice 2 must add structured path segments to `FieldChange` before any apply
   logic consumes it, because a field name containing a dot or a bracket is ambiguous in the string form.
 
-**Deviations of the slice 1 runtime from the design above** (accepted; revisit in slice 1c):
+**Deviations of the slice 1 runtime from the design above** (accepted; slice 1c's outcome is in "Slice 1c as built"):
 
 - Progress is emitted every `batch_size` merge steps per pair, not throttled to about four per second.
 - `PairOutcome` has no `NotRun`: a pair ends `Completed`, `Cancelled` or `Failed`. After a pair fails with
@@ -437,6 +437,48 @@ never end the browsing session, and a browsing Disconnect never cancels a job. C
 
 ## UI
 
+**Slice 1c as built.** Slice 1c is built and changes no protocol events. What differs from the sketch above:
+
+- **Fresh `PairId`s.** The UI never reuses a `PairId`. Every run assigns fresh ids from a session counter to the
+  pairs it starts and keeps `PairId -> EntryId` in the overview row; each queued preflight `Check` uses a fresh
+  probe `PairId`, so its answer identifies its entry and a stale answer is recognisable. This closes the `Rows`
+  run-id limitation: a late page of an earlier run carries an id the new run never uses. The "one `Check` in
+  flight" rule stays. `CompareState.orphaned_check` remembers the probe of a check whose entry was edited
+  meanwhile: `Failed` carries no probe, so a new `Check` stays blocked until the old probe's answer or failure
+  arrives, and a stale failure is not attributed to the new check.
+- **Entries vs pairs.** The list holds *pair entries* (`EntryId`, stable, editable). A *pair* (`PairId`) is one
+  entry's appearance in one run or check; an overview row shows the entry's latest `PairId`. A pair entry stores
+  both full namespaces (database and collection per side), so the pair list does not depend on the database
+  pickers: they only feed **Add pair** and **Add all same-named**, and changing a picker never touches entries.
+- **Defaults and overrides.** The top-of-form fields (key, rules, the two filters) are the defaults. An entry
+  holds optional overrides; no override follows the default, so changing a default never overwrites a deliberate
+  override. A marker in the list shows a customised entry; **Use default** clears an override.
+- **Run selection.** Each entry has an *included* flag (default on). **Run** starts the included entries, and
+  needs every checkable included entry to have passed. When the preflight refused some, **Run passing** starts
+  only the included entries that passed. A refused entry that does run fails on its own with
+  `CompareKeyNotIndexed` (the runner re-checks).
+- **Re-run** selects that entry for editing, includes only it and clears its verdict; the user changes the key
+  and checks and runs again. Other entries keep their results. Re-run (and Remove) is disabled while a run is
+  active or a check is in flight, and for an entry whose row is still pending or running.
+- **Per-pair results.** Each pair keeps its own `ResultsView` (category, page, rows); opening a pair from the
+  overview and going back keeps them, and the open detail is cleared when the pair changes. Apply selection does
+  not exist yet (slice 2). When exactly one pair finishes, its results open automatically.
+- **Duplicates panel.** **Find duplicate keys** is a button on a failed row; the panel is drawn under the
+  overview table, headed by the pair's names (the table uses fixed row heights).
+- **No per-pair duration** (the pure reducer has no clock, and `Summary` has no `duration_ms`), so the overview
+  shows status, counts and the error but no duration. A pair that fails on the shared budget shows
+  `CompareCapExceeded`. Progress is shown for the running pair and is not throttled.
+- **"Compare database to..."** is an entry on a database row of the Browse sidebar. It opens the session like
+  "Compare to...", sets the source database, and picks the *same database name* on the target only when the
+  session's target connection differs from the source (the cross-server case); on one connection the target
+  database is left for the user to pick. Like "Compare to...", it replaces a session for a different connection
+  without confirmation.
+- Pairing rules: a name that is a view on either side is never offered; time-series collections count as
+  collections; `system.*` is hidden unless switched on; names match exactly; collections without a counterpart
+  are listed and can be paired with a typed name (a missing collection counts as empty).
+- Known limits: closing a session does not abort an in-flight `Find duplicate keys` call; narrow windows truncate
+  pair names and counts (hover shows the full text).
+
 `AppState` gains `workspace: Workspace { Browse, Compare }` and `compare: CompareUi`. A top-level switch
 changes the main area. A running session keeps running while the user switches back to Browse. The Compare
 workspace moves through four views: **Setup**, **Preflight**, **Run overview** and **Pair results**.
@@ -467,6 +509,8 @@ The slice 1 UI always holds a pair list of exactly one entry. The state, the vie
 already pair-aware, so slice 1c only adds UI.
 
 ### Slice 1c (multiple pairs)
+
+*Built; see "Slice 1c as built" for where the result differs from this sketch (no duration column; Re-run semantics; the selection note).*
 
 - **Pair list** in Setup: a table with source collection, target collection, key, a marker when the pair has its
   own filter or field scope, and its status. Buttons: **Add pair**, **Add all same-named collections** (from the
@@ -659,7 +703,7 @@ Small pull requests, each independently tested and useful:
 
 Slice 1b (small, after slice 1): **Find duplicate keys**.
 
-Slice 1c (after slice 1): **multi-pair UI**: the pairing helper, the pair list and per-pair settings, the run
+Slice 1c (built): **multi-pair UI**: the pairing helper, the pair list and per-pair settings, the run
 overview, per-pair results and the "Compare database to..." entry. The protocol and runner are already
 pair-aware from slice 1, so this slice changes no events.
 

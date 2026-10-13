@@ -57,6 +57,7 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
 - `curlybrace-core` `local_mongo_crud` - listing, paging (50/page, 100/101/120 docs),
   sort/projection/filter, replace/delete for every `_id` kind, `DocumentService`, exotic BSON.
 - `curlybrace-ui` `local_e2e_flows` - the click-driven flows, see below.
+- `curlybrace-ui` `local_compare_flows` - the Compare workspace: single pair, a database-level compare (Add all same-named, a duplicate key and Find duplicate keys, Re-run) and cancelling a multi-pair run. It drives the reducer through `CurlybraceApp::dispatch` against real `cbit_*` databases.
 
 The script checks that the server answers on TCP (no `mongosh` needed), sets `CURLYBRACE_IT=1` and
 runs both targets. **Start the server yourself**, for example
@@ -127,7 +128,7 @@ you start yourself, not against a database you care about.
     CURLYBRACE_SNAPSHOTS=1 cargo test -p curlybrace-ui --test snapshots -- --include-ignored --nocapture
     CURLYBRACE_SNAPSHOTS=1 UPDATE_SNAPSHOTS=1 cargo test -p curlybrace-ui --test snapshots -- --include-ignored --nocapture
 
-`crates/ui/tests/snapshots.rs` renders fixed in-memory states (no database; the landing page's
+`crates/ui/tests/snapshots.rs` renders fixed in-memory states (the Compare screens included, among them `compare_pairs_setup`, `compare_overview_mixed` and `compare_pair_results`; their states live in `tests/support/compare_multi_states.rs`) (no database; the landing page's
 sample people) with `egui_kittest` + wgpu (Metal on macOS) at 1000x700 and 1.0 pixels per point and
 compares them with the PNGs in `crates/ui/tests/snapshots/`. The app under test uses a temp
 connections file and known_hosts, never the developer's. Update the PNGs only deliberately and

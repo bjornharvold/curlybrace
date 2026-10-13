@@ -85,12 +85,24 @@ To see failure details, launch the app from a terminal with logging on (levels: 
 CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 ```
 
-## Compare two collections
+## Compare collections and databases
 
 Switch from **Browse** to **Compare** next to the Disconnect button, or right-click a collection and
 choose **Compare to...** to start with it as the source. Pick a saved connection for each side (the
 two sides can be on different servers) and press **Connect**, then pick a database and collection
-for each side, press **Check** and **Start**.
+for each side, press **Add pair**, then **Check** and **Run**.
+
+- A compare is a **list of pairs**. Add one collection pair, hand-pair collections with different names,
+  or press **Add all same-named** to pair every collection two databases share (views are skipped,
+  system collections only if you switch them on, and collections without a counterpart are listed so
+  you can pair them by name). Right-click a database and choose **Compare database to...** to start a
+  whole-database compare; when the target is on a different connection, the same database name is
+  picked there for you.
+- The key, rules and filters at the top are **defaults for every pair**; open a pair to override them
+  for just that pair. The check shows a verdict per pair. **Run** starts the included pairs, and
+  **Run passing** skips the ones the check refused.
+- The run overview shows each pair's status and counts with totals, and you can cancel the run. Open
+  a pair for its results, discard it, or **Re-run** it (for instance with a different key).
 
 - It compares documents by a **key** (default `_id`) and lists what is only in the source, only in
   the target, or different, with the changed fields of each document. Optional filters limit each
@@ -130,7 +142,7 @@ in rough order; each one gets its own design and plan before code is written, an
 place to contribute:
 
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): diff two collections or databases (across servers), pick the
-  differences, and apply or export the sync.
+  differences, and apply or export the sync. Comparing collections and whole databases is built (read-only); applying and exporting are still to come.
 - **Data Masking and Reschema** ([#9](https://github.com/bjornharvold/curlybrace/issues/9)): anonymise sensitive fields in copies of data and
   reshape documents in bulk.
 - **SQL and MongoDB** ([#10](https://github.com/bjornharvold/curlybrace/issues/10)): a SQL query editor that translates to MongoDB queries, plus SQL
