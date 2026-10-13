@@ -27,6 +27,7 @@ mod tests;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bson::Document;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::compare::protocol::{
@@ -35,7 +36,6 @@ use crate::compare::protocol::{
 };
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
-use bson::Document;
 
 use crate::store::{DocumentStore, IndexStatus, Namespace};
 

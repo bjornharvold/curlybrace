@@ -11,7 +11,7 @@ use crate::error::{CoreError, Result};
 use crate::store::{
     CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query,
 };
-use mongodb::options::Collation;
+use mongodb::options::{AggregateOptions, Collation};
 
 pub struct MongoStore {
     client: Client,
@@ -272,8 +272,7 @@ impl DocumentStore for MongoStore {
         let cursor = self
             .collection(ns)
             .aggregate(duplicate_keys_pipeline(filter, key, limit))
-            .collation(Collation::builder().locale("simple").build())
-            .allow_disk_use(true)
+            .with_options(duplicate_keys_options())
             .await
             .map_err(db_err)?;
         let rows: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
@@ -340,6 +339,16 @@ pub(crate) fn duplicate_keys_pipeline(
     ]
 }
 
+/// Options of the duplicate-key aggregation: binary collation, spill to disk, and a server-side
+/// time limit (the runtime's client-side bound only abandons the call; this stops the work).
+pub(crate) fn duplicate_keys_options() -> AggregateOptions {
+    AggregateOptions::builder()
+        .collation(Collation::builder().locale("simple").build())
+        .allow_disk_use(true)
+        .max_time(crate::runtime::DUPLICATE_TIMEOUT)
+        .build()
+}
+
 /// One `$group` row as a [`DuplicateGroup`].
 fn group_from_row(row: &Document, fields: usize) -> Result<DuplicateGroup> {
     let malformed = || CoreError::Database("unexpected aggregation result".into());
@@ -360,6 +369,9 @@ fn group_from_row(row: &Document, fields: usize) -> Result<DuplicateGroup> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::test_support::mock_objects::mock_doc_with_id;
+
     #[test]
     fn duplicate_keys_pipeline_is_read_only_ordered_and_guards_array_prefixes() {
         let key = KeySpec::new(vec!["x".into(), "a.b.c".into()]).unwrap();
@@ -388,8 +400,13 @@ mod tests {
         assert_eq!(pipeline[4].get_i64("$limit"), Ok(7));
     }
 
-    use super::*;
-    use crate::test_support::mock_objects::mock_doc_with_id;
+    #[test]
+    fn duplicate_keys_options_carry_the_server_side_time_limit() {
+        let options = duplicate_keys_options();
+        assert_eq!(options.max_time, Some(crate::runtime::DUPLICATE_TIMEOUT));
+        assert_eq!(options.allow_disk_use, Some(true));
+        assert!(options.collation.is_some());
+    }
 
     fn docs(n: i32) -> Vec<Document> {
         (0..n).map(mock_doc_with_id).collect()
