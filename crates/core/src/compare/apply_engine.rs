@@ -5,19 +5,24 @@
 //! `APPLY_BATCH`, one `bulk_write` per destination side per batch.
 //!
 //! A window remains between the re-read and the write (documented in the spec): a document
-//! changed in that gap is overwritten. Keys and documents are data and are never logged.
+//! changed in that gap is overwritten by a whole-document op. A `Fields` op writes only its
+//! chosen paths (by `_id`), so a concurrent change there affects just those paths; other
+//! fields of the document are left as they are. Keys and documents are data and are never logged.
 
 use std::sync::Arc;
 
 use bson::Document;
 
 use super::apply::{
-    APPLY_BATCH, ApplyOp, ApplyReport, Direction, IdPolicy, OpOutcome, SkipReason, kind_fits,
-    map_write_failure, plan_write,
+    APPLY_BATCH, ApplyKind, ApplyOp, ApplyReport, Direction, IdPolicy, OpOutcome, SkipReason,
+    kind_fits, map_write_failure, plan_write,
 };
+use super::apply_fields::plan_fields;
+use super::diff::diff_normalized;
 use super::engine::CancelFlag;
 use super::fingerprint::{Fingerprint, fingerprint_of};
 use super::key::{KeyTuple, compare_tuples};
+use super::normalize::normalize;
 use super::protocol::PairSpec;
 use super::results::{Category, DiffEntry, ResultSet};
 use super::rules::CompareRules;
@@ -126,11 +131,65 @@ fn unchanged(
     })
 }
 
+fn not_planned() -> Verdict {
+    Verdict::Done(OpOutcome::Skipped(SkipReason::NotPlanned))
+}
+
+type Oriented<'a> = (&'a Option<Document>, &'a Option<Document>, Side);
+
+/// `(origin, destination, destination side)` of a direction.
+fn orient<'a>(
+    direction: Direction,
+    source: &'a Option<Document>,
+    target: &'a Option<Document>,
+) -> Oriented<'a> {
+    match direction {
+        Direction::SourceToTarget => (source, target, Side::Target),
+        Direction::TargetToSource => (target, source, Side::Source),
+    }
+}
+
+/// The field-level write of a `Fields` op, planned from a fresh diff of the two verified
+/// documents. Anything `plan_fields` refuses (not a real, addressable, scope-safe change) is
+/// skipped as not planned and nothing is written for the document.
+fn plan_fields_op(
+    rules: &CompareRules,
+    op: &ApplyOp,
+    source: &Option<Document>,
+    target: &Option<Document>,
+) -> Result<Verdict> {
+    let (Some(origin), Some(dest), side) = orient(op.direction, source, target) else {
+        return Ok(not_planned());
+    };
+    let (source_doc, target_doc) = match op.direction {
+        Direction::SourceToTarget => (origin, dest),
+        Direction::TargetToSource => (dest, origin),
+    };
+    let changes = diff_normalized(
+        &normalize(source_doc, rules)?,
+        &normalize(target_doc, rules)?,
+        rules.ignore_array_order,
+    )?;
+    let planned = plan_fields(
+        &op.fields,
+        &changes,
+        op.direction,
+        origin,
+        dest,
+        &rules.field_scope,
+    );
+    Ok(planned.map_or_else(|_| not_planned(), |write| Verdict::Write(side, write)))
+}
+
 async fn verify(input: &ApplyInput<'_>, op: &ApplyOp) -> Result<Verdict> {
     let entry = input.recorded(op).ok_or(CoreError::NotFound)?;
+    // Defence in depth: the runtime refuses these up front.
+    if (op.kind == ApplyKind::Fields) == op.fields.is_empty() {
+        return Ok(not_planned());
+    }
     let (has_source, has_target) = (entry.source.is_some(), entry.target.is_some());
     if !kind_fits(op.kind, op.direction, has_source, has_target) {
-        return Ok(Verdict::Done(OpOutcome::Skipped(SkipReason::NotPlanned)));
+        return Ok(not_planned());
     }
     let (source, target) = tokio::try_join!(
         input.read(Side::Source, &op.key),
@@ -147,10 +206,10 @@ async fn verify(input: &ApplyInput<'_>, op: &ApplyOp) -> Result<Verdict> {
     {
         return Ok(Verdict::Done(OpOutcome::Skipped(SkipReason::Stale)));
     }
-    let (origin, dest, side) = match op.direction {
-        Direction::SourceToTarget => (&source, &target, Side::Target),
-        Direction::TargetToSource => (&target, &source, Side::Source),
-    };
+    if op.kind == ApplyKind::Fields {
+        return plan_fields_op(rules, op, &source, &target);
+    }
+    let (origin, dest, side) = orient(op.direction, &source, &target);
     let write = plan_write(op.kind, origin.as_ref(), dest.as_ref(), input.policy)?;
     Ok(Verdict::Write(side, write))
 }
@@ -167,7 +226,7 @@ async fn plan_batch(input: &ApplyInput<'_>, batch: &[ApplyOp], repeated: &[bool]
     let mut planned = Planned::default();
     for (index, op) in batch.iter().enumerate() {
         let verdict = if repeated[index] {
-            Verdict::Done(OpOutcome::Skipped(SkipReason::NotPlanned))
+            not_planned()
         } else {
             verify_op(input, op).await
         };
@@ -307,3 +366,7 @@ pub async fn apply_pair(
 #[cfg(test)]
 #[path = "apply_engine_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "apply_fields_engine_tests.rs"]
+mod fields_tests;

@@ -1,5 +1,6 @@
 use super::*;
 use bson::Bson;
+use curlybrace_core::compare::diff::PathSegment;
 use curlybrace_core::compare::key::KeyTuple;
 use std::collections::BTreeMap;
 
@@ -164,7 +165,8 @@ fn counts_equal_the_ops_the_command_would_send() {
         KindCounts {
             insert: 3,
             replace: 11,
-            delete: 1
+            delete: 1,
+            fields: 0
         }
     );
     assert_eq!(
@@ -172,7 +174,8 @@ fn counts_equal_the_ops_the_command_would_send() {
         KindCounts {
             insert: 7,
             replace: 2,
-            delete: 0
+            delete: 0,
+            fields: 0
         }
     );
     assert_eq!(r.op_total(), 24);
@@ -470,6 +473,7 @@ fn counts_match_the_command_ops_for_random_pending_lists() {
                     ApplyKind::Insert => p.counts.insert,
                     ApplyKind::Replace => p.counts.replace,
                     ApplyKind::Delete => p.counts.delete,
+                    ApplyKind::Fields => p.counts.fields,
                 })
                 .sum();
             assert_eq!(counted, from_ops + from_bulk, "case {case} {kind:?}");
@@ -487,6 +491,7 @@ fn every_warning_key_exists_in_en_json() {
         Warning::KeepsDestinationId,
         Warning::WholeDocumentOverwrite,
         Warning::MaybeDuplicateBusinessKey,
+        Warning::FieldCopyKeepsRest,
     ] {
         let pointer = format!("/{}", w.i18n_key().replace('.', "/"));
         assert!(
@@ -495,4 +500,182 @@ fn every_warning_key_exists_in_en_json() {
             w.i18n_key()
         );
     }
+}
+
+fn fpaths(names: &[&str]) -> Vec<Vec<PathSegment>> {
+    names
+        .iter()
+        .map(|n| vec![PathSegment::Field((*n).into())])
+        .collect()
+}
+
+fn with_fields(list: &PendingList, pair: PairId, key: i32, names: &[&str]) -> PendingList {
+    list.with_fields(pair, &k(key), A::CopyFieldsToTarget, fpaths(names))
+        .0
+}
+
+#[test]
+fn fields_items_count_documents_and_fields_separately() {
+    let l = with_fields(&PendingList::default(), 1, 1, &["a", "b"]);
+    let l = with_fields(&l, 1, 2, &["c"]);
+    let r = review_with(&entries(), &l, IdPolicy::Keep).unwrap();
+    assert_eq!(
+        r.pairs[0].counts,
+        KindCounts {
+            fields: 2,
+            ..KindCounts::default()
+        }
+    );
+    assert_eq!(r.pairs[0].field_count, 3);
+    assert_eq!(r.field_total(), 3);
+    assert_eq!(r.field_documents(), 2);
+    assert_eq!(r.op_total(), 2);
+    assert_eq!(r.op_total(), l.op_count(&totals));
+    assert_eq!(
+        r.pairs[0].destinations,
+        vec![(A::CopyFieldsToTarget, dest("tgt-conn", "b", "x"))]
+    );
+}
+
+#[test]
+fn fields_toward_the_source_write_the_source() {
+    let l = PendingList::default()
+        .with_fields(2, &k(1), A::CopyFieldsToSource, fpaths(&["a"]))
+        .0;
+    let r = review_with(&entries(), &l, IdPolicy::Keep).unwrap();
+    assert_eq!(
+        r.pairs[0].destinations,
+        vec![(A::CopyFieldsToSource, dest("src-conn", "c", "y"))]
+    );
+}
+
+#[test]
+fn the_field_warning_is_present_exactly_when_a_fields_item_is() {
+    let whole = review(&[(1, DIFF, A::CopyToTarget, keys(&[1]))]);
+    assert!(!whole.warnings.contains(&Warning::FieldCopyKeepsRest));
+    let only = with_fields(&PendingList::default(), 1, 1, &["a"]);
+    let r = review_with(&entries(), &only, IdPolicy::Keep).unwrap();
+    assert_eq!(r.warnings, vec![Warning::FieldCopyKeepsRest]);
+    let (mixed, _) = only.with_action(1, SRC, A::CopyToTarget, keys(&[5]));
+    let r = review_with(&entries(), &mixed, IdPolicy::Generate).unwrap();
+    assert!(r.warnings.contains(&Warning::FieldCopyKeepsRest));
+    assert!(r.warnings.contains(&Warning::GeneratedIds));
+    // removing the fields item removes the warning
+    let r = review_with(&entries(), &mixed.without(0), IdPolicy::Keep).unwrap();
+    assert!(!r.warnings.contains(&Warning::FieldCopyKeepsRest));
+}
+
+#[test]
+fn field_only_reviews_never_need_typing() {
+    let l = with_fields(&PendingList::default(), 1, 1, &["a"]);
+    let r = review_with(&entries(), &l, IdPolicy::Keep).unwrap();
+    assert_eq!(r.required, None);
+    assert!(r.confirm_enabled("DELETE"));
+    // deletes elsewhere decide the text exactly as before
+    let (both, _) = l.with_action(1, TGT, A::DeleteFromTarget, keys(&[1]));
+    let r = review_with(&entries(), &both, IdPolicy::Keep).unwrap();
+    assert_eq!(r.required, Some(RequiredText::Literal("x".into())));
+}
+
+#[test]
+fn reviews_with_other_paths_do_not_stand_for_the_same_writes() {
+    let a = review_with(
+        &entries(),
+        &with_fields(&PendingList::default(), 1, 1, &["a"]),
+        IdPolicy::Keep,
+    )
+    .unwrap();
+    let b = review_with(
+        &entries(),
+        &with_fields(&PendingList::default(), 1, 1, &["b"]),
+        IdPolicy::Keep,
+    )
+    .unwrap();
+    assert!(a.same_writes(&a.clone()));
+    assert!(!a.same_writes(&b));
+}
+
+fn random_mixed_list(rng: &mut Lcg) -> PendingList {
+    let names = ["a", "b", "c", "d"];
+    (0..rng.next(8) + 1).fold(PendingList::default(), |list, _| {
+        let pair = rng.next(3) as PairId + 1;
+        if rng.next(2) == 0 {
+            let key = rng.next(4) as i32;
+            let action = if rng.next(2) == 0 {
+                A::CopyFieldsToTarget
+            } else {
+                A::CopyFieldsToSource
+            };
+            let paths = fpaths(&names[..rng.next(4) as usize + 1]);
+            return list.with_fields(pair, &k(key), action, paths).0;
+        }
+        let cat = [SRC, TGT, DIFF][rng.next(3) as usize];
+        let offered = A::offered_for(cat);
+        let action = offered[rng.next(offered.len() as u64) as usize];
+        let scope = match rng.next(3) {
+            0 => Scope::Category,
+            _ => keys(&(0..rng.next(4) as i32 + 1).collect::<Vec<_>>()),
+        };
+        list.with_action(pair, cat, action, scope).0
+    })
+}
+
+#[test]
+fn counts_match_the_command_ops_with_field_items_mixed_in() {
+    let mut e = entries();
+    e.insert(3, entry(30, ns("e", "p"), ns("f", "q")));
+    let mut rng = Lcg(7);
+    let mut saw_fields = 0;
+    for case in 0..200 {
+        let pending = random_mixed_list(&mut rng);
+        let r = review_with(&e, &pending, IdPolicy::Keep).expect("a review");
+        let (ops, bulk) = pending.to_command_parts();
+        let counted =
+            |f: &dyn Fn(&KindCounts) -> u64| -> u64 { r.pairs.iter().map(|p| f(&p.counts)).sum() };
+        let from_ops = |kind: ApplyKind| ops.iter().filter(|o| o.kind == kind).count() as u64;
+        let from_bulk = |kind: ApplyKind| -> u64 {
+            bulk.iter()
+                .filter(|b| b.kind == kind)
+                .map(|b| totals(b.pair, b.category) as u64)
+                .sum()
+        };
+        let want = |kind| from_ops(kind) + from_bulk(kind);
+        assert_eq!(counted(&|c| c.insert), want(ApplyKind::Insert), "{case}");
+        assert_eq!(counted(&|c| c.replace), want(ApplyKind::Replace), "{case}");
+        assert_eq!(counted(&|c| c.delete), want(ApplyKind::Delete), "{case}");
+        assert_eq!(counted(&|c| c.fields), want(ApplyKind::Fields), "{case}");
+        let sent_fields: u64 = ops.iter().map(|o| o.fields.len() as u64).sum();
+        assert_eq!(r.field_total(), sent_fields, "case {case}");
+        // Replace and Fields ops only come from the Different tab: one op per (pair, key).
+        let mut seen = std::collections::BTreeSet::new();
+        for o in ops
+            .iter()
+            .filter(|o| matches!(o.kind, ApplyKind::Replace | ApplyKind::Fields))
+        {
+            let slot = (o.pair, super::super::selection::OrdKey(o.key.clone()));
+            assert!(seen.insert(slot), "case {case}: duplicate (pair, key)");
+        }
+        assert!(bulk.iter().all(|b| b.kind != ApplyKind::Fields));
+        assert_eq!(r.op_total(), pending.op_count(&totals), "case {case}");
+        assert_eq!(
+            r.op_total(),
+            ops.len() as u64
+                + bulk
+                    .iter()
+                    .map(|b| totals(b.pair, b.category) as u64)
+                    .sum::<u64>(),
+            "case {case}"
+        );
+        let has_fields = pending
+            .items()
+            .iter()
+            .any(|c| matches!(c.scope, Scope::Fields { .. }));
+        assert_eq!(
+            r.warnings.contains(&Warning::FieldCopyKeepsRest),
+            has_fields,
+            "case {case}"
+        );
+        saw_fields += usize::from(has_fields);
+    }
+    assert!(saw_fields > 20, "the generator must exercise fields items");
 }

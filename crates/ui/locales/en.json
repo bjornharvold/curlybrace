@@ -12,6 +12,8 @@
   },
   "banner": {
     "dismiss": "Dismiss",
+    "fields_conflict": "These fields overlap (one is inside another), so they cannot be copied in one update. Untick one of them.",
+    "fields_covered": "A change for the whole Different tab is already queued and covers these fields. Remove it first to copy single fields.",
     "forget_host": "Forget this host",
     "host_forgotten": "The saved SSH host key was removed. Connect again to review the host's key.",
     "not_connected": "Not connected. Connect to a server first.",
@@ -62,6 +64,8 @@
   "compare": {
     "apply": {
       "action": {
+        "copy_fields_to_source": "Copy fields to source",
+        "copy_fields_to_target": "Copy fields to target",
         "copy_to_source": "Copy to source",
         "copy_to_target": "Copy to target",
         "delete_from_source": "Delete from source",
@@ -70,6 +74,13 @@
       "applied_note": "Changes were applied to this pair. Run it again to see the current differences.",
       "confirm_word": "delete",
       "destination": "{connection} / {namespace}",
+      "field_reason": {
+        "any_element": "This field is inside an array whose order is ignored, so it cannot be copied on its own.",
+        "array_element": "Array items cannot be added or removed one by one. Copy the whole array instead.",
+        "bad_name": "The field name is empty, contains a dot or starts with a dollar sign, so it cannot be copied on its own.",
+        "id": "The _id of a document cannot be changed.",
+        "not_a_change": "There is no value to copy for this field."
+      },
       "finished": {
         "cancelled_note": "The apply was cancelled. Writes that had not started were not made.",
         "dismiss": "Dismiss",
@@ -89,6 +100,7 @@
       },
       "kind": {
         "delete": "Delete",
+        "fields": "Fields",
         "insert": "Insert",
         "replace": "Replace"
       },
@@ -105,6 +117,7 @@
         "copy_all": "Copy to {destination}: every document of this tab. Documents: {count}",
         "delete": "Delete from {destination}. Documents: {count}",
         "delete_all": "Delete from {destination}: every document of this tab. Documents: {count}",
+        "fields": "Copy to {destination}. Fields: {fields}, documents: {documents}",
         "remove": "Remove",
         "remove_named": "Remove: {line}",
         "review": "Review changes…",
@@ -116,7 +129,10 @@
         "applied": "Changes were applied to this pair. Run it again first.",
         "busy": "An apply is in progress.",
         "checking": "A check is running. Wait until it finishes.",
+        "no_fields": "Tick at least one field first.",
         "not_completed": "This pair has no finished comparison to act on.",
+        "not_copyable_here": "None of the ticked fields can be copied in this direction.",
+        "not_different_tab": "Single fields can only be copied from the Different tab.",
         "not_on_page": "This document is not on the page shown. Open it from the list again.",
         "nothing_selected": "Select at least one document first.",
         "running": "A comparison is running. Wait until it finishes."
@@ -129,6 +145,7 @@
         "confirm_prompt": "To confirm the deletes, type this text exactly:",
         "count_cell": "{kind}: {count}",
         "destination_line": "{action}: {destination}",
+        "fields_line": "Fields: {fields}, documents: {documents}",
         "title": "Review before applying",
         "total": "Documents to write: {count}",
         "warnings_title": "Check before you apply"
@@ -143,6 +160,7 @@
       "unknown_destination": "Unknown destination",
       "unknown_pair": "A pair that is no longer in the list",
       "warning": {
+        "field_copy_keeps_rest": "Copying fields changes only the chosen fields. The rest of each destination document stays as it is, and fields outside the compared scope are never touched.",
         "generated_ids": "New _id values are generated for inserted documents, so they will not match the source on the next compare.",
         "keeps_destination_id": "Replaced documents keep the _id they have in the destination, which differs from the compare key.",
         "maybe_duplicate_business_key": "An insert can create a second document with the same key if the destination has no unique index on it.",
@@ -160,12 +178,16 @@
       "added": "Added",
       "change_column": "Change",
       "changed": "Changed",
+      "clear_fields": "Clear selected fields",
       "close": "Close details",
+      "copy_fields_to_source": "Copy selected fields to source",
+      "copy_fields_to_target": "Copy selected fields to target",
       "loading": "Loading the document differences...",
       "no_changes": "The documents have no field differences.",
       "no_document": "This document does not exist on this side.",
       "path_column": "Field",
       "removed": "Removed",
+      "selected_fields": "Selected fields: {count}",
       "source_document": "Source document",
       "source_value": "Source value",
       "target_document": "Target document",

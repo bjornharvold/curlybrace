@@ -16,6 +16,7 @@ use mongodb::{Collection, Database};
 
 use crate::compare::key::compare_bson;
 use crate::error::{CoreError, Result};
+use crate::mongo_write_fields::FieldUpdate;
 use crate::store::{WriteFailure, WriteOp, WriteOutcome};
 
 /// Most operations sent in one write command.
@@ -34,13 +35,14 @@ const ELEMENT_OVERHEAD: usize = 128;
 const DUPLICATE_KEY_CODE: i32 = 11000;
 
 /// Failures found by a group: `(position of the op in the caller's list, why)`.
-type Failures = Vec<(usize, WriteFailure)>;
+pub(crate) type Failures = Vec<(usize, WriteFailure)>;
 
 /// The caller's ops split by kind, each paired with its original position.
 #[derive(Default)]
 struct Groups {
     inserts: Vec<(usize, Document)>,
     replaces: Vec<(usize, Bson, Document)>,
+    field_updates: Vec<FieldUpdate>,
     deletes: Vec<(usize, Bson)>,
 }
 
@@ -52,6 +54,14 @@ fn group_ops(ops: Vec<WriteOp>) -> Groups {
                 WriteOp::Insert { doc } => groups.inserts.push((pos, doc)),
                 WriteOp::Replace { id, doc } => groups.replaces.push((pos, id, doc)),
                 WriteOp::Delete { id } => groups.deletes.push((pos, id)),
+                WriteOp::UpdateFields { id, set, unset } => {
+                    groups.field_updates.push(FieldUpdate {
+                        pos,
+                        id,
+                        set,
+                        unset,
+                    })
+                }
             }
             groups
         })
@@ -59,7 +69,7 @@ fn group_ops(ops: Vec<WriteOp>) -> Groups {
 
 /// The encoded size of one command element built from `doc`, with overhead. A document that
 /// cannot be encoded counts as a whole command, so it travels alone and the server reports it.
-fn element_size(doc: &Document) -> usize {
+pub(crate) fn element_size(doc: &Document) -> usize {
     bson::to_vec(doc).map_or(MAX_BYTES_PER_COMMAND, |bytes| {
         bytes.len().saturating_add(ELEMENT_OVERHEAD)
     })
@@ -91,7 +101,7 @@ pub(crate) fn split_chunks(
 
 /// Applies `ops` to `coll_name` in `db`: one outcome per op, index-aligned.
 ///
-/// Inserts are sent first, then replaces, then deletes; there is no ordering within a call. An
+/// Inserts are sent first, then replaces, then field updates, then deletes; there is no ordering within a call. An
 /// `Err` may follow commands that already wrote, so after an `Err` nothing may be assumed about
 /// what was written. Callers must not display the text of a `CoreError::Database` from here
 /// (it carries driver text); `apply_engine` replaces every `Err` with `ApplyOutcomeUnknown`.
@@ -114,6 +124,7 @@ pub(crate) async fn bulk_write(
     };
     let mut failures: Failures = writer.run_inserts(&groups.inserts).await?;
     failures.extend(writer.run_replaces(&groups.replaces).await?);
+    failures.extend(writer.run_field_updates(&groups.field_updates).await?);
     failures.extend(writer.run_deletes(&groups.deletes).await?);
     let mut outcomes: Vec<WriteOutcome> = vec![Ok(()); total];
     for (pos, failure) in failures {
@@ -122,16 +133,16 @@ pub(crate) async fn bulk_write(
     Ok(outcomes)
 }
 
-struct Writer<'a> {
+pub(crate) struct Writer<'a> {
     db: &'a Database,
     coll: Collection<Document>,
-    coll_name: &'a str,
+    pub(crate) coll_name: &'a str,
     db_err: fn(mongodb::error::Error) -> CoreError,
 }
 
 impl Writer<'_> {
     /// Sends one command; a command-level failure (`ok: 0`, network) is an `Err`.
-    async fn send(&self, command: Document) -> Result<Document> {
+    pub(crate) async fn send(&self, command: Document) -> Result<Document> {
         let reply = self.db.run_command(command).await.map_err(self.db_err)?;
         check_write_concern(&reply)?;
         Ok(reply)
@@ -225,7 +236,13 @@ impl Writer<'_> {
 
     /// The `_id`s among `ids` that exist in the collection right now.
     async fn existing_ids(&self, ids: &[&Bson]) -> Result<Vec<Bson>> {
-        let any_of: Vec<Bson> = ids.iter().map(|id| Bson::Document(id_query(id))).collect();
+        self.existing_matching(ids.iter().map(|id| id_query(id)).collect())
+            .await
+    }
+
+    /// The `_id`s of the documents that match any of `queries` right now (Primary read).
+    pub(crate) async fn existing_matching(&self, queries: Vec<Document>) -> Result<Vec<Bson>> {
+        let any_of: Vec<Bson> = queries.into_iter().map(Bson::Document).collect();
         let cursor = self
             .coll
             .find(doc! { "$or": any_of })
@@ -242,7 +259,7 @@ impl Writer<'_> {
 }
 
 /// `{ _id: { $eq: id } }`: an id that is a sub-document with `$` keys stays a literal value.
-fn id_query(id: &Bson) -> Document {
+pub(crate) fn id_query(id: &Bson) -> Document {
     doc! { "_id": { "$eq": id.clone() } }
 }
 
@@ -270,7 +287,7 @@ fn check_write_concern(reply: &Document) -> Result<()> {
 }
 
 /// The reply's `n` (matched / deleted count).
-fn matched_count(reply: &Document) -> usize {
+pub(crate) fn matched_count(reply: &Document) -> usize {
     match reply.get("n") {
         Some(Bson::Int32(n)) => usize::try_from(*n).unwrap_or(0),
         Some(Bson::Int64(n)) => usize::try_from(*n).unwrap_or(0),
@@ -281,7 +298,7 @@ fn matched_count(reply: &Document) -> usize {
 /// `writeErrors` of a reply as failures: `position_of` maps the command-local index back to the
 /// op's position. Only the numeric code is kept. A reply that cannot be mapped means the command
 /// ran but its result cannot be read: `ApplyOutcomeUnknown`.
-fn map_write_errors(
+pub(crate) fn map_write_errors(
     reply: &Document,
     position_of: impl Fn(usize) -> Option<usize>,
 ) -> Result<Failures> {
@@ -323,7 +340,7 @@ fn failure_for_code(code: i32) -> WriteFailure {
 
 /// `Missing` for every `(position, id)` whose id is not in `present` (compared as the server
 /// does, so `1` and `1.0` are the same id) and that did not already fail with a write error.
-fn missing_among<'a>(
+pub(crate) fn missing_among<'a>(
     items: impl Iterator<Item = (usize, &'a Bson)>,
     present: &[Bson],
     already_failed: &Failures,
@@ -406,6 +423,15 @@ mod tests {
         assert_eq!(groups.deletes[0].0, 0);
         assert_eq!(groups.inserts[0].0, 1);
         assert_eq!(groups.replaces[0].0, 2);
+        let groups = group_ops(vec![
+            WriteOp::Delete { id: Bson::Int32(1) },
+            WriteOp::UpdateFields {
+                id: Bson::Int32(2),
+                set: vec![],
+                unset: vec![],
+            },
+        ]);
+        assert_eq!((groups.field_updates[0].pos, groups.deletes[0].0), (1, 0));
     }
 
     #[test]

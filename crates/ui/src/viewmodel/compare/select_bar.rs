@@ -29,6 +29,8 @@ pub enum ActionBlock {
     NothingSelected,
     /// The detail's key is not on the loaded page of the open tab.
     NotOnPage,
+    /// Fields can only be copied from the Different tab.
+    NotDifferentTab,
 }
 
 impl ActionBlock {
@@ -41,6 +43,7 @@ impl ActionBlock {
             Self::Checking => "compare.apply.reason.checking",
             Self::NothingSelected => "compare.apply.reason.nothing_selected",
             Self::NotOnPage => "compare.apply.reason.not_on_page",
+            Self::NotDifferentTab => "compare.apply.reason.not_different_tab",
         }
     }
 }
@@ -100,6 +103,7 @@ impl CompareState {
             .filter(|c| c.pair == pair)
             .map(|c| match &c.scope {
                 Scope::Keys(keys) => keys.len(),
+                Scope::Fields { .. } => 1,
                 Scope::Category => self
                     .results
                     .get(&pair)
@@ -122,6 +126,15 @@ impl CompareState {
             .collect()
     }
 
+    /// The key is a row of the open tab's loaded page.
+    pub(super) fn key_on_open_page(&self, key: &KeyTuple) -> bool {
+        self.open_results().is_some_and(|r| {
+            r.rows
+                .iter()
+                .any(|row| compare_tuples(&row.key, key) == Ordering::Equal)
+        })
+    }
+
     /// The buttons for the one key open in the detail pane. They are all blocked with
     /// `NotOnPage` unless the key is a row of the open tab's loaded page (the reducer only
     /// queues loaded rows).
@@ -129,10 +142,7 @@ impl CompareState {
         let Some(r) = self.open_results() else {
             return Vec::new();
         };
-        let on_page = r
-            .rows
-            .iter()
-            .any(|row| compare_tuples(&row.key, key) == Ordering::Equal);
+        let on_page = self.key_on_open_page(key);
         let mut buttons = self.action_buttons(r.pair, r.category, 1);
         if !on_page {
             for button in &mut buttons {

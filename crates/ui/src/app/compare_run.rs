@@ -207,8 +207,13 @@ fn pair_done(
             .chain(shown.map(|view| (pair, view)))
             .collect(),
         open_pair: if opens { Some(pair) } else { c.open_pair },
-        detail: if opens { None } else { c.detail.clone() },
         ..c.clone()
+    };
+    // Only a newly opened pair drops the detail; otherwise the open detail and its ticks stay.
+    let compare = if opens {
+        compare.with_detail(None)
+    } else {
+        compare
     };
     let next = with_compare(state, compare);
     match outcome {

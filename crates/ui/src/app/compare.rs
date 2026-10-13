@@ -4,6 +4,7 @@
 use super::compare_apply as apply;
 use super::compare_checks as checks;
 use super::compare_duplicates as duplicates;
+use super::compare_fields as fields;
 use super::compare_pairs as pairs;
 use super::compare_results::{back_to_overview, discard_pair, moved, open_pair, rerun, select};
 use super::compare_run::{cancel, on_run_event, start, start_passing};
@@ -15,6 +16,7 @@ use crate::viewmodel::compare::{
     SideForm,
 };
 use curlybrace_core::compare::apply::IdPolicy;
+use curlybrace_core::compare::diff::PathSegment;
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent, SessionId, Side};
 use curlybrace_core::compare::results::Category;
@@ -91,6 +93,13 @@ pub enum CompareAction {
     AddKeyToPending(KeyTuple, RowAction),
     RemovePending(usize),
     ClearPending,
+    /// Tick or untick one changed field (by its path) of the open, loaded detail.
+    ToggleField(Vec<PathSegment>),
+    /// Untick every field of the open detail.
+    ClearFieldSelection,
+    /// Queue the ticked fields of the open detail (`CopyFieldsToTarget` or `CopyFieldsToSource`
+    /// only; nothing is written).
+    AddFieldsToPending(RowAction),
     /// Open the review dialog. `word` must come from `i18n.t(CONFIRM_WORD_KEY)`: the review
     /// stores it and a Word-type typed confirmation is later checked against it. A blank word
     /// can never confirm.
@@ -143,7 +152,7 @@ pub(super) fn on_action(state: AppState, action: CompareAction) -> Out {
     }
 }
 
-/// The pair list, the check queue, runs and results.
+/// The pair list; everything else goes on to `on_run_action`.
 fn on_pair_action(state: AppState, action: CompareAction) -> Out {
     match action {
         CompareAction::AddPair => pairs::add_pair(state),
@@ -158,6 +167,13 @@ fn on_pair_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::EditPair(entry) => pairs::edit_pair(state, entry),
         CompareAction::SetPairOverrides(entry, o) => pairs::set_overrides(state, entry, o),
         CompareAction::ToggleSystemCollections(on) => pairs::toggle_system(state, on),
+        other => on_run_action(state, other),
+    }
+}
+
+/// Checks, runs, results and the routing of the apply actions.
+fn on_run_action(state: AppState, action: CompareAction) -> Out {
+    match action {
         CompareAction::RunCheck => checks::run_check(state),
         CompareAction::Start => start(state),
         CompareAction::StartPassing => start_passing(state),
@@ -181,6 +197,9 @@ fn on_pair_action(state: AppState, action: CompareAction) -> Out {
         | CompareAction::AddKeyToPending(..)
         | CompareAction::RemovePending(_)
         | CompareAction::ClearPending
+        | CompareAction::ToggleField(_)
+        | CompareAction::ClearFieldSelection
+        | CompareAction::AddFieldsToPending(_)
         | CompareAction::ReviewApply { .. }
         | CompareAction::SetConfirmText(_)
         | CompareAction::SetIdPolicy(_)
@@ -188,8 +207,16 @@ fn on_pair_action(state: AppState, action: CompareAction) -> Out {
         | CompareAction::CancelReview
         | CompareAction::CancelApply
         | CompareAction::DismissApplyResult => on_apply_action(state, action),
-        // Handled by `on_action`; listed so a new variant must be routed on purpose.
-        CompareAction::Show
+        // Handled by `on_action` or `on_pair_action`; listed so a new variant must be routed on purpose.
+        CompareAction::AddPair
+        | CompareAction::AddAllSameNamed
+        | CompareAction::AddUnmatched { .. }
+        | CompareAction::RemovePair(_)
+        | CompareAction::IncludePair(..)
+        | CompareAction::EditPair(_)
+        | CompareAction::SetPairOverrides(..)
+        | CompareAction::ToggleSystemCollections(_)
+        | CompareAction::Show
         | CompareAction::Hide
         | CompareAction::Open { .. }
         | CompareAction::CloseSession
@@ -200,7 +227,7 @@ fn on_pair_action(state: AppState, action: CompareAction) -> Out {
     }
 }
 
-/// Selection, pending changes and the apply workflow.
+/// Selection, field ticks and pending changes; the rest goes on to `on_review_action`.
 fn on_apply_action(state: AppState, action: CompareAction) -> Out {
     match action {
         CompareAction::ToggleRow(key) => selecting::toggle_row(state, key),
@@ -211,6 +238,16 @@ fn on_apply_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::AddKeyToPending(key, a) => selecting::add_key(state, key, a),
         CompareAction::RemovePending(index) => selecting::remove_pending(state, index),
         CompareAction::ClearPending => selecting::clear_pending(state),
+        CompareAction::ToggleField(path) => fields::toggle_field(state, path),
+        CompareAction::ClearFieldSelection => fields::clear_fields(state),
+        CompareAction::AddFieldsToPending(a) => fields::add_fields(state, a),
+        other => on_review_action(state, other),
+    }
+}
+
+/// Review, confirmation and the apply run.
+fn on_review_action(state: AppState, action: CompareAction) -> Out {
+    match action {
         CompareAction::ReviewApply { word } => apply::review(state, &word),
         CompareAction::SetConfirmText(text) => apply::set_confirm_text(state, &text),
         CompareAction::SetIdPolicy(policy) => apply::set_id_policy(state, policy),
@@ -218,38 +255,9 @@ fn on_apply_action(state: AppState, action: CompareAction) -> Out {
         CompareAction::CancelReview => apply::cancel_review(state),
         CompareAction::CancelApply => apply::cancel_apply(state),
         CompareAction::DismissApplyResult => apply::dismiss_result(state),
-        // Routed by `on_action` and `on_pair_action`; listed so a new variant must be placed.
-        CompareAction::Show
-        | CompareAction::Hide
-        | CompareAction::Open { .. }
-        | CompareAction::CloseSession
-        | CompareAction::PickSide(..)
-        | CompareAction::SetKey(_)
-        | CompareAction::SetFilter(..)
-        | CompareAction::SetRules(_)
-        | CompareAction::AddPair
-        | CompareAction::AddAllSameNamed
-        | CompareAction::AddUnmatched { .. }
-        | CompareAction::RemovePair(_)
-        | CompareAction::IncludePair(..)
-        | CompareAction::EditPair(_)
-        | CompareAction::SetPairOverrides(..)
-        | CompareAction::ToggleSystemCollections(_)
-        | CompareAction::RunCheck
-        | CompareAction::Start
-        | CompareAction::StartPassing
-        | CompareAction::Cancel
-        | CompareAction::SelectCategory(_)
-        | CompareAction::Page(_)
-        | CompareAction::Select(_)
-        | CompareAction::OpenPair(_)
-        | CompareAction::BackToOverview
-        | CompareAction::DiscardPair(_)
-        | CompareAction::Rerun(_)
-        | CompareAction::Back
-        | CompareAction::Reload(_)
-        | CompareAction::RetryRows
-        | CompareAction::FindDuplicates(_) => none(state),
+        // Only `on_apply_action` calls this, with the actions it does not handle itself; the
+        // earlier groups list every other variant, and the exhaustive no-write test covers all.
+        _ => none(state),
     }
 }
 
@@ -314,10 +322,7 @@ pub(super) fn compare_database_to(state: AppState, db: String) -> Out {
 }
 
 fn back(state: AppState) -> Out {
-    let compare = CompareState {
-        detail: None,
-        ..state.compare.clone()
-    };
+    let compare = state.compare.clone().with_detail(None);
     none(with_compare(state, compare))
 }
 
@@ -550,10 +555,7 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
             overview: c.overview.clone().start_refused(&error),
             ..c.clone()
         },
-        "compare_detail" => CompareState {
-            detail: None,
-            ..c.clone()
-        },
+        "compare_detail" => c.clone().with_detail(None),
         _ => c.clone(),
     };
     none(failure_banner(with_compare(state, compare), context, error))

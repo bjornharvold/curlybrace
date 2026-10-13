@@ -257,3 +257,18 @@ fn a_view_with_no_page_and_none_awaited_is_fetched_again() {
     let clean = ResultsView::new(8, &Summary::default());
     assert!(clean.refetched().is_none(), "nothing to fetch");
 }
+
+#[test]
+fn a_row_with_a_nan_key_can_be_selected() {
+    let nan = KeyTuple(vec![Bson::Double(f64::NAN)]);
+    let row = RowView {
+        key: nan.clone(),
+        has_source: true,
+        has_target: true,
+    };
+    let view =
+        ResultsView::new(PAIR, &summary(0, 0, 1)).accept_rows(Category::Different, 0, 1, vec![row]);
+    let command = view.select(1, &nan).expect("the loaded row opens");
+    assert!(matches!(command, CompareCommand::Detail { pair: PAIR, .. }));
+    assert!(view.select(1, &key(1)).is_none());
+}

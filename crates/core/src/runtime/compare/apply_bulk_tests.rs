@@ -16,7 +16,12 @@ use crate::runtime::Command;
 use crate::store::CollectionKind;
 use crate::test_support::InMemoryStore;
 
-fn bulk(pair: u32, category: Category, kind: ApplyKind, direction: Direction) -> BulkApply {
+pub(super) fn bulk(
+    pair: u32,
+    category: Category,
+    kind: ApplyKind,
+    direction: Direction,
+) -> BulkApply {
     BulkApply {
         pair,
         category,
@@ -209,7 +214,7 @@ async fn exactly_the_six_fitting_combinations_are_accepted() {
     let mut r = default_rig().await;
     let mut run = 10;
     for category in [OnlyInSource, OnlyInTarget, Different] {
-        for kind in [Insert, Replace, Delete] {
+        for kind in [Insert, Replace, Delete, ApplyKind::Fields] {
             for direction in [ST, TS] {
                 if allowed.contains(&(category, kind, direction)) {
                     continue;
@@ -220,7 +225,7 @@ async fn exactly_the_six_fitting_combinations_are_accepted() {
             }
         }
     }
-    assert_eq!(run, 22, "12 refused combinations");
+    assert_eq!(run, 28, "18 refused combinations");
     assert_eq!(r.source.writes() + r.target.writes(), 0);
 }
 

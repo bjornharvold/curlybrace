@@ -161,13 +161,20 @@ fn canonical_doc(doc: &Document, rules: &CompareRules) -> Result<Document> {
         .collect()
 }
 
-/// The canonical form of `doc` under `rules`.
-pub fn normalize(doc: &Document, rules: &CompareRules) -> Result<Document> {
-    let scoped = match &rules.field_scope {
+/// The field-scope step of [`normalize`] alone: no `_id` handling and no canonicalisation, so
+/// values keep their original types and order. Field writes use it to check that a path's value
+/// is untouched by the scope; `normalize` calls it, so the two cannot drift.
+pub(crate) fn apply_scope(doc: &Document, scope: &FieldScope) -> Document {
+    match scope {
         FieldScope::All => doc.clone(),
         FieldScope::AllExcept(paths) => drop_paths(doc, &PathTree::from_paths(paths)),
         FieldScope::Only(paths) => keep_paths(doc, &PathTree::from_paths(paths)),
-    };
+    }
+}
+
+/// The canonical form of `doc` under `rules`.
+pub fn normalize(doc: &Document, rules: &CompareRules) -> Result<Document> {
+    let scoped = apply_scope(doc, &rules.field_scope);
     let scoped = if rules.include_id {
         scoped
     } else {

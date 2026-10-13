@@ -594,7 +594,7 @@ it is `NotRun` with a reason (`Cancelled`, `BudgetExhausted`, `SessionFailed` or
   collection. If any delete is planned, the user must type the name of the target collection when exactly one target
   collection is affected, or the name of the target database when several are, to proceed. The dialog groups
   the counts by pair.
-- **Field-level operations.** Besides whole-document insert, replace and delete, an operation can copy a single
+- **Field-level operations (built in slice 2c, see "Slice 2c as built").** Besides whole-document insert, replace and delete, an operation can copy a single
   field path from one side to the other (`$set`, or `$unset` when the field is absent at the origin). This changes
   only that field and leaves the rest of the destination document alone. It goes through the same fingerprint
   re-check, and is reported like any other operation.
@@ -674,7 +674,7 @@ per-document failure with no value in the text, a view destination, and cancelli
 ### Slice 2b as built
 
 Slice 2b is the apply UI over the 2a core: select differences, queue copy and delete actions, review, confirm,
-watch progress, read the result. Field-level actions are not part of it (slice 2c). What it does and how:
+watch progress, read the result. Field-level actions were not part of it (they came in slice 2c). What it does and how:
 
 - **Pending changes: one action per (pair, key), replace on conflict.** The pending list is ordered; each item is
   either an explicit list of keys or a whole category of one pair, with an `ApplyKind` and a `Direction`. Adding
@@ -735,7 +735,7 @@ watch progress, read the result. Field-level actions are not part of it (slice 2
 
 Limits and known gaps as of slice 2b:
 
-- No field-level actions yet (`$set`/`$unset` of one path): slice 2c.
+- No field-level actions yet (`$set`/`$unset` of one path): added in slice 2c.
 - "Select all" is per category (a tab), not per filter; the results have no filter yet.
 - Results are stale after an apply; the person must run the pair again (see above).
 - A row whose key contains `NaN` can be ticked and applied but cannot open its detail (a pre-existing limit of
@@ -755,6 +755,90 @@ differences; deleting only the ticked extras behind the typed collection name; r
 converging; a document changed by a second client between the compare and the apply (skipped, left alone); a
 unique-index collision listed as a failure while its neighbours apply; cancelling a 50,000-document apply (counts
 add up, pair marked Applied); two pairs in one apply reported separately.
+
+### Slice 2c as built
+
+Slice 2c adds field-level apply: copy single field paths of a changed document from one side to the other.
+The rulings, then the UI and the limits.
+
+- **One operation per document, carrying all chosen paths.** A `Fields` item is one `ApplyOp` with
+  `kind: ApplyKind::Fields` and `fields: Vec<path>` (the new `ApplyOp.fields`; empty for every other kind, and a
+  non-empty `fields` on another kind, or an empty one on `Fields`, is refused up front). It is written as one
+  `WriteOp::UpdateFields` (`$set` and `$unset` in a single update), so a document is never half-copied. The
+  engine fingerprint re-check applies as for any operation.
+- **The engine re-diffs and rejects non-changes.** The UI sends paths only. The engine re-reads both documents,
+  recomputes the diff with the pair's rules and plans a path only if it is still a change in the chosen direction.
+  A path that is no longer a change (or never was) is rejected, never written. Values are taken from the
+  ORIGINAL (not normalized) documents at that path, because `FieldChange.segments` address the normalized form.
+- **Addressability rules** (core `can_copy`, shared by the planner and the UI, which shows the reason): never
+  `_id`; names that are empty, contain `.` or start with `$` are refused; an array index (`tags[1]`) is allowed
+  only for an element that is Changed (never Added or Removed, and never for an unset of a trailing index), and
+  under a field scope only when the arrays on both sides are aligned (the scoped-array alignment check);
+  `AnyElement` (an element of an array whose order is ignored) is never addressable.
+- **`$unset` semantics.** A field absent at the origin is unset at the destination. Unsetting a path that passes
+  through an array is refused (it would turn an element into `null`).
+- **Field scope safety check.** The diff runs on the scoped projection of the documents (`normalize::apply_scope`),
+  so a path that looks like a clean change there can mean something else in the full document. Before planning, a
+  path is refused unless the value at that path (exact BSON bytes, presence included) is the same in the original
+  document and in its scoped projection, for the origin and for the destination. Two attack cases are pinned: under
+  "only these fields" an array index that shifts because elements outside the scope were dropped from the
+  projection (the index in the diff is not the index in the real array), and a `Removed`/`Added` field that the
+  scope hides (for example a subdocument `meta` that exists only on one side but is outside the scope, or a
+  scalar versus a subdocument at the same path). Either way nothing is written for that path. Fields outside the
+  compared scope are never touched.
+- **Destination rules.** A view is refused as a destination for any write (as in 2a); a time-series destination is
+  refused (`ApplyTargetNotWritable`) for field operations, as for replace and delete: only inserts are allowed there.
+- **Store guards.** The update filter matches `_id` with `$eq`. Guards exist only where a path needs them: an
+  `Index` segment adds a `$type: "array"` clause for the array before it (one per distinct prefix) and
+  `$exists: true` on the element itself (so an index past the end is `Missing`, never padded with nulls); a field
+  name made only of digits adds an object-and-not-array guard for its parent (a bare object type check also
+  matches an array holding an object). Plain nested field names get no guards. A guard that does not match yields
+  `Missing` (reported as not applicable, nothing written). `$unset` through an array is refused. Names containing
+  NUL are refused. Update commands are split by bytes like the batches of 2a, so one huge update cannot exceed the
+  command limit.
+- **UI model.**
+  - Field selection is kept per open detail (the ticked paths of one (pair, key)); `with_detail` clears it when
+    the detail changes, a re-run or the pair going away.
+  - One pending action per (pair, key) holds as before: queueing fields for a key that already has an item
+    merges or replaces by the merge rules. Fields in the same direction merge into one item; the other direction
+    replaces it; a whole-document action replaces a `Fields` item and vice versa. Overlapping paths (one inside
+    another) cannot be queued together (banner `fields_conflict`), and fields for a key already covered by a
+    whole-category item are ignored with a banner (`fields_covered`).
+  - The detail pane has a checkbox per changed field (named by its path), the buttons "Copy selected fields to target" and
+    "Copy selected fields to source", the count of ticked fields and Clear. A field that cannot be copied has its
+    checkbox disabled with the reason shown next to it (empty or dotted or `$` names, `_id`, `AnyElement`,
+    array items that are added or removed, which cannot be added or removed one by one). Checkboxes exist only on the Different tab.
+  - **Gating** is the same as in 2b, except that the field checkboxes stay enabled during a compare run or a
+    check (like the row checkboxes); only the queue buttons are blocked then, as they are by a review or a
+    running apply.
+  - **Review and result.** The review has a Fields column (documents), a line "Fields: n, documents: m", and a
+    warning `FieldCopyKeepsRest` (only the chosen fields change, the rest of each destination document stays, and
+    fields outside the compared scope are never touched). A review with only field items needs no typed text.
+    The pending list shows "Copy to destination. Fields: n, documents: m". The result panel counts a Fields item
+    like any document (applied, changed since the compare, not applicable, failed, not run).
+- **Shapes added:** `ApplyKind::Fields`, `ApplyOp.fields`, `WriteOp::UpdateFields`; in the UI
+  `CompareAction::{ToggleField, ClearFieldSelection, AddFieldsToPending}`, `RowAction::CopyFieldsTo{Target,Source}`
+  and a Fields pending item.
+
+Limits and known gaps as of slice 2c:
+
+- No field-level bulk: a field copy is per document, queued from its detail pane.
+- No array element insertion or removal (a changed element can be copied by index; to add or remove items copy
+  the whole array), and no rename of a field.
+- Selecting an element of an array is limited to changed elements.
+- A guard mismatch is reported as `Missing`. The in-memory store rejects where MongoDB reports `Missing`.
+- The guards can be bypassed only by exotic documents (an array of documents that has a key named like the index)
+  combined with a race between the re-read and the write.
+- `$`-prefixed keys inside VALUES are stored literally on server 5.0 and later; on older servers they are
+  rejected with a typed failure before anything is written.
+- Stored results are stale after an apply, as for 2b: run the pair again.
+
+Tier-1 coverage on a real server (`crates/ui/tests/local_compare_field_flows.rs`, click-driven): copying one of
+two differing fields; two fields of one document in one apply and the re-run showing the rest; removing a field
+only the target has, and only the source has (copy to source); a nested field with an array element by index; a
+document changed after the compare (skipped, left alone); a field with a dot in its name (disabled with the
+reason, cannot be queued); a Fields item and a whole-document replace for different documents in one apply; a
+field scope "only these fields" never writing outside the scope.
 
 ## Export (slice 3, designed now)
 

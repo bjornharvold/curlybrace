@@ -7,6 +7,7 @@ use super::confirm::{
 use super::*;
 use crate::viewmodel::compare::{ApplyUi, RowAction};
 use curlybrace_core::compare::apply::{ApplyReport, IdPolicy};
+use curlybrace_core::compare::diff::PathSegment;
 use uuid::Uuid;
 
 /// The instance of the variant that follows `action`, `None` after the last one. The match has
@@ -61,7 +62,10 @@ fn successor(action: &CompareAction) -> Option<CompareAction> {
         A::AddToPending(_) => A::AddKeyToPending(key(2), RowAction::CopyToSource),
         A::AddKeyToPending(..) => A::RemovePending(0),
         A::RemovePending(_) => A::ClearPending,
-        A::ClearPending => A::ReviewApply { word: WORD.into() },
+        A::ClearPending => A::ToggleField(vec![PathSegment::Field("a".into())]),
+        A::ToggleField(_) => A::ClearFieldSelection,
+        A::ClearFieldSelection => A::AddFieldsToPending(RowAction::CopyFieldsToTarget),
+        A::AddFieldsToPending(_) => A::ReviewApply { word: WORD.into() },
         A::ReviewApply { .. } => A::SetConfirmText(String::new()),
         A::SetConfirmText(_) => A::SetIdPolicy(IdPolicy::Generate),
         A::SetIdPolicy(_) => A::ConfirmApply,
@@ -123,6 +127,9 @@ fn slot(action: &CompareAction) -> usize {
         A::CancelReview => 43,
         A::CancelApply => 44,
         A::DismissApplyResult => 45,
+        A::ToggleField(_) => 46,
+        A::ClearFieldSelection => 47,
+        A::AddFieldsToPending(_) => 48,
     }
 }
 
@@ -185,6 +192,12 @@ fn states() -> Vec<StartState> {
         ("running", running_apply, false),
         ("finished", finished_apply, false),
         ("idle, nothing pending", checked_state, false),
+        ("detail open, fields ticked", super::fields::ticked, false),
+        (
+            "reviewing a fields item",
+            super::fields::reviewing_queued,
+            true,
+        ),
     ]
 }
 
@@ -235,6 +248,43 @@ fn no_sequence_of_actions_without_confirm_sends_apply() {
             for action in order.iter() {
                 let (next, cmds) = act(state, action.clone());
                 assert!(applies(&cmds).is_empty(), "{action:?} after {name}");
+                state = next;
+            }
+        }
+    }
+}
+
+/// The walk above closes the detail before the field actions run, so they also run here, with a
+/// loaded detail and ticks, in several orders and from states where a write is under review.
+#[test]
+fn the_field_actions_with_a_loaded_detail_never_send_apply() {
+    let a = || PathSegment::Field("a".into());
+    let toggle = || CompareAction::ToggleField(vec![a()]);
+    let queue_t = || CompareAction::AddFieldsToPending(RowAction::CopyFieldsToTarget);
+    let queue_s = || CompareAction::AddFieldsToPending(RowAction::CopyFieldsToSource);
+    let orders = [
+        vec![
+            toggle(),
+            queue_t(),
+            toggle(),
+            queue_s(),
+            CompareAction::ClearFieldSelection,
+        ],
+        vec![
+            queue_s(),
+            CompareAction::ClearFieldSelection,
+            toggle(),
+            queue_t(),
+            toggle(),
+        ],
+    ];
+    let starts: [fn() -> AppState; 2] = [super::fields::ticked, super::fields::reviewing_queued];
+    for build in starts {
+        for order in &orders {
+            let mut state = build();
+            for action in order {
+                let (next, cmds) = act(state, action.clone());
+                assert!(applies(&cmds).is_empty(), "{action:?}");
                 state = next;
             }
         }

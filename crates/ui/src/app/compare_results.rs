@@ -27,10 +27,15 @@ pub(super) fn open_pair(state: AppState, entry: EntryId) -> Out {
         _ => Vec::new(),
     };
     let switched = c.open_pair != Some(pair);
+    // Switching pair closes the detail, and with it the ticks made in it.
+    let base = if switched {
+        c.clone().with_detail(None)
+    } else {
+        c.clone()
+    };
     let opened = CompareState {
         open_pair: Some(pair),
-        detail: if switched { None } else { c.detail.clone() },
-        ..c.clone()
+        ..base
     };
     let compare = match refetch {
         Some(next) => opened.results_updated(pair, |_| next),
@@ -43,8 +48,7 @@ pub(super) fn open_pair(state: AppState, entry: EntryId) -> Out {
 pub(super) fn back_to_overview(state: AppState) -> Out {
     let compare = CompareState {
         open_pair: None,
-        detail: None,
-        ..state.compare.clone()
+        ..state.compare.clone().with_detail(None)
     };
     none(with_compare(state, compare))
 }
@@ -64,11 +68,11 @@ pub(super) fn moved(
     // The open detail belongs to a row of the tab and page just left. A page arrives later, so
     // it is dropped on any category or page change rather than checked against rows not yet
     // loaded (a late `Detail` for it is then ignored).
-    let compare = CompareState {
-        detail: None,
-        ..state.compare.clone()
-    }
-    .results_updated(next.pair, |_| next);
+    let compare = state
+        .compare
+        .clone()
+        .with_detail(None)
+        .results_updated(next.pair, |_| next);
     (with_compare(state, compare), commands)
 }
 
@@ -79,10 +83,11 @@ pub(super) fn select(state: AppState, key: KeyTuple) -> Out {
     let Some(command) = results.select(session, &key) else {
         return none(state);
     };
-    let compare = CompareState {
-        detail: Some(DetailView::loading(key)),
-        ..state.compare.clone()
-    };
+    // A new request replaces the detail, whether for another key or the same one again.
+    let compare = state
+        .compare
+        .clone()
+        .with_detail(Some(DetailView::loading(key)));
     (with_compare(state, compare), vec![cmd(command)])
 }
 
@@ -137,8 +142,7 @@ pub(super) fn rerun(state: AppState, entry: EntryId) -> Out {
         overview,
         pairs: c.pairs.clone().only_included(entry).editing(Some(entry)),
         open_pair: None,
-        detail: None,
-        ..c.clone()
+        ..c.clone().with_detail(None)
     }
     .without_results(&old)
     .invalidated();

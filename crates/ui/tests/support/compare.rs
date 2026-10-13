@@ -334,3 +334,87 @@ pub fn open_row(f: &mut Fixture, key: &str) {
     line.click();
     settle(&mut f.harness);
 }
+
+// ---- Field-level gestures ----
+
+/// Opens the detail of the row `key` and waits until the runtime has answered with its changes.
+#[track_caller]
+pub fn open_detail(f: &mut Fixture, key: &str) {
+    open_row(f, key);
+    wait_until(&mut f.harness, "the document's detail", SHORT, |h| {
+        let detail = &h.state().state().compare.detail;
+        detail
+            .as_ref()
+            .is_some_and(|d| !d.loading && !d.changes.is_empty())
+    });
+}
+
+/// The field checkbox named by the field path text (for example `address.city`, `tags[1]`).
+#[track_caller]
+fn field_checkbox<'a>(f: &'a Fixture, path: &'a str) -> egui_kittest::Node<'a> {
+    f.harness
+        .get_all_by_role_and_label(Role::CheckBox, path)
+        .next()
+        .unwrap_or_else(|| panic!("no field checkbox {path:?}:\n{}", dump(&f.harness)))
+}
+
+/// Ticks the checkbox of each field of the open detail, named by its path label.
+#[track_caller]
+pub fn tick_fields(f: &mut Fixture, paths: &[&str]) {
+    for path in paths {
+        field_checkbox(f, path).click();
+        settle(&mut f.harness);
+    }
+}
+
+/// Whether the field checkbox `path` is disabled right now.
+#[track_caller]
+pub fn field_disabled(f: &Fixture, path: &str) -> bool {
+    field_checkbox(f, path).accesskit_node().is_disabled()
+}
+
+/// Whether the field checkbox `path` is ticked right now.
+#[track_caller]
+pub fn field_ticked(f: &Fixture, path: &str) -> bool {
+    use eframe::egui::accesskit::Toggled;
+    field_checkbox(f, path).accesskit_node().toggled() == Some(Toggled::True)
+}
+
+/// Clicks "Copy fields to target" (or "... to source") of the detail pane.
+#[track_caller]
+pub fn copy_fields(f: &mut Fixture, to_target: bool) {
+    let key = if to_target {
+        "compare.detail.copy_fields_to_target"
+    } else {
+        "compare.detail.copy_fields_to_source"
+    };
+    click_key(f, key);
+}
+
+/// Whether the detail pane's queue button for the direction is disabled right now.
+#[track_caller]
+pub fn copy_fields_disabled(f: &Fixture, to_target: bool) -> bool {
+    let key = if to_target {
+        "compare.detail.copy_fields_to_target"
+    } else {
+        "compare.detail.copy_fields_to_source"
+    };
+    let label = f.labels.t(key);
+    let button = f.harness.get_by_label(&label);
+    button.accesskit_node().is_disabled()
+}
+
+/// Queues the ticked fields of the open detail towards the target, reviews and applies, and
+/// waits for the Finished panel.
+#[track_caller]
+pub fn apply_ticked_fields(f: &mut Fixture, to_target: bool) {
+    copy_fields(f, to_target);
+    open_review(f);
+    confirm_and_wait(f, SHORT);
+}
+
+/// Whether the open detail lists a field checkbox for `path`.
+pub fn has_field(f: &Fixture, path: &str) -> bool {
+    let mut found = f.harness.query_all_by_role_and_label(Role::CheckBox, path);
+    found.next().is_some()
+}

@@ -122,7 +122,12 @@ for each side, press **Add pair**, then **Check** and **Run**.
   before it is written: a document that changed since the compare is skipped and left alone. The
   result lists what was applied, skipped, failed (with the document's key) and not run, and you can
   cancel a running apply. The pair then shows **Applied**: run it again to confirm what is left.
-  Changing single fields of a document and exporting results are still to come
+- To change only some fields of a changed document, open it, tick the fields and choose **Copy selected fields
+  to target** or **Copy selected fields to source**. Only those fields are written (a field that exists on one side
+  only is removed from the other); the rest of the destination document stays as it is. A field that
+  cannot be copied on its own (the `_id`, a name with a dot or starting with `$`, an item of an array whose
+  order is ignored, or an array item that was added or removed) is shown disabled with the reason. Field copies are queued and reviewed like the
+  other actions. Exporting results is still to come
   ([#8](https://github.com/bjornharvold/curlybrace/issues/8)).
 - The key must be **unique** on each side: a duplicate key stops the run with an error, and
   **Find duplicate keys** then shows which values repeat. Each document must have a value for
@@ -155,7 +160,7 @@ in rough order; each one gets its own design and plan before code is written, an
 place to contribute:
 
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): diff two collections or databases (across servers), pick the
-  differences, and apply or export the sync. Comparing collections and whole databases is built, and so is copying and deleting differences between two databases (with a confirmation and a per-document report). Still to build: field-level changes and exporting reports.
+  differences, and apply or export the sync. Comparing collections and whole databases is built, and so is copying and deleting differences, including single fields of a changed document, between two databases (with a confirmation and a per-document report). Still to build: exporting reports.
 - **Data Masking and Reschema** ([#9](https://github.com/bjornharvold/curlybrace/issues/9)): anonymise sensitive fields in copies of data and
   reshape documents in bulk.
 - **SQL and MongoDB** ([#10](https://github.com/bjornharvold/curlybrace/issues/10)): a SQL query editor that translates to MongoDB queries, plus SQL

@@ -18,6 +18,8 @@ mod apply;
 #[cfg(test)]
 mod apply_bulk_tests;
 #[cfg(test)]
+mod apply_fields_tests;
+#[cfg(test)]
 mod apply_tests;
 #[cfg(test)]
 mod closed_tests;

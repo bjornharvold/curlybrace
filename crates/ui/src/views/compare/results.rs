@@ -4,7 +4,8 @@ use super::select::{header_checkbox, row_checkbox, show_selection_bar};
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{
-    CompareState, ResultsView, SelectionBar, category_key, key_label, page_ticked, visible_ticks,
+    CompareState, FieldBar, ResultsView, SelectionBar, category_key, key_label, page_ticked,
+    visible_ticks,
 };
 use curlybrace_core::compare::protocol::RowView;
 use curlybrace_core::compare::results::Category;
@@ -34,7 +35,8 @@ pub fn show_pair_results(
     let detail = match &state.detail {
         Some(d) => {
             ui.separator();
-            show_detail(ui, d, &state.detail_buttons(&d.key), i18n)
+            let bar = FieldBar::of(state, d);
+            show_detail(ui, d, &state.detail_buttons(&d.key), &bar, i18n)
         }
         None => {
             forget_cache(ui);
@@ -165,7 +167,6 @@ fn show_table(
     let ticks = visible_ticks(&state.selection, results);
     let enabled = state.tick_block(results.pair).is_none();
     let header = show_table_header(ui, &ticks, enabled, i18n);
-    let selected = state.detail.as_ref().map(|d| &d.key);
     let mut action = None;
     egui::ScrollArea::vertical()
         .id_salt("compare_rows")
@@ -178,7 +179,7 @@ fn show_table(
                     row,
                     ticked: ticks[index],
                     enabled,
-                    current: selected == Some(&row.key),
+                    current: state.detail.as_ref().is_some_and(|d| d.is_for(&row.key)),
                 };
                 let clicked = ui.push_id(id, |ui| show_row(ui, &line, i18n)).inner;
                 action = clicked.or(action.take());
@@ -235,6 +236,15 @@ fn show_row(ui: &mut egui::Ui, line: &RowLine<'_>, i18n: &I18n) -> Option<Compar
         let toggled = row_checkbox(ui, line.ticked, line.enabled, &label);
         let text = egui::RichText::new(&label).monospace();
         let response = ui.selectable_label(line.current, text);
+        // Screen readers hear which row's detail is open.
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::SelectableLabel,
+                true,
+                line.current,
+                &label,
+            )
+        });
         let opened = response
             .on_hover_text(i18n.t("compare.results.open_hint"))
             .clicked();

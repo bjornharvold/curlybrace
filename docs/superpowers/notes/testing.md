@@ -75,6 +75,15 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
 
   The gesture helpers (`open_tab`, `tick_rows`, `select_all_in_tab`, `click_action`, `open_review`,
   `type_confirmation`, `apply_enabled`, `confirm_and_wait`, `rerun`) live in `tests/support/compare.rs`.
+- `curlybrace-ui` `local_compare_field_flows` - the click-driven FIELD-LEVEL apply flows of slice 2c (open a document's detail, tick fields by path, "Copy fields to target/source", Review changes, Apply, the Finished panel): one field of two, two fields in one apply and the re-run, removing a field, a nested field with an array element by index, a document changed after the compare (stale), a dotted field name (disabled), fields and whole documents in one apply, a field scope that is never exceeded. It WRITES to `cbit_*` databases and skips unless BOTH `CURLYBRACE_IT=1` and an explicit `CURLYBRACE_IT_MONGODB_URI` are set. Use your own container (it needs mongo:7 or later, which stores field names with dots):
+
+      docker run -d --rm --name cb-it-dev-2c -p 127.0.0.1:27121:27017 mongo:7
+      until nc -z 127.0.0.1 27121; do sleep 1; done
+      CURLYBRACE_IT=1 CURLYBRACE_IT_MONGODB_URI=mongodb://127.0.0.1:27121 \
+        cargo test -p curlybrace-ui --test local_compare_field_flows --locked -- --include-ignored --nocapture
+      docker rm -f cb-it-dev-2c
+
+  Its gesture helpers (`open_detail`, `tick_fields`, `copy_fields`, `apply_ticked_fields`, `field_disabled`, `field_ticked`, `has_field`) are in `tests/support/compare.rs`.
 
 The script checks that the server answers on TCP (no `mongosh` needed), sets `CURLYBRACE_IT=1` and
 runs both targets. **Start the server yourself**, for example

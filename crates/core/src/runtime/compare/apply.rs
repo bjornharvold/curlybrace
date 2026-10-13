@@ -111,6 +111,7 @@ fn start_apply(ctx: ApplyContext, request: ApplyRequest) -> Result<()> {
     if ops.is_empty() {
         return Err(CoreError::Unsupported("nothing to apply".into()));
     }
+    refuse_misshapen(&ops)?;
     refuse_duplicates(&ops)?;
     let groups = group_by_pair(ops);
     require_results(&ctx.session, &groups)?;
@@ -160,7 +161,10 @@ fn category_sides(category: Category) -> (bool, bool) {
 /// category is empty, so the request is judged by what it asks for, not by what is stored).
 fn bulk_to_ops(item: &BulkApply, results: &ResultSet) -> Result<Vec<ApplyOp>> {
     let (has_source, has_target) = category_sides(item.category);
-    if !kind_fits(item.kind, item.direction, has_source, has_target) {
+    // Field copies are chosen per document; there is no category-wide field copy.
+    if item.kind == ApplyKind::Fields
+        || !kind_fits(item.kind, item.direction, has_source, has_target)
+    {
         return Err(CoreError::Unsupported(
             "operation does not fit this category".into(),
         ));
@@ -173,8 +177,23 @@ fn bulk_to_ops(item: &BulkApply, results: &ResultSet) -> Result<Vec<ApplyOp>> {
             key: entry.key.clone(),
             kind: item.kind,
             direction: item.direction,
+            fields: Vec::new(),
         })
         .collect())
+}
+
+/// A `Fields` op names at least one path; every other kind names none. Judged before anything
+/// else about the request, so a malformed op never reaches the slot or a store.
+fn refuse_misshapen(ops: &[ApplyOp]) -> Result<()> {
+    let misshapen = ops
+        .iter()
+        .any(|op| (op.kind == ApplyKind::Fields) == op.fields.is_empty());
+    if misshapen {
+        return Err(CoreError::Unsupported(
+            "operation does not fit this category".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// No two operations may act on the same `(pair, key)`; key equality is `compare_tuples`.
@@ -323,7 +342,7 @@ fn destination_namespace(spec: &PairSpec, side: Side) -> &Namespace {
 }
 
 /// Before any write: no destination may be a view, and a time-series destination takes inserts
-/// only. A collection that does not exist yet is fine (the server creates it on insert).
+/// only (so not field updates either). A collection that does not exist yet is fine (the server creates it on insert).
 async fn check_destinations(ctx: &ApplyContext, groups: &[Group]) -> Result<()> {
     let writes = planned_writes(&ctx.session, groups);
     // Its own task: a panicking store ends in a refusal like any other, not in a bare `ApplyDone`.

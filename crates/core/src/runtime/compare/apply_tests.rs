@@ -30,9 +30,9 @@ const SENTINEL: &str = "SENTINEL-DOCUMENT-VALUE";
 
 /// A rendezvous: the parked call announces itself, then waits for the test to release it.
 #[derive(Default)]
-struct Gate {
-    entered: Notify,
-    release: Notify,
+pub(super) struct Gate {
+    pub(super) entered: Notify,
+    pub(super) release: Notify,
 }
 
 /// An in-memory store that can report another collection kind, park its next scan or bulk write
@@ -152,6 +152,13 @@ impl DocumentStore for ApplyStore {
     }
 }
 
+/// Parks the target's next bulk write on a gate and returns the gate.
+pub(super) fn park_target_bulk(r: &Rig) -> Arc<Gate> {
+    let gate = Arc::new(Gate::default());
+    r.target.park_next_bulk(&gate);
+    gate
+}
+
 pub(super) fn source_store() -> InMemoryStore {
     InMemoryStore::new()
         .with_docs(
@@ -234,6 +241,7 @@ pub(super) fn op(pair: u32, id: i32, kind: ApplyKind) -> ApplyOp {
         key: key(id),
         kind,
         direction: Direction::SourceToTarget,
+        fields: Vec::new(),
     }
 }
 
@@ -272,7 +280,7 @@ pub(super) fn pair_reports(events: &[CompareEvent]) -> Vec<(u32, ApplyReport)> {
 }
 
 /// Proves every command sent so far was handled (unknown sessions are answered in order).
-async fn barrier(tx: &Tx, h: &mut RuntimeHandle) {
+pub(super) async fn barrier(tx: &Tx, h: &mut RuntimeHandle) {
     let rows = CompareCommand::Rows {
         session: 99,
         pair: 1,

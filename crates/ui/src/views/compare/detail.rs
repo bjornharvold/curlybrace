@@ -1,8 +1,9 @@
 //! The detail pane: field-level change lines and the two documents as JSON.
+use super::fields::show_changes;
 use super::select::action_buttons;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::viewmodel::compare::{ActionButton, ChangeLine, DetailView, canonical_json, key_label};
+use crate::viewmodel::compare::{ActionButton, DetailView, FieldBar, canonical_json, key_label};
 use bson::Document;
 use curlybrace_core::compare::key::KeyTuple;
 use eframe::egui;
@@ -24,11 +25,13 @@ pub fn forget_cache(ui: &egui::Ui) {
     ui.data_mut(|d| d.remove::<JsonCache>(cache_id()));
 }
 
-/// The detail pane. `buttons` are the per-document actions for its one key (add to pending).
+/// The detail pane. `buttons` are the per-document actions for its one key (add to pending);
+/// `fields` the checkboxes and queue buttons for copying single fields.
 pub fn show_detail(
     ui: &mut egui::Ui,
     detail: &DetailView,
     buttons: &[ActionButton],
+    fields: &FieldBar,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let mut action = None;
@@ -53,44 +56,9 @@ pub fn show_detail(
         });
         return action;
     }
-    show_changes(ui, &detail.changes, i18n);
+    let changed = show_changes(ui, &detail.changes, fields, i18n);
     show_documents(ui, detail, i18n);
-    action
-}
-
-fn show_changes(ui: &mut egui::Ui, changes: &[ChangeLine], i18n: &I18n) {
-    if changes.is_empty() {
-        ui.label(i18n.t("compare.detail.no_changes"));
-        return;
-    }
-    egui::Grid::new("compare_changes")
-        .striped(true)
-        .show(ui, |ui| {
-            for key in [
-                "compare.detail.change_column",
-                "compare.detail.path_column",
-                "compare.detail.source_value",
-                "compare.detail.target_value",
-            ] {
-                ui.strong(i18n.t(key));
-            }
-            ui.end_row();
-            for line in changes {
-                show_change(ui, line, i18n);
-                ui.end_row();
-            }
-        });
-}
-
-fn show_change(ui: &mut egui::Ui, line: &ChangeLine, i18n: &I18n) {
-    ui.label(i18n.t(line.kind));
-    ui.monospace(&line.path);
-    for value in [&line.source_text, &line.target_text] {
-        match value {
-            Some(text) => ui.monospace(text),
-            None => ui.weak(i18n.t("compare.detail.absent")),
-        };
-    }
+    changed.or(action)
 }
 
 fn show_documents(ui: &mut egui::Ui, detail: &DetailView, i18n: &I18n) {
@@ -154,6 +122,7 @@ fn document_box(ui: &mut egui::Ui, id: &str, title_key: &str, json: &Json, i18n:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::viewmodel::compare::CompareState;
     use bson::{Bson, doc};
 
     fn loaded(n: i32, source: Document) -> DetailView {
@@ -162,12 +131,13 @@ mod tests {
 
     fn texts(ctx: &egui::Context, detail: &DetailView) -> Vec<String> {
         let i18n = I18n::english();
+        let fields = FieldBar::of(&CompareState::default(), detail);
         let mut out = Vec::new();
         for _ in 0..2 {
             out.clear();
             let output = ctx.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    show_detail(ui, detail, &[], &i18n);
+                    show_detail(ui, detail, &[], &fields, &i18n);
                 });
             });
             for clipped in &output.shapes {

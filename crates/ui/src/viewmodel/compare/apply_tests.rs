@@ -25,6 +25,7 @@ fn review(pairs: &[(PairId, u64)]) -> Review {
                 pair: *pair,
                 entry: *pair as EntryId + 100,
                 destinations: vec![],
+                field_count: 0,
                 counts: KindCounts {
                     insert: *n,
                     ..KindCounts::default()

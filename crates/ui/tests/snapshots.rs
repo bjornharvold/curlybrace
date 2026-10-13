@@ -15,6 +15,7 @@ use curlybrace_ui::viewmodel::{
 };
 use curlybrace_ui::views::connections::ConnectionsState;
 use support::compare_apply_states::shots as apply;
+use support::compare_field_shots as fields;
 use support::compare_multi_states::{overview_mixed, pair_results, pairs_setup};
 use support::compare_states::{Through, compare_state};
 use support::db::sample_people;
@@ -201,6 +202,14 @@ apply_shot!(
     compare_apply_pair_header_marked,
     apply::pair_header_marked_applied
 );
+
+apply_shot!(
+    compare_fields_detail_checkboxes,
+    fields::detail_with_field_checkboxes
+);
+apply_shot!(compare_fields_pending, fields::pending_with_fields);
+apply_shot!(compare_fields_review, fields::review_with_fields);
+apply_shot!(compare_fields_finished, fields::finished_with_field_updates);
 
 #[test]
 #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]

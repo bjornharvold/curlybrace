@@ -87,25 +87,41 @@ fn show_group(
     action
 }
 
-fn show_line(
-    ui: &mut egui::Ui,
-    line: &PendingLine,
-    busy: bool,
-    i18n: &I18n,
-) -> Option<CompareAction> {
+/// The line's sentence: what is copied or deleted, where, and how many.
+fn line_text(line: &PendingLine, i18n: &I18n) -> String {
+    let destination = destination_text(&line.destination, i18n);
+    if line.kind == ApplyKind::Fields {
+        return i18n.t_with(
+            "compare.apply.pending.fields",
+            &[
+                ("destination", &destination),
+                ("fields", &line.fields.to_string()),
+                ("documents", &line.documents.to_string()),
+            ],
+        );
+    }
     let key = match (line.kind, line.whole_tab) {
         (ApplyKind::Delete, false) => "compare.apply.pending.delete",
         (ApplyKind::Delete, true) => "compare.apply.pending.delete_all",
         (_, false) => "compare.apply.pending.copy",
         (_, true) => "compare.apply.pending.copy_all",
     };
-    let text = i18n.t_with(
+    i18n.t_with(
         key,
         &[
-            ("destination", &destination_text(&line.destination, i18n)),
+            ("destination", &destination),
             ("count", &line.documents.to_string()),
         ],
-    );
+    )
+}
+
+fn show_line(
+    ui: &mut egui::Ui,
+    line: &PendingLine,
+    busy: bool,
+    i18n: &I18n,
+) -> Option<CompareAction> {
+    let text = line_text(line, i18n);
     ui.horizontal(|ui| {
         ui.label(&text);
         let remove = ui.add_enabled(

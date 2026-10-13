@@ -3,6 +3,7 @@
 
 use bson::{Bson, Document};
 
+use crate::compare::diff::PathSegment;
 use crate::compare::key::KeyTuple;
 use crate::compare::protocol::PairId;
 use crate::error::{CoreError, Result};
@@ -26,6 +27,9 @@ pub enum ApplyKind {
     Insert,
     Replace,
     Delete,
+    /// Update the named fields of an existing document (`ApplyOp::fields`); the rest of the
+    /// document is left as it is.
+    Fields,
 }
 
 /// Insert only: keep the origin `_id` or let the server generate one.
@@ -42,6 +46,8 @@ pub struct ApplyOp {
     pub key: KeyTuple,
     pub kind: ApplyKind,
     pub direction: Direction,
+    /// Non-empty exactly when `kind == ApplyKind::Fields`: every chosen path of this document.
+    pub fields: Vec<Vec<PathSegment>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +106,7 @@ impl ApplyReport {
 
 /// Does `kind` fit a row that exists on the sides `has_source`/`has_target` (from the recorded
 /// `DiffEntry`)? Insert: origin yes, destination no. Replace: both. Delete: destination yes,
-/// origin no.
+/// origin no. Fields: both exist.
 pub fn kind_fits(
     kind: ApplyKind,
     direction: Direction,
@@ -113,7 +119,7 @@ pub fn kind_fits(
     };
     match kind {
         ApplyKind::Insert => has_origin && !has_dest,
-        ApplyKind::Replace => has_origin && has_dest,
+        ApplyKind::Replace | ApplyKind::Fields => has_origin && has_dest,
         ApplyKind::Delete => !has_origin && has_dest,
     }
 }
@@ -156,6 +162,8 @@ pub fn plan_write(
             Ok(WriteOp::Replace { id, doc })
         }
         ApplyKind::Delete => Ok(WriteOp::Delete { id: dest_id(dest)? }),
+        // Planned by `apply_fields::plan_fields`, which needs the fresh diff.
+        ApplyKind::Fields => Err(invalid()),
     }
 }
 
@@ -201,6 +209,26 @@ mod tests {
         for (s, t, k, d, want) in cases {
             assert_eq!(kind_fits(k, d, s, t), want, "{s} {t} {k:?} {d:?}");
         }
+    }
+
+    #[test]
+    fn kind_fits_fields_needs_both_documents_in_both_directions() {
+        for (s, t) in [(true, true), (true, false), (false, true), (false, false)] {
+            for d in [ST, TS] {
+                assert_eq!(
+                    kind_fits(ApplyKind::Fields, d, s, t),
+                    s && t,
+                    "{s} {t} {d:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn plan_write_refuses_fields_because_they_need_the_fresh_diff() {
+        let o = doc! {"_id": 1};
+        let r = plan_write(ApplyKind::Fields, Some(&o), Some(&o), IdPolicy::Keep);
+        assert_eq!(r, Err(invalid()));
     }
 
     #[test]

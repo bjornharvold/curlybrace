@@ -1,5 +1,7 @@
 use super::*;
 use bson::{Bson, doc};
+use curlybrace_core::compare::apply::Direction;
+use curlybrace_core::compare::apply_fields::{Unaddressable, can_copy};
 use curlybrace_core::compare::diff::PathSegment;
 
 fn change(path: &str, kind: ChangeKind, s: Option<Bson>, t: Option<Bson>) -> FieldChange {
@@ -52,18 +54,24 @@ fn changes_become_lines_with_kind_keys_and_formatted_values() {
                 kind: "compare.detail.changed",
                 source_text: Some("1".into()),
                 target_text: Some("\"x\"".into()),
+                segments: vec![PathSegment::Field("a".into())],
+                change: ChangeKind::Changed,
             },
             ChangeLine {
                 path: "b.c".into(),
                 kind: "compare.detail.added",
                 source_text: None,
                 target_text: Some("true".into()),
+                segments: vec![PathSegment::Field("b.c".into())],
+                change: ChangeKind::Added,
             },
             ChangeLine {
                 path: "d".into(),
                 kind: "compare.detail.removed",
                 source_text: Some("null".into()),
                 target_text: None,
+                segments: vec![PathSegment::Field("d".into())],
+                change: ChangeKind::Removed,
             },
         ]
     );
@@ -91,4 +99,101 @@ fn is_for_matches_only_the_requested_key() {
     let d = DetailView::loading(KeyTuple(vec![Bson::Int32(1)]));
     assert!(d.is_for(&KeyTuple(vec![Bson::Int32(1)])));
     assert!(!d.is_for(&KeyTuple(vec![Bson::Int32(2)])));
+}
+
+#[test]
+fn is_for_compares_keys_by_value_so_a_nan_key_matches_itself() {
+    let nan = KeyTuple(vec![Bson::Double(f64::NAN)]);
+    assert!(nan != nan.clone(), "NaN is never == to itself");
+    assert!(DetailView::loading(nan.clone()).is_for(&nan));
+    assert!(!DetailView::loading(nan).is_for(&KeyTuple(vec![Bson::Int32(1)])));
+}
+
+fn line_at(segments: Vec<PathSegment>, change: ChangeKind) -> ChangeLine {
+    ChangeLine {
+        path: String::new(),
+        kind: kind_key(change),
+        source_text: None,
+        target_text: None,
+        segments,
+        change,
+    }
+}
+
+fn fld(name: &str) -> PathSegment {
+    PathSegment::Field(name.into())
+}
+
+#[test]
+fn copy_block_names_every_reason() {
+    use ChangeKind::{Added, Changed, Removed};
+    use Unaddressable as U;
+    let idx = PathSegment::Index(0);
+    let table = [
+        (vec![fld("_id")], Changed, Some(U::Id)),
+        (vec![fld("_id"), fld("x")], Changed, Some(U::Id)),
+        (vec![], Changed, Some(U::NotAChange)),
+        (
+            vec![fld("a"), PathSegment::AnyElement],
+            Changed,
+            Some(U::AnyElement),
+        ),
+        (vec![fld("a.b")], Changed, Some(U::BadName)),
+        (vec![fld("$x")], Added, Some(U::BadName)),
+        (vec![fld("")], Removed, Some(U::BadName)),
+        (vec![fld("a"), idx.clone()], Added, Some(U::ArrayElement)),
+        (vec![fld("a"), idx.clone()], Removed, Some(U::ArrayElement)),
+        (
+            vec![fld("a"), idx.clone(), fld("b")],
+            Added,
+            Some(U::ArrayElement),
+        ),
+        (vec![fld("a"), idx], Changed, None),
+        (vec![fld("a")], Changed, None),
+        (vec![fld("a")], Added, None),
+        (vec![fld("a")], Removed, None),
+        (vec![fld("a"), fld("b")], Added, None),
+    ];
+    for (segments, change, expected) in table {
+        for direction in [Direction::SourceToTarget, Direction::TargetToSource] {
+            let l = line_at(segments.clone(), change);
+            assert_eq!(
+                l.copy_block(direction),
+                expected,
+                "{segments:?} {change:?} {direction:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn copy_block_agrees_with_the_core_rules_for_a_loaded_change() {
+    let c = change(
+        "a",
+        ChangeKind::Changed,
+        Some(Bson::Int32(1)),
+        Some(Bson::Int32(2)),
+    );
+    let d = DetailView::loading(KeyTuple(vec![Bson::Int32(1)])).loaded(None, None, &[c.clone()]);
+    for direction in [Direction::SourceToTarget, Direction::TargetToSource] {
+        assert_eq!(d.changes[0].copy_block(direction), can_copy(&c, direction));
+    }
+}
+
+#[test]
+fn a_loaded_added_change_with_an_index_reaches_the_adapter_with_kind_and_segments() {
+    let c = FieldChange {
+        path: "a[0]".into(),
+        segments: vec![fld("a"), PathSegment::Index(0)],
+        kind: ChangeKind::Added,
+        source: None,
+        target: Some(Bson::Int32(1)),
+    };
+    let d = DetailView::loading(KeyTuple(vec![Bson::Int32(1)])).loaded(None, None, &[c]);
+    assert_eq!(d.changes[0].segments, vec![fld("a"), PathSegment::Index(0)]);
+    assert_eq!(d.changes[0].change, ChangeKind::Added);
+    assert_eq!(
+        d.changes[0].copy_block(Direction::SourceToTarget),
+        Some(Unaddressable::ArrayElement)
+    );
 }

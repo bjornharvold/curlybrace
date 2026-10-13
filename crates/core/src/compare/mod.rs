@@ -4,6 +4,7 @@
 
 pub mod apply;
 pub mod apply_engine;
+pub mod apply_fields;
 pub mod diff;
 pub mod engine;
 pub mod fingerprint;
