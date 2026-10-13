@@ -63,9 +63,12 @@ impl FileGuard {
             path: path.to_path_buf(),
             armed: true,
         };
-        restrict(&file)?;
-        file.set_len(0).map_err(|_| CoreError::ExportWriteFailed)?;
-        Ok((file, guard))
+        match prepare(&file, path) {
+            Ok(()) => Ok((file, guard)),
+            // The file exists now: remove it for real, and say so if that fails too.
+            Err(error) if guard.remove() => Err(error),
+            Err(_) => Err(CoreError::ExportFileNotRemoved),
+        }
     }
 
     /// Keeps the file.
@@ -89,6 +92,16 @@ impl Drop for FileGuard {
             let _ = fs::remove_file(&self.path);
         }
     }
+}
+
+/// Restricts a freshly opened file to its owner and empties it.
+fn prepare(file: &File, path: &Path) -> Result<()> {
+    #[cfg(test)]
+    test_hooks::inject(path)?;
+    #[cfg(not(test))]
+    let _ = path;
+    restrict(file)?;
+    file.set_len(0).map_err(|_| CoreError::ExportWriteFailed)
 }
 
 #[cfg(unix)]
@@ -148,4 +161,43 @@ pub(super) fn overwrite_header(
     file.write_all(header)?;
     file.flush()?;
     file.sync_all()
+}
+
+#[cfg(test)]
+pub(super) mod test_hooks {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    use crate::error::{CoreError, Result};
+
+    static FAILING: Mutex<Vec<(PathBuf, bool)>> = Mutex::new(Vec::new());
+
+    /// `create` fails right after opening `path`; with `lock_parent` the parent directory also
+    /// becomes read-only first, so the removal fails too (the test restores it).
+    pub(in super::super) fn fail_after_open(path: &Path, lock_parent: bool) {
+        FAILING
+            .lock()
+            .unwrap()
+            .push((path.to_path_buf(), lock_parent));
+    }
+
+    pub(super) fn inject(path: &Path) -> Result<()> {
+        let hit = FAILING
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(p, _)| p == path)
+            .cloned();
+        let Some((_, lock_parent)) = hit else {
+            return Ok(());
+        };
+        #[cfg(unix)]
+        if lock_parent {
+            use std::os::unix::fs::PermissionsExt;
+            let parent = path.parent().unwrap();
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o500));
+        }
+        let _ = lock_parent;
+        Err(CoreError::ExportWriteFailed)
+    }
 }

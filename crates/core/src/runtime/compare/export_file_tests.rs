@@ -128,3 +128,45 @@ fn create_does_not_block_on_a_fifo() {
     assert!(FileGuard::create(&fifo).is_err());
     assert!(fifo.exists());
 }
+
+#[test]
+fn a_failure_right_after_the_open_removes_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("f");
+    super::export_file::test_hooks::fail_after_open(&path, false);
+    assert_eq!(
+        FileGuard::create(&path).unwrap_err(),
+        crate::error::CoreError::ExportWriteFailed
+    );
+    assert!(!path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_removal_after_the_open_is_reported_as_such() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let locked = dir.path().join("locked");
+    fs::create_dir(&locked).unwrap();
+    let path = locked.join("f");
+    let probe = locked.join("probe");
+    if fs::File::create(&probe)
+        .map(|_| fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)))
+        .is_err()
+    {
+        return;
+    }
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::remove_file(&probe).unwrap();
+    super::export_file::test_hooks::fail_after_open(&path, true);
+    let result = FileGuard::create(&path);
+    let left = path.exists();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    if fs::File::create(locked.join("again")).is_ok() {
+        assert_eq!(
+            result.unwrap_err(),
+            crate::error::CoreError::ExportFileNotRemoved
+        );
+        assert!(left, "the file really stayed");
+    }
+}

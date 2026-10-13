@@ -152,7 +152,9 @@ pub struct ExportRequest {
 
 /// How an export ended. `skipped` is stale + not planned + unsupported (listed in the file, never
 /// written as operations); `failed` are operations that could not be verified. When `cancelled`
-/// (or the file could not be kept) the file was removed (`partial_removed`) and `bytes` is 0.
+/// (or the file could not be kept) the counts say nothing was exported and `bytes` is 0.
+/// `partial_removed` is true when no export file remains (it was removed, or none was ever
+/// created); `file_left` is true only when one remains because its removal failed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExportOutcome {
     pub written: u64,
@@ -162,6 +164,7 @@ pub struct ExportOutcome {
     pub bytes: u64,
     pub cancelled: bool,
     pub partial_removed: bool,
+    pub file_left: bool,
 }
 
 /// "Every row of this category of this pair" (resolved by the runtime from the stored results).

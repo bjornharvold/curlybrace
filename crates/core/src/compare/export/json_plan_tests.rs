@@ -474,3 +474,34 @@ fn the_header_has_the_same_length_incomplete_and_complete_for_any_total() {
         );
     }
 }
+
+#[test]
+fn a_label_cannot_clobber_the_header_markers() {
+    let labels = [
+        "@@counts@@",
+        "\"@@counts@@\"",
+        "\"complete\":false",
+        "a\"b\\c\"@@counts@@\"\\",
+        "@@counts@@@@counts@@",
+    ];
+    for label in labels {
+        let lens: Vec<usize> = [false, true]
+            .into_iter()
+            .map(|complete| {
+                let mut h = header(label);
+                h.complete = complete;
+                let mut bytes = Vec::new();
+                PlanWriter::new(&mut bytes).begin(&h).unwrap();
+                let mut text = String::from_utf8(bytes).unwrap();
+                let len = text.len();
+                text.push_str("]}");
+                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(v["header"]["label"], label);
+                assert!(v["header"]["counts"].is_object(), "{label}");
+                assert_eq!(v["header"]["complete"], complete);
+                len
+            })
+            .collect();
+        assert_eq!(lens[0], lens[1], "{label}");
+    }
+}

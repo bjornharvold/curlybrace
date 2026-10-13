@@ -12,8 +12,8 @@
 //! after the slot was freed and the partial file removed. Its error is `ExportFileNotRemoved`
 //! when the removal itself failed (the person must delete the file); otherwise no file is left.
 //! In `ExportDone` of a cancelled export (or one that panicked) the file is gone and the counts
-//! say nothing was exported (`not_run` = all operations); `partial_removed` is false only when no
-//! file existed yet or its removal failed.
+//! say nothing was exported (`not_run` = all operations); `partial_removed` is true when no file
+//! remains (removed, or never created) and `file_left` is true only when the removal failed.
 //!
 //! Scripts have ONE destination side: a request whose operations write to both sides is refused
 //! for a script (`Unsupported("export one direction at a time")`); a JSON plan may mix them.
@@ -176,11 +176,12 @@ fn groups_of(resolved: &[Resolved]) -> Vec<Group> {
 }
 
 /// An outcome in which nothing was exported: the file is gone (or never existed).
-fn nothing_exported(total: u64, cancelled: bool, partial_removed: bool) -> ExportOutcome {
+fn nothing_exported(total: u64, cancelled: bool, nothing_remains: bool) -> ExportOutcome {
     ExportOutcome {
         not_run: total,
         cancelled,
-        partial_removed,
+        partial_removed: nothing_remains,
+        file_left: !nothing_remains,
         ..ExportOutcome::default()
     }
 }
@@ -198,7 +199,7 @@ async fn run_export(ctx: JobContext, job: ExportJob, slot: RunSlot) {
     }
     if job.cancel.is_cancelled() {
         slot.release();
-        ctx.emit(done(&ctx, nothing_exported(total, true, false)));
+        ctx.emit(done(&ctx, nothing_exported(total, true, true)));
         return;
     }
     let path = job.path.clone();
@@ -223,7 +224,7 @@ type Joined = std::result::Result<Result<ExportOutcome>, tokio::task::JoinError>
 
 /// Decides whether the file stays, then frees the slot and reports. The file stays only when the
 /// export ran to the end, was not cancelled, and `ExportDone` reached an open session. A failed
-/// removal is reported (`partial_removed: false`, or `ExportFileNotRemoved` for a failure).
+/// removal is reported (`file_left: true`, or `ExportFileNotRemoved` for a failure).
 fn conclude(
     ctx: &JobContext,
     slot: RunSlot,
@@ -408,5 +409,6 @@ async fn finish(
         bytes: length,
         cancelled: false,
         partial_removed: false,
+        file_left: false,
     })
 }

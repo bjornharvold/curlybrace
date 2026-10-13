@@ -41,7 +41,7 @@ async fn cancel_mid_export_removes_the_file_reports_it_and_frees_the_slot() {
     gate.release.notify_one();
     let events = within(collect_export(&mut r.h)).await;
     let outcome = outcome_of(&events);
-    assert!(outcome.cancelled && outcome.partial_removed);
+    assert!(outcome.cancelled && outcome.partial_removed && !outcome.file_left);
     assert_eq!(outcome.bytes, 0);
     assert_eq!(
         (
@@ -79,7 +79,7 @@ async fn a_panicking_store_removes_the_file_and_still_ends_with_export_done() {
     )
     .await;
     let outcome = outcome_of(&events);
-    assert!(outcome.partial_removed && !outcome.cancelled);
+    assert!(outcome.partial_removed && !outcome.file_left && !outcome.cancelled);
     assert_eq!((outcome.written, outcome.bytes), (0, 0));
     assert_eq!(outcome.not_run, 3);
     assert!(!path.exists());

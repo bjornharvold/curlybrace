@@ -101,11 +101,17 @@ fn header_value(header: &ExportHeader) -> Value {
     })
 }
 
+fn replace_last(text: &str, from: &str, to: &str) -> String {
+    match text.rfind(from) {
+        Some(at) => format!("{}{}{}", &text[..at], to, &text[at + from.len()..]),
+        None => text.to_string(),
+    }
+}
+
 /// The header text. Its LENGTH depends only on the label, the id policy and the count width, not
 /// on the counts or the flag: counts are space-padded to `count_width` and `"complete":true `
 /// has the length of `"complete":false`, so a header written as incomplete can later be
-/// overwritten in place by the final one. (A raw `"` cannot occur inside the escaped label, so
-/// the markers cannot be forged by it.)
+/// overwritten in place by the final one. (The markers are replaced at their LAST match, after the label.)
 pub(crate) fn header_text(header: &ExportHeader) -> Result<String, RenderError> {
     let c = header.counts;
     let w = header.count_width;
@@ -113,10 +119,12 @@ pub(crate) fn header_text(header: &ExportHeader) -> Result<String, RenderError> 
         "{{\"insert\":{:>w$},\"replace\":{:>w$},\"delete\":{:>w$},\"updateFields\":{:>w$},\"skipped\":{:>w$}}}",
         c.insert, c.replace, c.delete, c.update_fields, c.skipped
     );
+    // The label comes BEFORE the markers and is a JSON string, so it may spell a marker; only the
+    // last match is the real one.
     let slot = format!("\"{COUNTS_SLOT}\"");
-    let mut text = to_text(&header_value(header))?.replace(&slot, &counts);
+    let mut text = replace_last(&to_text(&header_value(header))?, &slot, &counts);
     if header.complete {
-        text = text.replace("\"complete\":false", "\"complete\":true ");
+        text = replace_last(&text, "\"complete\":false", "\"complete\":true ");
     }
     Ok(text)
 }
