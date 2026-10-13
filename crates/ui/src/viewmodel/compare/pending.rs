@@ -93,6 +93,8 @@ impl PendingList {
         match scope {
             Scope::Fields { key, paths } => {
                 // Field items have their own rules; a request a category item covers is ignored.
+                // Callers that need the Conflict/Empty/Swallowed feedback use `with_fields`.
+                debug_assert_eq!(cat, Category::Different, "field items are Different-only");
                 let (list, outcome) = self.with_fields(pair, &key, action, paths);
                 (list, usize::from(outcome == FieldsQueued::Swallowed))
             }

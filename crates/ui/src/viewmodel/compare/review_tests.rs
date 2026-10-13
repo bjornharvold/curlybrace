@@ -645,6 +645,15 @@ fn counts_match_the_command_ops_with_field_items_mixed_in() {
         assert_eq!(counted(&|c| c.fields), want(ApplyKind::Fields), "{case}");
         let sent_fields: u64 = ops.iter().map(|o| o.fields.len() as u64).sum();
         assert_eq!(r.field_total(), sent_fields, "case {case}");
+        // Replace and Fields ops only come from the Different tab: one op per (pair, key).
+        let mut seen = std::collections::BTreeSet::new();
+        for o in ops
+            .iter()
+            .filter(|o| matches!(o.kind, ApplyKind::Replace | ApplyKind::Fields))
+        {
+            let slot = (o.pair, super::super::selection::OrdKey(o.key.clone()));
+            assert!(seen.insert(slot), "case {case}: duplicate (pair, key)");
+        }
         assert!(bulk.iter().all(|b| b.kind != ApplyKind::Fields));
         assert_eq!(r.op_total(), pending.op_count(&totals), "case {case}");
         assert_eq!(

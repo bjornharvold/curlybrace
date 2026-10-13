@@ -74,8 +74,10 @@ impl PendingList {
         if covered {
             return (self.clone(), FieldsQueued::Swallowed);
         }
-        match self.position_of(pair, key) {
-            Some(at) if self.changes[at].action == action => self.merged_at(at, key, incoming),
+        match self.queued(pair, key) {
+            Some((at, have)) if self.changes[at].action == action => {
+                self.merged_at(at, have, incoming)
+            }
             _ => (
                 self.replaced(pair, key, action, incoming),
                 FieldsQueued::Queued,
@@ -83,31 +85,34 @@ impl PendingList {
         }
     }
 
-    fn position_of(&self, pair: PairId, key: &KeyTuple) -> Option<usize> {
+    /// The position and paths of the key's fields item, if one is queued.
+    fn queued(&self, pair: PairId, key: &KeyTuple) -> Option<(usize, &[Vec<PathSegment>])> {
         self.changes
             .iter()
-            .position(|c| fields_key_matches(c, pair, key))
+            .enumerate()
+            .find_map(|(at, c)| match &c.scope {
+                Scope::Fields { paths, .. } if fields_key_matches(c, pair, key) => {
+                    Some((at, paths.as_slice()))
+                }
+                _ => None,
+            })
     }
 
-    /// The item at `at` with `incoming` appended after its own paths.
+    /// The item at `at` (whose paths are `have`) with `incoming` appended; the item keeps its key.
     fn merged_at(
         &self,
         at: usize,
-        key: &KeyTuple,
+        have: &[Vec<PathSegment>],
         incoming: Vec<Vec<PathSegment>>,
     ) -> (Self, FieldsQueued) {
-        let Scope::Fields { paths: have, .. } = &self.changes[at].scope else {
-            return (self.clone(), FieldsQueued::Conflict);
-        };
         let union = distinct_paths(have.iter().cloned().chain(incoming).collect());
         if paths_conflict(&union) {
             return (self.clone(), FieldsQueued::Conflict);
         }
         let mut changes = self.changes.clone();
-        changes[at].scope = Scope::Fields {
-            key: key.clone(),
-            paths: union,
-        };
+        if let Scope::Fields { key, .. } = changes[at].scope.clone() {
+            changes[at].scope = Scope::Fields { key, paths: union };
+        }
         (Self { changes }, FieldsQueued::Merged)
     }
 

@@ -339,7 +339,8 @@ fn required_for(places: &[Place]) -> Option<RequiredText> {
         (1, _) => &first.2,
         (_, true) => &first.1,
         _ => return Some(RequiredText::Word),
-    }; // A name that is blank once trimmed cannot be typed: fall back to the word.
+    };
+    // A name that is blank once trimmed cannot be typed: fall back to the word.
     Some(match name.trim().is_empty() {
         true => RequiredText::Word,
         false => RequiredText::Literal(name.clone()),

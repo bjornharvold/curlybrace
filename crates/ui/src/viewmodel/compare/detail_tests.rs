@@ -117,7 +117,7 @@ fn fld(name: &str) -> PathSegment {
 }
 
 #[test]
-fn copy_block_names_every_reason_in_both_directions() {
+fn copy_block_names_every_reason() {
     use ChangeKind::{Added, Changed, Removed};
     use Unaddressable as U;
     let idx = PathSegment::Index(0);
@@ -170,4 +170,22 @@ fn copy_block_agrees_with_the_core_rules_for_a_loaded_change() {
     for direction in [Direction::SourceToTarget, Direction::TargetToSource] {
         assert_eq!(d.changes[0].copy_block(direction), can_copy(&c, direction));
     }
+}
+
+#[test]
+fn a_loaded_added_change_with_an_index_reaches_the_adapter_with_kind_and_segments() {
+    let c = FieldChange {
+        path: "a[0]".into(),
+        segments: vec![fld("a"), PathSegment::Index(0)],
+        kind: ChangeKind::Added,
+        source: None,
+        target: Some(Bson::Int32(1)),
+    };
+    let d = DetailView::loading(KeyTuple(vec![Bson::Int32(1)])).loaded(None, None, &[c]);
+    assert_eq!(d.changes[0].segments, vec![fld("a"), PathSegment::Index(0)]);
+    assert_eq!(d.changes[0].change, ChangeKind::Added);
+    assert_eq!(
+        d.changes[0].copy_block(Direction::SourceToTarget),
+        Some(Unaddressable::ArrayElement)
+    );
 }
