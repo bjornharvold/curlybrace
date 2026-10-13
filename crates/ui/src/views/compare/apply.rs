@@ -138,7 +138,7 @@ fn count_cell(ui: &mut egui::Ui, kind_key: &str, count: u64, danger: bool, i18n:
 
 /// "Fields: N, documents: M" when the review copies single fields.
 fn show_field_line(ui: &mut egui::Ui, review: &Review, i18n: &I18n) {
-    let documents: u64 = review.pairs.iter().map(|p| p.counts.fields).sum();
+    let documents = review.field_documents();
     if documents == 0 {
         return;
     }

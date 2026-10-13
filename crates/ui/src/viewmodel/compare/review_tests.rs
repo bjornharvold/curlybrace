@@ -528,6 +528,7 @@ fn fields_items_count_documents_and_fields_separately() {
     );
     assert_eq!(r.pairs[0].field_count, 3);
     assert_eq!(r.field_total(), 3);
+    assert_eq!(r.field_documents(), 2);
     assert_eq!(r.op_total(), 2);
     assert_eq!(r.op_total(), l.op_count(&totals));
     assert_eq!(

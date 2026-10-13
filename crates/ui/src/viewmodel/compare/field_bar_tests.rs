@@ -272,3 +272,22 @@ fn every_block_has_a_distinct_translated_key() {
         ]
     );
 }
+
+#[test]
+fn only_the_different_tab_offers_field_copies() {
+    let mut state = ticking(state(), &[field("name")]);
+    state.results.get_mut(&PAIR).expect("results").category = Category::OnlyInTarget;
+    let detail = detail();
+    let blocked = Some(FieldBlock::Gate(ActionBlock::NotDifferentTab));
+    assert_eq!(
+        state.field_tick_block(&detail, &line(&detail, "name")),
+        blocked
+    );
+    assert_eq!(state.field_queue_block(&detail, TO_T), blocked);
+    assert_eq!(state.field_queue_block(&detail, TO_S), blocked);
+    assert_eq!(state.field_clear_block(&detail), blocked);
+    assert_eq!(
+        ActionBlock::NotDifferentTab.i18n_key(),
+        "compare.apply.reason.not_different_tab"
+    );
+}

@@ -40,7 +40,8 @@ fn show_grid(
         .striped(true)
         .show(ui, |ui| {
             // The checkbox column has no title: each checkbox is named by its field path.
-            ui.label(String::new());
+            // A spacer, not an empty label: an empty label would be an unnamed accessibility node.
+            ui.allocate_space(egui::Vec2::ZERO);
             for key in COLUMNS {
                 ui.strong(i18n.t(key));
             }

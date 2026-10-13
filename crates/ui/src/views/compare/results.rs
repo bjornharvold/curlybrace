@@ -35,10 +35,8 @@ pub fn show_pair_results(
     let detail = match &state.detail {
         Some(d) => {
             ui.separator();
-            {
-                let bar = FieldBar::of(state, d);
-                show_detail(ui, d, &state.detail_buttons(&d.key), &bar, i18n)
-            }
+            let bar = FieldBar::of(state, d);
+            show_detail(ui, d, &state.detail_buttons(&d.key), &bar, i18n)
         }
         None => {
             forget_cache(ui);

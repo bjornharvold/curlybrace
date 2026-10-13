@@ -9,6 +9,7 @@ use curlybrace_core::compare::apply::Direction;
 use curlybrace_core::compare::apply_fields::Unaddressable;
 use curlybrace_core::compare::diff::PathSegment;
 use curlybrace_core::compare::protocol::PairId;
+use curlybrace_core::compare::results::Category;
 
 use super::{ActionBlock, ChangeLine, CompareState, DetailView, RowAction};
 
@@ -98,6 +99,9 @@ impl CompareState {
         };
         if let Some(block) = self.tick_block(results.pair) {
             return Err(block);
+        }
+        if results.category != Category::Different {
+            return Err(ActionBlock::NotDifferentTab);
         }
         match self.key_on_open_page(&detail.key) {
             true => Ok(results.pair),

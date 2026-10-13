@@ -29,6 +29,8 @@ pub enum ActionBlock {
     NothingSelected,
     /// The detail's key is not on the loaded page of the open tab.
     NotOnPage,
+    /// Fields can only be copied from the Different tab.
+    NotDifferentTab,
 }
 
 impl ActionBlock {
@@ -41,6 +43,7 @@ impl ActionBlock {
             Self::Checking => "compare.apply.reason.checking",
             Self::NothingSelected => "compare.apply.reason.nothing_selected",
             Self::NotOnPage => "compare.apply.reason.not_on_page",
+            Self::NotDifferentTab => "compare.apply.reason.not_different_tab",
         }
     }
 }

@@ -4,10 +4,10 @@ mod support;
 
 mod compare_fields {
     use super::support::compare_apply_states::{
-        PAIR, act, applied, applying, check_out, finished, key, run_active, step,
+        PAIR, act, applied, applying, check_out, finished, key, rows_of, run_active, step,
     };
     use super::support::compare_field_states::{
-        ANY, CITY, DOLLAR, DOTTED, NAME, path_of, ticked, with_field_detail,
+        ANY, CITY, DOLLAR, DOTTED, NAME, path_of, reviewing_fields, ticked, with_field_detail,
         with_fields_and_delete_pending, with_fields_pending,
     };
     use bson::Bson;
@@ -283,7 +283,7 @@ mod compare_fields {
 
     #[test]
     fn the_review_shows_the_fields_column_and_the_fields_and_documents_line() {
-        let h = harness(reviewing(with_fields_pending()));
+        let h = harness(reviewing_fields());
         h.get_by_label(&t("compare.apply.kind.fields"));
         h.get_by_label(&tw(
             "compare.apply.review.count_cell",
@@ -302,7 +302,7 @@ mod compare_fields {
 
     #[test]
     fn a_field_only_review_needs_no_typing_and_apply_confirms_once() {
-        let mut h = harness(reviewing(with_fields_pending()));
+        let mut h = harness(reviewing_fields());
         assert!(h.query_by_role(Role::TextInput).is_none());
         let apply = t("compare.apply.review.apply");
         assert!(!button_disabled(&h, &apply));
@@ -316,7 +316,7 @@ mod compare_fields {
 
     #[test]
     fn enter_and_space_right_after_opening_a_field_review_confirm_nothing() {
-        let mut h = harness(reviewing(with_fields_pending()));
+        let mut h = harness(reviewing_fields());
         h.key_press(egui::Key::Enter);
         h.run_steps(3);
         h.key_press(egui::Key::Space);
@@ -375,5 +375,113 @@ mod compare_fields {
             .find(|n| n.accesskit_node().role() != Role::CheckBox)
             .expect("the row");
         assert_eq!(row.accesskit_node().toggled(), Some(Toggled::True));
+    }
+
+    // ---- tab, focus order, several lines ----
+
+    #[test]
+    fn a_document_that_now_exists_on_both_sides_still_cannot_be_copied_from_another_tab() {
+        let state = act(
+            finished(),
+            CompareAction::SelectCategory(Category::OnlyInTarget),
+        );
+        let state = rows_of(state, Category::OnlyInTarget, 2);
+        let state = act(state, CompareAction::Select(key(1)));
+        let detail = CompareEvent::Detail {
+            session: 1,
+            pair: PAIR,
+            key: key(1),
+            source: Some(bson::doc! {"name": "x"}),
+            target: Some(bson::doc! {"name": "y"}),
+            changes: super::support::compare_field_states::changes(),
+        };
+        let state = step(state, Input::Event(Event::Compare(detail)));
+        let mut h = harness(state);
+        for path in [NAME, CITY, DOLLAR] {
+            assert!(checkbox_disabled(&h, path), "{path}");
+        }
+        for label in [to_target(), to_source()] {
+            assert!(button_disabled(&h, &label), "{label}");
+        }
+        h.get_by_role_and_label(Role::CheckBox, NAME).hover();
+        h.run_steps(30);
+        h.get_by_label(&t("compare.apply.reason.not_different_tab"));
+    }
+
+    /// The label of the control that has keyboard focus, among the field controls.
+    fn focused(h: &Harness<'_, Run>) -> Option<String> {
+        let buttons = [to_target(), to_source(), t("compare.detail.clear_fields")];
+        let on = |role, label: &str| {
+            h.query_by_role_and_label(role, label)
+                .is_some_and(|n| n.accesskit_node().is_focused())
+        };
+        buttons
+            .iter()
+            .find(|l| on(Role::Button, l))
+            .cloned()
+            .or_else(|| {
+                [NAME, CITY, DOLLAR, DOTTED, ANY]
+                    .iter()
+                    .find(|l| on(Role::CheckBox, l))
+                    .map(|l| l.to_string())
+            })
+    }
+
+    #[test]
+    fn tab_visits_the_buttons_then_the_checkboxes_row_by_row() {
+        let mut h = harness(ticked());
+        let mut order = Vec::new();
+        for _ in 0..40 {
+            h.key_press(egui::Key::Tab);
+            h.run_steps(2);
+            let label = focused(&h);
+            if label.is_some() && order.last() != label.as_ref() {
+                order.extend(label);
+            }
+        }
+        let expected = [
+            to_target(),
+            to_source(),
+            t("compare.detail.clear_fields"),
+            NAME.to_string(),
+            CITY.to_string(),
+        ];
+        assert_eq!(&order[..5], &expected, "{order:?}");
+    }
+
+    #[test]
+    fn removing_the_second_of_two_field_lines_emits_index_one() {
+        // A second document (key 2), queued the other way: one line per document.
+        let state = act(with_fields_pending(), CompareAction::Select(key(2)));
+        let detail = CompareEvent::Detail {
+            session: 1,
+            pair: PAIR,
+            key: key(2),
+            source: Some(bson::doc! {"name": "x"}),
+            target: Some(bson::doc! {"name": "y"}),
+            changes: super::support::compare_field_states::changes(),
+        };
+        let state = step(state, Input::Event(Event::Compare(detail)));
+        let state = super::support::compare_field_states::tick(state, NAME);
+        let state = act(state, CompareAction::AddFieldsToPending(TO_S));
+        assert_eq!(state.compare.pending.items().len(), 2, "two lines");
+        let line = tw(
+            "compare.apply.pending.fields",
+            &[
+                (
+                    "destination",
+                    &tw(
+                        "compare.apply.destination",
+                        &[("connection", "one"), ("namespace", "shop.users")],
+                    ),
+                ),
+                ("fields", "1"),
+                ("documents", "1"),
+            ],
+        );
+        let mut h = harness(state);
+        let named = tw("compare.apply.pending.remove_named", &[("line", &line)]);
+        click(&mut h, &named);
+        assert_eq!(actions(&h), vec![CompareAction::RemovePending(1)]);
     }
 }

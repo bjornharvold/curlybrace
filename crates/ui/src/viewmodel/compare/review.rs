@@ -204,6 +204,11 @@ impl Review {
         self.pairs.iter().map(|p| p.counts.total()).sum()
     }
 
+    /// Documents updated by field copies, over all pairs.
+    pub fn field_documents(&self) -> u64 {
+        self.pairs.iter().map(|p| p.counts.fields).sum()
+    }
+
     /// Fields the review copies, over all documents.
     pub fn field_total(&self) -> u64 {
         self.pairs.iter().map(|p| p.field_count).sum()

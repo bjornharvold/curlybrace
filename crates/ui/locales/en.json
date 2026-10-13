@@ -132,6 +132,7 @@
         "no_fields": "Tick at least one field first.",
         "not_completed": "This pair has no finished comparison to act on.",
         "not_copyable_here": "None of the ticked fields can be copied in this direction.",
+        "not_different_tab": "Single fields can only be copied from the Different tab.",
         "not_on_page": "This document is not on the page shown. Open it from the list again.",
         "nothing_selected": "Select at least one document first.",
         "running": "A comparison is running. Wait until it finishes."
