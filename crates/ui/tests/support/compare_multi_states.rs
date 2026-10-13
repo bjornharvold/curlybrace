@@ -17,7 +17,7 @@ use curlybrace_ui::viewmodel::ViewMode;
 use curlybrace_ui::viewmodel::compare::{DuplicatesView, EntryId, PairOverrides, Pick};
 
 const RUN: u64 = 1;
-const COLLECTIONS: [&str; 6] = [
+pub const COLLECTIONS: [&str; 6] = [
     "customers",
     "invoices",
     "orders",
@@ -47,7 +47,7 @@ fn list_side(state: &mut AppState, side: Side, collections: &[&str]) {
     event(state, listing);
 }
 
-fn open_with(state: &mut AppState, source: &[&str], target: &[&str]) {
+pub fn open_with(state: &mut AppState, source: &[&str], target: &[&str]) {
     browsing(ViewMode::Tree)(state);
     state.workspace = Workspace::Compare;
     open_session(state);
@@ -65,7 +65,7 @@ fn open_with(state: &mut AppState, source: &[&str], target: &[&str]) {
     act(state, CompareAction::AddAllSameNamed);
 }
 
-fn preflight(source: IndexStatus, target: IndexStatus, too_large: bool) -> Preflight {
+pub fn preflight(source: IndexStatus, target: IndexStatus, too_large: bool) -> Preflight {
     Preflight {
         source_count: 48_211,
         target_count: 48_090,
@@ -76,7 +76,7 @@ fn preflight(source: IndexStatus, target: IndexStatus, too_large: bool) -> Prefl
 }
 
 /// Answers the check in flight with `preflight`.
-fn answer_check(state: &mut AppState, preflight: Preflight) {
+pub fn answer_check(state: &mut AppState, preflight: Preflight) {
     let (_, probe) = state.compare.checks.in_flight().expect("a check is out");
     let answer = CompareEvent::Checked {
         session: SESSION,
@@ -86,7 +86,7 @@ fn answer_check(state: &mut AppState, preflight: Preflight) {
     event(state, answer);
 }
 
-fn summary(equal: u64, only_source: u64, only_target: u64, different: u64) -> Summary {
+pub fn summary(equal: u64, only_source: u64, only_target: u64, different: u64) -> Summary {
     Summary {
         equal,
         only_in_source: only_source,
@@ -98,7 +98,7 @@ fn summary(equal: u64, only_source: u64, only_target: u64, different: u64) -> Su
 }
 
 /// The pair id the run gave `entry`.
-fn pair_of(state: &AppState, entry: EntryId) -> u32 {
+pub fn pair_of(state: &AppState, entry: EntryId) -> u32 {
     state
         .compare
         .overview
@@ -107,7 +107,7 @@ fn pair_of(state: &AppState, entry: EntryId) -> u32 {
         .pair
 }
 
-fn finish(state: &mut AppState, entry: EntryId, outcome: PairOutcome) {
+pub fn finish(state: &mut AppState, entry: EntryId, outcome: PairOutcome) {
     let done = CompareEvent::PairDone {
         session: SESSION,
         run: RUN,

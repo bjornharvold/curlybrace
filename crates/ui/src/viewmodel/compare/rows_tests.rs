@@ -369,6 +369,21 @@ fn a_discarded_row_has_no_detail_and_can_only_be_rerun() {
 }
 
 #[test]
+fn an_applied_completed_row_is_marked_with_a_warning_icon_and_its_own_label() {
+    let s = ran(state());
+    let s = CompareState {
+        overview: s.overview.clone().marked_applied(10),
+        ..s
+    };
+    let r = orow(&s, 0);
+    assert_eq!(r.status_key, "compare.overview.status.applied");
+    assert_eq!(r.icon, StatusIcon::Warning);
+    // The counts stay visible, and a pair no apply touched keeps its own status.
+    assert!(matches!(r.detail, RowDetail::Counts(_)));
+    assert_eq!(orow(&s, 1).status_key, "compare.overview.status.running");
+}
+
+#[test]
 fn rows_of_removed_entries_have_no_overview_row() {
     let s = ran(state());
     let s = CompareState {

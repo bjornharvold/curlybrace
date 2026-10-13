@@ -277,6 +277,21 @@ pub struct OverviewRow {
     pub can_find_duplicates: bool,
 }
 
+/// An apply wrote to a completed pair: its counts are stale, so the row says so.
+fn status_key(status: &PairStatus, applied: bool) -> &'static str {
+    match (status, applied) {
+        (PairStatus::Completed(_), true) => "compare.overview.status.applied",
+        _ => status.i18n_key(),
+    }
+}
+
+fn status_icon(status: &PairStatus, applied: bool) -> StatusIcon {
+    match (status, applied) {
+        (PairStatus::Completed(_), true) => StatusIcon::Warning,
+        _ => status.icon(),
+    }
+}
+
 impl CompareState {
     /// The pair table line at `index` of the list; `digest` is this state's digest.
     pub fn pair_row(&self, index: usize, digest: &PairsDigest) -> Option<PairRow> {
@@ -330,8 +345,8 @@ impl CompareState {
             entry: row.entry,
             source: namespace_label(&entry.source),
             target: namespace_label(&entry.target),
-            status_key: status.i18n_key(),
-            icon: status.icon(),
+            status_key: status_key(status, row.applied),
+            icon: status_icon(status, row.applied),
             detail: RowDetail::of(status),
             can_open: matches!(status, PairStatus::Completed(_))
                 && self.results.contains_key(&row.pair),

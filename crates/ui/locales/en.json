@@ -200,6 +200,7 @@
       "progress": "Scanned {source} source and {target} target documents, {differences} differences so far",
       "rerun": "Re-run",
       "status": {
+        "applied": "Applied",
         "cancelled": "Cancelled",
         "completed": "Completed",
         "discarded": "Discarded",

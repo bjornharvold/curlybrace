@@ -14,6 +14,7 @@ use curlybrace_ui::viewmodel::{
     EditorIntent, EditorState, MenuItem, ViewMode, page_key, resolve_editor,
 };
 use curlybrace_ui::views::connections::ConnectionsState;
+use support::compare_apply_states::shots as apply;
 use support::compare_multi_states::{overview_mixed, pair_results, pairs_setup};
 use support::compare_states::{Through, compare_state};
 use support::db::sample_people;
@@ -174,6 +175,45 @@ fn compare_overview_mixed() {
         overview_mixed,
     );
     shot.snapshot("compare_overview_mixed");
+}
+
+/// An apply-flow screen in a window tall enough for the form, the lists and the panels.
+macro_rules! apply_shot {
+    ($name:ident, $setup:expr) => {
+        #[test]
+        #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+        fn $name() {
+            if !snapshots_enabled(stringify!($name)) {
+                return;
+            }
+            let mut shot = Shot::sized((1000.0, 1200.0), vec![production(), staging()], $setup);
+            shot.snapshot(stringify!($name));
+        }
+    };
+}
+
+apply_shot!(compare_apply_selection, apply::selection_in_results);
+apply_shot!(compare_apply_pending, apply::pending_panel);
+apply_shot!(compare_apply_review_with_delete, apply::review_with_delete);
+apply_shot!(compare_apply_finished_mixed, apply::apply_finished_mixed);
+apply_shot!(compare_apply_pair_marked, apply::pair_marked_applied);
+apply_shot!(
+    compare_apply_pair_header_marked,
+    apply::pair_header_marked_applied
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_apply_running() {
+    if !snapshots_enabled("compare_apply_running") {
+        return;
+    }
+    let mut shot = Shot::sized(
+        (1000.0, 1200.0),
+        vec![production(), staging()],
+        apply::apply_running,
+    );
+    shot.snapshot_animated("compare_apply_running");
 }
 
 #[test]

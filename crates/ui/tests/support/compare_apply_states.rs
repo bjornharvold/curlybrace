@@ -267,3 +267,220 @@ pub fn with_apply(state: AppState, apply: ApplyUi) -> AppState {
     };
     AppState { compare, ..state }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Screenshot states: three finished pairs with differences, scripted through the reducer. These
+// follow the `&mut AppState` setup style of `compare_multi_states.rs`.
+// ---------------------------------------------------------------------------------------------
+
+/// Builders for the apply-flow screenshots.
+pub mod shots {
+    use super::{CompareEvent, RowView};
+    use crate::support::compare_multi_states as multi;
+    use crate::support::compare_states as cs;
+    use curlybrace_core::compare::apply::{ApplyReport, IdPolicy, OpFailure};
+    use curlybrace_core::compare::protocol::{PairOutcome, RunId};
+    use curlybrace_core::compare::results::Category;
+    use curlybrace_core::error::CoreError;
+    use curlybrace_ui::app::compare::CompareAction;
+    use curlybrace_ui::app::state::AppState;
+    use curlybrace_ui::viewmodel::compare::{ApplyUi, RowAction};
+
+    const SESSION: u64 = cs::SESSION;
+    const RUN: u64 = 1;
+    /// The confirmation word the screenshots review with.
+    const WORD: &str = "delete";
+
+    fn page(state: &mut AppState, entry: u32, category: Category, keys: &[i32]) {
+        let rows = keys
+            .iter()
+            .map(|n| RowView {
+                key: cs::key(*n),
+                has_source: category != Category::OnlyInTarget,
+                has_target: category != Category::OnlyInSource,
+            })
+            .collect();
+        let event = CompareEvent::Rows {
+            session: SESSION,
+            pair: multi::pair_of(state, entry),
+            category,
+            offset: 0,
+            total: keys.len(),
+            rows,
+        };
+        cs::event(state, event);
+    }
+
+    /// Three pairs finished: `customers` has 3 different rows, `invoices` 4 only in the target and
+    /// 1 only in the source, `orders` is equal.
+    fn finished_run(state: &mut AppState) {
+        multi::open_with(state, &multi::COLLECTIONS[..3], &multi::COLLECTIONS[..3]);
+        cs::act(state, CompareAction::SetKey("_id".into()));
+        cs::act(state, CompareAction::RunCheck);
+        for _ in 0..3 {
+            let ok = multi::preflight(
+                curlybrace_core::store::IndexStatus::Indexed,
+                curlybrace_core::store::IndexStatus::Indexed,
+                false,
+            );
+            multi::answer_check(state, ok);
+        }
+        cs::act(state, CompareAction::Start);
+        multi::finish(
+            state,
+            0,
+            PairOutcome::Completed(multi::summary(900, 0, 0, 3)),
+        );
+        multi::finish(
+            state,
+            1,
+            PairOutcome::Completed(multi::summary(4_700, 1, 4, 0)),
+        );
+        multi::finish(
+            state,
+            2,
+            PairOutcome::Completed(multi::summary(120, 0, 0, 0)),
+        );
+        cs::event(
+            state,
+            CompareEvent::RunDone {
+                session: SESSION,
+                run: RUN,
+            },
+        );
+    }
+
+    /// The first pair's Different tab is open.
+    fn customers_open(state: &mut AppState) {
+        finished_run(state);
+        cs::act(state, CompareAction::OpenPair(0));
+        page(state, 0, Category::Different, &[17, 42, 108]);
+    }
+
+    /// Rows 17 and 42 of `customers` ticked, so the selection bar and its buttons show.
+    pub fn selection_in_results(state: &mut AppState) {
+        customers_open(state);
+        cs::act(state, CompareAction::ToggleRow(cs::key(17)));
+        cs::act(state, CompareAction::ToggleRow(cs::key(42)));
+    }
+
+    /// `customers`: two explicit keys copied to the target; `invoices`: the whole only-in-target
+    /// tab deleted from the target. Back on the overview.
+    pub fn pending_panel(state: &mut AppState) {
+        selection_in_results(state);
+        cs::act(state, CompareAction::AddToPending(RowAction::CopyToTarget));
+        cs::act(state, CompareAction::BackToOverview);
+        cs::act(state, CompareAction::OpenPair(1));
+        cs::act(state, CompareAction::SelectCategory(Category::OnlyInTarget));
+        page(state, 1, Category::OnlyInTarget, &[1, 2, 3, 4]);
+        cs::act(state, CompareAction::SelectAllInCategory);
+        cs::act(
+            state,
+            CompareAction::AddToPending(RowAction::DeleteFromTarget),
+        );
+        // The one source-only invoice is inserted into the target: ids are kept or generated.
+        cs::act(state, CompareAction::SelectCategory(Category::OnlyInSource));
+        page(state, 1, Category::OnlyInSource, &[9]);
+        cs::act(state, CompareAction::ToggleRow(cs::key(9)));
+        cs::act(state, CompareAction::AddToPending(RowAction::CopyToTarget));
+        cs::act(state, CompareAction::BackToOverview);
+    }
+
+    /// The review dialog over the pending list, with a delete waiting for its typed name.
+    pub fn review_with_delete(state: &mut AppState) {
+        pending_panel(state);
+        cs::act(state, CompareAction::ReviewApply { word: WORD.into() });
+        cs::act(state, CompareAction::SetIdPolicy(IdPolicy::Generate));
+        cs::act(state, CompareAction::SetConfirmText("invo".into()));
+        assert!(state.compare.apply.review().is_some(), "the review is open");
+    }
+
+    fn confirmed(state: &mut AppState) -> RunId {
+        pending_panel(state);
+        cs::act(state, CompareAction::ReviewApply { word: WORD.into() });
+        let review = state.compare.apply.review().expect("review").clone();
+        let text = review.required_text(WORD).unwrap_or_default().to_string();
+        cs::act(state, CompareAction::SetConfirmText(text));
+        cs::act(state, CompareAction::ConfirmApply);
+        match &state.compare.apply {
+            ApplyUi::Running { run, .. } => *run,
+            other => panic!("the apply did not start: {other:?}"),
+        }
+    }
+
+    fn progress(state: &mut AppState, run: RunId, entry: u32, done: u64, total: u64) {
+        let event = CompareEvent::ApplyProgress {
+            session: SESSION,
+            run,
+            pair: multi::pair_of(state, entry),
+            done,
+            total,
+        };
+        cs::event(state, event);
+    }
+
+    /// Two pairs part way through their writes.
+    pub fn apply_running(state: &mut AppState) {
+        let run = confirmed(state);
+        progress(state, run, 0, 1, 2);
+        progress(state, run, 1, 2, 5);
+    }
+
+    fn failure(n: i32, error: CoreError) -> OpFailure {
+        OpFailure {
+            key: cs::key(n),
+            error,
+        }
+    }
+
+    fn report_of(state: &mut AppState, run: RunId, entry: u32, report: ApplyReport) {
+        let event = CompareEvent::ApplyPairDone {
+            session: SESSION,
+            run,
+            pair: multi::pair_of(state, entry),
+            report,
+        };
+        cs::event(state, event);
+    }
+
+    /// Both pairs reported: 2 applied, 1 stale, 2 failed (with a failure list), 1 never ran.
+    pub fn apply_finished_mixed(state: &mut AppState) {
+        let run = confirmed(state);
+        let first = ApplyReport {
+            applied: 1,
+            stale: 1,
+            ..ApplyReport::default()
+        };
+        report_of(state, run, 0, first);
+        let second = ApplyReport {
+            applied: 1,
+            failed: 2,
+            failures: vec![
+                failure(2, CoreError::NotFound),
+                failure(3, CoreError::ApplyOutcomeUnknown),
+            ],
+            ..ApplyReport::default()
+        };
+        report_of(state, run, 1, second);
+        cs::event(
+            state,
+            CompareEvent::ApplyDone {
+                session: SESSION,
+                run,
+            },
+        );
+    }
+
+    /// The apply result dismissed: the overview rows of the written pairs carry the marker.
+    pub fn pair_marked_applied(state: &mut AppState) {
+        apply_finished_mixed(state);
+        cs::act(state, CompareAction::DismissApplyResult);
+    }
+
+    /// The same, with one written pair open: its header carries the marker.
+    pub fn pair_header_marked_applied(state: &mut AppState) {
+        pair_marked_applied(state);
+        cs::act(state, CompareAction::OpenPair(0));
+        page(state, 0, Category::Different, &[17, 42, 108]);
+    }
+}
