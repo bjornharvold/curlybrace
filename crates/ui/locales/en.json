@@ -283,6 +283,8 @@
     "title_new": "New document"
   },
   "errors": {
+    "apply_target_not_writable": "The destination cannot be written to (a view, or a time-series collection for this kind of change).",
+    "apply_write_rejected": "The server refused the write.",
     "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",
     "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Results kept for other pairs count against the same limit: discard some of them to free room. You can also narrow the comparison with a filter, or compare fewer fields.",
     "compare_duplicate_key": "Two documents on one side have the same key, so they cannot be matched. Choose a key that is unique, or look up which values repeat.",

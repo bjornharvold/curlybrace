@@ -2,6 +2,8 @@
 //! `test-support` feature is enabled.
 
 mod bson_order;
+#[cfg(test)]
+mod memory_bulk_tests;
 mod memory_store;
 pub mod mock_objects;
 mod query_eval;

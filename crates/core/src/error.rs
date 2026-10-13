@@ -56,6 +56,12 @@ pub enum CoreError {
     /// The key or field list of a compare is not valid.
     #[error("compare: the key or field list is not valid")]
     CompareSetupInvalid,
+    /// The destination is a view, or a time-series collection for a change it cannot take.
+    #[error("apply: the destination cannot be written to")]
+    ApplyTargetNotWritable,
+    /// The server refused a write; details are logged, never carried here.
+    #[error("apply: the server refused the write")]
+    ApplyWriteRejected,
 }
 
 impl CoreError {
@@ -82,6 +88,8 @@ impl CoreError {
             Self::CompareKeyNotIndexed => "errors.compare_key_not_indexed",
             Self::CompareCapExceeded => "errors.compare_cap_exceeded",
             Self::CompareSetupInvalid => "errors.compare_setup_invalid",
+            Self::ApplyTargetNotWritable => "errors.apply_target_not_writable",
+            Self::ApplyWriteRejected => "errors.apply_write_rejected",
         }
     }
 }
@@ -113,11 +121,19 @@ mod tests {
             CoreError::CompareKeyNotIndexed,
             CoreError::CompareCapExceeded,
             CoreError::CompareSetupInvalid,
+            CoreError::ApplyTargetNotWritable,
+            CoreError::ApplyWriteRejected,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         keys.sort();
         keys.dedup();
         assert_eq!(keys.len(), errors.len());
         assert!(keys.iter().all(|k| k.starts_with("errors.")));
+    }
+
+    #[test]
+    fn apply_write_rejected_text_is_static() {
+        let text = CoreError::ApplyWriteRejected.to_string();
+        assert!(!text.is_empty() && !text.contains('{'));
     }
 }
