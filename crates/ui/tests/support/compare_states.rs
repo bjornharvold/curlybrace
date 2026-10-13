@@ -2,7 +2,7 @@
 //! same actions and runtime events a real session would produce. No database, no network.
 use super::shots::browsing;
 use bson::{Bson, doc};
-use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
+use curlybrace_core::compare::diff::{ChangeKind, FieldChange, PathSegment};
 use curlybrace_core::compare::engine::Summary;
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::protocol::{
@@ -158,12 +158,17 @@ fn open_detail(state: &mut AppState) {
     let changes = vec![
         FieldChange {
             path: "plan".into(),
+            segments: vec![PathSegment::Field("plan".into())],
             kind: ChangeKind::Changed,
             source: Some(Bson::String("team".into())),
             target: Some(Bson::String("pro".into())),
         },
         FieldChange {
             path: "address.city".into(),
+            segments: vec![
+                PathSegment::Field("address".into()),
+                PathSegment::Field("city".into()),
+            ],
             kind: ChangeKind::Removed,
             source: Some(Bson::String("Arlington".into())),
             target: None,

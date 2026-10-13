@@ -70,7 +70,7 @@ fn find_bar_boxes_are_found_by_their_caption_and_keep_typed_text() {
 mod compare_workspace {
     use super::*;
     use bson::{Bson, doc};
-    use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
+    use curlybrace_core::compare::diff::{ChangeKind, FieldChange, PathSegment};
     use curlybrace_core::compare::engine::Summary;
     use curlybrace_core::compare::key::KeyTuple;
     use curlybrace_core::compare::protocol::{
@@ -337,6 +337,7 @@ mod compare_workspace {
         let state = act(state, CompareAction::Select(key(1)));
         let change = FieldChange {
             path: "name".into(),
+            segments: vec![PathSegment::Field("name".into())],
             kind: ChangeKind::Changed,
             source: Some(Bson::String("x".into())),
             target: Some(Bson::String("y".into())),

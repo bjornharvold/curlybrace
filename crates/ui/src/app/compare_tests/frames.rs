@@ -6,7 +6,7 @@ use crate::I18n;
 use crate::viewmodel::compare::DuplicatesView;
 use crate::views::compare::show_compare;
 use bson::doc;
-use curlybrace_core::compare::diff::{ChangeKind, FieldChange};
+use curlybrace_core::compare::diff::{ChangeKind, FieldChange, PathSegment};
 use curlybrace_core::compare::protocol::DuplicateReport;
 use eframe::egui;
 
@@ -301,12 +301,14 @@ fn detail_state() -> AppState {
     let changes = vec![
         FieldChange {
             path: "name".into(),
+            segments: vec![PathSegment::Field("name".into())],
             kind: ChangeKind::Changed,
             source: Some(Bson::String("x".into())),
             target: Some(Bson::String("y".into())),
         },
         FieldChange {
             path: "extra".into(),
+            segments: vec![PathSegment::Field("extra".into())],
             kind: ChangeKind::Added,
             source: None,
             target: Some(Bson::Int32(1)),
