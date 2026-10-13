@@ -136,8 +136,8 @@ fn an_edit_while_loading_marks_the_answer_stale_and_it_is_dropped() {
     assert!(cmds.is_empty());
     assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
     assert!(
-        state.compare.can_find_duplicates(),
-        "the user can ask again"
+        !state.compare.can_find_duplicates(),
+        "the edit needs a fresh check first"
     );
 }
 
@@ -171,11 +171,16 @@ fn answers_for_another_session_or_pair_are_ignored() {
 fn an_answer_with_nothing_requested_is_ignored() {
     let (state, _) = update(duplicate_failure(), answer(1, 1));
     assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
-    let (state, _) = update(loaded(), answer(1, 1));
-    assert!(matches!(
-        state.compare.duplicates,
-        DuplicatesView::Loaded { .. }
-    ));
+    let before = loaded().compare.duplicates;
+    let different = ev(CompareEvent::DuplicateKeys {
+        session: 1,
+        pair: 1,
+        source: report("other-s", 9),
+        target: report("other-t", 8),
+    });
+    let (after, cmds) = update(loaded(), different);
+    assert!(cmds.is_empty());
+    assert_eq!(after.compare.duplicates, before);
 }
 
 #[test]
@@ -192,39 +197,115 @@ fn a_failed_request_clears_loading_and_shows_the_banner() {
     assert!(state.compare.can_find_duplicates(), "Try again is offered");
 }
 
+/// Every way a panel can be reset, from both a loaded and an in-flight panel.
 #[test]
 fn restart_discard_close_and_session_drop_reset_the_panel() {
     let (started, _) = act(loaded(), CompareAction::Start);
     assert_eq!(started.compare.duplicates, DuplicatesView::Idle);
     let (discarded, _) = act(loaded(), CompareAction::Discard);
     assert_eq!(discarded.compare.duplicates, DuplicatesView::Idle);
-    let (closed, _) = act(loaded(), CompareAction::CloseSession);
-    assert_eq!(closed.compare.duplicates, DuplicatesView::Idle);
-    let open_failed = ev(CompareEvent::OpenFailed {
+    for start in [loaded(), loading()] {
+        let (closed, _) = act(start, CompareAction::CloseSession);
+        assert_eq!(closed.compare.duplicates, DuplicatesView::Idle);
+    }
+    for start in [loaded(), loading()] {
+        let (dropped, _) = update(start, open_failed());
+        assert_eq!(dropped.compare.duplicates, DuplicatesView::Idle);
+    }
+}
+
+fn open_failed() -> Input {
+    ev(CompareEvent::OpenFailed {
         session: 1,
         error: CoreError::NotFound,
-    });
-    let (dropped, _) = update(loaded(), open_failed);
-    assert_eq!(dropped.compare.duplicates, DuplicatesView::Idle);
+    })
+}
+
+#[test]
+fn a_late_answer_for_a_dropped_session_is_ignored() {
+    let (closed, _) = act(loading(), CompareAction::CloseSession);
+    let (after, _) = update(closed, answer(1, 1));
+    assert_eq!(after.compare.duplicates, DuplicatesView::Idle);
+    let (dropped, _) = update(loading(), open_failed());
+    let (after, _) = update(dropped, answer(1, 1));
+    assert_eq!(after.compare.duplicates, DuplicatesView::Idle);
+}
+
+fn with_other_connection(state: AppState) -> (AppState, uuid::Uuid) {
+    let other = ConnectionConfig::new("c", "mongodb://c");
+    let id = other.id;
+    let connections = [state.conn.connections.clone(), vec![other]].concat();
+    let conn = crate::views::connections::ConnectionsState {
+        connections,
+        ..state.conn
+    };
+    (AppState { conn, ..state }, id)
 }
 
 #[test]
 fn opening_another_pair_resets_the_panel() {
-    let state = loaded();
-    let mut other = ConnectionConfig::new("c", "mongodb://c");
-    other.id = uuid::Uuid::new_v4();
-    let (source, _) = state.compare.connections.unwrap();
-    let mut state = state;
-    state.conn.connections.push(other.clone());
-    let (state, _) = act(state, open_action(source, other.id));
-    assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
+    for start in [loaded(), loading()] {
+        let (source, _) = start.compare.connections.unwrap();
+        let (state, other) = with_other_connection(start);
+        let (state, _) = act(state, open_action(source, other));
+        assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
+        let (state, _) = update(state, answer(1, 1));
+        assert_eq!(state.compare.duplicates, DuplicatesView::Idle);
+    }
 }
 
 #[test]
-fn a_request_in_flight_when_the_run_restarts_is_stale() {
+fn discard_while_loading_marks_the_answer_stale() {
     let (state, _) = act(loading(), CompareAction::Discard);
     assert_eq!(
         state.compare.duplicates,
         DuplicatesView::Loading { stale: true }
     );
+}
+
+#[test]
+fn start_while_loading_then_a_new_duplicate_failure_still_drops_the_old_answer() {
+    let (state, _) = act(loading(), CompareAction::Start);
+    assert_eq!(
+        state.compare.duplicates,
+        DuplicatesView::Loading { stale: true }
+    );
+    let failed = ev(CompareEvent::PairDone {
+        session: 1,
+        run: 2,
+        pair: 1,
+        outcome: PairOutcome::Failed(CoreError::CompareDuplicateKey),
+    });
+    let (state, _) = update(state, failed);
+    let (state, _) = update(state, ev(CompareEvent::RunDone { session: 1, run: 2 }));
+    assert!(state.compare.run_failed_on_duplicate_key());
+    assert!(!state.compare.can_find_duplicates());
+    let (state, cmds) = act(state, CompareAction::FindDuplicates);
+    assert!(cmds.is_empty(), "nothing is sent while the old one is out");
+    let (state, _) = update(state, answer(1, 1));
+    assert_eq!(state.compare.duplicates, DuplicatesView::Idle, "not Loaded");
+    let (state, cmds) = act(state, CompareAction::FindDuplicates);
+    assert!(matches!(
+        &cmds[..],
+        [Command::Compare(CompareCommand::DuplicateKeys {
+            session: 1,
+            ..
+        })]
+    ));
+    assert_eq!(
+        state.compare.duplicates,
+        DuplicatesView::Loading { stale: false }
+    );
+}
+
+#[test]
+fn find_is_offered_only_while_the_setup_is_unchanged_since_the_failed_run() {
+    let (edited, _) = act(duplicate_failure(), CompareAction::SetKey("sku".into()));
+    assert!(!edited.compare.can_find_duplicates());
+    let (edited, cmds) = act(edited, CompareAction::FindDuplicates);
+    assert!(cmds.is_empty());
+    assert_eq!(edited.compare.duplicates, DuplicatesView::Idle);
+    let (rechecked, _) = act(edited, CompareAction::RunCheck);
+    let (rechecked, _) = update(rechecked, checked_event(indexed(10)));
+    assert!(rechecked.compare.can_find_duplicates());
 }

@@ -171,9 +171,13 @@ impl CompareState {
         )
     }
 
-    /// Whether Find duplicate keys may fire.
+    /// Whether Find duplicate keys may fire: the run failed on a duplicate key and the setup is
+    /// unchanged since (an edit resets the preflight, so Find waits for a fresh check).
     pub fn can_find_duplicates(&self) -> bool {
-        self.is_ready() && self.duplicates.can_find(self.run_failed_on_duplicate_key())
+        self.is_ready()
+            && !self.check_stale
+            && self.preflight.allows_start()
+            && self.duplicates.can_find(self.run_failed_on_duplicate_key())
     }
 
     pub fn is_running(&self) -> bool {
