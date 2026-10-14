@@ -13,7 +13,7 @@ pub fn normalize_folder(raw: &str) -> Result<Option<String>> {
         return Ok(None);
     }
     if name.chars().count() > MAX_FOLDER_LEN || name.chars().any(is_forbidden_label_char) {
-        return Err(CoreError::InvalidUri("invalid folder name".into()));
+        return Err(CoreError::InvalidFolderName);
     }
     Ok(Some(name.to_owned()))
 }
@@ -59,8 +59,7 @@ pub fn renamed_folder(
     to: &str,
     now: i64,
 ) -> Result<Vec<ConnectionConfig>> {
-    let target =
-        normalize_folder(to)?.ok_or_else(|| CoreError::InvalidUri("invalid folder name".into()))?;
+    let target = normalize_folder(to)?.ok_or(CoreError::InvalidFolderName)?;
     Ok(list
         .iter()
         .map(|c| match c.folder.as_deref() {
@@ -94,7 +93,7 @@ mod tests {
     fn normalize_trims_and_maps_blank_to_none() {
         assert_eq!(normalize_folder("  work ").unwrap(), Some("work".into()));
         assert_eq!(normalize_folder("   ").unwrap(), None);
-        assert!(normalize_folder("a\tb").is_err());
+        assert_eq!(normalize_folder("a\tb"), Err(CoreError::InvalidFolderName));
         for ch in ['\u{202E}', '\u{200B}', '\u{2066}', '\u{FEFF}', '\u{061C}'] {
             assert!(normalize_folder(&format!("a{ch}b")).is_err());
         }
@@ -148,8 +147,14 @@ mod tests {
     #[test]
     fn rename_to_a_blank_or_invalid_name_is_an_error() {
         let list = [in_folder("a", Some("old"))];
-        assert!(renamed_folder(&list, "old", "  ", 5).is_err());
-        assert!(renamed_folder(&list, "old", "a\nb", 5).is_err());
+        assert_eq!(
+            renamed_folder(&list, "old", "  ", 5),
+            Err(CoreError::InvalidFolderName)
+        );
+        assert_eq!(
+            renamed_folder(&list, "old", "a\nb", 5),
+            Err(CoreError::InvalidFolderName)
+        );
     }
 
     #[test]

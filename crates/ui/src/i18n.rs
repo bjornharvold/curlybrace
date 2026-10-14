@@ -181,6 +181,8 @@ mod tests {
         let i = I18n::english();
         let errors = [
             CoreError::InvalidUri(String::new()),
+            CoreError::InvalidName,
+            CoreError::InvalidFolderName,
             CoreError::InvalidJson(String::new()),
             CoreError::InvalidDocument(String::new()),
             CoreError::Secret(String::new()),

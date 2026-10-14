@@ -28,7 +28,7 @@ pub(super) fn show_list(
 ) -> Option<ConnectionAction> {
     let mut action = show_toolbar(ui, state, i18n);
     show_filter(ui, state, i18n);
-    if let Some(error) = &state.error {
+    if let (Some(error), None) = (&state.error, &state.folder_prompt) {
         super::error_label::show_error(ui, error, i18n);
     }
     if let Some(notice) = &state.notice {
@@ -222,30 +222,33 @@ fn show_rows(
 ) -> Option<ConnectionAction> {
     let mut action = None;
     for cfg in rows {
-        ui.horizontal(|ui| {
-            let selected = state.selected == Some(cfg.id);
-            cell(ui, widths[0], |ui| {
-                let name = ui.add(egui::Button::selectable(selected, &cfg.name).truncate());
-                if name.double_clicked() {
-                    action = Some(ConnectionAction::Connect(cfg.id));
-                } else if name.clicked() {
-                    state.select(cfg);
-                }
-            });
-            let texts = [
-                servers(cfg),
-                security_text(cfg, i18n),
-                time_text(cfg.last_connected, i18n),
-                time_text(cfg.updated_at, i18n),
-            ];
-            for (text, width) in texts.into_iter().zip(&widths[1..]) {
-                cell(ui, *width, |ui| {
-                    ui.add(egui::Label::new(text).truncate());
+        // Keyed by connection so widget state follows it across a sort or filter change.
+        ui.push_id(cfg.id, |ui| {
+            ui.horizontal(|ui| {
+                let selected = state.selected == Some(cfg.id);
+                cell(ui, widths[0], |ui| {
+                    let name = ui.add(egui::Button::selectable(selected, &cfg.name).truncate());
+                    if name.double_clicked() {
+                        action = Some(ConnectionAction::Connect(cfg.id));
+                    } else if name.clicked() {
+                        state.select(cfg);
+                    }
                 });
-            }
-            if ui.button(i18n.t("connections.connect")).clicked() {
-                action = Some(ConnectionAction::Connect(cfg.id));
-            }
+                let texts = [
+                    servers(cfg),
+                    security_text(cfg, i18n),
+                    time_text(cfg.last_connected, i18n),
+                    time_text(cfg.updated_at, i18n),
+                ];
+                for (text, width) in texts.into_iter().zip(&widths[1..]) {
+                    cell(ui, *width, |ui| {
+                        ui.add(egui::Label::new(text).truncate());
+                    });
+                }
+                if ui.button(i18n.t("connections.connect")).clicked() {
+                    action = Some(ConnectionAction::Connect(cfg.id));
+                }
+            })
         });
     }
     action

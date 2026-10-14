@@ -422,7 +422,7 @@ async fn a_current_connect_reports_its_real_validation_error() {
     assert!(matches!(
         next(&mut h).await,
         Event::ConnectFailed {
-            error: CoreError::InvalidUri(_),
+            error: CoreError::InvalidName,
             ..
         }
     ));

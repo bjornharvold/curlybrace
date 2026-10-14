@@ -370,7 +370,7 @@ async fn an_invalid_config_fails_without_touching_the_connector() {
         next(&mut rt).await,
         Event::TestConnection {
             request_id: 3,
-            outcome: Err(CoreError::InvalidUri(_))
+            outcome: Err(CoreError::InvalidName)
         }
     ));
     assert_eq!(connector.calls(), 0);

@@ -169,25 +169,30 @@ impl ConnectionsState {
             .find(|c| c.id == id)
             .and_then(|c| c.folder.clone())
             .unwrap_or_default();
+        self.error = None;
         self.folder_prompt = Some(FolderPrompt::Move { id, input });
     }
 
     /// Opens the rename prompt for the folder `from`, pre-filled with its name.
     pub fn open_rename_prompt(&mut self, from: &str) {
+        self.error = None;
         self.folder_prompt = Some(FolderPrompt::Rename {
             from: from.to_owned(),
             input: from.to_owned(),
         });
     }
 
+    /// Cancels the prompt (Escape, outside click, Cancel); a rejected-name error goes with it.
     pub fn close_folder_prompt(&mut self) {
         self.folder_prompt = None;
+        self.error = None;
     }
 
-    /// Closes the prompt and returns the action it stands for. Nothing is validated here: the
-    /// handler checks the name and reports through `error`.
+    /// The action the prompt stands for. The prompt stays open: the handler closes it on success
+    /// and, on a rejected name, leaves it open and reports through `error`. Nothing is validated
+    /// here.
     pub fn folder_prompt_confirmed(&mut self) -> Option<ConnectionAction> {
-        self.folder_prompt.take().map(|prompt| match prompt {
+        self.folder_prompt.clone().map(|prompt| match prompt {
             FolderPrompt::Move { id, input } => {
                 ConnectionAction::MoveToFolder { id, folder: input }
             }

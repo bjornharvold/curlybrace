@@ -44,11 +44,13 @@ fn the_move_prompt_is_prefilled_and_confirming_emits_once() {
             folder: "Work".into()
         })
     );
-    assert_eq!(state.folder_prompt, None);
-    assert_eq!(
-        state.folder_prompt_confirmed(),
-        None,
-        "emitted exactly once"
+    assert!(
+        state.folder_prompt.is_some(),
+        "stays open until the handler succeeds"
+    );
+    assert!(
+        state.folder_prompt_confirmed().is_some(),
+        "emits once per click"
     );
 }
 
@@ -66,6 +68,9 @@ fn the_rename_prompt_emits_the_typed_name_and_cancel_closes_it() {
             to: "Play".into()
         })
     );
+    state.error = Some(CoreError::InvalidFolderName);
+    state.close_folder_prompt();
+    assert_eq!(state.error, None, "cancel clears the rejection");
     state.open_rename_prompt("Work");
     state.close_folder_prompt();
     assert_eq!(state.folder_prompt, None);

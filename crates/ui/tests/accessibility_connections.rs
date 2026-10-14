@@ -111,3 +111,30 @@ fn the_toolbar_buttons_are_labelled() {
         harness.get_by_role_and_label(Role::Button, &i18n.t(key));
     }
 }
+
+#[test]
+fn a_blank_rename_cannot_be_confirmed_and_a_rejection_shows_inside_the_prompt() {
+    use curlybrace_core::error::CoreError;
+    use curlybrace_ui::views::connections::FolderPrompt;
+    let i18n = I18n::english();
+    let mut state = three_connections();
+    state.folder_prompt = Some(FolderPrompt::Rename {
+        from: "Work".into(),
+        input: "  ".into(),
+    });
+    state.error = Some(CoreError::InvalidFolderName);
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(
+            |ui, state: &mut ConnectionsState| {
+                show_connections(ui, state, &I18n::english());
+            },
+            state,
+        );
+    harness.run();
+    let ok_label = i18n.t("common.ok");
+    let ok = harness.get_by_role_and_label(Role::Button, &ok_label);
+    assert!(ok.accesskit_node().is_disabled(), "blank rename is blocked");
+    harness.get_by_label(&i18n.t("errors.invalid_folder_name"));
+    assert!(harness.state().folder_prompt.is_some());
+}

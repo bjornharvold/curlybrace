@@ -400,7 +400,7 @@ mod tests {
             name: "  ".into(),
             ..valid()
         };
-        assert!(f.to_config().is_err());
+        assert!(matches!(f.to_config(), Err(CoreError::InvalidName)));
         let f = ConnectionForm {
             uri: "nope".into(),
             ..valid()

@@ -115,19 +115,19 @@ impl ConnectionConfig {
             || folder.chars().count() > MAX_FOLDER_LEN
             || folder.chars().any(is_forbidden_label_char);
         if bad {
-            return Err(CoreError::InvalidUri("invalid folder name".into()));
+            return Err(CoreError::InvalidFolderName);
         }
         Ok(())
     }
 
     pub fn validate(&self) -> Result<()> {
         if self.name.trim().is_empty() {
-            return Err(CoreError::InvalidUri("blank connection name".into()));
+            return Err(CoreError::InvalidName);
         }
         if self.name.chars().count() > MAX_NAME_LEN
             || self.name.chars().any(is_forbidden_label_char)
         {
-            return Err(CoreError::InvalidUri("invalid connection name".into()));
+            return Err(CoreError::InvalidName);
         }
         self.validate_uri()?;
         self.validate_folder()?;
@@ -246,6 +246,19 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn name_and_folder_problems_have_their_own_errors_not_invalid_uri() {
+        let mut c = ConnectionConfig::new("  ", "mongodb://h");
+        assert_eq!(c.validate(), Err(CoreError::InvalidName));
+        c.name = "a\tb".into();
+        assert_eq!(c.validate(), Err(CoreError::InvalidName));
+        c.name = "x".repeat(MAX_NAME_LEN + 1);
+        assert_eq!(c.validate(), Err(CoreError::InvalidName));
+        c.name = "ok".into();
+        c.folder = Some(" pad ".into());
+        assert_eq!(c.validate(), Err(CoreError::InvalidFolderName));
     }
 
     #[test]

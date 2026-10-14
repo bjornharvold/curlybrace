@@ -27,6 +27,17 @@ fn with_list(state: AppState, list: Vec<ConnectionConfig>, path: &ConfigPath) ->
     }
 }
 
+/// A folder change went through: the folder prompt, kept open while it was rejected, closes.
+fn prompt_closed(state: AppState) -> AppState {
+    AppState {
+        conn: ConnectionsState {
+            folder_prompt: None,
+            ..state.conn
+        },
+        ..state
+    }
+}
+
 fn with_error(state: AppState, error: CoreError) -> AppState {
     AppState {
         conn: ConnectionsState {
@@ -101,7 +112,7 @@ pub(super) fn move_to_folder(
     match normalize_folder(&folder) {
         Ok(folder) => {
             let list = moved_to_folder(&state.conn.connections, id, folder, now);
-            with_list(state, list, path)
+            prompt_closed(with_list(state, list, path))
         }
         Err(e) => with_error(state, e),
     }
@@ -118,7 +129,7 @@ pub(super) fn rename_folder(
         return refused(state, e);
     }
     match renamed_folder(&state.conn.connections, &from, &to, now) {
-        Ok(list) => with_list(state, list, path),
+        Ok(list) => prompt_closed(with_list(state, list, path)),
         Err(e) => with_error(state, e),
     }
 }
@@ -177,6 +188,7 @@ pub(super) fn mark_connected(state: AppState, id: Uuid, now: i64, path: &ConfigP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::views::connections::FolderPrompt;
     use curlybrace_core::secrets::{MemorySecretStore, SecretKind, secret_key};
 
     fn setup() -> (tempfile::TempDir, ConfigPath, MemorySecretStore) {
@@ -439,6 +451,60 @@ mod tests {
         );
         assert!(state.conn.error.is_some());
         assert_eq!(state.conn.connections[0].folder, None);
+    }
+
+    fn with_prompt(state: AppState, prompt: FolderPrompt) -> AppState {
+        AppState {
+            conn: ConnectionsState {
+                folder_prompt: Some(prompt),
+                ..state.conn
+            },
+            ..state
+        }
+    }
+
+    #[test]
+    fn a_successful_move_or_rename_closes_the_folder_prompt() {
+        let (_dir, path, _secrets) = setup();
+        let mut a = ConnectionConfig::new("a", "mongodb://h");
+        a.folder = Some("old".into());
+        let prompt = FolderPrompt::Move {
+            id: a.id,
+            input: "new".into(),
+        };
+        let state = with_prompt(state_with(vec![a.clone()]), prompt);
+        let state = move_to_folder(state, a.id, "new".into(), 5, &path);
+        assert_eq!(state.conn.folder_prompt, None);
+        let prompt = FolderPrompt::Rename {
+            from: "new".into(),
+            input: "newer".into(),
+        };
+        let state = with_prompt(state, prompt);
+        let state = rename_folder(state, "new".into(), "newer".into(), 6, &path);
+        assert_eq!(state.conn.folder_prompt, None);
+        assert_eq!(state.conn.connections[0].folder.as_deref(), Some("newer"));
+    }
+
+    #[test]
+    fn a_rejected_move_or_rename_keeps_the_prompt_open_with_the_typed_text() {
+        let (_dir, path, _secrets) = setup();
+        let a = ConnectionConfig::new("a", "mongodb://h");
+        let moving = FolderPrompt::Move {
+            id: a.id,
+            input: "bad\nname".into(),
+        };
+        let state = with_prompt(state_with(vec![a.clone()]), moving.clone());
+        let state = move_to_folder(state, a.id, "bad\nname".into(), 5, &path);
+        assert_eq!(state.conn.folder_prompt, Some(moving));
+        assert_eq!(state.conn.error, Some(CoreError::InvalidFolderName));
+        let renaming = FolderPrompt::Rename {
+            from: "x".into(),
+            input: "  ".into(),
+        };
+        let state = with_prompt(state, renaming.clone());
+        let state = rename_folder(state, "x".into(), "  ".into(), 6, &path);
+        assert_eq!(state.conn.folder_prompt, Some(renaming));
+        assert_eq!(state.conn.error, Some(CoreError::InvalidFolderName));
     }
 
     #[test]
