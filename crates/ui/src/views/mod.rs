@@ -1,6 +1,7 @@
 //! egui views. Logic lives in `viewmodel`; these only render and collect input.
 pub mod compare;
 pub mod connections;
+pub mod connections_edit;
 pub mod context_menu;
 pub mod documents;
 pub mod editor;
