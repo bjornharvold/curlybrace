@@ -229,7 +229,10 @@ async fn connect_store(
             .connector
             .connect(&cfg, password.as_deref(), addr)
             .await?;
-        let topology = store.topology().await.unwrap_or(None);
+        // Informational: a slow or failing read is `None`, it never fails the connect.
+        let topology = bounded(shared.config.command_timeout, store.topology())
+            .await
+            .unwrap_or(None);
         Ok((store, tunnel, topology))
     })
     .await?;

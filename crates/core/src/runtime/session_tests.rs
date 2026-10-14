@@ -359,3 +359,63 @@ async fn a_failing_topology_read_never_fails_the_connect() {
     let event = connected_topology(Err(())).await;
     assert!(matches!(event, Event::Connected { topology: None, .. }));
 }
+
+/// Topology read that never answers.
+struct HangingTopologyStore;
+
+#[async_trait]
+impl DocumentStore for HangingTopologyStore {
+    async fn topology(&self) -> Result<Option<Topology>> {
+        std::future::pending().await
+    }
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn find(&self, _ns: &Namespace, _q: &Query) -> Result<Page> {
+        down()
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        down()
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        down()
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        down()
+    }
+}
+
+#[tokio::test]
+async fn a_hanging_topology_read_is_cut_at_the_command_timeout_and_still_connects() {
+    let c = cfg("slow");
+    let connector = PerIdConnector {
+        stores: HashMap::from([(
+            c.id,
+            Arc::new(HangingTopologyStore) as Arc<dyn DocumentStore>,
+        )]),
+    };
+    let mut h = spawn_runtime_with_connector(
+        None,
+        None,
+        Arc::new(connector),
+        Arc::new(|| {}),
+        RuntimeConfig {
+            command_timeout: Duration::from_millis(100),
+            connect_timeout: Duration::from_secs(3),
+            ..RuntimeConfig::default()
+        },
+    );
+    h.tx.send(Command::Connect(c.clone())).unwrap();
+    let event = next(&mut h).await;
+    assert!(
+        matches!(event, Event::Connected { topology: None, .. }),
+        "{event:?}"
+    );
+    assert!(matches!(
+        databases(&mut h, c.id).await,
+        Event::Databases { .. }
+    ));
+}

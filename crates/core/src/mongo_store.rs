@@ -406,7 +406,8 @@ pub(crate) fn duplicate_keys_pipeline(
 }
 
 /// Reads the deployment kind out of a `hello` reply: a `mongos` says `msg: "isdbgrid"`, a replica
-/// set member carries a string `setName`, anything else is a standalone server.
+/// set member carries a string `setName`, anything else is a standalone server. The unknown
+/// (`None`) case is a failed or timed-out read and lives at the call site, not here.
 pub fn classify_hello(reply: &Document) -> Option<Topology> {
     if reply.get_str("msg") == Ok("isdbgrid") {
         Some(Topology::Sharded)
