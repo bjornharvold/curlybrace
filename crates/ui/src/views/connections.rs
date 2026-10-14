@@ -18,6 +18,15 @@ pub enum ConnectionAction {
     MoveToFolder { id: Uuid, folder: String },
     RenameFolder { from: String, to: String },
     DeleteFolder(String),
+    StartImport,
+    StartExport,
+}
+
+/// The outcome of an import or export, shown by the view (never carries paths).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Notice {
+    Imported { imported: usize, skipped: usize },
+    Exported { count: usize },
 }
 
 /// View state: saved connections, the form being edited and the last validation error.
@@ -31,6 +40,8 @@ pub struct ConnectionsState {
     pub stored: HashMap<Uuid, StoredSecrets>,
     /// Connection whose delete awaits confirmation.
     pub delete_confirm: Option<Uuid>,
+    /// Result of the last import or export.
+    pub notice: Option<Notice>,
 }
 
 impl ConnectionsState {
@@ -57,6 +68,7 @@ impl ConnectionsState {
 
     fn select(&mut self, cfg: &ConnectionConfig) {
         self.delete_confirm = None;
+        self.notice = None;
         self.selected = Some(cfg.id);
         self.form = ConnectionForm::from_config(cfg);
         self.error = None;
@@ -64,6 +76,7 @@ impl ConnectionsState {
 
     fn start_new(&mut self) {
         self.delete_confirm = None;
+        self.notice = None;
         self.selected = None;
         self.form = ConnectionForm::default();
         self.error = None;

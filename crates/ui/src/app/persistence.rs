@@ -173,8 +173,14 @@ pub fn load_connections(path: &Path) -> Result<Loaded, PersistError> {
         }
         Err(e) => return Err(PersistError::Read(e.kind())),
     };
+    parse_connections(&bytes)
+}
+
+/// Parses and validates a connection list from bytes: entries that fail to deserialize or
+/// `validate()` are skipped and counted.
+pub(crate) fn parse_connections(bytes: &[u8]) -> Result<Loaded, PersistError> {
     let entries: Vec<serde_json::Value> =
-        serde_json::from_slice(&bytes).map_err(|_| PersistError::Corrupt)?;
+        serde_json::from_slice(bytes).map_err(|_| PersistError::Corrupt)?;
     let total = entries.len();
     let connections: Vec<ConnectionConfig> = entries
         .into_iter()

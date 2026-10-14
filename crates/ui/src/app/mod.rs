@@ -15,7 +15,9 @@ mod compare_pairs;
 mod compare_results;
 mod compare_run;
 mod compare_select;
+mod connection_io;
 mod connection_ops;
+mod connection_picker;
 pub mod connections;
 pub mod file_picker;
 pub mod host_key;
@@ -29,6 +31,7 @@ use crate::error_text::failure_log_line;
 use crate::viewmodel::compare::ExportUi;
 use crate::views::connections::ConnectionAction;
 use compare::CompareAction;
+use connection_picker::ConnPickKind;
 use connections::{ConfigPath, load_startup, refresh_flags};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
@@ -82,6 +85,8 @@ pub struct CurlybraceApp {
     repaint: Repaint,
     /// The save dialog being shown, if any: at most one at a time.
     pick: Option<PendingPick>,
+    /// The import/export dialog being shown, if any: at most one at a time.
+    conn_pick: Option<connection_picker::ConnPick>,
 }
 
 impl CurlybraceApp {
@@ -104,6 +109,7 @@ impl CurlybraceApp {
             picker: Arc::new(NoFilePicker),
             repaint: Arc::new(|| {}),
             pick: None,
+            conn_pick: None,
         }
     }
 
@@ -269,7 +275,49 @@ impl CurlybraceApp {
             ConnectionAction::DeleteFolder(name) => {
                 self.state = connection_ops::delete_folder(state, name, now, &self.config_path);
             }
+            ConnectionAction::StartImport => {
+                self.state = state;
+                self.start_connection_pick(ConnPickKind::Import);
+            }
+            ConnectionAction::StartExport => {
+                self.state = state;
+                self.start_connection_pick(ConnPickKind::Export);
+            }
         }
+    }
+
+    /// Opens the import or export dialog unless one is already open.
+    fn start_connection_pick(&mut self, kind: ConnPickKind) {
+        if self.conn_pick.is_none() {
+            self.conn_pick = Some(connection_picker::start(
+                self.picker.clone(),
+                kind,
+                self.repaint.clone(),
+            ));
+        }
+    }
+
+    /// Runs the import or export once the dialog has answered; a cancelled dialog does nothing.
+    fn poll_connection_picker(&mut self) {
+        let Some(PickPoll::Done(path)) = self.conn_pick.as_ref().map(|p| p.poll()) else {
+            return;
+        };
+        let Some(pick) = self.conn_pick.take() else {
+            return;
+        };
+        let Some(path) = path else {
+            return;
+        };
+        let state = std::mem::take(&mut self.state);
+        self.state = match pick.kind {
+            ConnPickKind::Import => connection_io::import_into(
+                state,
+                &path,
+                curlybrace_core::clock::now_secs(),
+                &self.config_path,
+            ),
+            ConnPickKind::Export => connection_io::export_to(state, &path),
+        };
     }
 
     fn confirm_forget(&mut self) {
@@ -330,6 +378,7 @@ impl CurlybraceApp {
             }
         }
         self.poll_picker();
+        self.poll_connection_picker();
     }
 
     /// Opens the save dialog on a worker thread whenever an export waits in `Choosing` and no
