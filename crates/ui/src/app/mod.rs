@@ -282,8 +282,14 @@ impl CurlybraceApp {
                     connection_save::save_and_close(state, &form, secrets, &self.config_path, now);
             }
             ConnectionAction::Delete(id) => {
+                let was_open = state.is_open(id);
                 self.state =
                     connection_ops::delete_and_close(state, id, secrets, &self.config_path);
+                // A session must not outlive the config and credentials it was opened from;
+                // a failed delete leaves both in place, so it closes nothing.
+                if was_open && self.state.connection(id).is_none() {
+                    self.dispatch(Input::Disconnect(id));
+                }
             }
             ConnectionAction::Duplicate(id) => {
                 let source = state.connection(id).map(|c| c.name.clone());

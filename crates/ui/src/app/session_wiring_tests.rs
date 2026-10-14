@@ -240,3 +240,52 @@ fn a_prompt_for_an_unknown_host_has_no_name() {
     let _w = r.ask("elsewhere", "fe");
     assert_eq!(r.shown(), Some(("elsewhere".into(), "fe".into(), None)));
 }
+
+fn drain(r: &mut Rig) -> Vec<Command> {
+    std::iter::from_fn(|| r.commands.try_recv().ok()).collect()
+}
+
+#[test]
+fn deleting_an_open_connection_closes_its_session_and_drops_its_root() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    r.answer_connected(0);
+    r.answer_connected(1);
+    drain(&mut r);
+    r.app
+        .dispatch_connection(ConnectionAction::Delete(r.ids[0]));
+    let sent = drain(&mut r);
+    assert!(
+        matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[0]),
+        "{sent:?}"
+    );
+    assert!(!r.app.state().is_open(r.ids[0]));
+    assert!(r.app.state().is_open(r.ids[1]), "the other is untouched");
+    assert!(r.app.state().connection(r.ids[0]).is_none());
+}
+
+#[test]
+fn deleting_a_closed_connection_sends_nothing() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    drain(&mut r);
+    r.app
+        .dispatch_connection(ConnectionAction::Delete(r.ids[1]));
+    assert!(drain(&mut r).is_empty());
+    assert!(r.app.state().is_open(r.ids[0]));
+}
+
+#[test]
+fn a_failed_delete_closes_nothing() {
+    let mut r = rig(vec![via("a", "ha")]);
+    r.connect(0);
+    r.answer_connected(0);
+    drain(&mut r);
+    r.app.state_mut().persist = persistence::PersistGuard::blocked();
+    r.app
+        .dispatch_connection(ConnectionAction::Delete(r.ids[0]));
+    assert!(drain(&mut r).is_empty());
+    assert!(r.app.state().is_open(r.ids[0]));
+    assert!(r.app.state().connection(r.ids[0]).is_some(), "still saved");
+}
