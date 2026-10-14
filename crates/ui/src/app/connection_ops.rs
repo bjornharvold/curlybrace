@@ -293,20 +293,22 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_of_a_max_length_name_still_validates() {
-        let (_dir, path, secrets) = setup();
-        let long = "a".repeat(curlybrace_core::connection::MAX_NAME_LEN);
-        let src = ConnectionConfig::new(&long, "mongodb://h").with_save_stamp(1);
-        let state = duplicate(
-            state_with(vec![src.clone()]),
-            src.id,
-            long,
-            50,
-            &secrets,
-            &path,
-        );
-        assert_eq!(state.conn.connections.len(), 2);
-        assert!(state.conn.connections[1].validate().is_ok());
+    fn duplicate_of_a_near_max_length_name_still_validates() {
+        for len in 195..=curlybrace_core::connection::MAX_NAME_LEN {
+            let (_dir, path, secrets) = setup();
+            let long = "a".repeat(len);
+            let src = ConnectionConfig::new(&long, "mongodb://h").with_save_stamp(1);
+            let state = duplicate(
+                state_with(vec![src.clone()]),
+                src.id,
+                format!("{long} copy"),
+                50,
+                &secrets,
+                &path,
+            );
+            assert_eq!(state.conn.connections.len(), 2, "len {len}");
+            assert!(state.conn.connections[1].validate().is_ok(), "len {len}");
+        }
     }
 
     /// Wraps a memory store, can fail `set` for one kind of secret, and remembers every key that

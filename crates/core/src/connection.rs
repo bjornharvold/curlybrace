@@ -191,8 +191,9 @@ pub fn is_forbidden_label_char(c: char) -> bool {
 /// never exceeds `MAX_NAME_LEN` characters: the base is truncated (on a char boundary) to fit.
 pub fn unique_name(base: &str, existing: &[ConnectionConfig]) -> String {
     let taken: HashSet<&str> = existing.iter().map(|c| c.name.as_str()).collect();
-    if !taken.contains(base) {
-        return base.to_owned();
+    let base: String = base.chars().take(MAX_NAME_LEN).collect();
+    if !taken.contains(base.as_str()) {
+        return base;
     }
     (2usize..)
         .map(|n| {
@@ -202,7 +203,7 @@ pub fn unique_name(base: &str, existing: &[ConnectionConfig]) -> String {
             format!("{head}{suffix}")
         })
         .find(|candidate| !taken.contains(candidate.as_str()))
-        .unwrap_or_else(|| base.to_owned())
+        .unwrap_or(base)
 }
 
 #[cfg(test)]
@@ -403,9 +404,29 @@ mod tests {
     }
 
     #[test]
-    fn unique_name_returns_a_free_overlong_base_unchanged() {
+    fn unique_name_truncates_a_free_overlong_base_to_the_limit() {
         let base = "a".repeat(MAX_NAME_LEN + 5);
-        assert_eq!(unique_name(&base, &[]), base);
+        assert_eq!(unique_name(&base, &[]), "a".repeat(MAX_NAME_LEN));
+        let wide = "é".repeat(MAX_NAME_LEN + 5);
+        let name = unique_name(&wide, &[]);
+        assert_eq!(name.chars().count(), MAX_NAME_LEN);
+        assert!(
+            ConnectionConfig::new(&name, "mongodb://h")
+                .validate()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn unique_name_of_an_overlong_base_that_collides_after_truncation_gets_a_counter() {
+        let base = "a".repeat(MAX_NAME_LEN + 5);
+        let taken = [ConnectionConfig::new(
+            &"a".repeat(MAX_NAME_LEN),
+            "mongodb://h",
+        )];
+        let name = unique_name(&base, &taken);
+        assert!(name.chars().count() <= MAX_NAME_LEN);
+        assert!(name.ends_with(" 2"));
     }
 
     #[test]
