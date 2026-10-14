@@ -39,6 +39,9 @@ pub fn parse_uri(input: &str) -> Result<ParsedUri> {
     } else {
         return Err(invalid("scheme must be mongodb:// or mongodb+srv://"));
     };
+    if rest.contains('#') {
+        return Err(malformed());
+    }
     let (authority, tail) = match rest.find(['/', '?']) {
         Some(i) => rest.split_at(i),
         None => (rest, ""),
@@ -50,26 +53,19 @@ pub fn parse_uri(input: &str) -> Result<ParsedUri> {
     if hosts.is_empty() {
         return Err(invalid("missing host"));
     }
-    let (username, password) = match userinfo {
-        None => (None, None),
-        Some(u) => {
-            let (user, pass) = match u.split_once(':') {
-                Some((user, pass)) => (user, Some(pass)),
-                None => (u, None),
-            };
-            let user = percent_decode(user)?;
-            let pass = pass.map(percent_decode).transpose()?.map(SecretString::new);
-            ((!user.is_empty()).then_some(user), pass)
-        }
-    };
+    validate_hosts(hosts, scheme == "mongodb+srv://")?;
+    let (username, password) = parse_userinfo(userinfo)?;
     let (path, query) = match tail.split_once('?') {
         Some((p, q)) => (p, q),
         None => (tail, ""),
     };
+    if path.contains('@') || query.contains('@') {
+        return Err(malformed());
+    }
     let mut kept = Vec::new();
     let (mut auth_source, mut auth, mut tls) = (None, None, None);
     for pair in query.split('&').filter(|p| !p.is_empty()) {
-        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let (key, value) = pair.split_once('=').ok_or_else(malformed)?;
         let lower = key.to_ascii_lowercase();
         if SECRET_QUERY_KEYS.contains(&lower.as_str()) {
             return Err(invalid("secrets must not be embedded in the uri"));
@@ -77,7 +73,7 @@ pub fn parse_uri(input: &str) -> Result<ParsedUri> {
         match lower.as_str() {
             "authsource" => auth_source = Some(percent_decode(value)?),
             "authmechanism" => auth = Some(parse_mechanism(value)?),
-            "tls" | "ssl" => tls = Some(value.eq_ignore_ascii_case("true")),
+            "tls" | "ssl" => tls = Some(parse_bool(value)?),
             _ => kept.push(pair),
         }
     }
@@ -100,6 +96,119 @@ pub fn parse_uri(input: &str) -> Result<ParsedUri> {
         auth,
         tls,
     })
+}
+
+fn malformed() -> CoreError {
+    invalid("malformed connection string")
+}
+
+fn parse_bool(value: &str) -> Result<bool> {
+    if value.eq_ignore_ascii_case("true") {
+        Ok(true)
+    } else if value.eq_ignore_ascii_case("false") {
+        Ok(false)
+    } else {
+        Err(malformed())
+    }
+}
+
+type Credentials = (Option<String>, Option<SecretString>);
+
+/// Splits `user[:password]`. A second raw `@`, a password without a user, an empty password and
+/// a password equal to the display mask are all handled here; none of them echo the input.
+fn parse_userinfo(userinfo: Option<&str>) -> Result<Credentials> {
+    let Some(u) = userinfo else {
+        return Ok((None, None));
+    };
+    if u.contains('@') {
+        return Err(malformed());
+    }
+    let (user, pass) = match u.split_once(':') {
+        Some((user, pass)) => (user, Some(pass)),
+        None => (u, None),
+    };
+    let user = percent_decode(user)?;
+    let pass = pass.map(percent_decode).transpose()?;
+    let pass = pass.filter(|p| !p.is_empty() && p != MASK);
+    if user.is_empty() && pass.is_some() {
+        return Err(malformed());
+    }
+    Ok((
+        (!user.is_empty()).then_some(user),
+        pass.map(SecretString::new),
+    ))
+}
+
+fn validate_hosts(hosts: &str, srv: bool) -> Result<()> {
+    let entries: Vec<&str> = hosts.split(',').collect();
+    if srv && entries.len() != 1 {
+        return Err(malformed());
+    }
+    entries.iter().try_for_each(|e| validate_host(e, srv))
+}
+
+fn is_name_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')
+}
+
+fn validate_host(entry: &str, srv: bool) -> Result<()> {
+    if entry.starts_with("%2F") || entry.starts_with("%2f") {
+        let ok = !srv && entry.ends_with(".sock") && is_encoded_path(entry);
+        return if ok { Ok(()) } else { Err(malformed()) };
+    }
+    let (host_ok, port) = if let Some(inner) = entry.strip_prefix('[') {
+        let (addr, after) = inner.split_once(']').ok_or_else(malformed)?;
+        let addr_ok = !addr.is_empty()
+            && addr
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.');
+        let port = match after {
+            "" => None,
+            _ => Some(after.strip_prefix(':').ok_or_else(malformed)?),
+        };
+        (addr_ok, port)
+    } else {
+        let (host, port) = match entry.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (entry, None),
+        };
+        (!host.is_empty() && host.bytes().all(is_name_byte), port)
+    };
+    if !host_ok {
+        return Err(malformed());
+    }
+    match port {
+        None => Ok(()),
+        Some(_) if srv => Err(malformed()),
+        Some(p) => {
+            let digits = (1..=5).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit());
+            match p.parse::<u16>() {
+                Ok(n) if digits && n > 0 => Ok(()),
+                _ => Err(malformed()),
+            }
+        }
+    }
+}
+
+fn is_encoded_path(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let ok = b
+                .get(i + 1..i + 3)
+                .is_some_and(|h| h.iter().all(u8::is_ascii_hexdigit));
+            if !ok {
+                return false;
+            }
+            i += 3;
+        } else if is_name_byte(b[i]) {
+            i += 1;
+        } else {
+            return false;
+        }
+    }
+    true
 }
 
 fn parse_mechanism(value: &str) -> Result<AuthMechanism> {
@@ -133,6 +242,16 @@ pub fn build_uri(cfg: &ConnectionConfig, password: PasswordMode<'_>) -> String {
             "mongodb://",
             cfg.uri.strip_prefix("mongodb://").unwrap_or(&cfg.uri),
         ),
+    };
+    // A stored uri may already carry `user@`; drop it so we never emit `bob@user@host`.
+    let rest = if cfg.username.is_some() {
+        let end = rest.find(['/', '?']).unwrap_or(rest.len());
+        match rest[..end].rfind('@') {
+            Some(at) => &rest[at + 1..],
+            None => rest,
+        }
+    } else {
+        rest
     };
     let userinfo = cfg.username.as_deref().map(|user| {
         let user = percent_encode(user);
@@ -339,11 +458,153 @@ mod tests {
     }
 
     #[test]
-    fn the_last_at_sign_is_the_userinfo_boundary() {
-        let p = parse_uri("mongodb://a:b@c@h/db").unwrap();
-        assert_eq!(p.username.as_deref(), Some("a"));
-        assert_eq!(p.password.as_ref().map(SecretString::expose), Some("b@c"));
-        assert_eq!(p.uri, "mongodb://h/db");
+    fn a_second_raw_at_sign_in_the_userinfo_is_rejected() {
+        assert!(parse_uri("mongodb://a:b@c@h/db").is_err());
+        assert!(parse_uri("mongodb://bob:p@ss@h/db").is_err());
+        let p = parse_uri("mongodb://bob:p%40ss@h/db").unwrap();
+        assert_eq!(p.password.as_ref().map(SecretString::expose), Some("p@ss"));
+    }
+
+    const FRAG: &str = "SeCr3tFrag";
+
+    fn assert_no_fragment(input: &str) {
+        match parse_uri(input) {
+            Err(e) => assert!(!e.to_string().contains(FRAG), "{input}"),
+            Ok(p) => {
+                assert!(!p.uri.contains(FRAG), "uri leaked for {input}: {}", p.uri);
+                assert!(!p.username.unwrap_or_default().contains(FRAG), "{input}");
+                assert!(!p.auth_source.unwrap_or_default().contains(FRAG), "{input}");
+            }
+        }
+    }
+
+    #[test]
+    fn password_fragments_never_land_in_the_uri() {
+        let bad = [
+            format!("mongodb://bob:pa/{FRAG}@h/db"),
+            format!("mongodb://bob:pa?{FRAG}@h/db"),
+            format!("mongodb://bob:{FRAG}"),
+            format!("mongodb://bob:{FRAG}@h:27017@evil/db"),
+            format!("mongodb://bob:pa#{FRAG}@h/db"),
+            format!("mongodb://bob:pa/{FRAG}@h/db?authSource={FRAG}"),
+            format!("mongodb://bob:{FRAG}@h/db?x@{FRAG}=1"),
+        ];
+        for input in &bad {
+            assert_no_fragment(input);
+            assert!(parse_uri(input).is_err(), "{input} should be rejected");
+        }
+    }
+
+    #[test]
+    fn property_no_ok_result_contains_the_password_text() {
+        let inputs = [
+            "mongodb://bob:SeCr3tFrag/x@h/db",
+            "mongodb://bob:SeCr3tFrag?x@h/db",
+            "mongodb://bob:SeCr3tFrag",
+            "mongodb://bob:SeCr3tFrag@h:1@h2",
+            "mongodb://bob:Se/Cr3t@h",
+            "mongodb://bob:a,b@h",
+            "mongodb://bob:SeCr3tFrag@@h",
+            "mongodb://bob:SeCr3tFrag@h/db@x",
+            "mongodb://bob:SeCr3tFrag@h/db?a@b=1",
+            "mongodb://bob:SeCr3tFrag@h/db?a",
+        ];
+        for input in inputs {
+            if let Ok(p) = parse_uri(input) {
+                let pw = input.split_once(':').and_then(|(_, r)| r.split_once(':'));
+                let pw = pw.map(|(_, r)| r.split('@').next().unwrap_or(""));
+                if let Some(pw) = pw.filter(|s| !s.is_empty()) {
+                    assert!(!p.uri.contains(pw), "{input} -> {}", p.uri);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hosts_are_validated() {
+        for ok in [
+            "mongodb://h",
+            "mongodb://h.example-1.com:27017",
+            "mongodb://h1:1,h2:65535,h3",
+            "mongodb://[::1]:27017",
+            "mongodb://[fe80::1]",
+            "mongodb://%2Ftmp%2Fmongodb-27017.sock",
+            "mongodb+srv://cluster0.example.com/db",
+        ] {
+            assert!(parse_uri(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "mongodb://h:",
+            "mongodb://h:0",
+            "mongodb://h:65536",
+            "mongodb://h:123456",
+            "mongodb://h:12a",
+            "mongodb://h,,h2",
+            "mongodb://h,",
+            "mongodb://h h2",
+            "mongodb://[::1",
+            "mongodb://[zz]:1",
+            "mongodb://%2Ftmp%2Fx",
+            "mongodb://h%2F",
+            "mongodb+srv://a.example.com,b.example.com",
+            "mongodb+srv://a.example.com:27017",
+        ] {
+            let err = parse_uri(bad).unwrap_err().to_string();
+            assert!(err.contains("malformed"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn raw_at_in_the_path_or_query_and_valueless_pairs_are_rejected() {
+        for bad in [
+            "mongodb://h/db@x",
+            "mongodb://h/db?a=b@c",
+            "mongodb://h/db?a",
+            "mongodb://h/db?a=1&b",
+        ] {
+            assert!(parse_uri(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn tls_accepts_only_true_or_false() {
+        assert_eq!(
+            parse_uri("mongodb://h/?tls=FALSE").unwrap().tls,
+            Some(false)
+        );
+        assert_eq!(parse_uri("mongodb://h/?ssl=True").unwrap().tls, Some(true));
+        for bad in ["tls=1", "tls=yes", "tls=", "ssl=on"] {
+            assert!(parse_uri(&format!("mongodb://h/?{bad}")).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn empty_and_masked_passwords_are_no_password_and_a_password_needs_a_user() {
+        assert_eq!(parse_uri("mongodb://bob:@h").unwrap().password, None);
+        let p = parse_uri("mongodb://bob:****@h").unwrap();
+        assert_eq!(p.password, None);
+        assert_eq!(p.username.as_deref(), Some("bob"));
+        let err = parse_uri("mongodb://:SeCr3tFrag@h")
+            .unwrap_err()
+            .to_string();
+        assert!(!err.contains(FRAG));
+        assert!(parse_uri("mongodb://@h").is_ok());
+    }
+
+    #[test]
+    fn build_replaces_userinfo_already_in_the_stored_uri() {
+        let mut cfg = ConnectionConfig::new("a", "mongodb://old@h1,h2/db?x=1");
+        cfg.username = Some("bob".into());
+        assert_eq!(
+            build_uri(&cfg, PasswordMode::Omit),
+            "mongodb://bob@h1,h2/db?x=1"
+        );
+        let mut cfg = ConnectionConfig::new("a", "mongodb+srv://old@h/db");
+        cfg.username = Some("bob".into());
+        assert_eq!(
+            build_uri(&cfg, PasswordMode::Masked),
+            "mongodb+srv://bob:****@h/db"
+        );
     }
 
     #[test]
