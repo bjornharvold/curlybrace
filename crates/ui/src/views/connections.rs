@@ -58,7 +58,7 @@ pub enum Notice {
 }
 
 /// View state: saved connections, the form being edited and the last validation error.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ConnectionsState {
     pub connections: Vec<ConnectionConfig>,
     pub selected: Option<Uuid>,
@@ -91,6 +91,33 @@ pub struct ConnectionsState {
     /// The app banner as text (headline first, then details), copied in by the screen each frame
     /// so the dialog can show it: the real banner is dimmed behind the modal backdrop.
     pub dialog_banner: Vec<String>,
+}
+
+/// `Debug` hides `uri_input`: it is the pasted connection string and may hold a password.
+impl std::fmt::Debug for ConnectionsState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionsState")
+            .field("connections", &self.connections)
+            .field("selected", &self.selected)
+            .field("form", &self.form)
+            .field("error", &self.error)
+            .field("stored", &self.stored)
+            .field("delete_confirm", &self.delete_confirm)
+            .field("notice", &self.notice)
+            .field("test", &self.test)
+            .field("test_seq", &self.test_seq)
+            .field("test_form", &self.test_form)
+            .field("uri_input", &"<redacted>")
+            .field("built_uri", &self.built_uri)
+            .field("built_for", &self.built_for)
+            .field("built_with_password", &self.built_with_password)
+            .field("filter", &self.filter)
+            .field("sort", &self.sort)
+            .field("folder_prompt", &self.folder_prompt)
+            .field("editing", &self.editing)
+            .field("dialog_banner", &self.dialog_banner)
+            .finish()
+    }
 }
 
 /// The one-field folder prompt. `input` is the text being typed.
