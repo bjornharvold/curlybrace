@@ -154,17 +154,22 @@ fn split_host_port(hosts: &str) -> Option<(String, u16)> {
 }
 
 /// Opens the configured tunnel, if any. The secret is read from the keychain
-/// off the async workers; an absent secret is passed on as `None`.
+/// off the async workers; an absent secret is passed on as `None`. A typed `ssh_secret` (a
+/// connection test) replaces the stored one.
 pub(super) async fn open_tunnel_if_configured(
     shared: &Arc<Shared>,
     job: Arc<dyn Currentness>,
     cfg: &ConnectionConfig,
+    ssh_secret: Option<&str>,
 ) -> Result<Option<Box<dyn TunnelHandle>>> {
     let Some(ssh) = &cfg.ssh else {
         return Ok(None);
     };
     let (target_host, target_port) = parse_target(&cfg.uri)?;
-    let secret = read_ssh_secret(shared, cfg, ssh).await?;
+    let secret = match ssh_secret {
+        Some(s) => Some(s.to_owned()),
+        None => read_ssh_secret(shared, cfg, ssh).await?,
+    };
     let config = &shared.config;
     let known_hosts = config.known_hosts_path.as_deref().ok_or_else(|| {
         CoreError::Ssh("the location for known ssh hosts could not be determined".into())

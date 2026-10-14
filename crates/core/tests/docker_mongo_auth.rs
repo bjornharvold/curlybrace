@@ -11,8 +11,12 @@ use curlybrace_core::client::{self, SERVER_SELECTION_TIMEOUT};
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::mongo_store::MongoStore;
-use curlybrace_core::runtime::{Command, Event, RuntimeConfig, spawn_runtime_with_config};
-use curlybrace_core::secrets::{MemorySecretStore, SecretKind, SecretStore, secret_key};
+use curlybrace_core::runtime::{
+    Command, Event, RuntimeConfig, TestSecrets, spawn_runtime_with_config,
+};
+use curlybrace_core::secrets::{
+    MemorySecretStore, SecretKind, SecretStore, SecretString, secret_key,
+};
 use curlybrace_core::store::{DocumentStore, Namespace, Query};
 use support::{Container, docker_enabled, next_event, no_repaint, wait_ready};
 
@@ -166,4 +170,62 @@ async fn real_runtime_reports_connect_failed_for_a_wrong_password_in_time() {
         other => panic!("expected ConnectFailed, got {other:?}"),
     }
     assert!(started.elapsed() < BOUND);
+}
+
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn test_connection_reports_the_version_or_a_typed_auth_failure_and_installs_nothing() {
+    if !docker_enabled(
+        "test_connection_reports_the_version_or_a_typed_auth_failure_and_installs_nothing",
+    ) {
+        return;
+    }
+    let container = auth_container();
+    let cfg = scram_config(&container);
+    wait_ready(&cfg, Some(PASSWORD)).await;
+    // No stored secrets: the typed ones are the only credentials.
+    let mut rt = spawn_runtime_with_config(None, None, no_repaint(), RuntimeConfig::default());
+    let wait = Duration::from_secs(20);
+    let test = |request_id, password: &str| Command::TestConnection {
+        request_id,
+        cfg: cfg.clone(),
+        secrets: TestSecrets {
+            password: Some(SecretString::new(password)),
+            ssh_secret: None,
+        },
+    };
+
+    rt.tx.send(test(1, PASSWORD)).unwrap();
+    match next_event(&mut rt.rx, wait, "test with the right password").await {
+        Event::TestConnection {
+            request_id: 1,
+            outcome: Ok(report),
+        } => {
+            assert!(report.authenticated && !report.tls);
+            assert!(
+                report.server_version.is_some_and(|v| !v.is_empty()),
+                "buildInfo reports a version"
+            );
+        }
+        other => panic!("expected a successful test, got {other:?}"),
+    }
+
+    rt.tx.send(test(2, "not-the-password")).unwrap();
+    match next_event(&mut rt.rx, BOUND, "test with the wrong password").await {
+        Event::TestConnection {
+            request_id: 2,
+            outcome: Err(CoreError::AuthFailed),
+        } => {}
+        other => panic!("expected AuthFailed, got {other:?}"),
+    }
+
+    // A test installs nothing.
+    rt.tx.send(Command::ListDatabases).unwrap();
+    assert!(matches!(
+        next_event(&mut rt.rx, wait, "list after tests").await,
+        Event::Failed {
+            context: "list_databases",
+            ..
+        }
+    ));
 }

@@ -9,7 +9,7 @@ use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
-use super::tunneling::{ConnectionCurrent, open_tunnel_if_configured};
+use super::tunneling::{ConnectionCurrent, Currentness, open_tunnel_if_configured};
 use super::{Command, Event, Shared};
 
 /// Runs `command` to completion, folding any error into `Event::Failed`.
@@ -136,7 +136,10 @@ async fn data_command(store: Arc<dyn DocumentStore>, command: Command) -> Result
             service.clone_document(&ns, &source).await?;
             Event::Mutated { ns }
         }
-        Command::Connect(_) | Command::Disconnect | Command::Compare(_) => {
+        Command::Connect(_)
+        | Command::Disconnect
+        | Command::Compare(_)
+        | Command::TestConnection { .. } => {
             unreachable!("connection and compare commands are handled before data dispatch")
         }
     })
@@ -177,7 +180,7 @@ async fn connect_store(
             shared: shared.clone(),
             generation,
         });
-        let tunnel = open_tunnel_if_configured(shared, job, &cfg).await?;
+        let tunnel = open_tunnel_if_configured(shared, job, &cfg, None).await?;
         let addr = tunnel.as_ref().map(|t| t.local_addr());
         let store = shared
             .connector
@@ -205,4 +208,73 @@ pub(super) async fn read_password(
     tokio::task::spawn_blocking(move || secrets.get(&key))
         .await
         .map_err(|_| CoreError::Secret("secret lookup failed".into()))?
+}
+
+/// A test is never replaced by a newer Connect/Disconnect, so its host-key question stays live.
+struct AlwaysCurrent;
+
+impl Currentness for AlwaysCurrent {
+    fn is_current(&self) -> bool {
+        true
+    }
+}
+
+/// Runs one connection test in its own task, apart from the epoch machinery. The work runs in an
+/// inner task so a panic still produces exactly one answer.
+pub(super) fn spawn_test(
+    shared: Arc<Shared>,
+    events: tokio::sync::mpsc::UnboundedSender<Event>,
+    repaint: super::Repaint,
+    request_id: u64,
+    cfg: ConnectionConfig,
+    secrets: super::TestSecrets,
+) {
+    tokio::spawn(async move {
+        let work = tokio::spawn(async move { test_connection(&shared, cfg, secrets).await });
+        let outcome = work
+            .await
+            .unwrap_or_else(|_| Err(CoreError::Database("internal error".into())));
+        if events
+            .send(Event::TestConnection {
+                request_id,
+                outcome,
+            })
+            .is_ok()
+        {
+            repaint();
+        }
+    });
+}
+
+async fn test_connection(
+    shared: &Arc<Shared>,
+    cfg: ConnectionConfig,
+    secrets: super::TestSecrets,
+) -> Result<super::TestReport> {
+    cfg.validate()?;
+    let limit = shared.config.connect_timeout;
+    bounded(limit, async {
+        let password = match &secrets.password {
+            Some(p) => Some(p.expose().to_owned()),
+            None => read_password(shared, &cfg).await?,
+        };
+        let job: Arc<dyn Currentness> = Arc::new(AlwaysCurrent);
+        let ssh_secret = secrets.ssh_secret.as_ref().map(|s| s.expose());
+        let tunnel = open_tunnel_if_configured(shared, job, &cfg, ssh_secret).await?;
+        let addr = tunnel.as_ref().map(|t| t.local_addr());
+        let store = shared
+            .connector
+            .connect(&cfg, password.as_deref(), addr)
+            .await?;
+        let server_version = store.server_version().await?;
+        // Dropped here, before the answer: a test leaves no client and no tunnel behind.
+        drop(store);
+        drop(tunnel);
+        Ok(super::TestReport {
+            server_version,
+            tls: cfg.tls.enabled,
+            authenticated: cfg.auth != crate::connection::AuthMechanism::None,
+        })
+    })
+    .await
 }

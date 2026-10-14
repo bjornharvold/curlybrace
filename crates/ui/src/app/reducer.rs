@@ -95,6 +95,8 @@ fn on_event(state: AppState, ev: Event) -> Out {
         // Compare sessions are independent of the browsing connection (and its epoch), so
         // they are handled before the "not connected" catch-all.
         Event::Compare(e) => compare::on_event(state, e),
+        // Task 8 replaces this: a connection test is independent of the session and its epoch.
+        Event::TestConnection { .. } => (state, Vec::new()),
         // Anything else is a late answer from a session that is gone.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases(names) => {

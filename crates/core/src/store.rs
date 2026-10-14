@@ -128,6 +128,11 @@ pub trait DocumentStore: Send + Sync {
     /// Deletes the document with `_id == id`; `NotFound` if none matches.
     async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()>;
 
+    /// The server's version string, if it can be read. Informational: a failure is `None`.
+    async fn server_version(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Applies `ops` (unordered, no ordering guarantee between them) and returns one outcome
     /// per op, index-aligned. `Err` only when the call as a whole failed (connection,
     /// authorization): then nothing may be assumed written.

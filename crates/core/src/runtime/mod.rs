@@ -20,6 +20,8 @@ mod handlers;
 #[cfg(test)]
 mod prompt_gate_tests;
 #[cfg(test)]
+mod test_connection_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tunnel_tests;
@@ -131,6 +133,22 @@ impl std::fmt::Debug for RuntimeConfig {
     }
 }
 
+/// Secrets typed into the connection form for one test. `None` means "use the stored one".
+/// Debug redacts through [`SecretString`](crate::secrets::SecretString).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TestSecrets {
+    pub password: Option<crate::secrets::SecretString>,
+    pub ssh_secret: Option<crate::secrets::SecretString>,
+}
+
+/// What a successful connection test learned.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TestReport {
+    pub server_version: Option<String>,
+    pub tls: bool,
+    pub authenticated: bool,
+}
+
 // Commands are short-lived, moved once into a channel; boxing would ripple through every call site.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
@@ -164,6 +182,13 @@ pub enum Command {
     },
     /// A data-compare session command; see [`compare`] for how it is answered.
     Compare(crate::compare::protocol::CompareCommand),
+    /// Opens a throw-away connection and reports on it with [`Event::TestConnection`]. It never
+    /// begins an epoch and never touches the installed store or tunnel.
+    TestConnection {
+        request_id: u64,
+        cfg: ConnectionConfig,
+        secrets: TestSecrets,
+    },
 }
 
 impl Command {
@@ -180,6 +205,7 @@ impl Command {
             Self::Delete { .. } => "delete",
             Self::Clone { .. } => "clone",
             Self::Compare(_) => "compare",
+            Self::TestConnection { .. } => "test_connection",
         }
     }
 }
@@ -228,6 +254,11 @@ pub enum Event {
     },
     /// An answer or progress report of a compare session (see [`compare`]).
     Compare(crate::compare::protocol::CompareEvent),
+    /// The answer to `Command::TestConnection { request_id, .. }`; carries no secret.
+    TestConnection {
+        request_id: u64,
+        outcome: std::result::Result<TestReport, CoreError>,
+    },
 }
 
 pub struct RuntimeHandle {
@@ -359,6 +390,16 @@ fn dispatch(
 ) {
     if let Command::Compare(c) = command {
         compare::dispatch(shared, events, repaint, c);
+        return;
+    }
+    // Like Compare: independent of the connection epoch (no begin_epoch, no generation read).
+    if let Command::TestConnection {
+        request_id,
+        cfg,
+        secrets,
+    } = command
+    {
+        handlers::spawn_test(shared, events, repaint, request_id, cfg, secrets);
         return;
     }
     let context = command.context();

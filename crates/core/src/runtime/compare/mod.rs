@@ -489,7 +489,7 @@ async fn open_side(
     cfg.validate()?;
     let password = super::handlers::read_password(shared, cfg).await?;
     let job: Arc<dyn Currentness> = session.clone();
-    let tunnel = open_tunnel_if_configured(shared, job, cfg).await?;
+    let tunnel = open_tunnel_if_configured(shared, job, cfg, None).await?;
     let addr = tunnel.as_ref().map(|t| t.local_addr());
     let store = shared
         .connector
