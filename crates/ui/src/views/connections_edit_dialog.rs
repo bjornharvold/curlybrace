@@ -31,6 +31,8 @@ pub(super) fn show_edit_dialog(
             .show(ui, |ui| {
                 action = show_body(ui, state, i18n);
             });
+        // Outside the clipped scroll area, so a long result or error is always fully visible.
+        show_test_result(ui, state, i18n);
         if let Some(error) = &state.error {
             show_error(ui, error, i18n);
         }
@@ -132,6 +134,11 @@ fn show_test(
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
     let clicked = ui.button(i18n.t("connections.test")).clicked();
+    clicked.then(|| ConnectionAction::Test(Box::new(state.form.clone())))
+}
+
+/// The outcome of Test connection, below the scrolling body.
+fn show_test_result(ui: &mut egui::Ui, state: &ConnectionsState, i18n: &I18n) {
     match &state.test {
         TestState::Idle => {}
         TestState::Running { .. } => {
@@ -146,7 +153,6 @@ fn show_test(
             ..
         } => show_error(ui, error, i18n),
     }
-    clicked.then(|| ConnectionAction::Test(Box::new(state.form.clone())))
 }
 
 /// `tls` and `authenticated` say what is configured, never that it was verified.

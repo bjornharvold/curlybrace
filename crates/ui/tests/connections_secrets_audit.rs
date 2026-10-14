@@ -4,7 +4,9 @@
 mod conn_harness;
 
 use conn_harness::{FixedPath, Harness};
+use curlybrace_core::error::CoreError;
 use curlybrace_core::test_support::mock_objects::{MOCK_PASSWORD_MARKER, mock_connections};
+use curlybrace_ui::app::state::Banner;
 use curlybrace_ui::viewmodel::ConnectionForm;
 use curlybrace_ui::views::connections::{ConnectionAction, Notice, TestState};
 use std::sync::Arc;
@@ -60,7 +62,30 @@ async fn debug_output_of_a_state_full_of_secrets_is_clean() {
     h.until("test result", |a| {
         matches!(a.state().conn.test, TestState::Done { .. })
     });
-    h.app.state_mut().conn.dialog_banner = vec!["Could not save".into(), "keychain said no".into()];
+    // A banner reaches `dialog_banner` through the real path: the connections screen copies it in.
+    h.app.state_mut().banner = Some(Banner::Failure {
+        context: "save_connection",
+        error: CoreError::Secret("keychain said no".into()),
+    });
+    h.frame();
+    assert!(
+        !h.app.state().conn.dialog_banner.is_empty(),
+        "the screen copied the banner into the dialog state"
+    );
+    assert_clean(
+        "Debug of the dialog state",
+        &format!("{:?}", h.app.state().conn),
+    );
+
+    // A failing test result: the typed password was sent, the error must not echo it.
+    let mut failing = typed_form();
+    failing.uri = "mongodb://localhost:27017".into();
+    h.app.state_mut().conn.test = TestState::Done {
+        request_id: 2,
+        outcome: Err(CoreError::AuthFailed),
+    };
+    h.app.state_mut().conn.test_form = Some(failing);
+    h.frame();
 
     let state = h.app.state();
     assert_clean(

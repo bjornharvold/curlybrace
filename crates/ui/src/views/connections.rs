@@ -96,26 +96,50 @@ pub struct ConnectionsState {
 /// `Debug` hides `uri_input`: it is the pasted connection string and may hold a password.
 impl std::fmt::Debug for ConnectionsState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Exhaustive on purpose (no `..`): a new field breaks the build here and forces a
+        // decision on whether it may be printed. `uri_input` is a pasted string that may hold a
+        // password; `built_uri` is a `SecretString` and the forms redact their own secrets.
+        let Self {
+            connections,
+            selected,
+            form,
+            error,
+            stored,
+            delete_confirm,
+            notice,
+            test,
+            test_seq,
+            test_form,
+            uri_input: _,
+            built_uri,
+            built_for,
+            built_with_password,
+            filter,
+            sort,
+            folder_prompt,
+            editing,
+            dialog_banner,
+        } = self;
         f.debug_struct("ConnectionsState")
-            .field("connections", &self.connections)
-            .field("selected", &self.selected)
-            .field("form", &self.form)
-            .field("error", &self.error)
-            .field("stored", &self.stored)
-            .field("delete_confirm", &self.delete_confirm)
-            .field("notice", &self.notice)
-            .field("test", &self.test)
-            .field("test_seq", &self.test_seq)
-            .field("test_form", &self.test_form)
+            .field("connections", connections)
+            .field("selected", selected)
+            .field("form", form)
+            .field("error", error)
+            .field("stored", stored)
+            .field("delete_confirm", delete_confirm)
+            .field("notice", notice)
+            .field("test", test)
+            .field("test_seq", test_seq)
+            .field("test_form", test_form)
             .field("uri_input", &"<redacted>")
-            .field("built_uri", &self.built_uri)
-            .field("built_for", &self.built_for)
-            .field("built_with_password", &self.built_with_password)
-            .field("filter", &self.filter)
-            .field("sort", &self.sort)
-            .field("folder_prompt", &self.folder_prompt)
-            .field("editing", &self.editing)
-            .field("dialog_banner", &self.dialog_banner)
+            .field("built_uri", built_uri)
+            .field("built_for", built_for)
+            .field("built_with_password", built_with_password)
+            .field("filter", filter)
+            .field("sort", sort)
+            .field("folder_prompt", folder_prompt)
+            .field("editing", editing)
+            .field("dialog_banner", dialog_banner)
             .finish()
     }
 }

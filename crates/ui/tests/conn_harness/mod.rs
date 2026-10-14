@@ -1,6 +1,5 @@
 //! Shared harness for the connection manager wiring tests: the real runtime with a fake
 //! connector, an in-memory keychain kept by the test, and a config file in a temp dir.
-#![allow(dead_code)]
 use bson::doc;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::Result;
@@ -14,7 +13,7 @@ use curlybrace_ui::app::file_picker::FilePicker;
 use curlybrace_ui::app::persistence::load_connections;
 use eframe::egui;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -101,12 +100,14 @@ impl Harness {
         std::fs::read_to_string(self.config_file()).unwrap_or_default()
     }
 
+    #[allow(dead_code)] // used by only one of the test crates that share this module
     pub fn saved(&self) -> Vec<ConnectionConfig> {
         load_connections(&self.config_file())
             .expect("the config file loads")
             .connections
     }
 
+    #[allow(dead_code)] // used by only one of the test crates that share this module
     pub fn store_password(&self, id: Uuid, value: &str) {
         self.secrets
             .set(&secret_key(id, SecretKind::Password), value)
@@ -141,10 +142,7 @@ impl Harness {
     }
 }
 
+#[allow(dead_code)] // used by only one of the test crates that share this module
 pub fn names(list: &[ConnectionConfig]) -> Vec<String> {
     list.iter().map(|c| c.name.clone()).collect()
-}
-
-pub fn exists(path: &Path) -> bool {
-    path.exists()
 }

@@ -223,6 +223,21 @@ fn a_test_result_and_a_built_uri_show_their_text_and_the_password_warning() {
 }
 
 #[test]
+fn a_long_test_error_is_shown_in_full_outside_the_scrolling_body() {
+    use curlybrace_core::error::CoreError;
+    use curlybrace_ui::views::connections::TestState;
+    let detail = "connection refused by the server after a very long wait; ".repeat(6);
+    let harness = dialog_harness(move |state| {
+        state.test_form = Some(state.form.clone());
+        state.test = TestState::Done {
+            request_id: 1,
+            outcome: Err(CoreError::Database(detail.clone())),
+        };
+    });
+    harness.get_by_label_contains("connection refused by the server");
+}
+
+#[test]
 fn the_validation_error_shows_inside_the_dialog() {
     use curlybrace_core::error::CoreError;
     let i18n = I18n::english();
