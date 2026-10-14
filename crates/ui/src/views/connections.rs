@@ -1,7 +1,6 @@
 //! Connection manager view: saved connections list plus an editable form.
 use crate::I18n;
-use crate::viewmodel::ConnectionForm;
-use crate::viewmodel::StoredSecrets;
+use crate::viewmodel::{ConnectionForm, Sort, StoredSecrets};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::TestReport;
@@ -82,6 +81,18 @@ pub struct ConnectionsState {
     pub built_uri: Option<SecretString>,
     pub built_for: Option<ConnectionForm>,
     pub built_with_password: bool,
+    /// Text typed in the filter box above the table.
+    pub filter: String,
+    pub sort: Sort,
+    /// The folder name prompt (move a connection / rename a folder), when open.
+    pub folder_prompt: Option<FolderPrompt>,
+}
+
+/// The one-field folder prompt. `input` is the text being typed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FolderPrompt {
+    Move { id: Uuid, input: String },
+    Rename { from: String, input: String },
 }
 
 impl ConnectionsState {
@@ -145,7 +156,60 @@ impl ConnectionsState {
         }
     }
 
-    fn select(&mut self, cfg: &ConnectionConfig) {
+    /// The filter box was edited: a stale import/export notice no longer applies.
+    pub fn filter_edited(&mut self) {
+        self.notice = None;
+    }
+
+    /// Opens the "move to folder" prompt for `id`, pre-filled with its current folder.
+    pub fn open_move_prompt(&mut self, id: Uuid) {
+        let input = self
+            .connections
+            .iter()
+            .find(|c| c.id == id)
+            .and_then(|c| c.folder.clone())
+            .unwrap_or_default();
+        self.folder_prompt = Some(FolderPrompt::Move { id, input });
+    }
+
+    /// Opens the rename prompt for the folder `from`, pre-filled with its name.
+    pub fn open_rename_prompt(&mut self, from: &str) {
+        self.folder_prompt = Some(FolderPrompt::Rename {
+            from: from.to_owned(),
+            input: from.to_owned(),
+        });
+    }
+
+    pub fn close_folder_prompt(&mut self) {
+        self.folder_prompt = None;
+    }
+
+    /// Closes the prompt and returns the action it stands for. Nothing is validated here: the
+    /// handler checks the name and reports through `error`.
+    pub fn folder_prompt_confirmed(&mut self) -> Option<ConnectionAction> {
+        self.folder_prompt.take().map(|prompt| match prompt {
+            FolderPrompt::Move { id, input } => {
+                ConnectionAction::MoveToFolder { id, folder: input }
+            }
+            FolderPrompt::Rename { from, input } => {
+                ConnectionAction::RenameFolder { from, to: input }
+            }
+        })
+    }
+
+    /// Distinct folder names in use, sorted.
+    pub fn folder_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .connections
+            .iter()
+            .filter_map(|c| c.folder.clone())
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    pub(super) fn select(&mut self, cfg: &ConnectionConfig) {
         self.reset_tools();
         self.delete_confirm = None;
         self.notice = None;
@@ -154,7 +218,7 @@ impl ConnectionsState {
         self.error = None;
     }
 
-    fn start_new(&mut self) {
+    pub(super) fn start_new(&mut self) {
         self.reset_tools();
         self.delete_confirm = None;
         self.notice = None;
@@ -169,13 +233,17 @@ pub fn show_connections(
     state: &mut ConnectionsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
+    state.invalidate_stale_test();
     ui.heading(i18n.t("connections.title"));
-    let mut action = show_list(ui, state, i18n);
+    let mut action = super::connections_list::show_list(ui, state, i18n);
     ui.separator();
     if let Some(saved) = super::connections_edit::show_form(ui, state, i18n) {
         action = Some(saved);
     }
-    show_delete_confirm(ui.ctx(), state, i18n).or(action)
+    let prompt = super::connections_folder_prompt::show_folder_prompt(ui.ctx(), state, i18n);
+    show_delete_confirm(ui.ctx(), state, i18n)
+        .or(prompt)
+        .or(action)
 }
 
 /// Modal asking to confirm a delete; Escape or clicking outside cancels.
@@ -206,33 +274,6 @@ fn show_delete_confirm(
         state.delete_cancelled();
     }
     None
-}
-
-fn show_list(
-    ui: &mut egui::Ui,
-    state: &mut ConnectionsState,
-    i18n: &I18n,
-) -> Option<ConnectionAction> {
-    let mut action = None;
-    if ui.button(i18n.t("connections.new")).clicked() {
-        state.start_new();
-    }
-    let rows = state.connections.clone();
-    for cfg in &rows {
-        ui.horizontal(|ui| {
-            let selected = state.selected == Some(cfg.id);
-            if ui.selectable_label(selected, &cfg.name).clicked() {
-                state.select(cfg);
-            }
-            if ui.button(i18n.t("connections.connect")).clicked() {
-                action = Some(ConnectionAction::Connect(cfg.id));
-            }
-            if ui.button(i18n.t("common.delete")).clicked() {
-                state.delete_requested(cfg.id);
-            }
-        });
-    }
-    action
 }
 
 #[cfg(test)]

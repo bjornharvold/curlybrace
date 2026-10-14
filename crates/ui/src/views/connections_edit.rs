@@ -38,9 +38,6 @@ pub(super) fn show_form(
     );
     tls_section(ui, form, i18n);
     ssh_section(ui, form, stored.ssh_secret, i18n);
-    if let Some(e) = &state.error {
-        super::error_label::show_error(ui, e, i18n);
-    }
     if ui.button(i18n.t("common.save")).clicked() {
         return match state.form.to_config() {
             Ok(_) => {

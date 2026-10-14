@@ -1,9 +1,10 @@
 //! Manager operations beyond save/delete: duplicate, folder changes and the connect stamp.
 //! Like `connections::save`, they take the keychain and the config path as arguments.
-use super::connections::{ConfigPath, persist, refused};
+use super::connections::{ConfigPath, persist, refresh_flags, refused};
 #[cfg(test)]
 use super::persistence::PersistGuard;
 use super::state::{AppState, Banner};
+use crate::viewmodel::ConnectionForm;
 use crate::views::connections::ConnectionsState;
 use curlybrace_core::connection::{ConnectionConfig, unique_name};
 use curlybrace_core::connection_folders::{
@@ -74,15 +75,17 @@ pub(super) fn duplicate(
             ..state
         };
     }
-    AppState {
+    let next = AppState {
         conn: ConnectionsState {
             connections: list,
             selected: Some(copy.id),
+            form: ConnectionForm::from_config(&copy),
             error: None,
             ..state.conn
         },
         ..state
-    }
+    };
+    refresh_flags(next, secrets)
 }
 
 pub(super) fn move_to_folder(
@@ -215,6 +218,29 @@ mod tests {
         let on_disk = std::fs::read_to_string(path.as_ref().unwrap()).unwrap();
         assert!(on_disk.contains("prod copy"));
         assert!(!on_disk.contains("pw\""), "no secret in the file");
+    }
+
+    #[test]
+    fn duplicate_loads_the_copy_into_the_form_and_refreshes_its_flags() {
+        let (_dir, path, secrets) = setup();
+        let src = ConnectionConfig::new("prod", "mongodb://h").with_save_stamp(1);
+        secrets
+            .set(&secret_key(src.id, SecretKind::Password), "pw")
+            .unwrap();
+        let state = duplicate(
+            state_with(vec![src.clone()]),
+            src.id,
+            "prod copy".into(),
+            50,
+            &secrets,
+            &path,
+        );
+        let copy = state.conn.connections[1].clone();
+        assert_eq!(state.conn.selected, Some(copy.id));
+        assert_eq!(state.conn.form.id, copy.id);
+        assert_eq!(state.conn.form.name, "prod copy");
+        assert!(state.conn.form.password.is_empty(), "no secret in the form");
+        assert!(state.conn.stored[&copy.id].password, "flags refreshed");
     }
 
     #[test]
