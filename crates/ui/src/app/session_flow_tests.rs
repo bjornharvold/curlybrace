@@ -1,7 +1,7 @@
 //! Several sessions open at once: opening, focusing, failing, closing and routing of events.
 use crate::app::reducer::{Input, Out, update};
 use crate::app::state::{AppState, Banner, ConnStatus, Workspace};
-use crate::viewmodel::{EditorAction, FindAction, SidebarAction};
+use crate::viewmodel::{DocAction, EditorAction, FindAction, SidebarAction};
 use bson::doc;
 use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
 use curlybrace_core::error::CoreError;
@@ -637,4 +637,59 @@ fn connecting_or_focusing_a_root_leaves_the_connections_workspace() {
         "unknown ids do nothing"
     );
     assert!(commands.is_empty());
+}
+
+/// A write must never go to the wrong server: with `a` and `b` open on the same namespace and
+/// `b` active, every write command carries `b`.
+#[test]
+fn writes_built_while_b_is_active_carry_b_and_never_a() {
+    let (s, ids) = app(&["a", "b"]);
+    let (a, b) = (ids[0], ids[1]);
+    let s = open_users(opened(s, a));
+    let s = open_users(opened(s, b));
+    assert_eq!(s.active, Some(b));
+    let stored = doc! { "_id": 1_i32, "who": "x" };
+    let with_page = |s: AppState| AppState {
+        page: Some(Page {
+            docs: vec![stored.clone()],
+            skip: 0,
+            has_more: false,
+        }),
+        ..s
+    };
+    let inputs = || {
+        [
+            Input::Doc(DocAction::Delete(bson::Bson::Int32(1))),
+            Input::Doc(DocAction::Clone(stored.clone())),
+            Input::Editor(EditorAction::Save {
+                original_id: Some(bson::Bson::Int32(1)),
+                text: "{}".into(),
+            }),
+            Input::Editor(EditorAction::Save {
+                original_id: None,
+                text: "{}".into(),
+            }),
+        ]
+    };
+    let mut seen = 0;
+    let mut state = with_page(s);
+    for input in inputs() {
+        let (next, cmds) = update(state, input);
+        let session = match cmds.as_slice() {
+            [Command::Delete { session, .. }]
+            | [Command::Clone { session, .. }]
+            | [Command::Replace { session, .. }]
+            | [Command::Insert { session, .. }] => *session,
+            other => panic!("expected one write command, got {other:?}"),
+        };
+        assert_eq!(session, b);
+        assert_ne!(session, a);
+        seen += 1;
+        // Free the in-flight marker so the next write is built too.
+        state = AppState {
+            pending: None,
+            ..next
+        };
+    }
+    assert_eq!(seen, 4);
 }

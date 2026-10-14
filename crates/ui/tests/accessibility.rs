@@ -509,7 +509,7 @@ fn editor_text_box_is_named_by_the_dialog_title() {
     let i18n = I18n::english();
     let mut harness = Harness::builder().with_size(size()).build_state(
         |ctx, state: &mut EditorState| {
-            show_editor(ctx, state, &I18n::english());
+            show_editor(ctx, state, "test", &I18n::english());
         },
         EditorState::for_new(),
     );

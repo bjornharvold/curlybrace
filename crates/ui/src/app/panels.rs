@@ -8,7 +8,7 @@ use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
-use crate::views::documents::{show_documents_keyed, show_mode_switcher};
+use crate::views::documents::{show_connection_header, show_documents_keyed, show_mode_switcher};
 use crate::views::editor::show_editor_with;
 use crate::views::findbar::show_findbar;
 use crate::views::sidebar_roots::show_roots;
@@ -138,6 +138,8 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         ui.label(i18n.t("browser.select_collection"));
         return;
     }
+    let connection = state.active_connection_label(i18n);
+    show_connection_header(ui, &connection, i18n);
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
@@ -154,7 +156,15 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         return;
     };
     state.tree.projected = state.page_is_projected();
-    let action = show_documents_keyed(ui, state.view_mode, page, key, &mut state.tree, i18n);
+    let action = show_documents_keyed(
+        ui,
+        state.view_mode,
+        page,
+        key,
+        &mut state.tree,
+        &connection,
+        i18n,
+    );
     if let Some(action) = action {
         out.push(UiEvent::Input(Input::Doc(action)));
     }
@@ -168,10 +178,11 @@ pub fn show_modals(
     out: &mut Vec<UiEvent>,
 ) {
     let save_enabled = state.pending.is_none();
+    let connection = state.active_connection_label(i18n);
     let saved = state
         .editor
         .as_mut()
-        .and_then(|editor| show_editor_with(ctx, editor, i18n, save_enabled));
+        .and_then(|editor| show_editor_with(ctx, editor, &connection, i18n, save_enabled));
     out.extend(saved.map(|a| UiEvent::Input(Input::Editor(a))));
     let decided = prompt.current().and_then(|(host, fingerprint)| {
         let asking = state.connecting_name_for_host(host);

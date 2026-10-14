@@ -160,6 +160,15 @@ impl AppState {
         self.conn.connections.iter().find(|c| c.id == id)
     }
 
+    /// The name of the active connection, or a translated placeholder when none is open (so a
+    /// write confirmation always names its target).
+    pub fn active_connection_label(&self, i18n: &crate::I18n) -> String {
+        self.active
+            .and_then(|id| self.connection(id))
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| i18n.t("doc.connection_unknown"))
+    }
+
     /// The displayed page was fetched with a projection, so its documents are partial.
     pub fn page_is_projected(&self) -> bool {
         self.page.is_some() && crate::viewmodel::is_projected(self.page_query.projection.as_ref())

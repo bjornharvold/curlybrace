@@ -4,7 +4,6 @@
 mod support;
 
 use curlybrace_ui::app::CurlybraceApp;
-use curlybrace_ui::app::state::ConnStatus;
 use curlybrace_ui::viewmodel::SidebarState;
 use curlybrace_ui::views::sidebar::db_row_label;
 use egui_kittest::Harness;
@@ -26,7 +25,7 @@ fn browser_with_many_databases() -> (
     let mut names: Vec<String> = (0..FILLERS).map(|i| format!("a_filler_{i:03}")).collect();
     names.push(TARGET.to_string());
     let state = app.state_mut();
-    state.status = ConnStatus::Connected;
+    support::shots::open_session(state, "Production");
     state.sidebar = SidebarState::default().with_databases(names);
     let harness = Harness::builder()
         .with_size(eframe::egui::vec2(1000.0, 700.0))

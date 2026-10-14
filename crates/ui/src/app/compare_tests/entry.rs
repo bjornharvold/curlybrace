@@ -100,6 +100,27 @@ fn compare_to_on_a_ready_session_keeps_it_and_lists_the_new_database() {
     assert_eq!(state.workspace, Workspace::Compare);
 }
 
+#[test]
+fn the_default_source_follows_the_active_session() {
+    let (state, a, b) = two_connections();
+    let state = AppState {
+        status: ConnStatus::Connected,
+        open: vec![a, b],
+        active: Some(a),
+        ..state
+    };
+    let (state, _) = compare_to(state);
+    assert_eq!(state.compare.connections, Some((a, a)));
+    // Focus the other session and ask again: the default moves with it.
+    let state = AppState {
+        active: Some(b),
+        compare: Default::default(),
+        ..state
+    };
+    let (state, _) = compare_to(state);
+    assert_eq!(state.compare.connections, Some((b, b)));
+}
+
 fn compare_database_to(state: AppState) -> (AppState, Vec<Command>) {
     update(
         state,
