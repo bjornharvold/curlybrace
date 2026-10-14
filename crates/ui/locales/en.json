@@ -12,10 +12,15 @@
   },
   "banner": {
     "dismiss": "Dismiss",
+    "export_failed": "Could not write the export file. Choose another location and try again.",
     "fields_conflict": "These fields overlap (one is inside another), so they cannot be copied in one update. Untick one of them.",
     "fields_covered": "A change for the whole Different tab is already queued and covers these fields. Remove it first to copy single fields.",
     "forget_host": "Forget this host",
     "host_forgotten": "The saved SSH host key was removed. Connect again to review the host's key.",
+    "import_not_valid": "The file you chose is not a Curlybrace connection list. Nothing was imported.",
+    "import_too_large": "The file you chose is too large to be a connection list. Nothing was imported.",
+    "import_too_many_entries": "The file you chose has too many connections to import. Nothing was imported.",
+    "import_unreadable": "The file you chose could not be read. Nothing was imported.",
     "not_connected": "Not connected. Connect to a server first.",
     "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them."
   },

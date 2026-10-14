@@ -11,6 +11,26 @@ use uuid::Uuid;
 pub const MAX_IMPORT_BYTES: usize = 5 * 1024 * 1024;
 pub const MAX_IMPORT_ENTRIES: usize = 2000;
 
+/// Why a file chosen for import was refused. Says nothing about the saved connection list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportError {
+    TooLarge,
+    NotValid,
+    TooManyEntries,
+    Unreadable,
+}
+
+impl ImportError {
+    pub fn i18n_key(self) -> &'static str {
+        match self {
+            Self::TooLarge => "banner.import_too_large",
+            Self::NotValid => "banner.import_not_valid",
+            Self::TooManyEntries => "banner.import_too_many_entries",
+            Self::Unreadable => "banner.import_unreadable",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Imported {
     pub connections: Vec<ConnectionConfig>,
@@ -26,17 +46,17 @@ pub fn prepare_import(
     bytes: &[u8],
     existing: &[ConnectionConfig],
     now: i64,
-) -> Result<Imported, PersistError> {
+) -> Result<Imported, ImportError> {
     if bytes.len() > MAX_IMPORT_BYTES {
-        return Err(PersistError::Corrupt);
+        return Err(ImportError::TooLarge);
     }
     let entries = serde_json::from_slice::<Vec<serde_json::Value>>(bytes)
-        .map_err(|_| PersistError::Corrupt)?
+        .map_err(|_| ImportError::NotValid)?
         .len();
     if entries > MAX_IMPORT_ENTRIES {
-        return Err(PersistError::Corrupt);
+        return Err(ImportError::TooManyEntries);
     }
-    let loaded = parse_connections(bytes)?;
+    let loaded = parse_connections(bytes).map_err(|_| ImportError::NotValid)?;
     let mut taken = existing.to_vec();
     let mut fresh = Vec::with_capacity(loaded.connections.len());
     for c in loaded.connections {
@@ -58,17 +78,23 @@ pub fn prepare_import(
     })
 }
 
+/// The detail goes to the log; the screen only learns that the chosen file could not be read.
+fn unreadable(error: &std::io::Error) -> ImportError {
+    log::warn!("could not read the import file: {:?}", error.kind());
+    ImportError::Unreadable
+}
+
 pub(super) fn import_into(state: AppState, file: &Path, now: i64, config: &ConfigPath) -> AppState {
     if let Err(e) = state.persist.check() {
         return refused(state, e);
     }
     let read = std::fs::metadata(file)
-        .map_err(|e| PersistError::Read(e.kind()))
+        .map_err(|e| unreadable(&e))
         .and_then(|m| {
             if m.len() > MAX_IMPORT_BYTES as u64 {
-                Err(PersistError::Corrupt)
+                Err(ImportError::TooLarge)
             } else {
-                std::fs::read(file).map_err(|e| PersistError::Read(e.kind()))
+                std::fs::read(file).map_err(|e| unreadable(&e))
             }
         });
     let imported = read.and_then(|bytes| prepare_import(&bytes, &state.conn.connections, now));
@@ -93,7 +119,7 @@ pub(super) fn import_into(state: AppState, file: &Path, now: i64, config: &Confi
             }
         }
         Err(e) => AppState {
-            banner: Some(Banner::Persist(e)),
+            banner: Some(Banner::ImportFailed(e)),
             ..state
         },
     }
@@ -113,7 +139,7 @@ pub(super) fn export_to(state: AppState, file: &Path) -> AppState {
             }
         }
         Err(e) => AppState {
-            banner: Some(Banner::Persist(e)),
+            banner: Some(Banner::ExportFailed(e)),
             ..state
         },
     }
@@ -191,16 +217,26 @@ mod tests {
     fn import_rejects_non_json_and_oversized_input() {
         assert_eq!(
             prepare_import(b"not json", &[], 1).unwrap_err(),
-            PersistError::Corrupt
+            ImportError::NotValid
+        );
+        assert_eq!(
+            prepare_import(b"{}", &[], 1).unwrap_err(),
+            ImportError::NotValid
         );
         let big = vec![b' '; MAX_IMPORT_BYTES + 1];
-        assert!(prepare_import(&big, &[], 1).is_err());
+        assert_eq!(
+            prepare_import(&big, &[], 1).unwrap_err(),
+            ImportError::TooLarge
+        );
     }
 
     #[test]
     fn import_rejects_too_many_entries() {
         let many = format!("[{}]", vec!["0"; MAX_IMPORT_ENTRIES + 1].join(","));
-        assert!(prepare_import(many.as_bytes(), &[], 1).is_err());
+        assert_eq!(
+            prepare_import(many.as_bytes(), &[], 1).unwrap_err(),
+            ImportError::TooManyEntries
+        );
     }
 
     #[test]
@@ -228,7 +264,7 @@ mod tests {
         let bytes = serde_json::to_vec(&[cfg(&"n".repeat(10 * 1024 * 1024))]).unwrap();
         assert_eq!(
             prepare_import(&bytes, &[], 1).unwrap_err(),
-            PersistError::Corrupt
+            ImportError::TooLarge
         );
     }
 
@@ -293,7 +329,48 @@ mod tests {
         std::fs::write(&file, vec![b' '; MAX_IMPORT_BYTES + 1]).unwrap();
         let state = import_into(AppState::new(vec![cfg("a")]), &file, 7, &config);
         assert_eq!(state.conn.connections.len(), 1);
-        assert!(state.banner.is_some());
+        assert_eq!(
+            state.banner,
+            Some(Banner::ImportFailed(ImportError::TooLarge))
+        );
+    }
+
+    #[test]
+    fn import_into_reports_a_bad_file_as_the_chosen_file_not_the_saved_list() {
+        let (dir, config) = setup();
+        let junk = dir.path().join("junk.json");
+        std::fs::write(&junk, b"not json").unwrap();
+        let state = import_into(AppState::new(vec![cfg("a")]), &junk, 7, &config);
+        assert_eq!(
+            state.banner,
+            Some(Banner::ImportFailed(ImportError::NotValid))
+        );
+        let missing = dir.path().join("missing.json");
+        let state = import_into(AppState::new(vec![cfg("a")]), &missing, 7, &config);
+        assert_eq!(
+            state.banner,
+            Some(Banner::ImportFailed(ImportError::Unreadable))
+        );
+        assert_eq!(state.conn.connections.len(), 1);
+    }
+
+    #[test]
+    fn import_stays_strict_for_labels_an_older_release_would_have_saved() {
+        let bytes = serde_json::to_vec(&[cfg("fam\u{200D}ily"), cfg("ok")]).unwrap();
+        let imported = prepare_import(&bytes, &[], 1).unwrap();
+        assert_eq!(imported.skipped, 1);
+        assert_eq!(imported.connections.len(), 1);
+        assert!(imported.connections.iter().all(|c| c.validate().is_ok()));
+    }
+
+    #[test]
+    fn a_failed_export_is_an_export_banner_not_the_saved_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, b"x").unwrap();
+        let state = export_to(AppState::new(vec![cfg("a")]), &blocker.join("out.json"));
+        assert!(matches!(state.banner, Some(Banner::ExportFailed(_))));
+        assert!(state.conn.notice.is_none());
     }
 
     #[cfg(unix)]

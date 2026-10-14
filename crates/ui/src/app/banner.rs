@@ -8,6 +8,8 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
     match banner {
         Banner::Failure { context, error } => (i18n.failure(context), Some(i18n.error(error))),
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
+        Banner::ImportFailed(e) => (i18n.t(e.i18n_key()), None),
+        Banner::ExportFailed(_) => (i18n.t("banner.export_failed"), None),
         Banner::Recovery(r) => {
             let count = match r {
                 Recovery::Skipped { count, .. } | Recovery::Repaired { count, .. } => *count,
@@ -37,6 +39,7 @@ pub fn banner_detail(banner: &Banner) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::connection_io::ImportError;
     use crate::app::persistence::PersistError;
     use curlybrace_core::error::CoreError;
 
@@ -63,6 +66,11 @@ mod tests {
             Banner::Persist(PersistError::Write(std::io::ErrorKind::Other)),
             Banner::Persist(PersistError::InvalidPath),
             Banner::Persist(PersistError::Blocked),
+            Banner::ImportFailed(ImportError::TooLarge),
+            Banner::ImportFailed(ImportError::NotValid),
+            Banner::ImportFailed(ImportError::TooManyEntries),
+            Banner::ImportFailed(ImportError::Unreadable),
+            Banner::ExportFailed(PersistError::Write(std::io::ErrorKind::Other)),
             Banner::Recovery(Recovery::Corrupt { backed_up: true }),
             Banner::Recovery(Recovery::Corrupt { backed_up: false }),
             Banner::Recovery(Recovery::Unreadable { backed_up: true }),
@@ -129,6 +137,22 @@ mod tests {
         };
         assert_eq!(banner_detail(&ssh), None);
         assert_eq!(banner_detail(&Banner::NotConnected), None);
+    }
+
+    #[test]
+    fn import_and_export_banners_talk_about_the_file_not_the_saved_list() {
+        for e in [
+            ImportError::TooLarge,
+            ImportError::NotValid,
+            ImportError::TooManyEntries,
+            ImportError::Unreadable,
+        ] {
+            let (head, _) = resolved(&Banner::ImportFailed(e));
+            assert!(!head.contains("saved connections"), "{head}");
+            assert!(head.contains("file"), "{head}");
+        }
+        let (head, _) = resolved(&Banner::ExportFailed(PersistError::Corrupt));
+        assert!(!head.contains("saved connections"), "{head}");
     }
 
     #[test]
