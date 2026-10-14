@@ -2,6 +2,7 @@ pub mod client;
 pub mod clock;
 pub mod compare;
 pub mod connection;
+pub mod connection_folders;
 pub mod crud;
 pub mod driver_error;
 pub mod ejson;
