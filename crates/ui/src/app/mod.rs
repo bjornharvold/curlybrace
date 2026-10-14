@@ -244,6 +244,12 @@ impl CurlybraceApp {
         };
     }
 
+    /// Applies one connection-manager action exactly as the view would (the entry point for
+    /// tests that drive the app without drawing it).
+    pub fn dispatch_connection(&mut self, action: ConnectionAction) {
+        self.handle_connection_action(action);
+    }
+
     fn handle_connection_action(&mut self, action: ConnectionAction) {
         let state = std::mem::take(&mut self.state);
         let secrets = self.secrets.as_ref();
