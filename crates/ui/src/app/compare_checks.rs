@@ -15,7 +15,7 @@ pub(super) fn run_check(state: AppState) -> Out {
         return none(state);
     };
     let c = &state.compare;
-    if c.is_running() || c.check_in_flight() || c.apply.is_busy() {
+    if c.is_running() || c.check_in_flight() || c.workflow_busy() {
         return none(state);
     }
     let ids = c.checkable_entries();

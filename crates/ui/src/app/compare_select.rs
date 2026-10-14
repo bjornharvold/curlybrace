@@ -37,7 +37,7 @@ impl Tab<'_> {
 /// The open tab, if ticking and queueing are allowed on it right now. The gate of every
 /// selection and queueing action, the field ones included.
 pub(super) fn open_tab(c: &CompareState) -> Option<Tab<'_>> {
-    if c.apply.is_busy() {
+    if c.workflow_busy() {
         return None;
     }
     let view = c.open_results()?;
@@ -164,7 +164,7 @@ pub(super) fn add_key(state: AppState, key: KeyTuple, action: RowAction) -> Out 
 
 pub(super) fn remove_pending(state: AppState, index: usize) -> Out {
     let c = &state.compare;
-    if c.apply.is_busy() || index >= c.pending.items().len() {
+    if c.workflow_busy() || index >= c.pending.items().len() {
         return none(state);
     }
     let pending = c.pending.without(index);
@@ -173,7 +173,7 @@ pub(super) fn remove_pending(state: AppState, index: usize) -> Out {
 
 pub(super) fn clear_pending(state: AppState) -> Out {
     let c = &state.compare;
-    if c.apply.is_busy() {
+    if c.workflow_busy() {
         return none(state);
     }
     let pending = c.pending.cleared();

@@ -4,6 +4,7 @@
 use super::compare_apply as apply;
 use super::compare_checks as checks;
 use super::compare_duplicates as duplicates;
+use super::compare_export as export;
 use super::compare_fields as fields;
 use super::compare_pairs as pairs;
 use super::compare_results::{back_to_overview, discard_pair, moved, open_pair, rerun, select};
@@ -12,13 +13,15 @@ use super::compare_select as selecting;
 use super::reducer::Out;
 use super::state::{AppState, Banner, Workspace};
 use crate::viewmodel::compare::{
-    CompareState, EntryId, PairOverrides, Pick, ResultsView, RowAction, RulesForm, SessionPhase,
-    SideForm,
+    CompareState, EntryId, ExportKind, PairOverrides, Pick, ResultsView, RowAction, RulesForm,
+    SessionPhase, SideForm,
 };
 use curlybrace_core::compare::apply::IdPolicy;
 use curlybrace_core::compare::diff::PathSegment;
 use curlybrace_core::compare::key::KeyTuple;
-use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent, SessionId, Side};
+use curlybrace_core::compare::protocol::{
+    CompareCommand, CompareEvent, ExportFormat, SessionId, Side,
+};
 use curlybrace_core::compare::results::Category;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Command;
@@ -113,6 +116,22 @@ pub enum CompareAction {
     CancelReview,
     CancelApply,
     DismissApplyResult,
+    /// Open the export modal (nothing is sent or written).
+    OpenExport(ExportKind),
+    SetExportFormat(ExportFormat),
+    SetExportLabel(String),
+    SetExportIdPolicy(IdPolicy),
+    ToggleExportPair(EntryId),
+    SetExportIncludePaths(bool),
+    /// The file dialog opens (the app layer does that); the reducer sends nothing.
+    ChooseExportFile,
+    /// The only action that starts a file export: honoured in `Choosing` only.
+    ExportPathChosen(crate::viewmodel::compare::RedactedPath),
+    ExportPathCancelled,
+    /// Copy the report to the clipboard (small reports; no file).
+    CopyReport,
+    CancelExport,
+    CloseExport,
 }
 
 pub(super) fn cmd(c: CompareCommand) -> Command {
@@ -207,6 +226,18 @@ fn on_run_action(state: AppState, action: CompareAction) -> Out {
         | CompareAction::CancelReview
         | CompareAction::CancelApply
         | CompareAction::DismissApplyResult => on_apply_action(state, action),
+        CompareAction::OpenExport(_)
+        | CompareAction::SetExportFormat(_)
+        | CompareAction::SetExportLabel(_)
+        | CompareAction::SetExportIdPolicy(_)
+        | CompareAction::ToggleExportPair(_)
+        | CompareAction::SetExportIncludePaths(_)
+        | CompareAction::ChooseExportFile
+        | CompareAction::ExportPathChosen(_)
+        | CompareAction::ExportPathCancelled
+        | CompareAction::CopyReport
+        | CompareAction::CancelExport
+        | CompareAction::CloseExport => export::on_action(state, action),
         // Handled by `on_action` or `on_pair_action`; listed so a new variant must be routed on purpose.
         CompareAction::AddPair
         | CompareAction::AddAllSameNamed
@@ -287,7 +318,7 @@ fn from_sidebar(state: AppState, then: impl FnOnce(AppState, Vec<Command>, bool)
         .unwrap_or(source);
     // Opening for other connections would replace the session an apply is reviewed or runs on:
     // show the workspace and leave the session and the pickers alone.
-    if state.compare.apply.is_busy() && state.compare.connections != Some((source, target)) {
+    if state.compare.workflow_busy() && state.compare.connections != Some((source, target)) {
         return none(with_workspace(state, Workspace::Compare));
     }
     let (state, commands) = open(state, source, target);
@@ -342,7 +373,7 @@ fn open(state: AppState, source: Uuid, target: Uuid) -> Out {
         return none(shown);
     }
     // Replacing the session would drop an apply that is being reviewed or runs.
-    if shown.compare.apply.is_busy() {
+    if shown.compare.workflow_busy() {
         return none(shown);
     }
     let mut commands = Vec::new();
@@ -419,6 +450,9 @@ fn event_session(ev: &CompareEvent) -> SessionId {
         | CompareEvent::ApplyProgress { session, .. }
         | CompareEvent::ApplyPairDone { session, .. }
         | CompareEvent::ApplyDone { session, .. }
+        | CompareEvent::ExportProgress { session, .. }
+        | CompareEvent::ExportDone { session, .. }
+        | CompareEvent::ExportText { session, .. }
         | CompareEvent::Rows { session, .. }
         | CompareEvent::Detail { session, .. }
         | CompareEvent::DuplicateKeys { session, .. }
@@ -444,6 +478,9 @@ pub(super) fn on_event(state: AppState, ev: CompareEvent) -> Out {
         apply_event @ (CompareEvent::ApplyProgress { .. }
         | CompareEvent::ApplyPairDone { .. }
         | CompareEvent::ApplyDone { .. }) => apply::on_event(state, apply_event),
+        export_event @ (CompareEvent::ExportProgress { .. }
+        | CompareEvent::ExportDone { .. }
+        | CompareEvent::ExportText { .. }) => export::on_event(state, export_event),
         other => on_setup_event(state, other),
     }
 }
@@ -545,6 +582,9 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
     if context == "compare_apply" {
         return apply::failed(state, error);
     }
+    if context == "compare_export" {
+        return export::failed(state, error);
+    }
     if context == "compare_rows" {
         return rows_failed(state, error);
     }
@@ -563,4 +603,4 @@ fn failed(state: AppState, context: &'static str, error: CoreError) -> Out {
 
 #[cfg(test)]
 #[path = "compare_tests.rs"]
-mod tests;
+pub(in crate::app) mod tests;

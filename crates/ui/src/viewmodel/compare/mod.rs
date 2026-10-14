@@ -4,6 +4,8 @@ pub mod checks;
 pub mod detail;
 pub mod digest;
 pub mod duplicates;
+pub mod export;
+pub mod export_gate;
 pub mod field_bar;
 pub mod field_select;
 pub mod gates;
@@ -35,6 +37,11 @@ pub use checks::{CheckQueue, EntryCheck};
 pub use detail::{ChangeLine, DetailView, canonical_json};
 pub use digest::PairsDigest;
 pub use duplicates::{DuplicateRow, DuplicatesView};
+pub use export::{
+    ClipboardText, ExportDraft, ExportKind, ExportUi, LABEL_MAX_CHARS, PlanOptions, RedactedPath,
+    ReportOptions,
+};
+pub use export_gate::ExportBlock;
 pub use field_bar::{FieldBar, FieldBlock, FieldRow};
 pub use field_select::{FieldSelection, PathKey};
 pub use gates::Gates;
@@ -111,6 +118,8 @@ pub struct CompareState {
     pub pending: PendingList,
     /// The apply workflow: review snapshot, progress and report.
     pub apply: ApplyUi,
+    /// The export workflow: modal options, file dialog, progress and result.
+    pub export: ExportUi,
 }
 
 impl Default for CompareState {
@@ -135,6 +144,7 @@ impl Default for CompareState {
             field_selection: FieldSelection::default(),
             pending: PendingList::default(),
             apply: ApplyUi::default(),
+            export: ExportUi::default(),
         }
     }
 }
@@ -158,7 +168,7 @@ impl CompareState {
         let opening = matches!(self.session, Some(SessionPhase::Opening(_)));
         match draft {
             (Some(source), Some(target)) => {
-                !opening && !self.apply.is_busy() && self.connections != Some((source, target))
+                !opening && !self.workflow_busy() && self.connections != Some((source, target))
             }
             _ => false,
         }
@@ -166,7 +176,7 @@ impl CompareState {
 
     /// A session can be closed unless an apply is being reviewed or runs on it.
     pub fn can_close(&self) -> bool {
-        self.session.is_some() && !self.apply.is_busy()
+        self.session.is_some() && !self.workflow_busy()
     }
 
     pub fn is_ready(&self) -> bool {

@@ -26,12 +26,20 @@ mod confirm;
 mod duplicates;
 #[path = "compare_tests/entry.rs"]
 mod entry;
+#[path = "compare_tests/export.rs"]
+pub(in crate::app) mod export;
+#[path = "compare_tests/export_busy.rs"]
+mod export_busy;
+#[path = "compare_tests/export_clipboard.rs"]
+mod export_clipboard;
 #[path = "compare_tests/fields.rs"]
 mod fields;
 #[path = "compare_tests/frames.rs"]
 mod frames;
 #[path = "compare_tests/frames_apply.rs"]
 mod frames_apply;
+#[path = "compare_tests/frames_export.rs"]
+mod frames_export;
 #[path = "compare_tests/frames_fields.rs"]
 mod frames_fields;
 #[path = "compare_tests/frames_pairs.rs"]
@@ -42,6 +50,8 @@ mod frames_select;
 mod multirun;
 #[path = "compare_tests/multirun_results.rs"]
 mod multirun_results;
+#[path = "compare_tests/no_export.rs"]
+mod no_export;
 #[path = "compare_tests/no_write.rs"]
 mod no_write;
 #[path = "compare_tests/pairs.rs"]

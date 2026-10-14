@@ -96,7 +96,7 @@ impl CompareState {
     pub fn can_discard(&self) -> bool {
         self.is_ready()
             && !self.is_running()
-            && !self.apply.is_busy()
+            && !self.workflow_busy()
             && self.overview.any_settled()
     }
 

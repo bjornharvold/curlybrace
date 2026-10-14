@@ -37,7 +37,7 @@ impl CompareState {
         let idle = self.is_ready()
             && !self.is_running()
             && !self.check_in_flight()
-            && !self.apply.is_busy();
+            && !self.workflow_busy();
         Gates {
             check: idle && !digest.valid.is_empty(),
             start: idle && self.start_gate(digest, false),
@@ -83,7 +83,7 @@ impl CompareState {
         self.pairs.get(entry).is_some()
             && !self.is_running()
             && !self.check_in_flight()
-            && !self.apply.is_busy()
+            && !self.workflow_busy()
             && !self.overview.entry_is_live(entry)
     }
 
@@ -94,7 +94,7 @@ impl CompareState {
             && !self.pending.is_empty()
             && !self.is_running()
             && !self.check_in_flight()
-            && !self.apply.is_busy()
+            && !self.workflow_busy()
             && self
                 .pending
                 .items()
@@ -115,7 +115,7 @@ impl CompareState {
     /// and no apply is reviewing or running. The reducer's discard and the row's button both
     /// use this.
     pub fn can_discard_entry(&self, entry: EntryId) -> bool {
-        !self.apply.is_busy()
+        !self.workflow_busy()
             && self
                 .overview
                 .row_for(entry)

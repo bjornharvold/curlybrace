@@ -8,6 +8,7 @@ use curlybrace_core::store::{Namespace, Page};
 use curlybrace_core::test_support::InMemoryStore;
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::CurlybraceApp;
+use curlybrace_ui::app::file_picker::FilePicker;
 use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::state::{AppState, ConnStatus};
 use curlybrace_ui::viewmodel::{SidebarState, ViewMode, page_key};
@@ -34,6 +35,18 @@ const ANIMATED_FRAMES: usize = 8;
 /// word label change measured over a thousand).
 pub const PIXEL_THRESHOLD: usize = 100;
 
+/// A save dialog that stays open for the whole test: its worker thread parks and is never
+/// woken, and no real dialog is involved.
+struct NeverAnswers;
+
+impl FilePicker for NeverAnswers {
+    fn save_file(&self, _suggested_name: &str, _extension: &str) -> Option<std::path::PathBuf> {
+        loop {
+            std::thread::park();
+        }
+    }
+}
+
 /// The real app on an in-memory store whose connections file and known_hosts live in a fresh
 /// temp dir, never in the developer's real config directory.
 pub fn build_app(
@@ -59,7 +72,7 @@ pub fn build_app(
 impl Shot {
     /// Builds the real app on an in-memory store, lets `setup` shape its state, renders with wgpu.
     pub fn new(connections: Vec<ConnectionConfig>, setup: impl FnOnce(&mut AppState)) -> Self {
-        Self::build(connections, setup, None, SHOT_SIZE)
+        Self::build(connections, setup, None, SHOT_SIZE, None)
     }
 
     /// Like [`Shot::new`] in a window of `size` (for screens taller than the standard one).
@@ -68,7 +81,18 @@ impl Shot {
         connections: Vec<ConnectionConfig>,
         setup: impl FnOnce(&mut AppState),
     ) -> Self {
-        Self::build(connections, setup, None, size)
+        Self::build(connections, setup, None, size, None)
+    }
+
+    /// Like [`Shot::sized`] with a file picker that never answers: a screen that waits for the
+    /// native save dialog stays on the waiting text (the default picker answers "cancelled").
+    pub fn sized_waiting_for_dialog(
+        size: (f32, f32),
+        connections: Vec<ConnectionConfig>,
+        setup: impl FnOnce(&mut AppState),
+    ) -> Self {
+        let picker: Arc<dyn FilePicker> = Arc::new(NeverAnswers);
+        Self::build(connections, setup, None, size, Some(picker))
     }
 
     /// Like [`Shot::new`] with SSH host-key questions arriving on `requests`.
@@ -77,7 +101,7 @@ impl Shot {
         setup: impl FnOnce(&mut AppState),
         requests: Receiver<HostKeyRequest>,
     ) -> Self {
-        Self::build(connections, setup, Some(requests), SHOT_SIZE)
+        Self::build(connections, setup, Some(requests), SHOT_SIZE, None)
     }
 
     fn build(
@@ -85,6 +109,7 @@ impl Shot {
         setup: impl FnOnce(&mut AppState),
         requests: Option<Receiver<HostKeyRequest>>,
         size: (f32, f32),
+        picker: Option<Arc<dyn FilePicker>>,
     ) -> Self {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
@@ -92,6 +117,9 @@ impl Shot {
             .expect("tokio runtime");
         let _enter = rt.enter();
         let (mut app, dir) = build_app(connections, requests);
+        if let Some(picker) = picker {
+            app = app.with_file_picker(picker, Arc::new(|| {}));
+        }
         setup(app.state_mut());
         let harness = Harness::builder()
             .with_size(egui::vec2(size.0, size.1))

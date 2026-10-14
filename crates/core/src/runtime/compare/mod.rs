@@ -6,7 +6,9 @@
 //! → their answer | `Failed { context }`; `Start` → one `PairDone` per pair, then one `RunDone`
 //! (or `Failed` when refused); `Apply` → `ApplyProgress`*, one `ApplyPairDone` per pair, one
 //! `ApplyDone` (or `Failed { context: "compare_apply" }` when refused); `DuplicateKeys` → `DuplicateKeys` | `Failed { context:
-//! "compare_duplicates" }`; `Cancel`, `Discard`, `Close` have no answer of their own.
+//! "compare_duplicates" }`; `Export` → `ExportProgress`*, one `ExportDone` (or `Failed { context:
+//! "compare_export" }`, see `export.rs`); `ExportReport` → `ExportProgress`*, `ExportText` (clipboard only),
+//! one `ExportDone` (or `Failed`, see `report_job.rs`); `Cancel`, `Discard`, `Close` have no answer of their own.
 //!
 //! Once a session is closed it emits nothing more: every event tied to a session goes through
 //! [`Session::emit_if_open`], which checks "open" and sends under one lock. A command naming an
@@ -25,6 +27,22 @@ mod apply_tests;
 mod closed_tests;
 #[cfg(test)]
 mod duplicates_tests;
+mod export;
+#[cfg(test)]
+mod export_content_tests;
+mod export_file;
+#[cfg(test)]
+mod export_file_tests;
+#[cfg(test)]
+mod export_lifecycle_tests;
+mod export_sink;
+#[cfg(test)]
+mod export_tests;
+mod report_job;
+#[cfg(test)]
+mod report_lifecycle_tests;
+#[cfg(test)]
+mod report_tests;
 #[cfg(test)]
 mod run_tests;
 mod runner;
@@ -98,6 +116,25 @@ pub(super) fn dispatch(
                 id_policy,
             },
         ),
+        CompareCommand::Export {
+            session,
+            run,
+            request,
+            path,
+        } => export::dispatch(
+            &shared,
+            events,
+            repaint,
+            session,
+            run,
+            (request, path.into_path_buf()),
+        ),
+        CompareCommand::ExportReport {
+            session,
+            run,
+            request,
+            target,
+        } => report_job::dispatch(&shared, events, repaint, session, run, (request, target)),
         other => spawn_command(shared, events, repaint, other),
     }
 }
@@ -213,6 +250,8 @@ fn command_session(c: &CompareCommand) -> SessionId {
         | CompareCommand::Check { session, .. }
         | CompareCommand::Start { session, .. }
         | CompareCommand::Apply { session, .. }
+        | CompareCommand::Export { session, .. }
+        | CompareCommand::ExportReport { session, .. }
         | CompareCommand::Cancel { session, .. }
         | CompareCommand::Rows { session, .. }
         | CompareCommand::Detail { session, .. }
@@ -229,6 +268,8 @@ fn command_context(c: &CompareCommand) -> &'static str {
         CompareCommand::Check { .. } => "compare_check",
         CompareCommand::Start { .. } => "compare_start",
         CompareCommand::Apply { .. } => "compare_apply",
+        CompareCommand::Export { .. } => "compare_export",
+        CompareCommand::ExportReport { .. } => "compare_export",
         CompareCommand::Rows { .. } => "compare_rows",
         CompareCommand::Detail { .. } => "compare_detail",
         CompareCommand::DuplicateKeys { .. } => "compare_duplicates",
@@ -274,6 +315,8 @@ async fn handle(
         CompareCommand::Open { .. }
         | CompareCommand::Start { .. }
         | CompareCommand::Apply { .. }
+        | CompareCommand::Export { .. }
+        | CompareCommand::ExportReport { .. }
         | CompareCommand::Cancel { .. }
         | CompareCommand::Discard { .. }
         | CompareCommand::Close { .. } => return Ok(None),

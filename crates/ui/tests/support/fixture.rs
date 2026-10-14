@@ -9,6 +9,7 @@ use curlybrace_testkit::{
     unreachable_message,
 };
 use curlybrace_ui::app::CurlybraceApp;
+use curlybrace_ui::app::file_picker::FilePicker;
 use curlybrace_ui::app::host_key::InteractivePrompt;
 use curlybrace_ui::app::runtime_config;
 use egui_kittest::Harness;
@@ -43,6 +44,7 @@ fn launch(
     dir: &TempDir,
     secrets: Arc<MemorySecretStore>,
     saved: Vec<ConnectionConfig>,
+    picker: Option<Arc<dyn FilePicker>>,
 ) -> (Harness<'static, CurlybraceApp>, PathBuf) {
     let _enter = rt.enter();
     let config_path = dir.path().join("connections.json");
@@ -55,6 +57,10 @@ fn launch(
         .with_config_path(Ok(config_path.clone()))
         .with_known_hosts_path(Some(known_hosts))
         .with_host_key_requests(requests);
+    let app = match picker {
+        Some(picker) => app.with_file_picker(picker, Arc::new(|| {})),
+        None => app,
+    };
     let harness = Harness::builder()
         .with_size(eframe::egui::vec2(WINDOW.0, WINDOW.1))
         .build_state(|ctx, app: &mut CurlybraceApp| app.run_frame(ctx), app);
@@ -113,6 +119,16 @@ impl Fixture {
         Self::local_with(test, true)
     }
 
+    /// Tier 1 like [`Self::local`], with `picker` answering every save-file dialog (a test never
+    /// opens the native dialog).
+    pub fn local_with_picker(test: &str, picker: Arc<dyn FilePicker>) -> Option<Self> {
+        local_enabled(test).then(|| {
+            let server = local_server();
+            let setup = Setup::saved_connection(&server, true);
+            Self::start_with_picker(server, setup, Some(picker))
+        })
+    }
+
     /// Tier 1 with no saved connections (the "add one through the form" flow).
     pub fn local_empty(test: &str) -> Option<Self> {
         Self::local_with(test, false)
@@ -140,6 +156,15 @@ impl Fixture {
 
     /// Waits for the server, then launches the app with `setup`.
     pub fn start(server: MongoServer, setup: Setup) -> Self {
+        Self::start_with_picker(server, setup, None)
+    }
+
+    /// [`Self::start`] with a file picker injected into the app.
+    pub fn start_with_picker(
+        server: MongoServer,
+        setup: Setup,
+        picker: Option<Arc<dyn FilePicker>>,
+    ) -> Self {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -152,7 +177,7 @@ impl Fixture {
         for (key, value) in &setup.secrets {
             secrets.set(key, value).expect("seed secret");
         }
-        let (harness, config_path) = launch(&rt, &dir, secrets.clone(), setup.saved);
+        let (harness, config_path) = launch(&rt, &dir, secrets.clone(), setup.saved, picker);
         Self {
             harness,
             labels: Labels::new(),

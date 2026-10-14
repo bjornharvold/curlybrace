@@ -9,12 +9,14 @@ pub mod compare;
 mod compare_apply;
 mod compare_checks;
 mod compare_duplicates;
+mod compare_export;
 mod compare_fields;
 mod compare_pairs;
 mod compare_results;
 mod compare_run;
 mod compare_select;
 pub mod connections;
+pub mod file_picker;
 pub mod host_key;
 mod panels;
 pub mod persistence;
@@ -23,7 +25,9 @@ pub mod state;
 
 use crate::I18n;
 use crate::error_text::failure_log_line;
+use crate::viewmodel::compare::ExportUi;
 use crate::views::connections::ConnectionAction;
+use compare::CompareAction;
 use connections::{ConfigPath, load_startup, refresh_flags};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
@@ -34,6 +38,7 @@ use curlybrace_core::runtime::{
 use curlybrace_core::secrets::SecretStore;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
+use file_picker::{FilePicker, NoFilePicker, PendingPick, PickPoll, start_pick, suggested_file};
 use host_key::{HOST_KEY_PROMPT_TIMEOUT, HostKeyRequest, InteractivePrompt, PromptState};
 use panels::UiEvent;
 use persistence::default_connections_path;
@@ -72,6 +77,10 @@ pub struct CurlybraceApp {
     known_hosts: Option<PathBuf>,
     prompt: PromptState,
     prompt_requests: Option<Receiver<HostKeyRequest>>,
+    picker: Arc<dyn FilePicker>,
+    repaint: Repaint,
+    /// The save dialog being shown, if any: at most one at a time.
+    pick: Option<PendingPick>,
 }
 
 impl CurlybraceApp {
@@ -91,6 +100,9 @@ impl CurlybraceApp {
             known_hosts: default_known_hosts_path(),
             prompt: PromptState::default(),
             prompt_requests: None,
+            picker: Arc::new(NoFilePicker),
+            repaint: Arc::new(|| {}),
+            pick: None,
         }
     }
 
@@ -109,11 +121,13 @@ impl CurlybraceApp {
         let (prompt, requests) =
             InteractivePrompt::channel(repaint.clone(), HOST_KEY_PROMPT_TIMEOUT);
         let config = runtime_config(known_hosts.clone(), prompt);
-        let handle = spawn_runtime_with_config(Some(secrets.clone()), None, repaint, config);
+        let handle =
+            spawn_runtime_with_config(Some(secrets.clone()), None, repaint.clone(), config);
         Self::new(handle, i18n, connections, secrets)
             .with_config_path(config_path)
             .with_known_hosts_path(known_hosts)
             .with_host_key_requests(requests)
+            .with_file_picker(Arc::new(file_picker::NativeFilePicker), repaint)
             .with_persist_guard(guard)
             .with_banner(startup_banner)
     }
@@ -135,6 +149,15 @@ impl CurlybraceApp {
     pub fn with_host_key_requests(self, requests: Receiver<HostKeyRequest>) -> Self {
         Self {
             prompt_requests: Some(requests),
+            ..self
+        }
+    }
+
+    /// The save-dialog implementation and the wake-up its worker thread calls when it answers.
+    pub fn with_file_picker(self, picker: Arc<dyn FilePicker>, repaint: Repaint) -> Self {
+        Self {
+            picker,
+            repaint,
             ..self
         }
     }
@@ -172,6 +195,12 @@ impl CurlybraceApp {
     pub fn dispatch(&mut self, input: Input) {
         let (state, commands) = update(std::mem::take(&mut self.state), input);
         self.state = state;
+        // A dialog only belongs to an export that is waiting for it: when the person cancelled
+        // (or the export is gone) the old dialog is forgotten, its late answer is never read, and
+        // choosing again opens a fresh one.
+        if !matches!(self.state.compare.export, ExportUi::Choosing(_)) {
+            self.pick = None;
+        }
         self.send(commands);
     }
 
@@ -266,6 +295,65 @@ impl CurlybraceApp {
             }
             self.dispatch(Input::Event(event));
         }
+        self.poll_picker();
+    }
+
+    /// Opens the save dialog on a worker thread whenever an export waits in `Choosing` and no
+    /// dialog is open (so a view only emits `ChooseExportFile`). The answer comes back through
+    /// `poll_picker`; the reducer leaves `Choosing` on it, so a dialog is never reopened by
+    /// itself after an answer.
+    fn ensure_picker(&mut self) {
+        let ExportUi::Choosing(draft) = &self.state.compare.export else {
+            return;
+        };
+        if self.pick.is_some() {
+            return;
+        }
+        let (name, extension) = suggested_file(draft.kind, draft.plan.format);
+        self.pick = Some(start_pick(
+            self.picker.clone(),
+            draft.clone(),
+            name,
+            extension,
+            self.repaint.clone(),
+        ));
+    }
+
+    /// Turns the dialog's answer, once it is there, into the matching compare action, but only
+    /// when the export it was opened for is still the one waiting; a stale answer is dropped.
+    fn poll_picker(&mut self) {
+        let Some(PickPoll::Done(path)) = self.pick.as_ref().map(|p| p.poll()) else {
+            return;
+        };
+        let draft = self.pick.take().map(PendingPick::into_draft);
+        let still_waiting = matches!(
+            (&self.state.compare.export, &draft),
+            (ExportUi::Choosing(current), Some(asked)) if current == asked
+        );
+        if !still_waiting {
+            return;
+        }
+        let action = match path {
+            Some(path) => CompareAction::ExportPathChosen(path.into()),
+            None => CompareAction::ExportPathCancelled,
+        };
+        self.dispatch(Input::Compare(action));
+    }
+
+    /// Copies the clipboard report, if one is waiting, exactly once: the state keeps no copy.
+    /// The text is never logged.
+    fn flush_clipboard(&mut self, ctx: &egui::Context) {
+        if !matches!(
+            self.state.compare.export,
+            ExportUi::Copied { text: Some(_), .. }
+        ) {
+            return;
+        }
+        let (state, text) = std::mem::take(&mut self.state).take_clipboard_text();
+        self.state = state;
+        if let Some(text) = text {
+            ctx.copy_text(text);
+        }
     }
 
     fn draw(&mut self, ctx: &egui::Context) -> Vec<UiEvent> {
@@ -286,6 +374,8 @@ impl CurlybraceApp {
         for event in self.draw(ctx) {
             self.apply_ui_event(event);
         }
+        self.ensure_picker();
+        self.flush_clipboard(ctx);
     }
 }
 
@@ -298,6 +388,9 @@ impl eframe::App for CurlybraceApp {
         self.prompt = std::mem::take(&mut self.prompt).rejected_all();
     }
 }
+
+#[cfg(test)]
+mod file_picker_tests;
 
 #[cfg(test)]
 mod tests {

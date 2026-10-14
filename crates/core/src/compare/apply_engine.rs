@@ -41,24 +41,52 @@ pub struct ApplyInput<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Side {
+pub(crate) enum Side {
     Source,
     Target,
 }
 
 /// What verification decided for one op.
-enum Verdict {
+pub(crate) enum Verdict {
     Done(OpOutcome),
     Write(Side, WriteOp),
 }
 
-/// One batch after verification: ops already decided, and the writes per destination side
-/// (each with the index of its op within the batch).
+/// One op after verification: the verdict plus the fingerprints the compare recorded for its
+/// row (`None` when the row is absent on that side, or the op has no recorded row). The export
+/// planner reads these; apply ignores them.
+pub(crate) struct PlannedOp {
+    pub(crate) verdict: Verdict,
+    pub(crate) source_fp: Option<Fingerprint>,
+    pub(crate) target_fp: Option<Fingerprint>,
+}
+
+/// One batch after verification, grouped for writing: ops already decided, and the writes per
+/// destination side (each with the index of its op within the batch).
 #[derive(Default)]
 struct Planned {
     done: Vec<Option<OpOutcome>>,
     to_source: Vec<(usize, WriteOp)>,
     to_target: Vec<(usize, WriteOp)>,
+}
+
+impl Planned {
+    fn group(ops: Vec<PlannedOp>) -> Self {
+        let mut planned = Self::default();
+        for (index, op) in ops.into_iter().enumerate() {
+            match op.verdict {
+                Verdict::Done(outcome) => planned.done.push(Some(outcome)),
+                Verdict::Write(side, write) => {
+                    planned.done.push(None);
+                    match side {
+                        Side::Source => planned.to_source.push((index, write)),
+                        Side::Target => planned.to_target.push((index, write)),
+                    }
+                }
+            }
+        }
+        planned
+    }
 }
 
 const CATEGORIES: [Category; 3] = [
@@ -222,24 +250,26 @@ async fn verify_op(input: &ApplyInput<'_>, op: &ApplyOp) -> Verdict {
     }
 }
 
-async fn plan_batch(input: &ApplyInput<'_>, batch: &[ApplyOp], repeated: &[bool]) -> Planned {
-    let mut planned = Planned::default();
+/// Verifies every op of `batch` (never writes), in order. `repeated[i]` marks an op whose key an
+/// earlier op of the apply already uses; it is not planned.
+pub(crate) async fn plan_batch(
+    input: &ApplyInput<'_>,
+    batch: &[ApplyOp],
+    repeated: &[bool],
+) -> Vec<PlannedOp> {
+    let mut planned = Vec::with_capacity(batch.len());
     for (index, op) in batch.iter().enumerate() {
         let verdict = if repeated[index] {
             not_planned()
         } else {
             verify_op(input, op).await
         };
-        match verdict {
-            Verdict::Done(outcome) => planned.done.push(Some(outcome)),
-            Verdict::Write(side, write) => {
-                planned.done.push(None);
-                match side {
-                    Side::Source => planned.to_source.push((index, write)),
-                    Side::Target => planned.to_target.push((index, write)),
-                }
-            }
-        }
+        let entry = input.recorded(op);
+        planned.push(PlannedOp {
+            verdict,
+            source_fp: entry.and_then(|e| e.source),
+            target_fp: entry.and_then(|e| e.target),
+        });
     }
     planned
 }
@@ -310,7 +340,7 @@ async fn apply_batch(
         done,
         to_source,
         to_target,
-    } = plan_batch(input, batch, repeated).await;
+    } = Planned::group(plan_batch(input, batch, repeated).await);
     let (mut written, to_target_done) = tokio::join!(
         write_group(input, Side::Source, to_source),
         write_group(input, Side::Target, to_target)
@@ -321,7 +351,7 @@ async fn apply_batch(
 
 /// Flags every op whose key (under key equality) already appeared earlier in `ops`: only the
 /// first op per key may run, so two ops can never act on the same document in one apply.
-fn repeated_keys(ops: &[ApplyOp]) -> Vec<bool> {
+pub(crate) fn repeated_keys(ops: &[ApplyOp]) -> Vec<bool> {
     let mut order: Vec<usize> = (0..ops.len()).collect();
     // Stable: within equal keys the original order is kept, so the first stays first.
     order.sort_by(|a, b| compare_tuples(&ops[*a].key, &ops[*b].key));
