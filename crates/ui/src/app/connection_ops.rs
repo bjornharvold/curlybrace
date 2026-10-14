@@ -217,27 +217,86 @@ mod tests {
         assert!(!on_disk.contains("pw\""), "no secret in the file");
     }
 
-    struct FailingSet(MemorySecretStore);
-    impl SecretStore for FailingSet {
-        fn get(&self, k: &str) -> curlybrace_core::error::Result<Option<String>> {
-            self.0.get(k)
+    /// Wraps a memory store, can fail `set` for one kind of secret, and remembers every key that
+    /// was written successfully so a test can prove none of them survived a rollback.
+    struct Recording {
+        inner: MemorySecretStore,
+        fail_suffix: Option<&'static str>,
+        written: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl Recording {
+        fn new(fail_suffix: Option<&'static str>) -> Self {
+            Self {
+                inner: MemorySecretStore::new(),
+                fail_suffix,
+                written: std::sync::Mutex::new(Vec::new()),
+            }
         }
-        fn set(&self, _: &str, _: &str) -> curlybrace_core::error::Result<()> {
-            Err(CoreError::Secret("boom".into()))
+
+        fn written_keys(&self) -> Vec<String> {
+            self.written.lock().unwrap().clone()
+        }
+    }
+
+    impl SecretStore for Recording {
+        fn get(&self, k: &str) -> curlybrace_core::error::Result<Option<String>> {
+            self.inner.get(k)
+        }
+        fn set(&self, k: &str, v: &str) -> curlybrace_core::error::Result<()> {
+            if self.fail_suffix.is_some_and(|s| k.ends_with(s)) {
+                return Err(CoreError::Secret("boom".into()));
+            }
+            self.written.lock().unwrap().push(k.to_owned());
+            self.inner.set(k, v)
         }
         fn delete(&self, k: &str) -> curlybrace_core::error::Result<()> {
-            self.0.delete(k)
+            self.inner.delete(k)
         }
+    }
+
+    /// Every key ever written through `store` after seeding, other than the source's own.
+    fn assert_no_copy_secrets_remain(store: &Recording, src: &ConnectionConfig, seeded: usize) {
+        let keys = store.written_keys();
+        for key in keys.iter().skip(seeded) {
+            assert!(
+                !key.contains(&src.id.to_string()),
+                "only copy keys are checked"
+            );
+            assert_eq!(store.get(key).unwrap(), None, "left behind: {key}");
+        }
+        for kind in [SecretKind::Password, SecretKind::SshPassword] {
+            assert!(
+                store.get(&secret_key(src.id, kind)).unwrap().is_some(),
+                "source intact"
+            );
+        }
+    }
+
+    fn seed(store: &Recording, src: &ConnectionConfig) -> usize {
+        store
+            .set(&secret_key(src.id, SecretKind::Password), "pw")
+            .unwrap();
+        store
+            .set(&secret_key(src.id, SecretKind::SshPassword), "sp")
+            .unwrap();
+        store.written_keys().len()
     }
 
     #[test]
     fn duplicate_that_fails_to_copy_secrets_adds_nothing() {
-        let (_dir, path, memory) = setup();
+        let (_dir, path, _memory) = setup();
+        // The password copy succeeds and the SSH password copy fails: copy_all must roll back.
+        let secrets = Recording::new(Some("ssh-password"));
         let src = ConnectionConfig::new("prod", "mongodb://h");
-        memory
+        secrets
+            .inner
             .set(&secret_key(src.id, SecretKind::Password), "pw")
             .unwrap();
-        let secrets = FailingSet(memory);
+        secrets
+            .inner
+            .set(&secret_key(src.id, SecretKind::SshPassword), "sp")
+            .unwrap();
         let state = duplicate(
             state_with(vec![src.clone()]),
             src.id,
@@ -252,19 +311,24 @@ mod tests {
             "the failure is surfaced, not swallowed"
         );
         assert!(!path.as_ref().unwrap().exists(), "nothing was written");
+        assert_eq!(
+            secrets.written_keys().len(),
+            1,
+            "the first kind really was written"
+        );
+        assert_no_copy_secrets_remain(&secrets, &src, 0);
     }
 
     #[test]
     fn duplicate_whose_persist_fails_removes_the_copied_secrets() {
-        let (dir, _path, secrets) = setup();
+        let (dir, _path, _memory) = setup();
         // A path whose parent is a file cannot be written.
         let blocker = dir.path().join("file");
         std::fs::write(&blocker, b"x").unwrap();
         let path: ConfigPath = Ok(blocker.join("connections.json"));
+        let secrets = Recording::new(None);
         let src = ConnectionConfig::new("prod", "mongodb://h");
-        secrets
-            .set(&secret_key(src.id, SecretKind::Password), "pw")
-            .unwrap();
+        let seeded = seed(&secrets, &src);
         let state = duplicate(
             state_with(vec![src.clone()]),
             src.id,
@@ -275,13 +339,12 @@ mod tests {
         );
         assert_eq!(state.conn.connections.len(), 1);
         assert!(state.banner.is_some());
-        // Only the source's secret remains.
-        assert!(
-            secrets
-                .get(&secret_key(src.id, SecretKind::Password))
-                .unwrap()
-                .is_some()
+        assert_eq!(
+            secrets.written_keys().len(),
+            seeded + 2,
+            "both secrets were copied first"
         );
+        assert_no_copy_secrets_remain(&secrets, &src, seeded);
     }
 
     #[test]

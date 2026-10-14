@@ -521,6 +521,7 @@
     "delete": "Could not delete the document",
     "delete_secrets": "Could not remove the saved credentials, so the connection was kept. Try again",
     "disconnect": "Could not disconnect",
+    "duplicate_secrets": "Could not copy the saved secrets for the duplicate. Nothing was created.",
     "find": "Could not load documents",
     "insert": "Could not insert the document",
     "list_collections": "Could not load collections",

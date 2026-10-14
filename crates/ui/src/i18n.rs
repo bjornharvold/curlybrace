@@ -232,6 +232,7 @@ mod tests {
             "compare_duplicates",
             "compare_export",
             "compare_duplicates_timeout",
+            "duplicate_secrets",
         ] {
             assert!(!i.failure(c).starts_with('⟦'), "missing failures.{c}");
         }
