@@ -125,7 +125,7 @@ contribute.
 
 ### Built
 
-- **Several connections at once** ([#46](https://github.com/bjornharvold/curlybrace/issues/46)): open several saved connections side by side, each with
+- **Several connections at once** ([#46](https://github.com/bjornharvold/curlybrace/issues/46)): open several saved connections at the same time, each with
   its own tree root, status and view. A write always names the connection it goes to, and deleting a
   saved connection closes its open session.
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): compare collections or whole databases across servers, copy or
