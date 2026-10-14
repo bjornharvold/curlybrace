@@ -2,6 +2,7 @@
 pub mod cell;
 pub mod compare;
 pub mod connection_form;
+pub mod connection_list;
 pub mod doc_actions;
 pub mod editor;
 pub mod findbar;
@@ -16,6 +17,9 @@ pub use cell::cell_text;
 pub use connection_form::{
     ConnectionForm, SecretEdit, StoredSecrets, auth_label_key, auth_options, save_connection,
     stored_secret_flags,
+};
+pub use connection_list::{
+    Group, Security, Sort, SortColumn, format_utc, grouped, security, servers, visible,
 };
 pub use doc_actions::{
     DeleteConfirm, DocAction, MenuItem, choose, id_preview, is_projected, menu_items,
