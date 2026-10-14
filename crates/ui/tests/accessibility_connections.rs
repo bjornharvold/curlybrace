@@ -82,7 +82,7 @@ fn clicking_a_header_sorts_and_marks_the_active_column() {
         harness.state().sort.column,
         curlybrace_ui::viewmodel::SortColumn::Server
     );
-    harness.get_by_role_and_label(Role::Button, &format!("{server} \u{25B2}"));
+    harness.get_by_role_and_label(Role::Button, &format!("{server} \u{23F6}"));
 }
 
 #[test]
@@ -235,6 +235,13 @@ fn the_folder_drop_down_has_the_folder_label() {
     let i18n = I18n::english();
     let harness = dialog_harness(|_| {});
     harness.get_by_role_and_label(Role::ComboBox, &i18n.t("connections.folder"));
+}
+
+#[test]
+fn the_authentication_drop_down_has_the_authentication_label() {
+    let i18n = I18n::english();
+    let harness = dialog_harness(|_| {});
+    harness.get_by_role_and_label(Role::ComboBox, &i18n.t("connections.auth"));
 }
 
 #[test]

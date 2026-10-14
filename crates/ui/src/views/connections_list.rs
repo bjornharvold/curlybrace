@@ -7,8 +7,8 @@ use crate::viewmodel::{
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use eframe::egui;
 
-const SORT_ASC: &str = "\u{25B2}";
-const SORT_DESC: &str = "\u{25BC}";
+const SORT_ASC: &str = "\u{23F6}";
+const SORT_DESC: &str = "\u{23F7}";
 /// Share of the table width per column, in `COLUMNS` order.
 const SHARES: [f32; 5] = [0.28, 0.26, 0.18, 0.14, 0.14];
 const COLUMNS: [(SortColumn, &str); 5] = [
