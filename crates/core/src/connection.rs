@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub const MAX_FOLDER_LEN: usize = 80;
+pub const MAX_NAME_LEN: usize = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuthMechanism {
@@ -122,6 +123,9 @@ impl ConnectionConfig {
         if self.name.trim().is_empty() {
             return Err(CoreError::InvalidUri("blank connection name".into()));
         }
+        if self.name.chars().count() > MAX_NAME_LEN || self.name.chars().any(char::is_control) {
+            return Err(CoreError::InvalidUri("invalid connection name".into()));
+        }
         self.validate_uri()?;
         self.validate_folder()?;
         if self.auth == AuthMechanism::X509
@@ -180,6 +184,18 @@ pub fn unique_name(base: &str, existing: &[ConnectionConfig]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn name_length_and_characters_are_validated() {
+        let ok = |n: &str| ConnectionConfig::new(n, "mongodb://h").validate().is_ok();
+        assert!(ok(&"a".repeat(MAX_NAME_LEN)));
+        assert!(!ok(&"a".repeat(MAX_NAME_LEN + 1)));
+        assert!(ok(&"é".repeat(MAX_NAME_LEN)));
+        assert!(ok("Prod \u{1F680} データ"));
+        assert!(!ok("a\nb"));
+        assert!(!ok("a\tb"));
+        assert!(!ok("a\u{0}b"));
+    }
 
     #[test]
     fn accepts_plain_and_srv_uris() {

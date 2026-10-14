@@ -81,7 +81,8 @@ pub(super) fn import_into(state: AppState, file: &Path, now: i64, config: &Confi
             AppState {
                 conn: ConnectionsState {
                     connections: list,
-                    notice: Some(Notice::Imported {
+                    // No success notice next to a save error: the banner tells the story.
+                    notice: banner.is_none().then_some(Notice::Imported {
                         imported: count,
                         skipped: imported.skipped,
                     }),
@@ -194,11 +195,47 @@ mod tests {
     }
 
     #[test]
-    fn hostile_folder_and_name_entries_are_skipped_by_validation() {
+    fn hostile_folder_entries_are_skipped_by_validation() {
         let mut bad = cfg("a");
         bad.folder = Some("x\ny".into());
         let bytes = serde_json::to_vec(&[bad]).unwrap();
         assert_eq!(prepare_import(&bytes, &[], 1).unwrap().skipped, 1);
+    }
+
+    #[test]
+    fn hostile_name_entries_are_skipped_by_validation() {
+        let huge = cfg(&"n".repeat(1024 * 1024));
+        let bytes =
+            serde_json::to_vec(&[cfg("a\nb"), cfg("tab\there"), huge, cfg("good")]).unwrap();
+        assert!(bytes.len() < MAX_IMPORT_BYTES);
+        let imported = prepare_import(&bytes, &[], 1).unwrap();
+        assert_eq!(imported.skipped, 3);
+        assert_eq!(imported.connections.len(), 1);
+        assert_eq!(imported.connections[0].name, "good");
+    }
+
+    #[test]
+    fn a_ten_megabyte_name_is_stopped_by_the_file_size_cap() {
+        let bytes = serde_json::to_vec(&[cfg(&"n".repeat(10 * 1024 * 1024))]).unwrap();
+        assert_eq!(
+            prepare_import(&bytes, &[], 1).unwrap_err(),
+            PersistError::Corrupt
+        );
+    }
+
+    #[test]
+    fn a_failed_save_keeps_the_entries_but_shows_no_success_notice() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("in.json");
+        std::fs::write(&file, export_bytes(&[cfg("x")]).unwrap()).unwrap();
+        // A path whose parent is a file cannot be written.
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, b"x").unwrap();
+        let config: ConfigPath = Ok(blocker.join("connections.json"));
+        let state = import_into(AppState::new(vec![cfg("a")]), &file, 7, &config);
+        assert_eq!(state.conn.connections.len(), 2);
+        assert!(matches!(state.banner, Some(Banner::Persist(_))));
+        assert!(state.conn.notice.is_none());
     }
 
     fn setup() -> (tempfile::TempDir, ConfigPath) {
