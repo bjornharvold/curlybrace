@@ -143,22 +143,7 @@ pub fn grouped<'a>(rows: &[&'a ConnectionConfig]) -> Vec<Group<'a>> {
 /// The hosts of the URI, without credentials, path or options. Never panics; a uri that
 /// is not a connection string yields whatever host-like text it has (possibly empty).
 pub fn servers(cfg: &ConnectionConfig) -> String {
-    let rest = cfg
-        .uri
-        .strip_prefix("mongodb+srv://")
-        .or_else(|| cfg.uri.strip_prefix("mongodb://"))
-        .unwrap_or(&cfg.uri);
-    // Options first (they may hold '@' or '/'), then everything up to the last '@' is
-    // userinfo (even if it holds a raw '/'), then the path.
-    let before_options = rest.split('?').next().unwrap_or("");
-    let after_userinfo = before_options
-        .rsplit_once('@')
-        .map_or(before_options, |(_, h)| h);
-    let hosts = after_userinfo.split('/').next().unwrap_or("");
-    if hosts.is_empty() {
-        return String::new();
-    }
-    hosts.split(',').collect::<Vec<_>>().join(", ")
+    curlybrace_core::connection_repair::uri_hosts(&cfg.uri)
 }
 
 const MIN_DISPLAY_SECS: i64 = -62_167_219_200; // 0000-01-01 00:00:00 UTC

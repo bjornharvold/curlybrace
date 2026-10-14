@@ -10,7 +10,7 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
         Banner::Recovery(r) => {
             let count = match r {
-                Recovery::Skipped { count, .. } => *count,
+                Recovery::Skipped { count, .. } | Recovery::Repaired { count, .. } => *count,
                 _ => 0,
             };
             (
@@ -75,6 +75,14 @@ mod tests {
                 count: 2,
                 backed_up: false,
             }),
+            Banner::Recovery(Recovery::Repaired {
+                count: 2,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::Repaired {
+                count: 2,
+                backed_up: false,
+            }),
             Banner::NotConnected,
             Banner::HostForgotten,
             Banner::ProjectionReadOnly,
@@ -130,5 +138,15 @@ mod tests {
             backed_up: true,
         }));
         assert!(head.contains('3'));
+    }
+
+    #[test]
+    fn repaired_banner_says_names_were_adjusted_not_lost() {
+        let (head, _) = resolved(&Banner::Recovery(Recovery::Repaired {
+            count: 3,
+            backed_up: true,
+        }));
+        assert!(head.contains('3') && head.contains("adjusted"), "{head}");
+        assert!(!head.contains("skipped"), "{head}");
     }
 }

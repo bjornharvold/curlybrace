@@ -38,7 +38,7 @@ Slices 2 to 4 become linked follow-up issues. The single active browsing session
 
 | Field | Type | Meaning |
 |---|---|---|
-| `folder` | `Option<String>` | Trimmed, non-empty, at most 80 chars, no control characters, else `None` |
+| `folder` | `Option<String>` | Trimmed, non-empty, at most 80 chars, no control or invisible format characters, else `None` |
 | `created_at` | `Option<i64>` | Unix seconds, set on first save |
 | `updated_at` | `Option<i64>` | Unix seconds, set on every save |
 | `last_connected` | `Option<i64>` | Unix seconds, set when a connect succeeds |
@@ -50,8 +50,16 @@ the folder's connections to the root; it never deletes connections).
 
 ### Migration
 
-No file migration. Old entries lack the new fields and deserialize to `None`. The loader's per-entry
-tolerance, backup and `PersistGuard` behaviour are unchanged.
+No file migration. Old entries lack the new fields and deserialize to `None`.
+
+Releases up to v0.2.0 accepted any non-blank name, while `validate()` is now strict (name at most 200
+chars, no control or invisible format characters such as U+200D). New input (the edit dialog, import) is
+strict. Entries LOADED from the user's own file are repaired first (`repair_labels`): forbidden
+characters removed, labels trimmed and cut to their limits, a blank name replaced by the URI host (then
+`connection-<id prefix>`), an emptied folder dropped. The id is kept, so keychain entries stay attached.
+Only an entry that still fails `validate()` after the repair (for example a bad URI) is skipped. Any
+repair or skip backs the original file up before anything can overwrite it (a failed backup turns saving
+off) and shows a banner; a repair banner says names were adjusted, never that entries were lost.
 
 ## Secrets and Duplicate
 

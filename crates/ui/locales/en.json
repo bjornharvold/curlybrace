@@ -606,6 +606,8 @@
     "corrupt_backup_failed": "The saved connections file was not readable and a backup copy could not be made. Saving is turned off so nothing is overwritten.",
     "invalid_path": "The connections file location is not valid.",
     "read_failed": "Could not read the saved connections file.",
+    "repaired_backed_up": "{n} saved connection(s) had a name or folder that was adjusted to the current rules (invisible or control characters removed, or a long name shortened). Nothing was lost; a backup copy of the original file was kept.",
+    "repaired_backup_failed": "{n} saved connection(s) had a name or folder that was adjusted to the current rules, and a backup copy could not be made. Saving is turned off so the original is not overwritten.",
     "skipped_backed_up": "{n} saved connection(s) were invalid or from a newer version and were skipped. A backup copy of the original file was kept.",
     "skipped_backup_failed": "{n} saved connection(s) were invalid or from a newer version and were skipped, and a backup copy could not be made. Saving is turned off so nothing is lost.",
     "unreadable_backed_up": "The saved connections file could not be read. A backup copy was kept next to it.",
