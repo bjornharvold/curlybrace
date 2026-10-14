@@ -253,10 +253,12 @@ impl CurlybraceApp {
                 self.dispatch(Input::Connect(id));
             }
             ConnectionAction::Save(form) => {
-                self.state = connections::save(state, &form, secrets, &self.config_path, now);
+                self.state =
+                    connection_ops::save_and_close(state, &form, secrets, &self.config_path, now);
             }
             ConnectionAction::Delete(id) => {
-                self.state = connections::delete(state, id, secrets, &self.config_path);
+                self.state =
+                    connection_ops::delete_and_close(state, id, secrets, &self.config_path);
             }
             ConnectionAction::Duplicate(id) => {
                 let source = state.connection(id).map(|c| c.name.clone());

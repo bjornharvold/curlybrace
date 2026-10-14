@@ -1,6 +1,6 @@
 //! Manager operations beyond save/delete: duplicate, folder changes and the connect stamp.
 //! Like `connections::save`, they take the keychain and the config path as arguments.
-use super::connections::{ConfigPath, persist, refresh_flags, refused};
+use super::connections::{ConfigPath, delete, persist, refresh_flags, refused, save};
 #[cfg(test)]
 use super::persistence::PersistGuard;
 use super::state::{AppState, Banner};
@@ -35,6 +35,61 @@ fn prompt_closed(state: AppState) -> AppState {
             ..state.conn
         },
         ..state
+    }
+}
+
+/// Runs `edit` on an owned copy of the connections view state (the closing methods take
+/// `&mut self`; the handlers stay value-in, value-out).
+fn with_conn(state: AppState, edit: impl FnOnce(&mut ConnectionsState)) -> AppState {
+    let mut conn = state.conn;
+    edit(&mut conn);
+    AppState { conn, ..state }
+}
+
+/// Saves the form and closes the edit dialog only when the save went through. A rejected form,
+/// a blocked or failing write or a keychain failure leave the dialog open (the error shows in
+/// it; a banner shows behind it) with the typed values intact.
+pub(super) fn save_and_close(
+    state: AppState,
+    form: &ConnectionForm,
+    secrets: &dyn SecretStore,
+    path: &ConfigPath,
+    now: i64,
+) -> AppState {
+    // Save against an empty banner slot so a banner that appears is always from this save, even
+    // when it equals one that was already showing.
+    let prior = state.banner.clone();
+    let probe = AppState {
+        banner: None,
+        ..state
+    };
+    let next = save(probe, form, secrets, path, now);
+    let succeeded = next.conn.error.is_none() && next.banner.is_none();
+    let next = AppState {
+        banner: next.banner.or(prior),
+        ..next
+    };
+    if succeeded {
+        with_conn(next, ConnectionsState::saved)
+    } else {
+        next
+    }
+}
+
+/// Deletes the connection; deleting the one the dialog is editing closes the dialog.
+pub(super) fn delete_and_close(
+    state: AppState,
+    id: Uuid,
+    secrets: &dyn SecretStore,
+    path: &ConfigPath,
+) -> AppState {
+    let was_edited = state.conn.editing && state.conn.form.id == id;
+    let next = delete(state, id, secrets, path);
+    let gone = !next.conn.connections.iter().any(|c| c.id == id);
+    if was_edited && gone {
+        with_conn(next, ConnectionsState::close_edit)
+    } else {
+        next
     }
 }
 
@@ -86,17 +141,18 @@ pub(super) fn duplicate(
             ..state
         };
     }
-    let next = AppState {
-        conn: ConnectionsState {
-            connections: list,
-            selected: Some(copy.id),
-            form: ConnectionForm::from_config(&copy),
-            error: None,
-            ..state.conn
-        },
-        ..state
+    // The copy opens in the edit dialog, with the tools of the previous form dropped.
+    let mut conn = ConnectionsState {
+        connections: list,
+        selected: Some(copy.id),
+        form: ConnectionForm::from_config(&copy),
+        error: None,
+        notice: None,
+        editing: true,
+        ..state.conn
     };
-    refresh_flags(next, secrets)
+    conn.reset_tools();
+    refresh_flags(AppState { conn, ..state }, secrets)
 }
 
 pub(super) fn move_to_folder(
@@ -107,7 +163,8 @@ pub(super) fn move_to_folder(
     path: &ConfigPath,
 ) -> AppState {
     if let Err(e) = state.persist.check() {
-        return refused(state, e);
+        // The prompt closes too, so OK never looks dead; the banner explains.
+        return prompt_closed(refused(state, e));
     }
     match normalize_folder(&folder) {
         Ok(folder) => {
@@ -126,7 +183,7 @@ pub(super) fn rename_folder(
     path: &ConfigPath,
 ) -> AppState {
     if let Err(e) = state.persist.check() {
-        return refused(state, e);
+        return prompt_closed(refused(state, e));
     }
     match renamed_folder(&state.conn.connections, &from, &to, now) {
         Ok(list) => prompt_closed(with_list(state, list, path)),
@@ -505,6 +562,121 @@ mod tests {
         let state = rename_folder(state, "x".into(), "  ".into(), 6, &path);
         assert_eq!(state.conn.folder_prompt, Some(renaming));
         assert_eq!(state.conn.error, Some(CoreError::InvalidFolderName));
+    }
+
+    fn editing(form: ConnectionForm, list: Vec<ConnectionConfig>) -> AppState {
+        let mut state = state_with(list);
+        state.conn.form = form;
+        state.conn.editing = true;
+        state.conn.uri_input = "pasted".into();
+        state.conn.notice = Some(crate::views::connections::Notice::Exported { count: 1 });
+        state
+    }
+
+    fn named_form(name: &str) -> ConnectionForm {
+        ConnectionForm {
+            name: name.into(),
+            uri: "mongodb://h".into(),
+            ..ConnectionForm::default()
+        }
+    }
+
+    #[test]
+    fn a_successful_save_closes_the_dialog_resets_the_tools_and_drops_the_notice() {
+        let (_dir, path, secrets) = setup();
+        let form = named_form("a");
+        let state = save_and_close(editing(form.clone(), vec![]), &form, &secrets, &path, 5);
+        assert_eq!(state.conn.connections.len(), 1);
+        assert!(!state.conn.editing);
+        assert!(state.conn.uri_input.is_empty() && state.conn.notice.is_none());
+        assert!(state.banner.is_none());
+    }
+
+    #[test]
+    fn a_rejected_save_keeps_the_dialog_open_with_the_error() {
+        let (_dir, path, secrets) = setup();
+        let form = named_form("   ");
+        let state = save_and_close(editing(form.clone(), vec![]), &form, &secrets, &path, 5);
+        assert!(state.conn.editing);
+        assert_eq!(state.conn.error, Some(CoreError::InvalidName));
+        assert_eq!(state.conn.uri_input, "pasted", "tools untouched");
+    }
+
+    #[test]
+    fn a_blocked_save_keeps_the_dialog_open_even_if_the_same_banner_was_showing() {
+        let (_dir, path, secrets) = setup();
+        let form = named_form("a");
+        let mut state = editing(form.clone(), vec![]);
+        state.persist = PersistGuard::blocked();
+        let first = save_and_close(state, &form, &secrets, &path, 5);
+        assert!(first.conn.editing && first.banner.is_some());
+        let shown = first.banner.clone();
+        let again = save_and_close(first, &form, &secrets, &path, 6);
+        assert!(again.conn.editing, "an identical banner is not a success");
+        assert_eq!(again.banner, shown);
+        assert!(again.conn.connections.is_empty());
+    }
+
+    #[test]
+    fn a_save_whose_write_fails_keeps_the_dialog_open_with_a_banner() {
+        let (dir, _path, secrets) = setup();
+        let blocker = dir.path().join("file");
+        std::fs::write(&blocker, b"x").unwrap();
+        let path: ConfigPath = Ok(blocker.join("connections.json"));
+        let form = named_form("a");
+        let state = save_and_close(editing(form.clone(), vec![]), &form, &secrets, &path, 5);
+        assert!(state.conn.editing);
+        assert!(matches!(state.banner, Some(Banner::Persist(_))));
+    }
+
+    #[test]
+    fn duplicate_opens_the_copy_in_the_dialog_with_fresh_tools() {
+        let (_dir, path, secrets) = setup();
+        let src = ConnectionConfig::new("prod", "mongodb://h");
+        let mut state = state_with(vec![src.clone()]);
+        state.conn.uri_input = "pasted".into();
+        state.conn.notice = Some(crate::views::connections::Notice::Exported { count: 1 });
+        let state = duplicate(state, src.id, "copy".into(), 50, &secrets, &path);
+        assert!(state.conn.editing && state.conn.uri_input.is_empty());
+        assert!(state.conn.notice.is_none());
+    }
+
+    #[test]
+    fn deleting_the_edited_connection_closes_the_dialog_but_deleting_another_does_not() {
+        let (_dir, path, secrets) = setup();
+        let (a, b) = (
+            ConnectionConfig::new("a", "mongodb://h"),
+            ConnectionConfig::new("b", "mongodb://h"),
+        );
+        let form = ConnectionForm::from_config(&a);
+        let state = editing(form, vec![a.clone(), b.clone()]);
+        let state = delete_and_close(state, b.id, &secrets, &path);
+        assert!(state.conn.editing, "another connection was deleted");
+        let state = delete_and_close(state, a.id, &secrets, &path);
+        assert!(!state.conn.editing && state.conn.uri_input.is_empty());
+    }
+
+    #[test]
+    fn a_folder_change_refused_by_the_guard_closes_the_prompt_too() {
+        let (_dir, path, _secrets) = setup();
+        let a = ConnectionConfig::new("a", "mongodb://h");
+        let prompt = FolderPrompt::Move {
+            id: a.id,
+            input: "x".into(),
+        };
+        let mut state = with_prompt(state_with(vec![a.clone()]), prompt);
+        state.persist = PersistGuard::blocked();
+        let state = move_to_folder(state, a.id, "x".into(), 5, &path);
+        assert_eq!(state.conn.folder_prompt, None);
+        assert!(state.banner.is_some());
+        let prompt = FolderPrompt::Rename {
+            from: "x".into(),
+            input: "y".into(),
+        };
+        let state = with_prompt(state, prompt);
+        let state = rename_folder(state, "x".into(), "y".into(), 6, &path);
+        assert_eq!(state.conn.folder_prompt, None);
+        assert_eq!(state.conn.connections[0].folder, None, "nothing changed");
     }
 
     #[test]
