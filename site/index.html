@@ -128,6 +128,20 @@
   dl.can dd { margin: 0; color: var(--muted); max-width: 38em; }
   dl.can dd b { color: var(--ink); font-weight: 600; }
 
+  dl.can dd a { color: var(--ink); text-underline-offset: 3px; }
+  dl.can dd a:hover { text-decoration-thickness: 2px; }
+
+  .road { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
+  .road h3 { font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 14px; }
+  .road ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+  .road li { padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .road li a { font-weight: 600; text-decoration: none; }
+  .road li a:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .road li span { display: block; color: var(--muted); font-size: 1rem; margin-top: 2px; }
+  .road ul.plain li { padding: 10px 0; }
+  .road .more { margin: 16px 0 0; font-size: 1rem; }
+  .road .more a { color: var(--ink); text-underline-offset: 3px; }
+
   .free { background: var(--surface); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
   .free-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: start; }
   .free p { margin: 0 0 16px; max-width: 34em; }
@@ -161,7 +175,7 @@
   footer nav { display: flex; gap: 22px; flex-wrap: wrap; }
 
   @media (max-width: 940px) {
-    .hero, .free-grid, .build-grid { grid-template-columns: 1fr; gap: 40px; }
+    .hero, .free-grid, .build-grid, .road { grid-template-columns: 1fr; gap: 40px; }
     dl.can > div { grid-template-columns: 1fr; gap: 8px; }
     .nav ul { gap: 16px; font-size: 0.95rem; }
     section { padding: 60px 0; }
@@ -184,6 +198,7 @@
     <nav aria-label="Primary">
       <ul>
         <li><a href="#what-it-does">What it does</a></li>
+        <li><a href="#roadmap">Roadmap</a></li>
         <li><a href="#install">Install</a></li>
         <li><a href="#build">Contribute</a></li>
         <li><a href="https://github.com/bjornharvold/curlybrace">GitHub</a></li>
@@ -272,7 +287,7 @@
   <div class="wrap">
     <section id="what-it-does" style="padding-top:20px">
       <h2>What you can do with it</h2>
-      <p class="section-lede">The basics, done carefully. Here is what works today, plus one feature arriving in the next release.</p>
+      <p class="section-lede">The basics, done carefully, plus a compare tool for moving data between databases safely. Everything here works today.</p>
       <dl class="can">
         <div>
           <dt>Connect the way your servers need</dt>
@@ -296,13 +311,56 @@
         </div>
         <div>
           <dt>Compare collections or whole databases</dt>
-          <dd>Pick a source and a target, even on different servers, compare two collections or a whole database at once, and see what is only on one side and what differs. Match documents by <code>_id</code> or by your own key, ignore fields or array order, and open any difference to see the changed fields. Comparing never writes. To change data, tick the differences and copy them to the other side or delete extras: you review what will be written where, deletes ask you to type the collection or database name (or a confirmation word when they span several databases or connections), and afterwards you see what was applied, skipped or failed for each document, then run the compare again to confirm. You can also copy individual fields of a changed document instead of the whole document: tick them in its detail and only those fields are written. The key must be unique, and on large collections it needs an index. If the key is not unique, it shows which values repeat. You can also export instead of applying: the pending changes as a mongosh script or a JSON plan, and the differences as a CSV report written to a file you choose or copied to the clipboard. Exported files contain your document data (a report contains keys, which can be personal data), so keep them somewhere safe, and read a script before you run it: it is a snapshot of the comparison. Exporting never writes to a database. New in the next release.</dd>
+          <dd>Pick a source and a target, even on different servers, and compare two collections or a whole database. See what is only on one side and what differs, field by field. <b>Comparing never writes.</b> To change data you tick the differences, review exactly what will be written where, and confirm; every document is checked again just before it is written. You can also export the changes as a mongosh script or JSON plan, or the differences as a CSV report. <a href="https://github.com/bjornharvold/curlybrace/blob/main/docs/compare.md">Read the compare guide</a>.</dd>
         </div>
         <div>
           <dt>Built to not lose your data</dt>
           <dd>Deletes ask for confirmation and show the document’s <code>_id</code>. A page shown with a projection is read-only for edit and clone, so a partial copy can never overwrite the full document. Unsaved editor text survives a stray click.</dd>
         </div>
       </dl>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <section id="roadmap" style="padding-top:20px">
+      <h2>What is coming next</h2>
+      <p class="section-lede">Curlybrace focuses first on what free MongoDB tools do not already cover well, then fills in the everyday features. Every item is a GitHub issue you can follow, discuss or build.</p>
+      <div class="road">
+        <div>
+          <h3>In progress</h3>
+          <ul>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/45">Connection manager</a><span>Saved connections in folders, an edit dialog, a connection test, and import and export of your connection list.</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Next</h3>
+          <ul>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/46">Several connections at once</a><span>Open more than one server side by side, each with its own tabs.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/47">A production guard</a><span>Colour tags and a read-only flag, so you never change the wrong server.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/48">Copy data between servers</a><span>A collection, a query result or chosen documents, with a preview.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/50">A shell tab</a><span>Run your own <code>mongosh</code> inside the app, with history.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/51">Bulk update and delete</a><span>Change many documents at once, after a count and sample preview.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/52">Collection administration</a><span>Create, rename and drop databases, collections and views.</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Later</h3>
+          <ul class="plain">
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/9">Data masking and reschema</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/10">SQL and MongoDB</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/11">Task scheduler</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/67">Aggregation builder</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/68">Index management</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/69">Explain plans</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/70">Schema analysis</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/55">Import</a> and <a href="https://github.com/bjornharvold/curlybrace/issues/54">export</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/56">Users and roles</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/63">Field level encryption</a></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/15">Linux</a>, <a href="https://github.com/bjornharvold/curlybrace/issues/16">Windows</a> and <a href="https://github.com/bjornharvold/curlybrace/issues/14">Intel Mac</a> builds</li>
+          </ul>
+          <p class="more"><a href="https://github.com/bjornharvold/curlybrace/#roadmap">See the full roadmap</a></p>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -347,7 +405,7 @@
         <div class="build-grid">
           <div class="build-copy">
             <h2>Come build it with us</h2>
-            <p class="section-lede">The app is small and young, and that makes it a good place to leave a mark. The next features are open for anyone to take.</p>
+            <p class="section-lede">The app is small and young, and that makes it a good place to leave a mark. The <a href="#roadmap">next features</a> are open for anyone to take.</p>
             <p>You do not need to be a Rust expert. Fixing a bug, writing a test or improving a doc is a real contribution. If you want to build a whole feature or bring the app to another platform, the contributing guide shows how the code is organised and how releases work.</p>
             <div class="actions">
               <a class="btn btn-primary" href="https://github.com/bjornharvold/curlybrace/blob/main/CONTRIBUTING.md">Read the contributing guide</a>

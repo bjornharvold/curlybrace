@@ -3,7 +3,7 @@
 # Curlybrace
 
 **Curlybrace is a free, native MongoDB GUI for macOS.** Browse your MongoDB collections, run queries,
-and edit documents without an account, a trial, or a license fee.
+edit documents and compare data between databases, without an account, a trial, or a license fee.
 
 [![CI](https://github.com/bjornharvold/curlybrace/actions/workflows/ci.yml/badge.svg)](https://github.com/bjornharvold/curlybrace/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/bjornharvold/curlybrace?include_prereleases)](https://github.com/bjornharvold/curlybrace/releases/latest)
@@ -45,6 +45,16 @@ and edit documents without an account, a trial, or a license fee.
   overwrite a full document.
 - Unsaved editor text is kept if you click outside the editor.
 
+**Compare**
+- Compare two collections, or two whole databases, on the same server or on different ones. Match
+  documents by `_id` or by your own key, and see what is only on one side and what differs, field by
+  field.
+- Comparing never writes. To change data you tick the differences, review exactly what will be
+  written where, and confirm. Every document is checked again just before it is written.
+- Copy or delete differences, copy single fields of a changed document, or export the changes as a
+  mongosh script or JSON plan and the differences as a CSV report.
+- The full guide is [docs/compare.md](docs/compare.md).
+
 ## Install
 
 1. Download `curlybrace-vX.Y.Z-macos-arm64.zip` from the
@@ -85,72 +95,6 @@ To see failure details, launch the app from a terminal with logging on (levels: 
 CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 ```
 
-## Compare collections and databases
-
-Switch from **Browse** to **Compare** next to the Disconnect button, or right-click a collection and
-choose **Compare to...** to start with it as the source. Pick a saved connection for each side (the
-two sides can be on different servers) and press **Connect**, then pick a database and collection
-for each side, press **Add pair**, then **Check** and **Run**.
-
-- A compare is a **list of pairs**. Add one collection pair, hand-pair collections with different names,
-  or press **Add all same-named** to pair every collection two databases share (views are skipped,
-  system collections only if you switch them on, and collections without a counterpart are listed so
-  you can pair them by name). Right-click a database and choose **Compare database to...** to start a
-  whole-database compare; when the target is on a different connection, the same database name is
-  picked there for you.
-- The key, rules and filters at the top are **defaults for every pair**; open a pair to override them
-  for just that pair with **Edit settings**. The check shows a verdict per pair. **Run** starts the
-  included pairs that can be checked and needs each of them to pass; **Run passing** starts just the
-  ones that passed, skipping invalid pairs, failed checks and refused pairs.
-- The run overview shows each pair's status and counts with totals, and you can cancel the run. **Open**
-  a finished pair for its results, **Discard** it, or **Re-run** it (it opens in Edit settings, for instance
-  to change the key).
-
-- It compares documents by a **key** (default `_id`) and lists what is only in the source, only in
-  the target, or different, with the changed fields of each document. Optional filters limit each
-  side, and the Rules section controls array order, field order, number types, the `_id` field and
-  which fields count.
-- **Comparing never writes.** Writing only happens when you apply changes, as described next. The
-  results are kept in memory for the session and can be discarded.
-- **Copy and delete differences.** Tick rows of a results tab (or **Select all** in the tab, which covers
-  every row of it, not only the page shown) and choose an action: **Copy to target** or **Copy to
-  source** for documents that exist on one side or differ, **Delete from source** or **Delete from
-  target** for extras. Actions are queued under **Pending changes**; nothing is written until you press
-  **Review changes**, which names the connection, database and collection each action writes to, with
-  the counts per pair. Deleting needs you to type the collection name (the database name when
-  several collections are affected, or a confirmation word when they span several databases or connections) before **Apply** is enabled. Each document is checked again just
-  before it is written: a document that changed since the compare is skipped and left alone. The
-  result lists what was applied, skipped, failed (with the document's key) and not run, and you can
-  cancel a running apply. The pair then shows **Applied**: run it again to confirm what is left.
-- To change only some fields of a changed document, open it, tick the fields and choose **Copy selected fields
-  to target** or **Copy selected fields to source**. Only those fields are written (a field that exists on one side
-  only is removed from the other); the rest of the destination document stays as it is. A field that
-  cannot be copied on its own (the `_id`, a name with a dot or starting with `$`, an item of an array whose
-  order is ignored, or an array item that was added or removed) is shown disabled with the reason. Field copies are queued and reviewed like the
-  other actions.
-- **Export.** Instead of (or before) applying, **Export changes...** in the pending list writes the queued
-  changes to a file you choose: a **mongosh script** (one `bulkWrite` per collection, the fingerprints as
-  comments, for one side of the comparison at a time) or a **JSON plan** (canonical extended JSON, which also
-  works for changes to both sides). Each document is checked again when you export, and anything that changed
-  since the compare, or that the shell cannot express (for example an `undefined` or DBPointer value, or a document with number-like field names that JavaScript would reorder), is listed
-  as skipped in the file and never written as an operation. **Export report...** in the overview writes the
-  differences (pair, key, category and, if you ask for it, the changed field paths, never values) as a **CSV
-  file** or copies them to the **clipboard** (up to 10,000 rows). The files contain **document data** (the
-  report contains keys, which can be personal data) and no connection names, hosts or passwords; they are
-  created with owner-only permissions and written only where you choose. If the export fails or is cancelled
-  no unfinished file is left; once it has started, a file that was already at that path has been replaced and
-  is removed too, so choose a new name if you want to keep the old one. A script stops at the first failing
-  collection (exit code 2) and runs nothing after it. A script is a snapshot of an earlier comparison: the documents may have changed again by the time
-  you run it, so read it first. Exporting never writes to a database.
-- The key must be **unique** on each side: a duplicate key stops the run with an error, and
-  **Find duplicate keys** then shows which values repeat. Each document must have a value for
-  every key field, and a key value cannot be an array or a regular expression.
-- The key fields need an **index** on each side. A collection with up to 50,000 documents is
-  compared without one, but a larger one is refused until you create an index on the key fields
-  (the check tells you which side lacks it, and how many documents each side has).
-- Limits: a run stops at 1,000,000 differences or 256 MiB of kept results; narrow the comparison
-  with a filter or fewer fields.
-
 ## Known limitations
 
 - macOS on Apple Silicon only, unsigned and not notarized.
@@ -163,31 +107,68 @@ for each side, press **Add pair**, then **Check** and **Run**.
 - Only one SSH host per tunnel and single-host URIs are supported with a tunnel (no replica set
   discovery through a tunnel, no `mongodb+srv://`).
 - The find bar takes strict JSON, not mongo shell syntax.
-- Database-level tools you may expect from other clients (aggregation builder, import/export,
-  index management, schema analysis) are intentionally not the focus. See the roadmap.
+- Everyday tools you may expect from other clients (aggregation builder, import/export, index
+  management, schema analysis) are not built yet. They come after the features at the top of the
+  [roadmap](#roadmap).
 
 ## Roadmap
 
-The project focuses on features that free MongoDB tools do not already cover well. Ideas are listed
-in rough order; each one gets its own design and plan before code is written, and each is a good
-place to contribute:
+The project focuses on features that free MongoDB tools do not already cover well, and then fills
+in the everyday ones. Each item has an issue with a description and a "done when" checklist, and
+each gets its own design and plan before code is written. Items are ordered by priority: **Next**
+is the planned work (label `P2`), **Later** is the backlog (`P3`). Every one is a good place to
+contribute.
 
-- **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): diff two collections or databases (across servers), pick the
-  differences, and apply or export the sync. Comparing collections and whole databases is built, and so is copying and deleting differences, including single fields of a changed document, between two databases (with a confirmation and a per-document report), and exporting the pending changes as a mongosh script or JSON plan and the differences as a CSV report. The compare feature itself has nothing left to build; feedback and fixes are welcome.
-- **Data Masking and Reschema** ([#9](https://github.com/bjornharvold/curlybrace/issues/9)): anonymise sensitive fields in copies of data and
-  reshape documents in bulk.
-- **SQL and MongoDB** ([#10](https://github.com/bjornharvold/curlybrace/issues/10)): a SQL query editor that translates to MongoDB queries, plus SQL
-  import.
-- **Task Scheduler** ([#11](https://github.com/bjornharvold/curlybrace/issues/11)): save and schedule the jobs above to run unattended, with logs.
-- **More platforms**: [Intel Mac (#14)](https://github.com/bjornharvold/curlybrace/issues/14), [Linux (#15)](https://github.com/bjornharvold/curlybrace/issues/15), [Windows (#16)](https://github.com/bjornharvold/curlybrace/issues/16).
-- **Trust and polish**: [Homebrew install (#24)](https://github.com/bjornharvold/curlybrace/issues/24) (blocked on signing), [Apple code signing and notarization (#17)](https://github.com/bjornharvold/curlybrace/issues/17), [inline table editing
-  (#12)](https://github.com/bjornharvold/curlybrace/issues/12), [`ssh-agent` support (#13)](https://github.com/bjornharvold/curlybrace/issues/13), [TLS test containers (#18)](https://github.com/bjornharvold/curlybrace/issues/18),
-  [click-driven UI and screenshot tests (#19)](https://github.com/bjornharvold/curlybrace/issues/19), [real screenshots (#20)](https://github.com/bjornharvold/curlybrace/issues/20) and
-  [translations (#21)](https://github.com/bjornharvold/curlybrace/issues/21).
+### Built
 
-Every item above has an issue with a description and a "done when" checklist. Browse them all by the
-[`help wanted`](https://github.com/bjornharvold/curlybrace/issues/?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) and
-[`good first issue`](https://github.com/bjornharvold/curlybrace/issues/?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) labels.
+- **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): compare collections or whole databases across servers, copy or
+  delete differences with a review step, and export the changes. Nothing is left to build; feedback
+  and fixes are welcome. See the [guide](docs/compare.md).
+
+### In progress
+
+- **Connection manager** ([#45](https://github.com/bjornharvold/curlybrace/issues/45)): saved connections with folders and timestamps, a manager list
+  with filter and sort, an edit dialog, Test Connection, connection-string import and export, and
+  import and export of the connection list without secrets. Its follow-ups are listed below.
+
+### Next
+
+- **Several connections at once** ([#46](https://github.com/bjornharvold/curlybrace/issues/46)) and a **production guard** with colour tags and a
+  read-only flag ([#47](https://github.com/bjornharvold/curlybrace/issues/47)).
+- **Copy collections and documents between connections** ([#48](https://github.com/bjornharvold/curlybrace/issues/48)).
+- **Paths for `mongosh`, `mongodump` and `mongorestore`** ([#49](https://github.com/bjornharvold/curlybrace/issues/49)) and a **shell tab** that runs your
+  own `mongosh` ([#50](https://github.com/bjornharvold/curlybrace/issues/50)).
+- **Bulk update and delete** with a count preview ([#51](https://github.com/bjornharvold/curlybrace/issues/51)).
+- **Create, rename and drop** databases, collections and views ([#52](https://github.com/bjornharvold/curlybrace/issues/52)).
+
+### Later
+
+- **Beyond the basics:** Data Masking and Reschema ([#9](https://github.com/bjornharvold/curlybrace/issues/9)), SQL and MongoDB ([#10](https://github.com/bjornharvold/curlybrace/issues/10)), Task
+  Scheduler ([#11](https://github.com/bjornharvold/curlybrace/issues/11)).
+- **Query and analysis:** aggregation builder ([#67](https://github.com/bjornharvold/curlybrace/issues/67)), explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), schema analysis
+  ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)), query history ([#72](https://github.com/bjornharvold/curlybrace/issues/72)), copy as driver code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)),
+  visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), query options ([#75](https://github.com/bjornharvold/curlybrace/issues/75)), an opt-in natural-language assistant
+  ([#76](https://github.com/bjornharvold/curlybrace/issues/76)), data model diagrams ([#77](https://github.com/bjornharvold/curlybrace/issues/77)), a map view for geo fields ([#79](https://github.com/bjornharvold/curlybrace/issues/79)).
+- **Data in and out:** export ([#54](https://github.com/bjornharvold/curlybrace/issues/54)), import ([#55](https://github.com/bjornharvold/curlybrace/issues/55)), backup and restore ([#53](https://github.com/bjornharvold/curlybrace/issues/53)), test data
+  generator ([#58](https://github.com/bjornharvold/curlybrace/issues/58)), GridFS ([#57](https://github.com/bjornharvold/curlybrace/issues/57)).
+- **Administration and monitoring:** index management ([#68](https://github.com/bjornharvold/curlybrace/issues/68)), users and roles ([#56](https://github.com/bjornharvold/curlybrace/issues/56)), live
+  server statistics ([#59](https://github.com/bjornharvold/curlybrace/issues/59)), profiler ([#60](https://github.com/bjornharvold/curlybrace/issues/60)), replica set and sharded cluster views ([#61](https://github.com/bjornharvold/curlybrace/issues/61)),
+  change streams ([#62](https://github.com/bjornharvold/curlybrace/issues/62)).
+- **Enterprise and security:** field level encryption and Queryable Encryption ([#63](https://github.com/bjornharvold/curlybrace/issues/63)), AWS IAM and
+  OIDC sign-in ([#64](https://github.com/bjornharvold/curlybrace/issues/64)), a Kerberos test against a real KDC ([#65](https://github.com/bjornharvold/curlybrace/issues/65)), audit log viewer ([#66](https://github.com/bjornharvold/curlybrace/issues/66)),
+  Atlas Search indexes ([#78](https://github.com/bjornharvold/curlybrace/issues/78)).
+- **Connection manager follow-ups:** remaining edit tabs ([#81](https://github.com/bjornharvold/curlybrace/issues/81)), start screen with recents
+  ([#82](https://github.com/bjornharvold/curlybrace/issues/82)), nested folders ([#83](https://github.com/bjornharvold/curlybrace/issues/83)), export with secrets ([#84](https://github.com/bjornharvold/curlybrace/issues/84)).
+- **Platforms:** [Intel Mac](https://github.com/bjornharvold/curlybrace/issues/14), [Linux](https://github.com/bjornharvold/curlybrace/issues/15), [Windows](https://github.com/bjornharvold/curlybrace/issues/16).
+- **Trust and polish:** [signing and notarization](https://github.com/bjornharvold/curlybrace/issues/17), [Homebrew install](https://github.com/bjornharvold/curlybrace/issues/24) (blocked on
+  signing), [inline table editing](https://github.com/bjornharvold/curlybrace/issues/12), [`ssh-agent` support](https://github.com/bjornharvold/curlybrace/issues/13), [TLS test containers](https://github.com/bjornharvold/curlybrace/issues/18),
+  [real screenshots](https://github.com/bjornharvold/curlybrace/issues/20), [translations](https://github.com/bjornharvold/curlybrace/issues/21), [command palette](https://github.com/bjornharvold/curlybrace/issues/80).
+
+Browse everything by the [`help wanted`](https://github.com/bjornharvold/curlybrace/issues/?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) and
+[`good first issue`](https://github.com/bjornharvold/curlybrace/issues/?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) labels, or by priority:
+[`P2`](https://github.com/bjornharvold/curlybrace/issues/?q=is%3Aissue+is%3Aopen+label%3AP2) and
+[`P3`](https://github.com/bjornharvold/curlybrace/issues/?q=is%3Aissue+is%3Aopen+label%3AP3).
+The comparison with other MongoDB tools behind this list is in [#38](https://github.com/bjornharvold/curlybrace/issues/38).
 
 ## Build from source
 
