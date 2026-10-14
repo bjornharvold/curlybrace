@@ -1,18 +1,18 @@
 //! Pure helpers for the one-level folder grouping of saved connections. Every function returns
 //! a new list; the input is never mutated.
-use crate::connection::{ConnectionConfig, MAX_FOLDER_LEN};
+use crate::connection::{ConnectionConfig, MAX_FOLDER_LEN, is_forbidden_label_char};
 use crate::error::{CoreError, Result};
 use std::collections::BTreeSet;
 use uuid::Uuid;
 
-/// Trimmed folder name, or `None` for blank input (the root). Rejects over-long names and
-/// control characters.
+/// Trimmed folder name, or `None` for blank input (the root). Rejects over-long names,
+/// control and invisible format characters.
 pub fn normalize_folder(raw: &str) -> Result<Option<String>> {
     let name = raw.trim();
     if name.is_empty() {
         return Ok(None);
     }
-    if name.chars().count() > MAX_FOLDER_LEN || name.chars().any(char::is_control) {
+    if name.chars().count() > MAX_FOLDER_LEN || name.chars().any(is_forbidden_label_char) {
         return Err(CoreError::InvalidUri("invalid folder name".into()));
     }
     Ok(Some(name.to_owned()))
@@ -95,6 +95,10 @@ mod tests {
         assert_eq!(normalize_folder("  work ").unwrap(), Some("work".into()));
         assert_eq!(normalize_folder("   ").unwrap(), None);
         assert!(normalize_folder("a\tb").is_err());
+        for ch in ['\u{202E}', '\u{200B}', '\u{2066}', '\u{FEFF}', '\u{061C}'] {
+            assert!(normalize_folder(&format!("a{ch}b")).is_err());
+        }
+        assert_eq!(normalize_folder("日本語").unwrap(), Some("日本語".into()));
         assert!(normalize_folder(&"x".repeat(MAX_FOLDER_LEN + 1)).is_err());
     }
 

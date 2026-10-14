@@ -1,5 +1,6 @@
 use crate::error::{CoreError, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -112,7 +113,7 @@ impl ConnectionConfig {
         let bad = folder.trim().is_empty()
             || folder.trim() != folder
             || folder.chars().count() > MAX_FOLDER_LEN
-            || folder.chars().any(char::is_control);
+            || folder.chars().any(is_forbidden_label_char);
         if bad {
             return Err(CoreError::InvalidUri("invalid folder name".into()));
         }
@@ -123,7 +124,9 @@ impl ConnectionConfig {
         if self.name.trim().is_empty() {
             return Err(CoreError::InvalidUri("blank connection name".into()));
         }
-        if self.name.chars().count() > MAX_NAME_LEN || self.name.chars().any(char::is_control) {
+        if self.name.chars().count() > MAX_NAME_LEN
+            || self.name.chars().any(is_forbidden_label_char)
+        {
             return Err(CoreError::InvalidUri("invalid connection name".into()));
         }
         self.validate_uri()?;
@@ -169,15 +172,36 @@ impl ConnectionConfig {
     }
 }
 
-/// `base`, or `base 2`, `base 3`, ... if a connection already has that name.
+/// Control characters plus the invisible Unicode "format" characters (bidi overrides and
+/// isolates, zero-width marks, invisible operators, BOM) that can spoof a label in a list.
+pub fn is_forbidden_label_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{061C}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{FEFF}'
+        )
+}
+
+/// `base`, or `base 2`, `base 3`, ... if a connection already has that name. A suffixed name
+/// never exceeds `MAX_NAME_LEN` characters: the base is truncated (on a char boundary) to fit.
 pub fn unique_name(base: &str, existing: &[ConnectionConfig]) -> String {
-    let taken = |n: &str| existing.iter().any(|c| c.name == n);
-    if !taken(base) {
+    let taken: HashSet<&str> = existing.iter().map(|c| c.name.as_str()).collect();
+    if !taken.contains(base) {
         return base.to_owned();
     }
-    (2..)
-        .map(|n| format!("{base} {n}"))
-        .find(|candidate| !taken(candidate))
+    (2usize..)
+        .map(|n| {
+            let suffix = format!(" {n}");
+            let keep = MAX_NAME_LEN.saturating_sub(suffix.chars().count());
+            let head: String = base.chars().take(keep).collect();
+            format!("{head}{suffix}")
+        })
+        .find(|candidate| !taken.contains(candidate.as_str()))
         .unwrap_or_else(|| base.to_owned())
 }
 
@@ -330,5 +354,84 @@ mod tests {
             c.validate().is_err(),
             "a blank folder must be None, not an empty string"
         );
+    }
+
+    const FORMAT_CHARS: [char; 5] = ['\u{202E}', '\u{200B}', '\u{2066}', '\u{FEFF}', '\u{061C}'];
+
+    #[test]
+    fn unique_name_never_exceeds_the_max_length() {
+        let base = "a".repeat(MAX_NAME_LEN);
+        let taken = [ConnectionConfig::new(&base, "mongodb://h")];
+        let name = unique_name(&base, &taken);
+        assert!(name.chars().count() <= MAX_NAME_LEN);
+        assert_ne!(name, base);
+        assert!(name.ends_with(" 2"));
+        assert!(
+            ConnectionConfig::new(&name, "mongodb://h")
+                .validate()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn unique_name_truncates_on_a_char_boundary() {
+        let base = "é".repeat(MAX_NAME_LEN);
+        let taken = [
+            ConnectionConfig::new(&base, "mongodb://h"),
+            ConnectionConfig::new(
+                &format!("{} 2", "é".repeat(MAX_NAME_LEN - 2)),
+                "mongodb://h",
+            ),
+        ];
+        let name = unique_name(&base, &taken);
+        assert!(name.chars().count() <= MAX_NAME_LEN);
+        assert!(name.ends_with(" 3"));
+        assert!(name.starts_with('é'));
+    }
+
+    #[test]
+    fn unique_name_returns_a_free_overlong_base_unchanged() {
+        let base = "a".repeat(MAX_NAME_LEN + 5);
+        assert_eq!(unique_name(&base, &[]), base);
+    }
+
+    #[test]
+    fn unique_name_resolves_thousands_of_collisions_quickly() {
+        let mut taken: Vec<ConnectionConfig> = Vec::new();
+        for _ in 0..2000 {
+            let name = unique_name("a", &taken);
+            taken.push(ConnectionConfig::new(&name, "mongodb://h"));
+        }
+        let names: std::collections::HashSet<_> = taken.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), 2000);
+    }
+
+    #[test]
+    fn name_and_folder_reject_invisible_format_characters() {
+        for ch in FORMAT_CHARS {
+            let name = format!("pr{ch}od");
+            assert!(
+                ConnectionConfig::new(&name, "mongodb://h")
+                    .validate()
+                    .is_err()
+            );
+            let mut c = ConnectionConfig::new("a", "mongodb://h");
+            c.folder = Some(format!("wo{ch}rk"));
+            assert!(c.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn name_and_folder_still_accept_ordinary_non_ascii() {
+        for text in ["Café", "日本語", "rocket \u{1F680}"] {
+            assert!(
+                ConnectionConfig::new(text, "mongodb://h")
+                    .validate()
+                    .is_ok()
+            );
+            let mut c = ConnectionConfig::new("a", "mongodb://h");
+            c.folder = Some(text.into());
+            assert!(c.validate().is_ok());
+        }
     }
 }

@@ -172,6 +172,15 @@ mod tests {
     }
 
     #[test]
+    fn import_keeps_a_colliding_max_length_name_valid() {
+        let long = cfg(&"a".repeat(curlybrace_core::connection::MAX_NAME_LEN));
+        let bytes = export_bytes(&[long.clone()]).unwrap();
+        let imported = prepare_import(&bytes, &[long], 9).unwrap();
+        assert_eq!(imported.connections.len(), 1);
+        assert!(imported.connections[0].validate().is_ok());
+    }
+
+    #[test]
     fn import_skips_invalid_entries_and_counts_them() {
         let bytes = br#"[{"nope":1}, 7]"#;
         let imported = prepare_import(bytes, &[], 9).unwrap();
