@@ -3,6 +3,7 @@ use curlybrace_core::GSSAPI_AVAILABLE;
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig, SshAuth, SshConfig, TlsConfig};
 use curlybrace_core::error::{CoreError, Result};
 use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
+use curlybrace_core::uri::ParsedUri;
 use std::fmt;
 use uuid::Uuid;
 
@@ -135,6 +136,24 @@ impl Default for ConnectionForm {
 }
 
 impl ConnectionForm {
+    /// Applies a parsed connection string. The password goes into the password field (it is
+    /// stored in the keychain on save); the string itself is not kept.
+    pub fn apply_parsed(self, parsed: ParsedUri) -> Self {
+        let has_password = parsed.password.is_some();
+        Self {
+            uri: parsed.uri,
+            username: parsed.username.unwrap_or(self.username),
+            auth: parsed.auth.unwrap_or(self.auth),
+            auth_source: parsed.auth_source.unwrap_or(self.auth_source),
+            tls_enabled: parsed.tls.unwrap_or(self.tls_enabled),
+            password: parsed
+                .password
+                .map_or(self.password, |p| p.expose().to_owned()),
+            clear_password: self.clear_password && !has_password,
+            ..self
+        }
+    }
+
     pub fn password_edit(&self) -> SecretEdit {
         SecretEdit::from_input(&self.password, self.clear_password)
     }
@@ -317,6 +336,38 @@ mod tests {
             ssh_user: "me".into(),
             ..valid()
         }
+    }
+
+    #[test]
+    fn apply_parsed_fills_fields_and_keeps_the_password_out_of_the_uri() {
+        let parsed =
+            curlybrace_core::uri::parse_uri("mongodb://bob:pw@h/db?authSource=admin&tls=true")
+                .unwrap();
+        let form = ConnectionForm {
+            name: "n".into(),
+            clear_password: true,
+            ..ConnectionForm::default()
+        }
+        .apply_parsed(parsed);
+        assert_eq!(form.uri, "mongodb://h/db");
+        assert_eq!(form.username, "bob");
+        assert_eq!(form.password, "pw");
+        assert_eq!(form.auth_source, "admin");
+        assert!(form.tls_enabled);
+        assert!(!form.clear_password);
+        assert!(form.to_config().is_ok(), "no password in the uri");
+    }
+
+    #[test]
+    fn apply_parsed_without_a_password_keeps_what_the_user_typed() {
+        let form = ConnectionForm {
+            password: "typed".into(),
+            clear_password: true,
+            ..ConnectionForm::default()
+        };
+        let form = form.apply_parsed(curlybrace_core::uri::parse_uri("mongodb://bob@h").unwrap());
+        assert_eq!(form.password, "typed");
+        assert!(form.clear_password, "untouched when no password was parsed");
     }
 
     #[test]

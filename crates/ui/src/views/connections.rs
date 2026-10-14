@@ -4,6 +4,9 @@ use crate::viewmodel::StoredSecrets;
 use crate::viewmodel::{ConnectionForm, auth_label_key, auth_options};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::TestReport;
+use curlybrace_core::secrets::SecretString;
+use curlybrace_core::uri::parse_uri;
 use eframe::egui;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -15,11 +18,37 @@ pub enum ConnectionAction {
     Save(Box<ConnectionForm>),
     Delete(Uuid),
     Duplicate(Uuid),
-    MoveToFolder { id: Uuid, folder: String },
-    RenameFolder { from: String, to: String },
+    MoveToFolder {
+        id: Uuid,
+        folder: String,
+    },
+    RenameFolder {
+        from: String,
+        to: String,
+    },
     DeleteFolder(String),
     StartImport,
     StartExport,
+    Test(Box<ConnectionForm>),
+    BuildUri {
+        form: Box<ConnectionForm>,
+        include_password: bool,
+    },
+}
+
+/// Progress of the Test Connection button. `tls` and `authenticated` in a finished report mean
+/// "configured", not "verified".
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum TestState {
+    #[default]
+    Idle,
+    Running {
+        request_id: u64,
+    },
+    Done {
+        request_id: u64,
+        outcome: Result<TestReport, CoreError>,
+    },
 }
 
 /// The outcome of an import or export, shown by the view (never carries paths).
@@ -42,6 +71,17 @@ pub struct ConnectionsState {
     pub delete_confirm: Option<Uuid>,
     /// Result of the last import or export.
     pub notice: Option<Notice>,
+    /// Test Connection progress and the form it was started for.
+    pub test: TestState,
+    pub test_seq: u64,
+    pub test_form: Option<ConnectionForm>,
+    /// Text pasted for "From URI"; cleared as soon as it has been parsed (it may hold a password).
+    pub uri_input: String,
+    /// "To URI" result (may hold a real password; `Debug` redacts it), the form it was built
+    /// for, and whether it contains the real password.
+    pub built_uri: Option<SecretString>,
+    pub built_for: Option<ConnectionForm>,
+    pub built_with_password: bool,
 }
 
 impl ConnectionsState {
@@ -66,7 +106,47 @@ impl ConnectionsState {
         self.delete_confirm = None;
     }
 
+    /// Drops a test result and a built URI once the form no longer matches what they belong to.
+    pub fn invalidate_stale_test(&mut self) {
+        if self.built_for.as_ref() != Some(&self.form) {
+            self.clear_built_uri();
+        }
+        if self.test_form.as_ref() != Some(&self.form)
+            && matches!(self.test, TestState::Done { .. })
+        {
+            self.test = TestState::Idle;
+        }
+    }
+
+    fn clear_built_uri(&mut self) {
+        self.built_uri = None;
+        self.built_for = None;
+        self.built_with_password = false;
+    }
+
+    /// Forgets the test result, the pasted text and the built URI (selection change, close).
+    pub fn reset_tools(&mut self) {
+        self.test = TestState::Idle;
+        self.test_form = None;
+        self.uri_input.clear();
+        self.clear_built_uri();
+    }
+
+    /// Parses the pasted connection string into the form. The buffer is cleared either way and
+    /// a failure never echoes it.
+    pub fn apply_uri_input(&mut self) {
+        let input = std::mem::take(&mut self.uri_input);
+        match parse_uri(&input) {
+            Ok(parsed) => {
+                self.form = self.form.clone().apply_parsed(parsed);
+                self.error = None;
+            }
+            Err(error) => self.error = Some(error),
+        }
+    }
+
     fn select(&mut self, cfg: &ConnectionConfig) {
+        self.reset_tools();
         self.delete_confirm = None;
         self.notice = None;
         self.selected = Some(cfg.id);
@@ -75,6 +155,7 @@ impl ConnectionsState {
     }
 
     fn start_new(&mut self) {
+        self.reset_tools();
         self.delete_confirm = None;
         self.notice = None;
         self.selected = None;

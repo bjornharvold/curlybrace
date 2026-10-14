@@ -18,6 +18,8 @@ mod compare_select;
 mod connection_io;
 mod connection_ops;
 mod connection_picker;
+mod connection_test;
+mod connection_uri;
 pub mod connections;
 pub mod file_picker;
 pub mod host_key;
@@ -274,6 +276,16 @@ impl CurlybraceApp {
             }
             ConnectionAction::DeleteFolder(name) => {
                 self.state = connection_ops::delete_folder(state, name, now, &self.config_path);
+            }
+            ConnectionAction::Test(form) => {
+                self.state = state;
+                self.dispatch(Input::TestConnection(form));
+            }
+            ConnectionAction::BuildUri {
+                form,
+                include_password,
+            } => {
+                self.state = connection_uri::build(state, &form, include_password, secrets);
             }
             ConnectionAction::StartImport => {
                 self.state = state;

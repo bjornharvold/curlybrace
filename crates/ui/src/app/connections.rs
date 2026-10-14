@@ -171,7 +171,7 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
     let was_selected = state.conn.selected == Some(id);
     let mut stored = state.conn.stored;
     stored.remove(&id);
-    let conn = ConnectionsState {
+    let mut conn = ConnectionsState {
         connections: list,
         stored,
         selected: if was_selected {
@@ -187,7 +187,11 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
         error: None,
         delete_confirm: None,
         notice: None,
+        ..state.conn
     };
+    if was_selected {
+        conn.reset_tools();
+    }
     AppState {
         conn,
         banner,
