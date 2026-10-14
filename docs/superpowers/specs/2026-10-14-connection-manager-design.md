@@ -71,7 +71,8 @@ duplicate is all or nothing. Delete keeps its current order: secrets first, the 
 
 - **Export** writes the same JSON array as `connections.json`. It has no password field by construction.
 - **Import** runs every entry through the tolerant loader (`validate()`), assigns a fresh id, clears
-  `last_connected`, and reports imported and skipped counts. An import can never overwrite an existing
+  `last_connected`, and reports imported and skipped counts. Import is strict: an entry with an invalid
+  name or folder is skipped on import (and repaired only when loaded from the user's own saved file). An import can never overwrite an existing
   connection or inherit another connection's keychain entries.
 - Paths come from the existing file picker.
 
@@ -87,24 +88,30 @@ duplicate is all or nothing. Delete keeps its current order: secrets first, the 
 
 ## Test Connection
 
-A new `Command::TestConnection` and `Event::TestConnectionResult { request_id, result }`. The runtime
-reuses validation, the keychain read, the optional SSH tunnel and `client::connect`, then drops the client
-and the tunnel. The result is typed: reachable, auth ok, TLS ok, server version, or a failure carrying an
-i18n key. Latest request wins, like the connect epoch. SSH host-key verification keeps failing closed.
+A new `Command::TestConnection { request_id, cfg, secrets }` and `Event::TestConnection { request_id,
+outcome }`. The runtime reuses validation, the keychain read, the optional SSH tunnel and
+`client::connect`, then drops the client and the tunnel. `outcome` is a `Result<TestReport, CoreError>`;
+`TestReport` carries the server version and the `tls` and `authenticated` flags, which mean "configured",
+not "verified". A failure carries a typed error that maps to an i18n key. Typed secrets travel in
+`TestSecrets`; the password is a `PasswordChoice` (`Stored`, `Without` when the user cleared the saved
+password, or `Typed`). Latest request wins, like the connect epoch. SSH host-key verification keeps
+failing closed.
 
 ## Manager UI
 
 - The connections screen (shown whenever the app is not connected) becomes the manager list; only
-  the edit form is a modal. Toolbar: New, Edit, Duplicate,
-  Delete, Import, Export, To URI. Filter box with a match count. Sortable table: name, hosts, security
-  summary, last connected, last modified. Folders as collapsible groups. Footer: Close, Connect.
-  Double-click connects.
+  the edit form is a modal. Toolbar: New, Edit, Duplicate, Delete, Import, Export, Move to folder.
+  Filter box with a match count. Sortable table: name, hosts, security summary, last connected, last
+  modified. Folders as collapsible groups. Each row has a Connect button, and double-click connects.
+  There is no Close button: the list is the home screen.
 - Edit dialog: name, folder, URI with From URI, authentication, TLS, SSH, Test Connection, To URI.
+  It closes on Cancel or Escape only; a click outside never discards a typed form.
   Test Connection reports what is configured (TLS on, credentials supplied), not what was
   verified; the wording says "configured" and never "verified".
-- `ConnectionAction` gains Duplicate, MoveToFolder, RenameFolder, DeleteFolder, Import, Export,
-  TestConnection, FromUri and ToUri. These are impure and go through `handle_connection_action`, like
-  Save and Delete.
+- `ConnectionAction` gains Duplicate, MoveToFolder, RenameFolder, DeleteFolder, StartImport,
+  StartExport, Test and BuildUri. These are impure and go through `handle_connection_action`, like
+  Save and Delete. From URI is a local view action: it parses the pasted text into the form and needs
+  no handler.
 - `last_connected` is stamped when `Event::Connected` arrives, and persisted.
 - Every string is an i18n key in `en.json`. The unused-key check is extended to the `connections.` prefix.
 - "Accept any certificate" and "allow invalid hostnames" keep a visible warning.

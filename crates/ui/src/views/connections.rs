@@ -281,7 +281,7 @@ impl ConnectionsState {
         self.editing = true;
     }
 
-    /// Closes the dialog without saving (Cancel, Escape, outside click).
+    /// Closes the dialog without saving (Cancel, Escape).
     pub fn close_edit(&mut self) {
         self.editing = false;
         self.error = None;

@@ -20,6 +20,8 @@ edit documents and compare data between databases, without an account, a trial, 
 ## What it does today
 
 **Connect**
+- A connection manager with folders, an edit dialog and Test Connection is being built
+  ([#45](https://github.com/bjornharvold/curlybrace/issues/45)).
 - Saved connections with SCRAM, X.509 and LDAP (PLAIN) authentication, TLS, replica sets and SRV
   (`mongodb+srv://`) URIs.
 - Kerberos (GSSAPI) support is included but **experimental**: it compiles and links against macOS
@@ -107,9 +109,9 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 - Only one SSH host per tunnel and single-host URIs are supported with a tunnel (no replica set
   discovery through a tunnel, no `mongodb+srv://`).
 - The find bar takes strict JSON, not mongo shell syntax.
-- Everyday tools you may expect from other clients (aggregation builder, import/export, index
-  management, schema analysis) are not built yet. They come after the features at the top of the
-  [roadmap](#roadmap).
+- Everyday tools you may expect from other clients (aggregation builder, document import and
+  export, index management, schema analysis) are not built yet. They come after the features at
+  the top of the [roadmap](#roadmap).
 
 ## Roadmap
 
@@ -136,6 +138,8 @@ contribute.
 - **Several connections at once** ([#46](https://github.com/bjornharvold/curlybrace/issues/46)) and a **production guard** with colour tags and a
   read-only flag ([#47](https://github.com/bjornharvold/curlybrace/issues/47)).
 - **Copy collections and documents between connections** ([#48](https://github.com/bjornharvold/curlybrace/issues/48)).
+- **Signing and notarization** ([#17](https://github.com/bjornharvold/curlybrace/issues/17)): planned (`P2`), so the app opens without a
+  Gatekeeper warning.
 - **Paths for `mongosh`, `mongodump` and `mongorestore`** ([#49](https://github.com/bjornharvold/curlybrace/issues/49)) and a **shell tab** that runs your
   own `mongosh` ([#50](https://github.com/bjornharvold/curlybrace/issues/50)).
 - **Bulk update and delete** with a count preview ([#51](https://github.com/bjornharvold/curlybrace/issues/51)).
@@ -160,7 +164,7 @@ contribute.
 - **Connection manager follow-ups:** remaining edit tabs ([#81](https://github.com/bjornharvold/curlybrace/issues/81)), start screen with recents
   ([#82](https://github.com/bjornharvold/curlybrace/issues/82)), nested folders ([#83](https://github.com/bjornharvold/curlybrace/issues/83)), export with secrets ([#84](https://github.com/bjornharvold/curlybrace/issues/84)).
 - **Platforms:** [Intel Mac](https://github.com/bjornharvold/curlybrace/issues/14), [Linux](https://github.com/bjornharvold/curlybrace/issues/15), [Windows](https://github.com/bjornharvold/curlybrace/issues/16).
-- **Trust and polish:** [signing and notarization](https://github.com/bjornharvold/curlybrace/issues/17), [Homebrew install](https://github.com/bjornharvold/curlybrace/issues/24) (blocked on
+- **Trust and polish:** [Homebrew install](https://github.com/bjornharvold/curlybrace/issues/24) (blocked on
   signing), [inline table editing](https://github.com/bjornharvold/curlybrace/issues/12), [`ssh-agent` support](https://github.com/bjornharvold/curlybrace/issues/13), [TLS test containers](https://github.com/bjornharvold/curlybrace/issues/18),
   [real screenshots](https://github.com/bjornharvold/curlybrace/issues/20), [translations](https://github.com/bjornharvold/curlybrace/issues/21), [command palette](https://github.com/bjornharvold/curlybrace/issues/80).
 

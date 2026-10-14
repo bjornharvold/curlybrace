@@ -3,7 +3,7 @@
 Data Compare shows what differs between two collections or two whole databases, on the same server
 or on different ones. It can then copy or delete the differences, or export them, with a review step
 before anything is written. This guide covers every part of it. The short version is in the
-[README](../README.md#compare).
+[README](../README.md#what-it-does-today).
 
 - [Start a compare](#start-a-compare)
 - [Pairs, settings and runs](#pairs-settings-and-runs)
@@ -70,9 +70,9 @@ settings, for instance to change the key).
 3. Actions are queued under **Pending changes**. Nothing is written until you press **Review
    changes**. The review names the connection, database and collection each action writes to, with
    the counts per pair.
-4. Deleting needs you to type the collection name before **Apply** is enabled: the database name
-   when several collections are affected, or a confirmation word when they span several databases
-   or connections.
+4. Deleting needs you to type the collection name before **Apply** is enabled. When several
+   collections are affected, type the database name instead; when they span several databases or
+   connections, type a confirmation word.
 5. Each document is checked again just before it is written. A document that changed since the
    compare is skipped and left alone.
 6. The result lists what was **applied**, **skipped**, **failed** (with the document's key) and **not
