@@ -56,6 +56,8 @@ pub struct Preflight {
     pub unindexed_too_large: bool,
 }
 
+// Commands are short-lived, moved once into a channel; boxing would ripple through every call site.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum CompareCommand {
     Open {

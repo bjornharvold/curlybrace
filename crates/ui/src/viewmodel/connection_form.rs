@@ -32,6 +32,9 @@ pub struct ConnectionForm {
     pub clear_ssh_secret: bool,
     pub auth_source: String,
     pub allow_invalid_certs: bool,
+    pub folder: String,
+    pub created_at: Option<i64>,
+    pub last_connected: Option<i64>,
 }
 
 /// What a save should do with one stored secret.
@@ -124,6 +127,9 @@ impl Default for ConnectionForm {
             clear_ssh_secret: false,
             auth_source: String::new(),
             allow_invalid_certs: false,
+            folder: String::new(),
+            created_at: None,
+            last_connected: None,
         }
     }
 }
@@ -153,6 +159,10 @@ impl ConnectionForm {
                 allow_invalid_certs: self.allow_invalid_certs,
             },
             ssh: self.ssh_config()?,
+            folder: non_blank(&self.folder),
+            created_at: self.created_at,
+            updated_at: None,
+            last_connected: self.last_connected,
         };
         cfg.validate()?;
         Ok(cfg)
@@ -196,6 +206,9 @@ impl ConnectionForm {
             allow_invalid_certs: c.tls.allow_invalid_certs,
             tls_ca: path(&c.tls.ca_file),
             tls_client_cert: path(&c.tls.client_cert_key_file),
+            folder: c.folder.clone().unwrap_or_default(),
+            created_at: c.created_at,
+            last_connected: c.last_connected,
             ..Self::default()
         };
         if let Some(ssh) = &c.ssh {
@@ -617,5 +630,23 @@ mod tests {
         ] {
             assert!(!i18n.t(auth_label_key(a)).contains('⟦'), "{a:?}");
         }
+    }
+
+    #[test]
+    fn form_round_trips_folder_and_timestamps() {
+        let mut c = ConnectionConfig::new("a", "mongodb://h").with_save_stamp(10);
+        c.folder = Some("work".into());
+        c.last_connected = Some(99);
+        let back = ConnectionForm::from_config(&c).to_config().unwrap();
+        assert_eq!(back.folder.as_deref(), Some("work"));
+        assert_eq!(back.created_at, Some(10));
+        assert_eq!(back.last_connected, Some(99));
+    }
+
+    #[test]
+    fn blank_folder_text_becomes_none() {
+        let mut form = ConnectionForm::from_config(&ConnectionConfig::new("a", "mongodb://h"));
+        form.folder = "   ".into();
+        assert_eq!(form.to_config().unwrap().folder, None);
     }
 }

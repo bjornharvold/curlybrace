@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
+pub const MAX_FOLDER_LEN: usize = 80;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuthMechanism {
     None,
@@ -46,6 +48,14 @@ pub struct ConnectionConfig {
     pub auth_source: Option<String>,
     pub tls: TlsConfig,
     pub ssh: Option<SshConfig>,
+    #[serde(default)]
+    pub folder: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<i64>,
+    #[serde(default)]
+    pub updated_at: Option<i64>,
+    #[serde(default)]
+    pub last_connected: Option<i64>,
 }
 
 impl ConnectionConfig {
@@ -59,7 +69,53 @@ impl ConnectionConfig {
             auth_source: None,
             tls: TlsConfig::default(),
             ssh: None,
+            folder: None,
+            created_at: None,
+            updated_at: None,
+            last_connected: None,
         }
+    }
+
+    pub fn with_save_stamp(self, now: i64) -> Self {
+        Self {
+            created_at: self.created_at.or(Some(now)),
+            updated_at: Some(now),
+            ..self
+        }
+    }
+
+    pub fn with_connected_at(self, now: i64) -> Self {
+        Self {
+            last_connected: Some(now),
+            ..self
+        }
+    }
+
+    /// A copy with a new id and fresh timestamps. Secrets are not part of the config: the
+    /// caller copies them (see `secrets::copy_all`).
+    pub fn duplicate(&self, name: String, now: i64) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name,
+            created_at: Some(now),
+            updated_at: Some(now),
+            last_connected: None,
+            ..self.clone()
+        }
+    }
+
+    fn validate_folder(&self) -> Result<()> {
+        let Some(folder) = &self.folder else {
+            return Ok(());
+        };
+        let bad = folder.trim().is_empty()
+            || folder.trim() != folder
+            || folder.chars().count() > MAX_FOLDER_LEN
+            || folder.chars().any(char::is_control);
+        if bad {
+            return Err(CoreError::InvalidUri("invalid folder name".into()));
+        }
+        Ok(())
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -67,6 +123,7 @@ impl ConnectionConfig {
             return Err(CoreError::InvalidUri("blank connection name".into()));
         }
         self.validate_uri()?;
+        self.validate_folder()?;
         if self.auth == AuthMechanism::X509
             && !(self.tls.enabled && self.tls.client_cert_key_file.is_some())
         {
@@ -106,6 +163,18 @@ impl ConnectionConfig {
         }
         Ok(())
     }
+}
+
+/// `base`, or `base 2`, `base 3`, ... if a connection already has that name.
+pub fn unique_name(base: &str, existing: &[ConnectionConfig]) -> String {
+    let taken = |n: &str| existing.iter().any(|c| c.name == n);
+    if !taken(base) {
+        return base.to_owned();
+    }
+    (2..)
+        .map(|n| format!("{base} {n}"))
+        .find(|candidate| !taken(candidate))
+        .unwrap_or_else(|| base.to_owned())
 }
 
 #[cfg(test)]
@@ -181,5 +250,69 @@ mod tests {
         let json = serde_json::to_string(&c).unwrap();
         assert!(!json.to_lowercase().contains("password"));
         assert_eq!(serde_json::from_str::<ConnectionConfig>(&json).unwrap(), c);
+    }
+
+    #[test]
+    fn old_files_without_the_new_fields_still_load() {
+        let old = r#"{"id":"6f9619ff-8b86-d011-b42d-00c04fc964ff","name":"a","uri":"mongodb://h",
+            "auth":"None","username":null,"auth_source":null,
+            "tls":{"enabled":false,"ca_file":null,"client_cert_key_file":null,"allow_invalid_certs":false},
+            "ssh":null}"#;
+        let c: ConnectionConfig = serde_json::from_str(old).unwrap();
+        assert_eq!(c.folder, None);
+        assert_eq!(c.created_at, None);
+        assert_eq!(c.updated_at, None);
+        assert_eq!(c.last_connected, None);
+    }
+
+    #[test]
+    fn save_stamp_keeps_created_and_refreshes_updated() {
+        let first = ConnectionConfig::new("a", "mongodb://h").with_save_stamp(100);
+        assert_eq!((first.created_at, first.updated_at), (Some(100), Some(100)));
+        let second = first.with_save_stamp(200);
+        assert_eq!(
+            (second.created_at, second.updated_at),
+            (Some(100), Some(200))
+        );
+    }
+
+    #[test]
+    fn duplicate_gets_a_new_id_and_fresh_metadata_and_keeps_settings() {
+        let mut src = ConnectionConfig::new("prod", "mongodb://h").with_save_stamp(10);
+        src.folder = Some("work".into());
+        src.last_connected = Some(50);
+        src.username = Some("bob".into());
+        let copy = src.duplicate("prod copy".into(), 300);
+        assert_ne!(copy.id, src.id);
+        assert_eq!(copy.name, "prod copy");
+        assert_eq!(copy.folder.as_deref(), Some("work"));
+        assert_eq!(copy.username.as_deref(), Some("bob"));
+        assert_eq!((copy.created_at, copy.updated_at), (Some(300), Some(300)));
+        assert_eq!(copy.last_connected, None);
+    }
+
+    #[test]
+    fn unique_name_appends_a_counter_only_when_taken() {
+        let a = ConnectionConfig::new("prod copy", "mongodb://h");
+        let b = ConnectionConfig::new("prod copy 2", "mongodb://h");
+        assert_eq!(unique_name("fresh", &[a.clone()]), "fresh");
+        assert_eq!(unique_name("prod copy", &[a.clone()]), "prod copy 2");
+        assert_eq!(unique_name("prod copy", &[a, b]), "prod copy 3");
+    }
+
+    #[test]
+    fn folder_must_be_short_and_free_of_control_characters() {
+        let mut c = ConnectionConfig::new("a", "mongodb://h");
+        c.folder = Some("ok folder".into());
+        assert!(c.validate().is_ok());
+        c.folder = Some("x".repeat(MAX_FOLDER_LEN + 1));
+        assert!(c.validate().is_err());
+        c.folder = Some("bad\nname".into());
+        assert!(c.validate().is_err());
+        c.folder = Some("   ".into());
+        assert!(
+            c.validate().is_err(),
+            "a blank folder must be None, not an empty string"
+        );
     }
 }

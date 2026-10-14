@@ -1,4 +1,5 @@
 pub mod client;
+pub mod clock;
 pub mod compare;
 pub mod connection;
 pub mod crud;

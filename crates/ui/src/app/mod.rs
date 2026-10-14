@@ -243,7 +243,13 @@ impl CurlybraceApp {
                 self.dispatch(Input::Connect(id));
             }
             ConnectionAction::Save(form) => {
-                self.state = connections::save(state, &form, secrets, &self.config_path);
+                self.state = connections::save(
+                    state,
+                    &form,
+                    secrets,
+                    &self.config_path,
+                    curlybrace_core::clock::now_secs(),
+                );
             }
             ConnectionAction::Delete(id) => {
                 self.state = connections::delete(state, id, secrets, &self.config_path);
