@@ -10,12 +10,6 @@ use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-const ALL_KINDS: [SecretKind; 3] = [
-    SecretKind::Password,
-    SecretKind::SshPassword,
-    SecretKind::SshPassphrase,
-];
-
 /// Where the connection list lives; an unknown config dir stays a typed error.
 pub type ConfigPath = Result<PathBuf, PersistError>;
 
@@ -152,7 +146,7 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
     if let Err(e) = state.persist.check() {
         return refused(state, e);
     }
-    let failures: Vec<CoreError> = ALL_KINDS
+    let failures: Vec<CoreError> = SecretKind::ALL
         .iter()
         .filter_map(|kind| secrets.delete(&secret_key(id, *kind)).err())
         .collect();
@@ -359,13 +353,13 @@ mod tests {
             0,
         );
         let id = s.conn.connections[0].id;
-        for kind in ALL_KINDS {
+        for kind in SecretKind::ALL {
             secrets.set(&secret_key(id, kind), "x").unwrap();
         }
         let s = delete(s, id, &secrets, &path(&dir));
         assert!(s.conn.connections.is_empty() && s.conn.selected.is_none());
         assert!(!s.conn.stored.contains_key(&id));
-        for kind in ALL_KINDS {
+        for kind in SecretKind::ALL {
             assert_eq!(secrets.get(&secret_key(id, kind)).unwrap(), None);
         }
         let loaded = load_connections(&dir.path().join("connections.json")).unwrap();
@@ -417,7 +411,7 @@ mod tests {
             0,
         );
         let id = s.conn.connections[0].id;
-        for kind in ALL_KINDS {
+        for kind in SecretKind::ALL {
             store.inner.set(&secret_key(id, kind), "x").unwrap();
         }
         store.attempts.lock().unwrap().clear();
@@ -447,7 +441,7 @@ mod tests {
             .store(false, std::sync::atomic::Ordering::SeqCst);
         let s = delete(s, id, &store, &path(&dir));
         assert!(s.conn.connections.is_empty());
-        for kind in ALL_KINDS {
+        for kind in SecretKind::ALL {
             assert_eq!(store.inner.get(&secret_key(id, kind)).unwrap(), None);
         }
     }
