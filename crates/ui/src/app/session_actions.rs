@@ -5,7 +5,7 @@
 //! session it names, so `epoch_counter` goes up by exactly one per command sent here.
 use super::reducer::Out;
 use super::session::SessionView;
-use super::state::{AppState, ConnStatus, HostEndpoint, Workspace};
+use super::state::{AppState, Banner, ConnStatus, HostEndpoint, Workspace};
 use curlybrace_core::runtime::Command;
 use uuid::Uuid;
 
@@ -52,9 +52,23 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
         (true, Some(next)) => state.activated(next),
         _ => state,
     };
+    // A failure the closed session raised goes with it; other sessions' banners stay.
+    let own_failure = focused.banner_session == Some(id)
+        && matches!(focused.banner, Some(Banner::Failure { .. }));
+    let dropped = focused.session_dropped(id);
+    let next = if own_failure {
+        AppState {
+            banner: None,
+            banner_session: None,
+            forget_target: None,
+            ..dropped
+        }
+    } else {
+        dropped
+    };
     let next = AppState {
         epoch_counter: epoch,
-        ..focused.session_dropped(id)
+        ..next
     };
     (next, vec![Command::Disconnect { session: id }])
 }

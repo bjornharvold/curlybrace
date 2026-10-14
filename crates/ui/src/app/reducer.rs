@@ -71,7 +71,12 @@ fn with_banner(state: AppState, banner: Option<Banner>) -> AppState {
 }
 
 fn failure(state: AppState, context: &'static str, error: CoreError) -> AppState {
-    with_banner(state, Some(Banner::Failure { context, error }))
+    let banner_session = state.active;
+    AppState {
+        banner_session,
+        forget_target: None,
+        ..with_banner(state, Some(Banner::Failure { context, error }))
+    }
 }
 
 fn on_event(state: AppState, ev: Event) -> Out {
@@ -208,8 +213,15 @@ fn connection_lost(state: AppState, context: &'static str, error: CoreError) -> 
         context,
         error: error.clone(),
     });
+    // Captured here, while the failing session's view is the active one.
+    let forget_target = (context == "connect" && error == CoreError::SshHostKeyChanged)
+        .then(|| state.ssh_endpoint.clone())
+        .flatten();
+    let banner_session = state.active;
     AppState {
         banner,
+        banner_session,
+        forget_target,
         ..state.failed(error)
     }
 }

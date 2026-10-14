@@ -3,7 +3,7 @@ use crate::app::reducer::{Input, Out, update};
 use crate::app::state::{AppState, Banner, ConnStatus};
 use crate::viewmodel::{EditorAction, FindAction, SidebarAction};
 use bson::doc;
-use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{Namespace, Page, Query};
@@ -479,6 +479,117 @@ fn a_sidebar_action_in_a_closed_session_is_ignored() {
         }),
     );
     assert!(cmds.is_empty() && s.sidebar.selected.is_none() && s.banner.is_none());
+}
+
+fn via(name: &str, host: &str) -> ConnectionConfig {
+    let mut c = ConnectionConfig::new(name, "mongodb://db:27017");
+    c.ssh = Some(SshConfig {
+        host: host.into(),
+        port: 2222,
+        username: "me".into(),
+        auth: SshAuth::Password,
+    });
+    c
+}
+
+/// `a` (bastion-a) is connected and active; background `b` (bastion-b) just failed because its
+/// host key changed. Returns the state and both ids.
+fn host_key_changed_in_the_background() -> (AppState, Uuid, Uuid) {
+    let (cfg_a, cfg_b) = (via("a", "bastion-a"), via("b", "bastion-b"));
+    let (a, b) = (cfg_a.id, cfg_b.id);
+    let s = AppState::new(vec![cfg_a, cfg_b]);
+    let (s, _) = update(s, Input::Connect(b));
+    let s = opened(s, a);
+    let (s, _) = ev(
+        s,
+        Event::ConnectFailed {
+            session: b,
+            epoch: 1,
+            error: CoreError::SshHostKeyChanged,
+        },
+    );
+    (s, a, b)
+}
+
+fn offered_host(s: &AppState) -> Option<String> {
+    s.forgettable_host().map(|e| e.host.clone())
+}
+
+#[test]
+fn the_forget_offer_names_the_host_of_the_session_whose_key_changed() {
+    let (s, a, _) = host_key_changed_in_the_background();
+    assert_eq!(s.active, Some(a));
+    assert_eq!(offered_host(&s).as_deref(), Some("bastion-b"));
+}
+
+#[test]
+fn focusing_another_root_keeps_the_banner_and_the_offer_on_the_failing_host() {
+    let (s, a, b) = host_key_changed_in_the_background();
+    let banner = format!("{:?}", s.banner);
+    let (s, _) = update(s, Input::Activate(b));
+    assert_eq!(offered_host(&s).as_deref(), Some("bastion-b"));
+    let (s, _) = update(s, Input::Activate(a));
+    assert_eq!(offered_host(&s).as_deref(), Some("bastion-b"));
+    let (s, _) = update(s, Input::Connect(a));
+    assert_eq!(
+        format!("{:?}", s.banner),
+        banner,
+        "focus never touches the banner"
+    );
+    assert_eq!(offered_host(&s).as_deref(), Some("bastion-b"));
+}
+
+#[test]
+fn closing_the_failed_root_clears_its_banner_and_the_offer() {
+    let (s, a, b) = host_key_changed_in_the_background();
+    let (s, _) = update(s, Input::Disconnect(a));
+    assert!(
+        s.banner.is_some(),
+        "another session's close leaves the banner"
+    );
+    assert_eq!(offered_host(&s).as_deref(), Some("bastion-b"));
+    let (s, _) = update(s, Input::Disconnect(b));
+    assert_eq!(s.banner, None);
+    assert!(s.forgettable_host().is_none());
+}
+
+#[test]
+fn closing_the_failed_active_root_clears_the_banner_and_activates_the_neighbour() {
+    let (cfg_a, cfg_b) = (via("a", "bastion-a"), via("b", "bastion-b"));
+    let (a, b) = (cfg_a.id, cfg_b.id);
+    let s = opened(AppState::new(vec![cfg_a, cfg_b]), b);
+    let (s, _) = update(s, Input::Connect(a));
+    let (s, _) = ev(
+        s,
+        Event::ConnectFailed {
+            session: a,
+            epoch: 2,
+            error: CoreError::SshHostKeyChanged,
+        },
+    );
+    assert_eq!(offered_host(&s).as_deref(), Some("bastion-a"));
+    let (s, _) = update(s, Input::Disconnect(a));
+    assert_eq!(s.active, Some(b));
+    assert_eq!(s.banner, None);
+    assert!(s.forgettable_host().is_none());
+}
+
+#[test]
+fn dismissing_or_replacing_the_banner_withdraws_the_offer() {
+    let (s, _, _) = host_key_changed_in_the_background();
+    let (dismissed, _) = update(s, Input::DismissBanner);
+    assert!(dismissed.forgettable_host().is_none());
+
+    let (s, a, _) = host_key_changed_in_the_background();
+    let (s, _) = ev(
+        s,
+        Event::Failed {
+            session: a,
+            context: "find",
+            error: CoreError::NotFound,
+        },
+    );
+    assert!(s.forgettable_host().is_none());
 }
 
 #[test]

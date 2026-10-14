@@ -135,6 +135,11 @@ pub struct AppState {
     pub ssh_endpoint: Option<HostEndpoint>,
     /// Endpoint awaiting the "forget host" confirmation.
     pub forget_confirm: Option<HostEndpoint>,
+    /// The session whose failure raised the current banner (a close of it clears the banner).
+    pub banner_session: Option<Uuid>,
+    /// The host of the session whose connect failed with a changed host key, captured when the
+    /// banner was raised. Only offered while that banner is showing.
+    pub forget_target: Option<HostEndpoint>,
 }
 
 impl AppState {
@@ -199,7 +204,9 @@ impl AppState {
 
     /// Whether the "forget host" action applies to the current banner.
     pub fn forgettable_host(&self) -> Option<&HostEndpoint> {
-        match (&self.banner, &self.ssh_endpoint) {
+        // The endpoint was captured when the failure was raised, so it stays that of the session
+        // whose key changed whichever session is active now.
+        match (&self.banner, &self.forget_target) {
             (
                 Some(Banner::Failure {
                     context: "connect",

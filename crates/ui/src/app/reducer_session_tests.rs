@@ -6,10 +6,12 @@ use curlybrace_core::runtime::EMBEDDED_SESSION;
 
 fn host_key_changed_state() -> AppState {
     let mut s = AppState::new(vec![]);
-    s.ssh_endpoint = Some(HostEndpoint {
+    let bastion = HostEndpoint {
         host: "bastion".into(),
         port: 22,
-    });
+    };
+    s.ssh_endpoint = Some(bastion.clone());
+    s.forget_target = Some(bastion);
     s.banner = Some(Banner::Failure {
         context: "connect",
         error: CoreError::SshHostKeyChanged,
