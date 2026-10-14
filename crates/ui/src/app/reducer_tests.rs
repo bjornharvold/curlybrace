@@ -97,6 +97,7 @@ fn connected_sets_status_and_lists_databases() {
         Event::Connected {
             session: EMBEDDED_SESSION,
             epoch: 1,
+            topology: None,
         },
     );
     assert_eq!(s.status, ConnStatus::Connected);

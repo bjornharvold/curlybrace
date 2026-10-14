@@ -11,7 +11,7 @@ use tokio::sync::Notify;
 
 use super::*;
 use crate::connection::ConnectionConfig;
-use crate::store::{Namespace, Page};
+use crate::store::{Namespace, Page, Topology};
 use crate::test_support::InMemoryStore;
 use crate::test_support::mock_objects::mock_namespace;
 
@@ -68,7 +68,7 @@ async fn next(h: &mut RuntimeHandle) -> Event {
 async fn connect(h: &mut RuntimeHandle, c: &ConnectionConfig) -> u64 {
     h.tx.send(Command::Connect(c.clone())).unwrap();
     match next(h).await {
-        Event::Connected { session, epoch } => {
+        Event::Connected { session, epoch, .. } => {
             assert_eq!(session, c.id);
             epoch
         }
@@ -281,7 +281,8 @@ fn command_and_event_report_their_session() {
     assert_eq!(
         Event::Connected {
             session: id,
-            epoch: 1
+            epoch: 1,
+            topology: None
         }
         .session(),
         Some(id)
@@ -291,4 +292,70 @@ fn command_and_event_report_their_session() {
         outcome: Err(CoreError::Superseded),
     };
     assert_eq!(test_event.session(), None);
+}
+
+/// A store that only answers the topology question, with a fixed outcome.
+struct TopologyStore {
+    answer: std::result::Result<Option<Topology>, ()>,
+}
+
+#[async_trait]
+impl DocumentStore for TopologyStore {
+    async fn topology(&self) -> Result<Option<Topology>> {
+        self.answer.map_err(|()| CoreError::Database("down".into()))
+    }
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+    async fn find(&self, _ns: &Namespace, _q: &Query) -> Result<Page> {
+        down()
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        down()
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        down()
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        down()
+    }
+}
+
+async fn connected_topology(answer: std::result::Result<Option<Topology>, ()>) -> Event {
+    let c = cfg("t");
+    let mut h = start(vec![(&c, Arc::new(TopologyStore { answer }))]);
+    h.tx.send(Command::Connect(c)).unwrap();
+    next(&mut h).await
+}
+
+#[tokio::test]
+async fn topology_of_the_store_is_reported_on_connect() {
+    let event = connected_topology(Ok(Some(Topology::ReplicaSet))).await;
+    assert!(matches!(
+        event,
+        Event::Connected {
+            topology: Some(Topology::ReplicaSet),
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn a_store_without_topology_connects_with_none() {
+    let c = cfg("m");
+    let mut h = start(vec![(&c, store_with_db("d"))]);
+    h.tx.send(Command::Connect(c)).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected { topology: None, .. }
+    ));
+}
+
+#[tokio::test]
+async fn a_failing_topology_read_never_fails_the_connect() {
+    let event = connected_topology(Err(())).await;
+    assert!(matches!(event, Event::Connected { topology: None, .. }));
 }

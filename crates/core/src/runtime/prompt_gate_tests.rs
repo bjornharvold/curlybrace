@@ -187,7 +187,8 @@ async fn a_prompt_requested_after_a_newer_connect_is_not_asked_and_records_nothi
         next(&mut r.h).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 2
+            epoch: 2,
+            topology: None,
         }
     );
     release.send(()).unwrap(); // epoch 1 now reaches the host-key policy
@@ -215,7 +216,8 @@ async fn an_answer_arriving_after_supersession_is_turned_into_a_reject() {
         next(&mut r.h).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 2
+            epoch: 2,
+            topology: None,
         }
     );
     unblock.send(()).unwrap(); // the user "answers" Trust and remember, too late
@@ -231,7 +233,8 @@ async fn a_current_connect_can_still_trust_and_remember() {
         next(&mut r.h).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 1
+            epoch: 1,
+            topology: None,
         }
     );
     assert_eq!(r.prompt.calls.load(Ordering::SeqCst), 1);

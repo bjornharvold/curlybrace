@@ -7,6 +7,14 @@ use crate::compare::diff::PathSegment;
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 
+/// How the connected MongoDB server is deployed, as its `hello` reply tells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Topology {
+    Direct,
+    ReplicaSet,
+    Sharded,
+}
+
 /// Documents fetched per page in the browser.
 pub const PAGE_SIZE: u64 = 50;
 
@@ -127,6 +135,11 @@ pub trait DocumentStore: Send + Sync {
     async fn replace(&self, ns: &Namespace, id: &Bson, doc: Document) -> Result<()>;
     /// Deletes the document with `_id == id`; `NotFound` if none matches.
     async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()>;
+
+    /// How the server is deployed, if it can be read. Informational: a failure is `None`.
+    async fn topology(&self) -> Result<Option<Topology>> {
+        Ok(None)
+    }
 
     /// The server's version string, if it can be read. Informational: a failure is `None`.
     async fn server_version(&self) -> Result<Option<String>> {

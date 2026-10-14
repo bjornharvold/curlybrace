@@ -22,6 +22,7 @@ fn connected(epoch: u64) -> Event {
     Event::Connected {
         session: EMBEDDED_SESSION,
         epoch,
+        topology: None,
     }
 }
 
@@ -285,6 +286,7 @@ fn connect_data_and_disconnect_commands_all_carry_the_opened_connections_id() {
         Event::Connected {
             session: id,
             epoch: 1,
+            topology: None,
         },
     );
     assert_eq!(

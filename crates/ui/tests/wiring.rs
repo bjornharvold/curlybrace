@@ -426,7 +426,8 @@ async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
         recv(&mut handle).await,
         Event::Connected {
             session: id_c,
-            epoch: state.latest_requested_epoch
+            epoch: state.latest_requested_epoch,
+            topology: None,
         }
     );
     tx_a.send(Ok(seeded())).ok();

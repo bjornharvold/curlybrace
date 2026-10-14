@@ -117,7 +117,8 @@ async fn real_runtime_connects_lists_and_finds_with_a_keychain_password() {
     let wait = Duration::from_secs(20);
 
     rt.tx.send(Command::Connect(cfg.clone())).unwrap();
-    let Event::Connected { session, epoch } = next_event(&mut rt.rx, wait, "connect").await else {
+    let Event::Connected { session, epoch, .. } = next_event(&mut rt.rx, wait, "connect").await
+    else {
         panic!("expected Connected");
     };
     assert_eq!(session, cfg.id);

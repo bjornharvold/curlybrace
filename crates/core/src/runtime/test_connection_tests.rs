@@ -273,7 +273,8 @@ async fn start_connected(connector: Arc<FakeConnector>) -> RuntimeHandle {
         next(&mut rt).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 1
+            epoch: 1,
+            topology: None,
         }
     );
     rt
@@ -362,7 +363,8 @@ async fn a_test_does_not_disturb_an_installed_session() {
         next(&mut rt).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 2
+            epoch: 2,
+            topology: None,
         }
     );
 }
@@ -499,7 +501,8 @@ async fn a_connect_in_flight_when_a_test_is_requested_still_completes() {
         next(&mut rt).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 1
+            epoch: 1,
+            topology: None,
         }
     );
     rt.tx
@@ -520,7 +523,8 @@ async fn a_test_then_a_connect_the_connect_wins_and_the_test_is_still_delivered(
         next(&mut rt).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 1
+            epoch: 1,
+            topology: None,
         }
     );
     release.send(()).unwrap();
@@ -642,7 +646,8 @@ async fn the_host_key_question_of_a_test_is_not_rejected_by_a_newer_connect() {
         next(&mut r.rt).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 1
+            epoch: 1,
+            topology: None,
         }
     );
     release.send(()).unwrap();

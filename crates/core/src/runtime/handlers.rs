@@ -217,7 +217,7 @@ async fn connect_store(
     let limit = shared.config.connect_timeout;
     // The tunnel lives in this scope until installed; a failure, timeout or
     // cancellation anywhere below drops it, which closes it.
-    let (store, tunnel) = bounded(limit, async {
+    let (store, tunnel, topology) = bounded(limit, async {
         let password = read_password(shared, &cfg).await?;
         let job = Arc::new(ConnectionCurrent {
             session: session.clone(),
@@ -229,13 +229,15 @@ async fn connect_store(
             .connector
             .connect(&cfg, password.as_deref(), addr)
             .await?;
-        Ok((store, tunnel))
+        let topology = store.topology().await.unwrap_or(None);
+        Ok((store, tunnel, topology))
     })
     .await?;
     if session.install_if_current(generation, store, tunnel) {
         Ok(Event::Connected {
             session: cfg.id,
             epoch: generation,
+            topology,
         })
     } else {
         Err(CoreError::Superseded)

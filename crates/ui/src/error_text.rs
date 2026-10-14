@@ -184,7 +184,8 @@ mod tests {
         assert_eq!(
             failure_log_line(&Event::Connected {
                 session: EMBEDDED_SESSION,
-                epoch: 1
+                epoch: 1,
+                topology: None,
             }),
             None
         );

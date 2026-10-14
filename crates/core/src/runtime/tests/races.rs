@@ -461,7 +461,8 @@ async fn epochs_identify_the_request_each_outcome_belongs_to() {
         next(&mut h).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 2
+            epoch: 2,
+            topology: None,
         }
     );
     h.tx.send(Command::Disconnect {
@@ -626,7 +627,8 @@ async fn a_connect_failing_validation_still_consumes_an_epoch() {
         next(&mut h).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 2
+            epoch: 2,
+            topology: None,
         }
     );
     h.tx.send(Command::Disconnect {
@@ -690,7 +692,8 @@ async fn a_slow_connect_is_not_cut_at_the_command_timeout() {
         next(&mut h).await,
         Event::Connected {
             session: EMBEDDED_SESSION,
-            epoch: 1
+            epoch: 1,
+            topology: None,
         }
     );
 }

@@ -572,7 +572,11 @@ mod tests {
             app.dispatch(Input::Connect(id));
             let epoch = app.state().latest_requested_epoch;
             events
-                .send(Event::Connected { session: id, epoch })
+                .send(Event::Connected {
+                    session: id,
+                    epoch,
+                    topology: None,
+                })
                 .unwrap();
             app.pump();
             assert_eq!(app.state().status, ConnStatus::Connected);

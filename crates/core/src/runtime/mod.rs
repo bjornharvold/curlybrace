@@ -46,7 +46,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
 use crate::secrets::SecretStore;
-use crate::store::{DocumentStore, Namespace, Page, Query};
+use crate::store::{DocumentStore, Namespace, Page, Query, Topology};
 use crate::tunnel::{HostKeyPrompt, RejectUnknownHostKeys};
 use session::Session;
 
@@ -270,7 +270,12 @@ pub enum Event {
     /// request, so a receiver can ignore an outcome older than the latest one it requested. Only a
     /// still-current connect reports `Connected` or `ConnectFailed`; a replaced one reports
     /// `Failed { error: Superseded }`.
-    Connected { session: SessionId, epoch: u64 },
+    Connected {
+        session: SessionId,
+        epoch: u64,
+        /// How the server is deployed; `None` when it could not be read (never fails a connect).
+        topology: Option<Topology>,
+    },
     /// The `Disconnect` with this `epoch` took effect.
     Disconnected { session: SessionId, epoch: u64 },
     /// The still-current connect with this `epoch` failed for real. A replaced connect never
