@@ -28,6 +28,8 @@ pub enum Workspace {
     #[default]
     Browse,
     Compare,
+    /// The connection manager, shown while sessions stay open in the tree.
+    Connections,
 }
 
 /// A dismissible message. Holds keys and typed errors, never English text.

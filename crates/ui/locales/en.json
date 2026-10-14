@@ -623,11 +623,23 @@
   "sidebar": {
     "compare_database_to": "Compare database to...",
     "compare_to": "Compare to...",
+    "connections": "Connections",
+    "disconnect_named": "Disconnect {name}",
     "empty": "No databases",
     "loading": "Loading...",
     "no_collections": "No collections",
+    "reconnect": "Reconnect",
+    "reconnect_named": "Reconnect {name}",
     "refresh": "Refresh",
-    "title": "Databases"
+    "root_failed": "Could not connect",
+    "status_connected": "Connected",
+    "status_connecting": "Connecting...",
+    "status_failed": "Failed",
+    "title": "Databases",
+    "toggle_named": "Show or hide {name}",
+    "topology_direct": "Direct",
+    "topology_replica_set": "Replica set",
+    "topology_sharded": "Sharded"
   },
   "tree": {
     "more_items": "{n} more items"

@@ -78,6 +78,17 @@ pub(super) fn activate(state: AppState, id: Uuid) -> Out {
     (activate_in_browser(state, id), Vec::new())
 }
 
+/// Shows the connection manager; the open sessions and their views stay as they are.
+pub(super) fn show_connections(state: AppState) -> Out {
+    (
+        AppState {
+            workspace: Workspace::Connections,
+            ..state
+        },
+        Vec::new(),
+    )
+}
+
 fn activate_in_browser(state: AppState, id: Uuid) -> AppState {
     if !state.is_open(id) {
         return state;

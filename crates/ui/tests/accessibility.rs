@@ -517,3 +517,105 @@ fn editor_text_box_is_named_by_the_dialog_title() {
     let title = i18n.t("editor.title_new");
     harness.get_by_role_and_label(Role::MultilineTextInput, &title);
 }
+
+mod session_tree {
+    use super::*;
+    use curlybrace_core::connection::ConnectionConfig;
+    use curlybrace_core::error::CoreError;
+    use curlybrace_core::store::Topology;
+    use curlybrace_ui::app::reducer::Input;
+    use curlybrace_ui::app::session::SessionView;
+    use curlybrace_ui::app::state::{AppState, ConnStatus};
+    use curlybrace_ui::views::sidebar_roots::show_roots;
+    use egui_kittest::kittest::NodeT;
+
+    const NAMES: [&str; 3] = ["Alpha", "Beta", "Gamma"];
+
+    /// `Alpha` active and connected, `Beta` connecting, `Gamma` failed.
+    fn three_roots() -> AppState {
+        let configs: Vec<_> = NAMES
+            .iter()
+            .map(|n| ConnectionConfig::new(n, "mongodb://localhost"))
+            .collect();
+        let ids: Vec<_> = configs.iter().map(|c| c.id).collect();
+        let mut state = AppState::new(configs);
+        state.open = ids.clone();
+        state.active = Some(ids[0]);
+        state.status = ConnStatus::Connected;
+        state.topology = Some(Topology::Direct);
+        let parked = |status, failure| SessionView {
+            status,
+            failure,
+            ..SessionView::default()
+        };
+        state
+            .parked
+            .insert(ids[1], parked(ConnStatus::Connecting, None));
+        state.parked.insert(
+            ids[2],
+            parked(ConnStatus::Failed, Some(CoreError::Database("x".into()))),
+        );
+        state
+    }
+
+    fn harness() -> Harness<'static, AppState> {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(320.0, 600.0))
+            .build_ui_state(
+                |ui, state: &mut AppState| {
+                    let _: Option<Input> = show_roots(ui, state, &I18n::english());
+                },
+                three_roots(),
+            );
+        harness.run();
+        harness
+    }
+
+    fn expected_labels() -> Vec<String> {
+        let i18n = I18n::english();
+        let mut labels = vec![i18n.t("sidebar.connections")];
+        for name in NAMES {
+            let args = [("name", name)];
+            labels.push(i18n.t_with("sidebar.toggle_named", &args));
+            labels.push(name.to_string());
+            labels.push(i18n.t_with("sidebar.disconnect_named", &args));
+        }
+        labels.push(i18n.t_with("sidebar.reconnect_named", &[("name", "Gamma")]));
+        labels
+    }
+
+    #[test]
+    fn every_root_control_has_a_distinct_name_that_says_which_connection() {
+        let harness = harness();
+        for label in expected_labels() {
+            assert_eq!(
+                harness.get_all_by_label(&label).count(),
+                1,
+                "{label} must name exactly one control"
+            );
+        }
+        for name in NAMES {
+            let disconnect = I18n::english().t_with("sidebar.disconnect_named", &[("name", name)]);
+            assert!(disconnect.contains(name));
+            harness.get_by_role_and_label(Role::Button, &disconnect);
+        }
+    }
+
+    #[test]
+    fn the_tree_is_reachable_with_the_keyboard() {
+        let mut harness = harness();
+        let mut reached = Vec::new();
+        for _ in 0..expected_labels().len() + 2 {
+            harness.key_press(egui::Key::Tab);
+            harness.run();
+            let focused = harness
+                .root()
+                .children_recursive()
+                .find(|n| n.accesskit_node().is_focused());
+            reached.extend(focused.and_then(|n| n.accesskit_node().label()));
+        }
+        for label in expected_labels() {
+            assert!(reached.contains(&label), "{label} not reached: {reached:?}");
+        }
+    }
+}

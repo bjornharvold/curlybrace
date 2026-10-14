@@ -27,7 +27,7 @@ pub mod host_key;
 mod panels;
 pub mod persistence;
 pub mod reducer;
-mod session;
+pub mod session;
 mod session_actions;
 pub mod state;
 
@@ -496,10 +496,13 @@ impl CurlybraceApp {
     fn draw(&mut self, ctx: &egui::Context) -> Vec<UiEvent> {
         let mut out = Vec::new();
         panels::show_banner(ctx, &self.state, &self.i18n, &mut out);
-        if self.state.status == ConnStatus::Connected {
-            panels::show_browser(ctx, &mut self.state, &self.i18n, &mut out);
-        } else {
+        if !self.state.open.is_empty() {
+            panels::show_sessions_panel(ctx, &self.state, &self.i18n, &mut out);
+        }
+        if panels::shows_manager(&self.state) {
             panels::show_connections_screen(ctx, &mut self.state, &self.i18n, &mut out);
+        } else {
+            panels::show_workspace(ctx, &mut self.state, &self.i18n, &mut out);
         }
         panels::show_modals(ctx, &mut self.state, &self.prompt, &self.i18n, &mut out);
         out

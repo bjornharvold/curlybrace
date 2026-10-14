@@ -28,6 +28,8 @@ pub enum Input {
     Disconnect(Uuid),
     /// Make the named open session the one the workspace shows.
     Activate(Uuid),
+    /// Show the connection manager next to the open sessions.
+    ShowConnections,
     TestConnection(Box<ConnectionForm>),
     Compare(CompareAction),
     DismissBanner,
@@ -46,6 +48,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Connect(id) => session_actions::connect(state, id),
         Input::Disconnect(id) => session_actions::disconnect(state, id),
         Input::Activate(id) => session_actions::activate(state, id),
+        Input::ShowConnections => session_actions::show_connections(state),
         Input::TestConnection(form) => connection_test::start(state, &form),
         Input::Compare(a) => compare::on_action(state, a),
         Input::DismissBanner => (with_banner(state, None), Vec::new()),

@@ -161,7 +161,7 @@ pub fn browsing(mode: ViewMode) -> impl FnOnce(&mut AppState) {
     move |state| {
         let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let ns = Namespace::new("crm", "customers");
-        state.status = ConnStatus::Connected;
+        open_session(state, "Production");
         state.sidebar = SidebarState::default()
             .with_databases(names(&["billing", "crm", "sandbox"]))
             .toggled("crm")
@@ -170,6 +170,17 @@ pub fn browsing(mode: ViewMode) -> impl FnOnce(&mut AppState) {
         install_page(state, sample_people());
         state.view_mode = mode;
     }
+}
+
+/// Opens a connected session named `name` as the active one, the way the reducer leaves it.
+pub fn open_session(state: &mut AppState, name: &str) -> uuid::Uuid {
+    let cfg = ConnectionConfig::new(name, "mongodb://db.example.com:27017");
+    let id = cfg.id;
+    state.conn.connections.push(cfg);
+    state.open.push(id);
+    state.active = Some(id);
+    state.status = ConnStatus::Connected;
+    id
 }
 
 /// Puts `docs` on screen as the current page (keeping the key in sync).

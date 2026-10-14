@@ -1,6 +1,6 @@
 //! Several sessions open at once: opening, focusing, failing, closing and routing of events.
 use crate::app::reducer::{Input, Out, update};
-use crate::app::state::{AppState, Banner, ConnStatus};
+use crate::app::state::{AppState, Banner, ConnStatus, Workspace};
 use crate::viewmodel::{EditorAction, FindAction, SidebarAction};
 use bson::doc;
 use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
@@ -602,4 +602,39 @@ fn activate_focuses_an_open_session_and_ignores_others() {
     assert_eq!(s.active, Some(a));
     let (s, _) = update(s, Input::Activate(Uuid::new_v4()));
     assert_eq!(s.active, Some(a));
+}
+
+#[test]
+fn show_connections_switches_the_workspace_and_keeps_every_session() {
+    let (state, ids) = app(&["one", "two"]);
+    let state = opened(opened(state, ids[0]), ids[1]);
+    let (state, commands) = update(state, Input::ShowConnections);
+    assert_eq!(state.workspace, Workspace::Connections);
+    assert!(commands.is_empty());
+    assert_eq!(state.open, ids);
+    assert_eq!(state.active, Some(ids[1]));
+    assert_eq!(state.status, ConnStatus::Connected);
+}
+
+#[test]
+fn connecting_or_focusing_a_root_leaves_the_connections_workspace() {
+    let (state, ids) = app(&["one", "two"]);
+    let state = opened(opened(state, ids[0]), ids[1]);
+    let (state, _) = update(state, Input::ShowConnections);
+    let (focused, _) = update(state, Input::Connect(ids[0]));
+    assert_eq!(focused.workspace, Workspace::Browse);
+    assert_eq!(focused.active, Some(ids[0]));
+
+    let (state, _) = update(focused, Input::ShowConnections);
+    let (activated, _) = update(state, Input::Activate(ids[1]));
+    assert_eq!(activated.workspace, Workspace::Browse);
+
+    let (state, _) = update(activated, Input::ShowConnections);
+    let (state, commands) = update(state, Input::Connect(Uuid::new_v4()));
+    assert_eq!(
+        state.workspace,
+        Workspace::Connections,
+        "unknown ids do nothing"
+    );
+    assert!(commands.is_empty());
 }
