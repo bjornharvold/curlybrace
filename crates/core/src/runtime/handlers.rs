@@ -255,8 +255,9 @@ async fn test_connection(
     let limit = shared.config.connect_timeout;
     bounded(limit, async {
         let password = match &secrets.password {
-            Some(p) => Some(p.expose().to_owned()),
-            None => read_password(shared, &cfg).await?,
+            super::PasswordChoice::Typed(p) => Some(p.expose().to_owned()),
+            super::PasswordChoice::Without => None,
+            super::PasswordChoice::Stored => read_password(shared, &cfg).await?,
         };
         let job: Arc<dyn Currentness> = Arc::new(AlwaysCurrent);
         let ssh_secret = secrets.ssh_secret.as_ref().map(|s| s.expose());

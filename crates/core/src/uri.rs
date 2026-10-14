@@ -19,11 +19,22 @@ pub struct ParsedUri {
     pub tls: Option<bool>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub enum PasswordMode<'a> {
     Omit,
     Masked,
     Include(&'a str),
+}
+
+/// Never prints the password carried by `Include`.
+impl std::fmt::Debug for PasswordMode<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Omit => f.write_str("Omit"),
+            Self::Masked => f.write_str("Masked"),
+            Self::Include(_) => f.write_str("Include(<redacted>)"),
+        }
+    }
 }
 
 fn invalid(msg: &'static str) -> CoreError {
@@ -325,6 +336,13 @@ fn percent_decode(s: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn password_mode_debug_never_prints_the_password() {
+        let shown = format!("{:?}", PasswordMode::Include("hunter2"));
+        assert_eq!(shown, "Include(<redacted>)");
+        assert!(!format!("{:?}", [PasswordMode::Omit, PasswordMode::Masked]).contains("redacted"));
+    }
+
     use super::*;
     use crate::connection::ConnectionConfig;
 

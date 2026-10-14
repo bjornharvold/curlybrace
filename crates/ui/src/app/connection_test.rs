@@ -4,7 +4,7 @@ use super::state::AppState;
 use crate::viewmodel::ConnectionForm;
 use crate::views::connections::{ConnectionsState, TestState};
 use curlybrace_core::error::CoreError;
-use curlybrace_core::runtime::{Command, TestReport, TestSecrets};
+use curlybrace_core::runtime::{Command, PasswordChoice, TestReport, TestSecrets};
 use curlybrace_core::secrets::SecretString;
 
 /// Starts a test for the form. Empty password/ssh fields mean "use the stored secret" (`None`).
@@ -22,8 +22,13 @@ pub(super) fn start(state: AppState, form: &ConnectionForm) -> (AppState, Vec<Co
     };
     let request_id = state.conn.test_seq + 1;
     let typed = |value: &str| (!value.is_empty()).then(|| SecretString::new(value));
+    let password = match typed(&form.password) {
+        Some(secret) => PasswordChoice::Typed(secret),
+        None if form.clear_password => PasswordChoice::Without,
+        None => PasswordChoice::Stored,
+    };
     let secrets = TestSecrets {
-        password: typed(&form.password),
+        password,
         ssh_secret: typed(&form.ssh_secret),
     };
     let conn = ConnectionsState {
@@ -110,7 +115,10 @@ mod tests {
                     ..
                 },
             ] => {
-                assert_eq!(secrets.password.as_ref().map(|p| p.expose()), Some("typed"));
+                assert_eq!(
+                    secrets.password,
+                    PasswordChoice::Typed(SecretString::new("typed"))
+                );
                 assert_eq!(secrets.ssh_secret.as_ref().map(|p| p.expose()), Some("key"));
             }
             other => panic!("unexpected commands: {other:?}"),
@@ -123,7 +131,35 @@ mod tests {
         assert!(matches!(
             &cmds[..],
             [Command::TestConnection { secrets, .. }]
-                if secrets.password.is_none() && secrets.ssh_secret.is_none()
+                if secrets.password == PasswordChoice::Stored && secrets.ssh_secret.is_none()
+        ));
+    }
+
+    #[test]
+    fn the_clear_password_toggle_sends_an_explicit_no_password_intent() {
+        let form = ConnectionForm {
+            clear_password: true,
+            ..valid_form()
+        };
+        let (_s, cmds) = run(AppState::default(), form);
+        assert!(matches!(
+            &cmds[..],
+            [Command::TestConnection { secrets, .. }] if secrets.password == PasswordChoice::Without
+        ));
+    }
+
+    #[test]
+    fn a_typed_password_wins_over_the_clear_toggle() {
+        let form = ConnectionForm {
+            clear_password: true,
+            password: "new".into(),
+            ..valid_form()
+        };
+        let (_s, cmds) = run(AppState::default(), form);
+        assert!(matches!(
+            &cmds[..],
+            [Command::TestConnection { secrets, .. }]
+                if secrets.password == PasswordChoice::Typed(SecretString::new("new"))
         ));
     }
 

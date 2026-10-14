@@ -32,7 +32,7 @@ pub mod state;
 use crate::I18n;
 use crate::error_text::failure_log_line;
 use crate::viewmodel::compare::ExportUi;
-use crate::views::connections::ConnectionAction;
+use crate::views::connections::{ConnectionAction, ConnectionsState, TestState};
 use compare::CompareAction;
 use connection_picker::ConnPickKind;
 use connections::{ConfigPath, load_startup, refresh_flags};
@@ -232,15 +232,24 @@ impl CurlybraceApp {
     /// lived in it) are both over.
     fn runtime_stopped(&mut self) {
         let error = CoreError::Database("runtime stopped".into());
-        let state = std::mem::take(&mut self.state);
+        let cleared = std::mem::take(&mut self.state).session_cleared();
+        // A test that was waiting for its answer will never get one.
+        let test = match &cleared.conn.test {
+            TestState::Running { .. } => TestState::Idle,
+            other => other.clone(),
+        };
         self.state = AppState {
-            compare: state.compare.clone().session_dropped(),
+            compare: cleared.compare.clone().session_dropped(),
+            conn: ConnectionsState {
+                test,
+                ..cleared.conn
+            },
             status: ConnStatus::Disconnected,
             banner: Some(Banner::Failure {
                 context: "runtime",
                 error,
             }),
-            ..state.session_cleared()
+            ..cleared
         };
     }
 
@@ -597,6 +606,34 @@ mod tests {
         assert_eq!(compare.session, None);
         assert_eq!(compare.run_view(), RunView::Idle);
         assert_eq!(compare.next_session, 5, "ids are never reused");
+        assert!(matches!(
+            app.state().banner,
+            Some(Banner::Failure {
+                context: "runtime",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_stopped_runtime_does_not_leave_a_test_running_forever() {
+        let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
+        drop(commands);
+        let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
+        let secrets = Arc::new(curlybrace_core::secrets::MemorySecretStore::default());
+        let mut app = CurlybraceApp::new(
+            RuntimeHandle { tx, rx },
+            I18n::english(),
+            Vec::new(),
+            secrets,
+        );
+        let form = crate::viewmodel::ConnectionForm {
+            name: "n".into(),
+            uri: "mongodb://localhost:27017".into(),
+            ..Default::default()
+        };
+        app.dispatch(Input::TestConnection(Box::new(form)));
+        assert_eq!(app.state().conn.test, TestState::Idle);
         assert!(matches!(
             app.state().banner,
             Some(Banner::Failure {

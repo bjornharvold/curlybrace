@@ -35,6 +35,18 @@ pub(super) fn classify(blocked: bool, has_error: bool, new_banner: Option<&Banne
     }
 }
 
+/// A banner about an earlier failed save: the keychain write or the file write.
+fn is_save_failure(banner: &Banner) -> bool {
+    matches!(
+        banner,
+        Banner::Persist(_)
+            | Banner::Failure {
+                context: "save_connection",
+                ..
+            }
+    )
+}
+
 /// Saves the form; on `Closed` the dialog closes, its tools reset and the notice drops.
 pub(super) fn save_and_close(
     state: AppState,
@@ -53,6 +65,12 @@ pub(super) fn save_and_close(
     };
     let next = save(probe, form, secrets, path, now);
     let outcome = classify(blocked, next.conn.error.is_some(), next.banner.as_ref());
+    // A save that went through cleanly makes the earlier "could not save" banners stale: drop
+    // those (and only those) instead of restoring them.
+    let prior = match outcome {
+        SaveOutcome::Closed => prior.filter(|b| !is_save_failure(b)),
+        SaveOutcome::StayOpen => prior,
+    };
     let next = AppState {
         banner: next.banner.or(prior),
         ..next
@@ -66,7 +84,7 @@ pub(super) fn save_and_close(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::persistence::PersistGuard;
+    use crate::app::persistence::{PersistError, PersistGuard};
     use curlybrace_core::connection::ConnectionConfig;
     use curlybrace_core::error::{CoreError, Result};
     use curlybrace_core::secrets::MemorySecretStore;
@@ -121,6 +139,28 @@ mod tests {
         fn delete(&self, k: &str) -> Result<()> {
             self.inner.delete(k)
         }
+    }
+
+    #[test]
+    fn a_successful_retry_drops_the_stale_save_banners_but_keeps_unrelated_ones() {
+        let (_dir, path, secrets) = setup();
+        let stale_banners = [
+            Banner::Failure {
+                context: "save_connection",
+                error: CoreError::Secret("x".into()),
+            },
+            Banner::Persist(PersistError::Write(std::io::ErrorKind::Other)),
+        ];
+        for stale in stale_banners {
+            let mut state = editing(named_form("a"), Vec::new());
+            state.banner = Some(stale.clone());
+            let next = save_and_close(state, &named_form("a"), &secrets, &path, 1);
+            assert_eq!(next.banner, None, "{stale:?}");
+        }
+        let mut state = editing(named_form("b"), Vec::new());
+        state.banner = Some(Banner::NotConnected);
+        let next = save_and_close(state, &named_form("b"), &secrets, &path, 1);
+        assert_eq!(next.banner, Some(Banner::NotConnected));
     }
 
     #[test]

@@ -117,3 +117,71 @@ fn the_screen_renders_a_notice_and_both_prompts_without_panicking() {
     state.filter = "nothing matches this".into();
     assert_eq!(run_frame(&mut state), None);
 }
+
+fn run_frame_with(
+    ctx: &egui::Context,
+    state: &mut ConnectionsState,
+    events: Vec<egui::Event>,
+) -> Option<ConnectionAction> {
+    let i18n = I18n::english();
+    let mut out = None;
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1200.0, 900.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let _ = ctx.run(input, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            out = show_connections(ui, state, &i18n);
+        });
+    });
+    out
+}
+
+fn click_at(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
+#[test]
+fn a_click_outside_the_edit_dialog_keeps_it_open_and_the_typed_form() {
+    let ctx = egui::Context::default();
+    let mut state = ConnectionsState::default();
+    state.start_new();
+    state.form.name = "typed but not saved".into();
+    run_frame_with(&ctx, &mut state, vec![]);
+    let outside = egui::pos2(8.0, 8.0);
+    run_frame_with(&ctx, &mut state, vec![egui::Event::PointerMoved(outside)]);
+    run_frame_with(&ctx, &mut state, vec![click_at(outside, true)]);
+    run_frame_with(&ctx, &mut state, vec![click_at(outside, false)]);
+    run_frame_with(&ctx, &mut state, vec![]);
+    assert!(state.editing, "a backdrop click must not close the dialog");
+    assert_eq!(state.form.name, "typed but not saved");
+}
+
+#[test]
+fn escape_still_closes_the_edit_dialog() {
+    let ctx = egui::Context::default();
+    let mut state = ConnectionsState::default();
+    state.start_new();
+    run_frame_with(&ctx, &mut state, vec![]);
+    run_frame_with(
+        &ctx,
+        &mut state,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!state.editing);
+}

@@ -12,7 +12,7 @@ use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::mongo_store::MongoStore;
 use curlybrace_core::runtime::{
-    Command, Event, RuntimeConfig, TestSecrets, spawn_runtime_with_config,
+    Command, Event, PasswordChoice, RuntimeConfig, TestSecrets, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::{
     MemorySecretStore, SecretKind, SecretStore, SecretString, secret_key,
@@ -190,7 +190,7 @@ async fn test_connection_reports_the_version_or_a_typed_auth_failure_and_install
         request_id,
         cfg: cfg.clone(),
         secrets: TestSecrets {
-            password: Some(SecretString::new(password)),
+            password: PasswordChoice::Typed(SecretString::new(password)),
             ssh_secret: None,
         },
     };

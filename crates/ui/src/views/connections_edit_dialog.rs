@@ -10,8 +10,9 @@ use eframe::egui;
 const DIALOG_WIDTH: f32 = 520.0;
 const BODY_MAX_HEIGHT: f32 = 460.0;
 
-/// Draws the dialog while `state.editing`. Cancel, Escape and a click outside close it (and
-/// reset the tools); Save returns the action once the form validates.
+/// Draws the dialog while `state.editing`. Cancel and Escape close it (and reset the tools); a
+/// click outside does NOT, so a stray click never discards a typed form. Save returns the
+/// action once the form validates.
 pub(super) fn show_edit_dialog(
     ctx: &egui::Context,
     state: &mut ConnectionsState,
@@ -50,11 +51,21 @@ pub(super) fn show_edit_dialog(
             }
         });
     });
-    if cancelled || modal.should_close() {
+    if cancelled || closed_by_escape(&modal) {
         state.close_edit();
         return None;
     }
     action
+}
+
+/// `Modal::should_close` also fires on a backdrop click; only Escape (with no popup open, and
+/// this being the top modal) or a close request from inside the dialog may close it.
+fn closed_by_escape<T>(modal: &egui::ModalResponse<T>) -> bool {
+    let ctx = &modal.response.ctx;
+    modal.response.should_close()
+        || (modal.is_top_modal
+            && !modal.any_popup_open
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)))
 }
 
 fn show_body(

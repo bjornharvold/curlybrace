@@ -393,7 +393,7 @@ async fn typed_secrets_win_over_stored_ones_and_are_not_in_debug_output() {
         request_id: 4,
         cfg: c.clone(),
         secrets: TestSecrets {
-            password: Some(SecretString::new("typed-pw")),
+            password: PasswordChoice::Typed(SecretString::new("typed-pw")),
             ssh_secret: Some(SecretString::new("typed-ssh")),
         },
     };
@@ -413,6 +413,33 @@ async fn typed_secrets_win_over_stored_ones_and_are_not_in_debug_output() {
 }
 
 #[tokio::test]
+async fn a_cleared_password_connects_without_one_even_when_a_password_is_stored() {
+    let c = cfg("a");
+    let secrets = MemorySecretStore::new();
+    secrets
+        .set(&secret_key(c.id, SecretKind::Password), "stored")
+        .unwrap();
+    let connector = FakeConnector::ok();
+    let mut rt = start_with_secrets(
+        Some(Arc::new(secrets)),
+        connector.clone(),
+        RuntimeConfig::default(),
+    );
+    rt.tx
+        .send(Command::TestConnection {
+            request_id: 1,
+            cfg: c,
+            secrets: TestSecrets {
+                password: PasswordChoice::Without,
+                ssh_secret: None,
+            },
+        })
+        .unwrap();
+    let _ = next(&mut rt).await;
+    assert_eq!(connector.last_password(), None);
+}
+
+#[tokio::test]
 async fn the_event_carries_no_secret_in_its_debug_output() {
     let mut rt = start(FakeConnector::ok(), RuntimeConfig::default());
     rt.tx
@@ -420,7 +447,7 @@ async fn the_event_carries_no_secret_in_its_debug_output() {
             request_id: 1,
             cfg: cfg("a"),
             secrets: TestSecrets {
-                password: Some(SecretString::new("typed-pw")),
+                password: PasswordChoice::Typed(SecretString::new("typed-pw")),
                 ssh_secret: None,
             },
         })
@@ -591,7 +618,7 @@ async fn a_typed_ssh_secret_wins_and_the_tunnel_is_closed_before_the_answer() {
             request_id: 1,
             cfg: c.clone(),
             secrets: TestSecrets {
-                password: None,
+                password: PasswordChoice::Stored,
                 ssh_secret: Some(SecretString::new("typed-ssh")),
             },
         })
