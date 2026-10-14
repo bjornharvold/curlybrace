@@ -56,7 +56,7 @@ fn gated_runtime(
 }
 
 fn cfg(name: &str) -> ConnectionConfig {
-    ConnectionConfig::new(name, "mongodb://127.0.0.1:27017")
+    embedded_config(name, "mongodb://127.0.0.1:27017")
 }
 
 fn store_with_db(db: &str) -> Arc<dyn DocumentStore> {
@@ -70,6 +70,7 @@ async fn assert_quiet(h: &mut RuntimeHandle) {
 
 fn superseded() -> Event {
     Event::Failed {
+        session: EMBEDDED_SESSION,
         context: "connect",
         error: CoreError::Superseded,
     }
@@ -79,8 +80,17 @@ fn superseded() -> Event {
 async fn disconnect_during_slow_connect_leaves_runtime_disconnected() {
     let (mut h, mut gates, _) = gated_runtime(&["slow"]);
     h.tx.send(Command::Connect(cfg("slow"))).unwrap();
-    h.tx.send(Command::Disconnect).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
+    h.tx.send(Command::Disconnect {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     gates
         .remove("slow")
         .unwrap()
@@ -88,6 +98,7 @@ async fn disconnect_during_slow_connect_leaves_runtime_disconnected() {
         .ok();
     assert_eq!(next(&mut h).await, superseded());
     h.tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
     })
@@ -95,6 +106,7 @@ async fn disconnect_during_slow_connect_leaves_runtime_disconnected() {
     assert_eq!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "find",
             error: CoreError::Unsupported("not connected".into())
         }
@@ -112,17 +124,29 @@ async fn second_requested_connect_wins_even_if_first_finishes_last() {
         .unwrap()
         .send(Ok(store_with_db("second_db")))
         .ok();
-    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     gates
         .remove("first")
         .unwrap()
         .send(Ok(store_with_db("first_db")))
         .ok();
     assert_eq!(next(&mut h).await, superseded());
-    h.tx.send(Command::ListDatabases).unwrap();
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
     assert_eq!(
         next(&mut h).await,
-        Event::Databases(vec!["second_db".into()])
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec!["second_db".into()]
+        }
     );
     assert_quiet(&mut h).await;
 }
@@ -143,14 +167,19 @@ async fn failed_connect_leaves_previous_store_cleared() {
     assert_eq!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             epoch: 1,
             error: CoreError::Database("down".into())
         }
     );
-    h.tx.send(Command::ListDatabases).unwrap();
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
     assert!(matches!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             error: CoreError::Unsupported(_),
             ..
         }
@@ -210,17 +239,28 @@ async fn disconnect_during_find_still_emits_exactly_one_event_for_each() {
     let (count, repaint) = counter();
     let mut h = spawn_runtime_with_store(store, repaint);
     h.tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
     })
     .unwrap();
     started.notified().await;
-    h.tx.send(Command::Disconnect).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
+    h.tx.send(Command::Disconnect {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     release.notify_one();
     assert_eq!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "find",
             error: CoreError::Superseded
         }
@@ -235,13 +275,20 @@ async fn find_without_a_session_change_still_delivers_results() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime_with_store(store, repaint);
     h.tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
     })
     .unwrap();
     started.notified().await;
     release.notify_one();
-    assert!(matches!(next(&mut h).await, Event::Results { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Results {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     assert_quiet(&mut h).await;
 }
 
@@ -292,13 +339,17 @@ async fn list_databases_finishing_after_a_newer_connect_is_superseded() {
         repaint,
         RuntimeConfig::default(),
     );
-    h.tx.send(Command::ListDatabases).unwrap();
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
     started.notified().await;
     h.tx.send(Command::Connect(cfg("next"))).unwrap();
     release.notify_one();
     assert_eq!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "list_databases",
             error: CoreError::Superseded
         }
@@ -308,11 +359,23 @@ async fn list_databases_finishing_after_a_newer_connect_is_superseded() {
         .unwrap()
         .send(Ok(store_with_db("new_db")))
         .ok();
-    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
-    h.tx.send(Command::ListDatabases).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
     assert_eq!(
         next(&mut h).await,
-        Event::Databases(vec!["new_db".into()]),
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec!["new_db".into()]
+        },
         "commands of the new session are unaffected"
     );
     assert_quiet(&mut h).await;
@@ -326,6 +389,7 @@ async fn dropped_receiver_does_not_panic_or_hang_handlers() {
     let RuntimeHandle { tx, rx } = spawn_runtime_with_store(store, repaint);
     drop(rx);
     tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
     })
@@ -347,21 +411,32 @@ async fn dropped_receiver_does_not_panic_or_hang_handlers() {
         "no repaint without a receiver"
     );
     // The runtime loop is still alive and accepts commands.
-    assert!(tx.send(Command::ListDatabases).is_ok());
+    assert!(
+        tx.send(Command::ListDatabases {
+            session: EMBEDDED_SESSION
+        })
+        .is_ok()
+    );
     let (_, repaint) = counter();
     let mut fresh = spawn_runtime_with_store(seeded(), repaint);
-    fresh.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut fresh).await, Event::Databases(_)));
+    fresh
+        .tx
+        .send(Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
+    assert!(matches!(next(&mut fresh).await, Event::Databases { .. }));
 }
 
 #[tokio::test]
 async fn connect_with_embedded_password_fails_validation_without_echo() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime(Arc::new(MemorySecretStore::new()), repaint);
-    let c = ConnectionConfig::new("x", "mongodb://bob:hunter2@host");
+    let c = embedded_config("x", "mongodb://bob:hunter2@host");
     h.tx.send(Command::Connect(c)).unwrap();
     match next(&mut h).await {
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             error: error @ CoreError::InvalidUri(_),
             ..
         } => {
@@ -382,9 +457,24 @@ async fn epochs_identify_the_request_each_outcome_belongs_to() {
         .unwrap()
         .send(Ok(store_with_db("b_db")))
         .ok();
-    assert_eq!(next(&mut h).await, Event::Connected { epoch: 2 });
-    h.tx.send(Command::Disconnect).unwrap(); // epoch 3
-    assert_eq!(next(&mut h).await, Event::Disconnected { epoch: 3 });
+    assert_eq!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 2
+        }
+    );
+    h.tx.send(Command::Disconnect {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap(); // epoch 3
+    assert_eq!(
+        next(&mut h).await,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            epoch: 3
+        }
+    );
     gates
         .remove("a")
         .unwrap()
@@ -407,6 +497,7 @@ async fn a_replaced_connect_reports_superseded_even_when_its_own_error_is_real()
     assert_eq!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             epoch: 2,
             error: CoreError::Database("down".into())
         }
@@ -417,11 +508,12 @@ async fn a_replaced_connect_reports_superseded_even_when_its_own_error_is_real()
 #[tokio::test]
 async fn a_current_connect_reports_its_real_validation_error() {
     let (mut h, _gates, _) = gated_runtime(&[]);
-    let bad = ConnectionConfig::new("", "mongodb://127.0.0.1:27017");
+    let bad = embedded_config("", "mongodb://127.0.0.1:27017");
     h.tx.send(Command::Connect(bad)).unwrap();
     assert!(matches!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             error: CoreError::InvalidName,
             ..
         }
@@ -468,14 +560,24 @@ async fn panicking_find(disconnect_first: bool) -> Event {
     let (_, repaint) = counter();
     let mut h = spawn_runtime_with_store(store, repaint);
     h.tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
     })
     .unwrap();
     started.notified().await;
     if disconnect_first {
-        h.tx.send(Command::Disconnect).unwrap();
-        assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
+        h.tx.send(Command::Disconnect {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
+        assert!(matches!(
+            next(&mut h).await,
+            Event::Disconnected {
+                session: EMBEDDED_SESSION,
+                ..
+            }
+        ));
     }
     release.notify_one();
     next(&mut h).await
@@ -486,6 +588,7 @@ async fn a_panic_in_a_replaced_session_is_superseded_otherwise_internal_error() 
     assert_eq!(
         panicking_find(true).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "find",
             error: CoreError::Superseded
         }
@@ -493,6 +596,7 @@ async fn a_panic_in_a_replaced_session_is_superseded_otherwise_internal_error() 
     assert_eq!(
         panicking_find(false).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "find",
             error: CoreError::Database("internal error".into())
         }
@@ -502,11 +606,15 @@ async fn a_panic_in_a_replaced_session_is_superseded_otherwise_internal_error() 
 #[tokio::test]
 async fn a_connect_failing_validation_still_consumes_an_epoch() {
     let (mut h, mut gates, _) = gated_runtime(&["ok"]);
-    let bad = ConnectionConfig::new("", "mongodb://127.0.0.1:27017");
+    let bad = embedded_config("", "mongodb://127.0.0.1:27017");
     h.tx.send(Command::Connect(bad)).unwrap();
     assert!(matches!(
         next(&mut h).await,
-        Event::ConnectFailed { epoch: 1, .. }
+        Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
+            epoch: 1,
+            ..
+        }
     ));
     h.tx.send(Command::Connect(cfg("ok"))).unwrap();
     gates
@@ -514,9 +622,24 @@ async fn a_connect_failing_validation_still_consumes_an_epoch() {
         .unwrap()
         .send(Ok(store_with_db("d")))
         .ok();
-    assert_eq!(next(&mut h).await, Event::Connected { epoch: 2 });
-    h.tx.send(Command::Disconnect).unwrap();
-    assert_eq!(next(&mut h).await, Event::Disconnected { epoch: 3 });
+    assert_eq!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 2
+        }
+    );
+    h.tx.send(Command::Disconnect {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            epoch: 3
+        }
+    );
 }
 
 #[tokio::test]
@@ -530,6 +653,7 @@ async fn a_hanging_find_fails_at_the_command_timeout_even_with_a_long_connect_ti
     let mut h = spawn_runtime_with_config(None, Some(Arc::new(SlowStore)), repaint, config);
     let start = Instant::now();
     h.tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
     })
@@ -537,6 +661,7 @@ async fn a_hanging_find_fails_at_the_command_timeout_even_with_a_long_connect_ti
     assert_eq!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "find",
             error: CoreError::Database("timeout".into())
         }
@@ -561,7 +686,13 @@ async fn a_slow_connect_is_not_cut_at_the_command_timeout() {
         .unwrap()
         .send(Ok(store_with_db("d")))
         .ok();
-    assert_eq!(next(&mut h).await, Event::Connected { epoch: 1 });
+    assert_eq!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 1
+        }
+    );
 }
 
 #[tokio::test]
@@ -577,6 +708,7 @@ async fn a_connect_that_exceeds_the_connect_timeout_fails_with_a_timeout() {
     assert!(matches!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             epoch: 1,
             error: CoreError::Database(_)
         }

@@ -153,6 +153,12 @@ impl AppState {
         )
     }
 
+    /// The runtime session browsing commands address: the open connection, or the embedded
+    /// session when none was opened through the manager.
+    pub fn session_id(&self) -> Uuid {
+        self.connected.unwrap_or_default()
+    }
+
     /// Drops everything tied to a live session; keeps saved connections, banner and form.
     pub fn session_cleared(self) -> Self {
         Self {

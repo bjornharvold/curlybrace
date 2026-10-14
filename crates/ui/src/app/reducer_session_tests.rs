@@ -1,5 +1,6 @@
 //! Reducer tests for host-key forgetting and superseded sessions.
 use super::*;
+use curlybrace_core::runtime::EMBEDDED_SESSION;
 
 // ---- host key forgetting ----
 
@@ -43,6 +44,7 @@ fn a_changed_host_key_from_a_real_connect_offers_forget_for_that_connects_ssh_en
     let (s, _) = event(
         s,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             epoch: 1,
             error: CoreError::SshHostKeyChanged,
         },
@@ -83,6 +85,7 @@ fn forget_request_without_a_changed_key_does_nothing() {
 
 fn superseded(context: &'static str) -> Event {
     Event::Failed {
+        session: EMBEDDED_SESSION,
         context,
         error: CoreError::Superseded,
     }
@@ -138,7 +141,13 @@ fn connect_clears_the_previous_servers_data_at_dispatch() {
     assert_eq!(s.page_query, Query::default());
     assert_eq!(s.find.text, QueryText::default());
     // A late data event from the old session (not connected yet) is ignored too.
-    let (s, _) = event(s, Event::Databases(vec!["old".into()]));
+    let (s, _) = event(
+        s,
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec!["old".into()],
+        },
+    );
     assert!(s.sidebar.databases.is_empty());
 }
 

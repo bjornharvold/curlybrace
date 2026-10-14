@@ -2,6 +2,7 @@
 //! The UI mirrors the runtime's request counter: every Connect/Disconnect it sends is epoch
 //! `latest_requested_epoch` (1, 2, 3, ...), and an outcome older than that is ignored.
 use super::*;
+use curlybrace_core::runtime::EMBEDDED_SESSION;
 
 fn app_with_connection() -> (AppState, uuid::Uuid) {
     let cfg = ConnectionConfig::new("a", "mongodb://localhost");
@@ -11,21 +12,29 @@ fn app_with_connection() -> (AppState, uuid::Uuid) {
 
 fn superseded() -> Event {
     Event::Failed {
+        session: EMBEDDED_SESSION,
         context: "connect",
         error: CoreError::Superseded,
     }
 }
 
 fn connected(epoch: u64) -> Event {
-    Event::Connected { epoch }
+    Event::Connected {
+        session: EMBEDDED_SESSION,
+        epoch,
+    }
 }
 
 fn disconnected(epoch: u64) -> Event {
-    Event::Disconnected { epoch }
+    Event::Disconnected {
+        session: EMBEDDED_SESSION,
+        epoch,
+    }
 }
 
 fn connect_failed(epoch: u64) -> Event {
     Event::ConnectFailed {
+        session: EMBEDDED_SESSION,
         epoch,
         error: CoreError::Database("refused".into()),
     }
@@ -44,7 +53,7 @@ fn feed(state: AppState, events: Vec<Event>) -> (AppState, Vec<Command>) {
 
 fn list_databases_sent(cmds: &[Command]) -> usize {
     cmds.iter()
-        .filter(|c| matches!(c, Command::ListDatabases))
+        .filter(|c| matches!(c, Command::ListDatabases { .. }))
         .count()
 }
 
@@ -258,4 +267,45 @@ fn connecting_clears_leftover_data_failure_banners_but_keeps_other_ones() {
 fn session_clearing_does_not_reset_the_mirrored_epoch() {
     let s = dispatched(&[true, true]);
     assert_eq!(s.session_cleared().latest_requested_epoch, 2);
+}
+
+// ---- session stamping: the single-session UI addresses the connection it opened ----
+
+fn session_of(command: &Command) -> Option<uuid::Uuid> {
+    command.session()
+}
+
+#[test]
+fn connect_data_and_disconnect_commands_all_carry_the_opened_connections_id() {
+    let (s, id) = app_with_connection();
+    let (s, cmds) = update(s, Input::Connect(id));
+    assert_eq!(cmds.iter().map(session_of).collect::<Vec<_>>(), [Some(id)]);
+    let (s, cmds) = event(
+        s,
+        Event::Connected {
+            session: id,
+            epoch: 1,
+        },
+    );
+    assert_eq!(
+        cmds.iter().map(session_of).collect::<Vec<_>>(),
+        [Some(id)],
+        "the first fetch after connecting addresses the opened connection"
+    );
+    let (_, cmds) = update(s, Input::Disconnect);
+    assert_eq!(
+        cmds.iter().map(session_of).collect::<Vec<_>>(),
+        [Some(id)],
+        "disconnect is stamped before the session is cleared"
+    );
+}
+
+#[test]
+fn without_an_opened_connection_commands_address_the_embedded_session() {
+    assert_eq!(AppState::new(vec![]).session_id(), EMBEDDED_SESSION);
+    let (_, cmds) = update(AppState::new(vec![]), Input::Disconnect);
+    assert_eq!(
+        cmds.iter().map(session_of).collect::<Vec<_>>(),
+        [Some(EMBEDDED_SESSION)]
+    );
 }

@@ -3,10 +3,13 @@
 //! The UI sends [`Command`]s and drains [`Event`]s. Every command yields
 //! EXACTLY ONE event, followed by one `repaint()` call, on every code path:
 //! success, error, timeout and even a panic inside a handler. The one exception is
-//! `Command::Compare`: compare sessions are long-lived and independent of the main connection,
+//! `Command::Compare`: compare sessions are long-lived and independent of the connections,
 //! so `Cancel`, `Discard` and `Close` have no answer of their own and `Start` answers with a
 //! stream of events (one `PairDone` per pair, then one `RunDone`). The answer rule per compare
 //! command is documented in the `compare` module.
+//!
+//! Every connection is its own session (`Connect(cfg)` opens session `cfg.id`); data commands and
+//! session events carry the session they belong to, and all epochs come from one counter.
 //!
 //! The spawn functions must be called from within a Tokio runtime (they use
 //! [`tokio::runtime::Handle::current`]); the binary creates and owns that
@@ -19,6 +22,9 @@ mod epoch_tests;
 mod handlers;
 #[cfg(test)]
 mod prompt_gate_tests;
+mod session;
+#[cfg(test)]
+mod session_tests;
 #[cfg(test)]
 mod test_connection_tests;
 #[cfg(test)]
@@ -27,10 +33,11 @@ mod tests;
 mod tunnel_tests;
 mod tunneling;
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bson::{Bson, Document};
@@ -41,7 +48,9 @@ use crate::error::{CoreError, Result};
 use crate::secrets::SecretStore;
 use crate::store::{DocumentStore, Namespace, Page, Query};
 use crate::tunnel::{HostKeyPrompt, RejectUnknownHostKeys};
+use session::Session;
 
+pub use session::{EMBEDDED_SESSION, SessionId};
 pub use tunneling::{
     SshTunnelOpener, TunnelHandle, TunnelOpener, TunnelRequest, default_known_hosts_path,
 };
@@ -166,30 +175,41 @@ pub struct TestReport {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum Command {
+    /// Opens the session `cfg.id`, replacing that session's earlier connection.
     Connect(ConnectionConfig),
-    Disconnect,
-    ListDatabases,
+    Disconnect {
+        session: SessionId,
+    },
+    ListDatabases {
+        session: SessionId,
+    },
     ListCollections {
+        session: SessionId,
         db: String,
     },
     Find {
+        session: SessionId,
         ns: Namespace,
         query: Query,
     },
     Insert {
+        session: SessionId,
         ns: Namespace,
         json: String,
     },
     Replace {
+        session: SessionId,
         ns: Namespace,
         id: Bson,
         json: String,
     },
     Delete {
+        session: SessionId,
         ns: Namespace,
         id: Bson,
     },
     Clone {
+        session: SessionId,
         ns: Namespace,
         source: Document,
     },
@@ -209,8 +229,8 @@ impl Command {
     pub fn context(&self) -> &'static str {
         match self {
             Self::Connect(_) => "connect",
-            Self::Disconnect => "disconnect",
-            Self::ListDatabases => "list_databases",
+            Self::Disconnect { .. } => "disconnect",
+            Self::ListDatabases { .. } => "list_databases",
             Self::ListCollections { .. } => "list_collections",
             Self::Find { .. } => "find",
             Self::Insert { .. } => "insert",
@@ -221,6 +241,23 @@ impl Command {
             Self::TestConnection { .. } => "test_connection",
         }
     }
+
+    /// The session this command addresses; `None` for compare and connection tests, which are
+    /// independent of sessions.
+    pub fn session(&self) -> Option<SessionId> {
+        match self {
+            Self::Connect(cfg) => Some(cfg.id),
+            Self::Disconnect { session }
+            | Self::ListDatabases { session }
+            | Self::ListCollections { session, .. }
+            | Self::Find { session, .. }
+            | Self::Insert { session, .. }
+            | Self::Replace { session, .. }
+            | Self::Delete { session, .. }
+            | Self::Clone { session, .. } => Some(*session),
+            Self::Compare(_) | Self::TestConnection { .. } => None,
+        }
+    }
 }
 
 // Events are moved through a channel once; boxing `Query` would only add noise
@@ -229,39 +266,41 @@ impl Command {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     /// The connection requested by the `Connect` whose epoch is `epoch` is installed.
-    /// Epochs grow with every Connect/Disconnect request, so a receiver can ignore an outcome
-    /// older than the latest one it requested. Only a still-current connect reports
-    /// `Connected` or `ConnectFailed`; a replaced one reports `Failed { error: Superseded }`.
-    Connected {
-        epoch: u64,
-    },
+    /// Epochs come from one counter shared by all sessions and grow with every Connect/Disconnect
+    /// request, so a receiver can ignore an outcome older than the latest one it requested. Only a
+    /// still-current connect reports `Connected` or `ConnectFailed`; a replaced one reports
+    /// `Failed { error: Superseded }`.
+    Connected { session: SessionId, epoch: u64 },
     /// The `Disconnect` with this `epoch` took effect.
-    Disconnected {
-        epoch: u64,
-    },
+    Disconnected { session: SessionId, epoch: u64 },
     /// The still-current connect with this `epoch` failed for real. A replaced connect never
     /// reports this: it answers `Failed { context: "connect", error: Superseded }`.
     ConnectFailed {
+        session: SessionId,
         epoch: u64,
         error: CoreError,
     },
-    Databases(Vec<String>),
+    Databases {
+        session: SessionId,
+        names: Vec<String>,
+    },
     Collections {
+        session: SessionId,
         db: String,
         names: Vec<String>,
     },
     /// Carries the originating `ns`/`query` so the UI can drop stale results.
     Results {
+        session: SessionId,
         ns: Namespace,
         query: Query,
         page: Page,
     },
     /// The UI re-runs its current query.
-    Mutated {
-        ns: Namespace,
-    },
+    Mutated { session: SessionId, ns: Namespace },
     /// `context` is an i18n key suffix, e.g. `"connect"` or `"find"`.
     Failed {
+        session: SessionId,
         context: &'static str,
         error: CoreError,
     },
@@ -274,6 +313,33 @@ pub enum Event {
     },
 }
 
+/// A config whose session is [`EMBEDDED_SESSION`], so a test that connects and then sends data
+/// commands keeps talking to the one session it always used.
+#[cfg(test)]
+fn embedded_config(name: &str, uri: &str) -> ConnectionConfig {
+    ConnectionConfig {
+        id: EMBEDDED_SESSION,
+        ..ConnectionConfig::new(name, uri)
+    }
+}
+
+impl Event {
+    /// The session this event belongs to; `None` for compare and connection-test events.
+    pub fn session(&self) -> Option<SessionId> {
+        match self {
+            Self::Connected { session, .. }
+            | Self::Disconnected { session, .. }
+            | Self::ConnectFailed { session, .. }
+            | Self::Databases { session, .. }
+            | Self::Collections { session, .. }
+            | Self::Results { session, .. }
+            | Self::Mutated { session, .. }
+            | Self::Failed { session, .. } => Some(*session),
+            Self::Compare(_) | Self::TestConnection { .. } => None,
+        }
+    }
+}
+
 pub struct RuntimeHandle {
     pub tx: UnboundedSender<Command>,
     pub rx: UnboundedReceiver<Event>,
@@ -283,67 +349,55 @@ pub type Repaint = Arc<dyn Fn() + Send + Sync>;
 
 /// State shared by all handler tasks.
 pub(crate) struct Shared {
-    store: RwLock<Option<Arc<dyn DocumentStore>>>,
-    /// Kept alive next to the store; cleared with it on every new epoch.
-    tunnel: Mutex<Option<Box<dyn TunnelHandle>>>,
-    /// Bumped synchronously by the dispatcher on every Connect/Disconnect, so
-    /// the order of *requests* (not of completion) decides which one wins.
-    generation: AtomicU64,
-    /// Orders epoch bumps against the final check-and-send of data answers: `begin_epoch`
-    /// holds the WRITE side while it bumps; a data answer holds the READ side from its last
-    /// `is_current` check until it is sent, so a bump can never fall in between. This is a
-    /// std lock and is never held across an `.await` (see `handlers::send_answer`).
-    epoch_lock: RwLock<()>,
+    /// Open connections by session id; a session is removed on `Disconnect`.
+    sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
+    /// The global epoch counter: every Connect/Disconnect, whichever session it names, takes the
+    /// next number, so epochs never repeat and a late event of a closed session can never look
+    /// current to a new one.
+    next_epoch: AtomicU64,
     pub secrets: Option<Arc<dyn SecretStore>>,
     pub connector: Arc<dyn Connector>,
     pub config: RuntimeConfig,
-    /// Compare sessions: independent of the main connection above.
+    /// Compare sessions: independent of the connections above.
     compare: compare::Registry,
 }
 
 impl Shared {
-    pub fn current_store(&self) -> Option<Arc<dyn DocumentStore>> {
-        // The guarded value is a plain Option, so a poisoned lock is still valid.
-        self.store.read().unwrap_or_else(|e| e.into_inner()).clone()
+    /// Gets or creates the session and starts its next epoch. Called only from the dispatcher
+    /// (single-threaded), so request order decides.
+    fn begin_session_epoch(&self, id: SessionId) -> (Arc<Session>, u64) {
+        let generation = self.next_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        let session = {
+            let mut map = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+            map.entry(id)
+                .or_insert_with(|| Arc::new(Session::new(generation, None)))
+                .clone()
+        };
+        session.begin(generation);
+        (session, generation)
     }
 
-    /// True while no newer Connect/Disconnect has been requested since `generation`.
-    pub fn is_current(&self, generation: u64) -> bool {
-        self.generation.load(Ordering::SeqCst) == generation
-    }
-
-    /// Starts a new connection epoch and drops the installed store and tunnel.
-    fn begin_epoch(&self) -> u64 {
-        let _bump = self.epoch_lock.write().unwrap_or_else(|e| e.into_inner());
-        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let mut slot = self.store.write().unwrap_or_else(|e| e.into_inner());
-        *slot = None;
-        let old = self.tunnel.lock().unwrap_or_else(|e| e.into_inner()).take();
-        drop(slot);
-        drop(old);
+    /// Starts the next epoch for `id`, drops its store and tunnel and removes it from the map.
+    /// Tasks that still hold the `Arc<Session>` see a stale generation.
+    fn end_session(&self, id: SessionId) -> u64 {
+        let generation = self.next_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        let removed = self
+            .sessions
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
+        if let Some(session) = removed {
+            session.begin(generation);
+        }
         generation
     }
 
-    /// Installs `store` and its tunnel only if `generation` is still the latest
-    /// request. When superseded, both are dropped (closing the tunnel).
-    pub fn install_if_current(
-        &self,
-        generation: u64,
-        store: Arc<dyn DocumentStore>,
-        tunnel: Option<Box<dyn TunnelHandle>>,
-    ) -> bool {
-        let mut slot = self.store.write().unwrap_or_else(|e| e.into_inner());
-        if self.generation.load(Ordering::SeqCst) != generation {
-            return false;
-        }
-        *slot = Some(store);
-        let previous = std::mem::replace(
-            &mut *self.tunnel.lock().unwrap_or_else(|e| e.into_inner()),
-            tunnel,
-        );
-        drop(slot);
-        drop(previous);
-        true
+    fn session(&self, id: SessionId) -> Option<Arc<Session>> {
+        self.sessions
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .cloned()
     }
 }
 
@@ -375,11 +429,14 @@ pub fn spawn_runtime_with_connector(
 ) -> RuntimeHandle {
     let (tx, mut commands) = unbounded_channel::<Command>();
     let (events, rx) = unbounded_channel::<Event>();
+    // A store handed in at spawn time is the embedded session, in generation 0.
+    let sessions: HashMap<SessionId, Arc<Session>> = store
+        .map(|store| (EMBEDDED_SESSION, Arc::new(Session::new(0, Some(store)))))
+        .into_iter()
+        .collect();
     let shared = Arc::new(Shared {
-        store: RwLock::new(store),
-        tunnel: Mutex::new(None),
-        generation: AtomicU64::new(0),
-        epoch_lock: RwLock::new(()),
+        sessions: RwLock::new(sessions),
+        next_epoch: AtomicU64::new(0),
         secrets,
         connector,
         config,
@@ -416,28 +473,81 @@ fn dispatch(
         return;
     }
     let context = command.context();
-    let is_data = !matches!(command, Command::Connect(_) | Command::Disconnect);
     // Synchronous, so request order decides which connection wins.
-    let generation = match command {
-        Command::Connect(_) | Command::Disconnect => shared.begin_epoch(),
-        _ => shared.generation.load(Ordering::SeqCst),
+    let target = match &command {
+        Command::Connect(cfg) => {
+            let (session, generation) = shared.begin_session_epoch(cfg.id);
+            Target::new(cfg.id, session, generation, false)
+        }
+        Command::Disconnect { session } => {
+            let generation = shared.end_session(*session);
+            // The session is already gone: the answer needs no live session.
+            Target::new(
+                *session,
+                Arc::new(Session::new(generation, None)),
+                generation,
+                false,
+            )
+        }
+        _ => {
+            let id = command.session().expect("a data command names its session");
+            let Some(session) = shared.session(id) else {
+                let unknown = Event::Failed {
+                    session: id,
+                    context,
+                    error: CoreError::Unsupported("not connected".into()),
+                };
+                if events.send(unknown).is_ok() {
+                    repaint();
+                }
+                return;
+            };
+            let generation = session.generation();
+            Target::new(id, session, generation, true)
+        }
     };
     tokio::spawn(async move {
-        let guard = shared.clone();
-        let event = match tokio::spawn(handlers::execute(shared, command, generation)).await {
+        let Target {
+            id,
+            session,
+            generation,
+            is_data,
+        } = target;
+        let work = handlers::execute(shared, session.clone(), id, command, generation);
+        let event = match tokio::spawn(work).await {
             Ok(event) => event,
             Err(_) => handlers::failure_event(
+                id,
                 context,
                 generation,
                 handlers::gate(
-                    &guard,
+                    &session,
                     generation,
                     CoreError::Database("internal error".into()),
                 ),
             ),
         };
-        if handlers::send_answer(&guard, generation, is_data, context, event, &events) {
+        if handlers::send_answer(&session, id, generation, is_data, context, event, &events) {
             repaint();
         }
     });
+}
+
+/// The session a dispatched command runs against, with the epoch it was dispatched in.
+struct Target {
+    id: SessionId,
+    session: Arc<Session>,
+    generation: u64,
+    is_data: bool,
+}
+
+impl Target {
+    fn new(id: SessionId, session: Arc<Session>, generation: u64, is_data: bool) -> Self {
+        Self {
+            id,
+            session,
+            generation,
+            is_data,
+        }
+    }
 }

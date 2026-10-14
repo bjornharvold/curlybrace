@@ -18,7 +18,7 @@ pub fn error_detail(e: &CoreError) -> Option<&str> {
 /// The log line for a failed command; superseded answers are noise and are not logged.
 pub fn failure_log_line(ev: &Event) -> Option<String> {
     let (context, error) = match ev {
-        Event::Failed { context, error } => (*context, error),
+        Event::Failed { context, error, .. } => (*context, error),
         Event::ConnectFailed { error, .. } => ("connect", error),
         Event::Compare(compare) => return compare_log_line(compare),
         _ => return None,
@@ -46,6 +46,7 @@ mod tests {
     use super::*;
     use curlybrace_core::compare::key::KeyTuple;
     use curlybrace_core::compare::protocol::DuplicateReport;
+    use curlybrace_core::runtime::EMBEDDED_SESSION;
     use curlybrace_core::store::DuplicateGroup;
 
     #[test]
@@ -157,6 +158,7 @@ mod tests {
     #[test]
     fn failures_are_logged_with_context_and_error_except_superseded() {
         let find = Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "find",
             error: CoreError::Database("boom".into()),
         };
@@ -165,6 +167,7 @@ mod tests {
             Some("find failed: database: boom")
         );
         let connect = Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             epoch: 3,
             error: CoreError::AuthFailed,
         };
@@ -173,11 +176,18 @@ mod tests {
             Some("connect failed: authentication failed")
         );
         let superseded = Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "find",
             error: CoreError::Superseded,
         };
         assert_eq!(failure_log_line(&superseded), None);
-        assert_eq!(failure_log_line(&Event::Connected { epoch: 1 }), None);
+        assert_eq!(
+            failure_log_line(&Event::Connected {
+                session: EMBEDDED_SESSION,
+                epoch: 1
+            }),
+            None
+        );
     }
 
     #[tokio::test]
@@ -195,6 +205,7 @@ mod tests {
                 .await
                 .expect_err("secrets in the uri are rejected");
             let ev = Event::ConnectFailed {
+                session: EMBEDDED_SESSION,
                 epoch: 1,
                 error: err.clone(),
             };

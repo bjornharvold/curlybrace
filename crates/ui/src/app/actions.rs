@@ -7,6 +7,7 @@ use crate::viewmodel::{
 };
 use curlybrace_core::crud::id_of;
 use curlybrace_core::runtime::Command;
+use curlybrace_core::runtime::SessionId;
 use curlybrace_core::store::{Namespace, Query};
 use uuid::Uuid;
 
@@ -37,6 +38,7 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
 
 /// Marks the database expanded and fetches its collections unless a fetch is in flight.
 fn load_collections(state: AppState, db: String) -> Out {
+    let session = state.session_id();
     let expanded = state
         .sidebar
         .databases
@@ -50,7 +52,7 @@ fn load_collections(state: AppState, db: String) -> Out {
     let mut loading = state.loading;
     let fresh = loading.insert(db.clone());
     let commands = if fresh {
-        vec![Command::ListCollections { db }]
+        vec![Command::ListCollections { session, db }]
     } else {
         Vec::new()
     };
@@ -68,6 +70,7 @@ fn load_collections(state: AppState, db: String) -> Out {
 fn open(state: AppState, ns: Namespace) -> Out {
     let query = Query::default();
     let command = Command::Find {
+        session: state.session_id(),
         ns: ns.clone(),
         query: query.clone(),
     };
@@ -107,7 +110,8 @@ fn refresh(state: AppState) -> Out {
         loading: Default::default(),
         ..state
     };
-    (next, vec![Command::ListDatabases])
+    let session = next.session_id();
+    (next, vec![Command::ListDatabases { session }])
 }
 
 pub(super) fn find(state: AppState, action: FindAction) -> Out {
@@ -146,6 +150,7 @@ pub(super) fn issue_find(state: AppState, query: Query) -> Out {
         return (state, Vec::new());
     };
     let command = Command::Find {
+        session: state.session_id(),
         ns,
         query: query.clone(),
     };
@@ -166,7 +171,11 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
     match action {
         DocAction::Edit(d) => with_editor(state, EditorState::for_edit(&d)),
         DocAction::Insert => with_editor(state, EditorState::for_new()),
-        DocAction::Clone(source) => mutation(state, None, |ns| Command::Clone { ns, source }),
+        DocAction::Clone(source) => mutation(state, None, |session, ns| Command::Clone {
+            session,
+            ns,
+            source,
+        }),
         DocAction::Delete(id) => {
             let on_page = state
                 .page
@@ -175,7 +184,11 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
             if !on_page {
                 return (state, Vec::new());
             }
-            mutation(state, None, |ns| Command::Delete { ns, id })
+            mutation(state, None, |session, ns| Command::Delete {
+                session,
+                ns,
+                id,
+            })
         }
     }
 }
@@ -202,7 +215,8 @@ pub(super) fn editor(state: AppState, action: EditorAction) -> Out {
                 original_id: Some(id.clone()),
                 text: text.clone(),
             };
-            mutation(state, Some(key), |ns| Command::Replace {
+            mutation(state, Some(key), |session, ns| Command::Replace {
+                session,
                 ns,
                 id,
                 json: text,
@@ -216,7 +230,11 @@ pub(super) fn editor(state: AppState, action: EditorAction) -> Out {
                 original_id: None,
                 text: text.clone(),
             };
-            mutation(state, Some(key), |ns| Command::Insert { ns, json: text })
+            mutation(state, Some(key), |session, ns| Command::Insert {
+                session,
+                ns,
+                json: text,
+            })
         }
     }
 }
@@ -225,7 +243,7 @@ pub(super) fn editor(state: AppState, action: EditorAction) -> Out {
 fn mutation(
     state: AppState,
     editor: Option<EditorKey>,
-    build: impl FnOnce(Namespace) -> Command,
+    build: impl FnOnce(SessionId, Namespace) -> Command,
 ) -> Out {
     gated(state, |s| {
         let Some(ns) = s.selected_ns().cloned().filter(|_| s.pending.is_none()) else {
@@ -235,7 +253,8 @@ fn mutation(
             ns: ns.clone(),
             editor,
         });
-        (AppState { pending, ..s }, vec![build(ns)])
+        let command = build(s.session_id(), ns);
+        (AppState { pending, ..s }, vec![command])
     })
 }
 
@@ -257,6 +276,10 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
 }
 
 pub(super) fn disconnect(state: AppState) -> Out {
+    // Built before `session_cleared` forgets which session was open.
+    let command = Command::Disconnect {
+        session: state.session_id(),
+    };
     let cleared = state.session_cleared();
     let next = AppState {
         status: ConnStatus::Disconnected,
@@ -264,5 +287,5 @@ pub(super) fn disconnect(state: AppState) -> Out {
         banner: None,
         ..cleared
     };
-    (next, vec![Command::Disconnect])
+    (next, vec![command])
 }

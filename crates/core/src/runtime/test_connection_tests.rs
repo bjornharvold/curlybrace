@@ -219,11 +219,11 @@ impl HostKeyPrompt for TrustPrompt {
 // ---- helpers ----
 
 fn cfg(name: &str) -> ConnectionConfig {
-    ConnectionConfig::new(name, "mongodb://h")
+    embedded_config(name, "mongodb://h")
 }
 
 fn ssh_cfg(name: &str) -> ConnectionConfig {
-    let mut c = ConnectionConfig::new(name, "mongodb://db.internal:27018/app");
+    let mut c = embedded_config(name, "mongodb://db.internal:27018/app");
     c.ssh = Some(SshConfig {
         host: "bastion".into(),
         port: 22,
@@ -269,7 +269,13 @@ async fn assert_silent(rt: &mut RuntimeHandle) {
 async fn start_connected(connector: Arc<FakeConnector>) -> RuntimeHandle {
     let mut rt = start(connector, RuntimeConfig::default());
     rt.tx.send(Command::Connect(cfg("main"))).unwrap();
-    assert_eq!(next(&mut rt).await, Event::Connected { epoch: 1 });
+    assert_eq!(
+        next(&mut rt).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 1
+        }
+    );
     rt
 }
 
@@ -294,11 +300,16 @@ async fn a_successful_test_reports_the_server_version_and_installs_nothing() {
             outcome: report(Some("7.0.5")),
         }
     );
-    rt.tx.send(Command::ListDatabases).unwrap();
+    rt.tx
+        .send(Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
     assert!(
         matches!(
             next(&mut rt).await,
             Event::Failed {
+                session: EMBEDDED_SESSION,
                 context: "list_databases",
                 ..
             }
@@ -339,11 +350,21 @@ async fn a_test_does_not_disturb_an_installed_session() {
             outcome: Ok(_)
         }
     ));
-    rt.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut rt).await, Event::Databases(_)));
+    rt.tx
+        .send(Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
+    assert!(matches!(next(&mut rt).await, Event::Databases { .. }));
     // The epoch did not move: the next Connect is epoch 2, not 3.
     rt.tx.send(Command::Connect(cfg("main"))).unwrap();
-    assert_eq!(next(&mut rt).await, Event::Connected { epoch: 2 });
+    assert_eq!(
+        next(&mut rt).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 2
+        }
+    );
 }
 
 #[tokio::test]
@@ -357,8 +378,12 @@ async fn a_failed_test_reports_the_typed_error_and_keeps_the_session() {
             outcome: Err(CoreError::AuthFailed),
         }
     );
-    rt.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut rt).await, Event::Databases(_)));
+    rt.tx
+        .send(Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
+    assert!(matches!(next(&mut rt).await, Event::Databases { .. }));
 }
 
 #[tokio::test]
@@ -470,9 +495,19 @@ async fn a_connect_in_flight_when_a_test_is_requested_still_completes() {
         }
     ));
     release.send(()).unwrap();
-    assert_eq!(next(&mut rt).await, Event::Connected { epoch: 1 });
-    rt.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut rt).await, Event::Databases(_)));
+    assert_eq!(
+        next(&mut rt).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 1
+        }
+    );
+    rt.tx
+        .send(Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
+    assert!(matches!(next(&mut rt).await, Event::Databases { .. }));
 }
 
 #[tokio::test]
@@ -481,7 +516,13 @@ async fn a_test_then_a_connect_the_connect_wins_and_the_test_is_still_delivered(
     let mut rt = start(connector, RuntimeConfig::default());
     rt.tx.send(test_cmd(9, cfg("slow-test"))).unwrap(); // parked in the connector
     rt.tx.send(Command::Connect(cfg("main"))).unwrap();
-    assert_eq!(next(&mut rt).await, Event::Connected { epoch: 1 });
+    assert_eq!(
+        next(&mut rt).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 1
+        }
+    );
     release.send(()).unwrap();
     assert_eq!(
         next(&mut rt).await,
@@ -490,8 +531,12 @@ async fn a_test_then_a_connect_the_connect_wins_and_the_test_is_still_delivered(
             outcome: report(Some("7.0.5")),
         }
     );
-    rt.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut rt).await, Event::Databases(_)));
+    rt.tx
+        .send(Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
+    assert!(matches!(next(&mut rt).await, Event::Databases { .. }));
 }
 
 #[tokio::test]
@@ -593,7 +638,13 @@ async fn the_host_key_question_of_a_test_is_not_rejected_by_a_newer_connect() {
     let mut r = ssh_rig(Arc::new(TrustPrompt), Some(gate), None);
     r.rt.tx.send(test_cmd(1, ssh_cfg("s"))).unwrap(); // parked in the opener
     r.rt.tx.send(Command::Connect(cfg("main"))).unwrap(); // bumps the generation
-    assert_eq!(next(&mut r.rt).await, Event::Connected { epoch: 1 });
+    assert_eq!(
+        next(&mut r.rt).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 1
+        }
+    );
     release.send(()).unwrap();
     assert!(matches!(
         next(&mut r.rt).await,

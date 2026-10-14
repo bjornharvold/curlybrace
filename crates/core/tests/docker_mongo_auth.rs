@@ -117,14 +117,19 @@ async fn real_runtime_connects_lists_and_finds_with_a_keychain_password() {
     let wait = Duration::from_secs(20);
 
     rt.tx.send(Command::Connect(cfg.clone())).unwrap();
-    let Event::Connected { epoch } = next_event(&mut rt.rx, wait, "connect").await else {
+    let Event::Connected { session, epoch } = next_event(&mut rt.rx, wait, "connect").await else {
         panic!("expected Connected");
     };
+    assert_eq!(session, cfg.id);
     assert!(epoch >= 1);
 
-    rt.tx.send(Command::ListDatabases).unwrap();
+    rt.tx
+        .send(Command::ListDatabases { session: cfg.id })
+        .unwrap();
     match next_event(&mut rt.rx, wait, "databases").await {
-        Event::Databases(names) => assert!(names.contains(&"admin".to_string()), "{names:?}"),
+        Event::Databases { names, .. } => {
+            assert!(names.contains(&"admin".to_string()), "{names:?}")
+        }
         other => panic!("expected Databases, got {other:?}"),
     }
 
@@ -132,12 +137,14 @@ async fn real_runtime_connects_lists_and_finds_with_a_keychain_password() {
     let query = Query::default();
     rt.tx
         .send(Command::Find {
+            session: cfg.id,
             ns: ns.clone(),
             query: query.clone(),
         })
         .unwrap();
     match next_event(&mut rt.rx, wait, "results").await {
         Event::Results {
+            session: _,
             ns: got,
             query: echoed,
             page,
@@ -220,10 +227,13 @@ async fn test_connection_reports_the_version_or_a_typed_auth_failure_and_install
     }
 
     // A test installs nothing.
-    rt.tx.send(Command::ListDatabases).unwrap();
+    rt.tx
+        .send(Command::ListDatabases { session: cfg.id })
+        .unwrap();
     assert!(matches!(
         next_event(&mut rt.rx, wait, "list after tests").await,
         Event::Failed {
+            session: _,
             context: "list_databases",
             ..
         }

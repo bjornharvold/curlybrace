@@ -9,44 +9,64 @@ use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
+use super::session::Session;
 use super::tunneling::{
     ConnectionCurrent, Currentness, SshSecretSource, open_tunnel_if_configured,
 };
-use super::{Command, Event, Shared};
+use super::{Command, Event, SessionId, Shared};
 
 /// Runs `command` to completion, folding any error into `Event::Failed`.
-pub(super) async fn execute(shared: Arc<Shared>, command: Command, generation: u64) -> Event {
+pub(super) async fn execute(
+    shared: Arc<Shared>,
+    session: Arc<Session>,
+    id: SessionId,
+    command: Command,
+    generation: u64,
+) -> Event {
     let context = command.context();
-    match run(&shared, command, generation).await {
+    match run(&shared, &session, id, command, generation).await {
         Ok(event) => event,
-        Err(error) => failure_event(context, generation, error),
+        Err(error) => failure_event(id, context, generation, error),
     }
 }
 
 /// The event for a failed command. A real (not superseded) connect failure is stamped with the
 /// connect's own epoch so receivers can tell it from a newer request's outcome.
-pub(super) fn failure_event(context: &'static str, generation: u64, error: CoreError) -> Event {
+pub(super) fn failure_event(
+    session: SessionId,
+    context: &'static str,
+    generation: u64,
+    error: CoreError,
+) -> Event {
     if context == "connect" && error != CoreError::Superseded {
         Event::ConnectFailed {
+            session,
             epoch: generation,
             error,
         }
     } else {
-        Event::Failed { context, error }
+        Event::Failed {
+            session,
+            context,
+            error,
+        }
     }
 }
 
-/// The event to send for a data command: `Superseded` if a newer Connect/Disconnect exists.
+/// The event to send for a data command: `Superseded` if a newer Connect/Disconnect of its session
+/// exists.
 pub(super) fn finalize(
-    shared: &Shared,
+    session: &Session,
+    id: SessionId,
     generation: u64,
     context: &'static str,
     event: Event,
 ) -> Event {
-    if shared.is_current(generation) {
+    if session.is_current(generation) {
         event
     } else {
         Event::Failed {
+            session: id,
             context,
             error: CoreError::Superseded,
         }
@@ -54,11 +74,13 @@ pub(super) fn finalize(
 }
 
 /// Sends a command's event. For data commands the last currentness check and the send happen
-/// under the READ side of `epoch_lock`, so `begin_epoch` (WRITE side) cannot interleave: a stale
-/// answer is either already queued before the new epoch's events or replaced by `Superseded`.
+/// under the READ side of the session's `epoch_lock`, so `Session::begin` (WRITE side) cannot
+/// interleave: a stale answer is either already queued before the new epoch's events or replaced
+/// by `Superseded`.
 /// The std lock is held only across non-blocking calls, never across an `.await`.
 pub(super) fn send_answer(
-    shared: &Shared,
+    session: &Session,
+    id: SessionId,
     generation: u64,
     is_data: bool,
     context: &'static str,
@@ -68,89 +90,107 @@ pub(super) fn send_answer(
     if !is_data {
         return events.send(event).is_ok();
     }
-    let _reading = shared.epoch_lock.read().unwrap_or_else(|e| e.into_inner());
+    let _reading = session.epoch_lock.read().unwrap_or_else(|e| e.into_inner());
     events
-        .send(finalize(shared, generation, context, event))
+        .send(finalize(session, id, generation, context, event))
         .is_ok()
 }
 
 /// `error` if no newer Connect/Disconnect replaced this command's session, else `Superseded`:
 /// whatever went wrong belongs to a session the user has already left.
-pub(super) fn gate(shared: &Shared, generation: u64, error: CoreError) -> CoreError {
-    if shared.is_current(generation) {
+pub(super) fn gate(session: &Session, generation: u64, error: CoreError) -> CoreError {
+    if session.is_current(generation) {
         error
     } else {
         CoreError::Superseded
     }
 }
 
-async fn run(shared: &Arc<Shared>, command: Command, generation: u64) -> Result<Event> {
+async fn run(
+    shared: &Arc<Shared>,
+    session: &Arc<Session>,
+    id: SessionId,
+    command: Command,
+    generation: u64,
+) -> Result<Event> {
     match command {
         Command::Connect(cfg) => {
-            return connect_store(shared, cfg, generation)
+            return connect_store(shared, session, cfg, generation)
                 .await
-                .map_err(|e| gate(shared, generation, e));
+                .map_err(|e| gate(session, generation, e));
         }
-        // The store was already dropped by the dispatcher.
-        Command::Disconnect => return Ok(Event::Disconnected { epoch: generation }),
+        // The session was already ended by the dispatcher.
+        Command::Disconnect { session } => {
+            return Ok(Event::Disconnected {
+                session,
+                epoch: generation,
+            });
+        }
         _ => {}
     }
-    let store = current_store(shared)
-        .await
-        .map_err(|e| gate(shared, generation, e))?;
+    let store = session
+        .current_store()
+        .ok_or_else(|| CoreError::Unsupported("not connected".into()))
+        .map_err(|e| gate(session, generation, e))?;
     let limit = shared.config.command_timeout;
-    let result = bounded(limit, data_command(store, command)).await;
+    let result = bounded(limit, data_command(id, store, command)).await;
     // A newer Connect/Disconnect ended this command's session while it ran: its answer belongs
     // to a previous server and must not reach the UI (mutations may have committed; the UI
     // re-fetches after reconnecting).
-    if shared.is_current(generation) {
+    if session.is_current(generation) {
         result
     } else {
         Err(CoreError::Superseded)
     }
 }
 
-async fn data_command(store: Arc<dyn DocumentStore>, command: Command) -> Result<Event> {
+async fn data_command(
+    session: SessionId,
+    store: Arc<dyn DocumentStore>,
+    command: Command,
+) -> Result<Event> {
     let service = DocumentService::new(store.clone());
     Ok(match command {
-        Command::ListDatabases => Event::Databases(store.list_databases().await?),
-        Command::ListCollections { db } => {
+        Command::ListDatabases { .. } => Event::Databases {
+            session,
+            names: store.list_databases().await?,
+        },
+        Command::ListCollections { db, .. } => {
             let names = store.list_collections(&db).await?;
-            Event::Collections { db, names }
+            Event::Collections { session, db, names }
         }
-        Command::Find { ns, query } => {
+        Command::Find { ns, query, .. } => {
             let page = store.find(&ns, &query).await?;
-            Event::Results { ns, query, page }
+            Event::Results {
+                session,
+                ns,
+                query,
+                page,
+            }
         }
-        Command::Insert { ns, json } => {
+        Command::Insert { ns, json, .. } => {
             service.insert_from_json(&ns, &json).await?;
-            Event::Mutated { ns }
+            Event::Mutated { session, ns }
         }
-        Command::Replace { ns, id, json } => {
+        Command::Replace { ns, id, json, .. } => {
             service.replace_from_json(&ns, &id, &json).await?;
-            Event::Mutated { ns }
+            Event::Mutated { session, ns }
         }
-        Command::Delete { ns, id } => {
+        Command::Delete { ns, id, .. } => {
             service.delete(&ns, &id).await?;
-            Event::Mutated { ns }
+            Event::Mutated { session, ns }
         }
-        Command::Clone { ns, source } => {
+        Command::Clone { ns, source, .. } => {
             service.clone_document(&ns, &source).await?;
-            Event::Mutated { ns }
+            Event::Mutated { session, ns }
         }
         Command::Connect(_)
-        | Command::Disconnect
+        | Command::Disconnect { .. }
         | Command::Compare(_)
         | Command::TestConnection { .. } => {
             unreachable!("connection and compare commands are handled before data dispatch")
         }
     })
-}
-
-async fn current_store(shared: &Shared) -> Result<Arc<dyn DocumentStore>> {
-    shared
-        .current_store()
-        .ok_or_else(|| CoreError::Unsupported("not connected".into()))
 }
 
 /// Applies the timeout; an elapsed deadline becomes `Database("timeout")`.
@@ -169,6 +209,7 @@ async fn bounded<T>(
 /// tasks cannot be cancelled); its result is discarded.
 async fn connect_store(
     shared: &Arc<Shared>,
+    session: &Arc<Session>,
     cfg: ConnectionConfig,
     generation: u64,
 ) -> Result<Event> {
@@ -179,7 +220,7 @@ async fn connect_store(
     let (store, tunnel) = bounded(limit, async {
         let password = read_password(shared, &cfg).await?;
         let job = Arc::new(ConnectionCurrent {
-            shared: shared.clone(),
+            session: session.clone(),
             generation,
         });
         let tunnel = open_tunnel_if_configured(shared, job, &cfg, SshSecretSource::Stored).await?;
@@ -191,8 +232,11 @@ async fn connect_store(
         Ok((store, tunnel))
     })
     .await?;
-    if shared.install_if_current(generation, store, tunnel) {
-        Ok(Event::Connected { epoch: generation })
+    if session.install_if_current(generation, store, tunnel) {
+        Ok(Event::Connected {
+            session: cfg.id,
+            epoch: generation,
+        })
     } else {
         Err(CoreError::Superseded)
     }

@@ -216,7 +216,7 @@ impl CurlybraceApp {
 
     fn send(&mut self, commands: Vec<Command>) {
         for command in commands {
-            if matches!(command, Command::Connect(_) | Command::Disconnect) {
+            if matches!(command, Command::Connect(_) | Command::Disconnect { .. }) {
                 // Questions already queued by the runtime belong to the connection being
                 // replaced: collect them first so none survives, then reject them all.
                 self.drain_requests();
@@ -571,7 +571,9 @@ mod tests {
             let (mut app, events, _commands, _dir, id) = app_with_open_dialog(guard);
             app.dispatch(Input::Connect(id));
             let epoch = app.state().latest_requested_epoch;
-            events.send(Event::Connected { epoch }).unwrap();
+            events
+                .send(Event::Connected { session: id, epoch })
+                .unwrap();
             app.pump();
             assert_eq!(app.state().status, ConnStatus::Connected);
             assert_dialog_closed_and_secrets_gone(&app);

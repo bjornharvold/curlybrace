@@ -7,6 +7,7 @@ use bson::{Bson, Document, doc};
 use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::query::QueryText;
+use curlybrace_core::runtime::EMBEDDED_SESSION;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{Namespace, Page, Query};
 use curlybrace_core::test_support::mock_objects::mock_doc_with_id;
@@ -79,6 +80,7 @@ fn pending_from(editor: Option<&EditorState>) -> Option<Pending> {
 
 fn find_failed() -> Event {
     Event::Failed {
+        session: EMBEDDED_SESSION,
         context: "find",
         error: CoreError::Database("x".into()),
     }
@@ -90,16 +92,25 @@ fn find_failed() -> Event {
 fn connected_sets_status_and_lists_databases() {
     let mut s = AppState::new(vec![]);
     s.status = ConnStatus::Connecting;
-    let (s, cmds) = event(s, Event::Connected { epoch: 1 });
+    let (s, cmds) = event(
+        s,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 1,
+        },
+    );
     assert_eq!(s.status, ConnStatus::Connected);
-    assert!(matches!(cmds.as_slice(), [Command::ListDatabases]));
+    assert!(matches!(cmds.as_slice(), [Command::ListDatabases { .. }]));
 }
 
 #[test]
 fn databases_fill_the_sidebar_keeping_loaded_state() {
     let (s, cmds) = event(
         browsing(),
-        Event::Databases(vec!["app".into(), "new".into()]),
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec!["app".into(), "new".into()],
+        },
     );
     assert!(cmds.is_empty());
     let names: Vec<_> = s
@@ -119,6 +130,7 @@ fn collections_are_stored_and_clear_the_in_flight_mark() {
     let (s, _) = event(
         s,
         Event::Collections {
+            session: EMBEDDED_SESSION,
             db: "other".into(),
             names: vec!["c".into()],
         },
@@ -136,6 +148,7 @@ fn results_replace_page_bump_tree_and_memoise_key() {
     let (s, cmds) = event(
         s,
         Event::Results {
+            session: EMBEDDED_SESSION,
             ns: ns(),
             query: q,
             page: page.clone(),
@@ -154,6 +167,7 @@ fn results_for_another_namespace_are_ignored() {
     let (s, _) = event(
         s,
         Event::Results {
+            session: EMBEDDED_SESSION,
             ns: Namespace::new("app", "pets"),
             query: Query::default(),
             page: page_of(vec![], false, 0),
@@ -173,6 +187,7 @@ fn results_for_an_older_query_are_ignored() {
     let (s, _) = event(
         s,
         Event::Results {
+            session: EMBEDDED_SESSION,
             ns: ns(),
             query: Query::default(),
             page: page_of(vec![], false, 0),
@@ -207,6 +222,7 @@ fn newer_banner_replaces_older_and_dismiss_clears() {
     let (s, _) = event(
         s,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "list_databases",
             error: CoreError::NotFound,
         },
@@ -229,6 +245,7 @@ fn failed_list_collections_clears_in_flight_and_banners() {
     let (s, _) = event(
         s,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "list_collections",
             error: CoreError::NotFound,
         },
@@ -247,10 +264,16 @@ fn mutated_reruns_the_page_query_and_closes_the_editor_it_came_from() {
     let editor = EditorState::for_new();
     s.pending = pending_from(Some(&editor));
     s.editor = Some(editor);
-    let (s, cmds) = event(s, Event::Mutated { ns: ns() });
+    let (s, cmds) = event(
+        s,
+        Event::Mutated {
+            session: EMBEDDED_SESSION,
+            ns: ns(),
+        },
+    );
     assert!(s.pending.is_none() && s.editor.is_none());
     match cmds.as_slice() {
-        [Command::Find { ns: n, query }] => {
+        [Command::Find { ns: n, query, .. }] => {
             assert_eq!((n, query.skip), (&ns(), 50));
         }
         other => panic!("{other:?}"),
@@ -264,7 +287,13 @@ fn mutated_leaves_an_editor_with_other_content_open() {
     let mut other = EditorState::for_new();
     other.text = "{\"typing\": true}".into();
     s.editor = Some(other);
-    let (s, _) = event(s, Event::Mutated { ns: ns() });
+    let (s, _) = event(
+        s,
+        Event::Mutated {
+            session: EMBEDDED_SESSION,
+            ns: ns(),
+        },
+    );
     assert!(s.editor.is_some());
 }
 
@@ -275,6 +304,7 @@ fn mutated_for_another_namespace_neither_refetches_nor_clears_pending() {
     let (s, cmds) = event(
         s,
         Event::Mutated {
+            session: EMBEDDED_SESSION,
             ns: Namespace::new("app", "pets"),
         },
     );
@@ -310,6 +340,7 @@ fn failed_mutation_keeps_the_editor_open_with_the_error() {
     let (s, _) = event(
         s,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "insert",
             error: CoreError::Database("dup".into()),
         },
@@ -330,6 +361,7 @@ fn failed_save_goes_to_a_banner_when_the_editor_changed_meanwhile() {
     let (s, _) = event(
         s,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "replace",
             error: CoreError::Database("x".into()),
         },
@@ -352,6 +384,7 @@ fn failed_delete_sets_a_banner_and_clears_pending() {
     let (s, _) = event(
         s,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "delete",
             error: CoreError::NotFound,
         },
@@ -363,7 +396,13 @@ fn failed_delete_sets_a_banner_and_clears_pending() {
 fn disconnected_clears_session_state() {
     let mut s = browsing();
     s.editor = Some(EditorState::for_new());
-    let (s, _) = event(s, Event::Disconnected { epoch: 1 });
+    let (s, _) = event(
+        s,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            epoch: 1,
+        },
+    );
     assert_eq!(s.status, ConnStatus::Disconnected);
     assert!(s.sidebar.databases.is_empty() && s.sidebar.selected.is_none());
     assert!(s.page.is_none() && s.page_key.is_none() && s.editor.is_none());
@@ -376,6 +415,7 @@ fn failed_connect_leaves_a_disconnected_state_with_a_banner() {
     let (s, _) = event(
         s,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             epoch: 1,
             error: CoreError::Ssh("x".into()),
         },
@@ -397,6 +437,7 @@ fn failed_disconnect_also_ends_up_disconnected() {
     let (s, _) = event(
         s,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "disconnect",
             error: CoreError::Database("x".into()),
         },
@@ -410,13 +451,25 @@ fn data_events_after_a_disconnect_are_ignored() {
     s.status = ConnStatus::Disconnected;
     let (s, _) = event(s, find_failed());
     assert!(s.banner.is_none());
-    let (s, cmds) = event(s, Event::Mutated { ns: ns() });
+    let (s, cmds) = event(
+        s,
+        Event::Mutated {
+            session: EMBEDDED_SESSION,
+            ns: ns(),
+        },
+    );
     assert!(cmds.is_empty() && s.page.is_some());
 }
 
 #[test]
 fn apply_event_is_the_state_only_view_of_update() {
-    let s = apply_event(browsing(), Event::Databases(vec!["x".into()]));
+    let s = apply_event(
+        browsing(),
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec!["x".into()],
+        },
+    );
     assert_eq!(s.sidebar.databases.len(), 1);
 }
 
@@ -452,7 +505,7 @@ fn disconnect_clears_the_session_right_away_and_sends_disconnect() {
     let (s, cmds) = run(browsing(), Input::Disconnect);
     assert_eq!(s.status, ConnStatus::Disconnected);
     assert!(s.page.is_none() && s.sidebar.databases.is_empty());
-    assert!(matches!(cmds.as_slice(), [Command::Disconnect]));
+    assert!(matches!(cmds.as_slice(), [Command::Disconnect { .. }]));
 }
 
 // ---- sidebar ----
@@ -467,7 +520,7 @@ fn load_collections_expands_and_sends_once() {
     );
     assert!(node(&s, "other").expanded);
     assert!(s.loading.contains("other"));
-    assert!(matches!(cmds.as_slice(), [Command::ListCollections { db }] if db == "other"));
+    assert!(matches!(cmds.as_slice(), [Command::ListCollections { db, .. }] if db == "other"));
     // A second request while in flight expands nothing new and sends nothing.
     let (s, cmds) = run(
         s,
@@ -505,7 +558,9 @@ fn open_selects_resets_paging_and_finds_the_default_query() {
     assert_eq!(s.find.text, QueryText::default());
     assert!(s.editor.is_none() && s.page.is_none() && s.page_key.is_none());
     match cmds.as_slice() {
-        [Command::Find { ns: n, query }] => assert_eq!((n, query), (&target, &Query::default())),
+        [Command::Find { ns: n, query, .. }] => {
+            assert_eq!((n, query), (&target, &Query::default()))
+        }
         other => panic!("{other:?}"),
     }
 }
@@ -530,7 +585,7 @@ fn refresh_lists_databases_and_forgets_loaded_collections() {
     let mut s = browsing();
     s.loading.insert("app".into());
     let (s, cmds) = run(s, Input::Sidebar(SidebarAction::Refresh));
-    assert!(matches!(cmds.as_slice(), [Command::ListDatabases]));
+    assert!(matches!(cmds.as_slice(), [Command::ListDatabases { .. }]));
     assert!(s.loading.is_empty());
     assert!(
         s.sidebar
@@ -555,6 +610,7 @@ fn run_stores_the_query_and_sends_find() {
 
 fn results_for(s: &AppState, has_more: bool) -> Event {
     Event::Results {
+        session: EMBEDDED_SESSION,
         ns: ns(),
         query: s.issued_query.clone(),
         page: page_of(vec![mock_doc_with_id(1_i32)], has_more, s.issued_query.skip),
@@ -612,7 +668,13 @@ fn failed_find_then_an_edit_refetches_the_displayed_pages_query() {
     s.pending = pending_from(None);
     let (s, _) = run(s, Input::Find(FindAction::Run(failed)));
     let (s, _) = event(s, find_failed());
-    let (s, cmds) = event(s, Event::Mutated { ns: ns() });
+    let (s, cmds) = event(
+        s,
+        Event::Mutated {
+            session: EMBEDDED_SESSION,
+            ns: ns(),
+        },
+    );
     match cmds.as_slice() {
         [Command::Find { query, .. }] => assert_eq!(*query, Query::default()),
         other => panic!("{other:?}"),
@@ -623,6 +685,7 @@ fn failed_find_then_an_edit_refetches_the_displayed_pages_query() {
     let (s, _) = event(
         s,
         Event::Results {
+            session: EMBEDDED_SESSION,
             ns: ns(),
             query: Query::default(),
             page: edited.clone(),
@@ -704,7 +767,7 @@ fn clone_sends_the_source_document() {
     let (s, cmds) = run(browsing(), Input::Doc(DocAction::Clone(d.clone())));
     assert!(s.pending.is_some());
     assert!(
-        matches!(cmds.as_slice(), [Command::Clone { ns: n, source }] if *n == ns() && *source == d)
+        matches!(cmds.as_slice(), [Command::Clone { ns: n, source, .. }] if *n == ns() && *source == d)
     );
 }
 

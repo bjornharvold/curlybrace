@@ -79,23 +79,25 @@ fn on_event(state: AppState, ev: Event) -> Out {
             error: CoreError::Superseded,
             ..
         } => (state, Vec::new()),
-        Event::Connected { epoch } => at_epoch(state, epoch, |s| {
+        Event::Connected { epoch, .. } => at_epoch(state, epoch, |s| {
             let s = AppState {
                 status: ConnStatus::Connected,
                 banner: s.banner.filter(|b| !is_data_failure(b)),
                 ..s
             };
-            (s, vec![Command::ListDatabases])
+            let session = s.session_id();
+            (s, vec![Command::ListDatabases { session }])
         }),
-        Event::Disconnected { epoch } => {
+        Event::Disconnected { epoch, .. } => {
             at_epoch(state, epoch, |s| (disconnected(s, None), Vec::new()))
         }
-        Event::ConnectFailed { epoch, error } => at_epoch(state, epoch, |s| {
+        Event::ConnectFailed { epoch, error, .. } => at_epoch(state, epoch, |s| {
             (disconnected(s, Some(("connect", error))), Vec::new())
         }),
         Event::Failed {
             context: "disconnect",
             error,
+            ..
         } => (disconnected(state, Some(("disconnect", error))), Vec::new()),
         // Compare sessions are independent of the browsing connection (and its epoch), so
         // they are handled before the "not connected" catch-all.
@@ -110,11 +112,11 @@ fn on_event(state: AppState, ev: Event) -> Out {
         ),
         // Anything else is a late answer from a session that is gone.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
-        Event::Databases(names) => {
+        Event::Databases { names, .. } => {
             let sidebar = state.sidebar.with_databases(names);
             (AppState { sidebar, ..state }, Vec::new())
         }
-        Event::Collections { db, names } => {
+        Event::Collections { db, names, .. } => {
             let mut loading = state.loading;
             loading.remove(&db);
             let sidebar = state.sidebar.with_collections(&db, names);
@@ -125,7 +127,9 @@ fn on_event(state: AppState, ev: Event) -> Out {
             };
             (next, Vec::new())
         }
-        Event::Results { ns, query, page } => {
+        Event::Results {
+            ns, query, page, ..
+        } => {
             let current = state.selected_ns() == Some(&ns) && state.issued_query == query;
             (
                 if current {
@@ -136,8 +140,8 @@ fn on_event(state: AppState, ev: Event) -> Out {
                 Vec::new(),
             )
         }
-        Event::Mutated { ns } => mutated(state, ns),
-        Event::Failed { context, error } => (data_failed(state, context, error), Vec::new()),
+        Event::Mutated { ns, .. } => mutated(state, ns),
+        Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
     }
 }
 

@@ -115,23 +115,36 @@ fn one_of_each() -> Vec<Command> {
     let ns = mock_namespace();
     let id = Bson::Int32(1);
     vec![
-        Command::ListDatabases,
-        Command::ListCollections { db: "d".into() },
+        Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        },
+        Command::ListCollections {
+            session: EMBEDDED_SESSION,
+            db: "d".into(),
+        },
         Command::Find {
+            session: EMBEDDED_SESSION,
             ns: ns.clone(),
             query: Query::default(),
         },
         Command::Insert {
+            session: EMBEDDED_SESSION,
             ns: ns.clone(),
             json: "{\"a\":1}".into(),
         },
         Command::Replace {
+            session: EMBEDDED_SESSION,
             ns: ns.clone(),
             id: id.clone(),
             json: "{\"_id\":1}".into(),
         },
-        Command::Delete { ns: ns.clone(), id },
+        Command::Delete {
+            session: EMBEDDED_SESSION,
+            ns: ns.clone(),
+            id,
+        },
         Command::Clone {
+            session: EMBEDDED_SESSION,
             ns,
             source: doc! { "a": 1 },
         },
@@ -149,8 +162,17 @@ fn seeded() -> Arc<InMemoryStore> {
 async fn list_databases_yields_databases() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime_with_store(seeded(), repaint);
-    h.tx.send(Command::ListDatabases).unwrap();
-    assert_eq!(next(&mut h).await, Event::Databases(vec!["testdb".into()]));
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec!["testdb".into()]
+        }
+    );
 }
 
 #[tokio::test]
@@ -158,12 +180,14 @@ async fn list_collections_yields_names_with_db() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime_with_store(seeded(), repaint);
     h.tx.send(Command::ListCollections {
+        session: EMBEDDED_SESSION,
         db: "testdb".into(),
     })
     .unwrap();
     assert_eq!(
         next(&mut h).await,
         Event::Collections {
+            session: EMBEDDED_SESSION,
             db: "testdb".into(),
             names: vec!["people".into()]
         }
@@ -181,12 +205,18 @@ async fn find_returns_results_with_same_ns_and_query() {
         ..Query::default()
     };
     h.tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: query.clone(),
     })
     .unwrap();
     match next(&mut h).await {
-        Event::Results { ns, query: q, page } => {
+        Event::Results {
+            session: EMBEDDED_SESSION,
+            ns,
+            query: q,
+            page,
+        } => {
             assert_eq!(ns, mock_namespace());
             assert_eq!(q, query);
             assert_eq!(page.docs.len(), 2);
@@ -202,26 +232,36 @@ async fn insert_replace_delete_clone_yield_mutated() {
     let ns = mock_namespace();
     let cmds = vec![
         Command::Insert {
+            session: EMBEDDED_SESSION,
             ns: ns.clone(),
             json: "{\"x\":1}".into(),
         },
         Command::Replace {
+            session: EMBEDDED_SESSION,
             ns: ns.clone(),
             id: Bson::Int32(1),
             json: "{\"_id\":1,\"x\":2}".into(),
         },
         Command::Clone {
+            session: EMBEDDED_SESSION,
             ns: ns.clone(),
             source: mock_doc_with_id(1_i32),
         },
         Command::Delete {
+            session: EMBEDDED_SESSION,
             ns: ns.clone(),
             id: Bson::Int32(2),
         },
     ];
     for c in cmds {
         h.tx.send(c).unwrap();
-        assert_eq!(next(&mut h).await, Event::Mutated { ns: ns.clone() });
+        assert_eq!(
+            next(&mut h).await,
+            Event::Mutated {
+                session: EMBEDDED_SESSION,
+                ns: ns.clone()
+            }
+        );
     }
 }
 
@@ -230,19 +270,24 @@ async fn invalid_json_fails_and_runtime_keeps_serving() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime_with_store(seeded(), repaint);
     h.tx.send(Command::Insert {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         json: "{not json".into(),
     })
     .unwrap();
     match next(&mut h).await {
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "insert",
             error: CoreError::InvalidJson(_),
         } => {}
         other => panic!("unexpected {other:?}"),
     }
-    h.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Databases(_)));
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert!(matches!(next(&mut h).await, Event::Databases { .. }));
 }
 
 #[tokio::test]
@@ -261,7 +306,11 @@ async fn failing_store_fails_all_seven_store_commands_with_matching_context() {
     for (cmd, ctx) in one_of_each().into_iter().zip(expected) {
         h.tx.send(cmd).unwrap();
         match next(&mut h).await {
-            Event::Failed { context, error } => {
+            Event::Failed {
+                session: EMBEDDED_SESSION,
+                context,
+                error,
+            } => {
                 assert_eq!(context, ctx);
                 assert_eq!(error, CoreError::Database("down".into()));
             }
@@ -295,10 +344,14 @@ async fn repaint_fires_exactly_once_per_event() {
 async fn commands_before_connect_fail_with_static_not_connected() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime(Arc::new(MemorySecretStore::new()), repaint);
-    h.tx.send(Command::ListDatabases).unwrap();
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
     assert_eq!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "list_databases",
             error: CoreError::Unsupported("not connected".into())
         }
@@ -309,12 +362,25 @@ async fn commands_before_connect_fail_with_static_not_connected() {
 async fn disconnect_clears_store_and_emits_disconnected() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime_with_store(seeded(), repaint);
-    h.tx.send(Command::Disconnect).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
-    h.tx.send(Command::ListDatabases).unwrap();
+    h.tx.send(Command::Disconnect {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
     assert!(matches!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "list_databases",
             ..
         }
@@ -331,6 +397,7 @@ async fn slow_store_times_out_within_override() {
     let mut h = spawn_runtime_with_config(None, Some(Arc::new(SlowStore)), repaint, config);
     let start = Instant::now();
     h.tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
     })
@@ -338,6 +405,7 @@ async fn slow_store_times_out_within_override() {
     assert_eq!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "find",
             error: CoreError::Database("timeout".into())
         }
@@ -354,21 +422,35 @@ async fn slow_command_does_not_block_others() {
     };
     let mut h = spawn_runtime_with_config(None, Some(Arc::new(SlowStore)), repaint, config);
     h.tx.send(Command::Find {
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         query: Query::default(),
     })
     .unwrap();
-    h.tx.send(Command::ListDatabases).unwrap();
-    assert_eq!(next(&mut h).await, Event::Databases(vec![]));
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec![]
+        }
+    );
 }
 
 #[tokio::test]
 async fn panicking_handler_still_yields_one_failed_event() {
     let (count, repaint) = counter();
     let mut h = spawn_runtime_with_store(Arc::new(PanicStore), repaint);
-    h.tx.send(Command::ListDatabases).unwrap();
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
     match next(&mut h).await {
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "list_databases",
             error: CoreError::Database(m),
         } => {
@@ -376,8 +458,17 @@ async fn panicking_handler_still_yields_one_failed_event() {
         }
         other => panic!("unexpected {other:?}"),
     }
-    h.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Failed { .. }));
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Failed {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(count.load(Ordering::SeqCst), 2);
     assert!(h.rx.try_recv().is_err());
@@ -397,21 +488,26 @@ async fn connect_to_unreachable_host_fails_within_bound() {
         repaint,
         config,
     );
-    let cfg = ConnectionConfig::new("x", "mongodb://127.0.0.1:1");
+    let cfg = embedded_config("x", "mongodb://127.0.0.1:1");
     let start = Instant::now();
     h.tx.send(Command::Connect(cfg)).unwrap();
     assert!(matches!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             error: CoreError::Database(_),
             ..
         }
     ));
     assert!(start.elapsed() < Duration::from_secs(4));
-    h.tx.send(Command::ListDatabases).unwrap();
+    h.tx.send(Command::ListDatabases {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
     assert!(matches!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "list_databases",
             ..
         }
@@ -422,11 +518,12 @@ async fn connect_to_unreachable_host_fails_within_bound() {
 async fn connect_with_invalid_uri_fails_with_invalid_uri() {
     let (_, repaint) = counter();
     let mut h = spawn_runtime(Arc::new(MemorySecretStore::new()), repaint);
-    h.tx.send(Command::Connect(ConnectionConfig::new("x", "not-a-uri")))
+    h.tx.send(Command::Connect(embedded_config("x", "not-a-uri")))
         .unwrap();
     assert!(matches!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             error: CoreError::InvalidUri(_),
             ..
         }

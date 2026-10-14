@@ -414,15 +414,19 @@ async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
     assert_eq!(
         recv(&mut handle).await,
         Event::Connected {
+            session: id_c,
             epoch: state.latest_requested_epoch
         }
     );
     tx_a.send(Ok(seeded())).ok();
+    // The runtime now keeps one session per connection, so #2 is no longer replaced by #3: it
+    // completes in its own session with its own (older) epoch, which the UI ignores because it
+    // has requested a newer one.
     assert_eq!(
         recv(&mut handle).await,
-        Event::Failed {
-            context: "connect",
-            error: curlybrace_core::error::CoreError::Superseded
+        Event::Connected {
+            session: id_a,
+            epoch: 2
         }
     );
 
@@ -432,6 +436,7 @@ async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
     assert_eq!(
         recv(&mut handle).await,
         Event::Disconnected {
+            session: id_c,
             epoch: state.latest_requested_epoch
         }
     );
