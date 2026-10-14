@@ -133,7 +133,7 @@ impl std::fmt::Debug for RuntimeConfig {
     }
 }
 
-/// Which password a connection test uses. Debug redacts through
+/// Which password or SSH secret a connection test uses. Debug redacts through
 /// [`SecretString`](crate::secrets::SecretString).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum PasswordChoice {
@@ -146,12 +146,12 @@ pub enum PasswordChoice {
     Typed(crate::secrets::SecretString),
 }
 
-/// Secrets typed into the connection form for one test. `None` on the SSH secret means "use the
+/// Secrets typed into the connection form for one test. `Stored` on either choice means "use the
 /// stored one".
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TestSecrets {
     pub password: PasswordChoice,
-    pub ssh_secret: Option<crate::secrets::SecretString>,
+    pub ssh_secret: PasswordChoice,
 }
 
 /// What a successful connection test learned.

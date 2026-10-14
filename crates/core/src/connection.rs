@@ -173,7 +173,8 @@ impl ConnectionConfig {
 }
 
 /// Control characters plus the invisible Unicode "format" characters (bidi overrides and
-/// isolates, zero-width marks, invisible operators, BOM) that can spoof a label in a list.
+/// isolates, zero-width marks, invisible operators, BOM, soft hyphen, Hangul fillers, line and
+/// paragraph separators, tag characters) that can spoof or blank a label in a list.
 pub fn is_forbidden_label_char(c: char) -> bool {
     c.is_control()
         || matches!(
@@ -184,6 +185,14 @@ pub fn is_forbidden_label_char(c: char) -> bool {
                 | '\u{2060}'..='\u{2064}'
                 | '\u{2066}'..='\u{2069}'
                 | '\u{FEFF}'
+                | '\u{00AD}'
+                | '\u{034F}'
+                | '\u{115F}'..='\u{1160}'
+                | '\u{180E}'
+                | '\u{2028}'..='\u{2029}'
+                | '\u{3164}'
+                | '\u{FFA0}'
+                | '\u{E0000}'..='\u{E007F}'
         )
 }
 
@@ -452,6 +461,37 @@ mod tests {
             let mut c = ConnectionConfig::new("a", "mongodb://h");
             c.folder = Some(format!("wo{ch}rk"));
             assert!(c.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn name_and_folder_reject_blank_looking_and_separator_characters() {
+        for ch in [
+            '\u{2028}',
+            '\u{2029}',
+            '\u{00AD}',
+            '\u{034F}',
+            '\u{115F}',
+            '\u{1160}',
+            '\u{3164}',
+            '\u{FFA0}',
+            '\u{180E}',
+            '\u{E0001}',
+            '\u{E0041}',
+            '\u{E007F}',
+        ] {
+            for name in [format!("pr{ch}od"), ch.to_string()] {
+                assert!(
+                    ConnectionConfig::new(&name, "mongodb://h")
+                        .validate()
+                        .is_err(),
+                    "name with U+{:04X}",
+                    ch as u32
+                );
+            }
+            let mut c = ConnectionConfig::new("a", "mongodb://h");
+            c.folder = Some(format!("wo{ch}rk"));
+            assert!(c.validate().is_err(), "folder with U+{:04X}", ch as u32);
         }
     }
 

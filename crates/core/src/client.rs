@@ -13,7 +13,11 @@ pub const SERVER_SELECTION_TIMEOUT: Duration = Duration::from_secs(8);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Query-string parameters that carry secrets and must never live in the stored URI.
-const SECRET_QUERY_PARAMS: [&str; 2] = ["tlscertificatekeyfilepassword", "proxypassword"];
+const SECRET_QUERY_PARAMS: [&str; 3] = [
+    "tlscertificatekeyfilepassword",
+    "sslclientcertificatekeypassword",
+    "proxypassword",
+];
 
 pub async fn build_client_options(
     cfg: &ConnectionConfig,
@@ -349,5 +353,10 @@ mod tests {
         )
         .await;
         assert_secret_rejected("mongodb://h/?proxyPassword=hunter2&proxyHost=p", "hunter2").await;
+        assert_secret_rejected(
+            "mongodb://h/?sslClientCertificateKeyPassword=hunter2",
+            "hunter2",
+        )
+        .await;
     }
 }

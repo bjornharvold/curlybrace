@@ -6,7 +6,11 @@ use crate::secrets::SecretString;
 
 pub const MASK: &str = "****";
 
-const SECRET_QUERY_KEYS: [&str; 2] = ["tlscertificatekeyfilepassword", "proxypassword"];
+const SECRET_QUERY_KEYS: [&str; 3] = [
+    "tlscertificatekeyfilepassword",
+    "sslclientcertificatekeypassword",
+    "proxypassword",
+];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParsedUri {
@@ -392,6 +396,7 @@ mod tests {
             format!("mongodb://u:%zz{secret}@h"),
             format!("mongodb://u:{secret}@h/?authMechanism=NOPE"),
             format!("mongodb://u:p@h/?tlsCertificateKeyFilePassword={secret}"),
+            format!("mongodb://u:p@h/?sslClientCertificateKeyPassword={secret}"),
             String::new(),
         ] {
             let err = parse_uri(&bad).unwrap_err().to_string();

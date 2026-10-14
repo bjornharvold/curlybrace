@@ -65,7 +65,7 @@ use crate::error::{CoreError, Result};
 
 use crate::store::{DocumentStore, IndexStatus, Namespace};
 
-use super::tunneling::{Currentness, open_tunnel_if_configured};
+use super::tunneling::{Currentness, SshSecretSource, open_tunnel_if_configured};
 use super::{Event, Repaint, Shared, TunnelHandle};
 pub(super) use session::Registry;
 use session::{Connections, Session};
@@ -489,7 +489,7 @@ async fn open_side(
     cfg.validate()?;
     let password = super::handlers::read_password(shared, cfg).await?;
     let job: Arc<dyn Currentness> = session.clone();
-    let tunnel = open_tunnel_if_configured(shared, job, cfg, None).await?;
+    let tunnel = open_tunnel_if_configured(shared, job, cfg, SshSecretSource::Stored).await?;
     let addr = tunnel.as_ref().map(|t| t.local_addr());
     let store = shared
         .connector

@@ -9,7 +9,9 @@ use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
-use super::tunneling::{ConnectionCurrent, Currentness, open_tunnel_if_configured};
+use super::tunneling::{
+    ConnectionCurrent, Currentness, SshSecretSource, open_tunnel_if_configured,
+};
 use super::{Command, Event, Shared};
 
 /// Runs `command` to completion, folding any error into `Event::Failed`.
@@ -180,7 +182,7 @@ async fn connect_store(
             shared: shared.clone(),
             generation,
         });
-        let tunnel = open_tunnel_if_configured(shared, job, &cfg, None).await?;
+        let tunnel = open_tunnel_if_configured(shared, job, &cfg, SshSecretSource::Stored).await?;
         let addr = tunnel.as_ref().map(|t| t.local_addr());
         let store = shared
             .connector
@@ -260,7 +262,11 @@ async fn test_connection(
             super::PasswordChoice::Stored => read_password(shared, &cfg).await?,
         };
         let job: Arc<dyn Currentness> = Arc::new(AlwaysCurrent);
-        let ssh_secret = secrets.ssh_secret.as_ref().map(|s| s.expose());
+        let ssh_secret = match &secrets.ssh_secret {
+            super::PasswordChoice::Typed(s) => SshSecretSource::Typed(s.expose()),
+            super::PasswordChoice::Without => SshSecretSource::Without,
+            super::PasswordChoice::Stored => SshSecretSource::Stored,
+        };
         let tunnel = open_tunnel_if_configured(shared, job, &cfg, ssh_secret).await?;
         let addr = tunnel.as_ref().map(|t| t.local_addr());
         let store = shared

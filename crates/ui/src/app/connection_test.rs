@@ -27,9 +27,14 @@ pub(super) fn start(state: AppState, form: &ConnectionForm) -> (AppState, Vec<Co
         None if form.clear_password => PasswordChoice::Without,
         None => PasswordChoice::Stored,
     };
+    let ssh_secret = match typed(&form.ssh_secret) {
+        Some(secret) => PasswordChoice::Typed(secret),
+        None if form.clear_ssh_secret => PasswordChoice::Without,
+        None => PasswordChoice::Stored,
+    };
     let secrets = TestSecrets {
         password,
-        ssh_secret: typed(&form.ssh_secret),
+        ssh_secret,
     };
     let conn = ConnectionsState {
         test_seq: request_id,
@@ -119,7 +124,10 @@ mod tests {
                     secrets.password,
                     PasswordChoice::Typed(SecretString::new("typed"))
                 );
-                assert_eq!(secrets.ssh_secret.as_ref().map(|p| p.expose()), Some("key"));
+                assert_eq!(
+                    secrets.ssh_secret,
+                    PasswordChoice::Typed(SecretString::new("key"))
+                );
             }
             other => panic!("unexpected commands: {other:?}"),
         }
@@ -131,7 +139,8 @@ mod tests {
         assert!(matches!(
             &cmds[..],
             [Command::TestConnection { secrets, .. }]
-                if secrets.password == PasswordChoice::Stored && secrets.ssh_secret.is_none()
+                if secrets.password == PasswordChoice::Stored
+                    && secrets.ssh_secret == PasswordChoice::Stored
         ));
     }
 
@@ -145,6 +154,34 @@ mod tests {
         assert!(matches!(
             &cmds[..],
             [Command::TestConnection { secrets, .. }] if secrets.password == PasswordChoice::Without
+        ));
+    }
+
+    #[test]
+    fn the_clear_ssh_secret_toggle_sends_an_explicit_no_secret_intent() {
+        let form = ConnectionForm {
+            clear_ssh_secret: true,
+            ..valid_form()
+        };
+        let (_s, cmds) = run(AppState::default(), form);
+        assert!(matches!(
+            &cmds[..],
+            [Command::TestConnection { secrets, .. }] if secrets.ssh_secret == PasswordChoice::Without
+        ));
+    }
+
+    #[test]
+    fn a_typed_ssh_secret_wins_over_the_clear_toggle() {
+        let form = ConnectionForm {
+            clear_ssh_secret: true,
+            ssh_secret: "new".into(),
+            ..valid_form()
+        };
+        let (_s, cmds) = run(AppState::default(), form);
+        assert!(matches!(
+            &cmds[..],
+            [Command::TestConnection { secrets, .. }]
+                if secrets.ssh_secret == PasswordChoice::Typed(SecretString::new("new"))
         ));
     }
 

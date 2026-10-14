@@ -6,17 +6,20 @@ use curlybrace_core::error::{CoreError, Result};
 use curlybrace_core::secrets::{SecretKind, SecretStore, SecretString, secret_key};
 use curlybrace_core::uri::{PasswordMode, build_uri};
 
-/// The password to embed: the typed one wins over the keychain one. A keychain error is an error,
+/// The password to embed: the typed one wins; a saved one marked for removal is not read; else
+/// the keychain one. A keychain error is an error,
 /// never a silently masked string.
 fn password_for(
     form: &ConnectionForm,
     cfg_id: uuid::Uuid,
     secrets: &dyn SecretStore,
 ) -> Result<Option<String>> {
-    if form.password.is_empty() {
-        secrets.get(&secret_key(cfg_id, SecretKind::Password))
-    } else {
+    if !form.password.is_empty() {
         Ok(Some(form.password.clone()))
+    } else if form.clear_password {
+        Ok(None)
+    } else {
+        secrets.get(&secret_key(cfg_id, SecretKind::Password))
     }
 }
 
@@ -118,6 +121,33 @@ mod tests {
         assert!(s.conn.built_with_password);
         let debug = format!("{:?}", s.conn);
         assert!(!debug.contains("typedpw") && !debug.contains("storedpw"));
+    }
+
+    #[test]
+    fn a_cleared_saved_password_is_not_read_from_the_keychain_when_included() {
+        let f = ConnectionForm {
+            clear_password: true,
+            ..form()
+        };
+        let store = MemorySecretStore::new();
+        store
+            .set(&secret_key(f.id, SecretKind::Password), "storedpw")
+            .unwrap();
+        let s = build(AppState::default(), &f, true, &store);
+        assert!(!built(&s).contains("storedpw"));
+        assert!(!s.conn.built_with_password);
+    }
+
+    #[test]
+    fn a_typed_password_still_wins_when_the_saved_one_is_marked_for_removal() {
+        let f = ConnectionForm {
+            clear_password: true,
+            password: "typedpw".into(),
+            ..form()
+        };
+        let s = build(AppState::default(), &f, true, &MemorySecretStore::new());
+        assert!(built(&s).contains("typedpw"));
+        assert!(s.conn.built_with_password);
     }
 
     #[test]

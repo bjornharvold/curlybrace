@@ -191,7 +191,7 @@ async fn test_connection_reports_the_version_or_a_typed_auth_failure_and_install
         cfg: cfg.clone(),
         secrets: TestSecrets {
             password: PasswordChoice::Typed(SecretString::new(password)),
-            ssh_secret: None,
+            ssh_secret: PasswordChoice::Stored,
         },
     };
 

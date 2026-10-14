@@ -394,7 +394,7 @@ async fn typed_secrets_win_over_stored_ones_and_are_not_in_debug_output() {
         cfg: c.clone(),
         secrets: TestSecrets {
             password: PasswordChoice::Typed(SecretString::new("typed-pw")),
-            ssh_secret: Some(SecretString::new("typed-ssh")),
+            ssh_secret: PasswordChoice::Typed(SecretString::new("typed-ssh")),
         },
     };
     let shown = format!("{command:?}");
@@ -431,7 +431,7 @@ async fn a_cleared_password_connects_without_one_even_when_a_password_is_stored(
             cfg: c,
             secrets: TestSecrets {
                 password: PasswordChoice::Without,
-                ssh_secret: None,
+                ssh_secret: PasswordChoice::Stored,
             },
         })
         .unwrap();
@@ -448,7 +448,7 @@ async fn the_event_carries_no_secret_in_its_debug_output() {
             cfg: cfg("a"),
             secrets: TestSecrets {
                 password: PasswordChoice::Typed(SecretString::new("typed-pw")),
-                ssh_secret: None,
+                ssh_secret: PasswordChoice::Stored,
             },
         })
         .unwrap();
@@ -619,7 +619,7 @@ async fn a_typed_ssh_secret_wins_and_the_tunnel_is_closed_before_the_answer() {
             cfg: c.clone(),
             secrets: TestSecrets {
                 password: PasswordChoice::Stored,
-                ssh_secret: Some(SecretString::new("typed-ssh")),
+                ssh_secret: PasswordChoice::Typed(SecretString::new("typed-ssh")),
             },
         })
         .unwrap();
@@ -634,4 +634,29 @@ async fn a_typed_ssh_secret_wins_and_the_tunnel_is_closed_before_the_answer() {
         r.opener.secrets.lock().unwrap().clone(),
         vec![Some("typed-ssh".into()), Some("stored-ssh".into())]
     );
+}
+
+#[tokio::test]
+async fn a_cleared_ssh_secret_opens_the_tunnel_without_one_even_when_one_is_stored() {
+    let c = ssh_cfg("s");
+    let stored = MemorySecretStore::new();
+    stored
+        .set(&secret_key(c.id, SecretKind::SshPassword), "stored-ssh")
+        .unwrap();
+    let mut r = ssh_rig(Arc::new(TrustPrompt), None, Some(Arc::new(stored)));
+    r.rt.tx
+        .send(Command::TestConnection {
+            request_id: 1,
+            cfg: c,
+            secrets: TestSecrets {
+                password: PasswordChoice::Stored,
+                ssh_secret: PasswordChoice::Without,
+            },
+        })
+        .unwrap();
+    assert!(matches!(
+        next(&mut r.rt).await,
+        Event::TestConnection { outcome: Ok(_), .. }
+    ));
+    assert_eq!(r.opener.secrets.lock().unwrap().clone(), vec![None]);
 }
