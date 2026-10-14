@@ -597,6 +597,7 @@
   },
   "hostkey": {
     "fingerprint": "SHA256 fingerprint",
+    "for_connection": "For connection {name}",
     "message": "The authenticity of the SSH host {host} cannot be established. Verify the fingerprint with the host's administrator before trusting it.",
     "reject": "Reject",
     "title": "Unknown SSH host",

@@ -153,9 +153,10 @@ pub fn show_modals(
         .as_mut()
         .and_then(|editor| show_editor_with(ctx, editor, i18n, save_enabled));
     out.extend(saved.map(|a| UiEvent::Input(Input::Editor(a))));
-    let decided = prompt
-        .current()
-        .and_then(|(host, fingerprint)| show_host_key_prompt(ctx, host, fingerprint, i18n));
+    let decided = prompt.current().and_then(|(host, fingerprint)| {
+        let asking = state.connecting_name_for_host(host);
+        show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)
+    });
     out.extend(decided.map(UiEvent::HostKey));
     if let Some(endpoint) = &state.forget_confirm {
         let port = endpoint.port.to_string();
@@ -172,11 +173,15 @@ fn show_host_key_prompt(
     ctx: &egui::Context,
     host: &str,
     fingerprint: &str,
+    asking: Option<&str>,
     i18n: &I18n,
 ) -> Option<HostKeyDecision> {
     let mut decision = None;
     let modal = egui::Modal::new(egui::Id::new("host_key_prompt")).show(ctx, |ui| {
         ui.heading(i18n.t("hostkey.title"));
+        if let Some(name) = asking {
+            ui.label(i18n.t_with("hostkey.for_connection", &[("name", name)]));
+        }
         ui.label(i18n.t_with("hostkey.message", &[("host", host)]));
         ui.label(i18n.t("hostkey.fingerprint"));
         ui.monospace(fingerprint);

@@ -193,9 +193,13 @@ impl CurlybraceApp {
         &mut self.state
     }
 
-    /// `(host, fingerprint)` of the SSH host-key question being shown, if any.
-    pub fn pending_host_key(&self) -> Option<(&str, &str)> {
-        self.prompt.current()
+    /// `(host, fingerprint, connection name)` of the SSH host-key question being shown, if any.
+    /// The name is the one connecting session going through that host; `None` when no or
+    /// several sessions do, since the prompt cannot say who is asking then.
+    pub fn pending_host_key(&self) -> Option<(&str, &str, Option<String>)> {
+        self.prompt.current().map(|(host, fingerprint)| {
+            (host, fingerprint, self.state.connecting_name_for_host(host))
+        })
     }
 
     /// Answers the host-key question being shown (exactly once per question).
@@ -218,9 +222,10 @@ impl CurlybraceApp {
 
     fn send(&mut self, commands: Vec<Command>) {
         for command in commands {
-            if matches!(command, Command::Connect(_) | Command::Disconnect { .. }) {
-                // Questions already queued by the runtime belong to the connection being
-                // replaced: collect them first so none survives, then reject them all.
+            // Prompts belong to sessions that coexist, so one closing leaves the others' alone (its
+            // own drops out once its waiter is gone). Only when the last session has closed does
+            // nobody remain to answer for: collect what the runtime queued, then reject it all.
+            if matches!(command, Command::Disconnect { .. }) && self.state.open.is_empty() {
                 self.drain_requests();
                 self.prompt = std::mem::take(&mut self.prompt).rejected_all();
             }
@@ -408,10 +413,15 @@ impl CurlybraceApp {
             let before = was_connected(&self.state);
             self.dispatch(Input::Event(event));
             if let Some(id) = connected_session.filter(|_| !before && was_connected(&self.state)) {
-                // Whatever the persist guard says, a connect ends any open edit dialog so typed
-                // secrets do not linger and it does not reappear after Disconnect.
+                // Whatever the persist guard says, the connect the person asked for (the active
+                // session) ends any open edit dialog so typed secrets do not linger and it does
+                // not reappear after Disconnect; a background session connecting does not.
                 let state = std::mem::take(&mut self.state);
-                self.state = connection_ops::dialog_closed(state);
+                self.state = if state.active == Some(id) {
+                    connection_ops::dialog_closed(state)
+                } else {
+                    state
+                };
                 let state = std::mem::take(&mut self.state);
                 self.state = connection_ops::mark_connected(
                     state,
@@ -518,6 +528,9 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod file_picker_tests;
+
+#[cfg(test)]
+mod session_wiring_tests;
 
 #[cfg(test)]
 mod tests {

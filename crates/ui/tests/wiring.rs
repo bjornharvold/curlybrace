@@ -122,6 +122,58 @@ fn harness_with(requests: Option<Receiver<HostKeyRequest>>) -> (Harness, uuid::U
     (harness, id)
 }
 
+fn harness_two() -> (Harness, [uuid::Uuid; 2]) {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = spawn_runtime_with_connector(
+        None,
+        None,
+        Arc::new(Fixed(seeded())),
+        Arc::new(|| {}),
+        RuntimeConfig::default(),
+    );
+    let a = ConnectionConfig::new("alpha", "mongodb://localhost:27017");
+    let b = ConnectionConfig::new("beta", "mongodb://localhost:27018");
+    let ids = [a.id, b.id];
+    let app = CurlybraceApp::new(
+        handle,
+        I18n::english(),
+        vec![a, b],
+        Arc::new(MemorySecretStore::new()),
+    )
+    .with_config_path(Ok(dir.path().join("connections.json")));
+    let harness = Harness {
+        app,
+        ctx: egui::Context::default(),
+        _dir: dir,
+    };
+    (harness, ids)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_open_connections_each_stamp_only_their_own_last_connected() {
+    let (mut h, [a, b]) = harness_two();
+    let both = |app: &CurlybraceApp| {
+        [a, b].map(|id| app.state().status_of(id) == Some(ConnStatus::Connected))
+    };
+    h.app.dispatch(Input::Connect(a));
+    h.until("first connected", |app| both(app)[0]);
+    let file = h._dir.path().join("connections.json");
+    let stamped = |id| {
+        let loaded = curlybrace_ui::app::persistence::load_connections(&file).unwrap();
+        loaded
+            .connections
+            .iter()
+            .find(|c| c.id == id)
+            .and_then(|c| c.last_connected)
+    };
+    assert!(stamped(a).is_some());
+    assert!(stamped(b).is_none(), "the other one was never connected");
+    h.app.dispatch(Input::Connect(b));
+    h.until("both connected", |app| both(app) == [true, true]);
+    assert!(stamped(a).is_some() && stamped(b).is_some());
+    assert_eq!(h.app.state().open, vec![a, b]);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn connecting_stamps_last_connected_in_the_saved_file() {
     let (mut h, id) = harness();
@@ -255,22 +307,24 @@ async fn host_key_question_is_shown_and_answered_exactly_once() {
     let (mut h, _id, prompt) = asking_harness();
     let asker = ask(&prompt);
     h.until("question", |a| a.pending_host_key().is_some());
-    assert_eq!(h.app.pending_host_key(), Some(("bastion", "SHA256:abc")));
+    assert_eq!(
+        h.app.pending_host_key(),
+        Some(("bastion", "SHA256:abc", None))
+    );
     h.app.answer_host_key(HostKeyDecision::TrustAndRemember);
     assert_eq!(asker.join().unwrap(), HostKeyDecision::TrustAndRemember);
     assert!(h.app.pending_host_key().is_none());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_new_connect_or_disconnect_rejects_a_pending_question() {
+async fn closing_the_last_session_rejects_a_pending_question() {
     let (mut h, id, prompt) = asking_harness();
-    for input in [Input::Connect(id), Input::Disconnect(id)] {
-        let asker = ask(&prompt);
-        h.until("question", |a| a.pending_host_key().is_some());
-        h.app.dispatch(input);
-        assert_eq!(asker.join().unwrap(), HostKeyDecision::Reject);
-        assert!(h.app.pending_host_key().is_none());
-    }
+    h.app.dispatch(Input::Connect(id));
+    let asker = ask(&prompt);
+    h.until("question", |a| a.pending_host_key().is_some());
+    h.app.dispatch(Input::Disconnect(id));
+    assert_eq!(asker.join().unwrap(), HostKeyDecision::Reject);
+    assert!(h.app.pending_host_key().is_none());
 }
 
 type Opened = Result<Arc<dyn DocumentStore>>;

@@ -148,6 +148,30 @@ impl AppState {
         )
     }
 
+    /// The SSH endpoint an open session connects through, wherever its view lives.
+    fn ssh_endpoint_of(&self, id: Uuid) -> Option<&HostEndpoint> {
+        if self.active == Some(id) {
+            return self.ssh_endpoint.as_ref();
+        }
+        self.parked.get(&id).and_then(|v| v.ssh_endpoint.as_ref())
+    }
+
+    /// The name of the one open connecting session whose SSH host is `host`; `None` when no
+    /// session or several sessions match (the prompt then cannot say who is asking).
+    pub fn connecting_name_for_host(&self, host: &str) -> Option<String> {
+        let mut matching = self.open.iter().filter(|id| {
+            self.status_of(**id) == Some(ConnStatus::Connecting)
+                && self
+                    .ssh_endpoint_of(**id)
+                    .is_some_and(|e| e.host.eq_ignore_ascii_case(host))
+        });
+        let only = matching.next()?;
+        if matching.next().is_some() {
+            return None;
+        }
+        self.connection(*only).map(|c| c.name.clone())
+    }
+
     /// Opens `id` (keeping its place when already open) with `view` as its whole view and makes it
     /// active; the previously active view is parked.
     pub fn opened_with(self, id: Uuid, view: SessionView) -> AppState {
