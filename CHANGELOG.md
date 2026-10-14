@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0](https://github.com/bjornharvold/curlybrace/compare/v0.1.0...v0.2.0) (2026-10-14)
+
+
+### Features
+
+* **compare:** apply engine in core (slice 2a) ([#36](https://github.com/bjornharvold/curlybrace/issues/36)) ([09104c7](https://github.com/bjornharvold/curlybrace/commit/09104c77acf04f366f4f51ffca502b2e14bc7ad5))
+* **compare:** apply UI (slice 2b) ([#39](https://github.com/bjornharvold/curlybrace/issues/39)) ([4d53b26](https://github.com/bjornharvold/curlybrace/commit/4d53b2619c12ba220e6f20289807766fe56a448d))
+* **compare:** data compare slice 1 (engine, session protocol, read-only Compare workspace) ([#29](https://github.com/bjornharvold/curlybrace/issues/29)) ([d086ba4](https://github.com/bjornharvold/curlybrace/commit/d086ba44f6f591d1ef4f80e33b06f17768fb37aa))
+* **compare:** export plans and reports (slice 3) ([#43](https://github.com/bjornharvold/curlybrace/issues/43)) ([c81496a](https://github.com/bjornharvold/curlybrace/commit/c81496aa7c365f5ef9d72301fc00e2a84dcfb571))
+* **compare:** field-level apply (slice 2c) ([#41](https://github.com/bjornharvold/curlybrace/issues/41)) ([f34f90c](https://github.com/bjornharvold/curlybrace/commit/f34f90c8beb16b10b64b9f529ed6385e8377eae8))
+* **compare:** find duplicate keys (slice 1b) ([#32](https://github.com/bjornharvold/curlybrace/issues/32)) ([f529df2](https://github.com/bjornharvold/curlybrace/commit/f529df2483f55567896bbda02fc79592ec4f62d7))
+* **compare:** multi-pair compare UI (slice 1c) ([#34](https://github.com/bjornharvold/curlybrace/issues/34)) ([8b7a123](https://github.com/bjornharvold/curlybrace/commit/8b7a1239fddee01d07c93f0d9c50d8812d1646ec))
+
 ## 0.1.0 (2026-10-12)
 
 
