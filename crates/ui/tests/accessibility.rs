@@ -618,4 +618,128 @@ mod session_tree {
             assert!(reached.contains(&label), "{label} not reached: {reached:?}");
         }
     }
+
+    type Keyed = (AppState, Option<Input>);
+
+    fn keyed_harness() -> Harness<'static, Keyed> {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(320.0, 600.0))
+            .build_ui_state(
+                |ui, (state, got): &mut Keyed| {
+                    if let Some(input) = show_roots(ui, state, &I18n::english()) {
+                        *got = Some(input);
+                    }
+                },
+                (three_roots(), None),
+            );
+        harness.run();
+        harness
+    }
+
+    fn focused_label(harness: &Harness<'_, Keyed>) -> Option<String> {
+        harness
+            .root()
+            .children_recursive()
+            .find(|n| n.accesskit_node().is_focused())
+            .and_then(|n| n.accesskit_node().label())
+    }
+
+    /// Tabs until the control called `label` has the focus.
+    fn tab_to(harness: &mut Harness<'_, Keyed>, label: &str) {
+        for _ in 0..expected_labels().len() + 2 {
+            harness.key_press(egui::Key::Tab);
+            harness.run();
+            if focused_label(harness).as_deref() == Some(label) {
+                return;
+            }
+        }
+        panic!("{label} was never focused");
+    }
+
+    fn named(key: &str, name: &str) -> String {
+        I18n::english().t_with(key, &[("name", name)])
+    }
+
+    /// Focuses `label` from a fresh tree, presses `key` and returns the resulting input.
+    fn activate(label: &str, key: egui::Key) -> (Option<Input>, Vec<uuid::Uuid>) {
+        let mut harness = keyed_harness();
+        tab_to(&mut harness, label);
+        assert!(harness.state().1.is_none(), "focusing alone does nothing");
+        harness.key_press(key);
+        harness.run();
+        let (state, got) = harness.state();
+        (got.as_ref().map(clone_input), state.open.clone())
+    }
+
+    /// `Input` is not `Clone`; the few variants a root can emit are copied by hand.
+    fn clone_input(input: &Input) -> Input {
+        match input {
+            Input::ShowConnections => Input::ShowConnections,
+            Input::Activate(id) => Input::Activate(*id),
+            Input::Connect(id) => Input::Connect(*id),
+            Input::Disconnect(id) => Input::Disconnect(*id),
+            other => panic!("a root emitted {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enter_and_space_on_each_control_emit_the_input_for_that_connection() {
+        let connections = I18n::english().t("sidebar.connections");
+        let (got, _) = activate(&connections, egui::Key::Enter);
+        assert!(matches!(got, Some(Input::ShowConnections)), "{got:?}");
+
+        let (got, open) = activate("Beta", egui::Key::Space);
+        assert!(
+            matches!(got, Some(Input::Activate(id)) if id == open[1]),
+            "{got:?}"
+        );
+
+        let (got, open) = activate(
+            &named("sidebar.disconnect_named", "Alpha"),
+            egui::Key::Enter,
+        );
+        assert!(
+            matches!(got, Some(Input::Disconnect(id)) if id == open[0]),
+            "{got:?}"
+        );
+
+        let (got, open) = activate(&named("sidebar.disconnect_named", "Beta"), egui::Key::Space);
+        assert!(
+            matches!(got, Some(Input::Disconnect(id)) if id == open[1]),
+            "{got:?}"
+        );
+
+        let (got, open) = activate(&named("sidebar.reconnect_named", "Gamma"), egui::Key::Enter);
+        assert!(
+            matches!(got, Some(Input::Connect(id)) if id == open[2]),
+            "{got:?}"
+        );
+    }
+
+    #[test]
+    fn only_the_failed_root_offers_reconnect_and_it_comes_after_its_disconnect() {
+        let harness = keyed_harness();
+        for name in ["Alpha", "Beta"] {
+            let label = named("sidebar.reconnect_named", name);
+            assert_eq!(harness.query_all_by_label(&label).count(), 0, "{name}");
+        }
+        let mut harness = harness;
+        let mut order = Vec::new();
+        for _ in 0..expected_labels().len() + 2 {
+            harness.key_press(egui::Key::Tab);
+            harness.run();
+            order.extend(focused_label(&harness));
+        }
+        let at = |label: String| order.iter().position(|l| *l == label).expect("reached");
+        assert_eq!(
+            at(I18n::english().t("sidebar.connections")),
+            0,
+            "first stop"
+        );
+        assert!(
+            at(named("sidebar.disconnect_named", "Gamma"))
+                < at(named("sidebar.reconnect_named", "Gamma"))
+        );
+        assert!(at("Alpha".into()) < at("Beta".into()) && at("Beta".into()) < at("Gamma".into()));
+    }
 }

@@ -505,3 +505,206 @@ async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
         }
     );
 }
+
+/// Connector answering with the store registered under the connection's name.
+struct ByName(std::collections::HashMap<String, Arc<dyn DocumentStore>>);
+
+#[async_trait::async_trait]
+impl Connector for ByName {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        _password: Option<&str>,
+        _tunnel: Option<SocketAddr>,
+    ) -> Opened {
+        Ok(self.0.get(&cfg.name).expect("a store for the name").clone())
+    }
+}
+
+fn people_named(name: &str) -> Arc<dyn DocumentStore> {
+    let docs = vec![doc! {"_id": 1_i32, "name": name}];
+    Arc::new(InMemoryStore::new().with_docs(&ns(), docs))
+}
+
+fn harness_with_connector(
+    connector: Arc<dyn Connector>,
+    configs: Vec<ConnectionConfig>,
+) -> Harness {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = spawn_runtime_with_connector(
+        None,
+        None,
+        connector,
+        Arc::new(|| {}),
+        RuntimeConfig::default(),
+    );
+    let app = CurlybraceApp::new(
+        handle,
+        I18n::english(),
+        configs,
+        Arc::new(MemorySecretStore::new()),
+    )
+    .with_config_path(Ok(dir.path().join("connections.json")));
+    Harness {
+        app,
+        ctx: egui::Context::default(),
+        _dir: dir,
+    }
+}
+
+fn marker(name: &str) -> String {
+    format!("{{ \"_id\": 1, \"name\": \"typed-in-{name}\" }}")
+}
+
+/// Connects `id` (which takes the focus), opens `people` and leaves an edit in progress whose
+/// text is `marker(name)`.
+fn open_and_start_editing(h: &mut Harness, id: uuid::Uuid, name: &str) {
+    h.app.dispatch(Input::Connect(id));
+    h.until("connected and listed", |a| {
+        a.state().active == Some(id)
+            && a.state().status == ConnStatus::Connected
+            && !a.state().sidebar.databases.is_empty()
+    });
+    h.app.dispatch(Input::Sidebar(SidebarAction::Open(ns())));
+    h.until("its own page", |a| names(a) == [name]);
+    let first = h.app.state().page.as_ref().unwrap().docs[0].clone();
+    h.app.dispatch(Input::Doc(DocAction::Edit(first)));
+    h.app.state_mut().editor.as_mut().expect("editor").text = marker(name);
+}
+
+fn assert_shows(h: &Harness, id: uuid::Uuid, name: &str) {
+    let s = h.app.state();
+    assert_eq!(s.active, Some(id));
+    assert_eq!(names(&h.app), [name], "its own page");
+    assert_eq!(
+        s.editor.as_ref().map(|e| e.text.clone()),
+        Some(marker(name)),
+        "its own editor text"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn three_sessions_keep_their_own_page_and_editor_and_survive_a_neighbour_closing() {
+    use curlybrace_ui::app::state::Workspace;
+    let configs: Vec<_> = ["a", "b", "c"]
+        .map(|n| ConnectionConfig::new(n, "mongodb://localhost:27017"))
+        .into();
+    let ids: Vec<uuid::Uuid> = configs.iter().map(|c| c.id).collect();
+    let stores = ["a", "b", "c"]
+        .map(|n| (n.to_string(), people_named(n)))
+        .into();
+    let mut h = harness_with_connector(Arc::new(ByName(stores)), configs);
+
+    for (id, name) in ids.iter().zip(["a", "b", "c"]) {
+        open_and_start_editing(&mut h, *id, name);
+    }
+    assert_eq!(h.app.state().open, ids);
+
+    // Switching restores each session's page and the text typed into its editor.
+    for (id, name) in [(0, "a"), (1, "b"), (2, "c"), (0, "a")] {
+        h.app.dispatch(Input::Activate(ids[id]));
+        assert_shows(&h, ids[id], name);
+    }
+
+    // The Connections workspace keeps every session and its view.
+    h.app.dispatch(Input::ShowConnections);
+    assert_eq!(h.app.state().workspace, Workspace::Connections);
+    assert_eq!(h.app.state().open, ids);
+    // Connect on an open connection focuses it and requests nothing from the runtime.
+    let counter = h.app.state().epoch_counter;
+    h.app.dispatch(Input::Connect(ids[1]));
+    assert_eq!(h.app.state().workspace, Workspace::Browse);
+    assert_shows(&h, ids[1], "b");
+    assert_eq!(h.app.state().epoch_counter, counter, "no command was sent");
+
+    // Closing the middle one leaves the others connected with their pages and editors intact.
+    h.app.dispatch(Input::Disconnect(ids[1]));
+    assert_eq!(h.app.state().open, vec![ids[0], ids[2]]);
+    for id in [ids[0], ids[2]] {
+        assert_eq!(h.app.state().status_of(id), Some(ConnStatus::Connected));
+    }
+    h.app.dispatch(Input::Activate(ids[0]));
+    assert_shows(&h, ids[0], "a");
+    h.app.dispatch(Input::Activate(ids[2]));
+    assert_shows(&h, ids[2], "c");
+    assert_eq!(h.app.state().status_of(ids[1]), None, "its root is gone");
+    // And the survivors still answer through the real runtime.
+    h.app.dispatch(Input::Editor(EditorAction::Cancel));
+    h.app.dispatch(Input::Find(FindAction::Clear));
+    h.until("c still answers", |a| names(a) == ["c"]);
+    assert_eq!(h.app.state().banner, None);
+}
+
+/// Hands out one prepared outcome per connect call, in call order, and counts the calls.
+struct Queued {
+    gates: std::sync::Mutex<std::collections::VecDeque<tokio::sync::oneshot::Receiver<Opened>>>,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl Connector for Queued {
+    async fn connect(
+        &self,
+        _cfg: &ConnectionConfig,
+        _password: Option<&str>,
+        _tunnel: Option<SocketAddr>,
+    ) -> Opened {
+        let gate = self.gates.lock().unwrap().pop_front().expect("a gate");
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        gate.await
+            .unwrap_or_else(|_| Err(curlybrace_core::error::CoreError::Database("gone".into())))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quick_disconnect_and_reconnect_of_one_connection_ignores_the_first_attempt() {
+    use std::sync::atomic::Ordering::SeqCst;
+    use tokio::sync::oneshot;
+    let (tx_first, rx_first) = oneshot::channel::<Opened>();
+    let (tx_second, rx_second) = oneshot::channel::<Opened>();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let connector = Queued {
+        gates: std::sync::Mutex::new([rx_first, rx_second].into()),
+        calls: calls.clone(),
+    };
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost:27017");
+    let id = cfg.id;
+    let mut h = harness_with_connector(Arc::new(connector), vec![cfg]);
+    let wait_for_call = |h: &mut Harness, n: usize| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while calls.load(SeqCst) < n {
+            assert!(Instant::now() < deadline, "connect call {n} never started");
+            h.frame();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    };
+
+    h.app.dispatch(Input::Connect(id));
+    assert_eq!(h.app.state().latest_requested_epoch, 1);
+    wait_for_call(&mut h, 1);
+    h.app.dispatch(Input::Disconnect(id));
+    h.app.dispatch(Input::Connect(id));
+    let s = h.app.state();
+    assert_eq!((s.epoch_counter, s.latest_requested_epoch), (3, 3));
+    wait_for_call(&mut h, 2);
+
+    // The first attempt finishes late, with the other data: nothing of it may show.
+    tx_first.send(Ok(people_named("stale"))).ok();
+    let settle = Instant::now() + Duration::from_millis(300);
+    while Instant::now() < settle {
+        h.frame();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(h.app.state().status_of(id), Some(ConnStatus::Connecting));
+    assert_eq!(h.app.state().banner, None);
+
+    tx_second.send(Ok(people_named("fresh"))).ok();
+    h.until("the second attempt connected", |a| {
+        a.state().status_of(id) == Some(ConnStatus::Connected)
+            && !a.state().sidebar.databases.is_empty()
+    });
+    h.app.dispatch(Input::Sidebar(SidebarAction::Open(ns())));
+    h.until("its page", |a| names(a) == ["fresh"]);
+    assert_eq!(h.app.state().banner, None);
+    assert_eq!(h.app.state().latest_requested_epoch, 3);
+}
