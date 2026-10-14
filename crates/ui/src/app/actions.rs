@@ -1,7 +1,7 @@
 //! Pure handlers for user actions. Each consumes the state and returns the next state plus the
 //! runtime commands to send. Data commands are only produced while connected (carry item I).
 use super::reducer::Out;
-use super::state::{AppState, Banner, ConnStatus, EditorKey, HostEndpoint, Pending, Workspace};
+use super::state::{AppState, Banner, ConnStatus, EditorKey, Pending, Workspace};
 use crate::viewmodel::{
     DbNode, DocAction, EditorAction, EditorState, FindAction, FindBarState, SidebarAction,
 };
@@ -33,6 +33,21 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         SidebarAction::CompareDatabaseTo(db) => {
             gated(state, |s| super::compare::compare_database_to(s, db))
         }
+        SidebarAction::InSession { session, action } => in_session(state, session, *action),
+    }
+}
+
+/// An action under the root of `session`. Expanding a database works on that session's own view
+/// and leaves the focus where it is; everything else focuses the session first.
+fn in_session(state: AppState, session: Uuid, action: SidebarAction) -> Out {
+    if !state.is_open(session) {
+        return (state, Vec::new());
+    }
+    match action {
+        SidebarAction::Toggle(_) | SidebarAction::LoadCollections(_) => {
+            state.with_session(session, |s| sidebar(s, action))
+        }
+        other => sidebar(state.activated(session), other),
     }
 }
 
@@ -256,47 +271,4 @@ fn mutation(
         let command = build(s.session_id(), ns);
         (AppState { pending, ..s }, vec![command])
     })
-}
-
-/// Starts connecting with a saved config; its outcome arrives as an event.
-pub(super) fn connect(state: AppState, id: Uuid) -> Out {
-    let Some(cfg) = state.connection(id).cloned() else {
-        return (state, Vec::new());
-    };
-    // Switching to another connection first ends the open one, so none of its answers can reach
-    // the new screen and its client and tunnel close. Reconnecting the same id needs no
-    // Disconnect: the runtime supersedes that session itself. Each command takes one epoch.
-    let replaced = state.active.filter(|open| *open != id);
-    let epochs = 1 + u64::from(replaced.is_some());
-    let cleared = state.session_cleared();
-    let next = AppState {
-        status: ConnStatus::Connecting,
-        open: vec![id],
-        active: Some(id),
-        latest_requested_epoch: cleared.latest_requested_epoch + epochs,
-        banner: None,
-        ssh_endpoint: HostEndpoint::of(&cfg),
-        ..cleared
-    };
-    let commands = replaced
-        .map(|session| Command::Disconnect { session })
-        .into_iter()
-        .chain([Command::Connect(cfg)])
-        .collect();
-    (next, commands)
-}
-
-pub(super) fn disconnect(state: AppState) -> Out {
-    // Built before `session_cleared` forgets which session was open.
-    let command = Command::Disconnect {
-        session: state.session_id(),
-    };
-    let cleared = state.session_cleared();
-    let next = AppState {
-        status: ConnStatus::Disconnected,
-        latest_requested_epoch: cleared.latest_requested_epoch + 1,
-        banner: None,
-        ..cleared
-    };
-    (next, vec![command])
 }

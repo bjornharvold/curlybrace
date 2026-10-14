@@ -198,7 +198,7 @@ async fn browse_edit_and_delete_through_the_real_runtime() {
     assert!(h.app.state().banner.is_none());
 
     // a data action after disconnecting is refused locally
-    h.app.dispatch(Input::Disconnect);
+    h.app.dispatch(Input::Disconnect(id));
     h.app.dispatch(Input::Find(FindAction::Clear));
     assert_eq!(h.app.state().banner, Some(Banner::NotConnected));
 }
@@ -264,7 +264,7 @@ async fn host_key_question_is_shown_and_answered_exactly_once() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_new_connect_or_disconnect_rejects_a_pending_question() {
     let (mut h, id, prompt) = asking_harness();
-    for input in [Input::Connect(id), Input::Disconnect] {
+    for input in [Input::Connect(id), Input::Disconnect(id)] {
         let asker = ask(&prompt);
         h.until("question", |a| a.pending_host_key().is_some());
         h.app.dispatch(input);
@@ -295,7 +295,7 @@ impl Connector for Gated {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fails_later() {
+async fn a_slow_first_connect_failing_later_only_fails_its_own_root() {
     use tokio::sync::oneshot;
     // One repaint per delivered event: lets the test wait for an exact number of answers.
     let delivered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -339,12 +339,13 @@ async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fai
     h.until("B connected and listed", |a| {
         a.state().status == ConnStatus::Connected && !a.state().sidebar.databases.is_empty()
     });
-    // A (superseded) now fails with a genuine error: it must not disturb the session.
+    // A (a separate session, still open in the background) now fails with a genuine error: only
+    // its own root is marked failed, the active session is not disturbed.
     tx_a.send(Err(curlybrace_core::error::CoreError::Database(
         "late".into(),
     )))
     .ok();
-    // Exactly three answers exist: B's Connected, the ListDatabases reply and A's Superseded.
+    // Exactly three answers exist: B's Connected, the ListDatabases reply and A's failure.
     // Wait for all of them (not for a quiet period), then look at the final state.
     let deadline = Instant::now() + Duration::from_secs(10);
     while delivered.load(std::sync::atomic::Ordering::SeqCst) < 3 {
@@ -352,8 +353,13 @@ async fn a_fast_second_connect_ends_connected_even_though_the_slow_first_one_fai
         std::thread::sleep(Duration::from_millis(2));
     }
     h.frame();
-    assert_eq!(h.app.state().status, ConnStatus::Connected);
-    assert_eq!(h.app.state().banner, None);
+    let state = h.app.state();
+    assert_eq!(
+        (state.active, state.status),
+        (Some(id_b), ConnStatus::Connected)
+    );
+    assert!(!state.sidebar.databases.is_empty());
+    assert_eq!(state.status_of(id_a), Some(ConnStatus::Failed));
 }
 
 fn step(
@@ -409,45 +415,39 @@ async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
     state = apply_event(state, failed);
     state = update(state, Input::DismissBanner).0;
 
-    // Connect #2 (slow), then switching to c sends Disconnect #3 for a and Connect #4 (fast):
-    // #4 wins, #2 is superseded.
+    // Connect #2 (slow), then connect #3 for c (fast): several sessions are open at once, so
+    // nothing is superseded and no Disconnect is sent for a.
     state = step(state, Input::Connect(id_a), &tx);
     state = step(state, Input::Connect(id_c), &tx);
-    assert_eq!(state.latest_requested_epoch, 4);
-    assert_eq!(
-        recv(&mut handle).await,
-        Event::Disconnected {
-            session: id_a,
-            epoch: 3
-        }
-    );
+    assert_eq!(state.epoch_counter, 3);
+    assert_eq!(state.latest_requested_epoch, 3);
     tx_c.send(Ok(seeded())).ok();
     assert_eq!(
         recv(&mut handle).await,
         Event::Connected {
             session: id_c,
-            epoch: state.latest_requested_epoch,
+            epoch: 3,
             topology: None,
         }
     );
     tx_a.send(Ok(seeded())).ok();
     assert_eq!(
         recv(&mut handle).await,
-        Event::Failed {
+        Event::Connected {
             session: id_a,
-            context: "connect",
-            error: curlybrace_core::error::CoreError::Superseded
+            epoch: 2,
+            topology: None,
         }
     );
 
-    // Disconnect #5.
-    state = step(state, Input::Disconnect, &tx);
-    assert_eq!(state.latest_requested_epoch, 5);
+    // Disconnect #4 takes the next number whichever session it names.
+    state = step(state, Input::Disconnect(id_c), &tx);
+    assert_eq!(state.epoch_counter, 4);
     assert_eq!(
         recv(&mut handle).await,
         Event::Disconnected {
             session: id_c,
-            epoch: state.latest_requested_epoch
+            epoch: state.epoch_counter
         }
     );
 }

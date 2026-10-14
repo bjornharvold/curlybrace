@@ -221,15 +221,8 @@ fn connect_records_the_connection_and_a_cleared_session_forgets_it() {
     let (state, a, _) = two_connections();
     let (state, _) = update(state, Input::Connect(a));
     assert_eq!(state.active, Some(a));
-    assert_eq!(state.session_cleared().active, None);
-    let (state, _) = update(
-        AppState {
-            active: Some(a),
-            ..AppState::default()
-        },
-        Input::Disconnect,
-    );
-    assert_eq!(state.active, None);
+    let (closed, _) = update(update(state, Input::Disconnect(a)).0, Input::Connect(a));
+    assert_eq!(closed.session_cleared().active, None);
 }
 
 #[test]

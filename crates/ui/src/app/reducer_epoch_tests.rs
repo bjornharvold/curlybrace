@@ -5,7 +5,11 @@ use super::*;
 use curlybrace_core::runtime::EMBEDDED_SESSION;
 
 fn app_with_connection() -> (AppState, uuid::Uuid) {
-    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    // The connection IS the session the events below address, so they are routed to its root.
+    let cfg = ConnectionConfig {
+        id: EMBEDDED_SESSION,
+        ..ConnectionConfig::new("a", "mongodb://localhost")
+    };
     let id = cfg.id;
     (AppState::new(vec![cfg]), id)
 }
@@ -59,18 +63,23 @@ fn list_databases_sent(cmds: &[Command]) -> usize {
 }
 
 /// Starts from a fresh state and dispatches `steps` (true = Connect, false = Disconnect).
+/// A Connect on a root that is still open only focuses it, so a repeated Connect models a retry:
+/// the previous attempt is marked failed first (its outcome event is fed by the test itself).
 fn dispatched(steps: &[bool]) -> AppState {
     let (mut s, id) = app_with_connection();
     for connect in steps {
         let input = if *connect {
+            if s.is_open(id) {
+                s.status = ConnStatus::Failed;
+            }
             Input::Connect(id)
         } else {
-            Input::Disconnect
+            Input::Disconnect(id)
         };
         s = run(s, input).0;
     }
     // Every step must really have been dispatched (a Connect with an unknown id would not be).
-    assert_eq!(s.latest_requested_epoch as usize, steps.len());
+    assert_eq!(s.epoch_counter as usize, steps.len());
     s
 }
 
@@ -99,13 +108,11 @@ fn permutations(items: Vec<Event>) -> Vec<Vec<Event>> {
 
 #[test]
 fn every_connect_and_disconnect_dispatch_bumps_the_mirrored_epoch() {
-    assert_eq!(
-        dispatched(&[true, true, false, true]).latest_requested_epoch,
-        4
-    );
+    let s = dispatched(&[true, true, false, true]);
+    assert_eq!((s.epoch_counter, s.latest_requested_epoch), (4, 4));
     // An unknown id sends no command and consumes no epoch.
     let (s, _) = run(AppState::new(vec![]), Input::Connect(uuid::Uuid::new_v4()));
-    assert_eq!(s.latest_requested_epoch, 0);
+    assert_eq!((s.epoch_counter, s.latest_requested_epoch), (0, 0));
 }
 
 #[test]
@@ -127,7 +134,7 @@ fn a_real_failure_of_the_second_connect_is_shown_in_either_order() {
         vec![superseded(), connect_failed(2)],
     ] {
         let (s, cmds) = feed(dispatched(&[true, true]), events);
-        assert_eq!(s.status, ConnStatus::Disconnected);
+        assert_eq!(s.status, ConnStatus::Failed);
         assert!(cmds.is_empty());
         assert_eq!(s.banner, refused_banner());
     }
@@ -152,7 +159,7 @@ fn a_stale_connected_after_a_newer_connect_failed_is_ignored() {
         dispatched(&[true, true]),
         vec![connect_failed(2), connected(1)],
     );
-    assert_eq!(s.status, ConnStatus::Disconnected);
+    assert_eq!(s.status, ConnStatus::Failed);
     assert_eq!(s.banner, refused_banner());
     assert_eq!(list_databases_sent(&cmds), 0);
 }
@@ -160,11 +167,9 @@ fn a_stale_connected_after_a_newer_connect_failed_is_ignored() {
 #[test]
 fn a_consistent_real_failure_then_a_connected_ends_connected() {
     // A fails for real (epoch 1) before B (epoch 2) is requested; B then connects.
-    let (s, _) = run(
-        dispatched(&[true]),
-        Input::Connect(uuid_of(&dispatched(&[true]))),
-    );
+    let s = dispatched(&[true]);
     let (s, _) = event(s, connect_failed(1));
+    let (s, _) = run(s, Input::Connect(uuid_of(&dispatched(&[true]))));
     let (s, cmds) = event(s, connected(2));
     assert_eq!(s.status, ConnStatus::Connected);
     assert_eq!(list_databases_sent(&cmds), 1);
@@ -203,7 +208,7 @@ fn all_arrival_orders_of_two_connects_end_in_the_second_ones_outcome() {
     for events in failed {
         let label = format!("{events:?}");
         let (s, cmds) = feed(dispatched(&[true, true]), events);
-        assert_eq!(s.status, ConnStatus::Disconnected, "{label}");
+        assert_eq!(s.status, ConnStatus::Failed, "{label}");
         assert_eq!(list_databases_sent(&cmds), 0, "{label}");
         assert_eq!(s.banner, refused_banner(), "{label}");
     }
@@ -278,8 +283,10 @@ fn session_of(command: &Command) -> Option<uuid::Uuid> {
 
 #[test]
 fn connect_data_and_disconnect_commands_all_carry_the_opened_connections_id() {
-    let (s, id) = app_with_connection();
-    let (s, cmds) = update(s, Input::Connect(id));
+    let cfg = ConnectionConfig::new("a", "mongodb://localhost");
+    let id = cfg.id;
+    assert_ne!(id, EMBEDDED_SESSION);
+    let (s, cmds) = update(AppState::new(vec![cfg]), Input::Connect(id));
     assert_eq!(cmds.iter().map(session_of).collect::<Vec<_>>(), [Some(id)]);
     let (s, cmds) = event(
         s,
@@ -294,25 +301,24 @@ fn connect_data_and_disconnect_commands_all_carry_the_opened_connections_id() {
         [Some(id)],
         "the first fetch after connecting addresses the opened connection"
     );
-    let (_, cmds) = update(s, Input::Disconnect);
+    let (_, cmds) = update(s, Input::Disconnect(id));
     assert_eq!(
         cmds.iter().map(session_of).collect::<Vec<_>>(),
         [Some(id)],
-        "disconnect is stamped before the session is cleared"
+        "disconnect names the session it closes"
     );
 }
 
 #[test]
 fn without_an_opened_connection_commands_address_the_embedded_session() {
     assert_eq!(AppState::new(vec![]).session_id(), EMBEDDED_SESSION);
-    let (_, cmds) = update(AppState::new(vec![]), Input::Disconnect);
-    assert_eq!(
-        cmds.iter().map(session_of).collect::<Vec<_>>(),
-        [Some(EMBEDDED_SESSION)]
-    );
+    // There is no root to close: nothing is sent and no epoch is consumed.
+    let (s, cmds) = update(AppState::new(vec![]), Input::Disconnect(EMBEDDED_SESSION));
+    assert!(cmds.is_empty());
+    assert_eq!(s.epoch_counter, 0);
 }
 
-// ---- switching connections closes the previous session ----
+// ---- switching connections keeps the previous session open ----
 
 fn two_connections() -> (AppState, uuid::Uuid, uuid::Uuid) {
     let (a, b) = (
@@ -324,30 +330,36 @@ fn two_connections() -> (AppState, uuid::Uuid, uuid::Uuid) {
 }
 
 #[test]
-fn connecting_to_another_connection_disconnects_the_open_one_first() {
+fn connecting_to_another_connection_keeps_the_open_one_and_sends_only_a_connect() {
+    // Replaces the single-session behaviour (Disconnect of the old session, then Connect, two
+    // epochs): the old session is parked, still open, and only one epoch is consumed.
     let (s, a, b) = two_connections();
     let (s, _) = update(s, Input::Connect(a));
-    let before = s.latest_requested_epoch;
+    let before = s.epoch_counter;
     let (s, cmds) = update(s, Input::Connect(b));
-    match cmds.as_slice() {
-        [Command::Disconnect { session }, Command::Connect(cfg)] => {
-            assert_eq!(*session, a);
-            assert_eq!(cfg.id, b);
-        }
-        other => panic!("unexpected {other:?}"),
-    }
-    assert_eq!(s.latest_requested_epoch, before + 2);
+    assert!(matches!(cmds.as_slice(), [Command::Connect(cfg)] if cfg.id == b));
+    assert_eq!(s.epoch_counter, before + 1);
     assert_eq!(s.active, Some(b));
+    assert_eq!(s.open, vec![a, b]);
 }
 
 #[test]
-fn reconnecting_the_same_connection_sends_only_a_connect() {
+fn reconnecting_a_failed_connection_sends_only_a_connect() {
     let (s, a, _) = two_connections();
     let (s, _) = update(s, Input::Connect(a));
-    let before = s.latest_requested_epoch;
+    let (s, _) = event(s, connect_failed_for(a, 1));
+    let before = s.epoch_counter;
     let (s, cmds) = update(s, Input::Connect(a));
     assert!(matches!(cmds.as_slice(), [Command::Connect(cfg)] if cfg.id == a));
-    assert_eq!(s.latest_requested_epoch, before + 1);
+    assert_eq!(s.epoch_counter, before + 1);
+}
+
+fn connect_failed_for(session: uuid::Uuid, epoch: u64) -> Event {
+    Event::ConnectFailed {
+        session,
+        epoch,
+        error: CoreError::Database("refused".into()),
+    }
 }
 
 #[test]

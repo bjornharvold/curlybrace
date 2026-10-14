@@ -28,6 +28,7 @@ mod panels;
 pub mod persistence;
 pub mod reducer;
 mod session;
+mod session_actions;
 pub mod state;
 
 use crate::I18n;
@@ -395,23 +396,29 @@ impl CurlybraceApp {
             if let Some(line) = failure_log_line(&event) {
                 log::warn!("{line}");
             }
-            let was_connected = self.state.status == ConnStatus::Connected;
-            let is_connect = matches!(event, Event::Connected { .. });
+            // The session a Connected answer belongs to may be a background one.
+            let connected_session = match &event {
+                Event::Connected { session, .. } => Some(*session),
+                _ => None,
+            };
+            let was_connected = |state: &AppState| {
+                connected_session
+                    .is_some_and(|id| state.status_of(id) == Some(ConnStatus::Connected))
+            };
+            let before = was_connected(&self.state);
             self.dispatch(Input::Event(event));
-            if is_connect && !was_connected && self.state.status == ConnStatus::Connected {
+            if let Some(id) = connected_session.filter(|_| !before && was_connected(&self.state)) {
                 // Whatever the persist guard says, a connect ends any open edit dialog so typed
                 // secrets do not linger and it does not reappear after Disconnect.
                 let state = std::mem::take(&mut self.state);
                 self.state = connection_ops::dialog_closed(state);
-                if let Some(id) = self.state.active {
-                    let state = std::mem::take(&mut self.state);
-                    self.state = connection_ops::mark_connected(
-                        state,
-                        id,
-                        curlybrace_core::clock::now_secs(),
-                        &self.config_path,
-                    );
-                }
+                let state = std::mem::take(&mut self.state);
+                self.state = connection_ops::mark_connected(
+                    state,
+                    id,
+                    curlybrace_core::clock::now_secs(),
+                    &self.config_path,
+                );
             }
         }
         self.poll_picker();

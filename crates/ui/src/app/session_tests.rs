@@ -2,6 +2,7 @@
 use super::*;
 use bson::doc;
 use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::query::QueryText;
 use curlybrace_core::store::Namespace;
 
 fn page_with(n: i32) -> Page {
@@ -28,9 +29,20 @@ fn busy_view(n: i32) -> SessionView {
         failure: Some(CoreError::SshHostKeyChanged),
         latest_requested_epoch: 7 + n as u64,
         topology: Some(Topology::ReplicaSet),
-        sidebar: SidebarState::default(),
+        sidebar: SidebarState::default()
+            .with_databases(vec![format!("db{n}"), "shared".into()])
+            .with_collections("shared", vec![format!("c{n}")])
+            .toggled("shared")
+            .selecting(Namespace::new("shared", format!("c{n}"))),
         loading: BTreeSet::from([format!("db{n}")]),
-        find: FindBarState::default(),
+        find: FindBarState {
+            text: QueryText {
+                filter: format!("{{\"n\": {n}}}"),
+                skip: format!("{n}"),
+                ..QueryText::default()
+            },
+            last_error: Some(CoreError::NotFound),
+        },
         issued_query: Query {
             skip: 3 + n as u64,
             ..Query::default()
@@ -46,8 +58,16 @@ fn busy_view(n: i32) -> SessionView {
             skip: 0,
             fingerprint: n as u64,
         }),
-        tree: TreeState::default(),
-        view_mode: ViewMode::default(),
+        tree: {
+            let mut tree = TreeState::default();
+            tree.projected = n % 2 == 0;
+            tree
+        },
+        view_mode: if n % 2 == 0 {
+            ViewMode::Table
+        } else {
+            ViewMode::Json
+        },
         editor: Some(editor(&format!("doc {n}"))),
         pending: Some(Pending {
             ns: Namespace::new("db", "c"),
@@ -241,4 +261,40 @@ fn session_cleared_forgets_open_sessions_failure_and_topology() {
     assert_eq!(cleared.active, None);
     assert_eq!(cleared.failure, None);
     assert_eq!(cleared.topology, None);
+}
+
+#[test]
+fn with_session_without_an_active_session_leaves_none_active() {
+    let (s, a, b) = open_two();
+    let s = s.session_dropped(a);
+    assert_eq!(s.active, None);
+    let (next, _) = s.with_session(b, |s| {
+        assert_eq!(s.active, Some(b));
+        (AppState { pending: None, ..s }, vec![])
+    });
+    assert_eq!(next.active, None, "the session worked on is parked again");
+    assert_eq!(next.pending, None);
+    assert_eq!(next.parked[&b].pending, None, "the change is kept");
+    assert_eq!(next.parked[&b].page, Some(page_with(2)));
+}
+
+#[test]
+fn activating_from_no_active_session_restores_the_parked_view() {
+    let (s, a, b) = open_two();
+    let next = s.session_dropped(a).activated(b);
+    assert_eq!(next.active, Some(b));
+    assert_eq!(next.page, Some(page_with(2)));
+    assert_eq!(next.editor, Some(editor("doc 2")));
+    assert!(next.parked.is_empty());
+}
+
+#[test]
+fn a_background_root_without_a_parked_view_reports_the_default_state() {
+    let (mut s, _, b) = open_two();
+    s.parked.remove(&b);
+    let roots = s.roots();
+    assert_eq!(roots[1].status, ConnStatus::default());
+    assert_eq!(roots[1].failure, None);
+    assert_eq!(roots[1].topology, None);
+    assert_eq!(roots[0].status, ConnStatus::Connected);
 }

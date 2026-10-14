@@ -28,9 +28,19 @@ fn three_docs() -> Page {
     page_of((1..=3).map(mock_doc_with_id).collect(), false, 0)
 }
 
+/// The one session these tests browse: events and commands address `EMBEDDED_SESSION`, so it
+/// must be open (and active) for the reducer to route events to it.
+fn with_embedded_session(s: AppState) -> AppState {
+    AppState {
+        open: vec![EMBEDDED_SESSION],
+        active: Some(EMBEDDED_SESSION),
+        ..s
+    }
+}
+
 /// Connected, `app` expanded and loaded, `app.people` selected showing three docs.
 fn browsing() -> AppState {
-    let mut s = AppState::new(vec![]);
+    let mut s = with_embedded_session(AppState::new(vec![]));
     s.status = ConnStatus::Connected;
     s.sidebar = s
         .sidebar
@@ -90,7 +100,7 @@ fn find_failed() -> Event {
 
 #[test]
 fn connected_sets_status_and_lists_databases() {
-    let mut s = AppState::new(vec![]);
+    let mut s = with_embedded_session(AppState::new(vec![]));
     s.status = ConnStatus::Connecting;
     let (s, cmds) = event(
         s,
@@ -394,7 +404,8 @@ fn failed_delete_sets_a_banner_and_clears_pending() {
 }
 
 #[test]
-fn disconnected_clears_session_state() {
+fn a_disconnected_answer_for_a_root_that_is_still_open_changes_nothing() {
+    // The close already happened at dispatch; only a newer connect of the same id is still open.
     let mut s = browsing();
     s.editor = Some(EditorState::for_new());
     let (s, _) = event(
@@ -404,13 +415,12 @@ fn disconnected_clears_session_state() {
             epoch: 1,
         },
     );
-    assert_eq!(s.status, ConnStatus::Disconnected);
-    assert!(s.sidebar.databases.is_empty() && s.sidebar.selected.is_none());
-    assert!(s.page.is_none() && s.page_key.is_none() && s.editor.is_none());
+    assert_eq!(s.status, ConnStatus::Connected);
+    assert!(s.page.is_some() && s.editor.is_some());
 }
 
 #[test]
-fn failed_connect_leaves_a_disconnected_state_with_a_banner() {
+fn failed_connect_marks_the_root_failed_with_a_banner() {
     let mut s = browsing();
     s.status = ConnStatus::Connecting;
     let (s, _) = event(
@@ -421,8 +431,9 @@ fn failed_connect_leaves_a_disconnected_state_with_a_banner() {
             error: CoreError::Ssh("x".into()),
         },
     );
-    assert_eq!(s.status, ConnStatus::Disconnected);
+    assert_eq!(s.status, ConnStatus::Failed);
     assert!(s.sidebar.databases.is_empty() && s.page.is_none());
+    assert_eq!(s.failure, Some(CoreError::Ssh("x".into())));
     assert!(matches!(
         s.banner,
         Some(Banner::Failure {
@@ -433,7 +444,7 @@ fn failed_connect_leaves_a_disconnected_state_with_a_banner() {
 }
 
 #[test]
-fn failed_disconnect_also_ends_up_disconnected() {
+fn failed_disconnect_also_marks_the_root_failed() {
     let s = browsing();
     let (s, _) = event(
         s,
@@ -443,7 +454,7 @@ fn failed_disconnect_also_ends_up_disconnected() {
             error: CoreError::Database("x".into()),
         },
     );
-    assert_eq!(s.status, ConnStatus::Disconnected);
+    assert_eq!(s.status, ConnStatus::Failed);
 }
 
 #[test]
@@ -503,7 +514,7 @@ fn connect_to_an_unknown_id_does_nothing() {
 
 #[test]
 fn disconnect_clears_the_session_right_away_and_sends_disconnect() {
-    let (s, cmds) = run(browsing(), Input::Disconnect);
+    let (s, cmds) = run(browsing(), Input::Disconnect(EMBEDDED_SESSION));
     assert_eq!(s.status, ConnStatus::Disconnected);
     assert!(s.page.is_none() && s.sidebar.databases.is_empty());
     assert!(matches!(cmds.as_slice(), [Command::Disconnect { .. }]));

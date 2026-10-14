@@ -93,7 +93,7 @@ pub fn show_browser(
         .show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 if ui.button(i18n.t("connections.disconnect")).clicked() {
-                    out.push(UiEvent::Input(Input::Disconnect));
+                    out.push(UiEvent::Input(Input::Disconnect(state.session_id())));
                 }
                 if let Some(action) = show_workspace_switcher(ui, state.workspace, i18n) {
                     out.push(UiEvent::Input(Input::Compare(action)));

@@ -44,7 +44,7 @@ fn a_changed_host_key_from_a_real_connect_offers_forget_for_that_connects_ssh_en
     let (s, _) = event(
         s,
         Event::ConnectFailed {
-            session: EMBEDDED_SESSION,
+            session: id,
             epoch: 1,
             error: CoreError::SshHostKeyChanged,
         },
@@ -118,7 +118,7 @@ fn superseded_data_failures_are_dropped_silently() {
 }
 
 #[test]
-fn connect_clears_the_previous_servers_data_at_dispatch() {
+fn connect_gives_the_new_session_a_fresh_view_and_parks_the_previous_one() {
     let cfg = ConnectionConfig::new("a", "mongodb://localhost");
     let id = cfg.id;
     let mut s = browsing();
@@ -140,7 +140,8 @@ fn connect_clears_the_previous_servers_data_at_dispatch() {
     assert_eq!(s.issued_query, Query::default());
     assert_eq!(s.page_query, Query::default());
     assert_eq!(s.find.text, QueryText::default());
-    // A late data event from the old session (not connected yet) is ignored too.
+    // The previous session is parked with its data; its answers go to it, never to the new one.
+    assert!(s.parked[&EMBEDDED_SESSION].page.is_some());
     let (s, _) = event(
         s,
         Event::Databases {
@@ -149,6 +150,7 @@ fn connect_clears_the_previous_servers_data_at_dispatch() {
         },
     );
     assert!(s.sidebar.databases.is_empty());
+    assert_eq!(s.parked[&EMBEDDED_SESSION].sidebar.databases.len(), 1);
 }
 
 // ---- projected pages are read-only ----

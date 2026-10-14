@@ -115,9 +115,67 @@ impl AppState {
         let (state, commands) = f(self.activated(id));
         let state = match previous.filter(|p| state.open.contains(p)) {
             Some(p) => state.activated(p),
+            // Nothing was active before: park `id` again so no session is foregrounded by a
+            // background answer.
+            None if previous.is_none() => state.deactivated(),
             None => state,
         };
         (state, commands)
+    }
+
+    /// Parks the active view and leaves no session active.
+    fn deactivated(self) -> AppState {
+        let mut next = self;
+        if let Some(current) = next.active.take() {
+            let view = next.take_view();
+            next.parked.insert(current, view);
+        }
+        next
+    }
+
+    /// The status of an open session, wherever its view lives.
+    pub fn status_of(&self, id: Uuid) -> Option<ConnStatus> {
+        if !self.open.contains(&id) {
+            return None;
+        }
+        if self.active == Some(id) {
+            return Some(self.status);
+        }
+        Some(
+            self.parked
+                .get(&id)
+                .map_or(ConnStatus::default(), |v| v.status),
+        )
+    }
+
+    /// Opens `id` (keeping its place when already open) with `view` as its whole view and makes it
+    /// active; the previously active view is parked.
+    pub fn opened_with(self, id: Uuid, view: SessionView) -> AppState {
+        let mut next = self;
+        if !next.open.contains(&id) {
+            next.open.push(id);
+        }
+        if next.active == Some(id) {
+            next.restore_view(view);
+            return next;
+        }
+        next.parked.insert(id, view);
+        next.activated(id)
+    }
+
+    /// The active session's view after its connect failed: everything cleared except what
+    /// identifies the attempt (its epoch and endpoint), plus the error.
+    pub fn failed(self, error: CoreError) -> AppState {
+        let mut next = self;
+        let old = next.take_view();
+        next.restore_view(SessionView {
+            status: ConnStatus::Failed,
+            failure: Some(error),
+            latest_requested_epoch: old.latest_requested_epoch,
+            ssh_endpoint: old.ssh_endpoint,
+            ..SessionView::default()
+        });
+        next
     }
 
     pub fn is_open(&self, id: Uuid) -> bool {
@@ -147,9 +205,12 @@ impl AppState {
             .map(|c| c.name.clone())
             .unwrap_or_else(|| id.to_string().chars().take(8).collect());
         let active = self.active == Some(id);
-        let (status, topology, failure) = match (active, self.parked.get(&id)) {
-            (false, Some(v)) => (v.status, v.topology, v.failure.clone()),
-            _ => (self.status, self.topology, self.failure.clone()),
+        let (status, topology, failure) = if active {
+            (self.status, self.topology, self.failure.clone())
+        } else {
+            let fallback = SessionView::default();
+            let v = self.parked.get(&id).unwrap_or(&fallback);
+            (v.status, v.topology, v.failure.clone())
         };
         Root {
             id,

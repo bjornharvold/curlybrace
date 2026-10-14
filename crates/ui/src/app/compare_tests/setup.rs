@@ -123,8 +123,10 @@ fn events_after_close_are_ignored() {
 
 #[test]
 fn disconnecting_the_main_connection_does_not_close_the_compare_session() {
-    let (state, _, _) = opened();
-    let (state, cmds) = update(state, Input::Disconnect);
+    let (state, a, _) = opened();
+    let (state, _) = update(state, Input::Connect(a));
+    let (state, cmds) = update(state, Input::Disconnect(a));
+    assert!(state.open.is_empty(), "the browsing session really closed");
     assert!(
         state.compare.session.is_some(),
         "the compare session has its own connections"
