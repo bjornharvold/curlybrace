@@ -86,11 +86,14 @@ i18n key. Latest request wins, like the connect epoch. SSH host-key verification
 
 ## Manager UI
 
-- A modal dialog replaces the inline list and the always-visible form. Toolbar: New, Edit, Duplicate,
+- The connections screen (shown whenever the app is not connected) becomes the manager list; only
+  the edit form is a modal. Toolbar: New, Edit, Duplicate,
   Delete, Import, Export, To URI. Filter box with a match count. Sortable table: name, hosts, security
   summary, last connected, last modified. Folders as collapsible groups. Footer: Close, Connect.
   Double-click connects.
-- Edit dialog: name, folder, URI with From URI, authentication, TLS, SSH, Test Connection.
+- Edit dialog: name, folder, URI with From URI, authentication, TLS, SSH, Test Connection, To URI.
+  Test Connection reports what is configured (TLS on, credentials supplied), not what was
+  verified; the wording says "configured" and never "verified".
 - `ConnectionAction` gains Duplicate, MoveToFolder, RenameFolder, DeleteFolder, Import, Export,
   TestConnection, FromUri and ToUri. These are impure and go through `handle_connection_action`, like
   Save and Delete.
