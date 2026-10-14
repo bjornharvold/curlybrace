@@ -60,7 +60,7 @@ async fn test_connection_while_connected_leaves_the_browse_session_usable() {
         other => panic!("unexpected {other:?}"),
     }
     assert_eq!(h.app.state().status, ConnStatus::Connected);
-    assert_eq!(h.app.state().connected, Some(id_a));
+    assert_eq!(h.app.state().active, Some(id_a));
 
     // The session still answers: expand and open still work after the test.
     h.app

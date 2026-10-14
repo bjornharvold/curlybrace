@@ -208,7 +208,7 @@ fn closing_or_replacing_the_session_is_refused_while_an_apply_runs_or_is_reviewe
         for index in 0..session_leaving_paths(&probe).len() {
             let mut state = build();
             // A sidebar entry replaces the session only from another connection.
-            state.connected = Some(state.compare.connections.unwrap().1);
+            state.active = Some(state.compare.connections.unwrap().1);
             let input = session_leaving_paths(&state).remove(index);
             let before = copy_of(&state);
             let (after, cmds) = update(state, input);
@@ -238,7 +238,7 @@ fn sidebar_entries_to_another_connection_change_nothing_while_applying() {
             let mut state = build();
             state.status = ConnStatus::Connected;
             // Another connection than the session's source: the entry would replace the session.
-            state.connected = Some(state.compare.connections.unwrap().1);
+            state.active = Some(state.compare.connections.unwrap().1);
             let before = copy_of(&state);
             let (after, cmds) = update(state, Input::Sidebar(entry.clone()));
             assert!(after.banner.is_none(), "{entry:?}: connected, so no banner");

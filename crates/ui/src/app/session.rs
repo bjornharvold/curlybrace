@@ -1,0 +1,167 @@
+//! The view of every open session: the active one lives in `AppState` itself, the others are
+//! parked here until the user switches to them.
+use super::reducer::Out;
+use super::state::{AppState, ConnStatus, HostEndpoint, Pending};
+use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::store::{Page, Query, Topology};
+use std::collections::BTreeSet;
+use uuid::Uuid;
+
+/// Everything one open session shows; the active session's copy lives in `AppState` itself.
+#[derive(Debug, Default)]
+pub struct SessionView {
+    pub status: ConnStatus,
+    pub failure: Option<CoreError>,
+    pub latest_requested_epoch: u64,
+    pub topology: Option<Topology>,
+    pub sidebar: SidebarState,
+    pub loading: BTreeSet<String>,
+    pub find: FindBarState,
+    pub issued_query: Query,
+    pub page_query: Query,
+    pub loading_page: bool,
+    pub page: Option<Page>,
+    pub page_key: Option<PageKey>,
+    pub tree: TreeState,
+    pub view_mode: ViewMode,
+    pub editor: Option<EditorState>,
+    pub pending: Option<Pending>,
+    pub ssh_endpoint: Option<HostEndpoint>,
+}
+
+/// One entry of the connection tree: an open session and what to show for it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Root {
+    pub id: Uuid,
+    pub name: String,
+    pub status: ConnStatus,
+    pub topology: Option<Topology>,
+    pub failure: Option<CoreError>,
+    pub active: bool,
+}
+
+impl AppState {
+    /// Moves the active view out (leaving defaults); local mutation only, the public API stays
+    /// immutable.
+    fn take_view(&mut self) -> SessionView {
+        SessionView {
+            status: std::mem::take(&mut self.status),
+            failure: self.failure.take(),
+            latest_requested_epoch: std::mem::take(&mut self.latest_requested_epoch),
+            topology: self.topology.take(),
+            sidebar: std::mem::take(&mut self.sidebar),
+            loading: std::mem::take(&mut self.loading),
+            find: std::mem::take(&mut self.find),
+            issued_query: std::mem::take(&mut self.issued_query),
+            page_query: std::mem::take(&mut self.page_query),
+            loading_page: std::mem::take(&mut self.loading_page),
+            page: self.page.take(),
+            page_key: self.page_key.take(),
+            tree: std::mem::take(&mut self.tree),
+            view_mode: std::mem::take(&mut self.view_mode),
+            editor: self.editor.take(),
+            pending: self.pending.take(),
+            ssh_endpoint: self.ssh_endpoint.take(),
+        }
+    }
+
+    fn restore_view(&mut self, v: SessionView) {
+        self.status = v.status;
+        self.failure = v.failure;
+        self.latest_requested_epoch = v.latest_requested_epoch;
+        self.topology = v.topology;
+        self.sidebar = v.sidebar;
+        self.loading = v.loading;
+        self.find = v.find;
+        self.issued_query = v.issued_query;
+        self.page_query = v.page_query;
+        self.loading_page = v.loading_page;
+        self.page = v.page;
+        self.page_key = v.page_key;
+        self.tree = v.tree;
+        self.view_mode = v.view_mode;
+        self.editor = v.editor;
+        self.pending = v.pending;
+        self.ssh_endpoint = v.ssh_endpoint;
+    }
+
+    /// Makes `id` the active session, parking the previous one. Unknown ids change nothing.
+    pub fn activated(self, id: Uuid) -> AppState {
+        if self.active == Some(id) || !self.open.contains(&id) {
+            return self;
+        }
+        let mut next = self;
+        if let Some(current) = next.active {
+            let view = next.take_view();
+            next.parked.insert(current, view);
+        }
+        let incoming = next.parked.remove(&id).unwrap_or_default();
+        next.restore_view(incoming);
+        next.active = Some(id);
+        next
+    }
+
+    /// Runs `f` as if `id` were the active session, then puts the previous active session back.
+    /// The commands `f` builds carry `id` because `active` is `id` while it runs.
+    pub fn with_session(self, id: Uuid, f: impl FnOnce(AppState) -> Out) -> Out {
+        if self.active == Some(id) {
+            return f(self);
+        }
+        if !self.open.contains(&id) {
+            return (self, Vec::new());
+        }
+        let previous = self.active;
+        let (state, commands) = f(self.activated(id));
+        let state = match previous.filter(|p| state.open.contains(p)) {
+            Some(p) => state.activated(p),
+            None => state,
+        };
+        (state, commands)
+    }
+
+    pub fn is_open(&self, id: Uuid) -> bool {
+        self.open.contains(&id)
+    }
+
+    /// Forgets a session and its parked view; dropping the active one leaves no active view.
+    pub fn session_dropped(self, id: Uuid) -> AppState {
+        let mut next = self;
+        next.open.retain(|open| *open != id);
+        next.parked.remove(&id);
+        if next.active == Some(id) {
+            next.take_view();
+            next.active = None;
+        }
+        next
+    }
+
+    /// The open sessions in opening order, the active one read from the foreground fields.
+    pub fn roots(&self) -> Vec<Root> {
+        self.open.iter().map(|id| self.root(*id)).collect()
+    }
+
+    fn root(&self, id: Uuid) -> Root {
+        let name = self
+            .connection(id)
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| id.to_string().chars().take(8).collect());
+        let active = self.active == Some(id);
+        let (status, topology, failure) = match (active, self.parked.get(&id)) {
+            (false, Some(v)) => (v.status, v.topology, v.failure.clone()),
+            _ => (self.status, self.topology, self.failure.clone()),
+        };
+        Root {
+            id,
+            name,
+            status,
+            topology,
+            failure,
+            active,
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "session_tests.rs"]
+mod session_tests;

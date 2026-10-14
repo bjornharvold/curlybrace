@@ -337,7 +337,7 @@ fn connecting_to_another_connection_disconnects_the_open_one_first() {
         other => panic!("unexpected {other:?}"),
     }
     assert_eq!(s.latest_requested_epoch, before + 2);
-    assert_eq!(s.connected, Some(b));
+    assert_eq!(s.active, Some(b));
 }
 
 #[test]

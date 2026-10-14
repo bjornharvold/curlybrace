@@ -27,6 +27,7 @@ pub mod host_key;
 mod panels;
 pub mod persistence;
 pub mod reducer;
+mod session;
 pub mod state;
 
 use crate::I18n;
@@ -402,7 +403,7 @@ impl CurlybraceApp {
                 // secrets do not linger and it does not reappear after Disconnect.
                 let state = std::mem::take(&mut self.state);
                 self.state = connection_ops::dialog_closed(state);
-                if let Some(id) = self.state.connected {
+                if let Some(id) = self.state.active {
                     let state = std::mem::take(&mut self.state);
                     self.state = connection_ops::mark_connected(
                         state,

@@ -1,14 +1,15 @@
 //! Application state. Immutable by convention: the reducer consumes a state and returns the next.
 use super::connection_io::ImportError;
 use super::persistence::{PersistError, PersistGuard, Recovery};
+use super::session::SessionView;
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
 use crate::views::connections::ConnectionsState;
 use bson::Bson;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::store::{Namespace, Page, Query};
-use std::collections::BTreeSet;
+use curlybrace_core::store::{Namespace, Page, Query, Topology};
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -17,6 +18,8 @@ pub enum ConnStatus {
     Disconnected,
     Connecting,
     Connected,
+    /// The last attempt to open the session failed; unused until several sessions can be open.
+    Failed,
 }
 
 /// Which top-level workspace is shown.
@@ -92,8 +95,18 @@ pub struct AppState {
     pub compare: CompareState,
     pub conn: ConnectionsState,
     pub status: ConnStatus,
-    /// The saved connection the browsing session was started with (the Compare source default).
-    pub connected: Option<Uuid>,
+    /// Open sessions in opening order; the active one is among them.
+    pub open: Vec<Uuid>,
+    /// The session the browsing fields below show (the Compare source default).
+    pub active: Option<Uuid>,
+    /// The views of the open sessions that are not active.
+    pub parked: BTreeMap<Uuid, SessionView>,
+    /// Counts connect/disconnect requests sent to the runtime.
+    pub epoch_counter: u64,
+    /// Why the active session's last attempt to open failed.
+    pub failure: Option<CoreError>,
+    /// How the active session's server is deployed, once known.
+    pub topology: Option<Topology>,
     /// Mirrors the runtime's request counter: bumped once for EVERY Connect/Disconnect command
     /// sent (the runtime does the same, starting at 0, and the UI is its only sender). An
     /// outcome stamped with an older epoch belongs to a request the user has since replaced.
@@ -156,7 +169,7 @@ impl AppState {
     /// The runtime session browsing commands address: the open connection, or the embedded
     /// session when none was opened through the manager.
     pub fn session_id(&self) -> Uuid {
-        self.connected.unwrap_or_default()
+        self.active.unwrap_or_default()
     }
 
     /// Drops everything tied to a live session; keeps saved connections, banner and form.
@@ -174,7 +187,11 @@ impl AppState {
             editor: None,
             pending: None,
             forget_confirm: None,
-            connected: None,
+            open: Vec::new(),
+            active: None,
+            parked: BTreeMap::new(),
+            failure: None,
+            topology: None,
             workspace: Workspace::Browse,
             ..self
         }

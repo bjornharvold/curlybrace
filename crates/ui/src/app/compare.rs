@@ -304,7 +304,7 @@ fn reload(state: AppState, side: Side) -> Out {
 /// side, and the session's current target (else the same server) on the target side. Without a
 /// connection the banner is shown instead. The flag tells whether the sides use different servers.
 fn from_sidebar(state: AppState, then: impl FnOnce(AppState, Vec<Command>, bool) -> Out) -> Out {
-    let Some(source) = state.connected.filter(|id| state.connection(*id).is_some()) else {
+    let Some(source) = state.active.filter(|id| state.connection(*id).is_some()) else {
         return none(AppState {
             banner: Some(Banner::NotConnected),
             ..state

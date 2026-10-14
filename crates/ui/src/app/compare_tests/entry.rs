@@ -36,7 +36,7 @@ fn connected_state() -> (AppState, uuid::Uuid) {
     let (state, a, _) = two_connections();
     let state = AppState {
         status: ConnStatus::Connected,
-        connected: Some(a),
+        active: Some(a),
         ..state
     };
     (state, a)
@@ -127,7 +127,7 @@ fn picks_the_same_database_on_the_target_when_the_connections_differ() {
     let (state, a, b) = two_connections();
     let state = AppState {
         status: ConnStatus::Connected,
-        connected: Some(a),
+        active: Some(a),
         ..state
     };
     let (state, _) = act(state, open_action(a, b));
@@ -165,7 +165,7 @@ fn an_open_session_for_the_same_connections_is_reused_and_keeps_the_pair_list() 
     let (a, _) = state.compare.connections.expect("session connections");
     let state = AppState {
         status: ConnStatus::Connected,
-        connected: Some(a),
+        active: Some(a),
         ..state
     };
     let kept = state.compare.pairs.clone();
@@ -220,16 +220,16 @@ fn counts_are_cleared_by_a_recheck_a_stale_answer_and_a_failed_check() {
 fn connect_records_the_connection_and_a_cleared_session_forgets_it() {
     let (state, a, _) = two_connections();
     let (state, _) = update(state, Input::Connect(a));
-    assert_eq!(state.connected, Some(a));
-    assert_eq!(state.session_cleared().connected, None);
+    assert_eq!(state.active, Some(a));
+    assert_eq!(state.session_cleared().active, None);
     let (state, _) = update(
         AppState {
-            connected: Some(a),
+            active: Some(a),
             ..AppState::default()
         },
         Input::Disconnect,
     );
-    assert_eq!(state.connected, None);
+    assert_eq!(state.active, None);
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn compare_to_falls_back_to_the_source_when_the_old_target_was_deleted() {
     state.conn.connections.retain(|c| c.id != b);
     let state = AppState {
         status: ConnStatus::Connected,
-        connected: Some(a),
+        active: Some(a),
         compare: CompareState {
             connections: Some((a, b)),
             ..state.compare.clone()
