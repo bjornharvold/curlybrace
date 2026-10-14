@@ -4,9 +4,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const PREFIXES: [&str; 2] = ["compare.", "workspace."];
+const PREFIXES: [&str; 3] = ["compare.", "connections.", "workspace."];
 /// Keys outside the prefixes that the Compare feature added.
 const EXTRA_KEYS: [&str; 2] = ["sidebar.compare_database_to", "sidebar.compare_to"];
+
+/// Literals that look like a key under a tracked prefix but are something else (file names).
+const NOT_KEYS: [&str; 1] = ["connections.json"];
 
 fn leaves(prefix: &str, value: &Value, out: &mut BTreeSet<String>) {
     match value {
@@ -67,7 +70,7 @@ fn literals(src: &str) -> Vec<String> {
     src.split('"')
         .skip(1)
         .step_by(2)
-        .filter(|s| is_key_shaped(s) && is_tracked(s))
+        .filter(|s| is_key_shaped(s) && is_tracked(s) && !NOT_KEYS.contains(s))
         .map(str::to_string)
         .collect()
 }

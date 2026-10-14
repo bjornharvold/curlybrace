@@ -1,16 +1,13 @@
 //! The connection edit form: fields, secrets and the TLS and SSH sections.
-use super::connections::{ConnectionAction, ConnectionsState};
+use super::connections::ConnectionsState;
 use crate::I18n;
 use crate::viewmodel::{ConnectionForm, auth_label_key, auth_options};
 use eframe::egui;
 
-pub(super) fn show_form(
-    ui: &mut egui::Ui,
-    state: &mut ConnectionsState,
-    i18n: &I18n,
-) -> Option<ConnectionAction> {
+/// The form body below the name and folder rows: connection string, authentication, secrets,
+/// TLS and SSH. Saving is the dialog footer's job.
+pub(super) fn show_fields(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
     let form = &mut state.form;
-    text_row(ui, &i18n.t("connections.name"), &mut form.name, false);
     text_row(ui, &i18n.t("connections.uri"), &mut form.uri, false);
     auth_combo(ui, form, i18n);
     text_row(
@@ -38,19 +35,6 @@ pub(super) fn show_form(
     );
     tls_section(ui, form, i18n);
     ssh_section(ui, form, stored.ssh_secret, i18n);
-    if ui.button(i18n.t("common.save")).clicked() {
-        return match state.form.to_config() {
-            Ok(_) => {
-                state.error = None;
-                Some(ConnectionAction::Save(Box::new(state.form.clone())))
-            }
-            Err(e) => {
-                state.error = Some(e);
-                None
-            }
-        };
-    }
-    None
 }
 
 struct SecretField<'a> {
@@ -78,7 +62,7 @@ fn secret_row(ui: &mut egui::Ui, field: SecretField<'_>, i18n: &I18n) {
     }
 }
 
-fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) {
+pub(super) fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) {
     ui.horizontal(|ui| {
         let caption = ui.label(label);
         // Expose the caption as the box's accessible name (screen readers and UI tests).
@@ -111,11 +95,13 @@ fn tls_section(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
             &mut form.allow_invalid_certs,
             i18n.t("connections.allow_invalid_certs"),
         );
-        if form.ssh_enabled && form.allow_invalid_certs {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                i18n.t("connections.allow_invalid_certs_ssh_warning"),
-            );
+        if form.allow_invalid_certs {
+            let key = if form.ssh_enabled {
+                "connections.allow_invalid_certs_ssh_warning"
+            } else {
+                "connections.allow_invalid_certs_warning"
+            };
+            ui.colored_label(ui.visuals().warn_fg_color, i18n.t(key));
         }
     }
 }

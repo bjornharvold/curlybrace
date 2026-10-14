@@ -28,7 +28,8 @@ pub(super) fn show_list(
 ) -> Option<ConnectionAction> {
     let mut action = show_toolbar(ui, state, i18n);
     show_filter(ui, state, i18n);
-    if let (Some(error), None) = (&state.error, &state.folder_prompt) {
+    // While the edit dialog or the folder prompt is open the error is shown inside it.
+    if let (Some(error), None, false) = (&state.error, &state.folder_prompt, state.editing) {
         super::error_label::show_error(ui, error, i18n);
     }
     if let Some(notice) = &state.notice {
@@ -75,7 +76,7 @@ fn show_toolbar(
             state.start_new();
         }
         if tool(ui, current.is_some(), "connections.edit") {
-            current.iter().for_each(|cfg| state.select(cfg));
+            current.iter().for_each(|cfg| state.begin_edit(cfg));
         }
         if tool(ui, current.is_some(), "connections.duplicate") {
             action = current.map(|cfg| ConnectionAction::Duplicate(cfg.id));

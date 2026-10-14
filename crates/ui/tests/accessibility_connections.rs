@@ -138,3 +138,94 @@ fn a_blank_rename_cannot_be_confirmed_and_a_rejection_shows_inside_the_prompt() 
     harness.get_by_label(&i18n.t("errors.invalid_folder_name"));
     assert!(harness.state().folder_prompt.is_some());
 }
+
+fn dialog_harness(
+    prepare: impl FnOnce(&mut ConnectionsState),
+) -> Harness<'static, ConnectionsState> {
+    let mut state = three_connections();
+    let first = state.connections[0].clone();
+    state.form = curlybrace_ui::viewmodel::ConnectionForm::from_config(&first);
+    state.editing = true;
+    prepare(&mut state);
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 900.0))
+        .build_ui_state(
+            |ui, state: &mut ConnectionsState| {
+                show_connections(ui, state, &I18n::english());
+            },
+            state,
+        );
+    harness.run();
+    harness
+}
+
+#[test]
+fn every_field_of_the_edit_dialog_has_a_label() {
+    let harness = dialog_harness(|state| {
+        state.form.tls_enabled = true;
+        state.form.ssh_enabled = true;
+        state.built_for = Some(state.form.clone());
+        state.built_uri = Some(curlybrace_core::secrets::SecretString::new("mongodb://h"));
+    });
+    let mut fields = 0;
+    for role in [Role::TextInput, Role::PasswordInput] {
+        for node in harness.query_all_by_role(role) {
+            fields += 1;
+            let label = node.accesskit_node().label().unwrap_or_default();
+            assert!(!label.trim().is_empty(), "an unlabelled field: {role:?}");
+        }
+    }
+    // filter + name, folder, from-uri, uri, username, auth source, password, tls ca, tls cert,
+    // ssh host/port/user/key/secret, built uri.
+    assert!(fields >= 15, "only {fields} fields found");
+}
+
+#[test]
+fn the_dialog_actions_are_buttons() {
+    let i18n = I18n::english();
+    let harness = dialog_harness(|_| {});
+    for key in [
+        "connections.test",
+        "connections.to_uri",
+        "connections.include_password",
+        "connections.from_uri",
+        "common.cancel",
+        "common.save",
+    ] {
+        harness.get_by_role_and_label(Role::Button, &i18n.t(key));
+    }
+}
+
+#[test]
+fn a_test_result_and_a_built_uri_show_their_text_and_the_password_warning() {
+    use curlybrace_core::runtime::TestReport;
+    use curlybrace_ui::views::connections::TestState;
+    let i18n = I18n::english();
+    let harness = dialog_harness(|state| {
+        state.test_form = Some(state.form.clone());
+        state.test = TestState::Done {
+            request_id: 1,
+            outcome: Ok(TestReport {
+                server_version: Some("7.0.1".into()),
+                tls: true,
+                authenticated: true,
+            }),
+        };
+        state.built_for = Some(state.form.clone());
+        state.built_uri = Some(curlybrace_core::secrets::SecretString::new("mongodb://h"));
+        state.built_with_password = true;
+    });
+    harness.get_by_label(&i18n.t_with("connections.test_ok", &[("version", "7.0.1")]));
+    harness.get_by_label(&i18n.t("connections.test_configured_tls"));
+    harness.get_by_label(&i18n.t("connections.test_configured_auth"));
+    harness.get_by_label(&i18n.t("connections.uri_password_warning"));
+    harness.get_by_role_and_label(Role::Button, &i18n.t("connections.copy"));
+}
+
+#[test]
+fn the_validation_error_shows_inside_the_dialog() {
+    use curlybrace_core::error::CoreError;
+    let i18n = I18n::english();
+    let harness = dialog_harness(|state| state.error = Some(CoreError::InvalidName));
+    harness.get_by_label(&i18n.t("errors.invalid_name"));
+}

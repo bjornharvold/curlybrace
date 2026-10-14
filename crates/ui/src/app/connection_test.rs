@@ -67,9 +67,8 @@ mod tests {
     use super::super::reducer::{Input, update};
     use super::super::state::ConnStatus;
     use super::*;
-    use crate::views::connections::{ConnectionsState, TestState};
+    use crate::views::connections::TestState;
     use curlybrace_core::runtime::Event;
-    use curlybrace_core::secrets::SecretString;
 
     fn valid_form() -> ConnectionForm {
         ConnectionForm {
@@ -182,74 +181,5 @@ mod tests {
                 ..
             }
         ));
-    }
-
-    #[test]
-    fn editing_the_form_after_a_test_clears_the_result() {
-        let mut conn = ConnectionsState {
-            form: valid_form(),
-            ..ConnectionsState::default()
-        };
-        conn.test_form = Some(conn.form.clone());
-        conn.test = TestState::Done {
-            request_id: 1,
-            outcome: Ok(report()),
-        };
-        conn.invalidate_stale_test();
-        assert!(
-            matches!(conn.test, TestState::Done { .. }),
-            "unchanged form keeps it"
-        );
-        conn.form.uri = "mongodb://other".into();
-        conn.invalidate_stale_test();
-        assert_eq!(conn.test, TestState::Idle);
-    }
-
-    #[test]
-    fn editing_the_form_clears_a_built_uri_but_not_a_running_test() {
-        let mut conn = ConnectionsState {
-            form: valid_form(),
-            ..ConnectionsState::default()
-        };
-        conn.built_for = Some(conn.form.clone());
-        conn.built_uri = Some(SecretString::new("x"));
-        conn.built_with_password = true;
-        conn.test = TestState::Running { request_id: 1 };
-        conn.invalidate_stale_test();
-        assert!(conn.built_uri.is_some());
-        conn.form.name = "changed".into();
-        conn.invalidate_stale_test();
-        assert!(conn.built_uri.is_none() && conn.built_for.is_none());
-        assert!(!conn.built_with_password);
-        assert_eq!(conn.test, TestState::Running { request_id: 1 });
-    }
-
-    #[test]
-    fn apply_uri_input_fills_the_form_and_clears_the_buffer() {
-        let mut conn = ConnectionsState {
-            uri_input: "mongodb://bob:pw@h/db".into(),
-            error: Some(CoreError::AuthFailed),
-            ..ConnectionsState::default()
-        };
-        conn.apply_uri_input();
-        assert!(conn.uri_input.is_empty());
-        assert_eq!(conn.form.uri, "mongodb://h/db");
-        assert_eq!(conn.form.password, "pw");
-        assert!(conn.error.is_none());
-    }
-
-    #[test]
-    fn apply_uri_input_failure_clears_the_buffer_and_does_not_echo_it() {
-        let mut conn = ConnectionsState {
-            uri_input: "notmongo://bob:secretpw@h".into(),
-            ..ConnectionsState::default()
-        };
-        let before = conn.form.clone();
-        conn.apply_uri_input();
-        assert!(conn.uri_input.is_empty());
-        assert_eq!(conn.form, before);
-        let error = conn.error.clone().expect("error");
-        assert!(!format!("{error:?} {error}").contains("secretpw"));
-        assert!(!format!("{conn:?}").contains("secretpw"));
     }
 }

@@ -308,14 +308,17 @@ fn the_app_under_test_uses_temp_paths_not_the_developers_files() {
             app,
         );
     let i18n = curlybrace_ui::I18n::english();
+    harness.get_by_label(&i18n.t("connections.new")).click();
+    harness.run();
     for (key, text) in [
         ("connections.name", "Temp"),
         ("connections.uri", "mongodb://localhost"),
     ] {
         let label = i18n.t(key);
-        harness.get_by_label(&label).click();
+        let role = eframe::egui::accesskit::Role::TextInput;
+        harness.get_by_role_and_label(role, &label).click();
         harness.run();
-        harness.get_by_label(&label).type_text(text);
+        harness.get_by_role_and_label(role, &label).type_text(text);
         harness.run();
     }
     harness.get_by_label(&i18n.t("common.save")).click();
