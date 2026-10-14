@@ -53,12 +53,25 @@ pub fn show_banner(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut
     });
 }
 
+/// The banner as plain lines for the edit dialog: headline, detail, raw server text.
+fn dialog_banner_lines(state: &AppState, i18n: &I18n) -> Vec<String> {
+    let Some(banner) = &state.banner else {
+        return Vec::new();
+    };
+    let (headline, detail) = banner_text(banner, i18n);
+    std::iter::once(headline)
+        .chain(detail)
+        .chain(banner_detail(banner).map(str::to_owned))
+        .collect()
+}
+
 pub fn show_connections_screen(
     ctx: &egui::Context,
     state: &mut AppState,
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
+    state.conn.dialog_banner = dialog_banner_lines(state, i18n);
     egui::CentralPanel::default().show(ctx, |ui| {
         if state.status == ConnStatus::Connecting {
             ui.label(i18n.t("connections.connecting"));

@@ -88,6 +88,9 @@ pub struct ConnectionsState {
     pub folder_prompt: Option<FolderPrompt>,
     /// The edit dialog is open.
     pub editing: bool,
+    /// The app banner as text (headline first, then details), copied in by the screen each frame
+    /// so the dialog can show it: the real banner is dimmed behind the modal backdrop.
+    pub dialog_banner: Vec<String>,
 }
 
 /// The one-field folder prompt. `input` is the text being typed.
@@ -232,6 +235,11 @@ impl ConnectionsState {
         self.editing = false;
         self.error = None;
         self.reset_tools();
+        // A cancelled form must not keep a typed password: reload it without secrets.
+        let selected = self
+            .selected
+            .and_then(|id| self.connections.iter().find(|c| c.id == id));
+        self.form = selected.map_or_else(ConnectionForm::default, ConnectionForm::from_config);
     }
 
     /// A save went through: the dialog closes, its tools reset and the notice is dropped.
@@ -526,7 +534,12 @@ mod tests {
         s.built_uri = Some(SecretString::new("x"));
         s.built_for = Some(s.form.clone());
         s.error = Some(CoreError::InvalidUri("x".into()));
+        s.form.password = "typed".into();
         s.close_edit();
+        assert!(
+            s.form.password.is_empty(),
+            "a cancelled password is dropped"
+        );
         assert!(!s.editing && s.error.is_none());
         assert!(s.uri_input.is_empty() && s.test == TestState::Idle);
         assert!(s.test_form.is_none() && s.built_uri.is_none());

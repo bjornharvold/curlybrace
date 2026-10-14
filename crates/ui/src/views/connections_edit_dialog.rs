@@ -34,6 +34,12 @@ pub(super) fn show_edit_dialog(
         if let Some(error) = &state.error {
             show_error(ui, error, i18n);
         }
+        if let Some((headline, details)) = state.dialog_banner.split_first() {
+            ui.colored_label(ui.visuals().error_fg_color, headline);
+            for detail in details {
+                ui.weak(detail);
+            }
+        }
         ui.separator();
         ui.horizontal(|ui| {
             cancelled = ui.button(i18n.t("common.cancel")).clicked();
@@ -88,7 +94,7 @@ fn show_folder_row(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n)
         if names.is_empty() {
             return;
         }
-        egui::ComboBox::from_id_salt("connection_folder")
+        let combo = egui::ComboBox::from_id_salt("connection_folder")
             .selected_text("")
             .show_ui(ui, |ui| {
                 for name in &names {
@@ -100,6 +106,12 @@ fn show_folder_row(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n)
                     }
                 }
             });
+        // egui names a label-less combo ""; give it the caption text (and the relation).
+        let name = i18n.t("connections.folder");
+        combo.response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone())
+        });
+        combo.response.labelled_by(caption.id);
     });
 }
 

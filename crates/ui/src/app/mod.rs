@@ -18,6 +18,7 @@ mod compare_select;
 mod connection_io;
 mod connection_ops;
 mod connection_picker;
+mod connection_save;
 mod connection_test;
 mod connection_uri;
 pub mod connections;
@@ -249,12 +250,13 @@ impl CurlybraceApp {
         let now = curlybrace_core::clock::now_secs();
         match action {
             ConnectionAction::Connect(id) => {
-                self.state = state;
+                // Defensive: the modal blocks the list, but never connect with the dialog open.
+                self.state = connection_ops::dialog_closed(state);
                 self.dispatch(Input::Connect(id));
             }
             ConnectionAction::Save(form) => {
                 self.state =
-                    connection_ops::save_and_close(state, &form, secrets, &self.config_path, now);
+                    connection_save::save_and_close(state, &form, secrets, &self.config_path, now);
             }
             ConnectionAction::Delete(id) => {
                 self.state =
@@ -380,6 +382,10 @@ impl CurlybraceApp {
             let is_connect = matches!(event, Event::Connected { .. });
             self.dispatch(Input::Event(event));
             if is_connect && !was_connected && self.state.status == ConnStatus::Connected {
+                // Whatever the persist guard says, a connect ends any open edit dialog so typed
+                // secrets do not linger and it does not reappear after Disconnect.
+                let state = std::mem::take(&mut self.state);
+                self.state = connection_ops::dialog_closed(state);
                 if let Some(id) = self.state.connected {
                     let state = std::mem::take(&mut self.state);
                     self.state = connection_ops::mark_connected(
@@ -500,6 +506,68 @@ mod tests {
         assert_eq!(config.command_timeout, COMMAND_TIMEOUT);
         assert!(config.connect_timeout > HOST_KEY_PROMPT_TIMEOUT);
         assert_eq!(config.known_hosts_path, Some(PathBuf::from("/kh")));
+    }
+
+    /// An app whose runtime is two channels the test holds: it sees the commands and feeds events.
+    fn app_with_open_dialog(
+        guard: persistence::PersistGuard,
+    ) -> (
+        CurlybraceApp,
+        tokio::sync::mpsc::UnboundedSender<Event>,
+        tokio::sync::mpsc::UnboundedReceiver<curlybrace_core::runtime::Command>,
+        tempfile::TempDir,
+        uuid::Uuid,
+    ) {
+        let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
+        let (events, rx) = tokio::sync::mpsc::unbounded_channel();
+        let a = ConnectionConfig::new("a", "mongodb://a");
+        let id = a.id;
+        let secrets = Arc::new(curlybrace_core::secrets::MemorySecretStore::default());
+        let dir = tempfile::tempdir().unwrap();
+        let mut app =
+            CurlybraceApp::new(RuntimeHandle { tx, rx }, I18n::english(), vec![a], secrets)
+                .with_config_path(Ok(dir.path().join("connections.json")))
+                .with_persist_guard(guard);
+        let conn = &mut app.state_mut().conn;
+        conn.editing = true;
+        conn.selected = Some(id);
+        conn.form.password = "typed".into();
+        conn.uri_input = "mongodb://u:p@h".into();
+        conn.built_uri = Some(curlybrace_core::secrets::SecretString::new(
+            "mongodb://u:p@h",
+        ));
+        (app, events, commands, dir, id)
+    }
+
+    fn assert_dialog_closed_and_secrets_gone(app: &CurlybraceApp) {
+        let conn = &app.state().conn;
+        assert!(!conn.editing, "the dialog must not survive");
+        assert!(conn.form.password.is_empty() && conn.uri_input.is_empty());
+        assert!(conn.built_uri.is_none());
+    }
+
+    #[test]
+    fn a_completed_connect_closes_the_edit_dialog_and_drops_its_secrets() {
+        for guard in [
+            persistence::PersistGuard::default(),
+            persistence::PersistGuard::blocked(),
+        ] {
+            let (mut app, events, _commands, _dir, id) = app_with_open_dialog(guard);
+            app.dispatch(Input::Connect(id));
+            let epoch = app.state().latest_requested_epoch;
+            events.send(Event::Connected { epoch }).unwrap();
+            app.pump();
+            assert_eq!(app.state().status, ConnStatus::Connected);
+            assert_dialog_closed_and_secrets_gone(&app);
+        }
+    }
+
+    #[test]
+    fn a_connect_action_with_the_dialog_open_closes_it() {
+        let (mut app, _events, _commands, _dir, id) =
+            app_with_open_dialog(persistence::PersistGuard::default());
+        app.handle_connection_action(ConnectionAction::Connect(id));
+        assert_dialog_closed_and_secrets_gone(&app);
     }
 
     #[test]

@@ -229,3 +229,19 @@ fn the_validation_error_shows_inside_the_dialog() {
     let harness = dialog_harness(|state| state.error = Some(CoreError::InvalidName));
     harness.get_by_label(&i18n.t("errors.invalid_name"));
 }
+
+#[test]
+fn the_folder_drop_down_has_the_folder_label() {
+    let i18n = I18n::english();
+    let harness = dialog_harness(|_| {});
+    harness.get_by_role_and_label(Role::ComboBox, &i18n.t("connections.folder"));
+}
+
+#[test]
+fn a_banner_is_repeated_inside_the_open_dialog() {
+    let harness = dialog_harness(|state| {
+        state.dialog_banner = vec!["Could not save".into(), "keychain said no".into()];
+    });
+    harness.get_by_label("Could not save");
+    harness.get_by_label("keychain said no");
+}

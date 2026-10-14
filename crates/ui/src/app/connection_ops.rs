@@ -1,6 +1,6 @@
 //! Manager operations beyond save/delete: duplicate, folder changes and the connect stamp.
 //! Like `connections::save`, they take the keychain and the config path as arguments.
-use super::connections::{ConfigPath, delete, persist, refresh_flags, refused, save};
+use super::connections::{ConfigPath, delete, persist, refresh_flags, refused};
 #[cfg(test)]
 use super::persistence::PersistGuard;
 use super::state::{AppState, Banner};
@@ -40,39 +40,19 @@ fn prompt_closed(state: AppState) -> AppState {
 
 /// Runs `edit` on an owned copy of the connections view state (the closing methods take
 /// `&mut self`; the handlers stay value-in, value-out).
-fn with_conn(state: AppState, edit: impl FnOnce(&mut ConnectionsState)) -> AppState {
+pub(super) fn with_conn(state: AppState, edit: impl FnOnce(&mut ConnectionsState)) -> AppState {
     let mut conn = state.conn;
     edit(&mut conn);
     AppState { conn, ..state }
 }
 
-/// Saves the form and closes the edit dialog only when the save went through. A rejected form,
-/// a blocked or failing write or a keychain failure leave the dialog open (the error shows in
-/// it; a banner shows behind it) with the typed values intact.
-pub(super) fn save_and_close(
-    state: AppState,
-    form: &ConnectionForm,
-    secrets: &dyn SecretStore,
-    path: &ConfigPath,
-    now: i64,
-) -> AppState {
-    // Save against an empty banner slot so a banner that appears is always from this save, even
-    // when it equals one that was already showing.
-    let prior = state.banner.clone();
-    let probe = AppState {
-        banner: None,
-        ..state
-    };
-    let next = save(probe, form, secrets, path, now);
-    let succeeded = next.conn.error.is_none() && next.banner.is_none();
-    let next = AppState {
-        banner: next.banner.or(prior),
-        ..next
-    };
-    if succeeded {
-        with_conn(next, ConnectionsState::saved)
+/// Closes the edit dialog if it is open (connect, defensive close): tools reset, typed secrets
+/// dropped. Does nothing otherwise.
+pub(super) fn dialog_closed(state: AppState) -> AppState {
+    if state.conn.editing {
+        with_conn(state, ConnectionsState::close_edit)
     } else {
-        next
+        state
     }
 }
 
@@ -571,62 +551,6 @@ mod tests {
         state.conn.uri_input = "pasted".into();
         state.conn.notice = Some(crate::views::connections::Notice::Exported { count: 1 });
         state
-    }
-
-    fn named_form(name: &str) -> ConnectionForm {
-        ConnectionForm {
-            name: name.into(),
-            uri: "mongodb://h".into(),
-            ..ConnectionForm::default()
-        }
-    }
-
-    #[test]
-    fn a_successful_save_closes_the_dialog_resets_the_tools_and_drops_the_notice() {
-        let (_dir, path, secrets) = setup();
-        let form = named_form("a");
-        let state = save_and_close(editing(form.clone(), vec![]), &form, &secrets, &path, 5);
-        assert_eq!(state.conn.connections.len(), 1);
-        assert!(!state.conn.editing);
-        assert!(state.conn.uri_input.is_empty() && state.conn.notice.is_none());
-        assert!(state.banner.is_none());
-    }
-
-    #[test]
-    fn a_rejected_save_keeps_the_dialog_open_with_the_error() {
-        let (_dir, path, secrets) = setup();
-        let form = named_form("   ");
-        let state = save_and_close(editing(form.clone(), vec![]), &form, &secrets, &path, 5);
-        assert!(state.conn.editing);
-        assert_eq!(state.conn.error, Some(CoreError::InvalidName));
-        assert_eq!(state.conn.uri_input, "pasted", "tools untouched");
-    }
-
-    #[test]
-    fn a_blocked_save_keeps_the_dialog_open_even_if_the_same_banner_was_showing() {
-        let (_dir, path, secrets) = setup();
-        let form = named_form("a");
-        let mut state = editing(form.clone(), vec![]);
-        state.persist = PersistGuard::blocked();
-        let first = save_and_close(state, &form, &secrets, &path, 5);
-        assert!(first.conn.editing && first.banner.is_some());
-        let shown = first.banner.clone();
-        let again = save_and_close(first, &form, &secrets, &path, 6);
-        assert!(again.conn.editing, "an identical banner is not a success");
-        assert_eq!(again.banner, shown);
-        assert!(again.conn.connections.is_empty());
-    }
-
-    #[test]
-    fn a_save_whose_write_fails_keeps_the_dialog_open_with_a_banner() {
-        let (dir, _path, secrets) = setup();
-        let blocker = dir.path().join("file");
-        std::fs::write(&blocker, b"x").unwrap();
-        let path: ConfigPath = Ok(blocker.join("connections.json"));
-        let form = named_form("a");
-        let state = save_and_close(editing(form.clone(), vec![]), &form, &secrets, &path, 5);
-        assert!(state.conn.editing);
-        assert!(matches!(state.banner, Some(Banner::Persist(_))));
     }
 
     #[test]
