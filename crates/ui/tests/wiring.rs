@@ -11,7 +11,7 @@ use curlybrace_core::tunnel::{HostKeyDecision, HostKeyPrompt};
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::CurlybraceApp;
 use curlybrace_ui::app::host_key::{HostKeyRequest, InteractivePrompt};
-use curlybrace_ui::app::reducer::{Input, update};
+use curlybrace_ui::app::reducer::{Input, apply_event, update};
 use curlybrace_ui::app::state::{AppState, Banner, ConnStatus};
 use curlybrace_ui::viewmodel::{DocAction, EditorAction, FindAction, SidebarAction};
 use eframe::egui;
@@ -400,16 +400,27 @@ async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
     // Connect #1 fails validate(): it still consumes an epoch in the runtime.
     state = step(state, Input::Connect(id_bad), &tx);
     assert_eq!(state.latest_requested_epoch, 1);
-    match recv(&mut handle).await {
-        Event::ConnectFailed { epoch, .. } => assert_eq!(epoch, state.latest_requested_epoch),
+    let failed = recv(&mut handle).await;
+    match &failed {
+        Event::ConnectFailed { epoch, .. } => assert_eq!(*epoch, state.latest_requested_epoch),
         other => panic!("unexpected {other:?}"),
     }
+    // The UI sees the failure, so no session is open when the next connect is requested.
+    state = apply_event(state, failed);
     state = update(state, Input::DismissBanner).0;
 
-    // Connects #2 (slow) and #3 (fast): #3 wins, #2 is superseded.
+    // Connect #2 (slow), then switching to c sends Disconnect #3 for a and Connect #4 (fast):
+    // #4 wins, #2 is superseded.
     state = step(state, Input::Connect(id_a), &tx);
     state = step(state, Input::Connect(id_c), &tx);
-    assert_eq!(state.latest_requested_epoch, 3);
+    assert_eq!(state.latest_requested_epoch, 4);
+    assert_eq!(
+        recv(&mut handle).await,
+        Event::Disconnected {
+            session: id_a,
+            epoch: 3
+        }
+    );
     tx_c.send(Ok(seeded())).ok();
     assert_eq!(
         recv(&mut handle).await,
@@ -419,20 +430,18 @@ async fn the_mirrored_request_counter_matches_the_epochs_the_runtime_stamps() {
         }
     );
     tx_a.send(Ok(seeded())).ok();
-    // The runtime now keeps one session per connection, so #2 is no longer replaced by #3: it
-    // completes in its own session with its own (older) epoch, which the UI ignores because it
-    // has requested a newer one.
     assert_eq!(
         recv(&mut handle).await,
-        Event::Connected {
+        Event::Failed {
             session: id_a,
-            epoch: 2
+            context: "connect",
+            error: curlybrace_core::error::CoreError::Superseded
         }
     );
 
-    // Disconnect #4.
+    // Disconnect #5.
     state = step(state, Input::Disconnect, &tx);
-    assert_eq!(state.latest_requested_epoch, 4);
+    assert_eq!(state.latest_requested_epoch, 5);
     assert_eq!(
         recv(&mut handle).await,
         Event::Disconnected {

@@ -263,16 +263,26 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
     let Some(cfg) = state.connection(id).cloned() else {
         return (state, Vec::new());
     };
+    // Switching to another connection first ends the open one, so none of its answers can reach
+    // the new screen and its client and tunnel close. Reconnecting the same id needs no
+    // Disconnect: the runtime supersedes that session itself. Each command takes one epoch.
+    let replaced = state.connected.filter(|open| *open != id);
+    let epochs = 1 + u64::from(replaced.is_some());
     let cleared = state.session_cleared();
     let next = AppState {
         status: ConnStatus::Connecting,
         connected: Some(id),
-        latest_requested_epoch: cleared.latest_requested_epoch + 1,
+        latest_requested_epoch: cleared.latest_requested_epoch + epochs,
         banner: None,
         ssh_endpoint: HostEndpoint::of(&cfg),
         ..cleared
     };
-    (next, vec![Command::Connect(cfg)])
+    let commands = replaced
+        .map(|session| Command::Disconnect { session })
+        .into_iter()
+        .chain([Command::Connect(cfg)])
+        .collect();
+    (next, commands)
 }
 
 pub(super) fn disconnect(state: AppState) -> Out {

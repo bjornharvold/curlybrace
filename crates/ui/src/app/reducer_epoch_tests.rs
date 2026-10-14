@@ -309,3 +309,49 @@ fn without_an_opened_connection_commands_address_the_embedded_session() {
         [Some(EMBEDDED_SESSION)]
     );
 }
+
+// ---- switching connections closes the previous session ----
+
+fn two_connections() -> (AppState, uuid::Uuid, uuid::Uuid) {
+    let (a, b) = (
+        ConnectionConfig::new("a", "mongodb://localhost"),
+        ConnectionConfig::new("b", "mongodb://localhost"),
+    );
+    let ids = (a.id, b.id);
+    (AppState::new(vec![a, b]), ids.0, ids.1)
+}
+
+#[test]
+fn connecting_to_another_connection_disconnects_the_open_one_first() {
+    let (s, a, b) = two_connections();
+    let (s, _) = update(s, Input::Connect(a));
+    let before = s.latest_requested_epoch;
+    let (s, cmds) = update(s, Input::Connect(b));
+    match cmds.as_slice() {
+        [Command::Disconnect { session }, Command::Connect(cfg)] => {
+            assert_eq!(*session, a);
+            assert_eq!(cfg.id, b);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(s.latest_requested_epoch, before + 2);
+    assert_eq!(s.connected, Some(b));
+}
+
+#[test]
+fn reconnecting_the_same_connection_sends_only_a_connect() {
+    let (s, a, _) = two_connections();
+    let (s, _) = update(s, Input::Connect(a));
+    let before = s.latest_requested_epoch;
+    let (s, cmds) = update(s, Input::Connect(a));
+    assert!(matches!(cmds.as_slice(), [Command::Connect(cfg)] if cfg.id == a));
+    assert_eq!(s.latest_requested_epoch, before + 1);
+}
+
+#[test]
+fn the_first_connect_sends_only_a_connect() {
+    let (s, a, _) = two_connections();
+    let (s, cmds) = update(s, Input::Connect(a));
+    assert!(matches!(cmds.as_slice(), [Command::Connect(_)]));
+    assert_eq!(s.latest_requested_epoch, 1);
+}
