@@ -15,6 +15,7 @@ mod compare_pairs;
 mod compare_results;
 mod compare_run;
 mod compare_select;
+mod connection_ops;
 pub mod connections;
 pub mod file_picker;
 pub mod host_key;
@@ -32,8 +33,8 @@ use connections::{ConfigPath, load_startup, refresh_flags};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{
-    COMMAND_TIMEOUT, Command, Repaint, RuntimeConfig, RuntimeHandle, default_known_hosts_path,
-    spawn_runtime_with_config,
+    COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle,
+    default_known_hosts_path, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
 use curlybrace_core::tunnel::HostKeyDecision;
@@ -237,22 +238,36 @@ impl CurlybraceApp {
     fn handle_connection_action(&mut self, action: ConnectionAction) {
         let state = std::mem::take(&mut self.state);
         let secrets = self.secrets.as_ref();
+        let now = curlybrace_core::clock::now_secs();
         match action {
             ConnectionAction::Connect(id) => {
                 self.state = state;
                 self.dispatch(Input::Connect(id));
             }
             ConnectionAction::Save(form) => {
-                self.state = connections::save(
-                    state,
-                    &form,
-                    secrets,
-                    &self.config_path,
-                    curlybrace_core::clock::now_secs(),
-                );
+                self.state = connections::save(state, &form, secrets, &self.config_path, now);
             }
             ConnectionAction::Delete(id) => {
                 self.state = connections::delete(state, id, secrets, &self.config_path);
+            }
+            ConnectionAction::Duplicate(id) => {
+                let source = state.connection(id).map(|c| c.name.clone());
+                let name = self.i18n.t_with(
+                    "connections.copy_name",
+                    &[("name", source.as_deref().unwrap_or_default())],
+                );
+                self.state =
+                    connection_ops::duplicate(state, id, name, now, secrets, &self.config_path);
+            }
+            ConnectionAction::MoveToFolder { id, folder } => {
+                self.state =
+                    connection_ops::move_to_folder(state, id, folder, now, &self.config_path);
+            }
+            ConnectionAction::RenameFolder { from, to } => {
+                self.state = connection_ops::rename_folder(state, from, to, now, &self.config_path);
+            }
+            ConnectionAction::DeleteFolder(name) => {
+                self.state = connection_ops::delete_folder(state, name, now, &self.config_path);
             }
         }
     }
@@ -299,7 +314,20 @@ impl CurlybraceApp {
             if let Some(line) = failure_log_line(&event) {
                 log::warn!("{line}");
             }
+            let was_connected = self.state.status == ConnStatus::Connected;
+            let is_connect = matches!(event, Event::Connected { .. });
             self.dispatch(Input::Event(event));
+            if is_connect && !was_connected && self.state.status == ConnStatus::Connected {
+                if let Some(id) = self.state.connected {
+                    let state = std::mem::take(&mut self.state);
+                    self.state = connection_ops::mark_connected(
+                        state,
+                        id,
+                        curlybrace_core::clock::now_secs(),
+                        &self.config_path,
+                    );
+                }
+            }
         }
         self.poll_picker();
     }

@@ -441,6 +441,7 @@
     "confirm_delete": "Delete the connection \"{name}\" and its saved credentials? This cannot be undone.",
     "connect": "Connect",
     "connecting": "Connecting...",
+    "copy_name": "{name} copy",
     "disconnect": "Disconnect",
     "name": "Name",
     "new": "New connection",

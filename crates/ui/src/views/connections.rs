@@ -14,6 +14,10 @@ pub enum ConnectionAction {
     Connect(Uuid),
     Save(Box<ConnectionForm>),
     Delete(Uuid),
+    Duplicate(Uuid),
+    MoveToFolder { id: Uuid, folder: String },
+    RenameFolder { from: String, to: String },
+    DeleteFolder(String),
 }
 
 /// View state: saved connections, the form being edited and the last validation error.

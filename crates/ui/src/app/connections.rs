@@ -32,7 +32,7 @@ pub fn load_startup(path: &ConfigPath) -> (Vec<ConnectionConfig>, PersistGuard, 
     (started.connections, started.guard, banner)
 }
 
-fn persist(path: &ConfigPath, list: &[ConnectionConfig]) -> Result<(), PersistError> {
+pub(super) fn persist(path: &ConfigPath, list: &[ConnectionConfig]) -> Result<(), PersistError> {
     let result = match path {
         Ok(p) => save_connections(p, list),
         Err(e) => Err(e.clone()),
@@ -132,7 +132,7 @@ fn upserted(list: &[ConnectionConfig], cfg: ConnectionConfig) -> Vec<ConnectionC
     out
 }
 
-fn refused(state: AppState, error: PersistError) -> AppState {
+pub(super) fn refused(state: AppState, error: PersistError) -> AppState {
     AppState {
         banner: Some(Banner::Persist(error)),
         ..state
