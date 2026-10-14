@@ -22,6 +22,8 @@ edit documents and compare data between databases, without an account, a trial, 
 **Connect**
 - A connection manager with folders, an edit dialog and Test Connection is being built
   ([#45](https://github.com/bjornharvold/curlybrace/issues/45)).
+- Several saved connections open at once, each with its own tree root, status and view
+  ([#46](https://github.com/bjornharvold/curlybrace/issues/46)).
 - Saved connections with SCRAM, X.509 and LDAP (PLAIN) authentication, TLS, replica sets and SRV
   (`mongodb+srv://`) URIs.
 - Kerberos (GSSAPI) support is included but **experimental**: it compiles and links against macOS
@@ -123,6 +125,9 @@ contribute.
 
 ### Built
 
+- **Several connections at once** ([#46](https://github.com/bjornharvold/curlybrace/issues/46)): open several saved connections side by side, each with
+  its own tree root, status and view. A write always names the connection it goes to, and deleting a
+  saved connection closes its open session.
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): compare collections or whole databases across servers, copy or
   delete differences with a review step, and export the changes. Nothing is left to build; feedback
   and fixes are welcome. See the [guide](docs/compare.md).
@@ -135,8 +140,7 @@ contribute.
 
 ### Next
 
-- **Several connections at once** ([#46](https://github.com/bjornharvold/curlybrace/issues/46)) and a **production guard** with colour tags and a
-  read-only flag ([#47](https://github.com/bjornharvold/curlybrace/issues/47)).
+- A **production guard** with colour tags and a read-only flag ([#47](https://github.com/bjornharvold/curlybrace/issues/47)).
 - **Copy collections and documents between connections** ([#48](https://github.com/bjornharvold/curlybrace/issues/48)).
 - **Signing and notarization** ([#17](https://github.com/bjornharvold/curlybrace/issues/17)): planned (`P2`), so the app opens without a
   Gatekeeper warning.
