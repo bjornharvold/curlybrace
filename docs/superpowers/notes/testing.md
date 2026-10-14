@@ -203,6 +203,23 @@ differences do not fail the test; a one-word label change differs by over 1,300 
 can still drift between GPUs and drivers: if the baselines were made on a different machine than the
 one that runs them, expect to regenerate them there.
 
+A single changed glyph differs by far fewer than 100 pixels, so `UPDATE_SNAPSHOTS=1` leaves the
+baseline untouched (no "Updated snapshot" line). To force a rewrite after a glyph-level change,
+delete the PNG first. egui's bundled fonts lack many symbols (a missing glyph draws as an empty
+box): the connection list's sort markers use U+23F6 and U+23F7, which they do contain; look at the
+PNG after adding any new symbol.
+
+### Connection manager tests
+
+- `tests/wiring_connections.rs`: real runtime (fake connector), memory keychain, temp config file;
+  duplicate, Test Connection while connected, export then import, restart, dialog save.
+  `tests/conn_harness/` is its shared harness; `CurlybraceApp::dispatch_connection` is the entry
+  point that drives a `ConnectionAction` without drawing.
+- `tests/connections_secrets_audit.rs`: the marker password (`MOCK_PASSWORD_MARKER`) must appear in
+  no file, export, or `Debug` output.
+- Fixtures: `mock_connection_in_folder` and `mock_connections()` in
+  `crates/core/src/test_support/mock_objects.rs`.
+
 ## CI
 
 `.github/workflows/ci.yml` runs:

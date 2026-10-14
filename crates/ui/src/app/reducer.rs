@@ -1,9 +1,12 @@
 //! The pure reducer: `update(state, input) -> (state, commands)`. No I/O, no egui.
 use super::actions;
 use super::compare::{self, CompareAction};
+use super::connection_test;
 use super::persistence::PersistError;
 use super::state::{AppState, Banner, ConnStatus, Pending};
-use crate::viewmodel::{DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key};
+use crate::viewmodel::{
+    ConnectionForm, DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key,
+};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, Event};
 use uuid::Uuid;
@@ -21,6 +24,7 @@ pub enum Input {
     Editor(EditorAction),
     Connect(Uuid),
     Disconnect,
+    TestConnection(Box<ConnectionForm>),
     Compare(CompareAction),
     DismissBanner,
     ForgetRequested,
@@ -37,6 +41,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Editor(a) => actions::editor(state, a),
         Input::Connect(id) => actions::connect(state, id),
         Input::Disconnect => actions::disconnect(state),
+        Input::TestConnection(form) => connection_test::start(state, &form),
         Input::Compare(a) => compare::on_action(state, a),
         Input::DismissBanner => (with_banner(state, None), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
@@ -95,6 +100,14 @@ fn on_event(state: AppState, ev: Event) -> Out {
         // Compare sessions are independent of the browsing connection (and its epoch), so
         // they are handled before the "not connected" catch-all.
         Event::Compare(e) => compare::on_event(state, e),
+        // A connection test is independent of the session and its epoch.
+        Event::TestConnection {
+            request_id,
+            outcome,
+        } => (
+            connection_test::on_event(state, request_id, outcome),
+            Vec::new(),
+        ),
         // Anything else is a late answer from a session that is gone.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases(names) => {

@@ -6,6 +6,12 @@ pub type Result<T> = std::result::Result<T, CoreError>;
 pub enum CoreError {
     #[error("invalid connection uri: {0}")]
     InvalidUri(String),
+    /// A connection name is blank, too long or holds forbidden characters (never echoed).
+    #[error("invalid connection name")]
+    InvalidName,
+    /// A folder name is too long or holds forbidden characters (never echoed).
+    #[error("invalid folder name")]
+    InvalidFolderName,
     #[error("invalid json: {0}")]
     InvalidJson(String),
     #[error("invalid document: {0}")]
@@ -82,6 +88,8 @@ impl CoreError {
     pub fn i18n_key(&self) -> &'static str {
         match self {
             Self::InvalidUri(_) => "errors.invalid_uri",
+            Self::InvalidName => "errors.invalid_name",
+            Self::InvalidFolderName => "errors.invalid_folder_name",
             Self::InvalidJson(_) => "errors.invalid_json",
             Self::InvalidDocument(_) => "errors.invalid_document",
             Self::Secret(_) => "errors.secret_store",
@@ -119,6 +127,8 @@ mod tests {
     fn every_variant_has_a_distinct_i18n_key() {
         let errors = [
             CoreError::InvalidUri("x".into()),
+            CoreError::InvalidName,
+            CoreError::InvalidFolderName,
             CoreError::InvalidJson("x".into()),
             CoreError::InvalidDocument("x".into()),
             CoreError::Secret("x".into()),

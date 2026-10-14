@@ -10,12 +10,6 @@ use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-const ALL_KINDS: [SecretKind; 3] = [
-    SecretKind::Password,
-    SecretKind::SshPassword,
-    SecretKind::SshPassphrase,
-];
-
 /// Where the connection list lives; an unknown config dir stays a typed error.
 pub type ConfigPath = Result<PathBuf, PersistError>;
 
@@ -38,7 +32,7 @@ pub fn load_startup(path: &ConfigPath) -> (Vec<ConnectionConfig>, PersistGuard, 
     (started.connections, started.guard, banner)
 }
 
-fn persist(path: &ConfigPath, list: &[ConnectionConfig]) -> Result<(), PersistError> {
+pub(super) fn persist(path: &ConfigPath, list: &[ConnectionConfig]) -> Result<(), PersistError> {
     let result = match path {
         Ok(p) => save_connections(p, list),
         Err(e) => Err(e.clone()),
@@ -96,11 +90,13 @@ pub fn save(
     form: &ConnectionForm,
     secrets: &dyn SecretStore,
     path: &ConfigPath,
+    now: i64,
 ) -> AppState {
     let cfg = match form.to_config() {
         Ok(cfg) => cfg,
         Err(e) => return with_conn_error(state, e),
     };
+    let cfg = cfg.with_save_stamp(now);
     if let Err(e) = state.persist.check() {
         return refused(state, e);
     }
@@ -136,7 +132,7 @@ fn upserted(list: &[ConnectionConfig], cfg: ConnectionConfig) -> Vec<ConnectionC
     out
 }
 
-fn refused(state: AppState, error: PersistError) -> AppState {
+pub(super) fn refused(state: AppState, error: PersistError) -> AppState {
     AppState {
         banner: Some(Banner::Persist(error)),
         ..state
@@ -150,7 +146,7 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
     if let Err(e) = state.persist.check() {
         return refused(state, e);
     }
-    let failures: Vec<CoreError> = ALL_KINDS
+    let failures: Vec<CoreError> = SecretKind::ALL
         .iter()
         .filter_map(|kind| secrets.delete(&secret_key(id, *kind)).err())
         .collect();
@@ -175,7 +171,7 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
     let was_selected = state.conn.selected == Some(id);
     let mut stored = state.conn.stored;
     stored.remove(&id);
-    let conn = ConnectionsState {
+    let mut conn = ConnectionsState {
         connections: list,
         stored,
         selected: if was_selected {
@@ -190,7 +186,12 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
         },
         error: None,
         delete_confirm: None,
+        notice: None,
+        ..state.conn
     };
+    if was_selected {
+        conn.reset_tools();
+    }
     AppState {
         conn,
         banner,
@@ -236,7 +237,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let secrets = MemorySecretStore::new();
         let f = form("prod", "hunter2");
-        let s = save(AppState::new(vec![]), &f, &secrets, &path(&dir));
+        let s = save(AppState::new(vec![]), &f, &secrets, &path(&dir), 0);
         assert_eq!(s.conn.connections.len(), 1);
         assert_eq!(s.conn.selected, Some(f.id));
         assert_eq!(s.conn.form.password, "");
@@ -258,12 +259,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let secrets = MemorySecretStore::new();
         let f = form("prod", "pw");
-        let s = save(AppState::new(vec![]), &f, &secrets, &path(&dir));
+        let s = save(AppState::new(vec![]), &f, &secrets, &path(&dir), 0);
         let edited = ConnectionForm {
             name: "prod2".into(),
             ..s.conn.form.clone()
         };
-        let s = save(s, &edited, &secrets, &path(&dir));
+        let s = save(s, &edited, &secrets, &path(&dir), 0);
         assert_eq!(s.conn.connections.len(), 1);
         assert_eq!(s.conn.connections[0].name, "prod2");
         assert!(s.conn.stored[&f.id].password);
@@ -278,6 +279,7 @@ mod tests {
             &form("", "pw"),
             &secrets,
             &path(&dir),
+            0,
         );
         assert!(s.conn.error.is_some() && s.conn.connections.is_empty());
         assert!(!dir.path().join("connections.json").exists());
@@ -291,6 +293,7 @@ mod tests {
             &form("a", "pw"),
             &FailingStore,
             &path(&dir),
+            0,
         );
         assert!(matches!(
             s.banner,
@@ -311,6 +314,7 @@ mod tests {
             &form("a", ""),
             &secrets,
             &Err(PersistError::ConfigDirUnknown),
+            0,
         );
         assert_eq!(s.conn.connections.len(), 1);
         assert_eq!(
@@ -351,15 +355,16 @@ mod tests {
             &form("a", "pw"),
             &secrets,
             &path(&dir),
+            0,
         );
         let id = s.conn.connections[0].id;
-        for kind in ALL_KINDS {
+        for kind in SecretKind::ALL {
             secrets.set(&secret_key(id, kind), "x").unwrap();
         }
         let s = delete(s, id, &secrets, &path(&dir));
         assert!(s.conn.connections.is_empty() && s.conn.selected.is_none());
         assert!(!s.conn.stored.contains_key(&id));
-        for kind in ALL_KINDS {
+        for kind in SecretKind::ALL {
             assert_eq!(secrets.get(&secret_key(id, kind)).unwrap(), None);
         }
         let loaded = load_connections(&dir.path().join("connections.json")).unwrap();
@@ -403,9 +408,15 @@ mod tests {
             broken: std::sync::atomic::AtomicBool::new(false),
             attempts: Default::default(),
         };
-        let s = save(AppState::new(vec![]), &form("a", "pw"), &store, &path(&dir));
+        let s = save(
+            AppState::new(vec![]),
+            &form("a", "pw"),
+            &store,
+            &path(&dir),
+            0,
+        );
         let id = s.conn.connections[0].id;
-        for kind in ALL_KINDS {
+        for kind in SecretKind::ALL {
             store.inner.set(&secret_key(id, kind), "x").unwrap();
         }
         store.attempts.lock().unwrap().clear();
@@ -435,7 +446,7 @@ mod tests {
             .store(false, std::sync::atomic::Ordering::SeqCst);
         let s = delete(s, id, &store, &path(&dir));
         assert!(s.conn.connections.is_empty());
-        for kind in ALL_KINDS {
+        for kind in SecretKind::ALL {
             assert_eq!(store.inner.get(&secret_key(id, kind)).unwrap(), None);
         }
     }
@@ -446,7 +457,7 @@ mod tests {
         let secrets = MemorySecretStore::new();
         let mut start = AppState::new(vec![]);
         start.persist = PersistGuard::blocked();
-        let s = save(start, &form("a", "pw"), &secrets, &path(&dir));
+        let s = save(start, &form("a", "pw"), &secrets, &path(&dir), 0);
         assert_eq!(s.banner, Some(Banner::Persist(PersistError::Blocked)));
         assert!(s.conn.connections.is_empty());
         assert!(!dir.path().join("connections.json").exists());
@@ -493,5 +504,27 @@ mod tests {
             banner,
             Some(Banner::Persist(PersistError::ConfigDirUnknown))
         );
+    }
+
+    fn state_form(c: &ConnectionConfig) -> ConnectionForm {
+        ConnectionForm::from_config(c)
+    }
+
+    #[test]
+    fn save_stamps_created_once_and_updated_each_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let path: ConfigPath = Ok(dir.path().join("connections.json"));
+        let secrets = MemorySecretStore::new();
+        let form = ConnectionForm {
+            name: "a".into(),
+            uri: "mongodb://h".into(),
+            ..ConnectionForm::default()
+        };
+        let state = save(AppState::new(vec![]), &form, &secrets, &path, 100);
+        let saved = state.conn.connections[0].clone();
+        assert_eq!((saved.created_at, saved.updated_at), (Some(100), Some(100)));
+        let state = save(state, &state_form(&saved), &secrets, &path, 200);
+        let again = &state.conn.connections[0];
+        assert_eq!((again.created_at, again.updated_at), (Some(100), Some(200)));
     }
 }

@@ -1,6 +1,9 @@
 pub mod client;
+pub mod clock;
 pub mod compare;
 pub mod connection;
+pub mod connection_folders;
+pub mod connection_repair;
 pub mod crud;
 pub mod driver_error;
 pub mod ejson;
@@ -15,6 +18,7 @@ pub mod store;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 pub mod tunnel;
+pub mod uri;
 
 /// True when this build can authenticate with Kerberos (GSSAPI). The UI hides
 /// the Kerberos option when false.

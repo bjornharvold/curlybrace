@@ -3,6 +3,7 @@ use curlybrace_core::GSSAPI_AVAILABLE;
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig, SshAuth, SshConfig, TlsConfig};
 use curlybrace_core::error::{CoreError, Result};
 use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
+use curlybrace_core::uri::ParsedUri;
 use std::fmt;
 use uuid::Uuid;
 
@@ -32,6 +33,9 @@ pub struct ConnectionForm {
     pub clear_ssh_secret: bool,
     pub auth_source: String,
     pub allow_invalid_certs: bool,
+    pub folder: String,
+    pub created_at: Option<i64>,
+    pub last_connected: Option<i64>,
 }
 
 /// What a save should do with one stored secret.
@@ -124,11 +128,32 @@ impl Default for ConnectionForm {
             clear_ssh_secret: false,
             auth_source: String::new(),
             allow_invalid_certs: false,
+            folder: String::new(),
+            created_at: None,
+            last_connected: None,
         }
     }
 }
 
 impl ConnectionForm {
+    /// Applies a parsed connection string. The password goes into the password field (it is
+    /// stored in the keychain on save); the string itself is not kept.
+    pub fn apply_parsed(self, parsed: ParsedUri) -> Self {
+        let has_password = parsed.password.is_some();
+        Self {
+            uri: parsed.uri,
+            username: parsed.username.unwrap_or(self.username),
+            auth: parsed.auth.unwrap_or(self.auth),
+            auth_source: parsed.auth_source.unwrap_or(self.auth_source),
+            tls_enabled: parsed.tls.unwrap_or(self.tls_enabled),
+            password: parsed
+                .password
+                .map_or(self.password, |p| p.expose().to_owned()),
+            clear_password: self.clear_password && !has_password,
+            ..self
+        }
+    }
+
     pub fn password_edit(&self) -> SecretEdit {
         SecretEdit::from_input(&self.password, self.clear_password)
     }
@@ -153,6 +178,10 @@ impl ConnectionForm {
                 allow_invalid_certs: self.allow_invalid_certs,
             },
             ssh: self.ssh_config()?,
+            folder: non_blank(&self.folder),
+            created_at: self.created_at,
+            updated_at: None,
+            last_connected: self.last_connected,
         };
         cfg.validate()?;
         Ok(cfg)
@@ -196,6 +225,9 @@ impl ConnectionForm {
             allow_invalid_certs: c.tls.allow_invalid_certs,
             tls_ca: path(&c.tls.ca_file),
             tls_client_cert: path(&c.tls.client_cert_key_file),
+            folder: c.folder.clone().unwrap_or_default(),
+            created_at: c.created_at,
+            last_connected: c.last_connected,
             ..Self::default()
         };
         if let Some(ssh) = &c.ssh {
@@ -307,6 +339,38 @@ mod tests {
     }
 
     #[test]
+    fn apply_parsed_fills_fields_and_keeps_the_password_out_of_the_uri() {
+        let parsed =
+            curlybrace_core::uri::parse_uri("mongodb://bob:pw@h/db?authSource=admin&tls=true")
+                .unwrap();
+        let form = ConnectionForm {
+            name: "n".into(),
+            clear_password: true,
+            ..ConnectionForm::default()
+        }
+        .apply_parsed(parsed);
+        assert_eq!(form.uri, "mongodb://h/db");
+        assert_eq!(form.username, "bob");
+        assert_eq!(form.password, "pw");
+        assert_eq!(form.auth_source, "admin");
+        assert!(form.tls_enabled);
+        assert!(!form.clear_password);
+        assert!(form.to_config().is_ok(), "no password in the uri");
+    }
+
+    #[test]
+    fn apply_parsed_without_a_password_keeps_what_the_user_typed() {
+        let form = ConnectionForm {
+            password: "typed".into(),
+            clear_password: true,
+            ..ConnectionForm::default()
+        };
+        let form = form.apply_parsed(curlybrace_core::uri::parse_uri("mongodb://bob@h").unwrap());
+        assert_eq!(form.password, "typed");
+        assert!(form.clear_password, "untouched when no password was parsed");
+    }
+
+    #[test]
     fn valid_form_maps_to_config() {
         let f = ConnectionForm {
             auth: AuthMechanism::ScramSha256,
@@ -336,7 +400,7 @@ mod tests {
             name: "  ".into(),
             ..valid()
         };
-        assert!(f.to_config().is_err());
+        assert!(matches!(f.to_config(), Err(CoreError::InvalidName)));
         let f = ConnectionForm {
             uri: "nope".into(),
             ..valid()
@@ -617,5 +681,23 @@ mod tests {
         ] {
             assert!(!i18n.t(auth_label_key(a)).contains('⟦'), "{a:?}");
         }
+    }
+
+    #[test]
+    fn form_round_trips_folder_and_timestamps() {
+        let mut c = ConnectionConfig::new("a", "mongodb://h").with_save_stamp(10);
+        c.folder = Some("work".into());
+        c.last_connected = Some(99);
+        let back = ConnectionForm::from_config(&c).to_config().unwrap();
+        assert_eq!(back.folder.as_deref(), Some("work"));
+        assert_eq!(back.created_at, Some(10));
+        assert_eq!(back.last_connected, Some(99));
+    }
+
+    #[test]
+    fn blank_folder_text_becomes_none() {
+        let mut form = ConnectionForm::from_config(&ConnectionConfig::new("a", "mongodb://h"));
+        form.folder = "   ".into();
+        assert_eq!(form.to_config().unwrap().folder, None);
     }
 }

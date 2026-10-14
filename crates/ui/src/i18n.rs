@@ -181,6 +181,8 @@ mod tests {
         let i = I18n::english();
         let errors = [
             CoreError::InvalidUri(String::new()),
+            CoreError::InvalidName,
+            CoreError::InvalidFolderName,
             CoreError::InvalidJson(String::new()),
             CoreError::InvalidDocument(String::new()),
             CoreError::Secret(String::new()),
@@ -232,6 +234,7 @@ mod tests {
             "compare_duplicates",
             "compare_export",
             "compare_duplicates_timeout",
+            "duplicate_secrets",
         ] {
             assert!(!i.failure(c).starts_with('⟦'), "missing failures.{c}");
         }

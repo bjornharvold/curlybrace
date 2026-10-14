@@ -21,7 +21,11 @@ fn connection_form_boxes_are_found_by_their_caption() {
         |ui, state: &mut ConnectionsState| {
             show_connections(ui, state, &I18n::english());
         },
-        ConnectionsState::default(),
+        // The form lives in the edit dialog now.
+        ConnectionsState {
+            editing: true,
+            ..ConnectionsState::default()
+        },
     );
     harness.run();
     for key in [

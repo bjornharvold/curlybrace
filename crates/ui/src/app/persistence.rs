@@ -1,5 +1,6 @@
 //! Connection list persistence: JSON without secrets, atomic 0600 writes.
 use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::connection_repair::repair_labels;
 use std::path::{Path, PathBuf};
 
 const APP_DIR: &str = "curlybrace";
@@ -36,9 +37,22 @@ impl PersistError {
 /// What startup found wrong with the saved list and whether the original file was preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Recovery {
-    Corrupt { backed_up: bool },
-    Unreadable { backed_up: bool },
-    Skipped { count: usize, backed_up: bool },
+    Corrupt {
+        backed_up: bool,
+    },
+    Unreadable {
+        backed_up: bool,
+    },
+    Skipped {
+        count: usize,
+        backed_up: bool,
+    },
+    /// Names or folders from an older release were adjusted to the current rules; no entry was
+    /// lost.
+    Repaired {
+        count: usize,
+        backed_up: bool,
+    },
 }
 
 impl Recovery {
@@ -54,6 +68,12 @@ impl Recovery {
             Self::Skipped {
                 backed_up: false, ..
             } => "persist.skipped_backup_failed",
+            Self::Repaired {
+                backed_up: true, ..
+            } => "persist.repaired_backed_up",
+            Self::Repaired {
+                backed_up: false, ..
+            } => "persist.repaired_backup_failed",
         }
     }
 }
@@ -98,6 +118,7 @@ pub fn startup(path: &Path, backup: BackupFn<'_>) -> Startup {
         Ok(Loaded {
             connections,
             skipped: 0,
+            repaired: 0,
         }) => Startup {
             connections,
             guard: PersistGuard::default(),
@@ -106,9 +127,20 @@ pub fn startup(path: &Path, backup: BackupFn<'_>) -> Startup {
         Ok(Loaded {
             connections,
             skipped,
-        }) => recovered(path, backup, "skipped", connections, move |backed_up| {
+            ..
+        }) if skipped > 0 => recovered(path, backup, "skipped", connections, move |backed_up| {
             Recovery::Skipped {
                 count: skipped,
+                backed_up,
+            }
+        }),
+        Ok(Loaded {
+            connections,
+            repaired,
+            ..
+        }) => recovered(path, backup, "repaired", connections, move |backed_up| {
+            Recovery::Repaired {
+                count: repaired,
                 backed_up,
             }
         }),
@@ -146,11 +178,13 @@ fn recovered(
     }
 }
 
-/// Result of loading: the valid entries and how many were skipped as invalid.
+/// Result of loading: the valid entries, how many were skipped as invalid and how many had
+/// their name or folder repaired (those are in `connections`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loaded {
     pub connections: Vec<ConnectionConfig>,
     pub skipped: usize,
+    pub repaired: usize,
 }
 
 /// `<config dir>/curlybrace/connections.json`; no fallback to the working directory.
@@ -160,8 +194,9 @@ pub fn default_connections_path() -> Result<PathBuf, PersistError> {
         .ok_or(PersistError::ConfigDirUnknown)
 }
 
-/// Reads and validates the list. A missing file is an empty list; entries that fail to
-/// deserialize or `validate()` are skipped and counted.
+/// Reads the saved list. A missing file is an empty list. Labels saved by an older release are
+/// repaired (see `repair_labels`) before validating; entries that fail to deserialize or still
+/// fail `validate()` are skipped and counted.
 pub fn load_connections(path: &Path) -> Result<Loaded, PersistError> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
@@ -169,21 +204,45 @@ pub fn load_connections(path: &Path) -> Result<Loaded, PersistError> {
             return Ok(Loaded {
                 connections: Vec::new(),
                 skipped: 0,
+                repaired: 0,
             });
         }
         Err(e) => return Err(PersistError::Read(e.kind())),
     };
+    parse_with(&bytes, true)
+}
+
+/// Parses and validates a connection list from bytes that are NEW input (an import): strict,
+/// nothing is repaired. Entries that fail to deserialize or `validate()` are skipped and counted.
+pub(crate) fn parse_connections(bytes: &[u8]) -> Result<Loaded, PersistError> {
+    parse_with(bytes, false)
+}
+
+fn parse_with(bytes: &[u8], repair: bool) -> Result<Loaded, PersistError> {
     let entries: Vec<serde_json::Value> =
-        serde_json::from_slice(&bytes).map_err(|_| PersistError::Corrupt)?;
+        serde_json::from_slice(bytes).map_err(|_| PersistError::Corrupt)?;
     let total = entries.len();
-    let connections: Vec<ConnectionConfig> = entries
-        .into_iter()
-        .filter_map(|v| serde_json::from_value::<ConnectionConfig>(v).ok())
-        .filter(|c| c.validate().is_ok())
-        .collect();
+    let mut repaired = 0;
+    let mut connections = Vec::with_capacity(total);
+    for value in entries {
+        let Ok(cfg) = serde_json::from_value::<ConnectionConfig>(value) else {
+            continue;
+        };
+        let cfg = if repair {
+            let (fixed, changed) = repair_labels(cfg);
+            repaired += usize::from(changed && fixed.validate().is_ok());
+            fixed
+        } else {
+            cfg
+        };
+        if cfg.validate().is_ok() {
+            connections.push(cfg);
+        }
+    }
     Ok(Loaded {
         skipped: total - connections.len(),
         connections,
+        repaired,
     })
 }
 
@@ -301,7 +360,8 @@ mod tests {
             loaded,
             Loaded {
                 connections: list,
-                skipped: 0
+                skipped: 0,
+                repaired: 0
             }
         );
     }
@@ -333,9 +393,107 @@ mod tests {
         let all = serde_json::json!([good, blank_name, bad_uri, garbage]);
         std::fs::write(&p, all.to_string()).unwrap();
         let loaded = load_connections(&p).unwrap();
-        assert_eq!(loaded.connections.len(), 1);
+        // The blank name is repaired (to its host), not skipped.
+        assert_eq!(loaded.connections.len(), 2);
         assert_eq!(loaded.connections[0].name, "ok");
-        assert_eq!(loaded.skipped, 3);
+        assert_eq!(loaded.connections[1].name, "localhost:27017");
+        assert_eq!((loaded.skipped, loaded.repaired), (2, 1));
+    }
+
+    /// A file as v0.2.0 could write it: any non-blank name, any folder text.
+    fn old_format_file() -> (String, Vec<ConnectionConfig>) {
+        let mut emoji = cfg("fam\u{1F468}\u{200D}\u{1F469}");
+        emoji.folder = Some("work".into());
+        let long = cfg(&"n".repeat(250));
+        let control_only = cfg("\u{7}");
+        let mut folder_nl = cfg("plain");
+        folder_nl.folder = Some("a\nb".into());
+        let bad_uri = ConnectionConfig::new("x", "http://nope");
+        let list = vec![emoji, long, control_only, folder_nl, bad_uri];
+        (serde_json::to_string(&list).unwrap(), list)
+    }
+
+    #[test]
+    fn saved_labels_from_an_older_release_are_repaired_not_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        let (json, old) = old_format_file();
+        std::fs::write(&p, json).unwrap();
+        let loaded = load_connections(&p).unwrap();
+        assert_eq!(
+            (loaded.connections.len(), loaded.repaired, loaded.skipped),
+            (4, 4, 1)
+        );
+        for (new, before) in loaded.connections.iter().zip(&old) {
+            assert_eq!(new.id, before.id, "the keychain id is kept");
+            assert!(new.validate().is_ok(), "{:?}", new.name);
+        }
+        assert_eq!(loaded.connections[0].name, "fam\u{1F468}\u{1F469}");
+        assert_eq!(loaded.connections[1].name.chars().count(), 200);
+        assert_eq!(loaded.connections[2].name, "localhost:27017");
+        assert_eq!(loaded.connections[3].folder.as_deref(), Some("ab"));
+    }
+
+    #[test]
+    fn a_repaired_only_file_is_backed_up_and_reported_as_adjusted() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        let (_, old) = old_format_file();
+        let only_fixable: Vec<_> = old.iter().take(4).collect();
+        let original = serde_json::to_string(&only_fixable).unwrap();
+        std::fs::write(&p, &original).unwrap();
+        let s = startup(&p, &ok_backup);
+        assert_eq!(s.connections.len(), 4);
+        assert_eq!(
+            s.recovery,
+            Some(Recovery::Repaired {
+                count: 4,
+                backed_up: true
+            })
+        );
+        assert!(s.guard.check().is_ok());
+        let backups = siblings(&dir, "connections.json.repaired-");
+        assert_eq!(std::fs::read_to_string(&backups[0]).unwrap(), original);
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            original,
+            "not rewritten"
+        );
+        let blocked = startup(&p, &failing_backup);
+        assert_eq!(blocked.guard.check(), Err(PersistError::Blocked));
+        assert_eq!(
+            blocked.recovery,
+            Some(Recovery::Repaired {
+                count: 4,
+                backed_up: false
+            })
+        );
+    }
+
+    #[test]
+    fn skipped_entries_take_precedence_in_the_recovery_report() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        std::fs::write(&p, old_format_file().0).unwrap();
+        let s = startup(&p, &ok_backup);
+        assert_eq!(s.connections.len(), 4);
+        assert_eq!(
+            s.recovery,
+            Some(Recovery::Skipped {
+                count: 1,
+                backed_up: true
+            })
+        );
+    }
+
+    #[test]
+    fn import_parsing_stays_strict_and_does_not_repair() {
+        let (json, _) = old_format_file();
+        let parsed = parse_connections(json.as_bytes()).unwrap();
+        assert_eq!(
+            (parsed.connections.len(), parsed.skipped, parsed.repaired),
+            (0, 5, 0)
+        );
     }
 
     #[test]

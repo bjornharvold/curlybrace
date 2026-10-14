@@ -18,6 +18,11 @@ use crate::viewmodel::compare::{ExportDraft, ExportKind};
 pub trait FilePicker: Send + Sync {
     /// `None` when the dialog was cancelled.
     fn save_file(&self, suggested_name: &str, extension: &str) -> Option<PathBuf>;
+
+    /// `None` when cancelled. Default: not supported (tests and embedding).
+    fn open_file(&self, _extension: &str) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// The production picker: the operating system's native save dialog (`rfd`).
@@ -31,6 +36,12 @@ impl FilePicker for NativeFilePicker {
             // The filter label is the extension itself: no language-specific text.
             .add_filter(extension, &[extension])
             .save_file()
+    }
+
+    fn open_file(&self, extension: &str) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .add_filter(extension, &[extension])
+            .pick_file()
     }
 }
 

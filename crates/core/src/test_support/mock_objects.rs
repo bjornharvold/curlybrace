@@ -2,7 +2,7 @@
 
 use bson::{Binary, Bson, Document, Regex, Timestamp, doc, oid::ObjectId, spec::BinarySubtype};
 
-use crate::connection::ConnectionConfig;
+use crate::connection::{ConnectionConfig, SshAuth, SshConfig, TlsConfig};
 use crate::store::Namespace;
 
 pub fn mock_doc() -> Document {
@@ -19,6 +19,54 @@ pub fn mock_namespace() -> Namespace {
 
 pub fn mock_connection() -> ConnectionConfig {
     ConnectionConfig::new("local", "mongodb://localhost:27017")
+}
+
+/// The password every fixture and audit test stores in the keychain. Nothing that is saved,
+/// exported, logged or drawn may ever contain it.
+pub const MOCK_PASSWORD_MARKER: &str = "hunter2-marker-7f3a";
+
+/// A connection filed under `folder`.
+pub fn mock_connection_in_folder(name: &str, folder: &str) -> ConnectionConfig {
+    ConnectionConfig {
+        folder: Some(folder.into()),
+        ..ConnectionConfig::new(name, "mongodb://localhost:27017")
+    }
+}
+
+/// Three connections with fixed timestamps: one at the root, two in the "Production" folder, the
+/// second of which uses TLS and an SSH tunnel.
+pub fn mock_connections() -> Vec<ConnectionConfig> {
+    let local = ConnectionConfig {
+        created_at: Some(1_700_000_000),
+        updated_at: Some(1_700_000_000),
+        ..ConnectionConfig::new("Local dev", "mongodb://localhost:27017")
+    };
+    let replica = ConnectionConfig {
+        username: Some("reporting".into()),
+        auth_source: Some("admin".into()),
+        created_at: Some(1_700_100_000),
+        updated_at: Some(1_700_200_000),
+        last_connected: Some(1_700_300_000),
+        ..mock_connection_in_folder("Production replica", "Production")
+    };
+    let secure = ConnectionConfig {
+        uri: "mongodb://db.internal:27017".into(),
+        username: Some("admin".into()),
+        tls: TlsConfig {
+            enabled: true,
+            ..TlsConfig::default()
+        },
+        ssh: Some(SshConfig {
+            host: "bastion.example.com".into(),
+            port: 22,
+            username: "tunnel".into(),
+            auth: SshAuth::Password,
+        }),
+        created_at: Some(1_700_150_000),
+        updated_at: Some(1_700_150_000),
+        ..mock_connection_in_folder("Production primary", "Production")
+    };
+    vec![local, replica, secure]
 }
 
 /// A document holding one value of every BSON type the viewer must render.
@@ -69,6 +117,27 @@ mod tests {
             assert!(kinds.contains(&want), "missing {want:?}");
         }
         assert!(d.get_f64("nan").unwrap().is_nan());
+    }
+
+    #[test]
+    fn mock_connections_cover_root_folder_and_tls_with_ssh() {
+        let all = mock_connections();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all.iter().filter(|c| c.folder.is_none()).count(), 1);
+        let filed: Vec<_> = all
+            .iter()
+            .filter(|c| c.folder.as_deref() == Some("Production"))
+            .collect();
+        assert_eq!(filed.len(), 2);
+        assert!(all.iter().any(|c| c.tls.enabled && c.ssh.is_some()));
+        assert!(all.iter().all(|c| c.validate().is_ok()));
+    }
+
+    #[test]
+    fn mock_connection_in_folder_sets_the_folder() {
+        let c = mock_connection_in_folder("a", "F");
+        assert_eq!(c.folder.as_deref(), Some("F"));
+        assert!(c.validate().is_ok());
     }
 
     #[test]

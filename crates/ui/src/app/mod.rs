@@ -15,6 +15,12 @@ mod compare_pairs;
 mod compare_results;
 mod compare_run;
 mod compare_select;
+mod connection_io;
+mod connection_ops;
+mod connection_picker;
+mod connection_save;
+mod connection_test;
+mod connection_uri;
 pub mod connections;
 pub mod file_picker;
 pub mod host_key;
@@ -26,14 +32,15 @@ pub mod state;
 use crate::I18n;
 use crate::error_text::failure_log_line;
 use crate::viewmodel::compare::ExportUi;
-use crate::views::connections::ConnectionAction;
+use crate::views::connections::{ConnectionAction, ConnectionsState, TestState};
 use compare::CompareAction;
+use connection_picker::ConnPickKind;
 use connections::{ConfigPath, load_startup, refresh_flags};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{
-    COMMAND_TIMEOUT, Command, Repaint, RuntimeConfig, RuntimeHandle, default_known_hosts_path,
-    spawn_runtime_with_config,
+    COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle,
+    default_known_hosts_path, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
 use curlybrace_core::tunnel::HostKeyDecision;
@@ -81,6 +88,8 @@ pub struct CurlybraceApp {
     repaint: Repaint,
     /// The save dialog being shown, if any: at most one at a time.
     pick: Option<PendingPick>,
+    /// The import/export dialog being shown, if any: at most one at a time.
+    conn_pick: Option<connection_picker::ConnPick>,
 }
 
 impl CurlybraceApp {
@@ -103,6 +112,7 @@ impl CurlybraceApp {
             picker: Arc::new(NoFilePicker),
             repaint: Arc::new(|| {}),
             pick: None,
+            conn_pick: None,
         }
     }
 
@@ -222,33 +232,124 @@ impl CurlybraceApp {
     /// lived in it) are both over.
     fn runtime_stopped(&mut self) {
         let error = CoreError::Database("runtime stopped".into());
-        let state = std::mem::take(&mut self.state);
+        let cleared = std::mem::take(&mut self.state).session_cleared();
+        // A test that was waiting for its answer will never get one.
+        let test = match &cleared.conn.test {
+            TestState::Running { .. } => TestState::Idle,
+            other => other.clone(),
+        };
         self.state = AppState {
-            compare: state.compare.clone().session_dropped(),
+            compare: cleared.compare.clone().session_dropped(),
+            conn: ConnectionsState {
+                test,
+                ..cleared.conn
+            },
             status: ConnStatus::Disconnected,
             banner: Some(Banner::Failure {
                 context: "runtime",
                 error,
             }),
-            ..state.session_cleared()
+            ..cleared
         };
+    }
+
+    /// Applies one connection-manager action exactly as the view would (the entry point for
+    /// tests that drive the app without drawing it).
+    #[doc(hidden)]
+    pub fn dispatch_connection(&mut self, action: ConnectionAction) {
+        self.handle_connection_action(action);
     }
 
     fn handle_connection_action(&mut self, action: ConnectionAction) {
         let state = std::mem::take(&mut self.state);
         let secrets = self.secrets.as_ref();
+        let now = curlybrace_core::clock::now_secs();
         match action {
             ConnectionAction::Connect(id) => {
-                self.state = state;
+                // Defensive: the modal blocks the list, but never connect with the dialog open.
+                self.state = connection_ops::dialog_closed(state);
                 self.dispatch(Input::Connect(id));
             }
             ConnectionAction::Save(form) => {
-                self.state = connections::save(state, &form, secrets, &self.config_path);
+                self.state =
+                    connection_save::save_and_close(state, &form, secrets, &self.config_path, now);
             }
             ConnectionAction::Delete(id) => {
-                self.state = connections::delete(state, id, secrets, &self.config_path);
+                self.state =
+                    connection_ops::delete_and_close(state, id, secrets, &self.config_path);
+            }
+            ConnectionAction::Duplicate(id) => {
+                let source = state.connection(id).map(|c| c.name.clone());
+                let name = self.i18n.t_with(
+                    "connections.copy_name",
+                    &[("name", source.as_deref().unwrap_or_default())],
+                );
+                self.state =
+                    connection_ops::duplicate(state, id, name, now, secrets, &self.config_path);
+            }
+            ConnectionAction::MoveToFolder { id, folder } => {
+                self.state =
+                    connection_ops::move_to_folder(state, id, folder, now, &self.config_path);
+            }
+            ConnectionAction::RenameFolder { from, to } => {
+                self.state = connection_ops::rename_folder(state, from, to, now, &self.config_path);
+            }
+            ConnectionAction::DeleteFolder(name) => {
+                self.state = connection_ops::delete_folder(state, name, now, &self.config_path);
+            }
+            ConnectionAction::Test(form) => {
+                self.state = state;
+                self.dispatch(Input::TestConnection(form));
+            }
+            ConnectionAction::BuildUri {
+                form,
+                include_password,
+            } => {
+                self.state = connection_uri::build(state, &form, include_password, secrets);
+            }
+            ConnectionAction::StartImport => {
+                self.state = state;
+                self.start_connection_pick(ConnPickKind::Import);
+            }
+            ConnectionAction::StartExport => {
+                self.state = state;
+                self.start_connection_pick(ConnPickKind::Export);
             }
         }
+    }
+
+    /// Opens the import or export dialog unless one is already open.
+    fn start_connection_pick(&mut self, kind: ConnPickKind) {
+        if self.conn_pick.is_none() {
+            self.conn_pick = Some(connection_picker::start(
+                self.picker.clone(),
+                kind,
+                self.repaint.clone(),
+            ));
+        }
+    }
+
+    /// Runs the import or export once the dialog has answered; a cancelled dialog does nothing.
+    fn poll_connection_picker(&mut self) {
+        let Some(PickPoll::Done(path)) = self.conn_pick.as_ref().map(|p| p.poll()) else {
+            return;
+        };
+        let Some(pick) = self.conn_pick.take() else {
+            return;
+        };
+        let Some(path) = path else {
+            return;
+        };
+        let state = std::mem::take(&mut self.state);
+        self.state = match pick.kind {
+            ConnPickKind::Import => connection_io::import_into(
+                state,
+                &path,
+                curlybrace_core::clock::now_secs(),
+                &self.config_path,
+            ),
+            ConnPickKind::Export => connection_io::export_to(state, &path),
+        };
     }
 
     fn confirm_forget(&mut self) {
@@ -293,9 +394,27 @@ impl CurlybraceApp {
             if let Some(line) = failure_log_line(&event) {
                 log::warn!("{line}");
             }
+            let was_connected = self.state.status == ConnStatus::Connected;
+            let is_connect = matches!(event, Event::Connected { .. });
             self.dispatch(Input::Event(event));
+            if is_connect && !was_connected && self.state.status == ConnStatus::Connected {
+                // Whatever the persist guard says, a connect ends any open edit dialog so typed
+                // secrets do not linger and it does not reappear after Disconnect.
+                let state = std::mem::take(&mut self.state);
+                self.state = connection_ops::dialog_closed(state);
+                if let Some(id) = self.state.connected {
+                    let state = std::mem::take(&mut self.state);
+                    self.state = connection_ops::mark_connected(
+                        state,
+                        id,
+                        curlybrace_core::clock::now_secs(),
+                        &self.config_path,
+                    );
+                }
+            }
         }
         self.poll_picker();
+        self.poll_connection_picker();
     }
 
     /// Opens the save dialog on a worker thread whenever an export waits in `Choosing` and no
@@ -405,6 +524,68 @@ mod tests {
         assert_eq!(config.known_hosts_path, Some(PathBuf::from("/kh")));
     }
 
+    /// An app whose runtime is two channels the test holds: it sees the commands and feeds events.
+    fn app_with_open_dialog(
+        guard: persistence::PersistGuard,
+    ) -> (
+        CurlybraceApp,
+        tokio::sync::mpsc::UnboundedSender<Event>,
+        tokio::sync::mpsc::UnboundedReceiver<curlybrace_core::runtime::Command>,
+        tempfile::TempDir,
+        uuid::Uuid,
+    ) {
+        let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
+        let (events, rx) = tokio::sync::mpsc::unbounded_channel();
+        let a = ConnectionConfig::new("a", "mongodb://a");
+        let id = a.id;
+        let secrets = Arc::new(curlybrace_core::secrets::MemorySecretStore::default());
+        let dir = tempfile::tempdir().unwrap();
+        let mut app =
+            CurlybraceApp::new(RuntimeHandle { tx, rx }, I18n::english(), vec![a], secrets)
+                .with_config_path(Ok(dir.path().join("connections.json")))
+                .with_persist_guard(guard);
+        let conn = &mut app.state_mut().conn;
+        conn.editing = true;
+        conn.selected = Some(id);
+        conn.form.password = "typed".into();
+        conn.uri_input = "mongodb://u:p@h".into();
+        conn.built_uri = Some(curlybrace_core::secrets::SecretString::new(
+            "mongodb://u:p@h",
+        ));
+        (app, events, commands, dir, id)
+    }
+
+    fn assert_dialog_closed_and_secrets_gone(app: &CurlybraceApp) {
+        let conn = &app.state().conn;
+        assert!(!conn.editing, "the dialog must not survive");
+        assert!(conn.form.password.is_empty() && conn.uri_input.is_empty());
+        assert!(conn.built_uri.is_none());
+    }
+
+    #[test]
+    fn a_completed_connect_closes_the_edit_dialog_and_drops_its_secrets() {
+        for guard in [
+            persistence::PersistGuard::default(),
+            persistence::PersistGuard::blocked(),
+        ] {
+            let (mut app, events, _commands, _dir, id) = app_with_open_dialog(guard);
+            app.dispatch(Input::Connect(id));
+            let epoch = app.state().latest_requested_epoch;
+            events.send(Event::Connected { epoch }).unwrap();
+            app.pump();
+            assert_eq!(app.state().status, ConnStatus::Connected);
+            assert_dialog_closed_and_secrets_gone(&app);
+        }
+    }
+
+    #[test]
+    fn a_connect_action_with_the_dialog_open_closes_it() {
+        let (mut app, _events, _commands, _dir, id) =
+            app_with_open_dialog(persistence::PersistGuard::default());
+        app.handle_connection_action(ConnectionAction::Connect(id));
+        assert_dialog_closed_and_secrets_gone(&app);
+    }
+
     #[test]
     fn a_stopped_runtime_also_ends_the_compare_session() {
         use crate::app::compare::CompareAction;
@@ -425,6 +606,34 @@ mod tests {
         assert_eq!(compare.session, None);
         assert_eq!(compare.run_view(), RunView::Idle);
         assert_eq!(compare.next_session, 5, "ids are never reused");
+        assert!(matches!(
+            app.state().banner,
+            Some(Banner::Failure {
+                context: "runtime",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_stopped_runtime_does_not_leave_a_test_running_forever() {
+        let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
+        drop(commands);
+        let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
+        let secrets = Arc::new(curlybrace_core::secrets::MemorySecretStore::default());
+        let mut app = CurlybraceApp::new(
+            RuntimeHandle { tx, rx },
+            I18n::english(),
+            Vec::new(),
+            secrets,
+        );
+        let form = crate::viewmodel::ConnectionForm {
+            name: "n".into(),
+            uri: "mongodb://localhost:27017".into(),
+            ..Default::default()
+        };
+        app.dispatch(Input::TestConnection(Box::new(form)));
+        assert_eq!(app.state().conn.test, TestState::Idle);
         assert!(matches!(
             app.state().banner,
             Some(Banner::Failure {

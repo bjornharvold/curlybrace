@@ -1,4 +1,5 @@
 //! Application state. Immutable by convention: the reducer consumes a state and returns the next.
+use super::connection_io::ImportError;
 use super::persistence::{PersistError, PersistGuard, Recovery};
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
@@ -35,6 +36,10 @@ pub enum Banner {
         error: CoreError,
     },
     Persist(PersistError),
+    /// The file chosen for import was refused. Says nothing about the saved list.
+    ImportFailed(ImportError),
+    /// Writing the export file failed. Says nothing about the saved list.
+    ExportFailed(PersistError),
     /// What startup found wrong with the saved connection list, and whether it was backed up.
     Recovery(Recovery),
     /// A data action was attempted without a live connection.

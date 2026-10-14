@@ -7,13 +7,15 @@ mod support;
 
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::TestReport;
+use curlybrace_core::test_support::mock_objects::mock_connections;
 use curlybrace_testkit::snapshots_enabled;
 use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::state::{AppState, Banner};
 use curlybrace_ui::viewmodel::{
     EditorIntent, EditorState, MenuItem, ViewMode, page_key, resolve_editor,
 };
-use curlybrace_ui::views::connections::ConnectionsState;
+use curlybrace_ui::views::connections::{ConnectionsState, TestState};
 use support::compare_apply_states::shots as apply;
 use support::compare_export_shots as export;
 use support::compare_field_shots as fields;
@@ -63,6 +65,34 @@ shot!(
     vec![production(), staging()],
     select_first_connection
 );
+
+shot!(connection_manager_list, mock_connections(), |_| {});
+
+shot!(connection_manager_filtered, mock_connections(), |state| {
+    state.conn.filter = "prod".into();
+});
+
+// The edit dialog for the TLS + SSH connection, open, with a successful test result.
+shot!(connection_edit_dialog, mock_connections(), |state| {
+    let secure = state.conn.connections[2].clone();
+    let form = curlybrace_ui::viewmodel::ConnectionForm::from_config(&secure);
+    state.conn = ConnectionsState {
+        selected: Some(secure.id),
+        form: form.clone(),
+        editing: true,
+        test: TestState::Done {
+            request_id: 1,
+            outcome: Ok(TestReport {
+                server_version: Some("7.0.5".into()),
+                tls: true,
+                authenticated: true,
+            }),
+        },
+        test_seq: 1,
+        test_form: Some(form),
+        ..std::mem::take(&mut state.conn)
+    };
+});
 
 shot!(browser_tree_view, vec![], browsing(ViewMode::Tree));
 shot!(browser_table_view, vec![], browsing(ViewMode::Table));
@@ -308,14 +338,17 @@ fn the_app_under_test_uses_temp_paths_not_the_developers_files() {
             app,
         );
     let i18n = curlybrace_ui::I18n::english();
+    harness.get_by_label(&i18n.t("connections.new")).click();
+    harness.run();
     for (key, text) in [
         ("connections.name", "Temp"),
         ("connections.uri", "mongodb://localhost"),
     ] {
         let label = i18n.t(key);
-        harness.get_by_label(&label).click();
+        let role = eframe::egui::accesskit::Role::TextInput;
+        harness.get_by_role_and_label(role, &label).click();
         harness.run();
-        harness.get_by_label(&label).type_text(text);
+        harness.get_by_role_and_label(role, &label).type_text(text);
         harness.run();
     }
     harness.get_by_label(&i18n.t("common.save")).click();

@@ -17,9 +17,9 @@ build it. You do not need to be a Rust expert: small fixes, docs, tests and bug 
 
 - **Report a bug** or request a feature with an [issue](https://github.com/bjornharvold/curlybrace/issues/new/choose).
   Never paste passwords, credentialed connection strings or private keys.
-- **Build a feature.** The [roadmap in the README](README.md#roadmap) lists ideas: Data Compare &
-  Sync, Data Masking and Reschema, SQL and MongoDB, and a Task Scheduler. Open an issue first so we
-  can agree on the shape before you invest time.
+- **Build a feature.** The [roadmap in the README](README.md#roadmap) lists what is planned next
+  and what is in the backlog, each with an issue. Comment on the issue before you start so we can
+  agree on the shape before you invest time.
 - **Support more platforms.** Only macOS arm64 is built today. Intel Mac, Linux and Windows
   builds are very welcome, see [Adding a platform](#adding-a-platform).
 - **Improve trust and polish:** Apple code signing and notarization, real screenshots for the

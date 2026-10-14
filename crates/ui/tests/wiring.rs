@@ -123,6 +123,24 @@ fn harness_with(requests: Option<Receiver<HostKeyRequest>>) -> (Harness, uuid::U
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn connecting_stamps_last_connected_in_the_saved_file() {
+    let (mut h, id) = harness();
+    h.app.dispatch(Input::Connect(id));
+    h.until("connected", |a| a.state().status == ConnStatus::Connected);
+    let file = h._dir.path().join("connections.json");
+    let loaded = curlybrace_ui::app::persistence::load_connections(&file).unwrap();
+    let saved = loaded.connections.iter().find(|c| c.id == id).unwrap();
+    assert!(
+        saved.last_connected.is_some(),
+        "the connect was stamped on disk"
+    );
+    assert_eq!(
+        h.app.state().connection(id).unwrap().last_connected,
+        saved.last_connected
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn browse_edit_and_delete_through_the_real_runtime() {
     let (mut h, id) = harness();
 

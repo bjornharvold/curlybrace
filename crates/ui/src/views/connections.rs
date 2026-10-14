@@ -1,9 +1,11 @@
 //! Connection manager view: saved connections list plus an editable form.
 use crate::I18n;
-use crate::viewmodel::StoredSecrets;
-use crate::viewmodel::{ConnectionForm, auth_label_key, auth_options};
+use crate::viewmodel::{ConnectionForm, Sort, StoredSecrets};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::TestReport;
+use curlybrace_core::secrets::SecretString;
+use curlybrace_core::uri::parse_uri;
 use eframe::egui;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -14,10 +16,49 @@ pub enum ConnectionAction {
     Connect(Uuid),
     Save(Box<ConnectionForm>),
     Delete(Uuid),
+    Duplicate(Uuid),
+    MoveToFolder {
+        id: Uuid,
+        folder: String,
+    },
+    RenameFolder {
+        from: String,
+        to: String,
+    },
+    DeleteFolder(String),
+    StartImport,
+    StartExport,
+    Test(Box<ConnectionForm>),
+    BuildUri {
+        form: Box<ConnectionForm>,
+        include_password: bool,
+    },
+}
+
+/// Progress of the Test Connection button. `tls` and `authenticated` in a finished report mean
+/// "configured", not "verified".
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum TestState {
+    #[default]
+    Idle,
+    Running {
+        request_id: u64,
+    },
+    Done {
+        request_id: u64,
+        outcome: Result<TestReport, CoreError>,
+    },
+}
+
+/// The outcome of an import or export, shown by the view (never carries paths).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Notice {
+    Imported { imported: usize, skipped: usize },
+    Exported { count: usize },
 }
 
 /// View state: saved connections, the form being edited and the last validation error.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ConnectionsState {
     pub connections: Vec<ConnectionConfig>,
     pub selected: Option<Uuid>,
@@ -27,6 +68,87 @@ pub struct ConnectionsState {
     pub stored: HashMap<Uuid, StoredSecrets>,
     /// Connection whose delete awaits confirmation.
     pub delete_confirm: Option<Uuid>,
+    /// Result of the last import or export.
+    pub notice: Option<Notice>,
+    /// Test Connection progress and the form it was started for.
+    pub test: TestState,
+    pub test_seq: u64,
+    pub test_form: Option<ConnectionForm>,
+    /// Text pasted for "From URI"; cleared as soon as it has been parsed (it may hold a password).
+    pub uri_input: String,
+    /// "To URI" result (may hold a real password; `Debug` redacts it), the form it was built
+    /// for, and whether it contains the real password.
+    pub built_uri: Option<SecretString>,
+    pub built_for: Option<ConnectionForm>,
+    pub built_with_password: bool,
+    /// Text typed in the filter box above the table.
+    pub filter: String,
+    pub sort: Sort,
+    /// The folder name prompt (move a connection / rename a folder), when open.
+    pub folder_prompt: Option<FolderPrompt>,
+    /// The edit dialog is open.
+    pub editing: bool,
+    /// The app banner as text (headline first, then details), copied in by the screen each frame
+    /// so the dialog can show it: the real banner is dimmed behind the modal backdrop.
+    pub dialog_banner: Vec<String>,
+}
+
+/// `Debug` hides `uri_input`: it is the pasted connection string and may hold a password.
+impl std::fmt::Debug for ConnectionsState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Exhaustive on purpose (no `..`): a new field breaks the build here and forces a
+        // decision on whether it may be printed. `uri_input` is a pasted string that may hold a
+        // password; `built_uri` is a `SecretString` and the forms redact their own secrets.
+        let Self {
+            connections,
+            selected,
+            form,
+            error,
+            stored,
+            delete_confirm,
+            notice,
+            test,
+            test_seq,
+            test_form,
+            uri_input: _,
+            built_uri,
+            built_for,
+            built_with_password,
+            filter,
+            sort,
+            folder_prompt,
+            editing,
+            dialog_banner,
+        } = self;
+        f.debug_struct("ConnectionsState")
+            .field("connections", connections)
+            .field("selected", selected)
+            .field("form", form)
+            .field("error", error)
+            .field("stored", stored)
+            .field("delete_confirm", delete_confirm)
+            .field("notice", notice)
+            .field("test", test)
+            .field("test_seq", test_seq)
+            .field("test_form", test_form)
+            .field("uri_input", &"<redacted>")
+            .field("built_uri", built_uri)
+            .field("built_for", built_for)
+            .field("built_with_password", built_with_password)
+            .field("filter", filter)
+            .field("sort", sort)
+            .field("folder_prompt", folder_prompt)
+            .field("editing", editing)
+            .field("dialog_banner", dialog_banner)
+            .finish()
+    }
+}
+
+/// The one-field folder prompt. `input` is the text being typed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FolderPrompt {
+    Move { id: Uuid, input: String },
+    Rename { from: String, input: String },
 }
 
 impl ConnectionsState {
@@ -51,18 +173,149 @@ impl ConnectionsState {
         self.delete_confirm = None;
     }
 
-    fn select(&mut self, cfg: &ConnectionConfig) {
+    /// Drops a test result and a built URI once the form no longer matches what they belong to.
+    pub fn invalidate_stale_test(&mut self) {
+        if self.built_for.as_ref() != Some(&self.form) {
+            self.clear_built_uri();
+        }
+        // A result for an outdated form is dropped. A test that is still running keeps running:
+        // its eventual `Done` lands here on a later frame and is discarded the same way, and a
+        // new Test click supersedes it (the request counter only accepts the latest answer).
+        if self.test_form.as_ref() != Some(&self.form)
+            && matches!(self.test, TestState::Done { .. })
+        {
+            self.test = TestState::Idle;
+            // The cloned form may hold a typed secret; do not keep it once there is no result.
+            self.test_form = None;
+        }
+    }
+
+    fn clear_built_uri(&mut self) {
+        self.built_uri = None;
+        self.built_for = None;
+        self.built_with_password = false;
+    }
+
+    /// Forgets the test result, the pasted text and the built URI (selection change, close).
+    pub fn reset_tools(&mut self) {
+        self.test = TestState::Idle;
+        self.test_form = None;
+        self.uri_input.clear();
+        self.clear_built_uri();
+    }
+
+    /// Parses the pasted connection string into the form. The buffer is cleared either way and
+    /// a failure never echoes it.
+    pub fn apply_uri_input(&mut self) {
+        let input = std::mem::take(&mut self.uri_input);
+        match parse_uri(&input) {
+            Ok(parsed) => {
+                self.form = self.form.clone().apply_parsed(parsed);
+                self.error = None;
+            }
+            Err(error) => self.error = Some(error),
+        }
+    }
+
+    /// The filter box was edited: a stale import/export notice no longer applies.
+    pub fn filter_edited(&mut self) {
+        self.notice = None;
+    }
+
+    /// Opens the "move to folder" prompt for `id`, pre-filled with its current folder.
+    pub fn open_move_prompt(&mut self, id: Uuid) {
+        let input = self
+            .connections
+            .iter()
+            .find(|c| c.id == id)
+            .and_then(|c| c.folder.clone())
+            .unwrap_or_default();
+        self.error = None;
+        self.folder_prompt = Some(FolderPrompt::Move { id, input });
+    }
+
+    /// Opens the rename prompt for the folder `from`, pre-filled with its name.
+    pub fn open_rename_prompt(&mut self, from: &str) {
+        self.error = None;
+        self.folder_prompt = Some(FolderPrompt::Rename {
+            from: from.to_owned(),
+            input: from.to_owned(),
+        });
+    }
+
+    /// Cancels the prompt (Escape, outside click, Cancel); a rejected-name error goes with it.
+    pub fn close_folder_prompt(&mut self) {
+        self.folder_prompt = None;
+        self.error = None;
+    }
+
+    /// The action the prompt stands for. The prompt stays open: the handler closes it on success
+    /// and, on a rejected name, leaves it open and reports through `error`. Nothing is validated
+    /// here.
+    pub fn folder_prompt_confirmed(&mut self) -> Option<ConnectionAction> {
+        self.folder_prompt.clone().map(|prompt| match prompt {
+            FolderPrompt::Move { id, input } => {
+                ConnectionAction::MoveToFolder { id, folder: input }
+            }
+            FolderPrompt::Rename { from, input } => {
+                ConnectionAction::RenameFolder { from, to: input }
+            }
+        })
+    }
+
+    /// Distinct folder names in use, sorted.
+    pub fn folder_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .connections
+            .iter()
+            .filter_map(|c| c.folder.clone())
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    /// Opens the edit dialog for `cfg` (toolbar Edit).
+    pub(super) fn begin_edit(&mut self, cfg: &ConnectionConfig) {
+        self.select(cfg);
+        self.editing = true;
+    }
+
+    /// Closes the dialog without saving (Cancel, Escape).
+    pub fn close_edit(&mut self) {
+        self.editing = false;
+        self.error = None;
+        self.reset_tools();
+        // A cancelled form must not keep a typed password: reload it without secrets.
+        let selected = self
+            .selected
+            .and_then(|id| self.connections.iter().find(|c| c.id == id));
+        self.form = selected.map_or_else(ConnectionForm::default, ConnectionForm::from_config);
+    }
+
+    /// A save went through: the dialog closes, its tools reset and the notice is dropped.
+    pub fn saved(&mut self) {
+        self.close_edit();
+        self.notice = None;
+    }
+
+    pub(super) fn select(&mut self, cfg: &ConnectionConfig) {
+        self.reset_tools();
         self.delete_confirm = None;
+        self.notice = None;
         self.selected = Some(cfg.id);
         self.form = ConnectionForm::from_config(cfg);
         self.error = None;
     }
 
-    fn start_new(&mut self) {
+    pub(super) fn start_new(&mut self) {
+        self.reset_tools();
         self.delete_confirm = None;
+        self.notice = None;
         self.selected = None;
         self.form = ConnectionForm::default();
         self.error = None;
+        self.editing = true;
     }
 }
 
@@ -71,13 +324,15 @@ pub fn show_connections(
     state: &mut ConnectionsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
+    state.invalidate_stale_test();
     ui.heading(i18n.t("connections.title"));
-    let mut action = show_list(ui, state, i18n);
-    ui.separator();
-    if let Some(saved) = show_form(ui, state, i18n) {
-        action = Some(saved);
-    }
-    show_delete_confirm(ui.ctx(), state, i18n).or(action)
+    let action = super::connections_list::show_list(ui, state, i18n);
+    let edit = super::connections_edit_dialog::show_edit_dialog(ui.ctx(), state, i18n);
+    let prompt = super::connections_folder_prompt::show_folder_prompt(ui.ctx(), state, i18n);
+    show_delete_confirm(ui.ctx(), state, i18n)
+        .or(prompt)
+        .or(edit)
+        .or(action)
 }
 
 /// Modal asking to confirm a delete; Escape or clicking outside cancels.
@@ -108,192 +363,6 @@ fn show_delete_confirm(
         state.delete_cancelled();
     }
     None
-}
-
-fn show_list(
-    ui: &mut egui::Ui,
-    state: &mut ConnectionsState,
-    i18n: &I18n,
-) -> Option<ConnectionAction> {
-    let mut action = None;
-    if ui.button(i18n.t("connections.new")).clicked() {
-        state.start_new();
-    }
-    let rows = state.connections.clone();
-    for cfg in &rows {
-        ui.horizontal(|ui| {
-            let selected = state.selected == Some(cfg.id);
-            if ui.selectable_label(selected, &cfg.name).clicked() {
-                state.select(cfg);
-            }
-            if ui.button(i18n.t("connections.connect")).clicked() {
-                action = Some(ConnectionAction::Connect(cfg.id));
-            }
-            if ui.button(i18n.t("common.delete")).clicked() {
-                state.delete_requested(cfg.id);
-            }
-        });
-    }
-    action
-}
-
-fn show_form(
-    ui: &mut egui::Ui,
-    state: &mut ConnectionsState,
-    i18n: &I18n,
-) -> Option<ConnectionAction> {
-    let form = &mut state.form;
-    text_row(ui, &i18n.t("connections.name"), &mut form.name, false);
-    text_row(ui, &i18n.t("connections.uri"), &mut form.uri, false);
-    auth_combo(ui, form, i18n);
-    text_row(
-        ui,
-        &i18n.t("connections.username"),
-        &mut form.username,
-        false,
-    );
-    text_row(
-        ui,
-        &i18n.t("connections.auth_source"),
-        &mut form.auth_source,
-        false,
-    );
-    let stored = state.stored.get(&form.id).copied().unwrap_or_default();
-    secret_row(
-        ui,
-        SecretField {
-            label: &i18n.t("connections.password"),
-            value: &mut form.password,
-            clear: &mut form.clear_password,
-            stored: stored.password,
-        },
-        i18n,
-    );
-    tls_section(ui, form, i18n);
-    ssh_section(ui, form, stored.ssh_secret, i18n);
-    if let Some(e) = &state.error {
-        super::error_label::show_error(ui, e, i18n);
-    }
-    if ui.button(i18n.t("common.save")).clicked() {
-        return match state.form.to_config() {
-            Ok(_) => {
-                state.error = None;
-                Some(ConnectionAction::Save(Box::new(state.form.clone())))
-            }
-            Err(e) => {
-                state.error = Some(e);
-                None
-            }
-        };
-    }
-    None
-}
-
-struct SecretField<'a> {
-    label: &'a str,
-    value: &'a mut String,
-    clear: &'a mut bool,
-    stored: bool,
-}
-
-/// Password input plus saved-secret hint and an explicit clear toggle.
-fn secret_row(ui: &mut egui::Ui, field: SecretField<'_>, i18n: &I18n) {
-    text_row(ui, field.label, field.value, true);
-    if !field.value.is_empty() {
-        *field.clear = false;
-    } else if field.stored {
-        ui.horizontal(|ui| {
-            let hint = if *field.clear {
-                "connections.saved_secret_will_clear"
-            } else {
-                "connections.password_saved_hint"
-            };
-            ui.label(i18n.t(hint));
-            ui.checkbox(field.clear, i18n.t("connections.clear_saved_password"));
-        });
-    }
-}
-
-fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) {
-    ui.horizontal(|ui| {
-        let caption = ui.label(label);
-        // Expose the caption as the box's accessible name (screen readers and UI tests).
-        ui.add(egui::TextEdit::singleline(value).password(password))
-            .labelled_by(caption.id);
-    });
-}
-
-fn auth_combo(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
-    ui.horizontal(|ui| {
-        ui.label(i18n.t("connections.auth"));
-        egui::ComboBox::from_id_salt("connection_auth")
-            .selected_text(i18n.t(auth_label_key(form.auth)))
-            .show_ui(ui, |ui| {
-                for option in auth_options() {
-                    let label = i18n.t(auth_label_key(option));
-                    ui.selectable_value(&mut form.auth, option, label);
-                }
-            });
-    });
-}
-
-fn tls_section(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
-    ui.checkbox(&mut form.tls_enabled, i18n.t("connections.tls"));
-    if form.tls_enabled {
-        text_row(ui, &i18n.t("connections.tls_ca"), &mut form.tls_ca, false);
-        let cert = i18n.t("connections.tls_client_cert");
-        text_row(ui, &cert, &mut form.tls_client_cert, false);
-        ui.checkbox(
-            &mut form.allow_invalid_certs,
-            i18n.t("connections.allow_invalid_certs"),
-        );
-        if form.ssh_enabled && form.allow_invalid_certs {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                i18n.t("connections.allow_invalid_certs_ssh_warning"),
-            );
-        }
-    }
-}
-
-fn ssh_section(ui: &mut egui::Ui, form: &mut ConnectionForm, stored: bool, i18n: &I18n) {
-    ui.checkbox(&mut form.ssh_enabled, i18n.t("connections.ssh"));
-    if form.ssh_enabled {
-        text_row(
-            ui,
-            &i18n.t("connections.ssh_host"),
-            &mut form.ssh_host,
-            false,
-        );
-        text_row(
-            ui,
-            &i18n.t("connections.ssh_port"),
-            &mut form.ssh_port,
-            false,
-        );
-        text_row(
-            ui,
-            &i18n.t("connections.ssh_user"),
-            &mut form.ssh_user,
-            false,
-        );
-        text_row(
-            ui,
-            &i18n.t("connections.ssh_key"),
-            &mut form.ssh_key_path,
-            false,
-        );
-        secret_row(
-            ui,
-            SecretField {
-                label: &i18n.t("connections.ssh_secret"),
-                value: &mut form.ssh_secret,
-                clear: &mut form.clear_ssh_secret,
-                stored,
-            },
-            i18n,
-        );
-    }
 }
 
 #[cfg(test)]
@@ -382,5 +451,178 @@ mod tests {
         state.delete_requested(cfg.id);
         assert_eq!(run_frame(&mut state), None);
         assert_eq!(state.delete_confirm, Some(cfg.id), "still waiting");
+    }
+
+    fn valid_form() -> ConnectionForm {
+        ConnectionForm {
+            name: "n".into(),
+            uri: "mongodb://localhost:27017".into(),
+            ..ConnectionForm::default()
+        }
+    }
+
+    fn report() -> TestReport {
+        TestReport {
+            server_version: None,
+            tls: false,
+            authenticated: false,
+        }
+    }
+
+    #[test]
+    fn editing_the_form_after_a_test_clears_the_result_and_the_secret_clone() {
+        let mut conn = ConnectionsState {
+            form: ConnectionForm {
+                password: "typed".into(),
+                ..valid_form()
+            },
+            ..ConnectionsState::default()
+        };
+        conn.test_form = Some(conn.form.clone());
+        conn.test = TestState::Done {
+            request_id: 1,
+            outcome: Ok(report()),
+        };
+        conn.invalidate_stale_test();
+        assert!(
+            matches!(conn.test, TestState::Done { .. }),
+            "unchanged form keeps it"
+        );
+        conn.form.uri = "mongodb://other".into();
+        conn.invalidate_stale_test();
+        assert_eq!(conn.test, TestState::Idle);
+        assert_eq!(conn.test_form, None, "no typed secret lingers");
+    }
+
+    #[test]
+    fn editing_the_form_clears_a_built_uri_but_not_a_running_test() {
+        let mut conn = ConnectionsState {
+            form: valid_form(),
+            ..ConnectionsState::default()
+        };
+        conn.built_for = Some(conn.form.clone());
+        conn.built_uri = Some(SecretString::new("x"));
+        conn.built_with_password = true;
+        conn.test = TestState::Running { request_id: 1 };
+        conn.invalidate_stale_test();
+        assert!(conn.built_uri.is_some());
+        conn.form.name = "changed".into();
+        conn.invalidate_stale_test();
+        assert!(conn.built_uri.is_none() && conn.built_for.is_none());
+        assert!(!conn.built_with_password);
+        assert_eq!(conn.test, TestState::Running { request_id: 1 });
+    }
+
+    #[test]
+    fn apply_uri_input_fills_the_form_and_clears_the_buffer() {
+        let mut conn = ConnectionsState {
+            uri_input: "mongodb://bob:pw@h/db".into(),
+            error: Some(CoreError::AuthFailed),
+            ..ConnectionsState::default()
+        };
+        conn.apply_uri_input();
+        assert!(conn.uri_input.is_empty());
+        assert_eq!(conn.form.uri, "mongodb://h/db");
+        assert_eq!(conn.form.password, "pw");
+        assert!(conn.error.is_none());
+    }
+
+    #[test]
+    fn apply_uri_input_failure_clears_the_buffer_and_does_not_echo_it() {
+        let mut conn = ConnectionsState {
+            uri_input: "notmongo://bob:secretpw@h".into(),
+            ..ConnectionsState::default()
+        };
+        let before = conn.form.clone();
+        conn.apply_uri_input();
+        assert!(conn.uri_input.is_empty());
+        assert_eq!(conn.form, before);
+        let error = conn.error.clone().expect("error");
+        assert!(!format!("{error:?} {error}").contains("secretpw"));
+        assert!(!format!("{conn:?}").contains("secretpw"));
+    }
+
+    #[test]
+    fn opening_new_or_edit_opens_the_dialog_and_saved_closes_it() {
+        let mut s = ConnectionsState::new(vec![ConnectionConfig::new("a", "mongodb://h")]);
+        s.start_new();
+        assert!(s.editing);
+        s.editing = false;
+        let cfg = s.connections[0].clone();
+        s.select(&cfg);
+        assert!(!s.editing, "a row click only selects");
+        s.begin_edit(&cfg);
+        assert!(s.editing && s.form.name == "a");
+        s.saved();
+        assert!(!s.editing);
+    }
+
+    #[test]
+    fn opening_the_dialog_clears_a_stale_notice_and_saving_drops_it_too() {
+        let mut s = ConnectionsState::new(vec![mock_connection()]);
+        s.notice = Some(Notice::Exported { count: 1 });
+        s.start_new();
+        assert_eq!(s.notice, None);
+        s.notice = Some(Notice::Exported { count: 1 });
+        let cfg = s.connections[0].clone();
+        s.begin_edit(&cfg);
+        assert_eq!(s.notice, None);
+        s.notice = Some(Notice::Imported {
+            imported: 1,
+            skipped: 0,
+        });
+        s.saved();
+        assert_eq!(s.notice, None);
+    }
+
+    #[test]
+    fn cancel_closes_the_dialog_and_resets_the_tools() {
+        let mut s = ConnectionsState::new(vec![mock_connection()]);
+        s.start_new();
+        s.uri_input = "mongodb://u:p@h".into();
+        s.test = TestState::Running { request_id: 3 };
+        s.test_form = Some(s.form.clone());
+        s.built_uri = Some(SecretString::new("x"));
+        s.built_for = Some(s.form.clone());
+        s.error = Some(CoreError::InvalidUri("x".into()));
+        s.form.password = "typed".into();
+        s.close_edit();
+        assert!(
+            s.form.password.is_empty(),
+            "a cancelled password is dropped"
+        );
+        assert!(!s.editing && s.error.is_none());
+        assert!(s.uri_input.is_empty() && s.test == TestState::Idle);
+        assert!(s.test_form.is_none() && s.built_uri.is_none());
+    }
+
+    #[test]
+    fn the_dialog_renders_with_a_test_result_and_a_built_uri() {
+        let cfg = mock_connection();
+        let mut state = ConnectionsState::new(vec![cfg.clone()]);
+        state.begin_edit(&cfg);
+        state.form.tls_enabled = true;
+        state.form.allow_invalid_certs = true;
+        state.test_form = Some(state.form.clone());
+        state.test = TestState::Done {
+            request_id: 1,
+            outcome: Ok(TestReport {
+                server_version: Some("7.0.1".into()),
+                tls: true,
+                authenticated: true,
+            }),
+        };
+        state.built_for = Some(state.form.clone());
+        state.built_uri = Some(SecretString::new("mongodb://u:pw@h"));
+        state.built_with_password = true;
+        assert_eq!(run_frame(&mut state), None);
+        assert!(state.editing, "still open");
+        assert!(state.built_uri.is_some(), "a frame keeps a current result");
+        state.test = TestState::Done {
+            request_id: 2,
+            outcome: Err(CoreError::AuthFailed),
+        };
+        state.test_form = Some(state.form.clone());
+        assert_eq!(run_frame(&mut state), None);
     }
 }

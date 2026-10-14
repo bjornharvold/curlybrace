@@ -142,6 +142,18 @@ fn id_filter(id: &Bson) -> Document {
 
 #[async_trait]
 impl DocumentStore for MongoStore {
+    async fn server_version(&self) -> Result<Option<String>> {
+        let info = self
+            .client
+            .database("admin")
+            .run_command(doc! { "buildInfo": 1 })
+            .await;
+        // Informational: a driver error is `None` and its text is not logged.
+        Ok(info
+            .ok()
+            .and_then(|d| d.get_str("version").ok().map(str::to_owned)))
+    }
+
     async fn list_databases(&self) -> Result<Vec<String>> {
         self.client.list_database_names().await.map_err(db_err)
     }
