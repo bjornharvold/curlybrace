@@ -60,16 +60,18 @@ fn is_unreachable_kind(kind: &ErrorKind) -> bool {
     )
 }
 
+/// Pure: no logging. The driver's text of an unreachable server may quote addresses, so it is
+/// dropped here (the typed error is static) and a failed command is logged once, by kind only,
+/// where its `Failed` event is received.
 pub fn classify_driver_error(e: &mongodb::error::Error) -> CoreError {
     let kind = e.kind.as_ref();
     let is_auth = matches!(kind, ErrorKind::Authentication { .. });
-    let unreachable = is_unreachable_kind(kind);
-    if unreachable {
-        // The typed error is static, and a failed TLS handshake or a replica set name mismatch
-        // also surfaces as a server selection failure: keep the driver's reason in the log.
-        log::warn!("driver reported the server unreachable: {e}");
-    }
-    classify_parts(server_code(kind), is_auth, unreachable, &e.to_string())
+    classify_parts(
+        server_code(kind),
+        is_auth,
+        is_unreachable_kind(kind),
+        &e.to_string(),
+    )
 }
 
 #[cfg(test)]
