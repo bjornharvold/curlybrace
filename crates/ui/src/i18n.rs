@@ -168,6 +168,10 @@ mod tests {
                 .contains("SSH tunnel")
         );
         assert!(!i.error(&CoreError::UnreachableWrite).contains("SSH"));
+        // With an editor open the root stays connected and no Reconnect is offered.
+        for e in [CoreError::UnreachableWrite, CoreError::UnreachableWriteSsh] {
+            assert!(!i.error(&e).contains("reconnect"), "{e:?}");
+        }
     }
 
     #[test]
