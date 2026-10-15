@@ -95,11 +95,14 @@ pub struct Setup {
     pub secrets: Vec<(String, String)>,
 }
 
+/// The name of the saved connection `Setup::saved_connection` creates.
+pub const LOCAL_CONNECTION_NAME: &str = "local";
+
 impl Setup {
     pub fn saved_connection(server: &MongoServer, saved: bool) -> Self {
         let uri = server.uri();
         let saved = if saved {
-            vec![ConnectionConfig::new("local", &uri)]
+            vec![ConnectionConfig::new(LOCAL_CONNECTION_NAME, &uri)]
         } else {
             Vec::new()
         };

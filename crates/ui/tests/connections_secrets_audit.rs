@@ -4,12 +4,14 @@
 mod conn_harness;
 
 use conn_harness::{FixedPath, Harness};
-use curlybrace_core::error::CoreError;
+use curlybrace_core::error::{CoreError, Result};
+use curlybrace_core::runtime::{RuntimeConfig, TunnelHandle, TunnelOpener, TunnelRequest};
 use curlybrace_core::test_support::mock_objects::{MOCK_PASSWORD_MARKER, mock_connections};
 use curlybrace_ui::app::state::Banner;
 use curlybrace_ui::viewmodel::ConnectionForm;
 use curlybrace_ui::views::connections::{ConnectionAction, Notice, TestState};
-use std::sync::Arc;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 fn assert_clean(what: &str, text: &str) {
     assert!(
@@ -179,15 +181,52 @@ fn files_under(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     found
 }
 
+/// Hands out a tunnel that listens nowhere and remembers the secrets it was given.
+#[derive(Default)]
+struct RecordingOpener {
+    seen: Mutex<Vec<String>>,
+}
+
+impl RecordingOpener {
+    fn secrets_seen(&self) -> Vec<String> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+struct IdleTunnel;
+
+impl TunnelHandle for IdleTunnel {
+    fn local_addr(&self) -> SocketAddr {
+        "127.0.0.1:50999".parse().unwrap()
+    }
+}
+
+#[async_trait::async_trait]
+impl TunnelOpener for RecordingOpener {
+    async fn open(&self, request: TunnelRequest<'_>) -> Result<Box<dyn TunnelHandle>> {
+        if let Some(secret) = request.secret {
+            self.seen.lock().unwrap().push(secret.to_owned());
+        }
+        Ok(Box::new(IdleTunnel))
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn two_open_sessions_with_typed_secrets_leak_nothing_to_debug_or_disk() {
+async fn three_open_sessions_one_through_an_ssh_tunnel_with_typed_secrets_leak_nothing_to_debug_or_disk()
+ {
     let second_password = format!("{MOCK_PASSWORD_MARKER}-second");
     let secrets = [MOCK_PASSWORD_MARKER, second_password.as_str(), SSH_MARKER];
-    let mut h = Harness::new(Vec::new());
+    // The tunnel is a fake that records what it was asked to open: no SSH server is involved.
+    let opener = Arc::new(RecordingOpener::default());
+    let config = RuntimeConfig {
+        tunnel_opener: opener.clone(),
+        known_hosts_path: Some(std::env::temp_dir().join("curlybrace-audit-known-hosts")),
+        ..RuntimeConfig::default()
+    };
+    let mut h = Harness::with_config(Vec::new(), config);
     for form in [
         form_with("first", MOCK_PASSWORD_MARKER, false),
         form_with("second", &second_password, false),
-        // Saved with an SSH secret but not opened: opening it would start a real SSH tunnel.
         form_with("tunnelled", MOCK_PASSWORD_MARKER, true),
     ] {
         h.app
@@ -204,7 +243,7 @@ async fn two_open_sessions_with_typed_secrets_leak_nothing_to_debug_or_disk() {
     assert_eq!(ids.len(), 3);
     assert!(h.password_of(ids[1]).is_some(), "stored in the keychain");
 
-    for id in &ids[..2] {
+    for id in &ids {
         h.app
             .dispatch(curlybrace_ui::app::reducer::Input::Connect(*id));
         h.until("connected", |a| {
@@ -212,10 +251,19 @@ async fn two_open_sessions_with_typed_secrets_leak_nothing_to_debug_or_disk() {
                 && a.state().status == curlybrace_ui::app::state::ConnStatus::Connected
         });
     }
+    assert_eq!(
+        opener.secrets_seen(),
+        vec![SSH_MARKER.to_owned()],
+        "the tunnel was opened with its secret (the opener is the one legitimate receiver)"
+    );
     // Secrets still sitting in the open dialog are as sensitive as stored ones.
     h.app.state_mut().conn.form = form_with("draft", &second_password, true);
-    assert_eq!(h.app.state().open.len(), 2);
-    assert_eq!(h.app.state().parked.len(), 1, "the first session is parked");
+    assert_eq!(h.app.state().open.len(), 3);
+    assert_eq!(
+        h.app.state().parked.len(),
+        2,
+        "the other sessions are parked"
+    );
 
     let state = h.app.state();
     assert_no_secret("Debug of the app state", &format!("{state:?}"), &secrets);

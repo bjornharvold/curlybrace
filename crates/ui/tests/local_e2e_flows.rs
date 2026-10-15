@@ -15,7 +15,7 @@ use curlybrace_ui::viewmodel::id_preview;
 use egui_kittest::kittest::Queryable;
 use support::actions::*;
 use support::db::people;
-use support::fixture::Fixture;
+use support::fixture::{Fixture, LOCAL_CONNECTION_NAME};
 use support::screen::shows_containing;
 use support::wait::{SHORT, wait_until};
 
@@ -231,7 +231,7 @@ fn delete_asks_for_confirmation_cancel_keeps_confirm_removes() {
     let id = id_preview(&Bson::Int32(1));
     let ask = f.labels.t_with(
         "doc.confirm_delete",
-        &[("id", &id), ("connection", "local")],
+        &[("id", &id), ("connection", LOCAL_CONNECTION_NAME)],
     );
 
     choose_from_menu(&mut f, &first, "doc.delete");
@@ -286,9 +286,10 @@ fn deleting_a_saved_connection_asks_first_and_removes_its_secrets() {
     f.secrets.set(&key, "saved-pw").unwrap();
     let list = f.harness.state().state().conn.connections.clone();
     save_connections(&f.config_path, &list).unwrap();
-    let ask = f
-        .labels
-        .t_with("connections.confirm_delete", &[("name", "local")]);
+    let ask = f.labels.t_with(
+        "connections.confirm_delete",
+        &[("name", LOCAL_CONNECTION_NAME)],
+    );
     let delete = f.labels.t("common.delete");
 
     f.click_text(&delete);

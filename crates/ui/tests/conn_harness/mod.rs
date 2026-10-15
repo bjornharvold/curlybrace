@@ -74,13 +74,29 @@ impl Harness {
         secrets: Arc<MemorySecretStore>,
         connections: Vec<ConnectionConfig>,
     ) -> Self {
+        Self::on_with_config(dir, secrets, connections, RuntimeConfig::default())
+    }
+
+    /// A fresh app over a runtime configured by the test (for instance a fake tunnel opener).
+    #[allow(dead_code)] // used by only one of the test crates that share this module
+    pub fn with_config(connections: Vec<ConnectionConfig>, config: RuntimeConfig) -> Self {
+        let dir = tempfile::tempdir().expect("temp dir");
+        Self::on_with_config(dir, Arc::new(MemorySecretStore::new()), connections, config)
+    }
+
+    fn on_with_config(
+        dir: tempfile::TempDir,
+        secrets: Arc<MemorySecretStore>,
+        connections: Vec<ConnectionConfig>,
+        config: RuntimeConfig,
+    ) -> Self {
         let store: Arc<dyn SecretStore> = secrets.clone();
         let handle = spawn_runtime_with_connector(
             Some(store.clone()),
             None,
             Arc::new(Fixed(seeded())),
             Arc::new(|| {}),
-            RuntimeConfig::default(),
+            config,
         );
         let app = CurlybraceApp::new(handle, I18n::english(), connections, store)
             .with_config_path(Ok(dir.path().join("connections.json")));
