@@ -78,7 +78,20 @@ fn reach_of(kind: &ErrorKind) -> Reach {
 pub fn classify_driver_error(e: &mongodb::error::Error) -> CoreError {
     let kind = e.kind.as_ref();
     let is_auth = matches!(kind, ErrorKind::Authentication { .. });
-    classify_parts(server_code(kind), is_auth, reach_of(kind), &e.to_string())
+    classify_parts(server_code(kind), is_auth, reach_of(kind), &text_of(e))
+}
+
+/// The text a classified error may carry. A network error or a cleared pool names the server
+/// (`Connection pool for host:port cleared ...`, or an I/O message quoting the peer), and that
+/// text survives into `Database(text)` once a ping shows the server alive, so only a static
+/// description is kept for them (`ConnectionPoolCleared` is `#[non_exhaustive]`, so a test cannot
+/// build it). Any other kind keeps the driver's text.
+fn text_of(e: &mongodb::error::Error) -> String {
+    match e.kind.as_ref() {
+        ErrorKind::Io(io) => io.kind().to_string(),
+        ErrorKind::ConnectionPoolCleared { .. } => "connection pool cleared".to_owned(),
+        _ => e.to_string(),
+    }
 }
 
 /// For a connect, which has no open session to ping: a suspect connection error means the server
@@ -248,6 +261,23 @@ mod tests {
             classify_driver_error(&command_error(50)),
             CoreError::Database("timeout".into())
         );
+    }
+
+    #[test]
+    fn a_network_error_keeps_no_address_in_its_text() {
+        let quoted = std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "connection to 10.0.0.5:27017 reset",
+        );
+        let e: Error = ErrorKind::Io(std::sync::Arc::new(quoted)).into();
+        let CoreError::ConnectionInterrupted(text) = classify_driver_error(&e) else {
+            panic!("a network error is suspect");
+        };
+        assert!(
+            !text.contains("10.0.0.5") && !text.contains("27017"),
+            "{text}"
+        );
+        assert!(!text.is_empty());
     }
 
     #[test]
