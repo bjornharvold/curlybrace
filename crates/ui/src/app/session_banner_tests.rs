@@ -257,6 +257,34 @@ fn a_background_connect_failure_without_a_banner_raises_a_named_one() {
 }
 
 #[test]
+fn the_focused_connect_failure_replaces_another_sessions_banner() {
+    let (s, ids) = app(&["alpha", "beta"]);
+    let (a, b) = (ids[0], ids[1]);
+    let s = ev(opened(s, a), find_failed(a));
+    // The person connects B: A's banner stays at dispatch and B becomes the focused root.
+    let (s, _) = update(s, Input::Connect(b));
+    assert_eq!(s.banner_session, Some(a));
+    let epoch = s.epoch_counter;
+    let s = ev(s, connect_failed(b, epoch, CoreError::SshHostKeyChanged));
+    assert_eq!(s.banner_session, Some(b));
+    assert_eq!(prefix(&s).as_deref(), Some("In beta:"));
+    let host = s.forgettable_host().expect("forget offer for B");
+    assert_eq!(host.host, "bastion-beta");
+}
+
+#[test]
+fn a_focused_connect_failure_without_a_banner_raises_a_named_one() {
+    let (s, ids) = app(&["alpha", "beta"]);
+    let (a, b) = (ids[0], ids[1]);
+    let (s, _) = update(opened(s, a), Input::Connect(b));
+    assert_eq!(s.banner, None);
+    let epoch = s.epoch_counter;
+    let s = ev(s, connect_failed(b, epoch, CoreError::AuthFailed));
+    assert_eq!(s.banner_session, Some(b));
+    assert_eq!(prefix(&s).as_deref(), Some("In beta:"));
+}
+
+#[test]
 fn a_connect_failure_replaces_an_ownerless_banner() {
     let (s, ids) = app(&["alpha"]);
     let (mut s, _) = update(s, Input::Connect(ids[0]));
