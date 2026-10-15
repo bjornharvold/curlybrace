@@ -142,6 +142,15 @@ fn id_filter(id: &Bson) -> Document {
 
 #[async_trait]
 impl DocumentStore for MongoStore {
+    async fn ping(&self) -> Result<()> {
+        self.client
+            .database("admin")
+            .run_command(doc! { "ping": 1 })
+            .await
+            .map(|_| ())
+            .map_err(db_err)
+    }
+
     async fn topology(&self) -> Result<Option<Topology>> {
         let reply = self
             .client

@@ -21,6 +21,8 @@ mod compare;
 mod epoch_tests;
 mod handlers;
 #[cfg(test)]
+mod lost_server_tests;
+#[cfg(test)]
 mod prompt_gate_tests;
 mod session;
 #[cfg(test)]
@@ -85,6 +87,9 @@ impl Connector for MongoConnector {
 /// Upper bound for any single command (including connect).
 pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Upper bound for the reachability ping that follows a suspect failure of a data command.
+pub const PING_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// Upper bound for the duplicate-key aggregation of a compare pair (it may scan a whole
 /// collection).
 pub const DUPLICATE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -105,6 +110,8 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(150);
 pub struct RuntimeConfig {
     /// Bound for each data command (find, insert, ...).
     pub command_timeout: Duration,
+    /// Bound for the ping that settles a lost connection or a timed-out command.
+    pub ping_timeout: Duration,
     /// Bound for a Connect, including an SSH host-key prompt waiting for the user.
     pub connect_timeout: Duration,
     /// Bound for the duplicate-key search of a compare pair.
@@ -121,6 +128,7 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             command_timeout: COMMAND_TIMEOUT,
+            ping_timeout: PING_TIMEOUT,
             connect_timeout: CONNECT_TIMEOUT,
             duplicate_timeout: DUPLICATE_TIMEOUT,
             known_hosts_path: default_known_hosts_path(),

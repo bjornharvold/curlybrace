@@ -201,6 +201,7 @@ mod tests {
             CoreError::AuthFailed,
             CoreError::Unauthorized,
             CoreError::Unreachable,
+            CoreError::ConnectionInterrupted(String::new()),
             CoreError::UnreachableSsh,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,

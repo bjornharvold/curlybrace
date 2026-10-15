@@ -16,18 +16,31 @@ const CODE_UNAUTHORIZED: i32 = 13;
 /// Server error code `MaxTimeMSExpired`: an operation hit its server-side time limit.
 const CODE_MAX_TIME_MS_EXPIRED: i32 = 50;
 
+/// What the driver's error kind says about reaching the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// Nothing about reachability.
+    Unknown,
+    /// The server cannot be reached: no server could be selected, or its name did not resolve.
+    Lost,
+    /// A network error or a cleared pool on one connection. One stale socket looks like this
+    /// while the server is fine, so it is only a suspicion the runtime settles with a ping.
+    Suspect,
+}
+
 /// Pure classification from the facts extracted from a driver error: the server error code
-/// (when it has one), whether the driver itself reported an authentication failure, whether it
-/// reported that the server cannot be reached, and the driver's text for the generic case.
+/// (when it has one), whether the driver itself reported an authentication failure, what the
+/// kind says about reaching the server, and the driver's text for the generic case.
 pub fn classify_parts(
     code: Option<i32>,
     is_auth_kind: bool,
-    is_unreachable_kind: bool,
+    reach: Reach,
     text: &str,
 ) -> CoreError {
     match code {
         _ if is_auth_kind => CoreError::AuthFailed,
-        _ if is_unreachable_kind => CoreError::Unreachable,
+        _ if reach == Reach::Lost => CoreError::Unreachable,
+        _ if reach == Reach::Suspect => CoreError::ConnectionInterrupted(text.to_owned()),
         Some(CODE_AUTHENTICATION_FAILED) => CoreError::AuthFailed,
         Some(CODE_UNAUTHORIZED) => CoreError::Unauthorized,
         // Same value as the client-side bound reports, so the UI shows its timeout advice.
@@ -45,33 +58,36 @@ fn server_code(kind: &ErrorKind) -> Option<i32> {
     }
 }
 
-/// Whether the driver says the server cannot be reached or the connection to it was lost:
-/// no server could be selected (down, wrong address, network partition), a network I/O error
-/// (refused, reset, broken pipe, connect or socket timeout), the pool of a server was cleared
-/// by such an error mid-operation, or its name did not resolve. The client-side operation bound
-/// is not one of these: it reports a slow operation (`Database("timeout")`), not a lost server.
-fn is_unreachable_kind(kind: &ErrorKind) -> bool {
-    matches!(
-        kind,
-        ErrorKind::ServerSelection { .. }
-            | ErrorKind::Io(_)
-            | ErrorKind::ConnectionPoolCleared { .. }
-            | ErrorKind::DnsResolve { .. }
-    )
+/// What the driver says about reaching the server. No server could be selected (down, wrong
+/// address, network partition) or its name did not resolve: the server is lost. A network I/O
+/// error (refused, reset, broken pipe, socket timeout) or the pool of a server cleared by such
+/// an error mid-operation may be one stale connection, so it is only suspect. The client-side
+/// operation bound is neither: it reports a slow operation (`Database("timeout")`).
+fn reach_of(kind: &ErrorKind) -> Reach {
+    match kind {
+        ErrorKind::ServerSelection { .. } | ErrorKind::DnsResolve { .. } => Reach::Lost,
+        ErrorKind::Io(_) | ErrorKind::ConnectionPoolCleared { .. } => Reach::Suspect,
+        _ => Reach::Unknown,
+    }
 }
 
 /// Pure: no logging. The driver's text of an unreachable server may quote addresses, so it is
 /// dropped here (the typed error is static) and a failed command is logged once, by kind only,
-/// where its `Failed` event is received.
+/// where its `Failed` event is received. A suspect network error keeps the text, for the
+/// ordinary database error it becomes when the server still answers.
 pub fn classify_driver_error(e: &mongodb::error::Error) -> CoreError {
     let kind = e.kind.as_ref();
     let is_auth = matches!(kind, ErrorKind::Authentication { .. });
-    classify_parts(
-        server_code(kind),
-        is_auth,
-        is_unreachable_kind(kind),
-        &e.to_string(),
-    )
+    classify_parts(server_code(kind), is_auth, reach_of(kind), &e.to_string())
+}
+
+/// For a connect, which has no open session to ping: a suspect connection error means the server
+/// could not be reached.
+pub fn classify_connect_error(e: &mongodb::error::Error) -> CoreError {
+    match classify_driver_error(e) {
+        CoreError::ConnectionInterrupted(_) => CoreError::Unreachable,
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -91,23 +107,23 @@ mod tests {
     #[test]
     fn parts_classify_auth_unauthorized_and_the_rest() {
         assert_eq!(
-            classify_parts(None, true, false, "x"),
+            classify_parts(None, true, Reach::Unknown, "x"),
             CoreError::AuthFailed
         );
         assert_eq!(
-            classify_parts(Some(18), false, false, "x"),
+            classify_parts(Some(18), false, Reach::Unknown, "x"),
             CoreError::AuthFailed
         );
         assert_eq!(
-            classify_parts(Some(13), false, false, "x"),
+            classify_parts(Some(13), false, Reach::Unknown, "x"),
             CoreError::Unauthorized
         );
         assert_eq!(
-            classify_parts(Some(11000), false, false, "dup"),
+            classify_parts(Some(11000), false, Reach::Unknown, "dup"),
             CoreError::Database("dup".into())
         );
         assert_eq!(
-            classify_parts(None, false, false, "timeout"),
+            classify_parts(None, false, Reach::Unknown, "timeout"),
             CoreError::Database("timeout".into())
         );
     }
@@ -115,7 +131,12 @@ mod tests {
     #[test]
     fn server_time_limit_expiry_is_reported_as_a_timeout() {
         assert_eq!(
-            classify_parts(Some(50), false, false, "operation exceeded time limit"),
+            classify_parts(
+                Some(50),
+                false,
+                Reach::Unknown,
+                "operation exceeded time limit"
+            ),
             CoreError::Database("timeout".into())
         );
         assert_eq!(
@@ -148,12 +169,19 @@ mod tests {
     #[test]
     fn parts_classify_an_unreachable_kind_but_auth_wins() {
         assert_eq!(
-            classify_parts(None, false, true, "x"),
+            classify_parts(None, false, Reach::Lost, "x"),
             CoreError::Unreachable
         );
-        assert_eq!(classify_parts(None, true, true, "x"), CoreError::AuthFailed);
+        assert_eq!(
+            classify_parts(None, true, Reach::Lost, "x"),
+            CoreError::AuthFailed
+        );
+        assert_eq!(
+            classify_parts(None, false, Reach::Suspect, "reset"),
+            CoreError::ConnectionInterrupted("reset".into())
+        );
         assert!(matches!(
-            classify_parts(Some(11000), false, false, "dup"),
+            classify_parts(Some(11000), false, Reach::Unknown, "dup"),
             CoreError::Database(_)
         ));
     }
@@ -163,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn network_errors_are_unreachable_whatever_their_io_kind() {
+    fn network_errors_are_only_suspect_whatever_their_io_kind() {
         for kind in [
             std::io::ErrorKind::ConnectionRefused,
             std::io::ErrorKind::ConnectionReset,
@@ -171,8 +199,14 @@ mod tests {
             std::io::ErrorKind::UnexpectedEof,
             std::io::ErrorKind::TimedOut,
         ] {
+            let classified = classify_driver_error(&io_error(kind));
+            assert!(
+                matches!(classified, CoreError::ConnectionInterrupted(_)),
+                "{kind:?}"
+            );
+            // A connect has no session to ping: there it is unreachable.
             assert_eq!(
-                classify_driver_error(&io_error(kind)),
+                classify_connect_error(&io_error(kind)),
                 CoreError::Unreachable,
                 "{kind:?}"
             );
@@ -196,6 +230,7 @@ mod tests {
             .expect_err("nothing listens on port 1");
         assert!(matches!(e.kind.as_ref(), ErrorKind::ServerSelection { .. }));
         assert_eq!(classify_driver_error(&e), CoreError::Unreachable);
+        assert_eq!(classify_connect_error(&e), CoreError::Unreachable);
     }
 
     #[test]

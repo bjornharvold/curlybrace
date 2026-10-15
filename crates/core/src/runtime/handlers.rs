@@ -123,14 +123,35 @@ async fn run(
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
         .map_err(|e| gate(session, generation, e))?;
     let limit = shared.config.command_timeout;
-    let result = bounded(limit, data_command(id, store, command)).await;
+    let result = bounded(limit, data_command(id, store.clone(), command)).await;
     // A newer Connect/Disconnect ended this command's session while it ran: its answer belongs
     // to a previous server and must not reach the UI (mutations may have committed; the UI
     // re-fetches after reconnecting).
-    if session.is_current(generation) {
-        result
-    } else {
-        Err(CoreError::Superseded)
+    if !session.is_current(generation) {
+        return Err(CoreError::Superseded);
+    }
+    match result {
+        Err(error @ CoreError::ConnectionInterrupted(_)) => {
+            let settled = settle_by_ping(&store, shared.config.ping_timeout, error).await;
+            Err(gate(session, generation, settled))
+        }
+        other => other,
+    }
+}
+
+/// A suspect failure (one lost connection) says little about the server. A short ping on the same store tells: if it answers, the failure stays an ordinary
+/// retryable error; if it does not (or not in time), the server cannot be reached.
+async fn settle_by_ping(
+    store: &Arc<dyn DocumentStore>,
+    limit: std::time::Duration,
+    error: CoreError,
+) -> CoreError {
+    match bounded(limit, store.ping()).await {
+        Ok(()) => match error {
+            CoreError::ConnectionInterrupted(text) => CoreError::Database(text),
+            other => other,
+        },
+        Err(_) => CoreError::Unreachable,
     }
 }
 

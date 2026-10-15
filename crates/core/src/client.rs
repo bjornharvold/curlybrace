@@ -1,5 +1,5 @@
 use crate::connection::{AuthMechanism, ConnectionConfig};
-use crate::driver_error::classify_driver_error;
+use crate::driver_error::classify_connect_error;
 use crate::error::{CoreError, Result};
 use bson::doc;
 use mongodb::Client;
@@ -56,12 +56,12 @@ pub async fn connect(
     tunnel: Option<SocketAddr>,
 ) -> Result<Client> {
     let options = build_client_options(cfg, password, tunnel).await?;
-    let client = Client::with_options(options).map_err(|e| classify_driver_error(&e))?;
+    let client = Client::with_options(options).map_err(|e| classify_connect_error(&e))?;
     client
         .database("admin")
         .run_command(doc! { "ping": 1 })
         .await
-        .map_err(|e| classify_driver_error(&e))?;
+        .map_err(|e| classify_connect_error(&e))?;
     if cfg.auth == AuthMechanism::None {
         require_access_without_credentials(&client).await?;
     }
@@ -77,7 +77,7 @@ async fn require_access_without_credentials(client: &Client) -> Result<()> {
         .run_command(doc! { "listDatabases": 1, "nameOnly": true, "authorizedDatabases": true })
         .await
         .map(|_| ())
-        .map_err(|e| match classify_driver_error(&e) {
+        .map_err(|e| match classify_connect_error(&e) {
             CoreError::Unauthorized => CoreError::AuthFailed,
             other => other,
         })

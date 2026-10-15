@@ -41,6 +41,11 @@ pub enum CoreError {
     /// The server cannot be reached (down, wrong address, network lost). No driver text is carried.
     #[error("server unreachable")]
     Unreachable,
+    /// A network error or cleared pool on one connection: one stale socket, or a lost server.
+    /// The runtime settles it with a ping of the same store, into `Unreachable` or the ordinary
+    /// `Database` error carrying this text. The text is never part of the display.
+    #[error("connection interrupted")]
+    ConnectionInterrupted(String),
     /// `Unreachable` for a session that goes through an SSH tunnel, so the copy can name the
     /// tunnel. Set by the UI, which knows the session's endpoint; the runtime never builds it.
     #[error("server unreachable through the ssh tunnel")]
@@ -108,6 +113,8 @@ impl CoreError {
             Self::AuthFailed => "errors.auth_failed",
             Self::Unauthorized => "errors.unauthorized",
             Self::Unreachable => "errors.unreachable",
+            // Only seen unresolved from compare, which has no ping: it reads as unreachable.
+            Self::ConnectionInterrupted(_) => "errors.unreachable",
             Self::UnreachableSsh => "errors.unreachable_ssh",
             Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
             Self::TlsThroughTunnel => "errors.tls_through_tunnel",
@@ -167,6 +174,11 @@ mod tests {
             CoreError::ExportFileNotRemoved,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
+        // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.
+        assert_eq!(
+            CoreError::ConnectionInterrupted("x".into()).i18n_key(),
+            CoreError::Unreachable.i18n_key()
+        );
         keys.sort();
         keys.dedup();
         assert_eq!(keys.len(), errors.len());
