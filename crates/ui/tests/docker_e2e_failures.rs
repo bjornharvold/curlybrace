@@ -131,20 +131,27 @@ fn a_stopped_server_fails_in_time_and_reconnects_after_restart() {
 
     container.stop();
     click_key(&mut f, "findbar.run");
-    let headline = f.labels.i18n().failure("find");
-    wait_until(&mut f.harness, "find failure banner", FAILURE_BOUND, |h| {
-        h.query_all_by_label(&headline).next().is_some()
+    let detail = f.labels.i18n().error(&CoreError::Unreachable);
+    wait_until(&mut f.harness, "unreachable banner", FAILURE_BOUND, |h| {
+        h.query_all_by_label(&detail).next().is_some()
     });
-    assert_names_on_screen(&f, &["Ada Lovelace"]);
+    let state = f.harness.state().state();
+    assert_eq!(state.status, ConnStatus::Failed);
+    assert_eq!(state.failure, Some(CoreError::Unreachable));
+    let reconnect = f.labels.t_with(
+        "sidebar.reconnect_named",
+        &[("name", LOCAL_CONNECTION_NAME)],
+    );
+    wait_shows(&mut f, &reconnect);
 
     f.server.container().unwrap().start();
     support::fixture::wait_ready_blocking(&f);
-    click_key(&mut f, "banner.dismiss");
-    let disconnect = disconnect_label(&f, LOCAL_CONNECTION_NAME);
-    f.click_text(&disconnect);
-    let connect = f.labels.t("connections.connect");
-    wait_shows(&mut f, &connect);
-    browse(&mut f, PEOPLE);
+    f.click_text(&reconnect);
+    wait_until(&mut f.harness, "reconnected", FAILURE_BOUND, |h| {
+        let s = h.state().state();
+        s.status == ConnStatus::Connected && !s.sidebar.databases.is_empty()
+    });
+    open_collection(&mut f, PEOPLE);
     assert_names_on_screen(&f, &NAMES);
     assert!(f.harness.state().state().banner.is_none());
 }

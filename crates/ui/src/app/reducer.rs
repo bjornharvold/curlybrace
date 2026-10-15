@@ -177,6 +177,16 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             )
         }
         Event::Mutated { ns, .. } => mutated(state, ns),
+        // The server of an open session cannot be reached any more: the root fails like a failed
+        // connect would, and Reconnect is the way back.
+        Event::Failed {
+            context,
+            error: CoreError::Unreachable,
+            ..
+        } => (
+            connection_lost(state, context, CoreError::Unreachable, background),
+            Vec::new(),
+        ),
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
         // Routed before; these have no session.
         Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
@@ -202,7 +212,7 @@ fn after_connected(state: AppState) -> AppState {
     if stale { state.without_banner() } else { state }
 }
 
-/// The active session's connection failed or was lost: its root stays (marked failed, showing
+/// The active session's connection failed (connect) or was lost (a data command): its root stays (marked failed, showing
 /// the error), its view is cleared, and the user is told through the banner.
 ///
 /// Only a background (not focused) session leaves another session's banner alone: its root shows
