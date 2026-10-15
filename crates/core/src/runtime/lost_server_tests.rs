@@ -193,6 +193,21 @@ async fn a_server_side_time_limit_is_an_answer_and_is_not_pinged() {
     );
 }
 
+/// A store failing with a handshake error is passed through unchanged, writes included: the
+/// ping would refuse and turn it into `Unreachable` if it ran.
+#[tokio::test]
+async fn a_tls_handshake_failure_is_passed_on_without_a_ping() {
+    let tls = || SuspectStore {
+        error: CoreError::TlsHandshake,
+        hang_first: false,
+        ping: Ping::Refuses,
+    };
+    assert_eq!(failed_find(tls()).await, CoreError::TlsHandshake);
+    for (name, make) in writes() {
+        assert_eq!(failed(tls(), make).await, CoreError::TlsHandshake, "{name}");
+    }
+}
+
 type MakeCommand = fn(SessionId) -> Command;
 
 fn writes() -> [(&'static str, MakeCommand); 4] {

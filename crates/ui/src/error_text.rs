@@ -142,6 +142,8 @@ mod tests {
             CoreError::AuthFailed,
             CoreError::Unauthorized,
             CoreError::Unreachable,
+            CoreError::TlsHandshake,
+            CoreError::TlsHandshakeSsh,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,

@@ -158,6 +158,22 @@ mod tests {
     }
 
     #[test]
+    fn a_tls_handshake_failure_has_its_own_copy_and_the_unreachable_copy_differs() {
+        let i = I18n::english();
+        let plain = i.error(&CoreError::TlsHandshake);
+        let tunnel = i.error(&CoreError::TlsHandshakeSsh);
+        assert!(plain.contains("TLS") && !plain.contains("SSH"));
+        assert!(tunnel.contains("TLS") && tunnel.contains("SSH tunnel"));
+        assert!(!plain.starts_with('⟦') && !tunnel.starts_with('⟦'));
+        // A plain client against a TLS-only server looks unreachable, so that copy hints at TLS.
+        for e in [CoreError::Unreachable, CoreError::UnreachableSsh] {
+            assert!(i.error(&e).contains("TLS"), "{e:?}");
+        }
+        assert_ne!(i.error(&CoreError::Unreachable), plain);
+        assert_ne!(i.error(&CoreError::UnreachableSsh), tunnel);
+    }
+
+    #[test]
     fn an_unreachable_write_says_it_may_have_been_applied() {
         let i = I18n::english();
         for e in [CoreError::UnreachableWrite, CoreError::UnreachableWriteSsh] {
@@ -227,6 +243,8 @@ mod tests {
             CoreError::Unreachable,
             CoreError::ConnectionInterrupted(String::new()),
             CoreError::UnreachableSsh,
+            CoreError::TlsHandshake,
+            CoreError::TlsHandshakeSsh,
             CoreError::UnreachableWrite,
             CoreError::UnreachableWriteSsh,
             CoreError::WriteOutcomeUnknown,

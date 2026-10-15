@@ -439,3 +439,114 @@ fn a_background_session_with_an_editor_open_keeps_the_banner_of_the_focused_one(
     let editor = s.parked[&a].editor.as_ref().expect("a's editor stays");
     assert_eq!(editor.error, Some(CoreError::UnreachableWrite));
 }
+
+fn handshake_failed(session: Uuid, context: &'static str) -> Event {
+    Event::Failed {
+        session,
+        context,
+        error: CoreError::TlsHandshake,
+    }
+}
+
+#[test]
+fn a_tls_handshake_failure_fails_the_root_and_raises_the_banner() {
+    for context in ["list_databases", "find"] {
+        let (s, ids) = app(&["a"]);
+        let a = ids[0];
+        let (s, cmds) = ev(opened(s, a), handshake_failed(a, context));
+        assert!(cmds.is_empty());
+        assert_eq!(s.status, ConnStatus::Failed, "{context}");
+        assert_eq!(s.failure, Some(CoreError::TlsHandshake), "{context}");
+        assert!(
+            matches!(
+                &s.banner,
+                Some(Banner::Failure {
+                    error: CoreError::TlsHandshake,
+                    ..
+                })
+            ),
+            "{context}"
+        );
+    }
+}
+
+#[test]
+fn a_failed_tls_handshake_at_connect_marks_the_root_failed() {
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let (s, _) = update(s, Input::Connect(a));
+    let epoch = s.epoch_counter;
+    let (s, _) = ev(
+        s,
+        Event::ConnectFailed {
+            session: a,
+            epoch,
+            error: CoreError::TlsHandshake,
+        },
+    );
+    assert_eq!(s.status, ConnStatus::Failed);
+    assert_eq!(s.failure, Some(CoreError::TlsHandshake));
+}
+
+#[test]
+fn a_tls_handshake_failure_behind_a_tunnel_names_the_tunnel() {
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let (s, _) = ev(behind_a_tunnel(opened(s, a)), handshake_failed(a, "find"));
+    assert_eq!(s.failure, Some(CoreError::TlsHandshakeSsh));
+}
+
+#[test]
+fn a_failed_tls_handshake_on_a_write_is_not_worded_as_possibly_applied() {
+    for (tunnel, expected) in [
+        (false, CoreError::TlsHandshake),
+        (true, CoreError::TlsHandshakeSsh),
+    ] {
+        let (s, ids) = app(&["a"]);
+        let a = ids[0];
+        let s = opened(s, a);
+        let s = if tunnel { behind_a_tunnel(s) } else { s };
+        let (s, _) = ev(s, handshake_failed(a, "delete"));
+        assert_eq!(s.failure, Some(expected));
+    }
+}
+
+#[test]
+fn a_tls_handshake_failure_keeps_the_open_editor_text_and_the_root_connected() {
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let (s, _) = ev(saving(s, a), handshake_failed(a, "insert"));
+    assert_eq!(s.status, ConnStatus::Connected);
+    let editor = s.editor.expect("the text stays");
+    assert_eq!(editor.error, Some(CoreError::TlsHandshake));
+    assert_eq!(editor.text, "{}");
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let (s, _) = ev(saving(s, a), handshake_failed(a, "find"));
+    assert_eq!(s.status, ConnStatus::Connected);
+    assert!(matches!(
+        &s.banner,
+        Some(Banner::Failure {
+            error: CoreError::TlsHandshake,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_background_tls_handshake_failure_keeps_the_banner_of_another_session() {
+    let (s, ids) = app(&["a", "b"]);
+    let (a, b) = (ids[0], ids[1]);
+    let s = opened(opened(s, a), b);
+    let (s, _) = ev(
+        s,
+        Event::Failed {
+            session: b,
+            context: "find",
+            error: CoreError::NotFound,
+        },
+    );
+    let (s, _) = ev(s, handshake_failed(a, "find"));
+    assert_eq!(s.banner_owner(), Some(b), "b's banner stays");
+    assert_eq!(s.parked[&a].failure, Some(CoreError::TlsHandshake));
+}
