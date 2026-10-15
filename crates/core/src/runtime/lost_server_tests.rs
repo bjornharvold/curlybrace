@@ -193,7 +193,9 @@ async fn a_server_side_time_limit_is_an_answer_and_is_not_pinged() {
     );
 }
 
-fn writes() -> [(&'static str, fn(SessionId) -> Command); 3] {
+type MakeCommand = fn(SessionId) -> Command;
+
+fn writes() -> [(&'static str, MakeCommand); 3] {
     [
         ("insert", |session| Command::Insert {
             session,
