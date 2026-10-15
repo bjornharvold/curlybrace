@@ -86,6 +86,16 @@ impl Connector for OneStore {
 
 /// The failure of a `find` against `store`, after a real connect.
 async fn failed_find(store: SuspectStore) -> CoreError {
+    failed(store, |session| Command::Find {
+        session,
+        ns: mock_namespace(),
+        query: Query::default(),
+    })
+    .await
+}
+
+/// The failure of the command `make` builds against `store`, after a real connect.
+async fn failed(store: SuspectStore, make: impl FnOnce(SessionId) -> Command) -> CoreError {
     let cfg = ConnectionConfig::new("lost", "mongodb://127.0.0.1:27017");
     let config = RuntimeConfig {
         command_timeout: SHORT,
@@ -101,12 +111,7 @@ async fn failed_find(store: SuspectStore) -> CoreError {
     );
     h.tx.send(Command::Connect(cfg.clone())).unwrap();
     assert!(matches!(next(&mut h).await, Event::Connected { .. }));
-    h.tx.send(Command::Find {
-        session: cfg.id,
-        ns: mock_namespace(),
-        query: Query::default(),
-    })
-    .unwrap();
+    h.tx.send(make(cfg.id)).unwrap();
     match next(&mut h).await {
         Event::Failed { error, .. } => error,
         other => panic!("unexpected {other:?}"),
@@ -184,6 +189,74 @@ async fn a_server_side_time_limit_is_an_answer_and_is_not_pinged() {
     };
     assert_eq!(
         failed_find(store).await,
+        CoreError::Database("timeout".into())
+    );
+}
+
+fn writes() -> [(&'static str, fn(SessionId) -> Command); 3] {
+    [
+        ("insert", |session| Command::Insert {
+            session,
+            ns: mock_namespace(),
+            json: "{}".into(),
+        }),
+        ("replace", |session| Command::Replace {
+            session,
+            ns: mock_namespace(),
+            id: Bson::Int32(1),
+            json: r#"{"_id": 1}"#.into(),
+        }),
+        ("delete", |session| Command::Delete {
+            session,
+            ns: mock_namespace(),
+            id: Bson::Int32(1),
+        }),
+    ]
+}
+
+#[tokio::test]
+async fn a_write_lost_to_a_reset_with_a_live_server_may_have_been_applied() {
+    for (name, make) in writes() {
+        assert_eq!(
+            failed(interrupted(Ping::Answers), make).await,
+            CoreError::WriteOutcomeUnknown,
+            "{name}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_write_that_timed_out_with_a_live_server_may_have_been_applied() {
+    for (name, make) in writes() {
+        assert_eq!(
+            failed(black_hole(Ping::Answers), make).await,
+            CoreError::WriteOutcomeUnknown,
+            "{name}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_write_with_a_silent_server_is_unreachable() {
+    for (name, make) in writes() {
+        assert_eq!(
+            failed(interrupted(Ping::Refuses), make).await,
+            CoreError::Unreachable,
+            "{name}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_write_refused_by_the_server_is_not_outcome_unknown() {
+    let store = SuspectStore {
+        error: CoreError::Database("timeout".into()),
+        hang_first: false,
+        ping: Ping::Answers,
+    };
+    let [(_, make), ..] = writes();
+    assert_eq!(
+        failed(store, make).await,
         CoreError::Database("timeout".into())
     );
 }

@@ -233,6 +233,14 @@ pub enum Command {
 }
 
 impl Command {
+    /// Whether this command changes data: a lost answer may hide a change the server applied.
+    pub fn is_write(&self) -> bool {
+        matches!(
+            self,
+            Self::Insert { .. } | Self::Replace { .. } | Self::Delete { .. } | Self::Clone { .. }
+        )
+    }
+
     /// i18n key suffix reported in [`Event::Failed`] for this command.
     pub fn context(&self) -> &'static str {
         match self {

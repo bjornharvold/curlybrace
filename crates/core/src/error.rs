@@ -59,6 +59,11 @@ pub enum CoreError {
         "server unreachable through the ssh tunnel, the write may or may not have been applied"
     )]
     UnreachableWriteSsh,
+    /// A write (insert, replace, delete, clone) was lost to a connection error or the client-side
+    /// time bound, yet the server still answers a ping: it may have applied the change. Set by
+    /// the runtime, which knows the command. No driver text is carried.
+    #[error("the write may or may not have been applied")]
+    WriteOutcomeUnknown,
     /// TLS with certificate verification cannot be used through an SSH tunnel.
     #[error("tls with certificate verification cannot be combined with an ssh tunnel")]
     TlsThroughTunnel,
@@ -127,6 +132,7 @@ impl CoreError {
             Self::UnreachableSsh => "errors.unreachable_ssh",
             Self::UnreachableWrite => "errors.unreachable_write",
             Self::UnreachableWriteSsh => "errors.unreachable_write_ssh",
+            Self::WriteOutcomeUnknown => "errors.write_outcome_unknown",
             Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
             Self::TlsThroughTunnel => "errors.tls_through_tunnel",
             Self::CompareDuplicateKey => "errors.compare_duplicate_key",
@@ -170,6 +176,7 @@ mod tests {
             CoreError::UnreachableSsh,
             CoreError::UnreachableWrite,
             CoreError::UnreachableWriteSsh,
+            CoreError::WriteOutcomeUnknown,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,

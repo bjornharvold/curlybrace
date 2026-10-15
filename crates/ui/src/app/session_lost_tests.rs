@@ -370,3 +370,31 @@ fn the_two_unreachable_texts_differ_only_in_naming_the_tunnel() {
     assert_ne!(plain, tunnel);
     assert!(tunnel.contains("SSH tunnel") && !plain.contains("SSH"));
 }
+
+#[test]
+fn a_write_of_unknown_outcome_keeps_the_root_connected_and_the_editor_text() {
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let unknown = |session, context| Event::Failed {
+        session,
+        context,
+        error: CoreError::WriteOutcomeUnknown,
+    };
+    let (s, _) = ev(saving(s, a), unknown(a, "insert"));
+    assert_eq!(s.status, ConnStatus::Connected);
+    let editor = s.editor.expect("the text stays");
+    assert_eq!(editor.error, Some(CoreError::WriteOutcomeUnknown));
+    assert_eq!(editor.text, "{}");
+
+    let (s, ids) = app(&["a"]);
+    let b = ids[0];
+    let (s, _) = ev(browsing(opened(s, b), b), unknown(b, "delete"));
+    assert_eq!(s.status, ConnStatus::Connected);
+    assert!(matches!(
+        &s.banner,
+        Some(Banner::Failure {
+            error: CoreError::WriteOutcomeUnknown,
+            ..
+        })
+    ));
+}

@@ -123,6 +123,7 @@ async fn run(
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
         .map_err(|e| gate(session, generation, e))?;
     let limit = shared.config.command_timeout;
+    let is_write = command.is_write();
     let work = data_command(id, store.clone(), command);
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
     // an answer from a server that is there.
@@ -138,7 +139,7 @@ async fn run(
     }
     match result {
         Err(error) if timed_out || matches!(error, CoreError::ConnectionInterrupted(_)) => {
-            let settled = settle_by_ping(&store, shared.config.ping_timeout, error).await;
+            let settled = settle_by_ping(&store, shared.config.ping_timeout, error, is_write).await;
             Err(gate(session, generation, settled))
         }
         other => other,
@@ -147,13 +148,17 @@ async fn run(
 
 /// A suspect failure (one lost connection, or a command that outran its bound) says little about
 /// the server. A short ping on the same store tells: if it answers, the failure stays an ordinary
-/// retryable error; if it does not (or not in time), the server cannot be reached.
+/// retryable error; if it does not (or not in time), the server cannot be reached. A write the
+/// live server may have applied before the failure is `WriteOutcomeUnknown` instead, so the
+/// person is not told it simply failed (saving again could duplicate it).
 async fn settle_by_ping(
     store: &Arc<dyn DocumentStore>,
     limit: std::time::Duration,
     error: CoreError,
+    is_write: bool,
 ) -> CoreError {
     match bounded(limit, store.ping()).await {
+        Ok(()) if is_write => CoreError::WriteOutcomeUnknown,
         Ok(()) => match error {
             CoreError::ConnectionInterrupted(text) => CoreError::Database(text),
             other => other,

@@ -171,6 +171,13 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_write_outcome_says_so_without_mentioning_a_reconnect() {
+        let text = I18n::english().error(&CoreError::WriteOutcomeUnknown);
+        assert!(text.contains("may or may not have been applied"));
+        assert!(!text.to_lowercase().contains("reconnect"));
+    }
+
+    #[test]
     fn invalid_json_is_err() {
         assert!(I18n::from_json("{not json").is_err());
         assert!(I18n::from_json("[]").is_err());
@@ -218,6 +225,7 @@ mod tests {
             CoreError::UnreachableSsh,
             CoreError::UnreachableWrite,
             CoreError::UnreachableWriteSsh,
+            CoreError::WriteOutcomeUnknown,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,
