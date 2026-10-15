@@ -5,7 +5,7 @@
 //! Update: add `UPDATE_SNAPSHOTS=1` (deliberately, then review the PNG diff).
 mod support;
 
-use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::TestReport;
 use curlybrace_core::store::Topology;
@@ -13,9 +13,9 @@ use curlybrace_core::test_support::mock_objects::mock_connections;
 use curlybrace_testkit::snapshots_enabled;
 use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::session::SessionView;
-use curlybrace_ui::app::state::{AppState, Banner, ConnStatus};
+use curlybrace_ui::app::state::{AppState, Banner, ConnStatus, HostEndpoint};
 use curlybrace_ui::viewmodel::{
-    EditorIntent, EditorState, MenuItem, ViewMode, page_key, resolve_editor,
+    EditorIntent, EditorState, MenuItem, SidebarState, ViewMode, page_key, resolve_editor,
 };
 use curlybrace_ui::views::connections::{ConnectionsState, TestState};
 use support::compare_apply_states::shots as apply;
@@ -126,6 +126,23 @@ shot!(sessions_tree_three_roots, vec![], |state| {
     parked_root(state, "Staging", ConnStatus::Connecting, None);
     let refused = CoreError::Database("connection refused".into());
     parked_root(state, "Reporting", ConnStatus::Failed, Some(refused));
+});
+
+// Two connected roots: the active one with `crm` open and a parked one with `analytics` open.
+shot!(sessions_tree_two_connected, vec![], |state| {
+    browsing(ViewMode::Tree)(state);
+    state.topology = Some(Topology::ReplicaSet);
+    let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let sidebar = SidebarState::default()
+        .with_databases(names(&["analytics", "logs"]))
+        .toggled("analytics")
+        .with_collections("analytics", names(&["events", "sessions"]));
+    parked_root(state, "Staging", ConnStatus::Connected, None);
+    let id = state.open[1];
+    if let Some(view) = state.parked.get_mut(&id) {
+        view.sidebar = sidebar;
+        view.topology = Some(Topology::Direct);
+    }
 });
 
 shot!(editor_modal, vec![], |state| {
@@ -349,6 +366,40 @@ fn host_key_prompt() {
     tx.send(request).expect("queue the question");
     let mut shot = Shot::with_host_key_requests(vec![production()], |_| {}, rx);
     shot.snapshot("host_key_prompt");
+}
+
+// The same dialog when exactly one connecting session goes through the host: it names it.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn host_key_prompt_named() {
+    if !snapshots_enabled("host_key_prompt_named") {
+        return;
+    }
+    let (request, _waiter) = HostKeyRequest::new(
+        "bastion.example.com",
+        "SHA256:Zk3b0yQwXn8oVd1uR5TgPcLhJmA7sEiF9tKxYvC2WqU",
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(request).expect("queue the question");
+    let mut cfg = production();
+    cfg.ssh = Some(SshConfig {
+        host: "bastion.example.com".into(),
+        port: 22,
+        username: "tunnel".into(),
+        auth: SshAuth::Password,
+    });
+    let mut shot = Shot::with_host_key_requests(
+        vec![cfg],
+        |state| {
+            let id = state.conn.connections[0].id;
+            state.open = vec![id];
+            state.active = Some(id);
+            state.status = ConnStatus::Connecting;
+            state.ssh_endpoint = HostEndpoint::of(&state.conn.connections[0]);
+        },
+        rx,
+    );
+    shot.snapshot("host_key_prompt_named");
 }
 
 /// Not gated (no GPU, no database): the app the screenshots use must write only inside its temp
