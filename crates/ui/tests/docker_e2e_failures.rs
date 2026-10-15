@@ -89,7 +89,7 @@ fn wrong_password_shows_the_auth_error_banner_in_time() {
         "localized auth error"
     );
     let state = f.harness.state().state();
-    assert_eq!(state.status, ConnStatus::Disconnected);
+    assert_eq!(state.status, ConnStatus::Failed);
     assert!(matches!(
         state.banner,
         Some(Banner::Failure {
