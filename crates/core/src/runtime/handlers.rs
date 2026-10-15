@@ -123,7 +123,13 @@ async fn run(
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
         .map_err(|e| gate(session, generation, e))?;
     let limit = shared.config.command_timeout;
-    let result = bounded(limit, data_command(id, store.clone(), command)).await;
+    let work = data_command(id, store.clone(), command);
+    // Only the client-side bound counts as a possible black hole: a server-side time limit is
+    // an answer from a server that is there.
+    let (result, timed_out) = match tokio::time::timeout(limit, work).await {
+        Ok(result) => (result, false),
+        Err(_) => (Err(CoreError::Database("timeout".into())), true),
+    };
     // A newer Connect/Disconnect ended this command's session while it ran: its answer belongs
     // to a previous server and must not reach the UI (mutations may have committed; the UI
     // re-fetches after reconnecting).
@@ -131,7 +137,7 @@ async fn run(
         return Err(CoreError::Superseded);
     }
     match result {
-        Err(error @ CoreError::ConnectionInterrupted(_)) => {
+        Err(error) if timed_out || matches!(error, CoreError::ConnectionInterrupted(_)) => {
             let settled = settle_by_ping(&store, shared.config.ping_timeout, error).await;
             Err(gate(session, generation, settled))
         }
@@ -139,7 +145,8 @@ async fn run(
     }
 }
 
-/// A suspect failure (one lost connection) says little about the server. A short ping on the same store tells: if it answers, the failure stays an ordinary
+/// A suspect failure (one lost connection, or a command that outran its bound) says little about
+/// the server. A short ping on the same store tells: if it answers, the failure stays an ordinary
 /// retryable error; if it does not (or not in time), the server cannot be reached.
 async fn settle_by_ping(
     store: &Arc<dyn DocumentStore>,

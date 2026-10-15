@@ -151,3 +151,39 @@ async fn an_interrupted_connection_and_a_ping_that_hangs_is_unreachable() {
         CoreError::Unreachable
     );
 }
+
+fn black_hole(ping: Ping) -> SuspectStore {
+    SuspectStore {
+        error: CoreError::Database("never delivered".into()),
+        hang_first: true,
+        ping,
+    }
+}
+
+#[tokio::test]
+async fn a_timed_out_command_and_a_failed_ping_is_unreachable() {
+    for ping in [Ping::Refuses, Ping::Hangs] {
+        assert_eq!(failed_find(black_hole(ping)).await, CoreError::Unreachable);
+    }
+}
+
+#[tokio::test]
+async fn a_timed_out_command_with_a_live_server_stays_a_timeout() {
+    assert_eq!(
+        failed_find(black_hole(Ping::Answers)).await,
+        CoreError::Database("timeout".into())
+    );
+}
+
+#[tokio::test]
+async fn a_server_side_time_limit_is_an_answer_and_is_not_pinged() {
+    let store = SuspectStore {
+        error: CoreError::Database("timeout".into()),
+        hang_first: false,
+        ping: Ping::Refuses,
+    };
+    assert_eq!(
+        failed_find(store).await,
+        CoreError::Database("timeout".into())
+    );
+}
