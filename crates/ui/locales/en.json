@@ -554,6 +554,8 @@
     "unauthorized": "Your user is not allowed to do this on the server.",
     "unreachable": "Could not reach the server. Check that it is running, the address and network, and the TLS settings.",
     "unreachable_ssh": "Could not reach the server through the SSH tunnel. Check the tunnel host and credentials, that the server is running, and the TLS settings.",
+    "unreachable_write": "Could not reach the server. The change may or may not have been applied; check the data after reconnecting.",
+    "unreachable_write_ssh": "Could not reach the server through the SSH tunnel. The change may or may not have been applied; check the data after reconnecting.",
     "unsupported": "This action is not supported for the current connection."
   },
   "failures": {

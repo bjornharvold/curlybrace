@@ -93,19 +93,35 @@ fn an_unreachable_find_marks_the_focused_root_failed_and_clears_its_view() {
 
 #[test]
 fn every_data_command_that_loses_the_server_fails_the_root() {
-    for context in [
-        "list_databases",
-        "list_collections",
-        "find",
-        "delete",
-        "clone",
-    ] {
+    for context in ["list_databases", "list_collections", "find"] {
         let (s, ids) = app(&["a"]);
         let a = ids[0];
         let (s, _) = ev(opened(s, a), lost(a, context));
         assert_eq!(s.status, ConnStatus::Failed, "{context}");
         assert_eq!(s.failure, Some(CoreError::Unreachable), "{context}");
         assert!(is_banner(&s, context, a), "{context}");
+    }
+}
+
+#[test]
+fn a_lost_delete_or_clone_fails_the_root_and_says_the_change_may_have_applied() {
+    for (context, tunnel, expected) in [
+        ("delete", false, CoreError::UnreachableWrite),
+        ("clone", false, CoreError::UnreachableWrite),
+        ("delete", true, CoreError::UnreachableWriteSsh),
+        ("clone", true, CoreError::UnreachableWriteSsh),
+    ] {
+        let (s, ids) = app(&["a"]);
+        let a = ids[0];
+        let s = opened(s, a);
+        let s = if tunnel { behind_a_tunnel(s) } else { s };
+        let (s, _) = ev(s, lost(a, context));
+        assert_eq!(s.status, ConnStatus::Failed, "{context}");
+        assert_eq!(s.failure, Some(expected.clone()), "{context}");
+        assert!(
+            matches!(&s.banner, Some(Banner::Failure { context: c, error }) if *c == context && *error == expected),
+            "{context}"
+        );
     }
 }
 
@@ -161,7 +177,7 @@ fn a_lost_save_keeps_the_editor_text_and_does_not_fail_the_root() {
         assert_eq!(s.status, ConnStatus::Connected, "{context}");
         assert!(s.pending.is_none(), "{context}");
         let editor = s.editor.expect("the text the user typed stays");
-        assert_eq!(editor.error, Some(CoreError::Unreachable), "{context}");
+        assert_eq!(editor.error, Some(CoreError::UnreachableWrite), "{context}");
         assert_eq!(editor.text, "{}");
     }
 }
@@ -175,6 +191,7 @@ fn a_lost_insert_without_a_matching_editor_fails_the_root() {
     assert!(s.editor.is_none());
     let (s, _) = ev(s, lost(a, "insert"));
     assert_eq!(s.status, ConnStatus::Failed);
+    assert_eq!(s.failure, Some(CoreError::UnreachableWrite));
 }
 
 #[test]
@@ -342,7 +359,7 @@ fn a_lost_save_behind_a_tunnel_names_the_tunnel_in_the_editor() {
     let a = ids[0];
     let (s, _) = ev(behind_a_tunnel(saving(s, a)), lost(a, "insert"));
     let editor = s.editor.expect("the text stays");
-    assert_eq!(editor.error, Some(CoreError::UnreachableSsh));
+    assert_eq!(editor.error, Some(CoreError::UnreachableWriteSsh));
 }
 
 #[test]

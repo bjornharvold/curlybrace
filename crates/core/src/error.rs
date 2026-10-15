@@ -50,6 +50,15 @@ pub enum CoreError {
     /// tunnel. Set by the UI, which knows the session's endpoint; the runtime never builds it.
     #[error("server unreachable through the ssh tunnel")]
     UnreachableSsh,
+    /// `Unreachable` for a write (insert, replace, delete, clone): the server may have applied
+    /// it before the connection was lost. Set by the UI, which knows what the command was.
+    #[error("server unreachable, the write may or may not have been applied")]
+    UnreachableWrite,
+    /// `UnreachableWrite` for a session that goes through an SSH tunnel.
+    #[error(
+        "server unreachable through the ssh tunnel, the write may or may not have been applied"
+    )]
+    UnreachableWriteSsh,
     /// TLS with certificate verification cannot be used through an SSH tunnel.
     #[error("tls with certificate verification cannot be combined with an ssh tunnel")]
     TlsThroughTunnel,
@@ -116,6 +125,8 @@ impl CoreError {
             // Only seen unresolved from compare, which has no ping: it reads as unreachable.
             Self::ConnectionInterrupted(_) => "errors.unreachable",
             Self::UnreachableSsh => "errors.unreachable_ssh",
+            Self::UnreachableWrite => "errors.unreachable_write",
+            Self::UnreachableWriteSsh => "errors.unreachable_write_ssh",
             Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
             Self::TlsThroughTunnel => "errors.tls_through_tunnel",
             Self::CompareDuplicateKey => "errors.compare_duplicate_key",
@@ -157,6 +168,8 @@ mod tests {
             CoreError::Unauthorized,
             CoreError::Unreachable,
             CoreError::UnreachableSsh,
+            CoreError::UnreachableWrite,
+            CoreError::UnreachableWriteSsh,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,

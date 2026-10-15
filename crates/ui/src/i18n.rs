@@ -158,6 +158,19 @@ mod tests {
     }
 
     #[test]
+    fn an_unreachable_write_says_it_may_have_been_applied() {
+        let i = I18n::english();
+        for e in [CoreError::UnreachableWrite, CoreError::UnreachableWriteSsh] {
+            assert!(i.error(&e).contains("may or may not have been applied"));
+        }
+        assert!(
+            i.error(&CoreError::UnreachableWriteSsh)
+                .contains("SSH tunnel")
+        );
+        assert!(!i.error(&CoreError::UnreachableWrite).contains("SSH"));
+    }
+
+    #[test]
     fn invalid_json_is_err() {
         assert!(I18n::from_json("{not json").is_err());
         assert!(I18n::from_json("[]").is_err());
@@ -203,6 +216,8 @@ mod tests {
             CoreError::Unreachable,
             CoreError::ConnectionInterrupted(String::new()),
             CoreError::UnreachableSsh,
+            CoreError::UnreachableWrite,
+            CoreError::UnreachableWriteSsh,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,
