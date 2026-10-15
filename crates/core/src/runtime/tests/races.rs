@@ -1,5 +1,6 @@
 //! Races between sessions: connect ordering, superseded answers, dropped receivers.
 use super::*;
+use gated::gated_find;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tokio::sync::{Notify, oneshot};
@@ -184,53 +185,6 @@ async fn failed_connect_leaves_previous_store_cleared() {
             ..
         }
     ));
-}
-
-/// Find that signals when it started and waits for a release.
-struct GatedFindStore {
-    started: Arc<Notify>,
-    release: Arc<Notify>,
-    finished: Arc<AtomicUsize>,
-}
-
-#[async_trait]
-impl DocumentStore for GatedFindStore {
-    async fn list_databases(&self) -> Result<Vec<String>> {
-        Ok(vec![])
-    }
-    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
-        Ok(vec![])
-    }
-    async fn find(&self, _ns: &Namespace, q: &Query) -> Result<Page> {
-        self.started.notify_one();
-        self.release.notified().await;
-        self.finished.fetch_add(1, Ordering::SeqCst);
-        Ok(Page {
-            docs: vec![],
-            skip: q.skip,
-            has_more: false,
-        })
-    }
-    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
-        down()
-    }
-    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
-        down()
-    }
-    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
-        down()
-    }
-}
-
-fn gated_find() -> (Arc<GatedFindStore>, Arc<Notify>, Arc<Notify>) {
-    let started = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    let store = Arc::new(GatedFindStore {
-        started: started.clone(),
-        release: release.clone(),
-        finished: Arc::new(AtomicUsize::new(0)),
-    });
-    (store, started, release)
 }
 
 #[tokio::test]

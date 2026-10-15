@@ -113,20 +113,10 @@ async fn run(
     command: Command,
     generation: u64,
 ) -> Result<Event> {
-    match command {
-        Command::Connect(cfg) => {
-            return connect_store(shared, session, cfg, generation)
-                .await
-                .map_err(|e| gate(session, generation, e));
-        }
-        // The session was already ended by the dispatcher.
-        Command::Disconnect { session } => {
-            return Ok(Event::Disconnected {
-                session,
-                epoch: generation,
-            });
-        }
-        _ => {}
+    if let Command::Connect(cfg) = command {
+        return connect_store(shared, session, cfg, generation)
+            .await
+            .map_err(|e| gate(session, generation, e));
     }
     let store = session
         .current_store()

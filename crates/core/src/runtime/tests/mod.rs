@@ -533,3 +533,5 @@ async fn connect_with_invalid_uri_fails_with_invalid_uri() {
 // ---- connection races (deterministic: gates, not sleeps) ----
 
 mod races;
+
+pub(crate) mod gated;
