@@ -127,12 +127,27 @@ fn saving(state: AppState, id: Uuid) -> AppState {
 }
 
 #[test]
-fn a_lost_find_drops_the_open_editor_and_the_write_in_flight_with_the_view() {
+fn a_lost_read_keeps_the_open_editor_text_and_the_root_connected() {
+    for context in ["list_databases", "list_collections", "find"] {
+        let (s, ids) = app(&["a"]);
+        let a = ids[0];
+        let s = saving(s, a);
+        let (s, _) = ev(s, lost(a, context));
+        assert_eq!(s.status, ConnStatus::Connected, "{context}");
+        assert_eq!(s.editor.as_ref().map(|e| e.text.as_str()), Some("{}"));
+        assert!(is_banner(&s, context, a), "{context}");
+    }
+}
+
+#[test]
+fn the_root_fails_on_the_next_lost_command_after_the_editor_closed() {
     let (s, ids) = app(&["a"]);
     let a = ids[0];
     let s = saving(s, a);
     let (s, _) = ev(s, lost(a, "find"));
-    assert!(s.pending.is_none() && s.editor.is_none());
+    let (s, _) = update(s, Input::Editor(EditorAction::Cancel));
+    assert!(s.editor.is_none());
+    let (s, _) = ev(s, lost(a, "find"));
     assert_eq!(s.status, ConnStatus::Failed);
 }
 
