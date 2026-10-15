@@ -1,7 +1,7 @@
 //! A session whose server becomes unreachable after connecting: its root fails with a Reconnect.
 use crate::I18n;
 use crate::app::reducer::{Input, Out, update};
-use crate::app::state::{AppState, Banner, ConnStatus};
+use crate::app::state::{AppState, Banner, ConnStatus, HostEndpoint};
 use crate::viewmodel::{DocAction, EditorAction, SidebarAction};
 use bson::doc;
 use curlybrace_core::connection::ConnectionConfig;
@@ -309,4 +309,47 @@ fn a_lost_session_is_not_counted_as_connected_for_the_forget_offer() {
     let a = ids[0];
     let (s, _) = ev(opened(s, a), lost(a, "find"));
     assert_eq!(s.forget_target, None);
+}
+
+fn behind_a_tunnel(state: AppState) -> AppState {
+    AppState {
+        ssh_endpoint: Some(HostEndpoint {
+            host: "bastion".into(),
+            port: 22,
+        }),
+        ..state
+    }
+}
+
+#[test]
+fn a_lost_server_behind_a_tunnel_names_the_tunnel_on_the_root_and_the_banner() {
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let (s, _) = ev(behind_a_tunnel(opened(s, a)), lost(a, "find"));
+    assert_eq!(s.failure, Some(CoreError::UnreachableSsh));
+    assert!(matches!(
+        &s.banner,
+        Some(Banner::Failure {
+            error: CoreError::UnreachableSsh,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_lost_save_behind_a_tunnel_names_the_tunnel_in_the_editor() {
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let (s, _) = ev(behind_a_tunnel(saving(s, a)), lost(a, "insert"));
+    let editor = s.editor.expect("the text stays");
+    assert_eq!(editor.error, Some(CoreError::UnreachableSsh));
+}
+
+#[test]
+fn the_two_unreachable_texts_differ_only_in_naming_the_tunnel() {
+    let i18n = I18n::english();
+    let plain = i18n.error(&CoreError::Unreachable);
+    let tunnel = i18n.error(&CoreError::UnreachableSsh);
+    assert_ne!(plain, tunnel);
+    assert!(tunnel.contains("SSH tunnel") && !plain.contains("SSH"));
 }

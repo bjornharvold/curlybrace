@@ -151,6 +151,13 @@ mod tests {
     }
 
     #[test]
+    fn an_unreachable_server_behind_a_tunnel_names_the_tunnel() {
+        let i = I18n::english();
+        assert!(!i.error(&CoreError::Unreachable).contains("SSH"));
+        assert!(i.error(&CoreError::UnreachableSsh).contains("SSH tunnel"));
+    }
+
+    #[test]
     fn invalid_json_is_err() {
         assert!(I18n::from_json("{not json").is_err());
         assert!(I18n::from_json("[]").is_err());
@@ -194,6 +201,7 @@ mod tests {
             CoreError::AuthFailed,
             CoreError::Unauthorized,
             CoreError::Unreachable,
+            CoreError::UnreachableSsh,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,

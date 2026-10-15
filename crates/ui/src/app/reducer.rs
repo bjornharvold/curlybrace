@@ -138,6 +138,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // still open (a newer connect of the same id) can get here, and it is not about it.
         Event::Disconnected { .. } => (state, Vec::new()),
         Event::ConnectFailed { epoch, error, .. } => at_epoch(state, epoch, |s| {
+            let error = specific(&s, error);
             (connection_lost(s, "connect", error, background), Vec::new())
         }),
         // The root was dropped when Disconnect was sent and the runtime always answers
@@ -186,13 +187,28 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             context,
             error: CoreError::Unreachable,
             ..
-        } if state.editor.is_none() => (
-            connection_lost(state, context, CoreError::Unreachable, background),
-            Vec::new(),
-        ),
+        } => {
+            let error = specific(&state, CoreError::Unreachable);
+            match state.editor.is_none() {
+                true => (
+                    connection_lost(state, context, error, background),
+                    Vec::new(),
+                ),
+                false => (data_failed(state, context, error), Vec::new()),
+            }
+        }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
         // Routed before; these have no session.
         Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
+    }
+}
+
+/// The error as it is shown: an unreachable server of a session that goes through an SSH tunnel
+/// says so, since the tunnel is the first thing to check. Read while the session is the active one.
+fn specific(state: &AppState, error: CoreError) -> CoreError {
+    match (&error, &state.ssh_endpoint) {
+        (CoreError::Unreachable, Some(_)) => CoreError::UnreachableSsh,
+        _ => error,
     }
 }
 

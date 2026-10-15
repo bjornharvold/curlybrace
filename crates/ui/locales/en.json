@@ -553,6 +553,7 @@
     "tls_through_tunnel": "TLS certificate verification is not possible through an SSH tunnel. To connect you would have to enable \"Allow invalid TLS certificates\", which removes certificate protection on the connection between the SSH bastion and MongoDB (the SSH leg stays encrypted). Only do this on a network you trust.",
     "unauthorized": "Your user is not allowed to do this on the server.",
     "unreachable": "Could not reach the server. Check that it is running, the address and network, and the TLS settings.",
+    "unreachable_ssh": "Could not reach the server through the SSH tunnel. Check the tunnel host and credentials, that the server is running, and the TLS settings.",
     "unsupported": "This action is not supported for the current connection."
   },
   "failures": {

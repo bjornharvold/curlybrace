@@ -41,6 +41,10 @@ pub enum CoreError {
     /// The server cannot be reached (down, wrong address, network lost). No driver text is carried.
     #[error("server unreachable")]
     Unreachable,
+    /// `Unreachable` for a session that goes through an SSH tunnel, so the copy can name the
+    /// tunnel. Set by the UI, which knows the session's endpoint; the runtime never builds it.
+    #[error("server unreachable through the ssh tunnel")]
+    UnreachableSsh,
     /// TLS with certificate verification cannot be used through an SSH tunnel.
     #[error("tls with certificate verification cannot be combined with an ssh tunnel")]
     TlsThroughTunnel,
@@ -104,6 +108,7 @@ impl CoreError {
             Self::AuthFailed => "errors.auth_failed",
             Self::Unauthorized => "errors.unauthorized",
             Self::Unreachable => "errors.unreachable",
+            Self::UnreachableSsh => "errors.unreachable_ssh",
             Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
             Self::TlsThroughTunnel => "errors.tls_through_tunnel",
             Self::CompareDuplicateKey => "errors.compare_duplicate_key",
@@ -144,6 +149,7 @@ mod tests {
             CoreError::AuthFailed,
             CoreError::Unauthorized,
             CoreError::Unreachable,
+            CoreError::UnreachableSsh,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,
