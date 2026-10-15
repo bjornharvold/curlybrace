@@ -88,15 +88,33 @@ const HANDSHAKE_MARKERS: [&str; 5] = [
 /// The text the driver puts before the per-server reason in a server selection message.
 const IO_REASON_PREFIX: &str = "I/O error:";
 
-/// A failed server selection quotes why each server failed (`Kind: I/O error: <reason>`). A TLS
-/// reason means the server answered but the handshake failed; any other reason, or none, means
-/// it cannot be reached. Only the reason is matched, never the addresses around it.
+/// The reasons of a failed server selection. It quotes each server as
+/// `Address: .., Tags: .., Error: Kind: I/O error: <reason>, labels: {..} }`. A reason ends at
+/// its own `, labels:` (else at ` }` or the end), so the addresses, tags and replica set name
+/// around it are never part of one.
+fn io_reasons(message: &str) -> Vec<&str> {
+    message
+        .split(IO_REASON_PREFIX)
+        .skip(1)
+        .map(|rest| {
+            let end = rest
+                .find(", labels:")
+                .or_else(|| rest.find(" }"))
+                .unwrap_or(rest.len());
+            &rest[..end]
+        })
+        .collect()
+}
+
+/// A failed server selection quotes why each server failed. A TLS reason from any server means
+/// a server answered but the handshake failed, even if another server was refused; any other
+/// reason, or none, means it cannot be reached. Only the reasons are matched.
 fn reach_of_selection(message: &str) -> Reach {
-    let Some((_, reason)) = message.split_once(IO_REASON_PREFIX) else {
-        return Reach::Lost;
-    };
-    let reason = reason.to_lowercase();
-    match HANDSHAKE_MARKERS.iter().any(|m| reason.contains(m)) {
+    let handshake = io_reasons(message).iter().any(|reason| {
+        let reason = reason.to_lowercase();
+        HANDSHAKE_MARKERS.iter().any(|m| reason.contains(m))
+    });
+    match handshake {
         true => Reach::Handshake,
         false => Reach::Lost,
     }
@@ -279,6 +297,44 @@ mod tests {
             classify_parts(None, false, Reach::Lost, "x"),
             CoreError::Unreachable
         );
+    }
+
+    /// Two servers in one topology, each with its own address, error and tags.
+    fn two_servers(first: &str, second: &str, second_address: &str, tags: &str) -> String {
+        format!(
+            "Server selection timeout: No available servers. Topology: {{ Type: ReplicaSetNoPrimary, \
+             Servers: [ {{ Address: a.example:27017, Type: Unknown, Error: Kind: I/O error: {first}, \
+             labels: {{}} }}, {{ Address: {second_address}, Type: Unknown, Tags: {tags}, \
+             Error: Kind: I/O error: {second}, labels: {{}} }}, ] }}"
+        )
+    }
+
+    #[test]
+    fn a_marker_outside_a_reason_does_not_make_a_handshake_failure() {
+        let refused = "Connection refused (os error 61)";
+        for message in [
+            two_servers(refused, refused, "certificate-store.internal:27017", "{}"),
+            two_servers(
+                refused,
+                refused,
+                "b.example:27017",
+                "{\"dc\": \"handshake\"}",
+            ),
+        ] {
+            assert_eq!(reach_of_selection(&message), Reach::Lost, "{message}");
+        }
+    }
+
+    #[test]
+    fn a_tls_failure_on_any_server_is_a_handshake_failure() {
+        let refused = "Connection refused (os error 61)";
+        let tls = "received fatal alert: HandshakeFailure";
+        for message in [
+            two_servers(refused, tls, "b.example:27017", "{}"),
+            two_servers(tls, refused, "b.example:27017", "{}"),
+        ] {
+            assert_eq!(reach_of_selection(&message), Reach::Handshake, "{message}");
+        }
     }
 
     #[test]
