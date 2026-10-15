@@ -5,7 +5,7 @@ use crate::viewmodel::compare::SessionPhase;
 use crate::views::connections::TestState;
 use curlybrace_core::connection::{SshAuth, SshConfig};
 use curlybrace_core::runtime::Command;
-use curlybrace_core::secrets::MemorySecretStore;
+use curlybrace_core::secrets::{MemorySecretStore, SecretKind, secret_key};
 use curlybrace_core::tunnel::HostKeyDecision;
 use host_key::Waiter;
 use std::sync::mpsc::Sender;
@@ -306,6 +306,10 @@ fn a_delete_whose_config_write_fails_still_closes_the_open_session() {
     r.connect(0);
     r.answer_connected(0);
     drain(&mut r);
+    for kind in SecretKind::ALL {
+        let key = secret_key(r.ids[0], kind);
+        r.app.secrets.set(&key, "secret").unwrap();
+    }
     r.app.config_path = Err(persistence::PersistError::Write(
         std::io::ErrorKind::PermissionDenied,
     ));
@@ -319,6 +323,10 @@ fn a_delete_whose_config_write_fails_still_closes_the_open_session() {
         "{sent:?}"
     );
     assert!(!r.app.state().is_open(r.ids[0]));
+    for kind in SecretKind::ALL {
+        let key = secret_key(r.ids[0], kind);
+        assert_eq!(r.app.secrets.get(&key).unwrap(), None, "{kind:?} is gone");
+    }
 }
 
 #[test]

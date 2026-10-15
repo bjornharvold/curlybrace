@@ -13,7 +13,7 @@ use eframe::egui::{WidgetInfo, WidgetType};
 
 /// Rows of a root's database tree shown before it scrolls.
 const MAX_TREE_ROWS: usize = 12;
-/// Narrowest the root name's area gets, however many buttons the header carries.
+/// Narrowest the root name's area gets, however wide the Disconnect button is.
 const MIN_NAME_WIDTH: f32 = 76.0;
 
 /// The Connections button followed by one root per open session. Returns what the user did.
@@ -44,18 +44,35 @@ fn show_root(ui: &mut egui::Ui, state: &AppState, root: &Root, i18n: &I18n) -> O
 }
 
 /// Two lines. Line 1: toggle, the name (wraps inside its own area, never truncated) and the
-/// buttons right-aligned. Line 2 (weak, small): status and, when known, topology.
+/// Disconnect right-aligned.
+/// Line 2 (weak): status and, when known, topology, and Reconnect right-aligned on a failed root.
 fn show_header(
     ui: &mut egui::Ui,
     collapse: &mut CollapsingState,
     root: &Root,
     i18n: &I18n,
 ) -> Option<Input> {
-    let input = ui
+    let title = ui
         .horizontal(|ui| show_title_line(ui, collapse, root, i18n))
         .inner;
-    ui.label(egui::RichText::new(status_line(root, i18n)).weak().small());
-    input
+    let status = ui.horizontal(|ui| show_status_line(ui, root, i18n)).inner;
+    status.or(title)
+}
+
+/// The status (and topology) on the left; on a failed root Reconnect on the right, so the
+/// first line never needs room for more than the toggle, the name and Disconnect.
+fn show_status_line(ui: &mut egui::Ui, root: &Root, i18n: &I18n) -> Option<Input> {
+    ui.label(egui::RichText::new(status_line(root, i18n)).weak());
+    if root.status != ConnStatus::Failed {
+        return None;
+    }
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let name = [("name", root.name.as_str())];
+        let reconnect = ui.small_button(i18n.t("sidebar.reconnect"));
+        named(&reconnect, i18n.t_with("sidebar.reconnect_named", &name));
+        reconnect.clicked().then_some(Input::Connect(root.id))
+    })
+    .inner
 }
 
 fn show_title_line(
@@ -72,18 +89,14 @@ fn show_title_line(
         collapse.toggle(ui);
     }
     let disconnect_text = i18n.t("connections.disconnect");
-    let reconnect_text = i18n.t("sidebar.reconnect");
-    let failed = root.status == ConnStatus::Failed;
-    let mut buttons = small_button_width(ui, &disconnect_text);
-    if failed {
-        buttons += small_button_width(ui, &reconnect_text) + ui.spacing().item_spacing.x;
-    }
-    // The name takes what the buttons leave, so they stay on this line and the name wraps.
+    // The name takes what Disconnect leaves, so it stays on this line and the name wraps.
+    let buttons = small_button_width(ui, &disconnect_text);
     let name_width =
         (ui.available_width() - buttons - ui.spacing().item_spacing.x).max(MIN_NAME_WIDTH);
     let mut input = None;
+    // One line tall (centred on the line like the buttons); a wrapping name grows downwards.
     ui.allocate_ui_with_layout(
-        egui::vec2(name_width, 0.0),
+        egui::vec2(name_width, ui.spacing().interact_size.y),
         egui::Layout::top_down(egui::Align::Min),
         |ui| {
             ui.set_width(name_width);
@@ -96,13 +109,6 @@ fn show_title_line(
     named(&disconnect, i18n.t_with("sidebar.disconnect_named", &name));
     if disconnect.clicked() {
         input = Some(Input::Disconnect(root.id));
-    }
-    if failed {
-        let reconnect = ui.small_button(reconnect_text);
-        named(&reconnect, i18n.t_with("sidebar.reconnect_named", &name));
-        if reconnect.clicked() {
-            input = Some(Input::Connect(root.id));
-        }
     }
     input
 }
@@ -200,6 +206,9 @@ mod tests {
     use egui_kittest::kittest::Queryable;
     use uuid::Uuid;
 
+    /// `egui::SidePanel`'s default width.
+    const DEFAULT_SIDEBAR_WIDTH: f32 = 200.0;
+
     fn names(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
     }
@@ -272,6 +281,29 @@ mod tests {
                     *out = show_roots(ui, state, &I18n::english()).or(out.take());
                 },
                 (state, None),
+            );
+        harness.run();
+        harness
+    }
+
+    /// The roots in the real resizable sidebar panel at its default width. Returns the harness
+    /// and the panel's final width (a header that needs more than the panel offers grows it).
+    fn panel_harness(state: AppState) -> Harness<'static, f32> {
+        let shown = state;
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(800.0, 900.0))
+            .build_state(
+                move |ctx, width: &mut f32| {
+                    let panel = egui::SidePanel::left("sidebar")
+                        .resizable(true)
+                        .show(ctx, |ui| {
+                            egui::ScrollArea::vertical()
+                                .auto_shrink([false; 2])
+                                .show(ui, |ui| show_roots(ui, &shown, &I18n::english()));
+                        });
+                    *width = panel.response.rect.width();
+                },
+                0.0,
             );
         harness.run();
         harness
@@ -416,6 +448,44 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_failed_root_keeps_the_sidebar_at_its_default_width() {
+        let i18n = I18n::english();
+        let delta = [("name", "Delta")];
+        let harness = panel_harness(fixture().state);
+        let panel_width = *harness.state();
+        assert!(
+            (panel_width - DEFAULT_SIDEBAR_WIDTH).abs() < 0.5,
+            "the panel grew to {panel_width}"
+        );
+        let toggle = harness
+            .get_by_label(&i18n.t_with("sidebar.toggle_named", &delta))
+            .rect();
+        let disconnect = harness
+            .get_by_label(&i18n.t_with("sidebar.disconnect_named", &delta))
+            .rect();
+        let reconnect = harness
+            .get_by_label(&i18n.t_with("sidebar.reconnect_named", &delta))
+            .rect();
+        assert!(disconnect.right() <= panel_width, "{:?}", disconnect);
+        assert!(reconnect.right() <= panel_width, "{:?}", reconnect);
+        // Line 1 holds the toggle and Disconnect; Reconnect sits below them with the status.
+        assert!((toggle.center().y - disconnect.center().y).abs() < 1.0);
+        assert!(reconnect.top() >= disconnect.bottom());
+    }
+
+    #[test]
+    fn the_name_is_centred_on_the_line_of_the_toggle_and_buttons() {
+        let i18n = I18n::english();
+        let harness = panel_harness(fixture().state);
+        let toggle = harness
+            .get_by_label(&i18n.t_with("sidebar.toggle_named", &[("name", "Alpha")]))
+            .rect();
+        let name = harness.get_by_label("Alpha").rect();
+        let gap = (toggle.center().y - name.center().y).abs();
+        assert!(gap < 1.0, "the name is {gap} px off the line centre");
     }
 
     #[test]
