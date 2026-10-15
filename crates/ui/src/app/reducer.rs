@@ -51,7 +51,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::ShowConnections => session_actions::show_connections(state),
         Input::TestConnection(form) => connection_test::start(state, &form),
         Input::Compare(a) => compare::on_action(state, a),
-        Input::DismissBanner => (with_banner(state, None), Vec::new()),
+        Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
             AppState {
@@ -69,16 +69,13 @@ pub fn apply_event(state: AppState, ev: Event) -> AppState {
     on_event(state, ev).0
 }
 
-fn with_banner(state: AppState, banner: Option<Banner>) -> AppState {
-    AppState { banner, ..state }
-}
-
 fn failure(state: AppState, context: &'static str, error: CoreError) -> AppState {
     let banner_session = state.active;
     AppState {
+        banner: Some(Banner::Failure { context, error }),
         banner_session,
         forget_target: None,
-        ..with_banner(state, Some(Banner::Failure { context, error }))
+        ..state
     }
 }
 
@@ -123,13 +120,12 @@ fn on_session_event(state: AppState, ev: Event) -> Out {
         Event::Connected {
             epoch, topology, ..
         } => at_epoch(state, epoch, |s| {
-            let s = AppState {
+            let s = after_connected(AppState {
                 status: ConnStatus::Connected,
                 failure: None,
                 topology,
-                banner: s.banner.filter(|b| !is_data_failure(b)),
                 ..s
-            };
+            });
             let session = s.session_id();
             (s, vec![Command::ListDatabases { session }])
         }),
@@ -193,26 +189,24 @@ fn at_epoch(state: AppState, epoch: u64, apply: impl FnOnce(AppState) -> Out) ->
     })
 }
 
-/// Banners about data commands of a previous session.
-fn is_data_failure(banner: &Banner) -> bool {
-    matches!(
-        banner,
-        Banner::Failure {
-            context: "find"
-                | "insert"
-                | "replace"
-                | "delete"
-                | "clone"
-                | "list_databases"
-                | "list_collections",
-            ..
-        }
-    )
+/// The state after a session connected: its own data-failure banner is stale now; any other
+/// banner (another session's included) stays.
+fn after_connected(state: AppState) -> AppState {
+    let stale = state.banner_owner() == state.active
+        && state.banner.as_ref().is_some_and(Banner::is_data_failure);
+    if stale { state.without_banner() } else { state }
 }
 
 /// The active session's connection failed or was lost: its root stays (marked failed, showing
 /// the error), its view is cleared, and the user is told through the banner.
 fn connection_lost(state: AppState, context: &'static str, error: CoreError) -> AppState {
+    // Another session's banner stays: this root shows `Failed` and its error in the tree.
+    if state
+        .banner_owner()
+        .is_some_and(|owner| Some(owner) != state.active)
+    {
+        return state.failed(error);
+    }
     let banner = Some(Banner::Failure {
         context,
         error: error.clone(),
@@ -334,6 +328,8 @@ fn forget_finished(state: AppState, result: Result<(), PersistError>) -> AppStat
     AppState {
         forget_confirm: None,
         banner: Some(banner),
+        banner_session: None,
+        forget_target: None,
         ..state
     }
 }

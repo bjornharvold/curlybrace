@@ -5,7 +5,7 @@
 //! session it names, so `epoch_counter` goes up by exactly one per command sent here.
 use super::reducer::Out;
 use super::session::SessionView;
-use super::state::{AppState, Banner, ConnStatus, HostEndpoint, Workspace};
+use super::state::{AppState, ConnStatus, HostEndpoint, Workspace};
 use curlybrace_core::runtime::Command;
 use uuid::Uuid;
 
@@ -27,12 +27,20 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
     };
     let next = AppState {
         epoch_counter: epoch,
-        banner: None,
         forget_confirm: None,
         workspace: Workspace::Browse,
-        ..state.opened_with(id, view)
+        ..cleared_for_connect(state, id).opened_with(id, view)
     };
     (next, vec![Command::Connect(cfg)])
+}
+
+/// Connecting `id` withdraws the banner about it (and a banner nobody owns); a banner another
+/// session raised, and that session's forget offer, stay.
+fn cleared_for_connect(state: AppState, id: Uuid) -> AppState {
+    match state.banner_owner() {
+        Some(owner) if owner != id => state,
+        _ => state.without_banner(),
+    }
 }
 
 /// Closes `id`: its root and view go, and the neighbour (the next root, else the previous one)
@@ -53,16 +61,10 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
         _ => state,
     };
     // A failure the closed session raised goes with it; other sessions' banners stay.
-    let own_failure = focused.banner_session == Some(id)
-        && matches!(focused.banner, Some(Banner::Failure { .. }));
+    let own_failure = focused.banner_owner() == Some(id);
     let dropped = focused.session_dropped(id);
     let next = if own_failure {
-        AppState {
-            banner: None,
-            banner_session: None,
-            forget_target: None,
-            ..dropped
-        }
+        dropped.without_banner()
     } else {
         dropped
     };
@@ -102,3 +104,7 @@ fn activate_in_browser(state: AppState, id: Uuid) -> AppState {
 #[cfg(test)]
 #[path = "session_flow_tests.rs"]
 mod flow_tests;
+
+#[cfg(test)]
+#[path = "session_banner_tests.rs"]
+mod banner_tests;

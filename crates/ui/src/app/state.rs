@@ -59,6 +59,37 @@ pub enum Banner {
     FieldsCovered,
 }
 
+impl Banner {
+    /// A failed data command of a session (not a connect, not a local operation).
+    pub fn is_data_failure(&self) -> bool {
+        matches!(
+            self,
+            Banner::Failure {
+                context: "find"
+                    | "insert"
+                    | "replace"
+                    | "delete"
+                    | "clone"
+                    | "list_databases"
+                    | "list_collections",
+                ..
+            }
+        )
+    }
+
+    /// A failure raised from one session's events: a data failure or a failed connect.
+    pub fn is_session_failure(&self) -> bool {
+        self.is_data_failure()
+            || matches!(
+                self,
+                Banner::Failure {
+                    context: "connect",
+                    ..
+                }
+            )
+    }
+}
+
 /// An SSH endpoint whose recorded host key the user may drop.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostEndpoint {
@@ -219,6 +250,26 @@ impl AppState {
             failure: None,
             topology: None,
             workspace: Workspace::Browse,
+            ..self
+        }
+    }
+
+    /// The session a banner is about: the one that raised the current failure banner, when that
+    /// banner is a session failure (connect or data). Other banners have no owner, whatever
+    /// `banner_session` still holds.
+    pub fn banner_owner(&self) -> Option<Uuid> {
+        match &self.banner {
+            Some(banner) if banner.is_session_failure() => self.banner_session,
+            _ => None,
+        }
+    }
+
+    /// The state with no banner, no banner owner and no forget offer.
+    pub fn without_banner(self) -> AppState {
+        AppState {
+            banner: None,
+            banner_session: None,
+            forget_target: None,
             ..self
         }
     }

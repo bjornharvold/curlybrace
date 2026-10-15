@@ -1,7 +1,7 @@
 //! The thin egui layer: draws panels from the state and reports what the user did.
 //! Every decision lives in the reducer and view-models; nothing here has logic worth testing
 //! beyond "it renders" (covered by the headless frame tests in `mod.rs`).
-use super::banner::{banner_detail, banner_text};
+use super::banner::{banner_detail, banner_prefix, banner_text};
 use super::host_key::PromptState;
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
@@ -31,9 +31,13 @@ pub fn show_banner(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut
         return;
     };
     let (headline, detail) = banner_text(banner, i18n);
+    let prefix = banner_prefix(state, i18n);
     egui::TopBottomPanel::top("banner").show(ctx, |ui| {
         ui.horizontal_wrapped(|ui| {
             let color = ui.visuals().error_fg_color;
+            if let Some(prefix) = prefix {
+                ui.colored_label(color, prefix);
+            }
             ui.colored_label(color, headline);
             if let Some(detail) = detail {
                 ui.label(detail);
@@ -59,6 +63,10 @@ fn dialog_banner_lines(state: &AppState, i18n: &I18n) -> Vec<String> {
         return Vec::new();
     };
     let (headline, detail) = banner_text(banner, i18n);
+    let headline = match banner_prefix(state, i18n) {
+        Some(prefix) => format!("{prefix} {headline}"),
+        None => headline,
+    };
     std::iter::once(headline)
         .chain(detail)
         .chain(banner_detail(banner).map(str::to_owned))

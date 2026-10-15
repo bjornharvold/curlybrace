@@ -173,6 +173,8 @@ shot!(error_banner, vec![production(), staging()], |state| {
         context: "connect",
         error: CoreError::AuthFailed,
     });
+    // Raised by the first saved connection, so the banner names it.
+    state.banner_session = Some(state.conn.connections[0].id);
 });
 
 shot!(

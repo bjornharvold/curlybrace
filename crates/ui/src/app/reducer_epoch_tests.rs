@@ -261,6 +261,8 @@ fn connecting_clears_leftover_data_failure_banners_but_keeps_other_ones() {
         context: "find",
         error: CoreError::NotFound,
     });
+    // The banner was raised by the session that connects now.
+    s.banner_session = s.active;
     let (s, _) = event(s, connected(1));
     assert_eq!(s.banner, None);
     let mut s = dispatched(&[true]);

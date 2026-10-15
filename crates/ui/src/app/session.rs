@@ -41,6 +41,12 @@ pub struct Root {
     pub active: bool,
 }
 
+/// The name to show for the open session `id`: the saved connection's name, or `None` when it
+/// was deleted. The one place that decides how a session is called in banners.
+pub fn session_display_name(state: &AppState, id: Uuid) -> Option<String> {
+    state.connection(id).map(|c| c.name.clone())
+}
+
 impl AppState {
     /// Moves the active view out (leaving defaults); local mutation only, the public API stays
     /// immutable.

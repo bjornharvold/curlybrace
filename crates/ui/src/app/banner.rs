@@ -1,6 +1,7 @@
 //! Localized banner text. Pure so it can be tested without egui.
 use super::persistence::Recovery;
-use super::state::Banner;
+use super::session::session_display_name;
+use super::state::{AppState, Banner};
 use crate::I18n;
 
 /// `(headline, detail)` for a banner; every string comes from the locale.
@@ -26,6 +27,13 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::FieldsConflict => (i18n.t("banner.fields_conflict"), None),
         Banner::FieldsCovered => (i18n.t("banner.fields_covered"), None),
     }
+}
+
+/// "In {name}:" when the banner was raised from a session event and that session's saved
+/// connection still exists; none for banners nobody owns.
+pub fn banner_prefix(state: &AppState, i18n: &I18n) -> Option<String> {
+    let name = session_display_name(state, state.banner_owner()?)?;
+    Some(i18n.t_with("banner.in_connection", &[("name", &name)]))
 }
 
 /// Raw server/user text to show weakly under a failure banner (see `error_detail`).
