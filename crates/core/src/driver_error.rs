@@ -23,6 +23,9 @@ pub enum Reach {
     Unknown,
     /// The server cannot be reached: no server could be selected, or its name did not resolve.
     Lost,
+    /// A server answered but the TLS handshake with it failed (no TLS on the server, a rejected
+    /// certificate): the settings are wrong, not the network.
+    Handshake,
     /// A network error or a cleared pool on one connection. One stale socket looks like this
     /// while the server is fine, so it is only a suspicion the runtime settles with a ping.
     Suspect,
@@ -40,6 +43,7 @@ pub fn classify_parts(
     match code {
         _ if is_auth_kind => CoreError::AuthFailed,
         _ if reach == Reach::Lost => CoreError::Unreachable,
+        _ if reach == Reach::Handshake => CoreError::TlsHandshake,
         _ if reach == Reach::Suspect => CoreError::ConnectionInterrupted(text.to_owned()),
         Some(CODE_AUTHENTICATION_FAILED) => CoreError::AuthFailed,
         Some(CODE_UNAUTHORIZED) => CoreError::Unauthorized,
@@ -65,9 +69,36 @@ fn server_code(kind: &ErrorKind) -> Option<i32> {
 /// operation bound is neither: it reports a slow operation (`Database("timeout")`).
 fn reach_of(kind: &ErrorKind) -> Reach {
     match kind {
-        ErrorKind::ServerSelection { .. } | ErrorKind::DnsResolve { .. } => Reach::Lost,
+        ErrorKind::ServerSelection { message, .. } => reach_of_selection(message),
+        ErrorKind::DnsResolve { .. } => Reach::Lost,
         ErrorKind::Io(_) | ErrorKind::ConnectionPoolCleared { .. } => Reach::Suspect,
         _ => Reach::Unknown,
+    }
+}
+
+/// Markers of a TLS handshake failure in the per-server reason, matched case-insensitively.
+const HANDSHAKE_MARKERS: [&str; 5] = [
+    "tls handshake",
+    "handshake",
+    "invalid peer certificate",
+    "received fatal alert",
+    "certificate",
+];
+
+/// The text the driver puts before the per-server reason in a server selection message.
+const IO_REASON_PREFIX: &str = "I/O error:";
+
+/// A failed server selection quotes why each server failed (`Kind: I/O error: <reason>`). A TLS
+/// reason means the server answered but the handshake failed; any other reason, or none, means
+/// it cannot be reached. Only the reason is matched, never the addresses around it.
+fn reach_of_selection(message: &str) -> Reach {
+    let Some((_, reason)) = message.split_once(IO_REASON_PREFIX) else {
+        return Reach::Lost;
+    };
+    let reason = reason.to_lowercase();
+    match HANDSHAKE_MARKERS.iter().any(|m| reason.contains(m)) {
+        true => Reach::Handshake,
+        false => Reach::Lost,
     }
 }
 
@@ -198,6 +229,65 @@ mod tests {
             classify_parts(Some(11000), false, Reach::Unknown, "dup"),
             CoreError::Database(_)
         ));
+    }
+
+    /// The driver embeds the per-server reason in a server selection message.
+    fn selection(reason: &str) -> String {
+        format!(
+            "Server selection timeout: No available servers. Topology: {{ Type: Unknown, Servers: \
+             [ {{ Address: db.example:27017, Type: Unknown, Error: Kind: I/O error: {reason}, \
+             labels: {{}} }}, ] }}"
+        )
+    }
+
+    #[test]
+    fn a_selection_failure_with_a_tls_reason_is_a_handshake_failure() {
+        for reason in [
+            "tls handshake eof",
+            "received fatal alert: HandshakeFailure",
+            "invalid peer certificate: UnknownIssuer",
+            "invalid peer certificate: Expired",
+            "TLS HANDSHAKE EOF",
+        ] {
+            assert_eq!(
+                reach_of_selection(&selection(reason)),
+                Reach::Handshake,
+                "{reason}"
+            );
+            assert_eq!(
+                classify_parts(None, false, Reach::Handshake, "x"),
+                CoreError::TlsHandshake
+            );
+        }
+    }
+
+    #[test]
+    fn other_selection_failures_stay_unreachable() {
+        for message in [
+            selection("Connection refused (os error 61)"),
+            selection("failed to lookup address information: nodename nor servname provided"),
+            "Server selection timeout: No available servers.".to_owned(),
+            // A name that merely looks like a marker is not a reason.
+            selection("Connection refused (os error 61)")
+                .replace("db.example", "certificate.example"),
+            // Markers before the reason do not count either.
+            "tls handshake certificate Error: Kind: I/O error: Connection refused".to_owned(),
+        ] {
+            assert_eq!(reach_of_selection(&message), Reach::Lost, "{message}");
+        }
+        assert_eq!(
+            classify_parts(None, false, Reach::Lost, "x"),
+            CoreError::Unreachable
+        );
+    }
+
+    #[test]
+    fn a_handshake_failure_loses_to_auth_and_has_static_text() {
+        assert_eq!(
+            classify_parts(None, true, Reach::Handshake, "x"),
+            CoreError::AuthFailed
+        );
+        assert_eq!(CoreError::TlsHandshake.to_string(), "tls handshake failed");
     }
 
     fn io_error(kind: std::io::ErrorKind) -> Error {

@@ -41,6 +41,13 @@ pub enum CoreError {
     /// The server cannot be reached (down, wrong address, network lost). No driver text is carried.
     #[error("server unreachable")]
     Unreachable,
+    /// The server answered but the TLS handshake failed (a TLS client against a plain-text
+    /// server, a certificate the client rejects). No driver text is carried.
+    #[error("tls handshake failed")]
+    TlsHandshake,
+    /// `TlsHandshake` for a session that goes through an SSH tunnel. Set by the UI.
+    #[error("tls handshake through the ssh tunnel failed")]
+    TlsHandshakeSsh,
     /// A network error or cleared pool on one connection: one stale socket, or a lost server.
     /// The runtime settles it with a ping of the same store, into `Unreachable` or the ordinary
     /// `Database` error carrying this text. The text is never part of the display.
@@ -127,6 +134,8 @@ impl CoreError {
             Self::AuthFailed => "errors.auth_failed",
             Self::Unauthorized => "errors.unauthorized",
             Self::Unreachable => "errors.unreachable",
+            Self::TlsHandshake => "errors.tls_handshake",
+            Self::TlsHandshakeSsh => "errors.tls_handshake_ssh",
             // Only seen unresolved from compare, which has no ping: it reads as unreachable.
             Self::ConnectionInterrupted(_) => "errors.unreachable",
             Self::UnreachableSsh => "errors.unreachable_ssh",
@@ -174,6 +183,8 @@ mod tests {
             CoreError::Unauthorized,
             CoreError::Unreachable,
             CoreError::UnreachableSsh,
+            CoreError::TlsHandshake,
+            CoreError::TlsHandshakeSsh,
             CoreError::UnreachableWrite,
             CoreError::UnreachableWriteSsh,
             CoreError::WriteOutcomeUnknown,

@@ -6,6 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bson::{Bson, Document};
 
+use super::handlers::settle_by_ping;
 use super::*;
 use crate::connection::ConnectionConfig;
 use crate::store::{Namespace, Page};
@@ -191,6 +192,32 @@ async fn a_server_side_time_limit_is_an_answer_and_is_not_pinged() {
         failed_find(store).await,
         CoreError::Database("timeout".into())
     );
+}
+
+#[tokio::test]
+async fn a_tls_handshake_failure_is_settled_without_a_ping() {
+    let store: Arc<dyn DocumentStore> = Arc::new(SuspectStore {
+        error: CoreError::Unreachable,
+        hang_first: false,
+        ping: Ping::Refuses,
+    });
+    for is_write in [false, true] {
+        assert_eq!(
+            settle_by_ping(&store, SHORT, CoreError::TlsHandshake, is_write).await,
+            CoreError::TlsHandshake,
+            "write: {is_write}"
+        );
+    }
+    // Through the runtime a store reporting it is passed on as it is, a write included.
+    let tls = || SuspectStore {
+        error: CoreError::TlsHandshake,
+        hang_first: false,
+        ping: Ping::Refuses,
+    };
+    assert_eq!(failed_find(tls()).await, CoreError::TlsHandshake);
+    for (name, make) in writes() {
+        assert_eq!(failed(tls(), make).await, CoreError::TlsHandshake, "{name}");
+    }
 }
 
 type MakeCommand = fn(SessionId) -> Command;
