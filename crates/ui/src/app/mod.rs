@@ -213,8 +213,14 @@ impl CurlybraceApp {
 
     /// Runs one input through the reducer and sends the resulting commands.
     pub fn dispatch(&mut self, input: Input) {
+        // The closing session's host is read before the reducer forgets the session.
+        let closing_host = match &input {
+            Input::Disconnect(id) => self.state.ssh_host_of(*id),
+            _ => None,
+        };
         let (state, commands) = update(std::mem::take(&mut self.state), input);
         self.state = state;
+        self.reject_closed_hosts_question(closing_host);
         // A dialog only belongs to an export that is waiting for it: when the person cancelled
         // (or the export is gone) the old dialog is forgotten, its late answer is never read, and
         // choosing again opens a fresh one.
@@ -222,6 +228,17 @@ impl CurlybraceApp {
             self.pick = None;
         }
         self.send(commands);
+    }
+
+    /// A closed session's queued host-key question has nobody left to answer for. Another
+    /// session still connecting through the same host may be the asker, so then it stays.
+    fn reject_closed_hosts_question(&mut self, closing_host: Option<String>) {
+        let Some(host) = closing_host else { return };
+        if self.state.any_connecting_via(&host) {
+            return;
+        }
+        self.drain_requests();
+        self.prompt = std::mem::take(&mut self.prompt).rejected_for_host(&host);
     }
 
     fn send(&mut self, commands: Vec<Command>) {

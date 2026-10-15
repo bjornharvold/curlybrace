@@ -186,7 +186,7 @@ fn connecting_another_connection_rejects_no_pending_prompt() {
 }
 
 #[test]
-fn closing_one_session_keeps_the_others_prompts_and_closing_the_last_rejects_all() {
+fn closing_one_session_keeps_the_others_prompt_and_closing_the_last_rejects_all() {
     let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
     r.connect(0);
     r.connect(1);
@@ -194,9 +194,13 @@ fn closing_one_session_keeps_the_others_prompts_and_closing_the_last_rejects_all
     let second = r.ask("hb", "fb");
     r.shown();
     r.app.dispatch(Input::Disconnect(r.ids[0]));
-    assert!(first.try_recv().is_err() && second.try_recv().is_err());
+    assert_eq!(
+        first.try_recv(),
+        Ok(HostKeyDecision::Reject),
+        "its own goes"
+    );
+    assert!(second.try_recv().is_err(), "the other session's stays");
     r.app.dispatch(Input::Disconnect(r.ids[1]));
-    assert_eq!(first.try_recv(), Ok(HostKeyDecision::Reject));
     assert_eq!(second.try_recv(), Ok(HostKeyDecision::Reject));
     assert!(r.app.pending_host_key().is_none());
 }
@@ -365,4 +369,90 @@ fn deleting_a_connecting_connection_disconnects_and_ignores_its_late_answers() {
     assert!(r.app.state().is_open(r.ids[1]));
     assert!(r.app.state().banner.is_none());
     assert!(drain(&mut r).is_empty());
+}
+
+#[test]
+fn closing_a_parked_session_rejects_only_its_question_and_the_next_is_shown() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1); // b is active, a is parked
+    let first = r.ask("ha", "fa");
+    let second = r.ask("hb", "fb");
+    assert_eq!(r.shown(), named("ha", "fa", "a"));
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert_eq!(first.try_recv(), Ok(HostKeyDecision::Reject));
+    assert_eq!(r.shown(), named("hb", "fb", "b"));
+    r.app.answer_host_key(HostKeyDecision::Trust);
+    assert_eq!(second.try_recv(), Ok(HostKeyDecision::Trust));
+}
+
+#[test]
+fn closing_the_active_session_rejects_only_its_question() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1); // b is active
+    let first = r.ask("ha", "fa");
+    let second = r.ask("hb", "fb");
+    r.shown();
+    r.app.dispatch(Input::Disconnect(r.ids[1]));
+    assert_eq!(second.try_recv(), Ok(HostKeyDecision::Reject));
+    assert!(first.try_recv().is_err());
+    assert_eq!(r.shown(), named("ha", "fa", "a"));
+}
+
+#[test]
+fn a_question_for_a_host_two_sessions_share_survives_until_the_last_one_closes() {
+    let mut r = rig(vec![via("a", "Shared"), via("b", "shared")]);
+    r.connect(0);
+    r.connect(1);
+    let w = r.ask("shared", "fs");
+    r.shown();
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert!(w.try_recv().is_err(), "the other may be the asker");
+    assert_eq!(r.shown(), named("shared", "fs", "b"));
+    r.answer_connected(1);
+    // b is connected now, so closing it (not connecting) no longer protects the question.
+    let w2 = r.ask("shared", "fs2");
+    r.app.dispatch(Input::Disconnect(r.ids[1]));
+    assert_eq!(w2.try_recv(), Ok(HostKeyDecision::Reject));
+}
+
+#[test]
+fn closing_the_last_connecting_user_of_a_shared_host_rejects_its_question() {
+    let mut r = rig(vec![via("a", "shared"), via("b", "shared"), via("c", "hc")]);
+    r.connect(0);
+    r.connect(1);
+    r.connect(2);
+    let w = r.ask("shared", "fs");
+    r.shown();
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert!(w.try_recv().is_err());
+    r.app.dispatch(Input::Disconnect(r.ids[1]));
+    assert_eq!(w.try_recv(), Ok(HostKeyDecision::Reject));
+    assert!(r.app.pending_host_key().is_none());
+}
+
+#[test]
+fn a_request_not_yet_polled_is_rejected_when_its_session_closes() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    let w = r.ask("ha", "fa"); // queued on the channel, never pumped
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert_eq!(w.try_recv(), Ok(HostKeyDecision::Reject));
+}
+
+#[test]
+fn deleting_an_open_connection_rejects_its_queued_question() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    let first = r.ask("ha", "fa");
+    let second = r.ask("hb", "fb");
+    r.shown();
+    r.app
+        .dispatch_connection(ConnectionAction::Delete(r.ids[0]));
+    assert_eq!(first.try_recv(), Ok(HostKeyDecision::Reject));
+    assert!(second.try_recv().is_err());
+    assert_eq!(r.shown(), named("hb", "fb", "b"));
 }

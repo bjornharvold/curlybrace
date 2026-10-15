@@ -200,6 +200,21 @@ impl AppState {
         self.parked.get(&id).and_then(|v| v.ssh_endpoint.as_ref())
     }
 
+    /// The SSH host an open session connects through, wherever its view lives.
+    pub fn ssh_host_of(&self, id: Uuid) -> Option<String> {
+        self.ssh_endpoint_of(id).map(|e| e.host.clone())
+    }
+
+    /// Whether some open session that is still connecting goes through SSH host `host`.
+    pub fn any_connecting_via(&self, host: &str) -> bool {
+        self.open.iter().any(|id| {
+            self.status_of(*id) == Some(ConnStatus::Connecting)
+                && self
+                    .ssh_endpoint_of(*id)
+                    .is_some_and(|e| e.host.eq_ignore_ascii_case(host))
+        })
+    }
+
     /// The name of the one open connecting session whose SSH host is `host`; `None` when no
     /// session or several sessions match (the prompt then cannot say who is asking).
     pub fn connecting_name_for_host(&self, host: &str, i18n: &I18n) -> Option<String> {
