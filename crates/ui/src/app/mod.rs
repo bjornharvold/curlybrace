@@ -234,17 +234,22 @@ impl CurlybraceApp {
     /// session still connecting through the same host may be the asker, so then it stays.
     fn reject_closed_hosts_question(&mut self, closing_host: Option<String>) {
         let Some(host) = closing_host else { return };
-        // A connection test asks through the same prompt and belongs to no open session, so
-        // while one runs the question may be its own.
-        let test_running = matches!(self.state.conn.test, TestState::Running { .. });
-        // A compare session opens its SSH tunnels through the same prompt, so while one is
-        // opening the question may be its own too.
-        let compare_opening = matches!(self.state.compare.session, Some(SessionPhase::Opening(_)));
-        if test_running || compare_opening || self.state.any_connecting_via(&host) {
+        if self.other_prompt_users_pending() || self.state.any_connecting_via(&host) {
             return;
         }
         self.drain_requests();
         self.prompt = std::mem::take(&mut self.prompt).rejected_for_host(&host);
+    }
+
+    /// Whether something that belongs to no open session may be the asker of a queued host-key
+    /// question. A connection test asks through the same prompt, and so does a compare session
+    /// while it opens its SSH tunnels. Closing a browsing session then must not reject their
+    /// question. Accepted limitation: the closed sessions' own questions stay queued until they
+    /// are answered or `HOST_KEY_PROMPT_TIMEOUT` rejects them (fail-closed, and `GatedPrompt`
+    /// turns a Trust for a closed session into Reject).
+    fn other_prompt_users_pending(&self) -> bool {
+        matches!(self.state.conn.test, TestState::Running { .. })
+            || matches!(self.state.compare.session, Some(SessionPhase::Opening(_)))
     }
 
     fn send(&mut self, commands: Vec<Command>) {
@@ -252,8 +257,11 @@ impl CurlybraceApp {
             // Prompts belong to sessions that coexist: a closing session's own question was already
             // rejected at dispatch time and the others' are left alone. Only when the last session
             // has closed does nobody remain to answer for: collect what the runtime queued, then
-            // reject it all.
-            if matches!(command, Command::Disconnect { .. }) && self.state.open.is_empty() {
+            // reject it all, unless a test or compare session may be the asker.
+            if matches!(command, Command::Disconnect { .. })
+                && self.state.open.is_empty()
+                && !self.other_prompt_users_pending()
+            {
                 self.drain_requests();
                 self.prompt = std::mem::take(&mut self.prompt).rejected_all();
             }

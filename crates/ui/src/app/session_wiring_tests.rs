@@ -535,3 +535,44 @@ fn closing_a_session_without_ssh_rejects_nothing() {
     assert!(w.try_recv().is_err());
     assert_eq!(r.shown(), named("hb", "fb", "b"));
 }
+
+#[test]
+fn closing_the_last_session_keeps_the_question_of_an_opening_compare_session() {
+    let mut r = rig(vec![via("a", "ha")]);
+    r.connect(0);
+    let w = r.ask("ha", "fa"); // the compare tunnel's question
+    r.shown();
+    r.app.state_mut().compare.session = Some(SessionPhase::Opening(1));
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert!(r.app.state().open.is_empty(), "the last session is closed");
+    assert!(
+        w.try_recv().is_err(),
+        "the compare session may be the asker"
+    );
+    assert_eq!(r.shown().map(|s| s.0), Some("ha".into()));
+}
+
+#[test]
+fn closing_the_last_session_keeps_the_question_of_a_running_connection_test() {
+    let mut r = rig(vec![via("a", "ha")]);
+    r.connect(0);
+    let w = r.ask("ha", "fa"); // the test's question
+    r.shown();
+    r.app.state_mut().conn.test = TestState::Running { request_id: 7 };
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert!(r.app.state().open.is_empty(), "the last session is closed");
+    assert!(w.try_recv().is_err(), "the test may be the asker");
+    assert_eq!(r.shown().map(|s| s.0), Some("ha".into()));
+}
+
+#[test]
+fn closing_the_last_session_rejects_everything_once_compare_is_ready() {
+    let mut r = rig(vec![via("a", "ha")]);
+    r.connect(0);
+    let w = r.ask("hz", "fz"); // not the closing session's host: only reject-all reaches it
+    r.shown();
+    r.app.state_mut().compare.session = Some(SessionPhase::Ready(1));
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert_eq!(w.try_recv(), Ok(HostKeyDecision::Reject));
+    assert!(r.app.pending_host_key().is_none());
+}
