@@ -145,6 +145,19 @@ impl PromptState {
         self
     }
 
+    /// Rejects every pending request for `host` (ASCII case-insensitive) and keeps the others,
+    /// in order: the question of a session that closed has nobody left to answer for.
+    pub fn rejected_for_host(self, host: &str) -> Self {
+        let (closed, kept): (VecDeque<_>, VecDeque<_>) = self
+            .queue
+            .into_iter()
+            .partition(|r| r.host.eq_ignore_ascii_case(host));
+        for request in closed {
+            request.answer(HostKeyDecision::Reject);
+        }
+        Self { queue: kept }
+    }
+
     /// Rejects everything pending (new Connect/Disconnect, app exit).
     pub fn rejected_all(mut self) -> Self {
         while let Some(request) = self.queue.pop_front() {
@@ -263,6 +276,34 @@ mod tests {
         assert!(state.current().is_none());
         assert_eq!(ra.try_recv(), Ok(HostKeyDecision::Reject));
         assert_eq!(rb.try_recv(), Ok(HostKeyDecision::Reject));
+    }
+
+    #[test]
+    fn rejected_for_host_rejects_only_that_host_and_keeps_the_order() {
+        let (a1, ra1) = HostKeyRequest::new("a", "f1");
+        let (b, rb) = HostKeyRequest::new("b", "fb");
+        let (a2, ra2) = HostKeyRequest::new("A", "f2");
+        let (c, rc) = HostKeyRequest::new("c", "fc");
+        let state = PromptState::default()
+            .offered(a1)
+            .offered(b)
+            .offered(a2)
+            .offered(c)
+            .rejected_for_host("a");
+        assert_eq!(ra1.try_recv(), Ok(HostKeyDecision::Reject));
+        assert_eq!(ra2.try_recv(), Ok(HostKeyDecision::Reject));
+        assert!(rb.try_recv().is_err() && rc.try_recv().is_err());
+        assert_eq!(state.current(), Some(("b", "fb")));
+        let state = state.answered(HostKeyDecision::Trust);
+        assert_eq!(state.current(), Some(("c", "fc")));
+    }
+
+    #[test]
+    fn rejected_for_an_unknown_host_changes_nothing() {
+        let (a, ra) = HostKeyRequest::new("a", "fa");
+        let state = PromptState::default().offered(a).rejected_for_host("zzz");
+        assert!(ra.try_recv().is_err());
+        assert_eq!(state.current(), Some(("a", "fa")));
     }
 
     #[test]

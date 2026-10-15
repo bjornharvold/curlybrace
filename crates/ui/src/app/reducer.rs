@@ -51,7 +51,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::ShowConnections => session_actions::show_connections(state),
         Input::TestConnection(form) => connection_test::start(state, &form),
         Input::Compare(a) => compare::on_action(state, a),
-        Input::DismissBanner => (with_banner(state, None), Vec::new()),
+        Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
             AppState {
@@ -69,16 +69,13 @@ pub fn apply_event(state: AppState, ev: Event) -> AppState {
     on_event(state, ev).0
 }
 
-fn with_banner(state: AppState, banner: Option<Banner>) -> AppState {
-    AppState { banner, ..state }
-}
-
 fn failure(state: AppState, context: &'static str, error: CoreError) -> AppState {
     let banner_session = state.active;
     AppState {
+        banner: Some(Banner::Failure { context, error }),
         banner_session,
         forget_target: None,
-        ..with_banner(state, Some(Banner::Failure { context, error }))
+        ..state
     }
 }
 
@@ -104,13 +101,18 @@ fn on_event(state: AppState, ev: Event) -> Out {
         // A late answer of a session that was closed: it never resurrects the root and never
         // applies to another session.
         (_, Some(session)) if !state.is_open(session) => (state, Vec::new()),
-        (ev, Some(session)) => state.with_session(session, |s| on_session_event(s, ev)),
+        (ev, Some(session)) => {
+            // Inside `with_session` the active session is the event's own, so whether the person
+            // is looking at it must be read before.
+            let background = state.active != Some(session);
+            state.with_session(session, |s| on_session_event(s, ev, background))
+        }
         (_, None) => (state, Vec::new()),
     }
 }
 
 /// Applies an event of the session that is active while this runs (see `with_session`).
-fn on_session_event(state: AppState, ev: Event) -> Out {
+fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
     match ev {
         // The runtime reports every outcome of a replaced session as `Superseded`.
         // Connect/Disconnect already cleared everything tied to that session at dispatch
@@ -123,13 +125,12 @@ fn on_session_event(state: AppState, ev: Event) -> Out {
         Event::Connected {
             epoch, topology, ..
         } => at_epoch(state, epoch, |s| {
-            let s = AppState {
+            let s = after_connected(AppState {
                 status: ConnStatus::Connected,
                 failure: None,
                 topology,
-                banner: s.banner.filter(|b| !is_data_failure(b)),
                 ..s
-            };
+            });
             let session = s.session_id();
             (s, vec![Command::ListDatabases { session }])
         }),
@@ -137,7 +138,7 @@ fn on_session_event(state: AppState, ev: Event) -> Out {
         // still open (a newer connect of the same id) can get here, and it is not about it.
         Event::Disconnected { .. } => (state, Vec::new()),
         Event::ConnectFailed { epoch, error, .. } => at_epoch(state, epoch, |s| {
-            (connection_lost(s, "connect", error), Vec::new())
+            (connection_lost(s, "connect", error, background), Vec::new())
         }),
         // The root was dropped when Disconnect was sent and the runtime always answers
         // `Disconnected`; a failure that still arrives must not fail a root opened since.
@@ -193,26 +194,32 @@ fn at_epoch(state: AppState, epoch: u64, apply: impl FnOnce(AppState) -> Out) ->
     })
 }
 
-/// Banners about data commands of a previous session.
-fn is_data_failure(banner: &Banner) -> bool {
-    matches!(
-        banner,
-        Banner::Failure {
-            context: "find"
-                | "insert"
-                | "replace"
-                | "delete"
-                | "clone"
-                | "list_databases"
-                | "list_collections",
-            ..
-        }
-    )
+/// The state after a session connected: its own data-failure banner is stale now; any other
+/// banner (another session's included) stays.
+fn after_connected(state: AppState) -> AppState {
+    let stale = state.banner_owner() == state.active
+        && state.banner.as_ref().is_some_and(Banner::is_data_failure);
+    if stale { state.without_banner() } else { state }
 }
 
 /// The active session's connection failed or was lost: its root stays (marked failed, showing
 /// the error), its view is cleared, and the user is told through the banner.
-fn connection_lost(state: AppState, context: &'static str, error: CoreError) -> AppState {
+///
+/// Only a background (not focused) session leaves another session's banner alone: its root shows
+/// `Failed` and its error in the tree. The focused session always raises its own banner.
+fn connection_lost(
+    state: AppState,
+    context: &'static str,
+    error: CoreError,
+    background: bool,
+) -> AppState {
+    if background
+        && state
+            .banner_owner()
+            .is_some_and(|owner| Some(owner) != state.active)
+    {
+        return state.failed(error);
+    }
     let banner = Some(Banner::Failure {
         context,
         error: error.clone(),
@@ -334,6 +341,8 @@ fn forget_finished(state: AppState, result: Result<(), PersistError>) -> AppStat
     AppState {
         forget_confirm: None,
         banner: Some(banner),
+        banner_session: None,
+        forget_target: None,
         ..state
     }
 }

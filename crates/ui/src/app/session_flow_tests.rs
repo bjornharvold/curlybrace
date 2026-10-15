@@ -1,4 +1,5 @@
 //! Several sessions open at once: opening, focusing, failing, closing and routing of events.
+use crate::I18n;
 use crate::app::reducer::{Input, Out, update};
 use crate::app::state::{AppState, Banner, ConnStatus, Workspace};
 use crate::viewmodel::{DocAction, EditorAction, FindAction, SidebarAction};
@@ -343,7 +344,7 @@ fn a_connect_failure_marks_only_that_root_failed() {
     assert_eq!(s.open, vec![a, b], "the failed root stays in the tree");
     assert_eq!(s.parked[&a].status, ConnStatus::Connected);
     assert_eq!(who(&s.parked[&a].page), Some("a".into()));
-    let roots = s.roots();
+    let roots = s.roots(&I18n::english());
     assert_eq!(roots[0].status, ConnStatus::Connected);
     assert_eq!(roots[1].status, ConnStatus::Failed);
     assert!(roots[1].failure.is_some());

@@ -126,8 +126,8 @@ contribute.
 ### Built
 
 - **Several connections at once** ([#46](https://github.com/bjornharvold/curlybrace/issues/46)): open several saved connections at the same time, each with
-  its own tree root, status and view. A write always names the connection it goes to, and deleting a
-  saved connection closes its open session.
+  its own tree root, status and view. The documents pane, the delete confirmation and the editor name the
+  connection a write goes to, and deleting a saved connection closes its open session.
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): compare collections or whole databases across servers, copy or
   delete differences with a review step, and export the changes. Nothing is left to build; feedback
   and fixes are welcome. See the [guide](docs/compare.md).

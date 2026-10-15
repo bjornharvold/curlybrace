@@ -477,22 +477,24 @@ fn dispatch(
         handlers::spawn_test(shared, events, repaint, request_id, cfg, secrets);
         return;
     }
+    // Synchronous, so request order decides: ending the session bumps its epoch before any later
+    // command is dispatched. The session is gone afterwards, so the answer needs no `Session`.
+    if let Command::Disconnect { session: id } = command {
+        let epoch = shared.end_session(id);
+        if events
+            .send(Event::Disconnected { session: id, epoch })
+            .is_ok()
+        {
+            repaint();
+        }
+        return;
+    }
     let context = command.context();
     // Synchronous, so request order decides which connection wins.
     let target = match &command {
         Command::Connect(cfg) => {
             let (session, generation) = shared.begin_session_epoch(cfg.id);
             Target::new(cfg.id, session, generation, false)
-        }
-        Command::Disconnect { session } => {
-            let generation = shared.end_session(*session);
-            // The session is already gone: the answer needs no live session.
-            Target::new(
-                *session,
-                Arc::new(Session::new(generation, None)),
-                generation,
-                false,
-            )
         }
         _ => {
             let id = command.session().expect("a data command names its session");

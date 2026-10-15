@@ -53,8 +53,15 @@ pub enum TestState {
 /// The outcome of an import or export, shown by the view (never carries paths).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Notice {
-    Imported { imported: usize, skipped: usize },
-    Exported { count: usize },
+    Imported {
+        imported: usize,
+        skipped: usize,
+    },
+    Exported {
+        count: usize,
+    },
+    /// A saved edit of an open connection: it applies the next time the person connects.
+    AppliesOnReconnect,
 }
 
 /// View state: saved connections, the form being edited and the last validation error.

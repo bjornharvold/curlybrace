@@ -11,7 +11,7 @@ use curlybrace_ui::app::state::{Banner, ConnStatus};
 use egui_kittest::kittest::Queryable;
 use support::actions::*;
 use support::db::people;
-use support::fixture::{Fixture, Setup};
+use support::fixture::{Fixture, LOCAL_CONNECTION_NAME, Setup};
 use support::wait::wait_until;
 
 const PEOPLE: &str = "people";
@@ -27,8 +27,6 @@ macro_rules! test_name {
 
 /// The saved connection's name in the secured fixture (`auth_fixture`).
 const SECURED_NAME: &str = "secured";
-/// The saved connection's name in `Fixture::docker_plain`.
-const PLAIN_NAME: &str = "local";
 
 /// The accessible name of a connection's own disconnect button in the sidebar.
 fn disconnect_label(f: &Fixture, name: &str) -> String {
@@ -142,7 +140,7 @@ fn a_stopped_server_fails_in_time_and_reconnects_after_restart() {
     f.server.container().unwrap().start();
     support::fixture::wait_ready_blocking(&f);
     click_key(&mut f, "banner.dismiss");
-    let disconnect = disconnect_label(&f, PLAIN_NAME);
+    let disconnect = disconnect_label(&f, LOCAL_CONNECTION_NAME);
     f.click_text(&disconnect);
     let connect = f.labels.t("connections.connect");
     wait_shows(&mut f, &connect);

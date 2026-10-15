@@ -2,7 +2,10 @@
 //! parked here until the user switches to them.
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus, HostEndpoint, Pending};
+use crate::I18n;
+use crate::viewmodel::connection_list;
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
+use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{Page, Query, Topology};
 use std::collections::BTreeSet;
@@ -39,6 +42,26 @@ pub struct Root {
     pub topology: Option<Topology>,
     pub failure: Option<CoreError>,
     pub active: bool,
+}
+
+/// The name to show for the open session `id`: see [`AppState::open_label`].
+pub fn session_display_name(state: &AppState, id: Uuid, i18n: &I18n) -> Option<String> {
+    state.open_label(id, i18n)
+}
+
+/// The first four hex characters of a connection id.
+fn short_id(id: Uuid) -> String {
+    id.simple().to_string().chars().take(4).collect()
+}
+
+/// What tells a connection apart from same-named ones: its servers, or its short id without any.
+fn distinguishing_servers(cfg: &ConnectionConfig) -> String {
+    let servers = connection_list::servers(cfg);
+    if servers.is_empty() {
+        short_id(cfg.id)
+    } else {
+        servers
+    }
 }
 
 impl AppState {
@@ -177,9 +200,24 @@ impl AppState {
         self.parked.get(&id).and_then(|v| v.ssh_endpoint.as_ref())
     }
 
+    /// The SSH host an open session connects through, wherever its view lives.
+    pub fn ssh_host_of(&self, id: Uuid) -> Option<String> {
+        self.ssh_endpoint_of(id).map(|e| e.host.clone())
+    }
+
+    /// Whether some open session that is still connecting goes through SSH host `host`.
+    pub fn any_connecting_via(&self, host: &str) -> bool {
+        self.open.iter().any(|id| {
+            self.status_of(*id) == Some(ConnStatus::Connecting)
+                && self
+                    .ssh_endpoint_of(*id)
+                    .is_some_and(|e| e.host.eq_ignore_ascii_case(host))
+        })
+    }
+
     /// The name of the one open connecting session whose SSH host is `host`; `None` when no
     /// session or several sessions match (the prompt then cannot say who is asking).
-    pub fn connecting_name_for_host(&self, host: &str) -> Option<String> {
+    pub fn connecting_name_for_host(&self, host: &str, i18n: &I18n) -> Option<String> {
         let mut matching = self.open.iter().filter(|id| {
             self.status_of(**id) == Some(ConnStatus::Connecting)
                 && self
@@ -190,7 +228,37 @@ impl AppState {
         if matching.next().is_some() {
             return None;
         }
-        self.connection(*only).map(|c| c.name.clone())
+        self.open_label(*only, i18n)
+    }
+
+    /// THE label of the open session `id`, used wherever a session is named. The saved name,
+    /// unless another open session's connection shares it; then "name (servers)", plus the short
+    /// id when those servers are identical too. `None` when the saved connection was deleted.
+    /// Display only: saved names are never changed.
+    pub fn open_label(&self, id: Uuid, i18n: &I18n) -> Option<String> {
+        let cfg = self.connection(id)?;
+        let twins: Vec<&ConnectionConfig> = self
+            .open
+            .iter()
+            .filter(|other| **other != id)
+            .filter_map(|other| self.connection(*other))
+            .filter(|other| other.name == cfg.name)
+            .collect();
+        if twins.is_empty() {
+            return Some(cfg.name.clone());
+        }
+        let servers = distinguishing_servers(cfg);
+        let name = cfg.name.as_str();
+        let label = if twins.iter().any(|t| distinguishing_servers(t) == servers) {
+            let params = [("name", name), ("servers", &servers), ("id", &short_id(id))];
+            i18n.t_with("sidebar.name_with_servers_id", &params)
+        } else {
+            i18n.t_with(
+                "sidebar.name_with_servers",
+                &[("name", name), ("servers", &servers)],
+            )
+        };
+        Some(label)
     }
 
     /// Opens `id` (keeping its place when already open) with `view` as its whole view and makes it
@@ -240,14 +308,13 @@ impl AppState {
     }
 
     /// The open sessions in opening order, the active one read from the foreground fields.
-    pub fn roots(&self) -> Vec<Root> {
-        self.open.iter().map(|id| self.root(*id)).collect()
+    pub fn roots(&self, i18n: &I18n) -> Vec<Root> {
+        self.open.iter().map(|id| self.root(*id, i18n)).collect()
     }
 
-    fn root(&self, id: Uuid) -> Root {
+    fn root(&self, id: Uuid, i18n: &I18n) -> Root {
         let name = self
-            .connection(id)
-            .map(|c| c.name.clone())
+            .open_label(id, i18n)
             .unwrap_or_else(|| id.to_string().chars().take(8).collect());
         let active = self.active == Some(id);
         let (status, topology, failure) = if active {
