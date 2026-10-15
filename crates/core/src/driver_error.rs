@@ -77,10 +77,13 @@ fn reach_of(kind: &ErrorKind) -> Reach {
 }
 
 /// Markers of a TLS handshake failure in the per-server reason, matched case-insensitively.
-const HANDSHAKE_MARKERS: [&str; 4] = [
+const HANDSHAKE_MARKERS: [&str; 7] = [
     "handshake",
+    "peer is incompatible",
+    "corrupt message",
+    "peer misbehaved",
+    "alert",
     "invalid peer certificate",
-    "received fatal alert",
     "certificate",
 ];
 
@@ -265,6 +268,10 @@ mod tests {
             "invalid peer certificate: UnknownIssuer",
             "invalid peer certificate: Expired",
             "TLS HANDSHAKE EOF",
+            "peer is incompatible: NoCipherSuitesInCommon",
+            "received corrupt message of type InvalidContentType",
+            "peer misbehaved: IllegalSniPayload",
+            "peer sent alert: UnrecognizedName",
         ] {
             assert_eq!(
                 reach_of_selection(&selection(reason)),
