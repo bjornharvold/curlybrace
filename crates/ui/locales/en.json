@@ -460,6 +460,7 @@
     "disconnect": "Disconnect",
     "duplicate": "Duplicate",
     "edit": "Edit",
+    "edit_open_notice": "Changes apply the next time you connect.",
     "edit_title": "Edit connection",
     "export": "Export",
     "export_done": "Exported {count} connections without secrets.",

@@ -3,7 +3,7 @@ use super::connection_ops::with_conn;
 use super::connections::{ConfigPath, save};
 use super::state::{AppState, Banner};
 use crate::viewmodel::ConnectionForm;
-use crate::views::connections::ConnectionsState;
+use crate::views::connections::Notice;
 use curlybrace_core::secrets::SecretStore;
 
 /// What the dialog does after a save.
@@ -56,6 +56,8 @@ pub(super) fn save_and_close(
     now: i64,
 ) -> AppState {
     let blocked = state.persist.check().is_err();
+    // Open sessions keep the settings they connected with: an edit only shows on the next connect.
+    let edits_open_session = state.is_open(form.id);
     // Save against an empty banner slot so any banner seen afterwards came from this save, even
     // when an identical one was already showing; the old banner is restored if none came.
     let prior = state.banner.clone();
@@ -76,7 +78,10 @@ pub(super) fn save_and_close(
         ..next
     };
     match outcome {
-        SaveOutcome::Closed => with_conn(next, ConnectionsState::saved),
+        SaveOutcome::Closed => with_conn(next, |conn| {
+            conn.saved();
+            conn.notice = edits_open_session.then_some(Notice::AppliesOnReconnect);
+        }),
         SaveOutcome::StayOpen => next,
     }
 }
@@ -85,6 +90,8 @@ pub(super) fn save_and_close(
 mod tests {
     use super::*;
     use crate::app::persistence::{PersistError, PersistGuard};
+    use crate::app::state::ConnStatus;
+    use crate::views::connections::ConnectionsState;
     use curlybrace_core::connection::ConnectionConfig;
     use curlybrace_core::error::{CoreError, Result};
     use curlybrace_core::secrets::MemorySecretStore;
@@ -281,5 +288,125 @@ mod tests {
         assert_eq!(state.conn.connections.len(), 1, "kept in memory");
         assert!(!state.conn.editing);
         assert!(matches!(state.banner, Some(Banner::Persist(_))));
+    }
+
+    fn existing(name: &str) -> ConnectionConfig {
+        ConnectionConfig::new(name, "mongodb://h")
+    }
+
+    /// `state` with `cfg` saved, the dialog open on it, and `open` sessions.
+    fn editing_saved(cfg: &ConnectionConfig, open: &[(Uuid, ConnStatus)]) -> AppState {
+        let mut state = editing(ConnectionForm::from_config(cfg), vec![cfg.clone()]);
+        for (id, status) in open {
+            let view = crate::app::session::SessionView {
+                status: *status,
+                ..Default::default()
+            };
+            state = state.opened_with(*id, view);
+        }
+        state
+    }
+
+    #[test]
+    fn editing_an_open_connection_says_changes_apply_on_reconnect() {
+        let (_dir, path, secrets) = setup();
+        let cfg = existing("a");
+        let other = existing("b");
+        for status in [
+            ConnStatus::Connected,
+            ConnStatus::Connecting,
+            ConnStatus::Failed,
+        ] {
+            // Open as the active session, then park it behind another one.
+            for parked in [false, true] {
+                let mut open = vec![(cfg.id, status)];
+                if parked {
+                    open.push((other.id, ConnStatus::Connected));
+                }
+                let form = ConnectionForm {
+                    name: "renamed".into(),
+                    ..ConnectionForm::from_config(&cfg)
+                };
+                let state = editing_saved(&cfg, &open);
+                assert!(state.is_open(cfg.id));
+                let next = save_and_close(state, &form, &secrets, &path, 9);
+                assert_eq!(
+                    next.conn.notice,
+                    Some(Notice::AppliesOnReconnect),
+                    "{status:?} parked={parked}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn no_edit_notice_for_a_closed_new_or_unsuccessful_save() {
+        let (_dir, path, secrets) = setup();
+        let cfg = existing("a");
+        // Saved but not open.
+        let form = ConnectionForm::from_config(&cfg);
+        let next = save_and_close(editing_saved(&cfg, &[]), &form, &secrets, &path, 9);
+        assert_eq!(next.conn.notice, None, "closed connection");
+        // A new connection while another one is open.
+        let other = existing("b");
+        let state = editing_saved(&other, &[(other.id, ConnStatus::Connected)]);
+        let fresh = named_form("new");
+        let next = save_and_close(state, &fresh, &secrets, &path, 9);
+        assert_eq!(next.conn.notice, None, "new connection");
+        // An open connection whose save is rejected.
+        let bad = ConnectionForm {
+            name: "  ".into(),
+            ..ConnectionForm::from_config(&cfg)
+        };
+        let state = editing_saved(&cfg, &[(cfg.id, ConnStatus::Connected)]);
+        let next = save_and_close(state, &bad, &secrets, &path, 9);
+        assert!(next.conn.editing);
+        assert!(!matches!(
+            next.conn.notice,
+            Some(Notice::AppliesOnReconnect)
+        ));
+        // An open connection whose keychain write fails.
+        let failing = Failing {
+            inner: MemorySecretStore::new(),
+            fail_set: true,
+            fail_get_for: None,
+        };
+        let typed = ConnectionForm {
+            password: "typed".into(),
+            ..ConnectionForm::from_config(&cfg)
+        };
+        let state = editing_saved(&cfg, &[(cfg.id, ConnStatus::Connected)]);
+        let next = save_and_close(state, &typed, &failing, &path, 9);
+        assert!(!matches!(
+            next.conn.notice,
+            Some(Notice::AppliesOnReconnect)
+        ));
+    }
+
+    #[test]
+    fn a_duplicate_of_an_open_connection_gets_no_edit_notice() {
+        let (_dir, path, secrets) = setup();
+        let cfg = existing("a");
+        let state = editing_saved(&cfg, &[(cfg.id, ConnStatus::Connected)]);
+        let copy = ConnectionForm {
+            id: Uuid::new_v4(),
+            name: "a (copy)".into(),
+            ..ConnectionForm::from_config(&cfg)
+        };
+        let next = save_and_close(state, &copy, &secrets, &path, 9);
+        assert_eq!(next.conn.notice, None);
+    }
+
+    #[test]
+    fn the_edit_notice_follows_the_clearing_rules() {
+        let mut conn = ConnectionsState {
+            notice: Some(Notice::AppliesOnReconnect),
+            ..ConnectionsState::default()
+        };
+        conn.filter_edited();
+        assert_eq!(conn.notice, None);
+        conn.notice = Some(Notice::AppliesOnReconnect);
+        conn.saved();
+        assert_eq!(conn.notice, None);
     }
 }

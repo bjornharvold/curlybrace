@@ -110,6 +110,12 @@ fn the_screen_renders_a_notice_and_both_prompts_without_panicking() {
     state.error = Some(CoreError::InvalidUri("x".into()));
     state.open_move_prompt(cfg.id);
     assert_eq!(run_frame(&mut state), None);
+    state.notice = Some(Notice::AppliesOnReconnect);
+    assert_eq!(run_frame(&mut state), None);
+    state.notice = Some(Notice::Imported {
+        imported: 2,
+        skipped: 1,
+    });
     assert!(state.folder_prompt.is_some(), "still open");
     state.open_rename_prompt("Work");
     assert_eq!(run_frame(&mut state), None);

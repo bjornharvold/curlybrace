@@ -53,6 +53,7 @@ fn notice_text(notice: &Notice, i18n: &I18n) -> String {
         Notice::Exported { count } => {
             i18n.t_with("connections.export_done", &[("count", &count.to_string())])
         }
+        Notice::AppliesOnReconnect => i18n.t("connections.edit_open_notice"),
     }
 }
 
