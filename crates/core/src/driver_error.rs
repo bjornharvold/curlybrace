@@ -278,11 +278,11 @@ mod tests {
                 Reach::Handshake,
                 "{reason}"
             );
-            assert_eq!(
-                classify_parts(None, false, Reach::Handshake, "x"),
-                CoreError::TlsHandshake
-            );
         }
+        assert_eq!(
+            classify_parts(None, false, Reach::Handshake, "x"),
+            CoreError::TlsHandshake
+        );
     }
 
     #[test]

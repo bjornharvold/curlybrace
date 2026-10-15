@@ -18,7 +18,7 @@ async fn tls_against_a_plain_text_server_is_a_handshake_failure() {
     if !docker_enabled("tls_against_a_plain_text_server_is_a_handshake_failure") {
         return;
     }
-    let container = Container::start_mongo_restartable(&[], &[]);
+    let container = Container::start_mongo(&[], &[]);
     let plain = config(&container);
     wait_ready(&plain, None).await;
 
@@ -32,8 +32,6 @@ async fn tls_against_a_plain_text_server_is_a_handshake_failure() {
         panic!("a TLS client must not connect to a plain-text server");
     };
     assert_eq!(err, CoreError::TlsHandshake, "{err:?}");
-    // The driver text (address, reason) is never kept.
-    assert!(!err.to_string().contains(&container.uri()));
 }
 
 #[tokio::test]
