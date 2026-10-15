@@ -139,11 +139,12 @@ fn on_session_event(state: AppState, ev: Event) -> Out {
         Event::ConnectFailed { epoch, error, .. } => at_epoch(state, epoch, |s| {
             (connection_lost(s, "connect", error), Vec::new())
         }),
+        // The root was dropped when Disconnect was sent and the runtime always answers
+        // `Disconnected`; a failure that still arrives must not fail a root opened since.
         Event::Failed {
             context: "disconnect",
-            error,
             ..
-        } => (connection_lost(state, "disconnect", error), Vec::new()),
+        } => (state, Vec::new()),
         // Anything else is a late answer from a session that is not connected.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases { names, .. } => {

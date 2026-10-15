@@ -66,24 +66,45 @@ impl AppState {
         }
     }
 
+    /// Destructures exhaustively: a field added to `SessionView` but not restored here fails to
+    /// compile.
     fn restore_view(&mut self, v: SessionView) {
-        self.status = v.status;
-        self.failure = v.failure;
-        self.latest_requested_epoch = v.latest_requested_epoch;
-        self.topology = v.topology;
-        self.sidebar = v.sidebar;
-        self.loading = v.loading;
-        self.find = v.find;
-        self.issued_query = v.issued_query;
-        self.page_query = v.page_query;
-        self.loading_page = v.loading_page;
-        self.page = v.page;
-        self.page_key = v.page_key;
-        self.tree = v.tree;
-        self.view_mode = v.view_mode;
-        self.editor = v.editor;
-        self.pending = v.pending;
-        self.ssh_endpoint = v.ssh_endpoint;
+        let SessionView {
+            status,
+            failure,
+            latest_requested_epoch,
+            topology,
+            sidebar,
+            loading,
+            find,
+            issued_query,
+            page_query,
+            loading_page,
+            page,
+            page_key,
+            tree,
+            view_mode,
+            editor,
+            pending,
+            ssh_endpoint,
+        } = v;
+        self.status = status;
+        self.failure = failure;
+        self.latest_requested_epoch = latest_requested_epoch;
+        self.topology = topology;
+        self.sidebar = sidebar;
+        self.loading = loading;
+        self.find = find;
+        self.issued_query = issued_query;
+        self.page_query = page_query;
+        self.loading_page = loading_page;
+        self.page = page;
+        self.page_key = page_key;
+        self.tree = tree;
+        self.view_mode = view_mode;
+        self.editor = editor;
+        self.pending = pending;
+        self.ssh_endpoint = ssh_endpoint;
     }
 
     /// Makes `id` the active session, parking the previous one. Unknown ids change nothing.

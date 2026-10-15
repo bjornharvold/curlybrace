@@ -241,9 +241,12 @@ fn failed_connect_marks_the_root_failed_with_a_banner() {
 }
 
 #[test]
-fn failed_disconnect_also_marks_the_root_failed() {
+fn a_late_disconnect_failure_leaves_a_reopened_root_alone() {
+    // The root was dropped when Disconnect was sent; a failure of that request arriving after a
+    // quick reconnect of the same id must not fail the new root.
     let s = browsing();
-    let (s, _) = event(
+    let banner = s.banner.clone();
+    let (after, cmds) = event(
         s,
         Event::Failed {
             session: EMBEDDED_SESSION,
@@ -251,7 +254,10 @@ fn failed_disconnect_also_marks_the_root_failed() {
             error: CoreError::Database("x".into()),
         },
     );
-    assert_eq!(s.status, ConnStatus::Failed);
+    assert!(cmds.is_empty());
+    assert_eq!(after.status, ConnStatus::Connected);
+    assert_eq!(after.failure, None);
+    assert_eq!(after.banner, banner);
 }
 
 #[test]

@@ -18,7 +18,7 @@ pub enum ConnStatus {
     Disconnected,
     Connecting,
     Connected,
-    /// The last attempt to open the session failed; unused until several sessions can be open.
+    /// The last attempt to open the session failed (its root stays in the tree until closed).
     Failed,
 }
 
@@ -90,6 +90,14 @@ pub struct Pending {
     pub editor: Option<EditorKey>,
 }
 
+/// The whole UI state.
+///
+/// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
+/// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
+/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `editor`, `pending` and
+/// `ssh_endpoint`. They are parked per session and must be added to `SessionView` (and to
+/// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
+/// missed field fails to compile.
 #[derive(Debug, Default)]
 pub struct AppState {
     pub workspace: Workspace,
@@ -103,15 +111,17 @@ pub struct AppState {
     pub active: Option<Uuid>,
     /// The views of the open sessions that are not active.
     pub parked: BTreeMap<Uuid, SessionView>,
-    /// Counts connect/disconnect requests sent to the runtime.
+    /// Counts connect/disconnect requests sent to the runtime; it mirrors the runtime's own
+    /// request counter (bumped once for EVERY Connect/Disconnect command sent, starting at 0,
+    /// and the UI is its only sender).
     pub epoch_counter: u64,
     /// Why the active session's last attempt to open failed.
     pub failure: Option<CoreError>,
     /// How the active session's server is deployed, once known.
     pub topology: Option<Topology>,
-    /// Mirrors the runtime's request counter: bumped once for EVERY Connect/Disconnect command
-    /// sent (the runtime does the same, starting at 0, and the UI is its only sender). An
-    /// outcome stamped with an older epoch belongs to a request the user has since replaced.
+    /// The epoch of the latest connect requested for the ACTIVE session (parked with its view,
+    /// see `epoch_counter` for the global request counter). An outcome stamped with an older
+    /// epoch belongs to a request the user has since replaced.
     pub latest_requested_epoch: u64,
     pub sidebar: SidebarState,
     /// Databases whose collection list is in flight.
