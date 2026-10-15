@@ -289,3 +289,80 @@ fn a_failed_delete_closes_nothing() {
     assert!(r.app.state().is_open(r.ids[0]));
     assert!(r.app.state().connection(r.ids[0]).is_some(), "still saved");
 }
+
+#[test]
+fn a_delete_whose_config_write_fails_still_closes_the_open_session() {
+    // The secrets are removed BEFORE the config is written, so by the time the write fails the
+    // credentials the session was opened from are already gone. Keeping that session alive
+    // would outlive its credentials; closing it is the safe outcome. The connection leaves the
+    // in-memory list and the banner tells the user the file could not be saved.
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.answer_connected(0);
+    drain(&mut r);
+    r.app.config_path = Err(persistence::PersistError::Write(
+        std::io::ErrorKind::PermissionDenied,
+    ));
+    r.app
+        .dispatch_connection(ConnectionAction::Delete(r.ids[0]));
+    assert!(r.app.state().connection(r.ids[0]).is_none());
+    assert!(matches!(r.app.state().banner, Some(Banner::Persist(_))));
+    let sent = drain(&mut r);
+    assert!(
+        matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[0]),
+        "{sent:?}"
+    );
+    assert!(!r.app.state().is_open(r.ids[0]));
+}
+
+#[test]
+fn deleting_the_active_session_activates_its_neighbour_and_disconnects_once() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb"), via("c", "hc")]);
+    for i in 0..3 {
+        r.connect(i);
+        r.answer_connected(i);
+    }
+    r.app.dispatch(Input::Activate(r.ids[1]));
+    drain(&mut r);
+    r.app
+        .dispatch_connection(ConnectionAction::Delete(r.ids[1]));
+    assert_eq!(r.app.state().active, Some(r.ids[2]), "the next open one");
+    let sent = drain(&mut r);
+    assert!(
+        matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[1]),
+        "{sent:?}"
+    );
+    r.app
+        .dispatch_connection(ConnectionAction::Delete(r.ids[2]));
+    assert_eq!(r.app.state().active, Some(r.ids[0]), "else the previous");
+    assert_eq!(drain(&mut r).len(), 1);
+}
+
+#[test]
+fn deleting_a_connecting_connection_disconnects_and_ignores_its_late_answers() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    drain(&mut r);
+    r.app
+        .dispatch_connection(ConnectionAction::Delete(r.ids[0]));
+    let sent = drain(&mut r);
+    assert!(
+        matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[0]),
+        "{sent:?}"
+    );
+    assert!(!r.app.state().is_open(r.ids[0]));
+    r.answer_connected(0);
+    r.events
+        .send(Event::ConnectFailed {
+            session: r.ids[0],
+            epoch: r.epochs[0],
+            error: CoreError::Database("refused".into()),
+        })
+        .unwrap();
+    r.app.pump();
+    assert!(!r.app.state().is_open(r.ids[0]), "no resurrected root");
+    assert!(r.app.state().is_open(r.ids[1]));
+    assert!(r.app.state().banner.is_none());
+    assert!(drain(&mut r).is_empty());
+}
