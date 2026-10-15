@@ -66,6 +66,7 @@ pub(super) fn on_event(
     let through_ssh = state.conn.test_form.as_ref().is_some_and(|f| f.ssh_enabled);
     let outcome = match outcome {
         Err(CoreError::Unreachable) if through_ssh => Err(CoreError::UnreachableSsh),
+        Err(CoreError::TlsHandshake) if through_ssh => Err(CoreError::TlsHandshakeSsh),
         other => other,
     };
     let conn = ConnectionsState {
@@ -137,6 +138,30 @@ mod tests {
             finished_with(valid_form(), CoreError::Unreachable),
             TestState::Done {
                 outcome: Err(CoreError::Unreachable),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_tls_handshake_test_gets_the_tls_text_and_names_the_tunnel_through_ssh() {
+        let tunnelled = ConnectionForm {
+            ssh_enabled: true,
+            ssh_host: "bastion".into(),
+            ssh_user: "ops".into(),
+            ..valid_form()
+        };
+        assert!(matches!(
+            finished_with(tunnelled, CoreError::TlsHandshake),
+            TestState::Done {
+                outcome: Err(CoreError::TlsHandshakeSsh),
+                ..
+            }
+        ));
+        assert!(matches!(
+            finished_with(valid_form(), CoreError::TlsHandshake),
+            TestState::Done {
+                outcome: Err(CoreError::TlsHandshake),
                 ..
             }
         ));

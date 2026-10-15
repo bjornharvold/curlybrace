@@ -185,10 +185,10 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // next lost command after the editor is closed fails the root.
         Event::Failed {
             context,
-            error: CoreError::Unreachable,
+            error: error @ (CoreError::Unreachable | CoreError::TlsHandshake),
             ..
         } => {
-            let error = specific(&state, context, CoreError::Unreachable);
+            let error = specific(&state, context, error);
             match state.editor.is_none() {
                 true => (
                     connection_lost(state, context, error, background),
@@ -208,8 +208,9 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
 
 /// The error as it is shown. An unreachable server of a session that goes through an SSH tunnel
 /// says so, since the tunnel is the first thing to check, and an unreachable write says the
-/// change may have been applied before the connection was lost. Read while the session is the
-/// active one.
+/// change may have been applied before the connection was lost. A failed TLS handshake through a
+/// tunnel says so too, but a write that failed it was never sent, so it has no write wording.
+/// Read while the session is the active one.
 fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
     let write = matches!(context, "insert" | "replace" | "delete" | "clone");
     match (&error, write, state.ssh_endpoint.is_some()) {
@@ -217,6 +218,7 @@ fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
         (CoreError::Unreachable, false, true) => CoreError::UnreachableSsh,
         (CoreError::Unreachable, true, false) => CoreError::UnreachableWrite,
         (CoreError::Unreachable, true, true) => CoreError::UnreachableWriteSsh,
+        (CoreError::TlsHandshake, _, true) => CoreError::TlsHandshakeSsh,
         _ => error,
     }
 }
