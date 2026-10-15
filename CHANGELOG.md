@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.3.0](https://github.com/bjornharvold/curlybrace/compare/v0.2.0...v0.3.0) (2026-10-15)
+
+
+### Features
+
+* **connections:** add a Test Connection runtime command that opens no session ([7f3e22a](https://github.com/bjornharvold/curlybrace/commit/7f3e22ab3dd7d22f022404936235bafa307ea039))
+* **connections:** add all-or-nothing secret copy and a redacting SecretString ([87ec0ae](https://github.com/bjornharvold/curlybrace/commit/87ec0ae47038179bf24a5a169ecac4d3b5f616d9))
+* **connections:** add folder and timestamp fields to saved connections ([cf04957](https://github.com/bjornharvold/curlybrace/commit/cf04957505fa88514584ba36614d437ae0e280f3))
+* **connections:** add pure folder helpers ([4f936a4](https://github.com/bjornharvold/curlybrace/commit/4f936a459f7a09973aba5c517d182500b57111be))
+* **connections:** add the edit dialog with folder, from/to uri and test connection ([3a8f165](https://github.com/bjornharvold/curlybrace/commit/3a8f165f1e2de82c7418978382df4978a2a51fac))
+* **connections:** add the list view-model for filter, sort and folder grouping ([4f4ed47](https://github.com/bjornharvold/curlybrace/commit/4f4ed47e62b5a81c35329b3fe7986be628798e87))
+* **connections:** add the manager list with filter, sortable columns, folders and a folder prompt ([6e570f9](https://github.com/bjornharvold/curlybrace/commit/6e570f949f1c6dc9ee67c4b2554c9a52f463be84))
+* **connections:** clearer multi-connection UI and safer host-key prompts ([#90](https://github.com/bjornharvold/curlybrace/issues/90)) ([ca7270d](https://github.com/bjornharvold/curlybrace/commit/ca7270dc3e6efcde8a21b31408a1553e3e517fca))
+* **connections:** close the dialog on a successful save and tidy folder and duplicate handling ([62c7531](https://github.com/bjornharvold/curlybrace/commit/62c75313a5df2be557e478debf3b434af61a62cb))
+* **connections:** connection manager slice 1 (store, manager list, edit dialog) ([d0fe792](https://github.com/bjornharvold/curlybrace/commit/d0fe79205aa6809b76ab41b750034a00841d7884))
+* **connections:** duplicate, folder operations and last-connected stamp ([5e8a72f](https://github.com/bjornharvold/curlybrace/commit/5e8a72f9f73d682093125fa508363a443a279afa))
+* **connections:** import and export saved connections without secrets ([d966d7c](https://github.com/bjornharvold/curlybrace/commit/d966d7c697896acb68760892f7761267c8ccf391))
+* **connections:** parse and build connection strings with a masked password ([8f970f8](https://github.com/bjornharvold/curlybrace/commit/8f970f8908efd1ed8054e77f63d5385c6e7bf1c1))
+* **connections:** several simultaneous connections with a tree root per connection ([#88](https://github.com/bjornharvold/curlybrace/issues/88)) ([293a76b](https://github.com/bjornharvold/curlybrace/commit/293a76b205dc546d6f4c80ea3485468b8e49d011))
+* **connections:** wire Test Connection and From/To URI into the UI state ([3aa5f89](https://github.com/bjornharvold/curlybrace/commit/3aa5f8915f3333191359bf8eb3eda2ea3d34c02a))
+* **core:** classify a tls handshake failure apart from an unreachable server ([#92](https://github.com/bjornharvold/curlybrace/issues/92)) ([aa11d95](https://github.com/bjornharvold/curlybrace/commit/aa11d953d9cd2c6a42db080cd03de48dde5ac8e9))
+
+
+### Bug Fixes
+
+* **connections:** add duplicate_secrets failure text and prove duplicate rollback ([faf5d24](https://github.com/bjornharvold/curlybrace/commit/faf5d2463bd9ee0980895be412f191ee1d39c0df))
+* **connections:** cap unique_name at the max length and reject invisible format characters in labels ([2530a9b](https://github.com/bjornharvold/curlybrace/commit/2530a9ba1eba31bd72b42c95d90d423251fb81e4))
+* **connections:** cap unique_name at the name limit so duplicates always validate ([134c290](https://github.com/bjornharvold/curlybrace/commit/134c29021bd3eed669519783d1daa707b2606ea1))
+* **connections:** classify save outcomes, show failures in the dialog and drop dialog state on connect ([dd3146e](https://github.com/bjornharvold/curlybrace/commit/dd3146eead5be2847a1b3e8dfdf129aa742bb895))
+* **connections:** give import and export failures their own banners ([8aceedc](https://github.com/bjornharvold/curlybrace/commit/8aceedcb424c0442f3c486d83f41d6bf85094c1c))
+* **connections:** give name and folder errors their own variants and keep the folder prompt open on rejection ([c64b2b7](https://github.com/bjornharvold/curlybrace/commit/c64b2b73cd2ba0b22fa04af474dd37ce7b2bd14d))
+* **connections:** guard the redacting debug impl and show the whole test result ([c424491](https://github.com/bjornharvold/curlybrace/commit/c4244910f57ddbf0e1cf7d8ed6d4e4a3e72af1b2))
+* **connections:** honour cleared secrets in test and build, reject the legacy key-password alias and more invisible characters ([dc39be6](https://github.com/bjornharvold/curlybrace/commit/dc39be63a1522ff15a4b5ad90e260e3fdfc5387d))
+* **connections:** keep the edit dialog on outside clicks and tighten test, save and debug edge cases ([3642951](https://github.com/bjornharvold/curlybrace/commit/364295184458cccc2a93187f5d92bcf82f5bb35a))
+* **connections:** keep the pasted connection string out of debug output and audit secrets ([2b01ac1](https://github.com/bjornharvold/curlybrace/commit/2b01ac1de4e37d16a66080a6657c0fb6a79685f2))
+* **connections:** name the authentication combo and use sort markers that render ([1606b79](https://github.com/bjornharvold/curlybrace/commit/1606b79f1a028a8dc988e2c5eb42ba96c816727d))
+* **connections:** repair labels saved by older releases at load instead of dropping them ([526e007](https://github.com/bjornharvold/curlybrace/commit/526e00751d23c46c2b25ef9dc4f20d609a9dd34e))
+* **connections:** validate connection names and withhold the import notice when saving fails ([912e5d4](https://github.com/bjornharvold/curlybrace/commit/912e5d4f0d3b2333b81a06dbcf32f83ce0cd79cc))
+* **connections:** validate hosts and reject malformed userinfo so password fragments never reach the stored uri ([b0a67a1](https://github.com/bjornharvold/curlybrace/commit/b0a67a1a3bc3f33da8e75cecdb085ad788d241c3))
+* **ui:** local e2e flows and a lost server marks its root failed ([#91](https://github.com/bjornharvold/curlybrace/issues/91)) ([bead006](https://github.com/bjornharvold/curlybrace/commit/bead006ecac279b4328871d1fee19c86f1ef14e5))
+
 ## [0.2.0](https://github.com/bjornharvold/curlybrace/compare/v0.1.0...v0.2.0) (2026-10-14)
 
 
