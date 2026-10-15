@@ -68,10 +68,7 @@ async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
             error,
             ..
         } => {
-            assert!(
-                matches!(error, CoreError::Database(_)),
-                "unexpected error {error:?}"
-            );
+            assert_eq!(error, CoreError::Unreachable, "unexpected error {error:?}");
         }
         other => panic!("expected Failed{{find}}, got {other:?}"),
     }

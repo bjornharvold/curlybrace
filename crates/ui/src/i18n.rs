@@ -193,6 +193,7 @@ mod tests {
             CoreError::Superseded,
             CoreError::AuthFailed,
             CoreError::Unauthorized,
+            CoreError::Unreachable,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,

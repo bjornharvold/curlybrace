@@ -303,7 +303,8 @@ mod tests {
         let c = ConnectionConfig::new("a", "mongodb://127.0.0.1:1");
         let start = std::time::Instant::now();
         let err = connect(&c, None, None).await.unwrap_err();
-        assert!(matches!(err, CoreError::Database(_)));
+        // A connect that cannot reach the server is `Unreachable` (server selection failed).
+        assert_eq!(err, CoreError::Unreachable);
         assert!(start.elapsed() < SERVER_SELECTION_TIMEOUT + Duration::from_secs(3));
     }
 

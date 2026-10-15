@@ -38,6 +38,9 @@ pub enum CoreError {
     /// The server refused an operation the authenticated user is not allowed to perform.
     #[error("not authorized")]
     Unauthorized,
+    /// The server cannot be reached (down, wrong address, network lost). No driver text is carried.
+    #[error("server unreachable")]
+    Unreachable,
     /// TLS with certificate verification cannot be used through an SSH tunnel.
     #[error("tls with certificate verification cannot be combined with an ssh tunnel")]
     TlsThroughTunnel,
@@ -100,6 +103,7 @@ impl CoreError {
             Self::Superseded => "errors.superseded",
             Self::AuthFailed => "errors.auth_failed",
             Self::Unauthorized => "errors.unauthorized",
+            Self::Unreachable => "errors.unreachable",
             Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
             Self::TlsThroughTunnel => "errors.tls_through_tunnel",
             Self::CompareDuplicateKey => "errors.compare_duplicate_key",
@@ -139,6 +143,7 @@ mod tests {
             CoreError::Superseded,
             CoreError::AuthFailed,
             CoreError::Unauthorized,
+            CoreError::Unreachable,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,
