@@ -195,7 +195,7 @@ async fn a_server_side_time_limit_is_an_answer_and_is_not_pinged() {
 
 type MakeCommand = fn(SessionId) -> Command;
 
-fn writes() -> [(&'static str, MakeCommand); 3] {
+fn writes() -> [(&'static str, MakeCommand); 4] {
     [
         ("insert", |session| Command::Insert {
             session,
@@ -212,6 +212,11 @@ fn writes() -> [(&'static str, MakeCommand); 3] {
             session,
             ns: mock_namespace(),
             id: Bson::Int32(1),
+        }),
+        ("clone", |session| Command::Clone {
+            session,
+            ns: mock_namespace(),
+            source: Document::new(),
         }),
     ]
 }

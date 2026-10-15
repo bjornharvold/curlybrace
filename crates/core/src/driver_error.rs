@@ -73,8 +73,9 @@ fn reach_of(kind: &ErrorKind) -> Reach {
 
 /// Pure: no logging. The driver's text of an unreachable server may quote addresses, so it is
 /// dropped here (the typed error is static) and a failed command is logged once, by kind only,
-/// where its `Failed` event is received. A suspect network error keeps the text, for the
-/// ordinary database error it becomes when the server still answers.
+/// where its `Failed` event is received. A suspect network error keeps only static text (the
+/// I/O kind, never an address), for the ordinary database error it becomes when the server
+/// still answers.
 pub fn classify_driver_error(e: &mongodb::error::Error) -> CoreError {
     let kind = e.kind.as_ref();
     let is_auth = matches!(kind, ErrorKind::Authentication { .. });

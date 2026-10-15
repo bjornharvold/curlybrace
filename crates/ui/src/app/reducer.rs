@@ -320,7 +320,9 @@ fn editor_matches(state: &AppState, pending: Option<&Pending>) -> bool {
 }
 
 /// `data_failed`, except that a background session leaves another session's banner alone, the
-/// same rule `connection_lost` applies: its error stays on its own editor or root.
+/// same rule `connection_lost` applies (a lost server with an editor open must not take the
+/// slot, while an ordinary background data failure still replaces it and names its session).
+/// Only a failed save keeps its error, on its own editor.
 fn data_failed_keeping_banner(
     state: AppState,
     context: &'static str,

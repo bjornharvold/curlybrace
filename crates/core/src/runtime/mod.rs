@@ -235,10 +235,19 @@ pub enum Command {
 impl Command {
     /// Whether this command changes data: a lost answer may hide a change the server applied.
     pub fn is_write(&self) -> bool {
-        matches!(
-            self,
-            Self::Insert { .. } | Self::Replace { .. } | Self::Delete { .. } | Self::Clone { .. }
-        )
+        match self {
+            Self::Insert { .. }
+            | Self::Replace { .. }
+            | Self::Delete { .. }
+            | Self::Clone { .. } => true,
+            Self::Connect(_)
+            | Self::Disconnect { .. }
+            | Self::ListDatabases { .. }
+            | Self::ListCollections { .. }
+            | Self::Find { .. }
+            | Self::Compare(_)
+            | Self::TestConnection { .. } => false,
+        }
     }
 
     /// i18n key suffix reported in [`Event::Failed`] for this command.
