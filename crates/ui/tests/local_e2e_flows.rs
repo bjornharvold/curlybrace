@@ -229,7 +229,10 @@ fn delete_asks_for_confirmation_cancel_keeps_confirm_removes() {
     browse(&mut f, PEOPLE);
     let first = header(&f, 1);
     let id = id_preview(&Bson::Int32(1));
-    let ask = f.labels.t_with("doc.confirm_delete", &[("id", &id)]);
+    let ask = f.labels.t_with(
+        "doc.confirm_delete",
+        &[("id", &id), ("connection", "local")],
+    );
 
     choose_from_menu(&mut f, &first, "doc.delete");
     wait_shows(&mut f, &ask);

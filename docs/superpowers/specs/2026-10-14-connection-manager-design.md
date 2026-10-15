@@ -16,12 +16,12 @@ records what the later slices must not break.
 | Slice | Delivers | Issue sections |
 |---|---|---|
 | 1 | Saved-connection store (folders, timestamps), manager dialog, Test Connection, From/To URI, import/export | 1, 2, 7 |
-| 2 | Several simultaneous sessions: a tree root and tabs per connection, status, read-only flag | 4 |
+| 2 (built) | Several simultaneous sessions: a tree root and view per connection, status (the read-only flag moved to #47) | 4 |
 | 3 | Copy data between connections, Data Compare source/target from open connections | 5 |
 | 4 | Shell and tools settings (global and per-connection) | 6 |
 | later | Remaining edit tabs: Proxy, Advanced, History | 3 |
 
-Slices 2 to 4 become linked follow-up issues. The single active browsing session is unchanged in slice 1.
+Slice 1 and slice 2 are built; slice 2 is detailed in `2026-10-14-multiple-sessions-design.md`. Slices 3 and 4 become linked follow-up issues. The single active browsing session is unchanged in slice 1.
 
 ## Decisions
 

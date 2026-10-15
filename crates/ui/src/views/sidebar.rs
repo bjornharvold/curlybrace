@@ -95,6 +95,17 @@ pub fn db_row_label(name: &str, expanded: bool) -> String {
     format!("{arrow} {name}")
 }
 
+/// Height that fits the heading line and up to `max_rows` rows of `state`'s tree, so a root's
+/// tree can sit in a bounded area (the rows themselves stay virtualised).
+pub fn preferred_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize) -> f32 {
+    let spacing = ui.spacing();
+    let heading = ui
+        .text_style_height(&egui::TextStyle::Heading)
+        .max(spacing.interact_size.y);
+    let rows = total_rows(state).clamp(1, max_rows) as f32;
+    heading + spacing.item_spacing.y * 2.0 + rows * (row_height(ui) + spacing.item_spacing.y)
+}
+
 pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Option<SidebarAction> {
     let mut action = None;
     ui.horizontal(|ui| {

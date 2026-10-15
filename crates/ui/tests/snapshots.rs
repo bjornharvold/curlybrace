@@ -8,10 +8,12 @@ mod support;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::TestReport;
+use curlybrace_core::store::Topology;
 use curlybrace_core::test_support::mock_objects::mock_connections;
 use curlybrace_testkit::snapshots_enabled;
 use curlybrace_ui::app::host_key::HostKeyRequest;
-use curlybrace_ui::app::state::{AppState, Banner};
+use curlybrace_ui::app::session::SessionView;
+use curlybrace_ui::app::state::{AppState, Banner, ConnStatus};
 use curlybrace_ui::viewmodel::{
     EditorIntent, EditorState, MenuItem, ViewMode, page_key, resolve_editor,
 };
@@ -97,6 +99,34 @@ shot!(connection_edit_dialog, mock_connections(), |state| {
 shot!(browser_tree_view, vec![], browsing(ViewMode::Tree));
 shot!(browser_table_view, vec![], browsing(ViewMode::Table));
 shot!(browser_json_view, vec![], browsing(ViewMode::Json));
+
+/// Parks a root for a connection named `name` in the given status.
+fn parked_root(state: &mut AppState, name: &str, status: ConnStatus, failure: Option<CoreError>) {
+    let cfg = ConnectionConfig::new(name, "mongodb://other.example.com:27017");
+    let id = cfg.id;
+    state.conn.connections.push(cfg);
+    state.open.push(id);
+    let view = SessionView {
+        status,
+        failure,
+        ..SessionView::default()
+    };
+    state.parked.insert(id, view);
+}
+
+shot!(sessions_tree_one_root, vec![], |state| {
+    browsing(ViewMode::Tree)(state);
+    state.topology = Some(Topology::ReplicaSet);
+});
+
+// A connected root with a database open, a root still connecting and a failed one.
+shot!(sessions_tree_three_roots, vec![], |state| {
+    browsing(ViewMode::Tree)(state);
+    state.topology = Some(Topology::ReplicaSet);
+    parked_root(state, "Staging", ConnStatus::Connecting, None);
+    let refused = CoreError::Database("connection refused".into());
+    parked_root(state, "Reporting", ConnStatus::Failed, Some(refused));
+});
 
 shot!(editor_modal, vec![], |state| {
     browsing(ViewMode::Tree)(state);

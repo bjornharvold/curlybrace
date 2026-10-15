@@ -36,7 +36,7 @@ fn connected_state() -> (AppState, uuid::Uuid) {
     let (state, a, _) = two_connections();
     let state = AppState {
         status: ConnStatus::Connected,
-        connected: Some(a),
+        active: Some(a),
         ..state
     };
     (state, a)
@@ -100,6 +100,27 @@ fn compare_to_on_a_ready_session_keeps_it_and_lists_the_new_database() {
     assert_eq!(state.workspace, Workspace::Compare);
 }
 
+#[test]
+fn the_default_source_follows_the_active_session() {
+    let (state, a, b) = two_connections();
+    let state = AppState {
+        status: ConnStatus::Connected,
+        open: vec![a, b],
+        active: Some(a),
+        ..state
+    };
+    let (state, _) = compare_to(state);
+    assert_eq!(state.compare.connections, Some((a, a)));
+    // Focus the other session and ask again: the default moves with it.
+    let state = AppState {
+        active: Some(b),
+        compare: Default::default(),
+        ..state
+    };
+    let (state, _) = compare_to(state);
+    assert_eq!(state.compare.connections, Some((b, b)));
+}
+
 fn compare_database_to(state: AppState) -> (AppState, Vec<Command>) {
     update(
         state,
@@ -127,7 +148,7 @@ fn picks_the_same_database_on_the_target_when_the_connections_differ() {
     let (state, a, b) = two_connections();
     let state = AppState {
         status: ConnStatus::Connected,
-        connected: Some(a),
+        active: Some(a),
         ..state
     };
     let (state, _) = act(state, open_action(a, b));
@@ -165,7 +186,7 @@ fn an_open_session_for_the_same_connections_is_reused_and_keeps_the_pair_list() 
     let (a, _) = state.compare.connections.expect("session connections");
     let state = AppState {
         status: ConnStatus::Connected,
-        connected: Some(a),
+        active: Some(a),
         ..state
     };
     let kept = state.compare.pairs.clone();
@@ -220,16 +241,9 @@ fn counts_are_cleared_by_a_recheck_a_stale_answer_and_a_failed_check() {
 fn connect_records_the_connection_and_a_cleared_session_forgets_it() {
     let (state, a, _) = two_connections();
     let (state, _) = update(state, Input::Connect(a));
-    assert_eq!(state.connected, Some(a));
-    assert_eq!(state.session_cleared().connected, None);
-    let (state, _) = update(
-        AppState {
-            connected: Some(a),
-            ..AppState::default()
-        },
-        Input::Disconnect,
-    );
-    assert_eq!(state.connected, None);
+    assert_eq!(state.active, Some(a));
+    let (closed, _) = update(update(state, Input::Disconnect(a)).0, Input::Connect(a));
+    assert_eq!(closed.session_cleared().active, None);
 }
 
 #[test]
@@ -273,7 +287,7 @@ fn compare_to_falls_back_to_the_source_when_the_old_target_was_deleted() {
     state.conn.connections.retain(|c| c.id != b);
     let state = AppState {
         status: ConnStatus::Connected,
-        connected: Some(a),
+        active: Some(a),
         compare: CompareState {
             connections: Some((a, b)),
             ..state.compare.clone()

@@ -31,9 +31,10 @@ pub fn show_documents(
     mode: ViewMode,
     page: &Page,
     state: &mut TreeState,
+    connection: &str,
     i18n: &I18n,
 ) -> Option<DocAction> {
-    show_documents_keyed(ui, mode, page, &page_key(page), state, i18n)
+    show_documents_keyed(ui, mode, page, &page_key(page), state, connection, i18n)
 }
 
 /// Like [`show_documents`] with the page key supplied by the caller, which memoises it once
@@ -45,6 +46,7 @@ pub fn show_documents_keyed(
     page: &Page,
     key: &PageKey,
     state: &mut TreeState,
+    connection: &str,
     i18n: &I18n,
 ) -> Option<DocAction> {
     let key = *key;
@@ -58,8 +60,13 @@ pub fn show_documents_keyed(
         ViewMode::Table => show_table(ui, page, &key, state, i18n),
         ViewMode::Json => show_json(ui, page, &key, state, i18n),
     };
-    let from_dialog = show_delete_confirm(ui.ctx(), &key, state, i18n);
+    let from_dialog = show_delete_confirm(ui.ctx(), &key, state, connection, i18n);
     action.or(from_view).or(from_dialog)
+}
+
+/// The one-line header naming the connection whose collection is shown.
+pub fn show_connection_header(ui: &mut egui::Ui, connection: &str, i18n: &I18n) {
+    ui.label(i18n.t_with("doc.connection", &[("name", connection)]));
 }
 
 /// Modal asking to confirm a parked delete; confirming emits `Delete` exactly once.
@@ -67,10 +74,14 @@ fn show_delete_confirm(
     ctx: &egui::Context,
     key: &PageKey,
     state: &mut TreeState,
+    connection: &str,
     i18n: &I18n,
 ) -> Option<DocAction> {
     let id = state.pending_delete_id(key)?;
-    let message = i18n.t_with("doc.confirm_delete", &[("id", &id_preview(id))]);
+    let message = i18n.t_with(
+        "doc.confirm_delete",
+        &[("id", &id_preview(id)), ("connection", connection)],
+    );
     let mut confirmed = false;
     let mut cancelled = false;
     let modal = egui::Modal::new(egui::Id::new("delete_confirm")).show(ctx, |ui| {
@@ -122,7 +133,7 @@ mod tests {
         for _ in 0..3 {
             let _ = ctx.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    actions.extend(show_documents(ui, mode, page, state, &i18n));
+                    actions.extend(show_documents(ui, mode, page, state, "test", &i18n));
                 });
             });
         }
@@ -169,7 +180,10 @@ mod tests {
             for page in [&big, &small, &big, &small] {
                 let _ = ctx.run(egui::RawInput::default(), |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        assert_eq!(show_documents(ui, mode, page, &mut state, &i18n), None);
+                        assert_eq!(
+                            show_documents(ui, mode, page, &mut state, "test", &i18n),
+                            None
+                        );
                     });
                 });
             }

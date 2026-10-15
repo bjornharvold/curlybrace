@@ -507,7 +507,9 @@
   },
   "doc": {
     "clone": "Clone",
-    "confirm_delete": "Delete the document with _id {id}? This cannot be undone.",
+    "confirm_delete": "Delete the document with _id {id} from {connection}? This cannot be undone.",
+    "connection": "Connection: {name}",
+    "connection_unknown": "unknown connection",
     "delete": "Delete",
     "edit": "Edit",
     "header": "Document {n}",
@@ -517,7 +519,8 @@
     "cancel": "Cancel",
     "save": "Save",
     "title_edit": "Edit document",
-    "title_new": "New document"
+    "title_new": "New document",
+    "writing_to": "Saving to {connection}"
   },
   "errors": {
     "apply_duplicate_key": "A document with the same unique value already exists in the destination, so this one was not written.",
@@ -597,6 +600,7 @@
   },
   "hostkey": {
     "fingerprint": "SHA256 fingerprint",
+    "for_connection": "For connection {name}",
     "message": "The authenticity of the SSH host {host} cannot be established. Verify the fingerprint with the host's administrator before trusting it.",
     "reject": "Reject",
     "title": "Unknown SSH host",
@@ -622,11 +626,23 @@
   "sidebar": {
     "compare_database_to": "Compare database to...",
     "compare_to": "Compare to...",
+    "connections": "Connections",
+    "disconnect_named": "Disconnect {name}",
     "empty": "No databases",
     "loading": "Loading...",
     "no_collections": "No collections",
+    "reconnect": "Reconnect",
+    "reconnect_named": "Reconnect {name}",
     "refresh": "Refresh",
-    "title": "Databases"
+    "root_failed": "Could not connect",
+    "status_connected": "Connected",
+    "status_connecting": "Connecting...",
+    "status_failed": "Failed",
+    "title": "Databases",
+    "toggle_named": "Show or hide {name}",
+    "topology_direct": "Direct",
+    "topology_replica_set": "Replica set",
+    "topology_sharded": "Sharded"
   },
   "tree": {
     "more_items": "{n} more items"

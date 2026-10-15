@@ -3,6 +3,7 @@ use super::actions;
 use super::compare::{self, CompareAction};
 use super::connection_test;
 use super::persistence::PersistError;
+use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use crate::viewmodel::{
     ConnectionForm, DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key,
@@ -23,7 +24,12 @@ pub enum Input {
     Doc(DocAction),
     Editor(EditorAction),
     Connect(Uuid),
-    Disconnect,
+    /// Close the named session (its root disappears from the tree).
+    Disconnect(Uuid),
+    /// Make the named open session the one the workspace shows.
+    Activate(Uuid),
+    /// Show the connection manager next to the open sessions.
+    ShowConnections,
     TestConnection(Box<ConnectionForm>),
     Compare(CompareAction),
     DismissBanner,
@@ -39,8 +45,10 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Find(a) => actions::find(state, a),
         Input::Doc(a) => actions::doc(state, a),
         Input::Editor(a) => actions::editor(state, a),
-        Input::Connect(id) => actions::connect(state, id),
-        Input::Disconnect => actions::disconnect(state),
+        Input::Connect(id) => session_actions::connect(state, id),
+        Input::Disconnect(id) => session_actions::disconnect(state, id),
+        Input::Activate(id) => session_actions::activate(state, id),
+        Input::ShowConnections => session_actions::show_connections(state),
         Input::TestConnection(form) => connection_test::start(state, &form),
         Input::Compare(a) => compare::on_action(state, a),
         Input::DismissBanner => (with_banner(state, None), Vec::new()),
@@ -66,10 +74,43 @@ fn with_banner(state: AppState, banner: Option<Banner>) -> AppState {
 }
 
 fn failure(state: AppState, context: &'static str, error: CoreError) -> AppState {
-    with_banner(state, Some(Banner::Failure { context, error }))
+    let banner_session = state.active;
+    AppState {
+        banner_session,
+        forget_target: None,
+        ..with_banner(state, Some(Banner::Failure { context, error }))
+    }
 }
 
 fn on_event(state: AppState, ev: Event) -> Out {
+    // Compare sessions and connection tests are independent of the browsing sessions and their
+    // epochs.
+    let session = match &ev {
+        Event::Compare(_) | Event::TestConnection { .. } => None,
+        other => other.session(),
+    };
+    match (ev, session) {
+        (Event::Compare(e), _) => compare::on_event(state, e),
+        (
+            Event::TestConnection {
+                request_id,
+                outcome,
+            },
+            _,
+        ) => (
+            connection_test::on_event(state, request_id, outcome),
+            Vec::new(),
+        ),
+        // A late answer of a session that was closed: it never resurrects the root and never
+        // applies to another session.
+        (_, Some(session)) if !state.is_open(session) => (state, Vec::new()),
+        (ev, Some(session)) => state.with_session(session, |s| on_session_event(s, ev)),
+        (_, None) => (state, Vec::new()),
+    }
+}
+
+/// Applies an event of the session that is active while this runs (see `with_session`).
+fn on_session_event(state: AppState, ev: Event) -> Out {
     match ev {
         // The runtime reports every outcome of a replaced session as `Superseded`.
         // Connect/Disconnect already cleared everything tied to that session at dispatch
@@ -79,42 +120,38 @@ fn on_event(state: AppState, ev: Event) -> Out {
             error: CoreError::Superseded,
             ..
         } => (state, Vec::new()),
-        Event::Connected { epoch } => at_epoch(state, epoch, |s| {
+        Event::Connected {
+            epoch, topology, ..
+        } => at_epoch(state, epoch, |s| {
             let s = AppState {
                 status: ConnStatus::Connected,
+                failure: None,
+                topology,
                 banner: s.banner.filter(|b| !is_data_failure(b)),
                 ..s
             };
-            (s, vec![Command::ListDatabases])
+            let session = s.session_id();
+            (s, vec![Command::ListDatabases { session }])
         }),
-        Event::Disconnected { epoch } => {
-            at_epoch(state, epoch, |s| (disconnected(s, None), Vec::new()))
-        }
-        Event::ConnectFailed { epoch, error } => at_epoch(state, epoch, |s| {
-            (disconnected(s, Some(("connect", error))), Vec::new())
+        // The session was closed by `disconnect` already; only an answer for a root that is
+        // still open (a newer connect of the same id) can get here, and it is not about it.
+        Event::Disconnected { .. } => (state, Vec::new()),
+        Event::ConnectFailed { epoch, error, .. } => at_epoch(state, epoch, |s| {
+            (connection_lost(s, "connect", error), Vec::new())
         }),
+        // The root was dropped when Disconnect was sent and the runtime always answers
+        // `Disconnected`; a failure that still arrives must not fail a root opened since.
         Event::Failed {
             context: "disconnect",
-            error,
-        } => (disconnected(state, Some(("disconnect", error))), Vec::new()),
-        // Compare sessions are independent of the browsing connection (and its epoch), so
-        // they are handled before the "not connected" catch-all.
-        Event::Compare(e) => compare::on_event(state, e),
-        // A connection test is independent of the session and its epoch.
-        Event::TestConnection {
-            request_id,
-            outcome,
-        } => (
-            connection_test::on_event(state, request_id, outcome),
-            Vec::new(),
-        ),
-        // Anything else is a late answer from a session that is gone.
+            ..
+        } => (state, Vec::new()),
+        // Anything else is a late answer from a session that is not connected.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
-        Event::Databases(names) => {
+        Event::Databases { names, .. } => {
             let sidebar = state.sidebar.with_databases(names);
             (AppState { sidebar, ..state }, Vec::new())
         }
-        Event::Collections { db, names } => {
+        Event::Collections { db, names, .. } => {
             let mut loading = state.loading;
             loading.remove(&db);
             let sidebar = state.sidebar.with_collections(&db, names);
@@ -125,7 +162,9 @@ fn on_event(state: AppState, ev: Event) -> Out {
             };
             (next, Vec::new())
         }
-        Event::Results { ns, query, page } => {
+        Event::Results {
+            ns, query, page, ..
+        } => {
             let current = state.selected_ns() == Some(&ns) && state.issued_query == query;
             (
                 if current {
@@ -136,8 +175,10 @@ fn on_event(state: AppState, ev: Event) -> Out {
                 Vec::new(),
             )
         }
-        Event::Mutated { ns } => mutated(state, ns),
-        Event::Failed { context, error } => (data_failed(state, context, error), Vec::new()),
+        Event::Mutated { ns, .. } => mutated(state, ns),
+        Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
+        // Routed before; these have no session.
+        Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }
 }
 
@@ -169,17 +210,23 @@ fn is_data_failure(banner: &Banner) -> bool {
     )
 }
 
-/// A disconnected state with the whole session cleared and an optional failure banner.
-fn disconnected(state: AppState, failed: Option<(&'static str, CoreError)>) -> AppState {
-    let cleared = state.session_cleared();
-    let banner = match failed {
-        Some((context, error)) => Some(Banner::Failure { context, error }),
-        None => cleared.banner.clone(),
-    };
+/// The active session's connection failed or was lost: its root stays (marked failed, showing
+/// the error), its view is cleared, and the user is told through the banner.
+fn connection_lost(state: AppState, context: &'static str, error: CoreError) -> AppState {
+    let banner = Some(Banner::Failure {
+        context,
+        error: error.clone(),
+    });
+    // Captured here, while the failing session's view is the active one.
+    let forget_target = (context == "connect" && error == CoreError::SshHostKeyChanged)
+        .then(|| state.ssh_endpoint.clone())
+        .flatten();
+    let banner_session = state.active;
     AppState {
-        status: ConnStatus::Disconnected,
         banner,
-        ..cleared
+        banner_session,
+        forget_target,
+        ..state.failed(error)
     }
 }
 

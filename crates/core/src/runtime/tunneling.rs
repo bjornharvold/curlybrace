@@ -13,6 +13,7 @@ use crate::secrets::{SecretKind, secret_key};
 use crate::tunnel::{HostKeyDecision, HostKeyPrompt, Tunnel, open_tunnel_shared};
 
 use super::Shared;
+use super::session::Session;
 
 const DEFAULT_MONGO_PORT: u16 = 27017;
 
@@ -77,15 +78,15 @@ pub(crate) trait Currentness: Send + Sync {
     fn is_current(&self) -> bool;
 }
 
-/// The main connection: current until a newer Connect/Disconnect replaced it.
+/// One session's connection: current until a newer Connect/Disconnect of that session replaced it.
 pub(super) struct ConnectionCurrent {
-    pub shared: Arc<Shared>,
+    pub session: Arc<Session>,
     pub generation: u64,
 }
 
 impl Currentness for ConnectionCurrent {
     fn is_current(&self) -> bool {
-        self.shared.is_current(self.generation)
+        self.session.is_current(self.generation)
     }
 }
 

@@ -27,6 +27,8 @@ pub mod host_key;
 mod panels;
 pub mod persistence;
 pub mod reducer;
+pub mod session;
+mod session_actions;
 pub mod state;
 
 use crate::I18n;
@@ -191,9 +193,13 @@ impl CurlybraceApp {
         &mut self.state
     }
 
-    /// `(host, fingerprint)` of the SSH host-key question being shown, if any.
-    pub fn pending_host_key(&self) -> Option<(&str, &str)> {
-        self.prompt.current()
+    /// `(host, fingerprint, connection name)` of the SSH host-key question being shown, if any.
+    /// The name is the one connecting session going through that host; `None` when no or
+    /// several sessions do, since the prompt cannot say who is asking then.
+    pub fn pending_host_key(&self) -> Option<(&str, &str, Option<String>)> {
+        self.prompt.current().map(|(host, fingerprint)| {
+            (host, fingerprint, self.state.connecting_name_for_host(host))
+        })
     }
 
     /// Answers the host-key question being shown (exactly once per question).
@@ -216,9 +222,10 @@ impl CurlybraceApp {
 
     fn send(&mut self, commands: Vec<Command>) {
         for command in commands {
-            if matches!(command, Command::Connect(_) | Command::Disconnect) {
-                // Questions already queued by the runtime belong to the connection being
-                // replaced: collect them first so none survives, then reject them all.
+            // Prompts belong to sessions that coexist, so one closing leaves the others' alone (its
+            // own drops out once its waiter is gone). Only when the last session has closed does
+            // nobody remain to answer for: collect what the runtime queued, then reject it all.
+            if matches!(command, Command::Disconnect { .. }) && self.state.open.is_empty() {
                 self.drain_requests();
                 self.prompt = std::mem::take(&mut self.prompt).rejected_all();
             }
@@ -275,8 +282,14 @@ impl CurlybraceApp {
                     connection_save::save_and_close(state, &form, secrets, &self.config_path, now);
             }
             ConnectionAction::Delete(id) => {
+                let was_open = state.is_open(id);
                 self.state =
                     connection_ops::delete_and_close(state, id, secrets, &self.config_path);
+                // A session must not outlive the config and credentials it was opened from;
+                // a failed delete leaves both in place, so it closes nothing.
+                if was_open && self.state.connection(id).is_none() {
+                    self.dispatch(Input::Disconnect(id));
+                }
             }
             ConnectionAction::Duplicate(id) => {
                 let source = state.connection(id).map(|c| c.name.clone());
@@ -394,23 +407,34 @@ impl CurlybraceApp {
             if let Some(line) = failure_log_line(&event) {
                 log::warn!("{line}");
             }
-            let was_connected = self.state.status == ConnStatus::Connected;
-            let is_connect = matches!(event, Event::Connected { .. });
+            // The session a Connected answer belongs to may be a background one.
+            let connected_session = match &event {
+                Event::Connected { session, .. } => Some(*session),
+                _ => None,
+            };
+            let was_connected = |state: &AppState| {
+                connected_session
+                    .is_some_and(|id| state.status_of(id) == Some(ConnStatus::Connected))
+            };
+            let before = was_connected(&self.state);
             self.dispatch(Input::Event(event));
-            if is_connect && !was_connected && self.state.status == ConnStatus::Connected {
-                // Whatever the persist guard says, a connect ends any open edit dialog so typed
-                // secrets do not linger and it does not reappear after Disconnect.
+            if let Some(id) = connected_session.filter(|_| !before && was_connected(&self.state)) {
+                // Whatever the persist guard says, the connect the person asked for (the active
+                // session) ends any open edit dialog so typed secrets do not linger and it does
+                // not reappear after Disconnect; a background session connecting does not.
                 let state = std::mem::take(&mut self.state);
-                self.state = connection_ops::dialog_closed(state);
-                if let Some(id) = self.state.connected {
-                    let state = std::mem::take(&mut self.state);
-                    self.state = connection_ops::mark_connected(
-                        state,
-                        id,
-                        curlybrace_core::clock::now_secs(),
-                        &self.config_path,
-                    );
-                }
+                self.state = if state.active == Some(id) {
+                    connection_ops::dialog_closed(state)
+                } else {
+                    state
+                };
+                let state = std::mem::take(&mut self.state);
+                self.state = connection_ops::mark_connected(
+                    state,
+                    id,
+                    curlybrace_core::clock::now_secs(),
+                    &self.config_path,
+                );
             }
         }
         self.poll_picker();
@@ -478,10 +502,13 @@ impl CurlybraceApp {
     fn draw(&mut self, ctx: &egui::Context) -> Vec<UiEvent> {
         let mut out = Vec::new();
         panels::show_banner(ctx, &self.state, &self.i18n, &mut out);
-        if self.state.status == ConnStatus::Connected {
-            panels::show_browser(ctx, &mut self.state, &self.i18n, &mut out);
-        } else {
+        if !self.state.open.is_empty() {
+            panels::show_sessions_panel(ctx, &self.state, &self.i18n, &mut out);
+        }
+        if panels::shows_manager(&self.state) {
             panels::show_connections_screen(ctx, &mut self.state, &self.i18n, &mut out);
+        } else {
+            panels::show_workspace(ctx, &mut self.state, &self.i18n, &mut out);
         }
         panels::show_modals(ctx, &mut self.state, &self.prompt, &self.i18n, &mut out);
         out
@@ -510,6 +537,9 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod file_picker_tests;
+
+#[cfg(test)]
+mod session_wiring_tests;
 
 #[cfg(test)]
 mod tests {
@@ -571,7 +601,13 @@ mod tests {
             let (mut app, events, _commands, _dir, id) = app_with_open_dialog(guard);
             app.dispatch(Input::Connect(id));
             let epoch = app.state().latest_requested_epoch;
-            events.send(Event::Connected { epoch }).unwrap();
+            events
+                .send(Event::Connected {
+                    session: id,
+                    epoch,
+                    topology: None,
+                })
+                .unwrap();
             app.pump();
             assert_eq!(app.state().status, ConnStatus::Connected);
             assert_dialog_closed_and_secrets_gone(&app);

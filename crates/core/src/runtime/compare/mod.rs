@@ -1,5 +1,5 @@
 //! Compare sessions in the runtime. They are independent of the main browsing connection: their
-//! own connections, their own lifetime, never touching `Shared::store`, the connection epoch or
+//! own connections, their own lifetime, never touching `Shared::sessions`, the connection epochs or
 //! the "exactly one event per command" bookkeeping of the data commands.
 //!
 //! Answers: `Open` → `Opened` | `OpenFailed`; `Databases`/`Collections`/`Check`/`Rows`/`Detail`

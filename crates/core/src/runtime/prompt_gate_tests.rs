@@ -84,7 +84,7 @@ fn inner(answer: HostKeyDecision, block: Option<StdReceiver<()>>) -> Arc<InnerPr
 }
 
 fn ssh_cfg() -> ConnectionConfig {
-    let mut c = ConnectionConfig::new("ssh", "mongodb://db.internal:27018/app");
+    let mut c = embedded_config("ssh", "mongodb://db.internal:27018/app");
     c.ssh = Some(SshConfig {
         host: "bastion".into(),
         port: 22,
@@ -95,7 +95,7 @@ fn ssh_cfg() -> ConnectionConfig {
 }
 
 fn plain_cfg() -> ConnectionConfig {
-    ConnectionConfig::new("plain", "mongodb://127.0.0.1:27017")
+    embedded_config("plain", "mongodb://127.0.0.1:27017")
 }
 
 struct Connector0;
@@ -162,6 +162,7 @@ async fn next(h: &mut RuntimeHandle) -> Event {
 
 fn superseded() -> Event {
     Event::Failed {
+        session: EMBEDDED_SESSION,
         context: "connect",
         error: CoreError::Superseded,
     }
@@ -182,7 +183,14 @@ async fn a_prompt_requested_after_a_newer_connect_is_not_asked_and_records_nothi
     r.h.tx.send(Command::Connect(ssh_cfg())).unwrap(); // epoch 1, stuck in the opener
     r.entered.notified().await;
     r.h.tx.send(Command::Connect(plain_cfg())).unwrap(); // epoch 2 replaces it
-    assert_eq!(next(&mut r.h).await, Event::Connected { epoch: 2 });
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 2,
+            topology: None,
+        }
+    );
     release.send(()).unwrap(); // epoch 1 now reaches the host-key policy
     assert_eq!(next(&mut r.h).await, superseded());
     assert_eq!(
@@ -204,7 +212,14 @@ async fn an_answer_arriving_after_supersession_is_turned_into_a_reject() {
     })
     .await;
     r.h.tx.send(Command::Connect(plain_cfg())).unwrap(); // epoch 2 replaces it
-    assert_eq!(next(&mut r.h).await, Event::Connected { epoch: 2 });
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 2,
+            topology: None,
+        }
+    );
     unblock.send(()).unwrap(); // the user "answers" Trust and remember, too late
     assert_eq!(next(&mut r.h).await, superseded());
     assert!(!r.known_hosts.exists(), "nothing was remembered");
@@ -214,7 +229,14 @@ async fn an_answer_arriving_after_supersession_is_turned_into_a_reject() {
 async fn a_current_connect_can_still_trust_and_remember() {
     let mut r = rig(HostKeyDecision::TrustAndRemember, None, None);
     r.h.tx.send(Command::Connect(ssh_cfg())).unwrap();
-    assert_eq!(next(&mut r.h).await, Event::Connected { epoch: 1 });
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 1,
+            topology: None,
+        }
+    );
     assert_eq!(r.prompt.calls.load(Ordering::SeqCst), 1);
     let saved = std::fs::read_to_string(&r.known_hosts).unwrap();
     assert!(
@@ -251,8 +273,18 @@ async fn a_closed_compare_session_never_asks_the_host_key_question() {
     r.entered.notified().await;
     r.h.tx.send(close_compare()).unwrap();
     // Commands are dispatched in order, so this answer proves the Close was processed.
-    r.h.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut r.h).await, Event::Failed { .. }));
+    r.h.tx
+        .send(Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
+    assert!(matches!(
+        next(&mut r.h).await,
+        Event::Failed {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     release.send(()).unwrap(); // the opener now reaches the host-key policy
     assert_silent(&mut r.h).await;
     assert_eq!(r.prompt.calls.load(Ordering::SeqCst), 0, "not asked");
@@ -271,8 +303,18 @@ async fn a_compare_answer_arriving_after_close_is_turned_into_a_reject() {
     .await;
     r.h.tx.send(close_compare()).unwrap();
     // Commands are dispatched in order, so this answer proves the Close was processed.
-    r.h.tx.send(Command::ListDatabases).unwrap();
-    assert!(matches!(next(&mut r.h).await, Event::Failed { .. }));
+    r.h.tx
+        .send(Command::ListDatabases {
+            session: EMBEDDED_SESSION,
+        })
+        .unwrap();
+    assert!(matches!(
+        next(&mut r.h).await,
+        Event::Failed {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     unblock.send(()).unwrap(); // Trust and remember, too late
     assert_silent(&mut r.h).await;
     assert!(!r.known_hosts.exists(), "nothing was remembered");

@@ -164,7 +164,7 @@ fn recording(gate: Option<oneshot::Receiver<()>>) -> Arc<RecordingConnector> {
 }
 
 fn ssh_cfg(auth: SshAuth) -> ConnectionConfig {
-    let mut c = ConnectionConfig::new("t", "mongodb://db.internal:27018/app");
+    let mut c = embedded_config("t", "mongodb://db.internal:27018/app");
     c.ssh = Some(SshConfig {
         host: "bastion".into(),
         port: 22,
@@ -209,7 +209,13 @@ async fn connect_with_password_ssh_opens_tunnel_with_target_and_secret() {
     let (connector, opener) = (recording(None), FakeOpener::new(false));
     let mut h = runtime(secrets, connector.clone(), opener.clone());
     h.tx.send(Command::Connect(cfg)).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     assert_eq!(
         opener.seen.lock().unwrap().clone(),
         vec![Seen {
@@ -238,7 +244,13 @@ async fn private_key_auth_reads_the_passphrase_and_absent_secret_is_none() {
     let opener = FakeOpener::new(false);
     let mut h = runtime(secrets, recording(None), opener.clone());
     h.tx.send(Command::Connect(cfg)).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     let seen = opener.seen.lock().unwrap().clone();
     assert!(seen[0].key_auth);
     assert_eq!(seen[0].secret.as_deref(), Some("phrase"));
@@ -250,7 +262,13 @@ async fn private_key_auth_reads_the_passphrase_and_absent_secret_is_none() {
         opener.clone(),
     );
     h.tx.send(Command::Connect(ssh_cfg(auth))).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     assert_eq!(opener.seen.lock().unwrap()[0].secret, None);
 }
 
@@ -267,6 +285,7 @@ async fn opener_error_becomes_failed_connect() {
     assert!(matches!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             error: CoreError::Ssh(_),
             ..
         }
@@ -288,6 +307,7 @@ async fn multi_host_uri_with_ssh_is_unsupported_and_never_opens() {
     assert!(matches!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             error: CoreError::Unsupported(_),
             ..
         }
@@ -305,10 +325,25 @@ async fn disconnect_closes_the_tunnel() {
     );
     h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
         .unwrap();
-    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     assert_eq!(opener.drops(), 0);
-    h.tx.send(Command::Disconnect).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
+    h.tx.send(Command::Disconnect {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     assert_eq!(opener.drops(), 1);
 }
 
@@ -322,10 +357,22 @@ async fn a_new_connect_closes_the_previous_tunnel() {
     );
     h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
         .unwrap();
-    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
         .unwrap();
-    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     assert_eq!(opener.drops(), 1, "only the first tunnel was closed");
 }
 
@@ -344,12 +391,22 @@ async fn superseded_connect_drops_its_tunnel() {
     while connector.tunnels.lock().unwrap().is_empty() {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    h.tx.send(Command::Disconnect).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
+    h.tx.send(Command::Disconnect {
+        session: EMBEDDED_SESSION,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     release.send(()).unwrap();
     assert!(matches!(
         next(&mut h).await,
         Event::Failed {
+            session: EMBEDDED_SESSION,
             context: "connect",
             error: CoreError::Superseded
         }
@@ -380,7 +437,13 @@ async fn failed_driver_connect_drops_the_tunnel() {
     let mut h = spawn_runtime_with_connector(None, None, Arc::new(Failing), repaint, config);
     h.tx.send(Command::Connect(ssh_cfg(SshAuth::Password)))
         .unwrap();
-    assert!(matches!(next(&mut h).await, Event::ConnectFailed { .. }));
+    assert!(matches!(
+        next(&mut h).await,
+        Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
+            ..
+        }
+    ));
     assert_eq!(opener.drops(), 1);
 }
 
@@ -399,6 +462,7 @@ async fn an_unknown_config_dir_makes_an_ssh_connect_fail_closed_without_opening(
     assert!(matches!(
         next(&mut h).await,
         Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
             error: CoreError::Ssh(_),
             ..
         }

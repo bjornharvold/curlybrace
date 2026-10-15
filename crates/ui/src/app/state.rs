@@ -1,14 +1,15 @@
 //! Application state. Immutable by convention: the reducer consumes a state and returns the next.
 use super::connection_io::ImportError;
 use super::persistence::{PersistError, PersistGuard, Recovery};
+use super::session::SessionView;
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
 use crate::views::connections::ConnectionsState;
 use bson::Bson;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::store::{Namespace, Page, Query};
-use std::collections::BTreeSet;
+use curlybrace_core::store::{Namespace, Page, Query, Topology};
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -17,6 +18,8 @@ pub enum ConnStatus {
     Disconnected,
     Connecting,
     Connected,
+    /// The last attempt to open the session failed (its root stays in the tree until closed).
+    Failed,
 }
 
 /// Which top-level workspace is shown.
@@ -25,6 +28,8 @@ pub enum Workspace {
     #[default]
     Browse,
     Compare,
+    /// The connection manager, shown while sessions stay open in the tree.
+    Connections,
 }
 
 /// A dismissible message. Holds keys and typed errors, never English text.
@@ -85,6 +90,14 @@ pub struct Pending {
     pub editor: Option<EditorKey>,
 }
 
+/// The whole UI state.
+///
+/// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
+/// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
+/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `editor`, `pending` and
+/// `ssh_endpoint`. They are parked per session and must be added to `SessionView` (and to
+/// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
+/// missed field fails to compile.
 #[derive(Debug, Default)]
 pub struct AppState {
     pub workspace: Workspace,
@@ -92,11 +105,23 @@ pub struct AppState {
     pub compare: CompareState,
     pub conn: ConnectionsState,
     pub status: ConnStatus,
-    /// The saved connection the browsing session was started with (the Compare source default).
-    pub connected: Option<Uuid>,
-    /// Mirrors the runtime's request counter: bumped once for EVERY Connect/Disconnect command
-    /// sent (the runtime does the same, starting at 0, and the UI is its only sender). An
-    /// outcome stamped with an older epoch belongs to a request the user has since replaced.
+    /// Open sessions in opening order; the active one is among them.
+    pub open: Vec<Uuid>,
+    /// The session the browsing fields below show (the Compare source default).
+    pub active: Option<Uuid>,
+    /// The views of the open sessions that are not active.
+    pub parked: BTreeMap<Uuid, SessionView>,
+    /// Counts connect/disconnect requests sent to the runtime; it mirrors the runtime's own
+    /// request counter (bumped once for EVERY Connect/Disconnect command sent, starting at 0,
+    /// and the UI is its only sender).
+    pub epoch_counter: u64,
+    /// Why the active session's last attempt to open failed.
+    pub failure: Option<CoreError>,
+    /// How the active session's server is deployed, once known.
+    pub topology: Option<Topology>,
+    /// The epoch of the latest connect requested for the ACTIVE session (parked with its view,
+    /// see `epoch_counter` for the global request counter). An outcome stamped with an older
+    /// epoch belongs to a request the user has since replaced.
     pub latest_requested_epoch: u64,
     pub sidebar: SidebarState,
     /// Databases whose collection list is in flight.
@@ -122,6 +147,11 @@ pub struct AppState {
     pub ssh_endpoint: Option<HostEndpoint>,
     /// Endpoint awaiting the "forget host" confirmation.
     pub forget_confirm: Option<HostEndpoint>,
+    /// The session whose failure raised the current banner (a close of it clears the banner).
+    pub banner_session: Option<Uuid>,
+    /// The host of the session whose connect failed with a changed host key, captured when the
+    /// banner was raised. Only offered while that banner is showing.
+    pub forget_target: Option<HostEndpoint>,
 }
 
 impl AppState {
@@ -140,6 +170,15 @@ impl AppState {
         self.conn.connections.iter().find(|c| c.id == id)
     }
 
+    /// The name of the active connection, or a translated placeholder when none is open (so a
+    /// write confirmation always names its target).
+    pub fn active_connection_label(&self, i18n: &crate::I18n) -> String {
+        self.active
+            .and_then(|id| self.connection(id))
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| i18n.t("doc.connection_unknown"))
+    }
+
     /// The displayed page was fetched with a projection, so its documents are partial.
     pub fn page_is_projected(&self) -> bool {
         self.page.is_some() && crate::viewmodel::is_projected(self.page_query.projection.as_ref())
@@ -151,6 +190,12 @@ impl AppState {
             self.page.is_some() && self.page_query.skip > 0,
             self.page.as_ref().is_some_and(|p| p.has_more),
         )
+    }
+
+    /// The runtime session browsing commands address: the open connection, or the embedded
+    /// session when none was opened through the manager.
+    pub fn session_id(&self) -> Uuid {
+        self.active.unwrap_or_default()
     }
 
     /// Drops everything tied to a live session; keeps saved connections, banner and form.
@@ -168,7 +213,11 @@ impl AppState {
             editor: None,
             pending: None,
             forget_confirm: None,
-            connected: None,
+            open: Vec::new(),
+            active: None,
+            parked: BTreeMap::new(),
+            failure: None,
+            topology: None,
             workspace: Workspace::Browse,
             ..self
         }
@@ -176,7 +225,9 @@ impl AppState {
 
     /// Whether the "forget host" action applies to the current banner.
     pub fn forgettable_host(&self) -> Option<&HostEndpoint> {
-        match (&self.banner, &self.ssh_endpoint) {
+        // The endpoint was captured when the failure was raised, so it stays that of the session
+        // whose key changed whichever session is active now.
+        match (&self.banner, &self.forget_target) {
             (
                 Some(Banner::Failure {
                     context: "connect",

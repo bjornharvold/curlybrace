@@ -25,6 +25,17 @@ macro_rules! test_name {
     }};
 }
 
+/// The saved connection's name in the secured fixture (`auth_fixture`).
+const SECURED_NAME: &str = "secured";
+/// The saved connection's name in `Fixture::docker_plain`.
+const PLAIN_NAME: &str = "local";
+
+/// The accessible name of a connection's own disconnect button in the sidebar.
+fn disconnect_label(f: &Fixture, name: &str) -> String {
+    f.labels
+        .t_with("sidebar.disconnect_named", &[("name", name)])
+}
+
 const ROOT: &str = "root";
 const ROOT_PASSWORD: &str = "it-root-pw-1";
 
@@ -41,7 +52,7 @@ fn auth_fixture(test: &str, saved_password: &str) -> Option<Fixture> {
     );
     container.wait_tcp();
     let uri = container.uri();
-    let mut cfg = ConnectionConfig::new("secured", &uri);
+    let mut cfg = ConnectionConfig::new(SECURED_NAME, &uri);
     cfg.auth = AuthMechanism::ScramSha256;
     cfg.username = Some(ROOT.into());
     cfg.auth_source = Some("admin".into());
@@ -78,7 +89,7 @@ fn wrong_password_shows_the_auth_error_banner_in_time() {
         "localized auth error"
     );
     let state = f.harness.state().state();
-    assert_eq!(state.status, ConnStatus::Disconnected);
+    assert_eq!(state.status, ConnStatus::Failed);
     assert!(matches!(
         state.banner,
         Some(Banner::Failure {
@@ -105,7 +116,7 @@ fn the_right_password_connects_to_the_same_secured_server() {
     wait_until(&mut f.harness, "connected", FAILURE_BOUND, |h| {
         h.state().state().status == ConnStatus::Connected
     });
-    let disconnect = f.labels.t("connections.disconnect");
+    let disconnect = disconnect_label(&f, SECURED_NAME);
     wait_shows(&mut f, &disconnect);
     assert!(f.harness.state().state().banner.is_none());
 }
@@ -131,7 +142,8 @@ fn a_stopped_server_fails_in_time_and_reconnects_after_restart() {
     f.server.container().unwrap().start();
     support::fixture::wait_ready_blocking(&f);
     click_key(&mut f, "banner.dismiss");
-    click_key(&mut f, "connections.disconnect");
+    let disconnect = disconnect_label(&f, PLAIN_NAME);
+    f.click_text(&disconnect);
     let connect = f.labels.t("connections.connect");
     wait_shows(&mut f, &connect);
     browse(&mut f, PEOPLE);

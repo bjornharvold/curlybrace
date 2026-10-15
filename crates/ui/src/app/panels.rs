@@ -8,10 +8,10 @@ use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
-use crate::views::documents::{show_documents_keyed, show_mode_switcher};
+use crate::views::documents::{show_connection_header, show_documents_keyed, show_mode_switcher};
 use crate::views::editor::show_editor_with;
 use crate::views::findbar::show_findbar;
-use crate::views::sidebar::show_sidebar;
+use crate::views::sidebar_roots::show_roots;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
 
@@ -65,6 +65,12 @@ fn dialog_banner_lines(state: &AppState, i18n: &I18n) -> Vec<String> {
         .collect()
 }
 
+/// Whether the central area shows the connection manager: no session is connected in the
+/// foreground, or the user asked for it from the tree.
+pub fn shows_manager(state: &AppState) -> bool {
+    state.workspace == Workspace::Connections || state.status != ConnStatus::Connected
+}
+
 pub fn show_connections_screen(
     ctx: &egui::Context,
     state: &mut AppState,
@@ -72,8 +78,12 @@ pub fn show_connections_screen(
     out: &mut Vec<UiEvent>,
 ) {
     state.conn.dialog_banner = dialog_banner_lines(state, i18n);
+    let opening = state
+        .roots()
+        .iter()
+        .any(|root| root.status == ConnStatus::Connecting);
     egui::CentralPanel::default().show(ctx, |ui| {
-        if state.status == ConnStatus::Connecting {
+        if opening {
             ui.label(i18n.t("connections.connecting"));
         }
         if let Some(action) = show_connections(ui, &mut state.conn, i18n) {
@@ -82,29 +92,39 @@ pub fn show_connections_screen(
     });
 }
 
-pub fn show_browser(
+/// The tree of open sessions with the workspace switcher; drawn whenever a session is open.
+pub fn show_sessions_panel(
     ctx: &egui::Context,
-    state: &mut AppState,
+    state: &AppState,
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
     egui::SidePanel::left("sidebar")
         .resizable(true)
         .show(ctx, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                if ui.button(i18n.t("connections.disconnect")).clicked() {
-                    out.push(UiEvent::Input(Input::Disconnect));
-                }
-                if let Some(action) = show_workspace_switcher(ui, state.workspace, i18n) {
-                    out.push(UiEvent::Input(Input::Compare(action)));
-                }
-            });
-            if let Some(action) = show_sidebar(ui, &state.sidebar, i18n) {
-                out.push(UiEvent::Input(Input::Sidebar(action)));
+            if let Some(action) = show_workspace_switcher(ui, state.workspace, i18n) {
+                out.push(UiEvent::Input(Input::Compare(action)));
             }
+            egui::ScrollArea::vertical()
+                .id_salt("sidebar_roots")
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    if let Some(input) = show_roots(ui, state, i18n) {
+                        out.push(UiEvent::Input(input));
+                    }
+                });
         });
+}
+
+/// The workspace of the foreground session (the manager is drawn by `show_connections_screen`).
+pub fn show_workspace(
+    ctx: &egui::Context,
+    state: &mut AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
     egui::CentralPanel::default().show(ctx, |ui| match state.workspace {
-        Workspace::Browse => show_collection(ui, state, i18n, out),
+        Workspace::Browse | Workspace::Connections => show_collection(ui, state, i18n, out),
         Workspace::Compare => {
             if let Some(action) = show_compare(ui, &state.compare, &state.conn, i18n) {
                 out.push(UiEvent::Input(Input::Compare(action)));
@@ -118,6 +138,8 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         ui.label(i18n.t("browser.select_collection"));
         return;
     }
+    let connection = state.active_connection_label(i18n);
+    show_connection_header(ui, &connection, i18n);
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
@@ -134,7 +156,15 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         return;
     };
     state.tree.projected = state.page_is_projected();
-    let action = show_documents_keyed(ui, state.view_mode, page, key, &mut state.tree, i18n);
+    let action = show_documents_keyed(
+        ui,
+        state.view_mode,
+        page,
+        key,
+        &mut state.tree,
+        &connection,
+        i18n,
+    );
     if let Some(action) = action {
         out.push(UiEvent::Input(Input::Doc(action)));
     }
@@ -148,14 +178,16 @@ pub fn show_modals(
     out: &mut Vec<UiEvent>,
 ) {
     let save_enabled = state.pending.is_none();
+    let connection = state.active_connection_label(i18n);
     let saved = state
         .editor
         .as_mut()
-        .and_then(|editor| show_editor_with(ctx, editor, i18n, save_enabled));
+        .and_then(|editor| show_editor_with(ctx, editor, &connection, i18n, save_enabled));
     out.extend(saved.map(|a| UiEvent::Input(Input::Editor(a))));
-    let decided = prompt
-        .current()
-        .and_then(|(host, fingerprint)| show_host_key_prompt(ctx, host, fingerprint, i18n));
+    let decided = prompt.current().and_then(|(host, fingerprint)| {
+        let asking = state.connecting_name_for_host(host);
+        show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)
+    });
     out.extend(decided.map(UiEvent::HostKey));
     if let Some(endpoint) = &state.forget_confirm {
         let port = endpoint.port.to_string();
@@ -172,11 +204,15 @@ fn show_host_key_prompt(
     ctx: &egui::Context,
     host: &str,
     fingerprint: &str,
+    asking: Option<&str>,
     i18n: &I18n,
 ) -> Option<HostKeyDecision> {
     let mut decision = None;
     let modal = egui::Modal::new(egui::Id::new("host_key_prompt")).show(ctx, |ui| {
         ui.heading(i18n.t("hostkey.title"));
+        if let Some(name) = asking {
+            ui.label(i18n.t_with("hostkey.for_connection", &[("name", name)]));
+        }
         ui.label(i18n.t_with("hostkey.message", &[("host", host)]));
         ui.label(i18n.t("hostkey.fingerprint"));
         ui.monospace(fingerprint);

@@ -314,6 +314,10 @@
           <dd>Pick a source and a target, even on different servers, and compare two collections or a whole database. See what is only on one side and what differs, field by field. <b>Comparing never writes.</b> To change data you tick the differences, review exactly what will be written where, and confirm; every document is checked again just before it is written. You can also export the changes as a mongosh script or JSON plan, or the differences as a CSV report. <a href="https://github.com/bjornharvold/curlybrace/blob/main/docs/compare.md">Read the compare guide</a>.</dd>
         </div>
         <div>
+          <dt>Several connections at once</dt>
+          <dd>Open more than one saved connection at the same time. Each has its own tree root, status and view, and a write always names the connection it goes to. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/46">#46</a>.</dd>
+        </div>
+        <div>
           <dt>Built to not lose your data</dt>
           <dd>Deletes ask for confirmation and show the document’s <code>_id</code>. A page shown with a projection is read-only for edit and clone, so a partial copy can never overwrite the full document. Unsaved editor text survives a stray click.</dd>
         </div>
@@ -335,7 +339,6 @@
         <div>
           <h3>Next</h3>
           <ul>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/46">Several connections at once</a><span>Open more than one server side by side, each with its own tabs.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/47">A production guard</a><span>Colour tags and a read-only flag, so you never change the wrong server.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/48">Copy data between servers</a><span>A collection, a query result or chosen documents, with a preview.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/50">A shell tab</a><span>Run your own <code>mongosh</code> inside the app, with history.</span></li>

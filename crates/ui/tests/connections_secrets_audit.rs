@@ -136,3 +136,96 @@ async fn the_config_file_holds_no_password_after_save_duplicate_and_import() {
     assert_eq!(h.app.state().conn.connections.len(), 4);
     assert_clean("the file after Import", &h.saved_text());
 }
+
+const SSH_MARKER: &str = "ssh-secret-marker-91c2";
+
+fn form_with(name: &str, password: &str, ssh: bool) -> ConnectionForm {
+    ConnectionForm {
+        name: name.into(),
+        username: "audit".into(),
+        password: password.into(),
+        ssh_enabled: ssh,
+        ssh_host: if ssh {
+            "bastion.invalid".into()
+        } else {
+            String::new()
+        },
+        ssh_user: if ssh { "tunnel".into() } else { String::new() },
+        ssh_secret: if ssh {
+            SSH_MARKER.into()
+        } else {
+            String::new()
+        },
+        ..typed_form()
+    }
+}
+
+fn assert_no_secret(what: &str, text: &str, secrets: &[&str]) {
+    for secret in secrets {
+        assert!(!text.contains(secret), "{what} leaked a secret");
+    }
+}
+
+fn files_under(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(files_under(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_open_sessions_with_typed_secrets_leak_nothing_to_debug_or_disk() {
+    let second_password = format!("{MOCK_PASSWORD_MARKER}-second");
+    let secrets = [MOCK_PASSWORD_MARKER, second_password.as_str(), SSH_MARKER];
+    let mut h = Harness::new(Vec::new());
+    for form in [
+        form_with("first", MOCK_PASSWORD_MARKER, false),
+        form_with("second", &second_password, false),
+        // Saved with an SSH secret but not opened: opening it would start a real SSH tunnel.
+        form_with("tunnelled", MOCK_PASSWORD_MARKER, true),
+    ] {
+        h.app
+            .dispatch_connection(ConnectionAction::Save(Box::new(form)));
+    }
+    let ids: Vec<_> = h
+        .app
+        .state()
+        .conn
+        .connections
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(ids.len(), 3);
+    assert!(h.password_of(ids[1]).is_some(), "stored in the keychain");
+
+    for id in &ids[..2] {
+        h.app
+            .dispatch(curlybrace_ui::app::reducer::Input::Connect(*id));
+        h.until("connected", |a| {
+            a.state().active == Some(*id)
+                && a.state().status == curlybrace_ui::app::state::ConnStatus::Connected
+        });
+    }
+    // Secrets still sitting in the open dialog are as sensitive as stored ones.
+    h.app.state_mut().conn.form = form_with("draft", &second_password, true);
+    assert_eq!(h.app.state().open.len(), 2);
+    assert_eq!(h.app.state().parked.len(), 1, "the first session is parked");
+
+    let state = h.app.state();
+    assert_no_secret("Debug of the app state", &format!("{state:?}"), &secrets);
+    assert_no_secret("pretty Debug", &format!("{state:#?}"), &secrets);
+    assert_no_secret("Debug of parked", &format!("{:?}", state.parked), &secrets);
+
+    let files = files_under(h.dir.path());
+    assert!(!files.is_empty(), "the config file exists");
+    for file in files {
+        let text = String::from_utf8_lossy(&std::fs::read(&file).unwrap()).into_owned();
+        assert_no_secret(&format!("{}", file.display()), &text, &secrets);
+    }
+}

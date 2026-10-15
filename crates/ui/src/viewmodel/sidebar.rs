@@ -2,6 +2,7 @@
 //! Every transition consumes the state and returns a new value.
 use curlybrace_core::store::Namespace;
 use std::collections::HashSet;
+use uuid::Uuid;
 
 /// One database row. `collections == None` means "not loaded yet".
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,6 +33,8 @@ impl DbNode {
 /// - `Refresh`: reload the database list.
 /// - `CompareTo(ns)`: start a comparison with `ns` as the source side.
 /// - `CompareDatabaseTo(db)`: start a comparison with database `db` as the source side.
+/// - `InSession { session, action }`: `action` happened under the root of `session`, which may
+///   not be the active one. Expanding keeps the view where it is; anything else focuses it first.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SidebarAction {
     LoadCollections(String),
@@ -40,6 +43,10 @@ pub enum SidebarAction {
     Refresh,
     CompareTo(Namespace),
     CompareDatabaseTo(String),
+    InSession {
+        session: Uuid,
+        action: Box<SidebarAction>,
+    },
 }
 
 /// Decision for the "Compare to..." entry of a collection row's context menu.

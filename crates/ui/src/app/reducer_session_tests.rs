@@ -1,14 +1,17 @@
-//! Reducer tests for host-key forgetting and superseded sessions.
+//! Reducer tests for host-key forgetting, superseded sessions and the session lifecycle events.
 use super::*;
+use curlybrace_core::runtime::EMBEDDED_SESSION;
 
 // ---- host key forgetting ----
 
 fn host_key_changed_state() -> AppState {
     let mut s = AppState::new(vec![]);
-    s.ssh_endpoint = Some(HostEndpoint {
+    let bastion = HostEndpoint {
         host: "bastion".into(),
         port: 22,
-    });
+    };
+    s.ssh_endpoint = Some(bastion.clone());
+    s.forget_target = Some(bastion);
     s.banner = Some(Banner::Failure {
         context: "connect",
         error: CoreError::SshHostKeyChanged,
@@ -43,6 +46,7 @@ fn a_changed_host_key_from_a_real_connect_offers_forget_for_that_connects_ssh_en
     let (s, _) = event(
         s,
         Event::ConnectFailed {
+            session: id,
             epoch: 1,
             error: CoreError::SshHostKeyChanged,
         },
@@ -83,6 +87,7 @@ fn forget_request_without_a_changed_key_does_nothing() {
 
 fn superseded(context: &'static str) -> Event {
     Event::Failed {
+        session: EMBEDDED_SESSION,
         context,
         error: CoreError::Superseded,
     }
@@ -115,7 +120,7 @@ fn superseded_data_failures_are_dropped_silently() {
 }
 
 #[test]
-fn connect_clears_the_previous_servers_data_at_dispatch() {
+fn connect_gives_the_new_session_a_fresh_view_and_parks_the_previous_one() {
     let cfg = ConnectionConfig::new("a", "mongodb://localhost");
     let id = cfg.id;
     let mut s = browsing();
@@ -137,9 +142,17 @@ fn connect_clears_the_previous_servers_data_at_dispatch() {
     assert_eq!(s.issued_query, Query::default());
     assert_eq!(s.page_query, Query::default());
     assert_eq!(s.find.text, QueryText::default());
-    // A late data event from the old session (not connected yet) is ignored too.
-    let (s, _) = event(s, Event::Databases(vec!["old".into()]));
+    // The previous session is parked with its data; its answers go to it, never to the new one.
+    assert!(s.parked[&EMBEDDED_SESSION].page.is_some());
+    let (s, _) = event(
+        s,
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec!["old".into()],
+        },
+    );
     assert!(s.sidebar.databases.is_empty());
+    assert_eq!(s.parked[&EMBEDDED_SESSION].sidebar.databases.len(), 1);
 }
 
 // ---- projected pages are read-only ----
@@ -183,4 +196,129 @@ fn an_empty_or_missing_projection_is_not_projected() {
         let (s, _) = run(s, Input::Doc(DocAction::Edit(mock_doc_with_id(2_i32))));
         assert!(s.editor.is_some() && s.banner.is_none());
     }
+}
+
+// ---- session lifecycle events ----
+
+#[test]
+fn a_disconnected_answer_for_a_root_that_is_still_open_changes_nothing() {
+    // The close already happened at dispatch; only a newer connect of the same id is still open.
+    let mut s = browsing();
+    s.editor = Some(EditorState::for_new());
+    let (s, _) = event(
+        s,
+        Event::Disconnected {
+            session: EMBEDDED_SESSION,
+            epoch: 1,
+        },
+    );
+    assert_eq!(s.status, ConnStatus::Connected);
+    assert!(s.page.is_some() && s.editor.is_some());
+}
+
+#[test]
+fn failed_connect_marks_the_root_failed_with_a_banner() {
+    let mut s = browsing();
+    s.status = ConnStatus::Connecting;
+    let (s, _) = event(
+        s,
+        Event::ConnectFailed {
+            session: EMBEDDED_SESSION,
+            epoch: 1,
+            error: CoreError::Ssh("x".into()),
+        },
+    );
+    assert_eq!(s.status, ConnStatus::Failed);
+    assert!(s.sidebar.databases.is_empty() && s.page.is_none());
+    assert_eq!(s.failure, Some(CoreError::Ssh("x".into())));
+    assert!(matches!(
+        s.banner,
+        Some(Banner::Failure {
+            context: "connect",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_late_disconnect_failure_leaves_a_reopened_root_alone() {
+    // The root was dropped when Disconnect was sent; a failure of that request arriving after a
+    // quick reconnect of the same id must not fail the new root.
+    let s = browsing();
+    let banner = s.banner.clone();
+    let (after, cmds) = event(
+        s,
+        Event::Failed {
+            session: EMBEDDED_SESSION,
+            context: "disconnect",
+            error: CoreError::Database("x".into()),
+        },
+    );
+    assert!(cmds.is_empty());
+    assert_eq!(after.status, ConnStatus::Connected);
+    assert_eq!(after.failure, None);
+    assert_eq!(after.banner, banner);
+}
+
+#[test]
+fn data_events_after_a_disconnect_are_ignored() {
+    let mut s = browsing();
+    s.status = ConnStatus::Disconnected;
+    let (s, _) = event(s, find_failed());
+    assert!(s.banner.is_none());
+    let (s, cmds) = event(
+        s,
+        Event::Mutated {
+            session: EMBEDDED_SESSION,
+            ns: ns(),
+        },
+    );
+    assert!(cmds.is_empty() && s.page.is_some());
+}
+
+#[test]
+fn apply_event_is_the_state_only_view_of_update() {
+    let s = apply_event(
+        browsing(),
+        Event::Databases {
+            session: EMBEDDED_SESSION,
+            names: vec!["x".into()],
+        },
+    );
+    assert_eq!(s.sidebar.databases.len(), 1);
+}
+
+// ---- connect / disconnect ----
+
+#[test]
+fn connect_sends_the_saved_config_and_remembers_the_ssh_endpoint() {
+    let cfg = ssh_cfg();
+    let id = cfg.id;
+    let mut s = AppState::new(vec![cfg.clone()]);
+    s.banner = Some(Banner::NotConnected);
+    let (s, cmds) = run(s, Input::Connect(id));
+    assert_eq!(s.status, ConnStatus::Connecting);
+    assert_eq!(s.banner, None);
+    assert_eq!(
+        s.ssh_endpoint,
+        Some(HostEndpoint {
+            host: "bastion".into(),
+            port: 2222
+        })
+    );
+    assert!(matches!(cmds.as_slice(), [Command::Connect(c)] if *c == cfg));
+}
+
+#[test]
+fn connect_to_an_unknown_id_does_nothing() {
+    let (s, cmds) = run(AppState::new(vec![]), Input::Connect(uuid::Uuid::new_v4()));
+    assert!(cmds.is_empty() && s.status == ConnStatus::Disconnected);
+}
+
+#[test]
+fn disconnect_clears_the_session_right_away_and_sends_disconnect() {
+    let (s, cmds) = run(browsing(), Input::Disconnect(EMBEDDED_SESSION));
+    assert_eq!(s.status, ConnStatus::Disconnected);
+    assert!(s.page.is_none() && s.sidebar.databases.is_empty());
+    assert!(matches!(cmds.as_slice(), [Command::Disconnect { .. }]));
 }

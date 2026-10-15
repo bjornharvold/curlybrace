@@ -12,8 +12,8 @@ use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
 use crate::store::{
-    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query, WriteOp,
-    WriteOutcome,
+    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query, Topology,
+    WriteOp, WriteOutcome,
 };
 use mongodb::options::{AggregateOptions, Collation, ReadPreference, SelectionCriteria};
 
@@ -142,6 +142,16 @@ fn id_filter(id: &Bson) -> Document {
 
 #[async_trait]
 impl DocumentStore for MongoStore {
+    async fn topology(&self) -> Result<Option<Topology>> {
+        let reply = self
+            .client
+            .database("admin")
+            .run_command(doc! { "hello": 1 })
+            .await;
+        // Informational: a driver error is `None` and its text is not logged.
+        Ok(reply.ok().as_ref().and_then(classify_hello))
+    }
+
     async fn server_version(&self) -> Result<Option<String>> {
         let info = self
             .client
@@ -395,6 +405,19 @@ pub(crate) fn duplicate_keys_pipeline(
     ]
 }
 
+/// Reads the deployment kind out of a `hello` reply: a `mongos` says `msg: "isdbgrid"`, a replica
+/// set member carries a string `setName`, anything else is a standalone server. The unknown
+/// (`None`) case is a failed or timed-out read and lives at the call site, not here.
+pub fn classify_hello(reply: &Document) -> Option<Topology> {
+    if reply.get_str("msg") == Ok("isdbgrid") {
+        Some(Topology::Sharded)
+    } else if reply.get_str("setName").is_ok() {
+        Some(Topology::ReplicaSet)
+    } else {
+        Some(Topology::Direct)
+    }
+}
+
 /// Options of the duplicate-key aggregation: binary collation, spill to disk, and a server-side
 /// time limit (the runtime's client-side bound only abandons the call; this stops the work).
 /// The server limit is the client bound plus a grace, so the client timeout normally wins.
@@ -428,6 +451,27 @@ fn group_from_row(row: &Document, fields: usize) -> Result<DuplicateGroup> {
 mod tests {
     use super::*;
     use crate::test_support::mock_objects::mock_doc_with_id;
+
+    #[test]
+    fn classify_hello_tells_sharded_replica_set_and_direct_apart() {
+        assert_eq!(
+            classify_hello(&doc! { "msg": "isdbgrid" }),
+            Some(Topology::Sharded)
+        );
+        assert_eq!(
+            classify_hello(&doc! { "setName": "rs0", "isWritablePrimary": true }),
+            Some(Topology::ReplicaSet)
+        );
+        assert_eq!(
+            classify_hello(&doc! { "isWritablePrimary": true }),
+            Some(Topology::Direct)
+        );
+        assert_eq!(classify_hello(&doc! {}), Some(Topology::Direct));
+        assert_eq!(
+            classify_hello(&doc! { "setName": 1 }),
+            Some(Topology::Direct)
+        );
+    }
 
     #[test]
     fn duplicate_keys_pipeline_is_read_only_ordered_and_guards_array_prefixes() {

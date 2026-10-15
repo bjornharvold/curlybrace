@@ -41,14 +41,14 @@ async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
         no_repaint(),
         config,
     );
+    let cfg = support::config(&container);
     let find = || Command::Find {
+        session: cfg.id,
         ns: ns.clone(),
         query: Query::default(),
     };
 
-    rt.tx
-        .send(Command::Connect(support::config(&container)))
-        .unwrap();
+    rt.tx.send(Command::Connect(cfg.clone())).unwrap();
     assert!(matches!(
         next_event(&mut rt.rx, COMMAND_LIMIT, "connect").await,
         Event::Connected { .. }
@@ -66,6 +66,7 @@ async fn stopped_server_yields_failed_find_in_time_and_restart_recovers() {
         Event::Failed {
             context: "find",
             error,
+            ..
         } => {
             assert!(
                 matches!(error, CoreError::Database(_)),

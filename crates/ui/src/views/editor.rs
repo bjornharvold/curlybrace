@@ -9,15 +9,17 @@ const EDITOR_ROWS: usize = 22;
 pub fn show_editor(
     ctx: &egui::Context,
     state: &mut EditorState,
+    connection: &str,
     i18n: &I18n,
 ) -> Option<EditorAction> {
-    show_editor_with(ctx, state, i18n, true)
+    show_editor_with(ctx, state, connection, i18n, true)
 }
 
 /// Like [`show_editor`]; `save_enabled == false` greys out Save (a mutation is in flight).
 pub fn show_editor_with(
     ctx: &egui::Context,
     state: &mut EditorState,
+    connection: &str,
     i18n: &I18n,
     save_enabled: bool,
 ) -> Option<EditorAction> {
@@ -29,6 +31,7 @@ pub fn show_editor_with(
     let mut intent = None;
     let modal = egui::Modal::new(egui::Id::new("document_editor")).show(ctx, |ui| {
         let title = ui.heading(i18n.t(title_key));
+        ui.label(i18n.t_with("editor.writing_to", &[("connection", connection)]));
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add(
                 egui::TextEdit::multiline(&mut state.text)
@@ -80,7 +83,7 @@ mod tests {
         let mut actions = Vec::new();
         for _ in 0..3 {
             let _ = ctx.run(egui::RawInput::default(), |ctx| {
-                actions.extend(show_editor(ctx, state, &i18n));
+                actions.extend(show_editor(ctx, state, "test", &i18n));
             });
         }
         actions

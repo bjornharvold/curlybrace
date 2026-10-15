@@ -248,7 +248,10 @@ async fn commands_for_a_closed_or_unknown_session_fail_with_their_context() {
 async fn the_main_connection_is_untouched_by_compare_sessions() {
     let (tx, mut h) = start(seeded());
     open(&mut h, &tx, 1).await;
-    tx.send(Command::ListDatabases).unwrap();
+    tx.send(Command::ListDatabases {
+        session: crate::runtime::EMBEDDED_SESSION,
+    })
+    .unwrap();
     let event = tokio::time::timeout(Duration::from_secs(5), h.rx.recv())
         .await
         .unwrap()
