@@ -38,6 +38,32 @@ pub enum CoreError {
     /// The server refused an operation the authenticated user is not allowed to perform.
     #[error("not authorized")]
     Unauthorized,
+    /// The server cannot be reached (down, wrong address, network lost). No driver text is carried.
+    #[error("server unreachable")]
+    Unreachable,
+    /// A network error or cleared pool on one connection: one stale socket, or a lost server.
+    /// The runtime settles it with a ping of the same store, into `Unreachable` or the ordinary
+    /// `Database` error carrying this text. The text is never part of the display.
+    #[error("connection interrupted")]
+    ConnectionInterrupted(String),
+    /// `Unreachable` for a session that goes through an SSH tunnel, so the copy can name the
+    /// tunnel. Set by the UI, which knows the session's endpoint; the runtime never builds it.
+    #[error("server unreachable through the ssh tunnel")]
+    UnreachableSsh,
+    /// `Unreachable` for a write (insert, replace, delete, clone): the server may have applied
+    /// it before the connection was lost. Set by the UI, which knows what the command was.
+    #[error("server unreachable, the write may or may not have been applied")]
+    UnreachableWrite,
+    /// `UnreachableWrite` for a session that goes through an SSH tunnel.
+    #[error(
+        "server unreachable through the ssh tunnel, the write may or may not have been applied"
+    )]
+    UnreachableWriteSsh,
+    /// A write (insert, replace, delete, clone) was lost to a connection error or the client-side
+    /// time bound, yet the server still answers a ping: it may have applied the change. Set by
+    /// the runtime, which knows the command. No driver text is carried.
+    #[error("the write may or may not have been applied")]
+    WriteOutcomeUnknown,
     /// TLS with certificate verification cannot be used through an SSH tunnel.
     #[error("tls with certificate verification cannot be combined with an ssh tunnel")]
     TlsThroughTunnel,
@@ -100,6 +126,13 @@ impl CoreError {
             Self::Superseded => "errors.superseded",
             Self::AuthFailed => "errors.auth_failed",
             Self::Unauthorized => "errors.unauthorized",
+            Self::Unreachable => "errors.unreachable",
+            // Only seen unresolved from compare, which has no ping: it reads as unreachable.
+            Self::ConnectionInterrupted(_) => "errors.unreachable",
+            Self::UnreachableSsh => "errors.unreachable_ssh",
+            Self::UnreachableWrite => "errors.unreachable_write",
+            Self::UnreachableWriteSsh => "errors.unreachable_write_ssh",
+            Self::WriteOutcomeUnknown => "errors.write_outcome_unknown",
             Self::SshHostKeyChanged => "errors.ssh_host_key_changed",
             Self::TlsThroughTunnel => "errors.tls_through_tunnel",
             Self::CompareDuplicateKey => "errors.compare_duplicate_key",
@@ -139,6 +172,11 @@ mod tests {
             CoreError::Superseded,
             CoreError::AuthFailed,
             CoreError::Unauthorized,
+            CoreError::Unreachable,
+            CoreError::UnreachableSsh,
+            CoreError::UnreachableWrite,
+            CoreError::UnreachableWriteSsh,
+            CoreError::WriteOutcomeUnknown,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,
@@ -156,6 +194,11 @@ mod tests {
             CoreError::ExportFileNotRemoved,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
+        // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.
+        assert_eq!(
+            CoreError::ConnectionInterrupted("x".into()).i18n_key(),
+            CoreError::Unreachable.i18n_key()
+        );
         keys.sort();
         keys.dedup();
         assert_eq!(keys.len(), errors.len());

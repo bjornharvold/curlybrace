@@ -138,6 +138,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // still open (a newer connect of the same id) can get here, and it is not about it.
         Event::Disconnected { .. } => (state, Vec::new()),
         Event::ConnectFailed { epoch, error, .. } => at_epoch(state, epoch, |s| {
+            let error = specific(&s, "connect", error);
             (connection_lost(s, "connect", error, background), Vec::new())
         }),
         // The root was dropped when Disconnect was sent and the runtime always answers
@@ -177,9 +178,46 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             )
         }
         Event::Mutated { ns, .. } => mutated(state, ns),
+        // The server of an open session cannot be reached any more: the root fails like a failed
+        // connect would, and Reconnect is the way back. Except while an editor is open: one
+        // transient network error must not discard the text the person is typing, so whichever
+        // command was lost takes the banner path of `data_failed` and the editor stays; the
+        // next lost command after the editor is closed fails the root.
+        Event::Failed {
+            context,
+            error: CoreError::Unreachable,
+            ..
+        } => {
+            let error = specific(&state, context, CoreError::Unreachable);
+            match state.editor.is_none() {
+                true => (
+                    connection_lost(state, context, error, background),
+                    Vec::new(),
+                ),
+                false => (
+                    data_failed_keeping_banner(state, context, error, background),
+                    Vec::new(),
+                ),
+            }
+        }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
         // Routed before; these have no session.
         Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
+    }
+}
+
+/// The error as it is shown. An unreachable server of a session that goes through an SSH tunnel
+/// says so, since the tunnel is the first thing to check, and an unreachable write says the
+/// change may have been applied before the connection was lost. Read while the session is the
+/// active one.
+fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
+    let write = matches!(context, "insert" | "replace" | "delete" | "clone");
+    match (&error, write, state.ssh_endpoint.is_some()) {
+        (CoreError::Unreachable, false, false) => error,
+        (CoreError::Unreachable, false, true) => CoreError::UnreachableSsh,
+        (CoreError::Unreachable, true, false) => CoreError::UnreachableWrite,
+        (CoreError::Unreachable, true, true) => CoreError::UnreachableWriteSsh,
+        _ => error,
     }
 }
 
@@ -202,8 +240,9 @@ fn after_connected(state: AppState) -> AppState {
     if stale { state.without_banner() } else { state }
 }
 
-/// The active session's connection failed or was lost: its root stays (marked failed, showing
-/// the error), its view is cleared, and the user is told through the banner.
+/// The active session's connection failed (connect) or was lost (a data command): its root
+/// stays (marked failed, showing the error), its view is cleared, and the user is told through
+/// the banner.
 ///
 /// Only a background (not focused) session leaves another session's banner alone: its root shows
 /// `Failed` and its error in the tree. The focused session always raises its own banner.
@@ -277,6 +316,36 @@ fn editor_matches(state: &AppState, pending: Option<&Pending>) -> bool {
             editor.original_id == key.original_id && editor.text == key.text
         }
         _ => false,
+    }
+}
+
+/// `data_failed`, except that a background session leaves another session's banner alone, the
+/// same rule `connection_lost` applies (a lost server with an editor open must not take the
+/// slot, while an ordinary background data failure still replaces it and names its session).
+/// Only a failed save keeps its error, on its own editor.
+fn data_failed_keeping_banner(
+    state: AppState,
+    context: &'static str,
+    error: CoreError,
+    background: bool,
+) -> AppState {
+    let foreign_banner = background
+        && state
+            .banner_owner()
+            .is_some_and(|owner| Some(owner) != state.active);
+    if !foreign_banner {
+        return data_failed(state, context, error);
+    }
+    let (banner, banner_session, forget_target) = (
+        state.banner.clone(),
+        state.banner_session,
+        state.forget_target.clone(),
+    );
+    AppState {
+        banner,
+        banner_session,
+        forget_target,
+        ..data_failed(state, context, error)
     }
 }
 

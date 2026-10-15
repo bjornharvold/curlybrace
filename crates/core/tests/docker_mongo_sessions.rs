@@ -108,7 +108,7 @@ async fn two_sessions_answer_independently_and_a_dead_server_fails_only_its_own(
         } => {
             assert_eq!(session, cfg_a.id);
             assert_ne!(session, cfg_b.id);
-            assert!(matches!(error, CoreError::Database(_)), "{error:?}");
+            assert_eq!(error, CoreError::Unreachable, "{error:?}");
         }
         other => panic!("expected Failed{{find}}, got {other:?}"),
     }

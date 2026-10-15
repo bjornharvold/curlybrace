@@ -35,6 +35,16 @@ pub fn click_key(f: &mut Fixture, key: &str) {
     f.click_text(&label);
 }
 
+/// Manager toolbar "New connection": opens the empty edit dialog.
+pub fn open_new_connection_dialog(f: &mut Fixture) {
+    click_key(f, "connections.new");
+}
+
+/// Selects the manager row named `name` (a click on its name; enables the toolbar actions).
+pub fn select_connection_row(f: &mut Fixture, name: &str) {
+    f.click_text(name);
+}
+
 /// Waits (bounded) until `text` is on screen as a label.
 #[track_caller]
 pub fn wait_shows(f: &mut Fixture, text: &str) {

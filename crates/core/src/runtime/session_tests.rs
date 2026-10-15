@@ -436,3 +436,49 @@ async fn a_hanging_topology_read_is_cut_at_the_command_timeout_and_still_connect
         Event::Databases { .. }
     ));
 }
+
+/// A store whose server became unreachable after the connect.
+struct LostServerStore;
+
+#[async_trait]
+impl DocumentStore for LostServerStore {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        Err(CoreError::Unreachable)
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        Err(CoreError::Unreachable)
+    }
+    async fn find(&self, _ns: &Namespace, _q: &Query) -> Result<Page> {
+        Err(CoreError::Unreachable)
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        Err(CoreError::Unreachable)
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        Err(CoreError::Unreachable)
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        Err(CoreError::Unreachable)
+    }
+}
+
+#[tokio::test]
+async fn a_find_on_a_lost_server_is_answered_with_a_typed_unreachable_failure() {
+    let c = cfg("lost");
+    let mut h = start(vec![(&c, Arc::new(LostServerStore))]);
+    connect(&mut h, &c).await;
+    h.tx.send(Command::Find {
+        session: c.id,
+        ns: mock_namespace(),
+        query: Query::default(),
+    })
+    .unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::Failed {
+            session: c.id,
+            context: "find",
+            error: CoreError::Unreachable,
+        }
+    );
+}

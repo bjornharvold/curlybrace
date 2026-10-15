@@ -50,6 +50,7 @@ fn add_a_connection_through_the_form_then_browse_it() {
         "no saved connection yet"
     );
 
+    open_new_connection_dialog(&mut f);
     fill_key(&mut f, "connections.name", "Local test");
     let uri = f.server.uri();
     fill_key(&mut f, "connections.uri", &uri);
@@ -292,6 +293,7 @@ fn deleting_a_saved_connection_asks_first_and_removes_its_secrets() {
     );
     let delete = f.labels.t("common.delete");
 
+    select_connection_row(&mut f, LOCAL_CONNECTION_NAME);
     f.click_text(&delete);
     wait_shows(&mut f, &ask);
     click_key(&mut f, "common.cancel");
@@ -309,7 +311,7 @@ fn deleting_a_saved_connection_asks_first_and_removes_its_secrets() {
 
     f.click_text(&delete);
     wait_shows(&mut f, &ask);
-    // The row button and the modal button share a label: take the one under the question.
+    // The toolbar button and the modal button share a label: take the one under the question.
     click_button_below(&mut f, &delete, &ask);
     wait_until(&mut f.harness, "connection removed", SHORT, |h| {
         h.state().state().conn.connections.is_empty()

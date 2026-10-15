@@ -136,6 +136,13 @@ pub trait DocumentStore: Send + Sync {
     /// Deletes the document with `_id == id`; `NotFound` if none matches.
     async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()>;
 
+    /// Whether the server answers right now: a cheap round trip on this store's own connections.
+    /// The runtime asks it to tell one lost connection from a server that cannot be reached.
+    /// The default (no network) always answers.
+    async fn ping(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// How the server is deployed, if it can be read. Informational: a failure is `None`.
     async fn topology(&self) -> Result<Option<Topology>> {
         Ok(None)

@@ -108,3 +108,7 @@ mod flow_tests;
 #[cfg(test)]
 #[path = "session_banner_tests.rs"]
 mod banner_tests;
+
+#[cfg(test)]
+#[path = "session_lost_tests.rs"]
+mod lost_tests;

@@ -205,6 +205,13 @@ impl AppState {
         self.ssh_endpoint_of(id).map(|e| e.host.clone())
     }
 
+    /// The SSH host of the saved connection `id` (open or not), if it goes through one.
+    pub fn ssh_host_of_saved(&self, id: Uuid) -> Option<String> {
+        self.connection(id)
+            .and_then(HostEndpoint::of)
+            .map(|e| e.host)
+    }
+
     /// Whether some open session that is still connecting goes through SSH host `host`.
     pub fn any_connecting_via(&self, host: &str) -> bool {
         self.open.iter().any(|id| {

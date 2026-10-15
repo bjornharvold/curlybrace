@@ -151,6 +151,37 @@ mod tests {
     }
 
     #[test]
+    fn an_unreachable_server_behind_a_tunnel_names_the_tunnel() {
+        let i = I18n::english();
+        assert!(!i.error(&CoreError::Unreachable).contains("SSH"));
+        assert!(i.error(&CoreError::UnreachableSsh).contains("SSH tunnel"));
+    }
+
+    #[test]
+    fn an_unreachable_write_says_it_may_have_been_applied() {
+        let i = I18n::english();
+        for e in [CoreError::UnreachableWrite, CoreError::UnreachableWriteSsh] {
+            assert!(i.error(&e).contains("may or may not have been applied"));
+        }
+        assert!(
+            i.error(&CoreError::UnreachableWriteSsh)
+                .contains("SSH tunnel")
+        );
+        assert!(!i.error(&CoreError::UnreachableWrite).contains("SSH"));
+        // With an editor open the root stays connected and no Reconnect is offered.
+        for e in [CoreError::UnreachableWrite, CoreError::UnreachableWriteSsh] {
+            assert!(!i.error(&e).contains("reconnect"), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_write_outcome_says_so_without_mentioning_a_reconnect() {
+        let text = I18n::english().error(&CoreError::WriteOutcomeUnknown);
+        assert!(text.contains("may or may not have been applied"));
+        assert!(!text.to_lowercase().contains("reconnect"));
+    }
+
+    #[test]
     fn invalid_json_is_err() {
         assert!(I18n::from_json("{not json").is_err());
         assert!(I18n::from_json("[]").is_err());
@@ -193,6 +224,12 @@ mod tests {
             CoreError::Superseded,
             CoreError::AuthFailed,
             CoreError::Unauthorized,
+            CoreError::Unreachable,
+            CoreError::ConnectionInterrupted(String::new()),
+            CoreError::UnreachableSsh,
+            CoreError::UnreachableWrite,
+            CoreError::UnreachableWriteSsh,
+            CoreError::WriteOutcomeUnknown,
             CoreError::SshHostKeyChanged,
             CoreError::TlsThroughTunnel,
             CoreError::CompareDuplicateKey,
