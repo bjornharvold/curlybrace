@@ -234,7 +234,10 @@ impl CurlybraceApp {
     /// session still connecting through the same host may be the asker, so then it stays.
     fn reject_closed_hosts_question(&mut self, closing_host: Option<String>) {
         let Some(host) = closing_host else { return };
-        if self.state.any_connecting_via(&host) {
+        // A connection test asks through the same prompt and belongs to no open session, so
+        // while one runs the question may be its own.
+        let test_running = matches!(self.state.conn.test, TestState::Running { .. });
+        if test_running || self.state.any_connecting_via(&host) {
             return;
         }
         self.drain_requests();
@@ -243,9 +246,10 @@ impl CurlybraceApp {
 
     fn send(&mut self, commands: Vec<Command>) {
         for command in commands {
-            // Prompts belong to sessions that coexist, so one closing leaves the others' alone (its
-            // own drops out once its waiter is gone). Only when the last session has closed does
-            // nobody remain to answer for: collect what the runtime queued, then reject it all.
+            // Prompts belong to sessions that coexist: a closing session's own question was already
+            // rejected at dispatch time and the others' are left alone. Only when the last session
+            // has closed does nobody remain to answer for: collect what the runtime queued, then
+            // reject it all.
             if matches!(command, Command::Disconnect { .. }) && self.state.open.is_empty() {
                 self.drain_requests();
                 self.prompt = std::mem::take(&mut self.prompt).rejected_all();

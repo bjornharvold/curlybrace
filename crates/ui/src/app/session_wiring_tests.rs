@@ -1,6 +1,7 @@
 //! Several open sessions in the shell: per-session `last_connected`, the edit dialog, and the
 //! host-key queue (a prompt answers only for the connection that asked).
 use super::*;
+use crate::views::connections::TestState;
 use curlybrace_core::connection::{SshAuth, SshConfig};
 use curlybrace_core::runtime::Command;
 use curlybrace_core::secrets::MemorySecretStore;
@@ -454,5 +455,46 @@ fn deleting_an_open_connection_rejects_its_queued_question() {
         .dispatch_connection(ConnectionAction::Delete(r.ids[0]));
     assert_eq!(first.try_recv(), Ok(HostKeyDecision::Reject));
     assert!(second.try_recv().is_err());
+    assert_eq!(r.shown(), named("hb", "fb", "b"));
+}
+
+#[test]
+fn closing_a_session_keeps_the_question_of_a_running_connection_test() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    let w = r.ask("ha", "fa"); // the test's question, same host as session a
+    r.shown();
+    r.app.state_mut().conn.test = TestState::Running { request_id: 7 };
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert!(w.try_recv().is_err(), "the test may be the asker");
+    assert_eq!(r.shown().map(|s| s.0), Some("ha".into()));
+}
+
+#[test]
+fn closing_a_session_rejects_its_question_once_no_test_is_running() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    let w = r.ask("ha", "fa");
+    r.shown();
+    r.app.state_mut().conn.test = TestState::Running { request_id: 7 };
+    r.app.state_mut().conn.test = TestState::Idle;
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert_eq!(w.try_recv(), Ok(HostKeyDecision::Reject));
+}
+
+#[test]
+fn closing_a_session_without_ssh_rejects_nothing() {
+    let mut r = rig(vec![
+        ConnectionConfig::new("plain", "mongodb://db"),
+        via("b", "hb"),
+    ]);
+    r.connect(0);
+    r.connect(1);
+    let w = r.ask("hb", "fb");
+    r.shown();
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert!(w.try_recv().is_err());
     assert_eq!(r.shown(), named("hb", "fb", "b"));
 }
