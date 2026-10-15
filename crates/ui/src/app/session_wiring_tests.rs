@@ -473,6 +473,7 @@ fn testing_through(r: &mut Rig, host: &str) {
     let state = r.app.state_mut();
     state.conn.test = TestState::Running { request_id: 7 };
     state.conn.test_form = Some(ConnectionForm {
+        ssh_enabled: true,
         ssh_host: host.into(),
         ..ConnectionForm::default()
     });
@@ -497,6 +498,21 @@ fn closing_a_session_keeps_the_question_of_a_running_connection_test() {
     r.app.dispatch(Input::Disconnect(r.ids[0]));
     assert!(w.try_recv().is_err(), "the test may be the asker");
     assert_eq!(r.shown().map(|s| s.0), Some("ha".into()));
+}
+
+#[test]
+fn a_test_form_with_ssh_off_uses_no_host_even_if_one_is_typed() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    let w = r.ask("ha", "fa");
+    r.shown();
+    testing_through(&mut r, "ha");
+    if let Some(form) = r.app.state_mut().conn.test_form.as_mut() {
+        form.ssh_enabled = false;
+    }
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert_eq!(w.try_recv(), Ok(HostKeyDecision::Reject));
 }
 
 #[test]

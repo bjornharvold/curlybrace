@@ -244,7 +244,7 @@ impl CurlybraceApp {
 
     /// Whether a connection test that is running, or a compare session that is opening its
     /// tunnels, is known to connect through SSH host `host`: both ask through the same prompt as
-    /// the browsing sessions. The test's host is the one of the form it was started for, the
+    /// the browsing sessions. The test's host is the one of the form it was started for (only when SSH is enabled on it), the
     /// compare's that of its two saved connections. Residual: a running test or compare whose
     /// host cannot be read counts as using none, so a closing session's question is rejected
     /// (fail closed: if that test or compare was the asker it fails and is run again).
@@ -256,7 +256,7 @@ impl CurlybraceApp {
                 .conn
                 .test_form
                 .as_ref()
-                .is_some_and(|form| same(&form.ssh_host));
+                .is_some_and(|form| form.ssh_enabled && same(&form.ssh_host));
         let comparing = match (&self.state.compare.session, self.state.compare.connections) {
             (Some(SessionPhase::Opening(_)), Some((source, target))) => [source, target]
                 .into_iter()
