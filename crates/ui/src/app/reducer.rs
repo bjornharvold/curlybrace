@@ -178,12 +178,14 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         }
         Event::Mutated { ns, .. } => mutated(state, ns),
         // The server of an open session cannot be reached any more: the root fails like a failed
-        // connect would, and Reconnect is the way back.
+        // connect would, and Reconnect is the way back. Except for a save from the open editor:
+        // one transient network error must not discard the text the person just typed, so it
+        // takes the editor-error path of `data_failed`; the next read failure fails the root.
         Event::Failed {
             context,
             error: CoreError::Unreachable,
             ..
-        } => (
+        } if !saves_from_open_editor(&state, context) => (
             connection_lost(state, context, CoreError::Unreachable, background),
             Vec::new(),
         ),
@@ -212,8 +214,9 @@ fn after_connected(state: AppState) -> AppState {
     if stale { state.without_banner() } else { state }
 }
 
-/// The active session's connection failed (connect) or was lost (a data command): its root stays (marked failed, showing
-/// the error), its view is cleared, and the user is told through the banner.
+/// The active session's connection failed (connect) or was lost (a data command): its root
+/// stays (marked failed, showing the error), its view is cleared, and the user is told through
+/// the banner.
 ///
 /// Only a background (not focused) session leaves another session's banner alone: its root shows
 /// `Failed` and its error in the tree. The focused session always raises its own banner.
@@ -288,6 +291,11 @@ fn editor_matches(state: &AppState, pending: Option<&Pending>) -> bool {
         }
         _ => false,
     }
+}
+
+/// True when `context` is the save of the document the open editor still holds.
+fn saves_from_open_editor(state: &AppState, context: &str) -> bool {
+    matches!(context, "insert" | "replace") && editor_matches(state, state.pending.as_ref())
 }
 
 /// Failed data commands: the previous page stays visible; the user sees a localized banner.

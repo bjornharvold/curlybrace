@@ -2,7 +2,7 @@
 use crate::I18n;
 use crate::app::reducer::{Input, Out, update};
 use crate::app::state::{AppState, Banner, ConnStatus};
-use crate::viewmodel::{EditorAction, SidebarAction};
+use crate::viewmodel::{DocAction, EditorAction, SidebarAction};
 use bson::doc;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
@@ -97,8 +97,6 @@ fn every_data_command_that_loses_the_server_fails_the_root() {
         "list_databases",
         "list_collections",
         "find",
-        "insert",
-        "replace",
         "delete",
         "clone",
     ] {
@@ -111,11 +109,11 @@ fn every_data_command_that_loses_the_server_fails_the_root() {
     }
 }
 
-#[test]
-fn a_lost_session_drops_its_write_in_flight_with_the_view() {
-    let (s, ids) = app(&["a"]);
-    let a = ids[0];
-    let s = browsing(opened(s, a), a);
+/// `a` browsing with the new-document editor open and a save of `{}` in flight.
+fn saving(state: AppState, id: Uuid) -> AppState {
+    let s = browsing(opened(state, id), id);
+    let (s, _) = update(s, Input::Doc(DocAction::Insert));
+    assert!(s.editor.is_some());
     let (s, cmds) = update(
         s,
         Input::Editor(EditorAction::Save {
@@ -125,8 +123,42 @@ fn a_lost_session_drops_its_write_in_flight_with_the_view() {
     );
     assert!(matches!(cmds.as_slice(), [Command::Insert { .. }]));
     assert!(s.pending.is_some());
-    let (s, _) = ev(s, lost(a, "insert"));
+    s
+}
+
+#[test]
+fn a_lost_find_drops_the_open_editor_and_the_write_in_flight_with_the_view() {
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let s = saving(s, a);
+    let (s, _) = ev(s, lost(a, "find"));
     assert!(s.pending.is_none() && s.editor.is_none());
+    assert_eq!(s.status, ConnStatus::Failed);
+}
+
+#[test]
+fn a_lost_save_keeps_the_editor_text_and_does_not_fail_the_root() {
+    for context in ["insert", "replace"] {
+        let (s, ids) = app(&["a"]);
+        let a = ids[0];
+        let s = saving(s, a);
+        let (s, _) = ev(s, lost(a, context));
+        assert_eq!(s.status, ConnStatus::Connected, "{context}");
+        assert!(s.pending.is_none(), "{context}");
+        let editor = s.editor.expect("the text the user typed stays");
+        assert_eq!(editor.error, Some(CoreError::Unreachable), "{context}");
+        assert_eq!(editor.text, "{}");
+    }
+}
+
+#[test]
+fn a_lost_insert_without_a_matching_editor_fails_the_root() {
+    // A clone answers `insert` but no editor holds what was saved.
+    let (s, ids) = app(&["a"]);
+    let a = ids[0];
+    let s = browsing(opened(s, a), a);
+    assert!(s.editor.is_none());
+    let (s, _) = ev(s, lost(a, "insert"));
     assert_eq!(s.status, ConnStatus::Failed);
 }
 

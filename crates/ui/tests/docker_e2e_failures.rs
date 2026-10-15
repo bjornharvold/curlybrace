@@ -138,6 +138,13 @@ fn a_stopped_server_fails_in_time_and_reconnects_after_restart() {
     let state = f.harness.state().state();
     assert_eq!(state.status, ConnStatus::Failed);
     assert_eq!(state.failure, Some(CoreError::Unreachable));
+    assert!(
+        f.harness
+            .query_all_by_label("Ada Lovelace")
+            .next()
+            .is_none(),
+        "the failed root's view is cleared"
+    );
     let reconnect = f.labels.t_with(
         "sidebar.reconnect_named",
         &[("name", LOCAL_CONNECTION_NAME)],
