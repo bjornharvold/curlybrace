@@ -88,6 +88,9 @@ impl Drop for LocalDbs {
                         eprintln!("could not drop test database {db}: {e}");
                     }
                 }
+                // A client dropped right before its runtime spawns a cleanup task that the
+                // runtime's shutdown can cut short, which panics inside the driver.
+                client.shutdown().await;
             });
         });
         let _ = cleanup.join();
