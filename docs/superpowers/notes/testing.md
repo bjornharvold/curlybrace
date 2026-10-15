@@ -161,7 +161,9 @@ developer's server may hold many databases); `tests/sidebar_scroll.rs` proves th
     scripts/container-tests.sh
     scripts/container-tests.sh -- --test-threads=2
 
-Targets: `curlybrace-core` `docker_mongo_auth`, `docker_runtime_failures`, `docker_ssh_tunnel`, and
+Targets: `curlybrace-core` `docker_mongo_auth`, `docker_mongo_sessions` (two real servers open at
+once, one stopped), `docker_runtime_failures`, `docker_ssh_tunnel`, `docker_tls_handshake` (a TLS
+client against a plain-text server is a handshake failure; a closed port is still unreachable), and
 `curlybrace-ui` `docker_e2e_failures` (wrong password against an `--auth` server; server stopped
 mid-session, then restarted). The script checks docker is available, sets `CURLYBRACE_IT=1`, runs
 the targets, then lists `cb-it-*` leftovers and prints the cleanup command. Each test starts several
