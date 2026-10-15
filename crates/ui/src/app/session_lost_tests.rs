@@ -398,3 +398,44 @@ fn a_write_of_unknown_outcome_keeps_the_root_connected_and_the_editor_text() {
         })
     ));
 }
+
+/// `a` parked with its editor open and a save in flight, `b` focused and showing its own banner.
+fn parked_editor_beside_a_bannered_session() -> (AppState, Uuid, Uuid) {
+    let (s, ids) = app(&["a", "b"]);
+    let (a, b) = (ids[0], ids[1]);
+    let s = opened(saving(s, a), b);
+    let (s, _) = ev(
+        s,
+        Event::Failed {
+            session: b,
+            context: "find",
+            error: CoreError::NotFound,
+        },
+    );
+    assert_eq!(s.banner_owner(), Some(b));
+    (s, a, b)
+}
+
+#[test]
+fn a_background_session_with_an_editor_open_keeps_the_banner_of_the_focused_one() {
+    for context in ["find", "insert"] {
+        let (s, a, b) = parked_editor_beside_a_bannered_session();
+        let (s, _) = ev(s, lost(a, context));
+        assert_eq!(s.banner_owner(), Some(b), "{context}: b's banner stays");
+        assert!(
+            matches!(
+                &s.banner,
+                Some(Banner::Failure {
+                    error: CoreError::NotFound,
+                    ..
+                })
+            ),
+            "{context}"
+        );
+        assert_eq!(s.parked[&a].status, ConnStatus::Connected, "{context}");
+    }
+    let (s, a, _) = parked_editor_beside_a_bannered_session();
+    let (s, _) = ev(s, lost(a, "insert"));
+    let editor = s.parked[&a].editor.as_ref().expect("a's editor stays");
+    assert_eq!(editor.error, Some(CoreError::UnreachableWrite));
+}

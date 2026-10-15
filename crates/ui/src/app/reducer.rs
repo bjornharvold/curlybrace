@@ -194,7 +194,10 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
                     connection_lost(state, context, error, background),
                     Vec::new(),
                 ),
-                false => (data_failed(state, context, error), Vec::new()),
+                false => (
+                    data_failed_keeping_banner(state, context, error, background),
+                    Vec::new(),
+                ),
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
@@ -313,6 +316,34 @@ fn editor_matches(state: &AppState, pending: Option<&Pending>) -> bool {
             editor.original_id == key.original_id && editor.text == key.text
         }
         _ => false,
+    }
+}
+
+/// `data_failed`, except that a background session leaves another session's banner alone, the
+/// same rule `connection_lost` applies: its error stays on its own editor or root.
+fn data_failed_keeping_banner(
+    state: AppState,
+    context: &'static str,
+    error: CoreError,
+    background: bool,
+) -> AppState {
+    let foreign_banner = background
+        && state
+            .banner_owner()
+            .is_some_and(|owner| Some(owner) != state.active);
+    if !foreign_banner {
+        return data_failed(state, context, error);
+    }
+    let (banner, banner_session, forget_target) = (
+        state.banner.clone(),
+        state.banner_session,
+        state.forget_target.clone(),
+    );
+    AppState {
+        banner,
+        banner_session,
+        forget_target,
+        ..data_failed(state, context, error)
     }
 }
 
