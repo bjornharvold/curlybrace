@@ -228,7 +228,11 @@ fn a_background_connect_failure_keeps_another_sessions_banner() {
     assert_eq!(s.banner_session, Some(a));
     assert!(is_find_failure(&s));
     assert_eq!(s.status_of(b), Some(ConnStatus::Failed));
-    let root = s.roots().into_iter().find(|r| r.id == b).unwrap();
+    let root = s
+        .roots(&I18n::english())
+        .into_iter()
+        .find(|r| r.id == b)
+        .unwrap();
     assert_eq!(root.failure, Some(CoreError::AuthFailed));
 }
 

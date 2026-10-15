@@ -198,7 +198,11 @@ impl CurlybraceApp {
     /// several sessions do, since the prompt cannot say who is asking then.
     pub fn pending_host_key(&self) -> Option<(&str, &str, Option<String>)> {
         self.prompt.current().map(|(host, fingerprint)| {
-            (host, fingerprint, self.state.connecting_name_for_host(host))
+            (
+                host,
+                fingerprint,
+                self.state.connecting_name_for_host(host, &self.i18n),
+            )
         })
     }
 
@@ -537,6 +541,9 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod file_picker_tests;
+
+#[cfg(test)]
+mod session_labels_tests;
 
 #[cfg(test)]
 mod session_wiring_tests;

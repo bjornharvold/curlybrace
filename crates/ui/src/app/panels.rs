@@ -87,7 +87,7 @@ pub fn show_connections_screen(
 ) {
     state.conn.dialog_banner = dialog_banner_lines(state, i18n);
     let opening = state
-        .roots()
+        .roots(i18n)
         .iter()
         .any(|root| root.status == ConnStatus::Connecting);
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -193,7 +193,7 @@ pub fn show_modals(
         .and_then(|editor| show_editor_with(ctx, editor, &connection, i18n, save_enabled));
     out.extend(saved.map(|a| UiEvent::Input(Input::Editor(a))));
     let decided = prompt.current().and_then(|(host, fingerprint)| {
-        let asking = state.connecting_name_for_host(host);
+        let asking = state.connecting_name_for_host(host, i18n);
         show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)
     });
     out.extend(decided.map(UiEvent::HostKey));

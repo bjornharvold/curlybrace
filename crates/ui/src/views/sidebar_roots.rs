@@ -20,7 +20,7 @@ pub fn show_roots(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) -> Option<In
         .button(i18n.t("sidebar.connections"))
         .clicked()
         .then_some(Input::ShowConnections);
-    for root in state.roots() {
+    for root in state.roots(i18n) {
         input = ui
             .push_id(("sidebar_root", root.id), |ui| {
                 show_root(ui, state, &root, i18n)

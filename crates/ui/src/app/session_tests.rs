@@ -208,7 +208,7 @@ fn roots_follow_opening_order_and_flag_the_active_one() {
     let mut alpha = ConnectionConfig::new("Alpha", "mongodb://db:27017");
     alpha.id = a;
     s.conn.connections = vec![alpha];
-    let roots = s.roots();
+    let roots = s.roots(&I18n::english());
     assert_eq!(roots.iter().map(|r| r.id).collect::<Vec<_>>(), vec![a, b]);
     assert_eq!(roots[0].name, "Alpha");
     assert_eq!(
@@ -223,7 +223,7 @@ fn roots_follow_opening_order_and_flag_the_active_one() {
     assert_eq!(roots[1].failure, Some(CoreError::SshHostKeyChanged));
     assert_eq!(roots[1].status, ConnStatus::Connected);
 
-    let swapped = s.activated(b).roots();
+    let swapped = s.activated(b).roots(&I18n::english());
     assert_eq!(
         swapped.iter().map(|r| r.active).collect::<Vec<_>>(),
         vec![false, true]
@@ -237,7 +237,7 @@ fn session_dropped_removes_the_view_and_the_root() {
     let next = s.session_dropped(b);
     assert!(!next.is_open(b));
     assert!(next.parked.is_empty());
-    assert_eq!(next.roots().len(), 1);
+    assert_eq!(next.roots(&I18n::english()).len(), 1);
     assert_eq!(next.active, Some(a));
     assert_eq!(next.page, Some(page_with(1)));
 }
@@ -292,7 +292,7 @@ fn activating_from_no_active_session_restores_the_parked_view() {
 fn a_background_root_without_a_parked_view_reports_the_default_state() {
     let (mut s, _, b) = open_two();
     s.parked.remove(&b);
-    let roots = s.roots();
+    let roots = s.roots(&I18n::english());
     assert_eq!(roots[1].status, ConnStatus::default());
     assert_eq!(roots[1].failure, None);
     assert_eq!(roots[1].topology, None);

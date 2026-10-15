@@ -32,7 +32,7 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
 /// "In {name}:" when the banner was raised from a session event and that session's saved
 /// connection still exists; none for banners nobody owns.
 pub fn banner_prefix(state: &AppState, i18n: &I18n) -> Option<String> {
-    let name = session_display_name(state, state.banner_owner()?)?;
+    let name = session_display_name(state, state.banner_owner()?, i18n)?;
     Some(i18n.t_with("banner.in_connection", &[("name", &name)]))
 }
 

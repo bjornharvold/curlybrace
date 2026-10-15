@@ -631,6 +631,8 @@
     "disconnect_named": "Disconnect {name}",
     "empty": "No databases",
     "loading": "Loading...",
+    "name_with_servers": "{name} ({servers})",
+    "name_with_servers_id": "{name} ({servers}) #{id}",
     "no_collections": "No collections",
     "reconnect": "Reconnect",
     "reconnect_named": "Reconnect {name}",

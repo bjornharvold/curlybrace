@@ -205,8 +205,7 @@ impl AppState {
     /// write confirmation always names its target).
     pub fn active_connection_label(&self, i18n: &crate::I18n) -> String {
         self.active
-            .and_then(|id| self.connection(id))
-            .map(|c| c.name.clone())
+            .and_then(|id| self.open_label(id, i18n))
             .unwrap_or_else(|| i18n.t("doc.connection_unknown"))
     }
 
