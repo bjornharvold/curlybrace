@@ -1,6 +1,7 @@
 //! Several open sessions in the shell: per-session `last_connected`, the edit dialog, and the
 //! host-key queue (a prompt answers only for the connection that asked).
 use super::*;
+use crate::viewmodel::compare::SessionPhase;
 use crate::views::connections::TestState;
 use curlybrace_core::connection::{SshAuth, SshConfig};
 use curlybrace_core::runtime::Command;
@@ -469,6 +470,34 @@ fn closing_a_session_keeps_the_question_of_a_running_connection_test() {
     r.app.dispatch(Input::Disconnect(r.ids[0]));
     assert!(w.try_recv().is_err(), "the test may be the asker");
     assert_eq!(r.shown().map(|s| s.0), Some("ha".into()));
+}
+
+#[test]
+fn closing_a_session_keeps_the_question_of_an_opening_compare_session() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    let w = r.ask("ha", "fa"); // the compare tunnel's question, same bastion as session a
+    r.shown();
+    r.app.state_mut().compare.session = Some(SessionPhase::Opening(1));
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert!(
+        w.try_recv().is_err(),
+        "the compare session may be the asker"
+    );
+    assert_eq!(r.shown().map(|s| s.0), Some("ha".into()));
+}
+
+#[test]
+fn closing_a_session_rejects_its_question_once_compare_is_not_opening() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    let w = r.ask("ha", "fa");
+    r.shown();
+    r.app.state_mut().compare.session = Some(SessionPhase::Ready(1));
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert_eq!(w.try_recv(), Ok(HostKeyDecision::Reject));
 }
 
 #[test]

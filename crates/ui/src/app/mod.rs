@@ -33,7 +33,7 @@ pub mod state;
 
 use crate::I18n;
 use crate::error_text::failure_log_line;
-use crate::viewmodel::compare::ExportUi;
+use crate::viewmodel::compare::{ExportUi, SessionPhase};
 use crate::views::connections::{ConnectionAction, ConnectionsState, TestState};
 use compare::CompareAction;
 use connection_picker::ConnPickKind;
@@ -237,7 +237,10 @@ impl CurlybraceApp {
         // A connection test asks through the same prompt and belongs to no open session, so
         // while one runs the question may be its own.
         let test_running = matches!(self.state.conn.test, TestState::Running { .. });
-        if test_running || self.state.any_connecting_via(&host) {
+        // A compare session opens its SSH tunnels through the same prompt, so while one is
+        // opening the question may be its own too.
+        let compare_opening = matches!(self.state.compare.session, Some(SessionPhase::Opening(_)));
+        if test_running || compare_opening || self.state.any_connecting_via(&host) {
             return;
         }
         self.drain_requests();
