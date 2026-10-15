@@ -20,10 +20,18 @@ edit documents and compare data between databases, without an account, a trial, 
 ## What it does today
 
 **Connect**
-- A connection manager with folders, an edit dialog and Test Connection is being built
+- A connection manager with folders, filter and sort, an edit dialog, Test Connection, and import
+  and export of the connection list without secrets
   ([#45](https://github.com/bjornharvold/curlybrace/issues/45)).
 - Several saved connections open at once, each with its own tree root, status and view
-  ([#46](https://github.com/bjornharvold/curlybrace/issues/46)).
+  ([#46](https://github.com/bjornharvold/curlybrace/issues/46)). Banners and the host-key dialog
+  name the connection they are about, and two connections with the same name are told apart by
+  host and port.
+- A server that cannot be reached after you connected marks its root **Failed** with a Reconnect
+  button; the other connections keep working. If the editor is open, your text is kept. A save that
+  was interrupted says the change may or may not have been applied.
+- A failed TLS handshake (for example TLS switched on against a plain-text server, or an untrusted
+  certificate) is reported as a TLS problem, apart from a server that cannot be reached.
 - Saved connections with SCRAM, X.509 and LDAP (PLAIN) authentication, TLS, replica sets and SRV
   (`mongodb+srv://`) URIs.
 - Kerberos (GSSAPI) support is included but **experimental**: it compiles and links against macOS
@@ -110,6 +118,10 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   removes certificate protection on the bastion-to-MongoDB leg.
 - Only one SSH host per tunnel and single-host URIs are supported with a tunnel (no replica set
   discovery through a tunnel, no `mongodb+srv://`).
+- A lost server is detected when a command fails and a short ping to the server also fails. A
+  network that silently drops traffic therefore shows up only after a command times out. A TLS
+  failure is recognised from the driver's error text; an unrecognised reason is shown as "could not
+  reach the server".
 - The find bar takes strict JSON, not mongo shell syntax.
 - Everyday tools you may expect from other clients (aggregation builder, document import and
   export, index management, schema analysis) are not built yet. They come after the features at
@@ -128,15 +140,16 @@ contribute.
 - **Several connections at once** ([#46](https://github.com/bjornharvold/curlybrace/issues/46)): open several saved connections at the same time, each with
   its own tree root, status and view. The documents pane, the delete confirmation and the editor name the
   connection a write goes to, and deleting a saved connection closes its open session.
+- **Connection manager** ([#45](https://github.com/bjornharvold/curlybrace/issues/45)): saved connections with folders and timestamps, a manager list
+  with filter and sort, an edit dialog, Test Connection, connection-string import and export, and
+  import and export of the connection list without secrets. Its follow-ups are listed below.
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): compare collections or whole databases across servers, copy or
   delete differences with a review step, and export the changes. Nothing is left to build; feedback
   and fixes are welcome. See the [guide](docs/compare.md).
 
 ### In progress
 
-- **Connection manager** ([#45](https://github.com/bjornharvold/curlybrace/issues/45)): saved connections with folders and timestamps, a manager list
-  with filter and sort, an edit dialog, Test Connection, connection-string import and export, and
-  import and export of the connection list without secrets. Its follow-ups are listed below.
+Nothing is being built right now. Pick something from **Next**.
 
 ### Next
 
