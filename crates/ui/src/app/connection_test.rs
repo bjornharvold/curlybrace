@@ -62,6 +62,12 @@ pub(super) fn on_event(
     if !matches!(state.conn.test, TestState::Running { request_id: r } if r == request_id) {
         return state;
     }
+    // The tunnel is the first thing to check when a server behind one is unreachable.
+    let through_ssh = state.conn.test_form.as_ref().is_some_and(|f| f.ssh_enabled);
+    let outcome = match outcome {
+        Err(CoreError::Unreachable) if through_ssh => Err(CoreError::UnreachableSsh),
+        other => other,
+    };
     let conn = ConnectionsState {
         test: TestState::Done {
             request_id,
@@ -98,6 +104,42 @@ mod tests {
 
     fn run(state: AppState, form: ConnectionForm) -> (AppState, Vec<Command>) {
         update(state, Input::TestConnection(Box::new(form)))
+    }
+
+    fn finished_with(form: ConnectionForm, error: CoreError) -> TestState {
+        let (state, _) = run(AppState::default(), form);
+        let (state, _) = update(
+            state,
+            Input::Event(Event::TestConnection {
+                request_id: 1,
+                outcome: Err(error),
+            }),
+        );
+        state.conn.test
+    }
+
+    #[test]
+    fn an_unreachable_test_through_a_tunnel_names_the_tunnel() {
+        let tunnelled = ConnectionForm {
+            ssh_enabled: true,
+            ssh_host: "bastion".into(),
+            ssh_user: "ops".into(),
+            ..valid_form()
+        };
+        assert!(matches!(
+            finished_with(tunnelled, CoreError::Unreachable),
+            TestState::Done {
+                outcome: Err(CoreError::UnreachableSsh),
+                ..
+            }
+        ));
+        assert!(matches!(
+            finished_with(valid_form(), CoreError::Unreachable),
+            TestState::Done {
+                outcome: Err(CoreError::Unreachable),
+                ..
+            }
+        ));
     }
 
     #[test]
