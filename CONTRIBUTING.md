@@ -161,6 +161,11 @@ the reason a gated test skipped (or failed) is visible. Shared helpers live in `
 coverage commands are in [docs/superpowers/notes/testing.md](docs/superpowers/notes/testing.md). The
 target is at least 80% line coverage for `curlybrace-core`.
 
+If you change a UI label, a button or a flow, also run `scripts/container-tests.sh` (and the tier 1
+flows when you have a local MongoDB). Those test binaries are `#[ignore]`d, so the normal
+`cargo test --workspace` gate never exercises them; `cargo clippy --workspace --all-targets` only
+proves that they still compile.
+
 Prefer real values (real `bson` documents from `mock_objects`) over mocks. Mock only boundaries:
 the driver, SSH and the Keychain.
 
