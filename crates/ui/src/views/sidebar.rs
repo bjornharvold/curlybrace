@@ -98,14 +98,25 @@ pub fn db_row_label(name: &str, expanded: bool) -> String {
 /// Height that fits the heading line and up to `max_rows` rows of `state`'s tree, so a root's
 /// tree can sit in a bounded area (the rows themselves stay virtualised).
 pub fn preferred_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize) -> f32 {
-    let spacing = ui.spacing();
     let heading = ui
         .text_style_height(&egui::TextStyle::Heading)
-        .max(spacing.interact_size.y);
-    let rows = total_rows(state).clamp(1, max_rows) as f32;
-    heading + spacing.item_spacing.y * 2.0 + rows * (row_height(ui) + spacing.item_spacing.y)
+        .max(ui.spacing().interact_size.y);
+    tree_height(ui, state, max_rows, heading)
 }
 
+/// Like [`preferred_height`] for [`show_sidebar_body`]: a compact Refresh row instead of the
+/// heading line.
+pub fn preferred_body_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize) -> f32 {
+    tree_height(ui, state, max_rows, ui.spacing().interact_size.y)
+}
+
+fn tree_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize, top_row: f32) -> f32 {
+    let spacing = ui.spacing();
+    let rows = total_rows(state).clamp(1, max_rows) as f32;
+    top_row + spacing.item_spacing.y * 2.0 + rows * (row_height(ui) + spacing.item_spacing.y)
+}
+
+/// The sidebar of a single session: the large "Databases" heading with Refresh, then the tree.
 pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Option<SidebarAction> {
     let mut action = None;
     ui.horizontal(|ui| {
@@ -114,6 +125,30 @@ pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Opt
             action = Some(SidebarAction::Refresh);
         }
     });
+    action.or(show_tree_rows(ui, state, i18n))
+}
+
+/// A root's tree without the heading: a compact, right-aligned Refresh, then the tree.
+pub fn show_sidebar_body(
+    ui: &mut egui::Ui,
+    state: &SidebarState,
+    i18n: &I18n,
+) -> Option<SidebarAction> {
+    // A right-aligned layout would claim the whole remaining height: give the row its own.
+    let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+    let refresh = ui
+        .allocate_ui_with_layout(
+            row,
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| ui.small_button(i18n.t("sidebar.refresh")).clicked(),
+        )
+        .inner;
+    let action = show_tree_rows(ui, state, i18n);
+    refresh.then_some(SidebarAction::Refresh).or(action)
+}
+
+fn show_tree_rows(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Option<SidebarAction> {
+    let mut action = None;
     if state.databases.is_empty() {
         ui.label(i18n.t("sidebar.empty"));
         return action;

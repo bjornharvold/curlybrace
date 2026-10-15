@@ -642,6 +642,7 @@
     "status_connected": "Connected",
     "status_connecting": "Connecting...",
     "status_failed": "Failed",
+    "status_topology": "{status} · {topology}",
     "title": "Databases",
     "toggle_named": "Show or hide {name}",
     "topology_direct": "Direct",
