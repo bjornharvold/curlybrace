@@ -1,6 +1,7 @@
 //! Several open sessions in the shell: per-session `last_connected`, the edit dialog, and the
 //! host-key queue (a prompt answers only for the connection that asked).
 use super::*;
+use crate::viewmodel::ConnectionForm;
 use crate::viewmodel::compare::SessionPhase;
 use crate::views::connections::TestState;
 use curlybrace_core::connection::{SshAuth, SshConfig};
@@ -467,6 +468,24 @@ fn deleting_an_open_connection_rejects_its_queued_question() {
     assert_eq!(r.shown(), named("hb", "fb", "b"));
 }
 
+/// A connection test of a form that goes through SSH host `host` is running.
+fn testing_through(r: &mut Rig, host: &str) {
+    let state = r.app.state_mut();
+    state.conn.test = TestState::Running { request_id: 7 };
+    state.conn.test_form = Some(ConnectionForm {
+        ssh_host: host.into(),
+        ..ConnectionForm::default()
+    });
+}
+
+/// A compare session between saved connection `i` and itself is opening its tunnels.
+fn comparing_through(r: &mut Rig, i: usize) {
+    let id = r.ids[i];
+    let compare = &mut r.app.state_mut().compare;
+    compare.session = Some(SessionPhase::Opening(1));
+    compare.connections = Some((id, id));
+}
+
 #[test]
 fn closing_a_session_keeps_the_question_of_a_running_connection_test() {
     let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
@@ -474,7 +493,7 @@ fn closing_a_session_keeps_the_question_of_a_running_connection_test() {
     r.connect(1);
     let w = r.ask("ha", "fa"); // the test's question, same host as session a
     r.shown();
-    r.app.state_mut().conn.test = TestState::Running { request_id: 7 };
+    testing_through(&mut r, "ha");
     r.app.dispatch(Input::Disconnect(r.ids[0]));
     assert!(w.try_recv().is_err(), "the test may be the asker");
     assert_eq!(r.shown().map(|s| s.0), Some("ha".into()));
@@ -487,7 +506,7 @@ fn closing_a_session_keeps_the_question_of_an_opening_compare_session() {
     r.connect(1);
     let w = r.ask("ha", "fa"); // the compare tunnel's question, same bastion as session a
     r.shown();
-    r.app.state_mut().compare.session = Some(SessionPhase::Opening(1));
+    comparing_through(&mut r, 0);
     r.app.dispatch(Input::Disconnect(r.ids[0]));
     assert!(
         w.try_recv().is_err(),
@@ -542,7 +561,7 @@ fn closing_the_last_session_keeps_the_question_of_an_opening_compare_session() {
     r.connect(0);
     let w = r.ask("ha", "fa"); // the compare tunnel's question
     r.shown();
-    r.app.state_mut().compare.session = Some(SessionPhase::Opening(1));
+    comparing_through(&mut r, 0);
     r.app.dispatch(Input::Disconnect(r.ids[0]));
     assert!(r.app.state().open.is_empty(), "the last session is closed");
     assert!(
@@ -558,7 +577,7 @@ fn closing_the_last_session_keeps_the_question_of_a_running_connection_test() {
     r.connect(0);
     let w = r.ask("ha", "fa"); // the test's question
     r.shown();
-    r.app.state_mut().conn.test = TestState::Running { request_id: 7 };
+    testing_through(&mut r, "ha");
     r.app.dispatch(Input::Disconnect(r.ids[0]));
     assert!(r.app.state().open.is_empty(), "the last session is closed");
     assert!(w.try_recv().is_err(), "the test may be the asker");
@@ -575,4 +594,45 @@ fn closing_the_last_session_rejects_everything_once_compare_is_ready() {
     r.app.dispatch(Input::Disconnect(r.ids[0]));
     assert_eq!(w.try_recv(), Ok(HostKeyDecision::Reject));
     assert!(r.app.pending_host_key().is_none());
+}
+
+#[test]
+fn closing_the_last_session_during_a_test_rejects_its_question_but_not_the_tests() {
+    let mut r = rig(vec![via("a", "ha")]);
+    r.connect(0);
+    let closed = r.ask("ha", "fa");
+    let tests = r.ask("hz", "fz");
+    r.shown();
+    testing_through(&mut r, "hz");
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert!(r.app.state().open.is_empty(), "the last session is closed");
+    assert_eq!(closed.try_recv(), Ok(HostKeyDecision::Reject));
+    assert!(tests.try_recv().is_err(), "the test's own question stays");
+    assert_eq!(r.shown().map(|s| s.0), Some("hz".into()));
+}
+
+#[test]
+fn closing_the_last_session_while_compare_opens_rejects_only_hosts_compare_does_not_use() {
+    let mut r = rig(vec![via("a", "ha"), via("c", "hc")]);
+    r.connect(0);
+    let closed = r.ask("ha", "fa");
+    let compares = r.ask("hc", "fc");
+    r.shown();
+    comparing_through(&mut r, 1);
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert_eq!(closed.try_recv(), Ok(HostKeyDecision::Reject));
+    assert!(compares.try_recv().is_err(), "compare's own question stays");
+}
+
+#[test]
+fn a_running_test_whose_host_is_unknown_does_not_keep_the_closed_hosts_question() {
+    // Fail closed: the closed session's question is rejected and the test, if it was the asker,
+    // fails and is run again.
+    let mut r = rig(vec![via("a", "ha")]);
+    r.connect(0);
+    let closed = r.ask("ha", "fa");
+    r.shown();
+    r.app.state_mut().conn.test = TestState::Running { request_id: 7 };
+    r.app.dispatch(Input::Disconnect(r.ids[0]));
+    assert_eq!(closed.try_recv(), Ok(HostKeyDecision::Reject));
 }

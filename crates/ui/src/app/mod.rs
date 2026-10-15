@@ -230,23 +230,48 @@ impl CurlybraceApp {
         self.send(commands);
     }
 
-    /// A closed session's queued host-key question has nobody left to answer for. Another
-    /// session still connecting through the same host may be the asker, so then it stays.
+    /// A closed session's queued host-key question has nobody left to answer for, so it is
+    /// rejected. It stays only when another session still connecting through the same host, or
+    /// a running test or opening compare session known to use that host, may be the asker.
     fn reject_closed_hosts_question(&mut self, closing_host: Option<String>) {
         let Some(host) = closing_host else { return };
-        if self.other_prompt_users_pending() || self.state.any_connecting_via(&host) {
+        if self.state.any_connecting_via(&host) || self.test_or_compare_uses(&host) {
             return;
         }
         self.drain_requests();
         self.prompt = std::mem::take(&mut self.prompt).rejected_for_host(&host);
     }
 
+    /// Whether a connection test that is running, or a compare session that is opening its
+    /// tunnels, is known to connect through SSH host `host`: both ask through the same prompt as
+    /// the browsing sessions. The test's host is the one of the form it was started for, the
+    /// compare's that of its two saved connections. Residual: a running test or compare whose
+    /// host cannot be read counts as using none, so a closing session's question is rejected
+    /// (fail closed: if that test or compare was the asker it fails and is run again).
+    fn test_or_compare_uses(&self, host: &str) -> bool {
+        let same = |h: &str| h.trim().eq_ignore_ascii_case(host);
+        let testing = matches!(self.state.conn.test, TestState::Running { .. })
+            && self
+                .state
+                .conn
+                .test_form
+                .as_ref()
+                .is_some_and(|form| same(&form.ssh_host));
+        let comparing = match (&self.state.compare.session, self.state.compare.connections) {
+            (Some(SessionPhase::Opening(_)), Some((source, target))) => [source, target]
+                .into_iter()
+                .filter_map(|id| self.state.ssh_host_of_saved(id))
+                .any(|h| same(&h)),
+            _ => false,
+        };
+        testing || comparing
+    }
+
     /// Whether something that belongs to no open session may be the asker of a queued host-key
     /// question. A connection test asks through the same prompt, and so does a compare session
-    /// while it opens its SSH tunnels. Closing a browsing session then must not reject their
-    /// question. Accepted limitation: the closed sessions' own questions stay queued until they
-    /// are answered or `HOST_KEY_PROMPT_TIMEOUT` rejects them (fail-closed, and `GatedPrompt`
-    /// turns a Trust for a closed session into Reject).
+    /// while it opens its SSH tunnels. When the last session closes while one runs, nothing is
+    /// rejected wholesale; the closed session's own host was already handled by
+    /// `reject_closed_hosts_question`, which spares only a host those are known to use.
     fn other_prompt_users_pending(&self) -> bool {
         matches!(self.state.conn.test, TestState::Running { .. })
             || matches!(self.state.compare.session, Some(SessionPhase::Opening(_)))
