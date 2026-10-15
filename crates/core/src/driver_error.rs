@@ -77,8 +77,7 @@ fn reach_of(kind: &ErrorKind) -> Reach {
 }
 
 /// Markers of a TLS handshake failure in the per-server reason, matched case-insensitively.
-const HANDSHAKE_MARKERS: [&str; 5] = [
-    "tls handshake",
+const HANDSHAKE_MARKERS: [&str; 4] = [
     "handshake",
     "invalid peer certificate",
     "received fatal alert",
