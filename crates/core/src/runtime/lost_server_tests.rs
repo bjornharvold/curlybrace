@@ -6,7 +6,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bson::{Bson, Document};
 
-use super::handlers::settle_by_ping;
 use super::*;
 use crate::connection::ConnectionConfig;
 use crate::store::{Namespace, Page};
@@ -194,21 +193,10 @@ async fn a_server_side_time_limit_is_an_answer_and_is_not_pinged() {
     );
 }
 
+/// A store failing with a handshake error is passed through unchanged, writes included: the
+/// ping would refuse and turn it into `Unreachable` if it ran.
 #[tokio::test]
-async fn a_tls_handshake_failure_is_settled_without_a_ping() {
-    let store: Arc<dyn DocumentStore> = Arc::new(SuspectStore {
-        error: CoreError::Unreachable,
-        hang_first: false,
-        ping: Ping::Refuses,
-    });
-    for is_write in [false, true] {
-        assert_eq!(
-            settle_by_ping(&store, SHORT, CoreError::TlsHandshake, is_write).await,
-            CoreError::TlsHandshake,
-            "write: {is_write}"
-        );
-    }
-    // Through the runtime a store reporting it is passed on as it is, a write included.
+async fn a_tls_handshake_failure_is_passed_on_without_a_ping() {
     let tls = || SuspectStore {
         error: CoreError::TlsHandshake,
         hang_first: false,

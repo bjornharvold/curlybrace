@@ -151,17 +151,12 @@ async fn run(
 /// retryable error; if it does not (or not in time), the server cannot be reached. A write the
 /// live server may have applied before the failure is `WriteOutcomeUnknown` instead, so the
 /// person is not told it simply failed (saving again could duplicate it).
-pub(super) async fn settle_by_ping(
+async fn settle_by_ping(
     store: &Arc<dyn DocumentStore>,
     limit: std::time::Duration,
     error: CoreError,
     is_write: bool,
 ) -> CoreError {
-    // A failed TLS handshake means the server answered: nothing left to settle, and the write
-    // was never sent.
-    if error == CoreError::TlsHandshake {
-        return error;
-    }
     match bounded(limit, store.ping()).await {
         Ok(()) if is_write => CoreError::WriteOutcomeUnknown,
         Ok(()) => match error {
