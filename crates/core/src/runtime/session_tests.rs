@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bson::{Bson, Document};
-use tokio::sync::Notify;
 
+use super::tests::gated::{down, gated_find};
 use super::*;
 use crate::connection::ConnectionConfig;
 use crate::store::{Namespace, Page, Topology};
@@ -122,57 +122,6 @@ async fn disconnecting_one_session_leaves_the_other_answering() {
     ));
 }
 
-/// Find that signals when it started and waits for a release.
-struct GatedFindStore {
-    started: Arc<Notify>,
-    release: Arc<Notify>,
-    finished: Arc<AtomicUsize>,
-}
-
-fn down<T>() -> Result<T> {
-    Err(CoreError::Database("down".into()))
-}
-
-#[async_trait]
-impl DocumentStore for GatedFindStore {
-    async fn list_databases(&self) -> Result<Vec<String>> {
-        Ok(vec![])
-    }
-    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
-        Ok(vec![])
-    }
-    async fn find(&self, _ns: &Namespace, q: &Query) -> Result<Page> {
-        self.started.notify_one();
-        self.release.notified().await;
-        self.finished.fetch_add(1, Ordering::SeqCst);
-        Ok(Page {
-            docs: vec![],
-            skip: q.skip,
-            has_more: false,
-        })
-    }
-    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
-        down()
-    }
-    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
-        down()
-    }
-    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
-        down()
-    }
-}
-
-fn gated_find() -> (Arc<GatedFindStore>, Arc<Notify>, Arc<Notify>) {
-    let started = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    let store = Arc::new(GatedFindStore {
-        started: started.clone(),
-        release: release.clone(),
-        finished: Arc::new(AtomicUsize::new(0)),
-    });
-    (store, started, release)
-}
-
 fn find(session: SessionId) -> Command {
     Command::Find {
         session,
@@ -215,6 +164,74 @@ async fn a_data_command_for_an_unknown_session_fails_closed_for_that_session() {
     );
 }
 
+/// Counts every call that reaches it; answers like an empty server.
+struct CountingStore {
+    calls: Arc<AtomicUsize>,
+}
+
+impl CountingStore {
+    fn counted(&self) {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl DocumentStore for CountingStore {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        self.counted();
+        Ok(vec![])
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        self.counted();
+        Ok(vec![])
+    }
+    async fn find(&self, _ns: &Namespace, q: &Query) -> Result<Page> {
+        self.counted();
+        Ok(Page {
+            docs: vec![],
+            skip: q.skip,
+            has_more: false,
+        })
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        self.counted();
+        Ok(Bson::Null)
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        self.counted();
+        Ok(())
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        self.counted();
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_data_command_for_an_unknown_session_never_reads_another_sessions_store() {
+    let b = cfg("b");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counting = Arc::new(CountingStore {
+        calls: calls.clone(),
+    });
+    let mut h = start(vec![(&b, counting)]);
+    connect(&mut h, &b).await;
+    let a = SessionId::new_v4();
+    let commands = [find(a), Command::ListDatabases { session: a }];
+    for command in commands {
+        let context = command.context();
+        h.tx.send(command).unwrap();
+        assert_eq!(
+            next(&mut h).await,
+            Event::Failed {
+                session: a,
+                context,
+                error: CoreError::Unsupported("not connected".into()),
+            }
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
 #[tokio::test]
 async fn a_late_answer_of_a_disconnected_session_is_superseded() {
     let a = cfg("a");
