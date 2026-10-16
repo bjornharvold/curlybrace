@@ -26,12 +26,14 @@ pub enum UriProblem {
     SrvRules,
     /// A query option is not `key=value` or has an unsupported value.
     BadOption,
+    /// A password with no user name (`:pw@host`).
+    UserNeeded,
     /// Anything else (also used where the string was not typed by the person).
     Other,
 }
 
 impl UriProblem {
-    pub const ALL: [UriProblem; 11] = [
+    pub const ALL: [UriProblem; 12] = [
         Self::MissingScheme,
         Self::MissingHost,
         Self::BadHost,
@@ -42,6 +44,7 @@ impl UriProblem {
         Self::BadPercentEncoding,
         Self::SrvRules,
         Self::BadOption,
+        Self::UserNeeded,
         Self::Other,
     ];
 
@@ -58,6 +61,7 @@ impl UriProblem {
             Self::BadPercentEncoding => "errors.invalid_uri_bad_percent",
             Self::SrvRules => "errors.invalid_uri_srv",
             Self::BadOption => "errors.invalid_uri_bad_option",
+            Self::UserNeeded => "errors.invalid_uri_user_needed",
             Self::Other => "errors.invalid_uri",
         }
     }
@@ -74,6 +78,7 @@ impl UriProblem {
             Self::BadPercentEncoding => "malformed percent-encoding",
             Self::SrvRules => "mongodb+srv takes exactly one host and no port",
             Self::BadOption => "malformed option",
+            Self::UserNeeded => "a password needs a user name",
             Self::Other => "malformed connection string",
         }
     }

@@ -96,7 +96,8 @@ fn parse_only_cases() -> Vec<(String, UriProblem)> {
         (format!("mongodb://h/db?x={t}&b"), BadOption),
         (format!("mongodb://u:p@h/?authMechanism=NOPE{t}"), BadOption),
         (format!("mongodb://h/?tls=maybe{t}"), BadOption),
-        (format!("mongodb://:{t}@h"), Other),
+        (format!("mongodb://:{t}@h"), UserNeeded),
+        (format!("mongodb+srv://:{t}@h"), UserNeeded),
     ]
 }
 

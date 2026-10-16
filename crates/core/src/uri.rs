@@ -221,7 +221,7 @@ fn parse_userinfo(userinfo: Option<&str>) -> Check<Credentials> {
     let pass = pass.map(percent_decode).transpose()?;
     let pass = pass.filter(|p| !p.is_empty() && p != MASK);
     if user.is_empty() && pass.is_some() {
-        return Err(UriProblem::Other);
+        return Err(UriProblem::UserNeeded);
     }
     Ok((
         (!user.is_empty()).then_some(user),
