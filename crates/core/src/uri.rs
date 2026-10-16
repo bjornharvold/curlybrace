@@ -91,10 +91,28 @@ fn split_uri(input: &str) -> Result<Split<'_>> {
 /// as `parse_uri` does, without reading credentials or options. Errors never carry the input.
 pub fn check_hosts(uri: &str) -> Result<()> {
     let split = split_uri(uri.trim())?;
-    if split.userinfo.is_some_and(|u| u.contains('@')) || split.tail.contains('@') {
+    if split.userinfo.is_some_and(|u| u.contains('@')) || !tail_at_signs_allowed(split.tail) {
         return Err(malformed());
     }
     Ok(())
+}
+
+/// Whether the `@`s of a path/query tail are legitimate: none in the path, and in the query only
+/// when a `/` precedes the `?` and every pair is `key=value` with a non-empty key (a pair
+/// without `=` is where a spilled password lands).
+fn tail_at_signs_allowed(tail: &str) -> bool {
+    let (path, query) = tail.split_once('?').unwrap_or((tail, ""));
+    if path.contains('@') {
+        return false;
+    }
+    if !query.contains('@') {
+        return true;
+    }
+    path.starts_with('/')
+        && query
+            .split('&')
+            .filter(|p| !p.is_empty())
+            .all(|p| p.split_once('=').is_some_and(|(k, _)| !k.is_empty()))
 }
 
 pub fn parse_uri(input: &str) -> Result<ParsedUri> {
@@ -596,6 +614,29 @@ mod tests {
     }
 
     #[test]
+    fn check_hosts_accepts_an_at_sign_in_a_key_value_query_after_a_slash() {
+        for ok in [
+            "mongodb://h/?appName=bob@laptop",
+            "mongodb://h/db?tlsCAFile=/certs@2/ca.pem",
+            "mongodb://u@h/db?appName=a@b&retryWrites=true",
+        ] {
+            assert!(check_hosts(ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn check_hosts_rejects_an_at_sign_in_the_path_or_a_keyless_query_pair() {
+        for bad in [
+            "mongodb://h/db@x",
+            "mongodb://h/a@b?x=y",
+            "mongodb://h?a=b@c",
+            "mongodb://h/?=x@y",
+        ] {
+            assert!(check_hosts(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn check_hosts_rejects_a_password_that_leaks_into_the_host_without_echo() {
         for bad in [
             "mongodb://u:pa/ss@h",
@@ -616,7 +657,9 @@ mod tests {
         for bad in [
             "mongodb://admin:2024/S3CR3T@db",
             "mongodb://u:12345?S3CR3T@h",
-            "mongodb://h/db?a=b@S3CR3T",
+            "mongodb://h/db@x",
+            "mongodb://h/?a=b&S3CR3T@h",
+            "mongodb://u@x@h",
             "mongodb://u:pa@S3CR3T@h",
             "mongodb://h1,h2,",
             "mongodb://h1:27017,h2:27018,",

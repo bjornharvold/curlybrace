@@ -379,6 +379,8 @@ mod tests {
             "mongodb://admin:2024/S3CR3T@db",
             "mongodb://u:12345?S3CR3T@h",
             "mongodb://u:pa@S3CR3T@h",
+            "mongodb://h/db@x",
+            "mongodb://u@x@h",
             "mongodb://h1:27017,h2:27018,",
         ] {
             let f = ConnectionForm {
@@ -388,6 +390,20 @@ mod tests {
             let err = f.to_checked_config().unwrap_err();
             assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
             assert!(!err.to_string().contains("S3CR3T"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn save_accepts_an_at_sign_in_a_key_value_query() {
+        for ok in [
+            "mongodb://h/?appName=bob@laptop",
+            "mongodb://h/db?tlsCAFile=/certs@2/ca.pem",
+        ] {
+            let f = ConnectionForm {
+                uri: ok.into(),
+                ..valid()
+            };
+            assert!(f.to_checked_config().is_ok(), "{ok}");
         }
     }
 

@@ -442,14 +442,27 @@ mod tests {
         let imported = parse_connections(&file_of(&kept)).unwrap();
         assert_eq!((imported.connections.len(), imported.skipped), (0, 2));
         // A second `@` in the userinfo is rejected on import too (load may drop it already).
-        let userinfo = parse_connections(&file_of(&["mongodb://u:pa@S3CR3T@h"])).unwrap();
-        assert_eq!((userinfo.connections.len(), userinfo.skipped), (0, 1));
+        // `u:pa@S3CR3T@h` is skipped by `validate()` (':' in userinfo), so `u@x@h` is what
+        // actually exercises the userinfo rule.
+        let userinfo =
+            parse_connections(&file_of(&["mongodb://u@x@h", "mongodb://h/db@x"])).unwrap();
+        assert_eq!((userinfo.connections.len(), userinfo.skipped), (0, 2));
 
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join(FILE_NAME);
         std::fs::write(&p, file_of(&kept)).unwrap();
         let loaded = load_connections(&p).unwrap();
         assert_eq!((loaded.connections.len(), loaded.skipped), (2, 0));
+    }
+
+    #[test]
+    fn import_and_export_round_trip_an_at_sign_in_a_key_value_query() {
+        let uris = [
+            "mongodb://h/?appName=bob@laptop",
+            "mongodb://h/db?tlsCAFile=/certs@2/ca.pem",
+        ];
+        let imported = parse_connections(&file_of(&uris)).unwrap();
+        assert_eq!((imported.connections.len(), imported.skipped), (2, 0));
     }
 
     /// `mongodb://u@` has userinfo but no host text: import rejects it ("missing host"), the
