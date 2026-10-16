@@ -17,7 +17,8 @@ pub enum UriProblem {
     BadPort,
     /// A password or another secret option is embedded in the string.
     SecretInUri,
-    /// A raw `@` sits in the user info, the path or a query value: a spilled password.
+    /// A raw `@` or `#` sits where it must be percent-encoded (user info, path, query): most often
+    /// a password with a reserved character.
     StrayAtSign,
     /// A `%` is not followed by two hex digits, or the decoded bytes are not UTF-8.
     BadPercentEncoding,
@@ -69,7 +70,7 @@ impl UriProblem {
             Self::NonAsciiHost => "host is not ascii",
             Self::BadPort => "malformed port",
             Self::SecretInUri => "credentials must not be embedded in the uri",
-            Self::StrayAtSign => "unexpected '@' in the connection string",
+            Self::StrayAtSign => "unexpected '@' or '#' in the connection string",
             Self::BadPercentEncoding => "malformed percent-encoding",
             Self::SrvRules => "mongodb+srv takes exactly one host and no port",
             Self::BadOption => "malformed option",

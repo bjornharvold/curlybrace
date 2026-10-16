@@ -60,7 +60,12 @@ fn shared_cases() -> Vec<(String, UriProblem)> {
         (format!("mongodb://h/db@{t}"), StrayAtSign),
         (format!("mongodb://h/?a=b&{t}@h"), StrayAtSign),
         (format!("mongodb://h/?x@{t}=1"), StrayAtSign),
-        ("mongodb://h#frag".into(), Other),
+        // A '#' is a common password character; a fragment is invalid too, so both get the
+        // same "percent-encode it" hint.
+        ("mongodb://h/db#frag".into(), StrayAtSign),
+        ("mongodb://h#frag".into(), StrayAtSign),
+        (format!("mongodb://bob:pa#{t}@host/db"), StrayAtSign),
+        (format!("mongodb+srv://bob:pa#{t}@host/db"), StrayAtSign),
     ];
     cases
 }

@@ -64,7 +64,7 @@ fn split_uri(input: &str, mode: HostMode) -> Check<Split<'_>> {
         return Err(UriProblem::MissingScheme);
     };
     if rest.contains('#') {
-        return Err(UriProblem::Other);
+        return Err(UriProblem::StrayAtSign);
     }
     let (authority, tail) = match rest.find(['/', '?']) {
         Some(i) => rest.split_at(i),
