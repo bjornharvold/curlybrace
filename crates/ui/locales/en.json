@@ -504,6 +504,7 @@
     "test_ok": "Connected. Server version {version}.",
     "test_ok_no_version": "Connected.",
     "test_running": "Testing the connection...",
+    "time_utc": "{time} UTC",
     "title": "Connections",
     "tls": "Use TLS",
     "tls_ca": "CA certificate file",

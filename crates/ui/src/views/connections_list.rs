@@ -10,7 +10,7 @@ use eframe::egui;
 const SORT_ASC: &str = "\u{23F6}";
 const SORT_DESC: &str = "\u{23F7}";
 /// Share of the table width per column, in `COLUMNS` order.
-const SHARES: [f32; 5] = [0.28, 0.26, 0.18, 0.14, 0.14];
+const SHARES: [f32; 5] = [0.25, 0.22, 0.15, 0.19, 0.19];
 const COLUMNS: [(SortColumn, &str); 5] = [
     (SortColumn::Name, "connections.col_name"),
     (SortColumn::Server, "connections.col_server"),
@@ -314,10 +314,10 @@ pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
     }
 }
 
-/// A UTC timestamp, or the "never" text when unset or out of the displayable range.
+/// A timestamp labelled as UTC, or the "never" text when unset or out of the displayable range.
 pub(super) fn time_text(secs: Option<i64>, i18n: &I18n) -> String {
     match secs.map(format_utc) {
-        Some(text) if text != "-" => text,
+        Some(text) if text != "-" => i18n.t_with("connections.time_utc", &[("time", &text)]),
         _ => i18n.t("connections.never"),
     }
 }
@@ -331,7 +331,8 @@ mod tests {
         let i18n = I18n::english();
         assert_eq!(time_text(None, &i18n), "Never");
         assert_eq!(time_text(Some(i64::MAX), &i18n), "Never");
-        assert_eq!(time_text(Some(0), &i18n), "1970-01-01 00:00");
+        assert_eq!(time_text(Some(0), &i18n), "1970-01-01 00:00 UTC");
+        assert_eq!(time_text(Some(1_700_000_000), &i18n), "2023-11-14 22:13 UTC");
     }
 
     #[test]

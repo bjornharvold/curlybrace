@@ -69,6 +69,29 @@ fn the_filter_count_updates_in_the_frame_the_filter_is_edited() {
 }
 
 #[test]
+fn the_date_cells_say_the_time_zone_in_full_and_never_does_not() {
+    let mut stamped = ConnectionConfig::new("Stamped", "mongodb://s.example.com");
+    stamped.last_connected = Some(1_700_000_000);
+    stamped.updated_at = Some(1_700_000_060);
+    let mut never = ConnectionConfig::new("Unused", "mongodb://u.example.com");
+    never.last_connected = None;
+    never.updated_at = None;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(
+            |ui, state: &mut ConnectionsState| {
+                show_connections(ui, state, &I18n::english());
+            },
+            ConnectionsState::new(vec![stamped, never]),
+        );
+    harness.run();
+    harness.get_by_label("2023-11-14 22:13 UTC");
+    harness.get_by_label("2023-11-14 22:14 UTC");
+    assert_eq!(harness.get_all_by_label("Never").count(), 2);
+    assert!(harness.query_by_label("Never UTC").is_none());
+}
+
+#[test]
 fn every_column_header_is_a_button_with_its_text() {
     let i18n = I18n::english();
     let harness = harness();
