@@ -147,7 +147,7 @@ impl ConnectionConfig {
         if self.auth == AuthMechanism::X509
             && !(self.tls.enabled && self.tls.client_cert_key_file.is_some())
         {
-            return Err(CoreError::InvalidUri(UriProblem::Other));
+            return Err(CoreError::InvalidUri(UriProblem::X509Needs));
         }
         if let Some(ssh) = &self.ssh {
             if ssh.host.trim().is_empty() || ssh.username.trim().is_empty() || ssh.port == 0 {
@@ -308,7 +308,17 @@ mod tests {
     fn x509_needs_client_cert_and_tls() {
         let mut c = ConnectionConfig::new("a", "mongodb://h");
         c.auth = AuthMechanism::X509;
-        assert!(c.validate().is_err());
+        let needs = Err(CoreError::InvalidUri(UriProblem::X509Needs));
+        assert_eq!(c.validate(), needs);
+        c.tls.enabled = true;
+        assert_eq!(c.validate(), needs, "TLS alone is not enough");
+        c.tls.enabled = false;
+        c.tls.client_cert_key_file = Some("/tmp/c.pem".into());
+        assert_eq!(
+            c.validate(),
+            needs,
+            "a certificate without TLS is not enough"
+        );
         c.tls.enabled = true;
         c.tls.client_cert_key_file = Some("/tmp/c.pem".into());
         assert!(c.validate().is_ok());

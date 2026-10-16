@@ -28,12 +28,14 @@ pub enum UriProblem {
     BadOption,
     /// A password with no user name (`:pw@host`).
     UserNeeded,
+    /// x509 sign-in is chosen without TLS turned on or without a client certificate file.
+    X509Needs,
     /// Anything else (also used where the string was not typed by the person).
     Other,
 }
 
 impl UriProblem {
-    pub const ALL: [UriProblem; 12] = [
+    pub const ALL: [UriProblem; 13] = [
         Self::MissingScheme,
         Self::MissingHost,
         Self::BadHost,
@@ -45,6 +47,7 @@ impl UriProblem {
         Self::SrvRules,
         Self::BadOption,
         Self::UserNeeded,
+        Self::X509Needs,
         Self::Other,
     ];
 
@@ -62,6 +65,7 @@ impl UriProblem {
             Self::SrvRules => "errors.invalid_uri_srv",
             Self::BadOption => "errors.invalid_uri_bad_option",
             Self::UserNeeded => "errors.invalid_uri_user_needed",
+            Self::X509Needs => "errors.invalid_uri_x509",
             Self::Other => "errors.invalid_uri",
         }
     }
@@ -79,6 +83,7 @@ impl UriProblem {
             Self::SrvRules => "mongodb+srv takes exactly one host and no port",
             Self::BadOption => "malformed option",
             Self::UserNeeded => "a password needs a user name",
+            Self::X509Needs => "x509 sign-in needs tls and a client certificate",
             Self::Other => "malformed connection string",
         }
     }

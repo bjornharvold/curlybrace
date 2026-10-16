@@ -13,6 +13,7 @@ use super::*;
 use crate::connection::{SshAuth, SshConfig};
 use crate::secrets::{MemorySecretStore, SecretKind, secret_key};
 use crate::test_support::InMemoryStore;
+use crate::uri_problem::UriProblem;
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -51,19 +52,18 @@ fn target_rejects_multi_host_srv_and_garbage() {
         target("mongodb+srv://c.example.com"),
         Err(CoreError::Unsupported(_))
     ));
-    assert!(matches!(
-        target("mongodb://"),
-        Err(CoreError::InvalidUri(_))
-    ));
-    assert!(matches!(
-        target("mongodb://db:notaport"),
-        Err(CoreError::InvalidUri(_))
-    ));
-    assert!(matches!(
-        target("mongodb://db:99999"),
-        Err(CoreError::InvalidUri(_))
-    ));
-    assert!(matches!(target("http://db"), Err(CoreError::InvalidUri(_))));
+    let problem = |uri: &str| match target(uri) {
+        Err(CoreError::InvalidUri(p)) => p,
+        other => panic!("{uri}: expected an InvalidUri, got {other:?}"),
+    };
+    assert_eq!(problem("mongodb://"), UriProblem::MissingHost);
+    assert_eq!(problem("mongodb://u@/db"), UriProblem::MissingHost);
+    assert_eq!(problem("mongodb://:27017"), UriProblem::MissingHost);
+    assert_eq!(problem("mongodb://db:notaport"), UriProblem::BadPort);
+    assert_eq!(problem("mongodb://db:99999"), UriProblem::BadPort);
+    assert_eq!(problem("mongodb://db:"), UriProblem::BadPort);
+    assert_eq!(problem("mongodb://[::1"), UriProblem::BadHost);
+    assert_eq!(problem("http://db"), UriProblem::MissingScheme);
 }
 
 // ---- fakes ----
