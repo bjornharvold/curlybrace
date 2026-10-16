@@ -54,9 +54,10 @@ fn short_id(id: Uuid) -> String {
     id.simple().to_string().chars().take(4).collect()
 }
 
-/// What tells a connection apart from same-named ones: its servers, or its short id without any.
-fn distinguishing_servers(cfg: &ConnectionConfig) -> String {
-    let servers = connection_list::servers(cfg);
+/// What tells a connection apart from same-named ones: its servers joined with the language's
+/// list `separator` (shown to the user), or its short id without any.
+fn distinguishing_servers(cfg: &ConnectionConfig, separator: &str) -> String {
+    let servers = connection_list::server_hosts(cfg).join(separator);
     if servers.is_empty() {
         short_id(cfg.id)
     } else {
@@ -254,9 +255,13 @@ impl AppState {
         if twins.is_empty() {
             return Some(cfg.name.clone());
         }
-        let servers = distinguishing_servers(cfg);
+        let separator = i18n.t("connections.list_separator");
+        let servers = distinguishing_servers(cfg, &separator);
         let name = cfg.name.as_str();
-        let label = if twins.iter().any(|t| distinguishing_servers(t) == servers) {
+        let label = if twins
+            .iter()
+            .any(|t| distinguishing_servers(t, &separator) == servers)
+        {
             let params = [("name", name), ("servers", &servers), ("id", &short_id(id))];
             i18n.t_with("sidebar.name_with_servers_id", &params)
         } else {

@@ -151,8 +151,15 @@ pub fn grouped<'a>(rows: &[&'a ConnectionConfig]) -> Vec<Group<'a>> {
 
 /// The hosts of the URI, without credentials, path or options. Never panics; a uri that
 /// is not a connection string yields whatever host-like text it has (possibly empty).
+/// This is the match key for filtering and sorting, not display text (see [`server_hosts`]).
 pub fn servers(cfg: &ConnectionConfig) -> String {
     curlybrace_core::connection_repair::uri_hosts(&cfg.uri)
+}
+
+/// The hosts of the URI one by one, for a view that joins them with its own (translated)
+/// separator. Same rules as [`servers`], which joins with a fixed ", " for sorting and filtering.
+pub fn server_hosts(cfg: &ConnectionConfig) -> Vec<String> {
+    curlybrace_core::connection_repair::uri_host_list(&cfg.uri)
 }
 
 const MIN_DISPLAY_SECS: i64 = -62_167_219_200; // 0000-01-01 00:00:00 UTC
@@ -362,6 +369,14 @@ mod tests {
             servers(&cfg("a", "mongodb+srv://c0.example.com/db", None)),
             "c0.example.com"
         );
+    }
+
+    #[test]
+    fn server_hosts_are_the_same_hosts_one_by_one() {
+        let hosts = server_hosts(&cfg("a", "mongodb://u@h1:27017,h2:27018/db?x=1", None));
+        assert_eq!(hosts, vec!["h1:27017", "h2:27018"]);
+        assert!(server_hosts(&cfg("a", "mongodb:///db", None)).is_empty());
+        assert!(server_hosts(&cfg("a", "", None)).is_empty());
     }
 
     #[test]

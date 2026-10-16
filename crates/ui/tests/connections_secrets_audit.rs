@@ -64,7 +64,10 @@ async fn debug_output_of_a_state_full_of_secrets_is_clean() {
     h.until("test result", |a| {
         matches!(a.state().conn.test, TestState::Done { .. })
     });
-    // A banner reaches `dialog_banner` through the real path: the connections screen copies it in.
+    // A banner reaches `dialog_banner` through the real path: the connections screen copies it in
+    // once the dialog is open and the banner is new since it opened.
+    h.app.state_mut().conn.editing = true;
+    h.frame();
     h.app.state_mut().banner = Some(Banner::Failure {
         context: "save_connection",
         error: CoreError::Secret("keychain said no".into()),

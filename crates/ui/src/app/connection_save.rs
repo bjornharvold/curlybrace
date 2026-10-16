@@ -73,8 +73,16 @@ pub(super) fn save_and_close(
         SaveOutcome::Closed => prior.filter(|b| !is_save_failure(b)),
         SaveOutcome::StayOpen => prior,
     };
+    // A banner this save raised while the dialog stays open belongs to the dialog, even if an
+    // identical one was showing when it opened.
+    let claims_banner = outcome == SaveOutcome::StayOpen && next.banner.is_some();
+    let watch = match claims_banner {
+        true => next.dialog_banner_watch.claimed(),
+        false => next.dialog_banner_watch,
+    };
     let next = AppState {
         banner: next.banner.or(prior),
+        dialog_banner_watch: watch,
         ..next
     };
     match outcome {
@@ -395,6 +403,47 @@ mod tests {
         };
         let next = save_and_close(state, &copy, &secrets, &path, 9);
         assert_eq!(next.conn.notice, None);
+    }
+
+    /// `state` with the dialog open and the watch having seen it open with `banner` showing.
+    fn watching(mut state: AppState, banner: Option<Banner>) -> AppState {
+        state.banner = banner.clone();
+        state.dialog_banner_watch =
+            std::mem::take(&mut state.dialog_banner_watch).observed(true, banner.as_ref());
+        state
+    }
+
+    #[test]
+    fn a_retried_keychain_failure_is_shown_again_in_the_dialog() {
+        let (_dir, path, _memory) = setup();
+        let secrets = Failing {
+            inner: MemorySecretStore::new(),
+            fail_set: true,
+            fail_get_for: None,
+        };
+        let form = ConnectionForm {
+            password: "typed".into(),
+            ..named_form("a")
+        };
+        let first = save_and_close(editing(form.clone(), vec![]), &form, &secrets, &path, 5);
+        let shown = first.banner.clone().expect("the failure banner");
+        // Cancel and reopen with the failure still showing at the top, then retry.
+        let reopened = watching(editing(form.clone(), vec![]), first.banner);
+        assert!(!reopened.dialog_banner_watch.is_new(&shown), "predates");
+        let again = save_and_close(reopened, &form, &secrets, &path, 6);
+        assert_eq!(again.banner.as_ref(), Some(&shown));
+        assert!(again.dialog_banner_watch.is_new(&shown), "shown again");
+    }
+
+    #[test]
+    fn a_stale_banner_the_save_did_not_raise_stays_unclaimed() {
+        let (_dir, path, secrets) = setup();
+        let stale = Banner::NotConnected;
+        let bad = named_form("   ");
+        let state = watching(editing(bad.clone(), vec![]), Some(stale.clone()));
+        let next = save_and_close(state, &bad, &secrets, &path, 5);
+        assert!(next.conn.editing);
+        assert!(!next.dialog_banner_watch.is_new(&stale));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 use super::connections::{ConnectionAction, ConnectionsState, Notice};
 use crate::I18n;
 use crate::viewmodel::{
-    SortColumn, auth_label_key, format_utc, grouped, security, servers, visible,
+    SortColumn, auth_label_key, format_utc, grouped, security, server_hosts, visible,
 };
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use eframe::egui;
@@ -10,7 +10,7 @@ use eframe::egui;
 const SORT_ASC: &str = "\u{23F6}";
 const SORT_DESC: &str = "\u{23F7}";
 /// Share of the table width per column, in `COLUMNS` order.
-const SHARES: [f32; 5] = [0.28, 0.26, 0.18, 0.14, 0.14];
+const SHARES: [f32; 5] = [0.25, 0.22, 0.15, 0.19, 0.19];
 const COLUMNS: [(SortColumn, &str); 5] = [
     (SortColumn::Name, "connections.col_name"),
     (SortColumn::Server, "connections.col_server"),
@@ -146,8 +146,12 @@ fn show_table(
     i18n: &I18n,
     rows: &[&ConnectionConfig],
 ) -> Option<ConnectionAction> {
-    let widths = column_widths(ui);
-    show_header(ui, state, i18n, &widths);
+    // Looked up once per frame, not once per row.
+    let layout = TableLayout {
+        widths: column_widths(ui),
+        separator: i18n.t("connections.list_separator"),
+    };
+    show_header(ui, state, i18n, &layout.widths);
     if rows.is_empty() && !state.filter.trim().is_empty() {
         ui.label(i18n.t("connections.no_match"));
         return None;
@@ -160,13 +164,20 @@ fn show_table(
         .show(ui, |ui| {
             for group in grouped(rows) {
                 let found = match group.folder {
-                    None => show_rows(ui, state, i18n, &group.rows, &widths),
-                    Some(folder) => show_folder(ui, state, i18n, folder, &group.rows, &widths),
+                    None => show_rows(ui, state, i18n, &group.rows, &layout),
+                    Some(folder) => show_folder(ui, state, i18n, folder, &group.rows, &layout),
                 };
                 action = found.or(action.take());
             }
         });
     action
+}
+
+/// What every row of one frame's table shares.
+struct TableLayout {
+    widths: [f32; 5],
+    /// The translated list separator, fetched once per frame.
+    separator: String,
 }
 
 fn column_widths(ui: &egui::Ui) -> [f32; 5] {
@@ -205,7 +216,7 @@ fn show_folder(
     i18n: &I18n,
     folder: &str,
     rows: &[&ConnectionConfig],
-    widths: &[f32; 5],
+    layout: &TableLayout,
 ) -> Option<ConnectionAction> {
     let mut action = None;
     let id = ui.make_persistent_id(("connection_folder", folder));
@@ -226,7 +237,7 @@ fn show_folder(
             }
         })
         .body_unindented(|ui| {
-            if let Some(row_action) = show_rows(ui, state, i18n, rows, widths) {
+            if let Some(row_action) = show_rows(ui, state, i18n, rows, layout) {
                 action = Some(row_action);
             }
         });
@@ -238,7 +249,7 @@ fn show_rows(
     state: &mut ConnectionsState,
     i18n: &I18n,
     rows: &[&ConnectionConfig],
-    widths: &[f32; 5],
+    layout: &TableLayout,
 ) -> Option<ConnectionAction> {
     let mut action = None;
     for cfg in rows {
@@ -246,7 +257,7 @@ fn show_rows(
         ui.push_id(cfg.id, |ui| {
             ui.horizontal(|ui| {
                 let selected = state.selected == Some(cfg.id);
-                cell(ui, widths[0], |ui| {
+                cell(ui, layout.widths[0], |ui| {
                     let name = ui.add(egui::Button::selectable(selected, &cfg.name).truncate());
                     if name.double_clicked() {
                         action = Some(ConnectionAction::Connect(cfg.id));
@@ -255,12 +266,12 @@ fn show_rows(
                     }
                 });
                 let texts = [
-                    servers(cfg),
-                    security_text(cfg, i18n),
+                    servers_text(cfg, &layout.separator),
+                    security_text(cfg, i18n, &layout.separator),
                     time_text(cfg.last_connected, i18n),
                     time_text(cfg.updated_at, i18n),
                 ];
-                for (text, width) in texts.into_iter().zip(&widths[1..]) {
+                for (text, width) in texts.into_iter().zip(&layout.widths[1..]) {
                     cell(ui, *width, |ui| {
                         ui.add(egui::Label::new(text).truncate());
                     });
@@ -294,8 +305,13 @@ fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
     );
 }
 
+/// The hosts of the connection joined with `separator`, the language's list separator.
+pub(super) fn servers_text(cfg: &ConnectionConfig, separator: &str) -> String {
+    server_hosts(cfg).join(separator)
+}
+
 /// "TLS, SSH tunnel, SCRAM-SHA-256", or the "none" text when nothing is configured.
-pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
+pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n, separator: &str) -> String {
     let sec = security(cfg);
     let mut parts = Vec::new();
     if sec.tls {
@@ -310,14 +326,14 @@ pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
     if parts.is_empty() {
         i18n.t("connections.security_none")
     } else {
-        parts.join(", ")
+        parts.join(separator)
     }
 }
 
-/// A UTC timestamp, or the "never" text when unset or out of the displayable range.
+/// A timestamp labelled as UTC, or the "never" text when unset or out of the displayable range.
 pub(super) fn time_text(secs: Option<i64>, i18n: &I18n) -> String {
     match secs.map(format_utc) {
-        Some(text) if text != "-" => text,
+        Some(text) if text != "-" => i18n.t_with("connections.time_utc", &[("time", &text)]),
         _ => i18n.t("connections.never"),
     }
 }
@@ -331,16 +347,54 @@ mod tests {
         let i18n = I18n::english();
         assert_eq!(time_text(None, &i18n), "Never");
         assert_eq!(time_text(Some(i64::MAX), &i18n), "Never");
-        assert_eq!(time_text(Some(0), &i18n), "1970-01-01 00:00");
+        assert_eq!(time_text(Some(0), &i18n), "1970-01-01 00:00 UTC");
+        assert_eq!(
+            time_text(Some(1_700_000_000), &i18n),
+            "2023-11-14 22:13 UTC"
+        );
     }
 
     #[test]
     fn security_text_lists_what_is_configured_or_says_none() {
         let i18n = I18n::english();
         let plain = ConnectionConfig::new("a", "mongodb://h");
-        assert_eq!(security_text(&plain, &i18n), "None");
+        assert_eq!(security_text(&plain, &i18n, ", "), "None");
         let mut tls = plain.clone();
         tls.tls.enabled = true;
-        assert_eq!(security_text(&tls, &i18n), "TLS");
+        assert_eq!(security_text(&tls, &i18n, ", "), "TLS");
+    }
+
+    fn with_separator(separator: &str) -> I18n {
+        let en = include_str!("../../locales/en.json");
+        let custom = en.replace(
+            "\"list_separator\": \", \"",
+            &format!("\"list_separator\": \"{separator}\""),
+        );
+        assert_ne!(custom, en, "the separator key must exist in en.json");
+        I18n::from_json(&custom).unwrap()
+    }
+
+    #[test]
+    fn lists_are_joined_with_the_translated_separator() {
+        let mut cfg = ConnectionConfig::new("a", "mongodb://h1:1,h2:2,h3:3");
+        cfg.tls.enabled = true;
+        cfg.ssh = Some(curlybrace_core::connection::SshConfig {
+            host: "b".into(),
+            port: 22,
+            username: "u".into(),
+            auth: curlybrace_core::connection::SshAuth::Password,
+        });
+        let english = I18n::english();
+        assert_eq!(servers_text(&cfg, ", "), "h1:1, h2:2, h3:3");
+        assert_eq!(security_text(&cfg, &english, ", "), "TLS, SSH tunnel");
+        let other = with_separator(" \u{b7} ");
+        assert_eq!(
+            servers_text(&cfg, &other.t("connections.list_separator")),
+            "h1:1 \u{b7} h2:2 \u{b7} h3:3"
+        );
+        assert_eq!(
+            security_text(&cfg, &other, &other.t("connections.list_separator")),
+            "TLS \u{b7} SSH tunnel"
+        );
     }
 }

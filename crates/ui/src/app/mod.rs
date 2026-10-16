@@ -22,6 +22,7 @@ mod connection_save;
 mod connection_test;
 mod connection_uri;
 pub mod connections;
+mod dialog_banner;
 pub mod file_picker;
 pub mod host_key;
 mod panels;

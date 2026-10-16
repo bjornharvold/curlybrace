@@ -211,3 +211,30 @@ fn the_toggle_and_disconnect_controls_of_the_two_roots_have_distinct_names() {
         }
     }
 }
+
+fn two_replica_sets() -> (AppState, Uuid, Uuid) {
+    let a = cfg("Prod", "mongodb://h1:1,h2:2", "bastion-a");
+    let b = cfg("Prod", "mongodb://h3:3,h4:4", "bastion-b");
+    let (ia, ib) = (a.id, b.id);
+    (opened(opened(AppState::new(vec![a, b]), ia), ib), ia, ib)
+}
+
+#[test]
+fn the_servers_in_a_label_use_the_translated_list_separator() {
+    let (s, a, _) = two_replica_sets();
+    assert_eq!(
+        session_display_name(&s, a, &i18n()).unwrap(),
+        "Prod (h1:1, h2:2)"
+    );
+    let en = include_str!("../../locales/en.json");
+    let custom = en.replace(
+        "\"list_separator\": \", \"",
+        "\"list_separator\": \" \u{b7} \"",
+    );
+    assert_ne!(custom, en, "the separator key must exist in en.json");
+    let other = I18n::from_json(&custom).unwrap();
+    assert_eq!(
+        session_display_name(&s, a, &other).unwrap(),
+        "Prod (h1:1 \u{b7} h2:2)"
+    );
+}
