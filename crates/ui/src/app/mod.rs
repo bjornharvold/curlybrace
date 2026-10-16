@@ -307,26 +307,22 @@ impl CurlybraceApp {
     }
 
     /// The runtime is gone: the browsing session and the compare session (whose connections
-    /// lived in it) are both over. Only the first notice raises the failure banner; a later one
-    /// (a command sent after the loss) still clears what that command started, but leaves the
-    /// banner as the user left it.
+    /// lived in it) are both over, and the failure banner says so. A command sent after the loss
+    /// raises it again: starting a connect withdraws a banner nobody owns, and the failed send
+    /// must not leave the person without an explanation. `runtime_gone` only keeps the per-frame
+    /// `pump` from repeating the notice once a failed send has already given it.
     fn runtime_stopped(&mut self) {
-        let first = !std::mem::replace(&mut self.runtime_gone, true);
+        self.runtime_gone = true;
         let cleared = std::mem::take(&mut self.state).session_cleared();
-        let banner = if first {
-            Some(Banner::Failure {
-                context: "runtime",
-                error: CoreError::Database("runtime stopped".into()),
-            })
-        } else {
-            cleared.banner.clone()
-        };
         self.state = AppState {
             compare: cleared.compare.clone().session_dropped(),
             // A test that was waiting for its answer will never get one.
             conn: connection_test::abandoned(cleared.conn),
             status: ConnStatus::Disconnected,
-            banner,
+            banner: Some(Banner::Failure {
+                context: "runtime",
+                error: CoreError::Database("runtime stopped".into()),
+            }),
             ..cleared
         };
     }

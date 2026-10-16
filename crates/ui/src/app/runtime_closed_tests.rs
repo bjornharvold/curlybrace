@@ -75,14 +75,14 @@ fn the_runtime_banner_is_raised_once_across_frames() {
 }
 
 #[test]
-fn a_failed_send_after_the_channel_closed_raises_no_second_banner() {
+fn a_failed_send_after_the_channel_closed_raises_the_banner_again() {
     let (mut app, events, commands) = app();
     drop(events);
     drop(commands);
     app.pump();
     app.state_mut().banner = None;
     app.send(disconnect());
-    assert_eq!(app.state().banner, None);
+    assert!(runtime_banner(&app));
 }
 
 #[test]
@@ -108,6 +108,7 @@ fn a_connect_attempted_after_the_runtime_is_gone_does_not_stay_connecting() {
     app.send(disconnect());
     assert_eq!(app.state().status, ConnStatus::Disconnected);
     assert_eq!(app.state().conn.test, TestState::Idle);
+    assert!(runtime_banner(&app), "the user is told why it failed");
 }
 
 #[test]
