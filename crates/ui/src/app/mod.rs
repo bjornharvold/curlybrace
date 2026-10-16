@@ -93,6 +93,8 @@ pub struct CurlybraceApp {
     pick: Option<PendingPick>,
     /// The import/export dialog being shown, if any: at most one at a time.
     conn_pick: Option<connection_picker::ConnPick>,
+    /// The runtime was found gone (never reset: it is not restarted); keeps its banner to one.
+    runtime_gone: bool,
 }
 
 impl CurlybraceApp {
@@ -116,6 +118,7 @@ impl CurlybraceApp {
             repaint: Arc::new(|| {}),
             pick: None,
             conn_pick: None,
+            runtime_gone: false,
         }
     }
 
@@ -304,19 +307,26 @@ impl CurlybraceApp {
     }
 
     /// The runtime is gone: the browsing session and the compare session (whose connections
-    /// lived in it) are both over.
+    /// lived in it) are both over. Only the first notice raises the failure banner; a later one
+    /// (a command sent after the loss) still clears what that command started, but leaves the
+    /// banner as the user left it.
     fn runtime_stopped(&mut self) {
-        let error = CoreError::Database("runtime stopped".into());
+        let first = !std::mem::replace(&mut self.runtime_gone, true);
         let cleared = std::mem::take(&mut self.state).session_cleared();
+        let banner = if first {
+            Some(Banner::Failure {
+                context: "runtime",
+                error: CoreError::Database("runtime stopped".into()),
+            })
+        } else {
+            cleared.banner.clone()
+        };
         self.state = AppState {
             compare: cleared.compare.clone().session_dropped(),
             // A test that was waiting for its answer will never get one.
             conn: connection_test::abandoned(cleared.conn),
             status: ConnStatus::Disconnected,
-            banner: Some(Banner::Failure {
-                context: "runtime",
-                error,
-            }),
+            banner,
             ..cleared
         };
     }
@@ -460,19 +470,6 @@ impl CurlybraceApp {
         }
     }
 
-    /// The runtime dropped its event sender, so nothing will ever answer a running test. The
-    /// check repeats every frame for as long as the channel stays closed; it only touches the
-    /// state when a test is running, so it neither re-triggers nor logs.
-    fn event_channel_closed(&mut self) {
-        if matches!(self.state.conn.test, TestState::Running { .. }) {
-            let state = std::mem::take(&mut self.state);
-            self.state = AppState {
-                conn: connection_test::abandoned(state.conn),
-                ..state
-            };
-        }
-    }
-
     /// Moves host-key requests and runtime events into the state.
     fn pump(&mut self) {
         self.drain_requests();
@@ -482,7 +479,10 @@ impl CurlybraceApp {
                 Ok(event) => event,
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    self.event_channel_closed();
+                    // Repeats every frame while closed; only the first notice acts.
+                    if !self.runtime_gone {
+                        self.runtime_stopped();
+                    }
                     break;
                 }
             };
