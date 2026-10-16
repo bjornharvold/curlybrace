@@ -159,7 +159,8 @@ impl InteractivePrompt {
 }
 
 /// Widget id of the dialog for one question: a different question gets different button ids, so
-/// a press aimed at one dialog cannot register as a click on the next.
+/// a press aimed at one dialog cannot register as a click on the next. Two questions with the
+/// same host and fingerprint intentionally share an id (same trust decision).
 pub fn dialog_id(host: &str, fingerprint: &str) -> eframe::egui::Id {
     eframe::egui::Id::new(("host_key_prompt", host, fingerprint))
 }
@@ -375,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn a_withdrawn_question_requests_exactly_one_more_repaint_after_the_dialog_is_dead() {
+    fn a_withdrawn_question_requests_exactly_one_more_repaint_and_leaves_no_current_dialog() {
         let (repaint, count) = counting_repaint();
         let (prompt, requests) = InteractivePrompt::channel(repaint, Duration::from_secs(30));
         let live = Arc::new(AtomicBool::new(true));
@@ -397,7 +398,7 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 2, "withdrawing repaints once");
         assert!(
             state.pruned().current().is_none(),
-            "already pruned when the repaint fires"
+            "once the asker has returned, no dialog is left"
         );
     }
 

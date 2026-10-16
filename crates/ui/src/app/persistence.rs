@@ -456,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn import_and_export_round_trip_an_at_sign_in_a_key_value_query() {
+    fn import_accepts_an_at_sign_in_a_key_value_query() {
         let uris = [
             "mongodb://h/?appName=bob@laptop",
             "mongodb://h/db?tlsCAFile=/certs@2/ca.pem",

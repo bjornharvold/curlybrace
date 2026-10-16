@@ -246,6 +246,8 @@ fn show_host_key_prompt(
 
 /// Gives `response` keyboard focus the first time the prompt for `question` is drawn.
 fn focus_once(ui: &egui::Ui, response: &egui::Response, question: (&str, &str)) {
+    // Keyed by host and fingerprint only: two questions with the same pair are the same trust
+    // decision and intentionally share an id, so the second gets no initial focus.
     let id = egui::Id::new(("host_key_focus", question));
     let seen = ui.data_mut(|d| d.get_temp::<bool>(id).is_some());
     if !seen {
