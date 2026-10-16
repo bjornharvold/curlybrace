@@ -125,6 +125,15 @@ fn rig(
     prompt_block: Option<StdReceiver<()>>,
     opener_gate: Option<oneshot::Receiver<()>>,
 ) -> Rig {
+    rig_with_timeout(answer, prompt_block, opener_gate, None)
+}
+
+fn rig_with_timeout(
+    answer: HostKeyDecision,
+    prompt_block: Option<StdReceiver<()>>,
+    opener_gate: Option<oneshot::Receiver<()>>,
+    connect_timeout: Option<Duration>,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let known_hosts = dir.path().join("known_hosts");
     let prompt = inner(answer, prompt_block);
@@ -140,6 +149,7 @@ fn rig(
             entered: entered.clone(),
             gate: Mutex::new(opener_gate),
         }),
+        connect_timeout: connect_timeout.unwrap_or(RuntimeConfig::default().connect_timeout),
         ..RuntimeConfig::default()
     };
     let repaint: Repaint = Arc::new(|| {});
@@ -330,4 +340,104 @@ async fn an_open_compare_session_can_still_trust_and_remember() {
     );
     assert_eq!(r.prompt.calls.load(Ordering::SeqCst), 1);
     assert!(r.known_hosts.exists(), "trust was remembered");
+}
+
+// A connect or a connection test that ended (timeout, failure, replacement) must not leave a
+// question behind that can still record trust.
+
+fn test_cmd(request_id: u64) -> Command {
+    Command::TestConnection {
+        request_id,
+        cfg: ssh_cfg(),
+        secrets: TestSecrets::default(),
+    }
+}
+
+const SHORT: Duration = Duration::from_millis(300);
+
+fn rejected() -> CoreError {
+    CoreError::Ssh("the ssh host key was rejected".into())
+}
+
+#[tokio::test]
+async fn a_test_answered_after_its_timeout_records_nothing() {
+    let (unblock, block) = std::sync::mpsc::channel();
+    let mut r = rig_with_timeout(
+        HostKeyDecision::TrustAndRemember,
+        Some(block),
+        None,
+        Some(SHORT),
+    );
+    r.h.tx.send(test_cmd(1)).unwrap();
+    let prompt = r.prompt.clone();
+    until("the question is asked", || {
+        prompt.calls.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::TestConnection {
+            request_id: 1,
+            outcome: Err(CoreError::Database("timeout".into())),
+        }
+    );
+    unblock.send(()).unwrap(); // Trust and remember, after the test already ended
+    tokio::time::sleep(SHORT).await;
+    assert!(!r.known_hosts.exists(), "nothing was remembered");
+}
+
+#[tokio::test]
+async fn a_connect_answered_after_its_timeout_records_nothing() {
+    let (unblock, block) = std::sync::mpsc::channel();
+    let mut r = rig_with_timeout(
+        HostKeyDecision::TrustAndRemember,
+        Some(block),
+        None,
+        Some(SHORT),
+    );
+    r.h.tx.send(Command::Connect(ssh_cfg())).unwrap();
+    let prompt = r.prompt.clone();
+    until("the question is asked", || {
+        prompt.calls.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    assert!(matches!(
+        next(&mut r.h).await,
+        Event::ConnectFailed { epoch: 1, .. }
+    ));
+    unblock.send(()).unwrap(); // Trust and remember, after the connect already failed
+    tokio::time::sleep(SHORT).await;
+    assert!(!r.known_hosts.exists(), "nothing was remembered");
+}
+
+#[tokio::test]
+async fn a_newer_test_rejects_the_question_of_the_one_before() {
+    let (release, gate) = oneshot::channel();
+    // Trust once, so test 2 leaves nothing in known_hosts that would excuse test 1 from asking.
+    let mut r = rig(HostKeyDecision::Trust, None, Some(gate));
+    r.h.tx.send(test_cmd(1)).unwrap(); // parked in the opener
+    r.entered.notified().await;
+    r.h.tx.send(test_cmd(2)).unwrap(); // supersedes test 1, runs normally
+    assert!(matches!(
+        next(&mut r.h).await,
+        Event::TestConnection {
+            request_id: 2,
+            outcome: Ok(_)
+        }
+    ));
+    assert_eq!(r.prompt.calls.load(Ordering::SeqCst), 1, "test 2 asked");
+    release.send(()).unwrap(); // test 1 now reaches the host-key policy
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::TestConnection {
+            request_id: 1,
+            outcome: Err(rejected()),
+        }
+    );
+    assert_eq!(
+        r.prompt.calls.load(Ordering::SeqCst),
+        1,
+        "test 1 was never asked"
+    );
+    assert_silent(&mut r.h).await;
 }

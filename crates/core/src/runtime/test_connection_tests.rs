@@ -621,13 +621,13 @@ fn ssh_rig(
 async fn an_unknown_host_key_fails_closed_with_the_default_prompt() {
     let mut r = ssh_rig(Arc::new(RejectUnknownHostKeys), None, None);
     r.rt.tx.send(test_cmd(1, ssh_cfg("s"))).unwrap();
-    assert!(matches!(
+    assert_eq!(
         next(&mut r.rt).await,
         Event::TestConnection {
             request_id: 1,
-            outcome: Err(_)
+            outcome: Err(CoreError::Ssh("the ssh host key was rejected".into())),
         }
-    ));
+    );
     assert_eq!(
         r.connector.calls(),
         0,

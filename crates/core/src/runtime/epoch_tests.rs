@@ -33,6 +33,7 @@ fn shared() -> Arc<Shared> {
         connector: Arc::new(NoConnector),
         config: RuntimeConfig::default(),
         compare: Default::default(),
+        latest_test: Default::default(),
     })
 }
 
