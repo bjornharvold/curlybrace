@@ -30,9 +30,7 @@ pub(super) fn show_list(
     let list = state.connections.clone();
     let mut rows = visible(&list, &state.filter, state.sort);
     let mut action = show_toolbar(ui, state, i18n, &rows);
-    if show_filter(ui, state, i18n, rows.len()) {
-        rows = visible(&list, &state.filter, state.sort);
-    }
+    show_filter(ui, state, i18n, &list, &mut rows);
     // While the edit dialog or the folder prompt is open the error is shown inside it.
     if let (Some(error), None, false) = (&state.error, &state.folder_prompt, state.editing) {
         super::error_label::show_error(ui, error, i18n);
@@ -110,10 +108,15 @@ fn show_toolbar(
     action
 }
 
-/// Draws the filter box and the "shown of total" count; true when the text was edited (the
-/// caller's rows are then stale).
-fn show_filter(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n, shown: usize) -> bool {
-    let mut edited = false;
+/// Draws the filter box and the "shown of total" count. When the text was edited, `rows` is
+/// recomputed first, so the count and the table (drawn from `rows` afterwards) agree this frame.
+fn show_filter<'a>(
+    ui: &mut egui::Ui,
+    state: &mut ConnectionsState,
+    i18n: &I18n,
+    list: &'a [ConnectionConfig],
+    rows: &mut Vec<&'a ConnectionConfig>,
+) {
     ui.horizontal(|ui| {
         // The caption is the box's accessible name (a hint is not exposed to screen readers).
         let caption = ui.label(i18n.t("connections.filter"));
@@ -122,15 +125,17 @@ fn show_filter(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n, sho
             .labelled_by(caption.id);
         if response.changed() {
             state.filter_edited();
-            edited = true;
+            *rows = visible(list, &state.filter, state.sort);
         }
         let total = state.connections.len();
         ui.label(i18n.t_with(
             "connections.filter_count",
-            &[("shown", &shown.to_string()), ("total", &total.to_string())],
+            &[
+                ("shown", &rows.len().to_string()),
+                ("total", &total.to_string()),
+            ],
         ));
     });
-    edited
 }
 
 fn show_table(

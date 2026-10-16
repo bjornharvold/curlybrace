@@ -49,6 +49,26 @@ fn the_filter_box_is_labelled_and_filters_the_rows() {
 }
 
 #[test]
+fn the_filter_count_updates_in_the_frame_the_filter_is_edited() {
+    let i18n = I18n::english();
+    let mut harness = harness();
+    let label = i18n.t("connections.filter");
+    harness
+        .get_by_role_and_label(Role::TextInput, &label)
+        .click();
+    harness.run();
+    harness.get_by_label("3 of 3");
+    harness
+        .get_by_role_and_label(Role::TextInput, &label)
+        .type_text("alpha");
+    // Exactly one frame: the count must come from the rows the table draws in that frame.
+    harness.step();
+    assert_eq!(harness.state().filter, "alpha");
+    harness.get_by_label("1 of 3");
+    assert!(harness.query_by_label("3 of 3").is_none(), "stale count");
+}
+
+#[test]
 fn every_column_header_is_a_button_with_its_text() {
     let i18n = I18n::english();
     let harness = harness();
