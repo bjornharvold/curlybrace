@@ -138,10 +138,14 @@ pub(super) fn export_to(state: AppState, file: &Path) -> AppState {
                 ..state
             }
         }
-        Err(e) => AppState {
-            banner: Some(Banner::ExportFailed(e)),
-            ..state
-        },
+        Err(e) => {
+            // `PersistError` carries an error kind only, never the path.
+            log::warn!("could not export the connection list: {e:?}");
+            AppState {
+                banner: Some(Banner::ExportFailed(e)),
+                ..state
+            }
+        }
     }
 }
 

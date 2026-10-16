@@ -45,12 +45,21 @@ fn invalid(msg: &'static str) -> CoreError {
     CoreError::InvalidUri(msg.into())
 }
 
-pub fn parse_uri(input: &str) -> Result<ParsedUri> {
-    let input = input.trim();
-    let (scheme, rest) = if let Some(r) = input.strip_prefix("mongodb+srv://") {
-        ("mongodb+srv://", r)
+/// A connection string cut into its scheme, userinfo, hosts and the rest (path and query).
+struct Split<'a> {
+    srv: bool,
+    userinfo: Option<&'a str>,
+    hosts: &'a str,
+    tail: &'a str,
+}
+
+/// Splits a trimmed connection string. Userinfo is everything before the LAST '@' of the
+/// authority (which ends at the first '/' or '?'). Errors never carry the input.
+fn split_uri(input: &str) -> Result<Split<'_>> {
+    let (srv, rest) = if let Some(r) = input.strip_prefix("mongodb+srv://") {
+        (true, r)
     } else if let Some(r) = input.strip_prefix("mongodb://") {
-        ("mongodb://", r)
+        (false, r)
     } else {
         return Err(invalid("scheme must be mongodb:// or mongodb+srv://"));
     };
@@ -68,13 +77,64 @@ pub fn parse_uri(input: &str) -> Result<ParsedUri> {
     if hosts.is_empty() {
         return Err(invalid("missing host"));
     }
-    validate_hosts(hosts, scheme == "mongodb+srv://")?;
+    validate_hosts(hosts, srv)?;
+    Ok(Split {
+        srv,
+        userinfo,
+        hosts,
+        tail,
+    })
+}
+
+/// Strictly checks the scheme and the host list of a connection string, and that no raw `@`
+/// hides in the userinfo or the path/query (a password that spilled out of the userinfo), by the
+/// same rules `parse_uri` applies (both use `tail_at_signs_allowed`), without reading credentials or options. Errors never carry the input.
+pub fn check_hosts(uri: &str) -> Result<()> {
+    let split = split_uri(uri.trim())?;
+    if split.userinfo.is_some_and(|u| u.contains('@')) || !tail_at_signs_allowed(split.tail) {
+        return Err(malformed());
+    }
+    Ok(())
+}
+
+/// Whether the `@`s of a path/query tail are legitimate: none in the path, and in the query only
+/// when a `/` precedes the `?` and every pair is `key=value` with a non-empty key (a pair
+/// without `=` is where a spilled password lands). An `@` in a query key is rejected too, since
+/// driver option keys never contain one.
+///
+/// Known residual limit: a password written as 1-5 digits forming a valid port, then `/`, then
+/// `?`, then a `key=` pair can still pass, because the authority then parses as `host:port` with
+/// no `@` (so the `validate_uri` userinfo check never runs).
+fn tail_at_signs_allowed(tail: &str) -> bool {
+    let (path, query) = tail.split_once('?').unwrap_or((tail, ""));
+    if path.contains('@') {
+        return false;
+    }
+    if !query.contains('@') {
+        return true;
+    }
+    path.starts_with('/')
+        && query.split('&').filter(|p| !p.is_empty()).all(|p| {
+            p.split_once('=')
+                .is_some_and(|(k, _)| !k.is_empty() && !k.contains('@'))
+        })
+}
+
+pub fn parse_uri(input: &str) -> Result<ParsedUri> {
+    let input = input.trim();
+    let Split {
+        srv,
+        userinfo,
+        hosts,
+        tail,
+    } = split_uri(input)?;
+    let scheme = if srv { "mongodb+srv://" } else { "mongodb://" };
     let (username, password) = parse_userinfo(userinfo)?;
     let (path, query) = match tail.split_once('?') {
         Some((p, q)) => (p, q),
         None => (tail, ""),
     };
-    if path.contains('@') || query.contains('@') {
+    if !tail_at_signs_allowed(tail) {
         return Err(malformed());
     }
     let mut kept = Vec::new();
@@ -544,6 +604,108 @@ mod tests {
     }
 
     #[test]
+    fn check_hosts_accepts_valid_hosts_with_or_without_userinfo() {
+        for ok in [
+            "mongodb://h",
+            "mongodb://u@h",
+            "mongodb://h1:27017,h2:27018",
+            "mongodb://[::1]:27017",
+            "mongodb+srv://cluster.example.com",
+            "mongodb+srv://u@cluster.example.com/db?retryWrites=true",
+            "mongodb://%2Ftmp%2Fmongodb-27017.sock",
+        ] {
+            assert!(check_hosts(ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn check_hosts_accepts_an_at_sign_in_a_key_value_query_after_a_slash() {
+        for ok in [
+            "mongodb://h/?appName=bob@laptop",
+            "mongodb://h/db?tlsCAFile=/certs@2/ca.pem",
+            "mongodb://u@h/db?appName=a@b&retryWrites=true",
+        ] {
+            assert!(check_hosts(ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn check_hosts_rejects_an_at_sign_in_the_path_or_a_keyless_query_pair() {
+        for bad in [
+            "mongodb://h/db@x",
+            "mongodb://h/a@b?x=y",
+            "mongodb://h?a=b@c",
+            "mongodb://h/?=x@y",
+        ] {
+            assert!(check_hosts(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn check_hosts_rejects_a_password_that_leaks_into_the_host_without_echo() {
+        for bad in [
+            "mongodb://u:pa/ss@h",
+            "mongodb://u@",
+            "mongodb://",
+            "mongodb://h:0",
+            "mongodb+srv://h1,h2",
+            "http://h",
+        ] {
+            let err = check_hosts(bad).unwrap_err();
+            assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
+            assert!(!err.to_string().contains("pa/ss"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn check_hosts_rejects_a_password_hiding_in_the_tail_or_userinfo_without_echo() {
+        for bad in [
+            "mongodb://admin:2024/S3CR3T@db",
+            "mongodb://u:12345?S3CR3T@h",
+            "mongodb://h/db@x",
+            "mongodb://h/?a=b&S3CR3T@h",
+            "mongodb://u@x@h",
+            "mongodb://u:pa@S3CR3T@h",
+            "mongodb://h1,h2,",
+            "mongodb://h1:27017,h2:27018,",
+        ] {
+            let err = check_hosts(bad).unwrap_err();
+            assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
+            assert!(!err.to_string().contains("S3CR3T"), "{bad}: {err}");
+            assert!(!err.to_string().contains("admin"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn parse_uri_accepts_an_at_sign_in_a_key_value_query_and_keeps_it() {
+        let parsed = parse_uri("mongodb://h/?appName=bob@laptop").unwrap();
+        assert_eq!(parsed.uri, "mongodb://h/?appName=bob@laptop");
+    }
+
+    #[test]
+    fn parse_uri_rejects_a_spilled_password_in_the_tail_without_echo() {
+        for bad in [
+            "mongodb://admin:2024/S3CR3T@db",
+            "mongodb://u:12345?S3CR3T@h",
+            "mongodb://h/db@x",
+        ] {
+            let err = parse_uri(bad).unwrap_err();
+            assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
+            assert!(!err.to_string().contains("S3CR3T"), "{bad}: {err}");
+            assert!(!err.to_string().contains("admin"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn an_at_sign_in_a_query_key_is_rejected_by_both_entry_points() {
+        for bad in ["mongodb://h/?a@b=c", "mongodb://h/?x=y&S3CR3T@h=1"] {
+            assert!(check_hosts(bad).is_err(), "{bad}");
+            let err = parse_uri(bad).unwrap_err();
+            assert!(!err.to_string().contains("S3CR3T"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
     fn hosts_are_validated() {
         for ok in [
             "mongodb://h",
@@ -581,7 +743,6 @@ mod tests {
     fn raw_at_in_the_path_or_query_and_valueless_pairs_are_rejected() {
         for bad in [
             "mongodb://h/db@x",
-            "mongodb://h/db?a=b@c",
             "mongodb://h/db?a",
             "mongodb://h/db?a=1&b",
         ] {

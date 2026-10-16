@@ -85,7 +85,7 @@ fn show_body(
 
 /// Validates the form; a failure stays in `state.error` and nothing is emitted.
 fn save_action(state: &mut ConnectionsState) -> Option<ConnectionAction> {
-    match state.form.to_config() {
+    match state.form.to_checked_config() {
         Ok(_) => {
             state.error = None;
             Some(ConnectionAction::Save(Box::new(state.form.clone())))

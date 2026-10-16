@@ -235,7 +235,10 @@ fn parse_with(bytes: &[u8], repair: bool) -> Result<Loaded, PersistError> {
         } else {
             cfg
         };
-        if cfg.validate().is_ok() {
+        // The strict host check applies to new input only: a saved connection is never dropped
+        // by it (`repair` is true for the saved list).
+        let hosts_ok = repair || curlybrace_core::uri::check_hosts(&cfg.uri).is_ok();
+        if hosts_ok && cfg.validate().is_ok() {
             connections.push(cfg);
         }
     }
@@ -398,6 +401,83 @@ mod tests {
         assert_eq!(loaded.connections[0].name, "ok");
         assert_eq!(loaded.connections[1].name, "localhost:27017");
         assert_eq!((loaded.skipped, loaded.repaired), (2, 1));
+    }
+
+    fn file_of(uris: &[&str]) -> Vec<u8> {
+        let entries: Vec<_> = uris
+            .iter()
+            .map(|u| serde_json::to_value(ConnectionConfig::new("n", u)).unwrap())
+            .collect();
+        serde_json::Value::Array(entries).to_string().into_bytes()
+    }
+
+    #[test]
+    fn import_rejects_a_password_leaked_into_the_host_but_load_keeps_it() {
+        let bytes = file_of(&[
+            "mongodb://u:pa/ss@h",
+            "mongodb://h",
+            "mongodb://h1:27017,h2:27018",
+            "mongodb://[::1]:27017",
+            "mongodb+srv://cluster.example.com",
+            "mongodb://%2Ftmp%2Fmongodb-27017.sock",
+        ]);
+        let imported = parse_connections(&bytes).unwrap();
+        assert_eq!((imported.connections.len(), imported.skipped), (5, 1));
+
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        std::fs::write(&p, &bytes).unwrap();
+        let loaded = load_connections(&p).unwrap();
+        assert_eq!((loaded.connections.len(), loaded.skipped), (6, 0));
+    }
+
+    /// A password that spilled into the path, query or a second `@` of the userinfo passes the
+    /// host list check on its own; import must still skip it, load must still keep it.
+    #[test]
+    fn import_rejects_an_at_sign_in_the_tail_or_userinfo_but_load_keeps_it() {
+        let kept = [
+            "mongodb://admin:2024/S3CR3T@db",
+            "mongodb://u:12345?S3CR3T@h",
+        ];
+        let imported = parse_connections(&file_of(&kept)).unwrap();
+        assert_eq!((imported.connections.len(), imported.skipped), (0, 2));
+        // A second `@` in the userinfo is rejected on import too (load may drop it already).
+        // `u:pa@S3CR3T@h` is skipped by `validate()` (':' in userinfo), so `u@x@h` is what
+        // actually exercises the userinfo rule.
+        let userinfo =
+            parse_connections(&file_of(&["mongodb://u@x@h", "mongodb://h/db@x"])).unwrap();
+        assert_eq!((userinfo.connections.len(), userinfo.skipped), (0, 2));
+
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        std::fs::write(&p, file_of(&kept)).unwrap();
+        let loaded = load_connections(&p).unwrap();
+        assert_eq!((loaded.connections.len(), loaded.skipped), (2, 0));
+    }
+
+    #[test]
+    fn import_accepts_an_at_sign_in_a_key_value_query() {
+        let uris = [
+            "mongodb://h/?appName=bob@laptop",
+            "mongodb://h/db?tlsCAFile=/certs@2/ca.pem",
+        ];
+        let imported = parse_connections(&file_of(&uris)).unwrap();
+        assert_eq!((imported.connections.len(), imported.skipped), (2, 0));
+    }
+
+    /// `mongodb://u@` has userinfo but no host text: import rejects it ("missing host"), the
+    /// saved-list load keeps accepting it so a saved connection is never dropped by the
+    /// strict host check.
+    #[test]
+    fn a_uri_with_userinfo_and_no_host_is_rejected_on_import_but_loaded() {
+        let bytes = file_of(&["mongodb://u@"]);
+        let imported = parse_connections(&bytes).unwrap();
+        assert_eq!((imported.connections.len(), imported.skipped), (0, 1));
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        std::fs::write(&p, &bytes).unwrap();
+        let loaded = load_connections(&p).unwrap();
+        assert_eq!((loaded.connections.len(), loaded.skipped), (1, 0));
     }
 
     /// A file as v0.2.0 could write it: any non-blank name, any folder text.

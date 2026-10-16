@@ -92,7 +92,7 @@ pub fn save(
     path: &ConfigPath,
     now: i64,
 ) -> AppState {
-    let cfg = match form.to_config() {
+    let cfg = match form.to_checked_config() {
         Ok(cfg) => cfg,
         Err(e) => return with_conn_error(state, e),
     };
@@ -251,6 +251,24 @@ mod tests {
                 .get(&secret_key(f.id, SecretKind::Password))
                 .unwrap(),
             Some("hunter2".into())
+        );
+    }
+
+    #[test]
+    fn save_rejects_a_bad_host_list_and_stores_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = MemorySecretStore::new();
+        let mut f = form("prod", "hunter2");
+        f.uri = "mongodb://admin:2024/S3CR3T@db".into();
+        let s = save(AppState::new(vec![]), &f, &secrets, &path(&dir), 0);
+        assert!(matches!(s.conn.error, Some(CoreError::InvalidUri(_))));
+        assert!(s.conn.connections.is_empty());
+        assert!(!dir.path().join("connections.json").exists());
+        assert_eq!(
+            secrets
+                .get(&secret_key(f.id, SecretKind::Password))
+                .unwrap(),
+            None
         );
     }
 

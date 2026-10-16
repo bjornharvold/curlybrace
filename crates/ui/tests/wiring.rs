@@ -10,7 +10,7 @@ use curlybrace_core::test_support::InMemoryStore;
 use curlybrace_core::tunnel::{HostKeyDecision, HostKeyPrompt};
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::CurlybraceApp;
-use curlybrace_ui::app::host_key::{HostKeyRequest, InteractivePrompt};
+use curlybrace_ui::app::host_key::{HostKeyAnswer, HostKeyRequest, InteractivePrompt};
 use curlybrace_ui::app::reducer::{Input, apply_event, update};
 use curlybrace_ui::app::state::{AppState, Banner, ConnStatus};
 use curlybrace_ui::viewmodel::{DocAction, EditorAction, FindAction, SidebarAction};
@@ -311,7 +311,11 @@ async fn host_key_question_is_shown_and_answered_exactly_once() {
         h.app.pending_host_key(),
         Some(("bastion", "SHA256:abc", None))
     );
-    h.app.answer_host_key(HostKeyDecision::TrustAndRemember);
+    h.app.answer_host_key(HostKeyAnswer::new(
+        "bastion",
+        "SHA256:abc",
+        HostKeyDecision::TrustAndRemember,
+    ));
     assert_eq!(asker.join().unwrap(), HostKeyDecision::TrustAndRemember);
     assert!(h.app.pending_host_key().is_none());
 }

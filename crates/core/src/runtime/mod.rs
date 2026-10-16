@@ -20,6 +20,7 @@ mod compare;
 #[cfg(test)]
 mod epoch_tests;
 mod handlers;
+mod job_flag;
 #[cfg(test)]
 mod lost_server_tests;
 #[cfg(test)]
@@ -390,6 +391,9 @@ pub(crate) struct Shared {
     pub config: RuntimeConfig,
     /// Compare sessions: independent of the connections above.
     compare: compare::Registry,
+    /// The flag of the newest connection test: a newer test ends it, so at most one test's
+    /// host-key question is live. Locked only briefly, never across an await.
+    latest_test: std::sync::Mutex<Option<job_flag::JobFlag>>,
 }
 
 impl Shared {
@@ -471,6 +475,7 @@ pub fn spawn_runtime_with_connector(
         connector,
         config,
         compare: Default::default(),
+        latest_test: Default::default(),
     });
     tokio::runtime::Handle::current().spawn(async move {
         while let Some(command) = commands.recv().await {

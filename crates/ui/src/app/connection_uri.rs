@@ -92,6 +92,17 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_connection_with_a_bad_host_list_can_still_be_copied() {
+        let f = ConnectionForm {
+            uri: "mongodb://admin:2024/S3CR3T@db".into(),
+            ..form()
+        };
+        let s = build(AppState::default(), &f, false, &MemorySecretStore::new());
+        assert!(s.conn.error.is_none());
+        assert!(s.conn.built_uri.is_some());
+    }
+
+    #[test]
     fn without_include_password_the_mask_is_used_and_the_typed_password_never_appears() {
         let f = ConnectionForm {
             password: "typedpw".into(),

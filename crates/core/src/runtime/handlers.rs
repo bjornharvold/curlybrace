@@ -9,9 +9,10 @@ use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
+use super::job_flag::JobFlag;
 use super::session::Session;
 use super::tunneling::{
-    ConnectionCurrent, Currentness, SshSecretSource, open_tunnel_if_configured,
+    AttemptCurrent, ConnectionCurrent, Currentness, SshSecretSource, open_tunnel_if_configured,
 };
 use super::{Command, Event, SessionId, Shared};
 
@@ -240,11 +241,18 @@ async fn connect_store(
     let limit = shared.config.connect_timeout;
     // The tunnel lives in this scope until installed; a failure, timeout or
     // cancellation anywhere below drops it, which closes it.
+    let attempt = JobFlag::new();
     let (store, tunnel, topology) = bounded(limit, async {
+        // Ends the attempt however this block ends (success, error, timeout, cancellation): a
+        // host-key answer arriving later is then rejected, not remembered.
+        let _end = attempt.end_on_drop();
         let password = read_password(shared, &cfg).await?;
-        let job = Arc::new(ConnectionCurrent {
-            session: session.clone(),
-            generation,
+        let job = Arc::new(AttemptCurrent {
+            connection: ConnectionCurrent {
+                session: session.clone(),
+                generation,
+            },
+            attempt: attempt.clone(),
         });
         let tunnel = open_tunnel_if_configured(shared, job, &cfg, SshSecretSource::Stored).await?;
         let addr = tunnel.as_ref().map(|t| t.local_addr());
@@ -284,15 +292,6 @@ pub(super) async fn read_password(
         .map_err(|_| CoreError::Secret("secret lookup failed".into()))?
 }
 
-/// A test is never replaced by a newer Connect/Disconnect, so its host-key question stays live.
-struct AlwaysCurrent;
-
-impl Currentness for AlwaysCurrent {
-    fn is_current(&self) -> bool {
-        true
-    }
-}
-
 /// Runs one connection test in its own task, apart from the epoch machinery. The work runs in an
 /// inner task so a panic still produces exactly one answer.
 pub(super) fn spawn_test(
@@ -303,8 +302,19 @@ pub(super) fn spawn_test(
     cfg: ConnectionConfig,
     secrets: super::TestSecrets,
 ) {
+    // A newer test ends the previous one's flag, so only one test's question is ever live. A test
+    // is never replaced by a Connect/Disconnect, so only this flag decides its currentness.
+    let flag = JobFlag::new();
+    let previous = shared
+        .latest_test
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .replace(flag.clone());
+    if let Some(previous) = previous {
+        previous.end();
+    }
     tokio::spawn(async move {
-        let work = tokio::spawn(async move { test_connection(&shared, cfg, secrets).await });
+        let work = tokio::spawn(async move { test_connection(&shared, cfg, secrets, flag).await });
         let outcome = work
             .await
             .unwrap_or_else(|_| Err(CoreError::Database("internal error".into())));
@@ -324,7 +334,11 @@ async fn test_connection(
     shared: &Arc<Shared>,
     cfg: ConnectionConfig,
     secrets: super::TestSecrets,
+    flag: JobFlag,
 ) -> Result<super::TestReport> {
+    // Ends the test however it ends (answer, error, timeout, panic, cancellation): a host-key
+    // answer arriving later is rejected, so nothing reaches known_hosts.
+    let _end = flag.end_on_drop();
     cfg.validate()?;
     let limit = shared.config.connect_timeout;
     bounded(limit, async {
@@ -333,7 +347,7 @@ async fn test_connection(
             super::PasswordChoice::Without => None,
             super::PasswordChoice::Stored => read_password(shared, &cfg).await?,
         };
-        let job: Arc<dyn Currentness> = Arc::new(AlwaysCurrent);
+        let job: Arc<dyn Currentness> = Arc::new(flag.clone());
         let ssh_secret = match &secrets.ssh_secret {
             super::PasswordChoice::Typed(s) => SshSecretSource::Typed(s.expose()),
             super::PasswordChoice::Without => SshSecretSource::Without,

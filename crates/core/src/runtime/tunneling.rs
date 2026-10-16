@@ -90,6 +90,19 @@ impl Currentness for ConnectionCurrent {
     }
 }
 
+/// A connect attempt: current while its session generation is, and until the attempt itself ends
+/// (an answer that arrives after a timeout or failure must not record trust).
+pub(super) struct AttemptCurrent {
+    pub connection: ConnectionCurrent,
+    pub attempt: super::job_flag::JobFlag,
+}
+
+impl Currentness for AttemptCurrent {
+    fn is_current(&self) -> bool {
+        self.attempt.is_current() && self.connection.is_current()
+    }
+}
+
 /// Wraps the host-key prompt for ONE job (a connect, or a compare session). Once that job is no
 /// longer current (a newer Connect/Disconnect replaced the connect, or the compare session was
 /// closed), its question is neither asked nor honoured: the policy (`check_host_key`) records
@@ -105,7 +118,9 @@ impl HostKeyPrompt for GatedPrompt {
         if !self.job.is_current() {
             return HostKeyDecision::Reject;
         }
-        let decision = self.inner.decide(host, fingerprint);
+        let decision = self
+            .inner
+            .decide_while(host, fingerprint, &|| self.job.is_current());
         if self.job.is_current() {
             decision
         } else {

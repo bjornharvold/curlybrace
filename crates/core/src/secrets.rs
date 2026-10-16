@@ -107,7 +107,11 @@ impl SecretKind {
 }
 
 /// Copies every secret stored for `from` to `to`. All-or-nothing: if any step fails, the
-/// secrets already written under `to` are removed (best effort) and the first error returns.
+/// secrets under `to` are removed (best effort; a failing delete is logged by error kind only)
+/// and the first error returns.
+///
+/// The rollback deletes EVERY kind under `to`, not only what this call wrote. That is safe only
+/// because `to` is a fresh id: callers must never pass an id that already has secrets.
 pub fn copy_all(store: &dyn SecretStore, from: Uuid, to: Uuid) -> Result<()> {
     let copy_one = |kind: SecretKind| -> Result<()> {
         if let Some(value) = store.get(&secret_key(from, kind))? {
@@ -118,12 +122,23 @@ pub fn copy_all(store: &dyn SecretStore, from: Uuid, to: Uuid) -> Result<()> {
     for kind in SecretKind::ALL {
         if let Err(error) = copy_one(kind) {
             for written in SecretKind::ALL {
-                let _ = store.delete(&secret_key(to, written));
+                if let Err(e) = store.delete(&secret_key(to, written)) {
+                    log::warn!(
+                        "copy rollback could not delete a secret ({})",
+                        error_kind(&e)
+                    );
+                }
             }
             return Err(error);
         }
     }
     Ok(())
+}
+
+/// The variant name of an error, never its text (which may carry a key or an id).
+fn error_kind(error: &CoreError) -> String {
+    let debug = format!("{error:?}");
+    debug.split(['(', ' ', '{']).next().unwrap_or("").to_owned()
 }
 
 /// A secret value that cannot be printed by accident.
@@ -258,6 +273,58 @@ mod tests {
                 "{kind:?} left behind"
             );
         }
+    }
+
+    /// Wraps a store and fails `get` for one key.
+    struct FailingGet {
+        inner: MemorySecretStore,
+        fail_key: String,
+    }
+    impl SecretStore for FailingGet {
+        fn get(&self, key: &str) -> Result<Option<String>> {
+            if key == self.fail_key {
+                return Err(CoreError::Secret("read boom".into()));
+            }
+            self.inner.get(key)
+        }
+        fn set(&self, key: &str, value: &str) -> Result<()> {
+            self.inner.set(key, value)
+        }
+        fn delete(&self, key: &str) -> Result<()> {
+            self.inner.delete(key)
+        }
+    }
+
+    #[test]
+    fn copy_all_rolls_back_when_a_source_read_fails_mid_copy() {
+        let (from, to) = (Uuid::new_v4(), Uuid::new_v4());
+        let store = FailingGet {
+            inner: MemorySecretStore::new(),
+            fail_key: secret_key(from, SecretKind::SshPassphrase),
+        };
+        store
+            .inner
+            .set(&secret_key(from, SecretKind::Password), "pw")
+            .unwrap();
+        store
+            .inner
+            .set(&secret_key(from, SecretKind::SshPassword), "ssh")
+            .unwrap();
+        let err = copy_all(&store, from, to).unwrap_err();
+        assert_eq!(err, CoreError::Secret("read boom".into()));
+        for kind in SecretKind::ALL {
+            assert_eq!(
+                store.inner.get(&secret_key(to, kind)).unwrap(),
+                None,
+                "{kind:?} left behind"
+            );
+        }
+    }
+
+    #[test]
+    fn error_kind_names_the_variant_without_its_text() {
+        assert_eq!(error_kind(&CoreError::Secret("hunter2".into())), "Secret");
+        assert_eq!(error_kind(&CoreError::NotFound), "NotFound");
     }
 
     #[test]
