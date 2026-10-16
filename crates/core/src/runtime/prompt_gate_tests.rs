@@ -71,6 +71,8 @@ struct InnerPrompt {
     /// `withdrawn`) once the job is no longer live, like the interactive UI prompt.
     withdrawing: bool,
     withdrawn: AtomicUsize,
+    /// How many times the job was found still live while waiting.
+    live_checks: AtomicUsize,
 }
 
 impl HostKeyPrompt for InnerPrompt {
@@ -97,7 +99,9 @@ impl HostKeyPrompt for InnerPrompt {
         while let Some(block) = &block {
             match block.recv_timeout(Duration::from_millis(2)) {
                 Ok(()) => break,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if live() => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if live() => {
+                    self.live_checks.fetch_add(1, Ordering::SeqCst);
+                }
                 Err(_) => {
                     self.withdrawn.fetch_add(1, Ordering::SeqCst);
                     return HostKeyDecision::Reject;
@@ -115,6 +119,7 @@ fn inner(answer: HostKeyDecision, block: Option<StdReceiver<()>>) -> Arc<InnerPr
         block: Mutex::new(block),
         withdrawing: false,
         withdrawn: AtomicUsize::new(0),
+        live_checks: AtomicUsize::new(0),
     })
 }
 
@@ -126,6 +131,7 @@ fn withdrawing(answer: HostKeyDecision, block: StdReceiver<()>) -> Arc<InnerProm
         block: Mutex::new(Some(block)),
         withdrawing: true,
         withdrawn: AtomicUsize::new(0),
+        live_checks: AtomicUsize::new(0),
     })
 }
 
@@ -357,7 +363,11 @@ async fn a_live_connect_keeps_its_question_and_honours_the_answer() {
         prompt.calls.load(Ordering::SeqCst) == 1
     })
     .await;
-    tokio::time::sleep(Duration::from_millis(50)).await; // several slices pass
+    // Several liveness checks found the job live: the question had every chance to be withdrawn.
+    until("several slices pass", || {
+        prompt.live_checks.load(Ordering::SeqCst) >= 5
+    })
+    .await;
     assert_eq!(prompt.withdrawn.load(Ordering::SeqCst), 0);
     unblock.send(()).unwrap();
     assert_eq!(
