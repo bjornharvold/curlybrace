@@ -30,10 +30,17 @@ pub struct Shot {
 /// Frames rendered before an animated screen is compared.
 const ANIMATED_FRAMES: usize = 8;
 
-/// Failed pixels tolerated per snapshot: absorbs text anti-aliasing differences between GPUs and
-/// drivers (a handful of pixels) while any changed label or layout differs by far more (a one
-/// word label change measured over a thousand).
-pub const PIXEL_THRESHOLD: usize = 100;
+/// Differing pixels tolerated per snapshot: none. Even a short label (six characters changed
+/// fewer than a hundred pixels) must fail, and a forced `UPDATE_SNAPSHOTS=1` only rewrites a
+/// snapshot whose difference is above this threshold. The CI job renders on the same kind of
+/// machine as the committed PNGs (macOS on Apple silicon); if another GPU or driver ever adds
+/// anti-aliasing noise, make this per OS (`OsThreshold`) instead of loosening it everywhere.
+pub const PIXEL_THRESHOLD: usize = 0;
+
+/// The options every snapshot of the suite is compared with.
+pub fn snapshot_options() -> SnapshotOptions {
+    SnapshotOptions::new().failed_pixel_count_threshold(PIXEL_THRESHOLD)
+}
 
 /// A save dialog that stays open for the whole test: its worker thread parks and is never
 /// woken, and no real dialog is involved.
@@ -151,8 +158,7 @@ impl Shot {
 
     #[track_caller]
     fn compare(&mut self, name: &str) {
-        let options = SnapshotOptions::new().failed_pixel_count_threshold(PIXEL_THRESHOLD);
-        self.harness.snapshot_options(name, &options);
+        self.harness.snapshot_options(name, &snapshot_options());
     }
 }
 
