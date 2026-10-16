@@ -135,8 +135,9 @@ fn to_punycode(host: &str) -> Check<String> {
     // own table, so it cannot lag behind Unicode. The shared forbidden-label set additionally
     // refuses control, bidi and zero-width characters, which the converter rejects or keeps.
     // The two joiners are exempt from both: they are legitimate inside Persian and Indic names,
-    // the converter's own joiner rules judge their context, and `keeps_joiners` proves the
-    // result still holds every one that was typed.
+    // the converter's own joiner rules judge their context, and `keeps_joiners` is a backstop that
+    // refuses a result holding fewer of them than were typed (the converter keeps a joiner or
+    // rejects the host today, so this only guards against a future converter that drops one).
     let refused =
         |c: char| !is_joiner(c) && (is_forbidden_label_char(c) || (!c.is_ascii() && is_dropped(c)));
     if host.len() > MAX_UNICODE_HOST_BYTES || host.chars().any(refused) {
