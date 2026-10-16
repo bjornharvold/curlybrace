@@ -202,3 +202,12 @@ fn the_non_ascii_hint_names_the_button_by_its_current_label() {
     let label = root["connections"]["from_uri"].as_str().unwrap();
     assert!(hint.contains(label), "{hint}");
 }
+
+#[test]
+fn the_secret_hint_covers_the_password_and_the_certificate_and_proxy_secrets() {
+    let root: Value = serde_json::from_str(include_str!("../locales/en.json")).unwrap();
+    let hint = root["errors"]["invalid_uri_secret"].as_str().unwrap();
+    for word in ["passphrase", "certificate", "proxy", "password field"] {
+        assert!(hint.contains(word), "{word} missing: {hint}");
+    }
+}

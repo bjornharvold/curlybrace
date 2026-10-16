@@ -558,7 +558,7 @@
     "invalid_uri_missing_host": "The connection string has no host. Put the server address after \"mongodb://\" or \"mongodb+srv://\".",
     "invalid_uri_missing_scheme": "The connection string must start with \"mongodb://\" or \"mongodb+srv://\".",
     "invalid_uri_non_ascii_host": "A host name contains characters other than letters, digits, dots, hyphens and underscores. Paste the connection string into the Fill from string box to convert it, or write the host in its punycode (xn--) form.",
-    "invalid_uri_secret": "The connection string has a password or another secret in it. Remove it and enter it in the password field instead.",
+    "invalid_uri_secret": "A password or passphrase must not be part of the connection string. Remove it and enter it in the matching setting: the password field for the user's password, or the certificate or proxy settings for those secrets.",
     "invalid_uri_srv": "A mongodb+srv:// connection string takes exactly one host name and no port. Use mongodb:// for several hosts or a port.",
     "invalid_uri_stray_at": "The user name or password contains a character that must be percent-encoded, such as @ (%40), # (%23), : (%3A) or / (%2F). Write it as its % code.",
     "invalid_uri_user_needed": "The connection string has a password but no user name. Remove the password or add a user name in front of it.",
