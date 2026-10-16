@@ -49,6 +49,26 @@ fn the_filter_box_is_labelled_and_filters_the_rows() {
 }
 
 #[test]
+fn the_filter_count_updates_in_the_frame_the_filter_is_edited() {
+    let i18n = I18n::english();
+    let mut harness = harness();
+    let label = i18n.t("connections.filter");
+    harness
+        .get_by_role_and_label(Role::TextInput, &label)
+        .click();
+    harness.run();
+    harness.get_by_label("3 of 3");
+    harness
+        .get_by_role_and_label(Role::TextInput, &label)
+        .type_text("alpha");
+    // Exactly one frame: the count must come from the rows the table draws in that frame.
+    harness.step();
+    assert_eq!(harness.state().filter, "alpha");
+    harness.get_by_label("1 of 3");
+    assert!(harness.query_by_label("3 of 3").is_none(), "stale count");
+}
+
+#[test]
 fn every_column_header_is_a_button_with_its_text() {
     let i18n = I18n::english();
     let harness = harness();
@@ -253,10 +273,47 @@ fn the_folder_drop_down_has_the_folder_label() {
 }
 
 #[test]
+fn the_folder_drop_down_exposes_its_current_folder_as_its_value() {
+    let i18n = I18n::english();
+    let value_of = |prepare: fn(&mut ConnectionsState)| {
+        let harness = dialog_harness(prepare);
+        harness
+            .get_by_role_and_label(Role::ComboBox, &i18n.t("connections.folder"))
+            .accesskit_node()
+            .value()
+    };
+    let with_folder = value_of(|state| state.form.folder = "Work".into());
+    assert_eq!(with_folder.as_deref(), Some("Work"));
+    let without = value_of(|state| state.form.folder.clear());
+    assert_eq!(without, Some(i18n.t("connections.no_folder")));
+}
+
+#[test]
 fn the_authentication_drop_down_has_the_authentication_label() {
     let i18n = I18n::english();
     let harness = dialog_harness(|_| {});
     harness.get_by_role_and_label(Role::ComboBox, &i18n.t("connections.auth"));
+}
+
+#[test]
+fn the_authentication_drop_down_exposes_its_current_mechanism_as_its_value() {
+    use curlybrace_core::connection::AuthMechanism;
+    use curlybrace_ui::viewmodel::auth_label_key;
+    let i18n = I18n::english();
+    let value_of = |prepare: fn(&mut ConnectionsState)| {
+        let harness = dialog_harness(prepare);
+        harness
+            .get_by_role_and_label(Role::ComboBox, &i18n.t("connections.auth"))
+            .accesskit_node()
+            .value()
+    };
+    let none = value_of(|state| state.form.auth = AuthMechanism::None);
+    assert_eq!(none, Some(i18n.t(auth_label_key(AuthMechanism::None))));
+    let scram = value_of(|state| state.form.auth = AuthMechanism::ScramSha256);
+    assert_eq!(
+        scram,
+        Some(i18n.t(auth_label_key(AuthMechanism::ScramSha256)))
+    );
 }
 
 #[test]
@@ -266,4 +323,233 @@ fn a_banner_is_repeated_inside_the_open_dialog() {
     });
     harness.get_by_label("Could not save");
     harness.get_by_label("keychain said no");
+}
+
+const SELECTION_TOOLS: [&str; 4] = [
+    "connections.edit",
+    "connections.duplicate",
+    "common.delete",
+    "connections.move_to_folder",
+];
+
+fn tools_enabled(harness: &Harness<'static, ConnectionsState>) -> Vec<bool> {
+    let i18n = I18n::english();
+    SELECTION_TOOLS
+        .iter()
+        .map(|key| {
+            let label = i18n.t(key);
+            let node = harness.get_by_role_and_label(Role::Button, &label);
+            !node.accesskit_node().is_disabled()
+        })
+        .collect()
+}
+
+#[test]
+fn selection_tools_follow_whether_the_selected_row_is_visible() {
+    let mut harness = harness();
+    let alpha = harness.state().connections[0].clone();
+    harness.state_mut().selected = Some(alpha.id);
+    harness.run();
+    assert_eq!(
+        tools_enabled(&harness),
+        [true; 4],
+        "no filter: selected row shown"
+    );
+
+    harness.state_mut().filter = "beta".into();
+    harness.run();
+    assert_eq!(
+        tools_enabled(&harness),
+        [false; 4],
+        "the filter hides the selected connection"
+    );
+
+    harness.state_mut().filter = "alpha".into();
+    harness.run();
+    assert_eq!(tools_enabled(&harness), [true; 4], "a matching filter");
+
+    harness.state_mut().filter = "beta".into();
+    harness.run();
+    harness.state_mut().filter.clear();
+    harness.run();
+    assert_eq!(tools_enabled(&harness), [true; 4], "clearing the filter");
+}
+
+#[test]
+fn new_import_and_export_stay_enabled_when_the_selection_is_hidden() {
+    let i18n = I18n::english();
+    let mut harness = harness();
+    let alpha = harness.state().connections[0].clone();
+    harness.state_mut().selected = Some(alpha.id);
+    harness.state_mut().filter = "beta".into();
+    harness.run();
+    for key in [
+        "connections.new",
+        "connections.import",
+        "connections.export",
+    ] {
+        let label = i18n.t(key);
+        let node = harness.get_by_role_and_label(Role::Button, &label);
+        assert!(!node.accesskit_node().is_disabled(), "{key}");
+    }
+}
+
+#[test]
+fn each_row_connect_button_is_named_after_its_connection() {
+    let i18n = I18n::english();
+    let harness = harness();
+    for name in ["Alpha", "Beta", "Billing"] {
+        let label = i18n.t_with("connections.connect_named", &[("name", name)]);
+        harness.get_by_role_and_label(Role::Button, &label);
+    }
+    assert_eq!(
+        harness
+            .query_all_by_role(Role::Button)
+            .filter(|n| n
+                .accesskit_node()
+                .label()
+                .is_some_and(|l| l.starts_with("Connect ")))
+            .count(),
+        3,
+        "one distinctly named Connect button per row"
+    );
+}
+
+fn prompt_harness(open: impl FnOnce(&mut ConnectionsState)) -> Harness<'static, ConnectionsState> {
+    let mut state = three_connections();
+    open(&mut state);
+    Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(
+            |ui, state: &mut ConnectionsState| {
+                show_connections(ui, state, &I18n::english());
+            },
+            state,
+        )
+}
+
+#[test]
+fn the_folder_prompt_field_has_focus_when_it_opens_and_typing_reaches_it() {
+    use curlybrace_ui::views::connections::FolderPrompt;
+    let i18n = I18n::english();
+    for rename in [false, true] {
+        let mut harness = prompt_harness(|state| {
+            if rename {
+                state.open_rename_prompt("Work");
+            } else {
+                let id = state.connections[0].id;
+                state.open_move_prompt(id);
+            }
+        });
+        harness.step();
+        harness.step();
+        let title = i18n.t(if rename {
+            "connections.folder_rename_title"
+        } else {
+            "connections.folder_move_title"
+        });
+        let field = harness.get_by_role_and_label(Role::TextInput, &title);
+        assert!(field.accesskit_node().is_focused(), "rename={rename}");
+        harness
+            .get_by_role_and_label(Role::TextInput, &title)
+            .type_text("X");
+        harness.run();
+        let typed = match harness.state().folder_prompt.clone() {
+            Some(FolderPrompt::Move { input, .. } | FolderPrompt::Rename { input, .. }) => input,
+            None => String::new(),
+        };
+        assert!(typed.ends_with('X'), "typing reached the field: {typed:?}");
+    }
+}
+
+#[test]
+fn the_folder_prompt_does_not_take_focus_back_after_the_person_tabs_away() {
+    let i18n = I18n::english();
+    let mut harness = prompt_harness(|state| state.open_rename_prompt("Work"));
+    harness.run();
+    harness.key_press(egui::Key::Tab);
+    harness.run();
+    harness.run();
+    let title = i18n.t("connections.folder_rename_title");
+    let field = harness.get_by_role_and_label(Role::TextInput, &title);
+    assert!(
+        !field.accesskit_node().is_focused(),
+        "focus must stay where Tab put it"
+    );
+}
+
+#[test]
+fn the_dialog_heading_names_the_mode() {
+    use curlybrace_ui::views::connections::EditMode;
+    let i18n = I18n::english();
+    // The toolbar's New button has the same text as the New heading, hence two for New.
+    for (mode, key, expected) in [
+        (EditMode::New, "connections.new_title", 2),
+        (EditMode::Duplicate, "connections.duplicate_title", 1),
+        (EditMode::Edit, "connections.edit_title", 1),
+    ] {
+        let harness = dialog_harness(|state| state.edit_mode = mode);
+        let count = harness.query_all_by_label(&i18n.t(key)).count();
+        assert_eq!(count, expected, "{mode:?}");
+    }
+}
+
+fn prompt_field_focused(harness: &Harness<'static, ConnectionsState>, rename: bool) -> bool {
+    let i18n = I18n::english();
+    let title = i18n.t(if rename {
+        "connections.folder_rename_title"
+    } else {
+        "connections.folder_move_title"
+    });
+    harness
+        .get_by_role_and_label(Role::TextInput, &title)
+        .accesskit_node()
+        .is_focused()
+}
+
+fn tab_away(harness: &mut Harness<'static, ConnectionsState>) {
+    harness.key_press(egui::Key::Tab);
+    harness.run();
+}
+
+#[test]
+fn reopening_the_folder_prompt_focuses_its_field_every_time() {
+    let mut harness = prompt_harness(|state| state.open_rename_prompt("Work"));
+    harness.run();
+    assert!(prompt_field_focused(&harness, true), "first opening");
+    for round in 0..2 {
+        // Closed and reopened between two frames: the manager never drew it closed.
+        harness.state_mut().close_folder_prompt();
+        harness.state_mut().open_rename_prompt("Work");
+        harness.run();
+        assert!(prompt_field_focused(&harness, true), "reopening {round}");
+        tab_away(&mut harness);
+        assert!(!prompt_field_focused(&harness, true), "tab leaves it");
+    }
+}
+
+#[test]
+fn reopening_after_a_frame_with_the_prompt_closed_focuses_again() {
+    let mut harness = prompt_harness(|state| state.open_rename_prompt("Work"));
+    harness.run();
+    harness.state_mut().close_folder_prompt();
+    harness.run();
+    harness.state_mut().open_rename_prompt("Work");
+    harness.run();
+    assert!(prompt_field_focused(&harness, true));
+}
+
+#[test]
+fn switching_the_open_prompt_from_move_to_rename_focuses_the_new_field() {
+    let mut harness = prompt_harness(|state| {
+        let id = state.connections[0].id;
+        state.open_move_prompt(id);
+    });
+    harness.run();
+    assert!(prompt_field_focused(&harness, false), "move opens focused");
+    tab_away(&mut harness);
+    assert!(!prompt_field_focused(&harness, false));
+    harness.state_mut().open_rename_prompt("Work");
+    harness.run();
+    assert!(prompt_field_focused(&harness, true), "rename takes focus");
 }

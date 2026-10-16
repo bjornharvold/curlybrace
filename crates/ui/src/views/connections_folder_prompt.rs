@@ -13,6 +13,8 @@ pub(super) fn show_folder_prompt(
 ) -> Option<ConnectionAction> {
     let folders = state.folder_names();
     let error = state.error.clone();
+    // Set by each opening, so it holds however the previous prompt was closed.
+    let first_frame = std::mem::take(&mut state.folder_prompt_focus_pending);
     let prompt = state.folder_prompt.as_mut()?;
     let (title_key, is_move, input) = match prompt {
         FolderPrompt::Move { input, .. } => ("connections.folder_move_title", true, input),
@@ -24,6 +26,10 @@ pub(super) fn show_folder_prompt(
         let field = ui
             .add(egui::TextEdit::singleline(input))
             .labelled_by(title.id);
+        if first_frame {
+            // Only when the prompt opens: never again, so Tab and clicks move focus freely.
+            field.request_focus();
+        }
         let blank = !is_move && input.trim().is_empty();
         confirmed = !blank && field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if let Some(error) = &error {

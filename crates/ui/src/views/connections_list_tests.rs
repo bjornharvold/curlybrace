@@ -1,6 +1,6 @@
 //! State and frame tests for the manager list and the folder prompt.
 use super::connections::{
-    ConnectionAction, ConnectionsState, FolderPrompt, Notice, show_connections,
+    ConnectionAction, ConnectionsState, EditMode, FolderPrompt, Notice, show_connections,
 };
 use crate::I18n;
 use curlybrace_core::connection::ConnectionConfig;
@@ -190,4 +190,121 @@ fn escape_still_closes_the_edit_dialog() {
         }],
     );
     assert!(!state.editing);
+}
+
+/// Every text painted in the second frame of the manager.
+fn painted_texts(state: &mut ConnectionsState) -> Vec<String> {
+    fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, out)),
+            _ => {}
+        }
+    }
+    let ctx = egui::Context::default();
+    let i18n = I18n::english();
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1200.0, 900.0),
+        )),
+        ..Default::default()
+    };
+    // Two frames: a modal's first frame is only its sizing pass and paints nothing.
+    let mut frame = |input: egui::RawInput| {
+        ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                show_connections(ui, state, &i18n);
+            });
+        })
+    };
+    let _ = frame(input.clone());
+    let output = frame(input);
+    let mut texts = Vec::new();
+    output
+        .shapes
+        .iter()
+        .for_each(|clipped| collect(&clipped.shape, &mut texts));
+    texts
+}
+
+#[test]
+fn the_row_connect_buttons_keep_their_plain_visible_text() {
+    let mut state = ConnectionsState::new(vec![in_folder("a", None), in_folder("b", None)]);
+    let texts = painted_texts(&mut state);
+    assert_eq!(texts.iter().filter(|t| t.as_str() == "Connect").count(), 2);
+    assert!(texts.iter().all(|t| !t.starts_with("Connect ")));
+}
+
+#[test]
+fn each_way_into_the_dialog_sets_its_mode_and_closing_resets_it() {
+    let cfg = in_folder("a", None);
+    let mut state = ConnectionsState::new(vec![cfg.clone()]);
+    assert_eq!(state.edit_mode, EditMode::Edit);
+    state.start_new();
+    assert_eq!(state.edit_mode, EditMode::New);
+    state.close_edit();
+    assert_eq!(state.edit_mode, EditMode::Edit, "closing resets");
+    state.edit_mode = EditMode::Duplicate;
+    state.begin_edit(&cfg);
+    assert_eq!(
+        state.edit_mode,
+        EditMode::Edit,
+        "Edit overrides a stale mode"
+    );
+    state.start_new();
+    state.saved();
+    assert_eq!(state.edit_mode, EditMode::Edit, "saving closes it too");
+}
+
+#[test]
+fn the_dialog_heading_names_the_mode_and_follows_a_reopen() {
+    let cfg = in_folder("a", None);
+    let mut state = ConnectionsState::new(vec![cfg.clone()]);
+    let heading = |state: &mut ConnectionsState| {
+        painted_texts(state)
+            .into_iter()
+            .filter(|t| {
+                ["New connection", "Duplicate connection", "Edit connection"].contains(&t.as_str())
+            })
+            .collect::<Vec<_>>()
+    };
+    state.start_new();
+    // The toolbar's New button carries the same text, so the dialog heading makes two.
+    assert_eq!(heading(&mut state), ["New connection", "New connection"]);
+    state.close_edit();
+    state.edit_mode = EditMode::Duplicate;
+    state.editing = true;
+    assert_eq!(
+        heading(&mut state),
+        ["New connection", "Duplicate connection"],
+        "toolbar button + dialog heading"
+    );
+    state.close_edit();
+    state.begin_edit(&cfg);
+    assert_eq!(
+        heading(&mut state),
+        ["New connection", "Edit connection"],
+        "toolbar button + dialog heading"
+    );
+}
+
+fn count_of(texts: &[String], wanted: &str) -> usize {
+    texts.iter().filter(|t| t.as_str() == wanted).count()
+}
+
+#[test]
+fn the_folder_combo_shows_the_current_folder_or_no_folder() {
+    let (a, b) = (in_folder("a", Some("Work")), in_folder("b", None));
+    let mut state = ConnectionsState::new(vec![a.clone(), b.clone()]);
+    state.begin_edit(&a);
+    let texts = painted_texts(&mut state);
+    // The group header, the folder text box and the combo's selected text.
+    assert_eq!(count_of(&texts, "Work"), 3, "{texts:?}");
+    assert_eq!(count_of(&texts, "No folder"), 0);
+    state.close_edit();
+    state.begin_edit(&b);
+    let texts = painted_texts(&mut state);
+    assert_eq!(count_of(&texts, "Work"), 1, "only the group header");
+    assert_eq!(count_of(&texts, "No folder"), 1, "{texts:?}");
 }

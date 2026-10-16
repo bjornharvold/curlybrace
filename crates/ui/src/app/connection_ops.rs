@@ -5,7 +5,7 @@ use super::connections::{ConfigPath, delete, persist, refresh_flags, refused};
 use super::persistence::PersistGuard;
 use super::state::{AppState, Banner};
 use crate::viewmodel::ConnectionForm;
-use crate::views::connections::ConnectionsState;
+use crate::views::connections::{ConnectionsState, EditMode};
 use curlybrace_core::connection::{ConnectionConfig, unique_name};
 use curlybrace_core::connection_folders::{
     deleted_folder, moved_to_folder, normalize_folder, renamed_folder,
@@ -129,6 +129,7 @@ pub(super) fn duplicate(
         error: None,
         notice: None,
         editing: true,
+        edit_mode: EditMode::Duplicate,
         ..state.conn
     };
     conn.reset_tools();
@@ -565,6 +566,10 @@ mod tests {
         let state = duplicate(state, src.id, "copy".into(), 50, &secrets, &path);
         assert!(state.conn.editing && state.conn.uri_input.is_empty());
         assert!(state.conn.notice.is_none());
+        assert_eq!(
+            state.conn.edit_mode,
+            crate::views::connections::EditMode::Duplicate
+        );
     }
 
     #[test]

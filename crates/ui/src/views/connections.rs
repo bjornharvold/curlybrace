@@ -10,6 +10,8 @@ use eframe::egui;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+pub use super::connections_edit_mode::EditMode;
+
 /// What the user asked for; the caller performs it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConnectionAction {
@@ -98,8 +100,14 @@ pub struct ConnectionsState {
     pub sort: Sort,
     /// The folder name prompt (move a connection / rename a folder), when open.
     pub folder_prompt: Option<FolderPrompt>,
+    /// The prompt's text field still has to take focus: set by every `open_*_prompt` (so a
+    /// reopening or a Move-to-Rename switch always focuses, however the old prompt was closed),
+    /// consumed by the first frame that draws the prompt.
+    pub folder_prompt_focus_pending: bool,
     /// The edit dialog is open.
     pub editing: bool,
+    /// How the dialog was opened (its heading); `Edit` whenever it is closed.
+    pub edit_mode: EditMode,
     /// The app banner as text (headline first, then details), copied in by the screen each frame
     /// so the dialog can show it: the real banner is dimmed behind the modal backdrop.
     pub dialog_banner: Vec<String>,
@@ -131,7 +139,9 @@ impl std::fmt::Debug for ConnectionsState {
             filter,
             sort,
             folder_prompt,
+            folder_prompt_focus_pending,
             editing,
+            edit_mode,
             dialog_banner,
         } = self;
         f.debug_struct("ConnectionsState")
@@ -154,7 +164,9 @@ impl std::fmt::Debug for ConnectionsState {
             .field("filter", filter)
             .field("sort", sort)
             .field("folder_prompt", folder_prompt)
+            .field("folder_prompt_focus_pending", folder_prompt_focus_pending)
             .field("editing", editing)
+            .field("edit_mode", edit_mode)
             .field("dialog_banner", dialog_banner)
             .finish()
     }
@@ -251,6 +263,7 @@ impl ConnectionsState {
             .unwrap_or_default();
         self.error = None;
         self.folder_prompt = Some(FolderPrompt::Move { id, input });
+        self.folder_prompt_focus_pending = true;
     }
 
     /// Opens the rename prompt for the folder `from`, pre-filled with its name.
@@ -260,6 +273,7 @@ impl ConnectionsState {
             from: from.to_owned(),
             input: from.to_owned(),
         });
+        self.folder_prompt_focus_pending = true;
     }
 
     /// Cancels the prompt (Escape, outside click, Cancel); a rejected-name error goes with it.
@@ -298,11 +312,13 @@ impl ConnectionsState {
     pub(super) fn begin_edit(&mut self, cfg: &ConnectionConfig) {
         self.select(cfg);
         self.editing = true;
+        self.edit_mode = EditMode::Edit;
     }
 
     /// Closes the dialog without saving (Cancel, Escape).
     pub fn close_edit(&mut self) {
         self.editing = false;
+        self.edit_mode = EditMode::default();
         self.error = None;
         self.reset_tools();
         // A cancelled form must not keep a typed password: reload it without secrets.
@@ -335,6 +351,7 @@ impl ConnectionsState {
         self.form = ConnectionForm::default();
         self.error = None;
         self.editing = true;
+        self.edit_mode = EditMode::New;
     }
 }
 

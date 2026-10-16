@@ -26,8 +26,12 @@ pub(super) fn show_list(
     state: &mut ConnectionsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
-    let mut action = show_toolbar(ui, state, i18n);
-    show_filter(ui, state, i18n);
+    // The list is cloned, filtered and sorted once per frame, and once more in the frame where
+    // the filter box is edited. The clone lets the rows borrow something other than `state`.
+    let list = state.connections.clone();
+    let mut rows = visible(&list, &state.filter, state.sort);
+    let mut action = show_toolbar(ui, state, i18n, &rows);
+    show_filter(ui, state, i18n, &list, &mut rows);
     // While the edit dialog or the folder prompt is open the error is shown inside it.
     if let (Some(error), None, false) = (&state.error, &state.folder_prompt, state.editing) {
         super::error_label::show_error(ui, error, i18n);
@@ -35,7 +39,7 @@ pub(super) fn show_list(
     if let Some(notice) = &state.notice {
         ui.label(notice_text(notice, i18n));
     }
-    if let Some(row_action) = show_table(ui, state, i18n) {
+    if let Some(row_action) = show_table(ui, state, i18n, &rows) {
         action = Some(row_action);
     }
     action
@@ -61,11 +65,15 @@ fn show_toolbar(
     ui: &mut egui::Ui,
     state: &mut ConnectionsState,
     i18n: &I18n,
+    rows: &[&ConnectionConfig],
 ) -> Option<ConnectionAction> {
     let mut action = None;
+    // Only a selection the current filter still shows can be acted on from the toolbar. The rows
+    // are those from before this frame's filter edit, so the buttons follow an edit one frame late.
     let selected = state
         .selected
-        .and_then(|id| state.connections.iter().find(|c| c.id == id))
+        .and_then(|id| rows.iter().find(|c| c.id == id))
+        .copied()
         .cloned();
     ui.horizontal_wrapped(|ui| {
         let tool = |ui: &mut egui::Ui, enabled: bool, key: &str| {
@@ -102,7 +110,15 @@ fn show_toolbar(
     action
 }
 
-fn show_filter(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
+/// Draws the filter box and the "shown of total" count. When the text was edited, `rows` is
+/// recomputed first, so the count and the table (drawn from `rows` afterwards) agree this frame.
+fn show_filter<'a>(
+    ui: &mut egui::Ui,
+    state: &mut ConnectionsState,
+    i18n: &I18n,
+    list: &'a [ConnectionConfig],
+    rows: &mut Vec<&'a ConnectionConfig>,
+) {
     ui.horizontal(|ui| {
         // The caption is the box's accessible name (a hint is not exposed to screen readers).
         let caption = ui.label(i18n.t("connections.filter"));
@@ -111,12 +127,15 @@ fn show_filter(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
             .labelled_by(caption.id);
         if response.changed() {
             state.filter_edited();
+            *rows = visible(list, &state.filter, state.sort);
         }
-        let shown = visible(&state.connections, &state.filter, state.sort).len();
         let total = state.connections.len();
         ui.label(i18n.t_with(
             "connections.filter_count",
-            &[("shown", &shown.to_string()), ("total", &total.to_string())],
+            &[
+                ("shown", &rows.len().to_string()),
+                ("total", &total.to_string()),
+            ],
         ));
     });
 }
@@ -125,9 +144,8 @@ fn show_table(
     ui: &mut egui::Ui,
     state: &mut ConnectionsState,
     i18n: &I18n,
+    rows: &[&ConnectionConfig],
 ) -> Option<ConnectionAction> {
-    let list = state.connections.clone();
-    let rows = visible(&list, &state.filter, state.sort);
     let widths = column_widths(ui);
     show_header(ui, state, i18n, &widths);
     if rows.is_empty() && !state.filter.trim().is_empty() {
@@ -140,7 +158,7 @@ fn show_table(
         .max_height(TABLE_MAX_HEIGHT)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            for group in grouped(&rows) {
+            for group in grouped(rows) {
                 let found = match group.folder {
                     None => show_rows(ui, state, i18n, &group.rows, &widths),
                     Some(folder) => show_folder(ui, state, i18n, folder, &group.rows, &widths),
@@ -247,7 +265,14 @@ fn show_rows(
                         ui.add(egui::Label::new(text).truncate());
                     });
                 }
-                if ui.button(i18n.t("connections.connect")).clicked() {
+                let connect = ui.button(i18n.t("connections.connect"));
+                // The visible text is the same on every row; the accessible name says which.
+                // Built inside the closure: egui calls it only on interaction or while AccessKit is on.
+                connect.widget_info(|| {
+                    let name = i18n.t_with("connections.connect_named", &[("name", &cfg.name)]);
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name)
+                });
+                if connect.clicked() {
                     action = Some(ConnectionAction::Connect(cfg.id));
                 }
             })
