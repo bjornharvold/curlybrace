@@ -237,13 +237,6 @@ pub fn load_connections(path: &Path) -> Result<Loaded, PersistError> {
     parse_entries(read_entries(&bytes)?, true)
 }
 
-/// Parses and validates a connection list from bytes that are NEW input (an import): strict,
-/// nothing is repaired. Entries that fail to deserialize or `validate()` are skipped and counted.
-#[cfg(test)]
-pub(crate) fn parse_connections(bytes: &[u8]) -> Result<Loaded, PersistError> {
-    parse_entries(read_entries(bytes)?, false)
-}
-
 /// The JSON array's entries, each still undecoded. The only place the text is parsed.
 pub(crate) fn read_entries(bytes: &[u8]) -> Result<Vec<serde_json::Value>, PersistError> {
     serde_json::from_slice(bytes).map_err(|_| PersistError::Corrupt)
@@ -456,7 +449,7 @@ mod tests {
             "mongodb+srv://cluster.example.com",
             "mongodb://%2Ftmp%2Fmongodb-27017.sock",
         ]);
-        let imported = parse_connections(&bytes).unwrap();
+        let imported = parse_entries(read_entries(&bytes).unwrap(), false).unwrap();
         assert_eq!((imported.connections.len(), imported.skipped), (5, 1));
 
         let dir = tempfile::tempdir().unwrap();
@@ -474,13 +467,16 @@ mod tests {
             "mongodb://admin:2024/S3CR3T@db",
             "mongodb://u:12345?S3CR3T@h",
         ];
-        let imported = parse_connections(&file_of(&kept)).unwrap();
+        let imported = parse_entries(read_entries(&file_of(&kept)).unwrap(), false).unwrap();
         assert_eq!((imported.connections.len(), imported.skipped), (0, 2));
         // A second `@` in the userinfo is rejected on import too (load may drop it already).
         // `u:pa@S3CR3T@h` is skipped by `validate()` (':' in userinfo), so `u@x@h` is what
         // actually exercises the userinfo rule.
-        let userinfo =
-            parse_connections(&file_of(&["mongodb://u@x@h", "mongodb://h/db@x"])).unwrap();
+        let userinfo = parse_entries(
+            read_entries(&file_of(&["mongodb://u@x@h", "mongodb://h/db@x"])).unwrap(),
+            false,
+        )
+        .unwrap();
         assert_eq!((userinfo.connections.len(), userinfo.skipped), (0, 2));
 
         let dir = tempfile::tempdir().unwrap();
@@ -496,7 +492,7 @@ mod tests {
             "mongodb://h/?appName=bob@laptop",
             "mongodb://h/db?tlsCAFile=/certs@2/ca.pem",
         ];
-        let imported = parse_connections(&file_of(&uris)).unwrap();
+        let imported = parse_entries(read_entries(&file_of(&uris)).unwrap(), false).unwrap();
         assert_eq!((imported.connections.len(), imported.skipped), (2, 0));
     }
 
@@ -506,7 +502,7 @@ mod tests {
     #[test]
     fn a_uri_with_userinfo_and_no_host_is_rejected_on_import_but_loaded() {
         let bytes = file_of(&["mongodb://u@"]);
-        let imported = parse_connections(&bytes).unwrap();
+        let imported = parse_entries(read_entries(&bytes).unwrap(), false).unwrap();
         assert_eq!((imported.connections.len(), imported.skipped), (0, 1));
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join(FILE_NAME);
@@ -605,7 +601,7 @@ mod tests {
     #[test]
     fn import_parsing_stays_strict_and_does_not_repair() {
         let (json, _) = old_format_file();
-        let parsed = parse_connections(json.as_bytes()).unwrap();
+        let parsed = parse_entries(read_entries(json.as_bytes()).unwrap(), false).unwrap();
         assert_eq!(
             (parsed.connections.len(), parsed.skipped, parsed.repaired),
             (0, 5, 0)
