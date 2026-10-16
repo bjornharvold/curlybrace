@@ -3,7 +3,7 @@
 use crate::connection::{AuthMechanism, ConnectionConfig};
 use crate::error::{CoreError, Result};
 use crate::secrets::SecretString;
-use crate::uri_host::validate_hosts;
+use crate::uri_host::{HostMode, validate_hosts};
 use crate::uri_problem::UriProblem;
 
 type Check<T> = std::result::Result<T, UriProblem>;
@@ -49,13 +49,13 @@ impl std::fmt::Debug for PasswordMode<'_> {
 struct Split<'a> {
     srv: bool,
     userinfo: Option<&'a str>,
-    hosts: &'a str,
+    hosts: String,
     tail: &'a str,
 }
 
 /// Splits a trimmed connection string. Userinfo is everything before the LAST '@' of the
 /// authority (which ends at the first '/' or '?'). Errors never carry the input.
-fn split_uri(input: &str) -> Check<Split<'_>> {
+fn split_uri(input: &str, mode: HostMode) -> Check<Split<'_>> {
     let (srv, rest) = if let Some(r) = input.strip_prefix("mongodb+srv://") {
         (true, r)
     } else if let Some(r) = input.strip_prefix("mongodb://") {
@@ -77,7 +77,7 @@ fn split_uri(input: &str) -> Check<Split<'_>> {
     if hosts.is_empty() {
         return Err(UriProblem::MissingHost);
     }
-    validate_hosts(hosts, srv).map_err(|problem| spilled_or(problem, tail))?;
+    let hosts = validate_hosts(hosts, srv, mode).map_err(|problem| spilled_or(problem, tail))?;
     Ok(Split {
         srv,
         userinfo,
@@ -105,7 +105,7 @@ pub fn check_hosts(uri: &str) -> Result<()> {
 }
 
 fn check_hosts_inner(uri: &str) -> Check<()> {
-    let split = split_uri(uri)?;
+    let split = split_uri(uri, HostMode::Strict)?;
     if split.userinfo.is_some_and(|u| u.contains('@')) || !tail_at_signs_allowed(split.tail) {
         return Err(UriProblem::StrayAtSign);
     }
@@ -145,7 +145,7 @@ fn parse_uri_inner(input: &str) -> Check<ParsedUri> {
         userinfo,
         hosts,
         tail,
-    } = split_uri(input)?;
+    } = split_uri(input, HostMode::Normalize)?;
     let scheme = if srv { "mongodb+srv://" } else { "mongodb://" };
     let (username, password) = parse_userinfo(userinfo)?;
     let (path, query) = match tail.split_once('?') {
@@ -319,7 +319,7 @@ fn percent_encode(s: &str) -> String {
     out
 }
 
-fn percent_decode(s: &str) -> Check<String> {
+pub(crate) fn percent_decode(s: &str) -> Check<String> {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;

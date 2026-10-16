@@ -1210,6 +1210,7 @@ dependencies = [
  "curlybrace-testkit",
  "dirs",
  "futures",
+ "idna",
  "keyring",
  "libc",
  "log",
