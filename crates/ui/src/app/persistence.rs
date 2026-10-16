@@ -406,7 +406,7 @@ mod tests {
     fn file_of(uris: &[&str]) -> Vec<u8> {
         let entries: Vec<_> = uris
             .iter()
-            .map(|u| serde_json::to_value(ConnectionConfig::new("n", *u)).unwrap())
+            .map(|u| serde_json::to_value(ConnectionConfig::new("n", u)).unwrap())
             .collect();
         serde_json::Value::Array(entries).to_string().into_bytes()
     }

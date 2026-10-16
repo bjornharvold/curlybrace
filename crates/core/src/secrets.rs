@@ -138,11 +138,7 @@ pub fn copy_all(store: &dyn SecretStore, from: Uuid, to: Uuid) -> Result<()> {
 /// The variant name of an error, never its text (which may carry a key or an id).
 fn error_kind(error: &CoreError) -> String {
     let debug = format!("{error:?}");
-    debug
-        .split(|c: char| c == '(' || c == ' ' || c == '{')
-        .next()
-        .unwrap_or("")
-        .to_owned()
+    debug.split(['(', ' ', '{']).next().unwrap_or("").to_owned()
 }
 
 /// A secret value that cannot be printed by accident.
