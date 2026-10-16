@@ -120,6 +120,17 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_connection_with_a_bad_host_list_can_still_be_tested() {
+        let form = ConnectionForm {
+            uri: "mongodb://admin:2024/S3CR3T@db".into(),
+            ..valid_form()
+        };
+        let (state, commands) = run(AppState::default(), form);
+        assert!(state.conn.error.is_none());
+        assert_eq!(commands.len(), 1);
+    }
+
+    #[test]
     fn an_unreachable_test_through_a_tunnel_names_the_tunnel() {
         let tunnelled = ConnectionForm {
             ssh_enabled: true,
