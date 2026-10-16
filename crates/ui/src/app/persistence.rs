@@ -431,6 +431,26 @@ mod tests {
         assert_eq!((loaded.connections.len(), loaded.skipped), (6, 0));
     }
 
+    /// A password that spilled into the path, query or a second `@` of the userinfo passes the
+    /// host list check on its own; import must still skip it, load must still keep it.
+    #[test]
+    fn import_rejects_an_at_sign_in_the_tail_or_userinfo_but_load_keeps_it() {
+        let bytes = file_of(&[
+            "mongodb://admin:2024/S3CR3T@db",
+            "mongodb://u:12345?S3CR3T@h",
+            "mongodb://u:pa@S3CR3T@h",
+            "mongodb://h1:27017,h2:27018,",
+        ]);
+        let imported = parse_connections(&bytes).unwrap();
+        assert_eq!((imported.connections.len(), imported.skipped), (0, 4));
+
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        std::fs::write(&p, &bytes).unwrap();
+        let loaded = load_connections(&p).unwrap();
+        assert_eq!((loaded.connections.len(), loaded.skipped), (4, 0));
+    }
+
     /// `mongodb://u@` has userinfo but no host text: import rejects it ("missing host"), the
     /// saved-list load keeps accepting it so a saved connection is never dropped by the
     /// strict host check.

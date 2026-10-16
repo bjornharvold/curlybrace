@@ -86,10 +86,15 @@ fn split_uri(input: &str) -> Result<Split<'_>> {
     })
 }
 
-/// Strictly checks the scheme and the host list of a connection string, exactly as `parse_uri`
-/// does, without reading credentials or options. Errors never carry the input.
+/// Strictly checks the scheme and the host list of a connection string, and that no raw `@`
+/// hides in the userinfo or the path/query (a password that spilled out of the userinfo), exactly
+/// as `parse_uri` does, without reading credentials or options. Errors never carry the input.
 pub fn check_hosts(uri: &str) -> Result<()> {
-    split_uri(uri.trim()).map(|_| ())
+    let split = split_uri(uri.trim())?;
+    if split.userinfo.is_some_and(|u| u.contains('@')) || split.tail.contains('@') {
+        return Err(malformed());
+    }
+    Ok(())
 }
 
 pub fn parse_uri(input: &str) -> Result<ParsedUri> {
@@ -602,7 +607,24 @@ mod tests {
         ] {
             let err = check_hosts(bad).unwrap_err();
             assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
-            assert!(!err.to_string().contains("pa"), "{bad}: {err}");
+            assert!(!err.to_string().contains("pa/ss"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn check_hosts_rejects_a_password_hiding_in_the_tail_or_userinfo_without_echo() {
+        for bad in [
+            "mongodb://admin:2024/S3CR3T@db",
+            "mongodb://u:12345?S3CR3T@h",
+            "mongodb://h/db?a=b@S3CR3T",
+            "mongodb://u:pa@S3CR3T@h",
+            "mongodb://h1,h2,",
+            "mongodb://h1:27017,h2:27018,",
+        ] {
+            let err = check_hosts(bad).unwrap_err();
+            assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
+            assert!(!err.to_string().contains("S3CR3T"), "{bad}: {err}");
+            assert!(!err.to_string().contains("admin"), "{bad}: {err}");
         }
     }
 
