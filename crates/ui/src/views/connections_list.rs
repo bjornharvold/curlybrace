@@ -26,7 +26,8 @@ pub(super) fn show_list(
     state: &mut ConnectionsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
-    // Filtered and sorted once per frame (recomputed only when the filter box was edited).
+    // The list is cloned, filtered and sorted once per frame, and once more in the frame where
+    // the filter box is edited. The clone lets the rows borrow something other than `state`.
     let list = state.connections.clone();
     let mut rows = visible(&list, &state.filter, state.sort);
     let mut action = show_toolbar(ui, state, i18n, &rows);
@@ -67,7 +68,8 @@ fn show_toolbar(
     rows: &[&ConnectionConfig],
 ) -> Option<ConnectionAction> {
     let mut action = None;
-    // Only a selection the current filter still shows can be acted on from the toolbar.
+    // Only a selection the current filter still shows can be acted on from the toolbar. The rows
+    // are those from before this frame's filter edit, so the buttons follow an edit one frame late.
     let selected = state
         .selected
         .and_then(|id| rows.iter().find(|c| c.id == id))

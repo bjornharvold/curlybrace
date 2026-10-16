@@ -8,7 +8,8 @@ pub enum EditMode {
     Edit,
     /// A blank form for a new connection.
     New,
-    /// An unsaved copy of an existing connection.
+    /// A copy of an existing connection. The copy is already saved (to the config file and the
+    /// keychain) when the dialog opens, so Cancel keeps it.
     Duplicate,
 }
 
