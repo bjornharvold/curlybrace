@@ -45,12 +45,21 @@ fn invalid(msg: &'static str) -> CoreError {
     CoreError::InvalidUri(msg.into())
 }
 
-pub fn parse_uri(input: &str) -> Result<ParsedUri> {
-    let input = input.trim();
-    let (scheme, rest) = if let Some(r) = input.strip_prefix("mongodb+srv://") {
-        ("mongodb+srv://", r)
+/// A connection string cut into its scheme, userinfo, hosts and the rest (path and query).
+struct Split<'a> {
+    srv: bool,
+    userinfo: Option<&'a str>,
+    hosts: &'a str,
+    tail: &'a str,
+}
+
+/// Splits a trimmed connection string. Userinfo is everything before the LAST '@' of the
+/// authority (which ends at the first '/' or '?'). Errors never carry the input.
+fn split_uri(input: &str) -> Result<Split<'_>> {
+    let (srv, rest) = if let Some(r) = input.strip_prefix("mongodb+srv://") {
+        (true, r)
     } else if let Some(r) = input.strip_prefix("mongodb://") {
-        ("mongodb://", r)
+        (false, r)
     } else {
         return Err(invalid("scheme must be mongodb:// or mongodb+srv://"));
     };
@@ -68,7 +77,30 @@ pub fn parse_uri(input: &str) -> Result<ParsedUri> {
     if hosts.is_empty() {
         return Err(invalid("missing host"));
     }
-    validate_hosts(hosts, scheme == "mongodb+srv://")?;
+    validate_hosts(hosts, srv)?;
+    Ok(Split {
+        srv,
+        userinfo,
+        hosts,
+        tail,
+    })
+}
+
+/// Strictly checks the scheme and the host list of a connection string, exactly as `parse_uri`
+/// does, without reading credentials or options. Errors never carry the input.
+pub fn check_hosts(uri: &str) -> Result<()> {
+    split_uri(uri.trim()).map(|_| ())
+}
+
+pub fn parse_uri(input: &str) -> Result<ParsedUri> {
+    let input = input.trim();
+    let Split {
+        srv,
+        userinfo,
+        hosts,
+        tail,
+    } = split_uri(input)?;
+    let scheme = if srv { "mongodb+srv://" } else { "mongodb://" };
     let (username, password) = parse_userinfo(userinfo)?;
     let (path, query) = match tail.split_once('?') {
         Some((p, q)) => (p, q),
@@ -540,6 +572,37 @@ mod tests {
                     assert!(!p.uri.contains(pw), "{input} -> {}", p.uri);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn check_hosts_accepts_valid_hosts_with_or_without_userinfo() {
+        for ok in [
+            "mongodb://h",
+            "mongodb://u@h",
+            "mongodb://h1:27017,h2:27018",
+            "mongodb://[::1]:27017",
+            "mongodb+srv://cluster.example.com",
+            "mongodb+srv://u@cluster.example.com/db?retryWrites=true",
+            "mongodb://%2Ftmp%2Fmongodb-27017.sock",
+        ] {
+            assert!(check_hosts(ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn check_hosts_rejects_a_password_that_leaks_into_the_host_without_echo() {
+        for bad in [
+            "mongodb://u:pa/ss@h",
+            "mongodb://u@",
+            "mongodb://",
+            "mongodb://h:0",
+            "mongodb+srv://h1,h2",
+            "http://h",
+        ] {
+            let err = check_hosts(bad).unwrap_err();
+            assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
+            assert!(!err.to_string().contains("pa"), "{bad}: {err}");
         }
     }
 
