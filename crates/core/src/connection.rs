@@ -386,6 +386,19 @@ mod tests {
         );
     }
 
+    /// Hosts may hold the two joiners (see `uri_host`); names and folders must not.
+    #[test]
+    fn names_and_folders_still_reject_the_zero_width_joiners() {
+        for c in ['\u{200C}', '\u{200D}'] {
+            assert!(is_forbidden_label_char(c), "{c:?}");
+            let mut cfg = ConnectionConfig::new(&format!("a{c}b"), "mongodb://h");
+            assert!(!cfg.name_is_valid(), "{c:?}");
+            cfg.name = "ab".into();
+            cfg.folder = Some(format!("f{c}g"));
+            assert!(!cfg.folder_is_valid(), "{c:?}");
+        }
+    }
+
     const FORMAT_CHARS: [char; 5] = ['\u{202E}', '\u{200B}', '\u{2066}', '\u{FEFF}', '\u{061C}'];
 
     #[test]

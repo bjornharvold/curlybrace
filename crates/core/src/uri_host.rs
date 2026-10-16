@@ -128,20 +128,21 @@ fn normalized_host(host: &str) -> Check<String> {
 }
 
 fn to_punycode(host: &str) -> Check<String> {
-    // Two guards against a stored host that differs from what was typed. The conversion silently
+    // Guards against a stored host that differs from what was typed. The conversion silently
     // DROPS characters it maps to nothing (variation selectors, soft hyphen, the zero-width
-    // space, Mongolian free variation selectors, ...), so every non-ASCII character is converted alone
-    // and refused when that yields an empty string: the answer comes from the converter's own
-    // table, so it cannot lag behind Unicode. The shared forbidden-label set additionally
-    // refuses control, bidi and zero-width joiner characters, which the converter rejects or keeps.
-    if host.len() > MAX_UNICODE_HOST_BYTES
-        || host
-            .chars()
-            .any(|c| is_forbidden_label_char(c) || (!c.is_ascii() && is_dropped(c)))
-    {
+    // space, Mongolian free variation selectors, ...), so every non-ASCII character is converted
+    // alone and refused when that yields an empty string: the answer comes from the converter's
+    // own table, so it cannot lag behind Unicode. The shared forbidden-label set additionally
+    // refuses control, bidi and zero-width characters, which the converter rejects or keeps.
+    // The two joiners are exempt from both: they are legitimate inside Persian and Indic names,
+    // the converter's own joiner rules judge their context, and `keeps_joiners` proves the
+    // result still holds every one that was typed.
+    let refused =
+        |c: char| !is_joiner(c) && (is_forbidden_label_char(c) || (!c.is_ascii() && is_dropped(c)));
+    if host.len() > MAX_UNICODE_HOST_BYTES || host.chars().any(refused) {
         return Err(UriProblem::BadHost);
     }
-    Uts46::new()
+    let ascii = Uts46::new()
         .to_ascii(
             host.as_bytes(),
             AsciiDenyList::EMPTY,
@@ -149,7 +150,29 @@ fn to_punycode(host: &str) -> Check<String> {
             DnsLength::VerifyAllowRootDot,
         )
         .map(|ascii| ascii.into_owned())
-        .map_err(|_| UriProblem::BadHost)
+        .map_err(|_| UriProblem::BadHost)?;
+    if keeps_joiners(host, &ascii) {
+        Ok(ascii)
+    } else {
+        Err(UriProblem::BadHost)
+    }
+}
+
+/// U+200C ZERO WIDTH NON-JOINER and U+200D ZERO WIDTH JOINER.
+fn is_joiner(c: char) -> bool {
+    matches!(c, '\u{200C}' | '\u{200D}')
+}
+
+/// Whether the converted host, read back as Unicode, holds as many joiners as were typed, so a
+/// joiner the conversion dropped can never be stored without the person's knowledge.
+fn keeps_joiners(typed: &str, ascii: &str) -> bool {
+    let wanted = typed.chars().filter(|c| is_joiner(*c)).count();
+    if wanted == 0 {
+        return true;
+    }
+    let (back, result) =
+        Uts46::new().to_unicode(ascii.as_bytes(), AsciiDenyList::EMPTY, Hyphens::Allow);
+    result.is_ok() && back.chars().filter(|c| is_joiner(*c)).count() == wanted
 }
 
 /// Whether the conversion maps this character to nothing when it stands alone. A character that

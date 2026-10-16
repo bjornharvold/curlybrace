@@ -22,6 +22,8 @@ pub mod tunnel;
 pub mod uri;
 mod uri_host;
 #[cfg(test)]
+mod uri_host_joiner_tests;
+#[cfg(test)]
 mod uri_host_tests;
 pub mod uri_problem;
 #[cfg(test)]
