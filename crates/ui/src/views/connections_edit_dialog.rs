@@ -113,7 +113,7 @@ fn show_folder_row(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n)
             state.form.folder.clone()
         };
         let combo = egui::ComboBox::from_id_salt("connection_folder")
-            .selected_text(selected)
+            .selected_text(selected.clone())
             .show_ui(ui, |ui| {
                 for name in &names {
                     if ui
@@ -124,10 +124,14 @@ fn show_folder_row(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n)
                     }
                 }
             });
-        // egui names a label-less combo ""; give it the caption text (and the relation).
+        // egui names a label-less combo ""; give it the caption text (and the relation), and
+        // the shown folder as its value (egui reads only `current_text_value` into AccessKit).
         let name = i18n.t("connections.folder");
         combo.response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone())
+            let mut info =
+                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone());
+            info.current_text_value = Some(selected.clone());
+            info
         });
         combo.response.labelled_by(caption.id);
     });

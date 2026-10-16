@@ -253,6 +253,22 @@ fn the_folder_drop_down_has_the_folder_label() {
 }
 
 #[test]
+fn the_folder_drop_down_exposes_its_current_folder_as_its_value() {
+    let i18n = I18n::english();
+    let value_of = |prepare: fn(&mut ConnectionsState)| {
+        let harness = dialog_harness(prepare);
+        harness
+            .get_by_role_and_label(Role::ComboBox, &i18n.t("connections.folder"))
+            .accesskit_node()
+            .value()
+    };
+    let with_folder = value_of(|state| state.form.folder = "Work".into());
+    assert_eq!(with_folder.as_deref(), Some("Work"));
+    let without = value_of(|state| state.form.folder.clear());
+    assert_eq!(without, Some(i18n.t("connections.no_folder")));
+}
+
+#[test]
 fn the_authentication_drop_down_has_the_authentication_label() {
     let i18n = I18n::english();
     let harness = dialog_harness(|_| {});
