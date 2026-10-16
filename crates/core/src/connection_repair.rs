@@ -27,13 +27,25 @@ pub fn uri_hosts(uri: &str) -> String {
     hosts.split(',').collect::<Vec<_>>().join(", ")
 }
 
-/// `text` without forbidden characters, trimmed, cut to `max` chars (never mid-char), trimmed.
+/// Control whitespace that separates words: it becomes a space rather than vanishing, so
+/// "a\nb" reads "a b" and not "ab".
+fn is_word_separator(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r')
+}
+
+/// `text` with separating control whitespace turned into spaces and every other forbidden
+/// character removed, trimmed, cut to `max` chars (never mid-char), trimmed. Spaces are never
+/// collapsed: the minimal change that keeps words apart.
 fn clean(text: &str, max: usize) -> String {
-    let stripped: String = text
+    let spaced: String = text
         .chars()
-        .filter(|c| !is_forbidden_label_char(*c))
+        .filter_map(|c| match c {
+            c if is_word_separator(c) => Some(' '),
+            c if is_forbidden_label_char(c) => None,
+            c => Some(c),
+        })
         .collect();
-    let cut: String = stripped.trim().chars().take(max).collect();
+    let cut: String = spaced.trim().chars().take(max).collect();
     cut.trim().to_owned()
 }
 
@@ -48,7 +60,8 @@ fn fallback_name(cfg: &ConnectionConfig) -> String {
 }
 
 /// `cfg` with a name and folder that satisfy the label rules, and whether anything changed.
-/// Control and invisible format characters are removed, both labels are trimmed and cut to
+/// Control whitespace between words (newline, tab, ...) becomes a space, other control and
+/// invisible format characters are removed, both labels are trimmed and cut to
 /// their limits, a name left blank falls back to the URI host (then `connection-<id prefix>`)
 /// and an emptied folder becomes `None`. Everything else, including the id, is untouched.
 pub fn repair_labels(cfg: ConnectionConfig) -> (ConnectionConfig, bool) {
@@ -92,7 +105,7 @@ mod tests {
     #[test]
     fn invisible_and_control_characters_are_removed_from_both_labels() {
         let mut c = cfg("pr\u{200D}o\u{202E}d\n", "mongodb://h");
-        c.folder = Some("wo\nrk\u{200B}".into());
+        c.folder = Some("wo\u{0}rk\u{200B}".into());
         let (out, changed) = repair_labels(c);
         assert_eq!(out.name, "prod");
         assert_eq!(out.folder.as_deref(), Some("work"));
@@ -150,5 +163,30 @@ mod tests {
         assert_eq!(out.folder, None);
         assert_eq!(out.id, id);
         assert!(changed);
+    }
+
+    #[test]
+    fn control_whitespace_between_words_becomes_a_space() {
+        let mut c = cfg("a\nb\rc\td", "mongodb://h");
+        c.folder = Some("x\ny".into());
+        let (out, changed) = repair_labels(c);
+        assert_eq!(out.name, "a b c d");
+        assert_eq!(out.folder.as_deref(), Some("x y"));
+        assert!(changed);
+        assert!(out.validate().is_ok());
+    }
+
+    #[test]
+    fn other_forbidden_characters_are_still_removed_and_spaces_are_not_collapsed() {
+        // Only the separating control whitespace turns into a space; zero-width and other
+        // control characters vanish, and spaces already there are left as they are.
+        let (out, _) = repair_labels(cfg("a\u{200B}b\u{0}c  d\ne", "mongodb://h"));
+        assert_eq!(out.name, "abc  d e");
+    }
+
+    #[test]
+    fn a_separator_at_the_edges_is_trimmed_away() {
+        let (out, _) = repair_labels(cfg("\nab\t", "mongodb://h"));
+        assert_eq!(out.name, "ab");
     }
 }
