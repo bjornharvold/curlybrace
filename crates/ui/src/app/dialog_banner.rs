@@ -10,8 +10,13 @@
 //! while the dialog stays open (a refused or failed Save) CLAIMS it with `claimed`: the baseline
 //! is dropped, so the banner shows even when an identical one was showing at opening.
 //!
+//! The same goes for an action that OPENS the dialog and raises a banner in that very step
+//! (Duplicate when reading the stored secret flags fails): it hands the watch over already open
+//! with no baseline, so that banner counts as new, while one showing before the action stays hidden.
+//!
 //! Known limit: a banner raised by something other than the dialog (a background event) that is
-//! IDENTICAL to the one showing at opening is still not considered new.
+//! IDENTICAL to the one showing at opening, with no frame in between that showed anything
+//! else, is still not considered new.
 use super::state::Banner;
 
 /// The banner showing when the dialog was last seen opening; default while it is closed.
@@ -23,11 +28,17 @@ pub struct DialogBannerWatch {
 
 impl DialogBannerWatch {
     /// The watch after a frame in which the dialog was `editing` (or not) with `banner` showing.
-    /// Closing forgets the baseline; the first frame of an opening takes it.
+    /// Closing forgets the baseline; the first frame of an opening takes it. While open, any
+    /// frame whose banner differs from the baseline (none, or another one) drops it for good:
+    /// the baseline banner is gone, so one that appears later is a new event even if equal.
     pub fn observed(self, editing: bool, banner: Option<&Banner>) -> Self {
         match (editing, self.open) {
             (false, _) => Self::default(),
-            (true, true) => self,
+            (true, true) if self.baseline.as_ref() == banner => self,
+            (true, true) => Self {
+                baseline: None,
+                ..self
+            },
             (true, false) => Self {
                 open: true,
                 baseline: banner.cloned(),
@@ -81,7 +92,7 @@ mod tests {
     #[test]
     fn the_baseline_is_kept_while_open_and_dropped_on_close() {
         let open = DialogBannerWatch::default().observed(true, Some(&failure("a")));
-        let still = open.observed(true, Some(&failure("b")));
+        let still = open.observed(true, Some(&failure("a")));
         assert!(
             !still.is_new(&failure("a")),
             "baseline survives later frames"
@@ -127,5 +138,31 @@ mod tests {
     fn opening_with_no_banner_makes_any_later_banner_new() {
         let watch = DialogBannerWatch::default().observed(true, None);
         assert!(watch.is_new(&failure("a")));
+    }
+
+    #[test]
+    fn a_banner_raised_again_after_the_baseline_went_away_is_new() {
+        let open = DialogBannerWatch::default().observed(true, Some(&failure("b")));
+        let cleared = open.observed(true, None);
+        let again = cleared.observed(true, Some(&failure("b")));
+        assert!(again.is_new(&failure("b")));
+    }
+
+    #[test]
+    fn a_baseline_replaced_by_another_banner_is_dropped_for_good() {
+        let open = DialogBannerWatch::default().observed(true, Some(&failure("a")));
+        let shown = open.observed(true, Some(&failure("b")));
+        assert!(shown.is_new(&failure("b")));
+        let back = shown.observed(true, Some(&failure("a")));
+        assert!(back.is_new(&failure("a")));
+    }
+
+    #[test]
+    fn a_baseline_banner_that_keeps_showing_stays_hidden() {
+        let mut watch = DialogBannerWatch::default().observed(true, Some(&failure("a")));
+        for _ in 0..3 {
+            watch = watch.observed(true, Some(&failure("a")));
+            assert!(!watch.is_new(&failure("a")));
+        }
     }
 }
