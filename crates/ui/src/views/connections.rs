@@ -83,6 +83,11 @@ pub struct ConnectionsState {
     pub test_form: Option<ConnectionForm>,
     /// Text pasted for "From URI"; cleared as soon as it has been parsed (it may hold a password).
     pub uri_input: String,
+    /// The pasted text is shown in clear (default: masked; reset whenever the tools reset).
+    pub uri_visible: bool,
+    /// egui's editor state for the From URI box (it keeps the text in its undo history) must be
+    /// wiped on the next frame: set wherever `uri_input` is cleared, consumed by the view.
+    pub uri_wipe_pending: bool,
     /// "To URI" result (may hold a real password; `Debug` redacts it), the form it was built
     /// for, and whether it contains the real password.
     pub built_uri: Option<SecretString>,
@@ -118,6 +123,8 @@ impl std::fmt::Debug for ConnectionsState {
             test_seq,
             test_form,
             uri_input: _,
+            uri_visible,
+            uri_wipe_pending,
             built_uri,
             built_for,
             built_with_password,
@@ -139,6 +146,8 @@ impl std::fmt::Debug for ConnectionsState {
             .field("test_seq", test_seq)
             .field("test_form", test_form)
             .field("uri_input", &"<redacted>")
+            .field("uri_visible", uri_visible)
+            .field("uri_wipe_pending", uri_wipe_pending)
             .field("built_uri", built_uri)
             .field("built_for", built_for)
             .field("built_with_password", built_with_password)
@@ -208,6 +217,8 @@ impl ConnectionsState {
         self.test = TestState::Idle;
         self.test_form = None;
         self.uri_input.clear();
+        self.uri_visible = false;
+        self.uri_wipe_pending = true;
         self.clear_built_uri();
     }
 
@@ -215,6 +226,7 @@ impl ConnectionsState {
     /// a failure never echoes it.
     pub fn apply_uri_input(&mut self) {
         let input = std::mem::take(&mut self.uri_input);
+        self.uri_wipe_pending = true;
         match parse_uri(&input) {
             Ok(parsed) => {
                 self.form = self.form.clone().apply_parsed(parsed);
@@ -332,9 +344,13 @@ pub fn show_connections(
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
     state.invalidate_stale_test();
+    // Before the dialog draws, so a closed dialog's pasted text is gone from egui at once.
+    super::connections_from_uri::wipe_if_pending(ui.ctx(), state);
     ui.heading(i18n.t("connections.title"));
     let action = super::connections_list::show_list(ui, state, i18n);
     let edit = super::connections_edit_dialog::show_edit_dialog(ui.ctx(), state, i18n);
+    // Apply or Cancel inside the dialog: wipe this frame, not the next.
+    super::connections_from_uri::wipe_if_pending(ui.ctx(), state);
     let prompt = super::connections_folder_prompt::show_folder_prompt(ui.ctx(), state, i18n);
     show_delete_confirm(ui.ctx(), state, i18n)
         .or(prompt)
@@ -518,6 +534,20 @@ mod tests {
         assert!(conn.built_uri.is_none() && conn.built_for.is_none());
         assert!(!conn.built_with_password);
         assert_eq!(conn.test, TestState::Running { request_id: 1 });
+    }
+
+    #[test]
+    fn clearing_the_pasted_text_asks_for_the_editor_state_to_be_wiped() {
+        let mut conn = ConnectionsState {
+            uri_input: "mongodb://u:p@h".into(),
+            uri_visible: true,
+            ..ConnectionsState::default()
+        };
+        conn.apply_uri_input();
+        assert!(conn.uri_wipe_pending);
+        conn.uri_wipe_pending = false;
+        conn.reset_tools();
+        assert!(conn.uri_wipe_pending && !conn.uri_visible);
     }
 
     #[test]
