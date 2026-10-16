@@ -10,6 +10,11 @@ use crate::connection::{ConnectionConfig, MAX_FOLDER_LEN, MAX_NAME_LEN, is_forbi
 /// joined with ", ". Never panics; a text that is not a URI yields whatever host-like text it
 /// has (possibly empty).
 pub fn uri_hosts(uri: &str) -> String {
+    uri_host_list(uri).join(", ")
+}
+
+/// The hosts of a mongodb URI one by one (see [`uri_hosts`]); empty when there are none.
+pub fn uri_host_list(uri: &str) -> Vec<String> {
     let rest = uri
         .strip_prefix("mongodb+srv://")
         .or_else(|| uri.strip_prefix("mongodb://"))
@@ -22,9 +27,9 @@ pub fn uri_hosts(uri: &str) -> String {
         .map_or(before_options, |(_, h)| h);
     let hosts = after_userinfo.split('/').next().unwrap_or("");
     if hosts.is_empty() {
-        return String::new();
+        return Vec::new();
     }
-    hosts.split(',').collect::<Vec<_>>().join(", ")
+    hosts.split(',').map(str::to_owned).collect()
 }
 
 /// Characters that separate words: control whitespace plus the Unicode line breaks (NEL, line

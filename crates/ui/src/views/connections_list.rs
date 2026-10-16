@@ -2,7 +2,7 @@
 use super::connections::{ConnectionAction, ConnectionsState, Notice};
 use crate::I18n;
 use crate::viewmodel::{
-    SortColumn, auth_label_key, format_utc, grouped, security, servers, visible,
+    SortColumn, auth_label_key, format_utc, grouped, security, server_hosts, visible,
 };
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use eframe::egui;
@@ -255,7 +255,7 @@ fn show_rows(
                     }
                 });
                 let texts = [
-                    servers(cfg),
+                    servers_text(cfg, i18n),
                     security_text(cfg, i18n),
                     time_text(cfg.last_connected, i18n),
                     time_text(cfg.updated_at, i18n),
@@ -294,6 +294,16 @@ fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
     );
 }
 
+/// The hosts of the connection joined with the language's list separator.
+pub(super) fn servers_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
+    join_list(&server_hosts(cfg), i18n)
+}
+
+/// `parts` joined with the translated list separator.
+fn join_list(parts: &[String], i18n: &I18n) -> String {
+    parts.join(&i18n.t("connections.list_separator"))
+}
+
 /// "TLS, SSH tunnel, SCRAM-SHA-256", or the "none" text when nothing is configured.
 pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
     let sec = security(cfg);
@@ -310,7 +320,7 @@ pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
     if parts.is_empty() {
         i18n.t("connections.security_none")
     } else {
-        parts.join(", ")
+        join_list(&parts, i18n)
     }
 }
 
@@ -332,7 +342,10 @@ mod tests {
         assert_eq!(time_text(None, &i18n), "Never");
         assert_eq!(time_text(Some(i64::MAX), &i18n), "Never");
         assert_eq!(time_text(Some(0), &i18n), "1970-01-01 00:00 UTC");
-        assert_eq!(time_text(Some(1_700_000_000), &i18n), "2023-11-14 22:13 UTC");
+        assert_eq!(
+            time_text(Some(1_700_000_000), &i18n),
+            "2023-11-14 22:13 UTC"
+        );
     }
 
     #[test]
@@ -343,5 +356,33 @@ mod tests {
         let mut tls = plain.clone();
         tls.tls.enabled = true;
         assert_eq!(security_text(&tls, &i18n), "TLS");
+    }
+
+    fn with_separator(separator: &str) -> I18n {
+        let en = include_str!("../../locales/en.json");
+        let custom = en.replace(
+            "\"list_separator\": \", \"",
+            &format!("\"list_separator\": \"{separator}\""),
+        );
+        assert_ne!(custom, en, "the separator key must exist in en.json");
+        I18n::from_json(&custom).unwrap()
+    }
+
+    #[test]
+    fn lists_are_joined_with_the_translated_separator() {
+        let mut cfg = ConnectionConfig::new("a", "mongodb://h1:1,h2:2,h3:3");
+        cfg.tls.enabled = true;
+        cfg.ssh = Some(curlybrace_core::connection::SshConfig {
+            host: "b".into(),
+            port: 22,
+            username: "u".into(),
+            auth: curlybrace_core::connection::SshAuth::Password,
+        });
+        let english = I18n::english();
+        assert_eq!(servers_text(&cfg, &english), "h1:1, h2:2, h3:3");
+        assert_eq!(security_text(&cfg, &english), "TLS, SSH tunnel");
+        let other = with_separator(" \u{b7} ");
+        assert_eq!(servers_text(&cfg, &other), "h1:1 \u{b7} h2:2 \u{b7} h3:3");
+        assert_eq!(security_text(&cfg, &other), "TLS \u{b7} SSH tunnel");
     }
 }

@@ -155,6 +155,12 @@ pub fn servers(cfg: &ConnectionConfig) -> String {
     curlybrace_core::connection_repair::uri_hosts(&cfg.uri)
 }
 
+/// The hosts of the URI one by one, for a view that joins them with its own (translated)
+/// separator. Same rules as [`servers`], which joins with a fixed ", " for sorting and filtering.
+pub fn server_hosts(cfg: &ConnectionConfig) -> Vec<String> {
+    curlybrace_core::connection_repair::uri_host_list(&cfg.uri)
+}
+
 const MIN_DISPLAY_SECS: i64 = -62_167_219_200; // 0000-01-01 00:00:00 UTC
 const MAX_DISPLAY_SECS: i64 = 253_402_300_799; // 9999-12-31 23:59:59 UTC
 
@@ -362,6 +368,14 @@ mod tests {
             servers(&cfg("a", "mongodb+srv://c0.example.com/db", None)),
             "c0.example.com"
         );
+    }
+
+    #[test]
+    fn server_hosts_are_the_same_hosts_one_by_one() {
+        let hosts = server_hosts(&cfg("a", "mongodb://u@h1:27017,h2:27018/db?x=1", None));
+        assert_eq!(hosts, vec!["h1:27017", "h2:27018"]);
+        assert!(server_hosts(&cfg("a", "mongodb:///db", None)).is_empty());
+        assert!(server_hosts(&cfg("a", "", None)).is_empty());
     }
 
     #[test]
