@@ -1,5 +1,6 @@
 //! Application state. Immutable by convention: the reducer consumes a state and returns the next.
 use super::connection_io::ImportError;
+use super::dialog_banner::DialogBannerWatch;
 use super::persistence::{PersistError, PersistGuard, Recovery};
 use super::session::SessionView;
 use crate::viewmodel::compare::CompareState;
@@ -174,6 +175,8 @@ pub struct AppState {
     pub pending: Option<Pending>,
     pub persist: PersistGuard,
     pub banner: Option<Banner>,
+    /// What the edit dialog may repeat of `banner` (only what is new since it opened).
+    pub dialog_banner_watch: DialogBannerWatch,
     /// SSH endpoint of the connection being (or last) opened.
     pub ssh_endpoint: Option<HostEndpoint>,
     /// Endpoint awaiting the "forget host" confirmation.

@@ -57,9 +57,14 @@ pub fn show_banner(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut
     });
 }
 
-/// The banner as plain lines for the edit dialog: headline, detail, raw server text.
+/// The banner as plain lines for the edit dialog: headline, detail, raw server text. Empty
+/// unless the dialog is open and the banner is new since it opened (see `dialog_banner`).
 fn dialog_banner_lines(state: &AppState, i18n: &I18n) -> Vec<String> {
-    let Some(banner) = &state.banner else {
+    let Some(banner) = state
+        .banner
+        .as_ref()
+        .filter(|b| state.dialog_banner_watch.is_new(b))
+    else {
         return Vec::new();
     };
     let (headline, detail) = banner_text(banner, i18n);
@@ -85,6 +90,8 @@ pub fn show_connections_screen(
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
+    state.dialog_banner_watch = std::mem::take(&mut state.dialog_banner_watch)
+        .observed(state.conn.editing, state.banner.as_ref());
     state.conn.dialog_banner = dialog_banner_lines(state, i18n);
     let opening = state
         .roots(i18n)

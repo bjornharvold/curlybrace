@@ -112,6 +112,7 @@ impl Harness {
         self.dir.path().join("connections.json")
     }
 
+    #[allow(dead_code)] // used by only one of the test crates that share this module
     pub fn saved_text(&self) -> String {
         std::fs::read_to_string(self.config_file()).unwrap_or_default()
     }
@@ -130,6 +131,7 @@ impl Harness {
             .expect("memory store accepts the secret");
     }
 
+    #[allow(dead_code)] // used by only one of the test crates that share this module
     pub fn password_of(&self, id: Uuid) -> Option<String> {
         self.secrets
             .get(&secret_key(id, SecretKind::Password))
@@ -141,6 +143,7 @@ impl Harness {
         let _ = ctx.run(egui::RawInput::default(), |ctx| app.run_frame(ctx));
     }
 
+    #[allow(dead_code)] // used by only one of the test crates that share this module
     pub fn until(&mut self, what: &str, done: impl Fn(&CurlybraceApp) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
