@@ -33,6 +33,8 @@ struct PolicyOpener {
     key: PublicKey,
     entered: Arc<Notify>,
     gate: Mutex<Option<oneshot::Receiver<()>>>,
+    /// Signalled when the host-key policy has returned (it ran to its end, whatever the outcome).
+    policy_done: Arc<Notify>,
 }
 
 #[async_trait]
@@ -43,13 +45,16 @@ impl TunnelOpener for PolicyOpener {
         if let Some(gate) = gate {
             let _ = gate.await;
         }
-        let (known_hosts, prompt, key) = (
+        let (known_hosts, prompt, key, done) = (
             request.known_hosts.to_path_buf(),
             request.prompt.clone(),
             self.key.clone(),
+            self.policy_done.clone(),
         );
         tokio::task::spawn_blocking(move || {
-            check_host_key(&known_hosts, "bastion", 22, &key, prompt.as_ref())
+            let outcome = check_host_key(&known_hosts, "bastion", 22, &key, prompt.as_ref());
+            done.notify_one();
+            outcome
         })
         .await
         .map_err(|_| CoreError::Ssh("join".into()))??;
@@ -157,6 +162,7 @@ struct Rig {
     h: RuntimeHandle,
     prompt: Arc<InnerPrompt>,
     entered: Arc<Notify>,
+    policy_done: Arc<Notify>,
     known_hosts: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
@@ -186,6 +192,7 @@ fn rig_with_prompt(
     let dir = tempfile::tempdir().unwrap();
     let known_hosts = dir.path().join("known_hosts");
     let entered = Arc::new(Notify::new());
+    let policy_done = Arc::new(Notify::new());
     let key = PrivateKey::from(Ed25519Keypair::from_seed(&[9; 32]))
         .public_key()
         .clone();
@@ -196,6 +203,7 @@ fn rig_with_prompt(
             key,
             entered: entered.clone(),
             gate: Mutex::new(opener_gate),
+            policy_done: policy_done.clone(),
         }),
         connect_timeout: connect_timeout.unwrap_or(RuntimeConfig::default().connect_timeout),
         ..RuntimeConfig::default()
@@ -206,6 +214,7 @@ fn rig_with_prompt(
         h,
         prompt,
         entered,
+        policy_done,
         known_hosts,
         _dir: dir,
     }
@@ -224,6 +233,13 @@ fn superseded() -> Event {
         context: "connect",
         error: CoreError::Superseded,
     }
+}
+
+/// Waits (bounded) until the host-key policy of the job under test has returned.
+async fn policy_returned(r: &Rig) {
+    tokio::time::timeout(WAIT, r.policy_done.notified())
+        .await
+        .expect("the host-key policy returned in time");
 }
 
 async fn until(what: &str, done: impl Fn() -> bool) {
@@ -502,7 +518,7 @@ async fn a_test_answered_after_its_timeout_records_nothing() {
         }
     );
     unblock.send(()).unwrap(); // Trust and remember, after the test already ended
-    tokio::time::sleep(SHORT).await;
+    policy_returned(&r).await;
     assert!(!r.known_hosts.exists(), "nothing was remembered");
 }
 
@@ -526,7 +542,7 @@ async fn a_connect_answered_after_its_timeout_records_nothing() {
         Event::ConnectFailed { epoch: 1, .. }
     ));
     unblock.send(()).unwrap(); // Trust and remember, after the connect already failed
-    tokio::time::sleep(SHORT).await;
+    policy_returned(&r).await;
     assert!(!r.known_hosts.exists(), "nothing was remembered");
 }
 
