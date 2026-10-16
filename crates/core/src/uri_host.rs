@@ -146,7 +146,7 @@ fn to_punycode(host: &str) -> Check<String> {
             host.as_bytes(),
             AsciiDenyList::EMPTY,
             Hyphens::Allow,
-            DnsLength::Verify,
+            DnsLength::VerifyAllowRootDot,
         )
         .map(|ascii| ascii.into_owned())
         .map_err(|_| UriProblem::BadHost)

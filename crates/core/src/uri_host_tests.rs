@@ -284,3 +284,15 @@ fn legitimate_idns_still_convert() {
 fn a_fullwidth_dot_is_a_label_separator_by_uts46() {
     assert_eq!(parsed_uri("mongodb://bü\u{FF0E}x"), "mongodb://xn--b-eha.x");
 }
+
+#[test]
+fn a_trailing_root_dot_is_kept_for_ascii_and_unicode_hosts_alike() {
+    assert_eq!(
+        parsed_uri("mongodb://example.com."),
+        "mongodb://example.com."
+    );
+    assert_eq!(
+        parsed_uri("mongodb://bücher.example."),
+        "mongodb://xn--bcher-kva.example."
+    );
+}
