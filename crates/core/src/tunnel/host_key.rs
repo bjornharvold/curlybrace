@@ -25,6 +25,19 @@ pub enum HostKeyDecision {
 pub trait HostKeyPrompt: Send + Sync {
     /// `fingerprint` is the `SHA256:...` string only.
     fn decide(&self, host: &str, fingerprint: &str) -> HostKeyDecision;
+
+    /// Like [`decide`](Self::decide) for a job that may end while the question is open: an
+    /// implementation that can wait in short slices stops asking, withdraws the question and
+    /// returns `Reject` once `live()` is false. The default cannot withdraw and simply blocks
+    /// in `decide`; its caller still discards an answer that arrives for an ended job.
+    fn decide_while(
+        &self,
+        host: &str,
+        fingerprint: &str,
+        _live: &dyn Fn() -> bool,
+    ) -> HostKeyDecision {
+        self.decide(host, fingerprint)
+    }
 }
 
 /// Safe default: unknown hosts are rejected (known hosts still connect).

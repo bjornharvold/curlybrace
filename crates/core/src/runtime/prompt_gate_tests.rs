@@ -62,6 +62,10 @@ struct InnerPrompt {
     answer: HostKeyDecision,
     calls: AtomicUsize,
     block: Mutex<Option<StdReceiver<()>>>,
+    /// When set, `decide_while` waits in short slices and withdraws its question (counting it in
+    /// `withdrawn`) once the job is no longer live, like the interactive UI prompt.
+    withdrawing: bool,
+    withdrawn: AtomicUsize,
 }
 
 impl HostKeyPrompt for InnerPrompt {
@@ -73,6 +77,30 @@ impl HostKeyPrompt for InnerPrompt {
         }
         self.answer
     }
+
+    fn decide_while(
+        &self,
+        host: &str,
+        fingerprint: &str,
+        live: &dyn Fn() -> bool,
+    ) -> HostKeyDecision {
+        if !self.withdrawing {
+            return self.decide(host, fingerprint);
+        }
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let block = self.block.lock().unwrap().take();
+        while let Some(block) = &block {
+            match block.recv_timeout(Duration::from_millis(2)) {
+                Ok(()) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if live() => {}
+                Err(_) => {
+                    self.withdrawn.fetch_add(1, Ordering::SeqCst);
+                    return HostKeyDecision::Reject;
+                }
+            }
+        }
+        self.answer
+    }
 }
 
 fn inner(answer: HostKeyDecision, block: Option<StdReceiver<()>>) -> Arc<InnerPrompt> {
@@ -80,6 +108,19 @@ fn inner(answer: HostKeyDecision, block: Option<StdReceiver<()>>) -> Arc<InnerPr
         answer,
         calls: AtomicUsize::new(0),
         block: Mutex::new(block),
+        withdrawing: false,
+        withdrawn: AtomicUsize::new(0),
+    })
+}
+
+/// Like [`inner`], but the question is withdrawn when its job ends.
+fn withdrawing(answer: HostKeyDecision, block: StdReceiver<()>) -> Arc<InnerPrompt> {
+    Arc::new(InnerPrompt {
+        answer,
+        calls: AtomicUsize::new(0),
+        block: Mutex::new(Some(block)),
+        withdrawing: true,
+        withdrawn: AtomicUsize::new(0),
     })
 }
 
@@ -134,9 +175,16 @@ fn rig_with_timeout(
     opener_gate: Option<oneshot::Receiver<()>>,
     connect_timeout: Option<Duration>,
 ) -> Rig {
+    rig_with_prompt(inner(answer, prompt_block), opener_gate, connect_timeout)
+}
+
+fn rig_with_prompt(
+    prompt: Arc<InnerPrompt>,
+    opener_gate: Option<oneshot::Receiver<()>>,
+    connect_timeout: Option<Duration>,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let known_hosts = dir.path().join("known_hosts");
-    let prompt = inner(answer, prompt_block);
     let entered = Arc::new(Notify::new());
     let key = PrivateKey::from(Ed25519Keypair::from_seed(&[9; 32]))
         .public_key()
@@ -233,6 +281,78 @@ async fn an_answer_arriving_after_supersession_is_turned_into_a_reject() {
     unblock.send(()).unwrap(); // the user "answers" Trust and remember, too late
     assert_eq!(next(&mut r.h).await, superseded());
     assert!(!r.known_hosts.exists(), "nothing was remembered");
+}
+
+#[tokio::test]
+async fn the_question_of_a_replaced_connect_is_withdrawn_without_an_answer() {
+    let (_keep_open, block) = std::sync::mpsc::channel::<()>();
+    let prompt = withdrawing(HostKeyDecision::TrustAndRemember, block);
+    let mut r = rig_with_prompt(prompt.clone(), None, None);
+    r.h.tx.send(Command::Connect(ssh_cfg())).unwrap(); // epoch 1 asks the user
+    until("the question is asked", || {
+        prompt.calls.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    r.h.tx.send(Command::Connect(plain_cfg())).unwrap(); // epoch 2 replaces it
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 2,
+            topology: None,
+        }
+    );
+    // Nobody answered: the question went away because its job ended.
+    until("the question is withdrawn", || {
+        prompt.withdrawn.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    assert_eq!(next(&mut r.h).await, superseded());
+    assert!(!r.known_hosts.exists(), "nothing was remembered");
+}
+
+#[tokio::test]
+async fn the_question_of_a_timed_out_test_is_withdrawn_without_an_answer() {
+    let (_keep_open, block) = std::sync::mpsc::channel::<()>();
+    let prompt = withdrawing(HostKeyDecision::TrustAndRemember, block);
+    let mut r = rig_with_prompt(prompt.clone(), None, Some(SHORT));
+    r.h.tx.send(test_cmd(1)).unwrap();
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::TestConnection {
+            request_id: 1,
+            outcome: Err(CoreError::Database("timeout".into())),
+        }
+    );
+    until("the question is withdrawn", || {
+        prompt.withdrawn.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    assert!(!r.known_hosts.exists(), "nothing was remembered");
+}
+
+#[tokio::test]
+async fn a_live_connect_keeps_its_question_and_honours_the_answer() {
+    let (unblock, block) = std::sync::mpsc::channel();
+    let prompt = withdrawing(HostKeyDecision::TrustAndRemember, block);
+    let mut r = rig_with_prompt(prompt.clone(), None, None);
+    r.h.tx.send(Command::Connect(ssh_cfg())).unwrap();
+    until("the question is asked", || {
+        prompt.calls.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(50)).await; // several slices pass
+    assert_eq!(prompt.withdrawn.load(Ordering::SeqCst), 0);
+    unblock.send(()).unwrap();
+    assert_eq!(
+        next(&mut r.h).await,
+        Event::Connected {
+            session: EMBEDDED_SESSION,
+            epoch: 1,
+            topology: None,
+        }
+    );
+    assert!(r.known_hosts.exists(), "trust was remembered");
 }
 
 #[tokio::test]

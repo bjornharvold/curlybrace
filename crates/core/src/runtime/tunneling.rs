@@ -118,7 +118,9 @@ impl HostKeyPrompt for GatedPrompt {
         if !self.job.is_current() {
             return HostKeyDecision::Reject;
         }
-        let decision = self.inner.decide(host, fingerprint);
+        let decision = self
+            .inner
+            .decide_while(host, fingerprint, &|| self.job.is_current());
         if self.job.is_current() {
             decision
         } else {
