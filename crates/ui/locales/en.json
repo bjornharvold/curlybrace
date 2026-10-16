@@ -483,6 +483,7 @@
     "never": "Never",
     "new": "New connection",
     "new_title": "New connection",
+    "no_folder": "No folder",
     "no_match": "No connection matches the filter.",
     "password": "Password",
     "password_saved_hint": "A secret is saved in the Keychain. Leave empty to keep it.",

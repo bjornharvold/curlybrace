@@ -288,3 +288,23 @@ fn the_dialog_heading_names_the_mode_and_follows_a_reopen() {
         "toolbar button + dialog heading"
     );
 }
+
+fn count_of(texts: &[String], wanted: &str) -> usize {
+    texts.iter().filter(|t| t.as_str() == wanted).count()
+}
+
+#[test]
+fn the_folder_combo_shows_the_current_folder_or_no_folder() {
+    let (a, b) = (in_folder("a", Some("Work")), in_folder("b", None));
+    let mut state = ConnectionsState::new(vec![a.clone(), b.clone()]);
+    state.begin_edit(&a);
+    let texts = painted_texts(&mut state);
+    // The group header, the folder text box and the combo's selected text.
+    assert_eq!(count_of(&texts, "Work"), 3, "{texts:?}");
+    assert_eq!(count_of(&texts, "No folder"), 0);
+    state.close_edit();
+    state.begin_edit(&b);
+    let texts = painted_texts(&mut state);
+    assert_eq!(count_of(&texts, "Work"), 1, "only the group header");
+    assert_eq!(count_of(&texts, "No folder"), 1, "{texts:?}");
+}

@@ -107,8 +107,13 @@ fn show_folder_row(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n)
         if names.is_empty() {
             return;
         }
+        let selected = if state.form.folder.trim().is_empty() {
+            i18n.t("connections.no_folder")
+        } else {
+            state.form.folder.clone()
+        };
         let combo = egui::ComboBox::from_id_salt("connection_folder")
-            .selected_text("")
+            .selected_text(selected)
             .show_ui(ui, |ui| {
                 for name in &names {
                     if ui
