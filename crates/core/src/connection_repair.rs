@@ -27,24 +27,33 @@ pub fn uri_hosts(uri: &str) -> String {
     hosts.split(',').collect::<Vec<_>>().join(", ")
 }
 
-/// Control whitespace that separates words: it becomes a space rather than vanishing, so
-/// "a\nb" reads "a b" and not "ab".
+/// Characters that separate words: control whitespace plus the Unicode line breaks (NEL, line
+/// and paragraph separator). Each run of them becomes one space rather than vanishing, so
+/// "a\nb" reads "a b" and not "ab". `validate()` still rejects them in new input.
 fn is_word_separator(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r')
+    matches!(
+        c,
+        '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'
+    )
 }
 
-/// `text` with separating control whitespace turned into spaces and every other forbidden
-/// character removed, trimmed, cut to `max` chars (never mid-char), trimmed. Spaces are never
-/// collapsed: the minimal change that keeps words apart.
+/// `text` with each run of separators turned into one space and every other forbidden
+/// character removed, trimmed, cut to `max` chars (never mid-char), trimmed. Spaces already in
+/// the text are never collapsed: the minimal change that keeps words apart.
 fn clean(text: &str, max: usize) -> String {
-    let spaced: String = text
-        .chars()
-        .filter_map(|c| match c {
-            c if is_word_separator(c) => Some(' '),
-            c if is_forbidden_label_char(c) => None,
-            c => Some(c),
-        })
-        .collect();
+    let mut spaced = String::with_capacity(text.len());
+    let mut in_run = false;
+    for c in text.chars() {
+        if is_word_separator(c) {
+            if !in_run {
+                spaced.push(' ');
+            }
+            in_run = true;
+        } else if !is_forbidden_label_char(c) {
+            spaced.push(c);
+            in_run = false;
+        }
+    }
     let cut: String = spaced.trim().chars().take(max).collect();
     cut.trim().to_owned()
 }
@@ -188,5 +197,43 @@ mod tests {
     fn a_separator_at_the_edges_is_trimmed_away() {
         let (out, _) = repair_labels(cfg("\nab\t", "mongodb://h"));
         assert_eq!(out.name, "ab");
+    }
+
+    #[test]
+    fn a_run_of_separators_becomes_one_space_in_name_and_folder() {
+        for sep in [
+            "\r\n",
+            "\n\n",
+            "\u{2028}",
+            "\u{85}",
+            "\u{2029}",
+            "\t\r\n\u{2028}",
+        ] {
+            let mut c = cfg(&format!("a{sep}b"), "mongodb://h");
+            c.folder = Some(format!("a{sep}b"));
+            let (out, changed) = repair_labels(c);
+            assert_eq!(out.name, "a b", "name for {sep:?}");
+            assert_eq!(out.folder.as_deref(), Some("a b"), "folder for {sep:?}");
+            assert!(changed);
+            assert!(out.validate().is_ok());
+        }
+    }
+
+    #[test]
+    fn a_control_character_inside_a_word_is_still_removed() {
+        let (out, _) = repair_labels(cfg("wo\u{0}rk", "mongodb://h"));
+        assert_eq!(out.name, "work");
+    }
+
+    #[test]
+    fn a_leading_or_trailing_separator_run_is_trimmed_away() {
+        let (out, _) = repair_labels(cfg("\r\n\u{2028}ab\u{85}\u{2029}", "mongodb://h"));
+        assert_eq!(out.name, "ab");
+    }
+
+    #[test]
+    fn validation_still_rejects_the_line_and_paragraph_separators() {
+        assert!(cfg("a\u{2028}b", "mongodb://h").validate().is_err());
+        assert!(cfg("a\u{2029}b", "mongodb://h").validate().is_err());
     }
 }
