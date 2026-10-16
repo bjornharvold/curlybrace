@@ -183,3 +183,22 @@ fn host_hints_name_every_character_a_host_may_hold() {
         assert!(hint.contains("underscores"), "{key}: {hint}");
     }
 }
+
+#[test]
+fn the_bad_host_hint_covers_every_kind_of_bad_host() {
+    let root: Value = serde_json::from_str(include_str!("../locales/en.json")).unwrap();
+    let hint = root["errors"]["invalid_uri_bad_host"].as_str().unwrap();
+    for word in ["Unicode", "IPv6", "socket"] {
+        assert!(hint.contains(word), "{word} missing: {hint}");
+    }
+}
+
+#[test]
+fn the_non_ascii_hint_names_the_button_by_its_current_label() {
+    let root: Value = serde_json::from_str(include_str!("../locales/en.json")).unwrap();
+    let hint = root["errors"]["invalid_uri_non_ascii_host"]
+        .as_str()
+        .unwrap();
+    let label = root["connections"]["from_uri"].as_str().unwrap();
+    assert!(hint.contains(label), "{hint}");
+}
