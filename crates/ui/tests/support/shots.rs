@@ -13,7 +13,7 @@ use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::state::{AppState, ConnStatus};
 use curlybrace_ui::viewmodel::{SidebarState, ViewMode, page_key};
 use eframe::egui;
-use egui_kittest::{Harness, SnapshotOptions};
+use egui_kittest::Harness;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 
@@ -30,10 +30,7 @@ pub struct Shot {
 /// Frames rendered before an animated screen is compared.
 const ANIMATED_FRAMES: usize = 8;
 
-/// Failed pixels tolerated per snapshot: absorbs text anti-aliasing differences between GPUs and
-/// drivers (a handful of pixels) while any changed label or layout differs by far more (a one
-/// word label change measured over a thousand).
-pub const PIXEL_THRESHOLD: usize = 100;
+use super::snapshot_options::snapshot_options;
 
 /// A save dialog that stays open for the whole test: its worker thread parks and is never
 /// woken, and no real dialog is involved.
@@ -151,8 +148,7 @@ impl Shot {
 
     #[track_caller]
     fn compare(&mut self, name: &str) {
-        let options = SnapshotOptions::new().failed_pixel_count_threshold(PIXEL_THRESHOLD);
-        self.harness.snapshot_options(name, &options);
+        self.harness.snapshot_options(name, &snapshot_options());
     }
 }
 
