@@ -47,6 +47,12 @@ pub enum Recovery {
         count: usize,
         backed_up: bool,
     },
+    /// Some entries were skipped AND others were adjusted: the report names both facts.
+    SkippedAndRepaired {
+        skipped: usize,
+        repaired: usize,
+        backed_up: bool,
+    },
     /// Names or folders from an older release were adjusted to the current rules; no entry was
     /// lost.
     Repaired {
@@ -68,6 +74,12 @@ impl Recovery {
             Self::Skipped {
                 backed_up: false, ..
             } => "persist.skipped_backup_failed",
+            Self::SkippedAndRepaired {
+                backed_up: true, ..
+            } => "persist.skipped_repaired_backed_up",
+            Self::SkippedAndRepaired {
+                backed_up: false, ..
+            } => "persist.skipped_repaired_backup_failed",
             Self::Repaired {
                 backed_up: true, ..
             } => "persist.repaired_backed_up",
@@ -124,6 +136,19 @@ pub fn startup(path: &Path, backup: BackupFn<'_>) -> Startup {
             guard: PersistGuard::default(),
             recovery: None,
         },
+        Ok(Loaded {
+            connections,
+            skipped,
+            repaired,
+        }) if skipped > 0 && repaired > 0 => {
+            recovered(path, backup, "skipped", connections, move |backed_up| {
+                Recovery::SkippedAndRepaired {
+                    skipped,
+                    repaired,
+                    backed_up,
+                }
+            })
+        }
         Ok(Loaded {
             connections,
             skipped,
@@ -209,18 +234,28 @@ pub fn load_connections(path: &Path) -> Result<Loaded, PersistError> {
         }
         Err(e) => return Err(PersistError::Read(e.kind())),
     };
-    parse_with(&bytes, true)
+    parse_entries(read_entries(&bytes)?, true)
 }
 
 /// Parses and validates a connection list from bytes that are NEW input (an import): strict,
 /// nothing is repaired. Entries that fail to deserialize or `validate()` are skipped and counted.
+#[cfg(test)]
 pub(crate) fn parse_connections(bytes: &[u8]) -> Result<Loaded, PersistError> {
-    parse_with(bytes, false)
+    parse_entries(read_entries(bytes)?, false)
 }
 
-fn parse_with(bytes: &[u8], repair: bool) -> Result<Loaded, PersistError> {
-    let entries: Vec<serde_json::Value> =
-        serde_json::from_slice(bytes).map_err(|_| PersistError::Corrupt)?;
+/// The JSON array's entries, each still undecoded. The only place the text is parsed.
+pub(crate) fn read_entries(bytes: &[u8]) -> Result<Vec<serde_json::Value>, PersistError> {
+    serde_json::from_slice(bytes).map_err(|_| PersistError::Corrupt)
+}
+
+/// Decodes and checks the entries. With `repair` (the saved list) only an entry that fails
+/// `validate()` gets its labels repaired; one that already validates is kept exactly as it is,
+/// so a later launch finds nothing new to adjust. Without it (an import) nothing is repaired.
+pub(crate) fn parse_entries(
+    entries: Vec<serde_json::Value>,
+    repair: bool,
+) -> Result<Loaded, PersistError> {
     let total = entries.len();
     let mut repaired = 0;
     let mut connections = Vec::with_capacity(total);
@@ -228,7 +263,7 @@ fn parse_with(bytes: &[u8], repair: bool) -> Result<Loaded, PersistError> {
         let Ok(cfg) = serde_json::from_value::<ConnectionConfig>(value) else {
             continue;
         };
-        let cfg = if repair {
+        let cfg = if repair && cfg.validate().is_err() {
             let (fixed, changed) = repair_labels(cfg);
             repaired += usize::from(changed && fixed.validate().is_ok());
             fixed
@@ -511,7 +546,7 @@ mod tests {
         assert_eq!(loaded.connections[0].name, "fam\u{1F468}\u{1F469}");
         assert_eq!(loaded.connections[1].name.chars().count(), 200);
         assert_eq!(loaded.connections[2].name, "localhost:27017");
-        assert_eq!(loaded.connections[3].folder.as_deref(), Some("ab"));
+        assert_eq!(loaded.connections[3].folder.as_deref(), Some("a b"));
     }
 
     #[test]
@@ -551,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn skipped_entries_take_precedence_in_the_recovery_report() {
+    fn skipped_and_adjusted_entries_are_both_in_the_recovery_report() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join(FILE_NAME);
         std::fs::write(&p, old_format_file().0).unwrap();
@@ -559,8 +594,9 @@ mod tests {
         assert_eq!(s.connections.len(), 4);
         assert_eq!(
             s.recovery,
-            Some(Recovery::Skipped {
-                count: 1,
+            Some(Recovery::SkippedAndRepaired {
+                skipped: 1,
+                repaired: 4,
                 backed_up: true
             })
         );

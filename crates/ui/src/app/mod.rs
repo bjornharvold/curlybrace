@@ -622,7 +622,13 @@ impl eframe::App for CurlybraceApp {
 mod file_picker_tests;
 
 #[cfg(test)]
+mod connection_import_tests;
+
+#[cfg(test)]
 mod connection_stamp_tests;
+
+#[cfg(test)]
+mod persistence_load_tests;
 
 #[cfg(test)]
 mod runtime_closed_tests;

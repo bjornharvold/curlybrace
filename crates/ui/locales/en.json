@@ -630,6 +630,8 @@
     "repaired_backup_failed": "{n} saved connection(s) had a name or folder that was adjusted to the current rules, and a backup copy could not be made. Saving is turned off so the original is not overwritten.",
     "skipped_backed_up": "{n} saved connection(s) were invalid or from a newer version and were skipped. A backup copy of the original file was kept.",
     "skipped_backup_failed": "{n} saved connection(s) were invalid or from a newer version and were skipped, and a backup copy could not be made. Saving is turned off so nothing is lost.",
+    "skipped_repaired_backed_up": "{skipped} saved connection(s) were invalid or from a newer version and were skipped, and {repaired} had a name or folder adjusted to the current rules (nothing else was lost). A backup copy of the original file was kept.",
+    "skipped_repaired_backup_failed": "{skipped} saved connection(s) were invalid or from a newer version and were skipped, and {repaired} had a name or folder adjusted to the current rules. A backup copy could not be made. Saving is turned off so nothing is lost.",
     "unreadable_backed_up": "The saved connections file could not be read. A backup copy was kept next to it.",
     "unreadable_backup_failed": "The saved connections file could not be read or backed up. Saving is turned off so nothing is overwritten.",
     "write_failed": "Could not write the saved connections file."
