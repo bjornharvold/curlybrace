@@ -3,8 +3,8 @@
 //! about something else and stays in its normal place.
 //!
 //! The dialog's opening is detected from the `editing` flag by the screen that draws it, once
-//! per frame, so every way in (New, Edit, Duplicate) and every way out (Cancel, Escape, Save,
-//! delete, connect) is covered without touching them.
+//! per frame, so every way in (New, Edit; Duplicate hands the watch over itself, see below) and
+//! every way out (Cancel, Escape, Save, delete, connect) is covered without touching them.
 //!
 //! The banner is compared by value, so an action that starts FROM the dialog and raises a banner
 //! while the dialog stays open (a refused or failed Save) CLAIMS it with `claimed`: the baseline
@@ -19,7 +19,8 @@
 //! else, is still not considered new.
 use super::state::Banner;
 
-/// The banner showing when the dialog was last seen opening; default while it is closed.
+/// The banner that must not be repeated in the dialog: the one showing when it opened (for
+/// Duplicate, the one from before the action); default while it is closed.
 #[derive(Debug, Default, PartialEq)]
 pub struct DialogBannerWatch {
     open: bool,
