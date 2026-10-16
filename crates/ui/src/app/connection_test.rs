@@ -7,6 +7,20 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, PasswordChoice, TestReport, TestSecrets};
 use curlybrace_core::secrets::SecretString;
 
+/// The runtime can no longer answer (its command channel refused a send, or its event channel
+/// closed): a test that waits for its answer will never get one, so it is idle again. Any other
+/// test state, including a finished result, is kept. No banner of its own: the caller that
+/// learned the runtime is gone decides whether to raise one.
+pub(super) fn abandoned(conn: ConnectionsState) -> ConnectionsState {
+    match conn.test {
+        TestState::Running { .. } => ConnectionsState {
+            test: TestState::Idle,
+            ..conn
+        },
+        _ => conn,
+    }
+}
+
 /// Starts a test for the form. Empty password/ssh fields mean "use the stored secret" (`None`).
 /// A new request supersedes a running one: only the latest `request_id` is ever applied.
 pub(super) fn start(state: AppState, form: &ConnectionForm) -> (AppState, Vec<Command>) {

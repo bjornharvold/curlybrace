@@ -34,14 +34,14 @@ pub mod state;
 use crate::I18n;
 use crate::error_text::failure_log_line;
 use crate::viewmodel::compare::{ExportUi, SessionPhase};
-use crate::views::connections::{ConnectionAction, ConnectionsState, TestState};
+use crate::views::connections::{ConnectionAction, TestState};
 use compare::CompareAction;
 use connection_picker::ConnPickKind;
 use connections::{ConfigPath, load_startup, refresh_flags};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{
-    COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle,
+    COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle, TryRecvError,
     default_known_hosts_path, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
@@ -308,17 +308,10 @@ impl CurlybraceApp {
     fn runtime_stopped(&mut self) {
         let error = CoreError::Database("runtime stopped".into());
         let cleared = std::mem::take(&mut self.state).session_cleared();
-        // A test that was waiting for its answer will never get one.
-        let test = match &cleared.conn.test {
-            TestState::Running { .. } => TestState::Idle,
-            other => other.clone(),
-        };
         self.state = AppState {
             compare: cleared.compare.clone().session_dropped(),
-            conn: ConnectionsState {
-                test,
-                ..cleared.conn
-            },
+            // A test that was waiting for its answer will never get one.
+            conn: connection_test::abandoned(cleared.conn),
             status: ConnStatus::Disconnected,
             banner: Some(Banner::Failure {
                 context: "runtime",
@@ -467,11 +460,32 @@ impl CurlybraceApp {
         }
     }
 
+    /// The runtime dropped its event sender, so nothing will ever answer a running test. The
+    /// check repeats every frame for as long as the channel stays closed; it only touches the
+    /// state when a test is running, so it neither re-triggers nor logs.
+    fn event_channel_closed(&mut self) {
+        if matches!(self.state.conn.test, TestState::Running { .. }) {
+            let state = std::mem::take(&mut self.state);
+            self.state = AppState {
+                conn: connection_test::abandoned(state.conn),
+                ..state
+            };
+        }
+    }
+
     /// Moves host-key requests and runtime events into the state.
     fn pump(&mut self) {
         self.drain_requests();
         self.prompt = std::mem::take(&mut self.prompt).pruned();
-        while let Ok(event) = self.handle.rx.try_recv() {
+        loop {
+            let event = match self.handle.rx.try_recv() {
+                Ok(event) => event,
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.event_channel_closed();
+                    break;
+                }
+            };
             if let Some(line) = failure_log_line(&event) {
                 log::warn!("{line}");
             }
@@ -606,6 +620,9 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod file_picker_tests;
+
+#[cfg(test)]
+mod runtime_closed_tests;
 
 #[cfg(test)]
 mod session_labels_tests;
