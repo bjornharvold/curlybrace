@@ -244,3 +244,43 @@ fn odd_input_never_panics() {
         let _ = check_hosts(s);
     }
 }
+
+#[test]
+fn characters_the_conversion_would_silently_drop_are_a_bad_host() {
+    for dropped in [
+        "\u{FE0F}",
+        "\u{FE00}",
+        "\u{180B}",
+        "\u{180D}",
+        "\u{180F}",
+        "\u{1BCA0}",
+        "\u{1BCA3}",
+        "\u{E0100}",
+        "\u{E01EF}",
+    ] {
+        let bad = format!("mongodb://bü{dropped}cher.example");
+        assert_eq!(parse_problem(&bad), BadHost, "{dropped:?}");
+    }
+}
+
+#[test]
+fn legitimate_idns_still_convert() {
+    assert_eq!(
+        parsed_uri("mongodb://bücher.example"),
+        "mongodb://xn--bcher-kva.example"
+    );
+    assert_eq!(
+        parsed_uri("mongodb://пример.рф"),
+        "mongodb://xn--e1afmkfd.xn--p1ai"
+    );
+    assert_eq!(parsed_uri("mongodb://例え.jp"), "mongodb://xn--r8jz45g.jp");
+    assert_eq!(
+        parsed_uri("mongodb://中文.com"),
+        "mongodb://xn--fiq228c.com"
+    );
+}
+
+#[test]
+fn a_fullwidth_dot_is_a_label_separator_by_uts46() {
+    assert_eq!(parsed_uri("mongodb://bü\u{FF0E}x"), "mongodb://xn--b-eha.x");
+}

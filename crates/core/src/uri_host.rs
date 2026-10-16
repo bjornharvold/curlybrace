@@ -128,9 +128,17 @@ fn normalized_host(host: &str) -> Check<String> {
 }
 
 fn to_punycode(host: &str) -> Check<String> {
-    // The conversion silently drops invisible characters (zero-width marks, soft hyphens): refuse
-    // them instead of storing a host that differs from what was typed.
-    if host.len() > MAX_UNICODE_HOST_BYTES || host.chars().any(is_forbidden_label_char) {
+    // Two guards against a stored host that differs from what was typed. The conversion silently
+    // DROPS characters it maps to nothing (variation selectors, soft hyphen, zero-width marks,
+    // Mongolian free variation selectors, ...), so every non-ASCII character is converted alone
+    // and refused when that yields an empty string: the answer comes from the converter's own
+    // table, so it cannot lag behind Unicode. The shared forbidden-label set additionally
+    // refuses control and bidi characters, which the converter rejects or keeps.
+    if host.len() > MAX_UNICODE_HOST_BYTES
+        || host
+            .chars()
+            .any(|c| is_forbidden_label_char(c) || (!c.is_ascii() && is_dropped(c)))
+    {
         return Err(UriProblem::BadHost);
     }
     Uts46::new()
@@ -142,6 +150,22 @@ fn to_punycode(host: &str) -> Check<String> {
         )
         .map(|ascii| ascii.into_owned())
         .map_err(|_| UriProblem::BadHost)
+}
+
+/// Whether the conversion maps this character to nothing when it stands alone. A character that
+/// fails on its own (a lone combining mark) is not dropped: the full conversion judges it in
+/// context.
+fn is_dropped(c: char) -> bool {
+    let mut buf = [0u8; 4];
+    let one = c.encode_utf8(&mut buf);
+    Uts46::new()
+        .to_ascii(
+            one.as_bytes(),
+            AsciiDenyList::EMPTY,
+            Hyphens::Allow,
+            DnsLength::Ignore,
+        )
+        .is_ok_and(|ascii| ascii.is_empty())
 }
 
 fn check_port(p: &str) -> Check<()> {
