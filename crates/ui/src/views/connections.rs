@@ -10,6 +10,8 @@ use eframe::egui;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+pub use super::connections_edit_mode::EditMode;
+
 /// What the user asked for; the caller performs it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConnectionAction {
@@ -100,6 +102,8 @@ pub struct ConnectionsState {
     pub folder_prompt: Option<FolderPrompt>,
     /// The edit dialog is open.
     pub editing: bool,
+    /// How the dialog was opened (its heading); `Edit` whenever it is closed.
+    pub edit_mode: EditMode,
     /// The app banner as text (headline first, then details), copied in by the screen each frame
     /// so the dialog can show it: the real banner is dimmed behind the modal backdrop.
     pub dialog_banner: Vec<String>,
@@ -132,6 +136,7 @@ impl std::fmt::Debug for ConnectionsState {
             sort,
             folder_prompt,
             editing,
+            edit_mode,
             dialog_banner,
         } = self;
         f.debug_struct("ConnectionsState")
@@ -155,6 +160,7 @@ impl std::fmt::Debug for ConnectionsState {
             .field("sort", sort)
             .field("folder_prompt", folder_prompt)
             .field("editing", editing)
+            .field("edit_mode", edit_mode)
             .field("dialog_banner", dialog_banner)
             .finish()
     }
@@ -298,11 +304,13 @@ impl ConnectionsState {
     pub(super) fn begin_edit(&mut self, cfg: &ConnectionConfig) {
         self.select(cfg);
         self.editing = true;
+        self.edit_mode = EditMode::Edit;
     }
 
     /// Closes the dialog without saving (Cancel, Escape).
     pub fn close_edit(&mut self) {
         self.editing = false;
+        self.edit_mode = EditMode::default();
         self.error = None;
         self.reset_tools();
         // A cancelled form must not keep a typed password: reload it without secrets.
@@ -335,6 +343,7 @@ impl ConnectionsState {
         self.form = ConnectionForm::default();
         self.error = None;
         self.editing = true;
+        self.edit_mode = EditMode::New;
     }
 }
 

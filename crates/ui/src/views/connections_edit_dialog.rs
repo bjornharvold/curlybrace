@@ -25,7 +25,7 @@ pub(super) fn show_edit_dialog(
     let mut cancelled = false;
     let modal = egui::Modal::new(egui::Id::new("connection_edit")).show(ctx, |ui| {
         ui.set_width(DIALOG_WIDTH);
-        ui.heading(i18n.t("connections.edit_title"));
+        ui.heading(i18n.t(state.edit_mode.title_key()));
         egui::ScrollArea::vertical()
             .max_height(BODY_MAX_HEIGHT)
             .auto_shrink([false, true])

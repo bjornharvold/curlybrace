@@ -420,3 +420,19 @@ fn the_folder_prompt_does_not_take_focus_back_after_the_person_tabs_away() {
         "focus must stay where Tab put it"
     );
 }
+
+#[test]
+fn the_dialog_heading_names_the_mode() {
+    use curlybrace_ui::views::connections::EditMode;
+    let i18n = I18n::english();
+    // The toolbar's New button has the same text as the New heading, hence two for New.
+    for (mode, key, expected) in [
+        (EditMode::New, "connections.new_title", 2),
+        (EditMode::Duplicate, "connections.duplicate_title", 1),
+        (EditMode::Edit, "connections.edit_title", 1),
+    ] {
+        let harness = dialog_harness(|state| state.edit_mode = mode);
+        let count = harness.query_all_by_label(&i18n.t(key)).count();
+        assert_eq!(count, expected, "{mode:?}");
+    }
+}
