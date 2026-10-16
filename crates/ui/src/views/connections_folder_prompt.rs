@@ -13,14 +13,9 @@ pub(super) fn show_folder_prompt(
 ) -> Option<ConnectionAction> {
     let folders = state.folder_names();
     let error = state.error.clone();
-    let focus_flag = egui::Id::new("connection_folder_prompt_focused");
-    let Some(prompt) = state.folder_prompt.as_mut() else {
-        // Closed: the next opening gets its first-frame focus again.
-        ctx.data_mut(|d| d.remove::<bool>(focus_flag));
-        return None;
-    };
-    let first_frame = !ctx.data_mut(|d| d.get_temp::<bool>(focus_flag).unwrap_or(false));
-    ctx.data_mut(|d| d.insert_temp(focus_flag, true));
+    // Set by each opening, so it holds however the previous prompt was closed.
+    let first_frame = std::mem::take(&mut state.folder_prompt_focus_pending);
+    let prompt = state.folder_prompt.as_mut()?;
     let (title_key, is_move, input) = match prompt {
         FolderPrompt::Move { input, .. } => ("connections.folder_move_title", true, input),
         FolderPrompt::Rename { input, .. } => ("connections.folder_rename_title", false, input),

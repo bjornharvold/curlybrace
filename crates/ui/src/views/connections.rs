@@ -100,6 +100,10 @@ pub struct ConnectionsState {
     pub sort: Sort,
     /// The folder name prompt (move a connection / rename a folder), when open.
     pub folder_prompt: Option<FolderPrompt>,
+    /// The prompt's text field still has to take focus: set by every `open_*_prompt` (so a
+    /// reopening or a Move-to-Rename switch always focuses, however the old prompt was closed),
+    /// consumed by the first frame that draws the prompt.
+    pub folder_prompt_focus_pending: bool,
     /// The edit dialog is open.
     pub editing: bool,
     /// How the dialog was opened (its heading); `Edit` whenever it is closed.
@@ -135,6 +139,7 @@ impl std::fmt::Debug for ConnectionsState {
             filter,
             sort,
             folder_prompt,
+            folder_prompt_focus_pending,
             editing,
             edit_mode,
             dialog_banner,
@@ -159,6 +164,7 @@ impl std::fmt::Debug for ConnectionsState {
             .field("filter", filter)
             .field("sort", sort)
             .field("folder_prompt", folder_prompt)
+            .field("folder_prompt_focus_pending", folder_prompt_focus_pending)
             .field("editing", editing)
             .field("edit_mode", edit_mode)
             .field("dialog_banner", dialog_banner)
@@ -257,6 +263,7 @@ impl ConnectionsState {
             .unwrap_or_default();
         self.error = None;
         self.folder_prompt = Some(FolderPrompt::Move { id, input });
+        self.folder_prompt_focus_pending = true;
     }
 
     /// Opens the rename prompt for the folder `from`, pre-filled with its name.
@@ -266,6 +273,7 @@ impl ConnectionsState {
             from: from.to_owned(),
             input: from.to_owned(),
         });
+        self.folder_prompt_focus_pending = true;
     }
 
     /// Cancels the prompt (Escape, outside click, Cancel); a rejected-name error goes with it.

@@ -472,3 +472,63 @@ fn the_dialog_heading_names_the_mode() {
         assert_eq!(count, expected, "{mode:?}");
     }
 }
+
+fn prompt_field_focused(harness: &Harness<'static, ConnectionsState>, rename: bool) -> bool {
+    let i18n = I18n::english();
+    let title = i18n.t(if rename {
+        "connections.folder_rename_title"
+    } else {
+        "connections.folder_move_title"
+    });
+    harness
+        .get_by_role_and_label(Role::TextInput, &title)
+        .accesskit_node()
+        .is_focused()
+}
+
+fn tab_away(harness: &mut Harness<'static, ConnectionsState>) {
+    harness.key_press(egui::Key::Tab);
+    harness.run();
+}
+
+#[test]
+fn reopening_the_folder_prompt_focuses_its_field_every_time() {
+    let mut harness = prompt_harness(|state| state.open_rename_prompt("Work"));
+    harness.run();
+    assert!(prompt_field_focused(&harness, true), "first opening");
+    for round in 0..2 {
+        // Closed and reopened between two frames: the manager never drew it closed.
+        harness.state_mut().close_folder_prompt();
+        harness.state_mut().open_rename_prompt("Work");
+        harness.run();
+        assert!(prompt_field_focused(&harness, true), "reopening {round}");
+        tab_away(&mut harness);
+        assert!(!prompt_field_focused(&harness, true), "tab leaves it");
+    }
+}
+
+#[test]
+fn reopening_after_a_frame_with_the_prompt_closed_focuses_again() {
+    let mut harness = prompt_harness(|state| state.open_rename_prompt("Work"));
+    harness.run();
+    harness.state_mut().close_folder_prompt();
+    harness.run();
+    harness.state_mut().open_rename_prompt("Work");
+    harness.run();
+    assert!(prompt_field_focused(&harness, true));
+}
+
+#[test]
+fn switching_the_open_prompt_from_move_to_rename_focuses_the_new_field() {
+    let mut harness = prompt_harness(|state| {
+        let id = state.connections[0].id;
+        state.open_move_prompt(id);
+    });
+    harness.run();
+    assert!(prompt_field_focused(&harness, false), "move opens focused");
+    tab_away(&mut harness);
+    assert!(!prompt_field_focused(&harness, false));
+    harness.state_mut().open_rename_prompt("Work");
+    harness.run();
+    assert!(prompt_field_focused(&harness, true), "rename takes focus");
+}
