@@ -8,10 +8,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How long the runtime thread waits for the user before failing closed.
 pub const HOST_KEY_PROMPT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// How often a waiting question checks whether its job is still wanted.
+const LIVENESS_SLICE: Duration = Duration::from_millis(50);
 
 /// An unknown host key awaiting the user's decision. Answering consumes it, so a decision is
 /// sent at most once; dropping it unanswered makes the waiting side fail closed (`Reject`).
@@ -43,6 +46,25 @@ impl Waiter {
             Ok(decision) => decision,
             Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
                 HostKeyDecision::Reject
+            }
+        }
+    }
+}
+
+impl Waiter {
+    /// Like [`wait`](Self::wait), but looks at `live` between short slices and gives up (`Reject`)
+    /// as soon as it is false. A decision that is already waiting is still returned.
+    fn wait_while(&self, timeout: Duration, live: &dyn Fn() -> bool) -> HostKeyDecision {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.rx.recv_timeout(left.min(LIVENESS_SLICE)) {
+                Ok(decision) => return decision,
+                Err(RecvTimeoutError::Disconnected) => return HostKeyDecision::Reject,
+                Err(RecvTimeoutError::Timeout) if left.is_zero() || !live() => {
+                    return HostKeyDecision::Reject;
+                }
+                Err(RecvTimeoutError::Timeout) => {}
             }
         }
     }
@@ -99,6 +121,23 @@ impl InteractivePrompt {
 
 impl HostKeyPrompt for InteractivePrompt {
     fn decide(&self, host: &str, fingerprint: &str) -> HostKeyDecision {
+        self.ask(host, fingerprint, &|| true)
+    }
+
+    /// Withdraws the question (the waiter drops, so `PromptState::pruned` removes the dialog)
+    /// within one slice of `live` turning false.
+    fn decide_while(
+        &self,
+        host: &str,
+        fingerprint: &str,
+        live: &dyn Fn() -> bool,
+    ) -> HostKeyDecision {
+        self.ask(host, fingerprint, live)
+    }
+}
+
+impl InteractivePrompt {
+    fn ask(&self, host: &str, fingerprint: &str, live: &dyn Fn() -> bool) -> HostKeyDecision {
         let (request, reply) = HostKeyRequest::new(host, fingerprint);
         let sent = match self.requests.lock() {
             Ok(tx) => tx.send(request).is_ok(),
@@ -108,7 +147,7 @@ impl HostKeyPrompt for InteractivePrompt {
             return HostKeyDecision::Reject;
         }
         (self.repaint)();
-        reply.wait(self.timeout)
+        reply.wait_while(self.timeout, live)
     }
 }
 
@@ -253,6 +292,66 @@ mod tests {
         // A second answer has nothing to answer and sends nothing.
         let _ = state.answered(HostKeyDecision::Trust);
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_question_is_withdrawn_when_its_job_ends_and_the_dialog_is_pruned() {
+        let (prompt, requests) = InteractivePrompt::channel(no_repaint(), Duration::from_secs(30));
+        let live = Arc::new(AtomicBool::new(true));
+        let asker = {
+            let (prompt, live) = (prompt.clone(), live.clone());
+            std::thread::spawn(move || {
+                prompt.decide_while("h", "SHA256:x", &|| live.load(Ordering::SeqCst))
+            })
+        };
+        let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+        let state = PromptState::default().offered(request).pruned();
+        assert_eq!(
+            state.current(),
+            Some(("h", "SHA256:x")),
+            "live: still shown"
+        );
+        let ended = Instant::now();
+        live.store(false, Ordering::SeqCst); // the job ended; nobody answered
+        assert_eq!(asker.join().unwrap(), HostKeyDecision::Reject);
+        assert!(
+            ended.elapsed() < Duration::from_secs(5),
+            "withdrawn promptly, not at the 30 s timeout"
+        );
+        assert!(state.pruned().current().is_none(), "dead question pruned");
+    }
+
+    #[test]
+    fn a_live_question_is_answered_normally_through_decide_while() {
+        let (prompt, requests) = InteractivePrompt::channel(no_repaint(), Duration::from_secs(30));
+        let asker = {
+            let prompt = prompt.clone();
+            std::thread::spawn(move || prompt.decide_while("h", "SHA256:x", &|| true))
+        };
+        let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+        std::thread::sleep(Duration::from_millis(120)); // several slices pass
+        let state = PromptState::default().offered(request).pruned();
+        assert!(state.current().is_some());
+        let _ = state.answered(HostKeyDecision::TrustAndRemember);
+        assert_eq!(asker.join().unwrap(), HostKeyDecision::TrustAndRemember);
+    }
+
+    #[test]
+    fn a_question_that_times_out_still_rejects_through_decide_while() {
+        let (prompt, requests) =
+            InteractivePrompt::channel(no_repaint(), Duration::from_millis(50));
+        assert_eq!(
+            prompt.decide_while("h", "SHA256:x", &|| true),
+            HostKeyDecision::Reject
+        );
+        let request = requests.try_recv().unwrap();
+        assert!(
+            PromptState::default()
+                .offered(request)
+                .pruned()
+                .current()
+                .is_none()
+        );
     }
 
     #[test]
