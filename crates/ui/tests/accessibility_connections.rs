@@ -267,3 +267,72 @@ fn a_banner_is_repeated_inside_the_open_dialog() {
     harness.get_by_label("Could not save");
     harness.get_by_label("keychain said no");
 }
+
+const SELECTION_TOOLS: [&str; 4] = [
+    "connections.edit",
+    "connections.duplicate",
+    "common.delete",
+    "connections.move_to_folder",
+];
+
+fn tools_enabled(harness: &Harness<'static, ConnectionsState>) -> Vec<bool> {
+    let i18n = I18n::english();
+    SELECTION_TOOLS
+        .iter()
+        .map(|key| {
+            let label = i18n.t(key);
+            let node = harness.get_by_role_and_label(Role::Button, &label);
+            !node.accesskit_node().is_disabled()
+        })
+        .collect()
+}
+
+#[test]
+fn selection_tools_follow_whether_the_selected_row_is_visible() {
+    let mut harness = harness();
+    let alpha = harness.state().connections[0].clone();
+    harness.state_mut().selected = Some(alpha.id);
+    harness.run();
+    assert_eq!(
+        tools_enabled(&harness),
+        [true; 4],
+        "no filter: selected row shown"
+    );
+
+    harness.state_mut().filter = "beta".into();
+    harness.run();
+    assert_eq!(
+        tools_enabled(&harness),
+        [false; 4],
+        "the filter hides the selected connection"
+    );
+
+    harness.state_mut().filter = "alpha".into();
+    harness.run();
+    assert_eq!(tools_enabled(&harness), [true; 4], "a matching filter");
+
+    harness.state_mut().filter = "beta".into();
+    harness.run();
+    harness.state_mut().filter.clear();
+    harness.run();
+    assert_eq!(tools_enabled(&harness), [true; 4], "clearing the filter");
+}
+
+#[test]
+fn new_import_and_export_stay_enabled_when_the_selection_is_hidden() {
+    let i18n = I18n::english();
+    let mut harness = harness();
+    let alpha = harness.state().connections[0].clone();
+    harness.state_mut().selected = Some(alpha.id);
+    harness.state_mut().filter = "beta".into();
+    harness.run();
+    for key in [
+        "connections.new",
+        "connections.import",
+        "connections.export",
+    ] {
+        let label = i18n.t(key);
+        let node = harness.get_by_role_and_label(Role::Button, &label);
+        assert!(!node.accesskit_node().is_disabled(), "{key}");
+    }
+}

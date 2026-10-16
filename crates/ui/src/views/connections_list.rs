@@ -29,7 +29,7 @@ pub(super) fn show_list(
     // Filtered and sorted once per frame (recomputed only when the filter box was edited).
     let list = state.connections.clone();
     let mut rows = visible(&list, &state.filter, state.sort);
-    let mut action = show_toolbar(ui, state, i18n);
+    let mut action = show_toolbar(ui, state, i18n, &rows);
     if show_filter(ui, state, i18n, rows.len()) {
         rows = visible(&list, &state.filter, state.sort);
     }
@@ -66,11 +66,14 @@ fn show_toolbar(
     ui: &mut egui::Ui,
     state: &mut ConnectionsState,
     i18n: &I18n,
+    rows: &[&ConnectionConfig],
 ) -> Option<ConnectionAction> {
     let mut action = None;
+    // Only a selection the current filter still shows can be acted on from the toolbar.
     let selected = state
         .selected
-        .and_then(|id| state.connections.iter().find(|c| c.id == id))
+        .and_then(|id| rows.iter().find(|c| c.id == id))
+        .copied()
         .cloned();
     ui.horizontal_wrapped(|ui| {
         let tool = |ui: &mut egui::Ui, enabled: bool, key: &str| {
