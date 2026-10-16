@@ -86,14 +86,15 @@ fn split_uri(input: &str, mode: HostMode) -> Check<Split<'_>> {
     })
 }
 
-/// A host or port failure next to a tail that holds a stray `@` is most likely a password that
-/// spilled out of the user info (`user:pa/ss@host`): say so instead of blaming the host.
+/// Any failure of the host step next to a tail that holds a stray `@` is most likely a password
+/// that spilled out of the user info (`user:pa/ss@host`): the "host" is then a piece of the user
+/// name or password, so whatever is wrong with it (bad host or port, Unicode, a broken `%`,
+/// SRV rules) is not the thing to fix. Say so instead of blaming the host.
 fn spilled_or(problem: UriProblem, tail: &str) -> UriProblem {
-    let host_problem = matches!(problem, UriProblem::BadHost | UriProblem::BadPort);
-    if host_problem && !tail_at_signs_allowed(tail) {
-        UriProblem::StrayAtSign
-    } else {
+    if tail_at_signs_allowed(tail) {
         problem
+    } else {
+        UriProblem::StrayAtSign
     }
 }
 

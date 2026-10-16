@@ -54,6 +54,9 @@ fn shared_cases() -> Vec<(String, UriProblem)> {
         (format!("mongodb://admin:2024/{t}@db"), StrayAtSign),
         (format!("mongodb://u:12345?{t}@h"), StrayAtSign),
         (format!("mongodb://u:pa/{t}@h"), StrayAtSign),
+        (format!("mongodb://\u{fc}:pa/{t}@h"), StrayAtSign),
+        (format!("mongodb://u%zz:pa/{t}@h"), StrayAtSign),
+        (format!("mongodb+srv://u:pa/{t}@h"), StrayAtSign),
         (format!("mongodb://h/db@{t}"), StrayAtSign),
         (format!("mongodb://h/?a=b&{t}@h"), StrayAtSign),
         (format!("mongodb://h/?x@{t}=1"), StrayAtSign),
@@ -77,6 +80,12 @@ fn parse_only_cases() -> Vec<(String, UriProblem)> {
         (format!("mongodb://u:p@h/?ProxyPassword={t}"), SecretInUri),
         (format!("mongodb://u:%zz{t}@h"), BadPercentEncoding),
         (format!("mongodb://u%4@h/?x={t}"), BadPercentEncoding),
+        (format!("mongodb://\u{fc}ser%zz:pa/{t}@h"), StrayAtSign),
+        (format!("mongodb://\u{fc}ser:12345/{t}@h"), StrayAtSign),
+        (
+            format!("mongodb://u:pa/{t}@b\u{fc}cher.example"),
+            StrayAtSign,
+        ),
         (format!("mongodb://u:%C3{t}@h"), BadPercentEncoding),
         (
             format!("mongodb://h/?authSource=%zz{t}"),
