@@ -1,6 +1,7 @@
 //! Manager operations beyond save/delete: duplicate, folder changes and the connect stamp.
 //! Like `connections::save`, they take the keychain and the config path as arguments.
 use super::connections::{ConfigPath, delete, persist, refresh_flags, refused};
+use super::dialog_banner::DialogBannerWatch;
 #[cfg(test)]
 use super::persistence::PersistGuard;
 use super::state::{AppState, Banner};
@@ -133,7 +134,32 @@ pub(super) fn duplicate(
         ..state.conn
     };
     conn.reset_tools();
-    refresh_flags(AppState { conn, ..state }, secrets)
+    open_watching_banner(AppState { conn, ..state }, secrets)
+}
+
+/// Refreshes the flags of a state whose dialog was just opened, handing the banner watch over
+/// open: a banner showing BEFORE this step stays out of the dialog, one this step raised (a
+/// failed flag read, even an identical one) is new. The refresh runs against an empty banner
+/// slot to tell the two apart, and the earlier banner is put back if none was raised.
+fn open_watching_banner(state: AppState, secrets: &dyn SecretStore) -> AppState {
+    let prior = state.banner.clone();
+    let next = refresh_flags(
+        AppState {
+            banner: None,
+            ..state
+        },
+        secrets,
+    );
+    let baseline = match next.banner {
+        None => prior.as_ref(),
+        Some(_) => None,
+    };
+    let watch = DialogBannerWatch::default().observed(true, baseline);
+    AppState {
+        banner: next.banner.or(prior),
+        dialog_banner_watch: watch,
+        ..next
+    }
 }
 
 pub(super) fn move_to_folder(
@@ -570,6 +596,99 @@ mod tests {
             state.conn.edit_mode,
             crate::views::connections::EditMode::Duplicate
         );
+    }
+
+    /// Reads succeed only for the keys of `readable`: the copy's flag read fails after the copy.
+    struct OnlyReadsOf {
+        inner: MemorySecretStore,
+        readable: Uuid,
+    }
+
+    impl SecretStore for OnlyReadsOf {
+        fn get(&self, k: &str) -> curlybrace_core::error::Result<Option<String>> {
+            match k.contains(&self.readable.to_string()) {
+                true => self.inner.get(k),
+                false => Err(CoreError::Secret("boom".into())),
+            }
+        }
+        fn set(&self, k: &str, v: &str) -> curlybrace_core::error::Result<()> {
+            self.inner.set(k, v)
+        }
+        fn delete(&self, k: &str) -> curlybrace_core::error::Result<()> {
+            self.inner.delete(k)
+        }
+    }
+
+    /// The watch as the screen leaves it one frame after `state` came out of an action.
+    fn next_frame(mut state: AppState) -> AppState {
+        state.dialog_banner_watch = std::mem::take(&mut state.dialog_banner_watch)
+            .observed(state.conn.editing, state.banner.as_ref());
+        state
+    }
+
+    fn secrets_failure() -> Banner {
+        Banner::Failure {
+            context: "secrets",
+            error: CoreError::Secret("boom".into()),
+        }
+    }
+
+    #[test]
+    fn a_duplicate_whose_flag_read_fails_shows_that_failure_in_the_dialog() {
+        let (_dir, path, _) = setup();
+        let src = ConnectionConfig::new("prod", "mongodb://h");
+        let secrets = OnlyReadsOf {
+            inner: MemorySecretStore::new(),
+            readable: src.id,
+        };
+        let state = duplicate(
+            state_with(vec![src.clone()]),
+            src.id,
+            "c".into(),
+            5,
+            &secrets,
+            &path,
+        );
+        assert!(state.conn.editing);
+        assert_eq!(state.banner, Some(secrets_failure()));
+        let state = next_frame(state);
+        assert!(state.dialog_banner_watch.is_new(&secrets_failure()));
+        let state = next_frame(state);
+        assert!(
+            state.dialog_banner_watch.is_new(&secrets_failure()),
+            "stays"
+        );
+    }
+
+    #[test]
+    fn a_duplicate_raising_the_same_failure_as_one_already_showing_still_shows_it() {
+        let (_dir, path, _) = setup();
+        let src = ConnectionConfig::new("prod", "mongodb://h");
+        let secrets = OnlyReadsOf {
+            inner: MemorySecretStore::new(),
+            readable: src.id,
+        };
+        let mut state = state_with(vec![src.clone()]);
+        state.banner = Some(secrets_failure());
+        let state = duplicate(state, src.id, "c".into(), 5, &secrets, &path);
+        assert!(
+            next_frame(state)
+                .dialog_banner_watch
+                .is_new(&secrets_failure())
+        );
+    }
+
+    #[test]
+    fn a_duplicate_that_raises_nothing_keeps_a_stale_banner_out_of_the_dialog() {
+        let (_dir, path, secrets) = setup();
+        let src = ConnectionConfig::new("prod", "mongodb://h");
+        let mut state = state_with(vec![src.clone()]);
+        state.banner = Some(Banner::NotConnected);
+        let state = duplicate(state, src.id, "c".into(), 5, &secrets, &path);
+        assert_eq!(state.banner, Some(Banner::NotConnected));
+        let state = next_frame(state);
+        assert!(state.conn.editing);
+        assert!(!state.dialog_banner_watch.is_new(&Banner::NotConnected));
     }
 
     #[test]
