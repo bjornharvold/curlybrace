@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/bjornharvold/curlybrace/compare/v0.3.0...v0.4.0) (2026-10-16)
+
+
+### Features
+
+* **connections:** say what is wrong with a connection string, accept unicode hosts in from-uri ([#101](https://github.com/bjornharvold/curlybrace/issues/101)) ([6b41170](https://github.com/bjornharvold/curlybrace/commit/6b41170430a46b12f92226fbfe6ca2f626f1f5b3))
+
+
+### Bug Fixes
+
+* **connections:** accessibility and list polish for the connection manager ([#100](https://github.com/bjornharvold/curlybrace/issues/100)) ([e94a480](https://github.com/bjornharvold/curlybrace/commit/e94a48099fb291097171bfde51c733328380ffb6))
+* **connections:** label list dates as utc, translate list separators, show only new banners in the edit dialog ([#102](https://github.com/bjornharvold/curlybrace/issues/102)) ([73a3afa](https://github.com/bjornharvold/curlybrace/commit/73a3afa69ec581435e3a69a64e243ae7b45c861c))
+* **connections:** repair only invalid saved entries, end a test when the runtime closes, faster import ([#99](https://github.com/bjornharvold/curlybrace/issues/99)) ([fc7fb5d](https://github.com/bjornharvold/curlybrace/commit/fc7fb5d40efb7945c8cfd1efe5a13ea6c8cb3281))
+* **connections:** stricter uri check, host-key questions that end with their job ([#96](https://github.com/bjornharvold/curlybrace/issues/96)) ([cc3e8ee](https://github.com/bjornharvold/curlybrace/commit/cc3e8ee72bf92e377f304bd8f6799d26b997e3bd))
+* **ui:** mask the pasted connection string and wipe egui's editor state for it ([#98](https://github.com/bjornharvold/curlybrace/issues/98)) ([ed81752](https://github.com/bjornharvold/curlybrace/commit/ed81752a6173bccd1599f44ed94c5537cc92cda4))
+
 ## [0.3.0](https://github.com/bjornharvold/curlybrace/compare/v0.2.0...v0.3.0) (2026-10-15)
 
 
