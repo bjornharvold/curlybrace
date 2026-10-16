@@ -75,7 +75,7 @@ fn show_body(
 ) -> Option<ConnectionAction> {
     text_row(ui, &i18n.t("connections.name"), &mut state.form.name, false);
     show_folder_row(ui, state, i18n);
-    show_from_uri(ui, state, i18n);
+    super::connections_from_uri::show_from_uri(ui, state, i18n);
     show_fields(ui, state, i18n);
     ui.separator();
     let tested = show_test(ui, state, i18n);
@@ -125,17 +125,6 @@ fn show_folder_row(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n)
             egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone())
         });
         combo.response.labelled_by(caption.id);
-    });
-}
-
-fn show_from_uri(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
-    ui.horizontal(|ui| {
-        let caption = ui.label(i18n.t("connections.from_uri_hint"));
-        ui.add(egui::TextEdit::singleline(&mut state.uri_input))
-            .labelled_by(caption.id);
-        if ui.button(i18n.t("connections.from_uri")).clicked() {
-            state.apply_uri_input();
-        }
     });
 }
 

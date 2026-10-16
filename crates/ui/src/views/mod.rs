@@ -4,6 +4,7 @@ pub mod connections;
 pub mod connections_edit;
 pub mod connections_edit_dialog;
 pub mod connections_folder_prompt;
+pub mod connections_from_uri;
 pub mod connections_list;
 #[cfg(test)]
 mod connections_list_tests;

@@ -569,6 +569,7 @@ impl CurlybraceApp {
 
     fn draw(&mut self, ctx: &egui::Context) -> Vec<UiEvent> {
         let mut out = Vec::new();
+        crate::views::connections_from_uri::wipe_if_pending(ctx, &mut self.state.conn);
         panels::show_banner(ctx, &self.state, &self.i18n, &mut out);
         if !self.state.open.is_empty() {
             panels::show_sessions_panel(ctx, &self.state, &self.i18n, &mut out);
