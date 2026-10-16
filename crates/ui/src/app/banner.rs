@@ -210,7 +210,7 @@ mod tests {
                 repaired: 4,
                 backed_up,
             }));
-            assert!(head.contains('7') && head.contains("skipped"), "{head}");
+            assert!(head.contains('7') && head.contains("not loaded"), "{head}");
             assert!(head.contains('4') && head.contains("adjusted"), "{head}");
             assert!(!head.contains('{'), "{head}");
         }
