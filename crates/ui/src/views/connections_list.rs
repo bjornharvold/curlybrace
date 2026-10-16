@@ -26,8 +26,13 @@ pub(super) fn show_list(
     state: &mut ConnectionsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
+    // Filtered and sorted once per frame (recomputed only when the filter box was edited).
+    let list = state.connections.clone();
+    let mut rows = visible(&list, &state.filter, state.sort);
     let mut action = show_toolbar(ui, state, i18n);
-    show_filter(ui, state, i18n);
+    if show_filter(ui, state, i18n, rows.len()) {
+        rows = visible(&list, &state.filter, state.sort);
+    }
     // While the edit dialog or the folder prompt is open the error is shown inside it.
     if let (Some(error), None, false) = (&state.error, &state.folder_prompt, state.editing) {
         super::error_label::show_error(ui, error, i18n);
@@ -35,7 +40,7 @@ pub(super) fn show_list(
     if let Some(notice) = &state.notice {
         ui.label(notice_text(notice, i18n));
     }
-    if let Some(row_action) = show_table(ui, state, i18n) {
+    if let Some(row_action) = show_table(ui, state, i18n, &rows) {
         action = Some(row_action);
     }
     action
@@ -102,7 +107,10 @@ fn show_toolbar(
     action
 }
 
-fn show_filter(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
+/// Draws the filter box and the "shown of total" count; true when the text was edited (the
+/// caller's rows are then stale).
+fn show_filter(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n, shown: usize) -> bool {
+    let mut edited = false;
     ui.horizontal(|ui| {
         // The caption is the box's accessible name (a hint is not exposed to screen readers).
         let caption = ui.label(i18n.t("connections.filter"));
@@ -111,23 +119,23 @@ fn show_filter(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
             .labelled_by(caption.id);
         if response.changed() {
             state.filter_edited();
+            edited = true;
         }
-        let shown = visible(&state.connections, &state.filter, state.sort).len();
         let total = state.connections.len();
         ui.label(i18n.t_with(
             "connections.filter_count",
             &[("shown", &shown.to_string()), ("total", &total.to_string())],
         ));
     });
+    edited
 }
 
 fn show_table(
     ui: &mut egui::Ui,
     state: &mut ConnectionsState,
     i18n: &I18n,
+    rows: &[&ConnectionConfig],
 ) -> Option<ConnectionAction> {
-    let list = state.connections.clone();
-    let rows = visible(&list, &state.filter, state.sort);
     let widths = column_widths(ui);
     show_header(ui, state, i18n, &widths);
     if rows.is_empty() && !state.filter.trim().is_empty() {
@@ -140,7 +148,7 @@ fn show_table(
         .max_height(TABLE_MAX_HEIGHT)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            for group in grouped(&rows) {
+            for group in grouped(rows) {
                 let found = match group.folder {
                     None => show_rows(ui, state, i18n, &group.rows, &widths),
                     Some(folder) => show_folder(ui, state, i18n, folder, &group.rows, &widths),
