@@ -2,22 +2,27 @@
 //! `MAX_NAME_LEN` characters; the base is cut (on a char boundary) to make room, and the cut
 //! head loses any trailing whitespace so the suffix never follows a space.
 use crate::connection::{ConnectionConfig, MAX_NAME_LEN};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 /// Hands out names that are free, remembering them, so many names can be allocated in one pass
 /// without rescanning the connections. Names are only ever added, so for one base the smallest
 /// free number never goes down: a per-base cursor skips what is known to be taken and the
-/// whole pass stays linear in the number of names.
+/// whole pass stays linear in the number of names. The existing names are borrowed, only the
+/// names it hands out are owned, so a single allocation copies nothing it does not return.
 #[derive(Debug, Clone, Default)]
-pub struct NameAllocator {
-    taken: HashSet<String>,
+pub struct NameAllocator<'a> {
+    taken: HashSet<Cow<'a, str>>,
     next: HashMap<String, usize>,
 }
 
-impl NameAllocator {
-    pub fn new(existing: &[ConnectionConfig]) -> Self {
+impl<'a> NameAllocator<'a> {
+    pub fn new(existing: &'a [ConnectionConfig]) -> Self {
         Self {
-            taken: existing.iter().map(|c| c.name.clone()).collect(),
+            taken: existing
+                .iter()
+                .map(|c| Cow::Borrowed(c.name.as_str()))
+                .collect(),
             next: HashMap::new(),
         }
     }
@@ -25,15 +30,15 @@ impl NameAllocator {
     /// A free name for `base` (cut to `MAX_NAME_LEN`), which is marked taken from now on.
     pub fn allocate(&mut self, base: &str) -> String {
         let base: String = base.chars().take(MAX_NAME_LEN).collect();
-        if self.taken.insert(base.clone()) {
+        if self.taken.insert(Cow::Owned(base.clone())) {
             return base;
         }
         let start = self.next.get(&base).copied().unwrap_or(2);
         let (n, name) = (start..)
             .map(|n| (n, suffixed(&base, n)))
-            .find(|(_, candidate)| !self.taken.contains(candidate))
+            .find(|(_, candidate)| !self.taken.contains(candidate.as_str()))
             .expect("an unbounded range always yields a free name");
-        self.taken.insert(name.clone());
+        self.taken.insert(Cow::Owned(name.clone()));
         self.next.insert(base, n + 1);
         name
     }
@@ -97,7 +102,8 @@ mod tests {
 
     #[test]
     fn a_name_that_appears_later_is_still_skipped() {
-        let mut allocator = NameAllocator::new(&[cfg("x")]);
+        let existing = [cfg("x")];
+        let mut allocator = NameAllocator::new(&existing);
         assert_eq!(allocator.allocate("x"), "x 2");
         assert_eq!(allocator.allocate("x 3"), "x 3");
         assert_eq!(allocator.allocate("x"), "x 4");
