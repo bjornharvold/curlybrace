@@ -56,21 +56,26 @@ fn matches(cfg: &ConnectionConfig, needle: &str) -> bool {
     has(&cfg.name) || has(&servers(cfg)) || cfg.folder.as_deref().is_some_and(has)
 }
 
-/// Option ordering where `None` sorts after every `Some` when ascending.
-fn recent_first(a: Option<i64>, b: Option<i64>) -> Ordering {
+/// Most recent first when ascending (oldest first when descending); a row without a timestamp
+/// is last in both directions.
+fn recent_first(a: Option<i64>, b: Option<i64>, descending: bool) -> Ordering {
     match (a, b) {
-        (Some(x), Some(y)) => x.cmp(&y).reverse(),
+        (Some(x), Some(y)) if descending => x.cmp(&y),
+        (Some(x), Some(y)) => y.cmp(&x),
         (Some(_), None) => Ordering::Less,
         (None, Some(_)) => Ordering::Greater,
         (None, None) => Ordering::Equal,
     }
 }
 
-/// Column order, then name (case-insensitive, then exact), then id, so ties never flicker.
-fn compare(a: &ConnectionConfig, b: &ConnectionConfig, column: SortColumn) -> Ordering {
-    let primary = match column {
+/// The full row order for `sort`: the column, then name (case-insensitive, then exact), then id,
+/// so ties never flicker. Descending reverses everything except where a column pins rows (the
+/// untimed rows of the time columns).
+fn compare(a: &ConnectionConfig, b: &ConnectionConfig, sort: Sort) -> Ordering {
+    let directed = |ord: Ordering| if sort.descending { ord.reverse() } else { ord };
+    let primary = match sort.column {
         SortColumn::Name => Ordering::Equal,
-        SortColumn::Server => servers(a).to_lowercase().cmp(&servers(b).to_lowercase()),
+        SortColumn::Server => directed(servers(a).to_lowercase().cmp(&servers(b).to_lowercase())),
         SortColumn::Security => {
             let key = |c: &ConnectionConfig| {
                 (
@@ -79,15 +84,22 @@ fn compare(a: &ConnectionConfig, b: &ConnectionConfig, column: SortColumn) -> Or
                     c.auth != AuthMechanism::None,
                 )
             };
-            key(a).cmp(&key(b))
+            directed(key(a).cmp(&key(b)))
         }
-        SortColumn::LastConnected => recent_first(a.last_connected, b.last_connected),
-        SortColumn::LastModified => recent_first(a.updated_at, b.updated_at),
+        SortColumn::LastConnected => {
+            recent_first(a.last_connected, b.last_connected, sort.descending)
+        }
+        SortColumn::LastModified => recent_first(a.updated_at, b.updated_at, sort.descending),
     };
-    primary
-        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-        .then_with(|| a.name.cmp(&b.name))
-        .then_with(|| a.id.cmp(&b.id))
+    primary.then_with(|| {
+        directed(
+            a.name
+                .to_lowercase()
+                .cmp(&b.name.to_lowercase())
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.id.cmp(&b.id)),
+        )
+    })
 }
 
 pub fn visible<'a>(
@@ -100,10 +112,7 @@ pub fn visible<'a>(
         .iter()
         .filter(|c| needle.is_empty() || matches(c, &needle))
         .collect();
-    rows.sort_by(|a, b| {
-        let ord = compare(a, b, sort.column);
-        if sort.descending { ord.reverse() } else { ord }
-    });
+    rows.sort_by(|a, b| compare(a, b, sort));
     rows
 }
 
@@ -227,31 +236,59 @@ mod tests {
         assert_eq!(desc[0].name, "b");
     }
 
+    fn timed(name: &str, last_connected: Option<i64>, updated_at: Option<i64>) -> ConnectionConfig {
+        let mut c = cfg(name, "mongodb://h", None);
+        c.last_connected = last_connected;
+        c.updated_at = updated_at;
+        c
+    }
+
+    fn order(list: &[ConnectionConfig], column: SortColumn, descending: bool) -> Vec<String> {
+        visible(list, "", Sort { column, descending })
+            .iter()
+            .map(|c| c.name.clone())
+            .collect()
+    }
+
     #[test]
-    fn never_connected_sorts_last_ascending_and_first_descending_by_last_connected() {
-        let mut seen = cfg("seen", "mongodb://h", None);
-        seen.last_connected = Some(10);
-        let never = cfg("never", "mongodb://h", None);
-        let list = [never, seen];
-        let asc = visible(
-            &list,
-            "",
-            Sort {
-                column: SortColumn::LastConnected,
-                descending: false,
-            },
+    fn untimed_rows_stay_last_in_both_directions_for_both_time_columns() {
+        let list = [
+            timed("never", None, None),
+            timed("old", Some(10), Some(10)),
+            timed("new", Some(30), Some(30)),
+            timed("mid", Some(20), Some(20)),
+            timed("never2", None, None),
+        ];
+        for column in [SortColumn::LastConnected, SortColumn::LastModified] {
+            assert_eq!(
+                order(&list, column, false),
+                ["new", "mid", "old", "never", "never2"],
+                "{column:?} ascending: most recent first, never last"
+            );
+            assert_eq!(
+                order(&list, column, true),
+                ["old", "mid", "new", "never2", "never"],
+                "{column:?} descending: oldest first, never still last"
+            );
+        }
+    }
+
+    #[test]
+    fn equal_timestamps_and_untimed_ties_are_deterministic() {
+        let list = [
+            timed("b", Some(5), None),
+            timed("a", Some(5), None),
+            timed("d", None, None),
+            timed("c", None, None),
+        ];
+        assert_eq!(
+            order(&list, SortColumn::LastConnected, false),
+            ["a", "b", "c", "d"]
         );
-        assert_eq!(asc[0].name, "seen");
-        assert_eq!(asc[1].name, "never");
-        let desc = visible(
-            &list,
-            "",
-            Sort {
-                column: SortColumn::LastConnected,
-                descending: true,
-            },
+        assert_eq!(
+            order(&list, SortColumn::LastConnected, true),
+            ["b", "a", "d", "c"]
         );
-        assert_eq!(desc[0].name, "never");
     }
 
     #[test]
