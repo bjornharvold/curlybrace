@@ -430,7 +430,9 @@ mod tests {
         state.select(&cfg);
         state.form.ssh_enabled = true;
         state.form.tls_enabled = true;
-        state.error = Some(CoreError::InvalidUri("x".into()));
+        state.error = Some(CoreError::InvalidUri(
+            curlybrace_core::uri_problem::UriProblem::Other,
+        ));
         state.stored.insert(
             cfg.id,
             StoredSecrets {
@@ -597,6 +599,18 @@ mod tests {
     }
 
     #[test]
+    fn from_uri_shows_the_specific_hint_for_a_spilled_password() {
+        let mut conn = ConnectionsState {
+            uri_input: "mongodb://bob:p@ss@h/db".into(),
+            ..ConnectionsState::default()
+        };
+        conn.apply_uri_input();
+        let error = conn.error.clone().expect("error");
+        assert_eq!(error.i18n_key(), "errors.invalid_uri_stray_at");
+        assert!(I18n::english().error(&error).contains("%40"));
+    }
+
+    #[test]
     fn opening_new_or_edit_opens_the_dialog_and_saved_closes_it() {
         let mut s = ConnectionsState::new(vec![ConnectionConfig::new("a", "mongodb://h")]);
         s.start_new();
@@ -638,7 +652,9 @@ mod tests {
         s.test_form = Some(s.form.clone());
         s.built_uri = Some(SecretString::new("x"));
         s.built_for = Some(s.form.clone());
-        s.error = Some(CoreError::InvalidUri("x".into()));
+        s.error = Some(CoreError::InvalidUri(
+            curlybrace_core::uri_problem::UriProblem::Other,
+        ));
         s.form.password = "typed".into();
         s.close_edit();
         assert!(

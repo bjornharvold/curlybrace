@@ -107,7 +107,9 @@ fn the_screen_renders_a_notice_and_both_prompts_without_panicking() {
         imported: 2,
         skipped: 1,
     });
-    state.error = Some(CoreError::InvalidUri("x".into()));
+    state.error = Some(CoreError::InvalidUri(
+        curlybrace_core::uri_problem::UriProblem::Other,
+    ));
     state.open_move_prompt(cfg.id);
     assert_eq!(run_frame(&mut state), None);
     state.notice = Some(Notice::AppliesOnReconnect);

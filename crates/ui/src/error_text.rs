@@ -133,7 +133,7 @@ mod tests {
         for hidden in [
             CoreError::Ssh("secret-host".into()),
             CoreError::Secret("keychain locked".into()),
-            CoreError::InvalidUri("mongodb://u:pw@h".into()),
+            CoreError::InvalidUri(curlybrace_core::uri_problem::UriProblem::Other),
             CoreError::InvalidName,
             CoreError::InvalidFolderName,
             CoreError::Unsupported("x".into()),

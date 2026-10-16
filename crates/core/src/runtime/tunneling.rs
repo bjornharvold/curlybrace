@@ -11,6 +11,7 @@ use crate::connection::{ConnectionConfig, SshAuth, SshConfig};
 use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
 use crate::tunnel::{HostKeyDecision, HostKeyPrompt, Tunnel, open_tunnel_shared};
+use crate::uri_problem::UriProblem;
 
 use super::Shared;
 use super::session::Session;
@@ -137,7 +138,7 @@ pub(super) fn parse_target(uri: &str) -> Result<(String, u16)> {
             "ssh tunnels cannot be combined with mongodb+srv uris".into(),
         ));
     }
-    let invalid = || CoreError::InvalidUri("the connection uri has no usable host".into());
+    let invalid = || CoreError::InvalidUri(UriProblem::Other);
     let rest = uri.strip_prefix("mongodb://").ok_or_else(invalid)?;
     let authority = rest.split(['/', '?']).next().unwrap_or_default();
     let hosts = authority.rsplit_once('@').map_or(authority, |(_, h)| h);

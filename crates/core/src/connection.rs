@@ -1,4 +1,5 @@
 use crate::error::{CoreError, Result};
+use crate::uri_problem::UriProblem;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -146,9 +147,7 @@ impl ConnectionConfig {
         if self.auth == AuthMechanism::X509
             && !(self.tls.enabled && self.tls.client_cert_key_file.is_some())
         {
-            return Err(CoreError::InvalidUri(
-                "x509 requires tls and a client certificate".into(),
-            ));
+            return Err(CoreError::InvalidUri(UriProblem::Other));
         }
         if let Some(ssh) = &self.ssh {
             if ssh.host.trim().is_empty() || ssh.username.trim().is_empty() || ssh.port == 0 {
@@ -165,19 +164,15 @@ impl ConnectionConfig {
             .uri
             .strip_prefix("mongodb+srv://")
             .or_else(|| self.uri.strip_prefix("mongodb://"))
-            .ok_or_else(|| {
-                CoreError::InvalidUri("scheme must be mongodb:// or mongodb+srv://".into())
-            })?;
+            .ok_or(CoreError::InvalidUri(UriProblem::MissingScheme))?;
         let authority = rest.split(['/', '?']).next().unwrap_or("");
         if authority.is_empty() {
-            return Err(CoreError::InvalidUri("missing host".into()));
+            return Err(CoreError::InvalidUri(UriProblem::MissingHost));
         }
         // userinfo is everything before the last '@' in the authority
         if let Some((userinfo, _)) = authority.rsplit_once('@') {
             if userinfo.contains(':') {
-                return Err(CoreError::InvalidUri(
-                    "password must not be embedded in the uri".into(),
-                ));
+                return Err(CoreError::InvalidUri(UriProblem::SecretInUri));
             }
         }
         Ok(())

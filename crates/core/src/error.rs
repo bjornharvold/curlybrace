@@ -1,3 +1,4 @@
+use crate::uri_problem::UriProblem;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, CoreError>;
@@ -5,7 +6,7 @@ pub type Result<T> = std::result::Result<T, CoreError>;
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum CoreError {
     #[error("invalid connection uri: {0}")]
-    InvalidUri(String),
+    InvalidUri(UriProblem),
     /// A connection name is blank, too long or holds forbidden characters (never echoed).
     #[error("invalid connection name")]
     InvalidName,
@@ -120,7 +121,7 @@ impl CoreError {
     /// Key into the UI's `en.json`. The detail text is logged, never shown raw.
     pub fn i18n_key(&self) -> &'static str {
         match self {
-            Self::InvalidUri(_) => "errors.invalid_uri",
+            Self::InvalidUri(problem) => problem.i18n_key(),
             Self::InvalidName => "errors.invalid_name",
             Self::InvalidFolderName => "errors.invalid_folder_name",
             Self::InvalidJson(_) => "errors.invalid_json",
@@ -168,7 +169,7 @@ mod tests {
     #[test]
     fn every_variant_has_a_distinct_i18n_key() {
         let errors = [
-            CoreError::InvalidUri("x".into()),
+            CoreError::InvalidUri(UriProblem::Other),
             CoreError::InvalidName,
             CoreError::InvalidFolderName,
             CoreError::InvalidJson("x".into()),
