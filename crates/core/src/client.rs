@@ -1,6 +1,7 @@
 use crate::connection::{AuthMechanism, ConnectionConfig};
 use crate::driver_error::classify_connect_error;
 use crate::error::{CoreError, Result};
+use crate::uri_problem::UriProblem;
 use bson::doc;
 use mongodb::Client;
 use mongodb::options::{
@@ -33,7 +34,7 @@ pub async fn build_client_options(
     // Never echo the driver's parse error: it can quote parts of the URI.
     let mut options = ClientOptions::parse(&cfg.uri)
         .await
-        .map_err(|_| CoreError::InvalidUri("the connection uri could not be parsed".into()))?;
+        .map_err(|_| CoreError::InvalidUri(UriProblem::Other))?;
     reject_embedded_secrets(&cfg.uri, &options)?;
     options.server_selection_timeout = Some(SERVER_SELECTION_TIMEOUT);
     options.connect_timeout = Some(CONNECT_TIMEOUT);
@@ -94,9 +95,7 @@ fn reject_embedded_secrets(uri: &str, options: &ClientOptions) -> Result<()> {
         .filter_map(|kv| kv.split('=').next())
         .any(|k| SECRET_QUERY_PARAMS.contains(&k));
     if has_password || has_query_secret {
-        return Err(CoreError::InvalidUri(
-            "secrets must not be embedded in the uri".into(),
-        ));
+        return Err(CoreError::InvalidUri(UriProblem::SecretInUri));
     }
     Ok(())
 }

@@ -174,3 +174,40 @@ fn the_order_check_notices_an_out_of_order_key() {
     let fine = "{\n  \"b\": {\n    \"x\": \"1\",\n    \"y\": \"2\"\n  },\n  \"c\": {\n    \"a\": \"3\"\n  }\n}";
     assert_eq!(first_disorder(fine), None);
 }
+
+#[test]
+fn host_hints_name_every_character_a_host_may_hold() {
+    let root: Value = serde_json::from_str(include_str!("../locales/en.json")).unwrap();
+    for key in ["invalid_uri_bad_host", "invalid_uri_non_ascii_host"] {
+        let hint = root["errors"][key].as_str().unwrap();
+        assert!(hint.contains("underscores"), "{key}: {hint}");
+    }
+}
+
+#[test]
+fn the_bad_host_hint_covers_every_kind_of_bad_host() {
+    let root: Value = serde_json::from_str(include_str!("../locales/en.json")).unwrap();
+    let hint = root["errors"]["invalid_uri_bad_host"].as_str().unwrap();
+    for word in ["Unicode", "IPv6", "socket"] {
+        assert!(hint.contains(word), "{word} missing: {hint}");
+    }
+}
+
+#[test]
+fn the_non_ascii_hint_names_the_button_by_its_current_label() {
+    let root: Value = serde_json::from_str(include_str!("../locales/en.json")).unwrap();
+    let hint = root["errors"]["invalid_uri_non_ascii_host"]
+        .as_str()
+        .unwrap();
+    let label = root["connections"]["from_uri"].as_str().unwrap();
+    assert!(hint.contains(label), "{hint}");
+}
+
+#[test]
+fn the_secret_hint_covers_the_password_and_the_certificate_and_proxy_secrets() {
+    let root: Value = serde_json::from_str(include_str!("../locales/en.json")).unwrap();
+    let hint = root["errors"]["invalid_uri_secret"].as_str().unwrap();
+    for word in ["passphrase", "certificate", "proxy", "password field"] {
+        assert!(hint.contains(word), "{word} missing: {hint}");
+    }
+}

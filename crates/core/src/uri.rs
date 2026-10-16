@@ -3,6 +3,10 @@
 use crate::connection::{AuthMechanism, ConnectionConfig};
 use crate::error::{CoreError, Result};
 use crate::secrets::SecretString;
+use crate::uri_host::{HostMode, validate_hosts};
+use crate::uri_problem::UriProblem;
+
+type Check<T> = std::result::Result<T, UriProblem>;
 
 pub const MASK: &str = "****";
 
@@ -41,30 +45,26 @@ impl std::fmt::Debug for PasswordMode<'_> {
     }
 }
 
-fn invalid(msg: &'static str) -> CoreError {
-    CoreError::InvalidUri(msg.into())
-}
-
 /// A connection string cut into its scheme, userinfo, hosts and the rest (path and query).
 struct Split<'a> {
     srv: bool,
     userinfo: Option<&'a str>,
-    hosts: &'a str,
+    hosts: String,
     tail: &'a str,
 }
 
 /// Splits a trimmed connection string. Userinfo is everything before the LAST '@' of the
 /// authority (which ends at the first '/' or '?'). Errors never carry the input.
-fn split_uri(input: &str) -> Result<Split<'_>> {
+fn split_uri(input: &str, mode: HostMode) -> Check<Split<'_>> {
     let (srv, rest) = if let Some(r) = input.strip_prefix("mongodb+srv://") {
         (true, r)
     } else if let Some(r) = input.strip_prefix("mongodb://") {
         (false, r)
     } else {
-        return Err(invalid("scheme must be mongodb:// or mongodb+srv://"));
+        return Err(UriProblem::MissingScheme);
     };
     if rest.contains('#') {
-        return Err(malformed());
+        return Err(UriProblem::StrayAtSign);
     }
     let (authority, tail) = match rest.find(['/', '?']) {
         Some(i) => rest.split_at(i),
@@ -75,9 +75,9 @@ fn split_uri(input: &str) -> Result<Split<'_>> {
         None => (None, authority),
     };
     if hosts.is_empty() {
-        return Err(invalid("missing host"));
+        return Err(UriProblem::MissingHost);
     }
-    validate_hosts(hosts, srv)?;
+    let hosts = validate_hosts(hosts, srv, mode).map_err(|problem| spilled_or(problem, tail))?;
     Ok(Split {
         srv,
         userinfo,
@@ -86,13 +86,29 @@ fn split_uri(input: &str) -> Result<Split<'_>> {
     })
 }
 
+/// Any failure of the host step next to a tail that holds a stray `@` is most likely a password
+/// that spilled out of the user info (`user:pa/ss@host`): the "host" is then a piece of the user
+/// name or password, so whatever is wrong with it (bad host or port, Unicode, a broken `%`,
+/// SRV rules) is not the thing to fix. Say so instead of blaming the host.
+fn spilled_or(problem: UriProblem, tail: &str) -> UriProblem {
+    if tail_at_signs_allowed(tail) {
+        problem
+    } else {
+        UriProblem::StrayAtSign
+    }
+}
+
 /// Strictly checks the scheme and the host list of a connection string, and that no raw `@`
 /// hides in the userinfo or the path/query (a password that spilled out of the userinfo), by the
 /// same rules `parse_uri` applies (both use `tail_at_signs_allowed`), without reading credentials or options. Errors never carry the input.
 pub fn check_hosts(uri: &str) -> Result<()> {
-    let split = split_uri(uri.trim())?;
+    check_hosts_inner(uri.trim()).map_err(CoreError::InvalidUri)
+}
+
+fn check_hosts_inner(uri: &str) -> Check<()> {
+    let split = split_uri(uri, HostMode::Strict)?;
     if split.userinfo.is_some_and(|u| u.contains('@')) || !tail_at_signs_allowed(split.tail) {
-        return Err(malformed());
+        return Err(UriProblem::StrayAtSign);
     }
     Ok(())
 }
@@ -121,13 +137,16 @@ fn tail_at_signs_allowed(tail: &str) -> bool {
 }
 
 pub fn parse_uri(input: &str) -> Result<ParsedUri> {
-    let input = input.trim();
+    parse_uri_inner(input.trim()).map_err(CoreError::InvalidUri)
+}
+
+fn parse_uri_inner(input: &str) -> Check<ParsedUri> {
     let Split {
         srv,
         userinfo,
         hosts,
         tail,
-    } = split_uri(input)?;
+    } = split_uri(input, HostMode::Normalize)?;
     let scheme = if srv { "mongodb+srv://" } else { "mongodb://" };
     let (username, password) = parse_userinfo(userinfo)?;
     let (path, query) = match tail.split_once('?') {
@@ -135,15 +154,15 @@ pub fn parse_uri(input: &str) -> Result<ParsedUri> {
         None => (tail, ""),
     };
     if !tail_at_signs_allowed(tail) {
-        return Err(malformed());
+        return Err(UriProblem::StrayAtSign);
     }
     let mut kept = Vec::new();
     let (mut auth_source, mut auth, mut tls) = (None, None, None);
     for pair in query.split('&').filter(|p| !p.is_empty()) {
-        let (key, value) = pair.split_once('=').ok_or_else(malformed)?;
+        let (key, value) = pair.split_once('=').ok_or(UriProblem::BadOption)?;
         let lower = key.to_ascii_lowercase();
         if SECRET_QUERY_KEYS.contains(&lower.as_str()) {
-            return Err(invalid("secrets must not be embedded in the uri"));
+            return Err(UriProblem::SecretInUri);
         }
         match lower.as_str() {
             "authsource" => auth_source = Some(percent_decode(value)?),
@@ -173,17 +192,13 @@ pub fn parse_uri(input: &str) -> Result<ParsedUri> {
     })
 }
 
-fn malformed() -> CoreError {
-    invalid("malformed connection string")
-}
-
-fn parse_bool(value: &str) -> Result<bool> {
+fn parse_bool(value: &str) -> Check<bool> {
     if value.eq_ignore_ascii_case("true") {
         Ok(true)
     } else if value.eq_ignore_ascii_case("false") {
         Ok(false)
     } else {
-        Err(malformed())
+        Err(UriProblem::BadOption)
     }
 }
 
@@ -191,12 +206,12 @@ type Credentials = (Option<String>, Option<SecretString>);
 
 /// Splits `user[:password]`. A second raw `@`, a password without a user, an empty password and
 /// a password equal to the display mask are all handled here; none of them echo the input.
-fn parse_userinfo(userinfo: Option<&str>) -> Result<Credentials> {
+fn parse_userinfo(userinfo: Option<&str>) -> Check<Credentials> {
     let Some(u) = userinfo else {
         return Ok((None, None));
     };
     if u.contains('@') {
-        return Err(malformed());
+        return Err(UriProblem::StrayAtSign);
     }
     let (user, pass) = match u.split_once(':') {
         Some((user, pass)) => (user, Some(pass)),
@@ -206,7 +221,7 @@ fn parse_userinfo(userinfo: Option<&str>) -> Result<Credentials> {
     let pass = pass.map(percent_decode).transpose()?;
     let pass = pass.filter(|p| !p.is_empty() && p != MASK);
     if user.is_empty() && pass.is_some() {
-        return Err(malformed());
+        return Err(UriProblem::UserNeeded);
     }
     Ok((
         (!user.is_empty()).then_some(user),
@@ -214,86 +229,14 @@ fn parse_userinfo(userinfo: Option<&str>) -> Result<Credentials> {
     ))
 }
 
-fn validate_hosts(hosts: &str, srv: bool) -> Result<()> {
-    let entries: Vec<&str> = hosts.split(',').collect();
-    if srv && entries.len() != 1 {
-        return Err(malformed());
-    }
-    entries.iter().try_for_each(|e| validate_host(e, srv))
-}
-
-fn is_name_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')
-}
-
-fn validate_host(entry: &str, srv: bool) -> Result<()> {
-    if entry.starts_with("%2F") || entry.starts_with("%2f") {
-        let ok = !srv && entry.ends_with(".sock") && is_encoded_path(entry);
-        return if ok { Ok(()) } else { Err(malformed()) };
-    }
-    let (host_ok, port) = if let Some(inner) = entry.strip_prefix('[') {
-        let (addr, after) = inner.split_once(']').ok_or_else(malformed)?;
-        let addr_ok = !addr.is_empty()
-            && addr
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.');
-        let port = match after {
-            "" => None,
-            _ => Some(after.strip_prefix(':').ok_or_else(malformed)?),
-        };
-        (addr_ok, port)
-    } else {
-        let (host, port) = match entry.split_once(':') {
-            Some((h, p)) => (h, Some(p)),
-            None => (entry, None),
-        };
-        (!host.is_empty() && host.bytes().all(is_name_byte), port)
-    };
-    if !host_ok {
-        return Err(malformed());
-    }
-    match port {
-        None => Ok(()),
-        Some(_) if srv => Err(malformed()),
-        Some(p) => {
-            let digits = (1..=5).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit());
-            match p.parse::<u16>() {
-                Ok(n) if digits && n > 0 => Ok(()),
-                _ => Err(malformed()),
-            }
-        }
-    }
-}
-
-fn is_encoded_path(s: &str) -> bool {
-    let b = s.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' {
-            let ok = b
-                .get(i + 1..i + 3)
-                .is_some_and(|h| h.iter().all(u8::is_ascii_hexdigit));
-            if !ok {
-                return false;
-            }
-            i += 3;
-        } else if is_name_byte(b[i]) {
-            i += 1;
-        } else {
-            return false;
-        }
-    }
-    true
-}
-
-fn parse_mechanism(value: &str) -> Result<AuthMechanism> {
+fn parse_mechanism(value: &str) -> Check<AuthMechanism> {
     Ok(match value.to_ascii_uppercase().as_str() {
         "SCRAM-SHA-1" => AuthMechanism::ScramSha1,
         "SCRAM-SHA-256" => AuthMechanism::ScramSha256,
         "MONGODB-X509" => AuthMechanism::X509,
         "GSSAPI" => AuthMechanism::Gssapi,
         "PLAIN" => AuthMechanism::Plain,
-        _ => return Err(invalid("unsupported authentication mechanism")),
+        _ => return Err(UriProblem::BadOption),
     })
 }
 
@@ -377,7 +320,7 @@ fn percent_encode(s: &str) -> String {
     out
 }
 
-fn percent_decode(s: &str) -> Result<String> {
+pub(crate) fn percent_decode(s: &str) -> Check<String> {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -387,7 +330,7 @@ fn percent_decode(s: &str) -> Result<String> {
                 .get(i + 1..i + 3)
                 .and_then(|h| std::str::from_utf8(h).ok())
                 .and_then(|h| u8::from_str_radix(h, 16).ok())
-                .ok_or_else(|| invalid("malformed connection string"))?;
+                .ok_or(UriProblem::BadPercentEncoding)?;
             out.push(hex);
             i += 3;
         } else {
@@ -395,7 +338,7 @@ fn percent_decode(s: &str) -> Result<String> {
             i += 1;
         }
     }
-    String::from_utf8(out).map_err(|_| invalid("malformed connection string"))
+    String::from_utf8(out).map_err(|_| UriProblem::BadPercentEncoding)
 }
 
 #[cfg(test)]
@@ -734,8 +677,8 @@ mod tests {
             "mongodb+srv://a.example.com,b.example.com",
             "mongodb+srv://a.example.com:27017",
         ] {
-            let err = parse_uri(bad).unwrap_err().to_string();
-            assert!(err.contains("malformed"), "{bad}: {err}");
+            let err = parse_uri(bad).unwrap_err();
+            assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}: {err}");
         }
     }
 

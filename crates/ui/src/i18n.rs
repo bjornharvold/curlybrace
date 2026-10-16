@@ -227,7 +227,7 @@ mod tests {
     fn english_covers_every_core_error_and_failure_context() {
         let i = I18n::english();
         let errors = [
-            CoreError::InvalidUri(String::new()),
+            CoreError::InvalidUri(curlybrace_core::uri_problem::UriProblem::Other),
             CoreError::InvalidName,
             CoreError::InvalidFolderName,
             CoreError::InvalidJson(String::new()),
@@ -269,6 +269,15 @@ mod tests {
             assert!(!s.starts_with('⟦'), "missing {}", e.i18n_key());
             assert!(!s.is_empty());
         }
+        for problem in curlybrace_core::uri_problem::UriProblem::ALL {
+            let s = i.error(&CoreError::InvalidUri(problem));
+            assert!(!s.starts_with('⟦'), "missing {}", problem.i18n_key());
+            assert!(!s.contains('{'), "{}", problem.i18n_key());
+        }
+        let stray = i.error(&CoreError::InvalidUri(
+            curlybrace_core::uri_problem::UriProblem::StrayAtSign,
+        ));
+        assert!(stray.contains("%40"), "{stray}");
         for c in [
             "connect",
             "list_databases",

@@ -374,6 +374,16 @@ mod tests {
     }
 
     #[test]
+    fn save_points_a_unicode_host_to_from_uri_instead_of_rewriting_it() {
+        let f = ConnectionForm {
+            uri: "mongodb://bücher.example/".into(),
+            ..valid()
+        };
+        let err = f.to_checked_config().unwrap_err();
+        assert_eq!(err.i18n_key(), "errors.invalid_uri_non_ascii_host");
+    }
+
+    #[test]
     fn save_rejects_an_at_sign_in_the_tail_or_userinfo_and_a_trailing_comma_without_echo() {
         for bad in [
             "mongodb://admin:2024/S3CR3T@db",

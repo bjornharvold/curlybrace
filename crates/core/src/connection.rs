@@ -1,4 +1,5 @@
 use crate::error::{CoreError, Result};
+use crate::uri_problem::UriProblem;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -146,9 +147,7 @@ impl ConnectionConfig {
         if self.auth == AuthMechanism::X509
             && !(self.tls.enabled && self.tls.client_cert_key_file.is_some())
         {
-            return Err(CoreError::InvalidUri(
-                "x509 requires tls and a client certificate".into(),
-            ));
+            return Err(CoreError::InvalidUri(UriProblem::X509Needs));
         }
         if let Some(ssh) = &self.ssh {
             if ssh.host.trim().is_empty() || ssh.username.trim().is_empty() || ssh.port == 0 {
@@ -165,19 +164,15 @@ impl ConnectionConfig {
             .uri
             .strip_prefix("mongodb+srv://")
             .or_else(|| self.uri.strip_prefix("mongodb://"))
-            .ok_or_else(|| {
-                CoreError::InvalidUri("scheme must be mongodb:// or mongodb+srv://".into())
-            })?;
+            .ok_or(CoreError::InvalidUri(UriProblem::MissingScheme))?;
         let authority = rest.split(['/', '?']).next().unwrap_or("");
         if authority.is_empty() {
-            return Err(CoreError::InvalidUri("missing host".into()));
+            return Err(CoreError::InvalidUri(UriProblem::MissingHost));
         }
         // userinfo is everything before the last '@' in the authority
         if let Some((userinfo, _)) = authority.rsplit_once('@') {
             if userinfo.contains(':') {
-                return Err(CoreError::InvalidUri(
-                    "password must not be embedded in the uri".into(),
-                ));
+                return Err(CoreError::InvalidUri(UriProblem::SecretInUri));
             }
         }
         Ok(())
@@ -313,7 +308,17 @@ mod tests {
     fn x509_needs_client_cert_and_tls() {
         let mut c = ConnectionConfig::new("a", "mongodb://h");
         c.auth = AuthMechanism::X509;
-        assert!(c.validate().is_err());
+        let needs = Err(CoreError::InvalidUri(UriProblem::X509Needs));
+        assert_eq!(c.validate(), needs);
+        c.tls.enabled = true;
+        assert_eq!(c.validate(), needs, "TLS alone is not enough");
+        c.tls.enabled = false;
+        c.tls.client_cert_key_file = Some("/tmp/c.pem".into());
+        assert_eq!(
+            c.validate(),
+            needs,
+            "a certificate without TLS is not enough"
+        );
         c.tls.enabled = true;
         c.tls.client_cert_key_file = Some("/tmp/c.pem".into());
         assert!(c.validate().is_ok());
@@ -389,6 +394,19 @@ mod tests {
             c.validate().is_err(),
             "a blank folder must be None, not an empty string"
         );
+    }
+
+    /// Hosts may hold the two joiners (see `uri_host`); names and folders must not.
+    #[test]
+    fn names_and_folders_still_reject_the_zero_width_joiners() {
+        for c in ['\u{200C}', '\u{200D}'] {
+            assert!(is_forbidden_label_char(c), "{c:?}");
+            let mut cfg = ConnectionConfig::new(&format!("a{c}b"), "mongodb://h");
+            assert!(!cfg.name_is_valid(), "{c:?}");
+            cfg.name = "ab".into();
+            cfg.folder = Some(format!("f{c}g"));
+            assert!(!cfg.folder_is_valid(), "{c:?}");
+        }
     }
 
     const FORMAT_CHARS: [char; 5] = ['\u{202E}', '\u{200B}', '\u{2066}', '\u{FEFF}', '\u{061C}'];

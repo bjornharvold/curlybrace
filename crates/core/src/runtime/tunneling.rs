@@ -11,6 +11,7 @@ use crate::connection::{ConnectionConfig, SshAuth, SshConfig};
 use crate::error::{CoreError, Result};
 use crate::secrets::{SecretKind, secret_key};
 use crate::tunnel::{HostKeyDecision, HostKeyPrompt, Tunnel, open_tunnel_shared};
+use crate::uri_problem::UriProblem;
 
 use super::Shared;
 use super::session::Session;
@@ -137,8 +138,9 @@ pub(super) fn parse_target(uri: &str) -> Result<(String, u16)> {
             "ssh tunnels cannot be combined with mongodb+srv uris".into(),
         ));
     }
-    let invalid = || CoreError::InvalidUri("the connection uri has no usable host".into());
-    let rest = uri.strip_prefix("mongodb://").ok_or_else(invalid)?;
+    let rest = uri
+        .strip_prefix("mongodb://")
+        .ok_or(CoreError::InvalidUri(UriProblem::MissingScheme))?;
     let authority = rest.split(['/', '?']).next().unwrap_or_default();
     let hosts = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
     if hosts.contains(',') {
@@ -146,12 +148,13 @@ pub(super) fn parse_target(uri: &str) -> Result<(String, u16)> {
             "ssh tunnels support a single host only, not multi-host uris".into(),
         ));
     }
-    split_host_port(hosts).ok_or_else(invalid)
+    split_host_port(hosts).map_err(CoreError::InvalidUri)
 }
 
-fn split_host_port(hosts: &str) -> Option<(String, u16)> {
+/// Splits one `host[:port]` (or `[v6][:port]`); a failure names what to fix.
+fn split_host_port(hosts: &str) -> std::result::Result<(String, u16), UriProblem> {
     let (host, port) = if let Some(bracketed) = hosts.strip_prefix('[') {
-        let (host, tail) = bracketed.split_once(']')?;
+        let (host, tail) = bracketed.split_once(']').ok_or(UriProblem::BadHost)?;
         (host, tail.strip_prefix(':'))
     } else {
         match hosts.rsplit_once(':') {
@@ -160,13 +163,13 @@ fn split_host_port(hosts: &str) -> Option<(String, u16)> {
         }
     };
     if host.is_empty() {
-        return None;
+        return Err(UriProblem::MissingHost);
     }
     let port = match port {
         None => DEFAULT_MONGO_PORT,
-        Some(p) => p.parse().ok()?,
+        Some(p) => p.parse().map_err(|_| UriProblem::BadPort)?,
     };
-    Some((host.to_string(), port))
+    Ok((host.to_string(), port))
 }
 
 /// Where the tunnel's secret comes from.
