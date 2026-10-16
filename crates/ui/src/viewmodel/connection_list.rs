@@ -151,6 +151,7 @@ pub fn grouped<'a>(rows: &[&'a ConnectionConfig]) -> Vec<Group<'a>> {
 
 /// The hosts of the URI, without credentials, path or options. Never panics; a uri that
 /// is not a connection string yields whatever host-like text it has (possibly empty).
+/// This is the match key for filtering and sorting, not display text (see [`server_hosts`]).
 pub fn servers(cfg: &ConnectionConfig) -> String {
     curlybrace_core::connection_repair::uri_hosts(&cfg.uri)
 }
