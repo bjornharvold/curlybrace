@@ -11,21 +11,31 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
         Banner::ImportFailed(e) => (i18n.t(e.i18n_key()), None),
         Banner::ExportFailed(_) => (i18n.t("banner.export_failed"), None),
-        Banner::Recovery(r) => {
-            let count = match r {
-                Recovery::Skipped { count, .. } | Recovery::Repaired { count, .. } => *count,
-                _ => 0,
-            };
-            (
-                i18n.t_with(r.i18n_key(), &[("n", &count.to_string())]),
-                None,
-            )
-        }
+        Banner::Recovery(r) => (recovery_headline(r, i18n), None),
         Banner::NotConnected => (i18n.t("banner.not_connected"), None),
         Banner::HostForgotten => (i18n.t("banner.host_forgotten"), None),
         Banner::ProjectionReadOnly => (i18n.t("banner.projection_read_only"), None),
         Banner::FieldsConflict => (i18n.t("banner.fields_conflict"), None),
         Banner::FieldsCovered => (i18n.t("banner.fields_covered"), None),
+    }
+}
+
+fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
+    let key = recovery.i18n_key();
+    match recovery {
+        Recovery::Skipped { count, .. } | Recovery::Repaired { count, .. } => {
+            i18n.t_with(key, &[("n", &count.to_string())])
+        }
+        Recovery::SkippedAndRepaired {
+            skipped, repaired, ..
+        } => i18n.t_with(
+            key,
+            &[
+                ("skipped", &skipped.to_string()),
+                ("repaired", &repaired.to_string()),
+            ],
+        ),
+        Recovery::Corrupt { .. } | Recovery::Unreadable { .. } => i18n.t(key),
     }
 }
 
@@ -89,6 +99,16 @@ mod tests {
             }),
             Banner::Recovery(Recovery::Skipped {
                 count: 2,
+                backed_up: false,
+            }),
+            Banner::Recovery(Recovery::SkippedAndRepaired {
+                skipped: 2,
+                repaired: 3,
+                backed_up: true,
+            }),
+            Banner::Recovery(Recovery::SkippedAndRepaired {
+                skipped: 2,
+                repaired: 3,
                 backed_up: false,
             }),
             Banner::Recovery(Recovery::Repaired {
@@ -180,5 +200,19 @@ mod tests {
         }));
         assert!(head.contains('3') && head.contains("adjusted"), "{head}");
         assert!(!head.contains("skipped"), "{head}");
+    }
+
+    #[test]
+    fn a_file_with_skipped_and_adjusted_entries_says_both() {
+        for backed_up in [true, false] {
+            let (head, _) = resolved(&Banner::Recovery(Recovery::SkippedAndRepaired {
+                skipped: 7,
+                repaired: 4,
+                backed_up,
+            }));
+            assert!(head.contains('7') && head.contains("not loaded"), "{head}");
+            assert!(head.contains('4') && head.contains("adjusted"), "{head}");
+            assert!(!head.contains('{'), "{head}");
+        }
     }
 }

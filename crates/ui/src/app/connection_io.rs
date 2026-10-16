@@ -1,10 +1,11 @@
 //! Import and export of the saved-connection list. Exports never carry secrets (the type has
 //! no secret fields); imports never trust ids, names or sizes from the file.
 use super::connections::{ConfigPath, persist, refused};
-use super::persistence::{PersistError, atomic_write, parse_connections};
+use super::persistence::{PersistError, atomic_write, parse_entries, read_entries};
 use super::state::{AppState, Banner};
 use crate::views::connections::{ConnectionsState, Notice};
-use curlybrace_core::connection::{ConnectionConfig, unique_name};
+use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::connection_names::NameAllocator;
 use std::path::Path;
 use uuid::Uuid;
 
@@ -50,28 +51,25 @@ pub fn prepare_import(
     if bytes.len() > MAX_IMPORT_BYTES {
         return Err(ImportError::TooLarge);
     }
-    let entries = serde_json::from_slice::<Vec<serde_json::Value>>(bytes)
-        .map_err(|_| ImportError::NotValid)?
-        .len();
-    if entries > MAX_IMPORT_ENTRIES {
+    // One parse: the count is checked before any entry is decoded or validated.
+    let entries = read_entries(bytes).map_err(|_| ImportError::NotValid)?;
+    if entries.len() > MAX_IMPORT_ENTRIES {
         return Err(ImportError::TooManyEntries);
     }
-    let loaded = parse_connections(bytes).map_err(|_| ImportError::NotValid)?;
-    let mut taken = existing.to_vec();
-    let mut fresh = Vec::with_capacity(loaded.connections.len());
-    for c in loaded.connections {
-        let name = unique_name(&c.name, &taken);
-        let c = ConnectionConfig {
+    let loaded = parse_entries(entries, false).map_err(|_| ImportError::NotValid)?;
+    let mut names = NameAllocator::new(existing);
+    let fresh: Vec<ConnectionConfig> = loaded
+        .connections
+        .into_iter()
+        .map(|c| ConnectionConfig {
             id: Uuid::new_v4(),
-            name,
+            name: names.allocate(&c.name),
             created_at: Some(now),
             updated_at: Some(now),
             last_connected: None,
             ..c
-        };
-        taken.push(c.clone());
-        fresh.push(c);
-    }
+        })
+        .collect();
     Ok(Imported {
         connections: fresh,
         skipped: loaded.skipped,

@@ -1,6 +1,5 @@
 use crate::error::{CoreError, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -120,15 +119,28 @@ impl ConnectionConfig {
         Ok(())
     }
 
+    fn validate_name(&self) -> Result<()> {
+        let bad = self.name.trim().is_empty()
+            || self.name.chars().count() > MAX_NAME_LEN
+            || self.name.chars().any(is_forbidden_label_char);
+        if bad {
+            return Err(CoreError::InvalidName);
+        }
+        Ok(())
+    }
+
+    /// Whether the name alone passes its check (what `validate()` requires of it).
+    pub fn name_is_valid(&self) -> bool {
+        self.validate_name().is_ok()
+    }
+
+    /// Whether the folder alone passes its check (no folder is fine).
+    pub fn folder_is_valid(&self) -> bool {
+        self.validate_folder().is_ok()
+    }
+
     pub fn validate(&self) -> Result<()> {
-        if self.name.trim().is_empty() {
-            return Err(CoreError::InvalidName);
-        }
-        if self.name.chars().count() > MAX_NAME_LEN
-            || self.name.chars().any(is_forbidden_label_char)
-        {
-            return Err(CoreError::InvalidName);
-        }
+        self.validate_name()?;
         self.validate_uri()?;
         self.validate_folder()?;
         if self.auth == AuthMechanism::X509
@@ -197,22 +209,10 @@ pub fn is_forbidden_label_char(c: char) -> bool {
 }
 
 /// `base`, or `base 2`, `base 3`, ... if a connection already has that name. A suffixed name
-/// never exceeds `MAX_NAME_LEN` characters: the base is truncated (on a char boundary) to fit.
+/// never exceeds `MAX_NAME_LEN` characters: the base is truncated (on a char boundary) to fit,
+/// without leaving whitespace before the suffix. To name many at once use `NameAllocator`.
 pub fn unique_name(base: &str, existing: &[ConnectionConfig]) -> String {
-    let taken: HashSet<&str> = existing.iter().map(|c| c.name.as_str()).collect();
-    let base: String = base.chars().take(MAX_NAME_LEN).collect();
-    if !taken.contains(base.as_str()) {
-        return base;
-    }
-    (2usize..)
-        .map(|n| {
-            let suffix = format!(" {n}");
-            let keep = MAX_NAME_LEN.saturating_sub(suffix.chars().count());
-            let head: String = base.chars().take(keep).collect();
-            format!("{head}{suffix}")
-        })
-        .find(|candidate| !taken.contains(candidate.as_str()))
-        .unwrap_or(base)
+    crate::connection_names::NameAllocator::new(existing).allocate(base)
 }
 
 #[cfg(test)]
@@ -229,6 +229,18 @@ mod tests {
         assert!(!ok("a\nb"));
         assert!(!ok("a\tb"));
         assert!(!ok("a\u{0}b"));
+    }
+
+    #[test]
+    fn a_suffix_cut_never_leaves_a_space_before_the_number() {
+        // The truncated base ends in a space exactly where the suffix has to go.
+        let base = format!("{} bcd", "a".repeat(MAX_NAME_LEN - 3));
+        let kept: String = base.chars().take(MAX_NAME_LEN).collect();
+        let existing = [ConnectionConfig::new(&kept, "mongodb://h")];
+        let name = unique_name(&base, &existing);
+        assert_eq!(name, format!("{} 2", "a".repeat(MAX_NAME_LEN - 3)));
+        assert!(name.chars().count() <= MAX_NAME_LEN);
+        assert!(!name.contains("  "));
     }
 
     #[test]

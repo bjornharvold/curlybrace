@@ -34,14 +34,14 @@ pub mod state;
 use crate::I18n;
 use crate::error_text::failure_log_line;
 use crate::viewmodel::compare::{ExportUi, SessionPhase};
-use crate::views::connections::{ConnectionAction, ConnectionsState, TestState};
+use crate::views::connections::{ConnectionAction, TestState};
 use compare::CompareAction;
 use connection_picker::ConnPickKind;
 use connections::{ConfigPath, load_startup, refresh_flags};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{
-    COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle,
+    COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle, TryRecvError,
     default_known_hosts_path, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
@@ -93,6 +93,8 @@ pub struct CurlybraceApp {
     pick: Option<PendingPick>,
     /// The import/export dialog being shown, if any: at most one at a time.
     conn_pick: Option<connection_picker::ConnPick>,
+    /// The runtime was found gone (never reset: it is not restarted); keeps its banner to one.
+    runtime_gone: bool,
 }
 
 impl CurlybraceApp {
@@ -116,6 +118,7 @@ impl CurlybraceApp {
             repaint: Arc::new(|| {}),
             pick: None,
             conn_pick: None,
+            runtime_gone: false,
         }
     }
 
@@ -304,25 +307,21 @@ impl CurlybraceApp {
     }
 
     /// The runtime is gone: the browsing session and the compare session (whose connections
-    /// lived in it) are both over.
+    /// lived in it) are both over, and the failure banner says so. A command sent after the loss
+    /// raises it again: starting a connect withdraws a banner nobody owns, and the failed send
+    /// must not leave the person without an explanation. `runtime_gone` only keeps the per-frame
+    /// `pump` from repeating the notice once a failed send has already given it.
     fn runtime_stopped(&mut self) {
-        let error = CoreError::Database("runtime stopped".into());
+        self.runtime_gone = true;
         let cleared = std::mem::take(&mut self.state).session_cleared();
-        // A test that was waiting for its answer will never get one.
-        let test = match &cleared.conn.test {
-            TestState::Running { .. } => TestState::Idle,
-            other => other.clone(),
-        };
         self.state = AppState {
             compare: cleared.compare.clone().session_dropped(),
-            conn: ConnectionsState {
-                test,
-                ..cleared.conn
-            },
+            // A test that was waiting for its answer will never get one.
+            conn: connection_test::abandoned(cleared.conn),
             status: ConnStatus::Disconnected,
             banner: Some(Banner::Failure {
                 context: "runtime",
-                error,
+                error: CoreError::Database("runtime stopped".into()),
             }),
             ..cleared
         };
@@ -471,7 +470,18 @@ impl CurlybraceApp {
     fn pump(&mut self) {
         self.drain_requests();
         self.prompt = std::mem::take(&mut self.prompt).pruned();
-        while let Ok(event) = self.handle.rx.try_recv() {
+        loop {
+            let event = match self.handle.rx.try_recv() {
+                Ok(event) => event,
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    // Repeats every frame while closed; only the first notice acts.
+                    if !self.runtime_gone {
+                        self.runtime_stopped();
+                    }
+                    break;
+                }
+            };
             if let Some(line) = failure_log_line(&event) {
                 log::warn!("{line}");
             }
@@ -606,6 +616,18 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod file_picker_tests;
+
+#[cfg(test)]
+mod connection_import_tests;
+
+#[cfg(test)]
+mod connection_stamp_tests;
+
+#[cfg(test)]
+mod persistence_load_tests;
+
+#[cfg(test)]
+mod runtime_closed_tests;
 
 #[cfg(test)]
 mod session_labels_tests;

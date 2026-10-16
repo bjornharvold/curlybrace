@@ -54,6 +54,9 @@ use crate::tunnel::{HostKeyPrompt, RejectUnknownHostKeys};
 use session::Session;
 
 pub use session::{EMBEDDED_SESSION, SessionId};
+/// What `RuntimeHandle::rx.try_recv()` reports, so callers can tell "no event yet" from "the
+/// runtime is gone" without depending on tokio themselves.
+pub use tokio::sync::mpsc::error::TryRecvError;
 pub use tunneling::{
     SshTunnelOpener, TunnelHandle, TunnelOpener, TunnelRequest, default_known_hosts_path,
 };
