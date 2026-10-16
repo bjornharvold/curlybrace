@@ -129,11 +129,11 @@ fn normalized_host(host: &str) -> Check<String> {
 
 fn to_punycode(host: &str) -> Check<String> {
     // Two guards against a stored host that differs from what was typed. The conversion silently
-    // DROPS characters it maps to nothing (variation selectors, soft hyphen, zero-width marks,
-    // Mongolian free variation selectors, ...), so every non-ASCII character is converted alone
+    // DROPS characters it maps to nothing (variation selectors, soft hyphen, the zero-width
+    // space, Mongolian free variation selectors, ...), so every non-ASCII character is converted alone
     // and refused when that yields an empty string: the answer comes from the converter's own
     // table, so it cannot lag behind Unicode. The shared forbidden-label set additionally
-    // refuses control and bidi characters, which the converter rejects or keeps.
+    // refuses control, bidi and zero-width joiner characters, which the converter rejects or keeps.
     if host.len() > MAX_UNICODE_HOST_BYTES
         || host
             .chars()

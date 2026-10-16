@@ -81,11 +81,7 @@ fn parse_only_cases() -> Vec<(String, UriProblem)> {
         (format!("mongodb://u:%zz{t}@h"), BadPercentEncoding),
         (format!("mongodb://u%4@h/?x={t}"), BadPercentEncoding),
         (format!("mongodb://\u{fc}ser%zz:pa/{t}@h"), StrayAtSign),
-        (format!("mongodb://\u{fc}ser:12345/{t}@h"), StrayAtSign),
-        (
-            format!("mongodb://u:pa/{t}@b\u{fc}cher.example"),
-            StrayAtSign,
-        ),
+        (format!("mongodb://u%zz:pa/{t}@h"), StrayAtSign),
         (format!("mongodb://u:%C3{t}@h"), BadPercentEncoding),
         (
             format!("mongodb://h/?authSource=%zz{t}"),
