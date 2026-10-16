@@ -104,3 +104,71 @@ async fn a_save_failure_raised_from_inside_the_dialog_still_shows() {
     assert!(h.app.state().conn.editing, "a failed save keeps the dialog");
     assert!(shown(&h), "the save failure belongs to the dialog");
 }
+
+fn doomed_form() -> ConnectionForm {
+    ConnectionForm {
+        name: "Doomed".into(),
+        uri: "mongodb://localhost:27017".into(),
+        ..ConnectionForm::default()
+    }
+}
+
+fn save_doomed(h: &mut Harness) {
+    h.app
+        .dispatch_connection(ConnectionAction::Save(Box::new(doomed_form())));
+    h.frame();
+}
+
+fn is_persist_banner(h: &Harness) -> bool {
+    matches!(h.app.state().banner, Some(Banner::Persist(_)))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_same_refused_save_is_shown_again_after_cancel_and_reopen() {
+    let mut h = Harness::new(Vec::new());
+    h.app.state_mut().persist = PersistGuard::blocked();
+    open_dialog(&mut h);
+    save_doomed(&mut h);
+    assert!(is_persist_banner(&h) && shown(&h), "first refusal shows");
+    // Cancel, reopen: the banner predates this opening, so it is hidden until acted on.
+    h.app.state_mut().conn.close_edit();
+    h.frame();
+    open_dialog(&mut h);
+    assert!(!shown(&h), "the old refusal is not repeated on opening");
+    save_doomed(&mut h);
+    assert!(h.app.state().conn.editing, "the dialog stays open");
+    assert!(shown(&h), "the identical refusal is shown again");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_list_action_then_new_and_save_shows_the_refusal_first_time() {
+    let cfg = curlybrace_core::connection::ConnectionConfig::new("Existing", "mongodb://h");
+    let id = cfg.id;
+    let mut h = Harness::new(vec![cfg]);
+    h.app.state_mut().persist = PersistGuard::blocked();
+    h.app.dispatch_connection(ConnectionAction::Delete(id));
+    h.frame();
+    assert!(is_persist_banner(&h), "the delete was refused");
+    open_dialog(&mut h);
+    assert!(!shown(&h), "predates the opening");
+    save_doomed(&mut h);
+    assert!(h.app.state().conn.editing);
+    assert!(shown(&h), "the save's own refusal appears on the first try");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stale_banner_not_produced_by_a_save_stays_hidden_through_a_rejected_form() {
+    let mut h = Harness::new(Vec::new());
+    h.app.state_mut().banner = Some(connect_failure());
+    h.frame();
+    open_dialog(&mut h);
+    // A form error keeps the dialog open but raises no banner: the stale one is not claimed.
+    h.app
+        .dispatch_connection(ConnectionAction::Save(Box::new(ConnectionForm {
+            name: "  ".into(),
+            ..doomed_form()
+        })));
+    h.frame();
+    assert!(h.app.state().conn.editing);
+    assert!(!shown(&h), "a save that raised nothing claims nothing");
+}

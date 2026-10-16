@@ -6,9 +6,12 @@
 //! per frame, so every way in (New, Edit, Duplicate) and every way out (Cancel, Escape, Save,
 //! delete, connect) is covered without touching them.
 //!
-//! Known limit: the banner is compared by value, so an IDENTICAL banner raised again after the
-//! dialog opened (the same failure twice) is not considered new. A counter on every banner
-//! assignment would fix that at the cost of touching every place that raises one.
+//! The banner is compared by value, so an action that starts FROM the dialog and raises a banner
+//! while the dialog stays open (a refused or failed Save) CLAIMS it with `claimed`: the baseline
+//! is dropped, so the banner shows even when an identical one was showing at opening.
+//!
+//! Known limit: a banner raised by something other than the dialog (a background event) that is
+//! IDENTICAL to the one showing at opening is still not considered new.
 use super::state::Banner;
 
 /// The banner showing when the dialog was last seen opening; default while it is closed.
@@ -29,6 +32,16 @@ impl DialogBannerWatch {
                 open: true,
                 baseline: banner.cloned(),
             },
+        }
+    }
+
+    /// The watch after the dialog's own action raised the banner now showing while the dialog
+    /// stays open: nothing is "already showing" any more, so that banner counts as new. A
+    /// closed dialog is unaffected.
+    pub fn claimed(self) -> Self {
+        Self {
+            baseline: None,
+            ..self
         }
     }
 
@@ -80,6 +93,34 @@ mod tests {
             !reopened.is_new(&failure("b")),
             "the new opening has a new baseline"
         );
+    }
+
+    #[test]
+    fn a_claimed_banner_is_new_even_if_identical_to_the_baseline() {
+        let open = DialogBannerWatch::default().observed(true, Some(&failure("a")));
+        assert!(!open.is_new(&failure("a")));
+        let claimed = open.claimed();
+        assert!(claimed.is_new(&failure("a")));
+        assert!(
+            claimed
+                .observed(true, Some(&failure("a")))
+                .is_new(&failure("a"))
+        );
+    }
+
+    #[test]
+    fn claiming_while_closed_changes_nothing_and_closing_forgets_the_claim() {
+        assert_eq!(
+            DialogBannerWatch::default().claimed(),
+            DialogBannerWatch::default()
+        );
+        let claimed = DialogBannerWatch::default()
+            .observed(true, Some(&failure("a")))
+            .claimed();
+        let reopened = claimed
+            .observed(false, None)
+            .observed(true, Some(&failure("a")));
+        assert!(!reopened.is_new(&failure("a")));
     }
 
     #[test]
