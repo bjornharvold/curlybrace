@@ -74,8 +74,9 @@ pub(super) fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String, passw
 fn auth_combo(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
     ui.horizontal(|ui| {
         let caption = ui.label(i18n.t("connections.auth"));
+        let selected = i18n.t(auth_label_key(form.auth));
         let combo = egui::ComboBox::from_id_salt("connection_auth")
-            .selected_text(i18n.t(auth_label_key(form.auth)))
+            .selected_text(selected.clone())
             .show_ui(ui, |ui| {
                 for option in auth_options() {
                     let label = i18n.t(auth_label_key(option));
@@ -86,7 +87,10 @@ fn auth_combo(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
         // keep the selected value as the widget's value.
         let name = i18n.t("connections.auth");
         combo.response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone())
+            let mut info =
+                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone());
+            info.current_text_value = Some(selected.clone());
+            info
         });
         combo.response.labelled_by(caption.id);
     });

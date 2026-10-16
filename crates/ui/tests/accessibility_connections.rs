@@ -296,6 +296,27 @@ fn the_authentication_drop_down_has_the_authentication_label() {
 }
 
 #[test]
+fn the_authentication_drop_down_exposes_its_current_mechanism_as_its_value() {
+    use curlybrace_core::connection::AuthMechanism;
+    use curlybrace_ui::viewmodel::auth_label_key;
+    let i18n = I18n::english();
+    let value_of = |prepare: fn(&mut ConnectionsState)| {
+        let harness = dialog_harness(prepare);
+        harness
+            .get_by_role_and_label(Role::ComboBox, &i18n.t("connections.auth"))
+            .accesskit_node()
+            .value()
+    };
+    let none = value_of(|state| state.form.auth = AuthMechanism::None);
+    assert_eq!(none, Some(i18n.t(auth_label_key(AuthMechanism::None))));
+    let scram = value_of(|state| state.form.auth = AuthMechanism::ScramSha256);
+    assert_eq!(
+        scram,
+        Some(i18n.t(auth_label_key(AuthMechanism::ScramSha256)))
+    );
+}
+
+#[test]
 fn a_banner_is_repeated_inside_the_open_dialog() {
     let harness = dialog_harness(|state| {
         state.dialog_banner = vec!["Could not save".into(), "keychain said no".into()];
