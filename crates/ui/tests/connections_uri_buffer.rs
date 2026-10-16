@@ -40,6 +40,11 @@ fn remembers_text(ctx: &egui::Context) -> bool {
     })
 }
 
+/// True when egui keeps no editor state at all for the box (it is not drawn, so none is rebuilt).
+fn editor_state_gone(ctx: &egui::Context) -> bool {
+    TextEditState::load(ctx, uri_input_id()).is_none()
+}
+
 fn field_label() -> String {
     I18n::english().t("connections.from_uri_hint")
 }
@@ -53,9 +58,10 @@ fn paste(harness: &mut Harness<'static, ConnectionsState>) {
     harness
         .get_by_role_and_label(Role::PasswordInput, &field_label())
         .type_text(SECRET);
+    // kittest advances egui's clock by a quarter second per step, so five steps pass the undoer's
+    // one second threshold and the paste is recorded as an undo point.
     for _ in 0..5 {
         harness.step();
-        std::thread::sleep(std::time::Duration::from_millis(150));
     }
     assert_eq!(harness.state().uri_input, SECRET);
     assert!(remembers_text(&harness.ctx), "precondition: undo history");
@@ -85,7 +91,7 @@ fn cancel_wipes_the_editor_state() {
     harness.get_by_role_and_label(Role::Button, &cancel).click();
     settle(&mut harness);
     assert!(!harness.state().editing);
-    assert!(!remembers_text(&harness.ctx));
+    assert!(editor_state_gone(&harness.ctx));
 }
 
 #[test]
@@ -95,7 +101,7 @@ fn reset_tools_wipes_the_editor_state_even_with_the_dialog_closed() {
     harness.state_mut().editing = false;
     harness.state_mut().reset_tools();
     settle(&mut harness);
-    assert!(!remembers_text(&harness.ctx));
+    assert!(editor_state_gone(&harness.ctx));
 }
 
 #[test]
