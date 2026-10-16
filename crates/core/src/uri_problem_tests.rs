@@ -119,6 +119,8 @@ fn a_stray_at_sign_in_a_query_value_is_still_accepted() {
     assert!(check_hosts("mongodb://h/?appName=bob@laptop").is_ok());
 }
 
+/// Structural guard: `UriProblem` carries no text today, so this cannot fail; it fails the day a
+/// variant starts holding part of the input.
 #[test]
 fn no_error_text_or_debug_ever_contains_the_input() {
     let all: Vec<String> = shared_cases()
