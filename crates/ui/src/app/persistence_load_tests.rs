@@ -85,3 +85,52 @@ fn skipped_and_adjusted_entries_make_one_combined_recovery() {
         })
     );
 }
+
+fn with_folder(name: &str, folder: &str) -> ConnectionConfig {
+    let mut c = ConnectionConfig::new(name, "mongodb://h");
+    c.folder = Some(folder.into());
+    c
+}
+
+#[test]
+fn an_invalid_folder_is_repaired_without_touching_a_valid_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let list = vec![with_folder("prod ", " work ")];
+    assert!(
+        ConnectionConfig::new("prod ", "mongodb://h")
+            .validate()
+            .is_ok()
+    );
+    let path = write(&dir, &list);
+    let loaded = load_connections(&path).unwrap();
+    assert_eq!(loaded.connections[0].name, "prod ");
+    assert_eq!(loaded.connections[0].folder.as_deref(), Some("work"));
+    assert_eq!((loaded.skipped, loaded.repaired), (0, 1));
+    assert_eq!(
+        startup(&path, &ok_backup).recovery,
+        Some(Recovery::Repaired {
+            count: 1,
+            backed_up: true
+        })
+    );
+}
+
+#[test]
+fn an_invalid_name_is_repaired_without_touching_a_valid_folder() {
+    // A folder passes its own check; the name is the one that fails.
+    let dir = tempfile::tempdir().unwrap();
+    let list = vec![with_folder("a\nb", "work")];
+    let loaded = load_connections(&write(&dir, &list)).unwrap();
+    assert_eq!(loaded.connections[0].name, "a b");
+    assert_eq!(loaded.connections[0].folder.as_deref(), Some("work"));
+    assert_eq!(loaded.repaired, 1);
+}
+
+#[test]
+fn an_entry_with_both_labels_invalid_gets_both_repaired() {
+    let dir = tempfile::tempdir().unwrap();
+    let loaded = load_connections(&write(&dir, &[with_folder("a\nb", " work ")])).unwrap();
+    assert_eq!(loaded.connections[0].name, "a b");
+    assert_eq!(loaded.connections[0].folder.as_deref(), Some("work"));
+    assert_eq!(loaded.repaired, 1);
+}

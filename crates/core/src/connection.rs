@@ -119,15 +119,28 @@ impl ConnectionConfig {
         Ok(())
     }
 
+    fn validate_name(&self) -> Result<()> {
+        let bad = self.name.trim().is_empty()
+            || self.name.chars().count() > MAX_NAME_LEN
+            || self.name.chars().any(is_forbidden_label_char);
+        if bad {
+            return Err(CoreError::InvalidName);
+        }
+        Ok(())
+    }
+
+    /// Whether the name alone passes its check (what `validate()` requires of it).
+    pub fn name_is_valid(&self) -> bool {
+        self.validate_name().is_ok()
+    }
+
+    /// Whether the folder alone passes its check (no folder is fine).
+    pub fn folder_is_valid(&self) -> bool {
+        self.validate_folder().is_ok()
+    }
+
     pub fn validate(&self) -> Result<()> {
-        if self.name.trim().is_empty() {
-            return Err(CoreError::InvalidName);
-        }
-        if self.name.chars().count() > MAX_NAME_LEN
-            || self.name.chars().any(is_forbidden_label_char)
-        {
-            return Err(CoreError::InvalidName);
-        }
+        self.validate_name()?;
         self.validate_uri()?;
         self.validate_folder()?;
         if self.auth == AuthMechanism::X509
