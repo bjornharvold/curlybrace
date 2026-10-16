@@ -8,7 +8,7 @@ use curlybrace_core::connection::{SshAuth, SshConfig};
 use curlybrace_core::runtime::Command;
 use curlybrace_core::secrets::{MemorySecretStore, SecretKind, secret_key};
 use curlybrace_core::tunnel::HostKeyDecision;
-use host_key::Waiter;
+use host_key::{HostKeyAnswer, Waiter};
 use std::sync::mpsc::Sender;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
@@ -154,10 +154,30 @@ fn the_prompt_names_the_connection_that_asked_and_answers_only_for_it() {
     let first = r.ask("ha", "fa");
     let second = r.ask("hb", "fb");
     assert_eq!(r.shown(), named("ha", "fa", "a"));
-    r.app.answer_host_key(HostKeyDecision::Trust);
+    r.app
+        .answer_host_key(HostKeyAnswer::new("ha", "fa", HostKeyDecision::Trust));
     assert_eq!(first.try_recv(), Ok(HostKeyDecision::Trust));
     assert!(second.try_recv().is_err(), "the second is still waiting");
     assert_eq!(r.shown(), named("hb", "fb", "b"));
+}
+
+#[test]
+fn an_answer_for_a_question_that_moved_on_never_answers_the_next_one() {
+    let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
+    r.connect(0);
+    r.connect(1);
+    let first = r.ask("ha", "fa");
+    let second = r.ask("hb", "fb");
+    assert_eq!(r.shown(), named("ha", "fa", "a"));
+    drop(first); // the first question is withdrawn after its dialog was drawn
+    r.shown(); // the next frame prunes it
+    r.app
+        .answer_host_key(HostKeyAnswer::new("ha", "fa", HostKeyDecision::Trust));
+    assert!(second.try_recv().is_err(), "the click aimed at A skipped B");
+    assert_eq!(r.shown(), named("hb", "fb", "b"));
+    r.app
+        .answer_host_key(HostKeyAnswer::new("hb", "fb", HostKeyDecision::Trust));
+    assert_eq!(second.try_recv(), Ok(HostKeyDecision::Trust));
 }
 
 #[test]
@@ -168,10 +188,15 @@ fn rejecting_the_first_leaves_the_second_answerable() {
     let first = r.ask("ha", "fa");
     let second = r.ask("hb", "fb");
     r.shown();
-    r.app.answer_host_key(HostKeyDecision::Reject);
+    r.app
+        .answer_host_key(HostKeyAnswer::new("ha", "fa", HostKeyDecision::Reject));
     assert_eq!(first.try_recv(), Ok(HostKeyDecision::Reject));
     assert_eq!(r.shown(), named("hb", "fb", "b"));
-    r.app.answer_host_key(HostKeyDecision::TrustAndRemember);
+    r.app.answer_host_key(HostKeyAnswer::new(
+        "hb",
+        "fb",
+        HostKeyDecision::TrustAndRemember,
+    ));
     assert_eq!(second.try_recv(), Ok(HostKeyDecision::TrustAndRemember));
 }
 
@@ -393,7 +418,8 @@ fn closing_a_parked_session_rejects_only_its_question_and_the_next_is_shown() {
     r.app.dispatch(Input::Disconnect(r.ids[0]));
     assert_eq!(first.try_recv(), Ok(HostKeyDecision::Reject));
     assert_eq!(r.shown(), named("hb", "fb", "b"));
-    r.app.answer_host_key(HostKeyDecision::Trust);
+    r.app
+        .answer_host_key(HostKeyAnswer::new("hb", "fb", HostKeyDecision::Trust));
     assert_eq!(second.try_recv(), Ok(HostKeyDecision::Trust));
 }
 

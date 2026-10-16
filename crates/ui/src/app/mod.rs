@@ -45,10 +45,11 @@ use curlybrace_core::runtime::{
     default_known_hosts_path, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
-use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
 use file_picker::{FilePicker, NoFilePicker, PendingPick, PickPoll, start_pick, suggested_file};
-use host_key::{HOST_KEY_PROMPT_TIMEOUT, HostKeyRequest, InteractivePrompt, PromptState};
+use host_key::{
+    HOST_KEY_PROMPT_TIMEOUT, HostKeyAnswer, HostKeyRequest, InteractivePrompt, PromptState,
+};
 use panels::UiEvent;
 use persistence::default_connections_path;
 use reducer::{Input, update};
@@ -206,9 +207,15 @@ impl CurlybraceApp {
         })
     }
 
-    /// Answers the host-key question being shown (exactly once per question).
-    pub fn answer_host_key(&mut self, decision: HostKeyDecision) {
-        self.prompt = std::mem::take(&mut self.prompt).answered(decision);
+    /// Answers the host-key question `answer` was made for (exactly once per question); an
+    /// answer for a question that is no longer in front is dropped.
+    pub fn answer_host_key(&mut self, answer: HostKeyAnswer) {
+        let HostKeyAnswer {
+            host,
+            fingerprint,
+            decision,
+        } = answer;
+        self.prompt = std::mem::take(&mut self.prompt).answered_for(&host, &fingerprint, decision);
     }
 
     /// Runs one input through the reducer and sends the resulting commands.
@@ -444,7 +451,7 @@ impl CurlybraceApp {
         match event {
             UiEvent::Input(input) => self.dispatch(input),
             UiEvent::Connection(action) => self.handle_connection_action(action),
-            UiEvent::HostKey(decision) => self.answer_host_key(decision),
+            UiEvent::HostKey(answer) => self.answer_host_key(answer),
             UiEvent::ForgetConfirmed => self.confirm_forget(),
         }
     }

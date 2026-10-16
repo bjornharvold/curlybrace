@@ -2,7 +2,7 @@
 //! Every decision lives in the reducer and view-models; nothing here has logic worth testing
 //! beyond "it renders" (covered by the headless frame tests in `mod.rs`).
 use super::banner::{banner_detail, banner_prefix, banner_text};
-use super::host_key::PromptState;
+use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
@@ -22,7 +22,7 @@ use eframe::egui;
 pub enum UiEvent {
     Input(Input),
     Connection(ConnectionAction),
-    HostKey(HostKeyDecision),
+    HostKey(HostKeyAnswer),
     ForgetConfirmed,
 }
 
@@ -214,9 +214,9 @@ fn show_host_key_prompt(
     fingerprint: &str,
     asking: Option<&str>,
     i18n: &I18n,
-) -> Option<HostKeyDecision> {
+) -> Option<HostKeyAnswer> {
     let mut decision = None;
-    let modal = egui::Modal::new(egui::Id::new("host_key_prompt")).show(ctx, |ui| {
+    let modal = egui::Modal::new(dialog_id(host, fingerprint)).show(ctx, |ui| {
         ui.heading(i18n.t("hostkey.title"));
         if let Some(name) = asking {
             ui.label(i18n.t_with("hostkey.for_connection", &[("name", name)]));
@@ -239,7 +239,9 @@ fn show_host_key_prompt(
             }
         });
     });
-    decision.or_else(|| modal.should_close().then_some(HostKeyDecision::Reject))
+    let decision = decision.or_else(|| modal.should_close().then_some(HostKeyDecision::Reject));
+    // The answer names the question that was drawn, so it cannot answer a different one.
+    decision.map(|decision| HostKeyAnswer::new(host, fingerprint, decision))
 }
 
 /// Gives `response` keyboard focus the first time the prompt for `question` is drawn.

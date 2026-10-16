@@ -53,17 +53,15 @@ impl Waiter {
 
 impl Waiter {
     /// Like [`wait`](Self::wait), but looks at `live` between short slices and gives up (`Reject`)
-    /// as soon as it is false. A decision that is already waiting is still returned.
-    fn wait_while(&self, timeout: Duration, live: &dyn Fn() -> bool) -> HostKeyDecision {
+    /// as soon as it is false (`None`: nobody answered). A decision already waiting is returned.
+    fn wait_while(&self, timeout: Duration, live: &dyn Fn() -> bool) -> Option<HostKeyDecision> {
         let deadline = Instant::now() + timeout;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.rx.recv_timeout(left.min(LIVENESS_SLICE)) {
-                Ok(decision) => return decision,
-                Err(RecvTimeoutError::Disconnected) => return HostKeyDecision::Reject,
-                Err(RecvTimeoutError::Timeout) if left.is_zero() || !live() => {
-                    return HostKeyDecision::Reject;
-                }
+                Ok(decision) => return Some(decision),
+                Err(RecvTimeoutError::Disconnected) => return None,
+                Err(RecvTimeoutError::Timeout) if left.is_zero() || !live() => return None,
                 Err(RecvTimeoutError::Timeout) => {}
             }
         }
@@ -147,7 +145,40 @@ impl InteractivePrompt {
             return HostKeyDecision::Reject;
         }
         (self.repaint)();
-        reply.wait_while(self.timeout, live)
+        match reply.wait_while(self.timeout, live) {
+            Some(decision) => decision,
+            None => {
+                // Release the waiter first so the next frame prunes the dialog, then wake the UI:
+                // egui only repaints on input, so a withdrawn dialog would otherwise linger.
+                drop(reply);
+                (self.repaint)();
+                HostKeyDecision::Reject
+            }
+        }
+    }
+}
+
+/// Widget id of the dialog for one question: a different question gets different button ids, so
+/// a press aimed at one dialog cannot register as a click on the next.
+pub fn dialog_id(host: &str, fingerprint: &str) -> eframe::egui::Id {
+    eframe::egui::Id::new(("host_key_prompt", host, fingerprint))
+}
+
+/// A decision together with the question it was made for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostKeyAnswer {
+    pub host: String,
+    pub fingerprint: String,
+    pub decision: HostKeyDecision,
+}
+
+impl HostKeyAnswer {
+    pub fn new(host: &str, fingerprint: &str, decision: HostKeyDecision) -> Self {
+        Self {
+            host: host.to_owned(),
+            fingerprint: fingerprint.to_owned(),
+            decision,
+        }
     }
 }
 
@@ -182,6 +213,17 @@ impl PromptState {
             request.answer(decision);
         }
         self
+    }
+
+    /// Like [`answered`](Self::answered), but only when the prompt in front is still the
+    /// question `(host, fingerprint)` that was drawn; otherwise the answer is dropped, so a click
+    /// aimed at a withdrawn question can never answer the one that moved up behind it.
+    pub fn answered_for(self, host: &str, fingerprint: &str, decision: HostKeyDecision) -> Self {
+        if self.current() == Some((host, fingerprint)) {
+            self.answered(decision)
+        } else {
+            self
+        }
     }
 
     /// Rejects every pending request for `host` (ASCII case-insensitive) and keeps the others,
@@ -319,6 +361,84 @@ mod tests {
             "withdrawn promptly, not at the 30 s timeout"
         );
         assert!(state.pruned().current().is_none(), "dead question pruned");
+    }
+
+    fn counting_repaint() -> (Repaint, Arc<AtomicUsize>) {
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = count.clone();
+        (
+            Arc::new(move || {
+                seen.fetch_add(1, Ordering::SeqCst);
+            }),
+            count,
+        )
+    }
+
+    #[test]
+    fn a_withdrawn_question_requests_exactly_one_more_repaint_after_the_dialog_is_dead() {
+        let (repaint, count) = counting_repaint();
+        let (prompt, requests) = InteractivePrompt::channel(repaint, Duration::from_secs(30));
+        let live = Arc::new(AtomicBool::new(true));
+        let asker = {
+            let (prompt, live) = (prompt.clone(), live.clone());
+            std::thread::spawn(move || {
+                prompt.decide_while("h", "SHA256:x", &|| live.load(Ordering::SeqCst))
+            })
+        };
+        let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+        let state = PromptState::default().offered(request);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while count.load(Ordering::SeqCst) < 1 && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(count.load(Ordering::SeqCst), 1, "asking repaints once");
+        live.store(false, Ordering::SeqCst);
+        assert_eq!(asker.join().unwrap(), HostKeyDecision::Reject);
+        assert_eq!(count.load(Ordering::SeqCst), 2, "withdrawing repaints once");
+        assert!(
+            state.pruned().current().is_none(),
+            "already pruned when the repaint fires"
+        );
+    }
+
+    #[test]
+    fn an_answered_question_does_not_request_a_withdrawal_repaint() {
+        let (repaint, count) = counting_repaint();
+        let (prompt, requests) = InteractivePrompt::channel(repaint, Duration::from_secs(30));
+        let asker = {
+            let prompt = prompt.clone();
+            std::thread::spawn(move || prompt.decide_while("h", "SHA256:x", &|| true))
+        };
+        let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+        let _ = PromptState::default()
+            .offered(request)
+            .answered(HostKeyDecision::Trust);
+        assert_eq!(asker.join().unwrap(), HostKeyDecision::Trust);
+        assert_eq!(count.load(Ordering::SeqCst), 1, "only the asking repaint");
+    }
+
+    #[test]
+    fn an_answer_for_a_withdrawn_question_never_answers_the_one_behind_it() {
+        let (a, ra) = HostKeyRequest::new("hx", "fx");
+        let (b, rb) = HostKeyRequest::new("hy", "fy");
+        let state = PromptState::default().offered(a).offered(b);
+        // The dialog for A was drawn; A is withdrawn (its waiter drops) before the click lands.
+        drop(ra);
+        let state = state.pruned();
+        assert_eq!(state.current(), Some(("hy", "fy")));
+        let state = state.answered_for("hx", "fx", HostKeyDecision::Trust);
+        assert_eq!(state.current(), Some(("hy", "fy")), "B is still pending");
+        assert!(rb.try_recv().is_err(), "B was not answered");
+        let state = state.answered_for("hy", "fy", HostKeyDecision::Trust);
+        assert!(state.current().is_none());
+        assert_eq!(rb.try_recv(), Ok(HostKeyDecision::Trust));
+    }
+
+    #[test]
+    fn the_dialog_id_differs_per_question_so_a_click_cannot_carry_over() {
+        assert_ne!(dialog_id("hx", "f"), dialog_id("hy", "f"));
+        assert_ne!(dialog_id("h", "f1"), dialog_id("h", "f2"));
+        assert_eq!(dialog_id("h", "f"), dialog_id("h", "f"));
     }
 
     #[test]
