@@ -357,3 +357,66 @@ fn each_row_connect_button_is_named_after_its_connection() {
         "one distinctly named Connect button per row"
     );
 }
+
+fn prompt_harness(open: impl FnOnce(&mut ConnectionsState)) -> Harness<'static, ConnectionsState> {
+    let mut state = three_connections();
+    open(&mut state);
+    Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(
+            |ui, state: &mut ConnectionsState| {
+                show_connections(ui, state, &I18n::english());
+            },
+            state,
+        )
+}
+
+#[test]
+fn the_folder_prompt_field_has_focus_when_it_opens_and_typing_reaches_it() {
+    use curlybrace_ui::views::connections::FolderPrompt;
+    let i18n = I18n::english();
+    for rename in [false, true] {
+        let mut harness = prompt_harness(|state| {
+            if rename {
+                state.open_rename_prompt("Work");
+            } else {
+                let id = state.connections[0].id;
+                state.open_move_prompt(id);
+            }
+        });
+        harness.step();
+        harness.step();
+        let title = i18n.t(if rename {
+            "connections.folder_rename_title"
+        } else {
+            "connections.folder_move_title"
+        });
+        let field = harness.get_by_role_and_label(Role::TextInput, &title);
+        assert!(field.accesskit_node().is_focused(), "rename={rename}");
+        harness
+            .get_by_role_and_label(Role::TextInput, &title)
+            .type_text("X");
+        harness.run();
+        let typed = match harness.state().folder_prompt.clone() {
+            Some(FolderPrompt::Move { input, .. } | FolderPrompt::Rename { input, .. }) => input,
+            None => String::new(),
+        };
+        assert!(typed.ends_with('X'), "typing reached the field: {typed:?}");
+    }
+}
+
+#[test]
+fn the_folder_prompt_does_not_take_focus_back_after_the_person_tabs_away() {
+    let i18n = I18n::english();
+    let mut harness = prompt_harness(|state| state.open_rename_prompt("Work"));
+    harness.run();
+    harness.key_press(egui::Key::Tab);
+    harness.run();
+    harness.run();
+    let title = i18n.t("connections.folder_rename_title");
+    let field = harness.get_by_role_and_label(Role::TextInput, &title);
+    assert!(
+        !field.accesskit_node().is_focused(),
+        "focus must stay where Tab put it"
+    );
+}

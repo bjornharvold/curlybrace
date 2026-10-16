@@ -13,7 +13,14 @@ pub(super) fn show_folder_prompt(
 ) -> Option<ConnectionAction> {
     let folders = state.folder_names();
     let error = state.error.clone();
-    let prompt = state.folder_prompt.as_mut()?;
+    let focus_flag = egui::Id::new("connection_folder_prompt_focused");
+    let Some(prompt) = state.folder_prompt.as_mut() else {
+        // Closed: the next opening gets its first-frame focus again.
+        ctx.data_mut(|d| d.remove::<bool>(focus_flag));
+        return None;
+    };
+    let first_frame = !ctx.data_mut(|d| d.get_temp::<bool>(focus_flag).unwrap_or(false));
+    ctx.data_mut(|d| d.insert_temp(focus_flag, true));
     let (title_key, is_move, input) = match prompt {
         FolderPrompt::Move { input, .. } => ("connections.folder_move_title", true, input),
         FolderPrompt::Rename { input, .. } => ("connections.folder_rename_title", false, input),
@@ -24,6 +31,10 @@ pub(super) fn show_folder_prompt(
         let field = ui
             .add(egui::TextEdit::singleline(input))
             .labelled_by(title.id);
+        if first_frame {
+            // Only when the prompt opens: never again, so Tab and clicks move focus freely.
+            field.request_focus();
+        }
         let blank = !is_move && input.trim().is_empty();
         confirmed = !blank && field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if let Some(error) = &error {
