@@ -265,9 +265,10 @@ fn show_rows(
                 }
                 let connect = ui.button(i18n.t("connections.connect"));
                 // The visible text is the same on every row; the accessible name says which.
-                let name = i18n.t_with("connections.connect_named", &[("name", &cfg.name)]);
+                // Built inside the closure: egui calls it only on interaction or while AccessKit is on.
                 connect.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone())
+                    let name = i18n.t_with("connections.connect_named", &[("name", &cfg.name)]);
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name)
                 });
                 if connect.clicked() {
                     action = Some(ConnectionAction::Connect(cfg.id));
