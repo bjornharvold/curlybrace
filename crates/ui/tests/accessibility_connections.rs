@@ -336,3 +336,24 @@ fn new_import_and_export_stay_enabled_when_the_selection_is_hidden() {
         assert!(!node.accesskit_node().is_disabled(), "{key}");
     }
 }
+
+#[test]
+fn each_row_connect_button_is_named_after_its_connection() {
+    let i18n = I18n::english();
+    let harness = harness();
+    for name in ["Alpha", "Beta", "Billing"] {
+        let label = i18n.t_with("connections.connect_named", &[("name", name)]);
+        harness.get_by_role_and_label(Role::Button, &label);
+    }
+    assert_eq!(
+        harness
+            .query_all_by_role(Role::Button)
+            .filter(|n| n
+                .accesskit_node()
+                .label()
+                .is_some_and(|l| l.starts_with("Connect ")))
+            .count(),
+        3,
+        "one distinctly named Connect button per row"
+    );
+}

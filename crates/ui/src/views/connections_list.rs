@@ -258,7 +258,13 @@ fn show_rows(
                         ui.add(egui::Label::new(text).truncate());
                     });
                 }
-                if ui.button(i18n.t("connections.connect")).clicked() {
+                let connect = ui.button(i18n.t("connections.connect"));
+                // The visible text is the same on every row; the accessible name says which.
+                let name = i18n.t_with("connections.connect_named", &[("name", &cfg.name)]);
+                connect.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone())
+                });
+                if connect.clicked() {
                     action = Some(ConnectionAction::Connect(cfg.id));
                 }
             })

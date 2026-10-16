@@ -191,3 +191,42 @@ fn escape_still_closes_the_edit_dialog() {
     );
     assert!(!state.editing);
 }
+
+/// Every text painted in one frame of the manager.
+fn painted_texts(state: &mut ConnectionsState) -> Vec<String> {
+    fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, out)),
+            _ => {}
+        }
+    }
+    let ctx = egui::Context::default();
+    let i18n = I18n::english();
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1200.0, 900.0),
+        )),
+        ..Default::default()
+    };
+    let output = ctx.run(input, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            show_connections(ui, state, &i18n);
+        });
+    });
+    let mut texts = Vec::new();
+    output
+        .shapes
+        .iter()
+        .for_each(|clipped| collect(&clipped.shape, &mut texts));
+    texts
+}
+
+#[test]
+fn the_row_connect_buttons_keep_their_plain_visible_text() {
+    let mut state = ConnectionsState::new(vec![in_folder("a", None), in_folder("b", None)]);
+    let texts = painted_texts(&mut state);
+    assert_eq!(texts.iter().filter(|t| t.as_str() == "Connect").count(), 2);
+    assert!(texts.iter().all(|t| !t.starts_with("Connect ")));
+}

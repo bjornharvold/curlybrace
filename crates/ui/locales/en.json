@@ -453,6 +453,7 @@
     "col_server": "Server",
     "confirm_delete": "Delete the connection \"{name}\" and its saved credentials? This cannot be undone.",
     "connect": "Connect",
+    "connect_named": "Connect {name}",
     "connecting": "Connecting...",
     "copy": "Copy",
     "copy_name": "{name} copy",
