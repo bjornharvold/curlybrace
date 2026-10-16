@@ -235,7 +235,10 @@ fn parse_with(bytes: &[u8], repair: bool) -> Result<Loaded, PersistError> {
         } else {
             cfg
         };
-        if cfg.validate().is_ok() {
+        // The strict host check applies to new input only: a saved connection is never dropped
+        // by it (`repair` is true for the saved list).
+        let hosts_ok = repair || curlybrace_core::uri::check_hosts(&cfg.uri).is_ok();
+        if hosts_ok && cfg.validate().is_ok() {
             connections.push(cfg);
         }
     }
@@ -398,6 +401,49 @@ mod tests {
         assert_eq!(loaded.connections[0].name, "ok");
         assert_eq!(loaded.connections[1].name, "localhost:27017");
         assert_eq!((loaded.skipped, loaded.repaired), (2, 1));
+    }
+
+    fn file_of(uris: &[&str]) -> Vec<u8> {
+        let entries: Vec<_> = uris
+            .iter()
+            .map(|u| serde_json::to_value(ConnectionConfig::new("n", *u)).unwrap())
+            .collect();
+        serde_json::Value::Array(entries).to_string().into_bytes()
+    }
+
+    #[test]
+    fn import_rejects_a_password_leaked_into_the_host_but_load_keeps_it() {
+        let bytes = file_of(&[
+            "mongodb://u:pa/ss@h",
+            "mongodb://h",
+            "mongodb://h1:27017,h2:27018",
+            "mongodb://[::1]:27017",
+            "mongodb+srv://cluster.example.com",
+            "mongodb://%2Ftmp%2Fmongodb-27017.sock",
+        ]);
+        let imported = parse_connections(&bytes).unwrap();
+        assert_eq!((imported.connections.len(), imported.skipped), (5, 1));
+
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        std::fs::write(&p, &bytes).unwrap();
+        let loaded = load_connections(&p).unwrap();
+        assert_eq!((loaded.connections.len(), loaded.skipped), (6, 0));
+    }
+
+    /// `mongodb://u@` has userinfo but no host text: import rejects it ("missing host"), the
+    /// saved-list load keeps accepting it so a saved connection is never dropped by the
+    /// strict host check.
+    #[test]
+    fn a_uri_with_userinfo_and_no_host_is_rejected_on_import_but_loaded() {
+        let bytes = file_of(&["mongodb://u@"]);
+        let imported = parse_connections(&bytes).unwrap();
+        assert_eq!((imported.connections.len(), imported.skipped), (0, 1));
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        std::fs::write(&p, &bytes).unwrap();
+        let loaded = load_connections(&p).unwrap();
+        assert_eq!((loaded.connections.len(), loaded.skipped), (1, 0));
     }
 
     /// A file as v0.2.0 could write it: any non-blank name, any folder text.

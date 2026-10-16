@@ -184,6 +184,7 @@ impl ConnectionForm {
             last_connected: self.last_connected,
         };
         cfg.validate()?;
+        curlybrace_core::uri::check_hosts(&cfg.uri)?;
         Ok(cfg)
     }
 
@@ -335,6 +336,32 @@ mod tests {
             ssh_port: "22".into(),
             ssh_user: "me".into(),
             ..valid()
+        }
+    }
+
+    #[test]
+    fn the_form_checks_the_host_list_strictly() {
+        for ok in [
+            "mongodb://h",
+            "mongodb://h1:27017,h2:27018",
+            "mongodb://[::1]:27017",
+            "mongodb+srv://cluster.example.com",
+            "mongodb://%2Ftmp%2Fmongodb-27017.sock",
+        ] {
+            let f = ConnectionForm {
+                uri: ok.into(),
+                ..valid()
+            };
+            assert!(f.to_config().is_ok(), "{ok}");
+        }
+        for bad in ["mongodb://u:pa/ss@h", "mongodb://u@", "mongodb://h:0"] {
+            let f = ConnectionForm {
+                uri: bad.into(),
+                ..valid()
+            };
+            let err = f.to_config().unwrap_err();
+            assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
+            assert!(!err.to_string().contains("pa"), "{bad}: {err}");
         }
     }
 
