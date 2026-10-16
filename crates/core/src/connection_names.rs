@@ -39,6 +39,9 @@ impl NameAllocator {
     }
 }
 
+/// `base` plus " n", cut so the result fits `MAX_NAME_LEN`. The base is right-trimmed before the
+/// suffix even when it was not cut, so a name ending in a space gets `x 2`, not `x  2`;
+/// uniqueness still holds because every candidate is checked against the shared taken set.
 fn suffixed(base: &str, n: usize) -> String {
     let suffix = format!(" {n}");
     let keep = MAX_NAME_LEN.saturating_sub(suffix.chars().count());
