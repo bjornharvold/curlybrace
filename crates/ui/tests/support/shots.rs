@@ -13,7 +13,7 @@ use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::state::{AppState, ConnStatus};
 use curlybrace_ui::viewmodel::{SidebarState, ViewMode, page_key};
 use eframe::egui;
-use egui_kittest::{Harness, SnapshotOptions};
+use egui_kittest::Harness;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 
@@ -30,17 +30,7 @@ pub struct Shot {
 /// Frames rendered before an animated screen is compared.
 const ANIMATED_FRAMES: usize = 8;
 
-/// Differing pixels tolerated per snapshot: none. Even a short label (six characters changed
-/// fewer than a hundred pixels) must fail, and a forced `UPDATE_SNAPSHOTS=1` only rewrites a
-/// snapshot whose difference is above this threshold. The CI job renders on the same kind of
-/// machine as the committed PNGs (macOS on Apple silicon); if another GPU or driver ever adds
-/// anti-aliasing noise, make this per OS (`OsThreshold`) instead of loosening it everywhere.
-pub const PIXEL_THRESHOLD: usize = 0;
-
-/// The options every snapshot of the suite is compared with.
-pub fn snapshot_options() -> SnapshotOptions {
-    SnapshotOptions::new().failed_pixel_count_threshold(PIXEL_THRESHOLD)
-}
+use super::snapshot_options::snapshot_options;
 
 /// A save dialog that stays open for the whole test: its worker thread parks and is never
 /// woken, and no real dialog is involved.
