@@ -92,7 +92,7 @@ pub fn save(
     path: &ConfigPath,
     now: i64,
 ) -> AppState {
-    let cfg = match form.to_config() {
+    let cfg = match form.to_checked_config() {
         Ok(cfg) => cfg,
         Err(e) => return with_conn_error(state, e),
     };

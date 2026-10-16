@@ -162,7 +162,16 @@ impl ConnectionForm {
         SecretEdit::from_input(&self.ssh_secret, self.clear_ssh_secret)
     }
 
-    /// Validates the form and builds a config. Never includes secrets.
+    /// Like `to_config`, plus the strict host-list check. Used when new input is stored (save);
+    /// Test and Copy URI of an already-stored connection use `to_config`, which stays lenient.
+    pub fn to_checked_config(&self) -> Result<ConnectionConfig> {
+        let cfg = self.to_config()?;
+        curlybrace_core::uri::check_hosts(&cfg.uri)?;
+        Ok(cfg)
+    }
+
+    /// Validates the form and builds a config. Never includes secrets. Does not apply the strict
+    /// host check, so a stored connection can still be tested or have its URI copied.
     pub fn to_config(&self) -> Result<ConnectionConfig> {
         let cfg = ConnectionConfig {
             id: self.id,
@@ -184,7 +193,6 @@ impl ConnectionForm {
             last_connected: self.last_connected,
         };
         cfg.validate()?;
-        curlybrace_core::uri::check_hosts(&cfg.uri)?;
         Ok(cfg)
     }
 
@@ -352,16 +360,44 @@ mod tests {
                 uri: ok.into(),
                 ..valid()
             };
-            assert!(f.to_config().is_ok(), "{ok}");
+            assert!(f.to_checked_config().is_ok(), "{ok}");
         }
         for bad in ["mongodb://u:pa/ss@h", "mongodb://u@", "mongodb://h:0"] {
             let f = ConnectionForm {
                 uri: bad.into(),
                 ..valid()
             };
-            let err = f.to_config().unwrap_err();
+            let err = f.to_checked_config().unwrap_err();
             assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
-            assert!(!err.to_string().contains("pa"), "{bad}: {err}");
+            assert!(!err.to_string().contains("pa/ss"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn save_rejects_an_at_sign_in_the_tail_or_userinfo_and_a_trailing_comma_without_echo() {
+        for bad in [
+            "mongodb://admin:2024/S3CR3T@db",
+            "mongodb://u:12345?S3CR3T@h",
+            "mongodb://u:pa@S3CR3T@h",
+            "mongodb://h1:27017,h2:27018,",
+        ] {
+            let f = ConnectionForm {
+                uri: bad.into(),
+                ..valid()
+            };
+            let err = f.to_checked_config().unwrap_err();
+            assert!(matches!(err, CoreError::InvalidUri(_)), "{bad}");
+            assert!(!err.to_string().contains("S3CR3T"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_and_copy_uri_of_a_stored_bad_host_connection_still_build_a_config() {
+        for stored in ["mongodb://u:pa/ss@h", "mongodb://admin:2024/S3CR3T@db"] {
+            let cfg = ConnectionConfig::new("n", stored);
+            let form = ConnectionForm::from_config(&cfg);
+            assert!(form.to_config().is_ok(), "{stored}");
+            assert!(form.to_checked_config().is_err(), "{stored}");
         }
     }
 
