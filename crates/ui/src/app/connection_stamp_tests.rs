@@ -6,34 +6,14 @@ use super::persistence::{PersistError, PersistGuard};
 use super::state::{AppState, Banner};
 use curlybrace_core::connection::ConnectionConfig;
 
-/// A tempdir whose directory refuses new files, or `None` where permissions do not bite
-/// (not unix, or running as a user who ignores them).
-#[cfg(unix)]
-fn read_only_dir() -> Option<tempfile::TempDir> {
-    use std::os::unix::fs::PermissionsExt;
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
-    if std::fs::File::create(dir.path().join("probe")).is_ok() {
-        restore(&dir);
-        return None;
-    }
-    Some(dir)
-}
-
-#[cfg(unix)]
-fn restore(dir: &tempfile::TempDir) {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-#[cfg(unix)]
 #[test]
 fn a_failed_write_shows_the_banner_and_leaves_disk_and_guard_honest() {
-    let Some(dir) = read_only_dir() else {
-        eprintln!("skipped: directory permissions do not apply here");
-        return;
-    };
-    let file = dir.path().join("connections.json");
+    // The config path sits below a regular FILE, so creating the temp file fails with
+    // NotADirectory for everyone, root included (no permission juggling, nothing to skip).
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = dir.path().join("not-a-dir");
+    std::fs::write(&blocker, b"x").unwrap();
+    let file = blocker.join("connections.json");
     let cfg = ConnectionConfig::new("a", "mongodb://h");
     let id = cfg.id;
     let state = AppState::new(vec![cfg]);
@@ -41,7 +21,6 @@ fn a_failed_write_shows_the_banner_and_leaves_disk_and_guard_honest() {
 
     let next = mark_connected(state, id, 42, &path);
 
-    restore(&dir);
     assert!(
         matches!(next.banner, Some(Banner::Persist(PersistError::Write(_)))),
         "{:?}",
@@ -49,6 +28,7 @@ fn a_failed_write_shows_the_banner_and_leaves_disk_and_guard_honest() {
     );
     // Nothing reached the disk, and the guard neither claims success nor locks saving.
     assert!(!file.exists());
+    assert_eq!(std::fs::read(&blocker).unwrap(), b"x");
     assert_eq!(next.persist, PersistGuard::default());
     // Same rule as a failed save: memory carries the stamp (the connection did happen) and the
     // banner is what tells the person the file is behind.
