@@ -146,8 +146,12 @@ fn show_table(
     i18n: &I18n,
     rows: &[&ConnectionConfig],
 ) -> Option<ConnectionAction> {
-    let widths = column_widths(ui);
-    show_header(ui, state, i18n, &widths);
+    // Looked up once per frame, not once per row.
+    let layout = TableLayout {
+        widths: column_widths(ui),
+        separator: i18n.t("connections.list_separator"),
+    };
+    show_header(ui, state, i18n, &layout.widths);
     if rows.is_empty() && !state.filter.trim().is_empty() {
         ui.label(i18n.t("connections.no_match"));
         return None;
@@ -160,13 +164,20 @@ fn show_table(
         .show(ui, |ui| {
             for group in grouped(rows) {
                 let found = match group.folder {
-                    None => show_rows(ui, state, i18n, &group.rows, &widths),
-                    Some(folder) => show_folder(ui, state, i18n, folder, &group.rows, &widths),
+                    None => show_rows(ui, state, i18n, &group.rows, &layout),
+                    Some(folder) => show_folder(ui, state, i18n, folder, &group.rows, &layout),
                 };
                 action = found.or(action.take());
             }
         });
     action
+}
+
+/// What every row of one frame's table shares.
+struct TableLayout {
+    widths: [f32; 5],
+    /// The translated list separator, fetched once per frame.
+    separator: String,
 }
 
 fn column_widths(ui: &egui::Ui) -> [f32; 5] {
@@ -205,7 +216,7 @@ fn show_folder(
     i18n: &I18n,
     folder: &str,
     rows: &[&ConnectionConfig],
-    widths: &[f32; 5],
+    layout: &TableLayout,
 ) -> Option<ConnectionAction> {
     let mut action = None;
     let id = ui.make_persistent_id(("connection_folder", folder));
@@ -226,7 +237,7 @@ fn show_folder(
             }
         })
         .body_unindented(|ui| {
-            if let Some(row_action) = show_rows(ui, state, i18n, rows, widths) {
+            if let Some(row_action) = show_rows(ui, state, i18n, rows, layout) {
                 action = Some(row_action);
             }
         });
@@ -238,7 +249,7 @@ fn show_rows(
     state: &mut ConnectionsState,
     i18n: &I18n,
     rows: &[&ConnectionConfig],
-    widths: &[f32; 5],
+    layout: &TableLayout,
 ) -> Option<ConnectionAction> {
     let mut action = None;
     for cfg in rows {
@@ -246,7 +257,7 @@ fn show_rows(
         ui.push_id(cfg.id, |ui| {
             ui.horizontal(|ui| {
                 let selected = state.selected == Some(cfg.id);
-                cell(ui, widths[0], |ui| {
+                cell(ui, layout.widths[0], |ui| {
                     let name = ui.add(egui::Button::selectable(selected, &cfg.name).truncate());
                     if name.double_clicked() {
                         action = Some(ConnectionAction::Connect(cfg.id));
@@ -255,12 +266,12 @@ fn show_rows(
                     }
                 });
                 let texts = [
-                    servers_text(cfg, i18n),
-                    security_text(cfg, i18n),
+                    servers_text(cfg, &layout.separator),
+                    security_text(cfg, i18n, &layout.separator),
                     time_text(cfg.last_connected, i18n),
                     time_text(cfg.updated_at, i18n),
                 ];
-                for (text, width) in texts.into_iter().zip(&widths[1..]) {
+                for (text, width) in texts.into_iter().zip(&layout.widths[1..]) {
                     cell(ui, *width, |ui| {
                         ui.add(egui::Label::new(text).truncate());
                     });
@@ -294,18 +305,13 @@ fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
     );
 }
 
-/// The hosts of the connection joined with the language's list separator.
-pub(super) fn servers_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
-    join_list(&server_hosts(cfg), i18n)
-}
-
-/// `parts` joined with the translated list separator.
-fn join_list(parts: &[String], i18n: &I18n) -> String {
-    parts.join(&i18n.t("connections.list_separator"))
+/// The hosts of the connection joined with `separator`, the language's list separator.
+pub(super) fn servers_text(cfg: &ConnectionConfig, separator: &str) -> String {
+    server_hosts(cfg).join(separator)
 }
 
 /// "TLS, SSH tunnel, SCRAM-SHA-256", or the "none" text when nothing is configured.
-pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
+pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n, separator: &str) -> String {
     let sec = security(cfg);
     let mut parts = Vec::new();
     if sec.tls {
@@ -320,7 +326,7 @@ pub(super) fn security_text(cfg: &ConnectionConfig, i18n: &I18n) -> String {
     if parts.is_empty() {
         i18n.t("connections.security_none")
     } else {
-        join_list(&parts, i18n)
+        parts.join(separator)
     }
 }
 
@@ -352,10 +358,10 @@ mod tests {
     fn security_text_lists_what_is_configured_or_says_none() {
         let i18n = I18n::english();
         let plain = ConnectionConfig::new("a", "mongodb://h");
-        assert_eq!(security_text(&plain, &i18n), "None");
+        assert_eq!(security_text(&plain, &i18n, ", "), "None");
         let mut tls = plain.clone();
         tls.tls.enabled = true;
-        assert_eq!(security_text(&tls, &i18n), "TLS");
+        assert_eq!(security_text(&tls, &i18n, ", "), "TLS");
     }
 
     fn with_separator(separator: &str) -> I18n {
@@ -379,10 +385,16 @@ mod tests {
             auth: curlybrace_core::connection::SshAuth::Password,
         });
         let english = I18n::english();
-        assert_eq!(servers_text(&cfg, &english), "h1:1, h2:2, h3:3");
-        assert_eq!(security_text(&cfg, &english), "TLS, SSH tunnel");
+        assert_eq!(servers_text(&cfg, ", "), "h1:1, h2:2, h3:3");
+        assert_eq!(security_text(&cfg, &english, ", "), "TLS, SSH tunnel");
         let other = with_separator(" \u{b7} ");
-        assert_eq!(servers_text(&cfg, &other), "h1:1 \u{b7} h2:2 \u{b7} h3:3");
-        assert_eq!(security_text(&cfg, &other), "TLS \u{b7} SSH tunnel");
+        assert_eq!(
+            servers_text(&cfg, &other.t("connections.list_separator")),
+            "h1:1 \u{b7} h2:2 \u{b7} h3:3"
+        );
+        assert_eq!(
+            security_text(&cfg, &other, &other.t("connections.list_separator")),
+            "TLS \u{b7} SSH tunnel"
+        );
     }
 }
