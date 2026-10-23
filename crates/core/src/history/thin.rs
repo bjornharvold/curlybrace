@@ -21,8 +21,8 @@ use super::db_schema::{TIER_DAILY, TIER_HOURLY};
 use super::retention::{
     DAILY_RETENTION_SECS, DAY_SECS, HOUR_SECS, HOURLY_RETENTION_SECS, RAW_RETENTION_SECS,
 };
-use super::series::{bucketize, derive};
-use super::usage::raw_samples;
+use super::series::{accepted_indices, bucketize, derive};
+use super::usage::{clip_gap, raw_samples};
 use crate::error::Result;
 use rusqlite::{Connection, Transaction, params};
 
@@ -63,16 +63,29 @@ fn roll_raw_into_hourly(tx: &Transaction, now_secs: i64) -> Result<()> {
 
 fn roll_series(tx: &Transaction, series_id: i64, cutoff: i64) -> Result<()> {
     let samples = raw_samples(tx, series_id)?;
-    // The baseline: the last (in insertion order) sample before the cutoff.
-    let Some(baseline) = samples.iter().rposition(|(_, s)| s.at_secs < cutoff) else {
+    // Only samples `derive` accepts count: a backwards-clock sample is never the baseline, so
+    // it cannot make newer data look old enough to delete.
+    let plain: Vec<_> = samples.iter().map(|(_, s)| *s).collect();
+    let accepted = accepted_indices(&plain);
+    // The baseline: the last accepted sample before the cutoff.
+    let Some(pos) = accepted.iter().rposition(|&i| plain[i].at_secs < cutoff) else {
         return Ok(());
     };
+    let baseline = accepted[pos];
     let baseline_id = samples[baseline].0;
-    // Up to and including the sample after it, so a gap straddling the cutoff is seen whole.
-    let window: Vec<_> = samples[..(baseline + 2).min(samples.len())]
+    // Up to and including the accepted sample after it, so a gap straddling the cutoff is seen
+    // whole. When there is none, the silence is still open: the roll only goes as far as the
+    // baseline, and the rest of it is rolled once a sample ends it.
+    let next = accepted.get(pos + 1);
+    let window: Vec<_> = accepted[..=(pos + usize::from(next.is_some()))]
         .iter()
-        .map(|(_, s)| *s)
+        .map(|&i| plain[i])
         .collect();
+    let rolled_to = if next.is_some() {
+        cutoff
+    } else {
+        plain[baseline].at_secs
+    };
     let rolled_through: i64 = tx
         .query_row(
             "SELECT rolled_through FROM series WHERE id = ?1",
@@ -80,8 +93,14 @@ fn roll_series(tx: &Transaction, series_id: i64, cutoff: i64) -> Result<()> {
             |r| r.get(0),
         )
         .map_err(sql_err)?;
-    for bucket in bucketize(&derive(&window), HOUR_SECS) {
-        if bucket.start_secs >= rolled_through && bucket.start_secs < cutoff {
+    // The same clip the reads apply: seconds of a gap before `rolled_through` are already in
+    // the rows, so a gap that continues past an earlier roll adds only its new part.
+    let points: Vec<_> = derive(&window)
+        .into_iter()
+        .map(|p| clip_gap(p, rolled_through))
+        .collect();
+    for bucket in bucketize(&points, HOUR_SECS) {
+        if bucket.start_secs + bucket.width_secs > rolled_through && bucket.start_secs < cutoff {
             add_row(
                 tx,
                 series_id,
@@ -93,7 +112,7 @@ fn roll_series(tx: &Transaction, series_id: i64, cutoff: i64) -> Result<()> {
     }
     tx.execute(
         "UPDATE series SET rolled_through = MAX(rolled_through, ?2) WHERE id = ?1",
-        params![series_id, cutoff],
+        params![series_id, rolled_to],
     )
     .map_err(sql_err)?;
     tx.execute(

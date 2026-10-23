@@ -71,18 +71,27 @@ pub struct Bucket {
 /// time between them exceeds [`GAP_INTERVALS`] sample intervals, and both
 /// (a `Gap` then a `Restart`) when it is a restart across a gap.
 pub fn derive(samples: &[Sample]) -> Vec<Point> {
-    let mut points = Vec::new();
-    let mut previous: Option<Sample> = None;
-    for &cur in samples {
-        if let Some(prev) = previous {
-            if cur.at_secs <= prev.at_secs {
-                continue;
-            }
-            points.extend(classify(prev, cur));
+    let accepted: Vec<Sample> = accepted_indices(samples)
+        .into_iter()
+        .map(|i| samples[i])
+        .collect();
+    accepted
+        .windows(2)
+        .flat_map(|pair| classify(pair[0], pair[1]))
+        .collect()
+}
+
+/// Positions of the samples [`derive`] accepts: each one strictly after the previously
+/// accepted one. The single definition of that rule; the store uses it to pick what it may
+/// roll up and delete, so a backwards-clock sample never decides that.
+pub fn accepted_indices(samples: &[Sample]) -> Vec<usize> {
+    let mut out: Vec<usize> = Vec::new();
+    for (i, cur) in samples.iter().enumerate() {
+        if out.last().is_none_or(|&p| cur.at_secs > samples[p].at_secs) {
+            out.push(i);
         }
-        previous = Some(cur);
     }
-    points
+    out
 }
 
 fn classify(prev: Sample, cur: Sample) -> Vec<Point> {

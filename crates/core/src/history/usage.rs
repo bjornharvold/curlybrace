@@ -98,7 +98,7 @@ pub(super) fn usage(
 }
 
 /// A gap's seconds before the seam are already in the rolled rows.
-fn clip_gap(point: Point, rolled_through: i64) -> Point {
+pub(super) fn clip_gap(point: Point, rolled_through: i64) -> Point {
     match point {
         Point::Gap {
             from_secs,

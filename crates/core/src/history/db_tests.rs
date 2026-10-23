@@ -267,6 +267,66 @@ fn a_gap_straddling_the_cutoff_is_counted_once() {
     );
 }
 
+/// What a chart over the whole series, never thinned, would show.
+fn expected_window(samples: &[Sample], range: ChartRange, now: i64) -> Vec<Bucket> {
+    let start = now - range.secs();
+    bucketize(&derive(samples), range.bucket_width_secs())
+        .into_iter()
+        .filter(|b| b.start_secs + b.width_secs > start && b.start_secs <= now)
+        .collect()
+}
+
+#[test]
+fn a_silence_spanning_a_thin_keeps_its_gap_seconds() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let k = key();
+    let mut all = Vec::new();
+    let mut at = NOW - 104 * HOUR;
+    while at <= NOW - 100 * HOUR {
+        all.push(s(at, at / 60));
+        at += 60;
+    }
+    for sample in &all {
+        db.record(&k, *sample).unwrap();
+    }
+    db.thin(NOW - 50 * HOUR).unwrap();
+    db.thin(NOW).unwrap();
+    let last = s(NOW - 60, all.last().unwrap().ops + 700);
+    db.record(&k, last).unwrap();
+    all.push(last);
+    for range in [ChartRange::Week, ChartRange::Month] {
+        assert_eq!(
+            db.usage(&k, range, NOW).unwrap(),
+            expected_window(&all, range, NOW)
+        );
+    }
+    let before = db.usage(&k, ChartRange::Week, NOW).unwrap();
+    db.thin(NOW).unwrap();
+    assert_eq!(db.usage(&k, ChartRange::Week, NOW).unwrap(), before);
+}
+
+#[test]
+fn a_backwards_clock_sample_never_decides_what_thin_deletes() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let k = key();
+    let mut all = Vec::new();
+    let mut at = NOW - 47 * HOUR;
+    while at < NOW - 60 {
+        all.push(s(at, at / 60));
+        at += 60;
+    }
+    all.push(s(NOW - 50 * HOUR, 1));
+    for sample in &all {
+        db.record(&k, *sample).unwrap();
+    }
+    let before = db.usage(&k, ChartRange::Week, NOW).unwrap();
+    let rows = count(&db, "SELECT COUNT(*) FROM samples");
+    db.thin(NOW).unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM samples"), rows);
+    assert_eq!(db.usage(&k, ChartRange::Week, NOW).unwrap(), before);
+    assert_eq!(before, expected_window(&all, ChartRange::Week, NOW));
+}
+
 #[test]
 fn thinned_buckets_match_derive_and_bucketize_of_the_full_series() {
     let db = HistoryDb::open_in_memory().unwrap();
