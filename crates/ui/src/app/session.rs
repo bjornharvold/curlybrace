@@ -300,7 +300,7 @@ impl AppState {
     /// The active session's view after its connect failed: everything cleared except what
     /// identifies the attempt (its epoch and endpoint), plus the error.
     pub fn failed(self, error: CoreError) -> AppState {
-        let mut next = self;
+        let mut next = self.write_warning_dropped_for_active();
         let old = next.take_view();
         next.restore_view(SessionView {
             status: ConnStatus::Failed,
@@ -318,7 +318,7 @@ impl AppState {
 
     /// Forgets a session and its parked view; dropping the active one leaves no active view.
     pub fn session_dropped(self, id: Uuid) -> AppState {
-        let mut next = self;
+        let mut next = self.write_warning_dropped_for(id);
         next.open.retain(|open| *open != id);
         next.parked.remove(&id);
         if next.active == Some(id) {

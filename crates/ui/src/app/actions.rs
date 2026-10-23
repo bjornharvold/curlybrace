@@ -302,6 +302,7 @@ fn mutation(
                 command,
                 pending,
                 kind,
+                epoch: s.latest_requested_epoch,
             });
             return (AppState { write_warning, ..s }, Vec::new());
         }

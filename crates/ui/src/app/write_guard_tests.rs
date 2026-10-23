@@ -260,3 +260,93 @@ fn session_cleared_drops_a_parked_write() {
     assert!(s.write_warning.is_some());
     assert!(s.session_cleared().write_warning.is_none());
 }
+
+fn reopened(s: AppState, id: Uuid) -> AppState {
+    let (s, _) = update(s, Input::Connect(id));
+    let epoch = s.epoch_counter;
+    update(
+        s,
+        Input::Event(Event::Connected {
+            session: id,
+            epoch,
+            topology: None,
+        }),
+    )
+    .0
+}
+
+#[test]
+fn a_reopened_session_does_not_revive_a_parked_write() {
+    let (s, id) = production();
+    let (s, _) = update(s, insert());
+    let (s, _) = update(s, Input::Disconnect(id));
+    assert!(s.write_warning.is_none(), "closing drops the warning");
+    let s = reopened(s, id);
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && s.pending.is_none() && s.write_warning.is_none());
+}
+
+#[test]
+fn a_reconnect_after_a_lost_session_does_not_revive_a_parked_write() {
+    let (s, id) = production();
+    let (s, _) = update(s, insert());
+    let (s, _) = update(
+        s,
+        Input::Event(Event::Failed {
+            session: id,
+            context: "find",
+            error: curlybrace_core::error::CoreError::Unreachable,
+        }),
+    );
+    assert_eq!(s.status, ConnStatus::Failed);
+    assert!(s.write_warning.is_none(), "losing the session drops it");
+    let s = reopened(s, id);
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && s.pending.is_none());
+}
+
+#[test]
+fn the_epoch_alone_rejects_a_parked_write_from_an_earlier_opening() {
+    let (s, _) = production();
+    let (mut s, _) = update(s, insert());
+    s.latest_requested_epoch += 1;
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && s.pending.is_none());
+}
+
+#[test]
+fn closing_one_session_clears_its_warning_and_another_session_writes_normally() {
+    let a = config(true);
+    let b = config(false);
+    let (a_id, b_id) = (a.id, b.id);
+    let (s, _) = browsing(a);
+    let mut s = s;
+    s.conn.connections.push(b);
+    let (s, _) = update(s, insert());
+    assert!(s.write_warning.is_some());
+    let s = reopened(s, b_id);
+    // B is active now with its own selection and page.
+    let mut s = s;
+    s.sidebar = s
+        .sidebar
+        .with_databases(vec!["app".into()])
+        .with_collections("app", vec!["users".into()])
+        .selecting(users());
+    let (s, _) = update(s, Input::Disconnect(a_id));
+    assert!(s.write_warning.is_none());
+    let (s, commands) = update(s, insert());
+    assert_eq!(commands.len(), 1, "B is not blocked by A's old warning");
+    assert!(s.pending.is_some());
+}
+
+#[test]
+fn confirm_still_sends_when_the_production_flag_is_edited_off_meanwhile() {
+    let (s, id) = production();
+    let (mut s, _) = update(s, insert());
+    for c in s.conn.connections.iter_mut().filter(|c| c.id == id) {
+        c.production = false;
+    }
+    let (s, commands) = update(s, confirm());
+    assert_eq!(commands.len(), 1, "the user explicitly confirmed it");
+    assert!(s.pending.is_some());
+}

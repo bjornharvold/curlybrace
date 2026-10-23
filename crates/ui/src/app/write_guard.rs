@@ -30,6 +30,9 @@ pub struct ParkedWrite {
     /// What `pending` becomes when the write is sent, exactly as an unguarded write would set it.
     pub pending: Pending,
     pub kind: WriteKind,
+    /// The connect epoch of the session when the write was parked: a reconnect bumps it, so a
+    /// write never outlives the opening it was aimed at.
+    pub epoch: u64,
 }
 
 /// The user's answer to the production write warning.
@@ -40,6 +43,27 @@ pub enum WriteWarningAction {
 }
 
 impl AppState {
+    /// Drops a parked write that belongs to the active session.
+    pub fn write_warning_dropped_for_active(self) -> AppState {
+        let session = self.session_id();
+        self.write_warning_dropped_for(session)
+    }
+
+    /// Drops a parked write that belongs to `session` (closed, lost or replaced).
+    pub fn write_warning_dropped_for(self, session: uuid::Uuid) -> AppState {
+        let belongs = self
+            .write_warning
+            .as_ref()
+            .is_some_and(|w| w.command.session() == Some(session));
+        match belongs {
+            true => AppState {
+                write_warning: None,
+                ..self
+            },
+            false => self,
+        }
+    }
+
     /// Whether the active session is a saved connection flagged as production. The embedded
     /// session has no saved connection and is never production.
     pub fn active_is_production(&self) -> bool {
@@ -79,6 +103,7 @@ fn still_valid(state: &AppState, parked: &ParkedWrite) -> bool {
         && state.is_open(session)
         && state.status == ConnStatus::Connected
         && state.pending.is_none()
+        && state.latest_requested_epoch == parked.epoch
 }
 
 #[cfg(test)]
