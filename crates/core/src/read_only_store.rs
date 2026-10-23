@@ -11,9 +11,10 @@ use bson::{Bson, Document};
 
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
+use crate::indexes::IndexSpec;
 use crate::store::{
-    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query, Topology,
-    WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, IndexUsage,
+    Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
 };
 
 pub struct ReadOnlyStore {
@@ -130,5 +131,33 @@ impl DocumentStore for ReadOnlyStore {
         limit: u32,
     ) -> Result<Vec<DuplicateGroup>> {
         self.inner.duplicate_keys(ns, filter, key, limit).await
+    }
+
+    async fn list_indexes(&self, ns: &Namespace) -> Result<Vec<CollectionIndex>> {
+        self.inner.list_indexes(ns).await
+    }
+
+    async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
+        self.inner.index_stats(ns).await
+    }
+
+    async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {
+        self.guard()?;
+        self.inner.create_index(ns, spec).await
+    }
+
+    async fn drop_index(&self, ns: &Namespace, name: &str) -> Result<()> {
+        self.guard()?;
+        self.inner.drop_index(ns, name).await
+    }
+
+    async fn set_index_hidden(&self, ns: &Namespace, name: &str, hidden: bool) -> Result<()> {
+        self.guard()?;
+        self.inner.set_index_hidden(ns, name, hidden).await
+    }
+
+    async fn set_index_ttl(&self, ns: &Namespace, name: &str, seconds: i64) -> Result<()> {
+        self.guard()?;
+        self.inner.set_index_ttl(ns, name, seconds).await
     }
 }

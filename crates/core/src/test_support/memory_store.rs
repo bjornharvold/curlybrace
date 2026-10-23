@@ -11,12 +11,14 @@ use bson::{Bson, Document, oid::ObjectId};
 
 use super::bson_order::cmp_bson;
 use super::memory_fields::update_fields;
+use super::memory_indexes::{self as idx, IndexMap, UsageMap};
 use super::query_eval::{check_filter, compare, matches, parse_sort, project};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
+use crate::indexes::{IndexOptions, IndexSpec};
 use crate::store::{
-    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query,
-    WriteFailure, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, IndexUsage,
+    Namespace, Page, Query, WriteFailure, WriteOp, WriteOutcome,
 };
 
 type Collections = BTreeMap<(String, String), Vec<Document>>;
@@ -24,6 +26,8 @@ type Collections = BTreeMap<(String, String), Vec<Document>>;
 #[derive(Default)]
 pub struct InMemoryStore {
     data: Mutex<Collections>,
+    pub(super) indexes: Mutex<IndexMap>,
+    pub(super) usage: Mutex<UsageMap>,
 }
 
 impl InMemoryStore {
@@ -43,10 +47,16 @@ impl InMemoryStore {
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Collections>> {
-        self.data
-            .lock()
-            .map_err(|_| CoreError::Database("in-memory store lock poisoned".into()))
+        self.data.lock().map_err(|_| poisoned())
     }
+
+    fn lock_indexes(&self) -> Result<MutexGuard<'_, IndexMap>> {
+        self.indexes.lock().map_err(|_| poisoned())
+    }
+}
+
+fn poisoned() -> CoreError {
+    CoreError::Database("in-memory store lock poisoned".into())
 }
 
 fn key(ns: &Namespace) -> (String, String) {
@@ -276,6 +286,36 @@ impl DocumentStore for InMemoryStore {
         groups.sort_by(|a, b| b.count.cmp(&a.count));
         groups.truncate(limit as usize);
         Ok(groups)
+    }
+
+    async fn list_indexes(&self, ns: &Namespace) -> Result<Vec<CollectionIndex>> {
+        Ok(idx::list(&*self.lock_indexes()?, &key(ns)))
+    }
+
+    async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
+        let usage = self.usage.lock().map_err(|_| poisoned())?;
+        Ok(usage.get(&key(ns)).cloned().unwrap_or_default())
+    }
+
+    async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {
+        idx::create(&mut *self.lock_indexes()?, key(ns), spec)
+    }
+
+    async fn drop_index(&self, ns: &Namespace, name: &str) -> Result<()> {
+        idx::drop_named(&mut *self.lock_indexes()?, &key(ns), name)
+    }
+
+    async fn set_index_hidden(&self, ns: &Namespace, name: &str, hidden: bool) -> Result<()> {
+        let change = |o| IndexOptions { hidden, ..o };
+        idx::update_options(&mut *self.lock_indexes()?, &key(ns), name, change)
+    }
+
+    async fn set_index_ttl(&self, ns: &Namespace, name: &str, seconds: i64) -> Result<()> {
+        let change = |o| IndexOptions {
+            expire_after_seconds: Some(seconds),
+            ..o
+        };
+        idx::update_options(&mut *self.lock_indexes()?, &key(ns), name, change)
     }
 }
 

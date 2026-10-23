@@ -10,11 +10,13 @@ use bson::{Bson, Document, doc};
 
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
+use crate::indexes::IndexSpec;
 use crate::read_only_store::ReadOnlyStore;
 use crate::store::{
-    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query, Topology,
-    WriteFailure, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, IndexUsage,
+    Namespace, Page, Query, Topology, WriteFailure, WriteOp, WriteOutcome,
 };
+use crate::test_support::mock_objects::mock_index_spec;
 
 /// Counts calls per method and answers every method with a non-default value, so a wrapper that
 /// falls back to a trait default is caught. Implementing every method here also means a new
@@ -38,7 +40,16 @@ impl RecordingStore {
 
 /// Every write method of `DocumentStore`. Adding a write to the trait? Name it here, give
 /// `RecordingStore` a counter for it, refuse it in `ReadOnlyStore`, and cover it below.
-const WRITES: [&str; 4] = ["insert", "replace", "delete", "bulk_write"];
+const WRITES: [&str; 8] = [
+    "insert",
+    "replace",
+    "delete",
+    "bulk_write",
+    "create_index",
+    "drop_index",
+    "set_index_hidden",
+    "set_index_ttl",
+];
 
 fn ns() -> Namespace {
     Namespace::new("db", "c")
@@ -140,6 +151,39 @@ impl DocumentStore for RecordingStore {
             count: 2,
         }])
     }
+    async fn list_indexes(&self, _ns: &Namespace) -> Result<Vec<CollectionIndex>> {
+        self.hit("list_indexes");
+        Ok(vec![CollectionIndex {
+            spec: mock_index_spec(),
+            size_bytes: 4096,
+        }])
+    }
+    async fn index_stats(&self, _ns: &Namespace) -> Result<Vec<IndexUsage>> {
+        self.hit("index_stats");
+        Ok(vec![IndexUsage {
+            name: "via_index_stats".into(),
+            host: "h:27017".into(),
+            ops: 5,
+            since_ms: 1_000,
+            spec: mock_index_spec(),
+        }])
+    }
+    async fn create_index(&self, _ns: &Namespace, _spec: &IndexSpec) -> Result<()> {
+        self.hit("create_index");
+        Ok(())
+    }
+    async fn drop_index(&self, _ns: &Namespace, _name: &str) -> Result<()> {
+        self.hit("drop_index");
+        Ok(())
+    }
+    async fn set_index_hidden(&self, _ns: &Namespace, _name: &str, _hidden: bool) -> Result<()> {
+        self.hit("set_index_hidden");
+        Ok(())
+    }
+    async fn set_index_ttl(&self, _ns: &Namespace, _name: &str, _seconds: i64) -> Result<()> {
+        self.hit("set_index_ttl");
+        Ok(())
+    }
 }
 
 fn wrapped(locked: bool) -> (Arc<RecordingStore>, Arc<AtomicBool>, Arc<dyn DocumentStore>) {
@@ -149,8 +193,8 @@ fn wrapped(locked: bool) -> (Arc<RecordingStore>, Arc<AtomicBool>, Arc<dyn Docum
     (inner, flag, store)
 }
 
-/// Runs the four writes; true per write when it came back `ReadOnly`.
-async fn refused_writes(store: &dyn DocumentStore) -> [bool; 4] {
+/// Runs every write; true per write when it came back `ReadOnly`.
+async fn refused_writes(store: &dyn DocumentStore) -> [bool; WRITES.len()] {
     let id = Bson::Int32(1);
     let is_ro = |e: Option<CoreError>| e == Some(CoreError::ReadOnly);
     [
@@ -163,13 +207,17 @@ async fn refused_writes(store: &dyn DocumentStore) -> [bool; 4] {
                 .await
                 .err(),
         ),
+        is_ro(store.create_index(&ns(), &mock_index_spec()).await.err()),
+        is_ro(store.drop_index(&ns(), "a_1").await.err()),
+        is_ro(store.set_index_hidden(&ns(), "a_1", true).await.err()),
+        is_ro(store.set_index_ttl(&ns(), "a_1", 60).await.err()),
     ]
 }
 
 #[tokio::test]
-async fn locked_store_refuses_insert_replace_delete_and_bulk_write_with_read_only() {
+async fn locked_store_refuses_every_write_with_read_only() {
     let (inner, _flag, store) = wrapped(true);
-    assert_eq!(refused_writes(store.as_ref()).await, [true; 4]);
+    assert_eq!(refused_writes(store.as_ref()).await, [true; WRITES.len()]);
     assert_eq!(inner.write_calls(), 0);
     assert!(store.is_read_only());
 }
@@ -186,10 +234,45 @@ async fn unlocked_store_forwards_writes() {
         .await
         .unwrap();
     assert_eq!(out, vec![Err(WriteFailure::Rejected(42))]);
-    for w in WRITES {
+    for w in &WRITES[..4] {
         assert_eq!(inner.count(w), 1, "{w}");
     }
     assert!(!store.is_read_only());
+}
+
+#[tokio::test]
+async fn read_only_refuses_create_drop_hide_and_ttl() {
+    let (inner, _flag, store) = wrapped(true);
+    let spec = mock_index_spec();
+    let refused = [
+        store.create_index(&ns(), &spec).await,
+        store.drop_index(&ns(), "a_1").await,
+        store.set_index_hidden(&ns(), "a_1", true).await,
+        store.set_index_ttl(&ns(), "a_1", 60).await,
+    ];
+    assert!(refused.iter().all(|r| *r == Err(CoreError::ReadOnly)));
+    assert_eq!(inner.write_calls(), 0);
+
+    let (inner, _flag, store) = wrapped(false);
+    assert_eq!(store.create_index(&ns(), &spec).await, Ok(()));
+    assert_eq!(store.drop_index(&ns(), "a_1").await, Ok(()));
+    assert_eq!(store.set_index_hidden(&ns(), "a_1", true).await, Ok(()));
+    assert_eq!(store.set_index_ttl(&ns(), "a_1", 60).await, Ok(()));
+    for w in &WRITES[4..] {
+        assert_eq!(inner.count(w), 1, "{w}");
+    }
+}
+
+#[tokio::test]
+async fn read_only_forwards_list_indexes_and_index_stats() {
+    // Locked on purpose: reading indexes must work on a read-only connection.
+    let (inner, _flag, store) = wrapped(true);
+    let listed = store.list_indexes(&ns()).await.unwrap();
+    assert_eq!(listed[0].size_bytes, 4096);
+    let stats = store.index_stats(&ns()).await.unwrap();
+    assert_eq!(stats[0].name, "via_index_stats");
+    assert_eq!(inner.count("list_indexes"), 1);
+    assert_eq!(inner.count("index_stats"), 1);
 }
 
 #[tokio::test]

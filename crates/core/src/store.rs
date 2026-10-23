@@ -6,6 +6,7 @@ use bson::{Bson, Document};
 use crate::compare::diff::PathSegment;
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
+use crate::indexes::IndexSpec;
 
 /// How the connected MongoDB server is deployed, as its `hello` reply tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,6 +87,26 @@ pub struct DuplicateGroup {
     pub count: u64,
 }
 
+/// An index as the server lists it: its definition and how much disk it takes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollectionIndex {
+    pub spec: IndexSpec,
+    pub size_bytes: u64,
+}
+
+/// What `$indexStats` reports for one index on one node.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IndexUsage {
+    pub name: String,
+    /// The node that served the operations (`host:port`).
+    pub host: String,
+    /// Operations that used the index since `since_ms`.
+    pub ops: i64,
+    /// When the node started counting, in ms since the epoch.
+    pub since_ms: i64,
+    pub spec: IndexSpec,
+}
+
 /// One write against one collection. Matched by `_id`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum WriteOp {
@@ -130,8 +151,8 @@ pub trait DocumentStore: Send + Sync {
     async fn list_collections(&self, db: &str) -> Result<Vec<String>>;
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page>;
 
-    // WRITE METHODS (`insert`, `replace`, `delete`, `bulk_write`): `ReadOnlyStore` must refuse
-    // each of them. Adding a write method to this trait? Update `ReadOnlyStore` and the
+    // WRITE METHODS (`insert`, `replace`, `delete`, `bulk_write`, `create_index`, `drop_index`,
+    // `set_index_hidden`, `set_index_ttl`): `ReadOnlyStore` must refuse each of them. Adding a write method to this trait? Update `ReadOnlyStore` and the
     // `WRITES` list and `every_write_method_is_covered` in `read_only_store_tests.rs`.
     /// Inserts `doc`, returning its `_id` (generated when absent).
     async fn insert(&self, ns: &Namespace, doc: Document) -> Result<Bson>;
@@ -139,6 +160,30 @@ pub trait DocumentStore: Send + Sync {
     async fn replace(&self, ns: &Namespace, id: &Bson, doc: Document) -> Result<()>;
     /// Deletes the document with `_id == id`; `NotFound` if none matches.
     async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()>;
+    /// Builds the index `spec` (name, keys and options) on `ns`.
+    async fn create_index(&self, _ns: &Namespace, _spec: &IndexSpec) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot create indexes".into(),
+        ))
+    }
+    /// Drops the index called `name`; `NotFound` if there is none. `_id_` cannot be dropped.
+    async fn drop_index(&self, _ns: &Namespace, _name: &str) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot drop indexes".into(),
+        ))
+    }
+    /// Hides or unhides the index called `name` from the query planner.
+    async fn set_index_hidden(&self, _ns: &Namespace, _name: &str, _hidden: bool) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot hide indexes".into(),
+        ))
+    }
+    /// Changes the expiry of the TTL index called `name` to `seconds`.
+    async fn set_index_ttl(&self, _ns: &Namespace, _name: &str, _seconds: i64) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot change an index expiry".into(),
+        ))
+    }
 
     /// Whether writes through this store are refused (a read-only connection). The default,
     /// for stores that never lock, is `false`.
@@ -239,6 +284,20 @@ pub trait DocumentStore: Send + Sync {
     ) -> Result<Vec<DuplicateGroup>> {
         Err(CoreError::Unsupported(
             "this store cannot find duplicate keys".into(),
+        ))
+    }
+
+    /// The indexes of `ns` with their on-disk size, `_id_` included.
+    async fn list_indexes(&self, _ns: &Namespace) -> Result<Vec<CollectionIndex>> {
+        Err(CoreError::Unsupported(
+            "this store cannot list indexes".into(),
+        ))
+    }
+
+    /// `$indexStats` for `ns`: one row per index per node.
+    async fn index_stats(&self, _ns: &Namespace) -> Result<Vec<IndexUsage>> {
+        Err(CoreError::Unsupported(
+            "this store cannot read index usage".into(),
         ))
     }
 }
