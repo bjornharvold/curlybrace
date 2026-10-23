@@ -152,6 +152,7 @@
         "count_cell": "{kind}: {count}",
         "destination_line": "{action}: {destination}",
         "fields_line": "Fields: {fields}, documents: {documents}",
+        "production_line": "Warning: {connection} is a production connection.",
         "title": "Review before applying",
         "total": "Documents to write: {count}",
         "warnings_title": "Check before you apply"

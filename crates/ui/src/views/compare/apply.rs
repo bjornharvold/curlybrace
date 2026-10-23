@@ -7,6 +7,7 @@ use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::{CompareState, Review, ReviewPair};
 use curlybrace_core::compare::apply::IdPolicy;
 use eframe::egui;
+use uuid::Uuid;
 
 pub use super::apply_result::show_progress;
 
@@ -18,11 +19,13 @@ const DESTINATION_WIDTH: f32 = 200.0;
 pub fn show_review(
     ctx: &egui::Context,
     state: &CompareState,
+    production: &dyn Fn(Uuid) -> bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let review = state.apply.review()?;
+    let notice = review.production_destinations(production);
     let modal = egui::Modal::new(egui::Id::new("compare_apply_review"));
-    let response = modal.show(ctx, |ui| show_body(ui, state, review, i18n));
+    let response = modal.show(ctx, |ui| show_body(ui, state, review, &notice, i18n));
     let closed = response.should_close();
     response
         .inner
@@ -33,6 +36,7 @@ fn show_body(
     ui: &mut egui::Ui,
     state: &CompareState,
     review: &Review,
+    production: &[String],
     i18n: &I18n,
 ) -> Option<CompareAction> {
     ui.set_width(MODAL_WIDTH);
@@ -42,6 +46,7 @@ fn show_body(
     ui.strong(i18n.t_with("compare.apply.review.total", &[("count", &total)]));
     show_field_line(ui, review, i18n);
     let policy = show_id_policy(ui, review, i18n);
+    show_production_notice(ui, production, i18n);
     show_warnings(ui, review, i18n);
     let typed = show_confirmation(ui, review, i18n);
     let buttons = show_buttons(ui, review, i18n);
@@ -169,6 +174,22 @@ fn show_id_policy(ui: &mut egui::Ui, review: &Review, i18n: &I18n) -> Option<Com
     action
 }
 
+/// One line per written connection that is production, so the person sees where the writes land.
+fn show_production_notice(ui: &mut egui::Ui, production: &[String], i18n: &I18n) {
+    if production.is_empty() {
+        return;
+    }
+    ui.separator();
+    let color = ui.visuals().error_fg_color;
+    for name in production {
+        let line = i18n.t_with(
+            "compare.apply.review.production_line",
+            &[("connection", name)],
+        );
+        ui.label(egui::RichText::new(line).strong().color(color));
+    }
+}
+
 fn show_warnings(ui: &mut egui::Ui, review: &Review, i18n: &I18n) {
     if review.warnings.is_empty() {
         return;
@@ -208,4 +229,58 @@ fn show_buttons(ui: &mut egui::Ui, review: &Review, i18n: &I18n) -> Option<Compa
         confirm.or(cancel.clicked().then_some(CompareAction::CancelReview))
     })
     .inner
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    fn notice_lines(production: Vec<String>) -> Vec<String> {
+        let mut harness = Harness::new_ui_state(
+            |ui, names: &mut Vec<String>| show_production_notice(ui, names, &I18n::english()),
+            production.clone(),
+        );
+        harness.run_steps(2);
+        production
+            .iter()
+            .map(|name| {
+                I18n::english().t_with(
+                    "compare.apply.review.production_line",
+                    &[("connection", name)],
+                )
+            })
+            .filter(|line| harness.query_by_label(line).is_some())
+            .collect()
+    }
+
+    #[test]
+    fn notice_names_each_production_destination() {
+        let names = vec!["prod-a".to_string(), "prod-b".to_string()];
+        assert_eq!(notice_lines(names).len(), 2);
+    }
+
+    #[test]
+    fn notice_is_absent_without_production_destinations() {
+        let mut harness = Harness::new_ui_state(
+            |ui, names: &mut Vec<String>| show_production_notice(ui, names, &I18n::english()),
+            Vec::<String>::new(),
+        );
+        harness.run_steps(2);
+        assert!(
+            harness
+                .query_by_label_contains("production connection")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn notice_key_takes_the_connection_name() {
+        let line = I18n::english().t_with(
+            "compare.apply.review.production_line",
+            &[("connection", "orders-prod")],
+        );
+        assert!(line.contains("orders-prod"), "{line}");
+    }
 }

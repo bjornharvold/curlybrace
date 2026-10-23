@@ -121,6 +121,9 @@ pub struct Review {
     pub session: SessionId,
     /// The pending list this review was built from; an apply sends exactly this list.
     pub pending: PendingList,
+    /// The connections the review writes to (each once, in pending-list order), with the names
+    /// shown for them; a pair's direction decides whether that is the source or the target.
+    pub written: Vec<(Uuid, String)>,
     /// What the warnings derive from, kept so a changed id policy recomputes them.
     pub(super) warn_inputs: Vec<WarnInput>,
 }
@@ -209,6 +212,15 @@ impl Review {
         self.pairs.iter().map(|p| p.counts.fields).sum()
     }
 
+    /// Names of the written connections `is_production` flags, in review order.
+    pub fn production_destinations(&self, is_production: &dyn Fn(Uuid) -> bool) -> Vec<String> {
+        self.written
+            .iter()
+            .filter(|(id, _)| is_production(*id))
+            .map(|(_, name)| name.clone())
+            .collect()
+    }
+
     /// Fields the review copies, over all documents.
     pub fn field_total(&self) -> u64 {
         self.pairs.iter().map(|p| p.field_count).sum()
@@ -272,6 +284,13 @@ impl Resolved<'_> {
             connection: name.clone(),
             database: ns.db.clone(),
             collection: ns.collection.clone(),
+        }
+    }
+
+    fn connection<'c>(&self, conns: &'c ReviewConnections) -> &'c (Uuid, String) {
+        match self.direction() {
+            Direction::SourceToTarget => &conns.target,
+            Direction::TargetToSource => &conns.source,
         }
     }
 
@@ -428,6 +447,13 @@ pub fn build_review(
         .map(|r| r.place(conns))
         .collect();
     let warn_inputs: Vec<WarnInput> = resolved.iter().map(Resolved::kinds).collect();
+    let mut written: Vec<(Uuid, String)> = Vec::new();
+    for r in &resolved {
+        let connection = r.connection(conns);
+        if !written.iter().any(|(id, _)| *id == connection.0) {
+            written.push(connection.clone());
+        }
+    }
     Some(Review {
         pairs,
         id_policy,
@@ -437,6 +463,7 @@ pub fn build_review(
         word: String::new(),
         session: 0,
         pending: pending.clone(),
+        written,
         warn_inputs,
     })
 }
