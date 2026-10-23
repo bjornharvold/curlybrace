@@ -56,6 +56,9 @@ pub struct FieldBar {
     pub selected: usize,
     pub to_target: Option<FieldBlock>,
     pub to_source: Option<FieldBlock>,
+    /// The queue button writes to a read-only connection: stated beside `to_target`'s block.
+    pub to_target_read_only: bool,
+    pub to_source_read_only: bool,
     pub clear: Option<FieldBlock>,
 }
 
@@ -77,6 +80,8 @@ impl FieldBar {
             selected: pair.map_or(0, |p| state.field_selection.count(p, &detail.key)),
             to_target: state.field_queue_block(detail, Direction::SourceToTarget),
             to_source: state.field_queue_block(detail, Direction::TargetToSource),
+            to_target_read_only: false,
+            to_source_read_only: false,
             clear: state.field_clear_block(detail),
         }
     }
@@ -86,6 +91,14 @@ impl FieldBar {
         match action.direction() {
             Direction::SourceToTarget => self.to_target,
             Direction::TargetToSource => self.to_source,
+        }
+    }
+
+    /// Whether `action` would write to a read-only connection.
+    pub fn queue_read_only(&self, action: RowAction) -> bool {
+        match action.direction() {
+            Direction::SourceToTarget => self.to_target_read_only,
+            Direction::TargetToSource => self.to_source_read_only,
         }
     }
 }

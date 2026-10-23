@@ -1,5 +1,5 @@
 use super::*;
-use crate::viewmodel::compare::{FieldRow, PendingList, RowAction, Scope};
+use crate::viewmodel::compare::{FieldBlock, FieldRow, PendingList, RowAction, Scope};
 use bson::Bson;
 use curlybrace_core::compare::key::KeyTuple;
 use curlybrace_core::compare::results::Category;
@@ -89,19 +89,74 @@ fn guarded_buttons_block_only_writes_to_a_read_only_side() {
         .map(|&action| ActionButton {
             action,
             block: None,
+            read_only: false,
         })
         .collect();
     let guarded = s.guard_buttons(buttons, &[]);
-    let blocks: Vec<_> = guarded.iter().map(|b| (b.action, b.block)).collect();
+    let marks: Vec<_> = guarded
+        .iter()
+        .map(|b| (b.action, b.block, b.read_only))
+        .collect();
     assert_eq!(
-        blocks,
+        marks,
         vec![
-            (RowAction::CopyToTarget, None),
-            (
-                RowAction::CopyToSource,
-                Some(ActionBlock::ReadOnlyDestination)
-            ),
+            (RowAction::CopyToTarget, None, false),
+            (RowAction::CopyToSource, None, true),
         ]
+    );
+}
+
+#[test]
+fn a_guarded_button_keeps_its_own_block_beside_the_read_only_mark() {
+    let (s, _, _) = state((true, false));
+    let button = ActionButton {
+        action: RowAction::CopyToSource,
+        block: Some(ActionBlock::Running),
+        read_only: false,
+    };
+    let guarded = s.guard_buttons(vec![button], &[]);
+    assert_eq!(guarded[0].block, Some(ActionBlock::Running));
+    assert!(guarded[0].read_only);
+    assert!(!guarded[0].is_enabled());
+}
+
+#[test]
+fn review_reasons_list_the_block_then_the_read_only_side() {
+    let (s, _, _) = state((false, true));
+    let s = queued(s, Category::Different, RowAction::CopyToTarget);
+    let busy = CompareState {
+        apply: crate::viewmodel::compare::ApplyUi::Running {
+            run: 9,
+            total: 1,
+            rows: Vec::new(),
+            cancel_requested: false,
+        },
+        ..s.clone()
+    };
+    assert_eq!(
+        busy.review_reasons(&[]),
+        vec![
+            ReviewReason::Block(ActionBlock::Busy),
+            ReviewReason::ReadOnly(Side::Target)
+        ]
+    );
+}
+
+#[test]
+fn review_reasons_name_a_lone_read_only_side_and_nothing_else() {
+    let (s, _, _) = state((false, true));
+    let s = queued(s, Category::Different, RowAction::CopyToTarget);
+    assert_eq!(
+        s.review_reasons(&[]).last(),
+        Some(&ReviewReason::ReadOnly(Side::Target))
+    );
+    let (writable, _, _) = state((false, false));
+    let writable = queued(writable, Category::Different, RowAction::CopyToTarget);
+    assert!(
+        !writable
+            .review_reasons(&[])
+            .iter()
+            .any(|r| matches!(r, ReviewReason::ReadOnly(_)))
     );
 }
 
@@ -115,13 +170,15 @@ fn guarded_field_bar_blocks_copy_to_a_read_only_source() {
         }],
         selected: 1,
         to_target: None,
-        to_source: None,
+        to_source: Some(FieldBlock::NoFields),
+        to_target_read_only: false,
+        to_source_read_only: false,
         clear: None,
     };
     let guarded = s.guard_field_bar(bar, &[]);
     assert_eq!(guarded.to_target, None);
-    assert_eq!(
-        guarded.to_source,
-        Some(FieldBlock::Gate(ActionBlock::ReadOnlyDestination))
-    );
+    assert!(!guarded.to_target_read_only);
+    // The block stays beside the read-only mark, so both are stated.
+    assert_eq!(guarded.to_source, Some(FieldBlock::NoFields));
+    assert!(guarded.to_source_read_only);
 }

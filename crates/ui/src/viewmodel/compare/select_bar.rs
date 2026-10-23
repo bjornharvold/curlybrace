@@ -31,8 +31,6 @@ pub enum ActionBlock {
     NotOnPage,
     /// Fields can only be copied from the Different tab.
     NotDifferentTab,
-    /// The action writes to a read-only connection.
-    ReadOnlyDestination,
 }
 
 impl ActionBlock {
@@ -46,16 +44,24 @@ impl ActionBlock {
             Self::NothingSelected => "compare.apply.reason.nothing_selected",
             Self::NotOnPage => "compare.apply.reason.not_on_page",
             Self::NotDifferentTab => "compare.apply.reason.not_different_tab",
-            Self::ReadOnlyDestination => "compare.apply.reason.read_only_destination",
         }
     }
 }
 
-/// One action button and why it is disabled (`None`: enabled).
+/// One action button and why it is disabled (`None` and not `read_only`: enabled). The
+/// read-only reason is kept apart from `block`, so both can apply and both are stated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActionButton {
     pub action: RowAction,
     pub block: Option<ActionBlock>,
+    /// The action writes to a read-only connection.
+    pub read_only: bool,
+}
+
+impl ActionButton {
+    pub fn is_enabled(&self) -> bool {
+        self.block.is_none() && !self.read_only
+    }
 }
 
 impl CompareState {
@@ -125,7 +131,11 @@ impl CompareState {
         let block = self.queue_block(pair, selected);
         RowAction::offered_for(category)
             .iter()
-            .map(|&action| ActionButton { action, block })
+            .map(|&action| ActionButton {
+                action,
+                block,
+                read_only: false,
+            })
             .collect()
     }
 

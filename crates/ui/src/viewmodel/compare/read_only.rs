@@ -8,7 +8,7 @@ use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::connection::ConnectionConfig;
 use uuid::Uuid;
 
-use super::{ActionBlock, ActionButton, CompareState, FieldBar, FieldBlock, SelectionBar};
+use super::{ActionBlock, ActionButton, CompareState, FieldBar, SelectionBar};
 
 const DIRECTIONS: [(Direction, Side); 2] = [
     (Direction::SourceToTarget, Side::Target),
@@ -43,7 +43,19 @@ impl CompareState {
         })
     }
 
-    /// `buttons` with every action that writes to a read-only connection blocked for that reason.
+    /// Every reason Review changes is closed, in the order the person can clear them: the
+    /// workflow block first (busy, running, checking, ...), then the read-only destination. Empty
+    /// when Review can fire.
+    pub fn review_reasons(&self, saved: &[ConnectionConfig]) -> Vec<ReviewReason> {
+        let block = self.review_block().map(ReviewReason::Block);
+        let read_only = self
+            .read_only_destination(saved)
+            .map(ReviewReason::ReadOnly);
+        block.into_iter().chain(read_only).collect()
+    }
+
+    /// `buttons` with every action that writes to a read-only connection marked as such. The
+    /// button's own block stays, so both reasons are stated.
     pub fn guard_buttons(
         &self,
         buttons: Vec<ActionButton>,
@@ -51,19 +63,14 @@ impl CompareState {
     ) -> Vec<ActionButton> {
         buttons
             .into_iter()
-            .map(
-                |button| match self.writes_to_read_only(button.action.direction(), saved) {
-                    true => ActionButton {
-                        block: Some(ActionBlock::ReadOnlyDestination),
-                        ..button
-                    },
-                    false => button,
-                },
-            )
+            .map(|button| ActionButton {
+                read_only: self.writes_to_read_only(button.action.direction(), saved),
+                ..button
+            })
             .collect()
     }
 
-    /// The selection bar with its read-only destinations blocked.
+    /// The selection bar with its read-only destinations marked.
     pub fn guard_selection_bar(
         &self,
         bar: SelectionBar,
@@ -75,18 +82,34 @@ impl CompareState {
         }
     }
 
-    /// The field bar with the queue button of a read-only destination blocked.
+    /// The field bar with the queue button of a read-only destination marked.
     pub fn guard_field_bar(&self, bar: FieldBar, saved: &[ConnectionConfig]) -> FieldBar {
-        let guard = |direction: Direction, block: Option<FieldBlock>| match self
-            .writes_to_read_only(direction, saved)
-        {
-            true => Some(FieldBlock::Gate(ActionBlock::ReadOnlyDestination)),
-            false => block,
-        };
         FieldBar {
-            to_target: guard(Direction::SourceToTarget, bar.to_target),
-            to_source: guard(Direction::TargetToSource, bar.to_source),
+            to_target_read_only: self.writes_to_read_only(Direction::SourceToTarget, saved),
+            to_source_read_only: self.writes_to_read_only(Direction::TargetToSource, saved),
             ..bar
+        }
+    }
+}
+
+/// The text shown when a queued or offered write goes to a read-only connection.
+pub const READ_ONLY_DESTINATION_KEY: &str = "compare.apply.reason.read_only_destination";
+
+/// One reason Review changes is closed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReviewReason {
+    /// The workflow (an apply, a run, a check, ...) holds it.
+    Block(ActionBlock),
+    /// A queued change writes to this read-only side.
+    ReadOnly(Side),
+}
+
+impl ReviewReason {
+    pub fn i18n_key(self) -> &'static str {
+        match self {
+            Self::Block(block) => block.i18n_key(),
+            Self::ReadOnly(Side::Target) => "compare.apply.reason.read_only_target",
+            Self::ReadOnly(Side::Source) => "compare.apply.reason.read_only_source",
         }
     }
 }

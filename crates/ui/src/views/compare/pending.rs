@@ -2,9 +2,11 @@
 //! and a remove button, the totals, Review changes… and Clear. Every decision (the grouping,
 //! the destinations, why Review is closed) comes from `viewmodel::compare::pending_view`; a line
 //! that writes to a read-only connection carries the read-only badge (`viewmodel::compare::read_only`).
+use super::select::reasons_text;
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::ConnectionBadge;
+use crate::viewmodel::compare::read_only::ReviewReason;
 use crate::viewmodel::compare::{
     ActionBlock, CONFIRM_WORD_KEY, CompareState, Destination, ExportKind, PendingGroup, PendingLine,
 };
@@ -79,8 +81,8 @@ pub fn show_pending(
     }
     let total = view.documents().to_string();
     ui.label(i18n.t_with("compare.apply.pending.total", &[("count", &total)]));
-    let read_only = state.read_only_destination(saved);
-    let buttons = show_buttons(ui, state, busy, read_only, i18n);
+    let reasons = state.review_reasons(saved);
+    let buttons = show_buttons(ui, state, busy, &reasons, i18n);
     let export = super::export::show_entry(ui, state, ExportKind::Plan, i18n);
     buttons.or(export).or(action)
 }
@@ -175,16 +177,23 @@ fn show_buttons(
     ui: &mut egui::Ui,
     state: &CompareState,
     busy: bool,
-    read_only: Option<Side>,
+    reasons: &[ReviewReason],
     i18n: &I18n,
 ) -> Option<CompareAction> {
-    let block = state.review_block();
     let mut action = None;
+    // Behind the review dialog "an apply is in progress" would be misleading: it stays a reason
+    // (Review is closed) but is not worded.
+    let reviewing = state.apply.review().is_some();
+    let shown: Vec<&'static str> = reasons
+        .iter()
+        .filter(|r| !(reviewing && **r == ReviewReason::Block(ActionBlock::Busy)))
+        .map(|r| r.i18n_key())
+        .collect();
     ui.horizontal(|ui| {
         let review = egui::Button::new(i18n.t("compare.apply.pending.review"));
-        let review = ui.add_enabled(block.is_none() && read_only.is_none(), review);
-        if let Some(side) = read_only {
-            review.on_disabled_hover_text(i18n.t(read_only_reason_key(side)));
+        let review = ui.add_enabled(reasons.is_empty(), review);
+        if !shown.is_empty() {
+            review.on_disabled_hover_text(reasons_text(&shown, i18n));
         } else if review.clicked() {
             action = Some(CompareAction::ReviewApply {
                 word: i18n.t(CONFIRM_WORD_KEY),
@@ -194,15 +203,13 @@ fn show_buttons(
         if ui.add_enabled(!busy, clear).clicked() {
             action = Some(CompareAction::ClearPending);
         }
-        // Behind the review dialog "an apply is in progress" would be misleading.
-        let reviewing = state.apply.review().is_some();
-        if let Some(side) = read_only {
+        // Every reason on its own line, so clearing one never uncovers an unexplained other.
+        ui.vertical(|ui| {
             let color = ui.visuals().warn_fg_color;
-            ui.colored_label(color, i18n.t(read_only_reason_key(side)));
-        } else if let Some(reason) = block.filter(|r| !(reviewing && *r == ActionBlock::Busy)) {
-            let color = ui.visuals().warn_fg_color;
-            ui.colored_label(color, i18n.t(reason.i18n_key()));
-        }
+            for key in &shown {
+                ui.colored_label(color, i18n.t(key));
+            }
+        });
     });
     action
 }
