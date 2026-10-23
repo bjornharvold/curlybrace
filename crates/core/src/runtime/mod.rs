@@ -546,7 +546,11 @@ fn dispatch(
     let target = match &command {
         Command::Connect(cfg) => {
             let (session, generation) = shared.begin_session_epoch(cfg.id);
-            Target::new(cfg.id, session, generation, false)
+            // Synchronous like the epoch, so a LockReadOnly sent after this Connect reaches the
+            // store it installs even while the connect is still in flight. A connect that fails
+            // or is superseded just drops the flag.
+            let flag = shared.read_only.attach(cfg.id, cfg.read_only);
+            Target::new(cfg.id, session, generation, false).with_read_only(flag)
         }
         _ => {
             let id = command.session().expect("a data command names its session");
@@ -571,8 +575,9 @@ fn dispatch(
             session,
             generation,
             is_data,
+            read_only,
         } = target;
-        let work = handlers::execute(shared, session.clone(), id, command, generation);
+        let work = handlers::execute(shared, session.clone(), id, command, generation, read_only);
         let event = match tokio::spawn(work).await {
             Ok(event) => event,
             Err(_) => handlers::failure_event(
@@ -598,6 +603,8 @@ struct Target {
     session: Arc<Session>,
     generation: u64,
     is_data: bool,
+    /// The read-only flag a Connect attached at dispatch time.
+    read_only: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl Target {
@@ -607,6 +614,14 @@ impl Target {
             session,
             generation,
             is_data,
+            read_only: None,
+        }
+    }
+
+    fn with_read_only(self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self {
+        Self {
+            read_only: Some(flag),
+            ..self
         }
     }
 }

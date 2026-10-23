@@ -2,6 +2,7 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::connection::ConnectionConfig;
 use crate::crud::DocumentService;
@@ -24,9 +25,10 @@ pub(super) async fn execute(
     id: SessionId,
     command: Command,
     generation: u64,
+    read_only: Option<Arc<AtomicBool>>,
 ) -> Event {
     let context = command.context();
-    match run(&shared, &session, id, command, generation).await {
+    match run(&shared, &session, id, command, generation, read_only).await {
         Ok(event) => event,
         Err(error) => failure_event(id, context, generation, error),
     }
@@ -114,9 +116,13 @@ async fn run(
     id: SessionId,
     command: Command,
     generation: u64,
+    read_only: Option<Arc<AtomicBool>>,
 ) -> Result<Event> {
     if let Command::Connect(cfg) = command {
-        return connect_store(shared, session, cfg, generation)
+        // The dispatcher attaches the flag synchronously; the fallback only covers a caller
+        // that did not.
+        let read_only = read_only.unwrap_or_else(|| shared.read_only.attach(cfg.id, cfg.read_only));
+        return connect_store(shared, session, cfg, generation, read_only)
             .await
             .map_err(|e| gate(session, generation, e));
     }
@@ -128,7 +134,7 @@ async fn run(
     let is_write = command.is_write();
     // Refused before any timeout or ping bookkeeping: a refusal is an answer, never a lost write.
     if is_write && store.is_read_only() {
-        return Err(CoreError::ReadOnly);
+        return Err(gate(session, generation, CoreError::ReadOnly));
     }
     let work = data_command(id, store.clone(), command);
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
@@ -242,6 +248,7 @@ async fn connect_store(
     session: &Arc<Session>,
     cfg: ConnectionConfig,
     generation: u64,
+    read_only: Arc<AtomicBool>,
 ) -> Result<Event> {
     cfg.validate()?;
     let limit = shared.config.connect_timeout;
@@ -266,7 +273,7 @@ async fn connect_store(
             .connector
             .connect(&cfg, password.as_deref(), addr)
             .await?;
-        let store = ReadOnlyStore::wrap(store, shared.read_only.attach(cfg.id, cfg.read_only));
+        let store = ReadOnlyStore::wrap(store, read_only.clone());
         // Informational: a slow or failing read is `None`, it never fails the connect.
         let topology = bounded(shared.config.command_timeout, store.topology())
             .await

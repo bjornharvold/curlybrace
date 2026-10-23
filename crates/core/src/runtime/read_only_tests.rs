@@ -2,9 +2,10 @@
 //! reconnect rule (a fresh flag per connect, so an unticked config is writable again).
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::oneshot;
 
 use async_trait::async_trait;
 use bson::{Bson, Document};
@@ -302,4 +303,88 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
     let lock = &others[4];
     assert_eq!(lock.context(), "lock_read_only");
     assert_eq!(lock.session(), None);
+}
+
+/// Blocks every connect until the test releases it.
+struct GatedConnector {
+    writes: Arc<AtomicUsize>,
+    gate: Mutex<Option<oneshot::Receiver<()>>>,
+}
+
+#[async_trait]
+impl Connector for GatedConnector {
+    async fn connect(
+        &self,
+        cfg: &ConnectionConfig,
+        password: Option<&str>,
+        tunnel: Option<SocketAddr>,
+    ) -> Result<Arc<dyn DocumentStore>> {
+        let gate = self.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            let _ = gate.await;
+        }
+        CountingConnector {
+            writes: self.writes.clone(),
+        }
+        .connect(cfg, password, tunnel)
+        .await
+    }
+}
+
+#[tokio::test]
+async fn lock_during_in_flight_connect_yields_a_locked_store() {
+    let writes = Arc::new(AtomicUsize::new(0));
+    let (release, gate) = oneshot::channel();
+    let connector = Arc::new(GatedConnector {
+        writes: writes.clone(),
+        gate: Mutex::new(Some(gate)),
+    });
+    let mut h = spawn_runtime_with_connector(
+        None,
+        None,
+        connector,
+        Arc::new(|| {}),
+        RuntimeConfig::default(),
+    );
+    let cfg = config(false);
+    h.tx.send(Command::Connect(cfg.clone())).unwrap();
+    h.tx.send(Command::LockReadOnly { connection: cfg.id })
+        .unwrap();
+    // Let both commands reach the dispatcher while the connect is still blocked.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    release.send(()).unwrap();
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    assert_each_write_refused(&mut h, cfg.id).await;
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn lock_on_one_connection_leaves_another_writable() {
+    let (mut h, writes) = spawn();
+    let (a, b) = (config(false), config(false));
+    connect(&mut h, &a).await;
+    connect(&mut h, &b).await;
+    h.tx.send(Command::LockReadOnly { connection: a.id })
+        .unwrap();
+    assert_each_write_refused(&mut h, a.id).await;
+    h.tx.send(write_commands(b.id).remove(0)).unwrap();
+    assert!(matches!(next(&mut h).await, Event::Mutated { .. }));
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn lock_reaches_an_open_store_keyed_by_id_alone() {
+    // Nothing but the id is known to the lock: no saved connection is consulted.
+    let (mut h, writes) = spawn();
+    let cfg = ConnectionConfig {
+        name: "unsaved".into(),
+        ..config(false)
+    };
+    connect(&mut h, &cfg).await;
+    h.tx.send(Command::LockReadOnly {
+        connection: Uuid::from_u128(cfg.id.as_u128()),
+    })
+    .unwrap();
+    assert_each_write_refused(&mut h, cfg.id).await;
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
 }
