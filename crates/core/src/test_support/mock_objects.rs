@@ -3,6 +3,7 @@
 use bson::{Binary, Bson, Document, Regex, Timestamp, doc, oid::ObjectId, spec::BinarySubtype};
 
 use crate::connection::{ConnectionConfig, SshAuth, SshConfig, TlsConfig};
+use crate::indexes::{IndexKey, IndexOptions, IndexSpec, KeyKind};
 use crate::store::Namespace;
 
 pub fn mock_doc() -> Document {
@@ -87,6 +88,30 @@ pub fn exotic_doc() -> Document {
         "regex": Regex { pattern: "^a.*z$".into(), options: "i".into() },
         "oid": ObjectId::new(),
         "timestamp": Timestamp { time: 1_700_000_000, increment: 3 },
+    }
+}
+
+/// A compound index on `customerId` ascending then `createdAt` descending, with no options.
+pub fn mock_index_spec() -> IndexSpec {
+    mock_index_spec_named(
+        "customerId_1_createdAt_-1",
+        &[("customerId", KeyKind::Asc), ("createdAt", KeyKind::Desc)],
+    )
+}
+
+/// An index called `name` over `keys`, with no options. Shape it with struct update syntax.
+pub fn mock_index_spec_named(name: &str, keys: &[(&str, KeyKind)]) -> IndexSpec {
+    IndexSpec {
+        name: name.into(),
+        keys: keys
+            .iter()
+            .map(|(field, kind)| IndexKey {
+                field: (*field).into(),
+                kind: kind.clone(),
+            })
+            .collect(),
+        options: IndexOptions::default(),
+        raw: Document::new(),
     }
 }
 
