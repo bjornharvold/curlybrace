@@ -73,6 +73,26 @@ edit documents and compare data between databases, without an account, a trial, 
   mongosh script or JSON plan and the differences as a CSV report.
 - The full guide is [docs/compare.md](docs/compare.md).
 
+**Indexes** ([#68](https://github.com/bjornharvold/curlybrace/issues/68))
+- An **Indexes** tab on each collection: the indexes on the left, the selected one on the right with
+  its size and how often it was used over the last 24 hours, 7 days or 30 days. Server restarts
+  and periods with no data are marked on the chart.
+- Create an index with a builder that shows the `createIndexes` command before it runs. Edit a
+  copy: the new index is built first, then you are asked whether to drop the old one. Hide and
+  unhide an index, change a TTL, copy an index as JSON, or drop one by typing its name to confirm.
+- Index changes follow the same rules as document writes: a production connection asks first, and a
+  read-only connection refuses.
+- Usage counts come from `$indexStats`, which MongoDB keeps per node and resets when the server
+  restarts. To show use over time, the app records them once a minute while it is running and
+  connected, for every collection in every database except `admin`, `local`, `config` and the
+  databases you exclude (the **Sampling** section of the Indexes tab). Time when the app was closed
+  or disconnected is shown as a gap, not as zero use.
+- The history is a local SQLite file, `curlybrace/history.sqlite` in your config folder
+  (`~/Library/Application Support` on macOS), readable only by you. Per-minute samples are kept
+  for 48 hours, then thinned to hourly for 90 days and daily for 2 years, with the file held to
+  about 100 MB. The excluded databases are stored in `sampling.json` next to `connections.json`.
+  Deleting a saved connection deletes its history; you can also delete the file.
+
 ## Install
 
 1. Download `curlybrace-vX.Y.Z-macos-arm64.zip` from the
@@ -130,7 +150,7 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   reach the server".
 - The find bar takes strict JSON, not mongo shell syntax.
 - Everyday tools you may expect from other clients (aggregation builder, document import and
-  export, index management, schema analysis) are not built yet. They come after the features at
+  export, schema analysis) are not built yet. They come after the features at
   the top of the [roadmap](#roadmap).
 
 ## Roadmap
@@ -152,6 +172,10 @@ contribute.
 - **Data Compare & Sync** ([#8](https://github.com/bjornharvold/curlybrace/issues/8)): compare collections or whole databases across servers, copy or
   delete differences with a review step, and export the changes. Nothing is left to build; feedback
   and fixes are welcome. See the [guide](docs/compare.md).
+
+- **Indexes tab and usage history** ([#68](https://github.com/bjornharvold/curlybrace/issues/68)): create, edit, hide, drop and change
+  the TTL of indexes, and see their use over time from a local history. Finding queries that miss
+  an index is a follow-up that builds on the profiler ([#60](https://github.com/bjornharvold/curlybrace/issues/60)) and explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)).
 
 ### In progress
 
@@ -177,7 +201,7 @@ Nothing is being built right now. Pick something from **Next**.
   ([#76](https://github.com/bjornharvold/curlybrace/issues/76)), data model diagrams ([#77](https://github.com/bjornharvold/curlybrace/issues/77)), a map view for geo fields ([#79](https://github.com/bjornharvold/curlybrace/issues/79)).
 - **Data in and out:** export ([#54](https://github.com/bjornharvold/curlybrace/issues/54)), import ([#55](https://github.com/bjornharvold/curlybrace/issues/55)), backup and restore ([#53](https://github.com/bjornharvold/curlybrace/issues/53)), test data
   generator ([#58](https://github.com/bjornharvold/curlybrace/issues/58)), GridFS ([#57](https://github.com/bjornharvold/curlybrace/issues/57)).
-- **Administration and monitoring:** index management ([#68](https://github.com/bjornharvold/curlybrace/issues/68)), users and roles ([#56](https://github.com/bjornharvold/curlybrace/issues/56)), live
+- **Administration and monitoring:** users and roles ([#56](https://github.com/bjornharvold/curlybrace/issues/56)), live
   server statistics ([#59](https://github.com/bjornharvold/curlybrace/issues/59)), profiler ([#60](https://github.com/bjornharvold/curlybrace/issues/60)), replica set and sharded cluster views ([#61](https://github.com/bjornharvold/curlybrace/issues/61)),
   change streams ([#62](https://github.com/bjornharvold/curlybrace/issues/62)).
 - **Enterprise and security:** field level encryption and Queryable Encryption ([#63](https://github.com/bjornharvold/curlybrace/issues/63)), AWS IAM and
