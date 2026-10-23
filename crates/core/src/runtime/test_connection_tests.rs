@@ -19,7 +19,7 @@ use crate::connection::{AuthMechanism, SshAuth, SshConfig};
 use crate::secrets::{MemorySecretStore, SecretKind, SecretString, secret_key};
 use crate::store::Page;
 use crate::test_support::InMemoryStore;
-use crate::tunnel::{HostKeyDecision, check_host_key};
+use crate::tunnel::{HostKeyDecision, HostKeyPrompt, RejectUnknownHostKeys, check_host_key};
 
 const WAIT: Duration = Duration::from_secs(5);
 

@@ -150,7 +150,11 @@ async fn run(
         .current_store()
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
         .map_err(|e| gate(session, generation, e))?;
-    let limit = shared.config.command_timeout;
+    // An index build can run for a long time; every other command keeps the short bound.
+    let limit = match command {
+        Command::CreateIndex { .. } => shared.config.index_build_timeout,
+        _ => shared.config.command_timeout,
+    };
     let is_write = command.is_write();
     // Refused before any timeout or ping bookkeeping: a refusal is an answer, never a lost write.
     if is_write && store.is_read_only() {
