@@ -1,7 +1,7 @@
 //! The review modal: what will be written where, the warnings, the id policy and, for deletes,
 //! the typed confirmation. It only reports actions; whether Apply may fire is decided by the
 //! same check the reducer repeats (`Review::confirmation_passes`).
-use super::pending::{destination_text, pair_text};
+use super::pending::{destination_text, pair_text, read_only_reason_key};
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::viewmodel::ConnectionBadge;
@@ -9,6 +9,7 @@ use crate::viewmodel::compare::{CompareState, Review, ReviewPair};
 use crate::views::connection_badge::show_badge;
 use crate::views::write_warning::focus_cancel_unless_focused;
 use curlybrace_core::compare::apply::IdPolicy;
+use curlybrace_core::compare::protocol::Side;
 use eframe::egui;
 use uuid::Uuid;
 
@@ -23,7 +24,7 @@ pub fn show_review(
     ctx: &egui::Context,
     state: &CompareState,
     production: &dyn Fn(Uuid) -> bool,
-    read_only: bool,
+    read_only: Option<Side>,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let review = state.apply.review()?;
@@ -43,7 +44,7 @@ fn show_body(
     state: &CompareState,
     review: &Review,
     production: &[String],
-    read_only: bool,
+    read_only: Option<Side>,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     ui.set_width(MODAL_WIDTH);
@@ -257,17 +258,17 @@ fn show_buttons(
     review: &Review,
     production: bool,
     typing: bool,
-    read_only: bool,
+    read_only: Option<Side>,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     ui.separator();
-    if read_only {
+    if let Some(side) = read_only {
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            i18n.t("compare.apply.reason.read_only_target"),
+            i18n.t(read_only_reason_key(side)),
         );
     }
-    let may_apply = review.confirmation_passes() && !read_only;
+    let may_apply = review.confirmation_passes() && read_only.is_none();
     ui.horizontal(|ui| {
         let apply = egui::Button::new(i18n.t("compare.apply.review.apply"));
         let cancel_label = i18n.t("compare.apply.review.cancel");

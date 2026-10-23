@@ -119,10 +119,14 @@ fn ticked_scope(c: &CompareState, tab: &Tab) -> Option<Scope> {
 }
 
 /// Queues `action` for the ticked rows and clears the ticks. Refused when nothing is ticked,
-/// when the tab does not offer the action, or when a category item already covers the keys
-/// (then nothing changes, so the ticks stay and show that nothing happened).
+/// when the tab does not offer the action, when the action writes to a read-only connection, or
+/// when a category item already covers the keys (then nothing changes, so the ticks stay and show
+/// that nothing happened).
 pub(super) fn add_selection(state: AppState, action: RowAction) -> Out {
     let c = &state.compare;
+    if c.writes_to_read_only(action.direction(), &state.conn.connections) {
+        return none(state);
+    }
     let Some(tab) = open_tab(c).filter(|t| RowAction::offered_for(t.cat).contains(&action)) else {
         return none(state);
     };
@@ -145,9 +149,13 @@ pub(super) fn add_selection(state: AppState, action: RowAction) -> Out {
 }
 
 /// Queues `action` for one row of the loaded page (the per-document button of the detail). The
-/// row must be on the loaded page of the open tab, which also ties its category to the tab.
+/// row must be on the loaded page of the open tab, which also ties its category to the tab. An
+/// action that writes to a read-only connection is refused.
 pub(super) fn add_key(state: AppState, key: KeyTuple, action: RowAction) -> Out {
     let c = &state.compare;
+    if c.writes_to_read_only(action.direction(), &state.conn.connections) {
+        return none(state);
+    }
     let Some(tab) =
         open_tab(c).filter(|t| t.has_row(&key) && RowAction::offered_for(t.cat).contains(&action))
     else {

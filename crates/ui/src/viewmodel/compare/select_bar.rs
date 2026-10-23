@@ -31,6 +31,8 @@ pub enum ActionBlock {
     NotOnPage,
     /// Fields can only be copied from the Different tab.
     NotDifferentTab,
+    /// The action writes to a read-only connection.
+    ReadOnlyDestination,
 }
 
 impl ActionBlock {
@@ -44,6 +46,7 @@ impl ActionBlock {
             Self::NothingSelected => "compare.apply.reason.nothing_selected",
             Self::NotOnPage => "compare.apply.reason.not_on_page",
             Self::NotDifferentTab => "compare.apply.reason.not_different_tab",
+            Self::ReadOnlyDestination => "compare.apply.reason.read_only_destination",
         }
     }
 }

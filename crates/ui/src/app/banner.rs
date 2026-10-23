@@ -17,6 +17,7 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::ProjectionReadOnly => (i18n.t("banner.projection_read_only"), None),
         Banner::ReadOnly => (i18n.t("banner.read_only"), None),
         Banner::CompareApplyReadOnly => (i18n.t("compare.apply.read_only_target"), None),
+        Banner::CompareApplyReadOnlySource => (i18n.t("compare.apply.read_only_source"), None),
         Banner::FieldsConflict => (i18n.t("banner.fields_conflict"), None),
         Banner::FieldsCovered => (i18n.t("banner.fields_covered"), None),
         Banner::WriteNotSentConnectionChanged => {
@@ -130,6 +131,7 @@ mod tests {
             Banner::ProjectionReadOnly,
             Banner::ReadOnly,
             Banner::CompareApplyReadOnly,
+            Banner::CompareApplyReadOnlySource,
             Banner::FieldsConflict,
             Banner::FieldsCovered,
             Banner::WriteNotSentConnectionChanged,

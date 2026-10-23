@@ -57,6 +57,9 @@ pub enum Banner {
     ReadOnly,
     /// Applying a compare was refused because its target connection is read-only.
     CompareApplyReadOnly,
+    /// Applying a compare was refused because some of its changes write to the source
+    /// connection, which is read-only.
+    CompareApplyReadOnlySource,
     /// Queueing fields was refused: the ticked fields (with the ones already queued for the
     /// document) overlap, so one update cannot write them.
     FieldsConflict,

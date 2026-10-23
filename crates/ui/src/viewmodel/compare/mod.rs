@@ -18,6 +18,7 @@ pub mod pending_fields;
 pub mod pending_view;
 pub mod preflight;
 pub mod queries;
+pub mod read_only;
 pub mod results;
 pub mod review;
 pub mod rows;
@@ -198,12 +199,6 @@ impl CompareState {
         let live =
             (source == id || target == id) && saved.iter().any(|c| c.id == id && c.read_only);
         snapshot || live
-    }
-
-    /// Whether the open session's target (where an apply writes) is read-only.
-    pub fn target_is_read_only(&self, saved: &[ConnectionConfig]) -> bool {
-        self.connections
-            .is_some_and(|(_, target)| self.is_read_only(target, saved))
     }
 
     /// Whether `id` is one of the two connections of the open (or opening) session.

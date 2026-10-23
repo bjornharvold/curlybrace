@@ -4,11 +4,14 @@
 mod support;
 
 use bson::doc;
+use curlybrace_core::compare::results::Category;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::store::Page;
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::compare::CompareAction;
+use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::compare::CompareState;
+use curlybrace_ui::viewmodel::compare::RowAction;
 use curlybrace_ui::viewmodel::{ConnectionBadge, TreeState, ViewMode};
 use curlybrace_ui::views::compare::show_compare;
 use curlybrace_ui::views::connections::{ConnectionsState, show_connections};
@@ -17,7 +20,7 @@ use eframe::egui;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
-use support::compare_apply_states::{reviewing, with_replace};
+use support::compare_apply_states::{act, key, queued, reviewing, with_replace};
 
 fn t(key: &str) -> String {
     I18n::english().t(key)
@@ -280,4 +283,72 @@ fn row_menu_entries_say_why_they_are_disabled_on_hover() {
             "{key} shows the reason on hover"
         );
     }
+}
+
+fn compare_harness(state: AppState) -> Harness<'static, (CompareState, ConnectionsState)> {
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 1400.0))
+        .build_ui_state(
+            |ui, (s, c): &mut (CompareState, ConnectionsState)| {
+                show_compare(ui, s, c, &I18n::english());
+            },
+            (state.compare, state.conn),
+        );
+    harness.run_steps(5);
+    harness
+}
+
+/// Two Different rows queued to copy to the SOURCE and row 3 ticked, with the source read-only
+/// (the snapshot, as after a lock).
+fn copy_to_read_only_source() -> AppState {
+    let state = queued(Category::Different, RowAction::CopyToSource);
+    let mut state = act(state, CompareAction::ToggleRow(key(3)));
+    state.compare.connections_read_only = (true, false);
+    state
+}
+
+#[test]
+fn writes_into_a_read_only_source_are_disabled_with_a_stated_reason() {
+    let harness = compare_harness(copy_to_read_only_source());
+    let review_label = t("compare.apply.pending.review");
+    let review = harness.get_by_role_and_label(Role::Button, &review_label);
+    assert!(review.accesskit_node().is_disabled(), "review is disabled");
+    harness.get_by_label(&t("compare.apply.reason.read_only_source"));
+    // The queued line that writes to the source carries the read-only badge as text.
+    harness.get_by_label(&t("connection.read_only_badge"));
+    // With a row ticked, copying to the target stays open; copying to the source is closed.
+    let to_source = t("compare.apply.action.copy_to_source");
+    let to_source = harness.get_by_role_and_label(Role::Button, &to_source);
+    assert!(to_source.accesskit_node().is_disabled(), "copy to source");
+    let to_target = t("compare.apply.action.copy_to_target");
+    let to_target = harness.get_by_role_and_label(Role::Button, &to_target);
+    assert!(!to_target.accesskit_node().is_disabled(), "copy to target");
+}
+
+#[test]
+fn review_modal_apply_is_disabled_when_changes_go_to_a_read_only_source() {
+    let mut state = reviewing(queued(Category::Different, RowAction::CopyToSource));
+    state.compare.connections_read_only = (true, false);
+    let harness = compare_harness(state);
+    let apply_label = t("compare.apply.review.apply");
+    let apply = harness.get_by_role_and_label(Role::Button, &apply_label);
+    assert!(apply.accesskit_node().is_disabled(), "Apply is disabled");
+    let reason = t("compare.apply.reason.read_only_source");
+    assert!(harness.query_all_by_label(&reason).count() >= 1);
+}
+
+#[test]
+fn a_read_only_source_leaves_writes_to_the_target_open() {
+    let mut state = with_replace();
+    state.compare.connections_read_only = (true, false);
+    let harness = compare_harness(state);
+    let review_label = t("compare.apply.pending.review");
+    let review = harness.get_by_role_and_label(Role::Button, &review_label);
+    assert!(!review.accesskit_node().is_disabled(), "review is open");
+    assert!(
+        harness
+            .query_by_label(&t("connection.read_only_badge"))
+            .is_none(),
+        "no queued line writes to the read-only source"
+    );
 }

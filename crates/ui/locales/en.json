@@ -134,6 +134,7 @@
         "total": "Documents in total: {count}"
       },
       "pending_badge": "Pending changes: {count}",
+      "read_only_source": "The source connection is read-only and some changes write to it, so nothing was applied.",
       "read_only_target": "The target connection is read-only, so nothing was applied.",
       "reason": {
         "applied": "Changes were applied to this pair. Run it again first.",
@@ -145,7 +146,9 @@
         "not_different_tab": "Single fields can only be copied from the Different tab.",
         "not_on_page": "This document is not on the page shown. Open it from the list again.",
         "nothing_selected": "Select at least one document first.",
-        "read_only_target": "The target connection is read-only, so changes cannot be applied. Untick Read-only in its settings first.",
+        "read_only_destination": "The connection this writes to is read-only.",
+        "read_only_source": "The source connection is read-only, so changes that write to it cannot be applied. Remove them from the list, or untick Read-only in its settings and reconnect.",
+        "read_only_target": "The target connection is read-only, so changes cannot be applied. Untick Read-only in its settings and reconnect first.",
         "running": "A comparison is running. Wait until it finishes."
       },
       "review": {

@@ -1,19 +1,28 @@
 //! The pending-changes panel: the queued writes grouped by pair, each with the place it writes
 //! and a remove button, the totals, Review changes… and Clear. Every decision (the grouping,
-//! the destinations, why Review is closed) comes from `viewmodel::compare::pending_view`.
+//! the destinations, why Review is closed) comes from `viewmodel::compare::pending_view`; a line
+//! that writes to a read-only connection carries the read-only badge (`viewmodel::compare::read_only`).
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::compare::{
     ActionBlock, CONFIRM_WORD_KEY, CompareState, Destination, ExportKind, PendingGroup, PendingLine,
 };
+use crate::views::connection_badge::show_badge;
 use crate::views::connections::ConnectionsState;
 use curlybrace_core::compare::apply::ApplyKind;
-use curlybrace_core::compare::protocol::PairId;
+use curlybrace_core::compare::protocol::{PairId, Side};
+use curlybrace_core::connection::ConnectionConfig;
 use eframe::egui;
 use uuid::Uuid;
 
-/// Why Review changes is off while the target connection is read-only.
-const READ_ONLY_TARGET_KEY: &str = "compare.apply.reason.read_only_target";
+/// Why Review changes (and Apply) is off while a queued change writes to the read-only `side`.
+pub fn read_only_reason_key(side: Side) -> &'static str {
+    match side {
+        Side::Target => "compare.apply.reason.read_only_target",
+        Side::Source => "compare.apply.reason.read_only_source",
+    }
+}
 
 /// "connection / database.collection" of a destination.
 pub fn destination_text(destination: &Destination, i18n: &I18n) -> String {
@@ -63,13 +72,14 @@ pub fn show_pending(
     };
     let view = state.pending_view(&name_of);
     let busy = state.workflow_busy();
+    let saved = &connections.connections;
     let mut action = None;
     for group in &view.groups {
-        action = show_group(ui, state, group, busy, i18n).or(action);
+        action = show_group(ui, state, group, saved, busy, i18n).or(action);
     }
     let total = view.documents().to_string();
     ui.label(i18n.t_with("compare.apply.pending.total", &[("count", &total)]));
-    let read_only = state.target_is_read_only(&connections.connections);
+    let read_only = state.read_only_destination(saved);
     let buttons = show_buttons(ui, state, busy, read_only, i18n);
     let export = super::export::show_entry(ui, state, ExportKind::Plan, i18n);
     buttons.or(export).or(action)
@@ -79,14 +89,16 @@ fn show_group(
     ui: &mut egui::Ui,
     state: &CompareState,
     group: &PendingGroup,
+    saved: &[ConnectionConfig],
     busy: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     ui.label(egui::RichText::new(pair_text(state, group.pair, i18n)).strong());
     let mut action = None;
     for line in &group.lines {
+        let read_only = state.writes_to_read_only(line.action.direction(), saved);
         let removed = ui
-            .push_id(line.index, |ui| show_line(ui, line, busy, i18n))
+            .push_id(line.index, |ui| show_line(ui, line, read_only, busy, i18n))
             .inner;
         action = removed.or(action);
     }
@@ -121,14 +133,23 @@ fn line_text(line: &PendingLine, i18n: &I18n) -> String {
     )
 }
 
+/// One queued item; `read_only`: its destination is read-only (marked with the badge, as text).
 fn show_line(
     ui: &mut egui::Ui,
     line: &PendingLine,
+    read_only: bool,
     busy: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let text = line_text(line, i18n);
     ui.horizontal(|ui| {
+        if read_only {
+            show_badge(
+                ui,
+                &ConnectionBadge::new(None, false).with_read_only(true),
+                i18n,
+            );
+        }
         ui.label(&text);
         let remove = ui.add_enabled(
             !busy,
@@ -154,16 +175,16 @@ fn show_buttons(
     ui: &mut egui::Ui,
     state: &CompareState,
     busy: bool,
-    read_only: bool,
+    read_only: Option<Side>,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let block = state.review_block();
     let mut action = None;
     ui.horizontal(|ui| {
         let review = egui::Button::new(i18n.t("compare.apply.pending.review"));
-        let review = ui.add_enabled(block.is_none() && !read_only, review);
-        if read_only {
-            review.on_disabled_hover_text(i18n.t(READ_ONLY_TARGET_KEY));
+        let review = ui.add_enabled(block.is_none() && read_only.is_none(), review);
+        if let Some(side) = read_only {
+            review.on_disabled_hover_text(i18n.t(read_only_reason_key(side)));
         } else if review.clicked() {
             action = Some(CompareAction::ReviewApply {
                 word: i18n.t(CONFIRM_WORD_KEY),
@@ -175,9 +196,9 @@ fn show_buttons(
         }
         // Behind the review dialog "an apply is in progress" would be misleading.
         let reviewing = state.apply.review().is_some();
-        if read_only {
+        if let Some(side) = read_only {
             let color = ui.visuals().warn_fg_color;
-            ui.colored_label(color, i18n.t(READ_ONLY_TARGET_KEY));
+            ui.colored_label(color, i18n.t(read_only_reason_key(side)));
         } else if let Some(reason) = block.filter(|r| !(reviewing && *r == ActionBlock::Busy)) {
             let color = ui.visuals().warn_fg_color;
             ui.colored_label(color, i18n.t(reason.i18n_key()));
