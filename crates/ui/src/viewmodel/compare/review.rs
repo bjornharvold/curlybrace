@@ -276,10 +276,7 @@ impl Resolved<'_> {
 
     fn destination(&self, conns: &ReviewConnections) -> Destination {
         let ns = self.namespace();
-        let (_, name) = match self.direction() {
-            Direction::SourceToTarget => &conns.target,
-            Direction::TargetToSource => &conns.source,
-        };
+        let (_, name) = self.connection(conns);
         Destination {
             connection: name.clone(),
             database: ns.db.clone(),
@@ -295,10 +292,7 @@ impl Resolved<'_> {
     }
 
     fn place(&self, conns: &ReviewConnections) -> Place {
-        let (id, _) = match self.direction() {
-            Direction::SourceToTarget => &conns.target,
-            Direction::TargetToSource => &conns.source,
-        };
+        let (id, _) = self.connection(conns);
         let ns = self.namespace();
         (*id, ns.db.clone(), ns.collection.clone())
     }

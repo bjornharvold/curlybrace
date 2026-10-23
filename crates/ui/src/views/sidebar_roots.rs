@@ -508,7 +508,6 @@ mod tests {
             f.state.production = production;
             let harness = panel_harness(f.state);
             let panel_width = *harness.state();
-            eprintln!("width[{case}] = {panel_width}");
             assert!(
                 (panel_width - DEFAULT_SIDEBAR_WIDTH).abs() < 0.5,
                 "{case}: the panel grew to {panel_width}"
