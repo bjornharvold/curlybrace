@@ -250,3 +250,16 @@ fn damaged_read_only_counts_as_repaired_and_is_rewritten_as_true() {
     let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(raw[0]["read_only"], serde_json::json!(true));
 }
+
+#[test]
+fn every_repaired_banner_names_the_read_only_flag() {
+    let i18n = crate::i18n::I18n::english();
+    for key in [
+        "persist.repaired_backed_up",
+        "persist.repaired_backup_failed",
+        "persist.skipped_repaired_backed_up",
+        "persist.skipped_repaired_backup_failed",
+    ] {
+        assert!(i18n.t(key).contains("read-only"), "{key} omits read-only");
+    }
+}

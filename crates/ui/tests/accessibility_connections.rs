@@ -382,6 +382,19 @@ fn the_production_checkbox_is_labelled_with_a_hint_and_toggles_the_form() {
 }
 
 #[test]
+fn read_only_checkbox_is_labelled_and_toggles() {
+    let i18n = I18n::english();
+    let mut harness = dialog_harness(|_| {});
+    harness.get_by_label(&i18n.t("connections.read_only_hint"));
+    harness
+        .get_by_role_and_label(Role::CheckBox, &i18n.t("connections.read_only"))
+        .click();
+    harness.run();
+    assert!(harness.state().form.read_only);
+    assert!(harness.state().form.to_config().unwrap().read_only);
+}
+
+#[test]
 fn a_banner_is_repeated_inside_the_open_dialog() {
     let harness = dialog_harness(|state| {
         state.dialog_banner = vec!["Could not save".into(), "keychain said no".into()];
