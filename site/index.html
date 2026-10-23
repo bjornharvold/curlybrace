@@ -322,6 +322,10 @@
           <dd>Saved connections in folders, with filter and sort, an edit dialog, a connection test, and import and export of your connection list without secrets. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/45">#45</a>.</dd>
         </div>
         <div>
+          <dt>Safer connections to production</dt>
+          <dd>Give a saved connection a <b>colour tag</b> so servers are easy to tell apart, and mark it <b>production</b>: a PRODUCTION badge names it, and every write asks you to confirm first, naming the server. For the safest setting, mark it <b>read-only</b>. Every write to it is then refused by the app’s core, not just warned about, and write buttons are disabled with the reason. Ticking the box locks open sessions at once; unticking it takes effect when you reconnect. In Compare a read-only connection can be read on either side, but nothing is ever copied into it.</dd>
+        </div>
+        <div>
           <dt>Built to not lose your data</dt>
           <dd>Deletes ask for confirmation and show the document’s <code>_id</code>. A page shown with a projection is read-only for edit and clone, so a partial copy can never overwrite the full document. Unsaved editor text survives a stray click.</dd>
         </div>
@@ -343,7 +347,6 @@
         <div>
           <h3>Next</h3>
           <ul>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/47">A production guard</a><span>Colour tags and a read-only flag, so you never change the wrong server.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/48">Copy data between servers</a><span>A collection, a query result or chosen documents, with a preview.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/50">A shell tab</a><span>Run your own <code>mongosh</code> inside the app, with history.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/51">Bulk update and delete</a><span>Change many documents at once, after a count and sample preview.</span></li>

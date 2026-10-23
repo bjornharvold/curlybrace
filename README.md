@@ -56,6 +56,8 @@ edit documents and compare data between databases, without an account, a trial, 
 - Pages shown with a projection are read-only for edit and clone, so a partial copy can never
   overwrite a full document.
 - Unsaved editor text is kept if you click outside the editor.
+- Give a saved connection a **colour tag** and mark it **production**: a PRODUCTION badge names it,
+  and every write to it asks you to confirm first, naming the server.
 - Mark a saved connection **read-only** and every write to it is refused, in the core as well as in
   the UI. A "Read-only" badge names it everywhere. Ticking the box locks open sessions at once;
   unticking it takes effect when you reconnect. In Compare a read-only connection can be read on
@@ -157,7 +159,6 @@ Nothing is being built right now. Pick something from **Next**.
 
 ### Next
 
-- A **production guard** with colour tags ([#47](https://github.com/bjornharvold/curlybrace/issues/47)).
 - **Copy collections and documents between connections** ([#48](https://github.com/bjornharvold/curlybrace/issues/48)).
 - **Signing and notarization** ([#17](https://github.com/bjornharvold/curlybrace/issues/17)): planned (`P2`), so the app opens without a
   Gatekeeper warning.
