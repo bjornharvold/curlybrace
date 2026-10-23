@@ -1,6 +1,8 @@
 //! Editable connection form: validation, config mapping and secret persistence.
 use curlybrace_core::GSSAPI_AVAILABLE;
-use curlybrace_core::connection::{AuthMechanism, ConnectionConfig, SshAuth, SshConfig, TlsConfig};
+use curlybrace_core::connection::{
+    AuthMechanism, ConnectionColor, ConnectionConfig, SshAuth, SshConfig, TlsConfig,
+};
 use curlybrace_core::error::{CoreError, Result};
 use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
 use curlybrace_core::uri::ParsedUri;
@@ -34,6 +36,8 @@ pub struct ConnectionForm {
     pub auth_source: String,
     pub allow_invalid_certs: bool,
     pub folder: String,
+    pub color: Option<ConnectionColor>,
+    pub production: bool,
     pub created_at: Option<i64>,
     pub last_connected: Option<i64>,
 }
@@ -129,6 +133,8 @@ impl Default for ConnectionForm {
             auth_source: String::new(),
             allow_invalid_certs: false,
             folder: String::new(),
+            color: None,
+            production: false,
             created_at: None,
             last_connected: None,
         }
@@ -191,8 +197,8 @@ impl ConnectionForm {
             created_at: self.created_at,
             updated_at: None,
             last_connected: self.last_connected,
-            color: None,
-            production: false,
+            color: self.color,
+            production: self.production,
         };
         cfg.validate()?;
         Ok(cfg)
@@ -237,6 +243,8 @@ impl ConnectionForm {
             tls_ca: path(&c.tls.ca_file),
             tls_client_cert: path(&c.tls.client_cert_key_file),
             folder: c.folder.clone().unwrap_or_default(),
+            color: c.color,
+            production: c.production,
             created_at: c.created_at,
             last_connected: c.last_connected,
             ..Self::default()
@@ -790,5 +798,25 @@ mod tests {
         let mut form = ConnectionForm::from_config(&ConnectionConfig::new("a", "mongodb://h"));
         form.folder = "   ".into();
         assert_eq!(form.to_config().unwrap().folder, None);
+    }
+
+    #[test]
+    fn default_form_is_uncoloured_non_production() {
+        let f = ConnectionForm::default();
+        assert_eq!((f.color, f.production), (None, false));
+        let cfg = valid().to_config().unwrap();
+        assert_eq!((cfg.color, cfg.production), (None, false));
+    }
+
+    #[test]
+    fn form_round_trips_color_and_production() {
+        for color in ConnectionColor::ALL {
+            let mut c = ConnectionConfig::new("a", "mongodb://h");
+            c.color = Some(color);
+            c.production = true;
+            let form = ConnectionForm::from_config(&c);
+            assert_eq!((form.color, form.production), (Some(color), true));
+            assert_eq!(form.to_config().unwrap(), c);
+        }
     }
 }

@@ -1,7 +1,8 @@
 //! The connection edit form: fields, secrets and the TLS and SSH sections.
 use super::connections::ConnectionsState;
 use crate::I18n;
-use crate::viewmodel::{ConnectionForm, auth_label_key, auth_options};
+use crate::viewmodel::{ConnectionForm, auth_label_key, auth_options, color_tag};
+use curlybrace_core::connection::ConnectionColor;
 use eframe::egui;
 
 /// The form body below the name and folder rows: connection string, authentication, secrets,
@@ -33,6 +34,7 @@ pub(super) fn show_fields(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n:
         },
         i18n,
     );
+    tag_section(ui, form, i18n);
     tls_section(ui, form, i18n);
     ssh_section(ui, form, stored.ssh_secret, i18n);
 }
@@ -86,6 +88,51 @@ fn auth_combo(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
         // A combo's accessible name is its selected text; name it by its caption instead, and
         // keep the selected value as the widget's value.
         let name = i18n.t("connections.auth");
+        combo.response.widget_info(|| {
+            let mut info =
+                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone());
+            info.current_text_value = Some(selected.clone());
+            info
+        });
+        combo.response.labelled_by(caption.id);
+    });
+}
+
+/// Text of a colour option: its glyph and translated name, so colour is never the only signal.
+fn color_text(color: Option<ConnectionColor>, i18n: &I18n) -> String {
+    match color {
+        Some(c) => {
+            let tag = color_tag(c);
+            format!("{} {}", tag.glyph, i18n.t(tag.name_key))
+        }
+        None => i18n.t("connections.color_none"),
+    }
+}
+
+/// Colour tag picker and production flag.
+fn tag_section(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
+    color_combo(ui, form, i18n);
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut form.production, i18n.t("connections.production"));
+        ui.label(i18n.t("connections.production_hint"));
+    });
+}
+
+fn color_combo(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
+    ui.horizontal(|ui| {
+        let name = i18n.t("connections.color");
+        let caption = ui.label(name.clone());
+        let selected = color_text(form.color, i18n);
+        let combo = egui::ComboBox::from_id_salt("connection_color")
+            .selected_text(selected.clone())
+            .show_ui(ui, |ui| {
+                let options = std::iter::once(None).chain(ConnectionColor::ALL.map(Some));
+                for option in options {
+                    let label = color_text(option, i18n);
+                    ui.selectable_value(&mut form.color, option, label);
+                }
+            });
+        // Name the combo by its caption and keep the selected value as its value.
         combo.response.widget_info(|| {
             let mut info =
                 egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone());

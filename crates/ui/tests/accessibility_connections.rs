@@ -340,6 +340,43 @@ fn the_authentication_drop_down_exposes_its_current_mechanism_as_its_value() {
 }
 
 #[test]
+fn the_colour_drop_down_is_labelled_and_picking_a_colour_changes_the_form() {
+    use curlybrace_core::connection::ConnectionColor;
+    use curlybrace_ui::viewmodel::color_tag;
+    let i18n = I18n::english();
+    let label = i18n.t("connections.color");
+    let mut harness = dialog_harness(|_| {});
+    let combo = harness.get_by_role_and_label(Role::ComboBox, &label);
+    assert_eq!(
+        combo.accesskit_node().value(),
+        Some(i18n.t("connections.color_none"))
+    );
+    combo.click();
+    harness.run();
+    let tag = color_tag(ConnectionColor::Red);
+    harness
+        .get_by_label(&format!("{} {}", tag.glyph, i18n.t(tag.name_key)))
+        .click();
+    harness.run();
+    assert_eq!(harness.state().form.color, Some(ConnectionColor::Red));
+    let cfg = harness.state().form.to_config().unwrap();
+    assert_eq!(cfg.color, Some(ConnectionColor::Red));
+}
+
+#[test]
+fn the_production_checkbox_is_labelled_with_a_hint_and_toggles_the_form() {
+    let i18n = I18n::english();
+    let mut harness = dialog_harness(|_| {});
+    harness.get_by_label(&i18n.t("connections.production_hint"));
+    harness
+        .get_by_role_and_label(Role::CheckBox, &i18n.t("connections.production"))
+        .click();
+    harness.run();
+    assert!(harness.state().form.production);
+    assert!(harness.state().form.to_config().unwrap().production);
+}
+
+#[test]
 fn a_banner_is_repeated_inside_the_open_dialog() {
     let harness = dialog_harness(|state| {
         state.dialog_banner = vec!["Could not save".into(), "keychain said no".into()];
