@@ -6,13 +6,19 @@ use curlybrace_core::runtime::IndexSeries;
 
 /// The series drawn for `spec`: the one whose name AND definition hash match (a series of the
 /// same name with another hash belongs to an older index that was dropped and recreated). When
-/// several nodes report it, the first host in sort order wins.
+/// several hosts report it (a failover moved the reads, or the connection now points at another
+/// server), the one with the newest reading wins, so the chart follows the node being read; a
+/// series without a reading loses to one with it, and equal readings fall back to the first host
+/// in sort order.
 pub fn series_of<'a>(series: &'a [IndexSeries], spec: &IndexSpec) -> Option<&'a IndexSeries> {
     let hash = spec.definition_hash();
     series
         .iter()
         .filter(|s| s.index_name == spec.name && s.definition_hash == hash)
-        .min_by(|a, b| a.host.cmp(&b.host))
+        .min_by(|a, b| {
+            let newest = |s: &IndexSeries| s.latest.map(|sample| sample.at_secs);
+            newest(b).cmp(&newest(a)).then_with(|| a.host.cmp(&b.host))
+        })
 }
 
 /// The "now" a chart is drawn against: the next bucket boundary after `now_secs`, so the current
@@ -187,12 +193,55 @@ mod tests {
     }
 
     #[test]
-    fn the_first_host_in_sort_order_is_drawn() {
+    fn without_readings_the_first_host_in_sort_order_is_drawn() {
         let spec = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
         let all = vec![series(&spec, "node-b"), series(&spec, "node-a")];
         assert_eq!(
             series_of(&all, &spec).map(|s| s.host.as_str()),
             Some("node-a")
+        );
+    }
+
+    fn read_at(mut series: IndexSeries, at_secs: i64) -> IndexSeries {
+        series.latest = Some(curlybrace_core::history::Sample {
+            at_secs,
+            ops: 1,
+            since_ms: 1,
+        });
+        series
+    }
+
+    #[test]
+    fn the_host_with_the_newest_reading_is_drawn_even_when_it_sorts_later() {
+        let spec = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
+        let all = vec![
+            read_at(series(&spec, "node-a"), 100),
+            read_at(series(&spec, "node-b"), 200),
+        ];
+        assert_eq!(
+            series_of(&all, &spec).map(|s| s.host.as_str()),
+            Some("node-b")
+        );
+    }
+
+    #[test]
+    fn equal_readings_fall_back_to_the_first_host_and_no_reading_loses() {
+        let spec = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
+        let tied = vec![
+            read_at(series(&spec, "node-b"), 100),
+            read_at(series(&spec, "node-a"), 100),
+        ];
+        assert_eq!(
+            series_of(&tied, &spec).map(|s| s.host.as_str()),
+            Some("node-a")
+        );
+        let unread = vec![
+            series(&spec, "node-a"),
+            read_at(series(&spec, "node-b"), 1),
+        ];
+        assert_eq!(
+            series_of(&unread, &spec).map(|s| s.host.as_str()),
+            Some("node-b")
         );
     }
 
