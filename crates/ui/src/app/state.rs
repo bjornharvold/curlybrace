@@ -89,7 +89,8 @@ impl Banner {
                     | "list_databases"
                     | "list_collections"
                     | "list_indexes"
-                    | "index_history",
+                    | "index_history"
+                    | "create_index",
                 ..
             }
         )

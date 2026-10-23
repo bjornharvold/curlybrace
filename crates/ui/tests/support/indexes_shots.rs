@@ -8,7 +8,7 @@ use curlybrace_core::store::CollectionIndex;
 use curlybrace_core::test_support::mock_objects::{mock_index_spec, mock_index_spec_named};
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::index_detail::anchored_now;
-use curlybrace_ui::viewmodel::{CollectionTab, IndexesState, ViewMode};
+use curlybrace_ui::viewmodel::{CollectionTab, IndexBuilderState, IndexesState, ViewMode};
 
 const BUCKETS: i64 = 144;
 const WIDTH: i64 = 600;
@@ -68,4 +68,20 @@ pub fn indexes_tab(state: &mut AppState) {
         sampler: Some(SamplerStatus::Running),
         ..IndexesState::default()
     };
+}
+
+/// The Indexes tab with the builder open: a compound unique index on `crm.customers` with a
+/// partial filter, on a collection large enough to carry the build warning.
+pub fn index_builder(state: &mut AppState) {
+    indexes_tab(state);
+    let ns = state.selected_ns().cloned().expect("a collection is shown");
+    let builder = IndexBuilderState::new(ns)
+        .with_field(0, "customerId")
+        .adding_key()
+        .with_field(1, "createdAt")
+        .with_kind(1, KeyKind::Desc)
+        .with_unique(true)
+        .with_partial_filter_text("{ \"status\": \"active\" }")
+        .with_estimate(2_400_000);
+    state.indexes = state.indexes.clone().with_builder(Some(builder));
 }

@@ -26,6 +26,7 @@ mod dialog_banner;
 pub mod file_picker;
 pub mod host_key;
 mod index_actions;
+mod index_write_actions;
 mod panels;
 pub mod persistence;
 pub mod reducer;
@@ -647,6 +648,9 @@ mod file_picker_tests;
 
 #[cfg(test)]
 mod index_tests;
+
+#[cfg(test)]
+mod index_write_tests;
 
 #[cfg(test)]
 mod connection_import_tests;

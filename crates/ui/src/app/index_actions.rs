@@ -1,6 +1,7 @@
 //! Pure handlers for the Indexes tab: what the person does on it and what the runtime answers.
 //! Requests are only produced while connected, like every other data action.
 use super::actions::gated;
+use super::index_write_actions as write;
 use super::reducer::Out;
 use super::state::AppState;
 use crate::viewmodel::{CollectionTab, IndexesAction};
@@ -22,6 +23,10 @@ pub(super) fn on_action(state: AppState, action: IndexesAction) -> Out {
         }
         // Nothing to record: the copy itself is a clipboard action wired with the detail view.
         IndexesAction::CopyJson(_) => (state, Vec::new()),
+        IndexesAction::OpenBuilder => write::open_builder(state),
+        IndexesAction::CancelBuilder => write::cancel_builder(state),
+        IndexesAction::Builder(edit) => write::edit_builder(state, edit),
+        IndexesAction::Create => write::create(state),
     }
 }
 
@@ -108,8 +113,10 @@ pub(super) fn history_read(
     AppState { indexes, ..state }
 }
 
-/// An index write succeeded: the collection on screen is listed again, any other is left alone.
+/// An index write succeeded: a create in flight is finished, then the collection on screen is
+/// listed again, any other is left alone.
 pub(super) fn changed(state: AppState, ns: Namespace) -> Out {
+    let state = write::create_finished(state, &ns);
     match state.indexes.ns.as_ref() == Some(&ns) && state.selected_ns() == Some(&ns) {
         true => request(state),
         false => (state, Vec::new()),

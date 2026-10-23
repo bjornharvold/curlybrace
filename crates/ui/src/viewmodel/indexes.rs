@@ -1,5 +1,6 @@
 //! View-model of the Indexes tab: which tab of a collection is shown, and what the tab holds.
 //! Pure and egui-free; the updaters return new values.
+use super::index_builder::{BuilderEdit, IndexBuilderState};
 use curlybrace_core::history::ChartRange;
 use curlybrace_core::runtime::{IndexSeries, SamplerStatus};
 use curlybrace_core::store::{CollectionIndex, Namespace};
@@ -36,6 +37,8 @@ pub struct IndexesState {
     pub loading: bool,
     /// The session's sampler status, once it has reported one.
     pub sampler: Option<SamplerStatus>,
+    /// The index builder, while its modal is open.
+    pub builder: Option<IndexBuilderState>,
 }
 
 impl Default for IndexesState {
@@ -48,6 +51,7 @@ impl Default for IndexesState {
             range: ChartRange::Day,
             loading: false,
             sampler: None,
+            builder: None,
         }
     }
 }
@@ -119,11 +123,24 @@ impl IndexesState {
             ..self
         }
     }
+
+    /// The builder modal open on `builder`, or closed with `None`.
+    pub fn with_builder(self, builder: Option<IndexBuilderState>) -> Self {
+        Self { builder, ..self }
+    }
 }
 
-/// What the person did on the Indexes tab. Later tasks add the write actions.
+/// What the person did on the Indexes tab. Later tasks add the other write actions.
 #[derive(Clone, Debug, PartialEq)]
 pub enum IndexesAction {
+    /// Open the index builder on the shown collection.
+    OpenBuilder,
+    /// Close the builder, keeping nothing.
+    CancelBuilder,
+    /// One change in the open builder.
+    Builder(BuilderEdit),
+    /// Create the index the builder describes.
+    Create,
     /// The tab was opened: list the indexes and read their usage.
     OpenTab,
     Refresh,

@@ -49,6 +49,9 @@ impl DocumentStore for CountingStore {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.delete(ns, id).await
     }
+    async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
+        self.inner.estimated_count(ns).await
+    }
     async fn list_indexes(&self, ns: &Namespace) -> Result<Vec<crate::store::CollectionIndex>> {
         self.inner.list_indexes(ns).await
     }
@@ -198,6 +201,10 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             ns: mock_namespace(),
             range: crate::history::ChartRange::Day,
         },
+        Command::EstimatedCount {
+            session,
+            ns: mock_namespace(),
+        },
     ]
 }
 
@@ -241,6 +248,7 @@ async fn reads_still_work_on_a_read_only_session() {
                     | Event::Results { .. }
                     | Event::Indexes { .. }
                     | Event::IndexHistory { .. }
+                    | Event::EstimatedCount { .. }
             ),
             "{event:?}"
         );
@@ -330,7 +338,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 20;
+const COMMAND_VARIANTS: usize = 21;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -346,7 +354,8 @@ fn classify(command: &Command) -> Class {
         | Command::ListCollections { .. }
         | Command::Find { .. }
         | Command::ListIndexes { .. }
-        | Command::IndexHistory { .. } => Class::Read,
+        | Command::IndexHistory { .. }
+        | Command::EstimatedCount { .. } => Class::Read,
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)

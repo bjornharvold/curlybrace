@@ -145,6 +145,28 @@ async fn list_indexes_answers_with_the_collections_indexes() {
 }
 
 #[tokio::test]
+async fn estimated_count_answers_with_the_collections_document_count() {
+    let mut h = spawn_embedded(store_with(&["testdb"]), RuntimeConfig::default());
+    let command = Command::EstimatedCount {
+        session: EMBEDDED_SESSION,
+        ns: ns("testdb"),
+    };
+    assert_eq!(
+        (command.context(), command.is_write(), command.session()),
+        ("estimated_count", false, Some(EMBEDDED_SESSION))
+    );
+    h.tx.send(command).unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::EstimatedCount {
+            session: EMBEDDED_SESSION,
+            ns: ns("testdb"),
+            count: 1,
+        }
+    );
+}
+
+#[tokio::test]
 async fn index_history_answers_with_series_from_the_history_db() {
     let dir = tempfile::tempdir().unwrap();
     let config = config_at(&dir);
@@ -395,6 +417,10 @@ async fn every_command_still_yields_exactly_one_event_except_sampler_and_compare
             session,
             ns: ns("testdb"),
             range: ChartRange::Month,
+        },
+        Command::EstimatedCount {
+            session,
+            ns: ns("testdb"),
         },
     ];
     commands.extend(index_writes(session));

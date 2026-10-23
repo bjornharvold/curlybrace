@@ -3,6 +3,7 @@
 //! did; the reducer decides what happens.
 use super::index_detail::{DetailInput, show_detail};
 use crate::I18n;
+use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_chart::observed_uses;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key, series_of};
 use crate::viewmodel::{IndexesAction, IndexesState};
@@ -17,16 +18,15 @@ const LIST_SHARE: f32 = 0.3;
 
 /// Draws the tab at the wall-clock time `now_secs` (Unix seconds), which the caller reads once
 /// per frame; nothing in here reads the clock, so the output depends only on the arguments.
-/// `_read_only` is accepted for the write controls that arrive with the index writes;
-/// everything drawn today only reads, so it changes nothing.
+/// `read_only` disables the write controls (Create index) and says why.
 pub fn show_indexes(
     ui: &mut egui::Ui,
     state: &IndexesState,
-    _read_only: bool,
+    read_only: bool,
     i18n: &I18n,
     now_secs: i64,
 ) -> Option<IndexesAction> {
-    let mut action = toolbar(ui, state, i18n);
+    let mut action = toolbar(ui, state, read_only, i18n);
     ui.separator();
     if state.indexes.is_empty() {
         let key = if state.loading {
@@ -86,8 +86,13 @@ fn shown_index(state: &IndexesState) -> Option<&CollectionIndex> {
         .or_else(|| state.indexes.first())
 }
 
-/// Range switch, refresh and the sampler's status line.
-fn toolbar(ui: &mut egui::Ui, state: &IndexesState, i18n: &I18n) -> Option<IndexesAction> {
+/// Range switch, refresh, Create index and the sampler's status line.
+fn toolbar(
+    ui: &mut egui::Ui,
+    state: &IndexesState,
+    read_only: bool,
+    i18n: &I18n,
+) -> Option<IndexesAction> {
     let mut action = None;
     ui.horizontal(|ui| {
         for range in RANGES {
@@ -99,11 +104,26 @@ fn toolbar(ui: &mut egui::Ui, state: &IndexesState, i18n: &I18n) -> Option<Index
         if ui.button(i18n.t("indexes.refresh")).clicked() {
             action = Some(IndexesAction::Refresh);
         }
+        if create_button(ui, read_only, i18n) {
+            action = Some(IndexesAction::OpenBuilder);
+        }
         if let Some(key) = state.sampler.map(sampler_key) {
             ui.weak(i18n.t(key));
         }
     });
     action
+}
+
+/// The Create index button. On a read-only connection it is disabled and the reason is both its
+/// hover text and a visible note, so the state is never colour or hover alone.
+fn create_button(ui: &mut egui::Ui, read_only: bool, i18n: &I18n) -> bool {
+    let button = ui.add_enabled(!read_only, egui::Button::new(i18n.t("indexes.create")));
+    if read_only {
+        button.on_disabled_hover_text(i18n.t(READ_ONLY_REASON_KEY));
+        ui.label(i18n.t(READ_ONLY_REASON_KEY));
+        return false;
+    }
+    button.clicked()
 }
 
 fn sampler_key(status: SamplerStatus) -> &'static str {

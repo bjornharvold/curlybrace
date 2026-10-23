@@ -11,6 +11,7 @@ pub enum WriteKind {
     Replace,
     Clone,
     Delete,
+    CreateIndex,
 }
 
 /// Whether a mutation must wait for the user's confirmation when it targets a production

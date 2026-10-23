@@ -286,6 +286,12 @@ pub enum Command {
         ns: Namespace,
         range: ChartRange,
     },
+    /// Asks for the collection's estimated document count; answered with
+    /// [`Event::EstimatedCount`].
+    EstimatedCount {
+        session: SessionId,
+        ns: Namespace,
+    },
     /// The four index writes below are answered with [`Event::IndexChanged`].
     CreateIndex {
         session: SessionId,
@@ -343,6 +349,7 @@ impl Command {
             | Self::LockReadOnly { .. }
             | Self::ListIndexes { .. }
             | Self::IndexHistory { .. }
+            | Self::EstimatedCount { .. }
             | Self::SetSamplingExcluded { .. }
             | Self::PurgeHistory { .. } => false,
         }
@@ -365,6 +372,7 @@ impl Command {
             Self::LockReadOnly { .. } => "lock_read_only",
             Self::ListIndexes { .. } => "list_indexes",
             Self::IndexHistory { .. } => "index_history",
+            Self::EstimatedCount { .. } => "estimated_count",
             Self::CreateIndex { .. } => "create_index",
             Self::DropIndex { .. } => "drop_index",
             Self::SetIndexHidden { .. } => "set_index_hidden",
@@ -389,6 +397,7 @@ impl Command {
             | Self::Clone { session, .. }
             | Self::ListIndexes { session, .. }
             | Self::IndexHistory { session, .. }
+            | Self::EstimatedCount { session, .. }
             | Self::CreateIndex { session, .. }
             | Self::DropIndex { session, .. }
             | Self::SetIndexHidden { session, .. }
@@ -472,6 +481,12 @@ pub enum Event {
         range: ChartRange,
         series: Vec<IndexSeries>,
     },
+    /// The answer to `EstimatedCount`.
+    EstimatedCount {
+        session: SessionId,
+        ns: Namespace,
+        count: u64,
+    },
     /// The answer to a successful index write; the UI re-lists the indexes.
     IndexChanged { session: SessionId, ns: Namespace },
     /// SPONTANEOUS (no command behind it): the session's sampler started, resumed or paused. See
@@ -505,6 +520,7 @@ impl Event {
             | Self::Mutated { session, .. }
             | Self::Indexes { session, .. }
             | Self::IndexHistory { session, .. }
+            | Self::EstimatedCount { session, .. }
             | Self::IndexChanged { session, .. }
             | Self::Sampler { session, .. }
             | Self::Failed { session, .. } => Some(*session),

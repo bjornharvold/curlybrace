@@ -15,6 +15,7 @@ use crate::views::documents::{
 };
 use crate::views::editor::show_editor_with;
 use crate::views::findbar::show_findbar;
+use crate::views::index_builder::{BuilderContext, show_index_builder};
 use crate::views::indexes::show_indexes;
 use crate::views::sidebar_roots::show_roots;
 use crate::views::write_warning::show_write_warning;
@@ -246,6 +247,15 @@ pub fn show_modals(
         .as_mut()
         .and_then(|editor| show_editor_with(ctx, editor, &connection, i18n, save_enabled));
     out.extend(saved.map(|a| UiEvent::Input(Input::Editor(a))));
+    let built = state.indexes.builder.as_ref().and_then(|builder| {
+        let context = BuilderContext {
+            connection: &connection,
+            read_only: state.active_is_read_only(),
+            busy: !save_enabled,
+        };
+        show_index_builder(ctx, builder, &context, i18n)
+    });
+    out.extend(built.map(|a| UiEvent::Input(Input::Indexes(a))));
     let decided = prompt.current().and_then(|(host, fingerprint)| {
         let asking = state.connecting_name_for_host(host, i18n);
         show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)

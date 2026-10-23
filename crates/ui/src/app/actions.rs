@@ -280,7 +280,7 @@ pub(super) fn editor(state: AppState, action: EditorAction) -> Out {
 /// Sends one mutating command; ignored while another mutation is in flight or a production
 /// write warning is open. With `Guard::Warn` on a production connection the command is parked
 /// for confirmation instead of sent.
-fn mutation(
+pub(super) fn mutation(
     state: AppState,
     editor: Option<EditorKey>,
     kind: WriteKind,

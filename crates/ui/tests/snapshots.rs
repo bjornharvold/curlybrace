@@ -148,6 +148,17 @@ shot!(sessions_tree_two_connected, vec![], |state| {
 
 shot!(indexes_tab, vec![], support::indexes_shots::indexes_tab);
 
+// The builder is taller than the standard window.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn index_builder() {
+    if !snapshots_enabled("index_builder") {
+        return;
+    }
+    let setup = support::indexes_shots::index_builder;
+    Shot::sized((1000.0, 1000.0), vec![], setup).snapshot("index_builder");
+}
+
 shot!(
     sessions_tree_production_root,
     vec![],

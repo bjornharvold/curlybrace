@@ -3,6 +3,7 @@ use super::actions;
 use super::compare::{self, CompareAction};
 use super::connection_test;
 use super::index_actions;
+use super::index_write_actions;
 use super::persistence::PersistError;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
@@ -193,14 +194,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever
         // command was lost takes the banner path of `data_failed` and the editor stays; the
-        // next lost command after the editor is closed fails the root.
+        // next lost command after the editor is closed fails the root. The index builder is an
+        // editor in this sense too.
         Event::Failed {
             context,
             error: error @ (CoreError::Unreachable | CoreError::TlsHandshake),
             ..
         } => {
             let error = specific(&state, context, error);
-            match state.editor.is_none() {
+            match state.editor.is_none() && state.indexes.builder.is_none() {
                 true => (
                     connection_lost(state, context, error, background),
                     Vec::new(),
@@ -223,6 +225,10 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             Vec::new(),
         ),
         Event::IndexChanged { ns, .. } => index_actions::changed(state, ns),
+        Event::EstimatedCount { ns, count, .. } => (
+            index_write_actions::estimate_arrived(state, ns, count),
+            Vec::new(),
+        ),
         Event::Sampler { status, .. } => {
             (index_actions::sampler_reported(state, status), Vec::new())
         }
@@ -237,7 +243,10 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
 /// tunnel says so too, but a write that failed it was never sent, so it has no write wording.
 /// Read while the session is the active one.
 fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
-    let write = matches!(context, "insert" | "replace" | "delete" | "clone");
+    let write = matches!(
+        context,
+        "insert" | "replace" | "delete" | "clone" | "create_index"
+    );
     match (&error, write, state.ssh_endpoint.is_some()) {
         (CoreError::Unreachable, false, false) => error,
         (CoreError::Unreachable, false, true) => CoreError::UnreachableSsh,
@@ -414,6 +423,18 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
             context,
             error,
         ),
+        // The builder stays open with everything the person typed, so a refusal such as a
+        // duplicate name can be fixed and sent again.
+        "create_index" => failure(
+            AppState {
+                pending: None,
+                ..state
+            },
+            context,
+            error,
+        ),
+        // The count only decides whether a warning shows: a missing one is not worth a banner.
+        "estimated_count" => state,
         "list_indexes" | "index_history" => failure(
             AppState {
                 indexes: state.indexes.settled(),

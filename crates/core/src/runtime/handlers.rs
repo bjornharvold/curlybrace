@@ -257,6 +257,10 @@ async fn data_command(
                 series,
             }
         }
+        Command::EstimatedCount { ns, .. } => {
+            let count = store.estimated_count(&ns).await?;
+            Event::EstimatedCount { session, ns, count }
+        }
         Command::CreateIndex { ns, spec, .. } => {
             store.create_index(&ns, &spec).await?;
             Event::IndexChanged { session, ns }
