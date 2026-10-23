@@ -11,6 +11,7 @@ pub mod driver_error;
 pub mod ejson;
 pub mod error;
 pub mod indexes;
+mod mongo_indexes;
 pub mod mongo_store;
 mod mongo_write;
 mod mongo_write_fields;

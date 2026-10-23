@@ -11,9 +11,10 @@ use mongodb::action::Action;
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
+use crate::indexes::IndexSpec;
 use crate::store::{
-    CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, Namespace, Page, Query, Topology,
-    WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, IndexUsage,
+    Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
 };
 use mongodb::options::{AggregateOptions, Collation, ReadPreference, SelectionCriteria};
 
@@ -327,6 +328,34 @@ impl DocumentStore for MongoStore {
         }
         out.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(out)
+    }
+
+    async fn list_indexes(&self, ns: &Namespace) -> Result<Vec<CollectionIndex>> {
+        crate::mongo_indexes::list_indexes(&self.client.database(&ns.db), ns, db_err).await
+    }
+
+    async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
+        crate::mongo_indexes::index_stats(&self.client.database(&ns.db), ns, db_err).await
+    }
+
+    async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {
+        crate::mongo_indexes::create_index(&self.client.database(&ns.db), ns, spec, db_err).await
+    }
+
+    async fn drop_index(&self, ns: &Namespace, name: &str) -> Result<()> {
+        crate::mongo_indexes::drop_index(&self.client.database(&ns.db), ns, name, db_err).await
+    }
+
+    async fn set_index_hidden(&self, ns: &Namespace, name: &str, hidden: bool) -> Result<()> {
+        let change = ("hidden", Bson::Boolean(hidden));
+        let db = self.client.database(&ns.db);
+        crate::mongo_indexes::modify_index(&db, ns, name, change, db_err).await
+    }
+
+    async fn set_index_ttl(&self, ns: &Namespace, name: &str, seconds: i64) -> Result<()> {
+        let change = ("expireAfterSeconds", Bson::Int64(seconds));
+        let db = self.client.database(&ns.db);
+        crate::mongo_indexes::modify_index(&db, ns, name, change, db_err).await
     }
 
     async fn duplicate_keys(
