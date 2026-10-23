@@ -114,6 +114,16 @@ pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
         ..state
     };
     match (action, parked) {
+        // The session was locked while the warning was open: the write is dropped, never sent.
+        (WriteWarningAction::Confirm, Some(parked))
+            if parked
+                .command
+                .session()
+                .is_some_and(|id| state.session_read_only(id)) =>
+        {
+            let banner = Some(Banner::ReadOnly);
+            (AppState { banner, ..state }, Vec::new())
+        }
         (WriteWarningAction::Confirm, Some(parked)) if still_valid(&state, &parked) => {
             let ParkedWrite {
                 command, pending, ..

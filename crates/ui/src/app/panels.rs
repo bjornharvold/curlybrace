@@ -184,6 +184,7 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         DocTarget {
             connection: &connection,
             production: badge.production,
+            read_only: badge.read_only,
         },
         i18n,
     );

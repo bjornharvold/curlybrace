@@ -4,6 +4,10 @@ use curlybrace_core::connection::ConnectionColor;
 
 /// i18n key of the production badge text.
 pub const PRODUCTION_BADGE_KEY: &str = "connection.production_badge";
+/// i18n key of the read-only badge text.
+pub const READ_ONLY_BADGE_KEY: &str = "connection.read_only_badge";
+/// i18n key of why writes are off on a read-only connection (disabled-hover and visible note).
+pub const READ_ONLY_REASON_KEY: &str = "connection.read_only_reason";
 
 /// What draws one colour: its rgb (readable on egui's light and dark themes), a glyph that
 /// differs per colour (and exists in egui's default fonts, which a test checks) and the i18n key of its name.
@@ -19,6 +23,7 @@ pub struct ColorTag {
 pub struct ConnectionBadge {
     pub color: Option<ColorTag>,
     pub production: bool,
+    pub read_only: bool,
 }
 
 pub fn color_tag(c: ConnectionColor) -> ColorTag {
@@ -42,7 +47,13 @@ impl ConnectionBadge {
         Self {
             color: color.map(color_tag),
             production,
+            read_only: false,
         }
+    }
+
+    /// The same badge, marked read-only.
+    pub fn with_read_only(self, read_only: bool) -> Self {
+        Self { read_only, ..self }
     }
 }
 
@@ -72,6 +83,8 @@ mod tests {
             assert!(!i18n.t(tag.name_key).starts_with('⟦'), "{}", tag.name_key);
         }
         assert!(!i18n.t(PRODUCTION_BADGE_KEY).starts_with('⟦'));
+        assert!(!i18n.t(READ_ONLY_BADGE_KEY).starts_with('⟦'));
+        assert!(!i18n.t(READ_ONLY_REASON_KEY).starts_with('⟦'));
     }
 
     fn has_glyph_in_default_fonts(glyphs: &[&str]) -> Vec<(String, bool)> {

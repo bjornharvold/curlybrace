@@ -1,8 +1,10 @@
 //! The connection manager list: toolbar, filter, sortable table grouped by folder.
+use super::connection_badge::show_badge;
 use super::connections::{ConnectionAction, ConnectionsState, Notice};
 use crate::I18n;
 use crate::viewmodel::{
-    SortColumn, auth_label_key, format_utc, grouped, security, server_hosts, visible,
+    ConnectionBadge, SortColumn, auth_label_key, format_utc, grouped, security, server_hosts,
+    visible,
 };
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use eframe::egui;
@@ -263,6 +265,10 @@ fn show_rows(
                         action = Some(ConnectionAction::Connect(cfg.id));
                     } else if name.clicked() {
                         state.select(cfg);
+                    }
+                    if cfg.read_only {
+                        // Text, never colour alone; the name keeps the room it had.
+                        show_badge(ui, &ConnectionBadge::default().with_read_only(true), i18n);
                     }
                 });
                 let texts = [

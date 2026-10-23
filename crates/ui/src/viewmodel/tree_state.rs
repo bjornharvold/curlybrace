@@ -58,6 +58,9 @@ pub struct TreeState {
     /// The page is shown with a projection: Edit and Clone are not offered. Set by the app
     /// every frame from the query that produced the page.
     pub projected: bool,
+    /// The connection is read-only: every write entry is shown disabled. Set by the documents
+    /// view every frame from its target.
+    pub read_only: bool,
     json: JsonCache,
     rows: Option<(CacheKey, Rc<Vec<PageRow>>)>,
     /// Identity of the page the state last rendered.
@@ -74,6 +77,7 @@ impl TreeState {
             generation: self.generation + 1,
             confirm: self.confirm.results_replaced(),
             projected: self.projected,
+            read_only: self.read_only,
             ..Self::default()
         }
     }

@@ -200,6 +200,12 @@ impl CompareState {
         snapshot || live
     }
 
+    /// Whether the open session's target (where an apply writes) is read-only.
+    pub fn target_is_read_only(&self, saved: &[ConnectionConfig]) -> bool {
+        self.connections
+            .is_some_and(|(_, target)| self.is_read_only(target, saved))
+    }
+
     /// Whether `id` is one of the two connections of the open (or opening) session.
     pub fn involves(&self, id: Uuid) -> bool {
         self.connections.is_some_and(|(s, t)| s == id || t == id)

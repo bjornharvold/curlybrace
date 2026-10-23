@@ -145,6 +145,7 @@
         "not_different_tab": "Single fields can only be copied from the Different tab.",
         "not_on_page": "This document is not on the page shown. Open it from the list again.",
         "nothing_selected": "Select at least one document first.",
+        "read_only_target": "The target connection is read-only, so changes cannot be applied. Untick Read-only in its settings first.",
         "running": "A comparison is running. Wait until it finishes."
       },
       "review": {
@@ -414,7 +415,8 @@
       "opening": "Connecting to both servers...",
       "pick_connection": "Pick a connection",
       "source_connection": "Source connection",
-      "target_connection": "Target connection"
+      "target_connection": "Target connection",
+      "target_read_only": "Read-only connections cannot be the target, because a compare can write to it. They can still be the source."
     },
     "setup": {
       "collection": "Collection",
@@ -452,7 +454,10 @@
       "red": "Red",
       "yellow": "Yellow"
     },
-    "production_badge": "PRODUCTION"
+    "name_with_read_only": "{name} ({badge})",
+    "production_badge": "PRODUCTION",
+    "read_only_badge": "Read-only",
+    "read_only_reason": "This connection is read-only, so writes are turned off. Untick Read-only in the connection settings to write."
   },
   "connections": {
     "allow_invalid_certs": "Allow invalid TLS certificates",

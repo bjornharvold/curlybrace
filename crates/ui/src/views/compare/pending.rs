@@ -12,6 +12,9 @@ use curlybrace_core::compare::protocol::PairId;
 use eframe::egui;
 use uuid::Uuid;
 
+/// Why Review changes is off while the target connection is read-only.
+const READ_ONLY_TARGET_KEY: &str = "compare.apply.reason.read_only_target";
+
 /// "connection / database.collection" of a destination.
 pub fn destination_text(destination: &Destination, i18n: &I18n) -> String {
     if destination.database.is_empty() && destination.collection.is_empty() {
@@ -66,7 +69,8 @@ pub fn show_pending(
     }
     let total = view.documents().to_string();
     ui.label(i18n.t_with("compare.apply.pending.total", &[("count", &total)]));
-    let buttons = show_buttons(ui, state, busy, i18n);
+    let read_only = state.target_is_read_only(&connections.connections);
+    let buttons = show_buttons(ui, state, busy, read_only, i18n);
     let export = super::export::show_entry(ui, state, ExportKind::Plan, i18n);
     buttons.or(export).or(action)
 }
@@ -150,13 +154,17 @@ fn show_buttons(
     ui: &mut egui::Ui,
     state: &CompareState,
     busy: bool,
+    read_only: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let block = state.review_block();
     let mut action = None;
     ui.horizontal(|ui| {
         let review = egui::Button::new(i18n.t("compare.apply.pending.review"));
-        if ui.add_enabled(block.is_none(), review).clicked() {
+        let review = ui.add_enabled(block.is_none() && !read_only, review);
+        if read_only {
+            review.on_disabled_hover_text(i18n.t(READ_ONLY_TARGET_KEY));
+        } else if review.clicked() {
             action = Some(CompareAction::ReviewApply {
                 word: i18n.t(CONFIRM_WORD_KEY),
             });
@@ -167,7 +175,10 @@ fn show_buttons(
         }
         // Behind the review dialog "an apply is in progress" would be misleading.
         let reviewing = state.apply.review().is_some();
-        if let Some(reason) = block.filter(|r| !(reviewing && *r == ActionBlock::Busy)) {
+        if read_only {
+            let color = ui.visuals().warn_fg_color;
+            ui.colored_label(color, i18n.t(READ_ONLY_TARGET_KEY));
+        } else if let Some(reason) = block.filter(|r| !(reviewing && *r == ActionBlock::Busy)) {
             let color = ui.visuals().warn_fg_color;
             ui.colored_label(color, i18n.t(reason.i18n_key()));
         }

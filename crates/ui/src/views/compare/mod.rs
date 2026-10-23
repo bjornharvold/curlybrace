@@ -74,7 +74,8 @@ fn layout(
     };
     // Production by the flag the session opened with or the saved connection's live one.
     let production = |id| state.is_production(id, &connections.connections);
-    let review = apply::show_review(ui.ctx(), state, &production, i18n);
+    let read_only = state.target_is_read_only(&connections.connections);
+    let review = apply::show_review(ui.ctx(), state, &production, read_only, i18n);
     let export = export::show_export(ui.ctx(), state, i18n);
     header.or(connect).or(body).or(review).or(export)
 }

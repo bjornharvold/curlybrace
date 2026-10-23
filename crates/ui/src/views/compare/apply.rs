@@ -23,12 +23,15 @@ pub fn show_review(
     ctx: &egui::Context,
     state: &CompareState,
     production: &dyn Fn(Uuid) -> bool,
+    read_only: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let review = state.apply.review()?;
     let notice = review.production_destinations(production);
     let modal = egui::Modal::new(egui::Id::new("compare_apply_review"));
-    let response = modal.show(ctx, |ui| show_body(ui, state, review, &notice, i18n));
+    let response = modal.show(ctx, |ui| {
+        show_body(ui, state, review, &notice, read_only, i18n)
+    });
     let closed = response.should_close();
     response
         .inner
@@ -40,6 +43,7 @@ fn show_body(
     state: &CompareState,
     review: &Review,
     production: &[String],
+    read_only: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     ui.set_width(MODAL_WIDTH);
@@ -53,7 +57,7 @@ fn show_body(
     show_production_notice(ui, production, i18n);
     show_warnings(ui, review, i18n);
     let (typed, typing) = show_confirmation(ui, review, i18n);
-    let buttons = show_buttons(ui, review, !production.is_empty(), typing, i18n);
+    let buttons = show_buttons(ui, review, !production.is_empty(), typing, read_only, i18n);
     buttons.or(typed).or(policy)
 }
 
@@ -253,22 +257,30 @@ fn show_buttons(
     review: &Review,
     production: bool,
     typing: bool,
+    read_only: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     ui.separator();
+    if read_only {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            i18n.t("compare.apply.reason.read_only_target"),
+        );
+    }
+    let may_apply = review.confirmation_passes() && !read_only;
     ui.horizontal(|ui| {
         let apply = egui::Button::new(i18n.t("compare.apply.review.apply"));
         let cancel_label = i18n.t("compare.apply.review.cancel");
         if !production {
             let confirm = ui
-                .add_enabled(review.confirmation_passes(), apply)
+                .add_enabled(may_apply, apply)
                 .clicked()
                 .then_some(CompareAction::ConfirmApply);
             let cancel = ui.button(cancel_label);
             return confirm.or(cancel.clicked().then_some(CompareAction::CancelReview));
         }
         let cancel = ui.button(cancel_label);
-        let apply = ui.add_enabled(review.confirmation_passes(), apply);
+        let apply = ui.add_enabled(may_apply, apply);
         if !typing {
             focus_cancel_unless_focused(&cancel, &apply);
         }
