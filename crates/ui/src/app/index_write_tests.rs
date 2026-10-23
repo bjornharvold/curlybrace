@@ -13,12 +13,12 @@ use curlybrace_core::store::{CollectionIndex, Namespace};
 use curlybrace_core::test_support::mock_objects::{mock_connection, mock_index_spec_named};
 use uuid::Uuid;
 
-fn ns() -> Namespace {
+pub(super) fn ns() -> Namespace {
     Namespace::new("app", "people")
 }
 
 /// Opens `cfg` as the active, connected session with `app.people` selected on the Indexes tab.
-fn browsing(cfg: ConnectionConfig) -> (AppState, Uuid) {
+pub(super) fn browsing(cfg: ConnectionConfig) -> (AppState, Uuid) {
     let id = cfg.id;
     let (s, _) = update(AppState::new(vec![cfg]), Input::Connect(id));
     let epoch = s.epoch_counter;
@@ -40,11 +40,11 @@ fn browsing(cfg: ConnectionConfig) -> (AppState, Uuid) {
     (s, id)
 }
 
-fn plain() -> (AppState, Uuid) {
+pub(super) fn plain() -> (AppState, Uuid) {
     browsing(mock_connection())
 }
 
-fn with_flags(production: bool, read_only: bool) -> ConnectionConfig {
+pub(super) fn with_flags(production: bool, read_only: bool) -> ConnectionConfig {
     ConnectionConfig {
         production,
         read_only,
@@ -52,27 +52,27 @@ fn with_flags(production: bool, read_only: bool) -> ConnectionConfig {
     }
 }
 
-fn act(s: AppState, action: IndexesAction) -> (AppState, Vec<Command>) {
+pub(super) fn act(s: AppState, action: IndexesAction) -> (AppState, Vec<Command>) {
     update(s, Input::Indexes(action))
 }
 
-fn edit(s: AppState, edit: BuilderEdit) -> AppState {
+pub(super) fn edit(s: AppState, edit: BuilderEdit) -> AppState {
     act(s, IndexesAction::Builder(edit)).0
 }
 
 /// The builder open with one valid key on `field`.
-fn building(cfg: ConnectionConfig, field: &str) -> (AppState, Uuid) {
+pub(super) fn building(cfg: ConnectionConfig, field: &str) -> (AppState, Uuid) {
     let (s, id) = browsing(cfg);
     let (s, _) = act(s, IndexesAction::OpenBuilder);
     (edit(s, BuilderEdit::SetField(0, field.into())), id)
 }
 
 /// `Command` is not `PartialEq`; its `Debug` text is a faithful stand-in.
-fn shown(commands: &[Command]) -> String {
+pub(super) fn shown(commands: &[Command]) -> String {
     format!("{commands:?}")
 }
 
-fn sent_spec(commands: &[Command]) -> IndexSpec {
+pub(super) fn sent_spec(commands: &[Command]) -> IndexSpec {
     match commands {
         [Command::CreateIndex { spec, .. }] => spec.clone(),
         other => panic!("expected one CreateIndex, got {other:?}"),
@@ -264,6 +264,9 @@ fn a_read_only_connection_disables_every_write_control_and_shows_why() {
     assert!(s.pending.is_none() && s.write_warning.is_none());
     assert_eq!(s.banner, Some(Banner::ReadOnly));
     assert!(s.indexes.builder.is_some(), "the input is not lost");
+
+    // And every other write of the tab: edit a copy, hide, change the TTL and drop.
+    super::index_edit_tests::assert_read_only_refuses_every_write();
 }
 
 #[test]
@@ -404,7 +407,7 @@ fn the_embedded_session_creates_without_a_warning() {
     assert_eq!(sent_spec(&commands).keys.len(), 1);
 }
 
-fn changed(s: AppState, id: Uuid) -> (AppState, Vec<Command>) {
+pub(super) fn changed(s: AppState, id: Uuid) -> (AppState, Vec<Command>) {
     update(
         s,
         Input::Event(Event::IndexChanged {

@@ -19,6 +19,7 @@ pub mod findbar;
 pub mod index_builder;
 pub mod index_chart;
 pub mod index_detail;
+pub mod index_dialogs;
 pub mod indexes;
 pub mod json;
 pub mod metrics;

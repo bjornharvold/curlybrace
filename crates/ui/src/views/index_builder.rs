@@ -45,7 +45,12 @@ pub fn show_index_builder(
     let modal = egui::Modal::new(egui::Id::new("index_builder")).show(ctx, |ui| {
         ui.set_width(MODAL_WIDTH);
         let namespace = format!("{}.{}", builder.ns.db, builder.ns.collection);
-        ui.heading(i18n.t("indexes.builder.title"));
+        match builder.replaces() {
+            Some(original) => {
+                ui.heading(i18n.t_with("indexes.builder.title_copy", &[("name", original)]))
+            }
+            None => ui.heading(i18n.t("indexes.builder.title")),
+        };
         ui.label(i18n.t_with(
             "indexes.builder.writing_to",
             &[
@@ -73,10 +78,16 @@ pub fn show_index_builder(
 
 fn body(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Option<BuilderEdit> {
     let mut edit = None;
+    if let Some(original) = builder.replaces() {
+        ui.label(i18n.t_with("indexes.builder.editing_note", &[("name", original)]));
+    }
     ui.strong(i18n.t("indexes.builder.keys_heading"));
     edit = key_rows(ui, builder, i18n).or(edit);
     if ui.button(i18n.t("indexes.builder.add_key")).clicked() {
         edit = Some(BuilderEdit::AddKey);
+    }
+    if (0..builder.keys.len()).any(|i| builder.is_fixed(i)) {
+        ui.weak(i18n.t("indexes.builder.fixed_keys_note"));
     }
     ui.weak(i18n.t("indexes.builder.tip"));
     ui.separator();
@@ -93,16 +104,21 @@ fn key_rows(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Opti
     for (i, key) in builder.keys.iter().enumerate() {
         let n = (i + 1).to_string();
         let numbered = [("n", n.as_str())];
+        // A hashed or 2d key of the original is shown and kept as it is.
+        let fixed = builder.is_fixed(i);
         ui.horizontal(|ui| {
             let caption = ui.label(i18n.t_with("indexes.builder.key_field_n", &numbered));
             let mut text = key.field.clone();
             let field = ui
-                .add(egui::TextEdit::singleline(&mut text).desired_width(FIELD_WIDTH))
+                .add_enabled(
+                    !fixed,
+                    egui::TextEdit::singleline(&mut text).desired_width(FIELD_WIDTH),
+                )
                 .labelled_by(caption.id);
             if field.changed() {
                 edit = Some(BuilderEdit::SetField(i, text));
             }
-            if let Some(kind) = kind_combo(ui, i, &key.kind, &numbered, i18n) {
+            if let Some(kind) = kind_combo(ui, i, (&key.kind, !fixed), &numbered, i18n) {
                 edit = Some(BuilderEdit::SetKind(i, kind));
             }
             if row_button(ui, i > 0, &MOVE_UP, &numbered, i18n) {
@@ -158,25 +174,29 @@ fn row_button(
 fn kind_combo(
     ui: &mut egui::Ui,
     index: usize,
-    current: &KeyKind,
+    (current, enabled): (&KeyKind, bool),
     params: &[(&str, &str)],
     i18n: &I18n,
 ) -> Option<KeyKind> {
     let mut chosen = None;
     let shown = i18n.t(kind_label_key(current));
-    let combo = egui::ComboBox::from_id_salt(("index_key_kind", index))
-        .selected_text(shown.clone())
-        .show_ui(ui, |ui| {
-            for kind in BUILDER_KINDS {
-                let label = i18n.t(kind_label_key(&kind));
-                if ui.selectable_label(*current == kind, label).clicked() {
-                    chosen = Some(kind);
-                }
-            }
-        });
+    let combo = ui
+        .add_enabled_ui(enabled, |ui| {
+            egui::ComboBox::from_id_salt(("index_key_kind", index))
+                .selected_text(shown.clone())
+                .show_ui(ui, |ui| {
+                    for kind in BUILDER_KINDS {
+                        let label = i18n.t(kind_label_key(&kind));
+                        if ui.selectable_label(*current == kind, label).clicked() {
+                            chosen = Some(kind);
+                        }
+                    }
+                })
+        })
+        .inner;
     let name = i18n.t_with("indexes.builder.key_type_n", params);
     combo.response.widget_info(|| {
-        let mut info = WidgetInfo::labeled(WidgetType::ComboBox, true, name.clone());
+        let mut info = WidgetInfo::labeled(WidgetType::ComboBox, enabled, name.clone());
         info.current_text_value = Some(shown.clone());
         info
     });

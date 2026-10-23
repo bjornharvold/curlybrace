@@ -8,7 +8,7 @@ use curlybrace_core::store::{CollectionIndex, Namespace};
 use curlybrace_core::test_support::mock_objects::mock_index_spec_named;
 use curlybrace_ui::I18n;
 use curlybrace_ui::viewmodel::index_detail::anchored_now;
-use curlybrace_ui::viewmodel::{IndexesAction, IndexesState};
+use curlybrace_ui::viewmodel::{IndexWrite, IndexesAction, IndexesState};
 use curlybrace_ui::views::indexes::show_indexes;
 use eframe::egui;
 use eframe::egui::accesskit::Role;
@@ -327,7 +327,10 @@ fn the_create_button_is_enabled_on_a_writable_connection() {
 fn the_create_button_waits_while_a_create_is_in_flight() {
     let (_, _, state) = two_indexes();
     let state = IndexesState {
-        creating: Some("a_1".into()),
+        writing: Some(IndexWrite::Create {
+            name: "a_1".into(),
+            replaces: None,
+        }),
         ..state
     };
     let harness = open(state, false);

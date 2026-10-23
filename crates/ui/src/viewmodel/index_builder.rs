@@ -106,6 +106,11 @@ pub struct IndexBuilderState {
     /// Create was sent for what this builder holds and the server has not answered: the fields
     /// are frozen so what is shown stays what was sent.
     pub submitted: bool,
+    /// The index this builder makes a copy of. Its `raw` rides along into the copy, so fields the
+    /// builder does not model (weights, bits, min, max, ...) survive.
+    pub editing: Option<IndexSpec>,
+    /// The name a copy was offered with, to tell whether anything was changed.
+    pub suggested_name: String,
 }
 
 impl IndexBuilderState {
@@ -126,7 +131,31 @@ impl IndexBuilderState {
             warning: None,
             estimated_documents: None,
             submitted: false,
+            editing: None,
+            suggested_name: String::new(),
         }
+    }
+
+    /// A builder pre-filled from `original`, to be created under `name`.
+    pub fn from_copy(ns: Namespace, original: &IndexSpec, name: String) -> Self {
+        let text = |filter: &Option<Document>| filter.as_ref().map(doc_to_view_json);
+        Self {
+            keys: original.keys.clone(),
+            options: original.options.clone(),
+            partial_filter_text: text(&original.options.partial_filter).unwrap_or_default(),
+            collation_text: text(&original.options.collation).unwrap_or_default(),
+            suggested_name: name.clone(),
+            name,
+            // The copy keeps its name whatever is done to the keys.
+            name_edited: true,
+            editing: Some(original.clone()),
+            ..Self::new(ns)
+        }
+    }
+
+    /// The name of the index this builder is a copy of.
+    pub fn replaces(&self) -> Option<&str> {
+        self.editing.as_ref().map(|s| s.name.as_str())
     }
 
     /// The same builder marked as sent (or, with `false`, editable again).
@@ -183,12 +212,26 @@ impl IndexBuilderState {
         self.with_keys(keys)
     }
 
+    /// A key of a copy that the picker cannot offer (hashed, 2d) keeps its type.
     pub fn with_kind(self, index: usize, kind: KeyKind) -> Self {
+        if self.is_fixed(index) {
+            return self;
+        }
         self.with_key_at(index, |key| IndexKey { kind, ..key })
+    }
+
+    /// Whether the key at `index` is one the builder only shows and preserves.
+    pub fn is_fixed(&self, index: usize) -> bool {
+        self.keys
+            .get(index)
+            .is_some_and(|key| matches!(key.kind, KeyKind::Hashed | KeyKind::Geo2d))
     }
 
     /// The field text is stored as typed; trimming happens when the spec is made.
     pub fn with_field(self, index: usize, text: impl Into<String>) -> Self {
+        if self.is_fixed(index) {
+            return self;
+        }
         let field = text.into();
         self.with_key_at(index, |key| IndexKey { field, ..key })
     }
@@ -257,8 +300,8 @@ impl IndexBuilderState {
     /// The spec to create, or what is wrong with the builder. The first problem found wins: keys,
     /// then name, then the filter and collation texts.
     pub fn spec(&self) -> Result<IndexSpec, BuilderProblem> {
-        let partial_filter = parse_object(&self.partial_filter_text);
-        let collation = parse_object(&self.collation_text);
+        let partial_filter = self.filter(&self.partial_filter_text, |o| &o.partial_filter);
+        let collation = self.filter(&self.collation_text, |o| &o.collation);
         let spec = self.draft(
             partial_filter.clone().unwrap_or_default(),
             collation.clone().unwrap_or_default(),
@@ -286,15 +329,22 @@ impl IndexBuilderState {
     /// Create is disabled then anyway.
     pub fn preview_json(&self) -> String {
         let spec = self.draft(
-            parse_object(&self.partial_filter_text).flatten(),
-            parse_object(&self.collation_text).flatten(),
+            self.filter(&self.partial_filter_text, |o| &o.partial_filter)
+                .flatten(),
+            self.filter(&self.collation_text, |o| &o.collation)
+                .flatten(),
         );
         doc_to_view_json(&spec.create_command(&self.ns.collection))
     }
 
     /// Nothing was typed or changed yet: closing the modal by accident loses nothing.
     pub fn is_untouched(&self) -> bool {
-        let fresh = Self::new(self.ns.clone());
+        let fresh = match &self.editing {
+            Some(original) => {
+                Self::from_copy(self.ns.clone(), original, self.suggested_name.clone())
+            }
+            None => Self::new(self.ns.clone()),
+        };
         Self {
             warning: None,
             estimated_documents: None,
@@ -312,7 +362,26 @@ impl IndexBuilderState {
                 collation,
                 ..self.options.clone()
             },
-            raw: Document::new(),
+            raw: self
+                .editing
+                .as_ref()
+                .map(|original| original.raw.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// A filter or collation text as a document: blank is none, text that is not a JSON object is
+    /// `None`. Text that still reads as the original's document gives the original itself back,
+    /// so a copy repeats the definition exactly (number types included) until it is edited.
+    fn filter(
+        &self,
+        text: &str,
+        of: impl Fn(&IndexOptions) -> &Option<Document>,
+    ) -> Option<Option<Document>> {
+        let original = self.editing.as_ref().and_then(|o| of(&o.options).as_ref());
+        match original {
+            Some(document) if text == doc_to_view_json(document) => Some(Some(document.clone())),
+            _ => parse_object(text),
         }
     }
 

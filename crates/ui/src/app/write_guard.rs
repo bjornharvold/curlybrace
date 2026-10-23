@@ -12,6 +12,10 @@ pub enum WriteKind {
     Clone,
     Delete,
     CreateIndex,
+    DropIndex,
+    /// Hiding or unhiding an index.
+    HideIndex,
+    SetIndexTtl,
 }
 
 /// Whether a mutation must wait for the user's confirmation when it targets a production

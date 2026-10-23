@@ -3,9 +3,11 @@ use super::index_chart::show_chart;
 use super::indexes::hidden_marker;
 use crate::I18n;
 use crate::viewmodel::IndexesAction;
+use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_detail::{
     Age, definition_text, last_used_secs, option_phrases, size_parts, tracked_since_secs,
 };
+use crate::viewmodel::index_write::is_id_index;
 use curlybrace_core::history::ChartRange;
 use curlybrace_core::runtime::IndexSeries;
 use curlybrace_core::store::CollectionIndex;
@@ -20,6 +22,10 @@ pub struct DetailInput<'a> {
     pub range: ChartRange,
     /// The chart's right edge, in Unix seconds.
     pub now_secs: i64,
+    /// The connection refuses writes: every write control is disabled and says why.
+    pub read_only: bool,
+    /// An index write is in flight: the write controls wait for it.
+    pub busy: bool,
 }
 
 pub fn show_detail(
@@ -36,9 +42,7 @@ pub fn show_detail(
         }
     });
     definition_rows(ui, input.index, i18n);
-    if ui.button(i18n.t("indexes.copy_json")).clicked() {
-        action = Some(IndexesAction::CopyJson(spec.to_json()));
-    }
+    action = buttons(ui, input, i18n).or(action);
     ui.separator();
     match input.series {
         Some(series) => series_rows(ui, series, input, i18n),
@@ -50,6 +54,63 @@ pub fn show_detail(
             };
             ui.label(i18n.t(key));
         }
+    }
+    action
+}
+
+/// Copy as JSON, and the write controls: hide or unhide, edit a copy, change the TTL (only an
+/// index that expires has one) and drop. A write control that cannot be used is disabled and its
+/// reason is its hover text; the `_id_` index, which the server refuses to change, says so once
+/// in plain text. The reasons that hold for the whole tab (read-only, a write in flight) are
+/// already in plain text in the toolbar.
+fn buttons(ui: &mut egui::Ui, input: &DetailInput<'_>, i18n: &I18n) -> Option<IndexesAction> {
+    let spec = &input.index.spec;
+    let name = spec.name.clone();
+    let is_id = is_id_index(&name);
+    let reason = match (input.read_only, input.busy, is_id) {
+        (true, _, _) => Some(READ_ONLY_REASON_KEY),
+        (false, true, _) => Some("indexes.write_busy"),
+        (false, false, true) => Some("indexes.id_locked"),
+        (false, false, false) => None,
+    };
+    let hidden = spec.options.hidden;
+    let hide = match hidden {
+        true => (
+            "indexes.action_unhide",
+            IndexesAction::SetHidden(name.clone(), false),
+        ),
+        false => (
+            "indexes.action_hide",
+            IndexesAction::SetHidden(name.clone(), true),
+        ),
+    };
+    let mut writes = vec![
+        hide,
+        (
+            "indexes.action_edit_copy",
+            IndexesAction::EditCopy(name.clone()),
+        ),
+    ];
+    if spec.options.expire_after_seconds.is_some() {
+        writes.push(("indexes.action_ttl", IndexesAction::ChangeTtl(name.clone())));
+    }
+    writes.push(("indexes.action_drop", IndexesAction::DropRequested(name)));
+    let mut action = None;
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(i18n.t("indexes.copy_json")).clicked() {
+            action = Some(IndexesAction::CopyJson(spec.to_json()));
+        }
+        for (label, write) in writes {
+            let button = ui.add_enabled(reason.is_none(), egui::Button::new(i18n.t(label)));
+            if let Some(key) = reason {
+                button.on_disabled_hover_text(i18n.t(key));
+            } else if button.clicked() {
+                action = Some(write);
+            }
+        }
+    });
+    if is_id {
+        ui.label(i18n.t("indexes.id_locked"));
     }
     action
 }

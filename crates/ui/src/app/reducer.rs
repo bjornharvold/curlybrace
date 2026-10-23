@@ -194,15 +194,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever
         // command was lost takes the banner path of `data_failed` and the editor stays; the
-        // next lost command after the editor is closed fails the root. The index builder is an
-        // editor in this sense too.
+        // next lost command after the editor is closed fails the root. The index builder and the
+        // modals of the index writes are editors in this sense too.
         Event::Failed {
             context,
             error: error @ (CoreError::Unreachable | CoreError::TlsHandshake),
             ..
         } => {
             let error = specific(&state, context, error);
-            match state.editor.is_none() && state.indexes.builder.is_none() {
+            match state.editor.is_none() && !state.indexes.has_prompt() {
                 true => (
                     connection_lost(state, context, error, background),
                     Vec::new(),
@@ -245,7 +245,14 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
 fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
     let write = matches!(
         context,
-        "insert" | "replace" | "delete" | "clone" | "create_index"
+        "insert"
+            | "replace"
+            | "delete"
+            | "clone"
+            | "create_index"
+            | "drop_index"
+            | "set_index_hidden"
+            | "set_index_ttl"
     );
     match (&error, write, state.ssh_endpoint.is_some()) {
         (CoreError::Unreachable, false, false) => error,
@@ -425,7 +432,11 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
         ),
         // The builder stays open with everything the person typed, so a refusal such as a
         // duplicate name can be fixed and sent again.
-        "create_index" => failure(index_write_actions::create_failed(state), context, error),
+        // Whichever index write was in flight is over; its modal (if any) stays as it was, so the
+        // person can send it again or cancel.
+        "create_index" | "drop_index" | "set_index_hidden" | "set_index_ttl" => {
+            failure(index_write_actions::write_failed(state), context, error)
+        }
         // The count only decides whether a warning shows: a missing one is not worth a banner.
         "estimated_count" => state,
         "list_indexes" | "index_history" => failure(

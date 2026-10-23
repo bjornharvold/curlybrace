@@ -1,6 +1,7 @@
 //! Pure handlers for the Indexes tab: what the person does on it and what the runtime answers.
 //! Requests are only produced while connected, like every other data action.
 use super::actions::gated;
+use super::index_edit_actions as edit;
 use super::index_write_actions as write;
 use super::reducer::Out;
 use super::state::AppState;
@@ -27,6 +28,18 @@ pub(super) fn on_action(state: AppState, action: IndexesAction) -> Out {
         IndexesAction::CancelBuilder => write::cancel_builder(state),
         IndexesAction::Builder(edit) => write::edit_builder(state, edit),
         IndexesAction::Create => write::create(state),
+        IndexesAction::EditCopy(name) => edit::edit_copy(state, name),
+        IndexesAction::ConfirmDropOld => edit::confirm_drop_old(state),
+        IndexesAction::KeepOld => edit::keep_old(state),
+        IndexesAction::SetHidden(name, hidden) => edit::set_hidden(state, name, hidden),
+        IndexesAction::ChangeTtl(name) => edit::change_ttl(state, name),
+        IndexesAction::TtlTyped(text) => edit::ttl_typed(state, text),
+        IndexesAction::TtlCancelled => edit::ttl_cancelled(state),
+        IndexesAction::SetTtl(name, seconds) => edit::set_ttl(state, name, seconds),
+        IndexesAction::DropRequested(name) => edit::drop_requested(state, name),
+        IndexesAction::DropTyped(text) => edit::drop_typed(state, text),
+        IndexesAction::DropConfirmed => edit::drop_confirmed(state),
+        IndexesAction::DropCancelled => edit::drop_cancelled(state),
     }
 }
 
@@ -113,10 +126,10 @@ pub(super) fn history_read(
     AppState { indexes, ..state }
 }
 
-/// An index write succeeded: a create in flight is finished, then the collection on screen is
+/// An index write succeeded: the write in flight is settled, then the collection on screen is
 /// listed again, any other is left alone.
 pub(super) fn changed(state: AppState, ns: Namespace) -> Out {
-    let state = write::create_finished(state, &ns);
+    let state = write::write_finished(state, &ns);
     match state.indexes.ns.as_ref() == Some(&ns) && state.selected_ns() == Some(&ns) {
         true => request(state),
         false => (state, Vec::new()),

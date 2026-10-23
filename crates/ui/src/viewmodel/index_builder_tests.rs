@@ -1,6 +1,7 @@
 use super::*;
 use bson::doc;
 use curlybrace_core::ejson::editor_json_to_doc;
+use curlybrace_core::test_support::mock_objects::mock_index_spec_named;
 
 fn ns() -> Namespace {
     Namespace::new("shop", "orders")
@@ -284,4 +285,89 @@ fn updaters_return_new_values_and_leave_the_original() {
         .adding_key()
         .with_name("x");
     assert_eq!(original, before);
+}
+
+fn original() -> IndexSpec {
+    IndexSpec {
+        options: IndexOptions {
+            unique: true,
+            expire_after_seconds: None,
+            partial_filter: Some(doc! { "status": "open" }),
+            ..IndexOptions::default()
+        },
+        raw: doc! {
+            "key": { "loc": "2d", "kind": -1 }, "name": "loc_2d_kind_-1", "v": 2,
+            "bits": 26, "min": -180.0, "max": 180.0,
+        },
+        ..mock_index_spec_named(
+            "loc_2d_kind_-1",
+            &[("loc", KeyKind::Geo2d), ("kind", KeyKind::Desc)],
+        )
+    }
+}
+
+#[test]
+fn a_copy_starts_as_the_original_under_a_new_name() {
+    let spec = original();
+    let copy = IndexBuilderState::from_copy(ns(), &spec, "loc_2d_kind_-1_v2".into());
+    assert_eq!(copy.keys, spec.keys);
+    assert_eq!(copy.name, "loc_2d_kind_-1_v2");
+    assert!(copy.name_edited, "the name does not follow the keys");
+    assert_eq!(copy.replaces(), Some("loc_2d_kind_-1"));
+    assert!(copy.options.unique);
+    assert!(!copy.partial_filter_text.is_empty());
+    let built = copy.spec().expect("a valid copy");
+    // Keys, options and the unmodelled fields come out as they went in; only the name differs.
+    assert_eq!(built.keys, spec.keys);
+    assert_eq!(built.options, spec.options);
+    assert_eq!(built.raw, spec.raw, "raw is carried along");
+    let index = built.create_command("c").get_array("indexes").unwrap()[0]
+        .as_document()
+        .unwrap()
+        .clone();
+    assert_eq!(index.get_i32("bits"), Ok(26));
+    assert_eq!(index.get_f64("min"), Ok(-180.0));
+    assert_eq!(index.get_str("name"), Ok("loc_2d_kind_-1_v2"));
+}
+
+#[test]
+fn hashed_and_2d_rows_cannot_be_retyped_but_can_be_removed() {
+    let copy = IndexBuilderState::from_copy(ns(), &original(), "c".into());
+    let retyped = copy.clone().with_kind(0, KeyKind::Asc);
+    assert_eq!(retyped, copy, "a 2d key stays 2d");
+    let renamed = copy.clone().with_field(0, "other");
+    assert_eq!(renamed, copy, "and keeps its field");
+    // An ordinary key of the same copy is edited as usual.
+    assert_eq!(
+        copy.clone().with_kind(1, KeyKind::Asc).keys[1].kind,
+        KeyKind::Asc
+    );
+    assert_eq!(copy.removing_key(0).keys.len(), 1);
+    // Nothing the picker offers is hashed or 2d.
+    assert!(!BUILDER_KINDS.contains(&KeyKind::Geo2d));
+}
+
+#[test]
+fn a_copy_is_untouched_until_something_changes() {
+    let copy = IndexBuilderState::from_copy(ns(), &original(), "c".into());
+    assert!(copy.is_untouched());
+    assert!(copy.clone().with_estimate(5).is_untouched());
+    assert!(!copy.clone().with_unique(false).is_untouched());
+    assert!(!copy.with_name("d").is_untouched());
+}
+
+#[test]
+fn a_copy_keeps_the_original_filter_document_exactly_until_it_is_edited() {
+    let spec = IndexSpec {
+        options: IndexOptions {
+            partial_filter: Some(doc! { "n": { "$gt": 5_i64 } }),
+            ..IndexOptions::default()
+        },
+        ..mock_index_spec_named("n_1", &[("n", KeyKind::Asc)])
+    };
+    let copy = IndexBuilderState::from_copy(ns(), &spec, "n_1_v2".into());
+    assert_eq!(
+        copy.spec().unwrap().options.partial_filter,
+        spec.options.partial_filter
+    );
 }

@@ -6,7 +6,7 @@ use crate::I18n;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_chart::observed_uses;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key, series_of};
-use crate::viewmodel::{IndexesAction, IndexesState};
+use crate::viewmodel::{IndexWrite, IndexesAction, IndexesState};
 use curlybrace_core::runtime::{SamplerPause, SamplerStatus};
 use curlybrace_core::store::CollectionIndex;
 use eframe::egui;
@@ -65,6 +65,8 @@ pub fn show_indexes(
                             any_series: !state.series.is_empty(),
                             range: state.range,
                             now_secs: now,
+                            read_only,
+                            busy: state.writing.is_some(),
                         };
                         action = show_detail(ui, &input, i18n).or(action.take());
                     }
@@ -104,7 +106,7 @@ fn toolbar(
         if ui.button(i18n.t("indexes.refresh")).clicked() {
             action = Some(IndexesAction::Refresh);
         }
-        if create_button(ui, read_only, state.creating.is_some(), i18n) {
+        if create_button(ui, read_only, state.writing.as_ref(), i18n) {
             action = Some(IndexesAction::OpenBuilder);
         }
         if let Some(key) = state.sampler.map(sampler_key) {
@@ -116,11 +118,17 @@ fn toolbar(
 
 /// The Create index button. On a read-only connection it is disabled and the reason is both its
 /// hover text and a visible note, so the state is never colour or hover alone.
-fn create_button(ui: &mut egui::Ui, read_only: bool, creating: bool, i18n: &I18n) -> bool {
-    let reason = match (read_only, creating) {
+fn create_button(
+    ui: &mut egui::Ui,
+    read_only: bool,
+    writing: Option<&IndexWrite>,
+    i18n: &I18n,
+) -> bool {
+    let reason = match (read_only, writing) {
         (true, _) => Some(READ_ONLY_REASON_KEY),
-        (false, true) => Some("indexes.create_busy"),
-        (false, false) => None,
+        (false, Some(IndexWrite::Create { .. })) => Some("indexes.create_busy"),
+        (false, Some(_)) => Some("indexes.write_busy"),
+        (false, None) => None,
     };
     let button = ui.add_enabled(
         reason.is_none(),

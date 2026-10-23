@@ -6,7 +6,7 @@ use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
-use crate::viewmodel::{CollectionTab, IndexesAction};
+use crate::viewmodel::CollectionTab;
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
@@ -16,6 +16,9 @@ use crate::views::documents::{
 use crate::views::editor::show_editor_with;
 use crate::views::findbar::show_findbar;
 use crate::views::index_builder::{BuilderContext, show_index_builder};
+use crate::views::index_dialogs::{
+    DialogContext, show_drop_confirm, show_drop_old, show_ttl_prompt,
+};
 use crate::views::indexes::show_indexes;
 use crate::views::sidebar_roots::show_roots;
 use crate::views::write_warning::show_write_warning;
@@ -214,7 +217,8 @@ fn show_collection(
     }
 }
 
-/// The Indexes tab; "copy as JSON" goes to the clipboard here, the reducer needs no record of it.
+/// The Indexes tab; "copy as JSON" goes to the clipboard here (`IndexesAction::clipboard_text`),
+/// the reducer needs no record of it.
 fn show_indexes_tab(
     ui: &mut egui::Ui,
     state: &AppState,
@@ -227,8 +231,8 @@ fn show_indexes_tab(
     let Some(action) = show_indexes(ui, &state.indexes, read_only, i18n, now_secs) else {
         return;
     };
-    if let IndexesAction::CopyJson(json) = &action {
-        ui.ctx().copy_text(json.clone());
+    if let Some(text) = action.clipboard_text() {
+        ui.ctx().copy_text(text.to_string());
     }
     out.push(UiEvent::Input(Input::Indexes(action)));
 }
@@ -256,6 +260,7 @@ pub fn show_modals(
         show_index_builder(ctx, builder, &context, i18n)
     });
     out.extend(built.map(|a| UiEvent::Input(Input::Indexes(a))));
+    show_index_dialogs(ctx, state, &connection, i18n, out);
     let decided = prompt.current().and_then(|(host, fingerprint)| {
         let asking = state.connecting_name_for_host(host, i18n);
         show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)
@@ -270,6 +275,49 @@ pub fn show_modals(
         );
         show_forget_confirm(ctx, &message, i18n, out);
     }
+}
+
+/// The small modals of the index writes (drop confirmation, "drop the old index?", TTL input),
+/// each while its state is open. They name the active connection and carry its badge.
+fn show_index_dialogs(
+    ctx: &egui::Context,
+    state: &AppState,
+    connection: &str,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    let indexes = &state.indexes;
+    let Some(ns) = &indexes.ns else {
+        return;
+    };
+    let badge = state.active_badge();
+    let collection = format!("{}.{}", ns.db, ns.collection);
+    let context = DialogContext {
+        connection,
+        badge: &badge,
+        collection: &collection,
+        busy: indexes.writing.is_some(),
+    };
+    let answers = [
+        indexes
+            .drop_confirm
+            .as_ref()
+            .and_then(|c| show_drop_confirm(ctx, c, &context, i18n)),
+        indexes
+            .drop_old
+            .as_ref()
+            .and_then(|d| show_drop_old(ctx, d, &context, i18n)),
+        indexes
+            .ttl_prompt
+            .as_ref()
+            .and_then(|t| show_ttl_prompt(ctx, t, &context, i18n)),
+    ];
+    out.extend(
+        answers
+            .into_iter()
+            .flatten()
+            .map(|a| UiEvent::Input(Input::Indexes(a))),
+    );
 }
 
 /// Draws the production write warning whenever a write is parked, whichever session is active:

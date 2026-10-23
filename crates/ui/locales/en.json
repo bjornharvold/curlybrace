@@ -631,6 +631,7 @@
     "delete": "Could not delete the document",
     "delete_secrets": "Could not remove the saved credentials, so the connection was kept. Try again",
     "disconnect": "Could not disconnect",
+    "drop_index": "Could not drop the index",
     "duplicate_secrets": "Could not copy the saved secrets for the duplicate. Nothing was created.",
     "find": "Could not load documents",
     "index_history": "Could not load the index usage history",
@@ -641,7 +642,9 @@
     "replace": "Could not save the document",
     "runtime": "The background worker stopped. Restart Curlybrace",
     "save_connection": "Could not save the connection",
-    "secrets": "Could not access saved credentials"
+    "secrets": "Could not access saved credentials",
+    "set_index_hidden": "Could not change whether the index is hidden",
+    "set_index_ttl": "Could not change when the index expires"
   },
   "findbar": {
     "clear": "Clear",
@@ -672,6 +675,11 @@
     "trust_remember": "Trust and remember"
   },
   "indexes": {
+    "action_drop": "Drop...",
+    "action_edit_copy": "Edit a copy...",
+    "action_hide": "Hide from planner",
+    "action_ttl": "Change TTL...",
+    "action_unhide": "Unhide",
     "ago_days": "{n} d ago",
     "ago_hours": "{n} h ago",
     "ago_minutes": "{n} min ago",
@@ -684,6 +692,8 @@
       "busy": "Waiting for the server...",
       "collation": "Collation (JSON)",
       "create": "Create",
+      "editing_note": "This is a copy of {name}. The old index stays and keeps serving queries until the new one is built; you are asked before it is dropped.",
+      "fixed_keys_note": "Hashed and 2d fields are kept as they are.",
       "hidden": "Hidden",
       "key_field_n": "Field {n}",
       "key_type_n": "Type of field {n}",
@@ -716,6 +726,7 @@
       "sparse": "Sparse",
       "tip": "Field order matters: put the fields you match exactly first, then the fields you sort by, then the fields you filter by range.",
       "title": "Create index",
+      "title_copy": "Edit a copy of {name}",
       "ttl": "Expire after (seconds)",
       "unique": "Unique",
       "warning_large": "This collection has about {documents} documents. Building an index on it can take a long time and load the server.",
@@ -728,7 +739,20 @@
     "create": "Create index",
     "create_busy": "An index is still being created. Wait for the server to answer.",
     "definition": "Definition",
+    "drop": {
+      "confirm": "Drop index",
+      "message": "Drop the index {name} from {collection} on {connection}? Queries that relied on it get slower. This cannot be undone.",
+      "title": "Drop index",
+      "type_name": "Type the index name to confirm: {name}"
+    },
+    "drop_old": {
+      "drop": "Drop old",
+      "keep": "Keep both",
+      "message": "The new index {new} was built. Drop the old index {old}? The old index keeps serving queries until you do.",
+      "title": "Drop the old index?"
+    },
     "hidden": "hidden",
+    "id_locked": "The _id_ index is required by MongoDB and cannot be changed.",
     "last_used": "Last used",
     "list_heading": "Indexes",
     "loading": "Loading indexes...",
@@ -766,9 +790,15 @@
     "summary_unobserved": "No usage was observed in the last {range}, {hours} hours without data",
     "tab": "Indexes",
     "tracked_since": "Tracked since",
+    "ttl": {
+      "apply": "Change expiry",
+      "message": "Change when the index {name} expires documents. It is changed in place; no new index is built.",
+      "title": "Change TTL"
+    },
     "uses_count": "{n} uses",
     "uses_series": "Uses",
-    "uses_since_restart": "Uses since restart"
+    "uses_since_restart": "Uses since restart",
+    "write_busy": "An index change is still waiting for the server. Wait for it to answer."
   },
   "persist": {
     "blocked": "Saving is turned off because the saved connections file could not be backed up. Fix the permissions of the connections file or its folder, then restart Curlybrace.",
@@ -831,8 +861,11 @@
     "message_clone": "This is your production server, {connection}. Are you sure you want to clone this document into it?",
     "message_create_index": "This is your production server, {connection}. Are you sure you want to create this index on it?",
     "message_delete": "This is your production server, {connection}. Are you sure you want to delete this document?",
+    "message_drop_index": "This is your production server, {connection}. Are you sure you want to drop this index?",
+    "message_hide_index": "This is your production server, {connection}. Are you sure you want to hide or unhide this index? The query planner will change how it uses it.",
     "message_insert": "This is your production server, {connection}. Are you sure you want to insert this document?",
     "message_replace": "This is your production server, {connection}. Are you sure you want to edit this document?",
+    "message_set_index_ttl": "This is your production server, {connection}. Are you sure you want to change when this index expires documents?",
     "production_line": "Warning: this is a production connection.",
     "title": "Confirm write to production"
   }

@@ -1,6 +1,7 @@
 //! View-model of the Indexes tab: which tab of a collection is shown, and what the tab holds.
 //! Pure and egui-free; the updaters return new values.
 use super::index_builder::{BuilderEdit, IndexBuilderState};
+use super::index_write::{DropConfirm, DropOld, IndexWrite, TtlPrompt};
 use curlybrace_core::history::ChartRange;
 use curlybrace_core::runtime::{IndexSeries, SamplerStatus};
 use curlybrace_core::store::{CollectionIndex, Namespace};
@@ -39,9 +40,15 @@ pub struct IndexesState {
     pub sampler: Option<SamplerStatus>,
     /// The index builder, while its modal is open.
     pub builder: Option<IndexBuilderState>,
-    /// The name of the index whose create was sent and not yet answered. It is what gets
-    /// selected on success, whatever the builder (if any) holds by then.
-    pub creating: Option<String>,
+    /// The index write that was sent and not yet answered. It is what the answer acts on (the
+    /// name to select, the index to ask about dropping), whatever is open by then.
+    pub writing: Option<IndexWrite>,
+    /// The typed confirmation of a drop, while its modal is open.
+    pub drop_confirm: Option<DropConfirm>,
+    /// "Drop the old index?", asked after a copy was built.
+    pub drop_old: Option<DropOld>,
+    /// The number input of "Change TTL...", while it is open.
+    pub ttl_prompt: Option<TtlPrompt>,
 }
 
 impl Default for IndexesState {
@@ -55,7 +62,10 @@ impl Default for IndexesState {
             loading: false,
             sampler: None,
             builder: None,
-            creating: None,
+            writing: None,
+            drop_confirm: None,
+            drop_old: None,
+            ttl_prompt: None,
         }
     }
 }
@@ -128,40 +138,95 @@ impl IndexesState {
         }
     }
 
-    /// Create of `name` on `ns` was sent: the builder open on `ns` is the one submitted.
-    pub fn create_sent(self, ns: &Namespace, name: String) -> Self {
-        let builder = self.builder.map(|b| {
-            if b.ns == *ns {
-                b.with_submitted(true)
-            } else {
-                b
-            }
-        });
+    /// `write` was sent on `ns`. A create freezes the builder open on `ns` (the one submitted).
+    pub fn write_sent(self, ns: &Namespace, write: IndexWrite) -> Self {
+        let builder = match (&write, self.builder) {
+            (IndexWrite::Create { .. }, Some(b)) if b.ns == *ns => Some(b.with_submitted(true)),
+            (_, other) => other,
+        };
         Self {
             builder,
-            creating: Some(name),
+            writing: Some(write),
             ..self
         }
     }
 
-    /// The create was answered. On success the submitted builder (only that one) closes and its
-    /// index is selected; on failure the builder is editable again.
-    pub fn create_answered(self, succeeded: bool) -> Self {
-        let created = self.creating.clone();
+    /// The write in flight was answered. What happens is decided by the write that was SENT:
+    ///  - a create closes only the builder that was submitted and selects its index (a failure
+    ///    thaws that builder); a successful copy also asks about dropping the original;
+    ///  - a drop closes its modals and selects the copy that replaced it; a failed drop leaves
+    ///    them open, so the person can retry or cancel;
+    ///  - hide and TTL have nothing else to settle (a TTL prompt closes on success).
+    pub fn write_answered(self, succeeded: bool) -> Self {
+        let Some(write) = self.writing.clone() else {
+            return self;
+        };
+        let next = Self {
+            writing: None,
+            ..self
+        };
+        match (write, succeeded) {
+            (IndexWrite::Create { name, replaces }, ok) => next.create_settled(name, replaces, ok),
+            (IndexWrite::Drop { then_select, .. }, true) => {
+                let next = Self {
+                    drop_confirm: None,
+                    drop_old: None,
+                    ..next
+                };
+                match then_select {
+                    Some(name) => next.selecting(name),
+                    None => next,
+                }
+            }
+            (IndexWrite::Ttl { .. }, true) => Self {
+                ttl_prompt: None,
+                ..next
+            },
+            (_, _) => next,
+        }
+    }
+
+    fn create_settled(self, name: String, replaces: Option<String>, succeeded: bool) -> Self {
         let builder = match (succeeded, self.builder) {
             (true, Some(b)) if b.submitted => None,
             (false, Some(b)) if b.submitted => Some(b.with_submitted(false)),
             (_, other) => other,
         };
-        let next = Self {
-            builder,
-            creating: None,
-            ..self
-        };
-        match (succeeded, created) {
-            (true, Some(name)) => next.selecting(name),
-            _ => next,
+        let next = Self { builder, ..self };
+        match (succeeded, replaces) {
+            (true, Some(old)) => Self {
+                drop_old: Some(DropOld {
+                    old,
+                    new: name.clone(),
+                }),
+                ..next.selecting(name)
+            },
+            (true, None) => next.selecting(name),
+            (false, _) => next,
         }
+    }
+
+    pub fn with_drop_confirm(self, drop_confirm: Option<DropConfirm>) -> Self {
+        Self {
+            drop_confirm,
+            ..self
+        }
+    }
+
+    pub fn with_drop_old(self, drop_old: Option<DropOld>) -> Self {
+        Self { drop_old, ..self }
+    }
+
+    pub fn with_ttl_prompt(self, ttl_prompt: Option<TtlPrompt>) -> Self {
+        Self { ttl_prompt, ..self }
+    }
+
+    /// Whether any modal of the write flows is open.
+    pub fn has_prompt(&self) -> bool {
+        self.builder.is_some()
+            || self.drop_confirm.is_some()
+            || self.drop_old.is_some()
+            || self.ttl_prompt.is_some()
     }
 
     /// The builder modal open on `builder`, or closed with `None`.
@@ -170,7 +235,7 @@ impl IndexesState {
     }
 }
 
-/// What the person did on the Indexes tab. Later tasks add the other write actions.
+/// What the person did on the Indexes tab.
 #[derive(Clone, Debug, PartialEq)]
 pub enum IndexesAction {
     /// Open the index builder on the shown collection.
@@ -186,7 +251,38 @@ pub enum IndexesAction {
     Refresh,
     Select(String),
     SetRange(ChartRange),
-    /// Copy the JSON of an index definition. Recorded nowhere in the state; the clipboard action
-    /// is wired by the task that adds the detail view.
+    /// Copy the JSON of an index definition. Recorded nowhere in the state: the shell puts
+    /// [`IndexesAction::clipboard_text`] on the clipboard.
     CopyJson(String),
+    /// Open the builder pre-filled with a copy of this index; the original stays until the copy
+    /// is built and the person agrees to drop it.
+    EditCopy(String),
+    /// Drop the index a copy replaced.
+    ConfirmDropOld,
+    /// Keep the index a copy replaced.
+    KeepOld,
+    /// Hide (`true`) or unhide an index from the query planner.
+    SetHidden(String, bool),
+    /// Open the TTL input for this index.
+    ChangeTtl(String),
+    TtlTyped(String),
+    TtlCancelled,
+    /// Change the expiry of this index, in seconds, in place.
+    SetTtl(String, i64),
+    /// Open the typed confirmation of dropping this index.
+    DropRequested(String),
+    DropTyped(String),
+    /// Drop the index of the open confirmation.
+    DropConfirmed,
+    DropCancelled,
+}
+
+impl IndexesAction {
+    /// The text this action puts on the clipboard, if it is a copy.
+    pub fn clipboard_text(&self) -> Option<&str> {
+        match self {
+            Self::CopyJson(json) => Some(json),
+            _ => None,
+        }
+    }
 }

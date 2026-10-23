@@ -1,6 +1,7 @@
 //! Fixed state for the Indexes tab screenshot: three indexes on `crm.customers`, the second one
 //! selected with a day of usage that holds a server restart and a stretch without data.
 use super::shots::{SHOT_NOW, browsing};
+use curlybrace_core::connection::{ConnectionColor, SavedColor};
 use curlybrace_core::history::{Bucket, ChartRange, Sample};
 use curlybrace_core::indexes::{IndexSpec, KeyKind};
 use curlybrace_core::runtime::{IndexSeries, SamplerStatus};
@@ -8,7 +9,9 @@ use curlybrace_core::store::CollectionIndex;
 use curlybrace_core::test_support::mock_objects::{mock_index_spec, mock_index_spec_named};
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::index_detail::anchored_now;
-use curlybrace_ui::viewmodel::{CollectionTab, IndexBuilderState, IndexesState, ViewMode};
+use curlybrace_ui::viewmodel::{
+    CollectionTab, DropConfirm, IndexBuilderState, IndexesState, ViewMode,
+};
 
 const BUCKETS: i64 = 144;
 const WIDTH: i64 = 600;
@@ -84,4 +87,18 @@ pub fn index_builder(state: &mut AppState) {
         .with_partial_filter_text("{ \"status\": \"active\" }")
         .with_estimate(2_400_000);
     state.indexes = state.indexes.clone().with_builder(Some(builder));
+}
+
+/// The typed drop confirmation of the compound index on a production connection, half typed.
+pub fn index_drop_confirm(state: &mut AppState) {
+    indexes_tab(state);
+    let active = state.active.expect("browsing opens a session");
+    for cfg in state.conn.connections.iter_mut().filter(|c| c.id == active) {
+        cfg.production = true;
+        cfg.color = Some(SavedColor::Known(ConnectionColor::Red));
+    }
+    let name = mock_index_spec().name;
+    let typed = name.chars().take(14).collect::<String>();
+    let confirm = DropConfirm::new(name).with_typed(typed);
+    state.indexes = state.indexes.clone().with_drop_confirm(Some(confirm));
 }

@@ -90,7 +90,10 @@ impl Banner {
                     | "list_collections"
                     | "list_indexes"
                     | "index_history"
-                    | "create_index",
+                    | "create_index"
+                    | "drop_index"
+                    | "set_index_hidden"
+                    | "set_index_ttl",
                 ..
             }
         )
