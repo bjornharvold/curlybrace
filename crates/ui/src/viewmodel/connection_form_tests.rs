@@ -1,6 +1,6 @@
 use super::*;
 use crate::I18n;
-use curlybrace_core::connection::{SshAuth, TlsConfig};
+use curlybrace_core::connection::{ConnectionColor, SshAuth, TlsConfig};
 use curlybrace_core::secrets::{MemorySecretStore, SecretKind, secret_key};
 
 fn valid() -> ConnectionForm {
@@ -478,18 +478,18 @@ fn form_round_trips_color_and_production() {
         c.color = Some(SavedColor::Known(color));
         c.production = true;
         let form = ConnectionForm::from_config(&c);
-        assert_eq!((form.color, form.production), (Some(color), true));
+        assert_eq!(form.color, Some(SavedColor::Known(color)));
+        assert!(form.production);
         assert_eq!(form.to_config().unwrap(), c);
     }
 }
 
 #[test]
-fn choosing_no_colour_again_clears_an_existing_colour() {
+fn clearing_the_colour_clears_an_existing_colour() {
     let mut c = ConnectionConfig::new("a", "mongodb://h");
     c.color = Some(SavedColor::Known(ConnectionColor::Blue));
     let mut form = ConnectionForm::from_config(&c);
     form.color = None;
-    form.colour_picked();
     assert_eq!(form.to_config().unwrap().color, None);
 }
 
@@ -500,18 +500,16 @@ fn unrecognised() -> ConnectionConfig {
 }
 
 #[test]
-fn an_unrecognised_colour_shows_as_none_and_round_trips_untouched() {
+fn an_untouched_form_keeps_an_unrecognised_colour_on_save() {
     let c = unrecognised();
     let form = ConnectionForm::from_config(&c);
-    assert_eq!(form.color, None);
     assert_eq!(form.to_config().unwrap(), c);
 }
 
 #[test]
-fn picking_a_colour_replaces_an_unrecognised_one() {
+fn picking_a_preset_replaces_an_unrecognised_colour() {
     let mut form = ConnectionForm::from_config(&unrecognised());
-    form.color = Some(ConnectionColor::Green);
-    form.colour_picked();
+    form.color = Some(SavedColor::Known(ConnectionColor::Green));
     assert_eq!(
         form.to_config().unwrap().color,
         Some(SavedColor::Known(ConnectionColor::Green))
@@ -519,20 +517,8 @@ fn picking_a_colour_replaces_an_unrecognised_one() {
 }
 
 #[test]
-fn picking_no_colour_while_unrecognised_changes_nothing() {
-    let c = unrecognised();
-    let mut form = ConnectionForm::from_config(&c);
-    form.color = None;
-    form.colour_picked();
-    assert_eq!(form.to_config().unwrap(), c);
-}
-
-#[test]
-fn picking_a_colour_then_no_colour_clears_an_unrecognised_one() {
+fn clearing_the_colour_removes_an_unrecognised_one() {
     let mut form = ConnectionForm::from_config(&unrecognised());
-    form.color = Some(ConnectionColor::Red);
-    form.colour_picked();
     form.color = None;
-    form.colour_picked();
     assert_eq!(form.to_config().unwrap().color, None);
 }

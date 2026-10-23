@@ -1,4 +1,3 @@
-use crate::connection_color::lenient_color;
 pub use crate::connection_color::{ConnectionColor, SavedColor};
 use crate::error::{CoreError, Result};
 use crate::uri_problem::UriProblem;
@@ -74,7 +73,7 @@ pub struct ConnectionConfig {
     pub updated_at: Option<i64>,
     #[serde(default)]
     pub last_connected: Option<i64>,
-    #[serde(default, deserialize_with = "lenient_color")]
+    #[serde(default)]
     pub color: Option<SavedColor>,
     #[serde(default, deserialize_with = "lenient_production")]
     pub production: bool,
@@ -621,11 +620,11 @@ mod tests {
     }
 
     #[test]
-    fn non_string_color_value_loads_as_none() {
+    fn non_string_color_value_is_kept() {
         let mut json = legacy_json();
         json["color"] = serde_json::json!(7);
         let c: ConnectionConfig = serde_json::from_value(json).unwrap();
-        assert_eq!(c.color, None);
+        assert_eq!(c.color, Some(SavedColor::Unrecognised(7.into())));
     }
 
     #[test]

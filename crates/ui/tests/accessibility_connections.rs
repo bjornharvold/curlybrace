@@ -358,7 +358,12 @@ fn the_colour_drop_down_is_labelled_and_picking_a_colour_changes_the_form() {
         .get_by_label(&format!("{} {}", tag.glyph, i18n.t(tag.name_key)))
         .click();
     harness.run();
-    assert_eq!(harness.state().form.color, Some(ConnectionColor::Red));
+    assert_eq!(
+        harness.state().form.color,
+        Some(curlybrace_core::connection::SavedColor::Known(
+            ConnectionColor::Red
+        ))
+    );
     let cfg = harness.state().form.to_config().unwrap();
     assert_eq!(cfg.known_color(), Some(ConnectionColor::Red));
 }
@@ -642,4 +647,26 @@ fn an_unrecognised_colour_shows_as_none_and_picking_a_colour_replaces_it() {
         harness.state().form.to_config().unwrap().color,
         Some(SavedColor::Known(ConnectionColor::Blue))
     );
+}
+
+#[test]
+fn clicking_no_colour_while_unrecognised_clears_the_stored_colour() {
+    let i18n = I18n::english();
+    let label = i18n.t("connections.color");
+    let none = i18n.t("connections.color_none");
+    let mut harness = dialog_harness(|state| {
+        state.connections[0].color = Some(curlybrace_core::connection::SavedColor::Unrecognised(
+            "future-shade".into(),
+        ));
+        state.form = curlybrace_ui::viewmodel::ConnectionForm::from_config(&state.connections[0]);
+    });
+    harness.run();
+    assert!(harness.state().form.to_config().unwrap().color.is_some());
+    harness
+        .get_by_role_and_label(Role::ComboBox, &label)
+        .click();
+    harness.run();
+    harness.get_all_by_label(&none).last().unwrap().click();
+    harness.run();
+    assert_eq!(harness.state().form.to_config().unwrap().color, None);
 }

@@ -103,22 +103,6 @@ fn a_known_a_null_and_a_missing_color_load_as_they_are() {
 }
 
 #[test]
-fn a_non_string_color_loads_as_none_and_warns_without_failing_the_entry() {
-    capture();
-    for bad in [
-        serde_json::json!(7),
-        serde_json::json!({"x": 1}),
-        serde_json::json!(["Red"]),
-    ] {
-        let mut json = base_json("mongodb://h");
-        json["color"] = bad.clone();
-        let c: ConnectionConfig = serde_json::from_value(json).expect("the entry still loads");
-        assert_eq!(c.color, None, "{bad}");
-    }
-    assert!(!warnings_mentioning("malformed colour").is_empty());
-}
-
-#[test]
 fn one_bad_color_does_not_stop_the_other_entries_loading() {
     let mut bad = base_json("mongodb://bad");
     bad["color"] = serde_json::json!(42);
@@ -129,7 +113,7 @@ fn one_bad_color_does_not_stop_the_other_entries_loading() {
     let list: Vec<ConnectionConfig> =
         serde_json::from_value(serde_json::json!([bad, odd, good])).unwrap();
     assert_eq!(list.len(), 3);
-    assert_eq!(list[0].color, None);
+    assert_eq!(list[0].color, Some(SavedColor::Unrecognised(42.into())));
     assert_eq!(
         list[1].color,
         Some(SavedColor::Unrecognised("future-shade".into()))
@@ -176,4 +160,51 @@ fn a_duplicate_keeps_an_unrecognised_color() {
     let copy = src.duplicate("a copy".into(), 5);
     assert_eq!(copy.color, src.color);
     assert_eq!(copy.known_color(), None);
+}
+
+#[test]
+fn any_non_null_colour_value_is_written_back_exactly() {
+    let values = [
+        serde_json::json!({"hue": 12, "name": "teal"}),
+        serde_json::json!(42),
+        serde_json::json!(["Red", "Blue"]),
+        serde_json::json!(true),
+        serde_json::json!(false),
+        serde_json::json!(""),
+        serde_json::json!("red"),
+        serde_json::json!("future-shade"),
+    ];
+    for value in values {
+        let mut json = base_json("mongodb://round-trip");
+        json["color"] = value.clone();
+        let c: ConnectionConfig = serde_json::from_value(json).unwrap();
+        assert!(c.color.is_some(), "{value} must be kept");
+        assert_eq!(c.known_color(), None, "{value} is not a preset");
+        let saved = serde_json::to_value(&c).unwrap();
+        assert_eq!(saved["color"], value, "{value} must round-trip");
+    }
+}
+
+#[test]
+fn a_null_or_missing_colour_stays_none() {
+    let mut json = base_json("mongodb://none");
+    assert_eq!(
+        serde_json::from_value::<ConnectionConfig>(json.clone())
+            .unwrap()
+            .color,
+        None
+    );
+    json["color"] = serde_json::Value::Null;
+    let c: ConnectionConfig = serde_json::from_value(json).unwrap();
+    assert_eq!(c.color, None);
+}
+
+#[test]
+fn a_structured_colour_warns_without_naming_the_value() {
+    capture();
+    let mut json = base_json("mongodb://structured");
+    json["color"] = serde_json::json!({"secret-key": "secret-structured-value"});
+    let _: ConnectionConfig = serde_json::from_value(json).unwrap();
+    assert!(warnings_mentioning("secret-structured-value").is_empty());
+    assert!(warnings_mentioning("secret-key").is_empty());
 }

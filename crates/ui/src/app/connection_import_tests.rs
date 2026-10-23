@@ -107,7 +107,7 @@ fn an_import_and_an_export_keep_a_colour_this_build_does_not_recognise() {
 }
 
 #[test]
-fn a_file_with_an_unrecognised_and_a_malformed_colour_loads_every_entry_and_saves_it_back() {
+fn a_file_with_an_unrecognised_and_a_non_string_colour_loads_every_entry_and_saves_it_back() {
     use super::persistence::{load_connections, save_connections};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("connections.json");
@@ -129,6 +129,6 @@ fn a_file_with_an_unrecognised_and_a_malformed_colour_loads_every_entry_and_save
 
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(saved[0]["color"], serde_json::json!("future-shade"));
-    assert_eq!(saved[1]["color"], serde_json::json!(null));
+    assert_eq!(saved[1]["color"], serde_json::json!(7));
     assert_eq!(saved[2]["color"], serde_json::json!("Blue"));
 }

@@ -1,6 +1,8 @@
 //! The colour tag as stored: a preset this build knows, or a raw value it does not (for example
 //! one written by a newer build) that is kept so a save writes it back unchanged.
-use serde::{Deserialize, Serialize};
+use serde::de::value::{Error as ValueError, StrDeserializer};
+use serde::de::{Error as _, IntoDeserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// A preset colour tag a user can give a connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,13 +26,24 @@ impl ConnectionColor {
     ];
 }
 
+impl ConnectionColor {
+    /// The preset named exactly `name` (its variant name), if any. Borrows the string and
+    /// reuses the derived `Deserialize`, so the accepted names cannot drift from the enum.
+    fn from_name(name: &str) -> Option<Self> {
+        let de: StrDeserializer<'_, ValueError> = name.into_deserializer();
+        Self::deserialize(de).ok()
+    }
+}
+
 /// A saved colour. `Known` serialises exactly as the `ConnectionColor` variant name and
-/// `Unrecognised` as its raw string, so loading and saving never changes the stored value.
+/// `Unrecognised` as the raw JSON value that was loaded (any non-null value that is not a
+/// known name: for example one written by a newer build), so loading and saving never changes
+/// the stored value. A null or missing colour is `None` on the config, not a `SavedColor`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum SavedColor {
     Known(ConnectionColor),
-    Unrecognised(String),
+    Unrecognised(serde_json::Value),
 }
 
 impl SavedColor {
@@ -43,33 +56,22 @@ impl SavedColor {
     }
 }
 
-/// Reads the colour leniently so one bad entry never fails loading the whole connection list:
-/// a known name is `Known`, any other string is kept as `Unrecognised`, and a missing or null
-/// value is `None`. A non-string value has nothing to keep and loads as `None`. Unrecognised
-/// and malformed values warn without naming the connection, its URI or the raw value.
-pub(crate) fn lenient_color<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<SavedColor>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(match value {
-        None | Some(serde_json::Value::Null) => None,
-        Some(serde_json::Value::String(raw)) => Some(
-            match serde_json::from_value(serde_json::Value::String(raw.clone())) {
-                Ok(color) => SavedColor::Known(color),
-                Err(_) => {
-                    log::warn!(
-                        "a saved connection has an unrecognised colour; keeping it, shown as none"
-                    );
-                    SavedColor::Unrecognised(raw)
-                }
-            },
-        ),
-        Some(_) => {
-            log::warn!("a saved connection has a malformed colour; loading it without one");
-            None
+/// Reads any non-null value without failing, so one odd entry never fails loading the whole
+/// connection list. A value that is not a known colour name is kept as `Unrecognised` and
+/// warns, without naming the connection, its URI or the raw value.
+impl<'de> Deserialize<'de> for SavedColor {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if value.is_null() {
+            return Err(D::Error::custom("a saved colour cannot be null"));
         }
-    })
+        if let Some(color) = value.as_str().and_then(ConnectionColor::from_name) {
+            return Ok(Self::Known(color));
+        }
+        log::warn!("a saved connection has an unrecognised colour; keeping it, shown as none");
+        Ok(Self::Unrecognised(value))
+    }
 }
