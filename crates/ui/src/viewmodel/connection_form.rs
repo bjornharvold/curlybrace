@@ -1,7 +1,7 @@
 //! Editable connection form: validation, config mapping and secret persistence.
 use curlybrace_core::GSSAPI_AVAILABLE;
 use curlybrace_core::connection::{
-    AuthMechanism, ConnectionColor, ConnectionConfig, SshAuth, SshConfig, TlsConfig,
+    AuthMechanism, ConnectionConfig, SavedColor, SshAuth, SshConfig, TlsConfig,
 };
 use curlybrace_core::error::{CoreError, Result};
 use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
@@ -36,7 +36,10 @@ pub struct ConnectionForm {
     pub auth_source: String,
     pub allow_invalid_certs: bool,
     pub folder: String,
-    pub color: Option<ConnectionColor>,
+    /// The colour as stored. A value this build does not recognise is kept as it is: the picker
+    /// shows it as "No colour", and it is written back untouched until the user picks a preset
+    /// or clicks "No colour".
+    pub color: Option<SavedColor>,
     pub production: bool,
     pub created_at: Option<i64>,
     pub last_connected: Option<i64>,
@@ -197,7 +200,7 @@ impl ConnectionForm {
             created_at: self.created_at,
             updated_at: None,
             last_connected: self.last_connected,
-            color: self.color,
+            color: self.color.clone(),
             production: self.production,
         };
         cfg.validate()?;
@@ -243,7 +246,7 @@ impl ConnectionForm {
             tls_ca: path(&c.tls.ca_file),
             tls_client_cert: path(&c.tls.client_cert_key_file),
             folder: c.folder.clone().unwrap_or_default(),
-            color: c.color,
+            color: c.color.clone(),
             production: c.production,
             created_at: c.created_at,
             last_connected: c.last_connected,

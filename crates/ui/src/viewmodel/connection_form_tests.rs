@@ -1,6 +1,6 @@
 use super::*;
 use crate::I18n;
-use curlybrace_core::connection::{SshAuth, TlsConfig};
+use curlybrace_core::connection::{ConnectionColor, SshAuth, TlsConfig};
 use curlybrace_core::secrets::{MemorySecretStore, SecretKind, secret_key};
 
 fn valid() -> ConnectionForm {
@@ -475,19 +475,50 @@ fn default_form_is_uncoloured_non_production() {
 fn form_round_trips_color_and_production() {
     for color in ConnectionColor::ALL {
         let mut c = ConnectionConfig::new("a", "mongodb://h");
-        c.color = Some(color);
+        c.color = Some(SavedColor::Known(color));
         c.production = true;
         let form = ConnectionForm::from_config(&c);
-        assert_eq!((form.color, form.production), (Some(color), true));
+        assert_eq!(form.color, Some(SavedColor::Known(color)));
+        assert!(form.production);
         assert_eq!(form.to_config().unwrap(), c);
     }
 }
 
 #[test]
-fn choosing_no_colour_again_clears_an_existing_colour() {
+fn clearing_the_colour_clears_an_existing_colour() {
     let mut c = ConnectionConfig::new("a", "mongodb://h");
-    c.color = Some(ConnectionColor::Blue);
+    c.color = Some(SavedColor::Known(ConnectionColor::Blue));
     let mut form = ConnectionForm::from_config(&c);
+    form.color = None;
+    assert_eq!(form.to_config().unwrap().color, None);
+}
+
+fn unrecognised() -> ConnectionConfig {
+    let mut c = ConnectionConfig::new("a", "mongodb://h");
+    c.color = Some(SavedColor::Unrecognised("future-shade".into()));
+    c
+}
+
+#[test]
+fn an_untouched_form_keeps_an_unrecognised_colour_on_save() {
+    let c = unrecognised();
+    let form = ConnectionForm::from_config(&c);
+    assert_eq!(form.to_config().unwrap(), c);
+}
+
+#[test]
+fn picking_a_preset_replaces_an_unrecognised_colour() {
+    let mut form = ConnectionForm::from_config(&unrecognised());
+    form.color = Some(SavedColor::Known(ConnectionColor::Green));
+    assert_eq!(
+        form.to_config().unwrap().color,
+        Some(SavedColor::Known(ConnectionColor::Green))
+    );
+}
+
+#[test]
+fn clearing_the_colour_removes_an_unrecognised_one() {
+    let mut form = ConnectionForm::from_config(&unrecognised());
     form.color = None;
     assert_eq!(form.to_config().unwrap().color, None);
 }

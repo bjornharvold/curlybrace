@@ -2,6 +2,7 @@ pub mod client;
 pub mod clock;
 pub mod compare;
 pub mod connection;
+mod connection_color;
 pub mod connection_folders;
 pub mod connection_names;
 pub mod connection_repair;

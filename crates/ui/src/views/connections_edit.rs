@@ -2,7 +2,7 @@
 use super::connections::ConnectionsState;
 use crate::I18n;
 use crate::viewmodel::{ConnectionForm, auth_label_key, auth_options, color_tag};
-use curlybrace_core::connection::ConnectionColor;
+use curlybrace_core::connection::{ConnectionColor, SavedColor};
 use eframe::egui;
 
 /// The form body below the name and folder rows: connection string, authentication, secrets,
@@ -122,14 +122,19 @@ fn color_combo(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
     ui.horizontal(|ui| {
         let name = i18n.t("connections.color");
         let caption = ui.label(name.clone());
-        let selected = color_text(form.color, i18n);
+        let shown = form.color.as_ref().and_then(SavedColor::known);
+        let selected = color_text(shown, i18n);
         let combo = egui::ComboBox::from_id_salt("connection_color")
             .selected_text(selected.clone())
             .show_ui(ui, |ui| {
                 let options = std::iter::once(None).chain(ConnectionColor::ALL.map(Some));
                 for option in options {
                     let label = color_text(option, i18n);
-                    ui.selectable_value(&mut form.color, option, label);
+                    // A click is detected even on the entry already shown, so "No colour" can
+                    // clear a stored colour this build does not recognise.
+                    if ui.selectable_label(option == shown, label).clicked() {
+                        form.color = option.map(SavedColor::Known);
+                    }
                 }
             });
         // Name the combo by its caption and keep the selected value as its value.

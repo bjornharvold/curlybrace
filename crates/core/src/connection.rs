@@ -1,3 +1,4 @@
+pub use crate::connection_color::{ConnectionColor, SavedColor};
 use crate::error::{CoreError, Result};
 use crate::uri_problem::UriProblem;
 use serde::{Deserialize, Serialize};
@@ -15,45 +16,6 @@ pub enum AuthMechanism {
     X509,
     Gssapi,
     Plain,
-}
-
-/// A preset colour tag a user can give a connection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConnectionColor {
-    Red,
-    Orange,
-    Yellow,
-    Green,
-    Blue,
-    Purple,
-}
-
-impl ConnectionColor {
-    pub const ALL: [ConnectionColor; 6] = [
-        Self::Red,
-        Self::Orange,
-        Self::Yellow,
-        Self::Green,
-        Self::Blue,
-        Self::Purple,
-    ];
-}
-
-/// Reads the colour leniently: an unrecognised or malformed value becomes `None` (with a
-/// warning that names neither the connection nor its URI) so one bad entry never fails loading
-/// the whole connection list.
-fn lenient_color<'de, D>(deserializer: D) -> std::result::Result<Option<ConnectionColor>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value.and_then(|v| match serde_json::from_value(v) {
-        Ok(color) => Some(color),
-        Err(_) => {
-            log::warn!("a saved connection has an unrecognised colour; loading it without one");
-            None
-        }
-    }))
 }
 
 /// Reads the production flag leniently and fails safe: anything that is not a JSON boolean
@@ -111,8 +73,8 @@ pub struct ConnectionConfig {
     pub updated_at: Option<i64>,
     #[serde(default)]
     pub last_connected: Option<i64>,
-    #[serde(default, deserialize_with = "lenient_color")]
-    pub color: Option<ConnectionColor>,
+    #[serde(default)]
+    pub color: Option<SavedColor>,
     #[serde(default, deserialize_with = "lenient_production")]
     pub production: bool,
 }
@@ -135,6 +97,11 @@ impl ConnectionConfig {
             color: None,
             production: false,
         }
+    }
+
+    /// The colour to draw: only a preset this build knows; an unrecognised one shows as none.
+    pub fn known_color(&self) -> Option<ConnectionColor> {
+        self.color.as_ref().and_then(SavedColor::known)
     }
 
     pub fn with_save_stamp(self, now: i64) -> Self {
@@ -631,7 +598,7 @@ mod tests {
     fn color_and_production_round_trip_through_json() {
         for color in ConnectionColor::ALL {
             let mut c = ConnectionConfig::new("a", "mongodb://h");
-            c.color = Some(color);
+            c.color = Some(SavedColor::Known(color));
             c.production = true;
             let back: ConnectionConfig =
                 serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
@@ -640,32 +607,33 @@ mod tests {
     }
 
     #[test]
-    fn unknown_color_value_loads_as_none() {
+    fn unknown_color_value_is_kept_but_draws_as_none() {
         let mut json = legacy_json();
         json["color"] = serde_json::json!("chartreuse");
         json["production"] = serde_json::json!(true);
         let c: ConnectionConfig = serde_json::from_value(json).unwrap();
-        assert_eq!(c.color, None);
+        assert_eq!(c.color, Some(SavedColor::Unrecognised("chartreuse".into())));
+        assert_eq!(c.known_color(), None);
         assert!(c.production);
         assert_eq!(c.name, "a");
         assert_eq!(c.uri, "mongodb://h");
     }
 
     #[test]
-    fn non_string_color_value_loads_as_none() {
+    fn non_string_color_value_is_kept() {
         let mut json = legacy_json();
         json["color"] = serde_json::json!(7);
         let c: ConnectionConfig = serde_json::from_value(json).unwrap();
-        assert_eq!(c.color, None);
+        assert_eq!(c.color, Some(SavedColor::Unrecognised(7.into())));
     }
 
     #[test]
     fn duplicate_keeps_color_and_production() {
         let mut c = ConnectionConfig::new("a", "mongodb://h");
-        c.color = Some(ConnectionColor::Purple);
+        c.color = Some(SavedColor::Known(ConnectionColor::Purple));
         c.production = true;
         let d = c.duplicate("b".into(), 5);
-        assert_eq!(d.color, Some(ConnectionColor::Purple));
+        assert_eq!(d.color, Some(SavedColor::Known(ConnectionColor::Purple)));
         assert!(d.production);
     }
 }
