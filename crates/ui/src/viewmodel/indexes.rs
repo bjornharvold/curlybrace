@@ -43,6 +43,9 @@ pub struct IndexesState {
     /// The index write that was sent and not yet answered. It is what the answer acts on (the
     /// name to select, the index to ask about dropping), whatever is open by then.
     pub writing: Option<IndexWrite>,
+    /// What the create or drop being sent will be recorded as. Set when the write is built (so
+    /// before a production park) and taken by `write_sent`; the send never re-reads the modals.
+    pub intended: Option<IndexWrite>,
     /// The typed confirmation of a drop, while its modal is open.
     pub drop_confirm: Option<DropConfirm>,
     /// "Drop the old index?", asked after a copy was built.
@@ -63,6 +66,7 @@ impl Default for IndexesState {
             sampler: None,
             builder: None,
             writing: None,
+            intended: None,
             drop_confirm: None,
             drop_old: None,
             ttl_prompt: None,
@@ -204,6 +208,11 @@ impl IndexesState {
             (true, None) => next.selecting(name),
             (false, _) => next,
         }
+    }
+
+    /// Records what the write about to be sent is (see `intended`).
+    pub fn intending(self, intended: Option<IndexWrite>) -> Self {
+        Self { intended, ..self }
     }
 
     pub fn with_drop_confirm(self, drop_confirm: Option<DropConfirm>) -> Self {

@@ -709,3 +709,47 @@ fn copy_as_json_puts_the_definition_on_the_clipboard_action() {
     assert!(commands.is_empty());
     assert_eq!(s.indexes, before);
 }
+
+/// `email_1` copied as `email_1_v2` and parked behind the production warning.
+fn parked_copy() -> (AppState, Uuid) {
+    let (s, id) = browsing(with_flags(true, false));
+    let s = with_indexes(s, vec![email(), status()]);
+    let (s, _) = act(s, IndexesAction::EditCopy("email_1".into()));
+    let (s, commands) = act(s, IndexesAction::Create);
+    assert!(commands.is_empty() && s.write_warning.is_some());
+    (s, id)
+}
+
+#[test]
+fn the_production_confirm_records_the_original_that_was_parked() {
+    let (s, id) = parked_copy();
+    // Whatever is tried while the warning is up, the parked copy is still the one of email_1.
+    let (s, _) = act(s, IndexesAction::CancelBuilder);
+    let (s, _) = act(s, IndexesAction::EditCopy("status_1".into()));
+    let s = edit(s, BuilderEdit::SetName("email_1_v2".into()));
+    let (s, commands) = update(s, Input::WriteWarning(WriteWarningAction::Confirm));
+    assert_eq!(sent_spec(&commands).name, "email_1_v2");
+    let (s, _) = changed(s, id);
+    assert_eq!(
+        s.indexes.drop_old.as_ref().map(|d| d.old.as_str()),
+        Some("email_1"),
+        "never status_1"
+    );
+}
+
+#[test]
+fn the_builder_cannot_change_while_a_production_warning_is_up() {
+    let (s, _) = parked_copy();
+    let before = s.indexes.builder.clone();
+    for action in [
+        IndexesAction::CancelBuilder,
+        IndexesAction::EditCopy("status_1".into()),
+        IndexesAction::OpenBuilder,
+        IndexesAction::Builder(BuilderEdit::SetName("other".into())),
+    ] {
+        let (after, commands) = act(parked_copy().0, action.clone());
+        assert!(commands.is_empty(), "{action:?}");
+        assert_eq!(after.indexes.builder, before, "{action:?}");
+    }
+    assert!(s.write_warning.is_some());
+}

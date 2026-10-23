@@ -1,7 +1,7 @@
 //! View-model of the index builder: the keys and options being edited, the problems that keep
 //! Create disabled and the exact `createIndexes` command the store will receive. Pure and
 //! egui-free; the updaters return new values.
-use bson::Document;
+use bson::{Bson, Document};
 use curlybrace_core::ejson::{doc_to_view_json, editor_json_to_doc};
 use curlybrace_core::indexes::{
     IndexKey, IndexOptions, IndexProblem, IndexSpec, KeyKind, validate_new,
@@ -19,6 +19,14 @@ pub const BUILDER_KINDS: [KeyKind; 5] = [
     KeyKind::Text,
     KeyKind::Geo2dSphere,
     KeyKind::Wildcard,
+];
+
+/// The fields of a text index that only make sense while it has a text key.
+const TEXT_FIELDS: [&str; 4] = [
+    "weights",
+    "default_language",
+    "language_override",
+    "textIndexVersion",
 ];
 
 /// The field a wildcard key covers when none is typed: every field.
@@ -362,12 +370,41 @@ impl IndexBuilderState {
                 collation,
                 ..self.options.clone()
             },
-            raw: self
-                .editing
-                .as_ref()
-                .map(|original| original.raw.clone())
-                .unwrap_or_default(),
+            raw: self.plugin_fields(),
         }
+    }
+
+    /// The original's unmodelled fields, made to agree with the current keys: `weights` lists
+    /// exactly the text keys (original weights kept, 1 for a new one) and goes with the other text
+    /// options when no text key is left; `2dsphereIndexVersion` goes with the last 2dsphere key.
+    /// Hashed and 2d keys cannot be edited, so their fields (`bits`, `min`, `max`) stay.
+    fn plugin_fields(&self) -> Document {
+        let Some(original) = &self.editing else {
+            return Document::new();
+        };
+        let mut raw = original.raw.clone();
+        let has = |kind: KeyKind| self.keys.iter().any(|k| k.kind == kind);
+        if !has(KeyKind::Text) {
+            for field in TEXT_FIELDS {
+                raw.remove(field);
+            }
+        } else if let Ok(old) = original.raw.get_document("weights") {
+            let weights: Document = self
+                .keys
+                .iter()
+                .filter(|k| k.kind == KeyKind::Text)
+                .map(|k| {
+                    let field = k.field.trim().to_string();
+                    let weight = old.get(&field).cloned().unwrap_or(Bson::Int32(1));
+                    (field, weight)
+                })
+                .collect();
+            raw.insert("weights", weights);
+        }
+        if !has(KeyKind::Geo2dSphere) {
+            raw.remove("2dsphereIndexVersion");
+        }
+        raw
     }
 
     /// A filter or collation text as a document: blank is none, text that is not a JSON object is

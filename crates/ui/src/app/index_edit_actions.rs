@@ -8,7 +8,7 @@ use super::reducer::Out;
 use super::state::{AppState, Banner};
 use super::write_guard::{Guard, WriteKind};
 use crate::viewmodel::index_write::{copy_name, is_id_index, ttl_problem};
-use crate::viewmodel::{DropConfirm, IndexBuilderState, TtlPrompt};
+use crate::viewmodel::{DropConfirm, IndexBuilderState, IndexWrite, TtlPrompt};
 use curlybrace_core::runtime::Command;
 use curlybrace_core::store::CollectionIndex;
 
@@ -191,6 +191,21 @@ fn send_drop(state: AppState, name: String) -> Out {
     if is_id_index(&name) {
         return unchanged(state);
     }
+    // The copy this drop follows (to select afterwards) is recorded now, not when it is sent.
+    let then_select = state
+        .indexes
+        .drop_old
+        .as_ref()
+        .filter(|d| d.old == name)
+        .map(|d| d.new.clone());
+    let intended = Some(IndexWrite::Drop {
+        name: name.clone(),
+        then_select,
+    });
+    let state = AppState {
+        indexes: state.indexes.intending(intended),
+        ..state
+    };
     mutation(
         state,
         None,

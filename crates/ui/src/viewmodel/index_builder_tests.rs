@@ -371,3 +371,90 @@ fn a_copy_keeps_the_original_filter_document_exactly_until_it_is_edited() {
         spec.options.partial_filter
     );
 }
+
+fn text_original() -> IndexSpec {
+    IndexSpec::from_document(&doc! {
+        "key": { "_fts": "text", "_ftsx": 1 }, "name": "title_text_body_text", "v": 2,
+        "weights": { "title": 5, "body": 1 }, "default_language": "english",
+        "language_override": "language", "textIndexVersion": 3,
+    })
+    .unwrap()
+}
+
+fn index_of(spec: &IndexSpec) -> bson::Document {
+    spec.create_command("c").get_array("indexes").unwrap()[0]
+        .as_document()
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn an_unedited_copy_of_a_text_index_still_round_trips_all_its_options() {
+    let original = text_original();
+    let copy = IndexBuilderState::from_copy(ns(), &original, "t_v2".into());
+    let built = index_of(&copy.spec().unwrap());
+    let first = index_of(&original);
+    for field in [
+        "weights",
+        "default_language",
+        "language_override",
+        "textIndexVersion",
+    ] {
+        assert_eq!(built.get(field), first.get(field), "{field}");
+    }
+}
+
+#[test]
+fn removing_a_text_key_from_a_copy_removes_it_from_the_weights() {
+    let copy = IndexBuilderState::from_copy(ns(), &text_original(), "t_v2".into()).removing_key(1);
+    let spec = copy.spec().unwrap();
+    let index = index_of(&spec);
+    assert_eq!(index.get_document("weights").unwrap(), &doc! { "title": 5 });
+    assert_eq!(index.get_str("default_language"), Ok("english"));
+    // The preview is still exactly the command.
+    assert_eq!(
+        copy.preview_json(),
+        doc_to_view_json(&spec.create_command("orders"))
+    );
+    // A text field added to the copy gets the default weight.
+    let more = IndexBuilderState::from_copy(ns(), &text_original(), "t_v2".into())
+        .adding_key()
+        .with_field(2, "tags")
+        .with_kind(2, KeyKind::Text);
+    let weights = index_of(&more.spec().unwrap())
+        .get_document("weights")
+        .unwrap()
+        .clone();
+    assert_eq!(weights, doc! { "title": 5, "body": 1, "tags": 1 });
+}
+
+#[test]
+fn a_copy_without_text_keys_carries_no_text_options() {
+    let copy = IndexBuilderState::from_copy(ns(), &text_original(), "t_v2".into())
+        .with_kind(0, KeyKind::Asc)
+        .with_kind(1, KeyKind::Desc);
+    let index = index_of(&copy.spec().unwrap());
+    for field in [
+        "weights",
+        "default_language",
+        "language_override",
+        "textIndexVersion",
+    ] {
+        assert!(index.get(field).is_none(), "{field}");
+    }
+    let geo = IndexSpec::from_document(&doc! {
+        "key": { "loc": "2dsphere" }, "name": "loc_2dsphere", "v": 2, "2dsphereIndexVersion": 3,
+    })
+    .unwrap();
+    let kept = IndexBuilderState::from_copy(ns(), &geo, "g".into());
+    assert_eq!(
+        index_of(&kept.spec().unwrap()).get_i32("2dsphereIndexVersion"),
+        Ok(3)
+    );
+    let plain = kept.with_kind(0, KeyKind::Asc);
+    assert!(
+        index_of(&plain.spec().unwrap())
+            .get("2dsphereIndexVersion")
+            .is_none()
+    );
+}

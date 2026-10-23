@@ -29,7 +29,7 @@ pub(super) fn open_with(
         let Some(ns) = s.selected_ns().cloned() else {
             return (s, Vec::new());
         };
-        if s.indexes.has_prompt() || s.indexes.writing.is_some() {
+        if s.indexes.has_prompt() || s.indexes.writing.is_some() || s.write_warning.is_some() {
             return (s, Vec::new());
         }
         let Some(builder) = make(&s, &ns) else {
@@ -49,13 +49,22 @@ pub(super) fn open_with(
 
 /// Closes the builder and forgets what was typed.
 pub(super) fn cancel_builder(state: AppState) -> Out {
+    // A write is parked for the production warning: the builder it came from stays as it is.
+    if state.write_warning.is_some() {
+        return (state, Vec::new());
+    }
     let indexes = state.indexes.with_builder(None);
     (AppState { indexes, ..state }, Vec::new())
 }
 
 /// Applies one edit to the open builder; with none open the edit is dropped.
 pub(super) fn edit_builder(state: AppState, edit: BuilderEdit) -> Out {
-    let Some(builder) = state.indexes.builder.clone() else {
+    let Some(builder) = state
+        .indexes
+        .builder
+        .clone()
+        .filter(|_| state.write_warning.is_none())
+    else {
         return (state, Vec::new());
     };
     let indexes = state.indexes.with_builder(Some(builder.edited(edit)));
@@ -74,6 +83,20 @@ pub(super) fn create(state: AppState) -> Out {
         .and_then(|b| b.spec().ok());
     let Some(spec) = spec else {
         return (state, Vec::new());
+    };
+    // The original of a copy is recorded now, from the builder being sent.
+    let replaces = state
+        .indexes
+        .builder
+        .as_ref()
+        .and_then(|b| b.replaces().map(str::to_string));
+    let intended = Some(IndexWrite::Create {
+        name: spec.name.clone(),
+        replaces,
+    });
+    let state = AppState {
+        indexes: state.indexes.intending(intended),
+        ..state
     };
     mutation(
         state,
@@ -101,31 +124,30 @@ pub(super) fn estimate_arrived(state: AppState, ns: Namespace, count: u64) -> Ap
 pub(super) fn sent(state: AppState, command: &Command) -> AppState {
     let (ns, write) = match command {
         Command::CreateIndex { ns, spec, .. } => {
-            // The original of a copy is the one the SENT builder was made from; a builder that
-            // no longer describes the sent index (it cannot change while the production warning
-            // is up, but a name check costs nothing) vouches for nothing.
-            let replaces = state
-                .indexes
-                .builder
-                .as_ref()
-                .filter(|b| b.ns == *ns && b.spec().is_ok_and(|s| s.name == spec.name))
-                .and_then(|b| b.replaces().map(str::to_string));
-            let write = IndexWrite::Create {
-                name: spec.name.clone(),
-                replaces,
+            let write = match state.indexes.intended.clone() {
+                Some(IndexWrite::Create { name, replaces }) if name == spec.name => {
+                    IndexWrite::Create { name, replaces }
+                }
+                _ => IndexWrite::Create {
+                    name: spec.name.clone(),
+                    replaces: None,
+                },
             };
             (ns, write)
         }
         Command::DropIndex { ns, name, .. } => {
-            let then_select = state
-                .indexes
-                .drop_old
-                .as_ref()
-                .filter(|d| d.old == *name)
-                .map(|d| d.new.clone());
-            let write = IndexWrite::Drop {
-                name: name.clone(),
-                then_select,
+            let write = match state.indexes.intended.clone() {
+                Some(IndexWrite::Drop {
+                    name: intended,
+                    then_select,
+                }) if intended == *name => IndexWrite::Drop {
+                    name: intended,
+                    then_select,
+                },
+                _ => IndexWrite::Drop {
+                    name: name.clone(),
+                    then_select: None,
+                },
             };
             (ns, write)
         }
@@ -133,7 +155,7 @@ pub(super) fn sent(state: AppState, command: &Command) -> AppState {
         Command::SetIndexTtl { ns, name, .. } => (ns, IndexWrite::Ttl { name: name.clone() }),
         _ => return state,
     };
-    let indexes = state.indexes.write_sent(ns, write);
+    let indexes = state.indexes.intending(None).write_sent(ns, write);
     AppState { indexes, ..state }
 }
 
