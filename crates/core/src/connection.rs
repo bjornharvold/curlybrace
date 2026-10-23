@@ -32,6 +32,20 @@ where
     }))
 }
 
+/// Reads the read-only flag leniently and fails safe: anything that is not a JSON boolean
+/// loads as read-only (with a warning) instead of dropping the connection, so a damaged flag
+/// can only add protection, never remove it.
+fn lenient_read_only<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or_else(|| {
+        log::warn!("a saved connection has a malformed read-only flag; treating it as read-only");
+        true
+    }))
+}
+
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct TlsConfig {
     pub enabled: bool,
@@ -77,6 +91,8 @@ pub struct ConnectionConfig {
     pub color: Option<SavedColor>,
     #[serde(default, deserialize_with = "lenient_production")]
     pub production: bool,
+    #[serde(default, deserialize_with = "lenient_read_only")]
+    pub read_only: bool,
 }
 
 impl ConnectionConfig {
@@ -96,6 +112,7 @@ impl ConnectionConfig {
             last_connected: None,
             color: None,
             production: false,
+            read_only: false,
         }
     }
 
@@ -604,6 +621,18 @@ mod tests {
                 serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
             assert_eq!(back, c);
         }
+    }
+
+    #[test]
+    fn read_only_round_trips_and_duplicate_keeps_it() {
+        let mut c = ConnectionConfig::new("a", "mongodb://h");
+        assert!(!c.read_only);
+        c.read_only = true;
+        let back: ConnectionConfig =
+            serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back, c);
+        assert!(back.read_only);
+        assert!(c.duplicate("b".into(), 5).read_only);
     }
 
     #[test]
