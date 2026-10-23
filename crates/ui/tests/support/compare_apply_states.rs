@@ -395,6 +395,17 @@ pub mod shots {
         assert!(state.compare.apply.review().is_some(), "the review is open");
     }
 
+    /// [`review_with_delete`] with the destination connection flagged as production: the review
+    /// shows the production heading and its badge.
+    pub fn review_with_delete_production(state: &mut AppState) {
+        pending_panel(state);
+        state.compare.connections_production = (false, true);
+        cs::act(state, CompareAction::ReviewApply { word: WORD.into() });
+        cs::act(state, CompareAction::SetIdPolicy(IdPolicy::Generate));
+        cs::act(state, CompareAction::SetConfirmText("invo".into()));
+        assert!(state.compare.apply.review().is_some(), "the review is open");
+    }
+
     fn confirmed(state: &mut AppState) -> RunId {
         pending_panel(state);
         confirm_pending(state)

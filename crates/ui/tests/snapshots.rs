@@ -24,6 +24,7 @@ use support::compare_field_shots as fields;
 use support::compare_multi_states::{overview_mixed, pair_results, pairs_setup};
 use support::compare_states::{Through, compare_state};
 use support::db::sample_people;
+use support::production_shots as production_shots_fixtures;
 use support::shots::{Shot, browsing};
 
 /// Declares a `#[ignore]`d, env-gated test that builds a [`Shot`] and snapshots it.
@@ -144,6 +145,18 @@ shot!(sessions_tree_two_connected, vec![], |state| {
         view.topology = Some(Topology::Direct);
     }
 });
+
+shot!(
+    sessions_tree_production_root,
+    vec![],
+    production_shots_fixtures::production_root
+);
+
+shot!(
+    production_write_warning,
+    vec![],
+    production_shots_fixtures::write_warning
+);
 
 shot!(editor_modal, vec![], |state| {
     browsing(ViewMode::Tree)(state);
@@ -276,6 +289,10 @@ macro_rules! apply_shot {
 apply_shot!(compare_apply_selection, apply::selection_in_results);
 apply_shot!(compare_apply_pending, apply::pending_panel);
 apply_shot!(compare_apply_review_with_delete, apply::review_with_delete);
+apply_shot!(
+    compare_apply_review_production,
+    apply::review_with_delete_production
+);
 apply_shot!(compare_apply_finished_mixed, apply::apply_finished_mixed);
 apply_shot!(compare_apply_pair_marked, apply::pair_marked_applied);
 apply_shot!(
