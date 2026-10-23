@@ -315,3 +315,69 @@ fn show_forget_confirm(ctx: &egui::Context, message: &str, i18n: &I18n, out: &mu
         out.push(UiEvent::Input(Input::ForgetCancelled));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::viewmodel::{MenuItem, page_key};
+    use bson::Document;
+    use curlybrace_core::connection::ConnectionConfig;
+    use curlybrace_core::store::{Namespace, Page};
+    use curlybrace_core::test_support::mock_objects::mock_doc_with_id;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    /// A browse workspace on one open connection, with a delete of the only document parked.
+    fn deleting_on(production: bool) -> AppState {
+        let mut config = ConnectionConfig::new("prod-db", "mongodb://h:1");
+        config.production = production;
+        let id = config.id;
+        let mut state = AppState::new(vec![config]);
+        state.open = vec![id];
+        state.active = Some(id);
+        state.sidebar.selected = Some(Namespace::new("shop", "orders"));
+        let docs: Vec<Document> = vec![mock_doc_with_id(5_i32)];
+        let page = Page {
+            docs,
+            skip: 0,
+            has_more: false,
+        };
+        let key = page_key(&page);
+        let (tree, _) = state
+            .tree
+            .clone()
+            .menu_chosen(MenuItem::Delete, &page.docs[0], &key);
+        state.tree = tree;
+        state.page = Some(page);
+        state.page_key = Some(key);
+        state
+    }
+
+    fn production_line_shown(state: AppState) -> bool {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(900.0, 700.0))
+            .build_state(
+                |ctx, state: &mut AppState| {
+                    let mut out = Vec::new();
+                    show_workspace(ctx, state, &I18n::english(), &mut out);
+                },
+                state,
+            );
+        harness.run_steps(4);
+        let i18n = I18n::english();
+        // The dialog is up either way: its Delete button proves the parked delete rendered.
+        harness.get_by_label(&i18n.t("doc.delete"));
+        let line = i18n.t("write_warning.production_line");
+        harness.query_by_label(&line).is_some()
+    }
+
+    #[test]
+    fn the_delete_confirm_carries_the_production_line_for_a_production_connection() {
+        assert!(production_line_shown(deleting_on(true)));
+    }
+
+    #[test]
+    fn the_delete_confirm_has_no_production_line_for_a_plain_connection() {
+        assert!(!production_line_shown(deleting_on(false)));
+    }
+}

@@ -76,7 +76,7 @@ fn layout(
         connections
             .connections
             .iter()
-            .any(|c| c.id == id && crate::viewmodel::badge_of(c).production)
+            .any(|c| c.id == id && c.production)
     };
     let review = apply::show_review(ui.ctx(), state, &production, i18n);
     let export = export::show_export(ui.ctx(), state, i18n);

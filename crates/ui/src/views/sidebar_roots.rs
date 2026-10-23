@@ -44,9 +44,11 @@ fn show_root(ui: &mut egui::Ui, state: &AppState, root: &Root, i18n: &I18n) -> O
     header.inner.or(body)
 }
 
-/// Two lines. Line 1: toggle, the name (wraps inside its own area, never truncated) and the
+/// Two lines, and a third while the root has a colour tag or the production flag. Line 1: toggle, the name (wraps inside its own area, never truncated) and the
 /// Disconnect right-aligned.
 /// Line 2 (weak): status and, when known, topology, and Reconnect right-aligned on a failed root.
+/// Line 3 (tagged roots only): the colour glyph and the PRODUCTION badge, on a line of their own
+/// so they never widen the sidebar past what the title and status lines need.
 fn show_header(
     ui: &mut egui::Ui,
     collapse: &mut CollapsingState,
@@ -57,6 +59,7 @@ fn show_header(
         .horizontal(|ui| show_title_line(ui, collapse, root, i18n))
         .inner;
     let status = ui.horizontal(|ui| show_status_line(ui, root, i18n)).inner;
+    show_tag_line(ui, root, i18n);
     status.or(title)
 }
 
@@ -76,6 +79,14 @@ fn show_status_line(ui: &mut egui::Ui, root: &Root, i18n: &I18n) -> Option<Input
     .inner
 }
 
+fn show_tag_line(ui: &mut egui::Ui, root: &Root, i18n: &I18n) {
+    let badge = root.badge();
+    if badge.color.is_none() && !badge.production {
+        return;
+    }
+    ui.horizontal_wrapped(|ui| show_badge(ui, &badge, i18n));
+}
+
 fn show_title_line(
     ui: &mut egui::Ui,
     collapse: &mut CollapsingState,
@@ -89,7 +100,6 @@ fn show_title_line(
     if toggle.clicked() {
         collapse.toggle(ui);
     }
-    show_badge(ui, &root.badge(), i18n);
     let disconnect_text = i18n.t("connections.disconnect");
     // The name takes what Disconnect leaves, so it stays on this line and the name wraps.
     let buttons = small_button_width(ui, &disconnect_text);
@@ -202,6 +212,7 @@ mod tests {
     use super::*;
     use crate::app::session::SessionView;
     use crate::viewmodel::SidebarState;
+    use crate::viewmodel::connection_tag::PRODUCTION_BADGE_KEY;
     use curlybrace_core::connection::ConnectionConfig;
     use curlybrace_core::error::CoreError;
     use egui_kittest::Harness;
@@ -476,6 +487,43 @@ mod tests {
         // Line 1 holds the toggle and Disconnect; Reconnect sits below them with the status.
         assert!((toggle.center().y - disconnect.center().y).abs() < 1.0);
         assert!(reconnect.top() >= disconnect.bottom());
+    }
+
+    #[test]
+    fn a_tagged_root_keeps_the_sidebar_at_its_default_width() {
+        use curlybrace_core::connection::ConnectionColor;
+        let long = "A very long production connection name for the sidebar";
+        let cases = [
+            ("colour", "Alpha", Some(ConnectionColor::Red), false),
+            ("production", "Alpha", None, true),
+            ("both", "Alpha", Some(ConnectionColor::Purple), true),
+            ("both, long name", long, Some(ConnectionColor::Purple), true),
+        ];
+        for (case, name, color, production) in cases {
+            let mut f = fixture();
+            let config = &mut f.state.conn.connections[0];
+            config.name = name.into();
+            config.color = color;
+            config.production = production;
+            let harness = panel_harness(f.state);
+            let panel_width = *harness.state();
+            eprintln!("width[{case}] = {panel_width}");
+            assert!(
+                (panel_width - DEFAULT_SIDEBAR_WIDTH).abs() < 0.5,
+                "{case}: the panel grew to {panel_width}"
+            );
+            let label = I18n::english().t_with("sidebar.disconnect_named", &[("name", name)]);
+            let disconnect = harness.get_by_label(&label).rect();
+            assert!(disconnect.right() <= panel_width, "{case}: {disconnect:?}");
+            // The tag stays visible on the root: the colour's name labels its glyph.
+            if let Some(color) = color {
+                let tag = crate::viewmodel::color_tag(color);
+                harness.get_by_label(&I18n::english().t(tag.name_key));
+            }
+            if production {
+                harness.get_by_label(&I18n::english().t(PRODUCTION_BADGE_KEY));
+            }
+        }
     }
 
     #[test]

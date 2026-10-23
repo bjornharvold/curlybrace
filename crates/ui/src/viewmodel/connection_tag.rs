@@ -6,7 +6,7 @@ use curlybrace_core::connection::{ConnectionColor, ConnectionConfig};
 pub const PRODUCTION_BADGE_KEY: &str = "connection.production_badge";
 
 /// What draws one colour: its rgb (readable on egui's light and dark themes), a glyph that
-/// differs per colour and the i18n key of its name.
+/// differs per colour (and exists in egui's default fonts, which a test checks) and the i18n key of its name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ColorTag {
     pub rgb: [u8; 3],
@@ -23,12 +23,12 @@ pub struct ConnectionBadge {
 
 pub fn color_tag(c: ConnectionColor) -> ColorTag {
     let (rgb, glyph, name_key) = match c {
-        ConnectionColor::Red => ([214, 48, 49], "●", "connection.color.red"),
-        ConnectionColor::Orange => ([208, 112, 4], "▲", "connection.color.orange"),
+        ConnectionColor::Red => ([214, 48, 49], "♥", "connection.color.red"),
+        ConnectionColor::Orange => ([208, 112, 4], "▶", "connection.color.orange"),
         ConnectionColor::Yellow => ([170, 124, 0], "■", "connection.color.yellow"),
-        ConnectionColor::Green => ([46, 160, 67], "◆", "connection.color.green"),
+        ConnectionColor::Green => ([46, 160, 67], "♣", "connection.color.green"),
         ConnectionColor::Blue => ([49, 120, 220], "★", "connection.color.blue"),
-        ConnectionColor::Purple => ([150, 85, 200], "⬢", "connection.color.purple"),
+        ConnectionColor::Purple => ([150, 85, 200], "♦", "connection.color.purple"),
     };
     ColorTag {
         rgb,
@@ -53,6 +53,7 @@ pub fn badge_of(cfg: &ConnectionConfig) -> ConnectionBadge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eframe::egui;
     use std::collections::BTreeSet;
 
     fn all_tags() -> Vec<ColorTag> {
@@ -75,6 +76,27 @@ mod tests {
             assert!(!i18n.t(tag.name_key).starts_with('⟦'), "{}", tag.name_key);
         }
         assert!(!i18n.t(PRODUCTION_BADGE_KEY).starts_with('⟦'));
+    }
+
+    fn has_glyph_in_default_fonts(glyphs: &[&str]) -> Vec<(String, bool)> {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        let font = egui::FontId::proportional(14.0);
+        glyphs
+            .iter()
+            .map(|g| {
+                let ok = g.chars().all(|c| ctx.fonts(|f| f.has_glyph(&font, c)));
+                (g.to_string(), ok)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_glyph_exists_in_the_default_fonts() {
+        let glyphs: Vec<&str> = all_tags().iter().map(|t| t.glyph).collect();
+        for (glyph, ok) in has_glyph_in_default_fonts(&glyphs) {
+            assert!(ok, "{glyph} is missing from egui's default fonts");
+        }
     }
 
     fn luminance(rgb: [u8; 3]) -> f64 {
