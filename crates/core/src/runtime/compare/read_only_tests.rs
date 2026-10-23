@@ -1,5 +1,6 @@
-//! Read-only connections in Data Compare: a read-only side may be the source but never the
-//! target, and a lock reaches the open compare stores, even one sent mid-open.
+//! Read-only connections in Data Compare: a read-only side may be read as the source but is
+//! never the target, and a lock reaches the open compare stores, even one sent mid-open. The
+//! apply-side refusals (copies into a read-only source) are in `read_only_apply_tests`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -7,7 +8,7 @@ use std::sync::Arc;
 use bson::Bson;
 use uuid::Uuid;
 
-use super::apply_tests::{ApplyStore, op, send_apply, source_store, target_store, within};
+use super::apply_tests::{ApplyStore, barrier, op, send_apply, source_store, target_store, within};
 use super::closed_tests::Hooks;
 use super::export_tests::{collect_export, request, send_export};
 use super::tests::{
@@ -20,21 +21,21 @@ use crate::error::CoreError;
 use crate::runtime::{Command, Event, RuntimeConfig, RuntimeHandle};
 use crate::store::DocumentStore;
 
-const SRC: &str = "mongodb://a";
-const TGT: &str = "mongodb://b";
+pub(super) const SRC: &str = "mongodb://a";
+pub(super) const TGT: &str = "mongodb://b";
 
-fn side(uri: &str, read_only: bool) -> ConnectionConfig {
+pub(super) fn side(uri: &str, read_only: bool) -> ConnectionConfig {
     ConnectionConfig {
         read_only,
         ..ConnectionConfig::new(uri, uri)
     }
 }
 
-struct Rig {
-    tx: Tx,
-    h: RuntimeHandle,
-    source: Arc<ApplyStore>,
-    target: Arc<ApplyStore>,
+pub(super) struct Rig {
+    pub(super) tx: Tx,
+    pub(super) h: RuntimeHandle,
+    pub(super) source: Arc<ApplyStore>,
+    pub(super) target: Arc<ApplyStore>,
 }
 
 fn connector(source: &Arc<ApplyStore>, target: &Arc<ApplyStore>) -> MapConnector {
@@ -57,7 +58,7 @@ fn rig_with(connector: MapConnector, source: Arc<ApplyStore>, target: Arc<ApplyS
     }
 }
 
-fn rig() -> Rig {
+pub(super) fn rig() -> Rig {
     let (source, target) = (
         ApplyStore::new(source_store()),
         ApplyStore::new(target_store()),
@@ -65,7 +66,18 @@ fn rig() -> Rig {
     rig_with(connector(&source, &target), source, target)
 }
 
-fn send_open(tx: &Tx, source: &ConnectionConfig, target: &ConnectionConfig) {
+/// A rig whose connect of `uri` parks on `hooks` until the test releases it.
+pub(super) fn rig_with_parked(uri: &str, hooks: &Arc<Hooks>) -> Rig {
+    let (source, target) = (
+        ApplyStore::new(source_store()),
+        ApplyStore::new(target_store()),
+    );
+    let mut conn = connector(&source, &target);
+    conn.parked.insert(uri.to_string(), hooks.clone());
+    rig_with(conn, source, target)
+}
+
+pub(super) fn send_open(tx: &Tx, source: &ConnectionConfig, target: &ConnectionConfig) {
     tx.send(Command::Compare(CompareCommand::Open {
         session: 1,
         source: source.clone(),
@@ -74,11 +86,11 @@ fn send_open(tx: &Tx, source: &ConnectionConfig, target: &ConnectionConfig) {
     .unwrap();
 }
 
-fn send_lock(tx: &Tx, connection: Uuid) {
+pub(super) fn send_lock(tx: &Tx, connection: Uuid) {
     tx.send(Command::LockReadOnly { connection }).unwrap();
 }
 
-async fn open(r: &mut Rig, source: &ConnectionConfig, target: &ConnectionConfig) {
+pub(super) async fn open(r: &mut Rig, source: &ConnectionConfig, target: &ConnectionConfig) {
     send_open(&r.tx, source, target);
     assert_eq!(
         next_compare(&mut r.h).await,
@@ -86,7 +98,7 @@ async fn open(r: &mut Rig, source: &ConnectionConfig, target: &ConnectionConfig)
     );
 }
 
-async fn run_to_completion(r: &mut Rig) {
+pub(super) async fn run_to_completion(r: &mut Rig) {
     send_start(&r.tx, 1, vec![same_pair(1)]);
     let done = collect_run(&mut r.h).await;
     assert!(
@@ -142,18 +154,13 @@ async fn apply_after_target_is_locked_is_refused_with_context_compare_apply() {
 #[tokio::test]
 async fn lock_during_in_flight_compare_open_yields_a_locked_target() {
     let hooks = Arc::new(Hooks::default());
-    let (source, target) = (
-        ApplyStore::new(source_store()),
-        ApplyStore::new(target_store()),
-    );
-    let mut conn = connector(&source, &target);
-    conn.parked.insert(TGT.to_string(), hooks.clone());
-    let mut r = rig_with(conn, source, target);
+    let mut r = rig_with_parked(TGT, &hooks);
     let target_cfg = side(TGT, false);
     send_open(&r.tx, &side(SRC, false), &target_cfg);
-    send_lock(&r.tx, target_cfg.id);
     hooks.entered.notified().await;
-    // Both commands are already dispatched while the open is still blocked.
+    // The open is past its up-front check and blocked in the target connect; the lock lands now.
+    send_lock(&r.tx, target_cfg.id);
+    barrier(&r.tx, &mut r.h).await;
     hooks.release.notify_one();
     assert_eq!(
         next_compare(&mut r.h).await,
@@ -164,26 +171,20 @@ async fn lock_during_in_flight_compare_open_yields_a_locked_target() {
 }
 
 #[tokio::test]
-async fn lock_during_in_flight_compare_open_keeps_a_locked_source_readable() {
-    let hooks = Arc::new(Hooks::default());
-    let (source, target) = (
-        ApplyStore::new(source_store()),
-        ApplyStore::new(target_store()),
-    );
-    let mut conn = connector(&source, &target);
-    conn.parked.insert(SRC.to_string(), hooks.clone());
-    let mut r = rig_with(conn, source, target);
-    let source_cfg = side(SRC, false);
-    send_open(&r.tx, &source_cfg, &side(TGT, false));
-    send_lock(&r.tx, source_cfg.id);
-    hooks.entered.notified().await;
-    hooks.release.notify_one();
+async fn open_whose_target_is_locked_before_the_open_task_runs_fails_with_read_only() {
+    let mut r = rig();
+    let target_cfg = side(TGT, false);
+    // Both commands are dispatched before the spawned open runs (the test runtime is
+    // single-threaded and the lock is handled synchronously): the open sees a locked flag.
+    send_open(&r.tx, &side(SRC, false), &target_cfg);
+    send_lock(&r.tx, target_cfg.id);
     assert_eq!(
         next_compare(&mut r.h).await,
-        CompareEvent::Opened { session: 1 }
+        CompareEvent::OpenFailed {
+            session: 1,
+            error: CoreError::ReadOnly
+        }
     );
-    run_to_completion(&mut r).await;
-    assert_eq!(r.source.writes(), 0);
 }
 
 #[tokio::test]

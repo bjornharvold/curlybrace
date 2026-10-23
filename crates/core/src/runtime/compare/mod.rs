@@ -39,6 +39,8 @@ mod export_sink;
 #[cfg(test)]
 mod export_tests;
 #[cfg(test)]
+mod read_only_apply_tests;
+#[cfg(test)]
 mod read_only_tests;
 mod report_job;
 #[cfg(test)]
@@ -53,7 +55,7 @@ mod session;
 mod tests;
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use bson::Document;
@@ -482,8 +484,9 @@ async fn open_session(
             configs: [source, target],
             flags: [flag_s, flag_t],
         } = plan;
-        // A read-only connection may be read from, never written to: refuse before connecting.
-        if target.read_only {
+        // A read-only connection may be read from, never written to: refuse before connecting,
+        // also when a lock already reached the target's flag since the open was dispatched.
+        if target.read_only || flag_t.load(Ordering::SeqCst) {
             return Err(CoreError::ReadOnly);
         }
         let (store_s, tunnel_s) = open_side(&shared, &session, &source, flag_s).await?;
