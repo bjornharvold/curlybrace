@@ -1,5 +1,5 @@
-pub use crate::connection_color::SavedColor;
 use crate::connection_color::lenient_color;
+pub use crate::connection_color::{ConnectionColor, SavedColor};
 use crate::error::{CoreError, Result};
 use crate::uri_problem::UriProblem;
 use serde::{Deserialize, Serialize};
@@ -17,28 +17,6 @@ pub enum AuthMechanism {
     X509,
     Gssapi,
     Plain,
-}
-
-/// A preset colour tag a user can give a connection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConnectionColor {
-    Red,
-    Orange,
-    Yellow,
-    Green,
-    Blue,
-    Purple,
-}
-
-impl ConnectionColor {
-    pub const ALL: [ConnectionColor; 6] = [
-        Self::Red,
-        Self::Orange,
-        Self::Yellow,
-        Self::Green,
-        Self::Blue,
-        Self::Purple,
-    ];
 }
 
 /// Reads the production flag leniently and fails safe: anything that is not a JSON boolean

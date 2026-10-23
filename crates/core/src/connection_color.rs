@@ -1,7 +1,28 @@
 //! The colour tag as stored: a preset this build knows, or a raw value it does not (for example
 //! one written by a newer build) that is kept so a save writes it back unchanged.
-use crate::connection::ConnectionColor;
 use serde::{Deserialize, Serialize};
+
+/// A preset colour tag a user can give a connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConnectionColor {
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Blue,
+    Purple,
+}
+
+impl ConnectionColor {
+    pub const ALL: [ConnectionColor; 6] = [
+        Self::Red,
+        Self::Orange,
+        Self::Yellow,
+        Self::Green,
+        Self::Blue,
+        Self::Purple,
+    ];
+}
 
 /// A saved colour. `Known` serialises exactly as the `ConnectionColor` variant name and
 /// `Unrecognised` as its raw string, so loading and saving never changes the stored value.
