@@ -377,6 +377,5 @@ fn write_temp_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Res
 }
 
 #[cfg(test)]
-#[cfg(test)]
 #[path = "persistence_tests.rs"]
 mod tests;

@@ -302,6 +302,5 @@ pub(super) fn mark_connected(state: AppState, id: Uuid, now: i64, path: &ConfigP
 }
 
 #[cfg(test)]
-#[cfg(test)]
 #[path = "connection_ops_tests.rs"]
 mod tests;
