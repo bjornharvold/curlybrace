@@ -25,6 +25,7 @@ pub mod connections;
 mod dialog_banner;
 pub mod file_picker;
 pub mod host_key;
+mod index_actions;
 mod panels;
 pub mod persistence;
 pub mod reducer;
@@ -44,7 +45,7 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{
     COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle, TryRecvError,
-    default_known_hosts_path, spawn_runtime_with_config,
+    default_history_path, default_known_hosts_path, spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
 use eframe::egui;
@@ -76,6 +77,9 @@ pub fn runtime_config(
         connect_timeout: HOST_KEY_PROMPT_TIMEOUT + CONNECT_SLACK,
         known_hosts_path,
         host_key_prompt: prompt,
+        // The shipped app records index usage; the core default is off so tests never touch the
+        // user's config directory.
+        history_path: default_history_path(),
         ..RuntimeConfig::default()
     }
 }
@@ -628,6 +632,9 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod file_picker_tests;
+
+#[cfg(test)]
+mod index_tests;
 
 #[cfg(test)]
 mod connection_import_tests;

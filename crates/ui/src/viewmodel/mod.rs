@@ -7,6 +7,7 @@ pub mod connection_tag;
 pub mod doc_actions;
 pub mod editor;
 pub mod findbar;
+pub mod indexes;
 pub mod json_cache;
 pub mod page_key;
 pub mod sidebar;
@@ -33,6 +34,7 @@ pub use editor::{
 pub use findbar::{
     FindAction, FindBarState, FindIntent, pick_intent, resolve_find_intent, submit_find,
 };
+pub use indexes::{CollectionTab, IndexesAction, IndexesState};
 pub use json_cache::{JsonCache, view_json_cache};
 pub use page_key::{PageKey, page_key};
 pub use sidebar::{

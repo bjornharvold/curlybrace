@@ -13,7 +13,7 @@ use curlybrace_core::store::{Namespace, Query};
 use uuid::Uuid;
 
 /// Runs `f` while connected; otherwise drops the request with a banner.
-fn gated(state: AppState, f: impl FnOnce(AppState) -> Out) -> Out {
+pub(super) fn gated(state: AppState, f: impl FnOnce(AppState) -> Out) -> Out {
     if state.status == ConnStatus::Connected {
         return f(state);
     }
@@ -106,7 +106,10 @@ fn open(state: AppState, ns: Namespace) -> Out {
         editor: None,
         ..state
     };
-    (next, vec![command])
+    // The Indexes tab belongs to one collection: it starts over for the new one (and asks for its
+    // data when that tab is the one shown).
+    let (next, requests) = super::index_actions::collection_opened(next);
+    (next, [vec![command], requests].concat())
 }
 
 /// Re-lists databases and forgets every loaded collection list (collapsing the nodes).

@@ -68,6 +68,14 @@ fn busy_view(n: i32) -> SessionView {
         } else {
             ViewMode::Json
         },
+        tab: if n % 2 == 0 {
+            CollectionTab::Documents
+        } else {
+            CollectionTab::Indexes
+        },
+        indexes: IndexesState::default()
+            .for_collection(Namespace::new("shared", format!("c{n}")))
+            .selecting(format!("idx{n}")),
         editor: Some(editor(&format!("doc {n}"))),
         pending: Some(Pending {
             ns: Namespace::new("db", "c"),
@@ -109,6 +117,8 @@ fn snapshot(s: &AppState) -> (String, Vec<(Uuid, String)>) {
         page_key: s.page_key,
         tree: s.tree.clone(),
         view_mode: s.view_mode,
+        tab: s.tab,
+        indexes: s.indexes.clone(),
         editor: s.editor.clone(),
         pending: s.pending.clone(),
         ssh_endpoint: s.ssh_endpoint.clone(),

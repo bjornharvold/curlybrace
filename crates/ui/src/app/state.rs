@@ -4,7 +4,10 @@ use super::dialog_banner::DialogBannerWatch;
 use super::persistence::{PersistError, PersistGuard, Recovery};
 use super::session::SessionView;
 use crate::viewmodel::compare::CompareState;
-use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
+use crate::viewmodel::{
+    CollectionTab, EditorState, FindBarState, IndexesState, PageKey, SidebarState, TreeState,
+    ViewMode,
+};
 use crate::views::connections::ConnectionsState;
 use bson::Bson;
 use curlybrace_core::connection::ConnectionConfig;
@@ -84,7 +87,9 @@ impl Banner {
                     | "delete"
                     | "clone"
                     | "list_databases"
-                    | "list_collections",
+                    | "list_collections"
+                    | "list_indexes"
+                    | "index_history",
                 ..
             }
         )
@@ -138,7 +143,7 @@ pub struct Pending {
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
-/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `editor`, `pending`,
+/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `tab`, `indexes`, `editor`, `pending`,
 /// `ssh_endpoint`, `production` and `read_only`. They are parked per session and must be added to `SessionView` (and to
 /// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
@@ -182,6 +187,10 @@ pub struct AppState {
     pub page_key: Option<PageKey>,
     pub tree: TreeState,
     pub view_mode: ViewMode,
+    /// Which tab of the selected collection is shown.
+    pub tab: CollectionTab,
+    /// The Indexes tab of the selected collection and the session's sampler status.
+    pub indexes: IndexesState,
     pub editor: Option<EditorState>,
     /// The mutating command in flight; further mutations are ignored until it resolves.
     pub pending: Option<Pending>,
@@ -280,6 +289,8 @@ impl AppState {
             page: None,
             page_key: None,
             tree: self.tree.results_replaced(),
+            tab: CollectionTab::default(),
+            indexes: IndexesState::default(),
             editor: None,
             pending: None,
             write_warning: None,

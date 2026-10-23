@@ -2,12 +2,14 @@
 use super::actions;
 use super::compare::{self, CompareAction};
 use super::connection_test;
+use super::index_actions;
 use super::persistence::PersistError;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use super::write_guard::{self, WriteWarningAction};
 use crate::viewmodel::{
-    ConnectionForm, DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key,
+    CollectionTab, ConnectionForm, DocAction, EditorAction, EditorState, FindAction, IndexesAction,
+    SidebarAction, page_key,
 };
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, Event};
@@ -24,6 +26,9 @@ pub enum Input {
     Find(FindAction),
     Doc(DocAction),
     Editor(EditorAction),
+    Indexes(IndexesAction),
+    /// Switch the tab of the selected collection; the Indexes tab also requests its data.
+    Tab(CollectionTab),
     /// The answer to the production write warning.
     WriteWarning(WriteWarningAction),
     Connect(Uuid),
@@ -48,6 +53,8 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Find(a) => actions::find(state, a),
         Input::Doc(a) => actions::doc(state, a),
         Input::Editor(a) => actions::editor(state, a),
+        Input::Indexes(a) => index_actions::on_action(state, a),
+        Input::Tab(tab) => index_actions::switch_tab(state, tab),
         Input::WriteWarning(a) => write_guard::on_action(state, a),
         Input::Connect(id) => session_actions::connect(state, id),
         Input::Disconnect(id) => session_actions::disconnect(state, id),
@@ -205,11 +212,20 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
-        // The Indexes tab and the sampler status are not shown yet (Task 8 handles them).
-        Event::Indexes { .. }
-        | Event::IndexHistory { .. }
-        | Event::IndexChanged { .. }
-        | Event::Sampler { .. } => (state, Vec::new()),
+        Event::Indexes { ns, indexes, .. } => (
+            index_actions::indexes_listed(state, ns, indexes),
+            Vec::new(),
+        ),
+        Event::IndexHistory {
+            ns, range, series, ..
+        } => (
+            index_actions::history_read(state, ns, range, series),
+            Vec::new(),
+        ),
+        Event::IndexChanged { ns, .. } => index_actions::changed(state, ns),
+        Event::Sampler { status, .. } => {
+            (index_actions::sampler_reported(state, status), Vec::new())
+        }
         // Routed before; these have no session.
         Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }
@@ -393,6 +409,14 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
         "insert" | "replace" | "delete" | "clone" => failure(
             AppState {
                 pending: None,
+                ..state
+            },
+            context,
+            error,
+        ),
+        "list_indexes" | "index_history" => failure(
+            AppState {
+                indexes: state.indexes.settled(),
                 ..state
             },
             context,

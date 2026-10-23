@@ -133,3 +133,13 @@ fn a_stopped_runtime_does_not_leave_a_test_running_forever() {
         })
     ));
 }
+
+#[test]
+fn the_shipped_runtime_config_records_index_history() {
+    let (prompt, _rx) = InteractivePrompt::channel(Arc::new(|| {}), HOST_KEY_PROMPT_TIMEOUT);
+    let config = runtime_config(None, prompt);
+    assert_eq!(
+        config.history_path,
+        curlybrace_core::runtime::default_history_path()
+    );
+}

@@ -31,7 +31,8 @@
   "browser": {
     "load_failed": "Could not load documents. See the message above.",
     "loading": "Loading...",
-    "select_collection": "Select a collection in the sidebar."
+    "select_collection": "Select a collection in the sidebar.",
+    "tab_documents": "Documents"
   },
   "bsontype": {
     "array": "array",
@@ -631,9 +632,11 @@
     "disconnect": "Could not disconnect",
     "duplicate_secrets": "Could not copy the saved secrets for the duplicate. Nothing was created.",
     "find": "Could not load documents",
+    "index_history": "Could not load the index usage history",
     "insert": "Could not insert the document",
     "list_collections": "Could not load collections",
     "list_databases": "Could not load databases",
+    "list_indexes": "Could not load indexes",
     "replace": "Could not save the document",
     "runtime": "The background worker stopped. Restart Curlybrace",
     "save_connection": "Could not save the connection",
@@ -666,6 +669,9 @@
     "title": "Unknown SSH host",
     "trust_once": "Trust once",
     "trust_remember": "Trust and remember"
+  },
+  "indexes": {
+    "tab": "Indexes"
   },
   "persist": {
     "blocked": "Saving is turned off because the saved connections file could not be backed up. Fix the permissions of the connections file or its folder, then restart Curlybrace.",
