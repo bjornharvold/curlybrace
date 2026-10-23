@@ -119,9 +119,13 @@ async fn run(
     read_only: Option<Arc<AtomicBool>>,
 ) -> Result<Event> {
     if let Command::Connect(cfg) = command {
-        // The dispatcher attaches the flag synchronously; the fallback only covers a caller
-        // that did not.
-        let read_only = read_only.unwrap_or_else(|| shared.read_only.attach(cfg.id, cfg.read_only));
+        // The dispatcher attaches the flag synchronously, so a lock sent while this connect is in
+        // flight is kept. A late attach here could miss that lock, so a Connect without a flag
+        // (a programming error) is refused before anything is connected.
+        let Some(read_only) = read_only else {
+            let missing = CoreError::Database("internal error".into());
+            return Err(gate(session, generation, missing));
+        };
         return connect_store(shared, session, cfg, generation, read_only)
             .await
             .map_err(|e| gate(session, generation, e));

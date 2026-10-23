@@ -264,12 +264,44 @@ fn registry_gives_each_attach_a_fresh_flag_and_prunes_dead_ones() {
     assert!(!third.load(Ordering::SeqCst));
 }
 
+/// How the read-only rule treats a command, classified here independently of `is_write`.
+#[derive(Debug, PartialEq, Eq)]
+enum Class {
+    /// Refused on a read-only session.
+    Write,
+    /// A data command that only reads.
+    Read,
+    /// Not a data command (session lifecycle, compare, connection test, the lock itself).
+    Other,
+}
+
+/// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
+const COMMAND_VARIANTS: usize = 12;
+
+fn classify(command: &Command) -> Class {
+    match command {
+        Command::Insert { .. }
+        | Command::Replace { .. }
+        | Command::Delete { .. }
+        | Command::Clone { .. } => Class::Write,
+        Command::ListDatabases { .. } | Command::ListCollections { .. } | Command::Find { .. } => {
+            Class::Read
+        }
+        Command::Connect(_)
+        | Command::Disconnect { .. }
+        | Command::Compare(_)
+        | Command::TestConnection { .. }
+        | Command::LockReadOnly { .. } => Class::Other,
+    }
+}
+
 #[tokio::test]
 async fn is_write_agrees_with_what_the_read_only_store_refuses() {
     let (mut h, _) = spawn();
     let cfg = config(true);
     connect(&mut h, &cfg).await;
     for command in write_commands(cfg.id) {
+        assert_eq!(classify(&command), Class::Write);
         assert!(command.is_write());
         h.tx.send(command).unwrap();
         assert!(matches!(
@@ -281,6 +313,7 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
         ));
     }
     for command in read_commands(cfg.id) {
+        assert_eq!(classify(&command), Class::Read);
         assert!(!command.is_write());
         h.tx.send(command).unwrap();
         assert!(!matches!(next(&mut h).await, Event::Failed { .. }));
@@ -299,7 +332,19 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
         },
         Command::LockReadOnly { connection: cfg.id },
     ];
-    assert!(others.iter().all(|c| !c.is_write()));
+    assert!(
+        others
+            .iter()
+            .all(|c| classify(c) == Class::Other && !c.is_write())
+    );
+    let samples: Vec<Command> = write_commands(cfg.id)
+        .into_iter()
+        .chain(read_commands(cfg.id))
+        .chain(others.iter().cloned())
+        .collect();
+    let variants: std::collections::HashSet<_> =
+        samples.iter().map(std::mem::discriminant).collect();
+    assert_eq!(variants.len(), COMMAND_VARIANTS, "every variant is sampled");
     let lock = &others[4];
     assert_eq!(lock.context(), "lock_read_only");
     assert_eq!(lock.session(), None);
