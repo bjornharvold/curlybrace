@@ -353,12 +353,8 @@ fn a_delete_whose_config_write_fails_still_closes_the_open_session() {
     assert!(matches!(r.app.state().banner, Some(Banner::Persist(_))));
     let sent = drain(&mut r);
     assert!(
-        matches!(
-            sent.as_slice(),
-            [Command::Disconnect { session }, Command::PurgeHistory { connection }]
-                if *session == r.ids[0] && *connection == r.ids[0]
-        ),
-        "{sent:?}"
+        matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[0]),
+        "closed, but its history is kept: the connection is still in the file: {sent:?}"
     );
     assert!(!r.app.state().is_open(r.ids[0]));
     for kind in SecretKind::ALL {

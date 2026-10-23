@@ -59,7 +59,7 @@ use host_key::{
 use panels::UiEvent;
 use persistence::default_connections_path;
 use reducer::{Input, update};
-use sampling_settings::default_sampling_path;
+use sampling_settings::{SaveError, default_sampling_path};
 use state::{AppState, Banner, ConnStatus};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -87,6 +87,14 @@ pub fn runtime_config(
         host_key_prompt: prompt,
         history_path,
         ..RuntimeConfig::default()
+    }
+}
+
+/// The history purges that follow a delete: none unless the delete was saved to disk.
+fn purges_after(saved: bool, before: &[uuid::Uuid], state: &AppState) -> Vec<Command> {
+    match saved {
+        true => connection_ops::purge_removed(before, state),
+        false => Vec::new(),
     }
 }
 
@@ -219,11 +227,11 @@ impl CurlybraceApp {
             },
         };
         self.state.sampling = started.settings;
-        self.state.banner = self
-            .state
-            .banner
-            .take()
-            .or(started.recovery.map(Banner::Recovery));
+        // One banner slot: the connection list's startup banner keeps it and the sampling notice
+        // waits behind it, shown when that one is dismissed.
+        if let Some(recovery) = started.recovery {
+            self.state = std::mem::take(&mut self.state).with_recovery_notice(recovery);
+        }
         self.sampling_path = path;
         self.sampling_guard = started.guard;
         let command = self.state.sampling.command();
@@ -287,6 +295,7 @@ impl CurlybraceApp {
         if self.state.sampling != sampling_before {
             self.save_sampling();
         }
+        self.state = std::mem::take(&mut self.state).with_queued_recovery_shown();
         self.reject_closed_hosts_question(closing_host);
         // A dialog only belongs to an export that is waiting for it: when the person cancelled
         // (or the export is gone) the old dialog is forgotten, its late answer is never read, and
@@ -302,11 +311,11 @@ impl CurlybraceApp {
     fn save_sampling(&mut self) {
         let result = match &self.sampling_path {
             Ok(path) => sampling_settings::saved(path, &self.sampling_guard, &self.state.sampling),
-            Err(e) => Err(e.clone()),
+            Err(e) => Err(SaveError::Persist(e.clone())),
         };
         if let Err(e) = result {
             log::warn!("could not save the sampling settings: {e:?}");
-            self.state.banner = Some(Banner::Persist(e));
+            self.state.banner = Some(e.banner());
         }
     }
 
@@ -431,16 +440,18 @@ impl CurlybraceApp {
             ConnectionAction::Delete(id) => {
                 let was_open = state.is_open(id);
                 let before = connection_ops::saved_ids(&state);
-                self.state =
-                    connection_ops::delete_and_close(state, id, secrets, &self.config_path);
+                let (next, saved) =
+                    connection_ops::delete_and_close_saved(state, id, secrets, &self.config_path);
+                self.state = next;
                 // A session must not outlive the config and credentials it was opened from;
                 // a failed delete leaves both in place, so it closes nothing.
                 if was_open && self.state.connection(id).is_none() {
                     self.dispatch(Input::Disconnect(id));
                 }
                 // After the disconnect, so the session's sampler is stopped before its history
-                // goes; a delete that failed removed nothing and purges nothing.
-                self.send(connection_ops::purge_removed(&before, &self.state));
+                // goes. A purge cannot be undone, so it follows only a delete that reached the
+                // disk: if the write failed the connection returns at the next launch.
+                self.send(purges_after(saved, &before, &self.state));
             }
             ConnectionAction::Duplicate(id) => {
                 let source = state.connection(id).map(|c| c.name.clone());
@@ -460,10 +471,13 @@ impl CurlybraceApp {
             }
             ConnectionAction::DeleteFolder(name) => {
                 let before = connection_ops::saved_ids(&state);
-                self.state = connection_ops::delete_folder(state, name, now, &self.config_path);
+                let (next, saved) =
+                    connection_ops::delete_folder_saved(state, name, now, &self.config_path);
+                self.state = next;
                 // Today a folder delete only moves its connections to the top level, so this
-                // purges nothing; it keeps the history of any connection a delete removes.
-                self.send(connection_ops::purge_removed(&before, &self.state));
+                // purges nothing; it keeps the history of any connection a delete removes,
+                // under the same rule: only once the list was written.
+                self.send(purges_after(saved, &before, &self.state));
             }
             ConnectionAction::Test(form) => {
                 self.state = state;

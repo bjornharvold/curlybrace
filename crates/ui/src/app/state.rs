@@ -207,6 +207,9 @@ pub struct AppState {
     pub write_warning: Option<super::write_guard::ParkedWrite>,
     pub persist: PersistGuard,
     pub banner: Option<Banner>,
+    /// A startup notice waiting for the single banner slot: it is shown, once, as soon as the
+    /// banner showing now is gone (see `with_queued_recovery_shown`).
+    pub pending_recovery: Option<Recovery>,
     /// What the edit dialog may repeat of `banner` (only what is new since it opened).
     pub dialog_banner_watch: DialogBannerWatch,
     /// SSH endpoint of the connection being (or last) opened.
@@ -323,6 +326,28 @@ impl AppState {
             Some(banner) if banner.is_session_failure() => self.banner_session,
             _ => None,
         }
+    }
+
+    /// Puts the queued startup notice in the banner slot when it is free, and only then; the
+    /// notice leaves the queue, so it is shown exactly once.
+    pub fn with_queued_recovery_shown(self) -> Self {
+        if self.banner.is_some() || self.pending_recovery.is_none() {
+            return self;
+        }
+        Self {
+            banner: self.pending_recovery.clone().map(Banner::Recovery),
+            pending_recovery: None,
+            ..self
+        }
+    }
+
+    /// Shows `recovery` now if the banner slot is free, else queues it behind the banner.
+    pub fn with_recovery_notice(self, recovery: Recovery) -> Self {
+        Self {
+            pending_recovery: Some(recovery),
+            ..self
+        }
+        .with_queued_recovery_shown()
     }
 
     /// The state with no banner, no banner owner and no forget offer.

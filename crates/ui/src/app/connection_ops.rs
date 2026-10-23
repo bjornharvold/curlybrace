@@ -1,6 +1,6 @@
 //! Manager operations beyond save/delete: duplicate, folder changes and the connect stamp.
 //! Like `connections::save`, they take the keychain and the config path as arguments.
-use super::connections::{ConfigPath, delete, persist, refresh_flags, refused};
+use super::connections::{ConfigPath, deleted, persist, refresh_flags, refused};
 use super::dialog_banner::DialogBannerWatch;
 #[cfg(test)]
 use super::persistence::PersistGuard;
@@ -17,8 +17,19 @@ use curlybrace_core::secrets::{SecretKind, SecretStore, copy_all, secret_key};
 use uuid::Uuid;
 
 fn with_list(state: AppState, list: Vec<ConnectionConfig>, path: &ConfigPath) -> AppState {
-    let banner = persist(path, &list).err().map(Banner::Persist);
-    AppState {
+    with_list_saved(state, list, path).0
+}
+
+/// [`with_list`], plus whether the list was written to disk.
+fn with_list_saved(
+    state: AppState,
+    list: Vec<ConnectionConfig>,
+    path: &ConfigPath,
+) -> (AppState, bool) {
+    let write = persist(path, &list);
+    let saved = write.is_ok();
+    let banner = write.err().map(Banner::Persist);
+    let next = AppState {
         conn: ConnectionsState {
             connections: list,
             error: None,
@@ -26,7 +37,8 @@ fn with_list(state: AppState, list: Vec<ConnectionConfig>, path: &ConfigPath) ->
         },
         banner: banner.or(state.banner),
         ..state
-    }
+    };
+    (next, saved)
 }
 
 /// A folder change went through: the folder prompt, kept open while it was rejected, closes.
@@ -76,19 +88,30 @@ pub(super) fn purge_removed(before: &[Uuid], state: &AppState) -> Vec<Command> {
 }
 
 /// Deletes the connection; deleting the one the dialog is editing closes the dialog.
+#[cfg(test)]
 pub(super) fn delete_and_close(
     state: AppState,
     id: Uuid,
     secrets: &dyn SecretStore,
     path: &ConfigPath,
 ) -> AppState {
+    delete_and_close_saved(state, id, secrets, path).0
+}
+
+/// [`delete_and_close`], plus whether the delete was written to disk (what a history purge may
+/// rely on).
+pub(super) fn delete_and_close_saved(
+    state: AppState,
+    id: Uuid,
+    secrets: &dyn SecretStore,
+    path: &ConfigPath,
+) -> (AppState, bool) {
     let was_edited = state.conn.editing && state.conn.form.id == id;
-    let next = delete(state, id, secrets, path);
+    let (next, saved) = deleted(state, id, secrets, path);
     let gone = !next.conn.connections.iter().any(|c| c.id == id);
-    if was_edited && gone {
-        with_conn(next, ConnectionsState::close_edit)
-    } else {
-        next
+    match was_edited && gone {
+        true => (with_conn(next, ConnectionsState::close_edit), saved),
+        false => (next, saved),
     }
 }
 
@@ -216,17 +239,28 @@ pub(super) fn rename_folder(
     }
 }
 
+#[cfg(test)]
 pub(super) fn delete_folder(
     state: AppState,
     name: String,
     now: i64,
     path: &ConfigPath,
 ) -> AppState {
+    delete_folder_saved(state, name, now, path).0
+}
+
+/// [`delete_folder`], plus whether the new list was written to disk.
+pub(super) fn delete_folder_saved(
+    state: AppState,
+    name: String,
+    now: i64,
+    path: &ConfigPath,
+) -> (AppState, bool) {
     if let Err(e) = state.persist.check() {
-        return refused(state, e);
+        return (refused(state, e), false);
     }
     let list = deleted_folder(&state.conn.connections, &name, now);
-    with_list(state, list, path)
+    with_list_saved(state, list, path)
 }
 
 /// Stamps `last_connected` after a successful connect. A blocked or failing save shows the

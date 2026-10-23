@@ -8,7 +8,7 @@ use super::persistence::{
     BackupFn, PersistError, PersistGuard, Recovery, atomic_write, default_connections_path,
 };
 use super::reducer::Out;
-use super::state::AppState;
+use super::state::{AppState, Banner};
 use curlybrace_core::runtime::Command;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -138,18 +138,33 @@ pub fn save(path: &Path, settings: &SamplingSettings) -> Result<(), PersistError
     atomic_write(path, &bytes)
 }
 
-/// [`save`] unless the guard says the file must not be replaced. A blocked guard skips the write
-/// without an error: the startup banner already said that saving is off.
+/// Why a change to the settings was not written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SaveError {
+    /// The unusable original could not be backed up, so it must not be replaced.
+    Blocked,
+    Persist(PersistError),
+}
+
+impl SaveError {
+    /// The banner for the refusal, raised on every attempt like a refused connection save. A
+    /// blocked save reuses the failed-backup recovery text, which says changes are not saved.
+    pub fn banner(self) -> Banner {
+        match self {
+            Self::Blocked => Banner::Recovery(Recovery::Sampling { backed_up: false }),
+            Self::Persist(e) => Banner::Persist(e),
+        }
+    }
+}
+
+/// [`save`] unless the guard says the file must not be replaced.
 pub fn saved(
     path: &Path,
     guard: &PersistGuard,
     settings: &SamplingSettings,
-) -> Result<(), PersistError> {
-    if guard.check().is_err() {
-        log::warn!("the sampling settings were not saved: the original could not be backed up");
-        return Ok(());
-    }
-    save(path, settings)
+) -> Result<(), SaveError> {
+    guard.check().map_err(|_| SaveError::Blocked)?;
+    save(path, settings).map_err(SaveError::Persist)
 }
 
 /// `ExcludeDatabase`: the name joins the set and the sampler is told. Nothing happens for an

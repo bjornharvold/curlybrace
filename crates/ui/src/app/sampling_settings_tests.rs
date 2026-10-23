@@ -236,7 +236,10 @@ fn a_blocked_settings_file_is_never_overwritten() {
     let path = dir.path().join("sampling.json");
     std::fs::write(&path, "{ not json").unwrap();
     let guard = persistence::PersistGuard::blocked();
-    assert_eq!(saved(&path, &guard, &settings(&["logs"])), Ok(()));
+    assert_eq!(
+        saved(&path, &guard, &settings(&["logs"])),
+        Err(super::sampling_settings::SaveError::Blocked)
+    );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
 }
 
@@ -355,6 +358,115 @@ fn deleting_an_open_connection_closes_it_before_its_history_goes() {
         })
         .collect();
     assert_eq!(order, ["disconnect", "purge"], "the sampler stops first");
+}
+
+#[test]
+fn a_delete_whose_config_write_fails_never_purges_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let list = saved_connections(1);
+    let id = list[0].id;
+    let (mut app, _events, mut commands) = app_in(&dir, list);
+    app.dispatch(Input::Connect(id));
+    drain(&mut commands);
+    // The guard is open but the list cannot be written: it still names the connection on disk.
+    app.config_path = Err(PersistError::Write(std::io::ErrorKind::PermissionDenied));
+    app.dispatch_connection(ConnectionAction::Delete(id));
+    assert!(matches!(app.state().banner, Some(Banner::Persist(_))));
+    let sent = drain(&mut commands);
+    assert!(
+        sent.iter().any(|c| matches!(c, Command::Disconnect { .. })),
+        "the session still closes"
+    );
+    assert!(
+        purged(sent).is_empty(),
+        "the connection comes back at launch"
+    );
+}
+
+#[test]
+fn a_successful_delete_purges_exactly_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let list = saved_connections(2);
+    let id = list[0].id;
+    let (mut app, _events, mut commands) = app_in(&dir, list);
+    drain(&mut commands);
+    app.dispatch_connection(ConnectionAction::Delete(id));
+    assert_eq!(app.state().banner, None);
+    assert_eq!(purged(drain(&mut commands)), vec![id]);
+    let on_disk = std::fs::read_to_string(dir.path().join("connections.json")).unwrap();
+    assert!(!on_disk.contains(&id.to_string()), "really persisted");
+}
+
+#[test]
+fn a_blocked_sampling_save_raises_a_banner_on_every_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sampling.json");
+    std::fs::write(&path, "{ not json").unwrap();
+    let (mut app, _events, mut commands) = app_in(&dir, Vec::new());
+    // Launch backed the bad file up; make the guard the failed-backup one.
+    app.sampling_guard = persistence::PersistGuard::blocked();
+    app.state_mut().banner = None;
+    drain(&mut commands);
+    for (n, name) in ["logs", "staging"].into_iter().enumerate() {
+        exclude(&mut app, name);
+        assert!(
+            matches!(app.state().banner, Some(Banner::Recovery(_))),
+            "attempt {n}"
+        );
+        app.dispatch(Input::DismissBanner);
+        app.state_mut().banner = None;
+    }
+    // The edits applied for the run and reached the sampler, but the file was left alone.
+    assert_eq!(sent_sets(drain(&mut commands)).len(), 2);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+}
+
+fn corrupt_sampling_app(
+    dir: &tempfile::TempDir,
+    first: Option<Banner>,
+) -> (CurlybraceApp, UnboundedSender<Event>) {
+    std::fs::write(dir.path().join("sampling.json"), "{ not json").unwrap();
+    let (tx, _commands) = tokio::sync::mpsc::unbounded_channel();
+    std::mem::forget(_commands);
+    let (events, rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = CurlybraceApp::new(
+        RuntimeHandle { tx, rx },
+        I18n::english(),
+        Vec::new(),
+        Arc::new(MemorySecretStore::default()),
+    )
+    .with_banner(first)
+    .with_sampling_path(Ok(dir.path().join("sampling.json")));
+    (app, events)
+}
+
+const SAMPLING_NOTICE: persistence::Recovery = persistence::Recovery::Sampling { backed_up: true };
+
+#[test]
+fn a_sampling_recovery_notice_survives_an_existing_connection_banner() {
+    let dir = tempfile::tempdir().unwrap();
+    let connections = Banner::Recovery(persistence::Recovery::Corrupt { backed_up: true });
+    let (mut app, _events) = corrupt_sampling_app(&dir, Some(connections.clone()));
+    assert_eq!(app.state().banner, Some(connections), "the list's first");
+    app.dispatch(Input::DismissBanner);
+    assert_eq!(app.state().banner, Some(Banner::Recovery(SAMPLING_NOTICE)));
+    app.dispatch(Input::DismissBanner);
+    assert_eq!(app.state().banner, None, "each is shown exactly once");
+}
+
+#[test]
+fn dismissing_the_banner_shows_the_queued_sampling_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut app, _events) = corrupt_sampling_app(&dir, Some(Banner::NotConnected));
+    assert_eq!(app.state().banner, Some(Banner::NotConnected));
+    app.dispatch(Input::DismissBanner);
+    assert_eq!(app.state().banner, Some(Banner::Recovery(SAMPLING_NOTICE)));
+    // With no other banner the notice shows at once and nothing is queued behind it.
+    let dir = tempfile::tempdir().unwrap();
+    let (mut app, _events) = corrupt_sampling_app(&dir, None);
+    assert_eq!(app.state().banner, Some(Banner::Recovery(SAMPLING_NOTICE)));
+    app.dispatch(Input::DismissBanner);
+    assert_eq!(app.state().banner, None);
 }
 
 #[test]

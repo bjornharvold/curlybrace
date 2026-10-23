@@ -143,8 +143,19 @@ pub(super) fn refused(state: AppState, error: PersistError) -> AppState {
 /// only if every deletion succeeded, the config itself. A failure keeps the config so the user
 /// can retry instead of leaving orphaned secrets behind.
 pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &ConfigPath) -> AppState {
+    deleted(state, id, secrets, path).0
+}
+
+/// [`delete`], plus whether the shortened list was really written to disk. Only then is the
+/// connection gone for good; a failed write leaves it in the file, to return at the next launch.
+pub fn deleted(
+    state: AppState,
+    id: Uuid,
+    secrets: &dyn SecretStore,
+    path: &ConfigPath,
+) -> (AppState, bool) {
     if let Err(e) = state.persist.check() {
-        return refused(state, e);
+        return (refused(state, e), false);
     }
     let failures: Vec<CoreError> = SecretKind::ALL
         .iter()
@@ -155,7 +166,7 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
             context: "delete_secrets",
             error,
         });
-        return AppState { banner, ..state };
+        return (AppState { banner, ..state }, false);
     }
     let list: Vec<ConnectionConfig> = state
         .conn
@@ -164,10 +175,9 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
         .filter(|c| c.id != id)
         .cloned()
         .collect();
-    let banner = persist(path, &list)
-        .err()
-        .map(Banner::Persist)
-        .or(state.banner);
+    let write = persist(path, &list);
+    let written = write.is_ok();
+    let banner = write.err().map(Banner::Persist).or(state.banner);
     let was_selected = state.conn.selected == Some(id);
     let mut stored = state.conn.stored;
     stored.remove(&id);
@@ -192,11 +202,14 @@ pub fn delete(state: AppState, id: Uuid, secrets: &dyn SecretStore, path: &Confi
     if was_selected {
         conn.reset_tools();
     }
-    AppState {
-        conn,
-        banner,
-        ..state
-    }
+    (
+        AppState {
+            conn,
+            banner,
+            ..state
+        },
+        written,
+    )
 }
 
 #[cfg(test)]
