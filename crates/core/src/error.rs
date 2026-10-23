@@ -115,6 +115,9 @@ pub enum CoreError {
     /// An export failed and the partial file could not be removed; the person must delete it.
     #[error("export: the partial file could not be removed")]
     ExportFileNotRemoved,
+    /// A write was refused because the connection is marked read-only. Nothing was sent.
+    #[error("connection is read-only")]
+    ReadOnly,
 }
 
 impl CoreError {
@@ -158,6 +161,7 @@ impl CoreError {
             Self::ApplyOutcomeUnknown => "errors.apply_outcome_unknown",
             Self::ExportWriteFailed => "errors.export_write_failed",
             Self::ExportFileNotRemoved => "errors.export_file_not_removed",
+            Self::ReadOnly => "errors.read_only",
         }
     }
 }
@@ -204,6 +208,7 @@ mod tests {
             CoreError::ApplyOutcomeUnknown,
             CoreError::ExportWriteFailed,
             CoreError::ExportFileNotRemoved,
+            CoreError::ReadOnly,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.
