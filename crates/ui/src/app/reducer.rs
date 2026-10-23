@@ -205,6 +205,11 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
+        // The Indexes tab and the sampler status are not shown yet (Task 8 handles them).
+        Event::Indexes { .. }
+        | Event::IndexHistory { .. }
+        | Event::IndexChanged { .. }
+        | Event::Sampler { .. } => (state, Vec::new()),
         // Routed before; these have no session.
         Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }

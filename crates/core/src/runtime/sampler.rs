@@ -29,6 +29,9 @@ const SYSTEM_DBS: [&str; 3] = ["admin", "local", "config"];
 /// Longest wait between two attempts while the sampler is paused.
 const MAX_BACKOFF: Duration = Duration::from_secs(600);
 
+/// Shortest allowed time between two passes.
+pub const MIN_INTERVAL: Duration = Duration::from_secs(1);
+
 /// How often the history is thinned.
 const THIN_EVERY: Duration = Duration::from_secs(3_600);
 
@@ -41,6 +44,17 @@ pub struct SamplerConfig {
     pub excluded_dbs: BTreeSet<String>,
     /// Most `index_stats` calls in flight at once.
     pub max_concurrency: usize,
+}
+
+impl SamplerConfig {
+    /// The same tunables with the interval raised to [`MIN_INTERVAL`]: a zero interval would make
+    /// a paused sampler retry in a tight loop.
+    pub fn clamped(self) -> Self {
+        Self {
+            interval: self.interval.max(MIN_INTERVAL),
+            ..self
+        }
+    }
 }
 
 impl Default for SamplerConfig {
@@ -124,6 +138,8 @@ pub(super) fn backoff(interval: Duration, failures: u32) -> Duration {
 /// who can read `shop` but not `audit` keeps a history of `shop`. A history write failure always
 /// fails the pass; it comes back as a `Database` error, and [`spawn`] classifies it as
 /// `HistoryUnavailable`.
+// The loop uses `run_pass` directly; this wrapper is how the tests observe one pass.
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn sample_once(
     store: &dyn DocumentStore,
     history: &Arc<HistoryDb>,
@@ -139,6 +155,7 @@ pub async fn sample_once(
 
 /// What a pass that did not fail as a whole found.
 struct Pass {
+    #[cfg_attr(not(test), allow(dead_code))]
     recorded: usize,
     /// The collections (or databases) that could not be read, by name, with their error.
     failed: Vec<(String, CoreError)>,
@@ -361,7 +378,7 @@ pub(super) async fn run(
     status: UnboundedSender<SamplerStatus>,
     now: impl Fn() -> i64 + Send + 'static,
 ) {
-    let first = cfg.borrow().interval;
+    let first = cfg.borrow().interval.max(MIN_INTERVAL);
     let mut state = LoopState {
         interval: first,
         ticker: new_ticker(first, true),
@@ -374,7 +391,7 @@ pub(super) async fn run(
         if !wait_for_next_tick(&mut state, &status).await {
             return;
         }
-        let current = cfg.borrow().clone();
+        let current = cfg.borrow().clone().clamped();
         if current.interval != state.interval {
             state.interval = current.interval;
             state.ticker = new_ticker(current.interval, false);

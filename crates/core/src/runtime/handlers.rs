@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 use crate::connection::ConnectionConfig;
 use crate::crud::DocumentService;
 use crate::error::{CoreError, Result};
+use crate::history::HistoryDb;
 use crate::read_only_store::ReadOnlyStore;
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
@@ -155,7 +156,7 @@ async fn run(
     if is_write && store.is_read_only() {
         return Err(gate(session, generation, CoreError::ReadOnly));
     }
-    let work = data_command(id, store.clone(), command);
+    let work = data_command(id, store.clone(), shared.history.clone(), command);
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
     // an answer from a server that is there.
     let (result, timed_out) = match tokio::time::timeout(limit, work).await {
@@ -201,6 +202,7 @@ async fn settle_by_ping(
 async fn data_command(
     session: SessionId,
     store: Arc<dyn DocumentStore>,
+    history: Option<Arc<HistoryDb>>,
     command: Command,
 ) -> Result<Event> {
     let service = DocumentService::new(store.clone());
@@ -238,11 +240,50 @@ async fn data_command(
             service.clone_document(&ns, &source).await?;
             Event::Mutated { session, ns }
         }
+        Command::ListIndexes { ns, .. } => {
+            let indexes = store.list_indexes(&ns).await?;
+            Event::Indexes {
+                session,
+                ns,
+                indexes,
+            }
+        }
+        Command::IndexHistory { ns, range, .. } => {
+            let series = super::indexes::series_for(history, session, &ns, range).await?;
+            Event::IndexHistory {
+                session,
+                ns,
+                range,
+                series,
+            }
+        }
+        Command::CreateIndex { ns, spec, .. } => {
+            store.create_index(&ns, &spec).await?;
+            Event::IndexChanged { session, ns }
+        }
+        Command::DropIndex { ns, name, .. } => {
+            store.drop_index(&ns, &name).await?;
+            Event::IndexChanged { session, ns }
+        }
+        Command::SetIndexHidden {
+            ns, name, hidden, ..
+        } => {
+            store.set_index_hidden(&ns, &name, hidden).await?;
+            Event::IndexChanged { session, ns }
+        }
+        Command::SetIndexTtl {
+            ns, name, seconds, ..
+        } => {
+            store.set_index_ttl(&ns, &name, seconds).await?;
+            Event::IndexChanged { session, ns }
+        }
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
         | Command::TestConnection { .. }
-        | Command::LockReadOnly { .. } => {
+        | Command::LockReadOnly { .. }
+        | Command::SetSamplingExcluded { .. }
+        | Command::PurgeHistory { .. } => {
             unreachable!("connection and compare commands are handled before data dispatch")
         }
     })
