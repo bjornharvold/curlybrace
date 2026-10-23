@@ -106,22 +106,29 @@ pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
             };
             (next, vec![command])
         }
-        (WriteWarningAction::Confirm, Some(_)) => {
-            let banner = Some(Banner::WriteNotSent);
+        (WriteWarningAction::Confirm, Some(parked)) => {
+            let banner = Some(match connection_unchanged(&state, &parked) {
+                true => Banner::WriteNotSentBusy,
+                false => Banner::WriteNotSentConnectionChanged,
+            });
             (AppState { banner, ..state }, Vec::new())
         }
         _ => (state, Vec::new()),
     }
 }
 
-/// The parked write still targets the live active session and nothing else is being written.
-fn still_valid(state: &AppState, parked: &ParkedWrite) -> bool {
+/// The parked write still targets the same, connected opening of the active session.
+fn connection_unchanged(state: &AppState, parked: &ParkedWrite) -> bool {
     let session = state.session_id();
     parked.command.session() == Some(session)
         && state.is_open(session)
         && state.status == ConnStatus::Connected
-        && state.pending.is_none()
         && state.latest_requested_epoch == parked.epoch
+}
+
+/// The parked write still targets the live active session and nothing else is being written.
+fn still_valid(state: &AppState, parked: &ParkedWrite) -> bool {
+    connection_unchanged(state, parked) && state.pending.is_none()
 }
 
 #[cfg(test)]

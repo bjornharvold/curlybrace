@@ -351,12 +351,16 @@ fn confirm_still_sends_when_the_production_flag_is_edited_off_meanwhile() {
     assert!(s.pending.is_some());
 }
 
-fn not_sent(s: &AppState) -> bool {
-    matches!(s.banner, Some(Banner::WriteNotSent))
+fn changed(s: &AppState) -> bool {
+    matches!(s.banner, Some(Banner::WriteNotSentConnectionChanged))
+}
+
+fn busy(s: &AppState) -> bool {
+    matches!(s.banner, Some(Banner::WriteNotSentBusy))
 }
 
 #[test]
-fn a_stale_confirm_says_the_write_was_not_sent() {
+fn a_stale_confirm_says_why_the_write_was_not_sent() {
     // A mutation is in flight.
     let (s, _) = production();
     let (mut s, _) = update(s, insert());
@@ -365,14 +369,14 @@ fn a_stale_confirm_says_the_write_was_not_sent() {
         editor: None,
     });
     let (s, commands) = update(s, confirm());
-    assert!(commands.is_empty() && not_sent(&s));
+    assert!(commands.is_empty() && busy(&s));
 
     // The epoch moved on.
     let (s, _) = production();
     let (mut s, _) = update(s, insert());
     s.latest_requested_epoch += 1;
     let (s, commands) = update(s, confirm());
-    assert!(commands.is_empty() && not_sent(&s));
+    assert!(commands.is_empty() && changed(&s));
 
     // Another session is active.
     let (s, _) = production();
@@ -384,14 +388,27 @@ fn a_stale_confirm_says_the_write_was_not_sent() {
     let s = reopened(s, other_id);
     assert_eq!(s.active, Some(other_id));
     let (s, commands) = update(s, confirm());
-    assert!(commands.is_empty() && not_sent(&s));
+    assert!(commands.is_empty() && changed(&s));
 
     // Not connected any more.
     let (s, _) = production();
     let (mut s, _) = update(s, insert());
     s.status = ConnStatus::Disconnected;
     let (s, commands) = update(s, confirm());
-    assert!(commands.is_empty() && not_sent(&s));
+    assert!(commands.is_empty() && changed(&s));
+}
+
+#[test]
+fn a_changed_connection_takes_precedence_over_a_write_in_flight() {
+    let (s, _) = production();
+    let (mut s, _) = update(s, insert());
+    s.latest_requested_epoch += 1;
+    s.pending = Some(Pending {
+        ns: users(),
+        editor: None,
+    });
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && changed(&s) && !busy(&s));
 }
 
 #[test]
