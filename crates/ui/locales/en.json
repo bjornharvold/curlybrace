@@ -706,5 +706,14 @@
     "browse_hint": "Browse and edit documents",
     "compare": "Compare",
     "compare_hint": "Compare two collections"
+  },
+  "write_warning": {
+    "confirm": "Yes, write to production",
+    "message_clone": "This is your production server, {connection}. Are you sure you want to clone this document into it?",
+    "message_delete": "This is your production server, {connection}. Are you sure you want to delete this document?",
+    "message_insert": "This is your production server, {connection}. Are you sure you want to insert this document?",
+    "message_replace": "This is your production server, {connection}. Are you sure you want to edit this document?",
+    "production_line": "Warning: this is a production connection.",
+    "title": "Confirm write to production"
   }
 }

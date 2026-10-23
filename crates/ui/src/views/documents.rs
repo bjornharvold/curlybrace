@@ -34,10 +34,19 @@ pub fn show_documents(
     mode: ViewMode,
     page: &Page,
     state: &mut TreeState,
-    connection: &str,
+    target: DocTarget<'_>,
     i18n: &I18n,
 ) -> Option<DocAction> {
-    show_documents_keyed(ui, mode, page, &page_key(page), state, connection, i18n)
+    let key = page_key(page);
+    show_documents_keyed(ui, mode, page, &key, state, target, i18n)
+}
+
+/// The connection the shown documents belong to: named in the delete confirmation, which also
+/// carries the production notice when the connection is flagged production.
+#[derive(Clone, Copy, Debug)]
+pub struct DocTarget<'a> {
+    pub connection: &'a str,
+    pub production: bool,
 }
 
 /// Like [`show_documents`] with the page key supplied by the caller, which memoises it once
@@ -49,7 +58,7 @@ pub fn show_documents_keyed(
     page: &Page,
     key: &PageKey,
     state: &mut TreeState,
-    connection: &str,
+    target: DocTarget<'_>,
     i18n: &I18n,
 ) -> Option<DocAction> {
     let key = *key;
@@ -63,7 +72,7 @@ pub fn show_documents_keyed(
         ViewMode::Table => show_table(ui, page, &key, state, i18n),
         ViewMode::Json => show_json(ui, page, &key, state, i18n),
     };
-    let from_dialog = show_delete_confirm(ui.ctx(), &key, state, connection, i18n);
+    let from_dialog = show_delete_confirm(ui.ctx(), &key, state, target, i18n);
     action.or(from_view).or(from_dialog)
 }
 
@@ -85,18 +94,26 @@ fn show_delete_confirm(
     ctx: &egui::Context,
     key: &PageKey,
     state: &mut TreeState,
-    connection: &str,
+    target: DocTarget<'_>,
     i18n: &I18n,
 ) -> Option<DocAction> {
     let id = state.pending_delete_id(key)?;
     let message = i18n.t_with(
         "doc.confirm_delete",
-        &[("id", &id_preview(id)), ("connection", connection)],
+        &[("id", &id_preview(id)), ("connection", target.connection)],
     );
     let mut confirmed = false;
     let mut cancelled = false;
     let modal = egui::Modal::new(egui::Id::new("delete_confirm")).show(ctx, |ui| {
         ui.label(message);
+        if target.production {
+            // The notice rides in this one dialog: delete never opens a second warning.
+            ui.label(
+                egui::RichText::new(i18n.t("write_warning.production_line"))
+                    .strong()
+                    .color(ui.visuals().error_fg_color),
+            );
+        }
         ui.horizontal(|ui| {
             confirmed = ui.button(i18n.t("doc.delete")).clicked();
             cancelled = ui.button(i18n.t("common.cancel")).clicked();
@@ -119,6 +136,13 @@ mod tests {
     use crate::viewmodel::MenuItem;
     use bson::{Bson, Document, doc};
     use curlybrace_core::test_support::mock_objects::{exotic_doc, mock_doc_with_id};
+
+    fn test_target() -> DocTarget<'static> {
+        DocTarget {
+            connection: "test",
+            production: false,
+        }
+    }
 
     fn page_of(docs: Vec<Document>) -> Page {
         Page {
@@ -144,7 +168,7 @@ mod tests {
         for _ in 0..3 {
             let _ = ctx.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    actions.extend(show_documents(ui, mode, page, state, "test", &i18n));
+                    actions.extend(show_documents(ui, mode, page, state, test_target(), &i18n));
                 });
             });
         }
@@ -192,7 +216,7 @@ mod tests {
                 let _ = ctx.run(egui::RawInput::default(), |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         assert_eq!(
-                            show_documents(ui, mode, page, &mut state, "test", &i18n),
+                            show_documents(ui, mode, page, &mut state, test_target(), &i18n),
                             None
                         );
                     });
@@ -241,6 +265,38 @@ mod tests {
                 crate::viewmodel::DeleteConfirm::None,
                 "{mode:?}"
             );
+        }
+    }
+
+    #[test]
+    fn delete_dialog_shows_production_line_only_for_production() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let page = page_of(vec![mock_doc_with_id(5_i32)]);
+        let line = I18n::english().t("write_warning.production_line");
+        for production in [false, true] {
+            let (state, _) =
+                TreeState::default().menu_chosen(MenuItem::Delete, &page.docs[0], &page_key(&page));
+            let mut harness = Harness::new_ui_state(
+                |ui, state: &mut TreeState| {
+                    let i18n = I18n::english();
+                    let target = DocTarget {
+                        connection: "prod",
+                        production,
+                    };
+                    show_documents(ui, ViewMode::Tree, &page, state, target, &i18n);
+                },
+                state,
+            );
+            harness.run_steps(4);
+            assert_eq!(
+                harness.query_by_label(&line).is_some(),
+                production,
+                "production={production}"
+            );
+            // One dialog either way: the delete button is there exactly once.
+            let delete = I18n::english().t("doc.delete");
+            assert_eq!(harness.get_all_by_label(&delete).count(), 1);
         }
     }
 

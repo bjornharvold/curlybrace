@@ -21,3 +21,4 @@ pub mod sidebar;
 pub mod sidebar_roots;
 pub mod table;
 pub mod tree;
+pub mod write_warning;

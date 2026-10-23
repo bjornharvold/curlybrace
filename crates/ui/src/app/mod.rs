@@ -638,6 +638,9 @@ mod session_labels_tests;
 mod session_wiring_tests;
 
 #[cfg(test)]
+mod write_warning_modal_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

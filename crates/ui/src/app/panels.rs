@@ -6,12 +6,16 @@ use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
+use crate::viewmodel::badge_of;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
-use crate::views::documents::{show_connection_header, show_documents_keyed, show_mode_switcher};
+use crate::views::documents::{
+    DocTarget, show_connection_header, show_documents_keyed, show_mode_switcher,
+};
 use crate::views::editor::show_editor_with;
 use crate::views::findbar::show_findbar;
 use crate::views::sidebar_roots::show_roots;
+use crate::views::write_warning::show_write_warning;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
 
@@ -154,7 +158,8 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         return;
     }
     let connection = state.active_connection_label(i18n);
-    show_connection_header(ui, &connection, &state.active_badge(), i18n);
+    let badge = state.active_badge();
+    show_connection_header(ui, &connection, &badge, i18n);
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
@@ -177,7 +182,10 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         page,
         key,
         &mut state.tree,
-        &connection,
+        DocTarget {
+            connection: &connection,
+            production: badge.production,
+        },
         i18n,
     );
     if let Some(action) = action {
@@ -204,6 +212,7 @@ pub fn show_modals(
         show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)
     });
     out.extend(decided.map(UiEvent::HostKey));
+    show_write_warning_modal(ctx, state, i18n, out);
     if let Some(endpoint) = &state.forget_confirm {
         let port = endpoint.port.to_string();
         let message = i18n.t_with(
@@ -211,6 +220,26 @@ pub fn show_modals(
             &[("host", &endpoint.host), ("port", &port)],
         );
         show_forget_confirm(ctx, &message, i18n, out);
+    }
+}
+
+/// Draws the production write warning whenever a write is parked, whichever session is active:
+/// a parked write blocks every session's writes until it is answered. The connection is named
+/// from the parked write's own session, not the active one.
+fn show_write_warning_modal(
+    ctx: &egui::Context,
+    state: &AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    let Some(parked) = &state.write_warning else {
+        return;
+    };
+    let config = parked.command.session().and_then(|id| state.connection(id));
+    let name = config.map_or_else(|| i18n.t("doc.connection_unknown"), |c| c.name.clone());
+    let badge = config.map(badge_of).unwrap_or_default();
+    if let Some(action) = show_write_warning(ctx, parked, &name, &badge, i18n) {
+        out.push(UiEvent::Input(Input::WriteWarning(action)));
     }
 }
 
