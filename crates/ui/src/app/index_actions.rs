@@ -4,6 +4,7 @@ use super::actions::gated;
 use super::index_edit_actions as edit;
 use super::index_write_actions as write;
 use super::reducer::Out;
+use super::sampling_settings as sampling;
 use super::state::AppState;
 use crate::viewmodel::{CollectionTab, IndexesAction};
 use curlybrace_core::history::ChartRange;
@@ -40,6 +41,9 @@ pub(super) fn on_action(state: AppState, action: IndexesAction) -> Out {
         IndexesAction::DropTyped(text) => edit::drop_typed(state, text),
         IndexesAction::DropConfirmed => edit::drop_confirmed(state),
         IndexesAction::DropCancelled => edit::drop_cancelled(state),
+        // Global settings, not tied to a session: no connection needed.
+        IndexesAction::ExcludeDatabase(name) => sampling::exclude_database(state, &name),
+        IndexesAction::IncludeDatabase(name) => sampling::include_database(state, &name),
     }
 }
 

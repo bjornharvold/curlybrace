@@ -31,6 +31,7 @@ mod index_write_actions;
 mod panels;
 pub mod persistence;
 pub mod reducer;
+pub mod sampling_settings;
 pub mod session;
 mod session_actions;
 pub mod state;
@@ -58,6 +59,7 @@ use host_key::{
 use panels::UiEvent;
 use persistence::default_connections_path;
 use reducer::{Input, update};
+use sampling_settings::default_sampling_path;
 use state::{AppState, Banner, ConnStatus};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -94,6 +96,11 @@ pub struct CurlybraceApp {
     i18n: I18n,
     secrets: Arc<dyn SecretStore>,
     config_path: ConfigPath,
+    /// Where the sampling settings are saved. `new` has no place, so a test never writes the
+    /// real config directory; `launch` and `with_sampling_path` set it.
+    sampling_path: ConfigPath,
+    /// Whether `sampling.json` may be replaced (not when a bad one could not be backed up).
+    sampling_guard: persistence::PersistGuard,
     known_hosts: Option<PathBuf>,
     prompt: PromptState,
     prompt_requests: Option<Receiver<HostKeyRequest>>,
@@ -123,6 +130,8 @@ impl CurlybraceApp {
             i18n,
             secrets,
             config_path: default_connections_path(),
+            sampling_path: Err(persistence::PersistError::ConfigDirUnknown),
+            sampling_guard: persistence::PersistGuard::default(),
             known_hosts: default_known_hosts_path(),
             prompt: PromptState::default(),
             prompt_requests: None,
@@ -164,6 +173,7 @@ impl CurlybraceApp {
             .with_file_picker(Arc::new(file_picker::NativeFilePicker), repaint)
             .with_persist_guard(guard)
             .with_banner(startup_banner)
+            .with_sampling_path(default_sampling_path())
     }
 
     pub fn with_config_path(self, config_path: ConfigPath) -> Self {
@@ -194,6 +204,31 @@ impl CurlybraceApp {
             repaint,
             ..self
         }
+    }
+
+    /// Loads the sampling settings from `path` and hands them to the runtime, once, before
+    /// anything else is sent. A file that cannot be used is backed up and the defaults apply,
+    /// with the recovery banner (the connection list's own banner, if any, keeps its place).
+    pub fn with_sampling_path(mut self, path: ConfigPath) -> Self {
+        let started = match &path {
+            Ok(p) => sampling_settings::load(p, &persistence::back_up),
+            Err(_) => sampling_settings::SamplingStartup {
+                settings: Default::default(),
+                guard: Default::default(),
+                recovery: None,
+            },
+        };
+        self.state.sampling = started.settings;
+        self.state.banner = self
+            .state
+            .banner
+            .take()
+            .or(started.recovery.map(Banner::Recovery));
+        self.sampling_path = path;
+        self.sampling_guard = started.guard;
+        let command = self.state.sampling.command();
+        self.send(vec![command]);
+        self
     }
 
     pub fn with_persist_guard(mut self, guard: persistence::PersistGuard) -> Self {
@@ -246,8 +281,12 @@ impl CurlybraceApp {
             Input::Disconnect(id) => self.state.ssh_host_of(*id),
             _ => None,
         };
+        let sampling_before = self.state.sampling.clone();
         let (state, commands) = update(std::mem::take(&mut self.state), input);
         self.state = state;
+        if self.state.sampling != sampling_before {
+            self.save_sampling();
+        }
         self.reject_closed_hosts_question(closing_host);
         // A dialog only belongs to an export that is waiting for it: when the person cancelled
         // (or the export is gone) the old dialog is forgotten, its late answer is never read, and
@@ -256,6 +295,19 @@ impl CurlybraceApp {
             self.pick = None;
         }
         self.send(commands);
+    }
+
+    /// Writes the sampling settings after a change. A failed write is a banner like a failed save
+    /// of the connection list; the change itself stays applied for this run.
+    fn save_sampling(&mut self) {
+        let result = match &self.sampling_path {
+            Ok(path) => sampling_settings::saved(path, &self.sampling_guard, &self.state.sampling),
+            Err(e) => Err(e.clone()),
+        };
+        if let Err(e) = result {
+            log::warn!("could not save the sampling settings: {e:?}");
+            self.state.banner = Some(Banner::Persist(e));
+        }
     }
 
     /// A closed session's queued host-key question has nobody left to answer for, so it is
@@ -378,6 +430,7 @@ impl CurlybraceApp {
             }
             ConnectionAction::Delete(id) => {
                 let was_open = state.is_open(id);
+                let before = connection_ops::saved_ids(&state);
                 self.state =
                     connection_ops::delete_and_close(state, id, secrets, &self.config_path);
                 // A session must not outlive the config and credentials it was opened from;
@@ -385,6 +438,9 @@ impl CurlybraceApp {
                 if was_open && self.state.connection(id).is_none() {
                     self.dispatch(Input::Disconnect(id));
                 }
+                // After the disconnect, so the session's sampler is stopped before its history
+                // goes; a delete that failed removed nothing and purges nothing.
+                self.send(connection_ops::purge_removed(&before, &self.state));
             }
             ConnectionAction::Duplicate(id) => {
                 let source = state.connection(id).map(|c| c.name.clone());
@@ -403,7 +459,11 @@ impl CurlybraceApp {
                 self.state = connection_ops::rename_folder(state, from, to, now, &self.config_path);
             }
             ConnectionAction::DeleteFolder(name) => {
+                let before = connection_ops::saved_ids(&state);
                 self.state = connection_ops::delete_folder(state, name, now, &self.config_path);
+                // Today a folder delete only moves its connections to the top level, so this
+                // purges nothing; it keeps the history of any connection a delete removes.
+                self.send(connection_ops::purge_removed(&before, &self.state));
             }
             ConnectionAction::Test(form) => {
                 self.state = state;
@@ -646,6 +706,9 @@ impl eframe::App for CurlybraceApp {
 
 #[cfg(test)]
 mod file_picker_tests;
+
+#[cfg(test)]
+mod sampling_settings_tests;
 
 #[cfg(test)]
 mod index_tests;

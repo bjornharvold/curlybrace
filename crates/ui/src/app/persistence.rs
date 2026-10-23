@@ -59,6 +59,10 @@ pub enum Recovery {
         count: usize,
         backed_up: bool,
     },
+    /// The sampling settings file was not usable; the defaults apply.
+    Sampling {
+        backed_up: bool,
+    },
 }
 
 impl Recovery {
@@ -86,6 +90,8 @@ impl Recovery {
             Self::Repaired {
                 backed_up: false, ..
             } => "persist.repaired_backup_failed",
+            Self::Sampling { backed_up: true } => "persist.sampling_backed_up",
+            Self::Sampling { backed_up: false } => "persist.sampling_backup_failed",
         }
     }
 }

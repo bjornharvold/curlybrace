@@ -12,6 +12,7 @@ use curlybrace_core::connection_folders::{
     deleted_folder, moved_to_folder, normalize_folder, renamed_folder,
 };
 use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::Command;
 use curlybrace_core::secrets::{SecretKind, SecretStore, copy_all, secret_key};
 use uuid::Uuid;
 
@@ -55,6 +56,23 @@ pub(super) fn dialog_closed(state: AppState) -> AppState {
     } else {
         state
     }
+}
+
+/// The ids of the saved connections, for `purge_removed` to compare against later.
+pub(super) fn saved_ids(state: &AppState) -> Vec<Uuid> {
+    state.conn.connections.iter().map(|c| c.id).collect()
+}
+
+/// One `PurgeHistory` for every id in `before` that is no longer a saved connection, each once:
+/// the usage history of a connection that is gone has no one left to read it. Only deletes call
+/// this; closing a session, importing and saving never remove an id.
+pub(super) fn purge_removed(before: &[Uuid], state: &AppState) -> Vec<Command> {
+    let mut seen = std::collections::BTreeSet::new();
+    before
+        .iter()
+        .filter(|id| state.connection(**id).is_none() && seen.insert(**id))
+        .map(|id| Command::PurgeHistory { connection: *id })
+        .collect()
 }
 
 /// Deletes the connection; deleting the one the dialog is editing closes the dialog.

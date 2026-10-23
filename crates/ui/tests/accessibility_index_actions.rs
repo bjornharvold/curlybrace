@@ -7,6 +7,7 @@ use curlybrace_core::indexes::{IndexOptions, IndexSpec, KeyKind};
 use curlybrace_core::store::{CollectionIndex, Namespace};
 use curlybrace_core::test_support::mock_objects::mock_index_spec_named;
 use curlybrace_ui::I18n;
+use curlybrace_ui::app::sampling_settings::SamplingSettings;
 use curlybrace_ui::viewmodel::{
     ConnectionBadge, DropConfirm, DropOld, IndexWrite, IndexesAction, IndexesState, TtlPrompt,
 };
@@ -67,7 +68,14 @@ fn open_tab(state: IndexesState, read_only: bool) -> Harness<'static, Frame> {
         .with_size(egui::vec2(1100.0, 700.0))
         .build_ui_state(
             move |ui, (state, seen): &mut Frame| {
-                seen.extend(show_indexes(ui, state, read_only, &I18n::english(), NOW));
+                seen.extend(show_indexes(
+                    ui,
+                    state,
+                    read_only,
+                    &I18n::english(),
+                    NOW,
+                    &SamplingSettings::default(),
+                ));
             },
             (state, Vec::new()),
         );

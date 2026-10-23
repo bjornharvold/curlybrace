@@ -2,7 +2,9 @@
 //! selected range, the selected index on the right. Draws state and reports what the person
 //! did; the reducer decides what happens.
 use super::index_detail::{DetailInput, show_detail};
+use super::index_sampling::show_sampling;
 use crate::I18n;
+use crate::app::sampling_settings::SamplingSettings;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_chart::observed_uses;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key, series_of};
@@ -18,15 +20,18 @@ const LIST_SHARE: f32 = 0.3;
 
 /// Draws the tab at the wall-clock time `now_secs` (Unix seconds), which the caller reads once
 /// per frame; nothing in here reads the clock, so the output depends only on the arguments.
-/// `read_only` disables the write controls (Create index) and says why.
+/// `read_only` disables the write controls (Create index) and says why. `sampling` is the list of
+/// databases the sampler skips, shown in the Sampling section.
 pub fn show_indexes(
     ui: &mut egui::Ui,
     state: &IndexesState,
     read_only: bool,
     i18n: &I18n,
     now_secs: i64,
+    sampling: &SamplingSettings,
 ) -> Option<IndexesAction> {
     let mut action = toolbar(ui, state, read_only, i18n);
+    action = show_sampling(ui, sampling, i18n).or(action);
     ui.separator();
     if state.indexes.is_empty() {
         let key = if state.loading {

@@ -2,6 +2,7 @@
 use super::connection_io::ImportError;
 use super::dialog_banner::DialogBannerWatch;
 use super::persistence::{PersistError, PersistGuard, Recovery};
+use super::sampling_settings::SamplingSettings;
 use super::session::SessionView;
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{
@@ -195,6 +196,9 @@ pub struct AppState {
     pub tab: CollectionTab,
     /// The Indexes tab of the selected collection and the session's sampler status.
     pub indexes: IndexesState,
+    /// The databases the usage sampler skips. Global: it belongs to no session, so it is not
+    /// parked with one.
+    pub sampling: SamplingSettings,
     pub editor: Option<EditorState>,
     /// The mutating command in flight; further mutations are ignored until it resolves.
     pub pending: Option<Pending>,

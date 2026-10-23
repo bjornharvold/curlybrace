@@ -228,7 +228,15 @@ fn show_indexes_tab(
     now_secs: i64,
 ) {
     ui.separator();
-    let Some(action) = show_indexes(ui, &state.indexes, read_only, i18n, now_secs) else {
+    let shown = show_indexes(
+        ui,
+        &state.indexes,
+        read_only,
+        i18n,
+        now_secs,
+        &state.sampling,
+    );
+    let Some(action) = shown else {
         return;
     };
     if let Some(text) = action.clipboard_text() {

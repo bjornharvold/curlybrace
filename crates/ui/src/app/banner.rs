@@ -42,7 +42,9 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
                 ("repaired", &repaired.to_string()),
             ],
         ),
-        Recovery::Corrupt { .. } | Recovery::Unreadable { .. } => i18n.t(key),
+        Recovery::Corrupt { .. } | Recovery::Unreadable { .. } | Recovery::Sampling { .. } => {
+            i18n.t(key)
+        }
     }
 }
 
@@ -126,6 +128,8 @@ mod tests {
                 count: 2,
                 backed_up: false,
             }),
+            Banner::Recovery(Recovery::Sampling { backed_up: true }),
+            Banner::Recovery(Recovery::Sampling { backed_up: false }),
             Banner::NotConnected,
             Banner::HostForgotten,
             Banner::ProjectionReadOnly,

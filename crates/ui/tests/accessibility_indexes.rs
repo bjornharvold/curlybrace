@@ -7,6 +7,7 @@ use curlybrace_core::runtime::{IndexSeries, SamplerPause, SamplerStatus};
 use curlybrace_core::store::{CollectionIndex, Namespace};
 use curlybrace_core::test_support::mock_objects::mock_index_spec_named;
 use curlybrace_ui::I18n;
+use curlybrace_ui::app::sampling_settings::SamplingSettings;
 use curlybrace_ui::viewmodel::index_detail::anchored_now;
 use curlybrace_ui::viewmodel::{IndexWrite, IndexesAction, IndexesState};
 use curlybrace_ui::views::indexes::show_indexes;
@@ -96,7 +97,14 @@ fn open_at(state: IndexesState, read_only: bool, now: i64) -> Harness<'static, F
         .with_size(egui::vec2(1000.0, 700.0))
         .build_ui_state(
             move |ui, (state, seen): &mut Frame| {
-                let action = show_indexes(ui, state, read_only, &I18n::english(), now);
+                let action = show_indexes(
+                    ui,
+                    state,
+                    read_only,
+                    &I18n::english(),
+                    now,
+                    &SamplingSettings::default(),
+                );
                 if let Some(IndexesAction::Select(name)) = &action {
                     *state = state.clone().selecting(name.clone());
                 }

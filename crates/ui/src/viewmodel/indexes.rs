@@ -284,6 +284,10 @@ pub enum IndexesAction {
     /// Drop the index of the open confirmation.
     DropConfirmed,
     DropCancelled,
+    /// Leave this database out of sampling (the name as typed; the reducer trims it).
+    ExcludeDatabase(String),
+    /// Sample this excluded database again.
+    IncludeDatabase(String),
 }
 
 impl IndexesAction {
