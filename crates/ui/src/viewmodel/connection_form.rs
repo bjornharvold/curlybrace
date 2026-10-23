@@ -41,7 +41,7 @@ pub struct ConnectionForm {
     /// or clicks "No colour".
     pub color: Option<SavedColor>,
     pub production: bool,
-    /// Carried through so editing a connection keeps its flag; the form control comes later.
+    /// The Read-only checkbox of the dialog; editing a connection keeps its flag.
     pub read_only: bool,
     pub created_at: Option<i64>,
     pub last_connected: Option<i64>,

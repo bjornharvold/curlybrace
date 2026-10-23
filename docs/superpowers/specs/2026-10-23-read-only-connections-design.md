@@ -42,8 +42,12 @@ a UI bug cannot bypass it.
 - Ticking read-only on an open session applies **immediately**, via a new core
   command that updates the live session's flag. Unticking applies on reconnect,
   matching #108's production behaviour.
-- In Data Compare a read-only connection may be the **source** but cannot be
-  chosen as the **target**.
+- In Data Compare a read-only connection can be compared as the **source**
+  (it is read), but nothing is ever copied into it: it cannot be chosen as the
+  **target**, and every apply is judged by the side each operation writes to, so
+  "Copy to source", "Delete from source" and field copies to the source are
+  refused when the source is read-only. Source/target is not the rule; the
+  destination of each write is.
 
 ## Current state (from code reading, 2026-10-23)
 
@@ -88,8 +92,11 @@ a UI bug cannot bypass it.
   live session (and for a compare session's stores). Setting it to `true` is
   honoured at once; the UI only sends it when the user ticks the box.
 - Compare: the compare session's stores are wrapped the same way. A read-only
-  connection can be opened as source; `Apply` against a read-only target is
-  refused up front with `ReadOnly`.
+  connection can be opened as source; an `Apply` with any operation (plain,
+  field or expanded bulk) whose destination side is read-only is refused up
+  front with `ReadOnly`, before the job slot is taken. A lock that lands
+  mid-apply makes the store refuse the remaining batches, reported as
+  `ReadOnly` (nothing was written), not as an unknown outcome.
 
 ### UI
 - Session read-only = snapshot at connect OR live saved flag (same rule as
@@ -98,7 +105,15 @@ a UI bug cannot bypass it.
   stated reason; a banner modelled on `Banner::ProjectionReadOnly` explains it.
   If a write somehow arrives anyway, the `ReadOnly` failure is shown with its own
   localized message (`errors.read_only`).
-- Compare target picker excludes read-only connections and says why.
+- Compare target picker excludes read-only connections and says why. Review,
+  Apply and the queue actions judge every destination the changes write to: a
+  queued change into a read-only source closes Review and Apply with the reason,
+  and "Copy to source" / "Copy selected fields to source" / "Delete from source"
+  are disabled with the reason; pending lines into a read-only connection carry
+  the badge.
+- Sending the live lock also raises the session's read-only snapshot (active,
+  parked and compare sides), so unticking afterwards keeps the UI locked like
+  the core until a reconnect.
 - Marker: a text badge ("Read-only") next to the production badge wherever the
   connection is named (list, session tab/header, compare), never colour alone.
 - Saving the dialog with the box newly ticked while the connection is open sends
