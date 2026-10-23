@@ -134,3 +134,20 @@ fn an_entry_with_both_labels_invalid_gets_both_repaired() {
     assert_eq!(loaded.connections[0].folder.as_deref(), Some("work"));
     assert_eq!(loaded.repaired, 1);
 }
+
+#[test]
+fn an_entry_with_a_malformed_production_flag_loads_as_production_instead_of_being_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let plain = ConnectionConfig::new("plain", "mongodb://h");
+    let mut damaged =
+        serde_json::to_value(ConnectionConfig::new("damaged", "mongodb://h2")).unwrap();
+    damaged["production"] = serde_json::json!("yes");
+    let list = serde_json::json!([serde_json::to_value(&plain).unwrap(), damaged]);
+    let path = dir.path().join("connections.json");
+    std::fs::write(&path, list.to_string()).unwrap();
+    let loaded = load_connections(&path).unwrap();
+    assert_eq!(loaded.skipped, 0, "nothing is dropped");
+    assert_eq!(loaded.connections.len(), 2);
+    assert!(!loaded.connections[0].production);
+    assert!(loaded.connections[1].production, "fail safe: production");
+}

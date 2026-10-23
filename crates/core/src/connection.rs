@@ -39,14 +39,35 @@ impl ConnectionColor {
     ];
 }
 
-/// Reads the colour leniently: an unrecognised or malformed value becomes `None` so one bad
-/// entry never fails loading the whole connection list.
+/// Reads the colour leniently: an unrecognised or malformed value becomes `None` (with a
+/// warning that names neither the connection nor its URI) so one bad entry never fails loading
+/// the whole connection list.
 fn lenient_color<'de, D>(deserializer: D) -> std::result::Result<Option<ConnectionColor>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value.and_then(|v| serde_json::from_value(v).ok()))
+    Ok(value.and_then(|v| match serde_json::from_value(v) {
+        Ok(color) => Some(color),
+        Err(_) => {
+            log::warn!("a saved connection has an unrecognised colour; loading it without one");
+            None
+        }
+    }))
+}
+
+/// Reads the production flag leniently and fails safe: anything that is not a JSON boolean
+/// loads as production (with a warning) instead of dropping the whole connection, so a damaged
+/// flag can only add warnings, never remove them.
+fn lenient_production<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or_else(|| {
+        log::warn!("a saved connection has a malformed production flag; treating it as production");
+        true
+    }))
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -92,7 +113,7 @@ pub struct ConnectionConfig {
     pub last_connected: Option<i64>,
     #[serde(default, deserialize_with = "lenient_color")]
     pub color: Option<ConnectionColor>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_production")]
     pub production: bool,
 }
 
@@ -247,6 +268,10 @@ pub fn is_forbidden_label_char(c: char) -> bool {
 pub fn unique_name(base: &str, existing: &[ConnectionConfig]) -> String {
     crate::connection_names::NameAllocator::new(existing).allocate(base)
 }
+
+#[cfg(test)]
+#[path = "connection_lenient_tests.rs"]
+mod lenient_tests;
 
 #[cfg(test)]
 mod tests {
