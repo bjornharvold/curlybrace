@@ -282,3 +282,87 @@ fn validate_new_accepts_a_wildcard_with_projection() {
     };
     assert_eq!(validate_new(&spec), Ok(()));
 }
+
+fn server_text_index() -> bson::Document {
+    doc! {
+        "v": 2_i32,
+        "key": { "_fts": "text", "_ftsx": 1_i32 },
+        "name": "title_text_body_text",
+        "weights": { "title": 1_i32, "body": 1_i32 },
+        "default_language": "english",
+        "language_override": "language",
+        "textIndexVersion": 3_i32,
+    }
+}
+
+#[test]
+fn from_document_rebuilds_a_server_text_index_from_its_weights() {
+    let spec = IndexSpec::from_document(&server_text_index()).unwrap();
+    assert_eq!(
+        spec.keys,
+        vec![key("title", KeyKind::Text), key("body", KeyKind::Text)]
+    );
+}
+
+#[test]
+fn a_parsed_text_index_round_trips_through_create_command() {
+    let spec = IndexSpec::from_document(&server_text_index()).unwrap();
+    let command = spec.create_command("posts");
+    let index = command.get_array("indexes").unwrap()[0]
+        .as_document()
+        .unwrap();
+    assert_eq!(
+        index.get_document("key"),
+        Ok(&doc! { "title": "text", "body": "text" })
+    );
+    assert_eq!(
+        index.get_document("weights"),
+        Ok(&doc! { "title": 1_i32, "body": 1_i32 })
+    );
+    assert_eq!(index.get_str("default_language"), Ok("english"));
+    assert_eq!(index.get_str("language_override"), Ok("language"));
+    assert_eq!(index.get_i32("textIndexVersion"), Ok(3));
+    assert!(!index.contains_key("v") && !index.contains_key("_fts"));
+}
+
+#[test]
+fn a_user_built_text_index_has_no_fts_keys() {
+    let spec = mock_index_spec_named("t", &[("title", KeyKind::Text)]);
+    let command = spec.create_command("posts");
+    let index = command.get_array("indexes").unwrap()[0]
+        .as_document()
+        .unwrap();
+    assert_eq!(index.get_document("key"), Ok(&doc! { "title": "text" }));
+    assert!(!index.contains_key("weights"));
+}
+
+#[test]
+fn text_indexes_over_different_fields_hash_differently() {
+    let mut other = server_text_index();
+    other.insert("weights", doc! { "title": 1_i32, "summary": 1_i32 });
+    let a = IndexSpec::from_document(&server_text_index()).unwrap();
+    let b = IndexSpec::from_document(&other).unwrap();
+    assert_ne!(a.definition_hash(), b.definition_hash());
+}
+
+#[test]
+fn create_command_keeps_unmodelled_fields_of_a_2d_index() {
+    let spec = IndexSpec::from_document(&doc! {
+        "v": 2_i32,
+        "key": { "loc": "2d" },
+        "name": "loc_2d",
+        "bits": 20_i32,
+        "min": -100.0,
+        "max": 100.0,
+    })
+    .unwrap();
+    let command = spec.create_command("places");
+    let index = command.get_array("indexes").unwrap()[0]
+        .as_document()
+        .unwrap();
+    assert_eq!(index.get_i32("bits"), Ok(20));
+    assert_eq!(index.get_f64("min"), Ok(-100.0));
+    assert_eq!(index.get_f64("max"), Ok(100.0));
+    assert!(!index.contains_key("v"));
+    assert_eq!(index.keys().filter(|k| *k == "key").count(), 1);
+}

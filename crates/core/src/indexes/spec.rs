@@ -118,6 +118,21 @@ fn sub_document(doc: &Document, field: &str) -> Option<Document> {
     doc.get_document(field).ok().cloned()
 }
 
+/// The server reports a text index as `key: {_fts: "text", _ftsx: 1}`; the indexed fields are
+/// the keys of `weights`.
+fn text_keys(doc: &Document) -> Result<Vec<IndexKey>> {
+    let weights = doc
+        .get_document("weights")
+        .map_err(|_| invalid("text index has no weights".into()))?;
+    Ok(weights
+        .keys()
+        .map(|field| IndexKey {
+            field: field.clone(),
+            kind: KeyKind::Text,
+        })
+        .collect())
+}
+
 impl IndexSpec {
     /// Reads one entry of a `listIndexes` reply. A document without `key` or `name` is an error.
     pub fn from_document(doc: &Document) -> Result<IndexSpec> {
@@ -128,15 +143,19 @@ impl IndexSpec {
             .get_str("name")
             .map_err(|_| invalid("index has no name".into()))?
             .to_string();
-        let keys = key_doc
-            .iter()
-            .map(|(field, value)| {
-                Ok(IndexKey {
-                    field: field.clone(),
-                    kind: KeyKind::from_bson(field, value)?,
+        let keys = if key_doc.get_str("_fts") == Ok("text") {
+            text_keys(doc)?
+        } else {
+            key_doc
+                .iter()
+                .map(|(field, value)| {
+                    Ok(IndexKey {
+                        field: field.clone(),
+                        kind: KeyKind::from_bson(field, value)?,
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>>>()?
+        };
         let options = IndexOptions {
             unique: flag(doc, "unique"),
             sparse: flag(doc, "sparse"),
@@ -170,21 +189,24 @@ impl IndexSpec {
             .collect()
     }
 
-    /// The definition as relaxed extended JSON, for "copy as JSON". Fields of `raw` this type
-    /// does not model are kept.
+    /// The definition as relaxed extended JSON, for "copy as JSON".
     pub fn to_json(&self) -> String {
-        let mut document = self.index_document();
-        for (field, value) in &self.raw {
-            let known = MODELLED_FIELDS.contains(&field.as_str());
-            if !known && field != "ns" && !document.contains_key(field) {
-                document.insert(field.clone(), value.clone());
-            }
-        }
-        doc_to_view_json(&document)
+        doc_to_view_json(&self.index_document())
     }
 
-    /// The index document as `createIndexes` and `listIndexes` write it: key, name, then the
-    /// options that are set.
+    /// Fields of `raw` that this type does not model (`weights`, `bits`, `storageEngine`, ...),
+    /// without the server's bookkeeping (`v`, `ns`). They are part of the definition: they are
+    /// sent by `create_command`, copied by `to_json` and covered by `definition_hash`.
+    fn extras(&self) -> Document {
+        self.raw
+            .iter()
+            .filter(|(field, _)| !MODELLED_FIELDS.contains(&field.as_str()) && *field != "ns")
+            .map(|(field, value)| (field.clone(), value.clone()))
+            .collect()
+    }
+
+    /// The index document as `createIndexes` and `listIndexes` write it: key, name, the options
+    /// that are set, then the unmodelled fields.
     fn index_document(&self) -> Document {
         let mut document = self.definition(true);
         // Name leads, as the server writes it.
@@ -194,7 +216,7 @@ impl IndexSpec {
         named
     }
 
-    /// Keys and options; `hidden` only when asked for, since it does not change what is indexed.
+    /// Keys, options and unmodelled fields; `hidden` only when asked for, since it does not change what is indexed.
     fn definition(&self, with_hidden: bool) -> Document {
         let options = &self.options;
         let mut key = Document::new();
@@ -223,6 +245,7 @@ impl IndexSpec {
                 document.insert(field, value.clone());
             }
         }
+        document.extend(self.extras());
         document
     }
 }
