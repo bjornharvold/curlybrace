@@ -7,6 +7,8 @@ pub mod connection_tag;
 pub mod doc_actions;
 pub mod editor;
 pub mod findbar;
+pub mod index_chart;
+pub mod index_detail;
 pub mod indexes;
 pub mod json_cache;
 pub mod page_key;

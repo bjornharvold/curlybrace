@@ -6,6 +6,8 @@ use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
+use crate::viewmodel::{CollectionTab, IndexesAction};
+use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
 use crate::views::documents::{
@@ -13,6 +15,7 @@ use crate::views::documents::{
 };
 use crate::views::editor::show_editor_with;
 use crate::views::findbar::show_findbar;
+use crate::views::indexes::show_indexes;
 use crate::views::sidebar_roots::show_roots;
 use crate::views::write_warning::show_write_warning;
 use curlybrace_core::tunnel::HostKeyDecision;
@@ -159,6 +162,13 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
     let connection = state.active_connection_label(i18n);
     let badge = state.active_badge();
     show_connection_header(ui, &connection, &badge, i18n);
+    if let Some(tab) = show_collection_tabs(ui, state.tab, i18n) {
+        out.push(UiEvent::Input(Input::Tab(tab)));
+    }
+    if state.tab == CollectionTab::Indexes {
+        show_indexes_tab(ui, state, badge.read_only, i18n, out);
+        return;
+    }
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
@@ -191,6 +201,24 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
     if let Some(action) = action {
         out.push(UiEvent::Input(Input::Doc(action)));
     }
+}
+
+/// The Indexes tab; "copy as JSON" goes to the clipboard here, the reducer needs no record of it.
+fn show_indexes_tab(
+    ui: &mut egui::Ui,
+    state: &AppState,
+    read_only: bool,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    ui.separator();
+    let Some(action) = show_indexes(ui, &state.indexes, read_only, i18n) else {
+        return;
+    };
+    if let IndexesAction::CopyJson(json) = &action {
+        ui.ctx().copy_text(json.clone());
+    }
+    out.push(UiEvent::Input(Input::Indexes(action)));
 }
 
 pub fn show_modals(

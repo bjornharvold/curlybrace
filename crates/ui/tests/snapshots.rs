@@ -146,6 +146,8 @@ shot!(sessions_tree_two_connected, vec![], |state| {
     }
 });
 
+shot!(indexes_tab, vec![], support::indexes_shots::indexes_tab);
+
 shot!(
     sessions_tree_production_root,
     vec![],
