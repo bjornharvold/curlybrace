@@ -96,17 +96,18 @@ pub(super) fn dispatch(
             let record = shared.compare.create(session, shared.config.compare_limits);
             // Attached synchronously, like the record, so a LockReadOnly sent while the open
             // is still in flight reaches the stores it installs.
-            let flags = [&source, &target].map(|c| shared.read_only.attach(c.id, c.read_only));
+            let side = |cfg: ConnectionConfig| {
+                let flag = shared.read_only.attach(cfg.id, cfg.read_only);
+                SideOpen { cfg, flag }
+            };
+            let (source, target) = (side(source), side(target));
             spawn_open(
                 shared,
                 events,
                 repaint,
                 session,
                 record,
-                OpenPlan {
-                    configs: [source, target],
-                    flags,
-                },
+                OpenPlan { source, target },
             );
         }
         CompareCommand::Close { session } => shared.compare.remove(session),
@@ -158,10 +159,16 @@ pub(super) fn dispatch(
     }
 }
 
-/// What an open needs besides the session: both configs and their read-only flags.
+/// One side of an open: its config and the read-only flag attached for it at dispatch.
+struct SideOpen {
+    cfg: ConnectionConfig,
+    flag: Arc<AtomicBool>,
+}
+
+/// What an open needs besides the session: both sides, each with its flag.
 struct OpenPlan {
-    configs: [ConnectionConfig; 2],
-    flags: [Arc<AtomicBool>; 2],
+    source: SideOpen,
+    target: SideOpen,
 }
 
 /// Runs the open in an inner task so a panic still ends in exactly one `OpenFailed`
@@ -480,17 +487,14 @@ async fn open_session(
     plan: OpenPlan,
 ) {
     let result = tokio::time::timeout(shared.config.connect_timeout, async {
-        let OpenPlan {
-            configs: [source, target],
-            flags: [flag_s, flag_t],
-        } = plan;
+        let OpenPlan { source, target } = plan;
         // A read-only connection may be read from, never written to: refuse before connecting,
         // also when a lock already reached the target's flag since the open was dispatched.
-        if target.read_only || flag_t.load(Ordering::SeqCst) {
+        if target.cfg.read_only || target.flag.load(Ordering::SeqCst) {
             return Err(CoreError::ReadOnly);
         }
-        let (store_s, tunnel_s) = open_side(&shared, &session, &source, flag_s).await?;
-        let (store_t, tunnel_t) = open_side(&shared, &session, &target, flag_t).await?;
+        let (store_s, tunnel_s) = open_side(&shared, &session, source).await?;
+        let (store_t, tunnel_t) = open_side(&shared, &session, target).await?;
         let tunnels: Vec<Box<dyn TunnelHandle>> =
             [tunnel_s, tunnel_t].into_iter().flatten().collect();
         Ok::<_, CoreError>(Connections {
@@ -517,9 +521,13 @@ async fn open_session(
 async fn open_side(
     shared: &Arc<Shared>,
     session: &Arc<Session>,
-    cfg: &ConnectionConfig,
-    read_only: Arc<AtomicBool>,
+    side: SideOpen,
 ) -> Result<(Arc<dyn DocumentStore>, Option<Box<dyn TunnelHandle>>)> {
+    let SideOpen {
+        cfg,
+        flag: read_only,
+    } = side;
+    let cfg = &cfg;
     cfg.validate()?;
     let password = super::handlers::read_password(shared, cfg).await?;
     let job: Arc<dyn Currentness> = session.clone();

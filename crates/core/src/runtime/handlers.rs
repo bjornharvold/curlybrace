@@ -18,17 +18,37 @@ use super::tunneling::{
 };
 use super::{Command, Event, SessionId, Shared};
 
-/// Runs `command` to completion, folding any error into `Event::Failed`.
+/// What a dispatched command runs as. Only a connect carries a read-only flag, and it always
+/// does: the dispatcher attaches it synchronously, so a lock sent while the connect is in flight
+/// reaches the store it installs.
+pub(super) enum Work {
+    Connect {
+        cfg: Box<ConnectionConfig>,
+        read_only: Arc<AtomicBool>,
+    },
+    /// Any command but a connect, run against the session's installed store.
+    Data(Box<Command>),
+}
+
+impl Work {
+    fn context(&self) -> &'static str {
+        match self {
+            Self::Connect { .. } => "connect",
+            Self::Data(command) => command.context(),
+        }
+    }
+}
+
+/// Runs `work` to completion, folding any error into `Event::Failed`.
 pub(super) async fn execute(
     shared: Arc<Shared>,
     session: Arc<Session>,
     id: SessionId,
-    command: Command,
+    work: Work,
     generation: u64,
-    read_only: Option<Arc<AtomicBool>>,
 ) -> Event {
-    let context = command.context();
-    match run(&shared, &session, id, command, generation, read_only).await {
+    let context = work.context();
+    match run(&shared, &session, id, work, generation).await {
         Ok(event) => event,
         Err(error) => failure_event(id, context, generation, error),
     }
@@ -114,22 +134,17 @@ async fn run(
     shared: &Arc<Shared>,
     session: &Arc<Session>,
     id: SessionId,
-    command: Command,
+    work: Work,
     generation: u64,
-    read_only: Option<Arc<AtomicBool>>,
 ) -> Result<Event> {
-    if let Command::Connect(cfg) = command {
-        // The dispatcher attaches the flag synchronously, so a lock sent while this connect is in
-        // flight is kept. A late attach here could miss that lock, so a Connect without a flag
-        // (a programming error) is refused before anything is connected.
-        let Some(read_only) = read_only else {
-            let missing = CoreError::Database("internal error".into());
-            return Err(gate(session, generation, missing));
-        };
-        return connect_store(shared, session, cfg, generation, read_only)
-            .await
-            .map_err(|e| gate(session, generation, e));
-    }
+    let command = match work {
+        Work::Connect { cfg, read_only } => {
+            return connect_store(shared, session, *cfg, generation, read_only)
+                .await
+                .map_err(|e| gate(session, generation, e));
+        }
+        Work::Data(command) => *command,
+    };
     let store = session
         .current_store()
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))

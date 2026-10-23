@@ -543,17 +543,24 @@ fn dispatch(
     }
     let context = command.context();
     // Synchronous, so request order decides which connection wins.
-    let target = match &command {
+    let (target, work) = match command {
         Command::Connect(cfg) => {
             let (session, generation) = shared.begin_session_epoch(cfg.id);
             // Synchronous like the epoch, so a LockReadOnly sent after this Connect reaches the
             // store it installs even while the connect is still in flight. A connect that fails
             // or is superseded just drops the flag.
-            let flag = shared.read_only.attach(cfg.id, cfg.read_only);
-            Target::new(cfg.id, session, generation, false).with_read_only(flag)
+            let read_only = shared.read_only.attach(cfg.id, cfg.read_only);
+            let target = Target::new(cfg.id, session, generation, false);
+            (
+                target,
+                handlers::Work::Connect {
+                    cfg: Box::new(cfg),
+                    read_only,
+                },
+            )
         }
-        _ => {
-            let id = command.session().expect("a data command names its session");
+        data => {
+            let id = data.session().expect("a data command names its session");
             let Some(session) = shared.session(id) else {
                 let unknown = Event::Failed {
                     session: id,
@@ -566,7 +573,8 @@ fn dispatch(
                 return;
             };
             let generation = session.generation();
-            Target::new(id, session, generation, true)
+            let target = Target::new(id, session, generation, true);
+            (target, handlers::Work::Data(Box::new(data)))
         }
     };
     tokio::spawn(async move {
@@ -575,9 +583,8 @@ fn dispatch(
             session,
             generation,
             is_data,
-            read_only,
         } = target;
-        let work = handlers::execute(shared, session.clone(), id, command, generation, read_only);
+        let work = handlers::execute(shared, session.clone(), id, work, generation);
         let event = match tokio::spawn(work).await {
             Ok(event) => event,
             Err(_) => handlers::failure_event(
@@ -603,8 +610,6 @@ struct Target {
     session: Arc<Session>,
     generation: u64,
     is_data: bool,
-    /// The read-only flag a Connect attached at dispatch time.
-    read_only: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl Target {
@@ -614,14 +619,6 @@ impl Target {
             session,
             generation,
             is_data,
-            read_only: None,
-        }
-    }
-
-    fn with_read_only(self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self {
-        Self {
-            read_only: Some(flag),
-            ..self
         }
     }
 }
