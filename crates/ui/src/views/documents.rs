@@ -1,5 +1,6 @@
 //! Document area: mode switcher, insert button, the three views and the delete confirmation.
 use super::connection_badge::show_badge;
+use super::write_warning::focus_cancel_unless_focused;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
 use crate::viewmodel::{
@@ -115,8 +116,17 @@ fn show_delete_confirm(
             );
         }
         ui.horizontal(|ui| {
-            confirmed = ui.button(i18n.t("doc.delete")).clicked();
-            cancelled = ui.button(i18n.t("common.cancel")).clicked();
+            if target.production {
+                // Cancel first and focused: a stray Enter can never delete on production.
+                let cancel = ui.button(i18n.t("common.cancel"));
+                let delete = ui.button(i18n.t("doc.delete"));
+                focus_cancel_unless_focused(&cancel, &delete);
+                cancelled = cancel.clicked();
+                confirmed = delete.clicked();
+            } else {
+                confirmed = ui.button(i18n.t("doc.delete")).clicked();
+                cancelled = ui.button(i18n.t("common.cancel")).clicked();
+            }
         });
     });
     if confirmed {
@@ -298,6 +308,66 @@ mod tests {
             let delete = I18n::english().t("doc.delete");
             assert_eq!(harness.get_all_by_label(&delete).count(), 1);
         }
+    }
+
+    /// The delete dialog of `production` or plain connection, a few frames in.
+    fn delete_dialog(production: bool) -> egui_kittest::Harness<'static, TreeState> {
+        let page = page_of(vec![mock_doc_with_id(5_i32)]);
+        let (state, _) =
+            TreeState::default().menu_chosen(MenuItem::Delete, &page.docs[0], &page_key(&page));
+        let mut harness = egui_kittest::Harness::new_ui_state(
+            move |ui, state: &mut TreeState| {
+                let target = DocTarget {
+                    connection: "prod",
+                    production,
+                };
+                show_documents(
+                    ui,
+                    ViewMode::Tree,
+                    &page_of(vec![mock_doc_with_id(5_i32)]),
+                    state,
+                    target,
+                    &I18n::english(),
+                );
+            },
+            state,
+        );
+        harness.run_steps(4);
+        harness
+    }
+
+    #[test]
+    fn the_production_delete_dialog_is_cancel_first_and_cancel_focused() {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let i18n = I18n::english();
+        let mut harness = delete_dialog(true);
+        let (cancel_label, delete_label) = (i18n.t("common.cancel"), i18n.t("doc.delete"));
+        {
+            let cancel = harness.get_by_label(&cancel_label);
+            let delete = harness.get_by_label(&delete_label);
+            assert!(cancel.rect().left() < delete.rect().left(), "Cancel first");
+            assert!(cancel.accesskit_node().is_focused());
+            assert!(!delete.accesskit_node().is_focused());
+        }
+        harness.key_press(egui::Key::Enter);
+        harness.run_steps(4);
+        assert_eq!(
+            harness.state().confirm,
+            crate::viewmodel::DeleteConfirm::None,
+            "Enter cancelled instead of deleting"
+        );
+    }
+
+    #[test]
+    fn the_plain_delete_dialog_keeps_delete_first_without_forced_focus() {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let i18n = I18n::english();
+        let harness = delete_dialog(false);
+        let (cancel_label, delete_label) = (i18n.t("common.cancel"), i18n.t("doc.delete"));
+        let cancel = harness.get_by_label(&cancel_label);
+        let delete = harness.get_by_label(&delete_label);
+        assert!(delete.rect().left() < cancel.rect().left(), "Delete first");
+        assert!(!cancel.accesskit_node().is_focused());
     }
 
     #[test]

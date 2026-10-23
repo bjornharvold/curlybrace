@@ -22,6 +22,15 @@ pub fn warning_text(kind: WriteKind, connection: &str, i18n: &I18n) -> String {
     i18n.t_with(message_key(kind), &[("connection", connection)])
 }
 
+/// Stateless initial focus for a production dialog: whenever neither button holds it (a fresh
+/// dialog, even right after another one vanished unanswered) Cancel takes it, so a stray Enter
+/// can never confirm. The user can still Tab to the other button, which then keeps the focus.
+pub fn focus_cancel_unless_focused(cancel: &egui::Response, other: &egui::Response) {
+    if !cancel.has_focus() && !other.has_focus() {
+        cancel.request_focus();
+    }
+}
+
 /// Draws the warning for `parked`; returns the user's answer, if any this frame.
 pub fn show_write_warning(
     ctx: &egui::Context,
@@ -41,12 +50,7 @@ pub fn show_write_warning(
             // Cancel is first and focused, so a stray Enter can never confirm.
             let cancel = ui.button(i18n.t("common.cancel"));
             let confirm = ui.button(i18n.t("write_warning.confirm"));
-            // Stateless initial focus: whenever neither button holds it (a fresh warning, even
-            // right after another one vanished unanswered) Cancel takes it. The user can still
-            // Tab to Confirm, which then keeps it.
-            if !cancel.has_focus() && !confirm.has_focus() {
-                cancel.request_focus();
-            }
+            focus_cancel_unless_focused(&cancel, &confirm);
             if cancel.clicked() {
                 answer = Some(WriteWarningAction::Cancel);
             }
