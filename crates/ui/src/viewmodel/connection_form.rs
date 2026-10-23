@@ -191,6 +191,8 @@ impl ConnectionForm {
             created_at: self.created_at,
             updated_at: None,
             last_connected: self.last_connected,
+            color: None,
+            production: false,
         };
         cfg.validate()?;
         Ok(cfg)
