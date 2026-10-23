@@ -14,6 +14,9 @@ pub mod mongo_store;
 mod mongo_write;
 mod mongo_write_fields;
 pub mod query;
+pub mod read_only_store;
+#[cfg(test)]
+mod read_only_store_tests;
 pub mod runtime;
 pub mod secrets;
 pub mod store;
