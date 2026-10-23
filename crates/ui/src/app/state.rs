@@ -58,6 +58,9 @@ pub enum Banner {
     FieldsConflict,
     /// Queueing fields was refused: a whole-category change of the tab already covers them.
     FieldsCovered,
+    /// The user confirmed a production write that was no longer valid (its session changed or
+    /// something else was being written), so nothing was sent.
+    WriteNotSent,
 }
 
 impl Banner {

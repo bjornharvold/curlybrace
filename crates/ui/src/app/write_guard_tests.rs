@@ -1,7 +1,7 @@
 //! The production write guard: writes are parked until the user confirms them.
 use super::*;
 use crate::app::reducer::{Input, update};
-use crate::app::state::{ConnStatus, Pending};
+use crate::app::state::{Banner, ConnStatus, Pending};
 use crate::viewmodel::{DocAction, EditorAction};
 use bson::doc;
 use curlybrace_core::connection::ConnectionConfig;
@@ -349,4 +349,69 @@ fn confirm_still_sends_when_the_production_flag_is_edited_off_meanwhile() {
     let (s, commands) = update(s, confirm());
     assert_eq!(commands.len(), 1, "the user explicitly confirmed it");
     assert!(s.pending.is_some());
+}
+
+fn not_sent(s: &AppState) -> bool {
+    matches!(s.banner, Some(Banner::WriteNotSent))
+}
+
+#[test]
+fn a_stale_confirm_says_the_write_was_not_sent() {
+    // A mutation is in flight.
+    let (s, _) = production();
+    let (mut s, _) = update(s, insert());
+    s.pending = Some(Pending {
+        ns: users(),
+        editor: None,
+    });
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && not_sent(&s));
+
+    // The epoch moved on.
+    let (s, _) = production();
+    let (mut s, _) = update(s, insert());
+    s.latest_requested_epoch += 1;
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && not_sent(&s));
+
+    // Another session is active.
+    let (s, _) = production();
+    let (s, _) = update(s, insert());
+    let other = config(false);
+    let other_id = other.id;
+    let mut s = s;
+    s.conn.connections.push(other);
+    let s = reopened(s, other_id);
+    assert_eq!(s.active, Some(other_id));
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && not_sent(&s));
+
+    // Not connected any more.
+    let (s, _) = production();
+    let (mut s, _) = update(s, insert());
+    s.status = ConnStatus::Disconnected;
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && not_sent(&s));
+}
+
+#[test]
+fn a_valid_confirm_and_a_cancel_raise_no_banner() {
+    let (s, _) = production();
+    let (s, _) = update(s, insert());
+    let (s, commands) = update(s, confirm());
+    assert_eq!(commands.len(), 1);
+    assert!(s.banner.is_none());
+    let (s, _) = production();
+    let (s, _) = update(s, insert());
+    let (s, _) = update(s, cancel());
+    assert!(s.banner.is_none());
+}
+
+#[test]
+fn a_closed_or_lost_session_has_nothing_to_confirm_so_no_banner() {
+    let (s, id) = production();
+    let (s, _) = update(s, insert());
+    let (s, _) = update(s, Input::Disconnect(id));
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty() && s.banner.is_none());
 }

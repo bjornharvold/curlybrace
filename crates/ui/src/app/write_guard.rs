@@ -1,7 +1,7 @@
 //! Production write guard: a mutating command aimed at a production connection is parked here
 //! until the user confirms it, then sent exactly once.
 use super::reducer::Out;
-use super::state::{AppState, ConnStatus, Pending};
+use super::state::{AppState, Banner, ConnStatus, Pending};
 use curlybrace_core::runtime::Command;
 
 /// Which kind of write is parked (the warning words each one differently).
@@ -80,24 +80,31 @@ impl AppState {
     }
 }
 
-/// Answers the warning: `Confirm` sends the parked write if it is still valid, `Cancel` drops it.
+/// Answers the warning: `Confirm` sends the parked write if it is still valid (else says it was
+/// not sent), `Cancel` drops it.
 pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
     let AppState {
         write_warning: parked,
         ..
-    } = &state;
-    let parked = parked.clone();
+    } = state;
     let state = AppState {
         write_warning: None,
         ..state
     };
     match (action, parked) {
         (WriteWarningAction::Confirm, Some(parked)) if still_valid(&state, &parked) => {
+            let ParkedWrite {
+                command, pending, ..
+            } = parked;
             let next = AppState {
-                pending: Some(parked.pending),
+                pending: Some(pending),
                 ..state
             };
-            (next, vec![parked.command])
+            (next, vec![command])
+        }
+        (WriteWarningAction::Confirm, Some(_)) => {
+            let banner = Some(Banner::WriteNotSent);
+            (AppState { banner, ..state }, Vec::new())
         }
         _ => (state, Vec::new()),
     }
