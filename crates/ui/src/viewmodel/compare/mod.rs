@@ -86,6 +86,8 @@ pub struct CompareState {
     pub session: Option<SessionPhase>,
     /// The connections the current session was opened for.
     pub connections: Option<(Uuid, Uuid)>,
+    /// The production flags of `connections` (source, target) when the session was opened.
+    pub connections_production: (bool, bool),
     /// Ids are chosen here and never reused, so a late event can never match a newer session,
     /// run or pair.
     pub next_session: SessionId,
@@ -127,6 +129,7 @@ impl Default for CompareState {
         Self {
             session: None,
             connections: None,
+            connections_production: (false, false),
             next_session: 1,
             next_run: 1,
             next_pair: 1,
@@ -162,6 +165,14 @@ impl CompareState {
 }
 
 impl CompareState {
+    /// Whether the open session's connection `id` was production when the session opened. The
+    /// saved connection may have been edited since; the session keeps the flag it opened with.
+    pub fn is_production(&self, id: Uuid) -> bool {
+        let (source, target) = self.connections_production;
+        self.connections
+            .is_some_and(|(s, t)| (s == id && source) || (t == id && target))
+    }
+
     /// Whether Connect may fire for the picked pair: both picked, different from what is open,
     /// and no open in progress.
     pub fn can_open(&self, draft: (Option<Uuid>, Option<Uuid>)) -> bool {

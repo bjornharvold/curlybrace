@@ -14,6 +14,7 @@ use support::compare_apply_states::{reviewing, with_insert};
 fn review_with_two_production(production: bool) -> AppState {
     let mut state = reviewing(with_insert());
     state.conn.connections[1].production = production;
+    state.compare.connections_production = (false, production);
     state
 }
 
@@ -48,5 +49,16 @@ fn the_review_has_no_production_notice_for_a_plain_destination() {
 fn a_production_connection_that_is_only_read_gets_no_notice() {
     let mut state = reviewing(with_insert());
     state.conn.connections[0].production = true;
+    state.compare.connections_production = (true, false);
     assert!(!notice_shown(state));
+}
+
+#[test]
+fn editing_the_saved_flag_after_opening_changes_nothing() {
+    let mut state = review_with_two_production(true);
+    state.conn.connections[1].production = false;
+    assert!(notice_shown(state), "the session opened on production");
+    let mut state = review_with_two_production(false);
+    state.conn.connections[1].production = true;
+    assert!(!notice_shown(state), "the session opened on a plain one");
 }

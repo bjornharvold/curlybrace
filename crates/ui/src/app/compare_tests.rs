@@ -56,6 +56,8 @@ mod no_export;
 mod no_write;
 #[path = "compare_tests/pairs.rs"]
 mod pairs;
+#[path = "compare_tests/production.rs"]
+mod production;
 #[path = "compare_tests/results.rs"]
 mod results;
 #[path = "compare_tests/run.rs"]

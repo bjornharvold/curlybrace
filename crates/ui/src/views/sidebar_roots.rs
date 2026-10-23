@@ -505,6 +505,7 @@ mod tests {
             config.name = name.into();
             config.color = color;
             config.production = production;
+            f.state.production = production;
             let harness = panel_harness(f.state);
             let panel_width = *harness.state();
             eprintln!("width[{case}] = {panel_width}");

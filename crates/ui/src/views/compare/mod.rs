@@ -72,12 +72,8 @@ fn layout(
         }
         Some(SessionPhase::Ready(_)) => show_ready(ui, state, connections, i18n),
     };
-    let production = |id| {
-        connections
-            .connections
-            .iter()
-            .any(|c| c.id == id && c.production)
-    };
+    // The flags the session was opened with, not the saved connections' current ones.
+    let production = |id| state.is_production(id);
     let review = apply::show_review(ui.ctx(), state, &production, i18n);
     let export = export::show_export(ui.ctx(), state, i18n);
     header.or(connect).or(body).or(review).or(export)

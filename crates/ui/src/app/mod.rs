@@ -641,6 +641,9 @@ mod session_wiring_tests;
 mod write_warning_modal_tests;
 
 #[cfg(test)]
+mod production_snapshot_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -64,12 +64,19 @@ impl AppState {
         }
     }
 
-    /// Whether the active session is a saved connection flagged as production. The embedded
+    /// Whether the active session was opened on a connection flagged production. The embedded
     /// session has no saved connection and is never production.
     pub fn active_is_production(&self) -> bool {
-        self.active
-            .and_then(|id| self.connection(id))
-            .is_some_and(|c| c.production)
+        self.active.is_some() && self.production
+    }
+
+    /// Whether the open session `id` was opened on a production connection, read from the flag
+    /// snapshotted at connect (wherever the session's view lives), never from the saved config.
+    pub fn session_production(&self, id: uuid::Uuid) -> bool {
+        if self.active == Some(id) {
+            return self.production;
+        }
+        self.parked.get(&id).is_some_and(|v| v.production)
     }
 }
 

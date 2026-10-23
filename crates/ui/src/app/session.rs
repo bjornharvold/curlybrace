@@ -31,6 +31,9 @@ pub struct SessionView {
     pub editor: Option<EditorState>,
     pub pending: Option<Pending>,
     pub ssh_endpoint: Option<HostEndpoint>,
+    /// The connection's production flag as it was when the session was opened. Editing the saved
+    /// connection afterwards changes nothing here: it applies on the next connect.
+    pub production: bool,
 }
 
 /// One entry of the connection tree: an open session and what to show for it.
@@ -96,6 +99,7 @@ impl AppState {
             editor: self.editor.take(),
             pending: self.pending.take(),
             ssh_endpoint: self.ssh_endpoint.take(),
+            production: std::mem::take(&mut self.production),
         }
     }
 
@@ -120,6 +124,7 @@ impl AppState {
             editor,
             pending,
             ssh_endpoint,
+            production,
         } = v;
         self.status = status;
         self.failure = failure;
@@ -138,6 +143,7 @@ impl AppState {
         self.editor = editor;
         self.pending = pending;
         self.ssh_endpoint = ssh_endpoint;
+        self.production = production;
     }
 
     /// Makes `id` the active session, parking the previous one. Unknown ids change nothing.
@@ -307,6 +313,7 @@ impl AppState {
             failure: Some(error),
             latest_requested_epoch: old.latest_requested_epoch,
             ssh_endpoint: old.ssh_endpoint,
+            production: old.production,
             ..SessionView::default()
         });
         next
@@ -353,7 +360,7 @@ impl AppState {
             failure,
             active,
             color: self.connection(id).and_then(|c| c.color),
-            production: self.connection(id).is_some_and(|c| c.production),
+            production: self.session_production(id),
         }
     }
 }

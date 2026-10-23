@@ -6,7 +6,6 @@ use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
-use crate::viewmodel::badge_of;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
 use crate::views::documents::{
@@ -235,7 +234,6 @@ fn show_write_warning_modal(
     let Some(parked) = &state.write_warning else {
         return;
     };
-    let config = parked.command.session().and_then(|id| state.connection(id));
     // The same disambiguated label the header and the delete confirm use, so two open
     // connections sharing a saved name are still told apart.
     let name = parked
@@ -243,7 +241,11 @@ fn show_write_warning_modal(
         .session()
         .and_then(|id| state.open_label(id, i18n))
         .unwrap_or_else(|| i18n.t("doc.connection_unknown"));
-    let badge = config.map(badge_of).unwrap_or_default();
+    let badge = parked
+        .command
+        .session()
+        .map(|id| state.session_badge(id))
+        .unwrap_or_default();
     if let Some(action) = show_write_warning(ctx, parked, &name, &badge, i18n) {
         out.push(UiEvent::Input(Input::WriteWarning(action)));
     }
@@ -335,6 +337,7 @@ mod tests {
         let mut state = AppState::new(vec![config]);
         state.open = vec![id];
         state.active = Some(id);
+        state.production = production;
         state.sidebar.selected = Some(Namespace::new("shop", "orders"));
         let docs: Vec<Document> = vec![mock_doc_with_id(5_i32)];
         let page = Page {

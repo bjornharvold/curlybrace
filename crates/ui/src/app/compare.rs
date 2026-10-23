@@ -384,6 +384,7 @@ fn open(state: AppState, source: Uuid, target: Uuid) -> Out {
     let fresh = CompareState {
         session: Some(SessionPhase::Opening(id)),
         connections: Some((source, target)),
+        connections_production: (src.production, tgt.production),
         next_session: id + 1,
         ..shown.compare.clone().session_dropped()
     };

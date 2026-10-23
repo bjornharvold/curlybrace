@@ -126,8 +126,8 @@ pub struct Pending {
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
-/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `editor`, `pending` and
-/// `ssh_endpoint`. They are parked per session and must be added to `SessionView` (and to
+/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `editor`, `pending`,
+/// `ssh_endpoint` and `production`. They are parked per session and must be added to `SessionView` (and to
 /// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
 #[derive(Debug, Default)]
@@ -182,6 +182,9 @@ pub struct AppState {
     pub dialog_banner_watch: DialogBannerWatch,
     /// SSH endpoint of the connection being (or last) opened.
     pub ssh_endpoint: Option<HostEndpoint>,
+    /// Whether the active session was opened on a production connection (snapshotted at
+    /// connect, so a later edit of the saved connection does not change an open session).
+    pub production: bool,
     /// Endpoint awaiting the "forget host" confirmation.
     pub forget_confirm: Option<HostEndpoint>,
     /// The session whose failure raised the current banner (a close of it clears the banner).
@@ -211,9 +214,15 @@ impl AppState {
     /// session, which has no saved connection.
     pub fn active_badge(&self) -> crate::viewmodel::ConnectionBadge {
         self.active
-            .and_then(|id| self.connection(id))
-            .map(crate::viewmodel::badge_of)
+            .map(|id| self.session_badge(id))
             .unwrap_or_default()
+    }
+
+    /// The badge of the open session `id`: the colour follows the saved connection, the
+    /// production flag is the one snapshotted when the session opened.
+    pub fn session_badge(&self, id: Uuid) -> crate::viewmodel::ConnectionBadge {
+        let color = self.connection(id).and_then(|c| c.color);
+        crate::viewmodel::ConnectionBadge::new(color, self.session_production(id))
     }
 
     /// The name of the active connection, or a translated placeholder when none is open (so a
@@ -264,6 +273,7 @@ impl AppState {
             parked: BTreeMap::new(),
             failure: None,
             topology: None,
+            production: false,
             workspace: Workspace::Browse,
             ..self
         }
