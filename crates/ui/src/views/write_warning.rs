@@ -40,34 +40,22 @@ pub fn show_write_warning(
         ui.horizontal(|ui| {
             // Cancel is first and focused, so a stray Enter can never confirm.
             let cancel = ui.button(i18n.t("common.cancel"));
-            focus_once(ui, &cancel);
+            let confirm = ui.button(i18n.t("write_warning.confirm"));
+            // Stateless initial focus: whenever neither button holds it (a fresh warning, even
+            // right after another one vanished unanswered) Cancel takes it. The user can still
+            // Tab to Confirm, which then keeps it.
+            if !cancel.has_focus() && !confirm.has_focus() {
+                cancel.request_focus();
+            }
             if cancel.clicked() {
                 answer = Some(WriteWarningAction::Cancel);
             }
-            if ui.button(i18n.t("write_warning.confirm")).clicked() {
+            if confirm.clicked() {
                 answer = Some(WriteWarningAction::Confirm);
             }
         });
     });
-    let answer = answer.or_else(|| modal.should_close().then_some(WriteWarningAction::Cancel));
-    if answer.is_some() {
-        // The next warning is a new question and gets its own initial focus.
-        ctx.data_mut(|d| d.remove::<bool>(focus_id()));
-    }
-    answer
-}
-
-fn focus_id() -> egui::Id {
-    egui::Id::new("write_warning_focus")
-}
-
-/// Gives `response` keyboard focus the first frame the warning is drawn.
-fn focus_once(ui: &egui::Ui, response: &egui::Response) {
-    let seen = ui.data_mut(|d| d.get_temp::<bool>(focus_id()).is_some());
-    if !seen {
-        response.request_focus();
-        ui.data_mut(|d| d.insert_temp(focus_id(), true));
-    }
+    answer.or_else(|| modal.should_close().then_some(WriteWarningAction::Cancel))
 }
 
 #[cfg(test)]
@@ -105,12 +93,17 @@ mod tests {
 
     struct Run {
         parked: ParkedWrite,
+        /// False while no write is parked, as when the reducer dropped it unanswered.
+        shown: bool,
         answers: Vec<WriteWarningAction>,
     }
 
     fn harness(kind: WriteKind) -> Harness<'static, Run> {
         let mut h = Harness::new_state(
             |ctx, run: &mut Run| {
+                if !run.shown {
+                    return;
+                }
                 let badge = ConnectionBadge::new(Some(ConnectionColor::Red), true);
                 let i18n = I18n::english();
                 let shown = show_write_warning(ctx, &run.parked, "prod-db", &badge, &i18n);
@@ -118,6 +111,7 @@ mod tests {
             },
             Run {
                 parked: parked(kind),
+                shown: true,
                 answers: Vec::new(),
             },
         );
@@ -154,6 +148,26 @@ mod tests {
         h.key_press(egui::Key::Escape);
         h.run_steps(4);
         assert_eq!(h.state().answers, vec![WriteWarningAction::Cancel]);
+    }
+
+    #[test]
+    fn a_warning_dropped_unanswered_does_not_stop_the_next_one_focusing_cancel() {
+        let cancel = I18n::english().t("common.cancel");
+        for frames_between in [0, 2] {
+            let mut h = harness(WriteKind::Insert);
+            assert!(h.get_by_label(&cancel).accesskit_node().is_focused());
+            // The reducer drops the parked write (no answer), then another one is parked.
+            h.state_mut().shown = false;
+            h.run_steps(frames_between);
+            h.state_mut().shown = true;
+            h.state_mut().parked = parked(WriteKind::Insert);
+            h.run_steps(4);
+            assert!(
+                h.get_by_label(&cancel).accesskit_node().is_focused(),
+                "frames_between={frames_between}"
+            );
+            assert!(h.state().answers.is_empty());
+        }
     }
 
     #[test]

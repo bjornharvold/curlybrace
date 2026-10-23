@@ -236,7 +236,13 @@ fn show_write_warning_modal(
         return;
     };
     let config = parked.command.session().and_then(|id| state.connection(id));
-    let name = config.map_or_else(|| i18n.t("doc.connection_unknown"), |c| c.name.clone());
+    // The same disambiguated label the header and the delete confirm use, so two open
+    // connections sharing a saved name are still told apart.
+    let name = parked
+        .command
+        .session()
+        .and_then(|id| state.open_label(id, i18n))
+        .unwrap_or_else(|| i18n.t("doc.connection_unknown"));
     let badge = config.map(badge_of).unwrap_or_default();
     if let Some(action) = show_write_warning(ctx, parked, &name, &badge, i18n) {
         out.push(UiEvent::Input(Input::WriteWarning(action)));
