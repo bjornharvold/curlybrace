@@ -31,6 +31,7 @@ pub mod reducer;
 pub mod session;
 mod session_actions;
 pub mod state;
+pub mod write_guard;
 
 use crate::I18n;
 use crate::error_text::failure_log_line;

@@ -173,6 +173,9 @@ pub struct AppState {
     pub editor: Option<EditorState>,
     /// The mutating command in flight; further mutations are ignored until it resolves.
     pub pending: Option<Pending>,
+    /// A write to a production connection waiting for the user's confirmation. Not part of a
+    /// session view: the parked command names its session and is re-validated on confirm.
+    pub write_warning: Option<super::write_guard::ParkedWrite>,
     pub persist: PersistGuard,
     pub banner: Option<Banner>,
     /// What the edit dialog may repeat of `banner` (only what is new since it opened).
@@ -254,6 +257,7 @@ impl AppState {
             tree: self.tree.results_replaced(),
             editor: None,
             pending: None,
+            write_warning: None,
             forget_confirm: None,
             open: Vec::new(),
             active: None,
