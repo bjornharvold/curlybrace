@@ -260,15 +260,16 @@ fn show_rows(
             ui.horizontal(|ui| {
                 let selected = state.selected == Some(cfg.id);
                 cell(ui, layout.widths[0], |ui| {
+                    if cfg.read_only {
+                        // Before the name, so a long name is what truncates and the badge (text,
+                        // never colour alone) is always inside the cell.
+                        show_badge(ui, &ConnectionBadge::default().with_read_only(true), i18n);
+                    }
                     let name = ui.add(egui::Button::selectable(selected, &cfg.name).truncate());
                     if name.double_clicked() {
                         action = Some(ConnectionAction::Connect(cfg.id));
                     } else if name.clicked() {
                         state.select(cfg);
-                    }
-                    if cfg.read_only {
-                        // Text, never colour alone; the name keeps the room it had.
-                        show_badge(ui, &ConnectionBadge::default().with_read_only(true), i18n);
                     }
                 });
                 let texts = [
