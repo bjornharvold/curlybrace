@@ -2,7 +2,7 @@
 //! restarted and a shaded band where nothing was recorded. The numbers behind it are also
 //! written as a text line, because a drawn chart is not read by screen readers.
 use crate::I18n;
-use crate::viewmodel::index_chart::{chart_model, chart_summary};
+use crate::viewmodel::index_chart::{chart_model, chart_summary, observed_uses};
 use crate::viewmodel::index_detail::range_key;
 use curlybrace_core::history::ChartRange;
 use curlybrace_core::runtime::IndexSeries;
@@ -12,6 +12,9 @@ use egui_plot::{Bar, BarChart, Legend, Plot, PlotPoints, Polygon, VLine, uniform
 const CHART_HEIGHT: f32 = 220.0;
 /// Share of a bucket's width its bar fills, so neighbouring bars stay apart.
 const BAR_FILL: f64 = 0.85;
+/// Opacity of the band over a bucket that is wholly unobserved, and over one that is only partly.
+const GAP_SHADE: f32 = 0.35;
+const PARTIAL_GAP_SHADE: f32 = 0.15;
 
 /// Draws `series` over `range` ending at `now_secs`, then its text summary.
 pub fn show_chart(
@@ -54,24 +57,31 @@ pub fn show_chart(
             }
         })
         .label_formatter(|name, point| format!("{name}: {}", whole_number(point.y)));
+    let tooltip_i18n = i18n.clone();
+    let lower_bounds = model.lower_bounds.clone();
+    let band = visuals.widgets.noninteractive.bg_stroke.color;
     plot.show(ui, |plot_ui| {
+        let name = i18n.t("indexes.no_data");
         for (from, to) in &model.gaps {
-            let corners = vec![[*from, 0.0], [*to, 0.0], [*to, top], [*from, top]];
-            plot_ui.polygon(
-                Polygon::new(i18n.t("indexes.no_data"), PlotPoints::from(corners))
-                    .fill_color(
-                        visuals
-                            .widgets
-                            .noninteractive
-                            .bg_stroke
-                            .color
-                            .gamma_multiply(0.35),
-                    )
-                    .stroke(egui::Stroke::NONE),
-            );
+            plot_ui.polygon(gap_band(
+                &name,
+                (*from, *to),
+                top,
+                band.gamma_multiply(GAP_SHADE),
+            ));
+        }
+        // Only part of the bucket is unobserved: a lighter band, its bar is still drawn.
+        for (from, to) in &model.partial_gaps {
+            let shade = band.gamma_multiply(PARTIAL_GAP_SHADE);
+            plot_ui.polygon(gap_band(&name, (*from, *to), top, shade));
         }
         plot_ui.bar_chart(
-            BarChart::new(i18n.t("indexes.uses_series"), bars).color(visuals.selection.bg_fill),
+            BarChart::new(i18n.t("indexes.uses_series"), bars)
+                .color(visuals.selection.bg_fill)
+                .element_formatter(Box::new(move |bar, _| {
+                    let lower = lower_bounds.contains(&bar.argument);
+                    bar_tooltip(&tooltip_i18n, bar.value.round() as i64, lower)
+                })),
         );
         for x in &model.restarts {
             plot_ui.vline(
@@ -84,18 +94,44 @@ pub fn show_chart(
     ui.label(summary_line(series, range, now_secs, i18n));
 }
 
-/// The text alternative of the chart.
+/// A translucent rectangle over `(from, to)`, as tall as the chart.
+fn gap_band(name: &str, (from, to): (f64, f64), top: f64, fill: egui::Color32) -> Polygon<'static> {
+    let corners = vec![[from, 0.0], [to, 0.0], [to, top], [from, top]];
+    Polygon::new(name, PlotPoints::from(corners))
+        .fill_color(fill)
+        .stroke(egui::Stroke::NONE)
+}
+
+/// What hovering a bar says; a bucket with unobserved time says its count may be too low.
+pub fn bar_tooltip(i18n: &I18n, uses: i64, lower_bound: bool) -> String {
+    let key = if lower_bound {
+        "indexes.lower_bound_tooltip"
+    } else {
+        "indexes.uses_count"
+    };
+    i18n.t_with(key, &[("n", &uses.to_string())])
+}
+
+/// The text alternative of the chart. With no observed bucket it says so instead of "0 uses".
 pub fn summary_line(series: &IndexSeries, range: ChartRange, now_secs: i64, i18n: &I18n) -> String {
     let summary = chart_summary(series, range, now_secs);
-    i18n.t_with(
-        "indexes.summary",
-        &[
-            ("uses", &summary.uses.to_string()),
-            ("range", &i18n.t(range_key(range))),
-            ("restarts", &summary.restarts.to_string()),
-            ("hours", &summary.gap_hours.to_string()),
-        ],
-    )
+    let range_text = i18n.t(range_key(range));
+    let hours = summary.gap_hours.to_string();
+    match observed_uses(series, range, now_secs) {
+        Some(uses) => i18n.t_with(
+            "indexes.summary",
+            &[
+                ("uses", &uses.to_string()),
+                ("range", &range_text),
+                ("restarts", &summary.restarts.to_string()),
+                ("hours", &hours),
+            ],
+        ),
+        None => i18n.t_with(
+            "indexes.summary_unobserved",
+            &[("range", &range_text), ("hours", &hours)],
+        ),
+    }
 }
 
 /// Spacing of the small, medium and large grid lines, in seconds.
@@ -122,4 +158,21 @@ fn axis_label(x: f64, range: ChartRange, i18n: &I18n) -> String {
 
 fn whole_number(value: f64) -> String {
     format!("{}", value.round() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bar_with_unobserved_time_says_its_count_may_be_too_low() {
+        let i18n = I18n::english();
+        assert_eq!(bar_tooltip(&i18n, 40, false), "40 uses");
+        let lower = bar_tooltip(&i18n, 40, true);
+        assert_eq!(
+            lower,
+            i18n.t_with("indexes.lower_bound_tooltip", &[("n", "40")])
+        );
+        assert_ne!(lower, bar_tooltip(&i18n, 40, false));
+    }
 }

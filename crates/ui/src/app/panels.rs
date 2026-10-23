@@ -138,14 +138,18 @@ pub fn show_sessions_panel(
 }
 
 /// The workspace of the foreground session (the manager is drawn by `show_connections_screen`).
+/// `now_secs` is the frame's wall-clock time, read once by the caller.
 pub fn show_workspace(
     ctx: &egui::Context,
     state: &mut AppState,
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
+    now_secs: i64,
 ) {
     egui::CentralPanel::default().show(ctx, |ui| match state.workspace {
-        Workspace::Browse | Workspace::Connections => show_collection(ui, state, i18n, out),
+        Workspace::Browse | Workspace::Connections => {
+            show_collection(ui, state, i18n, out, now_secs)
+        }
         Workspace::Compare => {
             if let Some(action) = show_compare(ui, &state.compare, &state.conn, i18n) {
                 out.push(UiEvent::Input(Input::Compare(action)));
@@ -154,7 +158,13 @@ pub fn show_workspace(
     });
 }
 
-fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+fn show_collection(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+    now_secs: i64,
+) {
     if state.selected_ns().is_none() {
         ui.label(i18n.t("browser.select_collection"));
         return;
@@ -166,7 +176,7 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         out.push(UiEvent::Input(Input::Tab(tab)));
     }
     if state.tab == CollectionTab::Indexes {
-        show_indexes_tab(ui, state, badge.read_only, i18n, out);
+        show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
         return;
     }
     let (has_prev, has_next) = state.paging();
@@ -210,9 +220,10 @@ fn show_indexes_tab(
     read_only: bool,
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
+    now_secs: i64,
 ) {
     ui.separator();
-    let Some(action) = show_indexes(ui, &state.indexes, read_only, i18n) else {
+    let Some(action) = show_indexes(ui, &state.indexes, read_only, i18n, now_secs) else {
         return;
     };
     if let IndexesAction::CopyJson(json) = &action {
@@ -391,7 +402,7 @@ mod tests {
             .build_state(
                 |ctx, state: &mut AppState| {
                     let mut out = Vec::new();
-                    show_workspace(ctx, state, &I18n::english(), &mut out);
+                    show_workspace(ctx, state, &I18n::english(), &mut out, 0);
                 },
                 state,
             );

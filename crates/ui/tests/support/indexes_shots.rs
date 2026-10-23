@@ -1,7 +1,6 @@
 //! Fixed state for the Indexes tab screenshot: three indexes on `crm.customers`, the second one
 //! selected with a day of usage that holds a server restart and a stretch without data.
-use super::shots::browsing;
-use curlybrace_core::clock::now_secs;
+use super::shots::{SHOT_NOW, browsing};
 use curlybrace_core::history::{Bucket, ChartRange, Sample};
 use curlybrace_core::indexes::{IndexSpec, KeyKind};
 use curlybrace_core::runtime::{IndexSeries, SamplerStatus};
@@ -21,7 +20,7 @@ fn listed(spec: IndexSpec, size_bytes: u64) -> CollectionIndex {
 /// A day of 10 minute buckets ending at the chart's right edge. Buckets 60..80 are a gap and a
 /// restart falls in bucket 100; the uses follow a fixed pattern.
 fn day_of_usage(spec: &IndexSpec, ops: i64) -> IndexSeries {
-    let end = anchored_now(ChartRange::Day, now_secs());
+    let end = anchored_now(ChartRange::Day, SHOT_NOW);
     let buckets = (0..BUCKETS)
         .map(|i| Bucket {
             start_secs: end - (BUCKETS - i) * WIDTH,

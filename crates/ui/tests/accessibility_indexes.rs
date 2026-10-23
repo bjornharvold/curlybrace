@@ -1,7 +1,6 @@
 //! The Indexes tab in the accesskit tree: every index is listed, selecting one shows its detail,
 //! a paused sampler states why while the list stays, and every control has a name. Fast, offline,
 //! no GPU.
-use curlybrace_core::clock::now_secs;
 use curlybrace_core::history::{Bucket, ChartRange, Sample};
 use curlybrace_core::indexes::{IndexSpec, KeyKind};
 use curlybrace_core::runtime::{IndexSeries, SamplerPause, SamplerStatus};
@@ -14,9 +13,11 @@ use curlybrace_ui::views::indexes::show_indexes;
 use eframe::egui;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 const HOUR: i64 = 3_600;
+/// The wall clock of every test: injected, never read.
+const NOW: i64 = 1_800_000_000;
 
 fn t(key: &str) -> String {
     I18n::english().t(key)
@@ -45,7 +46,7 @@ fn bucket(start_secs: i64, uses: i64) -> Bucket {
 
 /// A series of `spec` on `host` whose newest use was `hours_ago` hours before the chart's end.
 fn used_series(spec: &IndexSpec, host: &str, hours_ago: i64) -> IndexSeries {
-    let end = anchored_now(ChartRange::Day, now_secs());
+    let end = anchored_now(ChartRange::Day, NOW);
     let last = end - hours_ago * HOUR - 600;
     IndexSeries {
         index_name: spec.name.clone(),
@@ -53,7 +54,7 @@ fn used_series(spec: &IndexSpec, host: &str, hours_ago: i64) -> IndexSeries {
         host: host.into(),
         buckets: vec![bucket(end - 20 * HOUR, 0), bucket(last, 5)],
         latest: Some(Sample {
-            at_secs: now_secs(),
+            at_secs: NOW,
             ops: 42,
             since_ms: 1,
         }),
@@ -61,11 +62,11 @@ fn used_series(spec: &IndexSpec, host: &str, hours_ago: i64) -> IndexSeries {
 }
 
 fn idle_series(spec: &IndexSpec, host: &str) -> IndexSeries {
-    let end = anchored_now(ChartRange::Day, now_secs());
+    let end = anchored_now(ChartRange::Day, NOW);
     IndexSeries {
         buckets: vec![bucket(end - 2 * HOUR, 0), bucket(end - HOUR, 0)],
         latest: Some(Sample {
-            at_secs: now_secs(),
+            at_secs: NOW,
             ops: 0,
             since_ms: 1,
         }),
@@ -87,11 +88,15 @@ type Frame = (IndexesState, Vec<IndexesAction>);
 /// Draws the tab; a click on a row selects it the way the reducer would, other actions are
 /// only recorded.
 fn open(state: IndexesState, read_only: bool) -> Harness<'static, Frame> {
+    open_at(state, read_only, NOW)
+}
+
+fn open_at(state: IndexesState, read_only: bool, now: i64) -> Harness<'static, Frame> {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1000.0, 700.0))
         .build_ui_state(
             move |ui, (state, seen): &mut Frame| {
-                let action = show_indexes(ui, state, read_only, &I18n::english());
+                let action = show_indexes(ui, state, read_only, &I18n::english(), now);
                 if let Some(IndexesAction::Select(name)) = &action {
                     *state = state.clone().selecting(name.clone());
                 }
@@ -247,6 +252,46 @@ fn a_series_of_the_same_name_and_another_definition_is_not_drawn() {
     assert_eq!(count(&harness, &zero), 0);
 }
 
+/// The list and the detail of one index whose series is `series`, drawn.
+fn open_with_series(series: IndexSeries) -> Harness<'static, Frame> {
+    let a = spec("a_1", "a");
+    open(state(vec![listed(a)], vec![series]), false)
+}
+
+fn assert_no_data_and_no_zero(harness: &Harness<'static, Frame>) {
+    // A list row says "No data" for an index nobody observed, never "0 uses". (The chart
+    // legend may carry the same words, so count rather than get.)
+    assert!(count(harness, &t("indexes.no_data")) >= 1);
+    let zero = I18n::english().t_with("indexes.uses_count", &[("n", "0")]);
+    assert_eq!(count(harness, &zero), 0);
+    // The detail line does not claim zero uses either.
+    let summary = I18n::english().t_with(
+        "indexes.summary_unobserved",
+        &[("range", &t("indexes.range_day")), ("hours", "0")],
+    );
+    harness.get_by_label(&summary);
+}
+
+#[test]
+fn a_series_with_only_gap_buckets_in_the_window_shows_no_data_not_zero() {
+    let a = spec("a_1", "a");
+    let mut series = idle_series(&a, "n1");
+    for b in &mut series.buckets {
+        b.gap_secs = b.width_secs;
+    }
+    assert_no_data_and_no_zero(&open_with_series(series));
+}
+
+#[test]
+fn a_series_with_no_buckets_in_the_window_shows_no_data_not_zero() {
+    let a = spec("a_1", "a");
+    let mut series = idle_series(&a, "n1");
+    // One bucket from a week ago: outside the day that is shown.
+    let old_start = anchored_now(ChartRange::Day, NOW) - 7 * 24 * HOUR;
+    series.buckets = vec![bucket(old_start, 3)];
+    assert_no_data_and_no_zero(&open_with_series(series));
+}
+
 #[test]
 fn the_read_only_flag_changes_nothing_in_this_view() {
     let labels = |read_only: bool| {
@@ -271,4 +316,32 @@ fn empty_states_say_what_is_missing() {
     let a = spec("a_1", "a");
     let unsampled = state(vec![listed(a)], Vec::new());
     open(unsampled, false).get_by_label(&t("indexes.no_history"));
+}
+
+/// Every label and button text on screen, in tree order.
+fn texts(harness: &Harness<'static, Frame>) -> Vec<String> {
+    [Role::Label, Role::Button]
+        .into_iter()
+        .flat_map(|role| harness.query_all_by_role(role))
+        .filter_map(|n| {
+            n.accesskit_node()
+                .label()
+                .or_else(|| n.accesskit_node().value())
+        })
+        .map(|s| s.to_string())
+        .collect()
+}
+
+#[test]
+fn the_view_output_depends_only_on_the_injected_now() {
+    let (_, _, state) = two_indexes();
+    let first = texts(&open_at(state.clone(), false, NOW));
+    let again = texts(&open_at(state.clone(), false, NOW));
+    assert_eq!(first, again, "same now, same output");
+
+    // Three hours later the same data is three hours older (the grid step is ten minutes).
+    let later = texts(&open_at(state, false, NOW + 3 * HOUR));
+    let ago = |h: &str| I18n::english().t_with("indexes.ago_hours", &[("n", h)]);
+    assert!(first.contains(&ago("3")) && !first.contains(&ago("6")));
+    assert!(later.contains(&ago("6")) && !later.contains(&ago("3")));
 }

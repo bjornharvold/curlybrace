@@ -3,10 +3,9 @@
 //! did; the reducer decides what happens.
 use super::index_detail::{DetailInput, show_detail};
 use crate::I18n;
-use crate::viewmodel::index_chart::chart_summary;
+use crate::viewmodel::index_chart::observed_uses;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key, series_of};
 use crate::viewmodel::{IndexesAction, IndexesState};
-use curlybrace_core::clock::now_secs;
 use curlybrace_core::runtime::{SamplerPause, SamplerStatus};
 use curlybrace_core::store::CollectionIndex;
 use eframe::egui;
@@ -16,13 +15,16 @@ const LIST_MAX_WIDTH: f32 = 320.0;
 /// Share of the tab the index list takes.
 const LIST_SHARE: f32 = 0.3;
 
-/// Draws the tab. `_read_only` is accepted for the write controls that arrive with the index
-/// writes; everything drawn today only reads, so it changes nothing.
+/// Draws the tab at the wall-clock time `now_secs` (Unix seconds), which the caller reads once
+/// per frame; nothing in here reads the clock, so the output depends only on the arguments.
+/// `_read_only` is accepted for the write controls that arrive with the index writes;
+/// everything drawn today only reads, so it changes nothing.
 pub fn show_indexes(
     ui: &mut egui::Ui,
     state: &IndexesState,
     _read_only: bool,
     i18n: &I18n,
+    now_secs: i64,
 ) -> Option<IndexesAction> {
     let mut action = toolbar(ui, state, i18n);
     ui.separator();
@@ -36,7 +38,7 @@ pub fn show_indexes(
         return action;
     }
     // The chart ends at a bucket boundary, so it holds still between frames.
-    let now = anchored_now(state.range, now_secs());
+    let now = anchored_now(state.range, now_secs);
     let shown = shown_index(state);
     let list_width = (ui.available_width() * LIST_SHARE).clamp(LIST_MIN_WIDTH, LIST_MAX_WIDTH);
     ui.horizontal_top(|ui| {
@@ -133,8 +135,9 @@ fn list(
     });
     for index in &state.indexes {
         let spec = &index.spec;
+        // `None` unless the window was observed: a guessed zero would mark an index unused.
         let uses = series_of(&state.series, spec)
-            .map(|series| chart_summary(series, state.range, now).uses);
+            .and_then(|series| observed_uses(series, state.range, now));
         let is_shown = shown.is_some_and(|s| s.spec.name == spec.name);
         ui.horizontal(|ui| {
             // A never-used index is dimmed: it is the one worth a second look.

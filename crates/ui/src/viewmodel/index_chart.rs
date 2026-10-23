@@ -14,6 +14,10 @@ pub struct ChartModel {
     pub restarts: Vec<f64>,
     /// `(from, to)` x of each stretch without data; neighbouring stretches are merged.
     pub gaps: Vec<(f64, f64)>,
+    /// `(from, to)` x of each bucket that is only partly unobserved; its point is drawn.
+    pub partial_gaps: Vec<(f64, f64)>,
+    /// x of each point whose bucket holds unobserved time, so its value may be a lower bound.
+    pub lower_bounds: Vec<f64>,
 }
 
 /// The numbers of the text line below the chart.
@@ -25,27 +29,44 @@ pub struct ChartSummary {
     pub gap_hours: i64,
 }
 
-/// Plots `series` over the last `range` before `now_secs`. A bucket that holds any unobserved
-/// time carries no point (its count would be a lower bound placed in time it does not belong
-/// to, and a gap is never drawn as zero); the whole bucket is shaded as a gap instead.
+/// Plots `series` over the last `range` before `now_secs`. Real uses never vanish: a bucket with
+/// uses is always a point, and when it also holds unobserved time the point is a lower bound
+/// (`lower_bounds`). A bucket with gap time and no uses has no point, since a gap is never
+/// drawn as zero. The gap time itself is shaded: the whole bucket in `gaps` when all of it is
+/// unobserved, in `partial_gaps` when only part of it is.
 pub fn chart_model(series: &IndexSeries, range: ChartRange, now_secs: i64) -> ChartModel {
     let x = |secs: i64| (secs - now_secs) as f64;
     let mut model = ChartModel::default();
     for bucket in windowed(series, range, now_secs) {
-        let end = bucket.start_secs + bucket.width_secs;
+        let span = (
+            x(bucket.start_secs),
+            x(bucket.start_secs + bucket.width_secs),
+        );
+        let middle = (span.0 + span.1) / 2.0;
         if bucket.restarts > 0 {
-            model.restarts.push(x(bucket.start_secs));
+            model.restarts.push(span.0);
         }
-        if bucket.gap_secs > 0 {
-            push_gap(&mut model.gaps, (x(bucket.start_secs), x(end)));
-        } else {
-            let middle = bucket.start_secs as f64 + bucket.width_secs as f64 / 2.0;
-            model
-                .points
-                .push([middle - now_secs as f64, bucket.uses as f64]);
+        if bucket.gap_secs >= bucket.width_secs {
+            push_gap(&mut model.gaps, span);
+        } else if bucket.gap_secs > 0 {
+            model.partial_gaps.push(span);
+        }
+        if bucket.gap_secs == 0 || bucket.uses > 0 {
+            model.points.push([middle, bucket.uses as f64]);
+        }
+        if bucket.gap_secs > 0 && bucket.uses > 0 {
+            model.lower_bounds.push(middle);
         }
     }
     model
+}
+
+/// Uses in the window, or `None` when no bucket of it was observed at all (a zero would then
+/// be a guess, and an index must never look unused because nobody was watching).
+pub fn observed_uses(series: &IndexSeries, range: ChartRange, now_secs: i64) -> Option<i64> {
+    let buckets = windowed(series, range, now_secs);
+    let observed = buckets.iter().any(|b| b.gap_secs < b.width_secs);
+    observed.then(|| buckets.iter().map(|b| b.uses).sum())
 }
 
 /// Totals over the same window as [`chart_model`].
@@ -127,7 +148,6 @@ mod tests {
 
     #[test]
     fn chart_model_never_plots_a_gap_as_zero() {
-        // A bucket that is partly or wholly a gap carries no point, even with uses of 0.
         let s = series(vec![
             bucket(NOW - 3 * HOUR, 0, 0, HOUR),
             bucket(NOW - 2 * HOUR, 0, 0, 1_800),
@@ -135,7 +155,68 @@ mod tests {
         ]);
         let model = chart_model(&s, ChartRange::Day, NOW);
         assert_eq!(model.points, vec![[-(HOUR as f64) / 2.0, 2.0]]);
-        assert_eq!(model.gaps, vec![(-3.0 * HOUR as f64, -(HOUR as f64))]);
+    }
+
+    #[test]
+    fn a_bucket_with_gap_time_and_real_uses_is_still_plotted() {
+        let s = series(vec![bucket(NOW - 2 * HOUR, 40, 0, 300)]);
+        let model = chart_model(&s, ChartRange::Week, NOW);
+        let h = HOUR as f64;
+        assert_eq!(model.points, vec![[-1.5 * h, 40.0]]);
+        assert_eq!(model.partial_gaps, vec![(-2.0 * h, -1.0 * h)]);
+        assert_eq!(model.lower_bounds, vec![-1.5 * h]);
+        assert!(
+            model.gaps.is_empty(),
+            "only part of the bucket is unobserved"
+        );
+    }
+
+    #[test]
+    fn a_bucket_with_gap_time_and_no_uses_has_no_point() {
+        let s = series(vec![
+            bucket(NOW - 2 * HOUR, 0, 0, 300),
+            bucket(NOW - HOUR, 0, 0, 0),
+        ]);
+        let model = chart_model(&s, ChartRange::Week, NOW);
+        // The observed empty bucket is a real zero; the one with gap time is not plotted.
+        assert_eq!(model.points, vec![[-(HOUR as f64) / 2.0, 0.0]]);
+        assert!(model.lower_bounds.is_empty());
+        // The unobserved part is still shown, lightly.
+        let h = HOUR as f64;
+        assert_eq!(model.partial_gaps, vec![(-2.0 * h, -1.0 * h)]);
+    }
+
+    #[test]
+    fn a_fully_unobserved_bucket_is_shaded_whole() {
+        let s = series(vec![
+            bucket(NOW - 3 * HOUR, 0, 0, HOUR),
+            bucket(NOW - 2 * HOUR, 6, 0, HOUR),
+        ]);
+        let model = chart_model(&s, ChartRange::Day, NOW);
+        let h = HOUR as f64;
+        assert_eq!(model.gaps, vec![(-3.0 * h, -1.0 * h)]);
+        assert!(model.partial_gaps.is_empty());
+        // Uses counted over the silence are still shown, as a lower bound.
+        assert_eq!(model.points, vec![[-1.5 * h, 6.0]]);
+    }
+
+    #[test]
+    fn observed_uses_is_none_unless_a_bucket_of_the_window_was_observed() {
+        let all_gap = series(vec![bucket(NOW - HOUR, 0, 0, HOUR)]);
+        assert_eq!(observed_uses(&all_gap, ChartRange::Day, NOW), None);
+        assert_eq!(
+            observed_uses(&series(Vec::new()), ChartRange::Day, NOW),
+            None
+        );
+        let outside = series(vec![bucket(NOW - 30 * HOUR, 9, 0, 0)]);
+        assert_eq!(observed_uses(&outside, ChartRange::Day, NOW), None);
+        let partly = series(vec![bucket(NOW - HOUR, 0, 0, 300)]);
+        assert_eq!(observed_uses(&partly, ChartRange::Day, NOW), Some(0));
+        let seen = series(vec![
+            bucket(NOW - 2 * HOUR, 0, 0, 0),
+            bucket(NOW - HOUR, 3, 0, HOUR),
+        ]);
+        assert_eq!(observed_uses(&seen, ChartRange::Day, NOW), Some(3));
     }
 
     #[test]

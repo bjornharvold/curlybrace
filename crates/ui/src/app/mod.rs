@@ -103,6 +103,8 @@ pub struct CurlybraceApp {
     conn_pick: Option<connection_picker::ConnPick>,
     /// The runtime was found gone (never reset: it is not restarted); keeps its banner to one.
     runtime_gone: bool,
+    /// Unix seconds for the views; the wall clock, replaced by tests that need a fixed frame.
+    clock: fn() -> i64,
 }
 
 impl CurlybraceApp {
@@ -127,7 +129,13 @@ impl CurlybraceApp {
             pick: None,
             conn_pick: None,
             runtime_gone: false,
+            clock: curlybrace_core::clock::now_secs,
         }
+    }
+
+    /// Replaces the clock the views are drawn with (tests that need a fixed frame).
+    pub fn with_clock(self, clock: fn() -> i64) -> Self {
+        Self { clock, ..self }
     }
 
     /// Builds everything the binary needs. Must be called inside a Tokio runtime context
@@ -605,7 +613,9 @@ impl CurlybraceApp {
         if panels::shows_manager(&self.state) {
             panels::show_connections_screen(ctx, &mut self.state, &self.i18n, &mut out);
         } else {
-            panels::show_workspace(ctx, &mut self.state, &self.i18n, &mut out);
+            // The one place a frame reads the wall clock for the views.
+            let now_secs = (self.clock)();
+            panels::show_workspace(ctx, &mut self.state, &self.i18n, &mut out, now_secs);
         }
         panels::show_modals(ctx, &mut self.state, &self.prompt, &self.i18n, &mut out);
         out
