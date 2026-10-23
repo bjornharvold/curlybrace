@@ -24,7 +24,7 @@
     "in_connection": "In {name}:",
     "not_connected": "Not connected. Connect to a server first.",
     "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them.",
-    "read_only": "This connection is read-only, so nothing was changed. Untick Read-only in the connection settings to write.",
+    "read_only": "This connection is read-only, so nothing was changed. To write, untick Read-only in the connection settings and reconnect.",
     "write_not_sent_busy": "The write was not sent because another write was still in progress. Review the document and try again.",
     "write_not_sent_connection_changed": "The write was not sent because the connection changed. Review the document and try again."
   },
@@ -460,7 +460,7 @@
     "name_with_read_only": "{name} ({badge})",
     "production_badge": "PRODUCTION",
     "read_only_badge": "Read-only",
-    "read_only_reason": "This connection is read-only, so writes are turned off. Untick Read-only in the connection settings to write."
+    "read_only_reason": "This connection is read-only, so writes are turned off. To write, untick Read-only in the connection settings and reconnect."
   },
   "connections": {
     "allow_invalid_certs": "Allow invalid TLS certificates",

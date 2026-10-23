@@ -351,8 +351,13 @@ impl CurlybraceApp {
                 self.state =
                     connection_save::save_and_close(state, &form, secrets, &self.config_path, now);
                 // Open sessions keep the flag they connected with, so a newly ticked one is also
-                // sent to the core, which then refuses their writes at once.
+                // sent to the core, which then refuses their writes at once (until a reconnect,
+                // so their snapshots are raised to match).
                 let locks = connection_save::lock_commands(&self.state, form.id, was_read_only);
+                if !locks.is_empty() {
+                    let state = std::mem::take(&mut self.state);
+                    self.state = connection_save::locked_snapshots(state, form.id);
+                }
                 self.send(locks);
             }
             ConnectionAction::Delete(id) => {

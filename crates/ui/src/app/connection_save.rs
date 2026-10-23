@@ -1,8 +1,10 @@
 //! Save from the edit dialog: runs `connections::save` and decides whether the dialog closes.
 use super::connection_ops::with_conn;
 use super::connections::{ConfigPath, save};
+use super::session::SessionView;
 use super::state::{AppState, Banner};
 use crate::viewmodel::ConnectionForm;
+use crate::viewmodel::compare::CompareState;
 use crate::views::connections::Notice;
 use curlybrace_core::runtime::Command;
 use curlybrace_core::secrets::SecretStore;
@@ -63,6 +65,44 @@ pub(super) fn lock_commands(
     match !was_read_only && now_read_only && has_session {
         true => vec![Command::LockReadOnly { connection }],
         false => Vec::new(),
+    }
+}
+
+/// The state after the live lock of `connection` was sent: the core refuses that connection's
+/// writes until a reconnect, so the snapshot of every open view of it (the active one, a parked
+/// one and the matching side(s) of the compare session) is raised to read-only too. Unticking the
+/// saved flag afterwards then leaves the UI locked, like the core, until the next connect.
+pub(super) fn locked_snapshots(state: AppState, connection: Uuid) -> AppState {
+    let read_only = state.read_only || state.active == Some(connection);
+    let compare = match state.compare.connections {
+        Some((source, target)) => {
+            let (s, t) = state.compare.connections_read_only;
+            CompareState {
+                connections_read_only: (s || source == connection, t || target == connection),
+                ..state.compare.clone()
+            }
+        }
+        None => state.compare.clone(),
+    };
+    let parked = state
+        .parked
+        .into_iter()
+        .map(|(id, view)| match id == connection {
+            true => (
+                id,
+                SessionView {
+                    read_only: true,
+                    ..view
+                },
+            ),
+            false => (id, view),
+        })
+        .collect();
+    AppState {
+        read_only,
+        parked,
+        compare,
+        ..state
     }
 }
 
