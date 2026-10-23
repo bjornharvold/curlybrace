@@ -14,7 +14,7 @@ use curlybrace_ui::app::host_key::InteractivePrompt;
 use curlybrace_ui::app::runtime_config;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -37,6 +37,16 @@ pub struct Fixture {
     rt: Runtime,
 }
 
+/// The runtime settings every harness uses: the app's own, except that index history lives in the
+/// test's temporary directory, never in the developer's real config directory.
+pub fn harness_runtime_config(dir: &Path, prompt: Arc<InteractivePrompt>) -> RuntimeConfig {
+    runtime_config(
+        Some(dir.join("known_hosts")),
+        Some(dir.join("history.sqlite")),
+        prompt,
+    )
+}
+
 /// Builds the app on `rt`: the real runtime (real driver connector), an in-memory secret store
 /// (never the Keychain) and a connections file inside `dir`.
 fn launch(
@@ -50,7 +60,7 @@ fn launch(
     let config_path = dir.path().join("connections.json");
     let known_hosts = dir.path().join("known_hosts");
     let (prompt, requests) = InteractivePrompt::channel(Arc::new(|| {}), Duration::from_secs(5));
-    let config: RuntimeConfig = runtime_config(Some(known_hosts.clone()), prompt);
+    let config = harness_runtime_config(dir.path(), prompt);
     let store: Arc<dyn SecretStore> = secrets;
     let handle = spawn_runtime_with_config(Some(store.clone()), None, Arc::new(|| {}), config);
     let app = CurlybraceApp::new(handle, curlybrace_ui::I18n::english(), saved, store)

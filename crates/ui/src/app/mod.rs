@@ -67,9 +67,13 @@ use std::time::Duration;
 const CONNECT_SLACK: Duration = Duration::from_secs(30);
 
 /// Runtime settings for the app: interactive host-key prompt, a connect timeout that outlasts
-/// it, and the normal short bound for data commands.
+/// it, and the normal short bound for data commands. `history_path` is where index usage is
+/// recorded (`None` turns history off): the shipped app passes `default_history_path()`, anything
+/// else that spawns a runtime passes a throwaway location so it never writes to the user's real
+/// config directory.
 pub fn runtime_config(
     known_hosts_path: Option<PathBuf>,
+    history_path: Option<PathBuf>,
     prompt: Arc<InteractivePrompt>,
 ) -> RuntimeConfig {
     RuntimeConfig {
@@ -77,9 +81,7 @@ pub fn runtime_config(
         connect_timeout: HOST_KEY_PROMPT_TIMEOUT + CONNECT_SLACK,
         known_hosts_path,
         host_key_prompt: prompt,
-        // The shipped app records index usage; the core default is off so tests never touch the
-        // user's config directory.
-        history_path: default_history_path(),
+        history_path,
         ..RuntimeConfig::default()
     }
 }
@@ -142,7 +144,7 @@ impl CurlybraceApp {
         let known_hosts = default_known_hosts_path();
         let (prompt, requests) =
             InteractivePrompt::channel(repaint.clone(), HOST_KEY_PROMPT_TIMEOUT);
-        let config = runtime_config(known_hosts.clone(), prompt);
+        let config = runtime_config(known_hosts.clone(), default_history_path(), prompt);
         let handle =
             spawn_runtime_with_config(Some(secrets.clone()), None, repaint.clone(), config);
         Self::new(handle, i18n, connections, secrets)
