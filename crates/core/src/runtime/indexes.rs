@@ -125,27 +125,69 @@ pub(super) fn start_sampler(
         shared.sampler_config.subscribe(),
         status_tx,
     );
+    let abort = handle.abort_handle();
     if !session.attach_sampler(generation, handle) {
         return;
     }
-    let session = session.clone();
-    // Ends when the sampler is aborted (its sender drops) or the event channel closes.
+    // Weak: a strong reference would keep the session (and so the sampler and its store) alive
+    // for as long as the sampler runs, a cycle that outlives the runtime.
+    let session = Arc::downgrade(session);
+    // Ends when the sampler is aborted (its sender drops), the session is gone or the event
+    // channel closes; in the last two cases it stops the sampler itself.
     tokio::spawn(async move {
-        while let Some(status) = statuses.recv().await {
-            // A status queued before an abort belongs to a connection the person already left.
-            if !session.is_current(generation) {
-                break;
+        loop {
+            let status = tokio::select! {
+                status = statuses.recv() => status,
+                () = events.closed() => None,
+            };
+            let Some(status) = status else {
+                abort.abort();
+                return;
+            };
+            match forward(&session, generation, &events, id, status) {
+                Forwarded::Sent => repaint(),
+                Forwarded::Stale => return,
+                Forwarded::Closed => {
+                    abort.abort();
+                    return;
+                }
             }
-            if events
-                .send(Event::Sampler {
-                    session: id,
-                    status,
-                })
-                .is_err()
-            {
-                break;
-            }
-            repaint();
         }
     });
+}
+
+enum Forwarded {
+    Sent,
+    /// The session moved on (or is gone): the sampler is already aborted, the status is dropped.
+    Stale,
+    /// Nobody receives events any more.
+    Closed,
+}
+
+/// Sends one status unless the session left the epoch the sampler was started in. The currentness
+/// check and the send happen under the READ side of the session's `epoch_lock`, like
+/// `handlers::send_answer`, so `Session::begin` cannot slip in between: a status is never
+/// delivered after the `Disconnected` or the newer `Connected` of its session. Synchronous, so the
+/// std lock is never held across an `.await`.
+fn forward(
+    session: &std::sync::Weak<Session>,
+    generation: u64,
+    events: &UnboundedSender<Event>,
+    id: SessionId,
+    status: sampler::SamplerStatus,
+) -> Forwarded {
+    let Some(session) = session.upgrade() else {
+        return Forwarded::Stale;
+    };
+    let _reading = session.epoch_lock.read().unwrap_or_else(|e| e.into_inner());
+    if !session.is_current(generation) {
+        return Forwarded::Stale;
+    }
+    match events.send(Event::Sampler {
+        session: id,
+        status,
+    }) {
+        Ok(()) => Forwarded::Sent,
+        Err(_) => Forwarded::Closed,
+    }
 }

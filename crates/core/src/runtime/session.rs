@@ -86,6 +86,12 @@ impl Session {
         true
     }
 
+    /// Moves the generation without the bookkeeping of `begin`, as the caller holds `epoch_lock`.
+    #[cfg(test)]
+    pub(super) fn move_generation_for_tests(&self, generation: u64) {
+        self.generation.store(generation, Ordering::SeqCst);
+    }
+
     fn stop_sampler(&self) {
         let old = self
             .sampler

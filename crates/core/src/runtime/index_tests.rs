@@ -3,6 +3,7 @@
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -14,9 +15,10 @@ use super::*;
 use crate::clock;
 use crate::history::{ChartRange, HistoryDb, Sample, SeriesKey};
 use crate::indexes::KeyKind;
-use crate::store::IndexUsage;
+use crate::store::{IndexUsage, Page, Query};
 use crate::test_support::InMemoryStore;
 use crate::test_support::mock_objects::{mock_doc, mock_index_spec, mock_index_spec_named};
+use bson::Bson;
 
 const WAIT: Duration = Duration::from_secs(5);
 const HOST: &str = "h1:27017";
@@ -532,28 +534,130 @@ async fn set_sampling_excluded_reaches_a_running_sampler() {
     assert_eq!(latest("audit"), Some(5), "an excluded one stops");
 }
 
-#[tokio::test]
+/// Counts the passes of a sampler: one `list_databases` call per pass.
+struct CountingStore {
+    inner: Arc<InMemoryStore>,
+    passes: AtomicUsize,
+}
+
+#[async_trait]
+impl DocumentStore for CountingStore {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        self.passes.fetch_add(1, Ordering::SeqCst);
+        self.inner.list_databases().await
+    }
+    async fn list_collections(&self, db: &str) -> Result<Vec<String>> {
+        self.inner.list_collections(db).await
+    }
+    async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page> {
+        self.inner.find(ns, q).await
+    }
+    async fn insert(&self, ns: &Namespace, doc: bson::Document) -> Result<Bson> {
+        self.inner.insert(ns, doc).await
+    }
+    async fn replace(&self, ns: &Namespace, id: &Bson, doc: bson::Document) -> Result<()> {
+        self.inner.replace(ns, id, doc).await
+    }
+    async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()> {
+        self.inner.delete(ns, id).await
+    }
+    async fn list_collection_kinds(
+        &self,
+        db: &str,
+    ) -> Result<Vec<(String, crate::store::CollectionKind)>> {
+        self.inner.list_collection_kinds(db).await
+    }
+    async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
+        self.inner.index_stats(ns).await
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_zero_sampler_interval_is_clamped_to_one_second() {
-    let dir = tempfile::tempdir().unwrap();
-    let config = RuntimeConfig {
-        sampler: SamplerConfig {
-            interval: Duration::ZERO,
-            ..SamplerConfig::default()
-        },
-        ..config_at(&dir)
+    let store = Arc::new(CountingStore {
+        inner: store_with(&["testdb"]),
+        passes: AtomicUsize::new(0),
+    });
+    let history = Arc::new(HistoryDb::open_in_memory().unwrap());
+    let zero = SamplerConfig {
+        interval: Duration::ZERO,
+        ..SamplerConfig::default()
     };
+    let (_cfg_tx, cfg_rx) = tokio::sync::watch::channel(zero);
+    let (status_tx, _statuses) = tokio::sync::mpsc::unbounded_channel();
+    let task = sampler::spawn(
+        store.clone(),
+        history,
+        Uuid::from_u128(3),
+        cfg_rx,
+        status_tx,
+    );
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    task.abort();
+    let passes = store.passes.load(Ordering::SeqCst);
+    // One pass at once and one per second after: a tight loop would make thousands.
+    assert!((10..=12).contains(&passes), "{passes} passes in 10 seconds");
+}
+
+#[tokio::test]
+async fn dropping_the_runtime_stops_the_samplers() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_at(&dir);
     let path = config.history_path.clone().unwrap();
     let store = store_with(&["testdb"]);
-    let mut h = spawn_connecting(store, config);
+    let mut h = spawn_connecting(store.clone(), config);
     let cfg = conn_config(false);
     connect(&mut h, &cfg).await;
     expect_sampler(&mut h, cfg.id, SamplerStatus::Running).await;
-    tokio::time::sleep(Duration::from_millis(1_200)).await;
-    let reader = open_history(&path);
-    let key = key_in(cfg.id, "testdb");
-    // One pass at connect and about one more per second: a tight loop would record hundreds.
-    let buckets = reader
-        .usage(&key, ChartRange::Day, clock::now_secs())
-        .unwrap();
-    assert!(buckets.iter().map(|b| b.uses).sum::<i64>() < 5);
+    drop(h);
+    // Let the forwarder notice the closed channel, then change what a surviving sampler would read.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    store.set_index_usage(&ns("testdb"), vec![usage(50)]);
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    let latest = open_history(&path).latest(&key_in(cfg.id, "testdb"));
+    assert_eq!(
+        latest.unwrap().map(|s| s.ops),
+        Some(5),
+        "a sampler survived"
+    );
+}
+
+/// A `Shared` with an in-memory history, for driving `start_sampler` by hand.
+fn shared_with_history() -> Arc<Shared> {
+    Arc::new(Shared {
+        sessions: std::sync::RwLock::new(Default::default()),
+        next_epoch: std::sync::atomic::AtomicU64::new(0),
+        secrets: None,
+        connector: Arc::new(FixedConnector(store_with(&[]))),
+        config: RuntimeConfig::default(),
+        compare: Default::default(),
+        latest_test: Default::default(),
+        read_only: Default::default(),
+        history: Some(Arc::new(HistoryDb::open_in_memory().unwrap())),
+        sampler_config: tokio::sync::watch::channel(SamplerConfig::default().clamped()).0,
+    })
+}
+
+// Provokes the window deterministically: the test holds the epoch lock for write, as `begin` does
+// while it moves the generation, while the sampler produces its first status. Before the fix the
+// forwarder passed its currentness check and sent anyway; now it waits for the lock and drops the
+// status once the generation has moved. Blocking the lock needs worker threads to spare.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[allow(clippy::await_holding_lock, clippy::readonly_write_lock)]
+async fn a_sampler_status_never_follows_disconnected() {
+    let shared = shared_with_history();
+    let id = Uuid::from_u128(11);
+    let (session, generation) = shared.begin_session_epoch(id);
+    assert!(session.install_if_current(generation, store_with(&["testdb"]), None));
+    let (events, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let begin_in_progress = session.epoch_lock.write().unwrap();
+    indexes::start_sampler(&shared, &session, id, generation, events, Arc::new(|| {}));
+    // The sampler's first pass completes and its status reaches the forwarder meanwhile.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    session.move_generation_for_tests(generation + 1);
+    drop(begin_in_progress);
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(rx.try_recv().is_err(), "a status followed the epoch change");
 }
