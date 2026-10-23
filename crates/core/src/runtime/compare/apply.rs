@@ -100,7 +100,9 @@ pub(super) fn dispatch(
 
 /// The synchronous part: validates, takes the job slot, spawns the task.
 fn start_apply(ctx: JobContext, request: ApplyRequest) -> Result<()> {
-    connections(&ctx.session)?;
+    if connections(&ctx.session)?.target.is_read_only() {
+        return Err(CoreError::ReadOnly);
+    }
     let ApplyRequest {
         mut ops,
         bulk,
