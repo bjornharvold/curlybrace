@@ -247,7 +247,6 @@ fn damaged_read_only_counts_as_repaired_and_is_rewritten_as_true() {
     save_connections(&path, &loaded.connections).unwrap();
     let again = load_connections(&path).unwrap();
     assert_eq!(again.repaired, 0, "rewritten as a real boolean");
-    let raw: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(raw[0]["read_only"], serde_json::json!(true));
 }

@@ -25,6 +25,9 @@ mod job_flag;
 mod lost_server_tests;
 #[cfg(test)]
 mod prompt_gate_tests;
+mod read_only_registry;
+#[cfg(test)]
+mod read_only_tests;
 mod session;
 #[cfg(test)]
 mod session_tests;
@@ -234,6 +237,11 @@ pub enum Command {
         cfg: ConnectionConfig,
         secrets: TestSecrets,
     },
+    /// Makes every open store of the connection refuse writes from now on. Independent of the
+    /// sessions like `TestConnection`: no epoch, no answer event, and an unknown id does nothing.
+    LockReadOnly {
+        connection: uuid::Uuid,
+    },
 }
 
 impl Command {
@@ -250,7 +258,8 @@ impl Command {
             | Self::ListCollections { .. }
             | Self::Find { .. }
             | Self::Compare(_)
-            | Self::TestConnection { .. } => false,
+            | Self::TestConnection { .. }
+            | Self::LockReadOnly { .. } => false,
         }
     }
 
@@ -268,11 +277,12 @@ impl Command {
             Self::Clone { .. } => "clone",
             Self::Compare(_) => "compare",
             Self::TestConnection { .. } => "test_connection",
+            Self::LockReadOnly { .. } => "lock_read_only",
         }
     }
 
-    /// The session this command addresses; `None` for compare and connection tests, which are
-    /// independent of sessions.
+    /// The session this command addresses; `None` for compare, connection tests and read-only
+    /// locks, which are independent of sessions.
     pub fn session(&self) -> Option<SessionId> {
         match self {
             Self::Connect(cfg) => Some(cfg.id),
@@ -284,7 +294,7 @@ impl Command {
             | Self::Replace { session, .. }
             | Self::Delete { session, .. }
             | Self::Clone { session, .. } => Some(*session),
-            Self::Compare(_) | Self::TestConnection { .. } => None,
+            Self::Compare(_) | Self::TestConnection { .. } | Self::LockReadOnly { .. } => None,
         }
     }
 }
@@ -397,6 +407,8 @@ pub(crate) struct Shared {
     /// The flag of the newest connection test: a newer test ends it, so at most one test's
     /// host-key question is live. Locked only briefly, never across an await.
     latest_test: std::sync::Mutex<Option<job_flag::JobFlag>>,
+    /// The read-only flags of the open stores, so a lock reaches stores that are already open.
+    pub(crate) read_only: read_only_registry::ReadOnlyRegistry,
 }
 
 impl Shared {
@@ -479,6 +491,7 @@ pub fn spawn_runtime_with_connector(
         config,
         compare: Default::default(),
         latest_test: Default::default(),
+        read_only: Default::default(),
     });
     tokio::runtime::Handle::current().spawn(async move {
         while let Some(command) = commands.recv().await {
@@ -508,6 +521,12 @@ fn dispatch(
     } = command
     {
         handlers::spawn_test(shared, events, repaint, request_id, cfg, secrets);
+        return;
+    }
+    // Synchronous, so a write sent after the lock is already refused. No session, no epoch, no
+    // answer: the caller learns of it from the next refused write.
+    if let Command::LockReadOnly { connection } = command {
+        shared.read_only.lock(connection);
         return;
     }
     // Synchronous, so request order decides: ending the session bumps its epoch before any later

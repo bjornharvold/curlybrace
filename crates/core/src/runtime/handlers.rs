@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::connection::ConnectionConfig;
 use crate::crud::DocumentService;
 use crate::error::{CoreError, Result};
+use crate::read_only_store::ReadOnlyStore;
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
@@ -125,6 +126,10 @@ async fn run(
         .map_err(|e| gate(session, generation, e))?;
     let limit = shared.config.command_timeout;
     let is_write = command.is_write();
+    // Refused before any timeout or ping bookkeeping: a refusal is an answer, never a lost write.
+    if is_write && store.is_read_only() {
+        return Err(CoreError::ReadOnly);
+    }
     let work = data_command(id, store.clone(), command);
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
     // an answer from a server that is there.
@@ -211,7 +216,8 @@ async fn data_command(
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
-        | Command::TestConnection { .. } => {
+        | Command::TestConnection { .. }
+        | Command::LockReadOnly { .. } => {
             unreachable!("connection and compare commands are handled before data dispatch")
         }
     })
@@ -260,6 +266,7 @@ async fn connect_store(
             .connector
             .connect(&cfg, password.as_deref(), addr)
             .await?;
+        let store = ReadOnlyStore::wrap(store, shared.read_only.attach(cfg.id, cfg.read_only));
         // Informational: a slow or failing read is `None`, it never fails the connect.
         let topology = bounded(shared.config.command_timeout, store.topology())
             .await

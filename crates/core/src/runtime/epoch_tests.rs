@@ -34,6 +34,7 @@ fn shared() -> Arc<Shared> {
         config: RuntimeConfig::default(),
         compare: Default::default(),
         latest_test: Default::default(),
+        read_only: Default::default(),
     })
 }
 
