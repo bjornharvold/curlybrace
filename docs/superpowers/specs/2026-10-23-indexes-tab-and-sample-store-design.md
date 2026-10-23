@@ -126,7 +126,8 @@ typing the index name. Large-collection warning above a document-count threshold
 - **Nodes.** `$indexStats` reports one row per node (`host`). Rows are stored with a `host` column from the
   start, so replica sets and sharded clusters need no later migration. The tab shows the node the
   connection reads from; a node picker is out of scope for the first version.
-- **Index identity.** A series is identified by index name plus a hash of its definition (key and options).
+- **Index identity.** A series is identified by index name plus a hash of its definition (key and options, except
+  `hidden` and the TTL, which change in place through `collMod` and leave the index and its history the same).
   Recreating a name with a different definition starts a new series; the trend never joins two different
   indexes. History of dropped indexes is kept until normal retention removes it and is not listed by
   default. A dropped or renamed collection is handled the same way: its rows age out.

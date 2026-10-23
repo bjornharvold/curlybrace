@@ -373,3 +373,157 @@ async fn listing_a_missing_collection_is_empty() {
     let (_c, _client, store) = docker_mongo().await;
     assert_eq!(store.list_indexes(&ns()).await, Ok(Vec::new()));
 }
+
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn creates_and_lists_a_compound_text_index_with_its_prefix() {
+    if !docker_enabled("creates_and_lists_a_compound_text_index_with_its_prefix") {
+        return;
+    }
+    let (_c, _client, store) = docker_mongo().await;
+    let wanted = spec(
+        "a_1_t_text",
+        &[("a", KeyKind::Asc), ("t", KeyKind::Text)],
+        IndexOptions::default(),
+    );
+    let got = create_and_list(&store, &wanted).await;
+    assert_eq!(got.spec.keys, wanted.keys);
+}
+
+/// Creates each of `specs` on `ns` and checks that `listIndexes` and `$indexStats` hash the same
+/// definition for it; returns the names that disagree.
+async fn hash_disagreements(
+    store: &MongoStore,
+    ns: &Namespace,
+    specs: &[IndexSpec],
+) -> Vec<String> {
+    for wanted in specs {
+        store.create_index(ns, wanted).await.unwrap();
+    }
+    let listed = store.list_indexes(ns).await.unwrap();
+    let stats = store.index_stats(ns).await.unwrap();
+    let mut bad = Vec::new();
+    for wanted in specs {
+        let from_list = listed
+            .iter()
+            .find(|i| i.spec.name == wanted.name)
+            .unwrap_or_else(|| panic!("{} is not listed", wanted.name));
+        let from_stats = stats
+            .iter()
+            .find(|row| row.name == wanted.name)
+            .unwrap_or_else(|| panic!("{} has no $indexStats row", wanted.name));
+        if from_list.spec.definition_hash() != from_stats.spec.definition_hash() {
+            bad.push(format!(
+                "{}: listIndexes {:?} vs $indexStats {:?}",
+                wanted.name, from_list.spec.raw, from_stats.spec.raw
+            ));
+        }
+    }
+    bad
+}
+
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn list_indexes_and_index_stats_agree_on_the_definition_hash_for_every_index_type() {
+    if !docker_enabled(
+        "list_indexes_and_index_stats_agree_on_the_definition_hash_for_every_index_type",
+    ) {
+        return;
+    }
+    let (_c, _client, store) = docker_mongo().await;
+    seed(&store, 10).await;
+    let plain = IndexOptions::default;
+    let specs = vec![
+        spec("a_1", &[("a", KeyKind::Asc)], plain()),
+        spec(
+            "a_1_b_-1",
+            &[("a", KeyKind::Asc), ("b", KeyKind::Desc)],
+            plain(),
+        ),
+        spec("t_text", &[("t", KeyKind::Text)], plain()),
+        spec("loc_2dsphere", &[("loc", KeyKind::Geo2dSphere)], plain()),
+        spec(
+            "wild",
+            &[("w.$**", KeyKind::Wildcard)],
+            IndexOptions {
+                wildcard_projection: None,
+                ..plain()
+            },
+        ),
+        spec(
+            "b_unique",
+            &[("b", KeyKind::Asc)],
+            IndexOptions {
+                unique: true,
+                ..plain()
+            },
+        ),
+        spec(
+            "c_sparse",
+            &[("c", KeyKind::Asc)],
+            IndexOptions {
+                sparse: true,
+                ..plain()
+            },
+        ),
+        spec(
+            "created_ttl",
+            &[("created", KeyKind::Asc)],
+            IndexOptions {
+                expire_after_seconds: Some(3600),
+                ..plain()
+            },
+        ),
+        spec(
+            "a_partial",
+            &[("d", KeyKind::Asc)],
+            IndexOptions {
+                partial_filter: Some(doc! { "d": { "$gt": 5_i32 } }),
+                ..plain()
+            },
+        ),
+        spec(
+            "e_collated",
+            &[("e", KeyKind::Asc)],
+            IndexOptions {
+                collation: Some(doc! { "locale": "en", "strength": 2_i32 }),
+                ..plain()
+            },
+        ),
+        spec("f_hashed", &[("f", KeyKind::Hashed)], plain()),
+        spec("g_2d", &[("g", KeyKind::Geo2d)], plain()),
+        spec(
+            "h_hidden",
+            &[("h", KeyKind::Asc)],
+            IndexOptions {
+                hidden: true,
+                ..plain()
+            },
+        ),
+    ];
+    let mut bad = hash_disagreements(&store, &ns(), &specs).await;
+    // Wildcard with a projection (only valid on the whole-document wildcard).
+    let projected = Namespace::new(DB, "projected");
+    let wild = spec(
+        "wild_projected",
+        &[("$**", KeyKind::Wildcard)],
+        IndexOptions {
+            wildcard_projection: Some(doc! { "a": 1_i32, "b": 1_i32 }),
+            ..plain()
+        },
+    );
+    bad.extend(hash_disagreements(&store, &projected, &[wild]).await);
+    // A server allows one text index per collection, so the compound one has its own.
+    let compound = Namespace::new(DB, "compound_text");
+    let with_prefix = spec(
+        "a_1_t_text_z_-1",
+        &[
+            ("a", KeyKind::Asc),
+            ("t", KeyKind::Text),
+            ("z", KeyKind::Desc),
+        ],
+        plain(),
+    );
+    bad.extend(hash_disagreements(&store, &compound, &[with_prefix]).await);
+    assert!(bad.is_empty(), "hash disagreements:\n{}", bad.join("\n"));
+}

@@ -110,16 +110,23 @@ fn number(value: &Bson) -> Option<i64> {
     }
 }
 
+/// An option flag. Old specs wrote `unique: 1`, so a non-zero number counts as true.
 fn flag(doc: &Document, field: &str) -> bool {
-    doc.get_bool(field).unwrap_or(false)
+    match doc.get(field) {
+        Some(Bson::Boolean(b)) => *b,
+        Some(Bson::Int32(n)) => *n != 0,
+        Some(Bson::Int64(n)) => *n != 0,
+        Some(Bson::Double(n)) => *n != 0.0,
+        _ => false,
+    }
 }
 
 fn sub_document(doc: &Document, field: &str) -> Option<Document> {
     doc.get_document(field).ok().cloned()
 }
 
-/// The server reports a text index as `key: {_fts: "text", _ftsx: 1}`; the indexed fields are
-/// the keys of `weights`.
+/// The server reports a text index as `key: {_fts: "text", _ftsx: 1}` (inside a compound key the
+/// pair sits where the text keys go); the indexed text fields are the keys of `weights`.
 fn text_keys(doc: &Document) -> Result<Vec<IndexKey>> {
     let weights = doc
         .get_document("weights")
@@ -143,19 +150,17 @@ impl IndexSpec {
             .get_str("name")
             .map_err(|_| invalid("index has no name".into()))?
             .to_string();
-        let keys = if key_doc.get_str("_fts") == Ok("text") {
-            text_keys(doc)?
-        } else {
-            key_doc
-                .iter()
-                .map(|(field, value)| {
-                    Ok(IndexKey {
-                        field: field.clone(),
-                        kind: KeyKind::from_bson(field, value)?,
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
+        let mut keys = Vec::new();
+        for (field, value) in key_doc {
+            match field.as_str() {
+                "_fts" if value.as_str() == Some("text") => keys.extend(text_keys(doc)?),
+                "_ftsx" => {}
+                _ => keys.push(IndexKey {
+                    field: field.clone(),
+                    kind: KeyKind::from_bson(field, value)?,
+                }),
+            }
+        }
         let options = IndexOptions {
             unique: flag(doc, "unique"),
             sparse: flag(doc, "sparse"),
@@ -179,7 +184,8 @@ impl IndexSpec {
     }
 
     /// Hex SHA-256 over what makes two indexes the same: keys in order and every option except
-    /// `hidden`, and not the name.
+    /// `hidden` and `expireAfterSeconds` (both change in place through `collMod`, so the index
+    /// keeps its history), and not the name.
     pub fn definition_hash(&self) -> String {
         let identity = self.definition(false);
         let bytes = bson::to_vec(&identity).expect("a document of plain values serializes");
@@ -216,8 +222,9 @@ impl IndexSpec {
         named
     }
 
-    /// Keys, options and unmodelled fields; `hidden` only when asked for, since it does not change what is indexed.
-    fn definition(&self, with_hidden: bool) -> Document {
+    /// Keys, options and unmodelled fields. The identity form (`full == false`) leaves out `hidden`
+    /// and `expireAfterSeconds`, which `collMod` changes on the same index.
+    fn definition(&self, full: bool) -> Document {
         let options = &self.options;
         let mut key = Document::new();
         for index_key in &self.keys {
@@ -230,10 +237,10 @@ impl IndexSpec {
         if options.sparse {
             document.insert("sparse", true);
         }
-        if with_hidden && options.hidden {
+        if full && options.hidden {
             document.insert("hidden", true);
         }
-        if let Some(seconds) = options.expire_after_seconds {
+        if let (true, Some(seconds)) = (full, options.expire_after_seconds) {
             document.insert("expireAfterSeconds", seconds);
         }
         for (field, value) in [

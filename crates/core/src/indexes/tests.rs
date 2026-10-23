@@ -366,3 +366,95 @@ fn create_command_keeps_unmodelled_fields_of_a_2d_index() {
     assert!(!index.contains_key("v"));
     assert_eq!(index.keys().filter(|k| *k == "key").count(), 1);
 }
+
+fn compound_text_index() -> bson::Document {
+    doc! {
+        "v": 2_i32,
+        "key": { "a": 1_i32, "_fts": "text", "_ftsx": 1_i32, "z": -1_i32 },
+        "name": "a_1_t_text_z_-1",
+        "weights": { "t": 1_i32 },
+        "default_language": "english",
+        "language_override": "language",
+        "textIndexVersion": 3_i32,
+    }
+}
+
+#[test]
+fn a_compound_text_index_keeps_its_non_text_keys_in_order() {
+    let spec = IndexSpec::from_document(&compound_text_index()).unwrap();
+    assert_eq!(
+        spec.keys,
+        vec![
+            key("a", KeyKind::Asc),
+            key("t", KeyKind::Text),
+            key("z", KeyKind::Desc)
+        ]
+    );
+}
+
+#[test]
+fn a_compound_text_index_round_trips_through_create_command() {
+    let spec = IndexSpec::from_document(&compound_text_index()).unwrap();
+    let command = spec.create_command("posts");
+    let index = command.get_array("indexes").unwrap()[0]
+        .as_document()
+        .unwrap();
+    let key_doc = index.get_document("key").unwrap();
+    assert_eq!(key_doc, &doc! { "a": 1_i32, "t": "text", "z": -1_i32 });
+    assert_eq!(
+        key_doc.keys().collect::<Vec<_>>(),
+        vec!["a", "t", "z"],
+        "key order is preserved"
+    );
+    assert_eq!(index.get_document("weights"), Ok(&doc! { "t": 1_i32 }));
+    assert_eq!(index.get_str("default_language"), Ok("english"));
+}
+
+#[test]
+fn compound_text_indexes_with_a_different_prefix_hash_differently() {
+    let mut other = compound_text_index();
+    other.insert(
+        "key",
+        doc! { "b": 1_i32, "_fts": "text", "_ftsx": 1_i32, "z": -1_i32 },
+    );
+    let a = IndexSpec::from_document(&compound_text_index()).unwrap();
+    let b = IndexSpec::from_document(&other).unwrap();
+    assert_ne!(a.definition_hash(), b.definition_hash());
+}
+
+#[test]
+fn numeric_option_flags_read_as_true() {
+    let spec = IndexSpec::from_document(&doc! {
+        "key": { "a": 1_i32 }, "name": "a_1",
+        "unique": 1_i32, "sparse": 1_i64, "hidden": 1.0_f64,
+    })
+    .unwrap();
+    assert!(spec.options.unique && spec.options.sparse && spec.options.hidden);
+}
+
+#[test]
+fn false_zero_and_absent_option_flags_read_as_false() {
+    let spec = IndexSpec::from_document(&doc! {
+        "key": { "a": 1_i32 }, "name": "a_1",
+        "unique": false, "sparse": 0_i32, "hidden": "yes",
+    })
+    .unwrap();
+    assert!(!spec.options.unique && !spec.options.sparse && !spec.options.hidden);
+    let plain = IndexSpec::from_document(&doc! { "key": { "a": 1_i32 }, "name": "a_1" }).unwrap();
+    assert!(!plain.options.unique && !plain.options.sparse && !plain.options.hidden);
+}
+
+#[test]
+fn definition_hash_ignores_the_ttl() {
+    let ttl = |seconds| {
+        with_options(IndexOptions {
+            expire_after_seconds: Some(seconds),
+            ..IndexOptions::default()
+        })
+    };
+    assert_eq!(ttl(60).definition_hash(), ttl(7200).definition_hash());
+    assert_eq!(
+        ttl(60).definition_hash(),
+        mock_index_spec().definition_hash()
+    );
+}

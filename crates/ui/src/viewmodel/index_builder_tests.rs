@@ -458,3 +458,27 @@ fn a_copy_without_text_keys_carries_no_text_options() {
             .is_none()
     );
 }
+
+#[test]
+fn a_copy_of_a_compound_text_index_keeps_its_non_text_keys_and_weights() {
+    let original = IndexSpec::from_document(&doc! {
+        "key": { "a": 1, "_fts": "text", "_ftsx": 1, "z": -1 }, "name": "a_1_t_text_z_-1", "v": 2,
+        "weights": { "t": 3 }, "default_language": "english",
+        "language_override": "language", "textIndexVersion": 3,
+    })
+    .unwrap();
+    let copy = IndexBuilderState::from_copy(ns(), &original, "c_v2".into());
+    let spec = copy.spec().unwrap();
+    let index = index_of(&spec);
+    assert_eq!(
+        index.get_document("key").unwrap(),
+        &doc! { "a": 1, "t": "text", "z": -1 }
+    );
+    assert_eq!(index.get_document("weights").unwrap(), &doc! { "t": 3 });
+    assert_eq!(
+        copy.preview_json(),
+        doc_to_view_json(&spec.create_command("orders"))
+    );
+    assert!(copy.preview_json().contains("\"a\""));
+    assert!(copy.preview_json().contains("\"z\""));
+}
