@@ -24,6 +24,7 @@
     "in_connection": "In {name}:",
     "not_connected": "Not connected. Connect to a server first.",
     "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them.",
+    "read_only": "This connection is read-only, so nothing was changed. Untick Read-only in the connection settings to write.",
     "write_not_sent_busy": "The write was not sent because another write was still in progress. Review the document and try again.",
     "write_not_sent_connection_changed": "The write was not sent because the connection changed. Review the document and try again."
   },
@@ -133,6 +134,7 @@
         "total": "Documents in total: {count}"
       },
       "pending_badge": "Pending changes: {count}",
+      "read_only_target": "The target connection is read-only, so nothing was applied.",
       "reason": {
         "applied": "Changes were applied to this pair. Run it again first.",
         "busy": "An apply or an export is in progress.",

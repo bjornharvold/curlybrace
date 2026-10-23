@@ -385,6 +385,7 @@ fn open(state: AppState, source: Uuid, target: Uuid) -> Out {
         session: Some(SessionPhase::Opening(id)),
         connections: Some((source, target)),
         connections_production: (src.production, tgt.production),
+        connections_read_only: (src.read_only, tgt.read_only),
         next_session: id + 1,
         ..shown.compare.clone().session_dropped()
     };

@@ -15,6 +15,8 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::NotConnected => (i18n.t("banner.not_connected"), None),
         Banner::HostForgotten => (i18n.t("banner.host_forgotten"), None),
         Banner::ProjectionReadOnly => (i18n.t("banner.projection_read_only"), None),
+        Banner::ReadOnly => (i18n.t("banner.read_only"), None),
+        Banner::CompareApplyReadOnly => (i18n.t("compare.apply.read_only_target"), None),
         Banner::FieldsConflict => (i18n.t("banner.fields_conflict"), None),
         Banner::FieldsCovered => (i18n.t("banner.fields_covered"), None),
         Banner::WriteNotSentConnectionChanged => {
@@ -126,6 +128,8 @@ mod tests {
             Banner::NotConnected,
             Banner::HostForgotten,
             Banner::ProjectionReadOnly,
+            Banner::ReadOnly,
+            Banner::CompareApplyReadOnly,
             Banner::FieldsConflict,
             Banner::FieldsCovered,
             Banner::WriteNotSentConnectionChanged,

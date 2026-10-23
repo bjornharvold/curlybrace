@@ -347,8 +347,13 @@ impl CurlybraceApp {
                 self.dispatch(Input::Connect(id));
             }
             ConnectionAction::Save(form) => {
+                let was_read_only = state.connection(form.id).is_some_and(|c| c.read_only);
                 self.state =
                     connection_save::save_and_close(state, &form, secrets, &self.config_path, now);
+                // Open sessions keep the flag they connected with, so a newly ticked one is also
+                // sent to the core, which then refuses their writes at once.
+                let locks = connection_save::lock_commands(&self.state, form.id, was_read_only);
+                self.send(locks);
             }
             ConnectionAction::Delete(id) => {
                 let was_open = state.is_open(id);
@@ -642,6 +647,12 @@ mod write_warning_modal_tests;
 
 #[cfg(test)]
 mod production_snapshot_tests;
+
+#[cfg(test)]
+mod read_only_snapshot_tests;
+
+#[cfg(test)]
+mod connection_lock_tests;
 
 #[cfg(test)]
 mod tests {

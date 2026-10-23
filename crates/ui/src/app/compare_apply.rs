@@ -6,7 +6,7 @@
 //! review and would produce the very same writes now. Anything else drops the review.
 use super::compare::{cmd, failure_banner, none, ready, with_compare};
 use super::reducer::Out;
-use super::state::AppState;
+use super::state::{AppState, Banner};
 use crate::viewmodel::compare::{ApplyUi, CompareState, Review};
 use curlybrace_core::compare::apply::IdPolicy;
 use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent, PairId};
@@ -98,6 +98,15 @@ pub(super) fn confirm_apply(state: AppState) -> Out {
     };
     if ready(&state) != Some(reviewed.session) || rebuilt(c, reviewed).is_none() {
         return dropped_review(state);
+    }
+    // The target is where an apply writes; a read-only one refuses it before anything is sent.
+    let target_read_only = c
+        .connections
+        .is_some_and(|(_, target)| c.is_read_only(target, &state.conn.connections));
+    if target_read_only {
+        let banner = Some(Banner::CompareApplyReadOnly);
+        let (state, out) = dropped_review(state);
+        return (AppState { banner, ..state }, out);
     }
     if !reviewed.confirmation_passes() {
         return none(state);

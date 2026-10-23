@@ -285,6 +285,11 @@ fn mutation(
     build: impl FnOnce(SessionId, Namespace) -> Command,
 ) -> Out {
     gated(state, |s| {
+        // Ahead of the production guard: a read-only connection never reaches the confirm modal.
+        if s.active_is_read_only() {
+            let banner = Some(Banner::ReadOnly);
+            return (AppState { banner, ..s }, Vec::new());
+        }
         let Some(ns) = s
             .selected_ns()
             .cloned()

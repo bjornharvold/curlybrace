@@ -35,6 +35,9 @@ pub struct SessionView {
     /// connection afterwards changes nothing here (it applies on the next connect); ticking it is
     /// picked up by `AppState::session_production`.
     pub production: bool,
+    /// The connection's read-only flag as it was when the session was opened; same rules as
+    /// `production`, read through `AppState::session_read_only`.
+    pub read_only: bool,
 }
 
 /// One entry of the connection tree: an open session and what to show for it.
@@ -95,6 +98,7 @@ impl AppState {
             pending: self.pending.take(),
             ssh_endpoint: self.ssh_endpoint.take(),
             production: std::mem::take(&mut self.production),
+            read_only: std::mem::take(&mut self.read_only),
         }
     }
 
@@ -120,6 +124,7 @@ impl AppState {
             pending,
             ssh_endpoint,
             production,
+            read_only,
         } = v;
         self.status = status;
         self.failure = failure;
@@ -139,6 +144,7 @@ impl AppState {
         self.pending = pending;
         self.ssh_endpoint = ssh_endpoint;
         self.production = production;
+        self.read_only = read_only;
     }
 
     /// Makes `id` the active session, parking the previous one. Unknown ids change nothing.
@@ -309,6 +315,7 @@ impl AppState {
             latest_requested_epoch: old.latest_requested_epoch,
             ssh_endpoint: old.ssh_endpoint,
             production: old.production,
+            read_only: old.read_only,
             ..SessionView::default()
         });
         next

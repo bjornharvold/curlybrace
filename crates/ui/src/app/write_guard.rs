@@ -82,6 +82,24 @@ impl AppState {
         };
         snapshot || self.connection(id).is_some_and(|c| c.production)
     }
+
+    /// Whether the active session is read-only: see [`AppState::session_read_only`]. The embedded
+    /// session has no saved connection and is never read-only.
+    pub fn active_is_read_only(&self) -> bool {
+        self.active.is_some_and(|id| self.session_read_only(id))
+    }
+
+    /// Whether the open session `id` is read-only: the flag it opened with (snapshotted at
+    /// connect, wherever its view lives) OR the saved connection's live flag. Ticking locks at
+    /// once (the lock is also sent to the core), unticking only on the next connect; a connection
+    /// deleted while open is judged by its snapshot alone.
+    pub fn session_read_only(&self, id: uuid::Uuid) -> bool {
+        let snapshot = match self.active == Some(id) {
+            true => self.read_only,
+            false => self.parked.get(&id).is_some_and(|v| v.read_only),
+        };
+        snapshot || self.connection(id).is_some_and(|c| c.read_only)
+    }
 }
 
 /// Answers the warning: `Confirm` sends the parked write if it is still valid (else says it was
