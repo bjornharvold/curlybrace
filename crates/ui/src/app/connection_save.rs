@@ -56,8 +56,9 @@ pub(super) fn save_and_close(
     now: i64,
 ) -> AppState {
     let blocked = state.persist.check().is_err();
-    // Open sessions keep the settings they connected with: an edit only shows on the next connect.
-    let edits_open_session = state.is_open(form.id);
+    // Open sessions (browse or compare) keep the settings they connected with: an edit only shows
+    // on the next connect, apart from ticking Production, which applies at once.
+    let edits_open_session = state.is_open(form.id) || state.compare.involves(form.id);
     // Save against an empty banner slot so any banner seen afterwards came from this save, even
     // when an identical one was already showing; the old banner is restored if none came.
     let prior = state.banner.clone();
@@ -403,6 +404,21 @@ mod tests {
         };
         let next = save_and_close(state, &copy, &secrets, &path, 9);
         assert_eq!(next.conn.notice, None);
+    }
+
+    #[test]
+    fn editing_a_connection_open_only_in_compare_says_changes_apply_on_reconnect() {
+        let (_dir, path, secrets) = setup();
+        let cfg = existing("a");
+        let other = existing("b");
+        let mut state = editing_saved(&cfg, &[]);
+        state.compare.connections = Some((other.id, cfg.id));
+        let form = ConnectionForm {
+            production: true,
+            ..ConnectionForm::from_config(&cfg)
+        };
+        let next = save_and_close(state, &form, &secrets, &path, 9);
+        assert_eq!(next.conn.notice, Some(Notice::AppliesOnReconnect));
     }
 
     /// `state` with the dialog open and the watch having seen it open with `banner` showing.

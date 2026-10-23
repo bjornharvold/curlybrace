@@ -204,7 +204,8 @@ fn recovered(
 }
 
 /// Result of loading: the valid entries, how many were skipped as invalid and how many had
-/// their name or folder repaired (those are in `connections`).
+/// their name or folder repaired or a damaged production flag read as production (those are in
+/// `connections`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loaded {
     pub connections: Vec<ConnectionConfig>,
@@ -253,20 +254,24 @@ pub(crate) fn parse_entries(
     let mut repaired = 0;
     let mut connections = Vec::with_capacity(total);
     for value in entries {
+        // A damaged production flag loads as production (fail safe) and is rewritten as `true`
+        // on the next save, so the saved list reports it like any other adjusted entry.
+        let flag_damaged = repair && value.get("production").is_some_and(|v| !v.is_boolean());
         let Ok(cfg) = serde_json::from_value::<ConnectionConfig>(value) else {
             continue;
         };
-        let cfg = if repair && cfg.validate().is_err() {
+        let (cfg, labels_fixed) = if repair && cfg.validate().is_err() {
             let (fixed, changed) = repair_labels(cfg);
-            repaired += usize::from(changed && fixed.validate().is_ok());
-            fixed
+            let usable = changed && fixed.validate().is_ok();
+            (fixed, usable)
         } else {
-            cfg
+            (cfg, false)
         };
         // The strict host check applies to new input only: a saved connection is never dropped
         // by it (`repair` is true for the saved list).
         let hosts_ok = repair || curlybrace_core::uri::check_hosts(&cfg.uri).is_ok();
         if hosts_ok && cfg.validate().is_ok() {
+            repaired += usize::from(labels_fixed || flag_damaged);
             connections.push(cfg);
         }
     }

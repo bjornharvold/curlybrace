@@ -15,6 +15,7 @@ pub mod compare_states;
 pub mod db;
 pub mod export_flow;
 pub mod fixture;
+pub mod production_shots;
 pub mod screen;
 pub mod shots;
 pub mod sidebar;

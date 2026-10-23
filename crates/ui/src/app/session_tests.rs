@@ -77,6 +77,7 @@ fn busy_view(n: i32) -> SessionView {
             host: format!("host{n}"),
             port: 22,
         }),
+        production: n % 2 == 1,
     }
 }
 
@@ -110,6 +111,7 @@ fn snapshot(s: &AppState) -> (String, Vec<(Uuid, String)>) {
         editor: s.editor.clone(),
         pending: s.pending.clone(),
         ssh_endpoint: s.ssh_endpoint.clone(),
+        production: s.production,
     };
     let parked = s
         .parked

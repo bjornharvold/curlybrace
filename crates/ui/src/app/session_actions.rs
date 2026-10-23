@@ -23,6 +23,7 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
         status: ConnStatus::Connecting,
         latest_requested_epoch: epoch,
         ssh_endpoint: HostEndpoint::of(&cfg),
+        production: cfg.production,
         ..SessionView::default()
     };
     let next = AppState {

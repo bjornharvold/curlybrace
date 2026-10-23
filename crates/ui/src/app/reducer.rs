@@ -5,6 +5,7 @@ use super::connection_test;
 use super::persistence::PersistError;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
+use super::write_guard::{self, WriteWarningAction};
 use crate::viewmodel::{
     ConnectionForm, DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key,
 };
@@ -23,6 +24,8 @@ pub enum Input {
     Find(FindAction),
     Doc(DocAction),
     Editor(EditorAction),
+    /// The answer to the production write warning.
+    WriteWarning(WriteWarningAction),
     Connect(Uuid),
     /// Close the named session (its root disappears from the tree).
     Disconnect(Uuid),
@@ -45,6 +48,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Find(a) => actions::find(state, a),
         Input::Doc(a) => actions::doc(state, a),
         Input::Editor(a) => actions::editor(state, a),
+        Input::WriteWarning(a) => write_guard::on_action(state, a),
         Input::Connect(id) => session_actions::connect(state, id),
         Input::Disconnect(id) => session_actions::disconnect(state, id),
         Input::Activate(id) => session_actions::activate(state, id),

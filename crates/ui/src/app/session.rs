@@ -3,7 +3,7 @@
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus, HostEndpoint, Pending};
 use crate::I18n;
-use crate::viewmodel::connection_list;
+use crate::viewmodel::{ConnectionBadge, connection_list};
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
@@ -31,6 +31,10 @@ pub struct SessionView {
     pub editor: Option<EditorState>,
     pub pending: Option<Pending>,
     pub ssh_endpoint: Option<HostEndpoint>,
+    /// The connection's production flag as it was when the session was opened. Unticking the saved
+    /// connection afterwards changes nothing here (it applies on the next connect); ticking it is
+    /// picked up by `AppState::session_production`.
+    pub production: bool,
 }
 
 /// One entry of the connection tree: an open session and what to show for it.
@@ -42,6 +46,9 @@ pub struct Root {
     pub topology: Option<Topology>,
     pub failure: Option<CoreError>,
     pub active: bool,
+    /// The colour tag and production flag to draw beside the name: the same
+    /// [`AppState::session_badge`] the connection header uses, so the two cannot drift.
+    pub badge: ConnectionBadge,
 }
 
 /// The name to show for the open session `id`: see [`AppState::open_label`].
@@ -87,6 +94,7 @@ impl AppState {
             editor: self.editor.take(),
             pending: self.pending.take(),
             ssh_endpoint: self.ssh_endpoint.take(),
+            production: std::mem::take(&mut self.production),
         }
     }
 
@@ -111,6 +119,7 @@ impl AppState {
             editor,
             pending,
             ssh_endpoint,
+            production,
         } = v;
         self.status = status;
         self.failure = failure;
@@ -129,6 +138,7 @@ impl AppState {
         self.editor = editor;
         self.pending = pending;
         self.ssh_endpoint = ssh_endpoint;
+        self.production = production;
     }
 
     /// Makes `id` the active session, parking the previous one. Unknown ids change nothing.
@@ -291,13 +301,14 @@ impl AppState {
     /// The active session's view after its connect failed: everything cleared except what
     /// identifies the attempt (its epoch and endpoint), plus the error.
     pub fn failed(self, error: CoreError) -> AppState {
-        let mut next = self;
+        let mut next = self.write_warning_dropped_for_active();
         let old = next.take_view();
         next.restore_view(SessionView {
             status: ConnStatus::Failed,
             failure: Some(error),
             latest_requested_epoch: old.latest_requested_epoch,
             ssh_endpoint: old.ssh_endpoint,
+            production: old.production,
             ..SessionView::default()
         });
         next
@@ -309,7 +320,7 @@ impl AppState {
 
     /// Forgets a session and its parked view; dropping the active one leaves no active view.
     pub fn session_dropped(self, id: Uuid) -> AppState {
-        let mut next = self;
+        let mut next = self.write_warning_dropped_for(id);
         next.open.retain(|open| *open != id);
         next.parked.remove(&id);
         if next.active == Some(id) {
@@ -343,6 +354,7 @@ impl AppState {
             topology,
             failure,
             active,
+            badge: self.session_badge(id),
         }
     }
 }

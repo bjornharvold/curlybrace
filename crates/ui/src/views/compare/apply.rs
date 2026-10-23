@@ -4,9 +4,13 @@
 use super::pending::{destination_text, pair_text};
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::compare::{CompareState, Review, ReviewPair};
+use crate::views::connection_badge::show_badge;
+use crate::views::write_warning::focus_cancel_unless_focused;
 use curlybrace_core::compare::apply::IdPolicy;
 use eframe::egui;
+use uuid::Uuid;
 
 pub use super::apply_result::show_progress;
 
@@ -18,11 +22,13 @@ const DESTINATION_WIDTH: f32 = 200.0;
 pub fn show_review(
     ctx: &egui::Context,
     state: &CompareState,
+    production: &dyn Fn(Uuid) -> bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let review = state.apply.review()?;
+    let notice = review.production_destinations(production);
     let modal = egui::Modal::new(egui::Id::new("compare_apply_review"));
-    let response = modal.show(ctx, |ui| show_body(ui, state, review, i18n));
+    let response = modal.show(ctx, |ui| show_body(ui, state, review, &notice, i18n));
     let closed = response.should_close();
     response
         .inner
@@ -33,19 +39,34 @@ fn show_body(
     ui: &mut egui::Ui,
     state: &CompareState,
     review: &Review,
+    production: &[String],
     i18n: &I18n,
 ) -> Option<CompareAction> {
     ui.set_width(MODAL_WIDTH);
+    show_production_heading(ui, !production.is_empty(), i18n);
     ui.heading(i18n.t("compare.apply.review.title"));
     show_pairs(ui, state, review, i18n);
     let total = review.op_total().to_string();
     ui.strong(i18n.t_with("compare.apply.review.total", &[("count", &total)]));
     show_field_line(ui, review, i18n);
     let policy = show_id_policy(ui, review, i18n);
+    show_production_notice(ui, production, i18n);
     show_warnings(ui, review, i18n);
-    let typed = show_confirmation(ui, review, i18n);
-    let buttons = show_buttons(ui, review, i18n);
+    let (typed, typing) = show_confirmation(ui, review, i18n);
+    let buttons = show_buttons(ui, review, !production.is_empty(), typing, i18n);
     buttons.or(typed).or(policy)
+}
+
+/// The production warning heading with the production badge, like the write warning's, above
+/// the review when a written connection is production.
+fn show_production_heading(ui: &mut egui::Ui, production: bool, i18n: &I18n) {
+    if !production {
+        return;
+    }
+    ui.horizontal(|ui| {
+        show_badge(ui, &ConnectionBadge::new(None, true), i18n);
+        ui.heading(i18n.t("write_warning.title"));
+    });
 }
 
 fn show_pairs(ui: &mut egui::Ui, state: &CompareState, review: &Review, i18n: &I18n) {
@@ -169,6 +190,22 @@ fn show_id_policy(ui: &mut egui::Ui, review: &Review, i18n: &I18n) -> Option<Com
     action
 }
 
+/// One line per written connection that is production, so the person sees where the writes land.
+fn show_production_notice(ui: &mut egui::Ui, production: &[String], i18n: &I18n) {
+    if production.is_empty() {
+        return;
+    }
+    ui.separator();
+    let color = ui.visuals().error_fg_color;
+    for name in production {
+        let line = i18n.t_with(
+            "compare.apply.review.production_line",
+            &[("connection", name)],
+        );
+        ui.label(egui::RichText::new(line).strong().color(color));
+    }
+}
+
 fn show_warnings(ui: &mut egui::Ui, review: &Review, i18n: &I18n) {
     if review.warnings.is_empty() {
         return;
@@ -183,29 +220,116 @@ fn show_warnings(ui: &mut egui::Ui, review: &Review, i18n: &I18n) {
 
 /// The typed confirmation, when deletes need one: the prompt on its own wrapping line, the text
 /// to type below it (bold, monospace) and a full-width box. The box shows what the review stores.
-fn show_confirmation(ui: &mut egui::Ui, review: &Review, i18n: &I18n) -> Option<CompareAction> {
-    let required = review.required_text(&review.word)?;
+/// Also reports whether the box holds the keyboard focus (the person is typing).
+fn show_confirmation(
+    ui: &mut egui::Ui,
+    review: &Review,
+    i18n: &I18n,
+) -> (Option<CompareAction>, bool) {
+    let Some(required) = review.required_text(&review.word) else {
+        return (None, false);
+    };
     ui.separator();
     let caption = ui.label(i18n.t("compare.apply.review.confirm_prompt"));
     ui.label(egui::RichText::new(required).strong().monospace());
     let mut text = review.confirm_text.clone();
     let edit = egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY);
-    let changed = ui.add(edit).labelled_by(caption.id).changed();
-    changed.then_some(CompareAction::SetConfirmText(text))
+    let response = ui.add(edit).labelled_by(caption.id);
+    let typing = response.has_focus();
+    (
+        response
+            .changed()
+            .then_some(CompareAction::SetConfirmText(text)),
+        typing,
+    )
 }
 
-/// Apply (only when the confirmation passes) and Cancel. Neither takes focus on its own and
-/// Enter confirms nothing.
-fn show_buttons(ui: &mut egui::Ui, review: &Review, i18n: &I18n) -> Option<CompareAction> {
+/// Apply (only when the confirmation passes) and Cancel. A plain review takes no focus on its
+/// own and Enter confirms nothing. With a production destination Cancel comes first and holds
+/// the initial focus (as in the write warning), so Enter can never apply; it leaves the focus
+/// alone while the person types the confirmation.
+fn show_buttons(
+    ui: &mut egui::Ui,
+    review: &Review,
+    production: bool,
+    typing: bool,
+    i18n: &I18n,
+) -> Option<CompareAction> {
     ui.separator();
     ui.horizontal(|ui| {
         let apply = egui::Button::new(i18n.t("compare.apply.review.apply"));
-        let confirm = ui
-            .add_enabled(review.confirmation_passes(), apply)
+        let cancel_label = i18n.t("compare.apply.review.cancel");
+        if !production {
+            let confirm = ui
+                .add_enabled(review.confirmation_passes(), apply)
+                .clicked()
+                .then_some(CompareAction::ConfirmApply);
+            let cancel = ui.button(cancel_label);
+            return confirm.or(cancel.clicked().then_some(CompareAction::CancelReview));
+        }
+        let cancel = ui.button(cancel_label);
+        let apply = ui.add_enabled(review.confirmation_passes(), apply);
+        if !typing {
+            focus_cancel_unless_focused(&cancel, &apply);
+        }
+        apply
             .clicked()
-            .then_some(CompareAction::ConfirmApply);
-        let cancel = ui.button(i18n.t("compare.apply.review.cancel"));
-        confirm.or(cancel.clicked().then_some(CompareAction::CancelReview))
+            .then_some(CompareAction::ConfirmApply)
+            .or(cancel.clicked().then_some(CompareAction::CancelReview))
     })
     .inner
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    fn notice_lines(production: Vec<String>) -> Vec<String> {
+        let mut harness = Harness::new_ui_state(
+            |ui, names: &mut Vec<String>| show_production_notice(ui, names, &I18n::english()),
+            production.clone(),
+        );
+        harness.run_steps(2);
+        production
+            .iter()
+            .map(|name| {
+                I18n::english().t_with(
+                    "compare.apply.review.production_line",
+                    &[("connection", name)],
+                )
+            })
+            .filter(|line| harness.query_by_label(line).is_some())
+            .collect()
+    }
+
+    #[test]
+    fn notice_names_each_production_destination() {
+        let names = vec!["prod-a".to_string(), "prod-b".to_string()];
+        assert_eq!(notice_lines(names).len(), 2);
+    }
+
+    #[test]
+    fn notice_is_absent_without_production_destinations() {
+        let mut harness = Harness::new_ui_state(
+            |ui, names: &mut Vec<String>| show_production_notice(ui, names, &I18n::english()),
+            Vec::<String>::new(),
+        );
+        harness.run_steps(2);
+        assert!(
+            harness
+                .query_by_label_contains("production connection")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn notice_key_takes_the_connection_name() {
+        let line = I18n::english().t_with(
+            "compare.apply.review.production_line",
+            &[("connection", "orders-prod")],
+        );
+        assert!(line.contains("orders-prod"), "{line}");
+    }
 }

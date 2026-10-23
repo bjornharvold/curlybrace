@@ -4,6 +4,7 @@ use crate::app::banner::banner_prefix;
 use crate::app::reducer::{Input, update};
 use crate::app::session::session_display_name;
 use crate::app::state::{AppState, Banner};
+use crate::viewmodel::ConnectionBadge;
 use crate::views::sidebar_roots::show_roots;
 use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
 use curlybrace_core::error::CoreError;
@@ -236,5 +237,48 @@ fn the_servers_in_a_label_use_the_translated_list_separator() {
     assert_eq!(
         session_display_name(&s, a, &other).unwrap(),
         "Prod (h1:1 \u{b7} h2:2)"
+    );
+}
+
+#[test]
+fn root_carries_color_and_production_of_its_connection() {
+    use curlybrace_core::connection::ConnectionColor;
+    let mut tagged = cfg("Prod", "mongodb://hostA:27017", "bastion-a");
+    tagged.color = Some(ConnectionColor::Red);
+    tagged.production = true;
+    let plain = cfg("Dev", "mongodb://hostB:27017", "bastion-b");
+    let (it, ip) = (tagged.id, plain.id);
+    let s = opened(opened(AppState::new(vec![tagged, plain]), it), ip);
+    let roots = s.roots(&i18n());
+    assert_eq!(
+        roots[0].badge,
+        ConnectionBadge::new(Some(ConnectionColor::Red), true)
+    );
+    assert_eq!(roots[0].badge, s.session_badge(it));
+    assert_eq!(roots[1].badge, ConnectionBadge::default());
+    assert_eq!(roots[1].badge, s.session_badge(ip));
+}
+
+#[test]
+fn active_badge_follows_the_active_connection() {
+    use crate::viewmodel::ConnectionBadge;
+    use curlybrace_core::connection::ConnectionColor;
+    let mut tagged = cfg("Prod", "mongodb://hostA:27017", "bastion-a");
+    tagged.color = Some(ConnectionColor::Blue);
+    tagged.production = true;
+    let id = tagged.id;
+    let s = opened(AppState::new(vec![tagged]), id);
+    assert_eq!(
+        s.active_badge(),
+        ConnectionBadge::new(Some(ConnectionColor::Blue), true)
+    );
+}
+
+#[test]
+fn embedded_session_has_no_badge() {
+    use crate::viewmodel::ConnectionBadge;
+    assert_eq!(
+        AppState::default().active_badge(),
+        ConnectionBadge::default()
     );
 }

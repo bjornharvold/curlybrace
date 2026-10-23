@@ -17,6 +17,59 @@ pub enum AuthMechanism {
     Plain,
 }
 
+/// A preset colour tag a user can give a connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConnectionColor {
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Blue,
+    Purple,
+}
+
+impl ConnectionColor {
+    pub const ALL: [ConnectionColor; 6] = [
+        Self::Red,
+        Self::Orange,
+        Self::Yellow,
+        Self::Green,
+        Self::Blue,
+        Self::Purple,
+    ];
+}
+
+/// Reads the colour leniently: an unrecognised or malformed value becomes `None` (with a
+/// warning that names neither the connection nor its URI) so one bad entry never fails loading
+/// the whole connection list.
+fn lenient_color<'de, D>(deserializer: D) -> std::result::Result<Option<ConnectionColor>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|v| match serde_json::from_value(v) {
+        Ok(color) => Some(color),
+        Err(_) => {
+            log::warn!("a saved connection has an unrecognised colour; loading it without one");
+            None
+        }
+    }))
+}
+
+/// Reads the production flag leniently and fails safe: anything that is not a JSON boolean
+/// loads as production (with a warning) instead of dropping the whole connection, so a damaged
+/// flag can only add warnings, never remove them.
+fn lenient_production<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or_else(|| {
+        log::warn!("a saved connection has a malformed production flag; treating it as production");
+        true
+    }))
+}
+
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct TlsConfig {
     pub enabled: bool,
@@ -58,6 +111,10 @@ pub struct ConnectionConfig {
     pub updated_at: Option<i64>,
     #[serde(default)]
     pub last_connected: Option<i64>,
+    #[serde(default, deserialize_with = "lenient_color")]
+    pub color: Option<ConnectionColor>,
+    #[serde(default, deserialize_with = "lenient_production")]
+    pub production: bool,
 }
 
 impl ConnectionConfig {
@@ -75,6 +132,8 @@ impl ConnectionConfig {
             created_at: None,
             updated_at: None,
             last_connected: None,
+            color: None,
+            production: false,
         }
     }
 
@@ -209,6 +268,10 @@ pub fn is_forbidden_label_char(c: char) -> bool {
 pub fn unique_name(base: &str, existing: &[ConnectionConfig]) -> String {
     crate::connection_names::NameAllocator::new(existing).allocate(base)
 }
+
+#[cfg(test)]
+#[path = "connection_lenient_tests.rs"]
+mod lenient_tests;
 
 #[cfg(test)]
 mod tests {
@@ -537,5 +600,72 @@ mod tests {
             c.folder = Some(text.into());
             assert!(c.validate().is_ok());
         }
+    }
+
+    fn legacy_json() -> serde_json::Value {
+        serde_json::to_value(ConnectionConfig::new("a", "mongodb://h"))
+            .map(|mut v| {
+                let o = v.as_object_mut().unwrap();
+                o.remove("color");
+                o.remove("production");
+                v
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn new_is_non_production_and_uncoloured() {
+        let c = ConnectionConfig::new("a", "mongodb://h");
+        assert_eq!(c.color, None);
+        assert!(!c.production);
+    }
+
+    #[test]
+    fn old_file_without_new_fields_loads_as_uncoloured_non_production() {
+        let c: ConnectionConfig = serde_json::from_value(legacy_json()).unwrap();
+        assert_eq!(c.color, None);
+        assert!(!c.production);
+    }
+
+    #[test]
+    fn color_and_production_round_trip_through_json() {
+        for color in ConnectionColor::ALL {
+            let mut c = ConnectionConfig::new("a", "mongodb://h");
+            c.color = Some(color);
+            c.production = true;
+            let back: ConnectionConfig =
+                serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+            assert_eq!(back, c);
+        }
+    }
+
+    #[test]
+    fn unknown_color_value_loads_as_none() {
+        let mut json = legacy_json();
+        json["color"] = serde_json::json!("chartreuse");
+        json["production"] = serde_json::json!(true);
+        let c: ConnectionConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(c.color, None);
+        assert!(c.production);
+        assert_eq!(c.name, "a");
+        assert_eq!(c.uri, "mongodb://h");
+    }
+
+    #[test]
+    fn non_string_color_value_loads_as_none() {
+        let mut json = legacy_json();
+        json["color"] = serde_json::json!(7);
+        let c: ConnectionConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(c.color, None);
+    }
+
+    #[test]
+    fn duplicate_keeps_color_and_production() {
+        let mut c = ConnectionConfig::new("a", "mongodb://h");
+        c.color = Some(ConnectionColor::Purple);
+        c.production = true;
+        let d = c.duplicate("b".into(), 5);
+        assert_eq!(d.color, Some(ConnectionColor::Purple));
+        assert!(d.production);
     }
 }

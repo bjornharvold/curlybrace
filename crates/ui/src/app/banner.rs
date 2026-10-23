@@ -17,6 +17,10 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::ProjectionReadOnly => (i18n.t("banner.projection_read_only"), None),
         Banner::FieldsConflict => (i18n.t("banner.fields_conflict"), None),
         Banner::FieldsCovered => (i18n.t("banner.fields_covered"), None),
+        Banner::WriteNotSentConnectionChanged => {
+            (i18n.t("banner.write_not_sent_connection_changed"), None)
+        }
+        Banner::WriteNotSentBusy => (i18n.t("banner.write_not_sent_busy"), None),
     }
 }
 
@@ -124,6 +128,8 @@ mod tests {
             Banner::ProjectionReadOnly,
             Banner::FieldsConflict,
             Banner::FieldsCovered,
+            Banner::WriteNotSentConnectionChanged,
+            Banner::WriteNotSentBusy,
         ];
         for b in &banners {
             let (head, _) = resolved(b);

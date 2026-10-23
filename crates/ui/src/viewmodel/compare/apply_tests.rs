@@ -39,6 +39,7 @@ fn review(pairs: &[(PairId, u64)]) -> Review {
         word: String::new(),
         session: 0,
         pending: PendingList::default(),
+        written: vec![],
         warn_inputs: vec![],
     }
 }

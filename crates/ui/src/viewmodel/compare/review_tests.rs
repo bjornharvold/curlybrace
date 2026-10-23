@@ -679,3 +679,50 @@ fn counts_match_the_command_ops_with_field_items_mixed_in() {
     }
     assert!(saw_fields > 20, "the generator must exercise fields items");
 }
+
+const SRC_ID: u128 = 1;
+const TGT_ID: u128 = 2;
+
+fn production_of(ids: &'static [u128]) -> impl Fn(Uuid) -> bool {
+    move |id| ids.iter().any(|n| Uuid::from_u128(*n) == id)
+}
+
+#[test]
+fn review_names_production_target() {
+    let r = review(&[(1, SRC, A::CopyToTarget, keys(&[1]))]);
+    let names = r.production_destinations(&production_of(&[TGT_ID]));
+    assert_eq!(names, vec!["tgt-conn".to_string()]);
+}
+
+#[test]
+fn review_has_no_production_line_for_non_production_target() {
+    let r = review(&[(1, SRC, A::CopyToTarget, keys(&[1]))]);
+    assert!(r.production_destinations(&production_of(&[])).is_empty());
+}
+
+#[test]
+fn review_names_production_source_when_the_pair_writes_back_to_it() {
+    let r = review(&[(1, TGT, A::CopyToSource, keys(&[1]))]);
+    let names = r.production_destinations(&production_of(&[SRC_ID]));
+    assert_eq!(names, vec!["src-conn".to_string()]);
+}
+
+#[test]
+fn review_names_both_production_destinations_once_each() {
+    let r = review(&[
+        (1, SRC, A::CopyToTarget, keys(&[1])),
+        (2, SRC, A::CopyToTarget, keys(&[2])),
+        (1, TGT, A::CopyToSource, keys(&[3])),
+    ]);
+    let names = r.production_destinations(&production_of(&[SRC_ID, TGT_ID]));
+    assert_eq!(names, vec!["tgt-conn".to_string(), "src-conn".to_string()]);
+}
+
+#[test]
+fn review_ignores_a_production_connection_that_is_only_read() {
+    let r = review(&[(1, SRC, A::CopyToTarget, keys(&[1]))]);
+    assert!(
+        r.production_destinations(&production_of(&[SRC_ID]))
+            .is_empty()
+    );
+}

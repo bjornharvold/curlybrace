@@ -134,3 +134,102 @@ fn an_entry_with_both_labels_invalid_gets_both_repaired() {
     assert_eq!(loaded.connections[0].folder.as_deref(), Some("work"));
     assert_eq!(loaded.repaired, 1);
 }
+
+#[test]
+fn an_entry_with_a_malformed_production_flag_loads_as_production_instead_of_being_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let plain = ConnectionConfig::new("plain", "mongodb://h");
+    let mut damaged =
+        serde_json::to_value(ConnectionConfig::new("damaged", "mongodb://h2")).unwrap();
+    damaged["production"] = serde_json::json!("yes");
+    let list = serde_json::json!([serde_json::to_value(&plain).unwrap(), damaged]);
+    let path = dir.path().join("connections.json");
+    std::fs::write(&path, list.to_string()).unwrap();
+    let loaded = load_connections(&path).unwrap();
+    assert_eq!(loaded.skipped, 0, "nothing is dropped");
+    assert_eq!(loaded.connections.len(), 2);
+    assert!(!loaded.connections[0].production);
+    assert!(loaded.connections[1].production, "fail safe: production");
+}
+
+/// A saved-list file whose entries are `connections`, each with `production` set to `bad`.
+fn write_damaged(
+    dir: &tempfile::TempDir,
+    connections: &[ConnectionConfig],
+    bad: serde_json::Value,
+) -> PathBuf {
+    let entries: Vec<_> = connections
+        .iter()
+        .map(|c| {
+            let mut v = serde_json::to_value(c).unwrap();
+            v["production"] = bad.clone();
+            v
+        })
+        .collect();
+    let path = dir.path().join("connections.json");
+    std::fs::write(&path, serde_json::Value::Array(entries).to_string()).unwrap();
+    path
+}
+
+#[test]
+fn a_malformed_production_flag_is_reported_as_repaired_but_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let list = [ConnectionConfig::new("damaged", "mongodb://h")];
+    let path = write_damaged(&dir, &list, serde_json::json!("yes"));
+    let loaded = load_connections(&path).unwrap();
+    assert_eq!((loaded.skipped, loaded.repaired), (0, 1));
+    assert!(
+        loaded.connections[0].production,
+        "still loads as production"
+    );
+    assert_eq!(
+        startup(&path, &ok_backup).recovery,
+        Some(Recovery::Repaired {
+            count: 1,
+            backed_up: true
+        })
+    );
+}
+
+#[test]
+fn every_non_boolean_production_value_is_reported() {
+    for bad in [
+        serde_json::json!(null),
+        serde_json::json!(1),
+        serde_json::json!("true"),
+        serde_json::json!([]),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let list = [ConnectionConfig::new("damaged", "mongodb://h")];
+        let loaded = load_connections(&write_damaged(&dir, &list, bad.clone())).unwrap();
+        assert_eq!(loaded.repaired, 1, "{bad}");
+    }
+}
+
+#[test]
+fn a_real_boolean_or_absent_production_flag_is_not_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let list = [ConnectionConfig::new("a", "mongodb://h")];
+    for flag in [true, false] {
+        let loaded = load_connections(&write_damaged(&dir, &list, flag.into())).unwrap();
+        assert_eq!(loaded.repaired, 0, "{flag}");
+    }
+    assert_eq!(load_connections(&write(&dir, &list)).unwrap().repaired, 0);
+}
+
+#[test]
+fn an_entry_damaged_twice_counts_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let list = [ConnectionConfig::new("a\nb", "mongodb://h")];
+    let loaded = load_connections(&write_damaged(&dir, &list, "yes".into())).unwrap();
+    assert_eq!(loaded.repaired, 1);
+    assert_eq!(loaded.connections[0].name, "a b");
+}
+
+#[test]
+fn a_skipped_entry_is_not_also_reported_as_repaired() {
+    let dir = tempfile::tempdir().unwrap();
+    let list = [ConnectionConfig::new("bad", "http://nope")];
+    let loaded = load_connections(&write_damaged(&dir, &list, "yes".into())).unwrap();
+    assert_eq!((loaded.skipped, loaded.repaired), (1, 0));
+}

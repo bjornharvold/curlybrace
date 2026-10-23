@@ -58,6 +58,11 @@ pub enum Banner {
     FieldsConflict,
     /// Queueing fields was refused: a whole-category change of the tab already covers them.
     FieldsCovered,
+    /// The user confirmed a production write whose connection changed (another session, a
+    /// reconnect or a lost connection) in the meantime, so nothing was sent.
+    WriteNotSentConnectionChanged,
+    /// The user confirmed a production write while another write was still in flight.
+    WriteNotSentBusy,
 }
 
 impl Banner {
@@ -126,8 +131,8 @@ pub struct Pending {
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
-/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `editor`, `pending` and
-/// `ssh_endpoint`. They are parked per session and must be added to `SessionView` (and to
+/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `editor`, `pending`,
+/// `ssh_endpoint` and `production`. They are parked per session and must be added to `SessionView` (and to
 /// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
 #[derive(Debug, Default)]
@@ -173,12 +178,18 @@ pub struct AppState {
     pub editor: Option<EditorState>,
     /// The mutating command in flight; further mutations are ignored until it resolves.
     pub pending: Option<Pending>,
+    /// A write to a production connection waiting for the user's confirmation. Not part of a
+    /// session view: the parked command names its session and is re-validated on confirm.
+    pub write_warning: Option<super::write_guard::ParkedWrite>,
     pub persist: PersistGuard,
     pub banner: Option<Banner>,
     /// What the edit dialog may repeat of `banner` (only what is new since it opened).
     pub dialog_banner_watch: DialogBannerWatch,
     /// SSH endpoint of the connection being (or last) opened.
     pub ssh_endpoint: Option<HostEndpoint>,
+    /// Whether the active session was opened on a production connection (snapshotted at
+    /// connect). Read it through `session_production`, which also counts the live saved flag.
+    pub production: bool,
     /// Endpoint awaiting the "forget host" confirmation.
     pub forget_confirm: Option<HostEndpoint>,
     /// The session whose failure raised the current banner (a close of it clears the banner).
@@ -202,6 +213,21 @@ impl AppState {
 
     pub fn connection(&self, id: Uuid) -> Option<&ConnectionConfig> {
         self.conn.connections.iter().find(|c| c.id == id)
+    }
+
+    /// The colour tag and production flag of the active connection; empty for the embedded
+    /// session, which has no saved connection.
+    pub fn active_badge(&self) -> crate::viewmodel::ConnectionBadge {
+        self.active
+            .map(|id| self.session_badge(id))
+            .unwrap_or_default()
+    }
+
+    /// The badge of the open session `id`: the colour follows the saved connection, production
+    /// is `session_production` (opened-with snapshot OR the live saved flag).
+    pub fn session_badge(&self, id: Uuid) -> crate::viewmodel::ConnectionBadge {
+        let color = self.connection(id).and_then(|c| c.color);
+        crate::viewmodel::ConnectionBadge::new(color, self.session_production(id))
     }
 
     /// The name of the active connection, or a translated placeholder when none is open (so a
@@ -245,12 +271,14 @@ impl AppState {
             tree: self.tree.results_replaced(),
             editor: None,
             pending: None,
+            write_warning: None,
             forget_confirm: None,
             open: Vec::new(),
             active: None,
             parked: BTreeMap::new(),
             failure: None,
             topology: None,
+            production: false,
             workspace: Workspace::Browse,
             ..self
         }

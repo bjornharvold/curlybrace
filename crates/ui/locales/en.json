@@ -23,7 +23,9 @@
     "import_unreadable": "The file you chose could not be read. Nothing was imported.",
     "in_connection": "In {name}:",
     "not_connected": "Not connected. Connect to a server first.",
-    "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them."
+    "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them.",
+    "write_not_sent_busy": "The write was not sent because another write was still in progress. Review the document and try again.",
+    "write_not_sent_connection_changed": "The write was not sent because the connection changed. Review the document and try again."
   },
   "browser": {
     "load_failed": "Could not load documents. See the message above.",
@@ -152,6 +154,7 @@
         "count_cell": "{kind}: {count}",
         "destination_line": "{action}: {destination}",
         "fields_line": "Fields: {fields}, documents: {documents}",
+        "production_line": "Warning: {connection} is a production connection.",
         "title": "Review before applying",
         "total": "Documents to write: {count}",
         "warnings_title": "Check before you apply"
@@ -438,6 +441,17 @@
     },
     "title": "Compare collections"
   },
+  "connection": {
+    "color": {
+      "blue": "Blue",
+      "green": "Green",
+      "orange": "Orange",
+      "purple": "Purple",
+      "red": "Red",
+      "yellow": "Yellow"
+    },
+    "production_badge": "PRODUCTION"
+  },
   "connections": {
     "allow_invalid_certs": "Allow invalid TLS certificates",
     "allow_invalid_certs_ssh_warning": "Warning: through an SSH tunnel this removes certificate protection on the connection between the SSH bastion and MongoDB.",
@@ -451,6 +465,8 @@
     "col_name": "Name",
     "col_security": "Security",
     "col_server": "Server",
+    "color": "Colour tag",
+    "color_none": "No colour",
     "confirm_delete": "Delete the connection \"{name}\" and its saved credentials? This cannot be undone.",
     "connect": "Connect",
     "connect_named": "Connect {name}",
@@ -488,6 +504,8 @@
     "no_match": "No connection matches the filter.",
     "password": "Password",
     "password_saved_hint": "A secret is saved in the Keychain. Leave empty to keep it.",
+    "production": "Production connection",
+    "production_hint": "Marks this as a production database: writes show a production warning first.",
     "rename_folder": "Rename",
     "saved_secret_will_clear": "The saved secret will be removed when you save.",
     "security_none": "None",
@@ -644,12 +662,12 @@
     "corrupt_backup_failed": "The saved connections file was not readable and a backup copy could not be made. Saving is turned off so nothing is overwritten.",
     "invalid_path": "The connections file location is not valid.",
     "read_failed": "Could not read the saved connections file.",
-    "repaired_backed_up": "{n} saved connection(s) had a name or folder that was adjusted to the current rules (spacing or invisible and control characters fixed, a long label shortened, or a blank name replaced). No connection was dropped; a backup copy of the original file was kept.",
-    "repaired_backup_failed": "{n} saved connection(s) had a name or folder that was adjusted to the current rules (spacing or invisible and control characters fixed, a long label shortened, or a blank name replaced), and a backup copy could not be made. Saving is turned off so the original is not overwritten.",
+    "repaired_backed_up": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production flag read as production). No connection was dropped; a backup copy of the original file was kept.",
+    "repaired_backup_failed": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production flag read as production), and a backup copy could not be made. Saving is turned off so the original is not overwritten.",
     "skipped_backed_up": "{n} saved connection(s) were invalid or from a newer version and were skipped. A backup copy of the original file was kept.",
     "skipped_backup_failed": "{n} saved connection(s) were invalid or from a newer version and were skipped, and a backup copy could not be made. Saving is turned off so nothing is lost.",
-    "skipped_repaired_backed_up": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} had a name or folder adjusted to the current rules. The skipped ones are not lost: they stay in the backup copy of the original file that was kept.",
-    "skipped_repaired_backup_failed": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} had a name or folder adjusted to the current rules. No backup copy could be made. Saving is turned off so the original file is not overwritten.",
+    "skipped_repaired_backed_up": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} were adjusted to the current rules (a name or folder fixed, or a damaged production flag read as production). The skipped ones are not lost: they stay in the backup copy of the original file that was kept.",
+    "skipped_repaired_backup_failed": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} were adjusted to the current rules (a name or folder fixed, or a damaged production flag read as production). No backup copy could be made. Saving is turned off so the original file is not overwritten.",
     "unreadable_backed_up": "The saved connections file could not be read. A backup copy was kept next to it.",
     "unreadable_backup_failed": "The saved connections file could not be read or backed up. Saving is turned off so nothing is overwritten.",
     "write_failed": "Could not write the saved connections file."
@@ -691,5 +709,14 @@
     "browse_hint": "Browse and edit documents",
     "compare": "Compare",
     "compare_hint": "Compare two collections"
+  },
+  "write_warning": {
+    "confirm": "Yes, write to production",
+    "message_clone": "This is your production server, {connection}. Are you sure you want to clone this document into it?",
+    "message_delete": "This is your production server, {connection}. Are you sure you want to delete this document?",
+    "message_insert": "This is your production server, {connection}. Are you sure you want to insert this document?",
+    "message_replace": "This is your production server, {connection}. Are you sure you want to edit this document?",
+    "production_line": "Warning: this is a production connection.",
+    "title": "Confirm write to production"
   }
 }

@@ -30,6 +30,7 @@ pub mod testing;
 use std::collections::BTreeMap;
 
 use curlybrace_core::compare::protocol::{PairId, PairSpec, RunId, SessionId};
+use curlybrace_core::connection::ConnectionConfig;
 use uuid::Uuid;
 
 pub use apply::{ApplyRow, ApplySummary, ApplyUi};
@@ -86,6 +87,9 @@ pub struct CompareState {
     pub session: Option<SessionPhase>,
     /// The connections the current session was opened for.
     pub connections: Option<(Uuid, Uuid)>,
+    /// The production flags of `connections` (source, target) when the session was opened; read
+    /// them through `is_production`, which also counts the live saved flags.
+    pub connections_production: (bool, bool),
     /// Ids are chosen here and never reused, so a late event can never match a newer session,
     /// run or pair.
     pub next_session: SessionId,
@@ -127,6 +131,7 @@ impl Default for CompareState {
         Self {
             session: None,
             connections: None,
+            connections_production: (false, false),
             next_session: 1,
             next_run: 1,
             next_pair: 1,
@@ -162,6 +167,26 @@ impl CompareState {
 }
 
 impl CompareState {
+    /// Whether the connection `id` of the open session counts as production: the flag the
+    /// session opened with OR the live flag of the saved connection in `saved`, so ticking
+    /// applies at once while unticking waits for the next open. A connection no longer in `saved`
+    /// (deleted while open) is judged by its snapshot alone; one outside the open pair never is.
+    pub fn is_production(&self, id: Uuid, saved: &[ConnectionConfig]) -> bool {
+        let Some((source, target)) = self.connections else {
+            return false;
+        };
+        let (source_snapshot, target_snapshot) = self.connections_production;
+        let snapshot = (source == id && source_snapshot) || (target == id && target_snapshot);
+        let live =
+            (source == id || target == id) && saved.iter().any(|c| c.id == id && c.production);
+        snapshot || live
+    }
+
+    /// Whether `id` is one of the two connections of the open (or opening) session.
+    pub fn involves(&self, id: Uuid) -> bool {
+        self.connections.is_some_and(|(s, t)| s == id || t == id)
+    }
+
     /// Whether Connect may fire for the picked pair: both picked, different from what is open,
     /// and no open in progress.
     pub fn can_open(&self, draft: (Option<Uuid>, Option<Uuid>)) -> bool {

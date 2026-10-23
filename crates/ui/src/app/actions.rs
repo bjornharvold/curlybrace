@@ -2,6 +2,7 @@
 //! runtime commands to send. Data commands are only produced while connected (carry item I).
 use super::reducer::Out;
 use super::state::{AppState, Banner, ConnStatus, EditorKey, Pending, Workspace};
+use super::write_guard::{Guard, ParkedWrite, WriteKind};
 use crate::viewmodel::{
     DbNode, DocAction, EditorAction, EditorState, FindAction, FindBarState, SidebarAction,
 };
@@ -186,11 +187,15 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
     match action {
         DocAction::Edit(d) => with_editor(state, EditorState::for_edit(&d)),
         DocAction::Insert => with_editor(state, EditorState::for_new()),
-        DocAction::Clone(source) => mutation(state, None, |session, ns| Command::Clone {
-            session,
-            ns,
-            source,
-        }),
+        DocAction::Clone(source) => {
+            mutation(state, None, WriteKind::Clone, Guard::Warn, |session, ns| {
+                Command::Clone {
+                    session,
+                    ns,
+                    source,
+                }
+            })
+        }
         DocAction::Delete(id) => {
             let on_page = state
                 .page
@@ -199,11 +204,14 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
             if !on_page {
                 return (state, Vec::new());
             }
-            mutation(state, None, |session, ns| Command::Delete {
-                session,
-                ns,
-                id,
-            })
+            // The delete confirmation dialog is the user's answer: no second warning.
+            mutation(
+                state,
+                None,
+                WriteKind::Delete,
+                Guard::Confirmed,
+                |session, ns| Command::Delete { session, ns, id },
+            )
         }
     }
 }
@@ -230,12 +238,18 @@ pub(super) fn editor(state: AppState, action: EditorAction) -> Out {
                 original_id: Some(id.clone()),
                 text: text.clone(),
             };
-            mutation(state, Some(key), |session, ns| Command::Replace {
-                session,
-                ns,
-                id,
-                json: text,
-            })
+            mutation(
+                state,
+                Some(key),
+                WriteKind::Replace,
+                Guard::Warn,
+                |session, ns| Command::Replace {
+                    session,
+                    ns,
+                    id,
+                    json: text,
+                },
+            )
         }
         EditorAction::Save {
             original_id: None,
@@ -245,30 +259,59 @@ pub(super) fn editor(state: AppState, action: EditorAction) -> Out {
                 original_id: None,
                 text: text.clone(),
             };
-            mutation(state, Some(key), |session, ns| Command::Insert {
-                session,
-                ns,
-                json: text,
-            })
+            mutation(
+                state,
+                Some(key),
+                WriteKind::Insert,
+                Guard::Warn,
+                |session, ns| Command::Insert {
+                    session,
+                    ns,
+                    json: text,
+                },
+            )
         }
     }
 }
 
-/// Sends one mutating command; ignored while another mutation is in flight.
+/// Sends one mutating command; ignored while another mutation is in flight or a production
+/// write warning is open. With `Guard::Warn` on a production connection the command is parked
+/// for confirmation instead of sent.
 fn mutation(
     state: AppState,
     editor: Option<EditorKey>,
+    kind: WriteKind,
+    guard: Guard,
     build: impl FnOnce(SessionId, Namespace) -> Command,
 ) -> Out {
     gated(state, |s| {
-        let Some(ns) = s.selected_ns().cloned().filter(|_| s.pending.is_none()) else {
+        let Some(ns) = s
+            .selected_ns()
+            .cloned()
+            .filter(|_| s.pending.is_none() && s.write_warning.is_none())
+        else {
             return (s, Vec::new());
         };
-        let pending = Some(Pending {
+        let pending = Pending {
             ns: ns.clone(),
             editor,
-        });
+        };
         let command = build(s.session_id(), ns);
-        (AppState { pending, ..s }, vec![command])
+        if guard == Guard::Warn && s.active_is_production() {
+            let write_warning = Some(ParkedWrite {
+                command,
+                pending,
+                kind,
+                epoch: s.latest_requested_epoch,
+            });
+            return (AppState { write_warning, ..s }, Vec::new());
+        }
+        (
+            AppState {
+                pending: Some(pending),
+                ..s
+            },
+            vec![command],
+        )
     })
 }

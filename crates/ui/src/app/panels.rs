@@ -8,10 +8,13 @@ use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
-use crate::views::documents::{show_connection_header, show_documents_keyed, show_mode_switcher};
+use crate::views::documents::{
+    DocTarget, show_connection_header, show_documents_keyed, show_mode_switcher,
+};
 use crate::views::editor::show_editor_with;
 use crate::views::findbar::show_findbar;
 use crate::views::sidebar_roots::show_roots;
+use crate::views::write_warning::show_write_warning;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
 
@@ -154,7 +157,8 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         return;
     }
     let connection = state.active_connection_label(i18n);
-    show_connection_header(ui, &connection, i18n);
+    let badge = state.active_badge();
+    show_connection_header(ui, &connection, &badge, i18n);
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
@@ -177,7 +181,10 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         page,
         key,
         &mut state.tree,
-        &connection,
+        DocTarget {
+            connection: &connection,
+            production: badge.production,
+        },
         i18n,
     );
     if let Some(action) = action {
@@ -204,6 +211,7 @@ pub fn show_modals(
         show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)
     });
     out.extend(decided.map(UiEvent::HostKey));
+    show_write_warning_modal(ctx, state, i18n, out);
     if let Some(endpoint) = &state.forget_confirm {
         let port = endpoint.port.to_string();
         let message = i18n.t_with(
@@ -211,6 +219,35 @@ pub fn show_modals(
             &[("host", &endpoint.host), ("port", &port)],
         );
         show_forget_confirm(ctx, &message, i18n, out);
+    }
+}
+
+/// Draws the production write warning whenever a write is parked, whichever session is active:
+/// a parked write blocks every session's writes until it is answered. The connection is named
+/// from the parked write's own session, not the active one.
+fn show_write_warning_modal(
+    ctx: &egui::Context,
+    state: &AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    let Some(parked) = &state.write_warning else {
+        return;
+    };
+    // The same disambiguated label the header and the delete confirm use, so two open
+    // connections sharing a saved name are still told apart.
+    let name = parked
+        .command
+        .session()
+        .and_then(|id| state.open_label(id, i18n))
+        .unwrap_or_else(|| i18n.t("doc.connection_unknown"));
+    let badge = parked
+        .command
+        .session()
+        .map(|id| state.session_badge(id))
+        .unwrap_or_default();
+    if let Some(action) = show_write_warning(ctx, parked, &name, &badge, i18n) {
+        out.push(UiEvent::Input(Input::WriteWarning(action)));
     }
 }
 
@@ -278,5 +315,72 @@ fn show_forget_confirm(ctx: &egui::Context, message: &str, i18n: &I18n, out: &mu
         out.push(UiEvent::ForgetConfirmed);
     } else if cancelled || modal.should_close() {
         out.push(UiEvent::Input(Input::ForgetCancelled));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::viewmodel::{MenuItem, page_key};
+    use bson::Document;
+    use curlybrace_core::connection::ConnectionConfig;
+    use curlybrace_core::store::{Namespace, Page};
+    use curlybrace_core::test_support::mock_objects::mock_doc_with_id;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    /// A browse workspace on one open connection, with a delete of the only document parked.
+    fn deleting_on(production: bool) -> AppState {
+        let mut config = ConnectionConfig::new("prod-db", "mongodb://h:1");
+        config.production = production;
+        let id = config.id;
+        let mut state = AppState::new(vec![config]);
+        state.open = vec![id];
+        state.active = Some(id);
+        state.production = production;
+        state.sidebar.selected = Some(Namespace::new("shop", "orders"));
+        let docs: Vec<Document> = vec![mock_doc_with_id(5_i32)];
+        let page = Page {
+            docs,
+            skip: 0,
+            has_more: false,
+        };
+        let key = page_key(&page);
+        let (tree, _) = state
+            .tree
+            .clone()
+            .menu_chosen(MenuItem::Delete, &page.docs[0], &key);
+        state.tree = tree;
+        state.page = Some(page);
+        state.page_key = Some(key);
+        state
+    }
+
+    fn production_line_shown(state: AppState) -> bool {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(900.0, 700.0))
+            .build_state(
+                |ctx, state: &mut AppState| {
+                    let mut out = Vec::new();
+                    show_workspace(ctx, state, &I18n::english(), &mut out);
+                },
+                state,
+            );
+        harness.run_steps(4);
+        let i18n = I18n::english();
+        // The dialog is up either way: its Delete button proves the parked delete rendered.
+        harness.get_by_label(&i18n.t("doc.delete"));
+        let line = i18n.t("write_warning.production_line");
+        harness.query_by_label(&line).is_some()
+    }
+
+    #[test]
+    fn the_delete_confirm_carries_the_production_line_for_a_production_connection() {
+        assert!(production_line_shown(deleting_on(true)));
+    }
+
+    #[test]
+    fn the_delete_confirm_has_no_production_line_for_a_plain_connection() {
+        assert!(!production_line_shown(deleting_on(false)));
     }
 }
