@@ -10,6 +10,7 @@ pub mod crud;
 pub mod driver_error;
 pub mod ejson;
 pub mod error;
+pub mod history;
 pub mod indexes;
 mod mongo_indexes;
 pub mod mongo_store;

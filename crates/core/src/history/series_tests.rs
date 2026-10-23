@@ -1,0 +1,246 @@
+use super::series::*;
+use proptest::prelude::*;
+
+const SINCE: i64 = 1_000;
+
+fn s(at_secs: i64, ops: i64) -> Sample {
+    Sample {
+        at_secs,
+        ops,
+        since_ms: SINCE,
+    }
+}
+
+fn total_uses(points: &[Point]) -> i64 {
+    points
+        .iter()
+        .map(|p| match p {
+            Point::Delta { uses, .. } | Point::Gap { uses, .. } => *uses,
+            Point::Restart { .. } => 0,
+        })
+        .sum()
+}
+
+#[test]
+fn the_first_sample_has_no_point() {
+    assert!(derive(&[s(100, 5)]).is_empty());
+    assert!(derive(&[]).is_empty());
+}
+
+#[test]
+fn consecutive_samples_give_deltas() {
+    let points = derive(&[s(100, 5), s(160, 9), s(220, 9)]);
+    assert_eq!(
+        points,
+        vec![
+            Point::Delta {
+                at_secs: 160,
+                uses: 4,
+                span_secs: 60
+            },
+            Point::Delta {
+                at_secs: 220,
+                uses: 0,
+                span_secs: 60
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_lower_counter_is_a_restart_with_no_delta() {
+    let points = derive(&[s(100, 50), s(160, 3)]);
+    assert_eq!(
+        points,
+        vec![Point::Restart {
+            at_secs: 160,
+            uses_since_restart: 3
+        }]
+    );
+}
+
+#[test]
+fn a_changed_since_is_a_restart() {
+    let restarted = Sample {
+        at_secs: 160,
+        ops: 80,
+        since_ms: SINCE + 5,
+    };
+    let points = derive(&[s(100, 50), restarted]);
+    assert_eq!(
+        points,
+        vec![Point::Restart {
+            at_secs: 160,
+            uses_since_restart: 80
+        }]
+    );
+}
+
+#[test]
+fn a_long_silence_is_a_gap_carrying_the_uses_in_it() {
+    let points = derive(&[s(100, 5), s(1_000, 45)]);
+    assert_eq!(
+        points,
+        vec![Point::Gap {
+            from_secs: 100,
+            to_secs: 1_000,
+            uses: 40
+        }]
+    );
+}
+
+#[test]
+fn a_gap_is_declared_only_beyond_three_intervals() {
+    let edge = GAP_INTERVALS * SAMPLE_INTERVAL_SECS;
+    let at_edge = derive(&[s(0, 0), s(edge, 1)]);
+    assert!(matches!(at_edge[0], Point::Delta { .. }));
+    let past_edge = derive(&[s(0, 0), s(edge + 1, 1)]);
+    assert!(matches!(past_edge[0], Point::Gap { .. }));
+}
+
+#[test]
+fn a_gap_never_becomes_a_zero_delta() {
+    let points = derive(&[s(0, 7), s(10_000, 7)]);
+    assert_eq!(
+        points,
+        vec![Point::Gap {
+            from_secs: 0,
+            to_secs: 10_000,
+            uses: 0
+        }]
+    );
+    assert!(points.iter().all(|p| !matches!(p, Point::Delta { .. })));
+}
+
+#[test]
+fn a_restart_inside_a_gap_is_both() {
+    let restarted = Sample {
+        at_secs: 1_000,
+        ops: 12,
+        since_ms: SINCE + 1,
+    };
+    let points = derive(&[s(100, 50), restarted]);
+    assert_eq!(
+        points,
+        vec![
+            Point::Gap {
+                from_secs: 100,
+                to_secs: 1_000,
+                uses: 0
+            },
+            Point::Restart {
+                at_secs: 1_000,
+                uses_since_restart: 12
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_sample_not_after_the_previous_one_is_ignored() {
+    // The clock moved back (130) and a duplicate (160) are both dropped.
+    let points = derive(&[s(100, 1), s(160, 2), s(130, 99), s(160, 50), s(220, 5)]);
+    assert_eq!(
+        points,
+        vec![
+            Point::Delta {
+                at_secs: 160,
+                uses: 1,
+                span_secs: 60
+            },
+            Point::Delta {
+                at_secs: 220,
+                uses: 3,
+                span_secs: 60
+            },
+        ]
+    );
+}
+
+#[test]
+fn bucketize_sums_deltas_and_counts_restarts_and_gap_seconds() {
+    let points = vec![
+        Point::Delta {
+            at_secs: 30,
+            uses: 2,
+            span_secs: 60,
+        },
+        Point::Delta {
+            at_secs: 90,
+            uses: 3,
+            span_secs: 60,
+        },
+        Point::Restart {
+            at_secs: 150,
+            uses_since_restart: 4,
+        },
+        Point::Gap {
+            from_secs: 150,
+            to_secs: 330,
+            uses: 10,
+        },
+    ];
+    let buckets = bucketize(&points, 100);
+    let b = |start_secs, uses, restarts, gap_secs| Bucket {
+        start_secs,
+        width_secs: 100,
+        uses,
+        restarts,
+        gap_secs,
+    };
+    assert_eq!(
+        buckets,
+        vec![
+            b(0, 5, 0, 0),
+            b(100, 0, 1, 50),
+            b(200, 0, 0, 100),
+            // The gap's uses land in the bucket holding its end.
+            b(300, 10, 0, 30),
+        ]
+    );
+}
+
+#[test]
+fn bucketize_of_nothing_or_a_bad_width_is_empty() {
+    assert!(bucketize(&[], 60).is_empty());
+    let p = [Point::Delta {
+        at_secs: 1,
+        uses: 1,
+        span_secs: 1,
+    }];
+    assert!(bucketize(&p, 0).is_empty());
+    assert!(bucketize(&p, -5).is_empty());
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+    #[test]
+    fn bucketing_preserves_total_uses_for_any_sample_sequence(
+        steps in proptest::collection::vec((-100i64..2_000, 0i64..500, any::<bool>()), 0..40),
+        width in 1i64..5_000,
+    ) {
+        let mut at = 10_000;
+        let mut since = SINCE;
+        let samples: Vec<Sample> = steps
+            .iter()
+            .map(|(dt, ops, bump)| {
+                at += dt;
+                if *bump {
+                    since += 1;
+                }
+                Sample { at_secs: at, ops: *ops, since_ms: since }
+            })
+            .collect();
+        let points = derive(&samples);
+        let buckets = bucketize(&points, width);
+        prop_assert_eq!(buckets.iter().map(|b| b.uses).sum::<i64>(), total_uses(&points));
+        let gap_total: i64 = points
+            .iter()
+            .map(|p| match p {
+                Point::Gap { from_secs, to_secs, .. } => to_secs - from_secs,
+                _ => 0,
+            })
+            .sum();
+        prop_assert_eq!(buckets.iter().map(|b| b.gap_secs).sum::<i64>(), gap_total);
+    }
+}
