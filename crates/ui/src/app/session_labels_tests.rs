@@ -4,6 +4,7 @@ use crate::app::banner::banner_prefix;
 use crate::app::reducer::{Input, update};
 use crate::app::session::session_display_name;
 use crate::app::state::{AppState, Banner};
+use crate::viewmodel::ConnectionBadge;
 use crate::views::sidebar_roots::show_roots;
 use curlybrace_core::connection::{ConnectionConfig, SshAuth, SshConfig};
 use curlybrace_core::error::CoreError;
@@ -249,10 +250,13 @@ fn root_carries_color_and_production_of_its_connection() {
     let (it, ip) = (tagged.id, plain.id);
     let s = opened(opened(AppState::new(vec![tagged, plain]), it), ip);
     let roots = s.roots(&i18n());
-    assert_eq!(roots[0].color, Some(ConnectionColor::Red));
-    assert!(roots[0].production);
-    assert_eq!(roots[1].color, None);
-    assert!(!roots[1].production);
+    assert_eq!(
+        roots[0].badge,
+        ConnectionBadge::new(Some(ConnectionColor::Red), true)
+    );
+    assert_eq!(roots[0].badge, s.session_badge(it));
+    assert_eq!(roots[1].badge, ConnectionBadge::default());
+    assert_eq!(roots[1].badge, s.session_badge(ip));
 }
 
 #[test]

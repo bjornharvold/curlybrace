@@ -59,7 +59,7 @@ fn unticking_production_on_the_saved_connection_leaves_the_open_session_guarded(
     set_production(&mut s, id, false);
     assert!(s.active_is_production());
     assert!(s.active_badge().production);
-    assert!(s.roots(&I18n::english())[0].badge().production);
+    assert!(s.roots(&I18n::english())[0].badge.production);
     let (s, commands) = update(s, insert());
     assert!(commands.is_empty(), "the write is still parked");
     assert!(s.write_warning.is_some());
@@ -75,7 +75,7 @@ fn ticking_production_on_the_saved_connection_guards_the_open_session_at_once() 
     assert!(s.session_production(id));
     assert!(s.active_badge().production);
     assert!(s.session_badge(id).production);
-    assert!(s.roots(&I18n::english())[0].badge().production);
+    assert!(s.roots(&I18n::english())[0].badge.production);
     let (s, commands) = update(s, insert());
     assert!(commands.is_empty(), "the write is parked");
     assert!(s.write_warning.is_some());
@@ -132,10 +132,7 @@ fn two_sessions_keep_their_own_snapshots_when_parked_and_restored() {
     assert!(!s.session_production(idb), "active B is plain again");
     let roots = s.roots(&I18n::english());
     assert_eq!(
-        roots
-            .iter()
-            .map(|r| r.badge().production)
-            .collect::<Vec<_>>(),
+        roots.iter().map(|r| r.badge.production).collect::<Vec<_>>(),
         [true, false]
     );
     let (s, _) = update(s, Input::Activate(ida));

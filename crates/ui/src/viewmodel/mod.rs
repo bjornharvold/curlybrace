@@ -23,7 +23,7 @@ pub use connection_list::{
     Group, Security, Sort, SortColumn, format_utc, grouped, security, server_hosts, servers,
     visible,
 };
-pub use connection_tag::{ColorTag, ConnectionBadge, badge_of, color_tag};
+pub use connection_tag::{ColorTag, ConnectionBadge, color_tag};
 pub use doc_actions::{
     DeleteConfirm, DocAction, MenuItem, choose, id_preview, is_projected, menu_items,
 };

@@ -1,6 +1,6 @@
 //! How a connection's colour tag and production flag are shown. Colour is never the only
 //! signal: every colour has its own glyph and a translated name, and production is a text badge.
-use curlybrace_core::connection::{ConnectionColor, ConnectionConfig};
+use curlybrace_core::connection::ConnectionColor;
 
 /// i18n key of the production badge text.
 pub const PRODUCTION_BADGE_KEY: &str = "connection.production_badge";
@@ -44,10 +44,6 @@ impl ConnectionBadge {
             production,
         }
     }
-}
-
-pub fn badge_of(cfg: &ConnectionConfig) -> ConnectionBadge {
-    ConnectionBadge::new(cfg.color, cfg.production)
 }
 
 #[cfg(test)]
@@ -124,17 +120,5 @@ mod tests {
                 assert!(ratio >= 3.0, "{} on {background:?}: {ratio}", tag.name_key);
             }
         }
-    }
-
-    #[test]
-    fn badge_of_reflects_config() {
-        let plain = ConnectionConfig::new("a", "mongodb://h:1");
-        assert_eq!(badge_of(&plain), ConnectionBadge::default());
-        let mut tagged = plain;
-        tagged.color = Some(ConnectionColor::Green);
-        tagged.production = true;
-        let badge = badge_of(&tagged);
-        assert_eq!(badge.color, Some(color_tag(ConnectionColor::Green)));
-        assert!(badge.production);
     }
 }

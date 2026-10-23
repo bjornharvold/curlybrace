@@ -80,11 +80,11 @@ fn show_status_line(ui: &mut egui::Ui, root: &Root, i18n: &I18n) -> Option<Input
 }
 
 fn show_tag_line(ui: &mut egui::Ui, root: &Root, i18n: &I18n) {
-    let badge = root.badge();
+    let badge = &root.badge;
     if badge.color.is_none() && !badge.production {
         return;
     }
-    ui.horizontal_wrapped(|ui| show_badge(ui, &badge, i18n));
+    ui.horizontal_wrapped(|ui| show_badge(ui, badge, i18n));
 }
 
 fn show_title_line(
