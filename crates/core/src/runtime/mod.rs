@@ -28,6 +28,11 @@ mod prompt_gate_tests;
 mod read_only_registry;
 #[cfg(test)]
 mod read_only_tests;
+// Not wired into connect/disconnect yet (the next task does that).
+#[allow(dead_code)]
+mod sampler;
+#[cfg(test)]
+mod sampler_tests;
 mod session;
 #[cfg(test)]
 mod session_tests;

@@ -36,6 +36,8 @@ test-support = []
 
 [dev-dependencies]
 tempfile = "3.27.0"
+# The sampler tests drive tokio's paused clock.
+tokio = { version = "1.53.2", features = ["full", "test-util"] }
 proptest = "1.5"
 curlybrace-testkit = { path = "../testkit" }
 # Integration tests share the fixtures behind the `test-support` feature.
