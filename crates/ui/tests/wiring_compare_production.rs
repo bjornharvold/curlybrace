@@ -54,11 +54,18 @@ fn a_production_connection_that_is_only_read_gets_no_notice() {
 }
 
 #[test]
-fn editing_the_saved_flag_after_opening_changes_nothing() {
+fn unticking_the_saved_flag_after_opening_keeps_the_notice() {
     let mut state = review_with_two_production(true);
     state.conn.connections[1].production = false;
     assert!(notice_shown(state), "the session opened on production");
+}
+
+#[test]
+fn ticking_the_saved_flag_after_opening_shows_the_notice_at_once() {
     let mut state = review_with_two_production(false);
     state.conn.connections[1].production = true;
-    assert!(!notice_shown(state), "the session opened on a plain one");
+    assert!(
+        notice_shown(state),
+        "the live flag counts without reopening"
+    );
 }

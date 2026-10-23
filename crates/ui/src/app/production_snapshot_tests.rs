@@ -1,5 +1,5 @@
-//! The production flag is snapshotted when a session opens: editing the saved connection takes
-//! effect on the next connect, never on a session that is already open.
+//! An open session counts as production when the flag it opened with OR the saved connection's
+//! live flag says so: ticking applies at once, unticking only on the next connect.
 use super::reducer::{Input, update};
 use super::state::AppState;
 use crate::I18n;
@@ -59,22 +59,51 @@ fn unticking_production_on_the_saved_connection_leaves_the_open_session_guarded(
     set_production(&mut s, id, false);
     assert!(s.active_is_production());
     assert!(s.active_badge().production);
-    assert!(s.roots(&I18n::english())[0].production);
+    assert!(s.roots(&I18n::english())[0].badge().production);
     let (s, commands) = update(s, insert());
     assert!(commands.is_empty(), "the write is still parked");
     assert!(s.write_warning.is_some());
 }
 
 #[test]
-fn ticking_production_on_the_saved_connection_does_not_guard_the_open_session() {
+fn ticking_production_on_the_saved_connection_guards_the_open_session_at_once() {
     let cfg = config("plain", false);
     let id = cfg.id;
     let mut s = connected(AppState::new(vec![cfg]), id);
     set_production(&mut s, id, true);
+    assert!(s.active_is_production());
+    assert!(s.session_production(id));
+    assert!(s.active_badge().production);
+    assert!(s.session_badge(id).production);
+    assert!(s.roots(&I18n::english())[0].badge().production);
+    let (s, commands) = update(s, insert());
+    assert!(commands.is_empty(), "the write is parked");
+    assert!(s.write_warning.is_some());
+}
+
+#[test]
+fn connecting_again_after_ticking_keeps_the_open_session_guarded() {
+    let cfg = config("plain", false);
+    let id = cfg.id;
+    let mut s = connected(AppState::new(vec![cfg]), id);
+    set_production(&mut s, id, true);
+    let (s, _) = update(s, Input::Connect(id));
+    assert!(s.active_is_production());
+}
+
+#[test]
+fn a_connection_deleted_while_open_uses_its_snapshot_alone() {
+    let cfg = config("prod", true);
+    let id = cfg.id;
+    let mut s = connected(AppState::new(vec![cfg]), id);
+    s.conn.connections.clear();
+    assert!(s.active_is_production());
+    assert!(s.session_production(id));
+    let cfg = config("plain", false);
+    let id = cfg.id;
+    let mut s = connected(AppState::new(vec![cfg]), id);
+    s.conn.connections.clear();
     assert!(!s.active_is_production());
-    assert!(!s.active_badge().production);
-    let (_, commands) = update(s, insert());
-    assert_eq!(commands.len(), 1, "sent without a warning");
 }
 
 #[test]
@@ -97,16 +126,21 @@ fn two_sessions_keep_their_own_snapshots_when_parked_and_restored() {
     let mut s = connected(s, idb);
     set_production(&mut s, ida, false);
     set_production(&mut s, idb, true);
-    assert!(s.session_production(ida), "parked A keeps production");
-    assert!(!s.session_production(idb), "active B keeps plain");
+    assert!(s.session_production(ida), "parked A keeps its snapshot");
+    assert!(s.session_production(idb), "active B was ticked");
+    set_production(&mut s, idb, false);
+    assert!(!s.session_production(idb), "active B is plain again");
     let roots = s.roots(&I18n::english());
     assert_eq!(
-        roots.iter().map(|r| r.production).collect::<Vec<_>>(),
+        roots
+            .iter()
+            .map(|r| r.badge().production)
+            .collect::<Vec<_>>(),
         [true, false]
     );
     let (s, _) = update(s, Input::Activate(ida));
     assert!(s.active_is_production());
-    assert!(!s.session_production(idb), "parked B keeps plain");
+    assert!(!s.session_production(idb), "parked B is plain");
     let (s, _) = update(s, Input::Activate(idb));
     assert!(!s.active_is_production());
     assert!(s.session_production(ida));

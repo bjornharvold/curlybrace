@@ -186,7 +186,7 @@ pub struct AppState {
     /// SSH endpoint of the connection being (or last) opened.
     pub ssh_endpoint: Option<HostEndpoint>,
     /// Whether the active session was opened on a production connection (snapshotted at
-    /// connect, so a later edit of the saved connection does not change an open session).
+    /// connect). Read it through `session_production`, which also counts the live saved flag.
     pub production: bool,
     /// Endpoint awaiting the "forget host" confirmation.
     pub forget_confirm: Option<HostEndpoint>,
@@ -221,8 +221,8 @@ impl AppState {
             .unwrap_or_default()
     }
 
-    /// The badge of the open session `id`: the colour follows the saved connection, the
-    /// production flag is the one snapshotted when the session opened.
+    /// The badge of the open session `id`: the colour follows the saved connection, production
+    /// is `session_production` (opened-with snapshot OR the live saved flag).
     pub fn session_badge(&self, id: Uuid) -> crate::viewmodel::ConnectionBadge {
         let color = self.connection(id).and_then(|c| c.color);
         crate::viewmodel::ConnectionBadge::new(color, self.session_production(id))

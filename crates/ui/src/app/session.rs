@@ -31,8 +31,9 @@ pub struct SessionView {
     pub editor: Option<EditorState>,
     pub pending: Option<Pending>,
     pub ssh_endpoint: Option<HostEndpoint>,
-    /// The connection's production flag as it was when the session was opened. Editing the saved
-    /// connection afterwards changes nothing here: it applies on the next connect.
+    /// The connection's production flag as it was when the session was opened. Unticking the saved
+    /// connection afterwards changes nothing here (it applies on the next connect); ticking it is
+    /// picked up by `AppState::session_production`.
     pub production: bool,
 }
 
