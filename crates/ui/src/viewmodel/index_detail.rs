@@ -235,10 +235,7 @@ mod tests {
             series_of(&tied, &spec).map(|s| s.host.as_str()),
             Some("node-a")
         );
-        let unread = vec![
-            series(&spec, "node-a"),
-            read_at(series(&spec, "node-b"), 1),
-        ];
+        let unread = vec![series(&spec, "node-a"), read_at(series(&spec, "node-b"), 1)];
         assert_eq!(
             series_of(&unread, &spec).map(|s| s.host.as_str()),
             Some("node-b")

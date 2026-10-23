@@ -797,7 +797,7 @@
     "size_kib": "{n} KiB",
     "size_mib": "{n} MiB",
     "summary": "{uses} uses in the last {range}, {restarts} restarts, {hours} hours without data",
-    "summary_unobserved": "No usage was observed in the last {range}, {hours} hours without data",
+    "summary_unobserved": "No samples were taken in the last {range} ({hours} hours without data)",
     "tab": "Indexes",
     "tracked_since": "Tracked since",
     "ttl": {
