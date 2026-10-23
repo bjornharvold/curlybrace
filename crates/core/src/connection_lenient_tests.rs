@@ -46,27 +46,95 @@ fn base_json(uri: &str) -> serde_json::Value {
 }
 
 #[test]
-fn an_unknown_color_loads_as_none_and_warns_without_the_uri() {
+fn an_unknown_color_is_kept_and_warns_without_the_uri_or_the_value() {
     capture();
     let uri = "mongodb://secret-host-lenient-color";
     let mut json = base_json(uri);
-    json["color"] = serde_json::json!("chartreuse");
+    json["color"] = serde_json::json!("chartreuse-secret");
     let c: ConnectionConfig = serde_json::from_value(json).unwrap();
-    assert_eq!(c.color, None);
-    let warnings = warnings_mentioning("colour");
-    assert!(!warnings.is_empty(), "no warning for the bad colour");
+    assert_eq!(
+        c.color,
+        Some(SavedColor::Unrecognised("chartreuse-secret".into()))
+    );
+    assert_eq!(c.known_color(), None);
+    assert!(
+        !warnings_mentioning("colour").is_empty(),
+        "no warning for the bad colour"
+    );
     let all = RECORDS.lock().unwrap().join("\n");
     assert!(!all.contains("secret-host-lenient-color"), "{all}");
+    assert!(!all.contains("chartreuse-secret"), "{all}");
 }
 
 #[test]
-fn a_known_color_and_a_missing_color_load_as_they_are() {
+fn an_unknown_color_round_trips_load_to_save_unchanged() {
+    for raw in ["chartreuse", "red", "", "Red "] {
+        let mut json = base_json("mongodb://h");
+        json["color"] = serde_json::json!(raw);
+        let c: ConnectionConfig = serde_json::from_value(json).unwrap();
+        let saved = serde_json::to_value(&c).unwrap();
+        assert_eq!(saved["color"], serde_json::json!(raw));
+    }
+}
+
+#[test]
+fn a_known_color_serialises_as_its_variant_name() {
+    for color in ConnectionColor::ALL {
+        let mut c = ConnectionConfig::new("a", "mongodb://h");
+        c.color = Some(SavedColor::Known(color));
+        let saved = serde_json::to_value(&c).unwrap();
+        assert_eq!(saved["color"], serde_json::to_value(color).unwrap());
+        assert_eq!(c.known_color(), Some(color));
+    }
+}
+
+#[test]
+fn a_known_a_null_and_a_missing_color_load_as_they_are() {
     let mut json = base_json("mongodb://h");
     json["color"] = serde_json::json!("Red");
     let c: ConnectionConfig = serde_json::from_value(json).unwrap();
-    assert_eq!(c.color, Some(ConnectionColor::Red));
+    assert_eq!(c.color, Some(SavedColor::Known(ConnectionColor::Red)));
+    let mut json = base_json("mongodb://h");
+    json["color"] = serde_json::json!(null);
+    let c: ConnectionConfig = serde_json::from_value(json).unwrap();
+    assert_eq!(c.color, None);
     let c: ConnectionConfig = serde_json::from_value(base_json("mongodb://h")).unwrap();
     assert_eq!(c.color, None);
+}
+
+#[test]
+fn a_non_string_color_loads_as_none_and_warns_without_failing_the_entry() {
+    capture();
+    for bad in [
+        serde_json::json!(7),
+        serde_json::json!({"x": 1}),
+        serde_json::json!(["Red"]),
+    ] {
+        let mut json = base_json("mongodb://h");
+        json["color"] = bad.clone();
+        let c: ConnectionConfig = serde_json::from_value(json).expect("the entry still loads");
+        assert_eq!(c.color, None, "{bad}");
+    }
+    assert!(!warnings_mentioning("malformed colour").is_empty());
+}
+
+#[test]
+fn one_bad_color_does_not_stop_the_other_entries_loading() {
+    let mut bad = base_json("mongodb://bad");
+    bad["color"] = serde_json::json!(42);
+    let mut odd = base_json("mongodb://odd");
+    odd["color"] = serde_json::json!("future-shade");
+    let mut good = base_json("mongodb://good");
+    good["color"] = serde_json::json!("Blue");
+    let list: Vec<ConnectionConfig> =
+        serde_json::from_value(serde_json::json!([bad, odd, good])).unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[0].color, None);
+    assert_eq!(
+        list[1].color,
+        Some(SavedColor::Unrecognised("future-shade".into()))
+    );
+    assert_eq!(list[2].known_color(), Some(ConnectionColor::Blue));
 }
 
 #[test]
@@ -99,4 +167,13 @@ fn a_boolean_production_value_is_kept_as_it_is() {
     }
     let c: ConnectionConfig = serde_json::from_value(base_json("mongodb://h")).unwrap();
     assert!(!c.production, "an absent flag stays non-production");
+}
+
+#[test]
+fn a_duplicate_keeps_an_unrecognised_color() {
+    let mut src = ConnectionConfig::new("a", "mongodb://h");
+    src.color = Some(SavedColor::Unrecognised("future-shade".into()));
+    let copy = src.duplicate("a copy".into(), 5);
+    assert_eq!(copy.color, src.color);
+    assert_eq!(copy.known_color(), None);
 }

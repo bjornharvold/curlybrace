@@ -132,6 +132,7 @@ fn color_combo(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
                     ui.selectable_value(&mut form.color, option, label);
                 }
             });
+        form.colour_picked();
         // Name the combo by its caption and keep the selected value as its value.
         combo.response.widget_info(|| {
             let mut info =

@@ -242,9 +242,9 @@ fn the_servers_in_a_label_use_the_translated_list_separator() {
 
 #[test]
 fn root_carries_color_and_production_of_its_connection() {
-    use curlybrace_core::connection::ConnectionColor;
+    use curlybrace_core::connection::{ConnectionColor, SavedColor};
     let mut tagged = cfg("Prod", "mongodb://hostA:27017", "bastion-a");
-    tagged.color = Some(ConnectionColor::Red);
+    tagged.color = Some(SavedColor::Known(ConnectionColor::Red));
     tagged.production = true;
     let plain = cfg("Dev", "mongodb://hostB:27017", "bastion-b");
     let (it, ip) = (tagged.id, plain.id);
@@ -262,9 +262,9 @@ fn root_carries_color_and_production_of_its_connection() {
 #[test]
 fn active_badge_follows_the_active_connection() {
     use crate::viewmodel::ConnectionBadge;
-    use curlybrace_core::connection::ConnectionColor;
+    use curlybrace_core::connection::{ConnectionColor, SavedColor};
     let mut tagged = cfg("Prod", "mongodb://hostA:27017", "bastion-a");
-    tagged.color = Some(ConnectionColor::Blue);
+    tagged.color = Some(SavedColor::Known(ConnectionColor::Blue));
     tagged.production = true;
     let id = tagged.id;
     let s = opened(AppState::new(vec![tagged]), id);
@@ -281,4 +281,19 @@ fn embedded_session_has_no_badge() {
         AppState::default().active_badge(),
         ConnectionBadge::default()
     );
+}
+
+#[test]
+fn an_unrecognised_colour_shows_as_no_colour_on_the_root_and_the_header() {
+    use crate::viewmodel::ConnectionBadge;
+    use curlybrace_core::connection::SavedColor;
+    let mut odd = cfg("Prod", "mongodb://hostA:27017", "bastion-a");
+    odd.color = Some(SavedColor::Unrecognised("future-shade".into()));
+    odd.production = true;
+    let id = odd.id;
+    let s = opened(AppState::new(vec![odd]), id);
+    let expected = ConnectionBadge::new(None, true);
+    assert_eq!(s.roots(&i18n())[0].badge, expected);
+    assert_eq!(s.session_badge(id), expected);
+    assert_eq!(s.active_badge(), expected);
 }

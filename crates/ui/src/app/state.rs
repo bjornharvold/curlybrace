@@ -226,7 +226,7 @@ impl AppState {
     /// The badge of the open session `id`: the colour follows the saved connection, production
     /// is `session_production` (opened-with snapshot OR the live saved flag).
     pub fn session_badge(&self, id: Uuid) -> crate::viewmodel::ConnectionBadge {
-        let color = self.connection(id).and_then(|c| c.color);
+        let color = self.connection(id).and_then(|c| c.known_color());
         crate::viewmodel::ConnectionBadge::new(color, self.session_production(id))
     }
 

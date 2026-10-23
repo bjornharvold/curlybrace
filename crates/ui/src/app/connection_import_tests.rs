@@ -89,3 +89,46 @@ fn the_largest_accepted_import_is_named_uniquely_and_in_order() {
     assert_eq!(names[4], "host 3");
     assert!(imported.connections.iter().all(|c| c.validate().is_ok()));
 }
+
+#[test]
+fn an_import_and_an_export_keep_a_colour_this_build_does_not_recognise() {
+    use curlybrace_core::connection::SavedColor;
+    let mut odd = cfg("odd");
+    odd.color = Some(SavedColor::Unrecognised("future-shade".into()));
+    let bytes = export_bytes(&[odd]).unwrap();
+    let imported = prepare_import(&bytes, &[], 9).unwrap();
+    assert_eq!(
+        imported.connections[0].color,
+        Some(SavedColor::Unrecognised("future-shade".into()))
+    );
+    let again: serde_json::Value =
+        serde_json::from_slice(&export_bytes(&imported.connections).unwrap()).unwrap();
+    assert_eq!(again[0]["color"], serde_json::json!("future-shade"));
+}
+
+#[test]
+fn a_file_with_an_unrecognised_and_a_malformed_colour_loads_every_entry_and_saves_it_back() {
+    use super::persistence::{load_connections, save_connections};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("connections.json");
+    let entry = |name: &str, color: serde_json::Value| {
+        let mut v = serde_json::to_value(cfg(name)).unwrap();
+        v["color"] = color;
+        v
+    };
+    let file = serde_json::json!([
+        entry("odd", serde_json::json!("future-shade")),
+        entry("number", serde_json::json!(7)),
+        entry("blue", serde_json::json!("Blue")),
+    ]);
+    std::fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+
+    let loaded = load_connections(&path).unwrap();
+    assert_eq!(loaded.connections.len(), 3);
+    save_connections(&path, &loaded.connections).unwrap();
+
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved[0]["color"], serde_json::json!("future-shade"));
+    assert_eq!(saved[1]["color"], serde_json::json!(null));
+    assert_eq!(saved[2]["color"], serde_json::json!("Blue"));
+}

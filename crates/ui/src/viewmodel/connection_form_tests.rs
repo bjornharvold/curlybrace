@@ -475,7 +475,7 @@ fn default_form_is_uncoloured_non_production() {
 fn form_round_trips_color_and_production() {
     for color in ConnectionColor::ALL {
         let mut c = ConnectionConfig::new("a", "mongodb://h");
-        c.color = Some(color);
+        c.color = Some(SavedColor::Known(color));
         c.production = true;
         let form = ConnectionForm::from_config(&c);
         assert_eq!((form.color, form.production), (Some(color), true));
@@ -486,8 +486,53 @@ fn form_round_trips_color_and_production() {
 #[test]
 fn choosing_no_colour_again_clears_an_existing_colour() {
     let mut c = ConnectionConfig::new("a", "mongodb://h");
-    c.color = Some(ConnectionColor::Blue);
+    c.color = Some(SavedColor::Known(ConnectionColor::Blue));
     let mut form = ConnectionForm::from_config(&c);
     form.color = None;
+    form.colour_picked();
+    assert_eq!(form.to_config().unwrap().color, None);
+}
+
+fn unrecognised() -> ConnectionConfig {
+    let mut c = ConnectionConfig::new("a", "mongodb://h");
+    c.color = Some(SavedColor::Unrecognised("future-shade".into()));
+    c
+}
+
+#[test]
+fn an_unrecognised_colour_shows_as_none_and_round_trips_untouched() {
+    let c = unrecognised();
+    let form = ConnectionForm::from_config(&c);
+    assert_eq!(form.color, None);
+    assert_eq!(form.to_config().unwrap(), c);
+}
+
+#[test]
+fn picking_a_colour_replaces_an_unrecognised_one() {
+    let mut form = ConnectionForm::from_config(&unrecognised());
+    form.color = Some(ConnectionColor::Green);
+    form.colour_picked();
+    assert_eq!(
+        form.to_config().unwrap().color,
+        Some(SavedColor::Known(ConnectionColor::Green))
+    );
+}
+
+#[test]
+fn picking_no_colour_while_unrecognised_changes_nothing() {
+    let c = unrecognised();
+    let mut form = ConnectionForm::from_config(&c);
+    form.color = None;
+    form.colour_picked();
+    assert_eq!(form.to_config().unwrap(), c);
+}
+
+#[test]
+fn picking_a_colour_then_no_colour_clears_an_unrecognised_one() {
+    let mut form = ConnectionForm::from_config(&unrecognised());
+    form.color = Some(ConnectionColor::Red);
+    form.colour_picked();
+    form.color = None;
+    form.colour_picked();
     assert_eq!(form.to_config().unwrap().color, None);
 }

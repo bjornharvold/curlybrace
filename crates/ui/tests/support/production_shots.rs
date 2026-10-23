@@ -2,7 +2,7 @@
 //! the production write warning over the browser.
 use super::shots::browsing;
 use bson::Bson;
-use curlybrace_core::connection::ConnectionColor;
+use curlybrace_core::connection::{ConnectionColor, SavedColor};
 use curlybrace_core::runtime::Command;
 use curlybrace_core::test_support::mock_objects::mock_namespace;
 use curlybrace_ui::app::state::{AppState, Pending};
@@ -15,7 +15,7 @@ pub fn production_root(state: &mut AppState) {
     let active = state.active.expect("browsing opens a session");
     for cfg in state.conn.connections.iter_mut().filter(|c| c.id == active) {
         cfg.production = true;
-        cfg.color = Some(ConnectionColor::Red);
+        cfg.color = Some(SavedColor::Known(ConnectionColor::Red));
     }
 }
 

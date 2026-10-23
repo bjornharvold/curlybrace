@@ -503,7 +503,7 @@ mod tests {
             let mut f = fixture();
             let config = &mut f.state.conn.connections[0];
             config.name = name.into();
-            config.color = color;
+            config.color = color.map(curlybrace_core::connection::SavedColor::Known);
             config.production = production;
             f.state.production = production;
             let harness = panel_harness(f.state);

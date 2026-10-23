@@ -1,7 +1,7 @@
 //! Editable connection form: validation, config mapping and secret persistence.
 use curlybrace_core::GSSAPI_AVAILABLE;
 use curlybrace_core::connection::{
-    AuthMechanism, ConnectionColor, ConnectionConfig, SshAuth, SshConfig, TlsConfig,
+    AuthMechanism, ConnectionColor, ConnectionConfig, SavedColor, SshAuth, SshConfig, TlsConfig,
 };
 use curlybrace_core::error::{CoreError, Result};
 use curlybrace_core::secrets::{SecretKind, SecretStore, secret_key};
@@ -37,6 +37,9 @@ pub struct ConnectionForm {
     pub allow_invalid_certs: bool,
     pub folder: String,
     pub color: Option<ConnectionColor>,
+    /// A saved colour this build does not recognise. The picker shows it as "No colour"; it is
+    /// written back untouched until the user picks a real colour (see `colour_picked`).
+    pub unrecognised_color: Option<String>,
     pub production: bool,
     pub created_at: Option<i64>,
     pub last_connected: Option<i64>,
@@ -134,6 +137,7 @@ impl Default for ConnectionForm {
             allow_invalid_certs: false,
             folder: String::new(),
             color: None,
+            unrecognised_color: None,
             production: false,
             created_at: None,
             last_connected: None,
@@ -197,11 +201,28 @@ impl ConnectionForm {
             created_at: self.created_at,
             updated_at: None,
             last_connected: self.last_connected,
-            color: self.color,
+            color: self.saved_color(),
             production: self.production,
         };
         cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// The colour to save: a picked preset, else the carried unrecognised value, else none.
+    fn saved_color(&self) -> Option<SavedColor> {
+        match (self.color, &self.unrecognised_color) {
+            (Some(color), _) => Some(SavedColor::Known(color)),
+            (None, Some(raw)) => Some(SavedColor::Unrecognised(raw.clone())),
+            (None, None) => None,
+        }
+    }
+
+    /// Call after the picker may have changed. Picking a real colour replaces the carried
+    /// unrecognised value for good, so choosing "No colour" afterwards clears it.
+    pub fn colour_picked(&mut self) {
+        if self.color.is_some() {
+            self.unrecognised_color = None;
+        }
     }
 
     fn ssh_config(&self) -> Result<Option<SshConfig>> {
@@ -243,7 +264,11 @@ impl ConnectionForm {
             tls_ca: path(&c.tls.ca_file),
             tls_client_cert: path(&c.tls.client_cert_key_file),
             folder: c.folder.clone().unwrap_or_default(),
-            color: c.color,
+            color: c.known_color(),
+            unrecognised_color: match &c.color {
+                Some(SavedColor::Unrecognised(raw)) => Some(raw.clone()),
+                _ => None,
+            },
             production: c.production,
             created_at: c.created_at,
             last_connected: c.last_connected,
