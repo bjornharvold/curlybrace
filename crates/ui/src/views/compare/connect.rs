@@ -4,6 +4,7 @@ use crate::app::compare::CompareAction;
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::connection_tag::READ_ONLY_BADGE_KEY;
 use crate::views::connections::ConnectionsState;
+use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::connection::ConnectionConfig;
 use eframe::egui;
 use uuid::Uuid;
@@ -50,12 +51,6 @@ pub fn show_connect(
 }
 
 const TARGET_READ_ONLY_KEY: &str = "compare.session.target_read_only";
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Side {
-    Source,
-    Target,
-}
 
 fn is_read_only(connections: &ConnectionsState, id: Uuid) -> bool {
     connections

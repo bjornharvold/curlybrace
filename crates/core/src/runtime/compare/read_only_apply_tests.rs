@@ -116,6 +116,21 @@ async fn a_mixed_apply_with_one_op_to_a_read_only_source_writes_nothing() {
 }
 
 #[tokio::test]
+async fn a_locked_target_still_allows_a_copy_to_the_writable_source() {
+    let mut r = rig();
+    let target = side(TGT, false);
+    open(&mut r, &side(SRC, false), &target).await;
+    run_to_completion(&mut r).await;
+    send_lock(&r.tx, target.id);
+    send_apply(&r.tx, 5, vec![to_source(ApplyKind::Replace)]);
+    let events = within(collect_apply(&mut r.h)).await;
+    let reports = pair_reports(&events);
+    assert_eq!(reports.len(), 1, "{events:?}");
+    assert_eq!(reports[0].1.applied, 1, "{events:?}");
+    assert_eq!((r.source.writes(), r.target.writes()), (1, 0));
+}
+
+#[tokio::test]
 async fn a_source_locked_while_opening_refuses_a_copy_to_source() {
     let hooks = std::sync::Arc::new(Hooks::default());
     let mut r = rig_with_parked(SRC, &hooks);
