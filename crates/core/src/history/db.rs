@@ -45,6 +45,14 @@ pub(super) fn sql_err(e: rusqlite::Error) -> CoreError {
 }
 
 impl HistoryDb {
+    /// Makes every later `record` and `thin` fail, as a damaged database would (tests only).
+    #[cfg(test)]
+    pub(crate) fn break_writes_for_tests(&self) {
+        self.lock()
+            .execute_batch("ALTER TABLE samples RENAME TO samples_gone")
+            .expect("rename the samples table");
+    }
+
     /// Opens (creating, with mode 0600 on unix) the database at `path`. A corrupt file is moved
     /// to `<name>.corrupt` and replaced; a file from a newer build is refused untouched.
     pub fn open(path: &Path) -> Result<(Self, Option<Recovery>)> {

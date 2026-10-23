@@ -116,11 +116,14 @@ pub(super) fn backoff(interval: Duration, failures: u32) -> Duration {
 
 /// One pass over every user collection of the connection. Returns how many series got a sample.
 ///
-/// Errors: a failure on one collection never hides the others, which are still recorded. If any
-/// failure asks for a pause (see [`pause_reason`], or a history write failure) the first such
-/// error is returned after the pass; any other per-collection error is logged and skipped,
-/// because a collection can vanish between being listed and being read. A history failure comes
-/// back as a `Database` error; use [`spawn`] to get it classified as `HistoryUnavailable`.
+/// Errors: a failure on one collection never hides the others, which are still recorded. The
+/// pass only fails when it learned nothing: discovery failed (`list_databases`), or every
+/// listing and every collection failed with an error that asks for a pause (see
+/// [`pause_reason`]), for instance a user denied on the whole server. If any database or
+/// collection answered, the denied or failed ones are only reported in [`Pass::failed`]: a user
+/// who can read `shop` but not `audit` keeps a history of `shop`. A history write failure always
+/// fails the pass; it comes back as a `Database` error, and [`spawn`] classifies it as
+/// `HistoryUnavailable`.
 pub async fn sample_once(
     store: &dyn DocumentStore,
     history: &Arc<HistoryDb>,
@@ -130,7 +133,56 @@ pub async fn sample_once(
 ) -> Result<usize> {
     run_pass(store, history, connection, cfg, now_secs)
         .await
+        .map(|pass| pass.recorded)
         .map_err(|e| e.error().clone())
+}
+
+/// What a pass that did not fail as a whole found.
+struct Pass {
+    recorded: usize,
+    /// The collections (or databases) that could not be read, by name, with their error.
+    failed: Vec<(String, CoreError)>,
+}
+
+/// What a pass learned about the server and the history, to decide whether it failed.
+#[derive(Default)]
+struct Health {
+    /// Collections read without an error, plus databases listed that had none to read.
+    answered: usize,
+    first_pause: Option<TickError>,
+    history: Option<TickError>,
+    failed: Vec<(String, CoreError)>,
+}
+
+impl Health {
+    fn note(&mut self, error: TickError, what: String) {
+        self.failed.push((what, error.error().clone()));
+        match error {
+            TickError::History(_) => {
+                self.history.get_or_insert(error);
+            }
+            TickError::Store(_) if error.pause().is_some() => {
+                self.first_pause.get_or_insert(error);
+            }
+            TickError::Store(_) => {}
+        }
+    }
+
+    fn finish(mut self, recorded: usize) -> std::result::Result<Pass, TickError> {
+        if let Some(history) = self.history {
+            return Err(history);
+        }
+        match self.first_pause {
+            Some(pause) if self.answered == 0 => Err(pause),
+            _ => {
+                self.failed.sort_by(|a, b| a.0.cmp(&b.0));
+                Ok(Pass {
+                    recorded,
+                    failed: self.failed,
+                })
+            }
+        }
+    }
 }
 
 async fn run_pass(
@@ -139,9 +191,9 @@ async fn run_pass(
     connection: Uuid,
     cfg: &SamplerConfig,
     now_secs: i64,
-) -> std::result::Result<usize, TickError> {
-    let mut first_pause: Option<TickError> = None;
-    let targets = discover(store, cfg, &mut first_pause)
+) -> std::result::Result<Pass, TickError> {
+    let mut health = Health::default();
+    let targets = discover(store, cfg, &mut health)
         .await
         .map_err(TickError::Store)?;
     let width = cfg.max_concurrency.max(1);
@@ -154,25 +206,14 @@ async fn run_pass(
     let mut recorded = 0;
     while let Some((ns, outcome)) = results.next().await {
         match outcome {
-            Ok(count) => recorded += count,
-            Err(error) => note(
-                error,
-                &format!("{}.{}", ns.db, ns.collection),
-                &mut first_pause,
-            ),
+            Ok(count) => {
+                recorded += count;
+                health.answered += 1;
+            }
+            Err(error) => health.note(error, format!("{}.{}", ns.db, ns.collection)),
         }
     }
-    first_pause.map_or(Ok(recorded), Err)
-}
-
-/// Keeps the first pause-class `error` in `first_pause`; logs and drops every other one.
-fn note(error: TickError, what: &str, first_pause: &mut Option<TickError>) {
-    if error.pause().is_some() {
-        log::warn!("index usage: {what}: {:?}", error.error());
-        first_pause.get_or_insert(error);
-    } else {
-        log::warn!("index usage: skipping {what}: {:?}", error.error());
-    }
+    health.finish(recorded)
 }
 
 /// The collections to sample: real collections of the non-system, non-excluded databases.
@@ -181,7 +222,7 @@ fn note(error: TickError, what: &str, first_pause: &mut Option<TickError>) {
 async fn discover(
     store: &dyn DocumentStore,
     cfg: &SamplerConfig,
-    first_pause: &mut Option<TickError>,
+    health: &mut Health,
 ) -> Result<Vec<Namespace>> {
     let mut targets = Vec::new();
     for db in store.list_databases().await? {
@@ -189,15 +230,23 @@ async fn discover(
             continue;
         }
         match store.list_collection_kinds(&db).await {
-            Ok(kinds) => targets.extend(
-                kinds
-                    .into_iter()
-                    .filter(|(name, kind)| {
-                        *kind == CollectionKind::Collection && !name.starts_with("system.")
-                    })
-                    .map(|(name, _)| Namespace::new(db.as_str(), name)),
-            ),
-            Err(error) => note(TickError::Store(error), &db, first_pause),
+            Ok(kinds) => {
+                let before = targets.len();
+                targets.extend(
+                    kinds
+                        .into_iter()
+                        .filter(|(name, kind)| {
+                            *kind == CollectionKind::Collection && !name.starts_with("system.")
+                        })
+                        .map(|(name, _)| Namespace::new(db.as_str(), name)),
+                );
+                // A listing only proves access when there is nothing left to read in it; a
+                // database with collections proves it through reading them.
+                if targets.len() == before {
+                    health.answered += 1;
+                }
+            }
+            Err(error) => health.note(TickError::Store(error), db),
         }
     }
     Ok(targets)
@@ -299,15 +348,18 @@ struct LoopState {
     failures: u32,
     reported: Option<SamplerStatus>,
     last_thin: Option<Instant>,
+    /// Names the last pass could not read, so a repeating set is logged once.
+    last_failed: Vec<String>,
 }
 
-async fn run(
+/// The sampler loop. `now` is the wall clock in Unix seconds; tests pass a controlled one.
+pub(super) async fn run(
     store: Arc<dyn DocumentStore>,
     history: Arc<HistoryDb>,
     connection: Uuid,
     cfg: watch::Receiver<SamplerConfig>,
     status: UnboundedSender<SamplerStatus>,
-    now: fn() -> i64,
+    now: impl Fn() -> i64 + Send + 'static,
 ) {
     let first = cfg.borrow().interval;
     let mut state = LoopState {
@@ -316,6 +368,7 @@ async fn run(
         failures: 0,
         reported: None,
         last_thin: None,
+        last_failed: Vec::new(),
     };
     loop {
         if !wait_for_next_tick(&mut state, &status).await {
@@ -329,8 +382,9 @@ async fn run(
         let began = Instant::now();
         let result = tick(&*store, &history, connection, &current, now(), &mut state).await;
         let next = match result {
-            Ok(_) => {
+            Ok(pass) => {
                 state.failures = 0;
+                report_failed(&pass.failed, &mut state.last_failed);
                 Some(SamplerStatus::Running)
             }
             Err(error) => match error.pause() {
@@ -381,7 +435,32 @@ async fn wait_for_next_tick(
     }
 }
 
-/// One pass plus the hourly thinning, which only runs after a good pass.
+/// Logs the collections a pass could not read, when the set differs from the last pass's.
+fn report_failed(failed: &[(String, CoreError)], last: &mut Vec<String>) {
+    let names: Vec<String> = failed.iter().map(|(name, _)| name.clone()).collect();
+    if names == *last {
+        return;
+    }
+    if let Some((_, first_error)) = failed.first() {
+        let shown: Vec<&str> = names.iter().take(3).map(String::as_str).collect();
+        log::warn!(
+            "index usage: {} collection(s) not sampled ({}{}): {:?}",
+            names.len(),
+            shown.join(", "),
+            if names.len() > shown.len() {
+                ", ..."
+            } else {
+                ""
+            },
+            first_error
+        );
+    }
+    *last = names;
+}
+
+/// One pass, then the hourly thinning. Thinning has its own schedule: it runs after a failed
+/// pass too (a paused sampler still thins), but not after a history failure, which it would
+/// only repeat. A thinning failure is a history failure.
 async fn tick(
     store: &dyn DocumentStore,
     history: &Arc<HistoryDb>,
@@ -389,8 +468,11 @@ async fn tick(
     cfg: &SamplerConfig,
     now_secs: i64,
     state: &mut LoopState,
-) -> std::result::Result<usize, TickError> {
-    let recorded = run_pass(store, history, connection, cfg, now_secs).await?;
+) -> std::result::Result<Pass, TickError> {
+    let pass = run_pass(store, history, connection, cfg, now_secs).await;
+    if matches!(pass, Err(TickError::History(_))) {
+        return pass;
+    }
     if state.last_thin.is_none_or(|at| at.elapsed() >= THIN_EVERY) {
         let history = Arc::clone(history);
         blocking(move || history.thin(now_secs))
@@ -398,5 +480,5 @@ async fn tick(
             .map_err(TickError::History)?;
         state.last_thin = Some(Instant::now());
     }
-    Ok(recorded)
+    pass
 }
