@@ -293,13 +293,51 @@ fn a_series_with_no_buckets_in_the_window_shows_no_data_not_zero() {
 }
 
 #[test]
-fn the_read_only_flag_changes_nothing_in_this_view() {
-    let labels = |read_only: bool| {
-        let (_, _, state) = two_indexes();
-        let harness = open(state, read_only);
-        harness.query_all_by_role(Role::Button).count()
+fn the_create_button_is_disabled_on_a_read_only_connection_and_says_why() {
+    let (_, _, state) = two_indexes();
+    let harness = open(state, true);
+    let create = t("indexes.create");
+    assert!(
+        harness
+            .get_by_role_and_label(Role::Button, &create)
+            .accesskit_node()
+            .is_disabled()
+    );
+    harness.get_by_label(&t("connection.read_only_reason"));
+}
+
+#[test]
+fn the_create_button_is_enabled_on_a_writable_connection() {
+    let (_, _, state) = two_indexes();
+    let mut harness = open(state, false);
+    let create = t("indexes.create");
+    assert!(
+        !harness
+            .get_by_role_and_label(Role::Button, &create)
+            .accesskit_node()
+            .is_disabled()
+    );
+    assert_eq!(count(&harness, &t("connection.read_only_reason")), 0);
+    harness.get_by_role_and_label(Role::Button, &create).click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().1, vec![IndexesAction::OpenBuilder]);
+}
+
+#[test]
+fn the_create_button_waits_while_a_create_is_in_flight() {
+    let (_, _, state) = two_indexes();
+    let state = IndexesState {
+        creating: Some("a_1".into()),
+        ..state
     };
-    assert_eq!(labels(true), labels(false));
+    let harness = open(state, false);
+    assert!(
+        harness
+            .get_by_role_and_label(Role::Button, &t("indexes.create"))
+            .accesskit_node()
+            .is_disabled()
+    );
+    harness.get_by_label(&t("indexes.create_busy"));
 }
 
 #[test]

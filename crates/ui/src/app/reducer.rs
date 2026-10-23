@@ -425,14 +425,7 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
         ),
         // The builder stays open with everything the person typed, so a refusal such as a
         // duplicate name can be fixed and sent again.
-        "create_index" => failure(
-            AppState {
-                pending: None,
-                ..state
-            },
-            context,
-            error,
-        ),
+        "create_index" => failure(index_write_actions::create_failed(state), context, error),
         // The count only decides whether a warning shows: a missing one is not worth a banner.
         "estimated_count" => state,
         "list_indexes" | "index_history" => failure(

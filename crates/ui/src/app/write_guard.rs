@@ -133,7 +133,10 @@ pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
                 pending: Some(pending),
                 ..state
             };
-            (next, vec![command])
+            (
+                super::index_write_actions::sent(next, &command),
+                vec![command],
+            )
         }
         (WriteWarningAction::Confirm, Some(parked)) => {
             let banner = Some(match connection_unchanged(&state, &parked) {

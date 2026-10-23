@@ -104,7 +104,7 @@ fn toolbar(
         if ui.button(i18n.t("indexes.refresh")).clicked() {
             action = Some(IndexesAction::Refresh);
         }
-        if create_button(ui, read_only, i18n) {
+        if create_button(ui, read_only, state.creating.is_some(), i18n) {
             action = Some(IndexesAction::OpenBuilder);
         }
         if let Some(key) = state.sampler.map(sampler_key) {
@@ -116,11 +116,19 @@ fn toolbar(
 
 /// The Create index button. On a read-only connection it is disabled and the reason is both its
 /// hover text and a visible note, so the state is never colour or hover alone.
-fn create_button(ui: &mut egui::Ui, read_only: bool, i18n: &I18n) -> bool {
-    let button = ui.add_enabled(!read_only, egui::Button::new(i18n.t("indexes.create")));
-    if read_only {
-        button.on_disabled_hover_text(i18n.t(READ_ONLY_REASON_KEY));
-        ui.label(i18n.t(READ_ONLY_REASON_KEY));
+fn create_button(ui: &mut egui::Ui, read_only: bool, creating: bool, i18n: &I18n) -> bool {
+    let reason = match (read_only, creating) {
+        (true, _) => Some(READ_ONLY_REASON_KEY),
+        (false, true) => Some("indexes.create_busy"),
+        (false, false) => None,
+    };
+    let button = ui.add_enabled(
+        reason.is_none(),
+        egui::Button::new(i18n.t("indexes.create")),
+    );
+    if let Some(key) = reason {
+        button.on_disabled_hover_text(i18n.t(key));
+        ui.label(i18n.t(key));
         return false;
     }
     button.clicked()

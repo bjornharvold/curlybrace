@@ -39,6 +39,9 @@ pub struct IndexesState {
     pub sampler: Option<SamplerStatus>,
     /// The index builder, while its modal is open.
     pub builder: Option<IndexBuilderState>,
+    /// The name of the index whose create was sent and not yet answered. It is what gets
+    /// selected on success, whatever the builder (if any) holds by then.
+    pub creating: Option<String>,
 }
 
 impl Default for IndexesState {
@@ -52,6 +55,7 @@ impl Default for IndexesState {
             loading: false,
             sampler: None,
             builder: None,
+            creating: None,
         }
     }
 }
@@ -121,6 +125,42 @@ impl IndexesState {
         Self {
             loading: false,
             ..self
+        }
+    }
+
+    /// Create of `name` on `ns` was sent: the builder open on `ns` is the one submitted.
+    pub fn create_sent(self, ns: &Namespace, name: String) -> Self {
+        let builder = self.builder.map(|b| {
+            if b.ns == *ns {
+                b.with_submitted(true)
+            } else {
+                b
+            }
+        });
+        Self {
+            builder,
+            creating: Some(name),
+            ..self
+        }
+    }
+
+    /// The create was answered. On success the submitted builder (only that one) closes and its
+    /// index is selected; on failure the builder is editable again.
+    pub fn create_answered(self, succeeded: bool) -> Self {
+        let created = self.creating.clone();
+        let builder = match (succeeded, self.builder) {
+            (true, Some(b)) if b.submitted => None,
+            (false, Some(b)) if b.submitted => Some(b.with_submitted(false)),
+            (_, other) => other,
+        };
+        let next = Self {
+            builder,
+            creating: None,
+            ..self
+        };
+        match (succeeded, created) {
+            (true, Some(name)) => next.selecting(name),
+            _ => next,
         }
     }
 

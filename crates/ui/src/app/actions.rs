@@ -314,11 +314,12 @@ pub(super) fn mutation(
             });
             return (AppState { write_warning, ..s }, Vec::new());
         }
+        let next = AppState {
+            pending: Some(pending),
+            ..s
+        };
         (
-            AppState {
-                pending: Some(pending),
-                ..s
-            },
+            super::index_write_actions::sent(next, &command),
             vec![command],
         )
     })

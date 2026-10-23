@@ -103,6 +103,9 @@ pub struct IndexBuilderState {
     pub warning: Option<BuildWarning>,
     /// The collection's estimated document count, once the server has answered.
     pub estimated_documents: Option<u64>,
+    /// Create was sent for what this builder holds and the server has not answered: the fields
+    /// are frozen so what is shown stays what was sent.
+    pub submitted: bool,
 }
 
 impl IndexBuilderState {
@@ -122,11 +125,20 @@ impl IndexBuilderState {
             name_edited: false,
             warning: None,
             estimated_documents: None,
+            submitted: false,
         }
     }
 
-    /// Applies one edit.
+    /// The same builder marked as sent (or, with `false`, editable again).
+    pub fn with_submitted(self, submitted: bool) -> Self {
+        Self { submitted, ..self }
+    }
+
+    /// Applies one edit; a submitted builder takes none.
     pub fn edited(self, edit: BuilderEdit) -> Self {
+        if self.submitted {
+            return self;
+        }
         match edit {
             BuilderEdit::AddKey => self.adding_key(),
             BuilderEdit::RemoveKey(i) => self.removing_key(i),

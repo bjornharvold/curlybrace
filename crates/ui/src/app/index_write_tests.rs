@@ -158,7 +158,8 @@ fn a_failed_create_keeps_the_builder_open_with_the_users_input() {
     let s = edit(s, BuilderEdit::SetName("people_email".into()));
     let s = edit(s, BuilderEdit::SetPartialFilterText(r#"{ "a": 1 }"#.into()));
     let (s, _) = act(s, IndexesAction::Create);
-    let before = s.indexes.builder.clone();
+    // Sent, so frozen; a failure thaws it with everything the person typed.
+    let before = s.indexes.builder.clone().map(|b| b.with_submitted(false));
     let (s, commands) = update(
         s,
         Input::Event(Event::Failed {
@@ -401,4 +402,88 @@ fn the_embedded_session_creates_without_a_warning() {
     let s = edit(s, BuilderEdit::SetField(0, "a".into()));
     let (_, commands) = act(s, IndexesAction::Create);
     assert_eq!(sent_spec(&commands).keys.len(), 1);
+}
+
+fn changed(s: AppState, id: Uuid) -> (AppState, Vec<Command>) {
+    update(
+        s,
+        Input::Event(Event::IndexChanged {
+            session: id,
+            ns: ns(),
+        }),
+    )
+}
+
+/// `email_1` sent on an immediate connection, then the modal cancelled while it is in flight.
+fn sent_then_cancelled() -> (AppState, Uuid) {
+    let (s, id) = building(mock_connection(), "email");
+    let (s, _) = act(s, IndexesAction::Create);
+    let (s, _) = act(s, IndexesAction::CancelBuilder);
+    (s, id)
+}
+
+#[test]
+fn a_late_index_changed_selects_the_name_that_was_sent() {
+    let (s, id) = sent_then_cancelled();
+    let (s, _) = changed(s, id);
+    assert_eq!(s.indexes.selected.as_deref(), Some("email_1"));
+    assert!(s.pending.is_none());
+}
+
+#[test]
+fn a_late_index_changed_never_closes_a_newer_builder() {
+    let (mut s, id) = sent_then_cancelled();
+    let newer = crate::viewmodel::IndexBuilderState::new(ns())
+        .with_field(0, "status")
+        .with_unique(true);
+    s.indexes = s.indexes.with_builder(Some(newer.clone()));
+    let (s, _) = changed(s, id);
+    assert_eq!(s.indexes.builder, Some(newer), "the new input survives");
+    assert_eq!(s.indexes.selected.as_deref(), Some("email_1"));
+}
+
+#[test]
+fn renaming_during_flight_does_not_change_what_gets_selected() {
+    let (s, id) = building(mock_connection(), "email");
+    let (s, _) = act(s, IndexesAction::Create);
+    let s = edit(s, BuilderEdit::SetName("renamed".into()));
+    let (s, _) = changed(s, id);
+    assert_eq!(s.indexes.selected.as_deref(), Some("email_1"));
+    assert!(s.indexes.builder.is_none(), "the submitted builder closes");
+}
+
+#[test]
+fn open_builder_is_refused_while_a_create_is_in_flight() {
+    let (s, _) = sent_then_cancelled();
+    let (s, commands) = act(s, IndexesAction::OpenBuilder);
+    assert!(commands.is_empty());
+    assert!(s.indexes.builder.is_none());
+}
+
+#[test]
+fn a_failed_create_makes_the_builder_editable_again() {
+    let (s, id) = building(mock_connection(), "email");
+    let (s, _) = act(s, IndexesAction::Create);
+    let (s, _) = update(
+        s,
+        Input::Event(Event::Failed {
+            session: id,
+            context: "create_index",
+            error: CoreError::Database("nope".into()),
+        }),
+    );
+    let s = edit(s, BuilderEdit::SetName("again".into()));
+    assert_eq!(s.indexes.builder.as_ref().unwrap().name, "again");
+    let (_, commands) = act(s, IndexesAction::OpenBuilder);
+    assert!(commands.is_empty(), "still open, so nothing new opens");
+}
+
+#[test]
+fn the_production_path_selects_the_confirmed_name() {
+    let (s, id) = building(with_flags(true, false), "email");
+    let (s, _) = act(s, IndexesAction::Create);
+    let (s, _) = update(s, Input::WriteWarning(WriteWarningAction::Confirm));
+    let (s, _) = act(s, IndexesAction::CancelBuilder);
+    let (s, _) = changed(s, id);
+    assert_eq!(s.indexes.selected.as_deref(), Some("email_1"));
 }

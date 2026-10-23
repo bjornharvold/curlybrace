@@ -726,6 +726,7 @@
     "column_uses": "Uses",
     "copy_json": "Copy as JSON",
     "create": "Create index",
+    "create_busy": "An index is still being created. Wait for the server to answer.",
     "definition": "Definition",
     "hidden": "hidden",
     "last_used": "Last used",

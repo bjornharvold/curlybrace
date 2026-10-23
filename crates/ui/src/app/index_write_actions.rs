@@ -19,7 +19,8 @@ pub(super) fn open_builder(state: AppState) -> Out {
         let Some(ns) = s.selected_ns().cloned() else {
             return (s, Vec::new());
         };
-        if s.indexes.builder.is_some() {
+        // One create at a time: the toolbar says so, and nothing opens until it is answered.
+        if s.indexes.builder.is_some() || s.indexes.creating.is_some() {
             return (s, Vec::new());
         }
         let session = s.session_id();
@@ -83,23 +84,36 @@ pub(super) fn estimate_arrived(state: AppState, ns: Namespace, count: u64) -> Ap
     AppState { indexes, ..state }
 }
 
-/// An index write on `ns` succeeded. When it was the create in flight, the builder closes and the
-/// new index is the selected one (the lists are asked for again by the caller).
+/// `command` was just sent (immediately, or confirmed after the production warning). A create
+/// records the name it sent and freezes the builder it came from.
+pub(super) fn sent(state: AppState, command: &Command) -> AppState {
+    match command {
+        Command::CreateIndex { ns, spec, .. } => {
+            let indexes = state.indexes.create_sent(ns, spec.name.clone());
+            AppState { indexes, ..state }
+        }
+        _ => state,
+    }
+}
+
+/// The create in flight failed: the builder can be edited and sent again.
+pub(super) fn create_failed(state: AppState) -> AppState {
+    let indexes = state.indexes.create_answered(false);
+    AppState {
+        indexes,
+        pending: None,
+        ..state
+    }
+}
+
+/// An index write on `ns` succeeded. When it was the create in flight, the name that was SENT is
+/// selected and only the builder that was submitted closes (the lists are asked for again by the
+/// caller); a newer builder and whatever it holds are left alone.
 pub(super) fn create_finished(state: AppState, ns: &Namespace) -> AppState {
     if !state.pending.as_ref().is_some_and(|p| p.ns == *ns) {
         return state;
     }
-    let created = state
-        .indexes
-        .builder
-        .as_ref()
-        .filter(|b| b.ns == *ns)
-        .and_then(|b| b.spec().ok())
-        .map(|spec| spec.name);
-    let indexes = match created {
-        Some(name) => state.indexes.with_builder(None).selecting(name),
-        None => state.indexes,
-    };
+    let indexes = state.indexes.create_answered(true);
     AppState {
         indexes,
         pending: None,

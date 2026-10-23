@@ -58,7 +58,10 @@ pub fn show_index_builder(
             .auto_shrink([false, true])
             .min_scrolled_height(max_height)
             .show(ui, |ui| {
-                action = body(ui, builder, i18n).map(IndexesAction::Builder);
+                // What was sent cannot be edited while the server works on it.
+                let editable = !builder.submitted;
+                let edit = ui.add_enabled_ui(editable, |ui| body(ui, builder, i18n));
+                action = edit.inner.map(IndexesAction::Builder);
             });
         ui.separator();
         action = footer(ui, builder, context, i18n).or(action.take());

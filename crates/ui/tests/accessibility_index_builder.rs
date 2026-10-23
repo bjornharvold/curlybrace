@@ -395,3 +395,29 @@ fn hashed_and_2d_keys_of_an_existing_index_show_their_type() {
         Some(t("indexes.builder.kind_hashed").as_str())
     );
 }
+
+#[test]
+fn the_submitted_builder_is_read_only_while_busy() {
+    let sent = builder().with_field(0, "a").with_submitted(true);
+    let harness = open_with(sent, false, true);
+    for role in [Role::TextInput, Role::MultilineTextInput, Role::ComboBox] {
+        for node in harness.query_all_by_role(role) {
+            assert!(node.accesskit_node().is_disabled(), "{role:?} is frozen");
+        }
+    }
+    for key in ["indexes.builder.unique", "indexes.builder.add_key"] {
+        let label = t(key);
+        let node = harness.get_by_label(&label);
+        assert!(node.accesskit_node().is_disabled(), "{key}");
+    }
+    assert!(
+        button(&harness, &t("indexes.builder.create"))
+            .accesskit_node()
+            .is_disabled()
+    );
+    assert!(
+        !button(&harness, &t("common.cancel"))
+            .accesskit_node()
+            .is_disabled()
+    );
+}
