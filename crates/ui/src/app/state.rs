@@ -204,6 +204,15 @@ impl AppState {
         self.conn.connections.iter().find(|c| c.id == id)
     }
 
+    /// The colour tag and production flag of the active connection; empty for the embedded
+    /// session, which has no saved connection.
+    pub fn active_badge(&self) -> crate::viewmodel::ConnectionBadge {
+        self.active
+            .and_then(|id| self.connection(id))
+            .map(crate::viewmodel::badge_of)
+            .unwrap_or_default()
+    }
+
     /// The name of the active connection, or a translated placeholder when none is open (so a
     /// write confirmation always names its target).
     pub fn active_connection_label(&self, i18n: &crate::I18n) -> String {

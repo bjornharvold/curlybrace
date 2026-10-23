@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const PREFIXES: [&str; 3] = ["compare.", "connections.", "workspace."];
+const PREFIXES: [&str; 4] = ["compare.", "connection.", "connections.", "workspace."];
 /// Keys outside the prefixes that the Compare feature added.
 const EXTRA_KEYS: [&str; 2] = ["sidebar.compare_database_to", "sidebar.compare_to"];
 

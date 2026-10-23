@@ -3,9 +3,9 @@
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus, HostEndpoint, Pending};
 use crate::I18n;
-use crate::viewmodel::connection_list;
+use crate::viewmodel::{ConnectionBadge, connection_list};
 use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
-use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::connection::{ConnectionColor, ConnectionConfig};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{Page, Query, Topology};
 use std::collections::BTreeSet;
@@ -42,6 +42,15 @@ pub struct Root {
     pub topology: Option<Topology>,
     pub failure: Option<CoreError>,
     pub active: bool,
+    pub color: Option<ConnectionColor>,
+    pub production: bool,
+}
+
+impl Root {
+    /// The colour tag and production flag to draw beside the name.
+    pub fn badge(&self) -> ConnectionBadge {
+        ConnectionBadge::new(self.color, self.production)
+    }
 }
 
 /// The name to show for the open session `id`: see [`AppState::open_label`].
@@ -343,6 +352,8 @@ impl AppState {
             topology,
             failure,
             active,
+            color: self.connection(id).and_then(|c| c.color),
+            production: self.connection(id).is_some_and(|c| c.production),
         }
     }
 }

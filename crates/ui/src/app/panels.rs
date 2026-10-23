@@ -154,7 +154,7 @@ fn show_collection(ui: &mut egui::Ui, state: &mut AppState, i18n: &I18n, out: &m
         return;
     }
     let connection = state.active_connection_label(i18n);
-    show_connection_header(ui, &connection, i18n);
+    show_connection_header(ui, &connection, &state.active_badge(), i18n);
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));

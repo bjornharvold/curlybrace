@@ -5,6 +5,7 @@ use crate::app::reducer::Input;
 use crate::app::session::Root;
 use crate::app::state::{AppState, ConnStatus};
 use crate::viewmodel::SidebarAction;
+use crate::views::connection_badge::show_badge;
 use crate::views::sidebar::{preferred_body_height, show_sidebar_body};
 use curlybrace_core::store::Topology;
 use eframe::egui;
@@ -88,6 +89,7 @@ fn show_title_line(
     if toggle.clicked() {
         collapse.toggle(ui);
     }
+    show_badge(ui, &root.badge(), i18n);
     let disconnect_text = i18n.t("connections.disconnect");
     // The name takes what Disconnect leaves, so it stays on this line and the name wraps.
     let buttons = small_button_width(ui, &disconnect_text);

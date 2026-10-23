@@ -238,3 +238,43 @@ fn the_servers_in_a_label_use_the_translated_list_separator() {
         "Prod (h1:1 \u{b7} h2:2)"
     );
 }
+
+#[test]
+fn root_carries_color_and_production_of_its_connection() {
+    use curlybrace_core::connection::ConnectionColor;
+    let mut tagged = cfg("Prod", "mongodb://hostA:27017", "bastion-a");
+    tagged.color = Some(ConnectionColor::Red);
+    tagged.production = true;
+    let plain = cfg("Dev", "mongodb://hostB:27017", "bastion-b");
+    let (it, ip) = (tagged.id, plain.id);
+    let s = opened(opened(AppState::new(vec![tagged, plain]), it), ip);
+    let roots = s.roots(&i18n());
+    assert_eq!(roots[0].color, Some(ConnectionColor::Red));
+    assert!(roots[0].production);
+    assert_eq!(roots[1].color, None);
+    assert!(!roots[1].production);
+}
+
+#[test]
+fn active_badge_follows_the_active_connection() {
+    use crate::viewmodel::ConnectionBadge;
+    use curlybrace_core::connection::ConnectionColor;
+    let mut tagged = cfg("Prod", "mongodb://hostA:27017", "bastion-a");
+    tagged.color = Some(ConnectionColor::Blue);
+    tagged.production = true;
+    let id = tagged.id;
+    let s = opened(AppState::new(vec![tagged]), id);
+    assert_eq!(
+        s.active_badge(),
+        ConnectionBadge::new(Some(ConnectionColor::Blue), true)
+    );
+}
+
+#[test]
+fn embedded_session_has_no_badge() {
+    use crate::viewmodel::ConnectionBadge;
+    assert_eq!(
+        AppState::default().active_badge(),
+        ConnectionBadge::default()
+    );
+}

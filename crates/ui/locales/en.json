@@ -438,6 +438,17 @@
     },
     "title": "Compare collections"
   },
+  "connection": {
+    "color": {
+      "blue": "Blue",
+      "green": "Green",
+      "orange": "Orange",
+      "purple": "Purple",
+      "red": "Red",
+      "yellow": "Yellow"
+    },
+    "production_badge": "PRODUCTION"
+  },
   "connections": {
     "allow_invalid_certs": "Allow invalid TLS certificates",
     "allow_invalid_certs_ssh_warning": "Warning: through an SSH tunnel this removes certificate protection on the connection between the SSH bastion and MongoDB.",

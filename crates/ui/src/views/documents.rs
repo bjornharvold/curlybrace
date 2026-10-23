@@ -1,7 +1,10 @@
 //! Document area: mode switcher, insert button, the three views and the delete confirmation.
+use super::connection_badge::show_badge;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
-use crate::viewmodel::{DocAction, PageKey, TreeState, ViewMode, id_preview, page_key};
+use crate::viewmodel::{
+    ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview, page_key,
+};
 use curlybrace_core::store::Page;
 use eframe::egui;
 
@@ -65,8 +68,16 @@ pub fn show_documents_keyed(
 }
 
 /// The one-line header naming the connection whose collection is shown.
-pub fn show_connection_header(ui: &mut egui::Ui, connection: &str, i18n: &I18n) {
-    ui.label(i18n.t_with("doc.connection", &[("name", connection)]));
+pub fn show_connection_header(
+    ui: &mut egui::Ui,
+    connection: &str,
+    badge: &ConnectionBadge,
+    i18n: &I18n,
+) {
+    ui.horizontal(|ui| {
+        show_badge(ui, badge, i18n);
+        ui.label(i18n.t_with("doc.connection", &[("name", connection)]));
+    });
 }
 
 /// Modal asking to confirm a parked delete; confirming emits `Delete` exactly once.
