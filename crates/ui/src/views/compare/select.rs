@@ -3,6 +3,7 @@
 //! enabled, why not) comes from `viewmodel::compare::select_bar`.
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::viewmodel::compare::read_only::READ_ONLY_DESTINATION_KEY;
 use crate::viewmodel::compare::{ActionBlock, ActionButton, RowAction, SelectionBar};
 use eframe::egui;
 
@@ -35,22 +36,38 @@ pub fn header_checkbox(ui: &mut egui::Ui, ticked: bool, enabled: bool, i18n: &I1
     labelled_checkbox(ui, ticked, enabled, &label)
 }
 
-/// A button that says why it is disabled on hover (when there is a reason); true when clicked.
+/// The texts of every reason (i18n keys), one per line.
+pub fn reasons_text(keys: &[&str], i18n: &I18n) -> String {
+    keys.iter()
+        .map(|key| i18n.t(key))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A button that says why it is disabled on hover (every reason, when there are any); true when
+/// clicked.
 fn guarded_button(
     ui: &mut egui::Ui,
     text: String,
     enabled: bool,
-    reason: Option<ActionBlock>,
+    reasons: &[&str],
     i18n: &I18n,
 ) -> bool {
     let response = ui.add_enabled(enabled, egui::Button::new(text));
     if enabled {
         return response.clicked();
     }
-    if let Some(reason) = reason {
-        response.on_disabled_hover_text(i18n.t(reason.i18n_key()));
+    if !reasons.is_empty() {
+        response.on_disabled_hover_text(reasons_text(reasons, i18n));
     }
     false
+}
+
+/// The keys of the reasons that close `button`: its block, then the read-only destination.
+fn button_reasons(button: &ActionButton) -> Vec<&'static str> {
+    let block = button.block.map(ActionBlock::i18n_key);
+    let read_only = button.read_only.then_some(READ_ONLY_DESTINATION_KEY);
+    block.into_iter().chain(read_only).collect()
 }
 
 /// One button per offered action; the clicked action, if any.
@@ -62,7 +79,7 @@ pub fn action_buttons(
     let mut clicked = None;
     for button in buttons {
         let text = i18n.t(button.action.i18n_key());
-        if guarded_button(ui, text, button.block.is_none(), button.block, i18n) {
+        if guarded_button(ui, text, button.is_enabled(), &button_reasons(button), i18n) {
             clicked = Some(button.action);
         }
     }
@@ -81,12 +98,24 @@ pub fn show_selection_bar(
         ui.label(i18n.t_with("compare.results.selected", &[("count", &selected)]));
         let total = bar.total.to_string();
         let select_all = i18n.t_with("compare.results.select_all", &[("count", &total)]);
-        if guarded_button(ui, select_all, bar.can_select_all(), bar.tick_block, i18n) {
+        if guarded_button(
+            ui,
+            select_all,
+            bar.can_select_all(),
+            &bar.tick_block
+                .map(ActionBlock::i18n_key)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            i18n,
+        ) {
             action = Some(CompareAction::SelectAllInCategory);
         }
         let clear = i18n.t("compare.results.clear");
-        let why_not = bar.tick_block.or(Some(ActionBlock::NothingSelected));
-        if guarded_button(ui, clear, bar.can_clear(), why_not, i18n) {
+        let why_not = [bar
+            .tick_block
+            .unwrap_or(ActionBlock::NothingSelected)
+            .i18n_key()];
+        if guarded_button(ui, clear, bar.can_clear(), &why_not, i18n) {
             action = Some(CompareAction::ClearSelection);
         }
         ui.separator();

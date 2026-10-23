@@ -1,5 +1,5 @@
 //! What the load path repairs: only entries that fail `validate()`, and nothing it can leave be.
-use super::persistence::{Recovery, load_connections, startup};
+use super::persistence::{Recovery, load_connections, save_connections, startup};
 use curlybrace_core::connection::ConnectionConfig;
 use std::path::{Path, PathBuf};
 
@@ -232,4 +232,34 @@ fn a_skipped_entry_is_not_also_reported_as_repaired() {
     let list = [ConnectionConfig::new("bad", "http://nope")];
     let loaded = load_connections(&write_damaged(&dir, &list, "yes".into())).unwrap();
     assert_eq!((loaded.skipped, loaded.repaired), (1, 0));
+}
+
+#[test]
+fn damaged_read_only_counts_as_repaired_and_is_rewritten_as_true() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut entry = serde_json::to_value(ConnectionConfig::new("damaged", "mongodb://h")).unwrap();
+    entry["read_only"] = serde_json::json!("yes");
+    let path = dir.path().join("connections.json");
+    std::fs::write(&path, serde_json::json!([entry]).to_string()).unwrap();
+    let loaded = load_connections(&path).unwrap();
+    assert_eq!((loaded.skipped, loaded.repaired), (0, 1));
+    assert!(loaded.connections[0].read_only, "fail safe: read-only");
+    save_connections(&path, &loaded.connections).unwrap();
+    let again = load_connections(&path).unwrap();
+    assert_eq!(again.repaired, 0, "rewritten as a real boolean");
+    let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(raw[0]["read_only"], serde_json::json!(true));
+}
+
+#[test]
+fn every_repaired_banner_names_the_read_only_flag() {
+    let i18n = crate::i18n::I18n::english();
+    for key in [
+        "persist.repaired_backed_up",
+        "persist.repaired_backup_failed",
+        "persist.skipped_repaired_backed_up",
+        "persist.skipped_repaired_backup_failed",
+    ] {
+        assert!(i18n.t(key).contains("read-only"), "{key} omits read-only");
+    }
 }

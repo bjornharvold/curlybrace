@@ -24,6 +24,7 @@
     "in_connection": "In {name}:",
     "not_connected": "Not connected. Connect to a server first.",
     "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them.",
+    "read_only": "This connection is read-only, so nothing was changed. To write, untick Read-only in the connection settings and reconnect.",
     "write_not_sent_busy": "The write was not sent because another write was still in progress. Review the document and try again.",
     "write_not_sent_connection_changed": "The write was not sent because the connection changed. Review the document and try again."
   },
@@ -133,6 +134,8 @@
         "total": "Documents in total: {count}"
       },
       "pending_badge": "Pending changes: {count}",
+      "read_only_source": "The source connection is read-only and some changes write to it, so nothing was applied.",
+      "read_only_target": "The target connection is read-only, so nothing was applied.",
       "reason": {
         "applied": "Changes were applied to this pair. Run it again first.",
         "busy": "An apply or an export is in progress.",
@@ -143,6 +146,9 @@
         "not_different_tab": "Single fields can only be copied from the Different tab.",
         "not_on_page": "This document is not on the page shown. Open it from the list again.",
         "nothing_selected": "Select at least one document first.",
+        "read_only_destination": "The connection this writes to is read-only.",
+        "read_only_source": "The source connection is read-only, so changes that write to it cannot be applied. Remove them from the list, or untick Read-only in its settings and reconnect.",
+        "read_only_target": "The target connection is read-only, so changes cannot be applied. Untick Read-only in its settings and reconnect first.",
         "running": "A comparison is running. Wait until it finishes."
       },
       "review": {
@@ -412,7 +418,8 @@
       "opening": "Connecting to both servers...",
       "pick_connection": "Pick a connection",
       "source_connection": "Source connection",
-      "target_connection": "Target connection"
+      "target_connection": "Target connection",
+      "target_read_only": "Read-only connections cannot be the target, because a compare can write to it. They can still be the source."
     },
     "setup": {
       "collection": "Collection",
@@ -450,7 +457,10 @@
       "red": "Red",
       "yellow": "Yellow"
     },
-    "production_badge": "PRODUCTION"
+    "name_with_read_only": "{name} ({badge})",
+    "production_badge": "PRODUCTION",
+    "read_only_badge": "Read-only",
+    "read_only_reason": "This connection is read-only, so writes are turned off. To write, untick Read-only in the connection settings and reconnect."
   },
   "connections": {
     "allow_invalid_certs": "Allow invalid TLS certificates",
@@ -506,6 +516,8 @@
     "password_saved_hint": "A secret is saved in the Keychain. Leave empty to keep it.",
     "production": "Production connection",
     "production_hint": "Marks this as a production database: writes show a production warning first.",
+    "read_only": "Read-only connection",
+    "read_only_hint": "Refuses writes on this connection. Ticking it locks open sessions at once; unticking applies on reconnect.",
     "rename_folder": "Rename",
     "saved_secret_will_clear": "The saved secret will be removed when you save.",
     "security_none": "None",
@@ -584,6 +596,7 @@
     "invalid_uri_user_needed": "The connection string has a password but no user name. Remove the password or add a user name in front of it.",
     "invalid_uri_x509": "X.509 authentication needs TLS turned on and a client certificate and key file. Turn on TLS and choose the file, or pick another authentication method.",
     "not_found": "The item could not be found. It may have been removed.",
+    "read_only": "This connection is read-only, so nothing was changed.",
     "secret_store": "Could not access the system keychain for saved credentials.",
     "ssh": "The SSH tunnel could not be established. Check the SSH settings.",
     "ssh_host_key_changed": "The SSH host key has changed since it was saved. This can mean someone is intercepting the connection. If you know the key was replaced, forget the host and connect again.",
@@ -662,12 +675,12 @@
     "corrupt_backup_failed": "The saved connections file was not readable and a backup copy could not be made. Saving is turned off so nothing is overwritten.",
     "invalid_path": "The connections file location is not valid.",
     "read_failed": "Could not read the saved connections file.",
-    "repaired_backed_up": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production flag read as production). No connection was dropped; a backup copy of the original file was kept.",
-    "repaired_backup_failed": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production flag read as production), and a backup copy could not be made. Saving is turned off so the original is not overwritten.",
+    "repaired_backed_up": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production or read-only flag read as production or read-only). No connection was dropped; a backup copy of the original file was kept.",
+    "repaired_backup_failed": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production or read-only flag read as production or read-only), and a backup copy could not be made. Saving is turned off so the original is not overwritten.",
     "skipped_backed_up": "{n} saved connection(s) were invalid or from a newer version and were skipped. A backup copy of the original file was kept.",
     "skipped_backup_failed": "{n} saved connection(s) were invalid or from a newer version and were skipped, and a backup copy could not be made. Saving is turned off so nothing is lost.",
-    "skipped_repaired_backed_up": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} were adjusted to the current rules (a name or folder fixed, or a damaged production flag read as production). The skipped ones are not lost: they stay in the backup copy of the original file that was kept.",
-    "skipped_repaired_backup_failed": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} were adjusted to the current rules (a name or folder fixed, or a damaged production flag read as production). No backup copy could be made. Saving is turned off so the original file is not overwritten.",
+    "skipped_repaired_backed_up": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} were adjusted to the current rules (a name or folder fixed, or a damaged production or read-only flag read as production or read-only). The skipped ones are not lost: they stay in the backup copy of the original file that was kept.",
+    "skipped_repaired_backup_failed": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} were adjusted to the current rules (a name or folder fixed, or a damaged production or read-only flag read as production or read-only). No backup copy could be made. Saving is turned off so the original file is not overwritten.",
     "unreadable_backed_up": "The saved connections file could not be read. A backup copy was kept next to it.",
     "unreadable_backup_failed": "The saved connections file could not be read or backed up. Saving is turned off so nothing is overwritten.",
     "write_failed": "Could not write the saved connections file."

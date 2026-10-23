@@ -38,6 +38,10 @@ mod export_lifecycle_tests;
 mod export_sink;
 #[cfg(test)]
 mod export_tests;
+#[cfg(test)]
+mod read_only_apply_tests;
+#[cfg(test)]
+mod read_only_tests;
 mod report_job;
 #[cfg(test)]
 mod report_lifecycle_tests;
@@ -51,6 +55,7 @@ mod session;
 mod tests;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use bson::Document;
@@ -62,6 +67,7 @@ use crate::compare::protocol::{
 };
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
+use crate::read_only_store::ReadOnlyStore;
 
 use crate::store::{DocumentStore, IndexStatus, Namespace};
 
@@ -88,7 +94,21 @@ pub(super) fn dispatch(
             target,
         } => {
             let record = shared.compare.create(session, shared.config.compare_limits);
-            spawn_open(shared, events, repaint, session, record, [source, target]);
+            // Attached synchronously, like the record, so a LockReadOnly sent while the open
+            // is still in flight reaches the stores it installs.
+            let side = |cfg: ConnectionConfig| {
+                let flag = shared.read_only.attach(cfg.id, cfg.read_only);
+                SideOpen { cfg, flag }
+            };
+            let (source, target) = (side(source), side(target));
+            spawn_open(
+                shared,
+                events,
+                repaint,
+                session,
+                record,
+                OpenPlan { source, target },
+            );
         }
         CompareCommand::Close { session } => shared.compare.remove(session),
         CompareCommand::Cancel { session, run } => runner::cancel(&shared, session, run),
@@ -139,6 +159,18 @@ pub(super) fn dispatch(
     }
 }
 
+/// One side of an open: its config and the read-only flag attached for it at dispatch.
+struct SideOpen {
+    cfg: ConnectionConfig,
+    flag: Arc<AtomicBool>,
+}
+
+/// What an open needs besides the session: both sides, each with its flag.
+struct OpenPlan {
+    source: SideOpen,
+    target: SideOpen,
+}
+
 /// Runs the open in an inner task so a panic still ends in exactly one `OpenFailed`
 /// (unless the session was closed meanwhile, which silences everything).
 fn spawn_open(
@@ -147,7 +179,7 @@ fn spawn_open(
     repaint: Repaint,
     id: SessionId,
     record: Arc<Session>,
-    configs: [ConnectionConfig; 2],
+    plan: OpenPlan,
 ) {
     tokio::spawn(async move {
         let work = tokio::spawn(open_session(
@@ -156,7 +188,7 @@ fn spawn_open(
             repaint.clone(),
             id,
             record.clone(),
-            configs,
+            plan,
         ));
         if work.await.is_err() {
             let error = CoreError::Database("internal error".into());
@@ -452,12 +484,17 @@ async fn open_session(
     repaint: Repaint,
     id: SessionId,
     session: Arc<Session>,
-    configs: [ConnectionConfig; 2],
+    plan: OpenPlan,
 ) {
     let result = tokio::time::timeout(shared.config.connect_timeout, async {
-        let [source, target] = configs;
-        let (store_s, tunnel_s) = open_side(&shared, &session, &source).await?;
-        let (store_t, tunnel_t) = open_side(&shared, &session, &target).await?;
+        let OpenPlan { source, target } = plan;
+        // A read-only connection may be read from, never written to: refuse before connecting,
+        // also when a lock already reached the target's flag since the open was dispatched.
+        if target.cfg.read_only || target.flag.load(Ordering::SeqCst) {
+            return Err(CoreError::ReadOnly);
+        }
+        let (store_s, tunnel_s) = open_side(&shared, &session, source).await?;
+        let (store_t, tunnel_t) = open_side(&shared, &session, target).await?;
         let tunnels: Vec<Box<dyn TunnelHandle>> =
             [tunnel_s, tunnel_t].into_iter().flatten().collect();
         Ok::<_, CoreError>(Connections {
@@ -484,8 +521,13 @@ async fn open_session(
 async fn open_side(
     shared: &Arc<Shared>,
     session: &Arc<Session>,
-    cfg: &ConnectionConfig,
+    side: SideOpen,
 ) -> Result<(Arc<dyn DocumentStore>, Option<Box<dyn TunnelHandle>>)> {
+    let SideOpen {
+        cfg,
+        flag: read_only,
+    } = side;
+    let cfg = &cfg;
     cfg.validate()?;
     let password = super::handlers::read_password(shared, cfg).await?;
     let job: Arc<dyn Currentness> = session.clone();
@@ -495,5 +537,5 @@ async fn open_side(
         .connector
         .connect(cfg, password.as_deref(), addr)
         .await?;
-    Ok((store, tunnel))
+    Ok((ReadOnlyStore::wrap(store, read_only), tunnel))
 }

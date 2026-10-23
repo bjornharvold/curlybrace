@@ -94,7 +94,7 @@ fn show_row(
         .get(row.doc_index())
         .map(|doc| menu_items(doc, state.projected))
         .unwrap_or_default();
-    let chosen = row_context_menu(&response, &items, i18n);
+    let chosen = row_context_menu(&response, &items, state.read_only, i18n);
     RowEvent {
         clicked: response.clicked(),
         chosen,

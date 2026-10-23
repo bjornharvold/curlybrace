@@ -114,13 +114,15 @@ fn refused(state: AppState, banner: Banner) -> Out {
 }
 
 /// Queues the ticked fields of the open detail for `action` (`CopyFieldsToTarget` or
-/// `CopyFieldsToSource`; any other action is ignored) and clears that document's ticks. Only
+/// `CopyFieldsToSource`; any other action, or one that writes to a read-only connection, is
+/// ignored) and clears that document's ticks. Only
 /// the ticked paths that can be copied in the action's direction are queued; with none, nothing
 /// happens. An overlap of paths, or a whole-category item that already covers the tab, leaves
 /// the list and the ticks as they were and raises a banner.
 pub(super) fn add_fields(state: AppState, action: RowAction) -> Out {
     let c = &state.compare;
-    if !RowAction::offered_for_fields().contains(&action) {
+    let read_only = c.writes_to_read_only(action.direction(), &state.conn.connections);
+    if read_only || !RowAction::offered_for_fields().contains(&action) {
         return none(state);
     }
     let Some(editable) = editable(c) else {

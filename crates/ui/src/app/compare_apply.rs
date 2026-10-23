@@ -6,10 +6,10 @@
 //! review and would produce the very same writes now. Anything else drops the review.
 use super::compare::{cmd, failure_banner, none, ready, with_compare};
 use super::reducer::Out;
-use super::state::AppState;
+use super::state::{AppState, Banner};
 use crate::viewmodel::compare::{ApplyUi, CompareState, Review};
 use curlybrace_core::compare::apply::IdPolicy;
-use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent, PairId};
+use curlybrace_core::compare::protocol::{CompareCommand, CompareEvent, PairId, Side};
 use curlybrace_core::error::CoreError;
 use uuid::Uuid;
 
@@ -23,13 +23,17 @@ fn with_apply(state: AppState, apply: ApplyUi) -> AppState {
 
 /// Opens the review dialog for the pending list. The connection names are read now, from the
 /// app's connections; a connection that is gone refuses the review with a banner (the dialog
-/// must name where the writes land). `word` is the localized confirmation word.
+/// must name where the writes land), and so does a pending list that writes to a read-only
+/// connection. `word` is the localized confirmation word.
 pub(super) fn review(state: AppState, word: &str) -> Out {
     let (Some(session), Some((source, target))) = (ready(&state), state.compare.connections) else {
         return none(state);
     };
     if !state.compare.can_review() {
         return none(state);
+    }
+    if let Some(side) = state.compare.read_only_destination(&state.conn.connections) {
+        return none(read_only_refusal(state, side));
     }
     let names = (
         state.connection(source).map(|c| c.name.clone()),
@@ -71,6 +75,18 @@ pub(super) fn cancel_review(state: AppState) -> Out {
     }
 }
 
+/// The banner that says which read-only side refused the apply.
+fn read_only_refusal(state: AppState, side: Side) -> AppState {
+    let banner = match side {
+        Side::Target => Banner::CompareApplyReadOnly,
+        Side::Source => Banner::CompareApplyReadOnlySource,
+    };
+    AppState {
+        banner: Some(banner),
+        ..state
+    }
+}
+
 /// Reviewing is over without a write: the dialog closes.
 fn dropped_review(state: AppState) -> Out {
     none(with_apply(state, ApplyUi::Idle))
@@ -98,6 +114,12 @@ pub(super) fn confirm_apply(state: AppState) -> Out {
     };
     if ready(&state) != Some(reviewed.session) || rebuilt(c, reviewed).is_none() {
         return dropped_review(state);
+    }
+    // A read-only connection never receives a write, whichever side it is: any queued change
+    // that lands on one refuses the whole apply before anything is sent.
+    if let Some(side) = c.read_only_destination(&state.conn.connections) {
+        let (state, out) = dropped_review(state);
+        return (read_only_refusal(state, side), out);
     }
     if !reviewed.confirmation_passes() {
         return none(state);

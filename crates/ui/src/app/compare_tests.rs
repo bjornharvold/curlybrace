@@ -58,6 +58,8 @@ mod no_write;
 mod pairs;
 #[path = "compare_tests/production.rs"]
 mod production;
+#[path = "compare_tests/read_only.rs"]
+mod read_only;
 #[path = "compare_tests/results.rs"]
 mod results;
 #[path = "compare_tests/run.rs"]

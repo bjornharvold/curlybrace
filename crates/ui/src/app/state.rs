@@ -53,6 +53,13 @@ pub enum Banner {
     HostForgotten,
     /// Edit/Clone were refused because the page is shown with a projection (partial documents).
     ProjectionReadOnly,
+    /// A write was refused because the session's connection is read-only; nothing was sent.
+    ReadOnly,
+    /// Applying a compare was refused because its target connection is read-only.
+    CompareApplyReadOnly,
+    /// Applying a compare was refused because some of its changes write to the source
+    /// connection, which is read-only.
+    CompareApplyReadOnlySource,
     /// Queueing fields was refused: the ticked fields (with the ones already queued for the
     /// document) overlap, so one update cannot write them.
     FieldsConflict,
@@ -132,7 +139,7 @@ pub struct Pending {
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
 /// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `editor`, `pending`,
-/// `ssh_endpoint` and `production`. They are parked per session and must be added to `SessionView` (and to
+/// `ssh_endpoint`, `production` and `read_only`. They are parked per session and must be added to `SessionView` (and to
 /// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
 #[derive(Debug, Default)]
@@ -190,6 +197,9 @@ pub struct AppState {
     /// Whether the active session was opened on a production connection (snapshotted at
     /// connect). Read it through `session_production`, which also counts the live saved flag.
     pub production: bool,
+    /// Whether the active session was opened on a read-only connection (snapshotted at connect).
+    /// Read it through `session_read_only`, which also counts the live saved flag.
+    pub read_only: bool,
     /// Endpoint awaiting the "forget host" confirmation.
     pub forget_confirm: Option<HostEndpoint>,
     /// The session whose failure raised the current banner (a close of it clears the banner).
@@ -228,6 +238,7 @@ impl AppState {
     pub fn session_badge(&self, id: Uuid) -> crate::viewmodel::ConnectionBadge {
         let color = self.connection(id).and_then(|c| c.known_color());
         crate::viewmodel::ConnectionBadge::new(color, self.session_production(id))
+            .with_read_only(self.session_read_only(id))
     }
 
     /// The name of the active connection, or a translated placeholder when none is open (so a
@@ -279,6 +290,7 @@ impl AppState {
             failure: None,
             topology: None,
             production: false,
+            read_only: false,
             workspace: Workspace::Browse,
             ..self
         }

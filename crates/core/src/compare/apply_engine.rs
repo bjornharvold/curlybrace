@@ -283,7 +283,8 @@ fn to_outcome(outcome: WriteOutcome) -> OpOutcome {
 
 /// One `bulk_write` for `group`. A whole-call error (or a reply that does not line up with the
 /// ops) fails every op of the group as `ApplyOutcomeUnknown`: earlier commands of the call may
-/// have landed, and driver text is never passed on.
+/// have landed, and driver text is never passed on. The exception is `ReadOnly`: a read-only
+/// store refuses the whole call before sending anything, so nothing was written.
 async fn write_group(
     input: &ApplyInput<'_>,
     side: Side,
@@ -302,6 +303,7 @@ async fn write_group(
             .into_iter()
             .zip(outcomes.into_iter().map(to_outcome))
             .collect(),
+        Err(CoreError::ReadOnly) => fail_all(indexes, &CoreError::ReadOnly),
         Ok(_) | Err(_) => fail_all(indexes, &CoreError::ApplyOutcomeUnknown),
     }
 }

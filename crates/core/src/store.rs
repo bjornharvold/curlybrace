@@ -129,12 +129,22 @@ pub trait DocumentStore: Send + Sync {
     async fn list_databases(&self) -> Result<Vec<String>>;
     async fn list_collections(&self, db: &str) -> Result<Vec<String>>;
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page>;
+
+    // WRITE METHODS (`insert`, `replace`, `delete`, `bulk_write`): `ReadOnlyStore` must refuse
+    // each of them. Adding a write method to this trait? Update `ReadOnlyStore` and the
+    // `WRITES` list and `every_write_method_is_covered` in `read_only_store_tests.rs`.
     /// Inserts `doc`, returning its `_id` (generated when absent).
     async fn insert(&self, ns: &Namespace, doc: Document) -> Result<Bson>;
     /// Replaces the document with `_id == id`; `NotFound` if none matches.
     async fn replace(&self, ns: &Namespace, id: &Bson, doc: Document) -> Result<()>;
     /// Deletes the document with `_id == id`; `NotFound` if none matches.
     async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()>;
+
+    /// Whether writes through this store are refused (a read-only connection). The default,
+    /// for stores that never lock, is `false`.
+    fn is_read_only(&self) -> bool {
+        false
+    }
 
     /// Whether the server answers right now: a cheap round trip on this store's own connections.
     /// The runtime asks it to tell one lost connection from a server that cannot be reached.

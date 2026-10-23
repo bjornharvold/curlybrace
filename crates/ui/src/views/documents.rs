@@ -3,6 +3,7 @@ use super::connection_badge::show_badge;
 use super::write_warning::focus_cancel_unless_focused;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
+use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{
     ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview, page_key,
 };
@@ -48,6 +49,8 @@ pub fn show_documents(
 pub struct DocTarget<'a> {
     pub connection: &'a str,
     pub production: bool,
+    /// Writes are off: Insert is disabled with a stated reason and row actions are listed disabled.
+    pub read_only: bool,
 }
 
 /// Like [`show_documents`] with the page key supplied by the caller, which memoises it once
@@ -64,10 +67,8 @@ pub fn show_documents_keyed(
 ) -> Option<DocAction> {
     let key = *key;
     state.synced_to(&key);
-    let mut action = None;
-    if ui.button(i18n.t("doc.insert")).clicked() {
-        action = Some(DocAction::Insert);
-    }
+    state.read_only = target.read_only;
+    let action = show_insert(ui, target.read_only, i18n);
     let from_view = match mode {
         ViewMode::Tree => show_tree(ui, page, &key, state, i18n),
         ViewMode::Table => show_table(ui, page, &key, state, i18n),
@@ -75,6 +76,18 @@ pub fn show_documents_keyed(
     };
     let from_dialog = show_delete_confirm(ui.ctx(), &key, state, target, i18n);
     action.or(from_view).or(from_dialog)
+}
+
+/// The Insert button. On a read-only connection it is disabled and the reason is both its hover
+/// text and a visible note, so the state is never colour or hover alone.
+fn show_insert(ui: &mut egui::Ui, read_only: bool, i18n: &I18n) -> Option<DocAction> {
+    let insert = ui.add_enabled(!read_only, egui::Button::new(i18n.t("doc.insert")));
+    if read_only {
+        insert.on_disabled_hover_text(i18n.t(READ_ONLY_REASON_KEY));
+        ui.label(i18n.t(READ_ONLY_REASON_KEY));
+        return None;
+    }
+    insert.clicked().then_some(DocAction::Insert)
 }
 
 /// The one-line header naming the connection whose collection is shown.
@@ -151,6 +164,7 @@ mod tests {
         DocTarget {
             connection: "test",
             production: false,
+            read_only: false,
         }
     }
 
@@ -293,6 +307,7 @@ mod tests {
                     let target = DocTarget {
                         connection: "prod",
                         production,
+                        read_only: false,
                     };
                     show_documents(ui, ViewMode::Tree, &page, state, target, &i18n);
                 },
@@ -320,6 +335,7 @@ mod tests {
                 let target = DocTarget {
                     connection: "prod",
                     production,
+                    read_only: false,
                 };
                 show_documents(
                     ui,

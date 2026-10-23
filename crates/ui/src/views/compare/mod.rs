@@ -74,7 +74,8 @@ fn layout(
     };
     // Production by the flag the session opened with or the saved connection's live one.
     let production = |id| state.is_production(id, &connections.connections);
-    let review = apply::show_review(ui.ctx(), state, &production, i18n);
+    let read_only = state.read_only_destination(&connections.connections);
+    let review = apply::show_review(ui.ctx(), state, &production, read_only, i18n);
     let export = export::show_export(ui.ctx(), state, i18n);
     header.or(connect).or(body).or(review).or(export)
 }
@@ -101,7 +102,7 @@ fn show_ready(
     ui.separator();
     let progress = apply::show_progress(ui, state, i18n);
     let rest = if state.open_pair.is_some() {
-        let results = show_pair_results(ui, state, i18n);
+        let results = show_pair_results(ui, state, &connections.connections, i18n);
         let pending = pending::show_pending(ui, state, connections, i18n);
         results.or(pending)
     } else {

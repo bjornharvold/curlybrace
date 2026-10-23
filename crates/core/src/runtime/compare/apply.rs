@@ -112,6 +112,7 @@ fn start_apply(ctx: JobContext, request: ApplyRequest) -> Result<()> {
     }
     refuse_misshapen(&ops)?;
     refuse_duplicates(&ops)?;
+    refuse_read_only_destinations(&ctx.session, &ops)?;
     let groups = group_by_pair(ops);
     require_results(&ctx.session, &groups)?;
     let cancel = CancelFlag::default();
@@ -204,6 +205,20 @@ pub(super) fn refuse_duplicates(ops: &[ApplyOp]) -> Result<()> {
         .any(|w| w[0].pair == w[1].pair && compare_tuples(&w[0].key, &w[1].key).is_eq());
     if repeated {
         return Err(CoreError::Unsupported("duplicate operation".into()));
+    }
+    Ok(())
+}
+
+/// A read-only connection never receives a write, whichever side of the compare it is on: the
+/// apply is refused if ANY op (plain, field or expanded bulk) writes to a read-only side. Judged
+/// by each op's destination side, before the job slot is taken or anything is written.
+fn refuse_read_only_destinations(session: &Session, ops: &[ApplyOp]) -> Result<()> {
+    let conns = connections(session)?;
+    if ops
+        .iter()
+        .any(|op| conns.store(destination_side(op)).is_read_only())
+    {
+        return Err(CoreError::ReadOnly);
     }
     Ok(())
 }

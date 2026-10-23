@@ -42,6 +42,7 @@ fn base_json(uri: &str) -> serde_json::Value {
     let o = v.as_object_mut().unwrap();
     o.remove("color");
     o.remove("production");
+    o.remove("read_only");
     v
 }
 
@@ -207,4 +208,35 @@ fn a_structured_colour_warns_without_naming_the_value() {
     let _: ConnectionConfig = serde_json::from_value(json).unwrap();
     assert!(warnings_mentioning("secret-structured-value").is_empty());
     assert!(warnings_mentioning("secret-key").is_empty());
+}
+
+#[test]
+fn old_file_without_read_only_loads_false() {
+    let c: ConnectionConfig = serde_json::from_value(base_json("mongodb://h")).unwrap();
+    assert!(!c.read_only);
+}
+
+#[test]
+fn non_boolean_read_only_loads_true() {
+    for bad in [
+        serde_json::json!("yes"),
+        serde_json::json!(1),
+        serde_json::json!(null),
+        serde_json::json!([]),
+    ] {
+        let mut json = base_json("mongodb://h");
+        json["read_only"] = bad.clone();
+        let c: ConnectionConfig = serde_json::from_value(json).expect("the entry still loads");
+        assert!(c.read_only, "{bad} must fail safe to read-only");
+    }
+}
+
+#[test]
+fn a_boolean_read_only_value_is_kept_as_it_is() {
+    for flag in [true, false] {
+        let mut json = base_json("mongodb://h");
+        json["read_only"] = serde_json::json!(flag);
+        let c: ConnectionConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(c.read_only, flag);
+    }
 }

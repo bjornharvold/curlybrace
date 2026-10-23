@@ -24,6 +24,12 @@ for each side, press **Add pair**, then **Check** and **Run**.
 [Apply changes](#apply-changes)). The results are kept in memory for the session and can be
 discarded.
 
+**Read-only connections are never written to.** A connection saved as read-only can be compared on
+either side, but it cannot be picked as the target, and no change is ever copied into it or deleted
+from it. When the source is read-only, **Copy to source**, **Delete from source** and **Copy selected
+fields to source** are disabled with the reason, and changes already queued for it are marked
+"Read-only" and keep **Review changes** and **Apply** closed until you remove them.
+
 ## Pairs, settings and runs
 
 A compare is a **list of pairs**.

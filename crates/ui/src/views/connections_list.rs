@@ -1,8 +1,10 @@
 //! The connection manager list: toolbar, filter, sortable table grouped by folder.
+use super::connection_badge::show_badge;
 use super::connections::{ConnectionAction, ConnectionsState, Notice};
 use crate::I18n;
 use crate::viewmodel::{
-    SortColumn, auth_label_key, format_utc, grouped, security, server_hosts, visible,
+    ConnectionBadge, SortColumn, auth_label_key, format_utc, grouped, security, server_hosts,
+    visible,
 };
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use eframe::egui;
@@ -258,6 +260,11 @@ fn show_rows(
             ui.horizontal(|ui| {
                 let selected = state.selected == Some(cfg.id);
                 cell(ui, layout.widths[0], |ui| {
+                    if cfg.read_only {
+                        // Before the name, so a long name is what truncates and the badge (text,
+                        // never colour alone) is always inside the cell.
+                        show_badge(ui, &ConnectionBadge::default().with_read_only(true), i18n);
+                    }
                     let name = ui.add(egui::Button::selectable(selected, &cfg.name).truncate());
                     if name.double_clicked() {
                         action = Some(ConnectionAction::Connect(cfg.id));

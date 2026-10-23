@@ -75,7 +75,7 @@ impl ApplyStore {
         *self.scan_gate.lock().unwrap() = Some(gate.clone());
     }
 
-    fn park_next_bulk(&self, gate: &Arc<Gate>) {
+    pub(super) fn park_next_bulk(&self, gate: &Arc<Gate>) {
         *self.bulk_gate.lock().unwrap() = Some(gate.clone());
     }
 

@@ -18,6 +18,7 @@ pub mod pending_fields;
 pub mod pending_view;
 pub mod preflight;
 pub mod queries;
+pub mod read_only;
 pub mod results;
 pub mod review;
 pub mod rows;
@@ -90,6 +91,9 @@ pub struct CompareState {
     /// The production flags of `connections` (source, target) when the session was opened; read
     /// them through `is_production`, which also counts the live saved flags.
     pub connections_production: (bool, bool),
+    /// The read-only flags of `connections` (source, target) when the session was opened; read
+    /// them through `is_read_only`, which also counts the live saved flags.
+    pub connections_read_only: (bool, bool),
     /// Ids are chosen here and never reused, so a late event can never match a newer session,
     /// run or pair.
     pub next_session: SessionId,
@@ -132,6 +136,7 @@ impl Default for CompareState {
             session: None,
             connections: None,
             connections_production: (false, false),
+            connections_read_only: (false, false),
             next_session: 1,
             next_run: 1,
             next_pair: 1,
@@ -179,6 +184,20 @@ impl CompareState {
         let snapshot = (source == id && source_snapshot) || (target == id && target_snapshot);
         let live =
             (source == id || target == id) && saved.iter().any(|c| c.id == id && c.production);
+        snapshot || live
+    }
+
+    /// Whether the connection `id` of the open session is read-only: same rules as
+    /// [`CompareState::is_production`] (snapshot OR live saved flag; a deleted connection by its
+    /// snapshot alone).
+    pub fn is_read_only(&self, id: Uuid, saved: &[ConnectionConfig]) -> bool {
+        let Some((source, target)) = self.connections else {
+            return false;
+        };
+        let (source_snapshot, target_snapshot) = self.connections_read_only;
+        let snapshot = (source == id && source_snapshot) || (target == id && target_snapshot);
+        let live =
+            (source == id || target == id) && saved.iter().any(|c| c.id == id && c.read_only);
         snapshot || live
     }
 

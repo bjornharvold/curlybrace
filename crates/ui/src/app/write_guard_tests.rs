@@ -432,3 +432,19 @@ fn a_closed_or_lost_session_has_nothing_to_confirm_so_no_banner() {
     let (s, commands) = update(s, confirm());
     assert!(commands.is_empty() && s.banner.is_none());
 }
+
+#[test]
+fn confirm_of_parked_write_is_refused_after_session_becomes_read_only() {
+    let (s, id) = production();
+    let (mut s, _) = update(s, insert());
+    assert!(s.write_warning.is_some(), "the write is parked");
+    // The connection is edited to read-only while the warning is open.
+    for c in s.conn.connections.iter_mut().filter(|c| c.id == id) {
+        c.read_only = true;
+    }
+    let (s, commands) = update(s, confirm());
+    assert!(commands.is_empty(), "a locked session is never written");
+    assert!(s.write_warning.is_none(), "the parked write is dropped");
+    assert!(s.pending.is_none());
+    assert_eq!(s.banner, Some(Banner::ReadOnly));
+}

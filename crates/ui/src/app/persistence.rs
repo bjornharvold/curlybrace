@@ -256,7 +256,11 @@ pub(crate) fn parse_entries(
     for value in entries {
         // A damaged production flag loads as production (fail safe) and is rewritten as `true`
         // on the next save, so the saved list reports it like any other adjusted entry.
-        let flag_damaged = repair && value.get("production").is_some_and(|v| !v.is_boolean());
+        // The read-only flag is treated the same way (it loads as read-only).
+        let flag_damaged = repair
+            && ["production", "read_only"]
+                .iter()
+                .any(|key| value.get(key).is_some_and(|v| !v.is_boolean()));
         let Ok(cfg) = serde_json::from_value::<ConnectionConfig>(value) else {
             continue;
         };

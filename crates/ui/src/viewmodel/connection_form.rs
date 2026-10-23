@@ -41,6 +41,8 @@ pub struct ConnectionForm {
     /// or clicks "No colour".
     pub color: Option<SavedColor>,
     pub production: bool,
+    /// The Read-only checkbox of the dialog; editing a connection keeps its flag.
+    pub read_only: bool,
     pub created_at: Option<i64>,
     pub last_connected: Option<i64>,
 }
@@ -138,6 +140,7 @@ impl Default for ConnectionForm {
             folder: String::new(),
             color: None,
             production: false,
+            read_only: false,
             created_at: None,
             last_connected: None,
         }
@@ -202,6 +205,7 @@ impl ConnectionForm {
             last_connected: self.last_connected,
             color: self.color.clone(),
             production: self.production,
+            read_only: self.read_only,
         };
         cfg.validate()?;
         Ok(cfg)
@@ -248,6 +252,7 @@ impl ConnectionForm {
             folder: c.folder.clone().unwrap_or_default(),
             color: c.color.clone(),
             production: c.production,
+            read_only: c.read_only,
             created_at: c.created_at,
             last_connected: c.last_connected,
             ..Self::default()

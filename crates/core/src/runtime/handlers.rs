@@ -2,10 +2,12 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::connection::ConnectionConfig;
 use crate::crud::DocumentService;
 use crate::error::{CoreError, Result};
+use crate::read_only_store::ReadOnlyStore;
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
@@ -16,16 +18,37 @@ use super::tunneling::{
 };
 use super::{Command, Event, SessionId, Shared};
 
-/// Runs `command` to completion, folding any error into `Event::Failed`.
+/// What a dispatched command runs as. Only a connect carries a read-only flag, and it always
+/// does: the dispatcher attaches it synchronously, so a lock sent while the connect is in flight
+/// reaches the store it installs.
+pub(super) enum Work {
+    Connect {
+        cfg: Box<ConnectionConfig>,
+        read_only: Arc<AtomicBool>,
+    },
+    /// Any command but a connect, run against the session's installed store.
+    Data(Box<Command>),
+}
+
+impl Work {
+    fn context(&self) -> &'static str {
+        match self {
+            Self::Connect { .. } => "connect",
+            Self::Data(command) => command.context(),
+        }
+    }
+}
+
+/// Runs `work` to completion, folding any error into `Event::Failed`.
 pub(super) async fn execute(
     shared: Arc<Shared>,
     session: Arc<Session>,
     id: SessionId,
-    command: Command,
+    work: Work,
     generation: u64,
 ) -> Event {
-    let context = command.context();
-    match run(&shared, &session, id, command, generation).await {
+    let context = work.context();
+    match run(&shared, &session, id, work, generation).await {
         Ok(event) => event,
         Err(error) => failure_event(id, context, generation, error),
     }
@@ -111,20 +134,27 @@ async fn run(
     shared: &Arc<Shared>,
     session: &Arc<Session>,
     id: SessionId,
-    command: Command,
+    work: Work,
     generation: u64,
 ) -> Result<Event> {
-    if let Command::Connect(cfg) = command {
-        return connect_store(shared, session, cfg, generation)
-            .await
-            .map_err(|e| gate(session, generation, e));
-    }
+    let command = match work {
+        Work::Connect { cfg, read_only } => {
+            return connect_store(shared, session, *cfg, generation, read_only)
+                .await
+                .map_err(|e| gate(session, generation, e));
+        }
+        Work::Data(command) => *command,
+    };
     let store = session
         .current_store()
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
         .map_err(|e| gate(session, generation, e))?;
     let limit = shared.config.command_timeout;
     let is_write = command.is_write();
+    // Refused before any timeout or ping bookkeeping: a refusal is an answer, never a lost write.
+    if is_write && store.is_read_only() {
+        return Err(gate(session, generation, CoreError::ReadOnly));
+    }
     let work = data_command(id, store.clone(), command);
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
     // an answer from a server that is there.
@@ -211,7 +241,8 @@ async fn data_command(
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
-        | Command::TestConnection { .. } => {
+        | Command::TestConnection { .. }
+        | Command::LockReadOnly { .. } => {
             unreachable!("connection and compare commands are handled before data dispatch")
         }
     })
@@ -236,6 +267,7 @@ async fn connect_store(
     session: &Arc<Session>,
     cfg: ConnectionConfig,
     generation: u64,
+    read_only: Arc<AtomicBool>,
 ) -> Result<Event> {
     cfg.validate()?;
     let limit = shared.config.connect_timeout;
@@ -260,6 +292,7 @@ async fn connect_store(
             .connector
             .connect(&cfg, password.as_deref(), addr)
             .await?;
+        let store = ReadOnlyStore::wrap(store, read_only.clone());
         // Informational: a slow or failing read is `None`, it never fails the connect.
         let topology = bounded(shared.config.command_timeout, store.topology())
             .await

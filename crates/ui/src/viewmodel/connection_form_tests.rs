@@ -485,6 +485,21 @@ fn form_round_trips_color_and_production() {
 }
 
 #[test]
+fn new_form_defaults_read_only_false() {
+    assert!(!ConnectionForm::default().read_only);
+    assert!(!valid().to_config().unwrap().read_only);
+}
+
+#[test]
+fn form_round_trips_read_only() {
+    let mut c = ConnectionConfig::new("a", "mongodb://h");
+    c.read_only = true;
+    let form = ConnectionForm::from_config(&c);
+    assert!(form.read_only);
+    assert_eq!(form.to_config().unwrap(), c);
+}
+
+#[test]
 fn clearing_the_colour_clears_an_existing_colour() {
     let mut c = ConnectionConfig::new("a", "mongodb://h");
     c.color = Some(SavedColor::Known(ConnectionColor::Blue));

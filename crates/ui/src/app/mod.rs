@@ -347,8 +347,18 @@ impl CurlybraceApp {
                 self.dispatch(Input::Connect(id));
             }
             ConnectionAction::Save(form) => {
+                let was_read_only = state.connection(form.id).is_some_and(|c| c.read_only);
                 self.state =
                     connection_save::save_and_close(state, &form, secrets, &self.config_path, now);
+                // Open sessions keep the flag they connected with, so a newly ticked one is also
+                // sent to the core, which then refuses their writes at once (until a reconnect,
+                // so their snapshots are raised to match).
+                let locks = connection_save::lock_commands(&self.state, form.id, was_read_only);
+                if !locks.is_empty() {
+                    let state = std::mem::take(&mut self.state);
+                    self.state = connection_save::locked_snapshots(state, form.id);
+                }
+                self.send(locks);
             }
             ConnectionAction::Delete(id) => {
                 let was_open = state.is_open(id);
@@ -644,140 +654,10 @@ mod write_warning_modal_tests;
 mod production_snapshot_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod read_only_snapshot_tests;
 
-    #[test]
-    fn data_commands_keep_the_short_timeout_and_connect_outlasts_the_host_key_prompt() {
-        let (prompt, _rx) = InteractivePrompt::channel(Arc::new(|| {}), HOST_KEY_PROMPT_TIMEOUT);
-        let config = runtime_config(Some(PathBuf::from("/kh")), prompt);
-        assert_eq!(config.command_timeout, COMMAND_TIMEOUT);
-        assert!(config.connect_timeout > HOST_KEY_PROMPT_TIMEOUT);
-        assert_eq!(config.known_hosts_path, Some(PathBuf::from("/kh")));
-    }
+#[cfg(test)]
+mod connection_lock_tests;
 
-    /// An app whose runtime is two channels the test holds: it sees the commands and feeds events.
-    fn app_with_open_dialog(
-        guard: persistence::PersistGuard,
-    ) -> (
-        CurlybraceApp,
-        tokio::sync::mpsc::UnboundedSender<Event>,
-        tokio::sync::mpsc::UnboundedReceiver<curlybrace_core::runtime::Command>,
-        tempfile::TempDir,
-        uuid::Uuid,
-    ) {
-        let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
-        let (events, rx) = tokio::sync::mpsc::unbounded_channel();
-        let a = ConnectionConfig::new("a", "mongodb://a");
-        let id = a.id;
-        let secrets = Arc::new(curlybrace_core::secrets::MemorySecretStore::default());
-        let dir = tempfile::tempdir().unwrap();
-        let mut app =
-            CurlybraceApp::new(RuntimeHandle { tx, rx }, I18n::english(), vec![a], secrets)
-                .with_config_path(Ok(dir.path().join("connections.json")))
-                .with_persist_guard(guard);
-        let conn = &mut app.state_mut().conn;
-        conn.editing = true;
-        conn.selected = Some(id);
-        conn.form.password = "typed".into();
-        conn.uri_input = "mongodb://u:p@h".into();
-        conn.built_uri = Some(curlybrace_core::secrets::SecretString::new(
-            "mongodb://u:p@h",
-        ));
-        (app, events, commands, dir, id)
-    }
-
-    fn assert_dialog_closed_and_secrets_gone(app: &CurlybraceApp) {
-        let conn = &app.state().conn;
-        assert!(!conn.editing, "the dialog must not survive");
-        assert!(conn.form.password.is_empty() && conn.uri_input.is_empty());
-        assert!(conn.built_uri.is_none());
-    }
-
-    #[test]
-    fn a_completed_connect_closes_the_edit_dialog_and_drops_its_secrets() {
-        for guard in [
-            persistence::PersistGuard::default(),
-            persistence::PersistGuard::blocked(),
-        ] {
-            let (mut app, events, _commands, _dir, id) = app_with_open_dialog(guard);
-            app.dispatch(Input::Connect(id));
-            let epoch = app.state().latest_requested_epoch;
-            events
-                .send(Event::Connected {
-                    session: id,
-                    epoch,
-                    topology: None,
-                })
-                .unwrap();
-            app.pump();
-            assert_eq!(app.state().status, ConnStatus::Connected);
-            assert_dialog_closed_and_secrets_gone(&app);
-        }
-    }
-
-    #[test]
-    fn a_connect_action_with_the_dialog_open_closes_it() {
-        let (mut app, _events, _commands, _dir, id) =
-            app_with_open_dialog(persistence::PersistGuard::default());
-        app.handle_connection_action(ConnectionAction::Connect(id));
-        assert_dialog_closed_and_secrets_gone(&app);
-    }
-
-    #[test]
-    fn a_stopped_runtime_also_ends_the_compare_session() {
-        use crate::app::compare::CompareAction;
-        use crate::viewmodel::compare::{RunOverview, RunView, SessionPhase};
-        let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
-        drop(commands);
-        let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
-        let handle = RuntimeHandle { tx, rx };
-        let a = ConnectionConfig::new("a", "mongodb://a");
-        let secrets = Arc::new(curlybrace_core::secrets::MemorySecretStore::default());
-        let mut app = CurlybraceApp::new(handle, I18n::english(), vec![a], secrets);
-        app.state_mut().compare.session = Some(SessionPhase::Ready(4));
-        app.state_mut().compare.next_session = 5;
-        app.state_mut().compare.overview = RunOverview::default().started(2, &[(0, 1)]).0;
-        // Any command now finds the runtime gone.
-        app.dispatch(Input::Compare(CompareAction::Cancel));
-        let compare = &app.state().compare;
-        assert_eq!(compare.session, None);
-        assert_eq!(compare.run_view(), RunView::Idle);
-        assert_eq!(compare.next_session, 5, "ids are never reused");
-        assert!(matches!(
-            app.state().banner,
-            Some(Banner::Failure {
-                context: "runtime",
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn a_stopped_runtime_does_not_leave_a_test_running_forever() {
-        let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
-        drop(commands);
-        let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
-        let secrets = Arc::new(curlybrace_core::secrets::MemorySecretStore::default());
-        let mut app = CurlybraceApp::new(
-            RuntimeHandle { tx, rx },
-            I18n::english(),
-            Vec::new(),
-            secrets,
-        );
-        let form = crate::viewmodel::ConnectionForm {
-            name: "n".into(),
-            uri: "mongodb://localhost:27017".into(),
-            ..Default::default()
-        };
-        app.dispatch(Input::TestConnection(Box::new(form)));
-        assert_eq!(app.state().conn.test, TestState::Idle);
-        assert!(matches!(
-            app.state().banner,
-            Some(Banner::Failure {
-                context: "runtime",
-                ..
-            })
-        ));
-    }
-}
+#[cfg(test)]
+mod tests;

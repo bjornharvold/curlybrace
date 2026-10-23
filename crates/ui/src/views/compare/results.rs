@@ -9,6 +9,7 @@ use crate::viewmodel::compare::{
 };
 use curlybrace_core::compare::protocol::RowView;
 use curlybrace_core::compare::results::Category;
+use curlybrace_core::connection::ConnectionConfig;
 use eframe::egui;
 
 const TABLE_MAX_HEIGHT: f32 = 280.0;
@@ -21,9 +22,12 @@ const TAB_ORDER: [Category; 3] = [
 
 /// The screen of one pair's results: its names, Back to overview, then the results table and
 /// the open detail. Nothing is drawn (and the detail cache is dropped) when no pair is open.
+/// `saved` (the saved connections) decides, with the session's snapshot, which queue actions
+/// write to a read-only connection; those are disabled with the reason.
 pub fn show_pair_results(
     ui: &mut egui::Ui,
     state: &CompareState,
+    saved: &[ConnectionConfig],
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let Some(results) = state.open_results() else {
@@ -31,12 +35,13 @@ pub fn show_pair_results(
         return None;
     };
     let back = show_heading(ui, state, i18n);
-    let table = show_results(ui, state, results, i18n);
+    let table = show_results(ui, state, results, saved, i18n);
     let detail = match &state.detail {
         Some(d) => {
             ui.separator();
-            let bar = FieldBar::of(state, d);
-            show_detail(ui, d, &state.detail_buttons(&d.key), &bar, i18n)
+            let bar = state.guard_field_bar(FieldBar::of(state, d), saved);
+            let buttons = state.guard_buttons(state.detail_buttons(&d.key), saved);
+            show_detail(ui, d, &buttons, &bar, i18n)
         }
         None => {
             forget_cache(ui);
@@ -84,6 +89,7 @@ pub fn show_results(
     ui: &mut egui::Ui,
     state: &CompareState,
     results: &ResultsView,
+    saved: &[ConnectionConfig],
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let tabs = show_tabs(ui, results, i18n);
@@ -98,7 +104,8 @@ pub fn show_results(
         return tabs;
     }
     let pager = show_pager(ui, results, i18n);
-    let bar = show_selection_bar(ui, &SelectionBar::of(state, results), i18n);
+    let selection = state.guard_selection_bar(SelectionBar::of(state, results), saved);
+    let bar = show_selection_bar(ui, &selection, i18n);
     let row = show_table(ui, state, results, i18n);
     tabs.or(pager).or(bar).or(row)
 }

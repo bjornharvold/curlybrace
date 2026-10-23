@@ -109,12 +109,16 @@ fn color_text(color: Option<ConnectionColor>, i18n: &I18n) -> String {
     }
 }
 
-/// Colour tag picker and production flag.
+/// Colour tag picker, production flag and read-only flag.
 fn tag_section(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
     color_combo(ui, form, i18n);
     ui.horizontal(|ui| {
         ui.checkbox(&mut form.production, i18n.t("connections.production"));
         ui.label(i18n.t("connections.production_hint"));
+    });
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut form.read_only, i18n.t("connections.read_only"));
+        ui.label(i18n.t("connections.read_only_hint"));
     });
 }
 
