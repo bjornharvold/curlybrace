@@ -590,7 +590,11 @@ fn the_id_key_matches_the_id_index_whatever_unique_or_sparse_say() {
         "_id_",
         &[("_id", KeyKind::Asc)],
     ))];
-    let clash = Some(BuilderProblem::SameKeysAsExisting("_id_".into()));
+    let clash = Some(BuilderProblem::IdIndexExists);
+    assert_eq!(
+        clash.as_ref().map(BuilderProblem::message_key),
+        Some("indexes.builder.problem_id_exists")
+    );
     assert_eq!(on("_id").problem_among(&existing), clash);
     assert_eq!(on("_id").with_unique(true).problem_among(&existing), clash);
     assert_eq!(on("_id").with_sparse(true).problem_among(&existing), clash);

@@ -54,6 +54,9 @@ pub enum BuilderProblem {
     /// The named index already has these keys, collation and partial filter. The server tells
     /// indexes apart by those alone, so it refuses another name or other options on them.
     SameKeysAsExisting(String),
+    /// The keys are exactly `{_id: 1}`: the `_id_` index exists in every collection and the server
+    /// refuses any change to it, so none of the options that fix the other clash apply.
+    IdIndexExists,
 }
 
 impl BuilderProblem {
@@ -70,6 +73,7 @@ impl BuilderProblem {
             Self::CollationInvalid => "indexes.builder.problem_collation",
             Self::KeyNotRebuildable => "indexes.builder.problem_unrebuildable",
             Self::SameKeysAsExisting(_) => "indexes.builder.problem_same_keys",
+            Self::IdIndexExists => "indexes.builder.problem_id_exists",
         }
     }
 
@@ -371,6 +375,7 @@ impl IndexBuilderState {
             .iter()
             .find(|listed| same_identity(&listed.spec, &spec))
         {
+            Some(listed) if is_id_pattern(&listed.spec.keys) => Err(BuilderProblem::IdIndexExists),
             Some(listed) => Err(BuilderProblem::SameKeysAsExisting(listed.spec.name.clone())),
             None => Ok(spec),
         }

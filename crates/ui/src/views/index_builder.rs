@@ -361,7 +361,59 @@ fn footer(
 fn problem_text(problem: &BuilderProblem, i18n: &I18n) -> String {
     match (problem.field(), problem.index_name()) {
         (Some(field), _) => i18n.t_with(problem.message_key(), &[("field", field)]),
-        (None, Some(name)) => i18n.t_with(problem.message_key(), &[("name", name)]),
+        // The buttons that fix it are named by their own labels, so a rename shows here too.
+        (None, Some(name)) => i18n.t_with(
+            problem.message_key(),
+            &[
+                ("name", name),
+                ("ttl", &i18n.t("indexes.action_ttl")),
+                ("hide", &i18n.t("indexes.action_hide")),
+                ("unhide", &i18n.t("indexes.action_unhide")),
+            ],
+        ),
         (None, None) => i18n.t(problem.message_key()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The English locale with the three action labels renamed, as a rename in `en.json` would.
+    fn renamed_actions() -> I18n {
+        let json = include_str!("../../locales/en.json")
+            .replace(
+                "\"action_ttl\": \"Change TTL...\"",
+                "\"action_ttl\": \"Zeta\"",
+            )
+            .replace(
+                "\"action_hide\": \"Hide from planner\"",
+                "\"action_hide\": \"Eta\"",
+            )
+            .replace(
+                "\"action_unhide\": \"Unhide\"",
+                "\"action_unhide\": \"Theta\"",
+            );
+        I18n::from_json(&json).expect("a valid locale")
+    }
+
+    #[test]
+    fn the_same_keys_message_names_the_actions_by_their_labels() {
+        let text = problem_text(
+            &BuilderProblem::SameKeysAsExisting("a_1".into()),
+            &renamed_actions(),
+        );
+        for label in ["Zeta", "Eta", "Theta", "a_1"] {
+            assert!(text.contains(label), "{label} missing from: {text}");
+        }
+        assert!(!text.contains('{'), "unfilled placeholder in: {text}");
+    }
+
+    #[test]
+    fn the_id_message_does_not_offer_the_actions_the_server_refuses() {
+        let i18n = renamed_actions();
+        let text = problem_text(&BuilderProblem::IdIndexExists, &i18n);
+        assert!(text.contains("_id"), "{text}");
+        assert!(!text.contains("Zeta") && !text.contains("⟦"), "{text}");
     }
 }
