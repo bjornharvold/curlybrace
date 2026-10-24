@@ -68,6 +68,7 @@ pub fn show_indexes(
                             index,
                             series: series_of(&state.series, &index.spec),
                             any_series: !state.series.is_empty(),
+                            sampler: state.sampler,
                             range: state.range,
                             chart_end_secs: now,
                             now_secs,

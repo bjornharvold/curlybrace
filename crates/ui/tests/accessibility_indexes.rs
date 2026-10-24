@@ -174,6 +174,22 @@ fn a_hidden_never_used_index_is_marked_hidden_and_zero() {
 }
 
 #[test]
+fn an_unavailable_history_does_not_claim_usage_is_sampled() {
+    let (_, _, state) = two_indexes();
+    let state = IndexesState {
+        series: Vec::new(),
+        ..state.with_sampler(SamplerStatus::Paused(SamplerPause::HistoryUnavailable))
+    };
+    let shown = texts(&open(state, false));
+    let reason = t("indexes.pause_history_unavailable");
+    assert!(
+        shown.iter().filter(|text| **text == reason).count() >= 2,
+        "status line and detail pane both say it: {shown:?}"
+    );
+    assert!(!shown.contains(&t("indexes.no_history")), "{shown:?}");
+}
+
+#[test]
 fn a_paused_sampler_shows_its_reason_and_the_list_still_renders() {
     let reasons = [
         (SamplerPause::NotAuthorized, "indexes.pause_not_authorized"),

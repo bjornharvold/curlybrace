@@ -2,7 +2,7 @@
 //! out as `en.json` keys plus numbers, never as English.
 use curlybrace_core::history::ChartRange;
 use curlybrace_core::indexes::{IndexOptions, IndexSpec, KeyKind};
-use curlybrace_core::runtime::IndexSeries;
+use curlybrace_core::runtime::{IndexSeries, SamplerPause, SamplerStatus};
 
 /// The series drawn for `spec`: the one whose name AND definition hash match (a series of the
 /// same name with another hash belongs to an older index that was dropped and recreated). When
@@ -74,6 +74,18 @@ impl Age {
             Self::Now => 0,
             Self::Minutes(n) | Self::Hours(n) | Self::Days(n) => n,
         }
+    }
+}
+
+/// The `en.json` key of the line shown in place of a chart: the history cannot be used (the
+/// sampler said so), no series exists for the collection yet, or none for this index.
+pub fn no_series_key(any_series: bool, sampler: Option<SamplerStatus>) -> &'static str {
+    match (any_series, sampler) {
+        (_, Some(SamplerStatus::Paused(SamplerPause::HistoryUnavailable))) => {
+            "indexes.pause_history_unavailable"
+        }
+        (true, _) => "indexes.no_series",
+        (false, _) => "indexes.no_history",
     }
 }
 
@@ -285,6 +297,23 @@ mod tests {
                 assert_eq!(tracked_since_age(&s, now), Some(Age::Days(3)), "{range:?}");
             }
         }
+    }
+
+    #[test]
+    fn an_unavailable_history_is_never_called_empty() {
+        let unavailable = Some(SamplerStatus::Paused(SamplerPause::HistoryUnavailable));
+        for any in [false, true] {
+            assert_eq!(
+                no_series_key(any, unavailable),
+                "indexes.pause_history_unavailable"
+            );
+        }
+        assert_eq!(no_series_key(false, None), "indexes.no_history");
+        assert_eq!(
+            no_series_key(false, Some(SamplerStatus::Running)),
+            "indexes.no_history"
+        );
+        assert_eq!(no_series_key(true, None), "indexes.no_series");
     }
 
     #[test]

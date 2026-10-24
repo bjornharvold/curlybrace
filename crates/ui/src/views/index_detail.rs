@@ -5,11 +5,12 @@ use crate::I18n;
 use crate::viewmodel::IndexesAction;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_detail::{
-    Age, definition_text, last_used_age, option_phrases, size_parts, tracked_since_age,
+    Age, definition_text, last_used_age, no_series_key, option_phrases, size_parts,
+    tracked_since_age,
 };
 use crate::viewmodel::index_write::is_id_index;
 use curlybrace_core::history::ChartRange;
-use curlybrace_core::runtime::IndexSeries;
+use curlybrace_core::runtime::{IndexSeries, SamplerStatus};
 use curlybrace_core::store::CollectionIndex;
 use eframe::egui;
 
@@ -19,6 +20,8 @@ pub struct DetailInput<'a> {
     pub index: &'a CollectionIndex,
     pub series: Option<&'a IndexSeries>,
     pub any_series: bool,
+    /// The sampler's last status, which says when the history cannot be used at all.
+    pub sampler: Option<SamplerStatus>,
     pub range: ChartRange,
     /// The chart's right edge, in Unix seconds (the next bucket boundary of the range).
     pub chart_end_secs: i64,
@@ -50,12 +53,7 @@ pub fn show_detail(
     match input.series {
         Some(series) => series_rows(ui, series, input, i18n),
         None => {
-            let key = if input.any_series {
-                "indexes.no_series"
-            } else {
-                "indexes.no_history"
-            };
-            ui.label(i18n.t(key));
+            ui.label(i18n.t(no_series_key(input.any_series, input.sampler)));
         }
     }
     action
