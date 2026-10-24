@@ -5,14 +5,25 @@
 //! a sequence of [`Sample`]s; [`derive`] turns consecutive pairs into
 //! [`Point`]s and [`bucketize`] folds those into fixed-width [`Bucket`]s.
 
+use std::time::Duration;
+
 /// Seconds between two scheduled samples.
 pub const SAMPLE_INTERVAL_SECS: i64 = 60;
 
 /// Missed sample intervals tolerated before the silence is a gap.
 pub const GAP_INTERVALS: i64 = 3;
 
-/// Longest span between two samples that still counts as continuous.
-const MAX_CONTINUOUS_SECS: i64 = GAP_INTERVALS * SAMPLE_INTERVAL_SECS;
+/// Longest span between two samples that still counts as continuous at the default interval.
+pub const DEFAULT_MAX_CONTINUOUS_SECS: i64 = GAP_INTERVALS * SAMPLE_INTERVAL_SECS;
+
+/// Longest span between two samples that still counts as continuous when samples are taken every
+/// `interval`: [`GAP_INTERVALS`] intervals. The interval is a runtime tunable, so the threshold
+/// follows it instead of being a constant.
+pub fn max_continuous_secs(interval: Duration) -> i64 {
+    i64::try_from(interval.as_secs())
+        .unwrap_or(i64::MAX)
+        .saturating_mul(GAP_INTERVALS)
+}
 
 /// One reading of an index's cumulative access counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,16 +80,16 @@ pub struct Bucket {
 /// (the clock moved back, or a duplicate) is ignored; the input is therefore
 /// not re-sorted. The first accepted sample yields no point. A pair is a
 /// restart when `since_ms` changed or the counter dropped, a gap when the
-/// time between them exceeds [`GAP_INTERVALS`] sample intervals, and both
+/// time between them exceeds `max_continuous_secs` (see [`max_continuous_secs`]), and both
 /// (a `Gap` then a `Restart`) when it is a restart across a gap.
-pub fn derive(samples: &[Sample]) -> Vec<Point> {
+pub fn derive(samples: &[Sample], max_continuous_secs: i64) -> Vec<Point> {
     let accepted: Vec<Sample> = accepted_indices(samples)
         .into_iter()
         .map(|i| samples[i])
         .collect();
     accepted
         .windows(2)
-        .flat_map(|pair| classify(pair[0], pair[1]))
+        .flat_map(|pair| classify(pair[0], pair[1], max_continuous_secs))
         .collect()
 }
 
@@ -95,10 +106,10 @@ pub fn accepted_indices(samples: &[Sample]) -> Vec<usize> {
     out
 }
 
-fn classify(prev: Sample, cur: Sample) -> Vec<Point> {
+fn classify(prev: Sample, cur: Sample, max_continuous_secs: i64) -> Vec<Point> {
     let span_secs = cur.at_secs - prev.at_secs;
     let restarted = cur.since_ms != prev.since_ms || cur.ops < prev.ops;
-    let gap = span_secs > MAX_CONTINUOUS_SECS;
+    let gap = span_secs > max_continuous_secs;
     let uses = cur.ops.saturating_sub(prev.ops);
     let mut out = Vec::with_capacity(2);
     if gap {

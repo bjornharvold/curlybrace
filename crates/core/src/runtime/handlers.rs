@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicBool;
 use crate::connection::ConnectionConfig;
 use crate::crud::DocumentService;
 use crate::error::{CoreError, Result};
-use crate::history::HistoryDb;
+use crate::history::{HistoryDb, max_continuous_secs};
 use crate::read_only_store::ReadOnlyStore;
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
@@ -160,7 +160,15 @@ async fn run(
     if is_write && store.is_read_only() {
         return Err(gate(session, generation, CoreError::ReadOnly));
     }
-    let work = data_command(id, store.clone(), shared.history.clone(), command);
+    // The silence that is not yet a gap follows the sampling interval, a runtime tunable.
+    let max_continuous = max_continuous_secs(shared.sampler_config.borrow().interval);
+    let work = data_command(
+        id,
+        store.clone(),
+        shared.history.clone(),
+        max_continuous,
+        command,
+    );
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
     // an answer from a server that is there.
     let (result, timed_out) = match tokio::time::timeout(limit, work).await {
@@ -207,6 +215,7 @@ async fn data_command(
     session: SessionId,
     store: Arc<dyn DocumentStore>,
     history: Option<Arc<HistoryDb>>,
+    max_continuous: i64,
     command: Command,
 ) -> Result<Event> {
     let service = DocumentService::new(store.clone());
@@ -258,7 +267,9 @@ async fn data_command(
                 Some(_) => store.list_indexes(&ns).await?,
                 None => Vec::new(),
             };
-            let series = super::indexes::series_for(history, session, &ns, range, &listed).await?;
+            let series =
+                super::indexes::series_for(history, session, &ns, range, &listed, max_continuous)
+                    .await?;
             Event::IndexHistory {
                 session,
                 ns,

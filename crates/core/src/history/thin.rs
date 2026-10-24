@@ -30,9 +30,14 @@ use rusqlite::{Connection, Transaction, params};
 /// Rows deleted per step while enforcing the size cap.
 const CAP_BATCH_ROWS: i64 = 500;
 
-pub(super) fn thin(conn: &mut Connection, now_secs: i64, max_bytes: u64) -> Result<()> {
+pub(super) fn thin(
+    conn: &mut Connection,
+    now_secs: i64,
+    max_bytes: u64,
+    max_continuous_secs: i64,
+) -> Result<()> {
     let tx = conn.transaction().map_err(sql_err)?;
-    roll_raw_into_hourly(&tx, now_secs)?;
+    roll_raw_into_hourly(&tx, now_secs, max_continuous_secs)?;
     roll_hourly_into_daily(&tx, now_secs)?;
     expire(&tx, now_secs)?;
     remove_empty_series(&tx)?;
@@ -46,7 +51,7 @@ fn floor_to(secs: i64, width: i64) -> i64 {
     secs.div_euclid(width) * width
 }
 
-fn roll_raw_into_hourly(tx: &Transaction, now_secs: i64) -> Result<()> {
+fn roll_raw_into_hourly(tx: &Transaction, now_secs: i64, max_continuous_secs: i64) -> Result<()> {
     let cutoff = floor_to(now_secs - RAW_RETENTION_SECS, HOUR_SECS);
     let mut stmt = tx
         .prepare("SELECT DISTINCT series_id FROM samples WHERE at_secs < ?1")
@@ -57,12 +62,17 @@ fn roll_raw_into_hourly(tx: &Transaction, now_secs: i64) -> Result<()> {
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(sql_err)?;
     for series_id in ids {
-        roll_series(tx, series_id, cutoff)?;
+        roll_series(tx, series_id, cutoff, max_continuous_secs)?;
     }
     Ok(())
 }
 
-fn roll_series(tx: &Transaction, series_id: i64, cutoff: i64) -> Result<()> {
+fn roll_series(
+    tx: &Transaction,
+    series_id: i64,
+    cutoff: i64,
+    max_continuous_secs: i64,
+) -> Result<()> {
     let samples = raw_samples(tx, series_id)?;
     // Only samples `derive` accepts count: a backwards-clock sample is never the baseline, so
     // it cannot make newer data look old enough to delete.
@@ -96,7 +106,7 @@ fn roll_series(tx: &Transaction, series_id: i64, cutoff: i64) -> Result<()> {
         .map_err(sql_err)?;
     // The same clip the reads apply: seconds of a gap before `rolled_through` are already in
     // the rows, so a gap that continues past an earlier roll adds only its new part.
-    let points: Vec<_> = derive(&window)
+    let points: Vec<_> = derive(&window, max_continuous_secs)
         .into_iter()
         .map(|p| clip_gap(p, rolled_through))
         .collect();

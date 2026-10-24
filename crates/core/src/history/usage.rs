@@ -68,6 +68,7 @@ pub(super) fn usage(
     key: &SeriesKey,
     range: ChartRange,
     now_secs: i64,
+    max_continuous_secs: i64,
 ) -> Result<Vec<Bucket>> {
     let Some((series_id, rolled_through)) = find_series(conn, key)? else {
         return Ok(Vec::new());
@@ -79,7 +80,7 @@ pub(super) fn usage(
         .into_iter()
         .map(|(_, sample)| sample)
         .collect();
-    let points: Vec<Point> = derive(&samples)
+    let points: Vec<Point> = derive(&samples, max_continuous_secs)
         .into_iter()
         .map(|p| clip_gap(p, rolled_through))
         .collect();
@@ -98,7 +99,11 @@ pub(super) fn usage(
 }
 
 /// The time of the newest use and of the oldest data, over everything stored (no range).
-pub(super) fn facts(conn: &Connection, key: &SeriesKey) -> Result<SeriesFacts> {
+pub(super) fn facts(
+    conn: &Connection,
+    key: &SeriesKey,
+    max_continuous_secs: i64,
+) -> Result<SeriesFacts> {
     let Some((series_id, _)) = find_series(conn, key)? else {
         return Ok(SeriesFacts::default());
     };
@@ -106,7 +111,7 @@ pub(super) fn facts(conn: &Connection, key: &SeriesKey) -> Result<SeriesFacts> {
         .into_iter()
         .map(|(_, sample)| sample)
         .collect();
-    let raw_use = derive(&samples)
+    let raw_use = derive(&samples, max_continuous_secs)
         .into_iter()
         .filter_map(|p| match p {
             Point::Delta { at_secs, uses, .. } if uses > 0 => Some(at_secs),

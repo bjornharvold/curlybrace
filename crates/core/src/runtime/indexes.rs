@@ -64,13 +64,15 @@ pub(super) fn open_history(path: Option<&Path>) -> Option<Arc<HistoryDb>> {
 /// The series stored for the collection's `listed` indexes (every node of each definition),
 /// newest data of `range`. Series of dropped or recreated definitions are not read: the tab
 /// draws one series per listed index, and every extra one is a full scan under the database
-/// lock. No history means no series.
+/// lock. No history means no series. `max_continuous` is the longest silence that is not a gap
+/// (see [`crate::history::max_continuous_secs`]).
 pub(super) async fn series_for(
     history: Option<Arc<HistoryDb>>,
     session: SessionId,
     ns: &Namespace,
     range: ChartRange,
     listed: &[CollectionIndex],
+    max_continuous: i64,
 ) -> Result<Vec<IndexSeries>> {
     let Some(history) = history else {
         return Ok(Vec::new());
@@ -87,11 +89,11 @@ pub(super) async fn series_for(
             .into_iter()
             .filter(|key| listed.contains(&(key.index_name.clone(), key.definition_hash.clone())))
             .map(|key| {
-                let facts = history.facts(&key)?;
+                let facts = history.facts(&key, max_continuous)?;
                 Ok(IndexSeries {
                     last_used_at_secs: facts.last_used_at_secs,
                     tracked_since_secs: facts.tracked_since_secs,
-                    buckets: history.usage(&key, range, now)?,
+                    buckets: history.usage(&key, range, now, max_continuous)?,
                     latest: history.latest(&key)?,
                     index_name: key.index_name,
                     definition_hash: key.definition_hash,

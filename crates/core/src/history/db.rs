@@ -164,14 +164,23 @@ impl HistoryDb {
 
     /// Buckets of the last `range.secs()` seconds before `now_secs`, `range.bucket_width_secs()`
     /// wide. See [`super::usage`] for how raw and rolled data are merged.
-    pub fn usage(&self, key: &SeriesKey, range: ChartRange, now_secs: i64) -> Result<Vec<Bucket>> {
-        usage::usage(&self.lock(), key, range, now_secs)
+    ///
+    /// `max_continuous_secs` is the longest silence between two samples that is not a gap (see
+    /// [`super::series::max_continuous_secs`]).
+    pub fn usage(
+        &self,
+        key: &SeriesKey,
+        range: ChartRange,
+        now_secs: i64,
+        max_continuous_secs: i64,
+    ) -> Result<Vec<Bucket>> {
+        usage::usage(&self.lock(), key, range, now_secs, max_continuous_secs)
     }
 
     /// The real times behind "last used" and "tracked since" of a series; no range is involved,
     /// so they read the same whatever chart is drawn.
-    pub fn facts(&self, key: &SeriesKey) -> Result<SeriesFacts> {
-        usage::facts(&self.lock(), key)
+    pub fn facts(&self, key: &SeriesKey, max_continuous_secs: i64) -> Result<SeriesFacts> {
+        usage::facts(&self.lock(), key, max_continuous_secs)
     }
 
     /// The most recently inserted sample of a series (not the one with the latest timestamp).
@@ -240,8 +249,13 @@ impl HistoryDb {
     }
 
     /// Rolls old data into coarser rows, drops expired rows, then enforces the size cap.
-    pub fn thin(&self, now_secs: i64) -> Result<()> {
-        thin::thin(&mut self.lock(), now_secs, self.max_bytes)
+    pub fn thin(&self, now_secs: i64, max_continuous_secs: i64) -> Result<()> {
+        thin::thin(
+            &mut self.lock(),
+            now_secs,
+            self.max_bytes,
+            max_continuous_secs,
+        )
     }
 }
 

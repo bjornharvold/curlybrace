@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::clock;
 use crate::error::{CoreError, Result};
-use crate::history::{HistoryDb, SAMPLE_INTERVAL_SECS, Sample, SeriesKey};
+use crate::history::{HistoryDb, SAMPLE_INTERVAL_SECS, Sample, SeriesKey, max_continuous_secs};
 use crate::store::{CollectionKind, DocumentStore, IndexUsage, Namespace};
 
 /// Databases the server owns; never sampled.
@@ -517,7 +517,8 @@ async fn tick(
     }
     if state.last_thin.is_none_or(|at| at.elapsed() >= THIN_EVERY) {
         let history = Arc::clone(history);
-        blocking(move || history.thin(now_secs))
+        let max_continuous = max_continuous_secs(cfg.interval);
+        blocking(move || history.thin(now_secs, max_continuous))
             .await
             .map_err(TickError::History)?;
         state.last_thin = Some(Instant::now());

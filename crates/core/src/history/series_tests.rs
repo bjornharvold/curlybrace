@@ -1,5 +1,6 @@
 use super::series::*;
 use proptest::prelude::*;
+use std::time::Duration;
 
 const SINCE: i64 = 1_000;
 
@@ -25,13 +26,16 @@ fn total_uses(points: &[Point]) -> i64 {
 
 #[test]
 fn the_first_sample_has_no_point() {
-    assert!(derive(&[s(100, 5)]).is_empty());
-    assert!(derive(&[]).is_empty());
+    assert!(derive(&[s(100, 5)], DEFAULT_MAX_CONTINUOUS_SECS).is_empty());
+    assert!(derive(&[], DEFAULT_MAX_CONTINUOUS_SECS).is_empty());
 }
 
 #[test]
 fn consecutive_samples_give_deltas() {
-    let points = derive(&[s(100, 5), s(160, 9), s(220, 9)]);
+    let points = derive(
+        &[s(100, 5), s(160, 9), s(220, 9)],
+        DEFAULT_MAX_CONTINUOUS_SECS,
+    );
     assert_eq!(
         points,
         vec![
@@ -51,7 +55,7 @@ fn consecutive_samples_give_deltas() {
 
 #[test]
 fn a_lower_counter_is_a_restart_with_no_delta() {
-    let points = derive(&[s(100, 50), s(160, 3)]);
+    let points = derive(&[s(100, 50), s(160, 3)], DEFAULT_MAX_CONTINUOUS_SECS);
     assert_eq!(
         points,
         vec![Point::Restart {
@@ -68,7 +72,7 @@ fn a_changed_since_is_a_restart() {
         ops: 80,
         since_ms: SINCE + 5,
     };
-    let points = derive(&[s(100, 50), restarted]);
+    let points = derive(&[s(100, 50), restarted], DEFAULT_MAX_CONTINUOUS_SECS);
     assert_eq!(
         points,
         vec![Point::Restart {
@@ -80,7 +84,7 @@ fn a_changed_since_is_a_restart() {
 
 #[test]
 fn a_long_silence_is_a_gap_carrying_the_uses_in_it() {
-    let points = derive(&[s(100, 5), s(1_000, 45)]);
+    let points = derive(&[s(100, 5), s(1_000, 45)], DEFAULT_MAX_CONTINUOUS_SECS);
     assert_eq!(
         points,
         vec![Point::Gap {
@@ -94,15 +98,15 @@ fn a_long_silence_is_a_gap_carrying_the_uses_in_it() {
 #[test]
 fn a_gap_is_declared_only_beyond_three_intervals() {
     let edge = GAP_INTERVALS * SAMPLE_INTERVAL_SECS;
-    let at_edge = derive(&[s(0, 0), s(edge, 1)]);
+    let at_edge = derive(&[s(0, 0), s(edge, 1)], DEFAULT_MAX_CONTINUOUS_SECS);
     assert!(matches!(at_edge[0], Point::Delta { .. }));
-    let past_edge = derive(&[s(0, 0), s(edge + 1, 1)]);
+    let past_edge = derive(&[s(0, 0), s(edge + 1, 1)], DEFAULT_MAX_CONTINUOUS_SECS);
     assert!(matches!(past_edge[0], Point::Gap { .. }));
 }
 
 #[test]
 fn a_gap_never_becomes_a_zero_delta() {
-    let points = derive(&[s(0, 7), s(10_000, 7)]);
+    let points = derive(&[s(0, 7), s(10_000, 7)], DEFAULT_MAX_CONTINUOUS_SECS);
     assert_eq!(
         points,
         vec![Point::Gap {
@@ -121,7 +125,7 @@ fn a_restart_inside_a_gap_is_both() {
         ops: 12,
         since_ms: SINCE + 1,
     };
-    let points = derive(&[s(100, 50), restarted]);
+    let points = derive(&[s(100, 50), restarted], DEFAULT_MAX_CONTINUOUS_SECS);
     assert_eq!(
         points,
         vec![
@@ -141,7 +145,10 @@ fn a_restart_inside_a_gap_is_both() {
 #[test]
 fn a_sample_not_after_the_previous_one_is_ignored() {
     // The clock moved back (130) and a duplicate (160) are both dropped.
-    let points = derive(&[s(100, 1), s(160, 2), s(130, 99), s(160, 50), s(220, 5)]);
+    let points = derive(
+        &[s(100, 1), s(160, 2), s(130, 99), s(160, 50), s(220, 5)],
+        DEFAULT_MAX_CONTINUOUS_SECS,
+    );
     assert_eq!(
         points,
         vec![
@@ -234,7 +241,7 @@ proptest! {
                 Sample { at_secs: at, ops: *ops, since_ms: since }
             })
             .collect();
-        let points = derive(&samples);
+        let points = derive(&samples, DEFAULT_MAX_CONTINUOUS_SECS);
         let buckets = bucketize(&points, width);
         prop_assert_eq!(buckets.iter().map(|b| b.uses).sum::<i64>(), total_uses(&points));
         let gap_total: i64 = points
@@ -255,8 +262,31 @@ fn uses_counted_since_a_restart_land_in_the_bucket() {
         ops: 7,
         since_ms: SINCE + 1,
     };
-    let buckets = bucketize(&derive(&[s(100, 50), restart]), 600);
+    let buckets = bucketize(
+        &derive(&[s(100, 50), restart], DEFAULT_MAX_CONTINUOUS_SECS),
+        600,
+    );
     assert_eq!(buckets.len(), 1);
     assert_eq!(buckets[0].restarts, 1);
     assert_eq!(buckets[0].uses, 7);
+}
+
+#[test]
+fn the_gap_threshold_follows_the_sampling_interval() {
+    let five_minutes = max_continuous_secs(Duration::from_secs(300));
+    assert_eq!(five_minutes, GAP_INTERVALS * 300);
+    // Consecutive samples five minutes apart are continuous at a five minute interval...
+    let points = derive(&[s(0, 0), s(300, 4), s(600, 9)], five_minutes);
+    assert!(
+        points.iter().all(|p| matches!(p, Point::Delta { .. })),
+        "{points:?}"
+    );
+    // ...and the same samples are gaps against the default one-minute threshold.
+    let strict = derive(&[s(0, 0), s(300, 4)], DEFAULT_MAX_CONTINUOUS_SECS);
+    assert!(matches!(strict[0], Point::Gap { .. }));
+    // The default interval gives the default threshold.
+    assert_eq!(
+        max_continuous_secs(Duration::from_secs(SAMPLE_INTERVAL_SECS as u64)),
+        DEFAULT_MAX_CONTINUOUS_SECS
+    );
 }

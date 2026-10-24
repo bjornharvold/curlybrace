@@ -15,4 +15,7 @@ mod usage;
 pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey};
 pub use retention::{ChartRange, MAX_DB_BYTES};
 
-pub use series::{Bucket, GAP_INTERVALS, Point, SAMPLE_INTERVAL_SECS, Sample, bucketize, derive};
+pub use series::{
+    Bucket, DEFAULT_MAX_CONTINUOUS_SECS, GAP_INTERVALS, Point, SAMPLE_INTERVAL_SECS, Sample,
+    bucketize, derive, max_continuous_secs,
+};

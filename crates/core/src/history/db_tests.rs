@@ -1,6 +1,6 @@
 use super::db::*;
 use super::retention::*;
-use super::series::{Bucket, Sample, bucketize, derive};
+use super::series::{Bucket, DEFAULT_MAX_CONTINUOUS_SECS, Sample, bucketize, derive};
 use uuid::Uuid;
 
 const HOUR: i64 = 3_600;
@@ -84,7 +84,9 @@ fn usage_returns_buckets_of_the_range_width() {
     let k = key();
     let ops = record_minutely(&db, &k, NOW - 3 * HOUR, NOW, 100);
     for range in [ChartRange::Day, ChartRange::Week, ChartRange::Month] {
-        let buckets = db.usage(&k, range, NOW).unwrap();
+        let buckets = db
+            .usage(&k, range, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap();
         assert!(!buckets.is_empty());
         assert!(
             buckets
@@ -104,9 +106,18 @@ fn usage_only_covers_the_requested_window() {
     let db = HistoryDb::open_in_memory().unwrap();
     let k = key();
     record_minutely(&db, &k, NOW - 10 * HOUR, NOW, 0);
-    let day = db.usage(&k, ChartRange::Day, NOW).unwrap();
+    let day = db
+        .usage(&k, ChartRange::Day, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
     assert!(day.iter().all(|b| b.start_secs + b.width_secs > NOW - DAY));
-    let narrow = db.usage(&k, ChartRange::Day, NOW - 8 * HOUR).unwrap();
+    let narrow = db
+        .usage(
+            &k,
+            ChartRange::Day,
+            NOW - 8 * HOUR,
+            DEFAULT_MAX_CONTINUOUS_SECS,
+        )
+        .unwrap();
     assert!(narrow.iter().all(|b| b.start_secs <= NOW - 8 * HOUR));
 }
 
@@ -119,15 +130,23 @@ fn a_recreated_index_with_a_different_definition_is_a_separate_series() {
     // The recreated index starts again from 0.
     let ops = record_minutely(&db, &new, NOW - HOUR, NOW, 0);
     assert_eq!(
-        totals(&db.usage(&old, ChartRange::Day, NOW).unwrap()).0,
+        totals(
+            &db.usage(&old, ChartRange::Day, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+                .unwrap()
+        )
+        .0,
         118
     );
     assert_eq!(
-        totals(&db.usage(&new, ChartRange::Day, NOW).unwrap()).0,
+        totals(
+            &db.usage(&new, ChartRange::Day, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+                .unwrap()
+        )
+        .0,
         ops - 2
     );
     assert_eq!(
-        db.usage(&new, ChartRange::Day, NOW)
+        db.usage(&new, ChartRange::Day, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
             .unwrap()
             .iter()
             .map(|b| b.restarts)
@@ -147,7 +166,14 @@ fn a_different_host_is_a_separate_series() {
     record_minutely(&db, &a, NOW - HOUR, NOW, 0);
     db.record(&b, s(NOW - 60, 7)).unwrap();
     assert_eq!(db.latest(&b).unwrap(), Some(s(NOW - 60, 7)));
-    assert_eq!(totals(&db.usage(&b, ChartRange::Day, NOW).unwrap()).0, 0);
+    assert_eq!(
+        totals(
+            &db.usage(&b, ChartRange::Day, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+                .unwrap()
+        )
+        .0,
+        0
+    );
     assert_eq!(
         db.series_for(a.connection, "shop", "orders").unwrap().len(),
         2
@@ -167,7 +193,10 @@ fn insertion_order_not_timestamp_order_drives_the_series() {
     db.record(&k, s(NOW - 900, 3)).unwrap();
     assert_eq!(db.latest(&k).unwrap(), Some(s(NOW - 900, 3)));
     // 10 -> 12 -> 15; the skewed samples contribute neither uses nor restarts.
-    let (uses, restarts, _) = totals(&db.usage(&k, ChartRange::Day, NOW).unwrap());
+    let (uses, restarts, _) = totals(
+        &db.usage(&k, ChartRange::Day, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap(),
+    );
     assert_eq!((uses, restarts), (5, 0));
 }
 
@@ -212,19 +241,27 @@ fn thinning_keeps_restarts_and_gap_seconds_in_hourly_buckets() {
         at += 60;
         ops += 3;
     }
-    let before = db.usage(&k, ChartRange::Week, NOW).unwrap();
+    let before = db
+        .usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
     let raw_before = count(&db, "SELECT COUNT(*) FROM samples");
     assert!(totals(&before).1 >= 1 && totals(&before).2 >= 2 * HOUR);
 
-    db.thin(NOW).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
 
     assert!(count(&db, "SELECT COUNT(*) FROM samples") < raw_before);
     assert!(count(&db, "SELECT COUNT(*) FROM rolled WHERE tier = 1") > 0);
-    let after = db.usage(&k, ChartRange::Week, NOW).unwrap();
+    let after = db
+        .usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
     assert_eq!(after, before);
     // Thinning again changes nothing: nothing is lost or counted twice.
-    db.thin(NOW).unwrap();
-    assert_eq!(db.usage(&k, ChartRange::Week, NOW).unwrap(), before);
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
+    assert_eq!(
+        db.usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap(),
+        before
+    );
 }
 
 #[test]
@@ -233,18 +270,30 @@ fn rolling_does_not_lose_or_double_count_uses_at_the_cutoff() {
     let k = key();
     // Continuous samples straddling the 48 hour cutoff, then a gap whose far end is raw.
     let ops = record_minutely(&db, &k, NOW - 60 * HOUR, NOW - 40 * HOUR, 0);
-    let before = db.usage(&k, ChartRange::Week, NOW).unwrap();
+    let before = db
+        .usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
     assert_eq!(totals(&before).0, ops - 2);
-    db.thin(NOW).unwrap();
-    assert_eq!(db.usage(&k, ChartRange::Week, NOW).unwrap(), before);
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
+    assert_eq!(
+        db.usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap(),
+        before
+    );
     // New data arrives after the hourly rows exist, across a gap that starts in rolled time.
     db.record(&k, s(NOW - 10 * HOUR, ops + 500)).unwrap();
-    let (uses, _, gap) = totals(&db.usage(&k, ChartRange::Week, NOW).unwrap());
+    let (uses, _, gap) = totals(
+        &db.usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap(),
+    );
     // 2 is the last minute's growth the gap point carries: the counter went from ops - 2.
     assert_eq!(uses, ops - 2 + 500 + 2);
     assert_eq!(gap, 30 * HOUR + 60);
-    db.thin(NOW).unwrap();
-    let (uses2, _, gap2) = totals(&db.usage(&k, ChartRange::Week, NOW).unwrap());
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
+    let (uses2, _, gap2) = totals(
+        &db.usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap(),
+    );
     assert_eq!((uses2, gap2), (uses, gap));
 }
 
@@ -255,14 +304,29 @@ fn a_gap_straddling_the_cutoff_is_counted_once() {
     // The last rolled sample is just before the 48 hour cutoff, the next one two hours later.
     let ops = record_minutely(&db, &k, NOW - 52 * HOUR, NOW - 49 * HOUR, 0);
     record_minutely(&db, &k, NOW - 47 * HOUR, NOW - 46 * HOUR, ops + 40);
-    let before = db.usage(&k, ChartRange::Week, NOW).unwrap();
+    let before = db
+        .usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
     assert!(totals(&before).2 > HOUR);
-    db.thin(NOW).unwrap();
-    assert_eq!(db.usage(&k, ChartRange::Week, NOW).unwrap(), before);
-    // A later thinning, with the cutoff moved on, still agrees.
-    db.thin(NOW + 5 * HOUR).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     assert_eq!(
-        totals(&db.usage(&k, ChartRange::Week, NOW + 5 * HOUR).unwrap()),
+        db.usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap(),
+        before
+    );
+    // A later thinning, with the cutoff moved on, still agrees.
+    db.thin(NOW + 5 * HOUR, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
+    assert_eq!(
+        totals(
+            &db.usage(
+                &k,
+                ChartRange::Week,
+                NOW + 5 * HOUR,
+                DEFAULT_MAX_CONTINUOUS_SECS
+            )
+            .unwrap()
+        ),
         totals(&before)
     );
 }
@@ -270,10 +334,13 @@ fn a_gap_straddling_the_cutoff_is_counted_once() {
 /// What a chart over the whole series, never thinned, would show.
 fn expected_window(samples: &[Sample], range: ChartRange, now: i64) -> Vec<Bucket> {
     let start = now - range.secs();
-    bucketize(&derive(samples), range.bucket_width_secs())
-        .into_iter()
-        .filter(|b| b.start_secs + b.width_secs > start && b.start_secs <= now)
-        .collect()
+    bucketize(
+        &derive(samples, DEFAULT_MAX_CONTINUOUS_SECS),
+        range.bucket_width_secs(),
+    )
+    .into_iter()
+    .filter(|b| b.start_secs + b.width_secs > start && b.start_secs <= now)
+    .collect()
 }
 
 #[test]
@@ -289,20 +356,28 @@ fn a_silence_spanning_a_thin_keeps_its_gap_seconds() {
     for sample in &all {
         db.record(&k, *sample).unwrap();
     }
-    db.thin(NOW - 50 * HOUR).unwrap();
-    db.thin(NOW).unwrap();
+    db.thin(NOW - 50 * HOUR, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     let last = s(NOW - 60, all.last().unwrap().ops + 700);
     db.record(&k, last).unwrap();
     all.push(last);
     for range in [ChartRange::Week, ChartRange::Month] {
         assert_eq!(
-            db.usage(&k, range, NOW).unwrap(),
+            db.usage(&k, range, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+                .unwrap(),
             expected_window(&all, range, NOW)
         );
     }
-    let before = db.usage(&k, ChartRange::Week, NOW).unwrap();
-    db.thin(NOW).unwrap();
-    assert_eq!(db.usage(&k, ChartRange::Week, NOW).unwrap(), before);
+    let before = db
+        .usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
+    assert_eq!(
+        db.usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap(),
+        before
+    );
 }
 
 #[test]
@@ -319,11 +394,17 @@ fn a_backwards_clock_sample_never_decides_what_thin_deletes() {
     for sample in &all {
         db.record(&k, *sample).unwrap();
     }
-    let before = db.usage(&k, ChartRange::Week, NOW).unwrap();
+    let before = db
+        .usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
     let rows = count(&db, "SELECT COUNT(*) FROM samples");
-    db.thin(NOW).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     assert_eq!(count(&db, "SELECT COUNT(*) FROM samples"), rows);
-    assert_eq!(db.usage(&k, ChartRange::Week, NOW).unwrap(), before);
+    assert_eq!(
+        db.usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap(),
+        before
+    );
     assert_eq!(before, expected_window(&all, ChartRange::Week, NOW));
 }
 
@@ -347,9 +428,11 @@ fn thinned_buckets_match_derive_and_bucketize_of_the_full_series() {
     for sample in &samples {
         db.record(&k, *sample).unwrap();
     }
-    db.thin(NOW).unwrap();
-    let expected = bucketize(&derive(&samples), HOUR);
-    let got = db.usage(&k, ChartRange::Week, NOW).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
+    let expected = bucketize(&derive(&samples, DEFAULT_MAX_CONTINUOUS_SECS), HOUR);
+    let got = db
+        .usage(&k, ChartRange::Week, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
     assert_eq!(totals(&got), totals(&expected));
 }
 
@@ -360,7 +443,7 @@ fn thinning_drops_daily_rows_older_than_two_years() {
     // About three years old, and about one year old.
     record_minutely(&db, &k, NOW - 3 * 365 * DAY, NOW - 3 * 365 * DAY + HOUR, 0);
     record_minutely(&db, &k, NOW - 365 * DAY, NOW - 365 * DAY + HOUR, 0);
-    db.thin(NOW).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     // Only the year-old data is left, as daily rows; the raw and hourly rows are gone.
     assert_eq!(count(&db, "SELECT COUNT(*) FROM samples"), 1);
     assert_eq!(count(&db, "SELECT COUNT(*) FROM rolled WHERE tier = 1"), 0);
@@ -376,7 +459,8 @@ fn thinning_drops_daily_rows_older_than_two_years() {
         0
     );
     // Once even the daily rows expire, the series is forgotten entirely.
-    db.thin(NOW + 2 * 365 * DAY).unwrap();
+    db.thin(NOW + 2 * 365 * DAY, DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
     assert_eq!(count(&db, "SELECT COUNT(*) FROM rolled"), 0);
     assert!(
         db.series_for(k.connection, "shop", "orders")
@@ -394,7 +478,7 @@ fn the_size_cap_removes_the_oldest_rows_first() {
     let first = oldest(&db);
     let rows = count(&db, "SELECT COUNT(*) FROM samples");
     assert!(db.used_bytes().unwrap() > 80_000);
-    db.thin(NOW).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     assert!(db.used_bytes().unwrap() <= 80_000);
     assert!(count(&db, "SELECT COUNT(*) FROM samples") < rows);
     assert!(oldest(&db) > first);
@@ -409,7 +493,7 @@ fn the_size_cap_drops_daily_rows_before_hourly_before_raw() {
     // A long silence fills many hourly and daily rows; a recent hour stays raw.
     record_minutely(&db, &k, NOW - 600 * DAY, NOW - 600 * DAY + HOUR, 0);
     record_minutely(&db, &k, NOW - 3 * HOUR, NOW, 0);
-    db.thin(NOW).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     let tier = |db: &HistoryDb, t: i64| {
         count(db, &format!("SELECT COUNT(*) FROM rolled WHERE tier = {t}"))
     };
@@ -418,13 +502,13 @@ fn the_size_cap_drops_daily_rows_before_hourly_before_raw() {
     assert!(daily > 300 && hourly > 300 && raw > 0);
     // A cap one page below the current size is met by the daily rows alone.
     let capped = db.with_max_bytes_from_used(4_096);
-    capped.thin(NOW).unwrap();
+    capped.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     assert!(tier(&capped, 2) < daily);
     assert_eq!(tier(&capped, 1), hourly);
     assert_eq!(count(&capped, "SELECT COUNT(*) FROM samples"), raw);
     // A cap nothing can meet empties every tier, oldest tier first, without erroring.
     let empty = capped.with_max_bytes(1);
-    empty.thin(NOW).unwrap();
+    empty.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     assert_eq!(tier(&empty, 2) + tier(&empty, 1), 0);
     assert_eq!(count(&empty, "SELECT COUNT(*) FROM samples"), 0);
 }
@@ -437,10 +521,14 @@ fn purge_connection_removes_only_that_connections_rows() {
     record_minutely(&db, &a, NOW - HOUR, NOW, 0);
     record_minutely(&db, &b, NOW - HOUR, NOW, 0);
     record_minutely(&db, &a, NOW - 100 * DAY, NOW - 100 * DAY + HOUR, 0);
-    db.thin(NOW).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     db.purge_connection(a.connection).unwrap();
     assert_eq!(db.latest(&a).unwrap(), None);
-    assert!(db.usage(&a, ChartRange::Month, NOW).unwrap().is_empty());
+    assert!(
+        db.usage(&a, ChartRange::Month, NOW, DEFAULT_MAX_CONTINUOUS_SECS)
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         db.series_for(a.connection, "shop", "orders")
             .unwrap()
@@ -574,7 +662,7 @@ fn facts_are_the_real_time_of_the_last_use_and_of_the_first_sample() {
         at += 60;
     }
 
-    let facts = db.facts(&key).unwrap();
+    let facts = db.facts(&key, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
 
     assert_eq!(facts.last_used_at_secs, Some(used));
     assert_eq!(facts.tracked_since_secs, Some(first));
@@ -583,11 +671,14 @@ fn facts_are_the_real_time_of_the_last_use_and_of_the_first_sample() {
 #[test]
 fn facts_of_an_unused_or_unknown_series_have_no_last_use() {
     let db = HistoryDb::open_in_memory().unwrap();
-    assert_eq!(db.facts(&key()).unwrap(), SeriesFacts::default());
+    assert_eq!(
+        db.facts(&key(), DEFAULT_MAX_CONTINUOUS_SECS).unwrap(),
+        SeriesFacts::default()
+    );
     for minute in 0..5 {
         db.record(&key(), s(NOW - 600 + minute * 60, 7)).unwrap();
     }
-    let facts = db.facts(&key()).unwrap();
+    let facts = db.facts(&key(), DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     assert_eq!(facts.last_used_at_secs, None);
     assert_eq!(facts.tracked_since_secs, Some(NOW - 600));
 }
@@ -608,9 +699,9 @@ fn facts_survive_thinning_without_depending_on_a_range() {
         db.record(&key, s(at, ops)).unwrap();
         at += 10 * 60;
     }
-    db.thin(NOW).unwrap();
+    db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
 
-    let facts = db.facts(&key).unwrap();
+    let facts = db.facts(&key, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
 
     let last = facts.last_used_at_secs.expect("rolled uses remain");
     assert!(
