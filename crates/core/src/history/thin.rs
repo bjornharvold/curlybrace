@@ -63,7 +63,23 @@ pub(super) fn thin(
     tx.commit().map_err(sql_err)?;
     release_free_pages(conn)?;
     enforce_cap(conn, max_bytes, now_secs)?;
-    remove_empty_series(conn)
+    remove_empty_series(conn)?;
+    reset_wal(conn);
+    Ok(())
+}
+
+/// Folds the log back into the database file and truncates it, so the room one large thinning
+/// took does not stay on disk. Best effort: a reader or writer elsewhere can hold the checkpoint
+/// back, and the next thinning tries again.
+fn reset_wal(conn: &Connection) {
+    let reset = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+        row.get::<_, i64>(0)
+    });
+    match reset {
+        Ok(0) => {}
+        Ok(_) => log::warn!("history database: the wal could not be reset, a lock holds it"),
+        Err(error) => log::warn!("history database: the wal could not be reset: {error}"),
+    }
 }
 
 fn floor_to(secs: i64, width: i64) -> i64 {

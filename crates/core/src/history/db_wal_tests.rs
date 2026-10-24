@@ -145,3 +145,49 @@ fn a_write_against_a_held_lock_fails_as_busy() {
     other.execute_batch("ROLLBACK").unwrap();
     db.record(&key(), sample()).unwrap();
 }
+
+#[test]
+fn the_wal_file_is_capped_when_it_is_reset() {
+    let dir = tempfile::tempdir().unwrap();
+    let (db, _) = HistoryDb::open(&dir.path().join("history.sqlite")).unwrap();
+    let limit: i64 = db
+        .conn
+        .lock()
+        .unwrap()
+        .pragma_query_value(None, "journal_size_limit", |r| r.get(0))
+        .unwrap();
+    assert_eq!(limit, super::db::WAL_SIZE_LIMIT_BYTES);
+    assert_eq!(limit, 16 * 1024 * 1024);
+}
+
+#[test]
+fn a_thinning_leaves_an_empty_wal_file_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history.sqlite");
+    let (db, _) = HistoryDb::open(&path).unwrap();
+    let old = 1_800_000_000 - 100 * 3_600;
+    let samples: Vec<_> = (0..300)
+        .map(|n| {
+            let at_secs = old + n * 60;
+            (
+                key(),
+                Sample {
+                    at_secs,
+                    ops: n,
+                    since_ms: 1_000,
+                },
+            )
+        })
+        .collect();
+    db.record_many(&samples).unwrap();
+    let wal = dir.path().join("history.sqlite-wal");
+    assert!(
+        std::fs::metadata(&wal).unwrap().len() > 0,
+        "the writes sit in the log"
+    );
+
+    db.thin(1_800_000_000, super::series::DEFAULT_MAX_CONTINUOUS_SECS)
+        .unwrap();
+
+    assert_eq!(std::fs::metadata(&wal).unwrap().len(), 0);
+}

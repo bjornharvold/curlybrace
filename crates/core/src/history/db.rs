@@ -79,6 +79,10 @@ pub struct HistoryDb {
 /// as busy. Sampling writes are tiny, so a wait this long only happens under real contention.
 pub(super) const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How large the `-wal` file may stay once a checkpoint has reset it. One large thinning can grow
+/// the log far past the automatic checkpoint size; without a limit the file keeps that size.
+pub(super) const WAL_SIZE_LIMIT_BYTES: i64 = 16 * 1024 * 1024;
+
 /// The start of the text of a `Database` error caused by a busy or locked file.
 const BUSY_PREFIX: &str = "history busy: ";
 
@@ -471,7 +475,8 @@ fn enable_wal(conn: &Connection) -> rusqlite::Result<()> {
         // A file system without shared memory: the database works, only slower.
         log::warn!("history database stays in {mode} journal mode");
     }
-    conn.pragma_update(None, "synchronous", "NORMAL")
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "journal_size_limit", WAL_SIZE_LIMIT_BYTES)
 }
 
 /// Makes sure the file exists with mode 0600 before SQLite opens it, so it is never readable by
