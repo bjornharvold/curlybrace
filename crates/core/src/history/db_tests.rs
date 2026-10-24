@@ -711,3 +711,44 @@ fn facts_survive_thinning_without_depending_on_a_range() {
     let since = facts.tracked_since_secs.expect("rolled rows remain");
     assert!(since <= start + DAY && since >= start - DAY, "{since}");
 }
+
+#[test]
+fn series_view_is_the_same_as_facts_usage_and_latest_read_separately() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let k = key();
+    let max = DEFAULT_MAX_CONTINUOUS_SECS;
+    // An unknown series has nothing in any of the three.
+    let none = db.series_view(&k, ChartRange::Day, NOW, max).unwrap();
+    assert_eq!(none.facts, SeriesFacts::default());
+    assert!(none.buckets.is_empty() && none.latest.is_none());
+
+    // Four days of samples with a restart, thinned so rolled rows exist beside raw ones.
+    let mut at = NOW - 4 * DAY;
+    let mut ops = 0;
+    while at < NOW {
+        let since_ms = if at < NOW - 2 * DAY { SINCE } else { SINCE + 1 };
+        db.record(
+            &k,
+            Sample {
+                at_secs: at,
+                ops,
+                since_ms,
+            },
+        )
+        .unwrap();
+        at += 60;
+        ops += 2;
+    }
+    db.thin(NOW, max).unwrap();
+
+    for range in [ChartRange::Day, ChartRange::Week, ChartRange::Month] {
+        let view = db.series_view(&k, range, NOW, max).unwrap();
+        assert_eq!(view.facts, db.facts(&k, max).unwrap(), "{range:?}");
+        assert_eq!(
+            view.buckets,
+            db.usage(&k, range, NOW, max).unwrap(),
+            "{range:?}"
+        );
+        assert_eq!(view.latest, db.latest(&k).unwrap(), "{range:?}");
+    }
+}

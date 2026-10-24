@@ -12,7 +12,7 @@
 //!   they are not counted twice. Its uses sit at its far end, in raw time, and are kept.
 //! - Buckets are returned oldest first, limited to the window that ends at `now_secs`.
 
-use super::db::{SeriesFacts, SeriesKey, sql_err};
+use super::db::{SeriesFacts, SeriesKey, SeriesView, sql_err};
 use super::retention::ChartRange;
 use super::series::{Bucket, Point, Sample, bucketize, derive};
 use crate::error::Result;
@@ -63,6 +63,35 @@ pub(super) fn raw_samples(conn: &Connection, series_id: i64) -> Result<Vec<(i64,
         .map_err(sql_err)
 }
 
+/// One series read once: the series lookup, the raw samples and their derived points are shared
+/// by the three answers instead of being loaded and derived for each.
+pub(super) fn view(
+    conn: &Connection,
+    key: &SeriesKey,
+    range: ChartRange,
+    now_secs: i64,
+    max_continuous_secs: i64,
+) -> Result<SeriesView> {
+    let Some((series_id, rolled_through)) = find_series(conn, key)? else {
+        return Ok(SeriesView {
+            facts: SeriesFacts::default(),
+            buckets: Vec::new(),
+            latest: None,
+        });
+    };
+    let samples: Vec<Sample> = raw_samples(conn, series_id)?
+        .into_iter()
+        .map(|(_, sample)| sample)
+        .collect();
+    let points = derive(&samples, max_continuous_secs);
+    Ok(SeriesView {
+        facts: facts_of(conn, series_id, &samples, &points)?,
+        buckets: buckets_of(conn, series_id, rolled_through, &points, range, now_secs)?,
+        // Samples are read in insertion order, so the last one is the most recently inserted.
+        latest: samples.last().copied(),
+    })
+}
+
 pub(super) fn usage(
     conn: &Connection,
     key: &SeriesKey,
@@ -70,32 +99,7 @@ pub(super) fn usage(
     now_secs: i64,
     max_continuous_secs: i64,
 ) -> Result<Vec<Bucket>> {
-    let Some((series_id, rolled_through)) = find_series(conn, key)? else {
-        return Ok(Vec::new());
-    };
-    let width = range.bucket_width_secs();
-    let window_start = now_secs - range.secs();
-
-    let samples: Vec<Sample> = raw_samples(conn, series_id)?
-        .into_iter()
-        .map(|(_, sample)| sample)
-        .collect();
-    let points: Vec<Point> = derive(&samples, max_continuous_secs)
-        .into_iter()
-        .map(|p| clip_gap(p, rolled_through))
-        .collect();
-
-    let mut merged: BTreeMap<(i64, i64), Bucket> = BTreeMap::new();
-    for bucket in bucketize(&points, width) {
-        add(&mut merged, bucket);
-    }
-    for row in rolled_rows(conn, series_id, window_start)? {
-        add(&mut merged, widen(row, width));
-    }
-    Ok(merged
-        .into_values()
-        .filter(|b| b.start_secs + b.width_secs > window_start && b.start_secs <= now_secs)
-        .collect())
+    view(conn, key, range, now_secs, max_continuous_secs).map(|view| view.buckets)
 }
 
 /// The time of the newest use and of the oldest data, over everything stored (no range).
@@ -111,9 +115,48 @@ pub(super) fn facts(
         .into_iter()
         .map(|(_, sample)| sample)
         .collect();
-    let raw_use = derive(&samples, max_continuous_secs)
-        .into_iter()
-        .filter_map(|p| match p {
+    let points = derive(&samples, max_continuous_secs);
+    facts_of(conn, series_id, &samples, &points)
+}
+
+/// The buckets of the window ending at `now_secs`: raw points merged with the rolled rows.
+fn buckets_of(
+    conn: &Connection,
+    series_id: i64,
+    rolled_through: i64,
+    points: &[Point],
+    range: ChartRange,
+    now_secs: i64,
+) -> Result<Vec<Bucket>> {
+    let width = range.bucket_width_secs();
+    let window_start = now_secs - range.secs();
+    let clipped: Vec<Point> = points
+        .iter()
+        .map(|p| clip_gap(*p, rolled_through))
+        .collect();
+    let mut merged: BTreeMap<(i64, i64), Bucket> = BTreeMap::new();
+    for bucket in bucketize(&clipped, width) {
+        add(&mut merged, bucket);
+    }
+    for row in rolled_rows(conn, series_id, window_start)? {
+        add(&mut merged, widen(row, width));
+    }
+    Ok(merged
+        .into_values()
+        .filter(|b| b.start_secs + b.width_secs > window_start && b.start_secs <= now_secs)
+        .collect())
+}
+
+/// "Last used" and "tracked since" from the raw `samples` and their `points` plus the rolled rows.
+fn facts_of(
+    conn: &Connection,
+    series_id: i64,
+    samples: &[Sample],
+    points: &[Point],
+) -> Result<SeriesFacts> {
+    let raw_use = points
+        .iter()
+        .filter_map(|p| match *p {
             Point::Delta { at_secs, uses, .. } if uses > 0 => Some(at_secs),
             Point::Restart {
                 at_secs,

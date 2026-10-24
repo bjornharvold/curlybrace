@@ -24,6 +24,15 @@ pub struct SeriesFacts {
     pub tracked_since_secs: Option<i64>,
 }
 
+/// Everything the Indexes tab shows about one series, read in one go.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeriesView {
+    pub facts: SeriesFacts,
+    pub buckets: Vec<Bucket>,
+    /// The most recently inserted reading (not the one with the latest timestamp).
+    pub latest: Option<Sample>,
+}
+
 /// Identifies one plotted series. A different definition hash (an index recreated with other
 /// options) or a different host (another node) is a different series; they are never joined.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -181,6 +190,18 @@ impl HistoryDb {
     /// so they read the same whatever chart is drawn.
     pub fn facts(&self, key: &SeriesKey, max_continuous_secs: i64) -> Result<SeriesFacts> {
         usage::facts(&self.lock(), key, max_continuous_secs)
+    }
+
+    /// [`Self::facts`], [`Self::usage`] and [`Self::latest`] of one series from a single read:
+    /// one lock, one lookup, and the raw samples loaded and derived once.
+    pub fn series_view(
+        &self,
+        key: &SeriesKey,
+        range: ChartRange,
+        now_secs: i64,
+        max_continuous_secs: i64,
+    ) -> Result<SeriesView> {
+        usage::view(&self.lock(), key, range, now_secs, max_continuous_secs)
     }
 
     /// The most recently inserted sample of a series (not the one with the latest timestamp).

@@ -89,12 +89,12 @@ pub(super) async fn series_for(
             .into_iter()
             .filter(|key| listed.contains(&(key.index_name.clone(), key.definition_hash.clone())))
             .map(|key| {
-                let facts = history.facts(&key, max_continuous)?;
+                let view = history.series_view(&key, range, now, max_continuous)?;
                 Ok(IndexSeries {
-                    last_used_at_secs: facts.last_used_at_secs,
-                    tracked_since_secs: facts.tracked_since_secs,
-                    buckets: history.usage(&key, range, now, max_continuous)?,
-                    latest: history.latest(&key)?,
+                    last_used_at_secs: view.facts.last_used_at_secs,
+                    tracked_since_secs: view.facts.tracked_since_secs,
+                    buckets: view.buckets,
+                    latest: view.latest,
                     index_name: key.index_name,
                     definition_hash: key.definition_hash,
                     host: key.host,
