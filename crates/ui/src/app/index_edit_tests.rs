@@ -771,8 +771,19 @@ fn the_builder_cannot_change_while_a_production_warning_is_up() {
 fn a_copy_that_keeps_the_keys_of_an_existing_index_sends_nothing() {
     let (s, _) = on_a_normal_collection();
     let (s, _) = act(s, IndexesAction::EditCopy("email_1".into()));
-    let s = edit(s, BuilderEdit::SetSparse(true));
+    // TTL and hidden are not part of the signature: the server refuses a copy differing only there.
+    let s = edit(s, BuilderEdit::SetHidden(true));
     let (s, commands) = act(s, IndexesAction::Create);
     assert!(commands.is_empty(), "the server would refuse it");
     assert!(s.indexes.writing.is_none() && s.indexes.builder.is_some());
+}
+
+#[test]
+fn a_copy_that_only_changes_an_option_in_the_signature_is_sent() {
+    let (s, _) = on_a_normal_collection();
+    let (s, _) = act(s, IndexesAction::EditCopy("email_1".into()));
+    let s = edit(s, BuilderEdit::SetSparse(true));
+    let (s, commands) = act(s, IndexesAction::Create);
+    assert_eq!(sent_spec(&commands).name, "email_1_v2");
+    assert!(s.indexes.writing.is_some());
 }

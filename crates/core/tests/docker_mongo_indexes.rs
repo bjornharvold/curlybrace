@@ -571,3 +571,119 @@ async fn list_indexes_and_index_stats_agree_on_the_definition_hash_for_every_ind
     bad.extend(hash_disagreements(&store, &compound, &[with_prefix]).await);
     assert!(bad.is_empty(), "hash disagreements:\n{}", bad.join("\n"));
 }
+
+/// Whether the server accepts `second` (under another name) next to `first` on the same keys.
+async fn accepts_second_next_to_first(
+    store: &MongoStore,
+    collection: &str,
+    keys: &[(&str, KeyKind)],
+    first: IndexOptions,
+    second: IndexOptions,
+) -> bool {
+    let target = Namespace::new(DB, collection);
+    store
+        .insert(&target, doc! { "_id": 1_i32, "a": 1_i32 })
+        .await
+        .unwrap();
+    store
+        .create_index(&target, &spec("first", keys, first))
+        .await
+        .unwrap();
+    store
+        .create_index(&target, &spec("second", keys, second))
+        .await
+        .is_ok()
+}
+
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn server_decides_which_option_differences_allow_a_second_index_on_the_same_keys() {
+    if !docker_enabled(
+        "server_decides_which_option_differences_allow_a_second_index_on_the_same_keys",
+    ) {
+        return;
+    }
+    let (_c, _client, store) = docker_mongo().await;
+    let a = [("a", KeyKind::Asc)];
+    let wild = [("$**", KeyKind::Wildcard)];
+    let none = IndexOptions::default;
+    type Case<'a> = (&'a str, &'a [(&'a str, KeyKind)], IndexOptions);
+    let cases: Vec<Case> = vec![
+        (
+            "unique",
+            &a,
+            IndexOptions {
+                unique: true,
+                ..none()
+            },
+        ),
+        (
+            "sparse",
+            &a,
+            IndexOptions {
+                sparse: true,
+                ..none()
+            },
+        ),
+        (
+            "ttl",
+            &a,
+            IndexOptions {
+                expire_after_seconds: Some(60),
+                ..none()
+            },
+        ),
+        (
+            "hidden",
+            &a,
+            IndexOptions {
+                hidden: true,
+                ..none()
+            },
+        ),
+        (
+            "wildcard_projection",
+            &wild,
+            IndexOptions {
+                wildcard_projection: Some(doc! { "a": 1_i32 }),
+                ..none()
+            },
+        ),
+        (
+            "partial_filter",
+            &a,
+            IndexOptions {
+                partial_filter: Some(doc! { "a": { "$gt": 1_i32 } }),
+                ..none()
+            },
+        ),
+        (
+            "collation",
+            &a,
+            IndexOptions {
+                collation: Some(doc! { "locale": "fr" }),
+                ..none()
+            },
+        ),
+    ];
+    let mut observed = Vec::new();
+    for (label, keys, variant) in cases {
+        let accepted = accepts_second_next_to_first(&store, label, keys, none(), variant).await;
+        observed.push((label, accepted));
+    }
+    // Observed on mongo:7: unique, sparse, wildcardProjection, partialFilterExpression and
+    // collation are part of an index's signature, so a differing one is a different index;
+    // expireAfterSeconds and hidden are not, so a copy that differs only there is refused.
+    assert_eq!(
+        observed,
+        [
+            ("unique", true),
+            ("sparse", true),
+            ("ttl", false),
+            ("hidden", false),
+            ("wildcard_projection", true),
+            ("partial_filter", true),
+            ("collation", true),
+        ]
+    );
+}

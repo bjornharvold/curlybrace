@@ -363,7 +363,8 @@ impl IndexBuilderState {
     }
 
     /// [`Self::spec`], and also refused when `existing` already holds an index with the same keys,
-    /// collation and partial filter: the server would answer with an options or key-spec conflict.
+    /// collation, partial filter, unique, sparse and wildcard projection: the server would answer with
+    /// an options or key-spec conflict.
     pub fn spec_among(&self, existing: &[CollectionIndex]) -> Result<IndexSpec, BuilderProblem> {
         let spec = self.spec()?;
         match existing
@@ -494,11 +495,22 @@ impl IndexBuilderState {
     }
 }
 
-/// What the server identifies an index by: key pattern, collation and partial filter.
+/// What the server identifies an index by. Observed on mongo:7 (`docker_mongo_indexes`): the key
+/// pattern, collation, partial filter, unique, sparse and wildcard projection; a difference in
+/// only the TTL or hidden flag is refused as an options conflict.
+///
+/// Known limitation: this compares documents as typed, while the server normalises them (a
+/// collation `{locale:"en"}` is listed with its defaults filled in, and the partial filter
+/// `{x:1}` equals `{x:{$eq:1}}`). Such a clash passes here, the server still refuses it, and the
+/// person sees the failure banner.
 fn same_identity(a: &IndexSpec, b: &IndexSpec) -> bool {
+    let (x, y) = (&a.options, &b.options);
     a.keys == b.keys
-        && a.options.collation == b.options.collation
-        && a.options.partial_filter == b.options.partial_filter
+        && x.collation == y.collation
+        && x.partial_filter == y.partial_filter
+        && x.unique == y.unique
+        && x.sparse == y.sparse
+        && x.wildcard_projection == y.wildcard_projection
 }
 
 /// `None` for a text that is not a JSON object; `Some(None)` for blank text.

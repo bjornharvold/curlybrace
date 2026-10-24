@@ -533,7 +533,7 @@ fn listed(spec: IndexSpec) -> CollectionIndex {
 #[test]
 fn the_keys_of_an_existing_index_cannot_be_created_again_under_another_name() {
     let existing = [listed(mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]))];
-    let same_keys = on("a").with_name("a_other").with_unique(true);
+    let same_keys = on("a").with_name("a_other").with_ttl(Some(60));
     assert_eq!(same_keys.problem(), None, "the builder alone cannot tell");
     assert_eq!(
         same_keys.problem_among(&existing),
@@ -567,6 +567,45 @@ fn a_collation_or_partial_filter_makes_the_same_keys_a_different_index() {
     assert_eq!(partial.problem_among(&existing), None);
     let collated = on("a").with_collation_text(r#"{ "locale": "en" }"#);
     assert_eq!(collated.problem_among(&existing), None);
+}
+
+/// Observed on mongo:7 (`docker_mongo_indexes`): unique and sparse are part of an index's
+/// signature, so the same keys with one of them flipped is created; TTL and hidden are not.
+#[test]
+fn a_unique_or_sparse_difference_makes_the_same_keys_a_different_index() {
+    let existing = [listed(mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]))];
+    assert_eq!(on("a").with_unique(true).problem_among(&existing), None);
+    assert_eq!(on("a").with_sparse(true).problem_among(&existing), None);
+    let hidden = on("a").with_hidden(true);
+    assert_eq!(
+        hidden.problem_among(&existing),
+        Some(BuilderProblem::SameKeysAsExisting("a_1".into()))
+    );
+}
+
+#[test]
+fn a_wildcard_projection_makes_the_same_wildcard_keys_a_different_index() {
+    let wild = |projection: Option<bson::Document>| {
+        let mut spec = mock_index_spec_named("w", &[("$**", KeyKind::Wildcard)]);
+        spec.options.wildcard_projection = projection;
+        spec
+    };
+    let listed_wild = listed(wild(Some(doc! { "a": 1_i32 })));
+    assert!(!same_identity(&listed_wild.spec, &wild(None)));
+    assert!(same_identity(
+        &listed_wild.spec,
+        &wild(Some(doc! { "a": 1_i32 }))
+    ));
+}
+
+#[test]
+fn an_option_only_edited_copy_that_the_server_allows_can_be_created() {
+    let mut unique = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
+    unique.options.unique = false;
+    let existing = [listed(unique.clone())];
+    let copy = IndexBuilderState::from_copy(ns(), &unique, "a_1_v2".into()).with_unique(true);
+    assert_eq!(copy.problem_among(&existing), None);
+    assert!(copy.spec_among(&existing).is_ok());
 }
 
 #[test]
