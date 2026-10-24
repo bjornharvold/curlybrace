@@ -29,9 +29,13 @@ const SYSTEM_DBS: [&str; 3] = ["admin", "local", "config"];
 /// Longest wait between two attempts while the sampler is paused.
 const MAX_BACKOFF: Duration = Duration::from_secs(600);
 
-/// Longest a single store call of a pass may take: a stalled connection must end the pass as a
-/// failure instead of hanging the sampler while it still reports `Running`.
-const STORE_CALL_TIMEOUT: Duration = super::COMMAND_TIMEOUT;
+/// How many store calls in a row may time out before the pass gives up and reports `Failing`: a
+/// dead connection that never errors would otherwise cost one timeout per collection, hours on a
+/// large deployment, while the status still reads `Running`.
+pub(super) const MAX_CONSECUTIVE_TIMEOUTS: usize = 3;
+
+/// The text of the `Database` error a timed-out call becomes.
+const TIMEOUT_TEXT: &str = "timeout";
 
 /// How far ahead of the wall clock at record time a sample may be stamped. More means the clock
 /// was stepped back since the pass began (a sample stamped by the old time would sit in the
@@ -56,6 +60,9 @@ pub struct SamplerConfig {
     pub excluded_dbs: BTreeSet<String>,
     /// Most `index_stats` calls in flight at once.
     pub max_concurrency: usize,
+    /// Longest one store call of a pass may take. The runtime sets it to its own
+    /// `command_timeout` when it starts.
+    pub command_timeout: Duration,
 }
 
 impl SamplerConfig {
@@ -75,6 +82,7 @@ impl Default for SamplerConfig {
             interval: Duration::from_secs(SAMPLE_INTERVAL_SECS as u64),
             excluded_dbs: BTreeSet::new(),
             max_concurrency: 4,
+            command_timeout: super::COMMAND_TIMEOUT,
         }
     }
 }
@@ -191,6 +199,17 @@ struct Health {
     failed: Vec<(String, CoreError)>,
 }
 
+impl Pass {
+    /// The pass cut short: whatever it read stays recorded, but it did not learn enough to call
+    /// the connection healthy.
+    fn abandoned(self) -> Self {
+        Self {
+            learned: false,
+            ..self
+        }
+    }
+}
+
 impl Health {
     fn note(&mut self, error: TickError, what: String) {
         self.failed.push((what, error.error().clone()));
@@ -236,14 +255,18 @@ async fn run_pass(
         .await
         .map_err(TickError::Store)?;
     let width = cfg.max_concurrency.max(1);
+    let limit = cfg.command_timeout;
     let mut results = stream::iter(targets)
         .map(|ns| async move {
-            let outcome = sample_collection(store, history, connection, &ns, now_secs, clock).await;
+            let outcome =
+                sample_collection(store, history, connection, &ns, now_secs, clock, limit).await;
             (ns, outcome)
         })
         .buffer_unordered(width);
     let mut recorded = 0;
+    let mut timeouts = Streak::default();
     while let Some((ns, outcome)) = results.next().await {
+        timeouts.observe(matches!(&outcome, Err(error) if timed_out(error.error())));
         match outcome {
             Ok(count) => {
                 recorded += count;
@@ -252,8 +275,33 @@ async fn run_pass(
             }
             Err(error) => health.note(error, format!("{}.{}", ns.db, ns.collection)),
         }
+        if timeouts.exhausted() {
+            log::warn!(
+                "index usage: {MAX_CONSECUTIVE_TIMEOUTS} calls in a row timed out, pass abandoned"
+            );
+            // Dropping the stream cancels the calls still in flight.
+            return health.finish(recorded).map(Pass::abandoned);
+        }
     }
     health.finish(recorded)
+}
+
+/// Consecutive timed-out calls of a pass.
+#[derive(Default)]
+struct Streak(usize);
+
+impl Streak {
+    fn observe(&mut self, timed_out: bool) {
+        self.0 = if timed_out { self.0 + 1 } else { 0 };
+    }
+
+    fn exhausted(&self) -> bool {
+        self.0 >= MAX_CONSECUTIVE_TIMEOUTS
+    }
+}
+
+fn timed_out(error: &CoreError) -> bool {
+    matches!(error, CoreError::Database(text) if text == TIMEOUT_TEXT)
 }
 
 /// The collections to sample: real collections of the non-system, non-excluded databases.
@@ -265,11 +313,17 @@ async fn discover(
     health: &mut Health,
 ) -> Result<Vec<Namespace>> {
     let mut targets = Vec::new();
-    for db in bounded(store.list_databases()).await? {
+    let mut timeouts = Streak::default();
+    for db in bounded(cfg.command_timeout, store.list_databases()).await? {
         if SYSTEM_DBS.contains(&db.as_str()) || cfg.excluded_dbs.contains(&db) {
             continue;
         }
-        match bounded(store.list_collection_kinds(&db)).await {
+        let listed = bounded(cfg.command_timeout, store.list_collection_kinds(&db)).await;
+        timeouts.observe(matches!(&listed, Err(error) if timed_out(error)));
+        if timeouts.exhausted() {
+            return Err(CoreError::Database(TIMEOUT_TEXT.into()));
+        }
+        match listed {
             Ok(kinds) => {
                 let before = targets.len();
                 targets.extend(
@@ -300,8 +354,9 @@ async fn sample_collection(
     ns: &Namespace,
     now_secs: i64,
     clock: &Clock,
+    limit: Duration,
 ) -> std::result::Result<usize, TickError> {
-    let rows = bounded(store.index_stats(ns))
+    let rows = bounded(limit, store.index_stats(ns))
         .await
         .map_err(TickError::Store)?;
     let samples: Vec<(SeriesKey, Sample)> = rows
@@ -365,12 +420,12 @@ fn series_sample(
     (key, sample)
 }
 
-/// Bounds a store call by [`STORE_CALL_TIMEOUT`]. The timeout is a `Database` error, which is
-/// not a pause reason: the pass counts it as a failure and the next tick tries again.
-async fn bounded<T>(call: impl Future<Output = Result<T>>) -> Result<T> {
-    tokio::time::timeout(STORE_CALL_TIMEOUT, call)
+/// Bounds a store call by `limit`. The timeout is a `Database` error, which is not a pause
+/// reason: the pass counts it as a failure and the next tick tries again.
+async fn bounded<T>(limit: Duration, call: impl Future<Output = Result<T>>) -> Result<T> {
+    tokio::time::timeout(limit, call)
         .await
-        .unwrap_or_else(|_| Err(CoreError::Database("timeout".into())))
+        .unwrap_or_else(|_| Err(CoreError::Database(TIMEOUT_TEXT.into())))
 }
 
 /// Runs a blocking `HistoryDb` call on the blocking pool. A panic there becomes an error.

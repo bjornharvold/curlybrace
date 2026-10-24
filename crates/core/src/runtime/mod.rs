@@ -563,7 +563,13 @@ pub fn spawn_runtime_with_connector(
     let (tx, mut commands) = unbounded_channel::<Command>();
     let (events, rx) = unbounded_channel::<Event>();
     let history = indexes::open_history(config.history_path.as_deref());
-    let (sampler_config, _) = watch::channel(config.sampler.clone().clamped());
+    let (sampler_config, _) = watch::channel(
+        SamplerConfig {
+            command_timeout: config.command_timeout,
+            ..config.sampler.clone()
+        }
+        .clamped(),
+    );
     // A store handed in at spawn time is the embedded session, in generation 0.
     let sessions: HashMap<SessionId, Arc<Session>> = store
         .map(|store| (EMBEDDED_SESSION, Arc::new(Session::new(0, Some(store)))))
