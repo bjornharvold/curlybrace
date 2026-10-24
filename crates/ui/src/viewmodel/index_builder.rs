@@ -503,14 +503,25 @@ impl IndexBuilderState {
 /// collation `{locale:"en"}` is listed with its defaults filled in, and the partial filter
 /// `{x:1}` equals `{x:{$eq:1}}`). Such a clash passes here, the server still refuses it, and the
 /// person sees the failure banner.
+///
+/// The `_id_` index is the exception: listIndexes reports it without `unique`, yet the server
+/// refuses any other index on exactly `{_id: 1}`, so that key pattern matches on keys alone.
 fn same_identity(a: &IndexSpec, b: &IndexSpec) -> bool {
     let (x, y) = (&a.options, &b.options);
+    if is_id_pattern(&a.keys) && is_id_pattern(&b.keys) {
+        return true;
+    }
     a.keys == b.keys
         && x.collation == y.collation
         && x.partial_filter == y.partial_filter
         && x.unique == y.unique
         && x.sparse == y.sparse
         && x.wildcard_projection == y.wildcard_projection
+}
+
+/// Whether the keys are exactly `{_id: 1}`.
+fn is_id_pattern(keys: &[IndexKey]) -> bool {
+    matches!(keys, [key] if key.field == "_id" && key.kind == KeyKind::Asc)
 }
 
 /// `None` for a text that is not a JSON object; `Some(None)` for blank text.

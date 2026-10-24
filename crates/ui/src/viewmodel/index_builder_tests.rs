@@ -584,6 +584,20 @@ fn a_unique_or_sparse_difference_makes_the_same_keys_a_different_index() {
 }
 
 #[test]
+fn the_id_key_matches_the_id_index_whatever_unique_or_sparse_say() {
+    // listIndexes reports `_id_` without `unique`; the server refuses any index on `{_id: 1}`.
+    let existing = [listed(mock_index_spec_named(
+        "_id_",
+        &[("_id", KeyKind::Asc)],
+    ))];
+    let clash = Some(BuilderProblem::SameKeysAsExisting("_id_".into()));
+    assert_eq!(on("_id").problem_among(&existing), clash);
+    assert_eq!(on("_id").with_unique(true).problem_among(&existing), clash);
+    assert_eq!(on("_id").with_sparse(true).problem_among(&existing), clash);
+    assert_eq!(on("a").with_unique(true).problem_among(&existing), None);
+}
+
+#[test]
 fn a_wildcard_projection_makes_the_same_wildcard_keys_a_different_index() {
     let wild = |projection: Option<bson::Document>| {
         let mut spec = mock_index_spec_named("w", &[("$**", KeyKind::Wildcard)]);
