@@ -169,6 +169,11 @@ pub(crate) async fn index_stats(
     ns: &Namespace,
     db_err: fn(mongodb::error::Error) -> CoreError,
 ) -> Result<Vec<IndexUsage>> {
+    // The server answers `$indexStats` on a view with the rows of the collection underneath, which
+    // would be counted as the view's own usage.
+    if is_view(db, ns, db_err).await? {
+        return Ok(Vec::new());
+    }
     let cursor = db
         .collection::<Document>(&ns.collection)
         .aggregate(vec![doc! { "$indexStats": {} }])
@@ -180,6 +185,25 @@ pub(crate) async fn index_stats(
     };
     let rows: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
     Ok(usages_from_rows(&rows))
+}
+
+/// Whether `ns` names a view.
+async fn is_view(
+    db: &Database,
+    ns: &Namespace,
+    db_err: fn(mongodb::error::Error) -> CoreError,
+) -> Result<bool> {
+    let mut found = db
+        .list_collections()
+        .filter(doc! { "name": &ns.collection })
+        .await
+        .map_err(db_err)?;
+    while let Some(spec) = found.try_next().await.map_err(db_err)? {
+        if spec.collection_type == mongodb::results::CollectionType::View {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// The readable `$indexStats` rows; one that cannot be read is skipped with a warning.
