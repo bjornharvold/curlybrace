@@ -493,3 +493,29 @@ fn a_key_type_the_builder_does_not_model_is_fixed_and_keeps_its_name_part() {
     );
     assert_eq!(default_name(&builder.keys), "loc_geoHaystack");
 }
+
+#[test]
+fn a_text_index_listed_without_weights_is_refused_not_rebuilt_on_a_literal_field() {
+    let raw_key = doc! { "_fts": "text", "_ftsx": 1_i32 };
+    let spec =
+        IndexSpec::from_document(&doc! { "key": raw_key.clone(), "name": "t_text" }).unwrap();
+    let copy = IndexBuilderState::from_copy(ns(), &spec, "t_text_v2".into());
+    // Either the copy rebuilds the very same key document, or Create is refused.
+    let same_key = copy.spec().ok().map(|built| {
+        built.create_command("c").get_array("indexes").unwrap()[0]
+            .as_document()
+            .unwrap()
+            .get_document("key")
+            .unwrap()
+            .clone()
+    });
+    assert!(
+        same_key.is_none_or(|key| key == raw_key),
+        "a copy must never alter the key"
+    );
+    assert_eq!(copy.problem(), Some(BuilderProblem::KeyNotRebuildable));
+    assert_eq!(
+        BuilderProblem::KeyNotRebuildable.message_key(),
+        "indexes.builder.problem_unrebuildable"
+    );
+}

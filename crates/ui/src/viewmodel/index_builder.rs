@@ -48,6 +48,9 @@ pub enum BuilderProblem {
     PartialFilterInvalid,
     /// The collation is not a JSON object.
     CollationInvalid,
+    /// The copy holds a text key whose fields are unknown (the server listed no `weights`), so
+    /// the builder cannot rebuild the same index.
+    KeyNotRebuildable,
 }
 
 impl BuilderProblem {
@@ -62,6 +65,7 @@ impl BuilderProblem {
             Self::EmptyName => "indexes.builder.problem_empty_name",
             Self::PartialFilterInvalid => "indexes.builder.problem_partial_filter",
             Self::CollationInvalid => "indexes.builder.problem_collation",
+            Self::KeyNotRebuildable => "indexes.builder.problem_unrebuildable",
         }
     }
 
@@ -311,6 +315,9 @@ impl IndexBuilderState {
     /// The spec to create, or what is wrong with the builder. The first problem found wins: keys,
     /// then name, then the filter and collation texts.
     pub fn spec(&self) -> Result<IndexSpec, BuilderProblem> {
+        if self.has_unreadable_text_key() {
+            return Err(BuilderProblem::KeyNotRebuildable);
+        }
         let partial_filter = self.filter(&self.partial_filter_text, |o| &o.partial_filter);
         let collation = self.filter(&self.collation_text, |o| &o.collation);
         let spec = self.draft(
@@ -328,6 +335,14 @@ impl IndexBuilderState {
             return Err(BuilderProblem::CollationInvalid);
         }
         Ok(spec)
+    }
+
+    /// A text key listed without its fields (`Other("text")` on the `_fts` marker): rebuilding it
+    /// would create a text index on a field literally named `_fts`, a different index.
+    fn has_unreadable_text_key(&self) -> bool {
+        self.keys
+            .iter()
+            .any(|key| matches!(&key.kind, KeyKind::Other(kind) if kind == "text"))
     }
 
     /// What keeps Create disabled, if anything.
