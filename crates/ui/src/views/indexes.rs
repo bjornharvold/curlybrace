@@ -69,7 +69,8 @@ pub fn show_indexes(
                             series: series_of(&state.series, &index.spec),
                             any_series: !state.series.is_empty(),
                             range: state.range,
-                            now_secs: now,
+                            chart_end_secs: now,
+                            now_secs,
                             read_only,
                             busy: state.writing.is_some(),
                         };

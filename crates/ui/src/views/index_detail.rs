@@ -20,7 +20,10 @@ pub struct DetailInput<'a> {
     pub series: Option<&'a IndexSeries>,
     pub any_series: bool,
     pub range: ChartRange,
-    /// The chart's right edge, in Unix seconds.
+    /// The chart's right edge, in Unix seconds (the next bucket boundary of the range).
+    pub chart_end_secs: i64,
+    /// The wall-clock time, in Unix seconds: the ages of the facts are measured against it, so
+    /// they do not move with the range.
     pub now_secs: i64,
     /// The connection refuses writes: every write control is disabled and says why.
     pub read_only: bool,
@@ -147,7 +150,7 @@ fn series_rows(ui: &mut egui::Ui, series: &IndexSeries, input: &DetailInput<'_>,
         egui::RichText::new(i18n.t_with("indexes.chart_caption", &[("name", &series.index_name)]))
             .strong(),
     );
-    show_chart(ui, series, input.range, input.now_secs, i18n);
+    show_chart(ui, series, input.range, input.chart_end_secs, i18n);
     ui.add_space(ui.spacing().item_spacing.y);
     let ago = |at: i64| {
         let age = Age::of(input.now_secs - at);

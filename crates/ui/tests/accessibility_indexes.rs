@@ -45,10 +45,10 @@ fn bucket(start_secs: i64, uses: i64) -> Bucket {
     }
 }
 
-/// A series of `spec` on `host` whose newest use was `hours_ago` hours before the chart's end.
+/// A series of `spec` on `host` whose newest use was `hours_ago` hours before the wall clock.
 fn used_series(spec: &IndexSpec, host: &str, hours_ago: i64) -> IndexSeries {
     let end = anchored_now(ChartRange::Day, NOW);
-    let last = end - hours_ago * HOUR - 600;
+    let last = NOW - hours_ago * HOUR - 600;
     IndexSeries {
         index_name: spec.name.clone(),
         definition_hash: spec.definition_hash(),
@@ -396,4 +396,27 @@ fn the_view_output_depends_only_on_the_injected_now() {
     let ago = |h: &str| I18n::english().t_with("indexes.ago_hours", &[("n", h)]);
     assert!(first.contains(&ago("3")) && !first.contains(&ago("6")));
     assert!(later.contains(&ago("6")) && !later.contains(&ago("3")));
+}
+
+/// "Last used" and "Tracked since" are ages against the real clock, not against the chart's
+/// bucket-anchored right edge, so the range selector cannot change them.
+#[test]
+fn last_used_and_tracked_since_do_not_depend_on_the_range() {
+    let a = spec("a_1", "a");
+    let mut series = used_series(&a, "node-1", 0);
+    series.buckets = vec![bucket(NOW - 20 * HOUR, 0), bucket(NOW - 3 * HOUR - 600, 5)];
+    let ago = |h: &str| I18n::english().t_with("indexes.ago_hours", &[("n", h)]);
+    for range in [ChartRange::Day, ChartRange::Week, ChartRange::Month] {
+        let state = IndexesState {
+            range,
+            ..state(vec![listed(a.clone())], vec![series.clone()])
+        };
+        let shown = texts(&open(state, false));
+        assert!(shown.contains(&ago("3")), "{range:?}: last used in {shown:?}");
+        assert!(
+            shown.contains(&ago("20")),
+            "{range:?}: tracked since in {shown:?}"
+        );
+        assert!(!shown.contains(&t("indexes.ago_now")), "{range:?}");
+    }
 }
