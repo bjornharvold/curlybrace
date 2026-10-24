@@ -22,7 +22,7 @@ use super::db_schema::{TIER_DAILY, TIER_HOURLY};
 use super::retention::{
     DAILY_RETENTION_SECS, DAY_SECS, HOUR_SECS, HOURLY_RETENTION_SECS, RAW_RETENTION_SECS,
 };
-use super::series::{MAX_FUTURE_SKEW_SECS, accepted_indices, bucketize_within, derive};
+use super::series::{accepted_indices, bucketize_within, derive};
 use super::usage::{clip_gap, raw_samples};
 use crate::error::Result;
 use rusqlite::{Connection, Transaction, params};
@@ -181,8 +181,10 @@ fn roll_hourly_into_daily(tx: &Transaction, now_secs: i64) -> Result<()> {
     Ok(())
 }
 
-/// Daily rows, and any raw sample, older than the longest retention are deleted, and so is any
-/// sample stamped ahead of the clock (see [`MAX_FUTURE_SKEW_SECS`]): reads already ignore it.
+/// Daily rows, and any raw sample, older than the longest retention are deleted. A sample
+/// stamped ahead of the clock is never deleted for that: reads ignore it, and the clock may be the
+/// one that is wrong (before NTP, after a VM restore), so deleting it could wipe real data and,
+/// with it, whole series.
 fn expire(tx: &Transaction, now_secs: i64) -> Result<()> {
     let cutoff = now_secs - DAILY_RETENTION_SECS;
     tx.execute(
@@ -190,11 +192,8 @@ fn expire(tx: &Transaction, now_secs: i64) -> Result<()> {
         params![TIER_DAILY, cutoff],
     )
     .map_err(sql_err)?;
-    tx.execute(
-        "DELETE FROM samples WHERE at_secs < ?1 OR at_secs > ?2",
-        params![cutoff, now_secs.saturating_add(MAX_FUTURE_SKEW_SECS)],
-    )
-    .map_err(sql_err)?;
+    tx.execute("DELETE FROM samples WHERE at_secs < ?1", [cutoff])
+        .map_err(sql_err)?;
     Ok(())
 }
 

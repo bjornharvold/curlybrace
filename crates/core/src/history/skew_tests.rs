@@ -73,8 +73,25 @@ fn a_clock_stepped_back_between_passes_reads_the_new_samples_not_the_old_ones() 
     assert_eq!(uses(&db, corrected + 120), 3);
 }
 
+fn stored_stamps(db: &HistoryDb) -> Vec<i64> {
+    let conn = db.conn.lock().unwrap();
+    let mut stmt = conn
+        .prepare("SELECT at_secs FROM samples ORDER BY at_secs")
+        .unwrap();
+    stmt.query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+fn series_count(db: &HistoryDb) -> i64 {
+    let conn = db.conn.lock().unwrap();
+    conn.query_row("SELECT COUNT(*) FROM series", [], |r| r.get(0))
+        .unwrap()
+}
+
 #[test]
-fn thinning_deletes_samples_ahead_of_the_clock() {
+fn thinning_keeps_a_sample_ahead_of_the_clock() {
     let db = HistoryDb::open_in_memory().unwrap();
     let k = key();
     db.record(&k, s(NOW + 10 * DAY, 1)).unwrap();
@@ -82,13 +99,45 @@ fn thinning_deletes_samples_ahead_of_the_clock() {
 
     db.thin(NOW, MAX).unwrap();
 
-    let left: Vec<i64> = {
-        let conn = db.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT at_secs FROM samples").unwrap();
-        stmt.query_map([], |r| r.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect()
-    };
-    assert_eq!(left, vec![NOW - 60]);
+    assert_eq!(stored_stamps(&db), vec![NOW - 60, NOW + 10 * DAY]);
+}
+
+#[test]
+fn thinning_with_a_clock_one_year_behind_deletes_nothing() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let k = key();
+    for (i, ops) in [10, 12, 16].into_iter().enumerate() {
+        db.record(&k, s(NOW - 180 + 60 * i as i64, ops)).unwrap();
+    }
+    let behind = NOW - 365 * DAY;
+
+    db.thin(behind, MAX).unwrap();
+
+    assert_eq!(stored_stamps(&db).len(), 3);
+    assert_eq!(series_count(&db), 1, "the series keeps its history");
+}
+
+#[test]
+fn normal_retention_still_deletes_what_it_did() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let k = key();
+    // Older than the two-year daily retention.
+    db.record(&k, s(NOW - 3 * 365 * DAY, 1)).unwrap();
+    db.record(&k, s(NOW - 60, 10)).unwrap();
+
+    db.thin(NOW, MAX).unwrap();
+
+    assert!(!stored_stamps(&db).contains(&(NOW - 3 * 365 * DAY)));
+    assert!(stored_stamps(&db).contains(&(NOW - 60)));
+}
+
+#[test]
+fn a_series_whose_rows_are_all_ahead_of_the_clock_is_kept() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    db.record(&key(), s(NOW + 10 * DAY, 1)).unwrap();
+
+    db.thin(NOW, MAX).unwrap();
+
+    assert_eq!(series_count(&db), 1);
+    assert_eq!(stored_stamps(&db), vec![NOW + 10 * DAY]);
 }

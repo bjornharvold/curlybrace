@@ -30,7 +30,7 @@ pub fn max_continuous_secs(interval: Duration) -> i64 {
 
 /// How far ahead of the wall clock a stored sample may be stamped and still be believed. A
 /// sample further ahead came from a clock that was wrong at the time (set far forward, or
-/// stepped back since): reads ignore it and thinning deletes it.
+/// stepped back since): reads ignore it, and thinning never deletes it for that (the clock may be the wrong one).
 pub const MAX_FUTURE_SKEW_SECS: i64 = 300;
 
 /// One reading of an index's cumulative access counter.
