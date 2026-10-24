@@ -17,12 +17,15 @@ pub const GAP_INTERVALS: i64 = 3;
 pub const DEFAULT_MAX_CONTINUOUS_SECS: i64 = GAP_INTERVALS * SAMPLE_INTERVAL_SECS;
 
 /// Longest span between two samples that still counts as continuous when samples are taken every
-/// `interval`: [`GAP_INTERVALS`] intervals. The interval is a runtime tunable, so the threshold
-/// follows it instead of being a constant.
+/// `interval`: [`GAP_INTERVALS`] intervals, but never less than
+/// [`DEFAULT_MAX_CONTINUOUS_SECS`]. The interval is a runtime tunable, so the threshold follows
+/// it; the floor keeps a very short interval from turning every reading into a gap, since a pass
+/// over many collections takes longer than three such intervals.
 pub fn max_continuous_secs(interval: Duration) -> i64 {
-    i64::try_from(interval.as_secs())
+    let scaled = i64::try_from(interval.as_secs())
         .unwrap_or(i64::MAX)
-        .saturating_mul(GAP_INTERVALS)
+        .saturating_mul(GAP_INTERVALS);
+    scaled.max(DEFAULT_MAX_CONTINUOUS_SECS)
 }
 
 /// How far ahead of the wall clock a stored sample may be stamped and still be believed. A

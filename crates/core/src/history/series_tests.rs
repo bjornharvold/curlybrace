@@ -293,6 +293,27 @@ fn the_gap_threshold_follows_the_sampling_interval() {
 }
 
 #[test]
+fn a_very_short_interval_does_not_make_every_reading_a_gap() {
+    // One second between passes, but a pass of a large deployment takes five: the spacing is
+    // five seconds, far above three intervals, yet nothing was missed.
+    let threshold = max_continuous_secs(Duration::from_secs(1));
+    assert_eq!(
+        threshold, DEFAULT_MAX_CONTINUOUS_SECS,
+        "never below the floor"
+    );
+    let points = derive(&[s(0, 0), s(5, 2), s(10, 5)], threshold);
+    assert!(
+        points.iter().all(|p| matches!(p, Point::Delta { .. })),
+        "{points:?}"
+    );
+    // A longer interval still scales the threshold.
+    assert_eq!(
+        max_continuous_secs(Duration::from_secs(600)),
+        GAP_INTERVALS * 600
+    );
+}
+
+#[test]
 fn bucketize_never_allocates_more_than_the_cap_however_wide_the_span() {
     // One sample taken with the clock far ahead makes a gap of ~1.6 years: about 833,000 buckets
     // of a minute without a cap.
