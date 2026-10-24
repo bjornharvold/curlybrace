@@ -194,7 +194,7 @@ async fn index_history_answers_with_series_from_the_history_db() {
         )
         .unwrap();
     }
-    let mut h = spawn_embedded(store_with(&["testdb"]), config);
+    let mut h = spawn_embedded(store_with_listed_index().await, config);
     h.tx.send(Command::IndexHistory {
         session: EMBEDDED_SESSION,
         ns: ns("testdb"),
@@ -706,4 +706,66 @@ async fn a_history_that_cannot_be_opened_is_reported_on_connect() {
         SamplerStatus::Paused(SamplerPause::HistoryUnavailable),
     )
     .await;
+}
+
+/// A store whose `testdb.people` really has the `a_1` index that `usage` reports on.
+async fn store_with_listed_index() -> Arc<InMemoryStore> {
+    let store = store_with(&["testdb"]);
+    let spec = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
+    store.create_index(&ns("testdb"), &spec).await.unwrap();
+    store
+}
+
+#[tokio::test]
+async fn index_history_only_answers_for_the_indexes_currently_listed() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_at(&dir);
+    let path = config.history_path.clone().unwrap();
+    let now = clock::now_secs();
+    let sample = Sample {
+        at_secs: now - 60,
+        ops: 3,
+        since_ms: 1_000,
+    };
+    let listed = key_in(EMBEDDED_SESSION, "testdb");
+    let other_host = SeriesKey {
+        host: "h2:27017".into(),
+        ..listed.clone()
+    };
+    let recreated = SeriesKey {
+        definition_hash: "an-older-definition".into(),
+        ..listed.clone()
+    };
+    let dropped = SeriesKey {
+        index_name: "gone_1".into(),
+        ..listed.clone()
+    };
+    {
+        let db = open_history(&path);
+        for key in [&listed, &other_host, &recreated, &dropped] {
+            db.record(key, sample).unwrap();
+        }
+    }
+    let mut h = spawn_embedded(store_with_listed_index().await, config);
+    h.tx.send(Command::IndexHistory {
+        session: EMBEDDED_SESSION,
+        ns: ns("testdb"),
+        range: ChartRange::Day,
+    })
+    .unwrap();
+    let Event::IndexHistory { series, .. } = next(&mut h).await else {
+        panic!("expected IndexHistory");
+    };
+    let mut seen: Vec<(String, String, String)> = series
+        .into_iter()
+        .map(|s| (s.index_name, s.definition_hash, s.host))
+        .collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        vec![
+            ("a_1".into(), listed.definition_hash.clone(), HOST.into()),
+            ("a_1".into(), listed.definition_hash, "h2:27017".into()),
+        ]
+    );
 }

@@ -253,7 +253,12 @@ async fn data_command(
             }
         }
         Command::IndexHistory { ns, range, .. } => {
-            let series = super::indexes::series_for(history, session, &ns, range).await?;
+            // Without history there is nothing to restrict, so skip the round trip.
+            let listed = match history {
+                Some(_) => store.list_indexes(&ns).await?,
+                None => Vec::new(),
+            };
+            let series = super::indexes::series_for(history, session, &ns, range, &listed).await?;
             Event::IndexHistory {
                 session,
                 ns,

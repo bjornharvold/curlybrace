@@ -1,6 +1,7 @@
 //! The runtime side of index usage history: opening the database, answering `IndexHistory`,
 //! purging a connection and running a connection's sampler.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ use super::{Event, Repaint, SessionId, Shared};
 use crate::clock;
 use crate::error::{CoreError, Result};
 use crate::history::{Bucket, ChartRange, HistoryDb, Recovery, Sample};
-use crate::store::Namespace;
+use crate::store::{CollectionIndex, Namespace};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 /// One plotted series of the Indexes tab: an index definition on one node.
@@ -56,22 +57,31 @@ pub(super) fn open_history(path: Option<&Path>) -> Option<Arc<HistoryDb>> {
     }
 }
 
-/// Every series stored for the collection, newest data of `range`. No history means no series.
+/// The series stored for the collection's `listed` indexes (every node of each definition),
+/// newest data of `range`. Series of dropped or recreated definitions are not read: the tab
+/// draws one series per listed index, and every extra one is a full scan under the database
+/// lock. No history means no series.
 pub(super) async fn series_for(
     history: Option<Arc<HistoryDb>>,
     session: SessionId,
     ns: &Namespace,
     range: ChartRange,
+    listed: &[CollectionIndex],
 ) -> Result<Vec<IndexSeries>> {
     let Some(history) = history else {
         return Ok(Vec::new());
     };
     let ns = ns.clone();
+    let listed: HashSet<(String, String)> = listed
+        .iter()
+        .map(|index| (index.spec.name.clone(), index.spec.definition_hash()))
+        .collect();
     tokio::task::spawn_blocking(move || {
         let now = clock::now_secs();
         history
             .series_for(session, &ns.db, &ns.collection)?
             .into_iter()
+            .filter(|key| listed.contains(&(key.index_name.clone(), key.definition_hash.clone())))
             .map(|key| {
                 Ok(IndexSeries {
                     buckets: history.usage(&key, range, now)?,
