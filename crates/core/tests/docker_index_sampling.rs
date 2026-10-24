@@ -224,12 +224,15 @@ async fn a_dropped_and_recreated_index_starts_a_new_series() {
     let second = spec("lookup", "b");
     create_index(&mut rt, session, second.clone()).await;
 
-    let series = wait_for_history(&mut rt, session, "b", "a second series", |s| s.len() == 2).await;
-    assert_ne!(series[0].definition_hash, series[1].definition_hash);
-    assert!(series.iter().all(|s| s.index_name == "lookup"));
-    let hashes: Vec<_> = series.iter().map(|s| s.definition_hash.clone()).collect();
-    assert!(hashes.contains(&first.definition_hash()));
-    assert!(hashes.contains(&second.definition_hash()));
+    // The tab draws the indexes that are listed: the dropped definition's series is kept in the
+    // history but not returned, so the one series is the new definition's.
+    let wanted = second.definition_hash();
+    let series = wait_for_history(&mut rt, session, "b", "the second definition", |s| {
+        s.len() == 1 && s[0].definition_hash == wanted
+    })
+    .await;
+    assert_ne!(first.definition_hash(), wanted);
+    assert_eq!(series[0].index_name, "lookup");
     assert!(
         series
             .iter()
