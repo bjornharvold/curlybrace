@@ -29,10 +29,26 @@ const SYSTEM_DBS: [&str; 3] = ["admin", "local", "config"];
 /// Longest wait between two attempts while the sampler is paused.
 const MAX_BACKOFF: Duration = Duration::from_secs(600);
 
-/// How many store calls in a row may time out before the pass gives up and reports `Failing`: a
-/// dead connection that never errors would otherwise cost one timeout per collection, hours on a
-/// large deployment, while the status still reads `Running`.
+/// How many store calls in a row may time out (or fail like a dead connection) before the pass
+/// gives up and reports `Failing`: a dead connection that never errors would otherwise cost one
+/// timeout per collection, hours on a large deployment, while the status still reads `Running`.
+/// A call that reads data restarts the count.
 pub(super) const MAX_CONSECUTIVE_TIMEOUTS: usize = 3;
+
+/// A pass may last this many intervals at most, whatever its calls did, so a connection that
+/// answers every other call cannot hold a pass (and the status `Running`) for hours.
+const PASS_DEADLINE_INTERVALS: u32 = 10;
+
+/// The shortest pass deadline, for short intervals.
+const MIN_PASS_DEADLINE: Duration = Duration::from_secs(600);
+
+/// The wall time after which a pass, discovery included, is abandoned and reported `Failing`:
+/// ten intervals, at least ten minutes. A call already in flight at that moment is cut off.
+pub(super) fn pass_deadline(interval: Duration) -> Duration {
+    interval
+        .saturating_mul(PASS_DEADLINE_INTERVALS)
+        .max(MIN_PASS_DEADLINE)
+}
 
 /// The text of the `Database` error a timed-out call becomes.
 const TIMEOUT_TEXT: &str = "timeout";
@@ -255,8 +271,9 @@ async fn run_pass(
     clock: &Clock,
 ) -> std::result::Result<Pass, TickError> {
     let now_secs = clock();
+    let deadline = Instant::now() + pass_deadline(cfg.interval);
     let mut health = Health::default();
-    let targets = discover(store, cfg, &mut health)
+    let targets = discover(store, cfg, &mut health, deadline)
         .await
         .map_err(TickError::Store)?;
     let width = cfg.max_concurrency.max(1);
@@ -270,11 +287,15 @@ async fn run_pass(
         .buffer_unordered(width);
     let mut recorded = 0;
     let mut timeouts = Streak::default();
-    while let Some((ns, outcome)) = results.next().await {
+    loop {
+        let Ok(next) = tokio::time::timeout_at(deadline, results.next()).await else {
+            log::warn!("index usage: the pass ran past its deadline, abandoned");
+            return health.finish(recorded).map(Pass::abandoned);
+        };
+        let Some((ns, outcome)) = next else { break };
         timeouts.observe(match &outcome {
             Ok(_) => Answer::Read,
-            Err(error) if timed_out(error.error()) => Answer::TimedOut,
-            Err(_) => Answer::Failed,
+            Err(error) => Answer::of_error(error.error()),
         });
         match outcome {
             Ok(count) => {
@@ -306,29 +327,38 @@ pub(super) enum Answer {
     Failed,
 }
 
-/// Consecutive timed-out calls of a pass, counted only while nothing has been read yet. A pass
-/// that has read anything has proven the connection alive, so a few slow collections never starve
-/// the ones after them; only a pass with no success at all gives up.
+impl Answer {
+    /// How a failed call counts: a timeout and a dead-connection error both show a server that
+    /// does not answer, anything else (a denied or dropped collection) does not.
+    pub(super) fn of_error(error: &CoreError) -> Self {
+        match error {
+            CoreError::Unreachable
+            | CoreError::TlsHandshake
+            | CoreError::ConnectionInterrupted(_) => Self::TimedOut,
+            error if timed_out(error) => Self::TimedOut,
+            _ => Self::Failed,
+        }
+    }
+}
+
+/// Consecutive calls of a pass that timed out or hit a dead connection. A read restarts the
+/// count, so a few slow collections never starve the ones after them; a run of them ends the pass
+/// however many calls succeeded before it.
 #[derive(Default)]
 pub(super) struct Streak {
     timeouts: usize,
-    read_any: bool,
 }
 
 impl Streak {
     pub(super) fn observe(&mut self, answer: Answer) {
         match answer {
-            Answer::Read => {
-                self.read_any = true;
-                self.timeouts = 0;
-            }
+            Answer::Read | Answer::Failed => self.timeouts = 0,
             Answer::TimedOut => self.timeouts += 1,
-            Answer::Failed => self.timeouts = 0,
         }
     }
 
     pub(super) fn exhausted(&self) -> bool {
-        !self.read_any && self.timeouts >= MAX_CONSECUTIVE_TIMEOUTS
+        self.timeouts >= MAX_CONSECUTIVE_TIMEOUTS
     }
 }
 
@@ -343,6 +373,7 @@ async fn discover(
     store: &dyn DocumentStore,
     cfg: &SamplerConfig,
     health: &mut Health,
+    deadline: Instant,
 ) -> Result<Vec<Namespace>> {
     let mut targets = Vec::new();
     let mut timeouts = Streak::default();
@@ -350,11 +381,13 @@ async fn discover(
         if SYSTEM_DBS.contains(&db.as_str()) || cfg.excluded_dbs.contains(&db) {
             continue;
         }
+        if Instant::now() >= deadline {
+            return Err(CoreError::Database(TIMEOUT_TEXT.into()));
+        }
         let listed = bounded(cfg.command_timeout, store.list_collection_kinds(&db)).await;
         timeouts.observe(match &listed {
             Ok(_) => Answer::Read,
-            Err(error) if timed_out(error) => Answer::TimedOut,
-            Err(_) => Answer::Failed,
+            Err(error) => Answer::of_error(error),
         });
         if timeouts.exhausted() {
             return Err(CoreError::Database(TIMEOUT_TEXT.into()));

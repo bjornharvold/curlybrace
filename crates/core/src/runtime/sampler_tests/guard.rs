@@ -97,11 +97,11 @@ async fn the_configured_command_timeout_bounds_a_call_not_the_fixed_default() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_few_slow_collections_after_a_success_never_starve_the_rest() {
-    // c1..c3 are adjacent and slow; c0 was read before them and c4.. come after.
+async fn two_slow_collections_after_a_success_never_starve_the_rest() {
+    // c1 and c2 are adjacent and slow; c0 was read before them and c3.. come after.
     let store = ProbeStore::new(many_collections(8))
         .delayed(secs(86_400))
-        .slow_only(&["c1", "c2", "c3"]);
+        .slow_only(&["c1", "c2"]);
     let cfg = SamplerConfig {
         max_concurrency: 1,
         command_timeout: secs(10),
@@ -110,7 +110,7 @@ async fn a_few_slow_collections_after_a_success_never_starve_the_rest() {
 
     let recorded = sample(&store, &history(), &cfg).await.unwrap();
 
-    assert_eq!(recorded, 5, "c0 and c4..c7 are sampled, the trio timed out");
+    assert_eq!(recorded, 6, "c0 and c3..c7 are sampled, the pair timed out");
     assert_eq!(store.called().len(), 8, "the pass was not abandoned");
 }
 
@@ -132,7 +132,7 @@ async fn a_slow_trio_at_the_start_of_a_pass_with_no_success_yet_ends_it() {
 }
 
 #[test]
-fn the_streak_counts_timeouts_only_until_the_first_success() {
+fn the_streak_counts_consecutive_timeouts_and_a_success_restarts_the_count() {
     let mut streak = Streak::default();
     streak.observe(Answer::TimedOut);
     streak.observe(Answer::TimedOut);
@@ -144,10 +144,14 @@ fn the_streak_counts_timeouts_only_until_the_first_success() {
     streak.observe(Answer::TimedOut);
     streak.observe(Answer::TimedOut);
     streak.observe(Answer::Read);
-    for _ in 0..10 {
-        streak.observe(Answer::TimedOut);
-    }
-    assert!(!streak.exhausted(), "a success ends the count for the pass");
+    streak.observe(Answer::TimedOut);
+    streak.observe(Answer::TimedOut);
+    assert!(!streak.exhausted(), "a success restarts the count");
+    streak.observe(Answer::TimedOut);
+    assert!(
+        streak.exhausted(),
+        "three in a row after a success end the pass"
+    );
 }
 
 #[test]
@@ -197,4 +201,102 @@ fn the_interval_is_the_only_public_tunable_a_caller_changes_and_the_timeout_stay
         },
         base
     );
+}
+
+fn odd_names(prefix: &str, count: usize) -> Vec<String> {
+    (0..count)
+        .filter(|i| i % 2 == 1)
+        .map(|i| format!("{prefix}{i}"))
+        .collect()
+}
+
+fn as_strs(owned: &[String]) -> Vec<&str> {
+    owned.iter().map(String::as_str).collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pass_whose_calls_all_time_out_after_one_success_ends_by_the_streak() {
+    let slow: Vec<String> = (1..200).map(|i| format!("c{i}")).collect();
+    let store = ProbeStore::new(many_collections(200))
+        .delayed(secs(86_400))
+        .slow_only(&as_strs(&slow));
+    let cfg = SamplerConfig {
+        max_concurrency: 1,
+        command_timeout: secs(10),
+        ..SamplerConfig::default()
+    };
+
+    let recorded = sample(&store, &history(), &cfg).await.unwrap();
+
+    assert_eq!(recorded, 1);
+    assert_eq!(store.called().len(), 1 + MAX_CONSECUTIVE_TIMEOUTS);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pass_that_keeps_alternating_success_and_timeout_ends_at_the_pass_deadline() {
+    let slow = odd_names("c", 400);
+    let store = Arc::new(
+        ProbeStore::new(many_collections(400))
+            .delayed(secs(86_400))
+            .slow_only(&as_strs(&slow)),
+    );
+    let cfg = SamplerConfig {
+        interval: secs(1),
+        max_concurrency: 1,
+        command_timeout: secs(10),
+        ..SamplerConfig::default()
+    };
+    let began = Instant::now();
+
+    let (handle, mut status, _cfg) = start(store.clone(), history(), cfg);
+
+    let first = tokio::time::timeout(secs(700), status.recv()).await;
+    assert_eq!(first, Ok(Some(SamplerStatus::Failing)));
+    assert!(began.elapsed() <= secs(610), "{:?}", began.elapsed());
+    assert!(store.called().len() < 400);
+    handle.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn discovery_over_many_databases_that_alternate_slow_and_fast_is_bounded() {
+    let names: Vec<String> = (0..400).map(|i| format!("d{i}")).collect();
+    let inner = names.iter().fold(InMemoryStore::new(), |s, db| {
+        let ns = Namespace::new(db.as_str(), "c");
+        s.with_docs(&ns, vec![mock_doc()])
+            .with_index_usage(&ns, vec![usage("a_1", "h1:27017", 5)])
+    });
+    let slow = odd_names("d", 400);
+    let store = ProbeStore::new(inner)
+        .delayed(secs(86_400))
+        .slow_only(&as_strs(&slow));
+    let cfg = SamplerConfig {
+        interval: secs(1),
+        command_timeout: secs(10),
+        ..SamplerConfig::default()
+    };
+    let began = Instant::now();
+
+    let result = sample(&store, &history(), &cfg).await;
+
+    assert!(matches!(result, Err(CoreError::Database(_))), "{result:?}");
+    assert!(began.elapsed() <= secs(610), "{:?}", began.elapsed());
+}
+
+#[tokio::test(start_paused = true)]
+async fn alternating_timeouts_and_unreachable_failures_end_the_pass() {
+    let slow = odd_names("c", 50);
+    let store = ProbeStore::new(many_collections(50))
+        .delayed(secs(86_400))
+        .slow_only(&as_strs(&slow));
+    store.fail(None, Some(CoreError::Unreachable));
+    let cfg = SamplerConfig {
+        max_concurrency: 1,
+        command_timeout: secs(10),
+        ..SamplerConfig::default()
+    };
+
+    let result = sample(&store, &history(), &cfg).await;
+
+    assert!(result.is_err());
+    assert_eq!(store.called().len(), MAX_CONSECUTIVE_TIMEOUTS);
 }
