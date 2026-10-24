@@ -777,6 +777,7 @@
     "option_unique": "unique",
     "option_wildcard_projection": "wildcard projection",
     "pause_connection_lost": "Sampling is paused: the server cannot be reached.",
+    "pause_history_busy": "The usage history file is locked by another process; sampling will resume when it is free.",
     "pause_history_unavailable": "Sampling is paused: the usage history cannot be written.",
     "pause_not_authorized": "Sampling is paused: this user may not read index statistics.",
     "range_day": "24 h",

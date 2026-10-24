@@ -155,6 +155,7 @@ fn sampler_key(status: SamplerStatus) -> &'static str {
         SamplerStatus::Failing => "indexes.sampler_failing",
         SamplerStatus::Paused(SamplerPause::NotAuthorized) => "indexes.pause_not_authorized",
         SamplerStatus::Paused(SamplerPause::ConnectionLost) => "indexes.pause_connection_lost",
+        SamplerStatus::Paused(SamplerPause::HistoryBusy) => "indexes.pause_history_busy",
         SamplerStatus::Paused(SamplerPause::HistoryUnavailable) => {
             "indexes.pause_history_unavailable"
         }

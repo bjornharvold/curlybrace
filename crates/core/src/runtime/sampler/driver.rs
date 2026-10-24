@@ -10,7 +10,8 @@ use tokio::time::{Instant, Interval, MissedTickBehavior};
 use uuid::Uuid;
 
 use super::{
-    Clock, MIN_INTERVAL, Pass, SamplerConfig, SamplerStatus, TickError, backoff, blocking, run_pass,
+    BUSY_PASSES_BEFORE_REPORT, Clock, MIN_INTERVAL, Pass, SamplerConfig, SamplerPause,
+    SamplerStatus, TickError, backoff, blocking, run_pass,
 };
 use crate::error::CoreError;
 use crate::history::{HistoryDb, is_history_busy, max_continuous_secs};
@@ -36,6 +37,8 @@ struct LoopState {
     ticker: Interval,
     /// Consecutive pause-class failures; zero while healthy.
     failures: u32,
+    /// Consecutive passes the history file was busy for; zero after any other outcome.
+    busy_passes: u32,
     reported: Option<SamplerStatus>,
     last_thin: Option<Instant>,
     /// Names the last pass could not read, so a repeating set is logged once.
@@ -76,6 +79,7 @@ impl LoopState {
             interval,
             ticker: new_ticker(interval, true),
             failures: 0,
+            busy_passes: 0,
             reported: None,
             last_thin: None,
             last_failed: Vec::new(),
@@ -99,6 +103,7 @@ fn status_of(result: std::result::Result<Pass, TickError>, state: &mut LoopState
     match result {
         Ok(pass) => {
             state.failures = 0;
+            state.busy_passes = 0;
             report_failed(&pass.failed, &mut state.last_failed);
             match pass.learned {
                 true => SamplerStatus::Running,
@@ -106,26 +111,39 @@ fn status_of(result: std::result::Result<Pass, TickError>, state: &mut LoopState
             }
         }
         Err(TickError::HistoryBusy(error)) => {
-            // The file is busy for the moment: the whole pass is tried again at the next tick
-            // and the sampler is no more paused than it was.
+            // The file is busy for the moment: the whole pass is tried again at the next tick.
+            // A file that stays busy is reported, so the tab never says Running while nothing
+            // is stored.
             log::warn!("index usage: the history file is busy, pass retried later: {error:?}");
             state.failures = 0;
-            SamplerStatus::Running
+            state.busy_passes = state.busy_passes.saturating_add(1);
+            match state.busy_passes >= BUSY_PASSES_BEFORE_REPORT {
+                true => SamplerStatus::Paused(SamplerPause::HistoryBusy),
+                false => SamplerStatus::Running,
+            }
         }
-        Err(error) => match error.pause() {
-            Some(reason) => {
-                log::warn!("index usage sampler paused: {:?}", error.error());
-                state.failures = state.failures.saturating_add(1);
-                SamplerStatus::Paused(reason)
-            }
-            None => {
-                // The server answers and lets us in, so this is not a reason to pause; but the
-                // pass learned nothing, so the last status must not stay up.
-                log::warn!("index usage sampling failed: {:?}", error.error());
-                state.failures = 0;
-                SamplerStatus::Failing
-            }
-        },
+        Err(error) => {
+            state.busy_passes = 0;
+            other_failure(error, state)
+        }
+    }
+}
+
+/// The status of a pass that failed for a reason other than a busy history file.
+fn other_failure(error: TickError, state: &mut LoopState) -> SamplerStatus {
+    match error.pause() {
+        Some(reason) => {
+            log::warn!("index usage sampler paused: {:?}", error.error());
+            state.failures = state.failures.saturating_add(1);
+            SamplerStatus::Paused(reason)
+        }
+        None => {
+            // The server answers and lets us in, so this is not a reason to pause; but the
+            // pass learned nothing, so the last status must not stay up.
+            log::warn!("index usage sampling failed: {:?}", error.error());
+            state.failures = 0;
+            SamplerStatus::Failing
+        }
     }
 }
 

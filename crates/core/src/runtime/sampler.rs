@@ -39,6 +39,9 @@ const MAX_BACKOFF: Duration = Duration::from_secs(600);
 /// network blip fails every call in flight at once, and that burst is one event, not several.
 pub(super) const MAX_CONSECUTIVE_TIMEOUTS: usize = 3;
 
+/// Consecutive passes the history file may be busy before the sampler says so.
+pub(super) const BUSY_PASSES_BEFORE_REPORT: u32 = 3;
+
 /// A pass may last this many intervals at most, whatever its calls did, so a connection that
 /// answers every other call cannot hold a pass (and the status `Running`) for hours.
 const PASS_DEADLINE_INTERVALS: u32 = 10;
@@ -120,6 +123,8 @@ pub enum SamplerPause {
     ConnectionLost,
     /// The history database could not be written.
     HistoryUnavailable,
+    /// The history file stayed locked by another process for several passes in a row.
+    HistoryBusy,
 }
 
 /// What the sampler reports on its status channel, on change only.
