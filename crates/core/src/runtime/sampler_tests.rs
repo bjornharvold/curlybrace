@@ -66,6 +66,8 @@ struct ProbeStore {
     inner: InMemoryStore,
     kinds: Mutex<HashMap<String, Vec<(String, CollectionKind)>>>,
     stats_delay: Duration,
+    /// Restricts the delay to these collections (and, for `list_collection_kinds`, databases) when set.
+    slow_only: Option<Vec<String>>,
     /// How long `list_databases` takes to answer.
     databases_delay: Duration,
     /// Fails `index_stats` for this collection, or for every collection when the name is `None`.
@@ -83,6 +85,7 @@ impl ProbeStore {
             inner,
             kinds: Mutex::default(),
             stats_delay: Duration::ZERO,
+            slow_only: None,
             databases_delay: Duration::ZERO,
             failure: Mutex::default(),
             databases_failure: Mutex::default(),
@@ -95,6 +98,19 @@ impl ProbeStore {
     fn delayed(mut self, delay: Duration) -> Self {
         self.stats_delay = delay;
         self
+    }
+
+    /// Delays only the named collections or databases by the configured delay.
+    fn slow_only(mut self, names: &[&str]) -> Self {
+        self.slow_only = Some(names.iter().map(|n| (*n).to_string()).collect());
+        self
+    }
+
+    fn delay_for(&self, name: &str) -> Duration {
+        match &self.slow_only {
+            Some(names) if !names.iter().any(|n| n == name) => Duration::ZERO,
+            _ => self.stats_delay,
+        }
     }
 
     fn slow_databases(mut self, delay: Duration) -> Self {
@@ -171,6 +187,9 @@ impl DocumentStore for ProbeStore {
     }
 
     async fn list_collection_kinds(&self, db: &str) -> Result<Vec<(String, CollectionKind)>> {
+        if self.slow_only.is_some() {
+            tokio::time::sleep(self.delay_for(db)).await;
+        }
         let scripted = self.kinds.lock().unwrap().get(db).cloned();
         match scripted {
             Some(kinds) => Ok(kinds),
@@ -185,7 +204,7 @@ impl DocumentStore for ProbeStore {
             .push((ns.clone(), Instant::now()));
         let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.peak.fetch_max(now, Ordering::SeqCst);
-        tokio::time::sleep(self.stats_delay).await;
+        tokio::time::sleep(self.delay_for(&ns.collection)).await;
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
         let failure = self.failure.lock().unwrap().clone();
         match failure {

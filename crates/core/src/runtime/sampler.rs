@@ -266,7 +266,11 @@ async fn run_pass(
     let mut recorded = 0;
     let mut timeouts = Streak::default();
     while let Some((ns, outcome)) = results.next().await {
-        timeouts.observe(matches!(&outcome, Err(error) if timed_out(error.error())));
+        timeouts.observe(match &outcome {
+            Ok(_) => Answer::Read,
+            Err(error) if timed_out(error.error()) => Answer::TimedOut,
+            Err(_) => Answer::Failed,
+        });
         match outcome {
             Ok(count) => {
                 recorded += count;
@@ -286,17 +290,40 @@ async fn run_pass(
     health.finish(recorded)
 }
 
-/// Consecutive timed-out calls of a pass.
+/// How one call of a pass ended.
+#[derive(Clone, Copy)]
+pub(super) enum Answer {
+    /// The call returned data.
+    Read,
+    /// The call ran into the command timeout.
+    TimedOut,
+    /// The call failed some other way.
+    Failed,
+}
+
+/// Consecutive timed-out calls of a pass, counted only while nothing has been read yet. A pass
+/// that has read anything has proven the connection alive, so a few slow collections never starve
+/// the ones after them; only a pass with no success at all gives up.
 #[derive(Default)]
-struct Streak(usize);
+pub(super) struct Streak {
+    timeouts: usize,
+    read_any: bool,
+}
 
 impl Streak {
-    fn observe(&mut self, timed_out: bool) {
-        self.0 = if timed_out { self.0 + 1 } else { 0 };
+    pub(super) fn observe(&mut self, answer: Answer) {
+        match answer {
+            Answer::Read => {
+                self.read_any = true;
+                self.timeouts = 0;
+            }
+            Answer::TimedOut => self.timeouts += 1,
+            Answer::Failed => self.timeouts = 0,
+        }
     }
 
-    fn exhausted(&self) -> bool {
-        self.0 >= MAX_CONSECUTIVE_TIMEOUTS
+    pub(super) fn exhausted(&self) -> bool {
+        !self.read_any && self.timeouts >= MAX_CONSECUTIVE_TIMEOUTS
     }
 }
 
@@ -319,7 +346,11 @@ async fn discover(
             continue;
         }
         let listed = bounded(cfg.command_timeout, store.list_collection_kinds(&db)).await;
-        timeouts.observe(matches!(&listed, Err(error) if timed_out(error)));
+        timeouts.observe(match &listed {
+            Ok(_) => Answer::Read,
+            Err(error) if timed_out(error) => Answer::TimedOut,
+            Err(_) => Answer::Failed,
+        });
         if timeouts.exhausted() {
             return Err(CoreError::Database(TIMEOUT_TEXT.into()));
         }
