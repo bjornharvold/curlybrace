@@ -62,37 +62,75 @@ pub(crate) async fn list_indexes(
         .get_document("cursor")
         .and_then(|c| c.get_array("firstBatch"))
         .map_err(|_| malformed())?;
-    let sizes = index_sizes(db, ns, db_err).await?;
+    let sizes = index_sizes(db, ns, db_err).await;
+    Ok(collection_indexes(batch, &sizes))
+}
+
+/// The readable entries of a `listIndexes` batch with their sizes (0 when unknown). An entry the
+/// definition model cannot read is skipped with a warning instead of failing the collection.
+fn collection_indexes(
+    batch: &[Bson],
+    sizes: &std::collections::HashMap<String, u64>,
+) -> Vec<CollectionIndex> {
     batch
         .iter()
-        .map(|entry| {
-            let spec = IndexSpec::from_document(entry.as_document().ok_or_else(malformed)?)?;
-            let size_bytes = sizes.get(&spec.name).copied().unwrap_or(0);
-            Ok(CollectionIndex { spec, size_bytes })
+        .filter_map(|entry| {
+            let spec = entry
+                .as_document()
+                .ok_or_else(malformed)
+                .and_then(IndexSpec::from_document);
+            match spec {
+                Ok(spec) => {
+                    let size_bytes = sizes.get(&spec.name).copied().unwrap_or(0);
+                    Some(CollectionIndex { spec, size_bytes })
+                }
+                Err(e) => {
+                    log::warn!("skipping an index the listing could not read: {e}: {entry}");
+                    None
+                }
+            }
         })
         .collect()
 }
 
-/// Index name -> bytes from `collStats.indexSizes`.
+/// Index name -> bytes from `collStats.indexSizes`. Sizes are a nicety: when `collStats` is
+/// refused (no privilege, a dropped collection) or its reply is odd, every size is unknown
+/// (empty map, read as 0) and the listing is kept.
 async fn index_sizes(
     db: &Database,
     ns: &Namespace,
     db_err: fn(mongodb::error::Error) -> CoreError,
-) -> Result<std::collections::HashMap<String, u64>> {
+) -> std::collections::HashMap<String, u64> {
     let stats = match db.run_command(doc! { "collStats": &ns.collection }).await {
         Ok(stats) => stats,
-        // The collection was dropped between the two calls.
-        Err(e) if has_code(&e, &[CODE_NAMESPACE_NOT_FOUND]) => return Ok(Default::default()),
-        Err(e) => return Err(db_err(e)),
+        Err(e) => {
+            // A collection dropped between the two calls is expected; anything else is logged.
+            if !has_code(&e, &[CODE_NAMESPACE_NOT_FOUND]) {
+                log::warn!(
+                    "index sizes of {}.{} are unknown: {}",
+                    ns.db,
+                    ns.collection,
+                    db_err(e)
+                );
+            }
+            return Default::default();
+        }
     };
-    let sizes = stats.get_document("indexSizes").map_err(|_| malformed())?;
-    Ok(sizes
+    let Ok(sizes) = stats.get_document("indexSizes") else {
+        log::warn!(
+            "index sizes of {}.{} are unknown: collStats has no indexSizes",
+            ns.db,
+            ns.collection
+        );
+        return Default::default();
+    };
+    sizes
         .iter()
         .filter_map(|(name, bytes)| {
             let bytes = u64::try_from(number(bytes)?).ok()?;
             Some((name.clone(), bytes))
         })
-        .collect())
+        .collect()
 }
 
 /// `$indexStats` rows for `ns`. A view has no indexes to count and reads as empty; a
@@ -113,7 +151,20 @@ pub(crate) async fn index_stats(
         Err(e) => return Err(db_err(e)),
     };
     let rows: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
-    rows.iter().map(usage_from_row).collect()
+    Ok(usages_from_rows(&rows))
+}
+
+/// The readable `$indexStats` rows; one that cannot be read is skipped with a warning.
+fn usages_from_rows(rows: &[Document]) -> Vec<IndexUsage> {
+    rows.iter()
+        .filter_map(|row| match usage_from_row(row) {
+            Ok(usage) => Some(usage),
+            Err(e) => {
+                log::warn!("skipping an index usage row that could not be read: {e}: {row}");
+                None
+            }
+        })
+        .collect()
 }
 
 /// One `$indexStats` row as an [`IndexUsage`].
@@ -227,5 +278,31 @@ mod tests {
         assert!(lists_as_empty(CODE_NAMESPACE_NOT_FOUND));
         assert!(lists_as_empty(CODE_COMMAND_NOT_SUPPORTED_ON_VIEW));
         assert!(!lists_as_empty(13));
+    }
+
+    #[test]
+    fn one_unreadable_entry_does_not_hide_the_others() {
+        let batch = vec![
+            Bson::Document(doc! { "key": { "a": 1_i32 }, "name": "a_1" }),
+            Bson::Document(doc! { "key": { "a": { "x": 1_i32 } }, "name": "bad" }),
+            Bson::String("junk".into()),
+            Bson::Document(doc! { "key": { "loc": "geoHaystack" }, "name": "hay" }),
+        ];
+        let sizes = std::collections::HashMap::from([("a_1".to_owned(), 8_u64)]);
+        let listed = collection_indexes(&batch, &sizes);
+        let names: Vec<_> = listed.iter().map(|i| i.spec.name.as_str()).collect();
+        assert_eq!(names, ["a_1", "hay"]);
+        assert_eq!((listed[0].size_bytes, listed[1].size_bytes), (8, 0));
+    }
+
+    #[test]
+    fn stats_rows_that_cannot_be_read_are_skipped() {
+        let good = doc! {
+            "name": "a_1", "host": "h", "spec": { "key": { "a": 1_i32 }, "name": "a_1" },
+            "accesses": { "ops": 1_i64, "since": DateTime::from_millis(1) },
+        };
+        let usages = usages_from_rows(&[doc! { "name": "x" }, good]);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].name, "a_1");
     }
 }

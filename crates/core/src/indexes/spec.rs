@@ -31,6 +31,10 @@ pub enum KeyKind {
     Wildcard,
     Hashed,
     Geo2d,
+    /// A key type this type does not model (legacy `geoHaystack`, a text index the server
+    /// reported without `weights`). The raw type is carried so the definition can still be
+    /// listed and copied; the UI treats such a key as fixed.
+    Other(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -70,7 +74,7 @@ impl KeyKind {
                 "2dsphere" => Ok(Self::Geo2dSphere),
                 "hashed" => Ok(Self::Hashed),
                 "2d" => Ok(Self::Geo2d),
-                other => Err(invalid(format!("unknown index key type {other:?}"))),
+                other => Ok(Self::Other(other.to_owned())),
             },
             Bson::Int32(n) => Ok(direction(f64::from(*n))),
             Bson::Int64(n) => Ok(direction(*n as f64)),
@@ -89,6 +93,7 @@ impl KeyKind {
             Self::Geo2dSphere => Bson::String("2dsphere".into()),
             Self::Hashed => Bson::String("hashed".into()),
             Self::Geo2d => Bson::String("2d".into()),
+            Self::Other(kind) => Bson::String(kind.clone()),
         }
     }
 }
@@ -128,18 +133,22 @@ fn sub_document(doc: &Document, field: &str) -> Option<Document> {
 }
 
 /// The server reports a text index as `key: {_fts: "text", _ftsx: 1}` (inside a compound key the
-/// pair sits where the text keys go); the indexed text fields are the keys of `weights`.
-fn text_keys(doc: &Document) -> Result<Vec<IndexKey>> {
-    let weights = doc
-        .get_document("weights")
-        .map_err(|_| invalid("text index has no weights".into()))?;
-    Ok(weights
+/// pair sits where the text keys go); the indexed text fields are the keys of `weights`. Without
+/// `weights` the fields are unknown, so the marker key itself is kept as an unmodelled key.
+fn text_keys(doc: &Document) -> Vec<IndexKey> {
+    let Ok(weights) = doc.get_document("weights") else {
+        return vec![IndexKey {
+            field: "_fts".into(),
+            kind: KeyKind::Other("text".into()),
+        }];
+    };
+    weights
         .keys()
         .map(|field| IndexKey {
             field: field.clone(),
             kind: KeyKind::Text,
         })
-        .collect())
+        .collect()
 }
 
 impl IndexSpec {
@@ -155,7 +164,7 @@ impl IndexSpec {
         let mut keys = Vec::new();
         for (field, value) in key_doc {
             match field.as_str() {
-                "_fts" if value.as_str() == Some("text") => keys.extend(text_keys(doc)?),
+                "_fts" if value.as_str() == Some("text") => keys.extend(text_keys(doc)),
                 "_ftsx" => {}
                 _ => keys.push(IndexKey {
                     field: field.clone(),

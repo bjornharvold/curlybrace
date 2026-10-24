@@ -230,9 +230,12 @@ impl IndexBuilderState {
 
     /// Whether the key at `index` is one the builder only shows and preserves.
     pub fn is_fixed(&self, index: usize) -> bool {
-        self.keys
-            .get(index)
-            .is_some_and(|key| matches!(key.kind, KeyKind::Hashed | KeyKind::Geo2d))
+        self.keys.get(index).is_some_and(|key| {
+            matches!(
+                key.kind,
+                KeyKind::Hashed | KeyKind::Geo2d | KeyKind::Other(_)
+            )
+        })
     }
 
     /// The field text is stored as typed; trimming happens when the spec is made.
@@ -478,7 +481,7 @@ pub fn default_name(keys: &[IndexKey]) -> String {
         .join("_")
 }
 
-fn name_suffix(kind: &KeyKind) -> &'static str {
+fn name_suffix(kind: &KeyKind) -> &str {
     match kind {
         KeyKind::Asc | KeyKind::Wildcard => "1",
         KeyKind::Desc => "-1",
@@ -486,6 +489,7 @@ fn name_suffix(kind: &KeyKind) -> &'static str {
         KeyKind::Geo2dSphere => "2dsphere",
         KeyKind::Hashed => "hashed",
         KeyKind::Geo2d => "2d",
+        KeyKind::Other(kind) => kind,
     }
 }
 
@@ -499,6 +503,7 @@ pub fn kind_label_key(kind: &KeyKind) -> &'static str {
         KeyKind::Wildcard => "indexes.builder.kind_wildcard",
         KeyKind::Hashed => "indexes.builder.kind_hashed",
         KeyKind::Geo2d => "indexes.builder.kind_geo_flat",
+        KeyKind::Other(_) => "indexes.builder.kind_other",
     }
 }
 

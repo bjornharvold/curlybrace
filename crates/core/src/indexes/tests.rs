@@ -458,3 +458,46 @@ fn definition_hash_ignores_the_ttl() {
         mock_index_spec().definition_hash()
     );
 }
+
+#[test]
+fn an_unknown_key_type_is_kept_as_other_and_round_trips() {
+    let spec = IndexSpec::from_document(&doc! {
+        "key": { "loc": "geoHaystack", "t": 1_i32 },
+        "name": "loc_hay",
+        "bucketSize": 1_i32,
+    })
+    .unwrap();
+    assert_eq!(
+        spec.keys,
+        vec![
+            key("loc", KeyKind::Other("geoHaystack".into())),
+            key("t", KeyKind::Asc)
+        ]
+    );
+    let command = spec.create_command("c");
+    let index = command.get_array("indexes").unwrap()[0]
+        .as_document()
+        .unwrap();
+    assert_eq!(
+        index.get_document("key"),
+        Ok(&doc! { "loc": "geoHaystack", "t": 1_i32 })
+    );
+    assert_eq!(index.get_i32("bucketSize"), Ok(1));
+}
+
+#[test]
+fn a_text_index_without_weights_is_kept_as_an_unmodelled_key() {
+    let spec = IndexSpec::from_document(&doc! {
+        "key": { "_fts": "text", "_ftsx": 1_i32 },
+        "name": "t_text",
+    })
+    .unwrap();
+    assert_eq!(spec.keys, vec![key("_fts", KeyKind::Other("text".into()))]);
+}
+
+#[test]
+fn a_key_value_that_is_not_a_type_is_still_an_error() {
+    assert!(
+        IndexSpec::from_document(&doc! { "key": { "a": { "x": 1_i32 } }, "name": "a" }).is_err()
+    );
+}

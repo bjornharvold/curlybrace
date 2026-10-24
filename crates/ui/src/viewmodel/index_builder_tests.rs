@@ -482,3 +482,14 @@ fn a_copy_of_a_compound_text_index_keeps_its_non_text_keys_and_weights() {
     assert!(copy.preview_json().contains("\"a\""));
     assert!(copy.preview_json().contains("\"z\""));
 }
+
+#[test]
+fn a_key_type_the_builder_does_not_model_is_fixed_and_keeps_its_name_part() {
+    let builder = on("loc").with_kind(0, KeyKind::Other("geoHaystack".into()));
+    assert!(builder.is_fixed(0));
+    assert_eq!(
+        kind_label_key(&KeyKind::Other("geoHaystack".into())),
+        "indexes.builder.kind_other"
+    );
+    assert_eq!(default_name(&builder.keys), "loc_geoHaystack");
+}

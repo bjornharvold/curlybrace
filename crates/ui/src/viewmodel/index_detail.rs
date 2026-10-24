@@ -114,14 +114,15 @@ pub fn definition_text(spec: &IndexSpec) -> String {
         .join(", ")
 }
 
-fn key_token(kind: &KeyKind) -> &'static str {
+fn key_token(kind: &KeyKind) -> String {
     match kind {
-        KeyKind::Asc | KeyKind::Wildcard => "1",
-        KeyKind::Desc => "-1",
-        KeyKind::Text => "\"text\"",
-        KeyKind::Geo2dSphere => "\"2dsphere\"",
-        KeyKind::Hashed => "\"hashed\"",
-        KeyKind::Geo2d => "\"2d\"",
+        KeyKind::Asc | KeyKind::Wildcard => "1".into(),
+        KeyKind::Desc => "-1".into(),
+        KeyKind::Text => "\"text\"".into(),
+        KeyKind::Geo2dSphere => "\"2dsphere\"".into(),
+        KeyKind::Hashed => "\"hashed\"".into(),
+        KeyKind::Geo2d => "\"2d\"".into(),
+        KeyKind::Other(kind) => format!("{kind:?}"),
     }
 }
 
