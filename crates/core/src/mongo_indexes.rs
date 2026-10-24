@@ -161,19 +161,15 @@ async fn index_sizes(
         .collect()
 }
 
-/// `$indexStats` rows for `ns`. A view has no indexes to count and reads as empty; a
-/// time-series collection makes the server refuse the stage with an error that is returned as it
-/// is so the caller can classify it.
+/// `$indexStats` rows for `ns`. Callers must not pass a view: the server answers `$indexStats` on
+/// a view with the rows of the collection underneath (the sampler skips views). A time-series
+/// collection makes the server refuse the stage with an error that is returned as it is so the
+/// caller can classify it.
 pub(crate) async fn index_stats(
     db: &Database,
     ns: &Namespace,
     db_err: fn(mongodb::error::Error) -> CoreError,
 ) -> Result<Vec<IndexUsage>> {
-    // The server answers `$indexStats` on a view with the rows of the collection underneath, which
-    // would be counted as the view's own usage.
-    if is_view(db, ns, db_err).await? {
-        return Ok(Vec::new());
-    }
     let cursor = db
         .collection::<Document>(&ns.collection)
         .aggregate(vec![doc! { "$indexStats": {} }])
@@ -185,25 +181,6 @@ pub(crate) async fn index_stats(
     };
     let rows: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
     Ok(usages_from_rows(&rows))
-}
-
-/// Whether `ns` names a view.
-async fn is_view(
-    db: &Database,
-    ns: &Namespace,
-    db_err: fn(mongodb::error::Error) -> CoreError,
-) -> Result<bool> {
-    let mut found = db
-        .list_collections()
-        .filter(doc! { "name": &ns.collection })
-        .await
-        .map_err(db_err)?;
-    while let Some(spec) = found.try_next().await.map_err(db_err)? {
-        if spec.collection_type == mongodb::results::CollectionType::View {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 /// The readable `$indexStats` rows; one that cannot be read is skipped with a warning.

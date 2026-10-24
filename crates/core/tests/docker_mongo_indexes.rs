@@ -414,8 +414,8 @@ async fn listing_a_view_is_empty() {
         .await
         .unwrap();
     let view = Namespace::new(DB, "items_view");
+    // `index_stats` is not asked of a view: the sampler skips views.
     assert_eq!(store.list_indexes(&view).await, Ok(Vec::new()));
-    assert_eq!(store.index_stats(&view).await, Ok(Vec::new()));
 }
 
 #[tokio::test]
