@@ -48,6 +48,10 @@ pub struct IndexesState {
     /// arrives later carries a smaller one and is dropped. It only grows, even across
     /// collections, so a number is never sent twice.
     pub request: u64,
+    /// The newest request number the server has answered, for this or an older request. A
+    /// lost-connection failure of a request older than this one is a late echo of an outage the
+    /// session has since recovered from.
+    pub answered: u64,
     /// The session's sampler status, once it has reported one.
     pub sampler: Option<SamplerStatus>,
     /// The index builder, while its modal is open.
@@ -77,6 +81,7 @@ impl Default for IndexesState {
             range: ChartRange::Day,
             loading: false,
             request: 0,
+            answered: 0,
             sampler: None,
             builder: None,
             writing: None,
@@ -97,7 +102,16 @@ impl IndexesState {
             range: self.range,
             sampler: self.sampler,
             request: self.request,
+            answered: self.answered,
             ..Self::default()
+        }
+    }
+
+    /// The same state after the server answered request `request` (current or stale).
+    pub fn answered_request(self, request: u64) -> Self {
+        Self {
+            answered: self.answered.max(request),
+            ..self
         }
     }
 

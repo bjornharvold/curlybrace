@@ -110,6 +110,12 @@ pub(super) fn collection_opened(state: AppState) -> (AppState, Vec<Command>) {
     }
 }
 
+/// Records that the server answered `request`, whether or not the answer is still wanted.
+fn answered(state: AppState, request: u64) -> AppState {
+    let indexes = state.indexes.answered_request(request);
+    AppState { indexes, ..state }
+}
+
 /// The answer to `ListIndexes`; one for another collection, or to a request that is not the
 /// newest one sent, is stale. Answers can arrive out of order, so what was sent decides, never
 /// what is open now.
@@ -119,6 +125,7 @@ pub(super) fn indexes_listed(
     indexes: Vec<CollectionIndex>,
     request: u64,
 ) -> AppState {
+    let state = answered(state, request);
     if state.indexes.ns.as_ref() != Some(&ns) || state.indexes.request != request {
         return state;
     }
@@ -135,6 +142,7 @@ pub(super) fn history_read(
     series: Vec<IndexSeries>,
     request: u64,
 ) -> AppState {
+    let state = answered(state, request);
     if state.indexes.ns.as_ref() != Some(&ns)
         || state.indexes.range != range
         || state.indexes.request != request

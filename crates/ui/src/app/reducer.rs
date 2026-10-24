@@ -216,17 +216,23 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
         // A failed numbered read settles only the request still awaited: a late failure of an
         // older one must not end the wait for the newer or put a banner over its data. The
-        // current one fails like any other command. A lost connection is not about a request: it
-        // is classified whatever the request id.
+        // current one fails like any other command. A lost connection of an older request counts
+        // only while the session has not answered anything sent after it: a later answer proves
+        // the server reachable, and the failure is a late echo of an outage that is over. When it
+        // counts, it must still not end the wait for the newer request.
         Event::RequestFailed {
             session,
             context,
             request,
             error,
-        } => match state.indexes.request == request
-            || matches!(error, CoreError::Unreachable | CoreError::TlsHandshake)
-        {
-            true => on_session_event(
+        } => {
+            let current = state.indexes.request == request;
+            let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
+            if !(current || lost && state.indexes.answered <= request) {
+                return (state, Vec::new());
+            }
+            let awaiting = state.indexes.loading && !current;
+            let (next, commands) = on_session_event(
                 state,
                 Event::Failed {
                     session,
@@ -234,9 +240,9 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
                     error,
                 },
                 background,
-            ),
-            false => (state, Vec::new()),
-        },
+            );
+            (keep_waiting(next, awaiting), commands)
+        }
         Event::Indexes {
             ns,
             indexes,
@@ -392,6 +398,19 @@ fn editor_matches(state: &AppState, pending: Option<&Pending>) -> bool {
         }
         _ => false,
     }
+}
+
+/// Puts the wait for the newest index request back after the failure of an older one settled
+/// it, unless the failure took the session down.
+fn keep_waiting(state: AppState, awaiting: bool) -> AppState {
+    if !awaiting || state.failure.is_some() {
+        return state;
+    }
+    let indexes = crate::viewmodel::IndexesState {
+        loading: true,
+        ..state.indexes
+    };
+    AppState { indexes, ..state }
 }
 
 /// `data_failed`, except that a background session leaves another session's banner alone, the

@@ -2,7 +2,7 @@
 use super::reducer::{Input, update};
 use super::session::SessionView;
 use super::state::{AppState, Banner, ConnStatus};
-use crate::viewmodel::{CollectionTab, IndexesAction, IndexesState, SidebarAction};
+use crate::viewmodel::{CollectionTab, IndexesAction, IndexesState, SidebarAction, TtlPrompt};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::history::{Bucket, ChartRange, Sample};
 use curlybrace_core::indexes::KeyKind;
@@ -576,4 +576,43 @@ fn a_late_lost_connection_failure_of_an_older_request_still_reaches_connection_l
 
         assert_eq!(after.failure, Some(error.clone()), "{error:?}");
     }
+}
+
+fn late_lost(request: u64, error: CoreError) -> Event {
+    Event::RequestFailed {
+        session: EMBEDDED_SESSION,
+        context: "list_indexes",
+        request,
+        error,
+    }
+}
+
+#[test]
+fn a_late_lost_connection_of_an_older_request_is_ignored_once_a_newer_one_was_answered() {
+    for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
+        let (s, _) = open_tab(connected());
+        let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
+        let (s, _) = event(s, listing(2, &["a_1"]));
+        let before = s.indexes.clone();
+
+        let (after, commands) = event(s, late_lost(1, error.clone()));
+
+        assert!(commands.is_empty());
+        assert_eq!(after.failure, None, "{error:?}: the session just answered");
+        assert_eq!(after.banner, None);
+        assert_eq!(after.indexes, before);
+    }
+}
+
+#[test]
+fn a_late_lost_connection_with_a_prompt_open_does_not_end_the_wait_for_the_newest_request() {
+    let (s, _) = open_tab(connected());
+    let (s, _) = event(s, listing(1, &["a_1"]));
+    let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
+    let mut s = s;
+    s.indexes.ttl_prompt = Some(TtlPrompt::new("a_1".into(), Some(100)));
+
+    let (after, _) = event(s, late_lost(1, CoreError::Unreachable));
+
+    assert!(after.indexes.loading, "request 2 is still awaited");
 }
