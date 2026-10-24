@@ -134,21 +134,46 @@ fn classify(prev: Sample, cur: Sample, max_continuous_secs: i64) -> Vec<Point> {
     out
 }
 
-/// Folds points into dense, fixed-width buckets from the first to the last
-/// bucket touched (empty ones included). A delta or restart lands in the
-/// bucket holding its `at_secs`; a restart also adds the uses counted since the reset. A gap adds, to every bucket it overlaps, the
-/// seconds inside that bucket; its `uses` land in the bucket holding
-/// `to_secs`, so the total of `uses` is preserved. A non-positive width or no
-/// points gives no buckets.
+/// Most buckets one fold may allocate. A chart never needs more (a month of daily buckets is
+/// 31), so this only bites on a span a bad stored sample made absurd; the newest buckets win.
+pub const MAX_BUCKETS: usize = 20_000;
+
+/// [`bucketize_within`] over all time: bounded by [`MAX_BUCKETS`] alone.
 pub fn bucketize(points: &[Point], width_secs: i64) -> Vec<Bucket> {
+    bucketize_within(points, width_secs, i64::MIN, i64::MAX)
+}
+
+/// Folds points into dense, fixed-width buckets from the first to the last bucket touched
+/// (empty ones included), keeping only the buckets that overlap `[from_secs, to_secs]` and at
+/// most [`MAX_BUCKETS`] of them (the newest), so the allocation is bounded by the window asked
+/// for, never by what is stored. A delta or restart lands in the bucket holding its `at_secs`; a
+/// restart also adds the uses counted since the reset. A gap adds, to every bucket it overlaps,
+/// the seconds inside that bucket; its `uses` land in the bucket holding `to_secs`, so the total
+/// of `uses` is preserved when that bucket is kept. A non-positive width or no points gives no
+/// buckets.
+pub fn bucketize_within(
+    points: &[Point],
+    width_secs: i64,
+    from_secs: i64,
+    to_secs: i64,
+) -> Vec<Bucket> {
     let Some((lo, hi)) = time_range(points) else {
         return Vec::new();
     };
     if width_secs <= 0 {
         return Vec::new();
     }
-    let first = lo.div_euclid(width_secs);
-    let last = hi.div_euclid(width_secs);
+    let last = hi
+        .div_euclid(width_secs)
+        .min(to_secs.div_euclid(width_secs));
+    let capped = last.saturating_sub(MAX_BUCKETS as i64 - 1);
+    let first = lo
+        .div_euclid(width_secs)
+        .max(from_secs.div_euclid(width_secs))
+        .max(capped);
+    if last < first {
+        return Vec::new();
+    }
     let mut buckets: Vec<Bucket> = (first..=last)
         .map(|i| Bucket {
             start_secs: i * width_secs,
@@ -158,32 +183,45 @@ pub fn bucketize(points: &[Point], width_secs: i64) -> Vec<Bucket> {
             gap_secs: 0,
         })
         .collect();
-    let index = |secs: i64| usize::try_from(secs.div_euclid(width_secs) - first).unwrap_or(0);
+    let slot = |secs: i64| {
+        let n = secs.div_euclid(width_secs);
+        (first..=last)
+            .contains(&n)
+            .then(|| usize::try_from(n - first).unwrap_or(0))
+    };
     for point in points {
         match *point {
             Point::Delta { at_secs, uses, .. } => {
-                let b = &mut buckets[index(at_secs)];
-                b.uses = b.uses.saturating_add(uses);
+                if let Some(i) = slot(at_secs) {
+                    buckets[i].uses = buckets[i].uses.saturating_add(uses);
+                }
             }
             Point::Restart {
                 at_secs,
                 uses_since_restart,
             } => {
                 // Uses counted since the reset are real uses seen in this window.
-                let b = &mut buckets[index(at_secs)];
-                b.restarts += 1;
-                b.uses = b.uses.saturating_add(uses_since_restart);
+                if let Some(i) = slot(at_secs) {
+                    buckets[i].restarts += 1;
+                    buckets[i].uses = buckets[i].uses.saturating_add(uses_since_restart);
+                }
             }
             Point::Gap {
-                from_secs,
-                to_secs,
+                from_secs: gap_from,
+                to_secs: gap_to,
                 uses,
             } => {
-                let end = &mut buckets[index(to_secs)];
-                end.uses = end.uses.saturating_add(uses);
-                for b in &mut buckets[index(from_secs)..=index(to_secs)] {
-                    let overlap =
-                        (b.start_secs + width_secs).min(to_secs) - b.start_secs.max(from_secs);
+                if let Some(i) = slot(gap_to) {
+                    buckets[i].uses = buckets[i].uses.saturating_add(uses);
+                }
+                let (a, z) = (
+                    gap_from.div_euclid(width_secs).max(first),
+                    gap_to.div_euclid(width_secs).min(last),
+                );
+                for n in a..=z {
+                    let b = &mut buckets[usize::try_from(n - first).unwrap_or(0)];
+                    let overlap = b.start_secs.saturating_add(width_secs).min(gap_to)
+                        - b.start_secs.max(gap_from);
                     b.gap_secs += overlap.max(0);
                 }
             }

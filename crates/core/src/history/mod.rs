@@ -16,6 +16,6 @@ pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView};
 pub use retention::{ChartRange, MAX_DB_BYTES};
 
 pub use series::{
-    Bucket, DEFAULT_MAX_CONTINUOUS_SECS, GAP_INTERVALS, Point, SAMPLE_INTERVAL_SECS, Sample,
-    bucketize, derive, max_continuous_secs,
+    Bucket, DEFAULT_MAX_CONTINUOUS_SECS, GAP_INTERVALS, MAX_BUCKETS, Point, SAMPLE_INTERVAL_SECS,
+    Sample, bucketize, bucketize_within, derive, max_continuous_secs,
 };

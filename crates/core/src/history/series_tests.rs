@@ -227,7 +227,8 @@ proptest! {
     #[test]
     fn bucketing_preserves_total_uses_for_any_sample_sequence(
         steps in proptest::collection::vec((-100i64..2_000, 0i64..500, any::<bool>()), 0..40),
-        width in 1i64..5_000,
+        // At most 80,000 s of samples, so no width here reaches the bucket cap.
+        width in 10i64..5_000,
     ) {
         let mut at = 10_000;
         let mut since = SINCE;
@@ -289,4 +290,64 @@ fn the_gap_threshold_follows_the_sampling_interval() {
         max_continuous_secs(Duration::from_secs(SAMPLE_INTERVAL_SECS as u64)),
         DEFAULT_MAX_CONTINUOUS_SECS
     );
+}
+
+#[test]
+fn bucketize_never_allocates_more_than_the_cap_however_wide_the_span() {
+    // One sample taken with the clock far ahead makes a gap of ~1.6 years: about 833,000 buckets
+    // of a minute without a cap.
+    let far = 50_000_000;
+    let points = [
+        Point::Delta {
+            at_secs: 100,
+            uses: 1,
+            span_secs: 60,
+        },
+        Point::Gap {
+            from_secs: 100,
+            to_secs: far,
+            uses: 4,
+        },
+    ];
+    let buckets = bucketize(&points, 60);
+    assert!(buckets.len() <= MAX_BUCKETS, "{} buckets", buckets.len());
+    let newest = buckets.last().expect("the newest buckets are kept");
+    assert_eq!(newest.start_secs, far.div_euclid(60) * 60);
+    assert_eq!(newest.uses, 4, "the gap's uses sit at its end");
+}
+
+#[test]
+fn bucketize_within_keeps_only_the_buckets_of_the_window() {
+    let points = [
+        Point::Delta {
+            at_secs: 30,
+            uses: 2,
+            span_secs: 60,
+        },
+        Point::Delta {
+            at_secs: 330,
+            uses: 3,
+            span_secs: 60,
+        },
+        Point::Gap {
+            from_secs: 0,
+            to_secs: 10_000_000,
+            uses: 7,
+        },
+    ];
+    let buckets = bucketize_within(&points, 100, 300, 499);
+    let starts: Vec<i64> = buckets.iter().map(|b| b.start_secs).collect();
+    assert_eq!(starts, vec![300, 400]);
+    // The delta in the window counts; the gap covers both buckets whole; its uses land at its
+    // far end, outside the window, so they are not here.
+    assert_eq!(
+        buckets.iter().map(|b| b.uses).collect::<Vec<_>>(),
+        vec![3, 0]
+    );
+    assert_eq!(
+        buckets.iter().map(|b| b.gap_secs).collect::<Vec<_>>(),
+        vec![100, 100]
+    );
+    // A window the points never touch gives nothing.
+    assert!(bucketize_within(&points, 100, 20_000_000, 20_000_100).is_empty());
 }

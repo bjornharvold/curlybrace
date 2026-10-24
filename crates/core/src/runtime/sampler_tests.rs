@@ -200,7 +200,7 @@ async fn sample(
     db: &Arc<HistoryDb>,
     cfg: &SamplerConfig,
 ) -> Result<usize> {
-    sample_once(store, db, CONN, cfg, NOW).await
+    sample_once(store, db, CONN, cfg, &|| NOW).await
 }
 
 fn start(
@@ -609,7 +609,7 @@ fn has_expired(db: &HistoryDb, collection: &str) -> bool {
 }
 
 /// A wall clock that follows tokio's (paused) time, starting at `NOW`.
-fn controlled_clock() -> impl Fn() -> i64 + Send + 'static {
+fn controlled_clock() -> impl Fn() -> i64 + Send + Sync + 'static {
     let began = Instant::now();
     move || NOW + began.elapsed().as_secs() as i64
 }
@@ -757,4 +757,44 @@ async fn a_store_that_never_lists_databases_ends_the_pass_as_failing() {
     let first = tokio::time::timeout(COMMAND_TIMEOUT + secs(5), status.recv()).await;
     assert_eq!(first, Ok(Some(SamplerStatus::Failing)));
     handle.abort();
+}
+
+/// A clock that reads `first` once and `later` after that, like one that was stepped back (by NTP,
+/// or a person) while a pass was running.
+fn stepped_clock(first: i64, later: i64) -> impl Fn() -> i64 + Send + Sync + 'static {
+    let reads = AtomicUsize::new(0);
+    move || match reads.fetch_add(1, Ordering::SeqCst) {
+        0 => first,
+        _ => later,
+    }
+}
+
+#[tokio::test]
+async fn a_sample_stamped_by_a_clock_that_was_far_ahead_is_not_recorded() {
+    let store = store_with(&[("shop", "orders")]);
+    let db = history();
+    let clock = stepped_clock(NOW + 10 * 86_400, NOW);
+
+    let recorded = sample_once(&store, &db, CONN, &SamplerConfig::default(), &clock)
+        .await
+        .unwrap();
+
+    assert_eq!(recorded, 0, "skipped, not failed");
+    assert_eq!(
+        db.latest(&series_of("shop", "orders", "h1:27017")).unwrap(),
+        None
+    );
+}
+
+#[tokio::test]
+async fn a_small_clock_skew_is_tolerated() {
+    let store = store_with(&[("shop", "orders")]);
+    let db = history();
+    let clock = stepped_clock(NOW + MAX_CLOCK_AHEAD_SECS, NOW);
+
+    let recorded = sample_once(&store, &db, CONN, &SamplerConfig::default(), &clock)
+        .await
+        .unwrap();
+
+    assert_eq!(recorded, 1);
 }

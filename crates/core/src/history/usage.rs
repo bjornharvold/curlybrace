@@ -14,7 +14,7 @@
 
 use super::db::{SeriesFacts, SeriesKey, SeriesView, sql_err};
 use super::retention::ChartRange;
-use super::series::{Bucket, Point, Sample, bucketize, derive};
+use super::series::{Bucket, Point, Sample, bucketize_within, derive};
 use crate::error::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::BTreeMap;
@@ -135,7 +135,8 @@ fn buckets_of(
         .map(|p| clip_gap(*p, rolled_through))
         .collect();
     let mut merged: BTreeMap<(i64, i64), Bucket> = BTreeMap::new();
-    for bucket in bucketize(&clipped, width) {
+    // Only the buckets of the window are read back, so only those are built.
+    for bucket in bucketize_within(&clipped, width, window_start, now_secs) {
         add(&mut merged, bucket);
     }
     for row in rolled_rows(conn, series_id, window_start)? {

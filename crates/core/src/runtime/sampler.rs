@@ -33,6 +33,14 @@ const MAX_BACKOFF: Duration = Duration::from_secs(600);
 /// failure instead of hanging the sampler while it still reports `Running`.
 const STORE_CALL_TIMEOUT: Duration = super::COMMAND_TIMEOUT;
 
+/// How far ahead of the wall clock at record time a sample may be stamped. More means the clock
+/// was stepped back since the pass began (a sample stamped by the old time would sit in the
+/// future and block every later one), so the sample is skipped.
+pub(super) const MAX_CLOCK_AHEAD_SECS: i64 = 300;
+
+/// The wall clock in Unix seconds. Tests pass a controlled one.
+pub(super) type Clock = dyn Fn() -> i64 + Send + Sync;
+
 /// Shortest allowed time between two passes.
 pub const MIN_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -152,9 +160,9 @@ pub async fn sample_once(
     history: &Arc<HistoryDb>,
     connection: Uuid,
     cfg: &SamplerConfig,
-    now_secs: i64,
+    clock: &Clock,
 ) -> Result<usize> {
-    run_pass(store, history, connection, cfg, now_secs)
+    run_pass(store, history, connection, cfg, clock)
         .await
         .map(|pass| pass.recorded)
         .map_err(|e| e.error().clone())
@@ -220,8 +228,9 @@ async fn run_pass(
     history: &Arc<HistoryDb>,
     connection: Uuid,
     cfg: &SamplerConfig,
-    now_secs: i64,
+    clock: &Clock,
 ) -> std::result::Result<Pass, TickError> {
+    let now_secs = clock();
     let mut health = Health::default();
     let targets = discover(store, cfg, &mut health)
         .await
@@ -229,7 +238,7 @@ async fn run_pass(
     let width = cfg.max_concurrency.max(1);
     let mut results = stream::iter(targets)
         .map(|ns| async move {
-            let outcome = sample_collection(store, history, connection, &ns, now_secs).await;
+            let outcome = sample_collection(store, history, connection, &ns, now_secs, clock).await;
             (ns, outcome)
         })
         .buffer_unordered(width);
@@ -290,6 +299,7 @@ async fn sample_collection(
     connection: Uuid,
     ns: &Namespace,
     now_secs: i64,
+    clock: &Clock,
 ) -> std::result::Result<usize, TickError> {
     let rows = bounded(store.index_stats(ns))
         .await
@@ -298,11 +308,37 @@ async fn sample_collection(
         .into_iter()
         .map(|row| series_sample(connection, ns, row, now_secs))
         .collect();
+    let samples = plausible(samples, clock(), ns);
     let history = Arc::clone(history);
     // One transaction per collection, not per index: one commit instead of an fsync each.
     blocking(move || history.record_many(&samples).map(|()| samples.len()))
         .await
         .map_err(TickError::History)
+}
+
+/// The samples that are not stamped implausibly far ahead of `wall_now`, the wall clock at record
+/// time. The sampler stamps a pass at its start; if the clock was stepped back since, the stamp
+/// would put the sample in the future, and `derive` ignores every later sample until real time
+/// catches up. Dropped samples are logged.
+fn plausible(
+    samples: Vec<(SeriesKey, Sample)>,
+    wall_now: i64,
+    ns: &Namespace,
+) -> Vec<(SeriesKey, Sample)> {
+    let limit = wall_now.saturating_add(MAX_CLOCK_AHEAD_SECS);
+    let (kept, future): (Vec<_>, Vec<_>) = samples
+        .into_iter()
+        .partition(|(_, sample)| sample.at_secs <= limit);
+    if !future.is_empty() {
+        log::warn!(
+            "index usage: {} sample(s) of {}.{} skipped, stamped {}s ahead of the clock",
+            future.len(),
+            ns.db,
+            ns.collection,
+            future[0].1.at_secs.saturating_sub(wall_now)
+        );
+    }
+    kept
 }
 
 fn series_sample(
@@ -396,7 +432,7 @@ pub(super) async fn run(
     connection: Uuid,
     cfg: watch::Receiver<SamplerConfig>,
     status: UnboundedSender<SamplerStatus>,
-    now: impl Fn() -> i64 + Send + 'static,
+    now: impl Fn() -> i64 + Send + Sync + 'static,
 ) {
     let first = cfg.borrow().interval.max(MIN_INTERVAL);
     let mut state = LoopState {
@@ -417,7 +453,7 @@ pub(super) async fn run(
             state.ticker = new_ticker(current.interval, false);
         }
         let began = Instant::now();
-        let result = tick(&*store, &history, connection, &current, now(), &mut state).await;
+        let result = tick(&*store, &history, connection, &current, &now, &mut state).await;
         let next = match result {
             Ok(pass) => {
                 state.failures = 0;
@@ -508,16 +544,19 @@ async fn tick(
     history: &Arc<HistoryDb>,
     connection: Uuid,
     cfg: &SamplerConfig,
-    now_secs: i64,
+    clock: &Clock,
     state: &mut LoopState,
 ) -> std::result::Result<Pass, TickError> {
-    let pass = run_pass(store, history, connection, cfg, now_secs).await;
+    let pass = run_pass(store, history, connection, cfg, clock).await;
     if matches!(pass, Err(TickError::History(_))) {
         return pass;
     }
     if state.last_thin.is_none_or(|at| at.elapsed() >= THIN_EVERY) {
         let history = Arc::clone(history);
         let max_continuous = max_continuous_secs(cfg.interval);
+        // Thinning reads the clock afresh: a pass stamped before a step back must not decide what
+        // is old.
+        let now_secs = clock();
         blocking(move || history.thin(now_secs, max_continuous))
             .await
             .map_err(TickError::History)?;

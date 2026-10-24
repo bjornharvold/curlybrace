@@ -22,7 +22,7 @@ use super::db_schema::{TIER_DAILY, TIER_HOURLY};
 use super::retention::{
     DAILY_RETENTION_SECS, DAY_SECS, HOUR_SECS, HOURLY_RETENTION_SECS, RAW_RETENTION_SECS,
 };
-use super::series::{accepted_indices, bucketize, derive};
+use super::series::{accepted_indices, bucketize_within, derive};
 use super::usage::{clip_gap, raw_samples};
 use crate::error::Result;
 use rusqlite::{Connection, Transaction, params};
@@ -110,7 +110,8 @@ fn roll_series(
         .into_iter()
         .map(|p| clip_gap(p, rolled_through))
         .collect();
-    for bucket in bucketize(&points, HOUR_SECS) {
+    // Only buckets after `rolled_through` and before the cutoff are rolled, so only those are built.
+    for bucket in bucketize_within(&points, HOUR_SECS, rolled_through, cutoff - 1) {
         if bucket.start_secs + bucket.width_secs > rolled_through && bucket.start_secs < cutoff {
             add_row(
                 tx,

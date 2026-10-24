@@ -752,3 +752,25 @@ fn series_view_is_the_same_as_facts_usage_and_latest_read_separately() {
         assert_eq!(view.latest, db.latest(&k).unwrap(), "{range:?}");
     }
 }
+
+#[test]
+fn one_far_future_sample_cannot_make_a_chart_allocate_without_bound() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let k = key();
+    db.record(&k, s(NOW - 120, 1)).unwrap();
+    // Stored while the clock was far ahead: a gap of more than a year to the next sample.
+    db.record(&k, s(NOW + 50_000_000, 2)).unwrap();
+
+    let max = DEFAULT_MAX_CONTINUOUS_SECS;
+    for range in [ChartRange::Day, ChartRange::Week, ChartRange::Month] {
+        let buckets = db.usage(&k, range, NOW, max).unwrap();
+        let most = usize::try_from(range.secs() / range.bucket_width_secs()).unwrap() + 1;
+        assert!(
+            buckets.len() <= most,
+            "{range:?}: {} buckets",
+            buckets.len()
+        );
+    }
+    // Thinning derives the same points; it must not blow up either.
+    db.thin(NOW + 60_000_000, max).unwrap();
+}
