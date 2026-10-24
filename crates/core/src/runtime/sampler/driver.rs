@@ -242,7 +242,10 @@ async fn tick(
         let at = Instant::now();
         match blocking(move || history.thin_if_due(at, THIN_EVERY, now_secs, max_continuous)).await
         {
-            Ok(_) => state.last_thin = Some(Instant::now()),
+            Ok(true) => state.last_thin = Some(Instant::now()),
+            // Another sampler thinned for everyone. Keep no clock of our own for that: if it
+            // goes away, the shared guard lets the next ask through as soon as its hour is up.
+            Ok(false) => {}
             // The pass is fine; thinning is tried again at the next tick.
             Err(error) if is_history_busy(&error) => {
                 log::warn!("index usage: the history file is busy, thinning retried later");
