@@ -29,6 +29,10 @@ const SYSTEM_DBS: [&str; 3] = ["admin", "local", "config"];
 /// Longest wait between two attempts while the sampler is paused.
 const MAX_BACKOFF: Duration = Duration::from_secs(600);
 
+/// Longest a single store call of a pass may take: a stalled connection must end the pass as a
+/// failure instead of hanging the sampler while it still reports `Running`.
+const STORE_CALL_TIMEOUT: Duration = super::COMMAND_TIMEOUT;
+
 /// Shortest allowed time between two passes.
 pub const MIN_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -252,11 +256,11 @@ async fn discover(
     health: &mut Health,
 ) -> Result<Vec<Namespace>> {
     let mut targets = Vec::new();
-    for db in store.list_databases().await? {
+    for db in bounded(store.list_databases()).await? {
         if SYSTEM_DBS.contains(&db.as_str()) || cfg.excluded_dbs.contains(&db) {
             continue;
         }
-        match store.list_collection_kinds(&db).await {
+        match bounded(store.list_collection_kinds(&db)).await {
             Ok(kinds) => {
                 let before = targets.len();
                 targets.extend(
@@ -287,7 +291,9 @@ async fn sample_collection(
     ns: &Namespace,
     now_secs: i64,
 ) -> std::result::Result<usize, TickError> {
-    let rows = store.index_stats(ns).await.map_err(TickError::Store)?;
+    let rows = bounded(store.index_stats(ns))
+        .await
+        .map_err(TickError::Store)?;
     let samples: Vec<(SeriesKey, Sample)> = rows
         .into_iter()
         .map(|row| series_sample(connection, ns, row, now_secs))
@@ -321,6 +327,14 @@ fn series_sample(
         since_ms: row.since_ms,
     };
     (key, sample)
+}
+
+/// Bounds a store call by [`STORE_CALL_TIMEOUT`]. The timeout is a `Database` error, which is
+/// not a pause reason: the pass counts it as a failure and the next tick tries again.
+async fn bounded<T>(call: impl Future<Output = Result<T>>) -> Result<T> {
+    tokio::time::timeout(STORE_CALL_TIMEOUT, call)
+        .await
+        .unwrap_or_else(|_| Err(CoreError::Database("timeout".into())))
 }
 
 /// Runs a blocking `HistoryDb` call on the blocking pool. A panic there becomes an error.

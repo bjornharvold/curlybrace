@@ -10,6 +10,7 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use super::sampler::*;
+use crate::runtime::COMMAND_TIMEOUT;
 use crate::error::{CoreError, Result};
 use crate::history::{HistoryDb, Sample, SeriesKey};
 use crate::indexes::KeyKind;
@@ -65,6 +66,8 @@ struct ProbeStore {
     inner: InMemoryStore,
     kinds: Mutex<HashMap<String, Vec<(String, CollectionKind)>>>,
     stats_delay: Duration,
+    /// How long `list_databases` takes to answer.
+    databases_delay: Duration,
     /// Fails `index_stats` for this collection, or for every collection when the name is `None`.
     failure: Mutex<Option<(Option<String>, CoreError)>>,
     /// Fails `list_databases` while set.
@@ -80,6 +83,7 @@ impl ProbeStore {
             inner,
             kinds: Mutex::default(),
             stats_delay: Duration::ZERO,
+            databases_delay: Duration::ZERO,
             failure: Mutex::default(),
             databases_failure: Mutex::default(),
             calls: Mutex::default(),
@@ -90,6 +94,11 @@ impl ProbeStore {
 
     fn delayed(mut self, delay: Duration) -> Self {
         self.stats_delay = delay;
+        self
+    }
+
+    fn slow_databases(mut self, delay: Duration) -> Self {
+        self.databases_delay = delay;
         self
     }
 
@@ -134,6 +143,7 @@ impl ProbeStore {
 #[async_trait]
 impl DocumentStore for ProbeStore {
     async fn list_databases(&self) -> Result<Vec<String>> {
+        tokio::time::sleep(self.databases_delay).await;
         if let Some(error) = self.databases_failure.lock().unwrap().clone() {
             return Err(error);
         }
@@ -452,15 +462,25 @@ async fn concurrency_never_exceeds_the_configured_limit() {
 
 #[tokio::test(start_paused = true)]
 async fn an_overrunning_tick_skips_the_next_instead_of_stacking() {
-    let store = Arc::new(ProbeStore::new(store_with(&[("shop", "orders")])).delayed(secs(150)));
+    // Five collections one at a time, 25 s each: the pass takes 125 s and every call is under
+    // the store-call timeout.
+    let collections: Vec<(&str, String)> = (0..5).map(|i| ("shop", format!("c{i}"))).collect();
+    let refs: Vec<(&str, &str)> = collections.iter().map(|(d, c)| (*d, c.as_str())).collect();
+    let store = Arc::new(ProbeStore::new(store_with(&refs)).delayed(secs(25)));
     let began = Instant::now();
+    let cfg = SamplerConfig {
+        max_concurrency: 1,
+        ..SamplerConfig::default()
+    };
 
-    let (handle, _status, _cfg) = start(store.clone(), history(), SamplerConfig::default());
+    let (handle, _status, _cfg) = start(store.clone(), history(), cfg);
     tokio::time::sleep(secs(200)).await;
 
-    // The first run ends at 150 s and missed the ticks at 60 s and 120 s. They are dropped: the
-    // next run starts on the 180 s tick, not at once, and never two at the same time.
-    assert_eq!(store.call_offsets(began), vec![0, 180]);
+    // The first pass ends at 125 s and missed the tick at 60 s and 120 s. They are dropped: the
+    // next pass starts on the 180 s tick, not at once, and never two at the same time.
+    let mut offsets = store.call_offsets(began);
+    offsets.sort_unstable();
+    assert_eq!(offsets, vec![0, 25, 50, 75, 100, 180]);
     assert_eq!(store.peak.load(Ordering::SeqCst), 1);
     handle.abort();
 }
@@ -709,5 +729,32 @@ async fn a_failing_database_listing_reports_failing() {
 
     assert_eq!(status.recv().await, Some(SamplerStatus::Failing));
     assert!(!handle.is_finished());
+    handle.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_store_that_never_answers_index_stats_ends_the_pass_as_failing() {
+    let stalled = ProbeStore::new(store_with(&[("shop", "orders")])).delayed(secs(86_400));
+    let store = Arc::new(stalled);
+
+    let (handle, mut status, _cfg) = start(store, history(), SamplerConfig::default());
+
+    let first = tokio::time::timeout(COMMAND_TIMEOUT + secs(5), status.recv()).await;
+    assert_eq!(
+        first,
+        Ok(Some(SamplerStatus::Failing)),
+        "a timeout is a failure, not a pause"
+    );
+    handle.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_store_that_never_lists_databases_ends_the_pass_as_failing() {
+    let stalled = ProbeStore::new(store_with(&[("shop", "orders")])).slow_databases(secs(86_400));
+
+    let (handle, mut status, _cfg) = start(Arc::new(stalled), history(), SamplerConfig::default());
+
+    let first = tokio::time::timeout(COMMAND_TIMEOUT + secs(5), status.recv()).await;
+    assert_eq!(first, Ok(Some(SamplerStatus::Failing)));
     handle.abort();
 }
