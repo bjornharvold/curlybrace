@@ -262,6 +262,8 @@ struct DialogFrame {
     dialog: Dialog,
     badge: ConnectionBadge,
     busy: bool,
+    /// The modal is on screen; a closed modal is simply not drawn, as in the app.
+    shown: bool,
     seen: Vec<IndexesAction>,
 }
 
@@ -274,12 +276,16 @@ fn open_dialog(
         dialog,
         badge,
         busy,
+        shown: true,
         seen: Vec::new(),
     };
     let mut harness = Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
         .build_state(
             |ctx, frame: &mut DialogFrame| {
+                if !frame.shown {
+                    return;
+                }
                 let context = DialogContext {
                     connection: "local",
                     badge: &frame.badge,
@@ -648,4 +654,45 @@ fn a_copy_builder_names_its_original_and_keeps_hashed_and_2d_rows_read_only() {
             .accesskit_node()
             .is_disabled()
     );
+}
+
+fn focused_label(harness: &Harness<'static, DialogFrame>) -> Option<String> {
+    harness
+        .root()
+        .children_recursive()
+        .find(|n| n.accesskit_node().is_focused())
+        .and_then(|n| n.accesskit_node().label())
+        .map(|s| s.to_string())
+}
+
+#[test]
+fn a_modal_takes_the_focus_every_time_it_opens() {
+    let old = || DropOld {
+        old: "email_1".into(),
+        new: "email_1_v2".into(),
+    };
+    let keep = t("indexes.drop_old.keep");
+    let mut harness = open_dialog(Dialog::Old(old()), ConnectionBadge::default(), false);
+    assert_eq!(focused_label(&harness), Some(keep.clone()), "first open");
+
+    harness.state_mut().shown = false;
+    harness.run_steps(4);
+    harness.state_mut().dialog = Dialog::Old(old());
+    harness.state_mut().shown = true;
+    harness.run_steps(10);
+    assert_eq!(focused_label(&harness), Some(keep), "reopened");
+
+    let caption = t("indexes.drop.type_name");
+    let drop = || Dialog::Drop(DropConfirm::new("a_1".into()));
+    let mut harness = open_dialog(drop(), ConnectionBadge::default(), false);
+    assert!(focused_label(&harness).is_some(), "first open");
+    harness.state_mut().shown = false;
+    harness.run_steps(4);
+    harness.state_mut().shown = true;
+    harness.run_steps(10);
+    let focused = harness
+        .root()
+        .children_recursive()
+        .any(|n| n.accesskit_node().is_focused() && n.accesskit_node().role() == Role::TextInput);
+    assert!(focused, "reopened, the name box is focused ({caption})");
 }

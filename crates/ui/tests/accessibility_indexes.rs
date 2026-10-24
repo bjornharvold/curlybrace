@@ -412,7 +412,10 @@ fn last_used_and_tracked_since_do_not_depend_on_the_range() {
             ..state(vec![listed(a.clone())], vec![series.clone()])
         };
         let shown = texts(&open(state, false));
-        assert!(shown.contains(&ago("3")), "{range:?}: last used in {shown:?}");
+        assert!(
+            shown.contains(&ago("3")),
+            "{range:?}: last used in {shown:?}"
+        );
         assert!(
             shown.contains(&ago("20")),
             "{range:?}: tracked since in {shown:?}"

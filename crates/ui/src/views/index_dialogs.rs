@@ -33,15 +33,19 @@ fn heading(ui: &mut egui::Ui, title_key: &str, context: &DialogContext<'_>, i18n
     });
 }
 
-/// Gives `target` the focus the first time the modal keyed by `key` is drawn, and never again, so
-/// Tab moves through the modal and wraps around it as usual.
+/// Gives `target` the focus the first time a modal keyed by `key` is drawn after it was opened,
+/// and not again while it stays open, so Tab moves through the modal and wraps around it as
+/// usual. A modal is drawn on every frame while open, so a gap in the frames it was drawn on
+/// means it was closed in between, and the next draw is a new open.
 fn focus_once(ui: &egui::Ui, target: &egui::Response, key: (&str, &str)) {
     let id = egui::Id::new(key);
-    let done = ui.data_mut(|d| d.get_temp::<bool>(id).unwrap_or(false));
-    if !done {
+    let frame = ui.ctx().cumulative_frame_nr();
+    let last_drawn = ui.data_mut(|d| d.get_temp::<u64>(id));
+    let still_open = last_drawn.is_some_and(|last| frame.saturating_sub(last) <= 1);
+    if !still_open {
         target.request_focus();
-        ui.data_mut(|d| d.insert_temp(id, true));
     }
+    ui.data_mut(|d| d.insert_temp(id, frame));
 }
 
 /// Why the main button is off, as a line of text: read-only first, then a write in flight.
