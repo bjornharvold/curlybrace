@@ -43,8 +43,10 @@ const PASS_DEADLINE_INTERVALS: u32 = 10;
 /// The shortest pass deadline, for short intervals.
 const MIN_PASS_DEADLINE: Duration = Duration::from_secs(600);
 
-/// The wall time after which a pass, discovery included, is abandoned and reported `Failing`:
-/// ten intervals, at least ten minutes. A call already in flight at that moment is cut off.
+/// The wall time after which a pass, discovery included, is cut off: ten intervals, at least ten
+/// minutes. A call already in flight at that moment is cancelled. A pass that was reading
+/// healthily (almost no timeouts) keeps `Running` and the next pass resumes where it stopped;
+/// otherwise it is reported `Failing`.
 pub(super) fn pass_deadline(interval: Duration) -> Duration {
     interval
         .saturating_mul(PASS_DEADLINE_INTERVALS)
@@ -192,7 +194,7 @@ pub async fn sample_once(
     cfg: &SamplerConfig,
     clock: &Clock,
 ) -> Result<usize> {
-    run_pass(store, history, connection, cfg, clock)
+    run_pass(store, history, connection, cfg, clock, 0)
         .await
         .map(|pass| pass.recorded)
         .map_err(|e| e.error().clone())
@@ -206,6 +208,10 @@ struct Pass {
     failed: Vec<(String, CoreError)>,
     /// Whether anything was read at all: false when every database or collection failed.
     learned: bool,
+    /// Where the next pass starts in the target list: where this one stopped when it was cut
+    /// short, so a pass too short for the whole deployment still reaches every collection in
+    /// turn; zero after a complete pass.
+    next_start: usize,
 }
 
 /// What a pass learned about the server and the history, to decide whether it failed.
@@ -224,11 +230,18 @@ struct Health {
 impl Pass {
     /// The pass cut short: whatever it read stays recorded, but it did not learn enough to call
     /// the connection healthy.
-    fn abandoned(self) -> Self {
+    fn abandoned(self, next_start: usize) -> Self {
         Self {
             learned: false,
+            next_start,
             ..self
         }
+    }
+
+    /// The pass hit its deadline while reading healthily and slowly: it keeps its status but the
+    /// next pass resumes where this one stopped.
+    fn resumed_at(self, next_start: usize) -> Self {
+        Self { next_start, ..self }
     }
 }
 
@@ -255,6 +268,7 @@ impl Health {
             _ => {
                 self.failed.sort_by(|a, b| a.0.cmp(&b.0));
                 Ok(Pass {
+                    next_start: 0,
                     recorded,
                     learned: self.read > 0 || self.failed.is_empty(),
                     failed: self.failed,
@@ -270,6 +284,7 @@ async fn run_pass(
     connection: Uuid,
     cfg: &SamplerConfig,
     clock: &Clock,
+    start: usize,
 ) -> std::result::Result<Pass, TickError> {
     let now_secs = clock();
     let deadline = Instant::now() + pass_deadline(cfg.interval);
@@ -277,6 +292,8 @@ async fn run_pass(
     let targets = discover(store, cfg, &mut health, deadline)
         .await
         .map_err(TickError::Store)?;
+    let total = targets.len();
+    let targets = rotated(targets, start);
     let width = cfg.max_concurrency.max(1);
     let limit = cfg.command_timeout;
     let mut results = stream::iter(targets)
@@ -287,17 +304,30 @@ async fn run_pass(
         })
         .buffer_unordered(width);
     let mut recorded = 0;
+    let mut completed = 0;
+    let mut timed_out = 0;
     let mut timeouts = Streak::for_concurrency(width);
     loop {
         let Ok(next) = tokio::time::timeout_at(deadline, results.next()).await else {
+            let resume = resume_point(start, completed, total);
+            if health.read > 0 && timed_out * SLOW_TOLERANCE <= health.read {
+                log::warn!(
+                    "index usage: the pass ran past its deadline after {completed} of {total} \
+                     collections; the next pass resumes there"
+                );
+                return health.finish(recorded).map(|pass| pass.resumed_at(resume));
+            }
             log::warn!("index usage: the pass ran past its deadline, abandoned");
-            return health.finish(recorded).map(Pass::abandoned);
+            return health.finish(recorded).map(|pass| pass.abandoned(resume));
         };
         let Some((ns, outcome)) = next else { break };
-        timeouts.observe(match &outcome {
+        completed += 1;
+        let answer = match &outcome {
             Ok(_) => Answer::Read,
             Err(error) => Answer::of_error(error.error()),
-        });
+        };
+        timed_out += usize::from(matches!(answer, Answer::TimedOut));
+        timeouts.observe(answer);
         match outcome {
             Ok(count) => {
                 recorded += count;
@@ -312,10 +342,31 @@ async fn run_pass(
                 timeouts.limit
             );
             // Dropping the stream cancels the calls still in flight.
-            return health.finish(recorded).map(Pass::abandoned);
+            let resume = resume_point(start, completed, total);
+            return health.finish(recorded).map(|pass| pass.abandoned(resume));
         }
     }
     health.finish(recorded)
+}
+
+/// A deadline-cut pass counts as slow but healthy while at most one call in this many timed out.
+const SLOW_TOLERANCE: usize = 10;
+
+/// The targets starting at `start` (wrapping), so consecutive cut-short passes cover the whole list.
+fn rotated(mut targets: Vec<Namespace>, start: usize) -> Vec<Namespace> {
+    if !targets.is_empty() {
+        let by = start % targets.len();
+        targets.rotate_left(by);
+    }
+    targets
+}
+
+/// Where the pass that began at `start` and finished `completed` targets leaves the next one.
+fn resume_point(start: usize, completed: usize, total: usize) -> usize {
+    match total {
+        0 => 0,
+        total => (start % total + completed) % total,
+    }
 }
 
 /// How one call of a pass ended.
@@ -563,6 +614,8 @@ struct LoopState {
     last_thin: Option<Instant>,
     /// Names the last pass could not read, so a repeating set is logged once.
     last_failed: Vec<String>,
+    /// Where the next pass starts in the target list (see [`Pass::next_start`]).
+    cursor: usize,
 }
 
 /// The sampler loop. `now` is the wall clock in Unix seconds; tests pass a controlled one.
@@ -600,6 +653,7 @@ impl LoopState {
             reported: None,
             last_thin: None,
             last_failed: Vec::new(),
+            cursor: 0,
         }
     }
 
@@ -721,7 +775,10 @@ async fn tick(
     clock: &Clock,
     state: &mut LoopState,
 ) -> std::result::Result<Pass, TickError> {
-    let pass = run_pass(store, history, connection, cfg, clock).await;
+    let pass = run_pass(store, history, connection, cfg, clock, state.cursor).await;
+    if let Ok(done) = &pass {
+        state.cursor = done.next_start;
+    }
     if matches!(pass, Err(TickError::History(_))) {
         return pass;
     }
