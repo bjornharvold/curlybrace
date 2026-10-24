@@ -43,7 +43,7 @@ pub(super) fn thin(
     remove_empty_series(&tx)?;
     tx.commit().map_err(sql_err)?;
     release_free_pages(conn)?;
-    enforce_cap(conn, max_bytes)?;
+    enforce_cap(conn, max_bytes, now_secs)?;
     remove_empty_series(conn)
 }
 
@@ -187,10 +187,16 @@ fn roll_hourly_into_daily(tx: &Transaction, now_secs: i64) -> Result<()> {
     Ok(())
 }
 
-/// Daily rows, and any raw sample, older than the longest retention are deleted. A sample
-/// stamped ahead of the clock is never deleted for that: reads ignore it, and the clock may be the
-/// one that is wrong (before NTP, after a VM restore), so deleting it could wipe real data and,
-/// with it, whole series.
+/// A sample stamped further than this ahead of the clock is deleted. A clock that is merely
+/// behind (before NTP, after a VM restore) is wrong by under a year in practice, so a row more
+/// than 400 days ahead cannot be real data of a behind clock; it came from a clock that was
+/// far ahead and has since been corrected. Nearer future rows are kept: the clock may be the
+/// wrong one, and deleting them could wipe real data and whole series.
+const FAR_FUTURE_SECS: i64 = 400 * DAY_SECS;
+
+/// Daily rows, and any raw sample, older than the longest retention are deleted, and so is any
+/// sample more than [`FAR_FUTURE_SECS`] ahead of the clock. A sample stamped less far ahead is not
+/// deleted for that (see [`FAR_FUTURE_SECS`]).
 fn expire(tx: &Transaction, now_secs: i64) -> Result<()> {
     let cutoff = now_secs - DAILY_RETENTION_SECS;
     tx.execute(
@@ -198,8 +204,11 @@ fn expire(tx: &Transaction, now_secs: i64) -> Result<()> {
         params![TIER_DAILY, cutoff],
     )
     .map_err(sql_err)?;
-    tx.execute("DELETE FROM samples WHERE at_secs < ?1", [cutoff])
-        .map_err(sql_err)?;
+    tx.execute(
+        "DELETE FROM samples WHERE at_secs < ?1 OR at_secs > ?2",
+        params![cutoff, now_secs.saturating_add(FAR_FUTURE_SECS)],
+    )
+    .map_err(sql_err)?;
     Ok(())
 }
 
@@ -232,23 +241,48 @@ pub(super) fn release_free_pages(conn: &Connection) -> Result<()> {
         .map_err(sql_err)
 }
 
-/// Deletes the oldest rows, daily first, then hourly, then raw, until the file fits.
-fn enforce_cap(conn: &Connection, max_bytes: u64) -> Result<()> {
+/// Deletes rows until the file fits: first the raw rows of series that hold nothing but samples
+/// stamped ahead of the clock (no read can show them), then the oldest daily rows, then hourly,
+/// then raw.
+fn enforce_cap(conn: &Connection, max_bytes: u64, now_secs: i64) -> Result<()> {
+    let believable_until = now_secs.saturating_add(MAX_FUTURE_SKEW_SECS);
     let steps = [
-        "DELETE FROM rolled WHERE (series_id, tier, start_secs) IN (
-             SELECT series_id, tier, start_secs FROM rolled WHERE tier = 2
-             ORDER BY start_secs LIMIT ?1)",
-        "DELETE FROM rolled WHERE (series_id, tier, start_secs) IN (
-             SELECT series_id, tier, start_secs FROM rolled WHERE tier = 1
-             ORDER BY start_secs LIMIT ?1)",
-        "DELETE FROM samples WHERE id IN (SELECT id FROM samples ORDER BY id LIMIT ?1)",
+        (
+            "DELETE FROM samples WHERE id IN (
+                 SELECT id FROM samples
+                 WHERE series_id NOT IN (SELECT series_id FROM rolled)
+                   AND series_id NOT IN (SELECT series_id FROM samples WHERE at_secs <= ?2)
+                 ORDER BY id LIMIT ?1)",
+            true,
+        ),
+        (
+            "DELETE FROM rolled WHERE (series_id, tier, start_secs) IN (
+                 SELECT series_id, tier, start_secs FROM rolled WHERE tier = 2
+                 ORDER BY start_secs LIMIT ?1)",
+            false,
+        ),
+        (
+            "DELETE FROM rolled WHERE (series_id, tier, start_secs) IN (
+                 SELECT series_id, tier, start_secs FROM rolled WHERE tier = 1
+                 ORDER BY start_secs LIMIT ?1)",
+            false,
+        ),
+        (
+            "DELETE FROM samples WHERE id IN (SELECT id FROM samples ORDER BY id LIMIT ?1)
+                ",
+            false,
+        ),
     ];
-    for delete in steps {
+    for (delete, takes_until) in steps {
         loop {
             if used_bytes(conn)? <= max_bytes {
                 return Ok(());
             }
-            let deleted = conn.execute(delete, [CAP_BATCH_ROWS]).map_err(sql_err)?;
+            let deleted = match takes_until {
+                true => conn.execute(delete, params![CAP_BATCH_ROWS, believable_until]),
+                false => conn.execute(delete, [CAP_BATCH_ROWS]),
+            }
+            .map_err(sql_err)?;
             release_free_pages(conn)?;
             if deleted == 0 {
                 break;

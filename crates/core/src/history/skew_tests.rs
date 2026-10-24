@@ -167,3 +167,56 @@ fn a_clock_one_year_behind_that_keeps_sampling_for_days_never_deletes_the_real_r
         .collect();
     assert_eq!(real.len(), 3, "real rows deleted: {real:?}");
 }
+
+fn other_key() -> SeriesKey {
+    SeriesKey {
+        collection: "dead".into(),
+        ..key()
+    }
+}
+
+fn real_stamps(db: &HistoryDb) -> usize {
+    stored_stamps(db)
+        .into_iter()
+        .filter(|&at| at <= NOW)
+        .count()
+}
+
+#[test]
+fn the_size_cap_drops_a_series_of_only_future_rows_before_real_history() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    for i in 0..600 {
+        db.record(&key(), s(NOW - 36_000 + 60 * i, 10 + i)).unwrap();
+    }
+    // Recorded later, so a cap that deletes by id would take the real rows first.
+    for i in 0..600 {
+        db.record(&other_key(), s(NOW + 10 * DAY + 60 * i, 10 + i))
+            .unwrap();
+    }
+    let capped = db.with_max_bytes_from_used(4_096);
+
+    capped.thin(NOW, MAX).unwrap();
+
+    assert_eq!(real_stamps(&capped), 600, "real history is untouched");
+    assert!(
+        stored_stamps(&capped).len() < 1_200,
+        "the dead series gave way"
+    );
+}
+
+#[test]
+fn a_row_more_than_400_days_ahead_is_expired_but_a_nearer_one_is_kept() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    db.record(&key(), s(NOW - 60, 10)).unwrap();
+    db.record(&key(), s(NOW + 399 * DAY, 11)).unwrap();
+    db.record(&other_key(), s(NOW + 401 * DAY, 1)).unwrap();
+
+    db.thin(NOW, MAX).unwrap();
+
+    assert_eq!(stored_stamps(&db), vec![NOW - 60, NOW + 399 * DAY]);
+    assert_eq!(
+        series_count(&db),
+        1,
+        "the series of the expired row is forgotten"
+    );
+}
