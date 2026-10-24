@@ -36,10 +36,7 @@ fn runtime(dir: &tempfile::TempDir) -> RuntimeHandle {
     let config = RuntimeConfig {
         command_timeout: LIMIT,
         history_path: Some(dir.path().join("history.sqlite")),
-        sampler: SamplerConfig {
-            interval: Duration::from_secs(1),
-            ..SamplerConfig::default()
-        },
+        sampler: SamplerConfig::default().with_interval(Duration::from_secs(1)),
         ..RuntimeConfig::default()
     };
     spawn_runtime_with_config(

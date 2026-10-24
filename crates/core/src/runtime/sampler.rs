@@ -60,12 +60,17 @@ pub struct SamplerConfig {
     pub excluded_dbs: BTreeSet<String>,
     /// Most `index_stats` calls in flight at once.
     pub max_concurrency: usize,
-    /// Longest one store call of a pass may take. The runtime sets it to its own
-    /// `command_timeout` when it starts.
-    pub command_timeout: Duration,
+    /// Longest one store call of a pass may take. Not public: the runtime derives it from
+    /// `RuntimeConfig::command_timeout`, the single source of truth, when it starts.
+    pub(crate) command_timeout: Duration,
 }
 
 impl SamplerConfig {
+    /// The same tunables with another time between two passes.
+    pub fn with_interval(self, interval: Duration) -> Self {
+        Self { interval, ..self }
+    }
+
     /// The same tunables with the interval raised to [`MIN_INTERVAL`]: a zero interval would make
     /// a paused sampler retry in a tight loop.
     pub fn clamped(self) -> Self {

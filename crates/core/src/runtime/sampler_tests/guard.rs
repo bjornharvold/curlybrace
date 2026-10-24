@@ -184,3 +184,17 @@ async fn database_listings_that_never_answer_end_discovery_after_a_few_timeouts(
     assert_eq!(began.elapsed(), secs(10 * MAX_CONSECUTIVE_TIMEOUTS as u64));
     assert!(store.called().is_empty(), "no collection was ever read");
 }
+
+#[test]
+fn the_interval_is_the_only_public_tunable_a_caller_changes_and_the_timeout_stays() {
+    let base = SamplerConfig::default();
+    let changed = base.clone().with_interval(secs(7));
+    assert_eq!(changed.interval, secs(7));
+    assert_eq!(
+        SamplerConfig {
+            interval: base.interval,
+            ..changed
+        },
+        base
+    );
+}
