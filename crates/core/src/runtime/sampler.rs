@@ -171,6 +171,9 @@ struct Pass {
 struct Health {
     /// Collections read without an error, plus databases listed that had none to read.
     answered: usize,
+    /// Collections whose usage was actually read and recorded; a database with nothing to read
+    /// adds none, so it cannot make a pass of failures look like a pass that learned something.
+    read: usize,
     first_pause: Option<TickError>,
     history: Option<TickError>,
     failed: Vec<(String, CoreError)>,
@@ -200,7 +203,7 @@ impl Health {
                 self.failed.sort_by(|a, b| a.0.cmp(&b.0));
                 Ok(Pass {
                     recorded,
-                    learned: self.answered > 0 || self.failed.is_empty(),
+                    learned: self.read > 0 || self.failed.is_empty(),
                     failed: self.failed,
                 })
             }
@@ -232,6 +235,7 @@ async fn run_pass(
             Ok(count) => {
                 recorded += count;
                 health.answered += 1;
+                health.read += 1;
             }
             Err(error) => health.note(error, format!("{}.{}", ns.db, ns.collection)),
         }

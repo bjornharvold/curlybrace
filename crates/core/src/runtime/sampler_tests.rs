@@ -681,6 +681,26 @@ async fn a_pass_where_every_collection_failed_reports_failing_not_running() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_database_with_nothing_to_sample_does_not_make_a_failed_pass_look_learned() {
+    // `shop` has two collections that all fail; `reports` holds only a view, so it is listed
+    // without anything to read.
+    let store = Arc::new(
+        ProbeStore::new(store_with(&[
+            ("shop", "orders"),
+            ("shop", "users"),
+            ("reports", "monthly"),
+        ]))
+        .with_kinds("reports", &[("monthly", CollectionKind::View)]),
+    );
+    store.fail(None, Some(CoreError::Database("boom".into())));
+
+    let (handle, mut status, _cfg) = start(store.clone(), history(), SamplerConfig::default());
+
+    assert_eq!(status.recv().await, Some(SamplerStatus::Failing));
+    handle.abort();
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_failing_database_listing_reports_failing() {
     let store = Arc::new(ProbeStore::new(store_with(&[("shop", "orders")])));
     store.fail_databases(Some(CoreError::Database("boom".into())));
