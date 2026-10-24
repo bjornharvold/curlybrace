@@ -39,7 +39,7 @@ use super::seam;
 use super::series::{MAX_FUTURE_SKEW_SECS, bucketize_within, derive};
 use super::usage::{clip_gap, trusted_seam};
 use crate::error::Result;
-use rusqlite::{Connection, Transaction, params};
+use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 
 /// Rows deleted per step while enforcing the size cap.
 const CAP_BATCH_ROWS: i64 = 500;
@@ -50,7 +50,12 @@ pub(super) fn thin(
     max_bytes: u64,
     max_continuous_secs: i64,
 ) -> Result<()> {
-    let tx = conn.transaction().map_err(sql_err)?;
+    // Immediate: this transaction reads before it writes, and in WAL mode a commit by another
+    // connection in between would fail a deferred one at once. The busy timeout covers the wait
+    // for the lock instead.
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(sql_err)?;
     roll_raw_into_hourly(&tx, now_secs, max_continuous_secs)?;
     roll_hourly_into_daily(&tx, now_secs)?;
     expire(&tx, now_secs)?;

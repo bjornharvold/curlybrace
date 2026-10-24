@@ -23,6 +23,8 @@ mod skew_tests;
 mod thin;
 #[cfg(test)]
 mod thin_gate_tests;
+#[cfg(test)]
+mod thin_lock_tests;
 mod usage;
 
 pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView, is_history_busy};

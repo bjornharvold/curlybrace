@@ -39,6 +39,8 @@ tempfile = "3.27.0"
 # The sampler tests drive tokio's paused clock.
 tokio = { version = "1.53.2", features = ["full", "test-util"] }
 proptest = "1.5"
+# The thinning tests commit from a second connection in the middle of a statement.
+rusqlite = { version = "0.40.2", features = ["bundled", "hooks"] }
 curlybrace-testkit = { path = "../testkit" }
 # Integration tests share the fixtures behind the `test-support` feature.
 curlybrace-core = { path = ".", features = ["test-support"] }
