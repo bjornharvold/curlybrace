@@ -511,3 +511,52 @@ fn a_request_number_is_never_reused_across_collections() {
     let (s, _) = event(s, listing(1, &["stale"]));
     assert!(s.indexes.indexes.is_empty());
 }
+
+fn read_failed(request: u64, context: &'static str) -> Event {
+    Event::RequestFailed {
+        session: EMBEDDED_SESSION,
+        context,
+        request,
+        error: CoreError::NotFound,
+    }
+}
+
+/// Request 1 answered, request 2 (a refresh) still in flight.
+fn awaiting_the_second_request() -> AppState {
+    let (s, _) = open_tab(connected());
+    let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
+    event(s, listing(1, &["old"])).0
+}
+
+#[test]
+fn a_late_failure_of_an_older_request_neither_ends_the_wait_nor_raises_a_banner() {
+    for context in ["list_indexes", "index_history"] {
+        let s = awaiting_the_second_request();
+        let before = s.indexes.clone();
+        let (after, commands) = event(s, read_failed(1, context));
+        assert!(commands.is_empty());
+        assert!(after.indexes.loading, "request 2 is still awaited");
+        assert_eq!(
+            after.banner, None,
+            "{context}: no banner over the newer data"
+        );
+        assert_eq!(after.indexes, before);
+    }
+}
+
+#[test]
+fn a_failure_of_the_newest_request_settles_it_and_raises_the_banner() {
+    let (s, _) = open_tab(connected());
+    let (s, _) = update(s, Input::Indexes(IndexesAction::Refresh));
+
+    let (s, _) = event(s, read_failed(2, "list_indexes"));
+
+    assert!(!s.indexes.loading);
+    assert_eq!(
+        s.banner,
+        Some(Banner::Failure {
+            context: "list_indexes",
+            error: CoreError::NotFound,
+        })
+    );
+}

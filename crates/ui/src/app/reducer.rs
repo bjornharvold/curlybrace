@@ -214,6 +214,26 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
+        // A failed numbered read settles only the request still awaited: a late failure of an
+        // older one must not end the wait for the newer or put a banner over its data. The
+        // current one fails like any other command.
+        Event::RequestFailed {
+            session,
+            context,
+            request,
+            error,
+        } => match state.indexes.request == request {
+            true => on_session_event(
+                state,
+                Event::Failed {
+                    session,
+                    context,
+                    error,
+                },
+                background,
+            ),
+            false => (state, Vec::new()),
+        },
         Event::Indexes {
             ns,
             indexes,

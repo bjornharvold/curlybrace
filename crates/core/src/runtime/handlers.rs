@@ -38,6 +38,13 @@ impl Work {
             Self::Data(command) => command.context(),
         }
     }
+
+    fn request(&self) -> Option<u64> {
+        match self {
+            Self::Connect { .. } => None,
+            Self::Data(command) => command.request(),
+        }
+    }
 }
 
 /// Runs `work` to completion, folding any error into `Event::Failed`.
@@ -48,33 +55,40 @@ pub(super) async fn execute(
     work: Work,
     generation: u64,
 ) -> Event {
-    let context = work.context();
+    let (context, request) = (work.context(), work.request());
     match run(&shared, &session, id, work, generation).await {
         Ok(event) => event,
-        Err(error) => failure_event(id, context, generation, error),
+        Err(error) => failure_event(id, context, request, generation, error),
     }
 }
 
 /// The event for a failed command. A real (not superseded) connect failure is stamped with the
-/// connect's own epoch so receivers can tell it from a newer request's outcome.
+/// connect's own epoch so receivers can tell it from a newer request's outcome; a numbered read
+/// (`request`) echoes its number.
 pub(super) fn failure_event(
     session: SessionId,
     context: &'static str,
+    request: Option<u64>,
     generation: u64,
     error: CoreError,
 ) -> Event {
-    if context == "connect" && error != CoreError::Superseded {
-        Event::ConnectFailed {
+    match request {
+        _ if context == "connect" && error != CoreError::Superseded => Event::ConnectFailed {
             session,
             epoch: generation,
             error,
-        }
-    } else {
-        Event::Failed {
+        },
+        Some(request) => Event::RequestFailed {
+            session,
+            context,
+            request,
+            error,
+        },
+        None => Event::Failed {
             session,
             context,
             error,
-        }
+        },
     }
 }
 

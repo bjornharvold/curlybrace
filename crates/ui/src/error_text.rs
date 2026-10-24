@@ -18,7 +18,9 @@ pub fn error_detail(e: &CoreError) -> Option<&str> {
 /// The log line for a failed command; superseded answers are noise and are not logged.
 pub fn failure_log_line(ev: &Event) -> Option<String> {
     let (context, error) = match ev {
-        Event::Failed { context, error, .. } => (*context, error),
+        Event::Failed { context, error, .. } | Event::RequestFailed { context, error, .. } => {
+            (*context, error)
+        }
         Event::ConnectFailed { error, .. } => ("connect", error),
         Event::Compare(compare) => return compare_log_line(compare),
         _ => return None,

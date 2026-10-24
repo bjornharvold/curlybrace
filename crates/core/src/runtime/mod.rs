@@ -31,6 +31,8 @@ mod index_facts_tests;
 #[cfg(test)]
 mod index_history_tests;
 #[cfg(test)]
+mod index_request_failed_tests;
+#[cfg(test)]
 mod index_tests;
 mod indexes;
 mod job_flag;
@@ -284,6 +286,16 @@ impl Command {
         }
     }
 
+    /// The number a numbered read carries (echoed by its answer and its failure).
+    pub fn request(&self) -> Option<u64> {
+        match self {
+            Self::ListIndexes { request, .. } | Self::IndexHistory { request, .. } => {
+                Some(*request)
+            }
+            _ => None,
+        }
+    }
+
     /// i18n key suffix reported in [`Event::Failed`] for this command.
     pub fn context(&self) -> &'static str {
         match self {
@@ -389,6 +401,15 @@ pub enum Event {
         context: &'static str,
         error: CoreError,
     },
+    /// A numbered read (`ListIndexes`, `IndexHistory`) failed. Like [`Event::Failed`], plus the
+    /// `request` the command carried, so a failure of an older request can be told from the one
+    /// of the request still awaited.
+    RequestFailed {
+        session: SessionId,
+        context: &'static str,
+        request: u64,
+        error: CoreError,
+    },
     /// An answer or progress report of a compare session (see [`compare`]).
     Compare(crate::compare::protocol::CompareEvent),
     /// The answer to `Command::TestConnection { request_id, .. }`; carries no secret.
@@ -456,7 +477,8 @@ impl Event {
             | Self::EstimatedCount { session, .. }
             | Self::IndexChanged { session, .. }
             | Self::Sampler { session, .. }
-            | Self::Failed { session, .. } => Some(*session),
+            | Self::Failed { session, .. }
+            | Self::RequestFailed { session, .. } => Some(*session),
             Self::Compare(_) | Self::TestConnection { .. } => None,
         }
     }
@@ -646,6 +668,7 @@ fn dispatch(
         return;
     }
     let context = command.context();
+    let request = command.request();
     // Synchronous, so request order decides which connection wins.
     let (target, work) = match command {
         Command::Connect(cfg) => {
@@ -666,11 +689,13 @@ fn dispatch(
         data => {
             let id = data.session().expect("a data command names its session");
             let Some(session) = shared.session(id) else {
-                let unknown = Event::Failed {
-                    session: id,
+                let unknown = handlers::failure_event(
+                    id,
                     context,
-                    error: CoreError::Unsupported("not connected".into()),
-                };
+                    request,
+                    0,
+                    CoreError::Unsupported("not connected".into()),
+                );
                 if events.send(unknown).is_ok() {
                     repaint();
                 }
@@ -694,6 +719,7 @@ fn dispatch(
             Err(_) => handlers::failure_event(
                 id,
                 context,
+                request,
                 generation,
                 handlers::gate(
                     &session,
