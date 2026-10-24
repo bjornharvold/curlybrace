@@ -378,7 +378,22 @@ fn open_file(path: &Path) -> std::result::Result<HistoryDb, OpenFailure> {
     create_private_file(path).map_err(|e| OpenFailure::Other(io_err(e)))?;
     let mut conn = Connection::open(path)?;
     prepare(&mut conn)?;
+    enable_wal(&conn)?;
     Ok(HistoryDb::from_connection(conn))
+}
+
+/// Write-ahead logging with `synchronous=NORMAL`: a commit appends to the log without an fsync
+/// of its own (the log is synced at checkpoints), which is what makes one commit per collection
+/// cheap. A crash can lose the last commits but never corrupts the file. Set after the schema
+/// so `auto_vacuum` on a fresh file still takes effect first. SQLite gives `-wal` and `-shm` the
+/// mode of the database file, so they are as private (0600) as it.
+fn enable_wal(conn: &Connection) -> rusqlite::Result<()> {
+    let mode: String = conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
+    if !mode.eq_ignore_ascii_case("wal") {
+        // A file system without shared memory: the database works, only slower.
+        log::warn!("history database stays in {mode} journal mode");
+    }
+    conn.pragma_update(None, "synchronous", "NORMAL")
 }
 
 /// Makes sure the file exists with mode 0600 before SQLite opens it, so it is never readable by
@@ -420,5 +435,24 @@ fn set_aside(path: &Path) -> Result<PathBuf> {
         .find(|candidate| !candidate.exists())
         .ok_or_else(|| CoreError::Database("history file: no free set-aside name".into()))?;
     std::fs::rename(path, &target).map_err(io_err)?;
+    set_aside_sidecars(path, &target)?;
     Ok(target)
+}
+
+/// Moves the `-wal` and `-shm` files of the damaged database next to it, so a fresh database
+/// at `path` never meets a log that belongs to the old one.
+fn set_aside_sidecars(path: &Path, target: &Path) -> Result<()> {
+    for suffix in ["-wal", "-shm"] {
+        let from = sidecar(path, suffix);
+        if from.exists() {
+            std::fs::rename(&from, sidecar(target, suffix)).map_err(io_err)?;
+        }
+    }
+    Ok(())
+}
+
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
 }

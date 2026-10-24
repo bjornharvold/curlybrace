@@ -5,6 +5,8 @@ pub mod db;
 mod db_schema;
 #[cfg(test)]
 mod db_tests;
+#[cfg(test)]
+mod db_wal_tests;
 pub mod retention;
 pub mod series;
 #[cfg(test)]
