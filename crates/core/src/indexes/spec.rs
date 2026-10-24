@@ -65,7 +65,10 @@ pub struct IndexSpec {
 
 impl KeyKind {
     fn from_bson(field: &str, value: &Bson) -> Result<Self> {
-        if field.ends_with("$**") {
+        // `$**` is a wildcard only with a numeric direction; `"columnstore"` and the like are
+        // other index types and must round-trip as they are.
+        let numeric = matches!(value, Bson::Int32(_) | Bson::Int64(_) | Bson::Double(_));
+        if field.ends_with("$**") && numeric {
             return Ok(Self::Wildcard);
         }
         match value {

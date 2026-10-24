@@ -64,6 +64,26 @@ fn from_document_reads_text_geo_and_wildcard_keys() {
 }
 
 #[test]
+fn a_non_numeric_wildcard_marker_is_not_a_wildcard_key() {
+    let doc = doc! { "key": { "$**": "columnstore" }, "name": "cs" };
+    let spec = IndexSpec::from_document(&doc).unwrap();
+    assert_eq!(
+        spec.keys,
+        vec![key("$**", KeyKind::Other("columnstore".into()))]
+    );
+    // It goes back out as the server wrote it, not as `{ "$**": 1 }`.
+    assert_eq!(
+        spec.create_command("c").get_array("indexes").unwrap()[0]
+            .as_document()
+            .unwrap()
+            .get_document("key"),
+        Ok(&doc! { "$**": "columnstore" })
+    );
+    let nested = IndexSpec::from_document(&doc! { "key": { "a.$**": -1_i32 }, "name": "w" });
+    assert_eq!(nested.unwrap().keys, vec![key("a.$**", KeyKind::Wildcard)]);
+}
+
+#[test]
 fn from_document_rejects_a_document_without_key_or_name() {
     assert!(IndexSpec::from_document(&doc! { "name": "x" }).is_err());
     assert!(IndexSpec::from_document(&doc! { "key": { "a": 1_i32 } }).is_err());
