@@ -219,7 +219,9 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // current one fails like any other command. A lost connection of an older request counts
         // only while the session has not answered anything sent after it: a later answer proves
         // the server reachable, and the failure is a late echo of an outage that is over. When it
-        // counts, it must still not end the wait for the newer request.
+        // counts, it must still not end the wait for the newer request. Known limitation: a real
+        // loss witnessed only by an older request that was answered after a newer one is ignored
+        // here; the sampler status reports `ConnectionLost` on its own.
         Event::RequestFailed {
             session,
             context,

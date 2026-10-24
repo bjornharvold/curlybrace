@@ -248,3 +248,30 @@ fn a_clock_at_the_epoch_deletes_nothing() {
     assert_eq!(stored_stamps(&db).len(), 3);
     assert_eq!(series_count(&db), 1);
 }
+
+#[test]
+fn the_size_cap_drops_future_only_raw_rows_even_when_the_series_has_rolled_rows() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    for i in 0..600 {
+        db.record(&key(), s(NOW - 36_000 + 60 * i, 10 + i)).unwrap();
+    }
+    for i in 0..600 {
+        db.record(&other_key(), s(NOW + 10 * DAY + 60 * i, 10 + i))
+            .unwrap();
+    }
+    {
+        // What a clock that ran ahead leaves: rolled rows beside raw rows that are all ahead.
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO rolled (series_id, tier, start_secs, uses, restarts, gap_secs)
+             SELECT id, 1, ?1, 5, 0, 0 FROM series WHERE collection = 'dead'",
+            [NOW + 9 * DAY],
+        )
+        .unwrap();
+    }
+    let capped = db.with_max_bytes_from_used(4_096);
+
+    capped.thin(NOW, MAX).unwrap();
+
+    assert_eq!(real_stamps(&capped), 600, "real history is untouched");
+}

@@ -54,6 +54,12 @@ pub enum Recovery {
 }
 
 /// The sample store.
+///
+/// Retention rules: history is never deleted because of a wall-clock comparison that can be
+/// wrong. Samples and daily rows leave by age (`now - retention`) only; a sample stamped ahead of
+/// the clock is ignored by reads but never expired for that; a raw row is deleted only once
+/// rolled into an hourly row; a `rolled_through` ahead of the clock is not trusted. Only the size
+/// cap may delete by stamp, dropping future-only series first. See `thin` for the details.
 pub struct HistoryDb {
     pub(super) conn: Mutex<Connection>,
     max_bytes: u64,

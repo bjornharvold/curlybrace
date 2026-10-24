@@ -16,6 +16,19 @@
 //! so no hour is rolled twice. To keep the seconds of a gap that straddles the cutoff, the
 //! roll derives over the baseline plus the next sample and keeps only the buckets before the
 //! cutoff; reads clip that gap's earlier part from the raw side (see [`super::usage`]).
+//!
+//! ## The deletion rules
+//!
+//! History is never deleted because of a wall-clock comparison that can be wrong; the clock may
+//! be behind (a dead RTC before NTP) or ahead.
+//!
+//! - Samples and daily rows leave by age only: older than `now - retention`. A sample stamped
+//!   ahead of the clock is never expired for that, however far; reads ignore it.
+//! - A raw row is deleted only when the roll folded it: it is older than the baseline and not
+//!   past what was rolled in the same transaction.
+//! - A stored `rolled_through` ahead of the clock (it ran ahead and was corrected) is not
+//!   trusted: the seam falls back to the oldest raw sample, so rolling resumes at once.
+//! - Only the size cap may delete by stamp: it drops series of future-only rows first.
 
 use super::db::sql_err;
 use super::db_schema::{TIER_DAILY, TIER_HOURLY};
@@ -233,17 +246,20 @@ pub(super) fn release_free_pages(conn: &Connection) -> Result<()> {
         .map_err(sql_err)
 }
 
-/// Deletes rows until the file fits: first the raw rows of series that hold nothing but samples
-/// stamped ahead of the clock (no read can show them), then the oldest daily rows, then hourly,
-/// then raw.
+/// Deletes rows until the file fits: first the raw rows of series that hold no sample the reads
+/// can see (all stamped ahead of the clock, whether or not they also have rolled rows), then the
+/// oldest daily rows, then hourly, then raw.
+///
+/// The cap is the one place a wall-clock comparison deletes samples: with a clock *behind*, the
+/// real rows of a dead series look like future ones and go first. That is acceptable, because
+/// the cap is already deleting data; below the cap nothing is ever deleted for its stamp.
 fn enforce_cap(conn: &Connection, max_bytes: u64, now_secs: i64) -> Result<()> {
     let believable_until = now_secs.saturating_add(MAX_FUTURE_SKEW_SECS);
     let steps = [
         (
             "DELETE FROM samples WHERE id IN (
                  SELECT id FROM samples
-                 WHERE series_id NOT IN (SELECT series_id FROM rolled)
-                   AND series_id NOT IN (SELECT series_id FROM samples WHERE at_secs <= ?2)
+                 WHERE series_id NOT IN (SELECT series_id FROM samples WHERE at_secs <= ?2)
                  ORDER BY id LIMIT ?1)",
             true,
         ),
