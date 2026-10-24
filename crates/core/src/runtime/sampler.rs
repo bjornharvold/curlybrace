@@ -339,8 +339,8 @@ impl Progress {
         }
     }
 
-    /// Takes one collection's outcome in. `true` when the pass must stop: too many calls in a
-    /// row timed out.
+    /// Takes one collection's outcome in. `true` when the pass must stop: the history cannot be
+    /// written, or too many calls in a row timed out.
     fn observe(&mut self, ns: &Namespace, outcome: std::result::Result<usize, TickError>) -> bool {
         self.completed += 1;
         let answer = match &outcome {
@@ -358,6 +358,11 @@ impl Progress {
             Err(error) => self
                 .health
                 .note(error, format!("{}.{}", ns.db, ns.collection)),
+        }
+        if self.health.history.is_some() {
+            // Every further read would be thrown away: the pass fails with this error.
+            log::warn!("index usage: the history cannot be written, pass ended");
+            return true;
         }
         let exhausted = self.timeouts.exhausted();
         if exhausted {
