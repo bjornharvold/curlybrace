@@ -80,18 +80,44 @@ fn the_database_and_its_wal_files_are_private() {
     }
 }
 
+/// A real `-wal` file, read while the connection that wrote it is open and has not checkpointed.
+fn live_wal_bytes(dir: &std::path::Path) -> Vec<u8> {
+    let conn = rusqlite::Connection::open(dir.join("source.sqlite")).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+    conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+    conn.execute_batch("CREATE TABLE t (n INTEGER); INSERT INTO t VALUES (1), (2), (3);")
+        .unwrap();
+    let bytes = std::fs::read(dir.join("source.sqlite-wal")).unwrap();
+    assert!(bytes.len() > 32, "the log holds frames");
+    bytes
+}
+
+/// The set-aside copy of a damaged database keeps the log that belongs to it, and the path of the
+/// fresh database is left without one. (Through `open`, SQLite usually deletes the log of an
+/// unreadable file itself while closing the failed connection, so the move is tested here.)
 #[test]
-fn a_stale_wal_of_a_corrupt_database_does_not_reach_the_fresh_one() {
+fn set_aside_moves_the_wal_and_shm_files_along_with_the_database() {
     let dir = tempfile::tempdir().unwrap();
+    let wal = live_wal_bytes(dir.path());
     let path = dir.path().join("history.sqlite");
     std::fs::write(&path, vec![0xAB_u8; 4_096]).unwrap();
-    std::fs::write(dir.path().join("history.sqlite-wal"), b"stale wal").unwrap();
-    let (db, recovery) = HistoryDb::open(&path).unwrap();
-    assert!(recovery.is_some());
-    db.record(&key(), sample()).unwrap();
-    assert_eq!(db.latest(&key()).unwrap(), Some(sample()));
-    let wal = std::fs::read(dir.path().join("history.sqlite-wal")).unwrap();
-    assert!(!wal.windows(9).any(|w| w == b"stale wal"));
+    std::fs::write(dir.path().join("history.sqlite-wal"), &wal).unwrap();
+    std::fs::write(dir.path().join("history.sqlite-shm"), b"index").unwrap();
+
+    let aside = set_aside(&path).unwrap();
+
+    assert_eq!(aside, dir.path().join("history.sqlite.corrupt"));
+    assert_eq!(
+        std::fs::read(dir.path().join("history.sqlite.corrupt-wal")).unwrap(),
+        wal
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("history.sqlite.corrupt-shm")).unwrap(),
+        b"index"
+    );
+    assert!(!path.exists());
+    assert!(!dir.path().join("history.sqlite-wal").exists());
+    assert!(!dir.path().join("history.sqlite-shm").exists());
 }
 
 fn busy() -> rusqlite::Error {

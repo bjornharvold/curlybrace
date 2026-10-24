@@ -503,7 +503,7 @@ fn create_private_file(path: &Path) -> std::io::Result<()> {
 
 /// Moves a damaged database to `<name>.corrupt` (`.corrupt.1`, `.corrupt.2`, ... when taken, so
 /// an earlier set-aside file is never overwritten).
-fn set_aside(path: &Path) -> Result<PathBuf> {
+pub(super) fn set_aside(path: &Path) -> Result<PathBuf> {
     let name = path
         .file_name()
         .ok_or_else(|| CoreError::Database("history file: path has no file name".into()))?
