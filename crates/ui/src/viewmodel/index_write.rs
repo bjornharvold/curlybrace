@@ -92,7 +92,7 @@ impl TtlPrompt {
             .text
             .trim()
             .parse::<i64>()
-            .map_err(|_| negative_ttl())?;
+            .map_err(|_| BuilderProblem::TtlNotANumber)?;
         ttl_problem(seconds).map_or(Ok(seconds), Err)
     }
 }

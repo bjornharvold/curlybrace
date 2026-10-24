@@ -724,6 +724,7 @@
       "problem_same_keys": "The index {name} already has the same fields, collation, partial filter, unique, sparse and wildcard projection, so the server will not create another one. To change only its TTL or visibility, use {ttl}, {hide} or {unhide}; otherwise change the fields or one of those options.",
       "problem_ttl_keys": "An expiring (TTL) index needs exactly one ascending or descending field.",
       "problem_ttl_non_negative": "The expiry must be zero or more whole seconds.",
+      "problem_ttl_not_a_number": "The expiry must be a whole number of seconds.",
       "problem_unrebuildable": "This text index was listed without its fields, so it cannot be copied without changing it.",
       "remove_key": "Remove",
       "remove_key_n": "Remove field {n}",
