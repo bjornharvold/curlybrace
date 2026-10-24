@@ -7,7 +7,6 @@ use crate::history::{
     ChartRange, DEFAULT_MAX_CONTINUOUS_SECS, HistoryDb, Sample, SeriesKey, max_continuous_secs,
 };
 use crate::indexes::KeyKind;
-use crate::store::CollectionIndex;
 use crate::test_support::mock_objects::mock_index_spec_named;
 use uuid::Uuid;
 
@@ -42,10 +41,7 @@ async fn the_facts_are_identical_for_every_range() {
             .unwrap();
         at += 60;
     }
-    let listed = [CollectionIndex {
-        spec,
-        size_bytes: 0,
-    }];
+    let listed = [spec];
     let ns = Namespace::new("shop", "orders");
 
     let mut seen = Vec::new();
@@ -90,10 +86,7 @@ async fn samples_five_minutes_apart_are_continuous_at_a_five_minute_interval() {
         };
         history.record(&key, sample).unwrap();
     }
-    let listed = [CollectionIndex {
-        spec,
-        size_bytes: 0,
-    }];
+    let listed = [spec];
     let ns = Namespace::new("shop", "orders");
     let gap_secs = |max_continuous| {
         let history = history.clone();

@@ -262,9 +262,10 @@ async fn data_command(
             }
         }
         Command::IndexHistory { ns, range, .. } => {
-            // Without history there is nothing to restrict, so skip the round trip.
+            // Without history there is nothing to restrict, so skip the round trip. Only names and
+            // definitions are needed, so the sizes (a `collStats` call) are not read.
             let listed = match history {
-                Some(_) => store.list_indexes(&ns).await?,
+                Some(_) => store.list_index_specs(&ns).await?,
                 None => Vec::new(),
             };
             let series =

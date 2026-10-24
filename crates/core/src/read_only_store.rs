@@ -137,6 +137,10 @@ impl DocumentStore for ReadOnlyStore {
         self.inner.list_indexes(ns).await
     }
 
+    async fn list_index_specs(&self, ns: &Namespace) -> Result<Vec<IndexSpec>> {
+        self.inner.list_index_specs(ns).await
+    }
+
     async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
         self.inner.index_stats(ns).await
     }

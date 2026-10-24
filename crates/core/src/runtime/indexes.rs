@@ -13,7 +13,8 @@ use super::{Event, Repaint, SessionId, Shared};
 use crate::clock;
 use crate::error::{CoreError, Result};
 use crate::history::{Bucket, ChartRange, HistoryDb, Recovery, Sample};
-use crate::store::{CollectionIndex, Namespace};
+use crate::indexes::IndexSpec;
+use crate::store::Namespace;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 /// One plotted series of the Indexes tab: an index definition on one node.
@@ -71,7 +72,7 @@ pub(super) async fn series_for(
     session: SessionId,
     ns: &Namespace,
     range: ChartRange,
-    listed: &[CollectionIndex],
+    listed: &[IndexSpec],
     max_continuous: i64,
 ) -> Result<Vec<IndexSeries>> {
     let Some(history) = history else {
@@ -80,7 +81,7 @@ pub(super) async fn series_for(
     let ns = ns.clone();
     let listed: HashSet<(String, String)> = listed
         .iter()
-        .map(|index| (index.spec.name.clone(), index.spec.definition_hash()))
+        .map(|spec| (spec.name.clone(), spec.definition_hash()))
         .collect();
     tokio::task::spawn_blocking(move || {
         let now = clock::now_secs();

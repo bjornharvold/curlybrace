@@ -366,6 +366,32 @@ async fn list_indexes_reports_a_size_for_every_index() {
 
 #[tokio::test]
 #[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn list_index_specs_matches_list_indexes_without_the_sizes() {
+    if !docker_enabled("list_index_specs_matches_list_indexes_without_the_sizes") {
+        return;
+    }
+    let (_c, _client, store) = docker_mongo().await;
+    seed(&store, 10).await;
+    let wanted = spec("a_1", &[("a", KeyKind::Asc)], IndexOptions::default());
+    store.create_index(&ns(), &wanted).await.unwrap();
+    let full: Vec<_> = store
+        .list_indexes(&ns())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|index| index.spec)
+        .collect();
+    assert_eq!(store.list_index_specs(&ns()).await, Ok(full));
+    assert_eq!(
+        store
+            .list_index_specs(&Namespace::new("nope", "missing"))
+            .await,
+        Ok(Vec::new())
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
 async fn listing_a_missing_collection_is_empty() {
     if !docker_enabled("listing_a_missing_collection_is_empty") {
         return;

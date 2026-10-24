@@ -158,6 +158,10 @@ impl DocumentStore for RecordingStore {
             size_bytes: 4096,
         }])
     }
+    async fn list_index_specs(&self, _ns: &Namespace) -> Result<Vec<IndexSpec>> {
+        self.hit("list_index_specs");
+        Ok(vec![mock_index_spec()])
+    }
     async fn index_stats(&self, _ns: &Namespace) -> Result<Vec<IndexUsage>> {
         self.hit("index_stats");
         Ok(vec![IndexUsage {
@@ -261,6 +265,15 @@ async fn read_only_refuses_create_drop_hide_and_ttl() {
     for w in &WRITES[4..] {
         assert_eq!(inner.count(w), 1, "{w}");
     }
+}
+
+#[tokio::test]
+async fn read_only_forwards_list_index_specs_to_the_store_that_can_skip_the_sizes() {
+    let (inner, _flag, store) = wrapped(true);
+    let specs = store.list_index_specs(&ns()).await.unwrap();
+    assert_eq!(specs, vec![mock_index_spec()]);
+    assert_eq!(inner.count("list_index_specs"), 1);
+    assert_eq!(inner.count("list_indexes"), 0, "no sizes were asked for");
 }
 
 #[tokio::test]

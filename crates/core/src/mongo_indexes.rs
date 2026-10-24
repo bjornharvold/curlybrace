@@ -50,20 +50,42 @@ pub(crate) async fn list_indexes(
     ns: &Namespace,
     db_err: fn(mongodb::error::Error) -> CoreError,
 ) -> Result<Vec<CollectionIndex>> {
+    let Some(batch) = listing_batch(db, ns, db_err).await? else {
+        return Ok(Vec::new());
+    };
+    let sizes = index_sizes(db, ns, db_err).await;
+    Ok(collection_indexes(&batch, &sizes))
+}
+
+/// [`list_indexes`] without the sizes: one `listIndexes` and no `collStats`.
+pub(crate) async fn list_index_specs(
+    db: &Database,
+    ns: &Namespace,
+    db_err: fn(mongodb::error::Error) -> CoreError,
+) -> Result<Vec<IndexSpec>> {
+    let batch = listing_batch(db, ns, db_err).await?;
+    Ok(readable_specs(batch.as_deref().unwrap_or_default()))
+}
+
+/// The first batch of `listIndexes`; `None` for a collection that is missing or a view.
+async fn listing_batch(
+    db: &Database,
+    ns: &Namespace,
+    db_err: fn(mongodb::error::Error) -> CoreError,
+) -> Result<Option<Vec<Bson>>> {
     let reply = match db
         .run_command(doc! { "listIndexes": &ns.collection, "cursor": { "batchSize": 1000_i32 } })
         .await
     {
         Ok(reply) => reply,
-        Err(e) if is_empty_listing(&e) => return Ok(Vec::new()),
+        Err(e) if is_empty_listing(&e) => return Ok(None),
         Err(e) => return Err(db_err(e)),
     };
     let batch = reply
         .get_document("cursor")
         .and_then(|c| c.get_array("firstBatch"))
         .map_err(|_| malformed())?;
-    let sizes = index_sizes(db, ns, db_err).await;
-    Ok(collection_indexes(batch, &sizes))
+    Ok(Some(batch.clone()))
 }
 
 /// The readable entries of a `listIndexes` batch with their sizes (0 when unknown). An entry the
@@ -72,6 +94,18 @@ fn collection_indexes(
     batch: &[Bson],
     sizes: &std::collections::HashMap<String, u64>,
 ) -> Vec<CollectionIndex> {
+    readable_specs(batch)
+        .into_iter()
+        .map(|spec| {
+            let size_bytes = sizes.get(&spec.name).copied().unwrap_or(0);
+            CollectionIndex { spec, size_bytes }
+        })
+        .collect()
+}
+
+/// The entries of a `listIndexes` batch the definition model can read; the others are skipped
+/// with a warning.
+fn readable_specs(batch: &[Bson]) -> Vec<IndexSpec> {
     batch
         .iter()
         .filter_map(|entry| {
@@ -79,16 +113,10 @@ fn collection_indexes(
                 .as_document()
                 .ok_or_else(malformed)
                 .and_then(IndexSpec::from_document);
-            match spec {
-                Ok(spec) => {
-                    let size_bytes = sizes.get(&spec.name).copied().unwrap_or(0);
-                    Some(CollectionIndex { spec, size_bytes })
-                }
-                Err(e) => {
-                    log::warn!("skipping an index the listing could not read: {e}: {entry}");
-                    None
-                }
-            }
+            spec.inspect_err(|e| {
+                log::warn!("skipping an index the listing could not read: {e}: {entry}");
+            })
+            .ok()
         })
         .collect()
 }

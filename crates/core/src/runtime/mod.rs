@@ -29,6 +29,8 @@ mod index_build_timeout_tests;
 #[cfg(test)]
 mod index_facts_tests;
 #[cfg(test)]
+mod index_history_tests;
+#[cfg(test)]
 mod index_tests;
 mod indexes;
 mod job_flag;

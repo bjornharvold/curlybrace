@@ -334,6 +334,10 @@ impl DocumentStore for MongoStore {
         crate::mongo_indexes::list_indexes(&self.client.database(&ns.db), ns, db_err).await
     }
 
+    async fn list_index_specs(&self, ns: &Namespace) -> Result<Vec<IndexSpec>> {
+        crate::mongo_indexes::list_index_specs(&self.client.database(&ns.db), ns, db_err).await
+    }
+
     async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
         crate::mongo_indexes::index_stats(&self.client.database(&ns.db), ns, db_err).await
     }

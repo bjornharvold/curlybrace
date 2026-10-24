@@ -294,6 +294,13 @@ pub trait DocumentStore: Send + Sync {
         ))
     }
 
+    /// The definitions of the indexes of `ns`, without their sizes. Stores that can skip the cost
+    /// of sizing (a `collStats` call) should; the default lists everything and drops the sizes.
+    async fn list_index_specs(&self, ns: &Namespace) -> Result<Vec<IndexSpec>> {
+        let listed = self.list_indexes(ns).await?;
+        Ok(listed.into_iter().map(|index| index.spec).collect())
+    }
+
     /// `$indexStats` for `ns`: one row per index per node.
     async fn index_stats(&self, _ns: &Namespace) -> Result<Vec<IndexUsage>> {
         Err(CoreError::Unsupported(
