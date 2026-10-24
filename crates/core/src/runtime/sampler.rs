@@ -434,63 +434,97 @@ pub(super) async fn run(
     status: UnboundedSender<SamplerStatus>,
     now: impl Fn() -> i64 + Send + Sync + 'static,
 ) {
-    let first = cfg.borrow().interval.max(MIN_INTERVAL);
-    let mut state = LoopState {
-        interval: first,
-        ticker: new_ticker(first, true),
-        failures: 0,
-        reported: None,
-        last_thin: None,
-        last_failed: Vec::new(),
-    };
+    let mut state = LoopState::new(cfg.borrow().interval.max(MIN_INTERVAL));
     loop {
         if !wait_for_next_tick(&mut state, &status).await {
             return;
         }
         let current = cfg.borrow().clone().clamped();
-        if current.interval != state.interval {
-            state.interval = current.interval;
-            state.ticker = new_ticker(current.interval, false);
-        }
+        state.follow_interval(current.interval);
         let began = Instant::now();
         let result = tick(&*store, &history, connection, &current, &now, &mut state).await;
-        let next = match result {
-            Ok(pass) => {
-                state.failures = 0;
-                report_failed(&pass.failed, &mut state.last_failed);
-                Some(if pass.learned {
-                    SamplerStatus::Running
-                } else {
-                    SamplerStatus::Failing
-                })
-            }
-            Err(error) => match error.pause() {
-                Some(reason) => {
-                    log::warn!("index usage sampler paused: {:?}", error.error());
-                    state.failures = state.failures.saturating_add(1);
-                    Some(SamplerStatus::Paused(reason))
-                }
-                None => {
-                    // The server answers and lets us in, so this is not a reason to pause; but
-                    // the pass learned nothing, so the last status must not stay up.
-                    log::warn!("index usage sampling failed: {:?}", error.error());
-                    state.failures = 0;
-                    Some(SamplerStatus::Failing)
-                }
-            },
-        };
-        if state.failures == 0 && began.elapsed() >= state.interval {
-            // The pass overran: the tick it missed is already due and would start the next
-            // pass at once. Drop it so the next pass waits for the following aligned tick.
-            state.ticker.tick().await;
-        }
-        if let Some(next) = next.filter(|n| state.reported != Some(*n)) {
-            if status.send(next).is_err() {
-                return;
-            }
-            state.reported = Some(next);
+        let next = status_of(result, &mut state);
+        settle_overrun(&mut state, began).await;
+        if !report(&mut state, &status, next) {
+            return;
         }
     }
+}
+
+impl LoopState {
+    fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            ticker: new_ticker(interval, true),
+            failures: 0,
+            reported: None,
+            last_thin: None,
+            last_failed: Vec::new(),
+        }
+    }
+
+    /// Picks up a changed interval from the next tick on.
+    fn follow_interval(&mut self, interval: Duration) {
+        if interval != self.interval {
+            self.interval = interval;
+            self.ticker = new_ticker(interval, false);
+        }
+    }
+}
+
+/// The status a finished tick stands for, and the failure count it leaves behind: a pass that
+/// read something resets it, a pause-class error raises it (and so backs the next wait off), any
+/// other error resets it.
+fn status_of(result: std::result::Result<Pass, TickError>, state: &mut LoopState) -> SamplerStatus {
+    match result {
+        Ok(pass) => {
+            state.failures = 0;
+            report_failed(&pass.failed, &mut state.last_failed);
+            match pass.learned {
+                true => SamplerStatus::Running,
+                false => SamplerStatus::Failing,
+            }
+        }
+        Err(error) => match error.pause() {
+            Some(reason) => {
+                log::warn!("index usage sampler paused: {:?}", error.error());
+                state.failures = state.failures.saturating_add(1);
+                SamplerStatus::Paused(reason)
+            }
+            None => {
+                // The server answers and lets us in, so this is not a reason to pause; but the
+                // pass learned nothing, so the last status must not stay up.
+                log::warn!("index usage sampling failed: {:?}", error.error());
+                state.failures = 0;
+                SamplerStatus::Failing
+            }
+        },
+    }
+}
+
+/// After a healthy pass that took a whole interval or more, the tick it missed is already due and
+/// would start the next pass at once. Drops it so the next pass waits for the following aligned
+/// tick.
+async fn settle_overrun(state: &mut LoopState, began: Instant) {
+    if state.failures == 0 && began.elapsed() >= state.interval {
+        state.ticker.tick().await;
+    }
+}
+
+/// Sends `next` when it differs from the last status sent. `false` when nobody listens any more.
+fn report(
+    state: &mut LoopState,
+    status: &UnboundedSender<SamplerStatus>,
+    next: SamplerStatus,
+) -> bool {
+    if state.reported == Some(next) {
+        return true;
+    }
+    if status.send(next).is_err() {
+        return false;
+    }
+    state.reported = Some(next);
+    true
 }
 
 /// Waits for the next tick, or the backoff while paused. `false` when the status channel closed.
