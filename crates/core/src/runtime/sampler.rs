@@ -82,6 +82,9 @@ pub enum SamplerPause {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SamplerStatus {
     Running,
+    /// The sampler runs but its last pass learned nothing because every read failed with an
+    /// error that is not worth a pause (see the log for the cause). It retries every interval.
+    Failing,
     Paused(SamplerPause),
 }
 
@@ -159,6 +162,8 @@ struct Pass {
     recorded: usize,
     /// The collections (or databases) that could not be read, by name, with their error.
     failed: Vec<(String, CoreError)>,
+    /// Whether anything was read at all: false when every database or collection failed.
+    learned: bool,
 }
 
 /// What a pass learned about the server and the history, to decide whether it failed.
@@ -195,6 +200,7 @@ impl Health {
                 self.failed.sort_by(|a, b| a.0.cmp(&b.0));
                 Ok(Pass {
                     recorded,
+                    learned: self.answered > 0 || self.failed.is_empty(),
                     failed: self.failed,
                 })
             }
@@ -398,7 +404,11 @@ pub(super) async fn run(
             Ok(pass) => {
                 state.failures = 0;
                 report_failed(&pass.failed, &mut state.last_failed);
-                Some(SamplerStatus::Running)
+                Some(if pass.learned {
+                    SamplerStatus::Running
+                } else {
+                    SamplerStatus::Failing
+                })
             }
             Err(error) => match error.pause() {
                 Some(reason) => {
@@ -407,10 +417,11 @@ pub(super) async fn run(
                     Some(SamplerStatus::Paused(reason))
                 }
                 None => {
-                    // The server answers and lets us in, so this is not a reason to pause.
+                    // The server answers and lets us in, so this is not a reason to pause; but
+                    // the pass learned nothing, so the last status must not stay up.
                     log::warn!("index usage sampling failed: {:?}", error.error());
                     state.failures = 0;
-                    None
+                    Some(SamplerStatus::Failing)
                 }
             },
         };

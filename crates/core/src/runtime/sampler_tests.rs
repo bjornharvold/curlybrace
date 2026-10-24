@@ -67,6 +67,8 @@ struct ProbeStore {
     stats_delay: Duration,
     /// Fails `index_stats` for this collection, or for every collection when the name is `None`.
     failure: Mutex<Option<(Option<String>, CoreError)>>,
+    /// Fails `list_databases` while set.
+    databases_failure: Mutex<Option<CoreError>>,
     calls: Mutex<Vec<(Namespace, Instant)>>,
     in_flight: AtomicUsize,
     peak: AtomicUsize,
@@ -79,6 +81,7 @@ impl ProbeStore {
             kinds: Mutex::default(),
             stats_delay: Duration::ZERO,
             failure: Mutex::default(),
+            databases_failure: Mutex::default(),
             calls: Mutex::default(),
             in_flight: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
@@ -98,6 +101,10 @@ impl ProbeStore {
 
     fn fail(&self, collection: Option<&str>, error: Option<CoreError>) {
         *self.failure.lock().unwrap() = error.map(|e| (collection.map(str::to_string), e));
+    }
+
+    fn fail_databases(&self, error: Option<CoreError>) {
+        *self.databases_failure.lock().unwrap() = error;
     }
 
     fn called(&self) -> Vec<Namespace> {
@@ -127,6 +134,9 @@ impl ProbeStore {
 #[async_trait]
 impl DocumentStore for ProbeStore {
     async fn list_databases(&self) -> Result<Vec<String>> {
+        if let Some(error) = self.databases_failure.lock().unwrap().clone() {
+            return Err(error);
+        }
         self.inner.list_databases().await
     }
 
@@ -650,6 +660,34 @@ async fn a_failing_history_write_pauses_with_history_unavailable() {
         status.recv().await,
         Some(SamplerStatus::Paused(SamplerPause::HistoryUnavailable))
     );
+    assert!(!handle.is_finished());
+    handle.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pass_where_every_collection_failed_reports_failing_not_running() {
+    let store = Arc::new(ProbeStore::new(store_with(&[
+        ("shop", "orders"),
+        ("shop", "users"),
+    ])));
+    store.fail(None, Some(CoreError::Database("boom".into())));
+
+    let (handle, mut status, _cfg) = start(store.clone(), history(), SamplerConfig::default());
+
+    assert_eq!(status.recv().await, Some(SamplerStatus::Failing));
+    store.fail(None, None);
+    assert_eq!(status.recv().await, Some(SamplerStatus::Running));
+    handle.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failing_database_listing_reports_failing() {
+    let store = Arc::new(ProbeStore::new(store_with(&[("shop", "orders")])));
+    store.fail_databases(Some(CoreError::Database("boom".into())));
+
+    let (handle, mut status, _cfg) = start(store.clone(), history(), SamplerConfig::default());
+
+    assert_eq!(status.recv().await, Some(SamplerStatus::Failing));
     assert!(!handle.is_finished());
     handle.abort();
 }

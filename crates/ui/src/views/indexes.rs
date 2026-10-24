@@ -150,6 +150,7 @@ fn create_button(
 fn sampler_key(status: SamplerStatus) -> &'static str {
     match status {
         SamplerStatus::Running => "indexes.sampler_running",
+        SamplerStatus::Failing => "indexes.sampler_failing",
         SamplerStatus::Paused(SamplerPause::NotAuthorized) => "indexes.pause_not_authorized",
         SamplerStatus::Paused(SamplerPause::ConnectionLost) => "indexes.pause_connection_lost",
         SamplerStatus::Paused(SamplerPause::HistoryUnavailable) => {

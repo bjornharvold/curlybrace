@@ -779,7 +779,8 @@
     "range_week": "7 d",
     "refresh": "Refresh",
     "restart": "Server restarted",
-    "sampler_running": "Sampling usage every minute.",
+    "sampler_failing": "Sampling is failing: no collection could be read. Retrying every minute.",
+    "sampler_running":"Sampling usage every minute.",
     "sampling": {
       "add": "Exclude",
       "built_in": "admin, local and config are never sampled.",

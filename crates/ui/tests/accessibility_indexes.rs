@@ -193,6 +193,9 @@ fn a_paused_sampler_shows_its_reason_and_the_list_still_renders() {
     let (_, _, running) = two_indexes();
     let harness = open(running.with_sampler(SamplerStatus::Running), false);
     harness.get_by_label(&t("indexes.sampler_running"));
+    let (_, _, failing) = two_indexes();
+    let harness = open(failing.with_sampler(SamplerStatus::Failing), false);
+    harness.get_by_label(&t("indexes.sampler_failing"));
 }
 
 #[test]
