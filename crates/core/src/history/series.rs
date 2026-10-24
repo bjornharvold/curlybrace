@@ -54,7 +54,8 @@ pub enum Point {
 pub struct Bucket {
     pub start_secs: i64,
     pub width_secs: i64,
-    /// Delta uses plus the uses of any gap that ends in this window.
+    /// Delta uses, the uses counted since a restart, and the uses of any gap that ends in this
+    /// window.
     pub uses: i64,
     /// Restart points inside the window.
     pub restarts: u32,
@@ -124,7 +125,7 @@ fn classify(prev: Sample, cur: Sample) -> Vec<Point> {
 
 /// Folds points into dense, fixed-width buckets from the first to the last
 /// bucket touched (empty ones included). A delta or restart lands in the
-/// bucket holding its `at_secs`. A gap adds, to every bucket it overlaps, the
+/// bucket holding its `at_secs`; a restart also adds the uses counted since the reset. A gap adds, to every bucket it overlaps, the
 /// seconds inside that bucket; its `uses` land in the bucket holding
 /// `to_secs`, so the total of `uses` is preserved. A non-positive width or no
 /// points gives no buckets.
@@ -153,7 +154,15 @@ pub fn bucketize(points: &[Point], width_secs: i64) -> Vec<Bucket> {
                 let b = &mut buckets[index(at_secs)];
                 b.uses = b.uses.saturating_add(uses);
             }
-            Point::Restart { at_secs, .. } => buckets[index(at_secs)].restarts += 1,
+            Point::Restart {
+                at_secs,
+                uses_since_restart,
+            } => {
+                // Uses counted since the reset are real uses seen in this window.
+                let b = &mut buckets[index(at_secs)];
+                b.restarts += 1;
+                b.uses = b.uses.saturating_add(uses_since_restart);
+            }
             Point::Gap {
                 from_secs,
                 to_secs,

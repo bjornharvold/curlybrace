@@ -16,7 +16,9 @@ fn total_uses(points: &[Point]) -> i64 {
         .iter()
         .map(|p| match p {
             Point::Delta { uses, .. } | Point::Gap { uses, .. } => *uses,
-            Point::Restart { .. } => 0,
+            Point::Restart {
+                uses_since_restart, ..
+            } => *uses_since_restart,
         })
         .sum()
 }
@@ -192,7 +194,8 @@ fn bucketize_sums_deltas_and_counts_restarts_and_gap_seconds() {
         buckets,
         vec![
             b(0, 5, 0, 0),
-            b(100, 0, 1, 50),
+            // The restart adds the uses counted since the reset.
+            b(100, 4, 1, 50),
             b(200, 0, 0, 100),
             // The gap's uses land in the bucket holding its end.
             b(300, 10, 0, 30),
@@ -243,4 +246,17 @@ proptest! {
             .sum();
         prop_assert_eq!(buckets.iter().map(|b| b.gap_secs).sum::<i64>(), gap_total);
     }
+}
+
+#[test]
+fn uses_counted_since_a_restart_land_in_the_bucket() {
+    let restart = Sample {
+        at_secs: 160,
+        ops: 7,
+        since_ms: SINCE + 1,
+    };
+    let buckets = bucketize(&derive(&[s(100, 50), restart]), 600);
+    assert_eq!(buckets.len(), 1);
+    assert_eq!(buckets[0].restarts, 1);
+    assert_eq!(buckets[0].uses, 7);
 }
