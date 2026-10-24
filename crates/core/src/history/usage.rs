@@ -94,6 +94,7 @@ pub(super) fn view(
         .map(|(_, sample)| sample)
         .collect();
     let points = derive(&samples, max_continuous_secs);
+    let rolled_through = trusted_seam(rolled_through, now_secs, samples.first().map(|s| s.at_secs));
     Ok(SeriesView {
         facts: facts_of(conn, series_id, &samples, &points)?,
         buckets: buckets_of(conn, series_id, rolled_through, &points, range, now_secs)?,
@@ -193,6 +194,17 @@ fn facts_of(
         last_used_at_secs: raw_use.or(rolled_use),
         tracked_since_secs: [rolled_first, raw_first].into_iter().flatten().min(),
     })
+}
+
+/// The seam to trust. A stored `rolled_through` ahead of the clock (beyond
+/// [`MAX_FUTURE_SKEW_SECS`]) was set by a clock that ran ahead and has been corrected since; it
+/// must not suppress rolling or clip real gaps. Raw rows are only ever deleted once rolled, so
+/// nothing before the oldest raw sample is unrolled-real and the seam falls back to that sample.
+pub(super) fn trusted_seam(stored: i64, now_secs: i64, first_raw_secs: Option<i64>) -> i64 {
+    if stored <= now_secs.saturating_add(MAX_FUTURE_SKEW_SECS) {
+        return stored;
+    }
+    first_raw_secs.map_or(0, |first| first.min(stored))
 }
 
 /// A gap's seconds before the seam are already in the rolled rows.

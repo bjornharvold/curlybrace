@@ -222,7 +222,8 @@ fn a_row_however_far_ahead_is_never_expired_by_thinning() {
 
 fn three_real_samples(db: &HistoryDb) {
     for (i, ops) in [10, 12, 16].into_iter().enumerate() {
-        db.record(&key(), s(NOW - 180 + 60 * i as i64, ops)).unwrap();
+        db.record(&key(), s(NOW - 180 + 60 * i as i64, ops))
+            .unwrap();
     }
 }
 

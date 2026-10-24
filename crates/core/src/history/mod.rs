@@ -10,6 +10,8 @@ pub mod series;
 #[cfg(test)]
 mod series_tests;
 #[cfg(test)]
+mod skew_roll_tests;
+#[cfg(test)]
 mod skew_tests;
 mod thin;
 mod usage;

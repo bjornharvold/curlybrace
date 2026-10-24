@@ -23,7 +23,7 @@ use super::retention::{
     DAILY_RETENTION_SECS, DAY_SECS, HOUR_SECS, HOURLY_RETENTION_SECS, RAW_RETENTION_SECS,
 };
 use super::series::{MAX_FUTURE_SKEW_SECS, accepted_indices, bucketize_within, derive};
-use super::usage::{clip_gap, raw_samples};
+use super::usage::{clip_gap, raw_samples, trusted_seam};
 use crate::error::Result;
 use rusqlite::{Connection, Transaction, params};
 
@@ -98,13 +98,15 @@ fn roll_series(
     } else {
         plain[baseline].at_secs
     };
-    let rolled_through: i64 = tx
+    let stored_through: i64 = tx
         .query_row(
             "SELECT rolled_through FROM series WHERE id = ?1",
             [series_id],
             |r| r.get(0),
         )
         .map_err(sql_err)?;
+    // A seam ahead of the clock (the clock ran ahead and was corrected) must not suppress rolling.
+    let rolled_through = trusted_seam(stored_through, now_secs, Some(plain[accepted[0]].at_secs));
     // The same clip the reads apply: seconds of a gap before `rolled_through` are already in
     // the rows, so a gap that continues past an earlier roll adds only its new part.
     let points: Vec<_> = derive(&window, max_continuous_secs)
@@ -124,19 +126,16 @@ fn roll_series(
         }
     }
     tx.execute(
-        "UPDATE series SET rolled_through = MAX(rolled_through, ?2) WHERE id = ?1",
-        params![series_id, rolled_to],
+        "UPDATE series SET rolled_through = ?2 WHERE id = ?1",
+        params![series_id, rolled_through.max(rolled_to)],
     )
     .map_err(sql_err)?;
-    // Never by id alone: a row stamped ahead of the clock may have a lower id than the baseline
-    // (the clock was behind when the baseline was written) and is real data the reads skip.
+    // Only rows the roll folded: older than the baseline and not past what was rolled. Never by
+    // id alone: a row stamped ahead of the clock may have a lower id than the baseline (the clock
+    // was behind when the baseline was written) and is real data the reads skip.
     tx.execute(
         "DELETE FROM samples WHERE series_id = ?1 AND id < ?2 AND at_secs <= ?3",
-        params![
-            series_id,
-            baseline_id,
-            now_secs.saturating_add(MAX_FUTURE_SKEW_SECS)
-        ],
+        params![series_id, baseline_id, rolled_to],
     )
     .map_err(sql_err)?;
     Ok(())
