@@ -662,7 +662,7 @@ fn facts_are_the_real_time_of_the_last_use_and_of_the_first_sample() {
         at += 60;
     }
 
-    let facts = db.facts(&key, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
+    let facts = db.facts(&key, NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
 
     assert_eq!(facts.last_used_at_secs, Some(used));
     assert_eq!(facts.tracked_since_secs, Some(first));
@@ -672,13 +672,13 @@ fn facts_are_the_real_time_of_the_last_use_and_of_the_first_sample() {
 fn facts_of_an_unused_or_unknown_series_have_no_last_use() {
     let db = HistoryDb::open_in_memory().unwrap();
     assert_eq!(
-        db.facts(&key(), DEFAULT_MAX_CONTINUOUS_SECS).unwrap(),
+        db.facts(&key(), NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap(),
         SeriesFacts::default()
     );
     for minute in 0..5 {
         db.record(&key(), s(NOW - 600 + minute * 60, 7)).unwrap();
     }
-    let facts = db.facts(&key(), DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
+    let facts = db.facts(&key(), NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
     assert_eq!(facts.last_used_at_secs, None);
     assert_eq!(facts.tracked_since_secs, Some(NOW - 600));
 }
@@ -701,7 +701,7 @@ fn facts_survive_thinning_without_depending_on_a_range() {
     }
     db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
 
-    let facts = db.facts(&key, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
+    let facts = db.facts(&key, NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
 
     let last = facts.last_used_at_secs.expect("rolled uses remain");
     assert!(
@@ -743,7 +743,7 @@ fn series_view_is_the_same_as_facts_usage_and_latest_read_separately() {
 
     for range in [ChartRange::Day, ChartRange::Week, ChartRange::Month] {
         let view = db.series_view(&k, range, NOW, max).unwrap();
-        assert_eq!(view.facts, db.facts(&k, max).unwrap(), "{range:?}");
+        assert_eq!(view.facts, db.facts(&k, NOW, max).unwrap(), "{range:?}");
         assert_eq!(
             view.buckets,
             db.usage(&k, range, NOW, max).unwrap(),

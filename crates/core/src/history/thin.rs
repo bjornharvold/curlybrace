@@ -22,7 +22,7 @@ use super::db_schema::{TIER_DAILY, TIER_HOURLY};
 use super::retention::{
     DAILY_RETENTION_SECS, DAY_SECS, HOUR_SECS, HOURLY_RETENTION_SECS, RAW_RETENTION_SECS,
 };
-use super::series::{accepted_indices, bucketize_within, derive};
+use super::series::{MAX_FUTURE_SKEW_SECS, accepted_indices, bucketize_within, derive};
 use super::usage::{clip_gap, raw_samples};
 use crate::error::Result;
 use rusqlite::{Connection, Transaction, params};
@@ -62,7 +62,7 @@ fn roll_raw_into_hourly(tx: &Transaction, now_secs: i64, max_continuous_secs: i6
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(sql_err)?;
     for series_id in ids {
-        roll_series(tx, series_id, cutoff, max_continuous_secs)?;
+        roll_series(tx, series_id, now_secs, cutoff, max_continuous_secs)?;
     }
     Ok(())
 }
@@ -70,10 +70,11 @@ fn roll_raw_into_hourly(tx: &Transaction, now_secs: i64, max_continuous_secs: i6
 fn roll_series(
     tx: &Transaction,
     series_id: i64,
+    now_secs: i64,
     cutoff: i64,
     max_continuous_secs: i64,
 ) -> Result<()> {
-    let samples = raw_samples(tx, series_id)?;
+    let samples = raw_samples(tx, series_id, now_secs)?;
     // Only samples `derive` accepts count: a backwards-clock sample is never the baseline, so
     // it cannot make newer data look old enough to delete.
     let plain: Vec<_> = samples.iter().map(|(_, s)| *s).collect();
@@ -180,7 +181,8 @@ fn roll_hourly_into_daily(tx: &Transaction, now_secs: i64) -> Result<()> {
     Ok(())
 }
 
-/// Daily rows, and any raw sample, older than the longest retention are deleted.
+/// Daily rows, and any raw sample, older than the longest retention are deleted, and so is any
+/// sample stamped ahead of the clock (see [`MAX_FUTURE_SKEW_SECS`]): reads already ignore it.
 fn expire(tx: &Transaction, now_secs: i64) -> Result<()> {
     let cutoff = now_secs - DAILY_RETENTION_SECS;
     tx.execute(
@@ -188,8 +190,11 @@ fn expire(tx: &Transaction, now_secs: i64) -> Result<()> {
         params![TIER_DAILY, cutoff],
     )
     .map_err(sql_err)?;
-    tx.execute("DELETE FROM samples WHERE at_secs < ?1", [cutoff])
-        .map_err(sql_err)?;
+    tx.execute(
+        "DELETE FROM samples WHERE at_secs < ?1 OR at_secs > ?2",
+        params![cutoff, now_secs.saturating_add(MAX_FUTURE_SKEW_SECS)],
+    )
+    .map_err(sql_err)?;
     Ok(())
 }
 

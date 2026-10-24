@@ -14,7 +14,7 @@
 
 use super::db::{SeriesFacts, SeriesKey, SeriesView, sql_err};
 use super::retention::ChartRange;
-use super::series::{Bucket, Point, Sample, bucketize_within, derive};
+use super::series::{Bucket, MAX_FUTURE_SKEW_SECS, Point, Sample, bucketize_within, derive};
 use crate::error::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::BTreeMap;
@@ -42,13 +42,23 @@ pub(super) fn find_series(conn: &Connection, key: &SeriesKey) -> Result<Option<(
     .map_err(sql_err)
 }
 
-/// Raw samples of a series in insertion order.
-pub(super) fn raw_samples(conn: &Connection, series_id: i64) -> Result<Vec<(i64, Sample)>> {
+/// Raw samples of a series in insertion order, without the ones stamped more than
+/// [`MAX_FUTURE_SKEW_SECS`] after `now_secs`: a bad clock stamped them, and left in they would
+/// be taken as the newest and make every real sample look older than the previous one.
+pub(super) fn raw_samples(
+    conn: &Connection,
+    series_id: i64,
+    now_secs: i64,
+) -> Result<Vec<(i64, Sample)>> {
     let mut stmt = conn
-        .prepare("SELECT id, at_secs, ops, since_ms FROM samples WHERE series_id = ?1 ORDER BY id")
+        .prepare(
+            "SELECT id, at_secs, ops, since_ms FROM samples
+             WHERE series_id = ?1 AND at_secs <= ?2 ORDER BY id",
+        )
         .map_err(sql_err)?;
+    let believable_until = now_secs.saturating_add(MAX_FUTURE_SKEW_SECS);
     let rows = stmt
-        .query_map([series_id], |r| {
+        .query_map(params![series_id, believable_until], |r| {
             Ok((
                 r.get(0)?,
                 Sample {
@@ -79,7 +89,7 @@ pub(super) fn view(
             latest: None,
         });
     };
-    let samples: Vec<Sample> = raw_samples(conn, series_id)?
+    let samples: Vec<Sample> = raw_samples(conn, series_id, now_secs)?
         .into_iter()
         .map(|(_, sample)| sample)
         .collect();
@@ -106,12 +116,13 @@ pub(super) fn usage(
 pub(super) fn facts(
     conn: &Connection,
     key: &SeriesKey,
+    now_secs: i64,
     max_continuous_secs: i64,
 ) -> Result<SeriesFacts> {
     let Some((series_id, _)) = find_series(conn, key)? else {
         return Ok(SeriesFacts::default());
     };
-    let samples: Vec<Sample> = raw_samples(conn, series_id)?
+    let samples: Vec<Sample> = raw_samples(conn, series_id, now_secs)?
         .into_iter()
         .map(|(_, sample)| sample)
         .collect();

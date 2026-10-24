@@ -40,7 +40,7 @@ const TIMEOUT_TEXT: &str = "timeout";
 /// How far ahead of the wall clock at record time a sample may be stamped. More means the clock
 /// was stepped back since the pass began (a sample stamped by the old time would sit in the
 /// future and block every later one), so the sample is skipped.
-pub(super) const MAX_CLOCK_AHEAD_SECS: i64 = 300;
+pub(super) const MAX_CLOCK_AHEAD_SECS: i64 = crate::history::MAX_FUTURE_SKEW_SECS;
 
 /// The wall clock in Unix seconds. Tests pass a controlled one.
 pub(super) type Clock = dyn Fn() -> i64 + Send + Sync;

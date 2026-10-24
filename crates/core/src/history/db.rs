@@ -188,8 +188,13 @@ impl HistoryDb {
 
     /// The real times behind "last used" and "tracked since" of a series; no range is involved,
     /// so they read the same whatever chart is drawn.
-    pub fn facts(&self, key: &SeriesKey, max_continuous_secs: i64) -> Result<SeriesFacts> {
-        usage::facts(&self.lock(), key, max_continuous_secs)
+    pub fn facts(
+        &self,
+        key: &SeriesKey,
+        now_secs: i64,
+        max_continuous_secs: i64,
+    ) -> Result<SeriesFacts> {
+        usage::facts(&self.lock(), key, now_secs, max_continuous_secs)
     }
 
     /// [`Self::facts`], [`Self::usage`] and [`Self::latest`] of one series from a single read:

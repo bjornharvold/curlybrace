@@ -25,6 +25,11 @@ pub fn max_continuous_secs(interval: Duration) -> i64 {
         .saturating_mul(GAP_INTERVALS)
 }
 
+/// How far ahead of the wall clock a stored sample may be stamped and still be believed. A
+/// sample further ahead came from a clock that was wrong at the time (set far forward, or
+/// stepped back since): reads ignore it and thinning deletes it.
+pub const MAX_FUTURE_SKEW_SECS: i64 = 300;
+
 /// One reading of an index's cumulative access counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sample {
@@ -96,6 +101,13 @@ pub fn derive(samples: &[Sample], max_continuous_secs: i64) -> Vec<Point> {
 /// Positions of the samples [`derive`] accepts: each one strictly after the previously
 /// accepted one. The single definition of that rule; the store uses it to pick what it may
 /// roll up and delete, so a backwards-clock sample never decides that.
+///
+/// Clock steps: a sample far ahead of the wall clock never reaches this rule, because the store
+/// leaves it out when reading and deletes it when thinning (see [`MAX_FUTURE_SKEW_SECS`]). A
+/// step back of less than that skew between two passes makes the next samples not strictly
+/// after the last stored one; they are ignored until real time catches up, at most the skew. A
+/// bigger step back makes the stored samples "future" ones, so the new samples take over at
+/// once. Either way nothing grows: the buckets are bounded by [`MAX_BUCKETS`].
 pub fn accepted_indices(samples: &[Sample]) -> Vec<usize> {
     let mut out: Vec<usize> = Vec::new();
     for (i, cur) in samples.iter().enumerate() {
