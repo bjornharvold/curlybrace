@@ -187,16 +187,12 @@ fn roll_hourly_into_daily(tx: &Transaction, now_secs: i64) -> Result<()> {
     Ok(())
 }
 
-/// A sample stamped further than this ahead of the clock is deleted. A clock that is merely
-/// behind (before NTP, after a VM restore) is wrong by under a year in practice, so a row more
-/// than 400 days ahead cannot be real data of a behind clock; it came from a clock that was
-/// far ahead and has since been corrected. Nearer future rows are kept: the clock may be the
-/// wrong one, and deleting them could wipe real data and whole series.
-const FAR_FUTURE_SECS: i64 = 400 * DAY_SECS;
-
-/// Daily rows, and any raw sample, older than the longest retention are deleted, and so is any
-/// sample more than [`FAR_FUTURE_SECS`] ahead of the clock. A sample stamped less far ahead is not
-/// deleted for that (see [`FAR_FUTURE_SECS`]).
+/// Daily rows, and any raw sample, older than the longest retention are deleted: plain age
+/// retention, measured as "older than now - retention". Nothing is ever deleted for being
+/// stamped ahead of the clock, however far: the clock may be the wrong one (a dead RTC before
+/// NTP reads 1970, a restored VM is months behind), and every such row would then be real data.
+/// Rows stamped ahead are ignored by reads and leave only by the size cap or, once the clock
+/// reaches them, by age.
 fn expire(tx: &Transaction, now_secs: i64) -> Result<()> {
     let cutoff = now_secs - DAILY_RETENTION_SECS;
     tx.execute(
@@ -204,11 +200,8 @@ fn expire(tx: &Transaction, now_secs: i64) -> Result<()> {
         params![TIER_DAILY, cutoff],
     )
     .map_err(sql_err)?;
-    tx.execute(
-        "DELETE FROM samples WHERE at_secs < ?1 OR at_secs > ?2",
-        params![cutoff, now_secs.saturating_add(FAR_FUTURE_SECS)],
-    )
-    .map_err(sql_err)?;
+    tx.execute("DELETE FROM samples WHERE at_secs < ?1", params![cutoff])
+        .map_err(sql_err)?;
     Ok(())
 }
 

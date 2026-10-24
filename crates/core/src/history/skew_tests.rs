@@ -205,7 +205,7 @@ fn the_size_cap_drops_a_series_of_only_future_rows_before_real_history() {
 }
 
 #[test]
-fn a_row_more_than_400_days_ahead_is_expired_but_a_nearer_one_is_kept() {
+fn a_row_however_far_ahead_is_never_expired_by_thinning() {
     let db = HistoryDb::open_in_memory().unwrap();
     db.record(&key(), s(NOW - 60, 10)).unwrap();
     db.record(&key(), s(NOW + 399 * DAY, 11)).unwrap();
@@ -213,10 +213,37 @@ fn a_row_more_than_400_days_ahead_is_expired_but_a_nearer_one_is_kept() {
 
     db.thin(NOW, MAX).unwrap();
 
-    assert_eq!(stored_stamps(&db), vec![NOW - 60, NOW + 399 * DAY]);
     assert_eq!(
-        series_count(&db),
-        1,
-        "the series of the expired row is forgotten"
+        stored_stamps(&db),
+        vec![NOW - 60, NOW + 399 * DAY, NOW + 401 * DAY]
     );
+    assert_eq!(series_count(&db), 2);
+}
+
+fn three_real_samples(db: &HistoryDb) {
+    for (i, ops) in [10, 12, 16].into_iter().enumerate() {
+        db.record(&key(), s(NOW - 180 + 60 * i as i64, ops)).unwrap();
+    }
+}
+
+#[test]
+fn a_clock_500_days_behind_deletes_nothing() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    three_real_samples(&db);
+
+    db.thin(NOW - 500 * DAY, MAX).unwrap();
+
+    assert_eq!(stored_stamps(&db).len(), 3);
+    assert_eq!(series_count(&db), 1);
+}
+
+#[test]
+fn a_clock_at_the_epoch_deletes_nothing() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    three_real_samples(&db);
+
+    db.thin(0, MAX).unwrap();
+
+    assert_eq!(stored_stamps(&db).len(), 3);
+    assert_eq!(series_count(&db), 1);
 }
