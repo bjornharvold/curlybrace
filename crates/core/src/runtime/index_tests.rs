@@ -129,12 +129,14 @@ async fn list_indexes_answers_with_the_collections_indexes() {
     h.tx.send(Command::ListIndexes {
         session: EMBEDDED_SESSION,
         ns: ns("testdb"),
+        request: 0,
     })
     .unwrap();
     let Event::Indexes {
         session,
         ns: answered,
         indexes,
+        ..
     } = next(&mut h).await
     else {
         panic!("expected Indexes");
@@ -199,6 +201,7 @@ async fn index_history_answers_with_series_from_the_history_db() {
         session: EMBEDDED_SESSION,
         ns: ns("testdb"),
         range: ChartRange::Day,
+        request: 0,
     })
     .unwrap();
     let Event::IndexHistory {
@@ -206,6 +209,7 @@ async fn index_history_answers_with_series_from_the_history_db() {
         ns: answered,
         range,
         series,
+        ..
     } = next(&mut h).await
     else {
         panic!("expected IndexHistory");
@@ -230,6 +234,7 @@ async fn index_history_without_a_history_db_answers_with_no_series() {
         session: EMBEDDED_SESSION,
         ns: ns("testdb"),
         range: ChartRange::Week,
+        request: 0,
     })
     .unwrap();
     assert_eq!(
@@ -239,6 +244,7 @@ async fn index_history_without_a_history_db_answers_with_no_series() {
             ns: ns("testdb"),
             range: ChartRange::Week,
             series: vec![],
+            request: 0,
         }
     );
 }
@@ -264,6 +270,7 @@ async fn create_index_answers_index_changed_and_the_next_list_shows_it() {
     h.tx.send(Command::ListIndexes {
         session: EMBEDDED_SESSION,
         ns: target.clone(),
+        request: 0,
     })
     .unwrap();
     let Event::Indexes { indexes, .. } = next(&mut h).await else {
@@ -347,6 +354,7 @@ async fn a_read_only_session_refuses_all_four_index_writes_with_read_only() {
     h.tx.send(Command::ListIndexes {
         session: cfg.id,
         ns: ns("testdb"),
+        request: 0,
     })
     .unwrap();
     let Event::Indexes { indexes, .. } = next(&mut h).await else {
@@ -363,6 +371,7 @@ fn the_index_commands_report_their_context_session_and_write_flag() {
             Command::ListIndexes {
                 session,
                 ns: ns("d"),
+                request: 0,
             },
             "list_indexes",
         ),
@@ -371,6 +380,7 @@ fn the_index_commands_report_their_context_session_and_write_flag() {
                 session,
                 ns: ns("d"),
                 range: ChartRange::Day,
+                request: 0,
             },
             "index_history",
         ),
@@ -412,11 +422,13 @@ async fn every_command_still_yields_exactly_one_event_except_sampler_and_compare
         Command::ListIndexes {
             session,
             ns: ns("testdb"),
+            request: 0,
         },
         Command::IndexHistory {
             session,
             ns: ns("testdb"),
             range: ChartRange::Month,
+            request: 0,
         },
         Command::EstimatedCount {
             session,
@@ -428,6 +440,7 @@ async fn every_command_still_yields_exactly_one_event_except_sampler_and_compare
     commands.push(Command::ListIndexes {
         session: Uuid::from_u128(77),
         ns: ns("testdb"),
+        request: 0,
     });
     for command in commands {
         h.tx.send(command).unwrap();
@@ -751,6 +764,7 @@ async fn index_history_only_answers_for_the_indexes_currently_listed() {
         session: EMBEDDED_SESSION,
         ns: ns("testdb"),
         range: ChartRange::Day,
+        request: 0,
     })
     .unwrap();
     let Event::IndexHistory { series, .. } = next(&mut h).await else {

@@ -198,10 +198,13 @@ pub enum Command {
     LockReadOnly {
         connection: uuid::Uuid,
     },
-    /// Lists the indexes of a collection; answered with [`Event::Indexes`].
+    /// Lists the indexes of a collection; answered with [`Event::Indexes`], which echoes
+    /// `request`. The caller numbers its requests so an older answer that arrives after a newer
+    /// one can be told apart; the runtime never reads it.
     ListIndexes {
         session: SessionId,
         ns: Namespace,
+        request: u64,
     },
     /// Reads the recorded usage of the collection's indexes; answered with
     /// [`Event::IndexHistory`] (no series when history is off).
@@ -209,6 +212,8 @@ pub enum Command {
         session: SessionId,
         ns: Namespace,
         range: ChartRange,
+        /// Echoed by the answer, like [`Command::ListIndexes`]'s.
+        request: u64,
     },
     /// Asks for the collection's estimated document count; answered with
     /// [`Event::EstimatedCount`].
@@ -396,6 +401,8 @@ pub enum Event {
         session: SessionId,
         ns: Namespace,
         indexes: Vec<CollectionIndex>,
+        /// The `request` of the command this answers.
+        request: u64,
     },
     /// The answer to `IndexHistory`: one series per index definition and node, empty when no
     /// usage was recorded or history is off.
@@ -404,6 +411,8 @@ pub enum Event {
         ns: Namespace,
         range: ChartRange,
         series: Vec<IndexSeries>,
+        /// The `request` of the command this answers.
+        request: u64,
     },
     /// The answer to `EstimatedCount`.
     EstimatedCount {

@@ -43,6 +43,11 @@ pub struct IndexesState {
     pub range: ChartRange,
     /// The index list has been requested and has not arrived yet.
     pub loading: bool,
+    /// The number of the newest request sent for the lists (see [`Self::requested`]). An answer
+    /// is the awaited one only when it echoes this number; an older request's answer that
+    /// arrives later carries a smaller one and is dropped. It only grows, even across
+    /// collections, so a number is never sent twice.
+    pub request: u64,
     /// The session's sampler status, once it has reported one.
     pub sampler: Option<SamplerStatus>,
     /// The index builder, while its modal is open.
@@ -71,6 +76,7 @@ impl Default for IndexesState {
             selected: None,
             range: ChartRange::Day,
             loading: false,
+            request: 0,
             sampler: None,
             builder: None,
             writing: None,
@@ -90,14 +96,17 @@ impl IndexesState {
             ns: Some(ns),
             range: self.range,
             sampler: self.sampler,
+            request: self.request,
             ..Self::default()
         }
     }
 
-    /// The same state waiting for the lists to arrive.
+    /// The same state waiting for the lists to arrive, under a new request number: what was sent
+    /// is recorded here, and only an answer that echoes it is applied.
     pub fn requested(self) -> Self {
         Self {
             loading: true,
+            request: self.request + 1,
             ..self
         }
     }

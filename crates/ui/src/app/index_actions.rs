@@ -77,14 +77,21 @@ fn request(state: AppState) -> Out {
         true => state.indexes,
         false => state.indexes.for_collection(ns.clone()),
     };
+    let indexes = indexes.requested();
+    let request = indexes.request;
     let commands = vec![
         Command::ListIndexes {
             session,
             ns: ns.clone(),
+            request,
         },
-        Command::IndexHistory { session, ns, range },
+        Command::IndexHistory {
+            session,
+            ns,
+            range,
+            request,
+        },
     ];
-    let indexes = indexes.requested();
     (AppState { indexes, ..state }, commands)
 }
 
@@ -103,27 +110,35 @@ pub(super) fn collection_opened(state: AppState) -> (AppState, Vec<Command>) {
     }
 }
 
-/// The answer to `ListIndexes`; one for another collection is stale.
+/// The answer to `ListIndexes`; one for another collection, or to a request that is not the
+/// newest one sent, is stale. Answers can arrive out of order, so what was sent decides, never
+/// what is open now.
 pub(super) fn indexes_listed(
     state: AppState,
     ns: Namespace,
     indexes: Vec<CollectionIndex>,
+    request: u64,
 ) -> AppState {
-    if state.indexes.ns.as_ref() != Some(&ns) {
+    if state.indexes.ns.as_ref() != Some(&ns) || state.indexes.request != request {
         return state;
     }
     let indexes = state.indexes.with_indexes(indexes);
     AppState { indexes, ..state }
 }
 
-/// The answer to `IndexHistory`; one for another collection or range is stale.
+/// The answer to `IndexHistory`; one for another collection or range, or to a request that is
+/// not the newest one sent, is stale (see [`indexes_listed`]).
 pub(super) fn history_read(
     state: AppState,
     ns: Namespace,
     range: ChartRange,
     series: Vec<IndexSeries>,
+    request: u64,
 ) -> AppState {
-    if state.indexes.ns.as_ref() != Some(&ns) || state.indexes.range != range {
+    if state.indexes.ns.as_ref() != Some(&ns)
+        || state.indexes.range != range
+        || state.indexes.request != request
+    {
         return state;
     }
     let indexes = state.indexes.with_series(series);

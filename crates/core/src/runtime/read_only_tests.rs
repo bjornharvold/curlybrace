@@ -195,11 +195,13 @@ fn read_commands(session: SessionId) -> Vec<Command> {
         Command::ListIndexes {
             session,
             ns: mock_namespace(),
+            request: 0,
         },
         Command::IndexHistory {
             session,
             ns: mock_namespace(),
             range: crate::history::ChartRange::Day,
+            request: 0,
         },
         Command::EstimatedCount {
             session,

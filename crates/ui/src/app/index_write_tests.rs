@@ -203,16 +203,19 @@ fn index_changed_closes_the_builder_and_selects_the_new_index() {
         shown(&[
             Command::ListIndexes {
                 session: id,
-                ns: ns()
+                ns: ns(),
+                request: s.indexes.request,
             },
             Command::IndexHistory {
                 session: id,
                 ns: ns(),
-                range: s.indexes.range
+                range: s.indexes.range,
+                request: s.indexes.request,
             },
         ])
     );
     // The new index comes back in the list and stays selected.
+    let request = s.indexes.request;
     let listed = CollectionIndex {
         spec: mock_index_spec_named("email_1", &[("email", KeyKind::Asc)]),
         size_bytes: 4096,
@@ -223,6 +226,7 @@ fn index_changed_closes_the_builder_and_selects_the_new_index() {
             session: id,
             ns: ns(),
             indexes: vec![listed],
+            request,
         }),
     );
     assert_eq!(s.indexes.selected.as_deref(), Some("email_1"));

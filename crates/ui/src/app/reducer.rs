@@ -214,14 +214,23 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
-        Event::Indexes { ns, indexes, .. } => (
-            index_actions::indexes_listed(state, ns, indexes),
+        Event::Indexes {
+            ns,
+            indexes,
+            request,
+            ..
+        } => (
+            index_actions::indexes_listed(state, ns, indexes, request),
             Vec::new(),
         ),
         Event::IndexHistory {
-            ns, range, series, ..
+            ns,
+            range,
+            series,
+            request,
+            ..
         } => (
-            index_actions::history_read(state, ns, range, series),
+            index_actions::history_read(state, ns, range, series, request),
             Vec::new(),
         ),
         Event::IndexChanged { ns, .. } => index_actions::changed(state, ns),

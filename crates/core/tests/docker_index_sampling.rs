@@ -99,6 +99,7 @@ async fn history(rt: &mut RuntimeHandle, session: SessionId) -> Vec<IndexSeries>
         session,
         ns: ns(),
         range: ChartRange::Day,
+        request: 0,
     };
     match answer(rt, command, "index history").await {
         // The `_id_` index exists on every collection and is not what these tests are about.

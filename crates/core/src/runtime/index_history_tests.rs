@@ -93,6 +93,7 @@ async fn index_history_lists_the_specs_without_the_sizes() {
         session: EMBEDDED_SESSION,
         ns,
         range: ChartRange::Day,
+        request: 0,
     })
     .unwrap();
     let event = tokio::time::timeout(Duration::from_secs(5), h.rx.recv())

@@ -253,15 +253,18 @@ async fn data_command(
             service.clone_document(&ns, &source).await?;
             Event::Mutated { session, ns }
         }
-        Command::ListIndexes { ns, .. } => {
+        Command::ListIndexes { ns, request, .. } => {
             let indexes = store.list_indexes(&ns).await?;
             Event::Indexes {
                 session,
                 ns,
                 indexes,
+                request,
             }
         }
-        Command::IndexHistory { ns, range, .. } => {
+        Command::IndexHistory {
+            ns, range, request, ..
+        } => {
             // Without history there is nothing to restrict, so skip the round trip. Only names and
             // definitions are needed, so the sizes (a `collStats` call) are not read.
             let listed = match history {
@@ -276,6 +279,7 @@ async fn data_command(
                 ns,
                 range,
                 series,
+                request,
             }
         }
         Command::EstimatedCount { ns, .. } => {
