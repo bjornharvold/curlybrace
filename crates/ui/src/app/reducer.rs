@@ -2,12 +2,15 @@
 use super::actions;
 use super::compare::{self, CompareAction};
 use super::connection_test;
+use super::index_actions;
+use super::index_write_actions;
 use super::persistence::PersistError;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use super::write_guard::{self, WriteWarningAction};
 use crate::viewmodel::{
-    ConnectionForm, DocAction, EditorAction, EditorState, FindAction, SidebarAction, page_key,
+    CollectionTab, ConnectionForm, DocAction, EditorAction, EditorState, FindAction, IndexesAction,
+    SidebarAction, page_key,
 };
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, Event};
@@ -24,6 +27,9 @@ pub enum Input {
     Find(FindAction),
     Doc(DocAction),
     Editor(EditorAction),
+    Indexes(IndexesAction),
+    /// Switch the tab of the selected collection; the Indexes tab also requests its data.
+    Tab(CollectionTab),
     /// The answer to the production write warning.
     WriteWarning(WriteWarningAction),
     Connect(Uuid),
@@ -48,6 +54,8 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Find(a) => actions::find(state, a),
         Input::Doc(a) => actions::doc(state, a),
         Input::Editor(a) => actions::editor(state, a),
+        Input::Indexes(a) => index_actions::on_action(state, a),
+        Input::Tab(tab) => index_actions::switch_tab(state, tab),
         Input::WriteWarning(a) => write_guard::on_action(state, a),
         Input::Connect(id) => session_actions::connect(state, id),
         Input::Disconnect(id) => session_actions::disconnect(state, id),
@@ -186,14 +194,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever
         // command was lost takes the banner path of `data_failed` and the editor stays; the
-        // next lost command after the editor is closed fails the root.
+        // next lost command after the editor is closed fails the root. The index builder and the
+        // modals of the index writes are editors in this sense too.
         Event::Failed {
             context,
             error: error @ (CoreError::Unreachable | CoreError::TlsHandshake),
             ..
         } => {
             let error = specific(&state, context, error);
-            match state.editor.is_none() {
+            match state.editor.is_none() && !state.indexes.has_prompt() {
                 true => (
                     connection_lost(state, context, error, background),
                     Vec::new(),
@@ -205,6 +214,64 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
+        // A failed numbered read settles only the request still awaited: a late failure of an
+        // older one must not end the wait for the newer or put a banner over its data. The
+        // current one fails like any other command. A lost connection of an older request counts
+        // only while the session has not answered anything sent after it: a later answer proves
+        // the server reachable, and the failure is a late echo of an outage that is over. When it
+        // counts, it must still not end the wait for the newer request. Known limitation: a real
+        // loss witnessed only by an older request that was answered after a newer one is ignored
+        // here; the sampler status reports `ConnectionLost` on its own.
+        Event::RequestFailed {
+            session,
+            context,
+            request,
+            error,
+        } => {
+            let current = state.indexes.request == request;
+            let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
+            if !(current || lost && state.indexes.answered <= request) {
+                return (state, Vec::new());
+            }
+            let awaiting = state.indexes.loading && !current;
+            let (next, commands) = on_session_event(
+                state,
+                Event::Failed {
+                    session,
+                    context,
+                    error,
+                },
+                background,
+            );
+            (keep_waiting(next, awaiting), commands)
+        }
+        Event::Indexes {
+            ns,
+            indexes,
+            request,
+            ..
+        } => (
+            index_actions::indexes_listed(state, ns, indexes, request),
+            Vec::new(),
+        ),
+        Event::IndexHistory {
+            ns,
+            range,
+            series,
+            request,
+            ..
+        } => (
+            index_actions::history_read(state, ns, range, series, request),
+            Vec::new(),
+        ),
+        Event::IndexChanged { ns, .. } => index_actions::changed(state, ns),
+        Event::EstimatedCount { ns, count, .. } => (
+            index_write_actions::estimate_arrived(state, ns, count),
+            Vec::new(),
+        ),
+        Event::Sampler { status, .. } => {
+            (index_actions::sampler_reported(state, status), Vec::new())
+        }
         // Routed before; these have no session.
         Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }
@@ -216,7 +283,17 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
 /// tunnel says so too, but a write that failed it was never sent, so it has no write wording.
 /// Read while the session is the active one.
 fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
-    let write = matches!(context, "insert" | "replace" | "delete" | "clone");
+    let write = matches!(
+        context,
+        "insert"
+            | "replace"
+            | "delete"
+            | "clone"
+            | "create_index"
+            | "drop_index"
+            | "set_index_hidden"
+            | "set_index_ttl"
+    );
     match (&error, write, state.ssh_endpoint.is_some()) {
         (CoreError::Unreachable, false, false) => error,
         (CoreError::Unreachable, false, true) => CoreError::UnreachableSsh,
@@ -325,6 +402,19 @@ fn editor_matches(state: &AppState, pending: Option<&Pending>) -> bool {
     }
 }
 
+/// Puts the wait for the newest index request back after the failure of an older one settled
+/// it, unless the failure took the session down.
+fn keep_waiting(state: AppState, awaiting: bool) -> AppState {
+    if !awaiting || state.failure.is_some() {
+        return state;
+    }
+    let indexes = crate::viewmodel::IndexesState {
+        loading: true,
+        ..state.indexes
+    };
+    AppState { indexes, ..state }
+}
+
 /// `data_failed`, except that a background session leaves another session's banner alone, the
 /// same rule `connection_lost` applies (a lost server with an editor open must not take the
 /// slot, while an ordinary background data failure still replaces it and names its session).
@@ -388,6 +478,23 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
         "insert" | "replace" | "delete" | "clone" => failure(
             AppState {
                 pending: None,
+                ..state
+            },
+            context,
+            error,
+        ),
+        // The builder stays open with everything the person typed, so a refusal such as a
+        // duplicate name can be fixed and sent again.
+        // Whichever index write was in flight is over; its modal (if any) stays as it was, so the
+        // person can send it again or cancel.
+        "create_index" | "drop_index" | "set_index_hidden" | "set_index_ttl" => {
+            failure(index_write_actions::write_failed(state), context, error)
+        }
+        // The count only decides whether a warning shows: a missing one is not worth a banner.
+        "estimated_count" => state,
+        "list_indexes" | "index_history" => failure(
+            AppState {
+                indexes: state.indexes.settled(),
                 ..state
             },
             context,

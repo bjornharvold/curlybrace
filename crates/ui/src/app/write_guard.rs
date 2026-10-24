@@ -11,6 +11,11 @@ pub enum WriteKind {
     Replace,
     Clone,
     Delete,
+    CreateIndex,
+    DropIndex,
+    /// Hiding or unhiding an index.
+    HideIndex,
+    SetIndexTtl,
 }
 
 /// Whether a mutation must wait for the user's confirmation when it targets a production
@@ -132,7 +137,10 @@ pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
                 pending: Some(pending),
                 ..state
             };
-            (next, vec![command])
+            (
+                super::index_write_actions::sent(next, &command),
+                vec![command],
+            )
         }
         (WriteWarningAction::Confirm, Some(parked)) => {
             let banner = Some(match connection_unchanged(&state, &parked) {

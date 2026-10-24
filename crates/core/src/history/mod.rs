@@ -1,0 +1,36 @@
+//! Index usage history: pure logic that turns raw `$indexStats` samples into
+//! plottable points (`series`), and the SQLite store that keeps and thins them (`db`).
+
+pub mod db;
+#[cfg(test)]
+mod db_purge_tests;
+mod db_schema;
+#[cfg(test)]
+mod db_tests;
+#[cfg(test)]
+mod db_wal_tests;
+pub mod retention;
+mod seam;
+#[cfg(test)]
+mod seam_tests;
+pub mod series;
+#[cfg(test)]
+mod series_tests;
+#[cfg(test)]
+mod skew_roll_tests;
+#[cfg(test)]
+mod skew_tests;
+mod thin;
+#[cfg(test)]
+mod thin_gate_tests;
+#[cfg(test)]
+mod thin_lock_tests;
+mod usage;
+
+pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView, is_history_busy};
+pub use retention::{ChartRange, MAX_DB_BYTES};
+
+pub use series::{
+    Bucket, DEFAULT_MAX_CONTINUOUS_SECS, GAP_INTERVALS, MAX_BUCKETS, MAX_FUTURE_SKEW_SECS, Point,
+    SAMPLE_INTERVAL_SECS, Sample, bucketize, bucketize_within, derive, max_continuous_secs,
+};

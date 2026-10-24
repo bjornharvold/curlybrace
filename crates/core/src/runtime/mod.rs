@@ -2,11 +2,14 @@
 //!
 //! The UI sends [`Command`]s and drains [`Event`]s. Every command yields
 //! EXACTLY ONE event, followed by one `repaint()` call, on every code path:
-//! success, error, timeout and even a panic inside a handler. The one exception is
+//! success, error, timeout and even a panic inside a handler. There are two exceptions.
 //! `Command::Compare`: compare sessions are long-lived and independent of the connections,
 //! so `Cancel`, `Discard` and `Close` have no answer of their own and `Start` answers with a
 //! stream of events (one `PairDone` per pair, then one `RunDone`). The answer rule per compare
-//! command is documented in the `compare` module.
+//! command is documented in the `compare` module. And `Event::Sampler`: the index usage sampler
+//! of a connected session reports its status (running, or paused and why) on its own, whenever
+//! it changes, with no command behind it. The session-less `SetSamplingExcluded` and
+//! `PurgeHistory` have no answer, like `LockReadOnly`.
 //!
 //! Every connection is its own session (`Connect(cfg)` opens session `cfg.id`); data commands and
 //! session events carry the session they belong to, and all epochs come from one counter.
@@ -17,9 +20,21 @@
 //! `Connect` before `Find`) must wait for the corresponding event first.
 
 mod compare;
+mod config;
 #[cfg(test)]
 mod epoch_tests;
 mod handlers;
+#[cfg(test)]
+mod index_build_timeout_tests;
+#[cfg(test)]
+mod index_facts_tests;
+#[cfg(test)]
+mod index_history_tests;
+#[cfg(test)]
+mod index_request_failed_tests;
+#[cfg(test)]
+mod index_tests;
+mod indexes;
 mod job_flag;
 #[cfg(test)]
 mod lost_server_tests;
@@ -28,6 +43,9 @@ mod prompt_gate_tests;
 mod read_only_registry;
 #[cfg(test)]
 mod read_only_tests;
+mod sampler;
+#[cfg(test)]
+mod sampler_tests;
 mod session;
 #[cfg(test)]
 mod session_tests;
@@ -39,23 +57,29 @@ mod tests;
 mod tunnel_tests;
 mod tunneling;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 use bson::{Bson, Document};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::watch;
 
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
+use crate::history::{ChartRange, HistoryDb};
+use crate::indexes::IndexSpec;
 use crate::secrets::SecretStore;
-use crate::store::{DocumentStore, Namespace, Page, Query, Topology};
-use crate::tunnel::{HostKeyPrompt, RejectUnknownHostKeys};
+use crate::store::{CollectionIndex, DocumentStore, Namespace, Page, Query, Topology};
 use session::Session;
 
+pub use config::{
+    COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT, INDEX_BUILD_TIMEOUT, PING_TIMEOUT,
+    RuntimeConfig, default_history_path,
+};
+pub use indexes::IndexSeries;
+pub use sampler::{MIN_INTERVAL, SamplerConfig, SamplerPause, SamplerStatus};
 pub use session::{EMBEDDED_SESSION, SessionId};
 /// What `RuntimeHandle::rx.try_recv()` reports, so callers can tell "no event yet" from "the
 /// runtime is gone" without depending on tokio themselves.
@@ -88,72 +112,6 @@ impl Connector for MongoConnector {
     ) -> Result<Arc<dyn DocumentStore>> {
         let client = crate::client::connect(cfg, password, tunnel).await?;
         Ok(Arc::new(crate::mongo_store::MongoStore::new(client)))
-    }
-}
-
-/// Upper bound for any single command (including connect).
-pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Upper bound for the reachability ping that follows a suspect failure of a data command.
-pub const PING_TIMEOUT: Duration = Duration::from_secs(3);
-
-/// Upper bound for the duplicate-key aggregation of a compare pair (it may scan a whole
-/// collection).
-pub const DUPLICATE_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// Upper bound for a Connect (connector, SSH tunnel and any host-key prompt the user must answer).
-pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(150);
-
-/// Runtime tunables; the timeouts are overridable so tests stay fast.
-///
-/// SSH tunnels: `known_hosts_path` is the app-owned host-key file and
-/// `host_key_prompt` decides about UNKNOWN host keys. The default prompt is
-/// [`RejectUnknownHostKeys`] (safe); the UI (Task 16) supplies an interactive
-/// one. The prompt is synchronous and is called via `spawn_blocking`, so the
-/// UI side may block on a channel until the user answers. Keep
-/// `connect_timeout` in mind: it bounds the whole connect, prompt included, while
-/// `command_timeout` bounds data commands only.
-#[derive(Clone)]
-pub struct RuntimeConfig {
-    /// Bound for each data command (find, insert, ...).
-    pub command_timeout: Duration,
-    /// Bound for the ping that settles a lost connection or a timed-out command.
-    pub ping_timeout: Duration,
-    /// Bound for a Connect, including an SSH host-key prompt waiting for the user.
-    pub connect_timeout: Duration,
-    /// Bound for the duplicate-key search of a compare pair.
-    pub duplicate_timeout: Duration,
-    /// `None` when the config directory is unknown: SSH connects then fail closed.
-    pub known_hosts_path: Option<PathBuf>,
-    pub host_key_prompt: Arc<dyn HostKeyPrompt>,
-    pub tunnel_opener: Arc<dyn TunnelOpener>,
-    /// Result budget and preflight thresholds of every compare session.
-    pub compare_limits: crate::compare::results::Limits,
-}
-
-impl Default for RuntimeConfig {
-    fn default() -> Self {
-        Self {
-            command_timeout: COMMAND_TIMEOUT,
-            ping_timeout: PING_TIMEOUT,
-            connect_timeout: CONNECT_TIMEOUT,
-            duplicate_timeout: DUPLICATE_TIMEOUT,
-            known_hosts_path: default_known_hosts_path(),
-            host_key_prompt: Arc::new(RejectUnknownHostKeys),
-            tunnel_opener: Arc::new(SshTunnelOpener),
-            compare_limits: Default::default(),
-        }
-    }
-}
-
-impl std::fmt::Debug for RuntimeConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RuntimeConfig")
-            .field("command_timeout", &self.command_timeout)
-            .field("connect_timeout", &self.connect_timeout)
-            .field("duplicate_timeout", &self.duplicate_timeout)
-            .field("known_hosts_path", &self.known_hosts_path)
-            .finish_non_exhaustive()
     }
 }
 
@@ -242,6 +200,62 @@ pub enum Command {
     LockReadOnly {
         connection: uuid::Uuid,
     },
+    /// Lists the indexes of a collection; answered with [`Event::Indexes`], which echoes
+    /// `request`. The caller numbers its requests so an older answer that arrives after a newer
+    /// one can be told apart; the runtime never reads it.
+    ListIndexes {
+        session: SessionId,
+        ns: Namespace,
+        request: u64,
+    },
+    /// Reads the recorded usage of the collection's indexes; answered with
+    /// [`Event::IndexHistory`] (no series when history is off).
+    IndexHistory {
+        session: SessionId,
+        ns: Namespace,
+        range: ChartRange,
+        /// Echoed by the answer, like [`Command::ListIndexes`]'s.
+        request: u64,
+    },
+    /// Asks for the collection's estimated document count; answered with
+    /// [`Event::EstimatedCount`].
+    EstimatedCount {
+        session: SessionId,
+        ns: Namespace,
+    },
+    /// The four index writes below are answered with [`Event::IndexChanged`].
+    CreateIndex {
+        session: SessionId,
+        ns: Namespace,
+        spec: IndexSpec,
+    },
+    DropIndex {
+        session: SessionId,
+        ns: Namespace,
+        name: String,
+    },
+    SetIndexHidden {
+        session: SessionId,
+        ns: Namespace,
+        name: String,
+        hidden: bool,
+    },
+    SetIndexTtl {
+        session: SessionId,
+        ns: Namespace,
+        name: String,
+        seconds: i64,
+    },
+    /// Sets the databases every running (and later started) sampler skips, on top of the system
+    /// databases. No session, no epoch, no answer event; samplers see it at their next pass.
+    SetSamplingExcluded {
+        databases: BTreeSet<String>,
+    },
+    /// Deletes the stored usage history of a connection (for example one that was deleted). No
+    /// session, no epoch, no answer event; a failure is logged.
+    PurgeHistory {
+        connection: uuid::Uuid,
+    },
 }
 
 impl Command {
@@ -251,7 +265,11 @@ impl Command {
             Self::Insert { .. }
             | Self::Replace { .. }
             | Self::Delete { .. }
-            | Self::Clone { .. } => true,
+            | Self::Clone { .. }
+            | Self::CreateIndex { .. }
+            | Self::DropIndex { .. }
+            | Self::SetIndexHidden { .. }
+            | Self::SetIndexTtl { .. } => true,
             Self::Connect(_)
             | Self::Disconnect { .. }
             | Self::ListDatabases { .. }
@@ -259,7 +277,22 @@ impl Command {
             | Self::Find { .. }
             | Self::Compare(_)
             | Self::TestConnection { .. }
-            | Self::LockReadOnly { .. } => false,
+            | Self::LockReadOnly { .. }
+            | Self::ListIndexes { .. }
+            | Self::IndexHistory { .. }
+            | Self::EstimatedCount { .. }
+            | Self::SetSamplingExcluded { .. }
+            | Self::PurgeHistory { .. } => false,
+        }
+    }
+
+    /// The number a numbered read carries (echoed by its answer and its failure).
+    pub fn request(&self) -> Option<u64> {
+        match self {
+            Self::ListIndexes { request, .. } | Self::IndexHistory { request, .. } => {
+                Some(*request)
+            }
+            _ => None,
         }
     }
 
@@ -278,11 +311,20 @@ impl Command {
             Self::Compare(_) => "compare",
             Self::TestConnection { .. } => "test_connection",
             Self::LockReadOnly { .. } => "lock_read_only",
+            Self::ListIndexes { .. } => "list_indexes",
+            Self::IndexHistory { .. } => "index_history",
+            Self::EstimatedCount { .. } => "estimated_count",
+            Self::CreateIndex { .. } => "create_index",
+            Self::DropIndex { .. } => "drop_index",
+            Self::SetIndexHidden { .. } => "set_index_hidden",
+            Self::SetIndexTtl { .. } => "set_index_ttl",
+            Self::SetSamplingExcluded { .. } => "set_sampling_excluded",
+            Self::PurgeHistory { .. } => "purge_history",
         }
     }
 
-    /// The session this command addresses; `None` for compare, connection tests and read-only
-    /// locks, which are independent of sessions.
+    /// The session this command addresses; `None` for compare, connection tests, read-only
+    /// locks and the history commands, which are independent of sessions.
     pub fn session(&self) -> Option<SessionId> {
         match self {
             Self::Connect(cfg) => Some(cfg.id),
@@ -293,8 +335,19 @@ impl Command {
             | Self::Insert { session, .. }
             | Self::Replace { session, .. }
             | Self::Delete { session, .. }
-            | Self::Clone { session, .. } => Some(*session),
-            Self::Compare(_) | Self::TestConnection { .. } | Self::LockReadOnly { .. } => None,
+            | Self::Clone { session, .. }
+            | Self::ListIndexes { session, .. }
+            | Self::IndexHistory { session, .. }
+            | Self::EstimatedCount { session, .. }
+            | Self::CreateIndex { session, .. }
+            | Self::DropIndex { session, .. }
+            | Self::SetIndexHidden { session, .. }
+            | Self::SetIndexTtl { session, .. } => Some(*session),
+            Self::Compare(_)
+            | Self::TestConnection { .. }
+            | Self::LockReadOnly { .. }
+            | Self::SetSamplingExcluded { .. }
+            | Self::PurgeHistory { .. } => None,
         }
     }
 }
@@ -348,12 +401,53 @@ pub enum Event {
         context: &'static str,
         error: CoreError,
     },
+    /// A numbered read (`ListIndexes`, `IndexHistory`) failed. Like [`Event::Failed`], plus the
+    /// `request` the command carried, so a failure of an older request can be told from the one
+    /// of the request still awaited.
+    RequestFailed {
+        session: SessionId,
+        context: &'static str,
+        request: u64,
+        error: CoreError,
+    },
     /// An answer or progress report of a compare session (see [`compare`]).
     Compare(crate::compare::protocol::CompareEvent),
     /// The answer to `Command::TestConnection { request_id, .. }`; carries no secret.
     TestConnection {
         request_id: u64,
         outcome: std::result::Result<TestReport, CoreError>,
+    },
+    /// The answer to `ListIndexes`.
+    Indexes {
+        session: SessionId,
+        ns: Namespace,
+        indexes: Vec<CollectionIndex>,
+        /// The `request` of the command this answers.
+        request: u64,
+    },
+    /// The answer to `IndexHistory`: one series per index definition and node, empty when no
+    /// usage was recorded or history is off.
+    IndexHistory {
+        session: SessionId,
+        ns: Namespace,
+        range: ChartRange,
+        series: Vec<IndexSeries>,
+        /// The `request` of the command this answers.
+        request: u64,
+    },
+    /// The answer to `EstimatedCount`.
+    EstimatedCount {
+        session: SessionId,
+        ns: Namespace,
+        count: u64,
+    },
+    /// The answer to a successful index write; the UI re-lists the indexes.
+    IndexChanged { session: SessionId, ns: Namespace },
+    /// SPONTANEOUS (no command behind it): the session's sampler started, resumed or paused. See
+    /// the module docs for how this differs from "exactly one event per command".
+    Sampler {
+        session: SessionId,
+        status: SamplerStatus,
     },
 }
 
@@ -378,7 +472,13 @@ impl Event {
             | Self::Collections { session, .. }
             | Self::Results { session, .. }
             | Self::Mutated { session, .. }
-            | Self::Failed { session, .. } => Some(*session),
+            | Self::Indexes { session, .. }
+            | Self::IndexHistory { session, .. }
+            | Self::EstimatedCount { session, .. }
+            | Self::IndexChanged { session, .. }
+            | Self::Sampler { session, .. }
+            | Self::Failed { session, .. }
+            | Self::RequestFailed { session, .. } => Some(*session),
             Self::Compare(_) | Self::TestConnection { .. } => None,
         }
     }
@@ -409,6 +509,12 @@ pub(crate) struct Shared {
     latest_test: std::sync::Mutex<Option<job_flag::JobFlag>>,
     /// The read-only flags of the open stores, so a lock reaches stores that are already open.
     pub(crate) read_only: read_only_registry::ReadOnlyRegistry,
+    /// The usage history, opened once at spawn. `None` when `history_path` is unset or opening
+    /// failed (logged); then no sampler starts and `IndexHistory` answers empty. When a path was
+    /// set but opening failed, every connect reports `Paused(HistoryUnavailable)`.
+    pub(crate) history: Option<Arc<HistoryDb>>,
+    /// The sampler tunables shared by every sampler; each holds a receiver.
+    pub(crate) sampler_config: watch::Sender<SamplerConfig>,
 }
 
 impl Shared {
@@ -478,6 +584,14 @@ pub fn spawn_runtime_with_connector(
 ) -> RuntimeHandle {
     let (tx, mut commands) = unbounded_channel::<Command>();
     let (events, rx) = unbounded_channel::<Event>();
+    let history = indexes::open_history(config.history_path.as_deref());
+    let (sampler_config, _) = watch::channel(
+        SamplerConfig {
+            command_timeout: config.command_timeout,
+            ..config.sampler.clone()
+        }
+        .clamped(),
+    );
     // A store handed in at spawn time is the embedded session, in generation 0.
     let sessions: HashMap<SessionId, Arc<Session>> = store
         .map(|store| (EMBEDDED_SESSION, Arc::new(Session::new(0, Some(store)))))
@@ -492,6 +606,8 @@ pub fn spawn_runtime_with_connector(
         compare: Default::default(),
         latest_test: Default::default(),
         read_only: Default::default(),
+        history,
+        sampler_config,
     });
     tokio::runtime::Handle::current().spawn(async move {
         while let Some(command) = commands.recv().await {
@@ -529,6 +645,16 @@ fn dispatch(
         shared.read_only.lock(connection);
         return;
     }
+    if let Command::SetSamplingExcluded { databases } = command {
+        shared
+            .sampler_config
+            .send_modify(|cfg| cfg.excluded_dbs = databases);
+        return;
+    }
+    if let Command::PurgeHistory { connection } = command {
+        indexes::spawn_purge(&shared, connection);
+        return;
+    }
     // Synchronous, so request order decides: ending the session bumps its epoch before any later
     // command is dispatched. The session is gone afterwards, so the answer needs no `Session`.
     if let Command::Disconnect { session: id } = command {
@@ -542,6 +668,7 @@ fn dispatch(
         return;
     }
     let context = command.context();
+    let request = command.request();
     // Synchronous, so request order decides which connection wins.
     let (target, work) = match command {
         Command::Connect(cfg) => {
@@ -562,11 +689,13 @@ fn dispatch(
         data => {
             let id = data.session().expect("a data command names its session");
             let Some(session) = shared.session(id) else {
-                let unknown = Event::Failed {
-                    session: id,
+                let unknown = handlers::failure_event(
+                    id,
                     context,
-                    error: CoreError::Unsupported("not connected".into()),
-                };
+                    request,
+                    0,
+                    CoreError::Unsupported("not connected".into()),
+                );
                 if events.send(unknown).is_ok() {
                     repaint();
                 }
@@ -584,12 +713,13 @@ fn dispatch(
             generation,
             is_data,
         } = target;
-        let work = handlers::execute(shared, session.clone(), id, work, generation);
+        let work = handlers::execute(shared.clone(), session.clone(), id, work, generation);
         let event = match tokio::spawn(work).await {
             Ok(event) => event,
             Err(_) => handlers::failure_event(
                 id,
                 context,
+                request,
                 generation,
                 handlers::gate(
                     &session,
@@ -598,8 +728,13 @@ fn dispatch(
                 ),
             ),
         };
+        let connected = matches!(event, Event::Connected { .. });
         if handlers::send_answer(&session, id, generation, is_data, context, event, &events) {
             repaint();
+        }
+        // After `Connected` is queued, so the sampler's first status can never overtake it.
+        if connected {
+            indexes::start_sampler(&shared, &session, id, generation, events, repaint);
         }
     });
 }

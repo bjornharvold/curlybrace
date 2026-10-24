@@ -289,8 +289,12 @@ fn deleting_an_open_connection_closes_its_session_and_drops_its_root() {
         .dispatch_connection(ConnectionAction::Delete(r.ids[0]));
     let sent = drain(&mut r);
     assert!(
-        matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[0]),
-        "{sent:?}"
+        matches!(
+            sent.as_slice(),
+            [Command::Disconnect { session }, Command::PurgeHistory { connection }]
+                if *session == r.ids[0] && *connection == r.ids[0]
+        ),
+        "closed first, then its history goes: {sent:?}"
     );
     assert!(!r.app.state().is_open(r.ids[0]));
     assert!(r.app.state().is_open(r.ids[1]), "the other is untouched");
@@ -298,13 +302,17 @@ fn deleting_an_open_connection_closes_its_session_and_drops_its_root() {
 }
 
 #[test]
-fn deleting_a_closed_connection_sends_nothing() {
+fn deleting_a_closed_connection_closes_nothing_and_only_purges_its_history() {
     let mut r = rig(vec![via("a", "ha"), via("b", "hb")]);
     r.connect(0);
     drain(&mut r);
     r.app
         .dispatch_connection(ConnectionAction::Delete(r.ids[1]));
-    assert!(drain(&mut r).is_empty());
+    let sent = drain(&mut r);
+    assert!(
+        matches!(sent.as_slice(), [Command::PurgeHistory { connection }] if *connection == r.ids[1]),
+        "{sent:?}"
+    );
     assert!(r.app.state().is_open(r.ids[0]));
 }
 
@@ -346,7 +354,7 @@ fn a_delete_whose_config_write_fails_still_closes_the_open_session() {
     let sent = drain(&mut r);
     assert!(
         matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[0]),
-        "{sent:?}"
+        "closed, but its history is kept: the connection is still in the file: {sent:?}"
     );
     assert!(!r.app.state().is_open(r.ids[0]));
     for kind in SecretKind::ALL {
@@ -369,13 +377,22 @@ fn deleting_the_active_session_activates_its_neighbour_and_disconnects_once() {
     assert_eq!(r.app.state().active, Some(r.ids[2]), "the next open one");
     let sent = drain(&mut r);
     assert!(
-        matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[1]),
+        matches!(
+            sent.as_slice(),
+            [Command::Disconnect { session }, Command::PurgeHistory { connection }]
+                if *session == r.ids[1] && *connection == r.ids[1]
+        ),
         "{sent:?}"
     );
     r.app
         .dispatch_connection(ConnectionAction::Delete(r.ids[2]));
     assert_eq!(r.app.state().active, Some(r.ids[0]), "else the previous");
-    assert_eq!(drain(&mut r).len(), 1);
+    let sent = drain(&mut r);
+    let disconnects = sent
+        .iter()
+        .filter(|c| matches!(c, Command::Disconnect { .. }))
+        .count();
+    assert_eq!((sent.len(), disconnects), (2, 1), "{sent:?}");
 }
 
 #[test]
@@ -388,7 +405,11 @@ fn deleting_a_connecting_connection_disconnects_and_ignores_its_late_answers() {
         .dispatch_connection(ConnectionAction::Delete(r.ids[0]));
     let sent = drain(&mut r);
     assert!(
-        matches!(sent.as_slice(), [Command::Disconnect { session }] if *session == r.ids[0]),
+        matches!(
+            sent.as_slice(),
+            [Command::Disconnect { session }, Command::PurgeHistory { connection }]
+                if *session == r.ids[0] && *connection == r.ids[0]
+        ),
         "{sent:?}"
     );
     assert!(!r.app.state().is_open(r.ids[0]));

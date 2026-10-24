@@ -3,8 +3,11 @@
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus, HostEndpoint, Pending};
 use crate::I18n;
+use crate::viewmodel::{
+    CollectionTab, EditorState, FindBarState, IndexesState, PageKey, SidebarState, TreeState,
+    ViewMode,
+};
 use crate::viewmodel::{ConnectionBadge, connection_list};
-use crate::viewmodel::{EditorState, FindBarState, PageKey, SidebarState, TreeState, ViewMode};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{Page, Query, Topology};
@@ -28,6 +31,8 @@ pub struct SessionView {
     pub page_key: Option<PageKey>,
     pub tree: TreeState,
     pub view_mode: ViewMode,
+    pub tab: CollectionTab,
+    pub indexes: IndexesState,
     pub editor: Option<EditorState>,
     pub pending: Option<Pending>,
     pub ssh_endpoint: Option<HostEndpoint>,
@@ -94,6 +99,8 @@ impl AppState {
             page_key: self.page_key.take(),
             tree: std::mem::take(&mut self.tree),
             view_mode: std::mem::take(&mut self.view_mode),
+            tab: std::mem::take(&mut self.tab),
+            indexes: std::mem::take(&mut self.indexes),
             editor: self.editor.take(),
             pending: self.pending.take(),
             ssh_endpoint: self.ssh_endpoint.take(),
@@ -120,6 +127,8 @@ impl AppState {
             page_key,
             tree,
             view_mode,
+            tab,
+            indexes,
             editor,
             pending,
             ssh_endpoint,
@@ -140,6 +149,8 @@ impl AppState {
         self.page_key = page_key;
         self.tree = tree;
         self.view_mode = view_mode;
+        self.tab = tab;
+        self.indexes = indexes;
         self.editor = editor;
         self.pending = pending;
         self.ssh_endpoint = ssh_endpoint;

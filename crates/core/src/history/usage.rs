@@ -1,0 +1,278 @@
+//! Reads a chart's buckets out of the store, merging raw samples with rolled rows.
+//!
+//! - Raw samples (read in insertion order) go through `derive` and `bucketize` at the requested
+//!   width.
+//! - Rolled rows (hourly, daily) become buckets of their own width. A row narrower than the
+//!   request is summed into the requested bucket holding its start; a row at least as wide is
+//!   returned as it is, so a 10 minute chart over hourly rows shows the hourly bucket (the
+//!   bucket's `width_secs` says so). That only happens when a chart reaches past the 48 hour raw
+//!   window, which the 24 hour range never does.
+//! - A gap that began before the raw/rolled seam (`rolled_through`) was already counted, up to
+//!   the seam, in the rolled rows; its seconds before the seam are clipped from the raw side so
+//!   they are not counted twice. Its uses sit at its far end, in raw time, and are kept.
+//! - Buckets are returned oldest first, limited to the window that ends at `now_secs`.
+
+use super::db::{SeriesFacts, SeriesKey, SeriesView, sql_err};
+use super::retention::ChartRange;
+use super::series::{Bucket, MAX_FUTURE_SKEW_SECS, Point, Sample, bucketize_within, derive};
+use crate::error::Result;
+use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::BTreeMap;
+
+use super::db_schema::TIER_HOURLY;
+use super::retention::{DAY_SECS, HOUR_SECS};
+
+/// The row id and `rolled_through` of a series, when it exists.
+pub(super) fn find_series(conn: &Connection, key: &SeriesKey) -> Result<Option<(i64, i64)>> {
+    conn.query_row(
+        "SELECT id, rolled_through FROM series
+         WHERE connection = ?1 AND host = ?2 AND db = ?3 AND collection = ?4
+           AND index_name = ?5 AND definition_hash = ?6",
+        params![
+            key.connection.to_string(),
+            key.host,
+            key.db,
+            key.collection,
+            key.index_name,
+            key.definition_hash
+        ],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .map_err(sql_err)
+}
+
+/// Raw samples of a series in insertion order, without the ones stamped more than
+/// [`MAX_FUTURE_SKEW_SECS`] after `now_secs`: a bad clock stamped them, and left in they would
+/// be taken as the newest and make every real sample look older than the previous one.
+pub(super) fn raw_samples(
+    conn: &Connection,
+    series_id: i64,
+    now_secs: i64,
+) -> Result<Vec<(i64, Sample)>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, at_secs, ops, since_ms FROM samples
+             WHERE series_id = ?1 AND at_secs <= ?2 ORDER BY id",
+        )
+        .map_err(sql_err)?;
+    let believable_until = now_secs.saturating_add(MAX_FUTURE_SKEW_SECS);
+    let rows = stmt
+        .query_map(params![series_id, believable_until], |r| {
+            Ok((
+                r.get(0)?,
+                Sample {
+                    at_secs: r.get(1)?,
+                    ops: r.get(2)?,
+                    since_ms: r.get(3)?,
+                },
+            ))
+        })
+        .map_err(sql_err)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(sql_err)
+}
+
+/// One series read once: the series lookup, the raw samples and their derived points are shared
+/// by the three answers instead of being loaded and derived for each.
+pub(super) fn view(
+    conn: &Connection,
+    key: &SeriesKey,
+    range: ChartRange,
+    now_secs: i64,
+    max_continuous_secs: i64,
+) -> Result<SeriesView> {
+    let Some((series_id, rolled_through)) = find_series(conn, key)? else {
+        return Ok(SeriesView {
+            facts: SeriesFacts::default(),
+            buckets: Vec::new(),
+            latest: None,
+        });
+    };
+    let samples: Vec<Sample> = raw_samples(conn, series_id, now_secs)?
+        .into_iter()
+        .map(|(_, sample)| sample)
+        .collect();
+    let points = derive(&samples, max_continuous_secs);
+    let rolled_through = trusted_seam(rolled_through, now_secs, samples.first().map(|s| s.at_secs));
+    Ok(SeriesView {
+        facts: facts_of(conn, series_id, &samples, &points)?,
+        buckets: buckets_of(conn, series_id, rolled_through, &points, range, now_secs)?,
+        // Samples are read in insertion order, so the last one is the most recently inserted.
+        latest: samples.last().copied(),
+    })
+}
+
+pub(super) fn usage(
+    conn: &Connection,
+    key: &SeriesKey,
+    range: ChartRange,
+    now_secs: i64,
+    max_continuous_secs: i64,
+) -> Result<Vec<Bucket>> {
+    view(conn, key, range, now_secs, max_continuous_secs).map(|view| view.buckets)
+}
+
+/// The time of the newest use and of the oldest data, over everything stored (no range).
+pub(super) fn facts(
+    conn: &Connection,
+    key: &SeriesKey,
+    now_secs: i64,
+    max_continuous_secs: i64,
+) -> Result<SeriesFacts> {
+    let Some((series_id, _)) = find_series(conn, key)? else {
+        return Ok(SeriesFacts::default());
+    };
+    let samples: Vec<Sample> = raw_samples(conn, series_id, now_secs)?
+        .into_iter()
+        .map(|(_, sample)| sample)
+        .collect();
+    let points = derive(&samples, max_continuous_secs);
+    facts_of(conn, series_id, &samples, &points)
+}
+
+/// The buckets of the window ending at `now_secs`: raw points merged with the rolled rows.
+fn buckets_of(
+    conn: &Connection,
+    series_id: i64,
+    rolled_through: i64,
+    points: &[Point],
+    range: ChartRange,
+    now_secs: i64,
+) -> Result<Vec<Bucket>> {
+    let width = range.bucket_width_secs();
+    let window_start = now_secs - range.secs();
+    let clipped: Vec<Point> = points
+        .iter()
+        .map(|p| clip_gap(*p, rolled_through))
+        .collect();
+    let mut merged: BTreeMap<(i64, i64), Bucket> = BTreeMap::new();
+    // Only the buckets of the window are read back, so only those are built.
+    for bucket in bucketize_within(&clipped, width, window_start, now_secs) {
+        add(&mut merged, bucket);
+    }
+    for row in rolled_rows(conn, series_id, window_start)? {
+        add(&mut merged, widen(row, width));
+    }
+    Ok(merged
+        .into_values()
+        .filter(|b| b.start_secs + b.width_secs > window_start && b.start_secs <= now_secs)
+        .collect())
+}
+
+/// "Last used" and "tracked since" from the raw `samples` and their `points` plus the rolled rows.
+fn facts_of(
+    conn: &Connection,
+    series_id: i64,
+    samples: &[Sample],
+    points: &[Point],
+) -> Result<SeriesFacts> {
+    let raw_use = points
+        .iter()
+        .filter_map(|p| match *p {
+            Point::Delta { at_secs, uses, .. } if uses > 0 => Some(at_secs),
+            Point::Restart {
+                at_secs,
+                uses_since_restart,
+            } if uses_since_restart > 0 => Some(at_secs),
+            Point::Gap { to_secs, uses, .. } if uses > 0 => Some(to_secs),
+            _ => None,
+        })
+        .max();
+    let (rolled_use, rolled_first): (Option<i64>, Option<i64>) = conn
+        .query_row(
+            "SELECT MAX(CASE WHEN uses > 0
+                        THEN start_secs + CASE tier WHEN ?2 THEN ?3 ELSE ?4 END END),
+                    MIN(start_secs)
+             FROM rolled WHERE series_id = ?1",
+            params![series_id, TIER_HOURLY, HOUR_SECS, DAY_SECS],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(sql_err)?;
+    let raw_first = samples.iter().map(|s| s.at_secs).min();
+    Ok(SeriesFacts {
+        last_used_at_secs: raw_use.or(rolled_use),
+        tracked_since_secs: [rolled_first, raw_first].into_iter().flatten().min(),
+    })
+}
+
+/// The seam to trust. A stored `rolled_through` ahead of the clock (beyond
+/// [`MAX_FUTURE_SKEW_SECS`]) was set by a clock that ran ahead and has been corrected since; it
+/// must not suppress rolling or clip real gaps. Raw rows are only ever deleted once rolled, so
+/// nothing before the oldest raw sample is unrolled-real and the seam falls back to that sample.
+pub(super) fn trusted_seam(stored: i64, now_secs: i64, first_raw_secs: Option<i64>) -> i64 {
+    if stored <= now_secs.saturating_add(MAX_FUTURE_SKEW_SECS) {
+        return stored;
+    }
+    first_raw_secs.map_or(0, |first| first.min(stored))
+}
+
+/// A gap's seconds before the seam are already in the rolled rows.
+pub(super) fn clip_gap(point: Point, rolled_through: i64) -> Point {
+    match point {
+        Point::Gap {
+            from_secs,
+            to_secs,
+            uses,
+        } => Point::Gap {
+            from_secs: from_secs.max(rolled_through).min(to_secs),
+            to_secs,
+            uses,
+        },
+        other => other,
+    }
+}
+
+fn rolled_rows(conn: &Connection, series_id: i64, window_start: i64) -> Result<Vec<Bucket>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT tier, start_secs, uses, restarts, gap_secs FROM rolled
+             WHERE series_id = ?1 AND start_secs + CASE tier WHEN ?2 THEN ?3 ELSE ?4 END > ?5
+             ORDER BY start_secs",
+        )
+        .map_err(sql_err)?;
+    let rows = stmt
+        .query_map(
+            params![series_id, TIER_HOURLY, HOUR_SECS, DAY_SECS, window_start],
+            |r| {
+                let tier: i64 = r.get(0)?;
+                Ok(Bucket {
+                    start_secs: r.get(1)?,
+                    width_secs: if tier == TIER_HOURLY {
+                        HOUR_SECS
+                    } else {
+                        DAY_SECS
+                    },
+                    uses: r.get(2)?,
+                    restarts: r.get(3)?,
+                    gap_secs: r.get(4)?,
+                })
+            },
+        )
+        .map_err(sql_err)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(sql_err)
+}
+
+/// Re-buckets a rolled row to `width` when it is narrower; keeps it as it is otherwise.
+fn widen(row: Bucket, width: i64) -> Bucket {
+    if row.width_secs >= width {
+        return row;
+    }
+    Bucket {
+        start_secs: row.start_secs.div_euclid(width) * width,
+        width_secs: width,
+        ..row
+    }
+}
+
+fn add(merged: &mut BTreeMap<(i64, i64), Bucket>, bucket: Bucket) {
+    merged
+        .entry((bucket.start_secs, bucket.width_secs))
+        .and_modify(|b| {
+            b.uses = b.uses.saturating_add(bucket.uses);
+            b.restarts += bucket.restarts;
+            b.gap_secs += bucket.gap_secs;
+        })
+        .or_insert(bucket);
+}

@@ -44,6 +44,10 @@ impl FilePicker for NeverAnswers {
     }
 }
 
+/// The wall clock of every screenshot (Unix seconds), so time-relative text and charts never
+/// change between runs.
+pub const SHOT_NOW: i64 = 1_800_000_000;
+
 /// The real app on an in-memory store whose connections file and known_hosts live in a fresh
 /// temp dir, never in the developer's real config directory.
 pub fn build_app(
@@ -59,7 +63,8 @@ pub fn build_app(
         Arc::new(MemorySecretStore::new()),
     )
     .with_config_path(Ok(dir.path().join("connections.json")))
-    .with_known_hosts_path(Some(dir.path().join("known_hosts")));
+    .with_known_hosts_path(Some(dir.path().join("known_hosts")))
+    .with_clock(|| SHOT_NOW);
     if let Some(rx) = requests {
         app = app.with_host_key_requests(rx);
     }

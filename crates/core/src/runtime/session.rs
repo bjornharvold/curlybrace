@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use super::tunneling::TunnelHandle;
 use crate::store::DocumentStore;
+use tokio::task::JoinHandle;
 
 /// Identifies one open connection. For a connection it is the `ConnectionConfig::id`.
 pub type SessionId = uuid::Uuid;
@@ -25,6 +26,9 @@ pub(crate) struct Session {
     /// check until it is sent, so a bump can never fall in between. This is a std lock and is
     /// never held across an `.await` (see `handlers::send_answer`).
     pub(super) epoch_lock: RwLock<()>,
+    /// The index usage sampler of the installed store. Aborted by `begin` (so by a Disconnect, a
+    /// newer Connect and the removal of the session) and when the session is dropped.
+    sampler: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Session {
@@ -34,6 +38,7 @@ impl Session {
             tunnel: Mutex::new(None),
             generation: AtomicU64::new(generation),
             epoch_lock: RwLock::new(()),
+            sampler: Mutex::new(None),
         }
     }
 
@@ -61,6 +66,41 @@ impl Session {
         let old = self.tunnel.lock().unwrap_or_else(|e| e.into_inner()).take();
         drop(slot);
         drop(old);
+        // After the generation moved: an `attach_sampler` that takes the lock later sees it.
+        self.stop_sampler();
+    }
+
+    /// Keeps `sampler` as this session's sampler if `generation` is still the latest request,
+    /// replacing (and aborting) the previous one; otherwise aborts it. Checked under the sampler
+    /// lock, which `begin` takes only after it moved the generation, so a sampler is never left
+    /// running behind a newer epoch.
+    pub(super) fn attach_sampler(&self, generation: u64, sampler: JoinHandle<()>) -> bool {
+        let mut slot = self.sampler.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.is_current(generation) {
+            sampler.abort();
+            return false;
+        }
+        if let Some(previous) = slot.replace(sampler) {
+            previous.abort();
+        }
+        true
+    }
+
+    /// Moves the generation without the bookkeeping of `begin`, as the caller holds `epoch_lock`.
+    #[cfg(test)]
+    pub(super) fn move_generation_for_tests(&self, generation: u64) {
+        self.generation.store(generation, Ordering::SeqCst);
+    }
+
+    fn stop_sampler(&self) {
+        let old = self
+            .sampler
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(old) = old {
+            old.abort();
+        }
     }
 
     /// Installs `store` and its tunnel only if `generation` is still the latest
@@ -83,5 +123,11 @@ impl Session {
         drop(slot);
         drop(previous);
         true
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.stop_sampler();
     }
 }

@@ -299,6 +299,10 @@ mod tests {
             "compare_export",
             "compare_duplicates_timeout",
             "duplicate_secrets",
+            "create_index",
+            "drop_index",
+            "set_index_hidden",
+            "set_index_ttl",
         ] {
             assert!(!i.failure(c).starts_with('⟦'), "missing failures.{c}");
         }

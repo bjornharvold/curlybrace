@@ -16,7 +16,7 @@ use super::*;
 use crate::compare::protocol::{CompareCommand, Side};
 use crate::store::Page;
 use crate::test_support::InMemoryStore;
-use crate::test_support::mock_objects::{mock_doc_with_id, mock_namespace};
+use crate::test_support::mock_objects::{mock_doc_with_id, mock_index_spec, mock_namespace};
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -48,6 +48,28 @@ impl DocumentStore for CountingStore {
     async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()> {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.delete(ns, id).await
+    }
+    async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
+        self.inner.estimated_count(ns).await
+    }
+    async fn list_indexes(&self, ns: &Namespace) -> Result<Vec<crate::store::CollectionIndex>> {
+        self.inner.list_indexes(ns).await
+    }
+    async fn create_index(&self, ns: &Namespace, spec: &crate::indexes::IndexSpec) -> Result<()> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.create_index(ns, spec).await
+    }
+    async fn drop_index(&self, ns: &Namespace, name: &str) -> Result<()> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.drop_index(ns, name).await
+    }
+    async fn set_index_hidden(&self, ns: &Namespace, name: &str, hidden: bool) -> Result<()> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.set_index_hidden(ns, name, hidden).await
+    }
+    async fn set_index_ttl(&self, ns: &Namespace, name: &str, seconds: i64) -> Result<()> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.set_index_ttl(ns, name, seconds).await
     }
 }
 
@@ -130,8 +152,30 @@ fn write_commands(session: SessionId) -> Vec<Command> {
         },
         Command::Clone {
             session,
-            ns,
+            ns: ns.clone(),
             source: mock_doc_with_id(1_i32),
+        },
+        Command::CreateIndex {
+            session,
+            ns: ns.clone(),
+            spec: mock_index_spec(),
+        },
+        Command::DropIndex {
+            session,
+            ns: ns.clone(),
+            name: "a_1".into(),
+        },
+        Command::SetIndexHidden {
+            session,
+            ns: ns.clone(),
+            name: "a_1".into(),
+            hidden: true,
+        },
+        Command::SetIndexTtl {
+            session,
+            ns,
+            name: "a_1".into(),
+            seconds: 60,
         },
     ]
 }
@@ -147,6 +191,21 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             session,
             ns: mock_namespace(),
             query: Query::default(),
+        },
+        Command::ListIndexes {
+            session,
+            ns: mock_namespace(),
+            request: 0,
+        },
+        Command::IndexHistory {
+            session,
+            ns: mock_namespace(),
+            range: crate::history::ChartRange::Day,
+            request: 0,
+        },
+        Command::EstimatedCount {
+            session,
+            ns: mock_namespace(),
         },
     ]
 }
@@ -186,7 +245,12 @@ async fn reads_still_work_on_a_read_only_session() {
         assert!(
             matches!(
                 event,
-                Event::Databases { .. } | Event::Collections { .. } | Event::Results { .. }
+                Event::Databases { .. }
+                    | Event::Collections { .. }
+                    | Event::Results { .. }
+                    | Event::Indexes { .. }
+                    | Event::IndexHistory { .. }
+                    | Event::EstimatedCount { .. }
             ),
             "{event:?}"
         );
@@ -276,22 +340,31 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 12;
+const COMMAND_VARIANTS: usize = 21;
 
 fn classify(command: &Command) -> Class {
     match command {
         Command::Insert { .. }
         | Command::Replace { .. }
         | Command::Delete { .. }
-        | Command::Clone { .. } => Class::Write,
-        Command::ListDatabases { .. } | Command::ListCollections { .. } | Command::Find { .. } => {
-            Class::Read
-        }
+        | Command::Clone { .. }
+        | Command::CreateIndex { .. }
+        | Command::DropIndex { .. }
+        | Command::SetIndexHidden { .. }
+        | Command::SetIndexTtl { .. } => Class::Write,
+        Command::ListDatabases { .. }
+        | Command::ListCollections { .. }
+        | Command::Find { .. }
+        | Command::ListIndexes { .. }
+        | Command::IndexHistory { .. }
+        | Command::EstimatedCount { .. } => Class::Read,
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
         | Command::TestConnection { .. }
-        | Command::LockReadOnly { .. } => Class::Other,
+        | Command::LockReadOnly { .. }
+        | Command::SetSamplingExcluded { .. }
+        | Command::PurgeHistory { .. } => Class::Other,
     }
 }
 
@@ -331,6 +404,10 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
             secrets: TestSecrets::default(),
         },
         Command::LockReadOnly { connection: cfg.id },
+        Command::SetSamplingExcluded {
+            databases: Default::default(),
+        },
+        Command::PurgeHistory { connection: cfg.id },
     ];
     assert!(
         others

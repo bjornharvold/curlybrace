@@ -14,6 +14,10 @@ pub fn message_key(kind: WriteKind) -> &'static str {
         WriteKind::Replace => "write_warning.message_replace",
         WriteKind::Clone => "write_warning.message_clone",
         WriteKind::Delete => "write_warning.message_delete",
+        WriteKind::CreateIndex => "write_warning.message_create_index",
+        WriteKind::DropIndex => "write_warning.message_drop_index",
+        WriteKind::HideIndex => "write_warning.message_hide_index",
+        WriteKind::SetIndexTtl => "write_warning.message_set_index_ttl",
     }
 }
 
@@ -74,11 +78,15 @@ mod tests {
     use egui_kittest::kittest::{NodeT, Queryable};
     use uuid::Uuid;
 
-    const KINDS: [WriteKind; 4] = [
+    const KINDS: [WriteKind; 8] = [
         WriteKind::Insert,
         WriteKind::Replace,
         WriteKind::Clone,
         WriteKind::Delete,
+        WriteKind::CreateIndex,
+        WriteKind::DropIndex,
+        WriteKind::HideIndex,
+        WriteKind::SetIndexTtl,
     ];
 
     fn parked(kind: WriteKind) -> ParkedWrite {
@@ -135,7 +143,7 @@ mod tests {
             assert!(!text.starts_with('⟦'), "{text}");
         }
         let distinct: std::collections::BTreeSet<_> = texts.iter().collect();
-        assert_eq!(distinct.len(), 4);
+        assert_eq!(distinct.len(), KINDS.len());
         // And the modal really draws it.
         let h = harness(WriteKind::Delete);
         h.get_by_label(&warning_text(WriteKind::Delete, "prod-db", &i18n));

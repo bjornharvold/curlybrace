@@ -1,0 +1,541 @@
+//! SQLite-backed store of `$indexStats` samples, keyed by series.
+//!
+//! One file serves every connection. Each method is a short blocking call behind a mutex; the
+//! runtime calls them through `spawn_blocking`. Thinning lives in [`super::thin`], reading a
+//! chart in [`super::usage`], the schema in [`super::db_schema`].
+
+use super::db_schema::{SchemaError, prepare};
+use super::retention::{ChartRange, MAX_DB_BYTES};
+use super::series::{Bucket, Sample};
+use super::{thin, usage};
+use crate::error::{CoreError, Result};
+use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
+use tokio::time::Instant;
+use uuid::Uuid;
+
+/// Real timestamps of a series, independent of any chart range or bucket width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SeriesFacts {
+    /// When the newest use was seen: the time of the sample that showed it, or the end of the
+    /// rolled row when only rolled data holds a use.
+    pub last_used_at_secs: Option<i64>,
+    /// The oldest sample (or, once thinned, the start of the oldest rolled row) on hand.
+    pub tracked_since_secs: Option<i64>,
+}
+
+/// Everything the Indexes tab shows about one series, read in one go.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeriesView {
+    pub facts: SeriesFacts,
+    pub buckets: Vec<Bucket>,
+    /// The most recently inserted reading (not the one with the latest timestamp).
+    pub latest: Option<Sample>,
+}
+
+/// Identifies one plotted series. A different definition hash (an index recreated with other
+/// options) or a different host (another node) is a different series; they are never joined.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SeriesKey {
+    pub connection: Uuid,
+    pub host: String,
+    pub db: String,
+    pub collection: String,
+    pub index_name: String,
+    pub definition_hash: String,
+}
+
+/// What `open` did to get a usable database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Recovery {
+    /// The file was unreadable or corrupt. It was moved to this path (never deleted) and a fresh
+    /// database was created in its place.
+    SetAside(PathBuf),
+}
+
+/// The sample store.
+///
+/// Retention rules: history is never deleted because of a wall-clock comparison that can be
+/// wrong. Samples and daily rows leave by age (`now - retention`) only; a sample stamped ahead of
+/// the clock is ignored by reads but never expired for that; a raw row is deleted only once
+/// rolled into an hourly row; a `rolled_through` ahead of the clock is not trusted. Only the size
+/// cap may delete by stamp, dropping future-only series first. See `thin` for the details.
+pub struct HistoryDb {
+    pub(super) conn: Mutex<Connection>,
+    max_bytes: u64,
+    /// Connections deleted in this process: their writes are ignored (see [`Self::mark_purged`]).
+    purged: Mutex<HashSet<Uuid>>,
+    /// When the last thinning was claimed (see [`Self::thin_if_due`]).
+    last_thin: Mutex<Option<Instant>>,
+    /// How many times `thin` ran (tests only).
+    #[cfg(test)]
+    thin_runs: std::sync::atomic::AtomicUsize,
+}
+
+/// How long a statement waits for a lock another connection (or process) holds before it fails
+/// as busy. Sampling writes are tiny, so a wait this long only happens under real contention.
+pub(super) const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How large the `-wal` file may stay once a checkpoint has reset it. One large thinning can grow
+/// the log far past the automatic checkpoint size; without a limit the file keeps that size.
+pub(super) const WAL_SIZE_LIMIT_BYTES: i64 = 16 * 1024 * 1024;
+
+/// The start of the text of a `Database` error caused by a busy or locked file.
+const BUSY_PREFIX: &str = "history busy: ";
+
+/// A failed statement. A busy or locked file is marked so [`is_history_busy`] can tell it from
+/// damage: it passes by itself, the other errors do not.
+pub(super) fn sql_err(e: rusqlite::Error) -> CoreError {
+    match e.sqlite_error_code() {
+        Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) => {
+            CoreError::Database(format!("{BUSY_PREFIX}{e}"))
+        }
+        _ => CoreError::Database(format!("history: {e}")),
+    }
+}
+
+/// Whether `error` came from a history file that was busy or locked for longer than the wait.
+pub fn is_history_busy(error: &CoreError) -> bool {
+    matches!(error, CoreError::Database(text) if text.starts_with(BUSY_PREFIX))
+}
+
+impl HistoryDb {
+    /// A shorter wait for a lock, so a busy file fails fast in a test.
+    #[cfg(test)]
+    pub(crate) fn set_busy_timeout(&self, wait: Duration) {
+        self.lock()
+            .busy_timeout(wait)
+            .expect("set the busy timeout");
+    }
+
+    /// How many times `thin` ran.
+    #[cfg(test)]
+    pub(crate) fn thin_runs_for_tests(&self) -> usize {
+        self.thin_runs.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Makes every later `record` and `thin` fail, as a damaged database would (tests only).
+    #[cfg(test)]
+    pub(crate) fn break_writes_for_tests(&self) {
+        self.lock()
+            .execute_batch("ALTER TABLE samples RENAME TO samples_gone")
+            .expect("rename the samples table");
+    }
+
+    /// Opens (creating, with mode 0600 on unix) the database at `path`. A corrupt file is moved
+    /// to `<name>.corrupt` and replaced; a file from a newer build is refused untouched.
+    pub fn open(path: &Path) -> Result<(Self, Option<Recovery>)> {
+        match open_file(path) {
+            Ok(db) => Ok((db, None)),
+            Err(OpenFailure::Corrupt(cause)) => {
+                let aside = set_aside(path)?;
+                log::warn!(
+                    "history database unreadable ({cause}); moved to {}",
+                    aside.display()
+                );
+                let db = open_file(path).map_err(OpenFailure::into_core)?;
+                Ok((db, Some(Recovery::SetAside(aside))))
+            }
+            Err(other) => Err(other.into_core()),
+        }
+    }
+
+    /// A private in-memory database, for tests and for running without a file.
+    pub fn open_in_memory() -> Result<Self> {
+        let mut conn = Connection::open_in_memory().map_err(sql_err)?;
+        prepare(&mut conn).map_err(|e| OpenFailure::from(e).into_core())?;
+        Ok(Self::from_connection(conn))
+    }
+
+    fn from_connection(conn: Connection) -> Self {
+        Self {
+            conn: Mutex::new(conn),
+            max_bytes: MAX_DB_BYTES,
+            purged: Mutex::new(HashSet::new()),
+            last_thin: Mutex::new(None),
+            #[cfg(test)]
+            thin_runs: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// The same database with a different size cap, so tests need not write 100 MB.
+    #[cfg(test)]
+    pub(super) fn with_max_bytes(mut self, max_bytes: u64) -> Self {
+        self.max_bytes = max_bytes;
+        self
+    }
+
+    /// The same database capped `delta` bytes below what it uses now.
+    #[cfg(test)]
+    pub(super) fn with_max_bytes_from_used(self, delta: u64) -> Self {
+        let cap = self.used_bytes().unwrap() - delta;
+        self.with_max_bytes(cap)
+    }
+
+    /// Bytes in use by live pages (free pages left behind by deletes do not count).
+    #[cfg(test)]
+    pub(super) fn used_bytes(&self) -> Result<u64> {
+        thin::used_bytes(&self.lock())
+    }
+
+    /// A poisoned lock only means another call panicked; transactions roll back on drop, so the
+    /// connection is still consistent.
+    fn lock(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Appends one reading to a series. Readings are kept in insertion order, which is the
+    /// order they are read back in, whatever their timestamps say.
+    pub fn record(&self, key: &SeriesKey, sample: Sample) -> Result<()> {
+        self.record_many(&[(key.clone(), sample)])
+    }
+
+    /// Appends many readings in one transaction: one commit (one fsync) for the whole batch
+    /// instead of one per series, and all or none of them are stored.
+    pub fn record_many(&self, samples: &[(SeriesKey, Sample)]) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction().map_err(sql_err)?;
+        // Checked under the connection lock: a purge's delete cannot run between this check and
+        // the commit, so a refused connection leaves nothing behind.
+        for (key, sample) in samples
+            .iter()
+            .filter(|(k, _)| !self.is_purged(k.connection))
+        {
+            let series_id: i64 = tx
+                .query_row(
+                    "INSERT INTO series
+                         (connection, host, db, collection, index_name, definition_hash)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT (connection, host, db, collection, index_name, definition_hash)
+                     DO UPDATE SET host = excluded.host
+                     RETURNING id",
+                    params![
+                        key.connection.to_string(),
+                        key.host,
+                        key.db,
+                        key.collection,
+                        key.index_name,
+                        key.definition_hash
+                    ],
+                    |r| r.get(0),
+                )
+                .map_err(sql_err)?;
+            tx.execute(
+                "INSERT INTO samples (series_id, at_secs, ops, since_ms)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![series_id, sample.at_secs, sample.ops, sample.since_ms],
+            )
+            .map_err(sql_err)?;
+        }
+        tx.commit().map_err(sql_err)
+    }
+
+    /// Buckets of the last `range.secs()` seconds before `now_secs`, `range.bucket_width_secs()`
+    /// wide. See [`super::usage`] for how raw and rolled data are merged.
+    ///
+    /// `max_continuous_secs` is the longest silence between two samples that is not a gap (see
+    /// [`super::series::max_continuous_secs`]).
+    pub fn usage(
+        &self,
+        key: &SeriesKey,
+        range: ChartRange,
+        now_secs: i64,
+        max_continuous_secs: i64,
+    ) -> Result<Vec<Bucket>> {
+        usage::usage(&self.lock(), key, range, now_secs, max_continuous_secs)
+    }
+
+    /// The real times behind "last used" and "tracked since" of a series; no range is involved,
+    /// so they read the same whatever chart is drawn.
+    pub fn facts(
+        &self,
+        key: &SeriesKey,
+        now_secs: i64,
+        max_continuous_secs: i64,
+    ) -> Result<SeriesFacts> {
+        usage::facts(&self.lock(), key, now_secs, max_continuous_secs)
+    }
+
+    /// [`Self::facts`], [`Self::usage`] and [`Self::latest`] of one series from a single read:
+    /// one lock, one lookup, and the raw samples loaded and derived once.
+    pub fn series_view(
+        &self,
+        key: &SeriesKey,
+        range: ChartRange,
+        now_secs: i64,
+        max_continuous_secs: i64,
+    ) -> Result<SeriesView> {
+        usage::view(&self.lock(), key, range, now_secs, max_continuous_secs)
+    }
+
+    /// The most recently inserted sample of a series (not the one with the latest timestamp).
+    pub fn latest(&self, key: &SeriesKey) -> Result<Option<Sample>> {
+        let conn = self.lock();
+        let Some((series_id, _)) = usage::find_series(&conn, key)? else {
+            return Ok(None);
+        };
+        conn.query_row(
+            "SELECT at_secs, ops, since_ms FROM samples WHERE series_id = ?1
+             ORDER BY id DESC LIMIT 1",
+            [series_id],
+            |r| {
+                Ok(Sample {
+                    at_secs: r.get(0)?,
+                    ops: r.get(1)?,
+                    since_ms: r.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(sql_err)
+    }
+
+    /// Every series stored for a collection, across nodes and index definitions, including
+    /// those of indexes that were since dropped (until retention removes them).
+    pub fn series_for(
+        &self,
+        connection: Uuid,
+        db: &str,
+        collection: &str,
+    ) -> Result<Vec<SeriesKey>> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT host, index_name, definition_hash FROM series
+                 WHERE connection = ?1 AND db = ?2 AND collection = ?3
+                 ORDER BY index_name, definition_hash, host",
+            )
+            .map_err(sql_err)?;
+        let rows = stmt
+            .query_map(params![connection.to_string(), db, collection], |r| {
+                Ok(SeriesKey {
+                    connection,
+                    host: r.get(0)?,
+                    db: db.to_owned(),
+                    collection: collection.to_owned(),
+                    index_name: r.get(1)?,
+                    definition_hash: r.get(2)?,
+                })
+            })
+            .map_err(sql_err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(sql_err)
+    }
+
+    /// Refuses every later write for `connection` until [`Self::allow_recording`]. Called
+    /// synchronously when a delete is requested: the purge itself runs later on a blocking
+    /// thread, and a batch the sampler queued earlier (a blocking task cannot be cancelled)
+    /// could otherwise run after it and bring the series back.
+    pub fn mark_purged(&self, connection: Uuid) {
+        self.purged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(connection);
+    }
+
+    /// Lets `connection` record again. A new sampler calls this when it starts: its id belongs
+    /// to a connection that exists again (an id reused after a purge), and the sampler of the
+    /// deleted one was stopped before.
+    pub fn allow_recording(&self, connection: Uuid) {
+        self.purged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&connection);
+    }
+
+    fn is_purged(&self, connection: Uuid) -> bool {
+        self.purged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&connection)
+    }
+
+    /// Deletes everything stored for one connection (its samples and rolled rows).
+    /// Also marks it purged, so nothing written for it afterwards recreates the series.
+    pub fn purge_connection(&self, connection: Uuid) -> Result<()> {
+        let conn = self.lock();
+        self.mark_purged(connection);
+        conn.execute(
+            "DELETE FROM series WHERE connection = ?1",
+            [connection.to_string()],
+        )
+        .map_err(sql_err)?;
+        thin::release_free_pages(&conn)
+    }
+
+    /// [`Self::thin`] unless a thinning was claimed less than `every` before `at`. Thinning
+    /// covers every connection, so each sampler asks on its own schedule and the first one to
+    /// find it due does the work for all. `Ok(true)` when it ran. A failed thinning does not
+    /// use up the period: the next caller tries again.
+    pub fn thin_if_due(
+        &self,
+        at: Instant,
+        every: Duration,
+        now_secs: i64,
+        max_continuous_secs: i64,
+    ) -> Result<bool> {
+        let previous = {
+            let mut last = self
+                .last_thin
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if last.is_some_and(|claimed| at.saturating_duration_since(claimed) < every) {
+                return Ok(false);
+            }
+            last.replace(at)
+        };
+        let thinned = self.thin(now_secs, max_continuous_secs);
+        if thinned.is_err() {
+            *self
+                .last_thin
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = previous;
+        }
+        thinned.map(|()| true)
+    }
+
+    /// Rolls old data into coarser rows, drops expired rows, then enforces the size cap.
+    pub fn thin(&self, now_secs: i64, max_continuous_secs: i64) -> Result<()> {
+        #[cfg(test)]
+        self.thin_runs
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        thin::thin(
+            &mut self.lock(),
+            now_secs,
+            self.max_bytes,
+            max_continuous_secs,
+        )
+    }
+}
+
+/// Why `open_file` failed.
+enum OpenFailure {
+    /// SQLite says the file is not a database or is damaged.
+    Corrupt(String),
+    TooNew(i64),
+    Other(CoreError),
+}
+
+impl OpenFailure {
+    fn into_core(self) -> CoreError {
+        match self {
+            Self::Corrupt(cause) => CoreError::Database(format!("history: {cause}")),
+            Self::TooNew(version) => CoreError::Unsupported(format!(
+                "history database has schema version {version}, newer than this build"
+            )),
+            Self::Other(e) => e,
+        }
+    }
+}
+
+impl From<SchemaError> for OpenFailure {
+    fn from(e: SchemaError) -> Self {
+        match e {
+            SchemaError::TooNew(v) => Self::TooNew(v),
+            SchemaError::Sqlite(e) => Self::from(e),
+        }
+    }
+}
+
+impl From<rusqlite::Error> for OpenFailure {
+    fn from(e: rusqlite::Error) -> Self {
+        match e.sqlite_error_code() {
+            Some(ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt) => {
+                Self::Corrupt(e.to_string())
+            }
+            _ => Self::Other(sql_err(e)),
+        }
+    }
+}
+
+fn io_err(e: std::io::Error) -> CoreError {
+    CoreError::Database(format!("history file: {e}"))
+}
+
+fn open_file(path: &Path) -> std::result::Result<HistoryDb, OpenFailure> {
+    create_private_file(path).map_err(|e| OpenFailure::Other(io_err(e)))?;
+    let mut conn = Connection::open(path)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+    prepare(&mut conn)?;
+    enable_wal(&conn)?;
+    Ok(HistoryDb::from_connection(conn))
+}
+
+/// Write-ahead logging with `synchronous=NORMAL`: a commit appends to the log without an fsync
+/// of its own (the log is synced at checkpoints), which is what makes one commit per collection
+/// cheap. A crash can lose the last commits but never corrupts the file. Set after the schema
+/// so `auto_vacuum` on a fresh file still takes effect first. SQLite gives `-wal` and `-shm` the
+/// mode of the database file, so they are as private (0600) as it.
+fn enable_wal(conn: &Connection) -> rusqlite::Result<()> {
+    let mode: String = conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
+    if !mode.eq_ignore_ascii_case("wal") {
+        // A file system without shared memory: the database works, only slower.
+        log::warn!("history database stays in {mode} journal mode");
+    }
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "journal_size_limit", WAL_SIZE_LIMIT_BYTES)
+}
+
+/// Makes sure the file exists with mode 0600 before SQLite opens it, so it is never readable by
+/// others, not even briefly.
+fn create_private_file(path: &Path) -> std::io::Result<()> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
+/// Moves a damaged database to `<name>.corrupt` (`.corrupt.1`, `.corrupt.2`, ... when taken, so
+/// an earlier set-aside file is never overwritten).
+pub(super) fn set_aside(path: &Path) -> Result<PathBuf> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| CoreError::Database("history file: path has no file name".into()))?
+        .to_string_lossy()
+        .into_owned();
+    let target = (0..1_000)
+        .map(|n| match n {
+            0 => format!("{name}.corrupt"),
+            n => format!("{name}.corrupt.{n}"),
+        })
+        .map(|candidate| path.with_file_name(candidate))
+        .find(|candidate| !candidate.exists())
+        .ok_or_else(|| CoreError::Database("history file: no free set-aside name".into()))?;
+    std::fs::rename(path, &target).map_err(io_err)?;
+    set_aside_sidecars(path, &target)?;
+    Ok(target)
+}
+
+/// Moves the `-wal` and `-shm` files of the damaged database next to it, so a fresh database
+/// at `path` never meets a log that belongs to the old one.
+fn set_aside_sidecars(path: &Path, target: &Path) -> Result<()> {
+    for suffix in ["-wal", "-shm"] {
+        let from = sidecar(path, suffix);
+        if from.exists() {
+            std::fs::rename(&from, sidecar(target, suffix)).map_err(io_err)?;
+        }
+    }
+    Ok(())
+}
+
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}

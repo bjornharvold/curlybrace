@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 use crate::connection::ConnectionConfig;
 use crate::crud::DocumentService;
 use crate::error::{CoreError, Result};
+use crate::history::{HistoryDb, max_continuous_secs};
 use crate::read_only_store::ReadOnlyStore;
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
@@ -37,6 +38,13 @@ impl Work {
             Self::Data(command) => command.context(),
         }
     }
+
+    fn request(&self) -> Option<u64> {
+        match self {
+            Self::Connect { .. } => None,
+            Self::Data(command) => command.request(),
+        }
+    }
 }
 
 /// Runs `work` to completion, folding any error into `Event::Failed`.
@@ -47,33 +55,40 @@ pub(super) async fn execute(
     work: Work,
     generation: u64,
 ) -> Event {
-    let context = work.context();
+    let (context, request) = (work.context(), work.request());
     match run(&shared, &session, id, work, generation).await {
         Ok(event) => event,
-        Err(error) => failure_event(id, context, generation, error),
+        Err(error) => failure_event(id, context, request, generation, error),
     }
 }
 
 /// The event for a failed command. A real (not superseded) connect failure is stamped with the
-/// connect's own epoch so receivers can tell it from a newer request's outcome.
+/// connect's own epoch so receivers can tell it from a newer request's outcome; a numbered read
+/// (`request`) echoes its number.
 pub(super) fn failure_event(
     session: SessionId,
     context: &'static str,
+    request: Option<u64>,
     generation: u64,
     error: CoreError,
 ) -> Event {
-    if context == "connect" && error != CoreError::Superseded {
-        Event::ConnectFailed {
+    match request {
+        _ if context == "connect" && error != CoreError::Superseded => Event::ConnectFailed {
             session,
             epoch: generation,
             error,
-        }
-    } else {
-        Event::Failed {
+        },
+        Some(request) => Event::RequestFailed {
+            session,
+            context,
+            request,
+            error,
+        },
+        None => Event::Failed {
             session,
             context,
             error,
-        }
+        },
     }
 }
 
@@ -149,13 +164,25 @@ async fn run(
         .current_store()
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
         .map_err(|e| gate(session, generation, e))?;
-    let limit = shared.config.command_timeout;
+    // An index build can run for a long time; every other command keeps the short bound.
+    let limit = match command {
+        Command::CreateIndex { .. } => shared.config.index_build_timeout,
+        _ => shared.config.command_timeout,
+    };
     let is_write = command.is_write();
     // Refused before any timeout or ping bookkeeping: a refusal is an answer, never a lost write.
     if is_write && store.is_read_only() {
         return Err(gate(session, generation, CoreError::ReadOnly));
     }
-    let work = data_command(id, store.clone(), command);
+    // The silence that is not yet a gap follows the sampling interval, a runtime tunable.
+    let max_continuous = max_continuous_secs(shared.sampler_config.borrow().interval);
+    let work = data_command(
+        id,
+        store.clone(),
+        shared.history.clone(),
+        max_continuous,
+        command,
+    );
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
     // an answer from a server that is there.
     let (result, timed_out) = match tokio::time::timeout(limit, work).await {
@@ -201,6 +228,8 @@ async fn settle_by_ping(
 async fn data_command(
     session: SessionId,
     store: Arc<dyn DocumentStore>,
+    history: Option<Arc<HistoryDb>>,
+    max_continuous: i64,
     command: Command,
 ) -> Result<Event> {
     let service = DocumentService::new(store.clone());
@@ -238,11 +267,66 @@ async fn data_command(
             service.clone_document(&ns, &source).await?;
             Event::Mutated { session, ns }
         }
+        Command::ListIndexes { ns, request, .. } => {
+            let indexes = store.list_indexes(&ns).await?;
+            Event::Indexes {
+                session,
+                ns,
+                indexes,
+                request,
+            }
+        }
+        Command::IndexHistory {
+            ns, range, request, ..
+        } => {
+            // Without history there is nothing to restrict, so skip the round trip. Only names and
+            // definitions are needed, so the sizes (a `collStats` call) are not read.
+            let listed = match history {
+                Some(_) => store.list_index_specs(&ns).await?,
+                None => Vec::new(),
+            };
+            let series =
+                super::indexes::series_for(history, session, &ns, range, &listed, max_continuous)
+                    .await?;
+            Event::IndexHistory {
+                session,
+                ns,
+                range,
+                series,
+                request,
+            }
+        }
+        Command::EstimatedCount { ns, .. } => {
+            let count = store.estimated_count(&ns).await?;
+            Event::EstimatedCount { session, ns, count }
+        }
+        Command::CreateIndex { ns, spec, .. } => {
+            store.create_index(&ns, &spec).await?;
+            Event::IndexChanged { session, ns }
+        }
+        Command::DropIndex { ns, name, .. } => {
+            store.drop_index(&ns, &name).await?;
+            Event::IndexChanged { session, ns }
+        }
+        Command::SetIndexHidden {
+            ns, name, hidden, ..
+        } => {
+            store.set_index_hidden(&ns, &name, hidden).await?;
+            Event::IndexChanged { session, ns }
+        }
+        Command::SetIndexTtl {
+            ns, name, seconds, ..
+        } => {
+            store.set_index_ttl(&ns, &name, seconds).await?;
+            Event::IndexChanged { session, ns }
+        }
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
         | Command::TestConnection { .. }
-        | Command::LockReadOnly { .. } => {
+        | Command::LockReadOnly { .. }
+        | Command::SetSamplingExcluded { .. }
+        | Command::PurgeHistory { .. } => {
             unreachable!("connection and compare commands are handled before data dispatch")
         }
     })
