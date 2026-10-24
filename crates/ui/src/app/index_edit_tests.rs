@@ -89,11 +89,17 @@ fn only_drop(commands: &[Command]) -> String {
     }
 }
 
+/// The first key flipped to descending: the server refuses a copy that keeps the key pattern of
+/// an index that exists, so every copy that gets created changes its keys.
+fn with_other_keys(s: AppState) -> AppState {
+    edit(s, BuilderEdit::SetKind(0, KeyKind::Desc))
+}
+
 /// `email_1` edited into `email_1_v2` and sent.
 fn copy_sent() -> (AppState, Uuid, Vec<Command>) {
     let (s, id) = on_a_normal_collection();
     let (s, _) = act(s, IndexesAction::EditCopy("email_1".into()));
-    let s = edit(s, BuilderEdit::SetSparse(true));
+    let s = with_other_keys(edit(s, BuilderEdit::SetSparse(true)));
     let (s, commands) = act(s, IndexesAction::Create);
     (s, id, commands)
 }
@@ -110,7 +116,7 @@ fn editing_a_copy_creates_first_then_asks_before_dropping_the_old_index() {
     assert_eq!(builder.keys, email().keys);
     assert!(builder.options.unique, "options are pre-filled");
 
-    let s = edit(s, BuilderEdit::SetSparse(true));
+    let s = with_other_keys(edit(s, BuilderEdit::SetSparse(true)));
     let (s, commands) = act(s, IndexesAction::Create);
     // Create first: the old index is not touched by the send.
     let spec = sent_spec(&commands);
@@ -218,6 +224,7 @@ fn the_production_confirm_records_the_original() {
     let (s, id) = browsing(with_flags(true, false));
     let s = with_indexes(s, vec![email(), status()]);
     let (s, _) = act(s, IndexesAction::EditCopy("email_1".into()));
+    let s = with_other_keys(s);
     let (s, commands) = act(s, IndexesAction::Create);
     assert!(commands.is_empty(), "parked");
     let (s, commands) = update(s, Input::WriteWarning(WriteWarningAction::Confirm));
@@ -530,13 +537,18 @@ fn hashed_and_2d_keys_survive_editing_a_copy() {
         let s = with_indexes(s, vec![original.clone()]);
         let (s, _) = act(s, IndexesAction::EditCopy(original.name.clone()));
         let s = edit(s, BuilderEdit::SetSparse(true));
+        let s = edit(s, BuilderEdit::AddKey);
+        let s = edit(
+            s,
+            BuilderEdit::SetField(original.keys.len(), "extra".into()),
+        );
         // A kind the picker does not offer cannot be typed over.
         let before = s.indexes.builder.clone();
         let s = edit(s, BuilderEdit::SetKind(0, KeyKind::Asc));
         assert_eq!(s.indexes.builder, before);
         let (_, commands) = act(s, IndexesAction::Create);
         let sent = sent_spec(&commands);
-        assert_eq!(sent.keys, original.keys);
+        assert_eq!(sent.keys[..original.keys.len()], original.keys[..]);
         let command = sent.create_command("people");
         let index = command.get_array("indexes").unwrap()[0]
             .as_document()
@@ -544,7 +556,7 @@ fn hashed_and_2d_keys_survive_editing_a_copy() {
             .clone();
         let key = index.get_document("key").unwrap();
         assert_eq!(
-            key.keys().collect::<Vec<_>>(),
+            key.keys().take(original.keys.len()).collect::<Vec<_>>(),
             original
                 .raw
                 .get_document("key")
@@ -715,6 +727,7 @@ fn parked_copy() -> (AppState, Uuid) {
     let (s, id) = browsing(with_flags(true, false));
     let s = with_indexes(s, vec![email(), status()]);
     let (s, _) = act(s, IndexesAction::EditCopy("email_1".into()));
+    let s = with_other_keys(s);
     let (s, commands) = act(s, IndexesAction::Create);
     assert!(commands.is_empty() && s.write_warning.is_some());
     (s, id)
@@ -752,4 +765,14 @@ fn the_builder_cannot_change_while_a_production_warning_is_up() {
         assert_eq!(after.indexes.builder, before, "{action:?}");
     }
     assert!(s.write_warning.is_some());
+}
+
+#[test]
+fn a_copy_that_keeps_the_keys_of_an_existing_index_sends_nothing() {
+    let (s, _) = on_a_normal_collection();
+    let (s, _) = act(s, IndexesAction::EditCopy("email_1".into()));
+    let s = edit(s, BuilderEdit::SetSparse(true));
+    let (s, commands) = act(s, IndexesAction::Create);
+    assert!(commands.is_empty(), "the server would refuse it");
+    assert!(s.indexes.writing.is_none() && s.indexes.builder.is_some());
 }

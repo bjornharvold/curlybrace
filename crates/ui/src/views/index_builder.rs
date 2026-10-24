@@ -8,6 +8,7 @@ use crate::viewmodel::{
     BuildWarning, BuilderEdit, BuilderProblem, IndexBuilderState, IndexesAction,
 };
 use curlybrace_core::indexes::KeyKind;
+use curlybrace_core::store::CollectionIndex;
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
 const MODAL_WIDTH: f32 = 640.0;
@@ -31,6 +32,8 @@ pub struct BuilderContext<'a> {
     pub read_only: bool,
     /// A write is in flight: Create waits for it.
     pub busy: bool,
+    /// The indexes the collection has, so a clash with one of them disables Create.
+    pub existing: &'a [CollectionIndex],
 }
 
 /// Draws the builder as a modal over `ctx`.
@@ -331,7 +334,7 @@ fn footer(
         );
         ui.colored_label(ui.visuals().warn_fg_color, text);
     }
-    let problem = builder.problem();
+    let problem = builder.problem_among(context.existing);
     if context.read_only {
         ui.label(i18n.t(READ_ONLY_REASON_KEY));
     }
@@ -356,8 +359,9 @@ fn footer(
 }
 
 fn problem_text(problem: &BuilderProblem, i18n: &I18n) -> String {
-    match problem.field() {
-        Some(field) => i18n.t_with(problem.message_key(), &[("field", field)]),
-        None => i18n.t(problem.message_key()),
+    match (problem.field(), problem.index_name()) {
+        (Some(field), _) => i18n.t_with(problem.message_key(), &[("field", field)]),
+        (None, Some(name)) => i18n.t_with(problem.message_key(), &[("name", name)]),
+        (None, None) => i18n.t(problem.message_key()),
     }
 }

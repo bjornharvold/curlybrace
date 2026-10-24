@@ -80,7 +80,7 @@ pub(super) fn create(state: AppState) -> Out {
         .builder
         .as_ref()
         .filter(|b| state.selected_ns() == Some(&b.ns))
-        .and_then(|b| b.spec().ok());
+        .and_then(|b| b.spec_among(&state.indexes.indexes).ok());
     let Some(spec) = spec else {
         return (state, Vec::new());
     };

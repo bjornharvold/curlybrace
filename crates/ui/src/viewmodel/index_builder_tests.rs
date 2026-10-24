@@ -1,6 +1,7 @@
 use super::*;
 use bson::doc;
 use curlybrace_core::ejson::editor_json_to_doc;
+use curlybrace_core::store::CollectionIndex;
 use curlybrace_core::test_support::mock_objects::mock_index_spec_named;
 
 fn ns() -> Namespace {
@@ -519,5 +520,74 @@ fn a_text_index_listed_without_weights_is_refused_not_rebuilt_on_a_literal_field
     assert_eq!(
         BuilderProblem::KeyNotRebuildable.message_key(),
         "indexes.builder.problem_unrebuildable"
+    );
+}
+
+fn listed(spec: IndexSpec) -> CollectionIndex {
+    CollectionIndex {
+        spec,
+        size_bytes: 0,
+    }
+}
+
+#[test]
+fn the_keys_of_an_existing_index_cannot_be_created_again_under_another_name() {
+    let existing = [listed(mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]))];
+    let same_keys = on("a").with_name("a_other").with_unique(true);
+    assert_eq!(same_keys.problem(), None, "the builder alone cannot tell");
+    assert_eq!(
+        same_keys.problem_among(&existing),
+        Some(BuilderProblem::SameKeysAsExisting("a_1".into()))
+    );
+    assert!(same_keys.spec_among(&existing).is_err());
+    // The identical spec is not new either.
+    assert_eq!(
+        on("a").problem_among(&existing),
+        Some(BuilderProblem::SameKeysAsExisting("a_1".into()))
+    );
+    // Other keys, a descending key, a longer key list: all different indexes.
+    assert_eq!(on("b").problem_among(&existing), None);
+    assert_eq!(
+        on("a").with_kind(0, KeyKind::Desc).problem_among(&existing),
+        None
+    );
+    assert_eq!(
+        on("a")
+            .adding_key()
+            .with_field(1, "b")
+            .problem_among(&existing),
+        None
+    );
+}
+
+#[test]
+fn a_collation_or_partial_filter_makes_the_same_keys_a_different_index() {
+    let existing = [listed(mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]))];
+    let partial = on("a").with_partial_filter_text(r#"{ "x": 1 }"#);
+    assert_eq!(partial.problem_among(&existing), None);
+    let collated = on("a").with_collation_text(r#"{ "locale": "en" }"#);
+    assert_eq!(collated.problem_among(&existing), None);
+}
+
+#[test]
+fn an_edited_copy_with_unchanged_keys_is_refused_until_the_keys_change() {
+    let original = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
+    let existing = [listed(original.clone())];
+    let copy = IndexBuilderState::from_copy(ns(), &original, "a_1_v2".into());
+    assert_eq!(
+        copy.problem_among(&existing),
+        Some(BuilderProblem::SameKeysAsExisting("a_1".into()))
+    );
+    let changed = copy.with_field(0, "b");
+    assert_eq!(changed.problem_among(&existing), None);
+}
+
+#[test]
+fn another_problem_is_reported_before_the_clash() {
+    let existing = [listed(mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]))];
+    let bad = on("a").with_partial_filter_text("nope");
+    assert_eq!(
+        bad.problem_among(&existing),
+        Some(BuilderProblem::PartialFilterInvalid)
     );
 }

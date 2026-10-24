@@ -264,6 +264,7 @@ pub fn show_modals(
             connection: &connection,
             read_only: state.active_is_read_only(),
             busy: !save_enabled,
+            existing: &state.indexes.indexes,
         };
         show_index_builder(ctx, builder, &context, i18n)
     });

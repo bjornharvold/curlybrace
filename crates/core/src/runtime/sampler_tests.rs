@@ -10,10 +10,10 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use super::sampler::*;
-use crate::runtime::COMMAND_TIMEOUT;
 use crate::error::{CoreError, Result};
 use crate::history::{HistoryDb, Sample, SeriesKey};
 use crate::indexes::KeyKind;
+use crate::runtime::COMMAND_TIMEOUT;
 use crate::store::DocumentStore;
 use crate::store::{CollectionKind, IndexUsage, Namespace};
 use crate::test_support::InMemoryStore;

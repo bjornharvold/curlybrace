@@ -615,6 +615,7 @@ fn a_copy_builder_names_its_original_and_keeps_hashed_and_2d_rows_read_only() {
                     connection: "local",
                     read_only: false,
                     busy: false,
+                    existing: &[],
                 };
                 show_index_builder(ctx, builder, &context, &I18n::english());
             },

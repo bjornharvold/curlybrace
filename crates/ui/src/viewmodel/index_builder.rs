@@ -6,7 +6,7 @@ use curlybrace_core::ejson::{doc_to_view_json, editor_json_to_doc};
 use curlybrace_core::indexes::{
     IndexKey, IndexOptions, IndexProblem, IndexSpec, KeyKind, validate_new,
 };
-use curlybrace_core::store::Namespace;
+use curlybrace_core::store::{CollectionIndex, Namespace};
 
 /// A collection with more documents than this gets the "building may take a while" warning.
 pub const BUILD_WARNING_THRESHOLD: u64 = 1_000_000;
@@ -51,6 +51,9 @@ pub enum BuilderProblem {
     /// The copy holds a text key whose fields are unknown (the server listed no `weights`), so
     /// the builder cannot rebuild the same index.
     KeyNotRebuildable,
+    /// The named index already has these keys, collation and partial filter. The server tells
+    /// indexes apart by those alone, so it refuses another name or other options on them.
+    SameKeysAsExisting(String),
 }
 
 impl BuilderProblem {
@@ -66,6 +69,7 @@ impl BuilderProblem {
             Self::PartialFilterInvalid => "indexes.builder.problem_partial_filter",
             Self::CollationInvalid => "indexes.builder.problem_collation",
             Self::KeyNotRebuildable => "indexes.builder.problem_unrebuildable",
+            Self::SameKeysAsExisting(_) => "indexes.builder.problem_same_keys",
         }
     }
 
@@ -73,6 +77,14 @@ impl BuilderProblem {
     pub fn field(&self) -> Option<&str> {
         match self {
             Self::Index(IndexProblem::DuplicateField(field)) => Some(field),
+            _ => None,
+        }
+    }
+
+    /// The `{name}` of the message, when it names an index.
+    pub fn index_name(&self) -> Option<&str> {
+        match self {
+            Self::SameKeysAsExisting(name) => Some(name),
             _ => None,
         }
     }
@@ -350,6 +362,24 @@ impl IndexBuilderState {
         self.spec().err()
     }
 
+    /// [`Self::spec`], and also refused when `existing` already holds an index with the same keys,
+    /// collation and partial filter: the server would answer with an options or key-spec conflict.
+    pub fn spec_among(&self, existing: &[CollectionIndex]) -> Result<IndexSpec, BuilderProblem> {
+        let spec = self.spec()?;
+        match existing
+            .iter()
+            .find(|listed| same_identity(&listed.spec, &spec))
+        {
+            Some(listed) => Err(BuilderProblem::SameKeysAsExisting(listed.spec.name.clone())),
+            None => Ok(spec),
+        }
+    }
+
+    /// [`Self::problem`] with the clash with `existing` taken into account.
+    pub fn problem_among(&self, existing: &[CollectionIndex]) -> Option<BuilderProblem> {
+        self.spec_among(existing).err()
+    }
+
     /// The command Create would send, as pretty extended JSON. It is rendered from the very
     /// `create_command` the store receives; a text that does not parse is left out of it, since
     /// Create is disabled then anyway.
@@ -462,6 +492,13 @@ impl IndexBuilderState {
         let options = change(self.options.clone());
         Self { options, ..self }
     }
+}
+
+/// What the server identifies an index by: key pattern, collation and partial filter.
+fn same_identity(a: &IndexSpec, b: &IndexSpec) -> bool {
+    a.keys == b.keys
+        && a.options.collation == b.options.collation
+        && a.options.partial_filter == b.options.partial_filter
 }
 
 /// `None` for a text that is not a JSON object; `Some(None)` for blank text.

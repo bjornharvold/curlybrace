@@ -58,6 +58,7 @@ fn open_with(builder: IndexBuilderState, read_only: bool, busy: bool) -> Harness
                     connection: "local",
                     read_only: frame.read_only,
                     busy: frame.busy,
+                    existing: &[],
                 };
                 let action = show_index_builder(ctx, &frame.builder, &context, &I18n::english());
                 if let Some(IndexesAction::Builder(edit)) = &action {
