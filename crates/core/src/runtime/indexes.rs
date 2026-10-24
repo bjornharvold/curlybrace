@@ -112,6 +112,9 @@ pub(super) fn spawn_purge(shared: &Shared, connection: Uuid) {
     let Some(history) = shared.history.clone() else {
         return;
     };
+    // Now, not on the blocking thread: writes queued before this point may still run first, and
+    // they must find the connection refused.
+    history.mark_purged(connection);
     tokio::spawn(async move {
         let purged =
             tokio::task::spawn_blocking(move || history.purge_connection(connection)).await;
@@ -147,6 +150,7 @@ pub(super) fn start_sampler(
     let (Some(history), Some(store)) = (shared.history.clone(), session.current_store()) else {
         return;
     };
+    history.allow_recording(id);
     let (status_tx, mut statuses) = unbounded_channel();
     let handle = sampler::spawn(
         store,

@@ -360,7 +360,11 @@ async fn list_indexes_reports_a_size_for_every_index() {
     let listed = store.list_indexes(&ns()).await.unwrap();
     assert_eq!(listed.len(), 2);
     for index in &listed {
-        assert!(index.size_bytes.is_some_and(|s| s > 0), "{} has no size", index.spec.name);
+        assert!(
+            index.size_bytes.is_some_and(|s| s > 0),
+            "{} has no size",
+            index.spec.name
+        );
     }
 }
 

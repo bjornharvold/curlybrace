@@ -380,8 +380,14 @@ mod tests {
     fn sizes_pick_a_unit() {
         assert_eq!(size_parts(Some(512)), ("indexes.size_bytes", "512".into()));
         assert_eq!(size_parts(Some(1_536)), ("indexes.size_kib", "1.5".into()));
-        assert_eq!(size_parts(Some(3 << 20)), ("indexes.size_mib", "3.0".into()));
-        assert_eq!(size_parts(Some(2 << 30)), ("indexes.size_gib", "2.0".into()));
+        assert_eq!(
+            size_parts(Some(3 << 20)),
+            ("indexes.size_mib", "3.0".into())
+        );
+        assert_eq!(
+            size_parts(Some(2 << 30)),
+            ("indexes.size_gib", "2.0".into())
+        );
         assert_eq!(size_parts(None), ("indexes.size_unknown", String::new()));
     }
 

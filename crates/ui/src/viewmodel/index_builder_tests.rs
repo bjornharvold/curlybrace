@@ -352,8 +352,8 @@ fn hashed_and_2d_rows_cannot_be_retyped_but_can_be_removed() {
 
 #[test]
 fn a_columnstore_copy_keeps_its_key_and_cannot_be_retyped() {
-    let spec = IndexSpec::from_document(&doc! { "key": { "$**": "columnstore" }, "name": "cs" })
-        .unwrap();
+    let spec =
+        IndexSpec::from_document(&doc! { "key": { "$**": "columnstore" }, "name": "cs" }).unwrap();
     let copy = IndexBuilderState::from_copy(ns(), &spec, "cs2".into());
     assert_eq!(copy.clone().with_kind(0, KeyKind::Wildcard), copy);
     let built = copy.spec().expect("a valid copy");

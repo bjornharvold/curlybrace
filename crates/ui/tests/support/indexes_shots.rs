@@ -17,7 +17,10 @@ const BUCKETS: i64 = 144;
 const WIDTH: i64 = 600;
 
 fn listed(spec: IndexSpec, size_bytes: u64) -> CollectionIndex {
-    CollectionIndex { spec, size_bytes: Some(size_bytes) }
+    CollectionIndex {
+        spec,
+        size_bytes: Some(size_bytes),
+    }
 }
 
 /// A day of 10 minute buckets ending at the chart's right edge. Buckets 60..80 are a gap and a

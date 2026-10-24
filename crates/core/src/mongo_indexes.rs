@@ -321,7 +321,10 @@ mod tests {
         let listed = collection_indexes(&batch, &sizes);
         let names: Vec<_> = listed.iter().map(|i| i.spec.name.as_str()).collect();
         assert_eq!(names, ["a_1", "hay"]);
-        assert_eq!((listed[0].size_bytes, listed[1].size_bytes), (Some(8), None));
+        assert_eq!(
+            (listed[0].size_bytes, listed[1].size_bytes),
+            (Some(8), None)
+        );
     }
 
     #[test]

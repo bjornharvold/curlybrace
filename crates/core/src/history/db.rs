@@ -10,6 +10,7 @@ use super::series::{Bucket, Sample};
 use super::{thin, usage};
 use crate::error::{CoreError, Result};
 use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use uuid::Uuid;
@@ -63,6 +64,8 @@ pub enum Recovery {
 pub struct HistoryDb {
     pub(super) conn: Mutex<Connection>,
     max_bytes: u64,
+    /// Connections deleted in this process: their writes are ignored (see [`Self::mark_purged`]).
+    purged: Mutex<HashSet<Uuid>>,
 }
 
 pub(super) fn sql_err(e: rusqlite::Error) -> CoreError {
@@ -107,6 +110,7 @@ impl HistoryDb {
         Self {
             conn: Mutex::new(conn),
             max_bytes: MAX_DB_BYTES,
+            purged: Mutex::new(HashSet::new()),
         }
     }
 
@@ -147,7 +151,12 @@ impl HistoryDb {
     pub fn record_many(&self, samples: &[(SeriesKey, Sample)]) -> Result<()> {
         let mut conn = self.lock();
         let tx = conn.transaction().map_err(sql_err)?;
-        for (key, sample) in samples {
+        // Checked under the connection lock: a purge's delete cannot run between this check and
+        // the commit, so a refused connection leaves nothing behind.
+        for (key, sample) in samples
+            .iter()
+            .filter(|(k, _)| !self.is_purged(k.connection))
+        {
             let series_id: i64 = tx
                 .query_row(
                     "INSERT INTO series
@@ -269,9 +278,39 @@ impl HistoryDb {
             .map_err(sql_err)
     }
 
+    /// Refuses every later write for `connection` until [`Self::allow_recording`]. Called
+    /// synchronously when a delete is requested: the purge itself runs later on a blocking
+    /// thread, and a batch the sampler queued earlier (a blocking task cannot be cancelled)
+    /// could otherwise run after it and bring the series back.
+    pub fn mark_purged(&self, connection: Uuid) {
+        self.purged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(connection);
+    }
+
+    /// Lets `connection` record again. A new sampler calls this when it starts: its id belongs
+    /// to a connection that exists again (an id reused after a purge), and the sampler of the
+    /// deleted one was stopped before.
+    pub fn allow_recording(&self, connection: Uuid) {
+        self.purged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&connection);
+    }
+
+    fn is_purged(&self, connection: Uuid) -> bool {
+        self.purged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&connection)
+    }
+
     /// Deletes everything stored for one connection (its samples and rolled rows).
+    /// Also marks it purged, so nothing written for it afterwards recreates the series.
     pub fn purge_connection(&self, connection: Uuid) -> Result<()> {
         let conn = self.lock();
+        self.mark_purged(connection);
         conn.execute(
             "DELETE FROM series WHERE connection = ?1",
             [connection.to_string()],
