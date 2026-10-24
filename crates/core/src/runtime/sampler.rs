@@ -7,6 +7,9 @@
 //! logged and the next tick tries again. Every [`HistoryDb`] call is a short blocking call and
 //! runs on the blocking pool.
 
+mod driver;
+pub(super) use driver::run;
+
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,12 +18,12 @@ use futures::stream::{self, StreamExt};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, Interval, MissedTickBehavior};
+use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::clock;
 use crate::error::{CoreError, Result};
-use crate::history::{HistoryDb, SAMPLE_INTERVAL_SECS, Sample, SeriesKey, max_continuous_secs};
+use crate::history::{HistoryDb, SAMPLE_INTERVAL_SECS, Sample, SeriesKey};
 use crate::store::{CollectionKind, DocumentStore, IndexUsage, Namespace};
 
 /// Databases the server owns; never sampled.
@@ -66,9 +69,6 @@ pub(super) type Clock = dyn Fn() -> i64 + Send + Sync;
 
 /// Shortest allowed time between two passes.
 pub const MIN_INTERVAL: Duration = Duration::from_secs(1);
-
-/// How often the history is thinned.
-const THIN_EVERY: Duration = Duration::from_secs(3_600);
 
 /// Tunables of a sampler; the task re-reads them at the start of every tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -292,61 +292,114 @@ async fn run_pass(
     let targets = discover(store, cfg, &mut health, deadline)
         .await
         .map_err(TickError::Store)?;
-    let total = targets.len();
-    let targets = rotated(targets, start);
     let width = cfg.max_concurrency.max(1);
     let limit = cfg.command_timeout;
-    let mut results = stream::iter(targets)
+    let mut progress = Progress::new(health, start, targets.len(), width);
+    let mut results = stream::iter(rotated(targets, start))
         .map(|ns| async move {
             let outcome =
                 sample_collection(store, history, connection, &ns, now_secs, clock, limit).await;
             (ns, outcome)
         })
         .buffer_unordered(width);
-    let mut recorded = 0;
-    let mut completed = 0;
-    let mut timed_out = 0;
-    let mut timeouts = Streak::for_concurrency(width);
     loop {
         let Ok(next) = tokio::time::timeout_at(deadline, results.next()).await else {
-            let resume = resume_point(start, completed, total);
-            if health.read > 0 && timed_out * SLOW_TOLERANCE <= health.read {
-                log::warn!(
-                    "index usage: the pass ran past its deadline after {completed} of {total} \
-                     collections; the next pass resumes there"
-                );
-                return health.finish(recorded).map(|pass| pass.resumed_at(resume));
-            }
-            log::warn!("index usage: the pass ran past its deadline, abandoned");
-            return health.finish(recorded).map(|pass| pass.abandoned(resume));
+            return progress.past_deadline();
         };
         let Some((ns, outcome)) = next else { break };
-        completed += 1;
+        // Dropping the stream on a return cancels the calls still in flight.
+        if progress.observe(&ns, outcome) {
+            return progress.abandoned();
+        }
+    }
+    progress.health.finish(progress.recorded)
+}
+
+/// What a running pass has seen so far.
+struct Progress {
+    health: Health,
+    start: usize,
+    total: usize,
+    completed: usize,
+    timed_out: usize,
+    recorded: usize,
+    timeouts: Streak,
+}
+
+impl Progress {
+    fn new(health: Health, start: usize, total: usize, width: usize) -> Self {
+        Self {
+            health,
+            start,
+            total,
+            completed: 0,
+            timed_out: 0,
+            recorded: 0,
+            timeouts: Streak::for_concurrency(width),
+        }
+    }
+
+    /// Takes one collection's outcome in. `true` when the pass must stop: too many calls in a
+    /// row timed out.
+    fn observe(&mut self, ns: &Namespace, outcome: std::result::Result<usize, TickError>) -> bool {
+        self.completed += 1;
         let answer = match &outcome {
             Ok(_) => Answer::Read,
             Err(error) => Answer::of_error(error.error()),
         };
-        timed_out += usize::from(matches!(answer, Answer::TimedOut));
-        timeouts.observe(answer);
+        self.timed_out += usize::from(matches!(answer, Answer::TimedOut));
+        self.timeouts.observe(answer);
         match outcome {
             Ok(count) => {
-                recorded += count;
-                health.answered += 1;
-                health.read += 1;
+                self.recorded += count;
+                self.health.answered += 1;
+                self.health.read += 1;
             }
-            Err(error) => health.note(error, format!("{}.{}", ns.db, ns.collection)),
+            Err(error) => self
+                .health
+                .note(error, format!("{}.{}", ns.db, ns.collection)),
         }
-        if timeouts.exhausted() {
+        let exhausted = self.timeouts.exhausted();
+        if exhausted {
             log::warn!(
                 "index usage: {} calls in a row timed out, pass abandoned",
-                timeouts.limit
+                self.timeouts.limit
             );
-            // Dropping the stream cancels the calls still in flight.
-            let resume = resume_point(start, completed, total);
-            return health.finish(recorded).map(|pass| pass.abandoned(resume));
         }
+        exhausted
     }
-    health.finish(recorded)
+
+    fn resume(&self) -> usize {
+        resume_point(self.start, self.completed, self.total)
+    }
+
+    fn abandoned(self) -> std::result::Result<Pass, TickError> {
+        let resume = self.resume();
+        self.health
+            .finish(self.recorded)
+            .map(|pass| pass.abandoned(resume))
+    }
+
+    /// The pass hit its deadline: healthy-but-slow keeps its status and resumes next time,
+    /// anything else is abandoned.
+    fn past_deadline(self) -> std::result::Result<Pass, TickError> {
+        let slow_but_healthy =
+            self.health.read > 0 && self.timed_out * SLOW_TOLERANCE <= self.health.read;
+        if !slow_but_healthy {
+            log::warn!("index usage: the pass ran past its deadline, abandoned");
+            return self.abandoned();
+        }
+        log::warn!(
+            "index usage: the pass ran past its deadline after {} of {} collections; the next \
+             pass resumes there",
+            self.completed,
+            self.total
+        );
+        let resume = self.resume();
+        self.health
+            .finish(self.recorded)
+            .map(|pass| pass.resumed_at(resume))
+    }
 }
 
 /// A deadline-cut pass counts as slow but healthy while at most one call in this many timed out.
@@ -591,207 +644,4 @@ pub fn spawn(
         status,
         clock::now_secs,
     ))
-}
-
-fn new_ticker(period: Duration, immediate: bool) -> Interval {
-    let start = if immediate {
-        Instant::now()
-    } else {
-        Instant::now() + period
-    };
-    let mut ticker = tokio::time::interval_at(start, period.max(Duration::from_millis(1)));
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    ticker
-}
-
-/// What the loop remembers between ticks.
-struct LoopState {
-    interval: Duration,
-    ticker: Interval,
-    /// Consecutive pause-class failures; zero while healthy.
-    failures: u32,
-    reported: Option<SamplerStatus>,
-    last_thin: Option<Instant>,
-    /// Names the last pass could not read, so a repeating set is logged once.
-    last_failed: Vec<String>,
-    /// Where the next pass starts in the target list (see [`Pass::next_start`]).
-    cursor: usize,
-}
-
-/// The sampler loop. `now` is the wall clock in Unix seconds; tests pass a controlled one.
-pub(super) async fn run(
-    store: Arc<dyn DocumentStore>,
-    history: Arc<HistoryDb>,
-    connection: Uuid,
-    cfg: watch::Receiver<SamplerConfig>,
-    status: UnboundedSender<SamplerStatus>,
-    now: impl Fn() -> i64 + Send + Sync + 'static,
-) {
-    let mut state = LoopState::new(cfg.borrow().interval.max(MIN_INTERVAL));
-    loop {
-        if !wait_for_next_tick(&mut state, &status).await {
-            return;
-        }
-        let current = cfg.borrow().clone().clamped();
-        state.follow_interval(current.interval);
-        let began = Instant::now();
-        let result = tick(&*store, &history, connection, &current, &now, &mut state).await;
-        let next = status_of(result, &mut state);
-        settle_overrun(&mut state, began).await;
-        if !report(&mut state, &status, next) {
-            return;
-        }
-    }
-}
-
-impl LoopState {
-    fn new(interval: Duration) -> Self {
-        Self {
-            interval,
-            ticker: new_ticker(interval, true),
-            failures: 0,
-            reported: None,
-            last_thin: None,
-            last_failed: Vec::new(),
-            cursor: 0,
-        }
-    }
-
-    /// Picks up a changed interval from the next tick on.
-    fn follow_interval(&mut self, interval: Duration) {
-        if interval != self.interval {
-            self.interval = interval;
-            self.ticker = new_ticker(interval, false);
-        }
-    }
-}
-
-/// The status a finished tick stands for, and the failure count it leaves behind: a pass that
-/// read something resets it, a pause-class error raises it (and so backs the next wait off), any
-/// other error resets it.
-fn status_of(result: std::result::Result<Pass, TickError>, state: &mut LoopState) -> SamplerStatus {
-    match result {
-        Ok(pass) => {
-            state.failures = 0;
-            report_failed(&pass.failed, &mut state.last_failed);
-            match pass.learned {
-                true => SamplerStatus::Running,
-                false => SamplerStatus::Failing,
-            }
-        }
-        Err(error) => match error.pause() {
-            Some(reason) => {
-                log::warn!("index usage sampler paused: {:?}", error.error());
-                state.failures = state.failures.saturating_add(1);
-                SamplerStatus::Paused(reason)
-            }
-            None => {
-                // The server answers and lets us in, so this is not a reason to pause; but the
-                // pass learned nothing, so the last status must not stay up.
-                log::warn!("index usage sampling failed: {:?}", error.error());
-                state.failures = 0;
-                SamplerStatus::Failing
-            }
-        },
-    }
-}
-
-/// After a healthy pass that took a whole interval or more, the tick it missed is already due and
-/// would start the next pass at once. Drops it so the next pass waits for the following aligned
-/// tick.
-async fn settle_overrun(state: &mut LoopState, began: Instant) {
-    if state.failures == 0 && began.elapsed() >= state.interval {
-        state.ticker.tick().await;
-    }
-}
-
-/// Sends `next` when it differs from the last status sent. `false` when nobody listens any more.
-fn report(
-    state: &mut LoopState,
-    status: &UnboundedSender<SamplerStatus>,
-    next: SamplerStatus,
-) -> bool {
-    if state.reported == Some(next) {
-        return true;
-    }
-    if status.send(next).is_err() {
-        return false;
-    }
-    state.reported = Some(next);
-    true
-}
-
-/// Waits for the next tick, or the backoff while paused. `false` when the status channel closed.
-async fn wait_for_next_tick(
-    state: &mut LoopState,
-    status: &UnboundedSender<SamplerStatus>,
-) -> bool {
-    let wait = async {
-        if state.failures == 0 {
-            state.ticker.tick().await;
-        } else {
-            tokio::time::sleep(backoff(state.interval, state.failures)).await;
-            // The ticks missed while backing off must not fire as a burst afterwards.
-            state.ticker.reset();
-        }
-    };
-    tokio::select! {
-        () = wait => true,
-        () = status.closed() => false,
-    }
-}
-
-/// Logs the collections a pass could not read, when the set differs from the last pass's.
-fn report_failed(failed: &[(String, CoreError)], last: &mut Vec<String>) {
-    let names: Vec<String> = failed.iter().map(|(name, _)| name.clone()).collect();
-    if names == *last {
-        return;
-    }
-    if let Some((_, first_error)) = failed.first() {
-        let shown: Vec<&str> = names.iter().take(3).map(String::as_str).collect();
-        log::warn!(
-            "index usage: {} collection(s) not sampled ({}{}): {:?}",
-            names.len(),
-            shown.join(", "),
-            if names.len() > shown.len() {
-                ", ..."
-            } else {
-                ""
-            },
-            first_error
-        );
-    }
-    *last = names;
-}
-
-/// One pass, then the hourly thinning. Thinning has its own schedule: it runs after a failed
-/// pass too (a paused sampler still thins), but not after a history failure, which it would
-/// only repeat. A thinning failure is a history failure.
-async fn tick(
-    store: &dyn DocumentStore,
-    history: &Arc<HistoryDb>,
-    connection: Uuid,
-    cfg: &SamplerConfig,
-    clock: &Clock,
-    state: &mut LoopState,
-) -> std::result::Result<Pass, TickError> {
-    let pass = run_pass(store, history, connection, cfg, clock, state.cursor).await;
-    if let Ok(done) = &pass {
-        state.cursor = done.next_start;
-    }
-    if matches!(pass, Err(TickError::History(_))) {
-        return pass;
-    }
-    if state.last_thin.is_none_or(|at| at.elapsed() >= THIN_EVERY) {
-        let history = Arc::clone(history);
-        let max_continuous = max_continuous_secs(cfg.interval);
-        // Thinning reads the clock afresh: a pass stamped before a step back must not decide what
-        // is old.
-        let now_secs = clock();
-        blocking(move || history.thin(now_secs, max_continuous))
-            .await
-            .map_err(TickError::History)?;
-        state.last_thin = Some(Instant::now());
-    }
-    pass
 }

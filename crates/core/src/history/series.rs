@@ -193,7 +193,20 @@ pub fn bucketize_within(
     if last < first {
         return Vec::new();
     }
-    let mut buckets: Vec<Bucket> = (first..=last)
+    let mut grid = Grid {
+        buckets: empty_buckets(first, last, width_secs),
+        first,
+        last,
+        width_secs,
+    };
+    for point in points {
+        grid.fold(*point);
+    }
+    grid.buckets
+}
+
+fn empty_buckets(first: i64, last: i64, width_secs: i64) -> Vec<Bucket> {
+    (first..=last)
         .map(|i| Bucket {
             start_secs: i * width_secs,
             width_secs,
@@ -201,52 +214,68 @@ pub fn bucketize_within(
             restarts: 0,
             gap_secs: 0,
         })
-        .collect();
-    let slot = |secs: i64| {
-        let n = secs.div_euclid(width_secs);
-        (first..=last)
+        .collect()
+}
+
+/// The dense buckets `first..=last` (as indices of `width_secs`) points are folded into.
+struct Grid {
+    buckets: Vec<Bucket>,
+    first: i64,
+    last: i64,
+    width_secs: i64,
+}
+
+impl Grid {
+    /// The position of the bucket holding `secs`, if the grid has one.
+    fn slot(&self, secs: i64) -> Option<usize> {
+        let n = secs.div_euclid(self.width_secs);
+        (self.first..=self.last)
             .contains(&n)
-            .then(|| usize::try_from(n - first).unwrap_or(0))
-    };
-    for point in points {
-        match *point {
-            Point::Delta { at_secs, uses, .. } => {
-                if let Some(i) = slot(at_secs) {
-                    buckets[i].uses = buckets[i].uses.saturating_add(uses);
-                }
-            }
+            .then(|| usize::try_from(n - self.first).unwrap_or(0))
+    }
+
+    fn add_uses(&mut self, at_secs: i64, uses: i64) {
+        if let Some(i) = self.slot(at_secs) {
+            self.buckets[i].uses = self.buckets[i].uses.saturating_add(uses);
+        }
+    }
+
+    fn fold(&mut self, point: Point) {
+        match point {
+            Point::Delta { at_secs, uses, .. } => self.add_uses(at_secs, uses),
             Point::Restart {
                 at_secs,
                 uses_since_restart,
             } => {
                 // Uses counted since the reset are real uses seen in this window.
-                if let Some(i) = slot(at_secs) {
-                    buckets[i].restarts += 1;
-                    buckets[i].uses = buckets[i].uses.saturating_add(uses_since_restart);
+                if let Some(i) = self.slot(at_secs) {
+                    self.buckets[i].restarts += 1;
                 }
+                self.add_uses(at_secs, uses_since_restart);
             }
             Point::Gap {
-                from_secs: gap_from,
-                to_secs: gap_to,
+                from_secs,
+                to_secs,
                 uses,
             } => {
-                if let Some(i) = slot(gap_to) {
-                    buckets[i].uses = buckets[i].uses.saturating_add(uses);
-                }
-                let (a, z) = (
-                    gap_from.div_euclid(width_secs).max(first),
-                    gap_to.div_euclid(width_secs).min(last),
-                );
-                for n in a..=z {
-                    let b = &mut buckets[usize::try_from(n - first).unwrap_or(0)];
-                    let overlap = b.start_secs.saturating_add(width_secs).min(gap_to)
-                        - b.start_secs.max(gap_from);
-                    b.gap_secs += overlap.max(0);
-                }
+                self.add_uses(to_secs, uses);
+                self.add_gap_seconds(from_secs, to_secs);
             }
         }
     }
-    buckets
+
+    /// Adds to every bucket the gap overlaps the seconds inside that bucket.
+    fn add_gap_seconds(&mut self, gap_from: i64, gap_to: i64) {
+        let width = self.width_secs;
+        let a = gap_from.div_euclid(width).max(self.first);
+        let z = gap_to.div_euclid(width).min(self.last);
+        for n in a..=z {
+            let b = &mut self.buckets[usize::try_from(n - self.first).unwrap_or(0)];
+            let overlap =
+                b.start_secs.saturating_add(width).min(gap_to) - b.start_secs.max(gap_from);
+            b.gap_secs += overlap.max(0);
+        }
+    }
 }
 
 fn time_range(points: &[Point]) -> Option<(i64, i64)> {

@@ -66,7 +66,10 @@ fn the_ttl_prompt_needs_a_whole_number_of_zero_or_more_of_seconds() {
             "{bad:?}"
         );
     }
-    assert_eq!(prompt.clone().with_text("-1".into()).seconds(), Err(key.clone()));
+    assert_eq!(
+        prompt.clone().with_text("-1".into()).seconds(),
+        Err(key.clone())
+    );
     assert_eq!(
         BuilderProblem::TtlNotANumber.message_key(),
         "indexes.builder.problem_ttl_not_a_number"
