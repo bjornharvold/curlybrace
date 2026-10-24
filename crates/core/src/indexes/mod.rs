@@ -5,5 +5,6 @@ mod spec;
 mod tests;
 mod validate;
 
+pub(crate) use spec::number;
 pub use spec::{IndexKey, IndexOptions, IndexSpec, KeyKind};
 pub use validate::{IndexProblem, validate_new};

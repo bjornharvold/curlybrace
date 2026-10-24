@@ -9,7 +9,7 @@ use mongodb::Database;
 use mongodb::error::ErrorKind;
 
 use crate::error::{CoreError, Result};
-use crate::indexes::IndexSpec;
+use crate::indexes::{IndexSpec, number};
 use crate::store::{CollectionIndex, IndexUsage, Namespace};
 
 /// Server error code `NamespaceNotFound`: the collection does not exist.
@@ -24,17 +24,6 @@ fn has_code(e: &mongodb::error::Error, codes: &[i32]) -> bool {
 
 fn malformed() -> CoreError {
     CoreError::Database("unexpected index reply".into())
-}
-
-/// Integer value of a numeric BSON field; the server reports sizes and counters as int32,
-/// int64 or double depending on magnitude.
-fn whole_number(value: &Bson) -> Option<i64> {
-    match value {
-        Bson::Int32(n) => Some(i64::from(*n)),
-        Bson::Int64(n) => Some(*n),
-        Bson::Double(n) if n.is_finite() => Some(*n as i64),
-        _ => None,
-    }
 }
 
 /// The indexes of `ns` with their sizes. A missing collection has no indexes (like
@@ -83,7 +72,7 @@ async fn index_sizes(
     Ok(sizes
         .iter()
         .filter_map(|(name, bytes)| {
-            let bytes = u64::try_from(whole_number(bytes)?).ok()?;
+            let bytes = u64::try_from(number(bytes)?).ok()?;
             Some((name.clone(), bytes))
         })
         .collect())
@@ -108,7 +97,7 @@ pub(crate) async fn index_stats(
 /// One `$indexStats` row as an [`IndexUsage`].
 fn usage_from_row(row: &Document) -> Result<IndexUsage> {
     let accesses = row.get_document("accesses").map_err(|_| malformed())?;
-    let ops = accesses.get("ops").and_then(whole_number);
+    let ops = accesses.get("ops").and_then(number);
     let since_ms = match accesses.get("since") {
         Some(Bson::DateTime(at)) => Some(at.timestamp_millis()),
         _ => None,
@@ -205,9 +194,9 @@ mod tests {
 
     #[test]
     fn sizes_arrive_as_any_number_type() {
-        assert_eq!(whole_number(&Bson::Int32(4)), Some(4));
-        assert_eq!(whole_number(&Bson::Int64(5)), Some(5));
-        assert_eq!(whole_number(&Bson::Double(6.0)), Some(6));
-        assert_eq!(whole_number(&Bson::String("7".into())), None);
+        assert_eq!(number(&Bson::Int32(4)), Some(4));
+        assert_eq!(number(&Bson::Int64(5)), Some(5));
+        assert_eq!(number(&Bson::Double(6.0)), Some(6));
+        assert_eq!(number(&Bson::String("7".into())), None);
     }
 }

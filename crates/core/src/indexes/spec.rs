@@ -101,7 +101,9 @@ fn invalid(message: String) -> CoreError {
     CoreError::InvalidDocument(message)
 }
 
-fn number(value: &Bson) -> Option<i64> {
+/// Integer value of a numeric BSON field; the server reports sizes and counters as int32,
+/// int64 or double depending on magnitude.
+pub(crate) fn number(value: &Bson) -> Option<i64> {
     match value {
         Bson::Int32(n) => Some(i64::from(*n)),
         Bson::Int64(n) => Some(*n),
