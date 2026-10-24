@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/bjornharvold/curlybrace/compare/v0.4.0...v0.5.0) (2026-10-24)
+
+
+### Features
+
+* **connections:** colour tags and a production warning ([#108](https://github.com/bjornharvold/curlybrace/issues/108)) ([3f9eb7c](https://github.com/bjornharvold/curlybrace/commit/3f9eb7cfe78881f778b4edf70a7d991279d35398))
+* **connections:** read-only flag that refuses writes in the core ([#113](https://github.com/bjornharvold/curlybrace/issues/113)) ([c577495](https://github.com/bjornharvold/curlybrace/commit/c577495844448413bc67b7122a75430bbca45024)), closes [#109](https://github.com/bjornharvold/curlybrace/issues/109)
+* **indexes:** list, create, hide and drop indexes with usage history ([#115](https://github.com/bjornharvold/curlybrace/issues/115)) ([401783c](https://github.com/bjornharvold/curlybrace/commit/401783c221fd31033dffaed8527ad82f5656c7c3))
+
+
+### Bug Fixes
+
+* **connections:** keep a colour this build does not recognise when saving ([#112](https://github.com/bjornharvold/curlybrace/issues/112)) ([83cfef8](https://github.com/bjornharvold/curlybrace/commit/83cfef859904f0f59e4e17e1eb3d3f3bf97e798b))
+
 ## [0.4.0](https://github.com/bjornharvold/curlybrace/compare/v0.3.0...v0.4.0) (2026-10-16)
 
 
