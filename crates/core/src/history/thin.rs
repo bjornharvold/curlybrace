@@ -35,8 +35,9 @@ use super::db_schema::{TIER_DAILY, TIER_HOURLY};
 use super::retention::{
     DAILY_RETENTION_SECS, DAY_SECS, HOUR_SECS, HOURLY_RETENTION_SECS, RAW_RETENTION_SECS,
 };
-use super::series::{MAX_FUTURE_SKEW_SECS, accepted_indices, bucketize_within, derive};
-use super::usage::{clip_gap, raw_samples, trusted_seam};
+use super::seam;
+use super::series::{MAX_FUTURE_SKEW_SECS, bucketize_within, derive};
+use super::usage::{clip_gap, trusted_seam};
 use crate::error::Result;
 use rusqlite::{Connection, Transaction, params};
 
@@ -87,29 +88,20 @@ fn roll_series(
     cutoff: i64,
     max_continuous_secs: i64,
 ) -> Result<()> {
-    let samples = raw_samples(tx, series_id, now_secs)?;
     // Only samples `derive` accepts count: a backwards-clock sample is never the baseline, so
     // it cannot make newer data look old enough to delete.
-    let plain: Vec<_> = samples.iter().map(|(_, s)| *s).collect();
-    let accepted = accepted_indices(&plain);
-    // The baseline: the last accepted sample before the cutoff.
-    let Some(pos) = accepted.iter().rposition(|&i| plain[i].at_secs < cutoff) else {
+    let Some(seam) = seam::load(tx, series_id, now_secs, cutoff)? else {
         return Ok(());
     };
-    let baseline = accepted[pos];
-    let baseline_id = samples[baseline].0;
-    // Up to and including the accepted sample after it, so a gap straddling the cutoff is seen
-    // whole. When there is none, the silence is still open: the roll only goes as far as the
-    // baseline, and the rest of it is rolled once a sample ends it.
-    let next = accepted.get(pos + 1);
-    let window: Vec<_> = accepted[..=(pos + usize::from(next.is_some()))]
-        .iter()
-        .map(|&i| plain[i])
-        .collect();
-    let rolled_to = if next.is_some() {
+    let baseline_id = seam.baseline_id;
+    // Up to and including the accepted sample after the baseline, so a gap straddling the
+    // cutoff is seen whole. When there is none, the silence is still open: the roll only goes as
+    // far as the baseline, and the rest of it is rolled once a sample ends it.
+    let window = seam.window;
+    let rolled_to = if seam.has_next {
         cutoff
     } else {
-        plain[baseline].at_secs
+        seam.baseline_at
     };
     let stored_through: i64 = tx
         .query_row(
@@ -119,7 +111,7 @@ fn roll_series(
         )
         .map_err(sql_err)?;
     // A seam ahead of the clock (the clock ran ahead and was corrected) must not suppress rolling.
-    let rolled_through = trusted_seam(stored_through, now_secs, Some(plain[accepted[0]].at_secs));
+    let rolled_through = trusted_seam(stored_through, now_secs, Some(seam.oldest_at));
     // The same clip the reads apply: seconds of a gap before `rolled_through` are already in
     // the rows, so a gap that continues past an earlier roll adds only its new part.
     let points: Vec<_> = derive(&window, max_continuous_secs)

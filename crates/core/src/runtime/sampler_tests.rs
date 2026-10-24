@@ -795,3 +795,4 @@ mod guard;
 mod history_busy;
 mod history_failure;
 mod rotation;
+mod thin_once;

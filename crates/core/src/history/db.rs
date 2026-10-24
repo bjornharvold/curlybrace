@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
+use tokio::time::Instant;
 use uuid::Uuid;
 
 /// Real timestamps of a series, independent of any chart range or bucket width.
@@ -67,6 +68,11 @@ pub struct HistoryDb {
     max_bytes: u64,
     /// Connections deleted in this process: their writes are ignored (see [`Self::mark_purged`]).
     purged: Mutex<HashSet<Uuid>>,
+    /// When the last thinning was claimed (see [`Self::thin_if_due`]).
+    last_thin: Mutex<Option<Instant>>,
+    /// How many times `thin` ran (tests only).
+    #[cfg(test)]
+    thin_runs: std::sync::atomic::AtomicUsize,
 }
 
 /// How long a statement waits for a lock another connection (or process) holds before it fails
@@ -99,6 +105,12 @@ impl HistoryDb {
         self.lock()
             .busy_timeout(wait)
             .expect("set the busy timeout");
+    }
+
+    /// How many times `thin` ran.
+    #[cfg(test)]
+    pub(crate) fn thin_runs_for_tests(&self) -> usize {
+        self.thin_runs.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Makes every later `record` and `thin` fail, as a damaged database would (tests only).
@@ -139,6 +151,9 @@ impl HistoryDb {
             conn: Mutex::new(conn),
             max_bytes: MAX_DB_BYTES,
             purged: Mutex::new(HashSet::new()),
+            last_thin: Mutex::new(None),
+            #[cfg(test)]
+            thin_runs: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -347,8 +362,42 @@ impl HistoryDb {
         thin::release_free_pages(&conn)
     }
 
+    /// [`Self::thin`] unless a thinning was claimed less than `every` before `at`. Thinning
+    /// covers every connection, so each sampler asks on its own schedule and the first one to
+    /// find it due does the work for all. `Ok(true)` when it ran. A failed thinning does not
+    /// use up the period: the next caller tries again.
+    pub fn thin_if_due(
+        &self,
+        at: Instant,
+        every: Duration,
+        now_secs: i64,
+        max_continuous_secs: i64,
+    ) -> Result<bool> {
+        let previous = {
+            let mut last = self
+                .last_thin
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if last.is_some_and(|claimed| at.saturating_duration_since(claimed) < every) {
+                return Ok(false);
+            }
+            last.replace(at)
+        };
+        let thinned = self.thin(now_secs, max_continuous_secs);
+        if thinned.is_err() {
+            *self
+                .last_thin
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = previous;
+        }
+        thinned.map(|()| true)
+    }
+
     /// Rolls old data into coarser rows, drops expired rows, then enforces the size cap.
     pub fn thin(&self, now_secs: i64, max_continuous_secs: i64) -> Result<()> {
+        #[cfg(test)]
+        self.thin_runs
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         thin::thin(
             &mut self.lock(),
             now_secs,

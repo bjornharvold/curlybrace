@@ -2,12 +2,17 @@
 //! plottable points (`series`), and the SQLite store that keeps and thins them (`db`).
 
 pub mod db;
+#[cfg(test)]
+mod db_purge_tests;
 mod db_schema;
 #[cfg(test)]
 mod db_tests;
 #[cfg(test)]
 mod db_wal_tests;
 pub mod retention;
+mod seam;
+#[cfg(test)]
+mod seam_tests;
 pub mod series;
 #[cfg(test)]
 mod series_tests;
@@ -16,6 +21,8 @@ mod skew_roll_tests;
 #[cfg(test)]
 mod skew_tests;
 mod thin;
+#[cfg(test)]
+mod thin_gate_tests;
 mod usage;
 
 pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView, is_history_busy};

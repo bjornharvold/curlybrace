@@ -221,8 +221,10 @@ async fn tick(
         // Thinning reads the clock afresh: a pass stamped before a step back must not decide what
         // is old.
         let now_secs = clock();
-        match blocking(move || history.thin(now_secs, max_continuous)).await {
-            Ok(()) => state.last_thin = Some(Instant::now()),
+        let at = Instant::now();
+        match blocking(move || history.thin_if_due(at, THIN_EVERY, now_secs, max_continuous)).await
+        {
+            Ok(_) => state.last_thin = Some(Instant::now()),
             // The pass is fine; thinning is tried again at the next tick.
             Err(error) if is_history_busy(&error) => {
                 log::warn!("index usage: the history file is busy, thinning retried later");
