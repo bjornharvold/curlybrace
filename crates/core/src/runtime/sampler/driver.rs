@@ -13,7 +13,7 @@ use super::{
     Clock, MIN_INTERVAL, Pass, SamplerConfig, SamplerStatus, TickError, backoff, blocking, run_pass,
 };
 use crate::error::CoreError;
-use crate::history::{HistoryDb, max_continuous_secs};
+use crate::history::{HistoryDb, is_history_busy, max_continuous_secs};
 use crate::store::DocumentStore;
 
 /// How often the history is thinned.
@@ -104,6 +104,13 @@ fn status_of(result: std::result::Result<Pass, TickError>, state: &mut LoopState
                 true => SamplerStatus::Running,
                 false => SamplerStatus::Failing,
             }
+        }
+        Err(TickError::HistoryBusy(error)) => {
+            // The file is busy for the moment: the whole pass is tried again at the next tick
+            // and the sampler is no more paused than it was.
+            log::warn!("index usage: the history file is busy, pass retried later: {error:?}");
+            state.failures = 0;
+            SamplerStatus::Running
         }
         Err(error) => match error.pause() {
             Some(reason) => {
@@ -205,7 +212,7 @@ async fn tick(
     if let Ok(done) = &pass {
         state.cursor = done.next_start;
     }
-    if matches!(pass, Err(TickError::History(_))) {
+    if matches!(pass, Err(TickError::History(_) | TickError::HistoryBusy(_))) {
         return pass;
     }
     if state.last_thin.is_none_or(|at| at.elapsed() >= THIN_EVERY) {
@@ -214,10 +221,14 @@ async fn tick(
         // Thinning reads the clock afresh: a pass stamped before a step back must not decide what
         // is old.
         let now_secs = clock();
-        blocking(move || history.thin(now_secs, max_continuous))
-            .await
-            .map_err(TickError::History)?;
-        state.last_thin = Some(Instant::now());
+        match blocking(move || history.thin(now_secs, max_continuous)).await {
+            Ok(()) => state.last_thin = Some(Instant::now()),
+            // The pass is fine; thinning is tried again at the next tick.
+            Err(error) if is_history_busy(&error) => {
+                log::warn!("index usage: the history file is busy, thinning retried later");
+            }
+            Err(error) => return Err(TickError::History(error)),
+        }
     }
     pass
 }

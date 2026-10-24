@@ -792,5 +792,6 @@ async fn a_store_that_never_lists_databases_ends_the_pass_as_failing() {
 }
 
 mod guard;
+mod history_busy;
 mod history_failure;
 mod rotation;

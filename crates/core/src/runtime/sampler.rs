@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use crate::clock;
 use crate::error::{CoreError, Result};
-use crate::history::{HistoryDb, SAMPLE_INTERVAL_SECS, Sample, SeriesKey};
+use crate::history::{HistoryDb, SAMPLE_INTERVAL_SECS, Sample, SeriesKey, is_history_busy};
 use crate::store::{CollectionKind, DocumentStore, IndexUsage, Namespace};
 
 /// Databases the server owns; never sampled.
@@ -137,6 +137,19 @@ pub enum SamplerStatus {
 pub(super) enum TickError {
     Store(CoreError),
     History(CoreError),
+    /// The history file was busy or locked past the wait. Unlike `History` this passes by
+    /// itself, so it does not pause the sampler: the pass is tried again at the next tick.
+    HistoryBusy(CoreError),
+}
+
+impl TickError {
+    /// A history failure, told apart by whether the file was only busy.
+    pub(super) fn history(error: CoreError) -> Self {
+        match is_history_busy(&error) {
+            true => Self::HistoryBusy(error),
+            false => Self::History(error),
+        }
+    }
 }
 
 impl TickError {
@@ -144,12 +157,13 @@ impl TickError {
         match self {
             Self::Store(error) => pause_reason(error),
             Self::History(_) => Some(SamplerPause::HistoryUnavailable),
+            Self::HistoryBusy(_) => None,
         }
     }
 
     fn error(&self) -> &CoreError {
         match self {
-            Self::Store(error) | Self::History(error) => error,
+            Self::Store(error) | Self::History(error) | Self::HistoryBusy(error) => error,
         }
     }
 }
@@ -249,7 +263,7 @@ impl Health {
     fn note(&mut self, error: TickError, what: String) {
         self.failed.push((what, error.error().clone()));
         match error {
-            TickError::History(_) => {
+            TickError::History(_) | TickError::HistoryBusy(_) => {
                 self.history.get_or_insert(error);
             }
             TickError::Store(_) if error.pause().is_some() => {
@@ -562,7 +576,7 @@ async fn sample_collection(
     // One transaction per collection, not per index: one commit instead of an fsync each.
     blocking(move || history.record_many(&samples).map(|()| samples.len()))
         .await
-        .map_err(TickError::History)
+        .map_err(TickError::history)
 }
 
 /// The samples that are not stamped implausibly far ahead of `wall_now`, the wall clock at record

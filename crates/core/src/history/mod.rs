@@ -18,7 +18,7 @@ mod skew_tests;
 mod thin;
 mod usage;
 
-pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView};
+pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView, is_history_busy};
 pub use retention::{ChartRange, MAX_DB_BYTES};
 
 pub use series::{

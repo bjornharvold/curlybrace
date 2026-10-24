@@ -3,6 +3,7 @@
 
 use super::db::*;
 use super::series::Sample;
+use crate::error::CoreError;
 use uuid::Uuid;
 
 fn key() -> SeriesKey {
@@ -91,4 +92,56 @@ fn a_stale_wal_of_a_corrupt_database_does_not_reach_the_fresh_one() {
     assert_eq!(db.latest(&key()).unwrap(), Some(sample()));
     let wal = std::fs::read(dir.path().join("history.sqlite-wal")).unwrap();
     assert!(!wal.windows(9).any(|w| w == b"stale wal"));
+}
+
+fn busy() -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), None)
+}
+
+fn locked() -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_LOCKED),
+        None,
+    )
+}
+
+#[test]
+fn busy_and_locked_errors_map_to_a_busy_history_error_and_others_do_not() {
+    assert!(is_history_busy(&sql_err(busy())));
+    assert!(is_history_busy(&sql_err(locked())));
+    let full =
+        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL), None);
+    assert!(!is_history_busy(&sql_err(full)));
+    assert!(!is_history_busy(&sql_err(
+        rusqlite::Error::QueryReturnedNoRows
+    )));
+    assert!(!is_history_busy(&CoreError::Database("boom".into())));
+}
+
+#[test]
+fn the_file_database_waits_a_few_seconds_for_a_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let (db, _) = HistoryDb::open(&dir.path().join("history.sqlite")).unwrap();
+    let wait: i64 = db
+        .conn
+        .lock()
+        .unwrap()
+        .pragma_query_value(None, "busy_timeout", |r| r.get(0))
+        .unwrap();
+    assert_eq!(wait, BUSY_TIMEOUT.as_millis() as i64);
+    assert!(BUSY_TIMEOUT >= std::time::Duration::from_secs(5));
+}
+
+#[test]
+fn a_write_against_a_held_lock_fails_as_busy() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history.sqlite");
+    let (db, _) = HistoryDb::open(&path).unwrap();
+    db.set_busy_timeout(std::time::Duration::from_millis(20));
+    let other = rusqlite::Connection::open(&path).unwrap();
+    other.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let error = db.record(&key(), sample()).unwrap_err();
+    assert!(is_history_busy(&error), "{error:?}");
+    other.execute_batch("ROLLBACK").unwrap();
+    db.record(&key(), sample()).unwrap();
 }

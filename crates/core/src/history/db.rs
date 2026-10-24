@@ -13,6 +13,7 @@ use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 use uuid::Uuid;
 
 /// Real timestamps of a series, independent of any chart range or bucket width.
@@ -68,11 +69,38 @@ pub struct HistoryDb {
     purged: Mutex<HashSet<Uuid>>,
 }
 
+/// How long a statement waits for a lock another connection (or process) holds before it fails
+/// as busy. Sampling writes are tiny, so a wait this long only happens under real contention.
+pub(super) const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The start of the text of a `Database` error caused by a busy or locked file.
+const BUSY_PREFIX: &str = "history busy: ";
+
+/// A failed statement. A busy or locked file is marked so [`is_history_busy`] can tell it from
+/// damage: it passes by itself, the other errors do not.
 pub(super) fn sql_err(e: rusqlite::Error) -> CoreError {
-    CoreError::Database(format!("history: {e}"))
+    match e.sqlite_error_code() {
+        Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) => {
+            CoreError::Database(format!("{BUSY_PREFIX}{e}"))
+        }
+        _ => CoreError::Database(format!("history: {e}")),
+    }
+}
+
+/// Whether `error` came from a history file that was busy or locked for longer than the wait.
+pub fn is_history_busy(error: &CoreError) -> bool {
+    matches!(error, CoreError::Database(text) if text.starts_with(BUSY_PREFIX))
 }
 
 impl HistoryDb {
+    /// A shorter wait for a lock, so a busy file fails fast in a test.
+    #[cfg(test)]
+    pub(crate) fn set_busy_timeout(&self, wait: Duration) {
+        self.lock()
+            .busy_timeout(wait)
+            .expect("set the busy timeout");
+    }
+
     /// Makes every later `record` and `thin` fail, as a damaged database would (tests only).
     #[cfg(test)]
     pub(crate) fn break_writes_for_tests(&self) {
@@ -377,6 +405,7 @@ fn io_err(e: std::io::Error) -> CoreError {
 fn open_file(path: &Path) -> std::result::Result<HistoryDb, OpenFailure> {
     create_private_file(path).map_err(|e| OpenFailure::Other(io_err(e)))?;
     let mut conn = Connection::open(path)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
     prepare(&mut conn)?;
     enable_wal(&conn)?;
     Ok(HistoryDb::from_connection(conn))
