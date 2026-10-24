@@ -376,6 +376,24 @@ async fn listing_a_missing_collection_is_empty() {
 
 #[tokio::test]
 #[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn listing_a_view_is_empty() {
+    if !docker_enabled("listing_a_view_is_empty") {
+        return;
+    }
+    let (_c, client, store) = docker_mongo().await;
+    seed(&store, 3).await;
+    client
+        .database(DB)
+        .run_command(doc! { "create": "items_view", "viewOn": "items", "pipeline": [] })
+        .await
+        .unwrap();
+    let view = Namespace::new(DB, "items_view");
+    assert_eq!(store.list_indexes(&view).await, Ok(Vec::new()));
+    assert_eq!(store.index_stats(&view).await, Ok(Vec::new()));
+}
+
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
 async fn creates_and_lists_a_compound_text_index_with_its_prefix() {
     if !docker_enabled("creates_and_lists_a_compound_text_index_with_its_prefix") {
         return;

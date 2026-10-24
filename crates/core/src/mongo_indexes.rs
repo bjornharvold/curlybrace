@@ -14,6 +14,8 @@ use crate::store::{CollectionIndex, IndexUsage, Namespace};
 
 /// Server error code `NamespaceNotFound`: the collection does not exist.
 const CODE_NAMESPACE_NOT_FOUND: i32 = 26;
+/// Server error code `CommandNotSupportedOnView`: `listIndexes` / `$indexStats` on a view.
+const CODE_COMMAND_NOT_SUPPORTED_ON_VIEW: i32 = 166;
 /// Server error code `IndexNotFound`: no index has that name.
 const CODE_INDEX_NOT_FOUND: i32 = 27;
 
@@ -22,12 +24,27 @@ fn has_code(e: &mongodb::error::Error, codes: &[i32]) -> bool {
     matches!(e.kind.as_ref(), ErrorKind::Command(c) if codes.contains(&c.code))
 }
 
+/// Whether a server refusal with `code` means "nothing to list": the collection does not exist,
+/// or it is a view, which has no indexes of its own.
+fn lists_as_empty(code: i32) -> bool {
+    matches!(
+        code,
+        CODE_NAMESPACE_NOT_FOUND | CODE_COMMAND_NOT_SUPPORTED_ON_VIEW
+    )
+}
+
+/// Whether the driver error is a server refusal that [`lists_as_empty`].
+fn is_empty_listing(e: &mongodb::error::Error) -> bool {
+    matches!(e.kind.as_ref(), ErrorKind::Command(c) if lists_as_empty(c.code))
+}
+
 fn malformed() -> CoreError {
     CoreError::Database("unexpected index reply".into())
 }
 
 /// The indexes of `ns` with their sizes. A missing collection has no indexes (like
-/// `estimated_count`, where it counts 0), so it lists as empty rather than as an error.
+/// `estimated_count`, where it counts 0) and neither has a view, so both list as empty rather
+/// than as an error.
 pub(crate) async fn list_indexes(
     db: &Database,
     ns: &Namespace,
@@ -38,7 +55,7 @@ pub(crate) async fn list_indexes(
         .await
     {
         Ok(reply) => reply,
-        Err(e) if has_code(&e, &[CODE_NAMESPACE_NOT_FOUND]) => return Ok(Vec::new()),
+        Err(e) if is_empty_listing(&e) => return Ok(Vec::new()),
         Err(e) => return Err(db_err(e)),
     };
     let batch = reply
@@ -78,8 +95,9 @@ async fn index_sizes(
         .collect())
 }
 
-/// `$indexStats` rows for `ns`. A view or time-series collection makes the server refuse the
-/// stage; that error is returned as it is so the caller can classify it.
+/// `$indexStats` rows for `ns`. A view has no indexes to count and reads as empty; a
+/// time-series collection makes the server refuse the stage with an error that is returned as it
+/// is so the caller can classify it.
 pub(crate) async fn index_stats(
     db: &Database,
     ns: &Namespace,
@@ -88,8 +106,12 @@ pub(crate) async fn index_stats(
     let cursor = db
         .collection::<Document>(&ns.collection)
         .aggregate(vec![doc! { "$indexStats": {} }])
-        .await
-        .map_err(db_err)?;
+        .await;
+    let cursor = match cursor {
+        Ok(cursor) => cursor,
+        Err(e) if is_empty_listing(&e) => return Ok(Vec::new()),
+        Err(e) => return Err(db_err(e)),
+    };
     let rows: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
     rows.iter().map(usage_from_row).collect()
 }
@@ -198,5 +220,12 @@ mod tests {
         assert_eq!(number(&Bson::Int64(5)), Some(5));
         assert_eq!(number(&Bson::Double(6.0)), Some(6));
         assert_eq!(number(&Bson::String("7".into())), None);
+    }
+
+    #[test]
+    fn views_and_missing_collections_list_as_empty() {
+        assert!(lists_as_empty(CODE_NAMESPACE_NOT_FOUND));
+        assert!(lists_as_empty(CODE_COMMAND_NOT_SUPPORTED_ON_VIEW));
+        assert!(!lists_as_empty(13));
     }
 }
