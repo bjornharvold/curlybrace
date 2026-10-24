@@ -526,3 +526,36 @@ fn the_db_is_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<HistoryDb>();
 }
+
+#[test]
+fn record_many_stores_every_sample_like_separate_records() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let other = key_for(Uuid::from_u128(1), "node-b:27017", "h1");
+    db.record_many(&[
+        (key(), s(100, 1)),
+        (other.clone(), s(100, 5)),
+        (key(), s(160, 3)),
+    ])
+    .unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM series"), 2);
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM samples"), 3);
+    assert_eq!(db.latest(&key()).unwrap(), Some(s(160, 3)));
+    assert_eq!(db.latest(&other).unwrap(), Some(s(100, 5)));
+}
+
+#[test]
+fn record_many_is_all_or_nothing() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    db.conn
+        .lock()
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER refuse BEFORE INSERT ON samples WHEN NEW.ops < 0
+             BEGIN SELECT RAISE(ABORT, 'refused'); END",
+        )
+        .unwrap();
+    let result = db.record_many(&[(key(), s(100, 1)), (key(), s(160, -1))]);
+    assert!(result.is_err());
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM samples"), 0);
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM series"), 0);
+}

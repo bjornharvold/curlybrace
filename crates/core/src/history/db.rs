@@ -114,31 +114,41 @@ impl HistoryDb {
     /// Appends one reading to a series. Readings are kept in insertion order, which is the
     /// order they are read back in, whatever their timestamps say.
     pub fn record(&self, key: &SeriesKey, sample: Sample) -> Result<()> {
+        self.record_many(&[(key.clone(), sample)])
+    }
+
+    /// Appends many readings in one transaction: one commit (one fsync) for the whole batch
+    /// instead of one per series, and all or none of them are stored.
+    pub fn record_many(&self, samples: &[(SeriesKey, Sample)]) -> Result<()> {
         let mut conn = self.lock();
         let tx = conn.transaction().map_err(sql_err)?;
-        let series_id: i64 = tx
-            .query_row(
-                "INSERT INTO series (connection, host, db, collection, index_name, definition_hash)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT (connection, host, db, collection, index_name, definition_hash)
-                 DO UPDATE SET host = excluded.host
-                 RETURNING id",
-                params![
-                    key.connection.to_string(),
-                    key.host,
-                    key.db,
-                    key.collection,
-                    key.index_name,
-                    key.definition_hash
-                ],
-                |r| r.get(0),
+        for (key, sample) in samples {
+            let series_id: i64 = tx
+                .query_row(
+                    "INSERT INTO series
+                         (connection, host, db, collection, index_name, definition_hash)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT (connection, host, db, collection, index_name, definition_hash)
+                     DO UPDATE SET host = excluded.host
+                     RETURNING id",
+                    params![
+                        key.connection.to_string(),
+                        key.host,
+                        key.db,
+                        key.collection,
+                        key.index_name,
+                        key.definition_hash
+                    ],
+                    |r| r.get(0),
+                )
+                .map_err(sql_err)?;
+            tx.execute(
+                "INSERT INTO samples (series_id, at_secs, ops, since_ms)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![series_id, sample.at_secs, sample.ops, sample.since_ms],
             )
             .map_err(sql_err)?;
-        tx.execute(
-            "INSERT INTO samples (series_id, at_secs, ops, since_ms) VALUES (?1, ?2, ?3, ?4)",
-            params![series_id, sample.at_secs, sample.ops, sample.since_ms],
-        )
-        .map_err(sql_err)?;
+        }
         tx.commit().map_err(sql_err)
     }
 

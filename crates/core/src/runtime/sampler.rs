@@ -283,14 +283,10 @@ async fn sample_collection(
         .map(|row| series_sample(connection, ns, row, now_secs))
         .collect();
     let history = Arc::clone(history);
-    blocking(move || {
-        samples
-            .iter()
-            .try_for_each(|(key, sample)| history.record(key, *sample))
-            .map(|()| samples.len())
-    })
-    .await
-    .map_err(TickError::History)
+    // One transaction per collection, not per index: one commit instead of an fsync each.
+    blocking(move || history.record_many(&samples).map(|()| samples.len()))
+        .await
+        .map_err(TickError::History)
 }
 
 fn series_sample(
