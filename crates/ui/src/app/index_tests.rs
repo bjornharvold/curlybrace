@@ -560,3 +560,20 @@ fn a_failure_of_the_newest_request_settles_it_and_raises_the_banner() {
         })
     );
 }
+
+#[test]
+fn a_late_lost_connection_failure_of_an_older_request_still_reaches_connection_lost() {
+    for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
+        let s = awaiting_the_second_request();
+        let late = Event::RequestFailed {
+            session: EMBEDDED_SESSION,
+            context: "list_indexes",
+            request: 1,
+            error: error.clone(),
+        };
+
+        let (after, _) = event(s, late);
+
+        assert_eq!(after.failure, Some(error.clone()), "{error:?}");
+    }
+}

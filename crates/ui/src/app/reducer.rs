@@ -216,13 +216,16 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
         // A failed numbered read settles only the request still awaited: a late failure of an
         // older one must not end the wait for the newer or put a banner over its data. The
-        // current one fails like any other command.
+        // current one fails like any other command. A lost connection is not about a request: it
+        // is classified whatever the request id.
         Event::RequestFailed {
             session,
             context,
             request,
             error,
-        } => match state.indexes.request == request {
+        } => match state.indexes.request == request
+            || matches!(error, CoreError::Unreachable | CoreError::TlsHandshake)
+        {
             true => on_session_event(
                 state,
                 Event::Failed {
