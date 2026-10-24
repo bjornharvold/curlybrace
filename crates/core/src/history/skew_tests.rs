@@ -141,3 +141,29 @@ fn a_series_whose_rows_are_all_ahead_of_the_clock_is_kept() {
     assert_eq!(series_count(&db), 1);
     assert_eq!(stored_stamps(&db), vec![NOW + 10 * DAY]);
 }
+
+#[test]
+fn a_clock_one_year_behind_that_keeps_sampling_for_days_never_deletes_the_real_rows() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let k = key();
+    for (i, ops) in [10, 12, 16].into_iter().enumerate() {
+        db.record(&k, s(NOW - 180 + 60 * i as i64, ops)).unwrap();
+    }
+    let behind = NOW - 365 * DAY;
+    // The sampler keeps running at the wrong clock, one sample a minute, thinning every hour.
+    let mut ops = 20;
+    for minute in 0..(3 * 24 * 60) {
+        let t = behind + 60 * minute;
+        db.record(&k, s(t, ops)).unwrap();
+        ops += 1;
+        if minute % 60 == 0 {
+            db.thin(t, MAX).unwrap();
+        }
+    }
+
+    let real: Vec<i64> = stored_stamps(&db)
+        .into_iter()
+        .filter(|&at| at >= NOW - 180)
+        .collect();
+    assert_eq!(real.len(), 3, "real rows deleted: {real:?}");
+}

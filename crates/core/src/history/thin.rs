@@ -22,7 +22,7 @@ use super::db_schema::{TIER_DAILY, TIER_HOURLY};
 use super::retention::{
     DAILY_RETENTION_SECS, DAY_SECS, HOUR_SECS, HOURLY_RETENTION_SECS, RAW_RETENTION_SECS,
 };
-use super::series::{accepted_indices, bucketize_within, derive};
+use super::series::{MAX_FUTURE_SKEW_SECS, accepted_indices, bucketize_within, derive};
 use super::usage::{clip_gap, raw_samples};
 use crate::error::Result;
 use rusqlite::{Connection, Transaction, params};
@@ -128,9 +128,15 @@ fn roll_series(
         params![series_id, rolled_to],
     )
     .map_err(sql_err)?;
+    // Never by id alone: a row stamped ahead of the clock may have a lower id than the baseline
+    // (the clock was behind when the baseline was written) and is real data the reads skip.
     tx.execute(
-        "DELETE FROM samples WHERE series_id = ?1 AND id < ?2",
-        params![series_id, baseline_id],
+        "DELETE FROM samples WHERE series_id = ?1 AND id < ?2 AND at_secs <= ?3",
+        params![
+            series_id,
+            baseline_id,
+            now_secs.saturating_add(MAX_FUTURE_SKEW_SECS)
+        ],
     )
     .map_err(sql_err)?;
     Ok(())
