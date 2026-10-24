@@ -49,7 +49,7 @@ fn id_index() -> IndexSpec {
 fn listed(spec: IndexSpec) -> CollectionIndex {
     CollectionIndex {
         spec,
-        size_bytes: 4096,
+        size_bytes: Some(4096),
     }
 }
 

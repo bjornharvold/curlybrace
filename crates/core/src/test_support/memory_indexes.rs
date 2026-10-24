@@ -33,7 +33,7 @@ pub(super) fn list(map: &IndexMap, k: &NsKey) -> Vec<CollectionIndex> {
         .chain(map.get(k).cloned().unwrap_or_default())
         .map(|spec| CollectionIndex {
             spec,
-            size_bytes: FAKE_INDEX_SIZE,
+            size_bytes: Some(FAKE_INDEX_SIZE),
         })
         .collect()
 }
@@ -137,7 +137,7 @@ mod tests {
         let listed = s.list_indexes(&ns).await.unwrap();
         assert!(listed[1].spec.options.hidden);
         assert_eq!(listed[1].spec.options.expire_after_seconds, Some(60));
-        assert!(listed[1].size_bytes > 0);
+        assert!(listed[1].size_bytes.is_some_and(|s| s > 0));
         s.set_index_hidden(&ns, &spec.name, false).await.unwrap();
         assert!(!s.list_indexes(&ns).await.unwrap()[1].spec.options.hidden);
 

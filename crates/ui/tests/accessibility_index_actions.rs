@@ -29,7 +29,7 @@ fn t(key: &str) -> String {
 fn listed(spec: IndexSpec) -> CollectionIndex {
     CollectionIndex {
         spec,
-        size_bytes: 4_096,
+        size_bytes: Some(4_096),
     }
 }
 

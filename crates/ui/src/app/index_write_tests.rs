@@ -218,7 +218,7 @@ fn index_changed_closes_the_builder_and_selects_the_new_index() {
     let request = s.indexes.request;
     let listed = CollectionIndex {
         spec: mock_index_spec_named("email_1", &[("email", KeyKind::Asc)]),
-        size_bytes: 4096,
+        size_bytes: Some(4096),
     };
     let (s, _) = update(
         s,

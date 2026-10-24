@@ -526,7 +526,7 @@ fn a_text_index_listed_without_weights_is_refused_not_rebuilt_on_a_literal_field
 fn listed(spec: IndexSpec) -> CollectionIndex {
     CollectionIndex {
         spec,
-        size_bytes: 0,
+        size_bytes: None,
     }
 }
 

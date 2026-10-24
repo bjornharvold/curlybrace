@@ -114,8 +114,12 @@ pub fn tracked_since_age(series: &IndexSeries, now_secs: i64) -> Option<Age> {
 }
 
 /// A size as an `en.json` key and the number to put in `{n}`.
-pub fn size_parts(bytes: u64) -> (&'static str, String) {
+/// An unknown size (`None`) maps to `indexes.size_unknown`, which has no `{n}`.
+pub fn size_parts(bytes: Option<u64>) -> (&'static str, String) {
     const KIB: f64 = 1024.0;
+    let Some(bytes) = bytes else {
+        return ("indexes.size_unknown", String::new());
+    };
     let value = bytes as f64;
     match value {
         v if v < KIB => ("indexes.size_bytes", bytes.to_string()),
@@ -212,7 +216,7 @@ mod tests {
         use curlybrace_core::store::CollectionIndex;
         let listed = |spec: &IndexSpec| CollectionIndex {
             spec: spec.clone(),
-            size_bytes: 0,
+            size_bytes: None,
         };
         let spec = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
         let recreated = mock_index_spec_named("a_1", &[("a", KeyKind::Desc)]);
@@ -374,10 +378,11 @@ mod tests {
 
     #[test]
     fn sizes_pick_a_unit() {
-        assert_eq!(size_parts(512), ("indexes.size_bytes", "512".into()));
-        assert_eq!(size_parts(1_536), ("indexes.size_kib", "1.5".into()));
-        assert_eq!(size_parts(3 << 20), ("indexes.size_mib", "3.0".into()));
-        assert_eq!(size_parts(2 << 30), ("indexes.size_gib", "2.0".into()));
+        assert_eq!(size_parts(Some(512)), ("indexes.size_bytes", "512".into()));
+        assert_eq!(size_parts(Some(1_536)), ("indexes.size_kib", "1.5".into()));
+        assert_eq!(size_parts(Some(3 << 20)), ("indexes.size_mib", "3.0".into()));
+        assert_eq!(size_parts(Some(2 << 30)), ("indexes.size_gib", "2.0".into()));
+        assert_eq!(size_parts(None), ("indexes.size_unknown", String::new()));
     }
 
     #[test]

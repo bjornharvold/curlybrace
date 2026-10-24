@@ -7,7 +7,7 @@ fn named(names: &[&str]) -> Vec<CollectionIndex> {
         .iter()
         .map(|name| CollectionIndex {
             spec: mock_index_spec_named(name, &[("a", KeyKind::Asc)]),
-            size_bytes: 0,
+            size_bytes: None,
         })
         .collect()
 }

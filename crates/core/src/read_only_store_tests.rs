@@ -155,7 +155,7 @@ impl DocumentStore for RecordingStore {
         self.hit("list_indexes");
         Ok(vec![CollectionIndex {
             spec: mock_index_spec(),
-            size_bytes: 4096,
+            size_bytes: Some(4096),
         }])
     }
     async fn list_index_specs(&self, _ns: &Namespace) -> Result<Vec<IndexSpec>> {
@@ -281,7 +281,7 @@ async fn read_only_forwards_list_indexes_and_index_stats() {
     // Locked on purpose: reading indexes must work on a read-only connection.
     let (inner, _flag, store) = wrapped(true);
     let listed = store.list_indexes(&ns()).await.unwrap();
-    assert_eq!(listed[0].size_bytes, 4096);
+    assert_eq!(listed[0].size_bytes, Some(4096));
     let stats = store.index_stats(&ns()).await.unwrap();
     assert_eq!(stats[0].name, "via_index_stats");
     assert_eq!(inner.count("list_indexes"), 1);

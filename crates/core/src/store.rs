@@ -91,7 +91,8 @@ pub struct DuplicateGroup {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollectionIndex {
     pub spec: IndexSpec,
-    pub size_bytes: u64,
+    /// Bytes on disk; `None` when the server did not report the size (e.g. `collStats` refused).
+    pub size_bytes: Option<u64>,
 }
 
 /// What `$indexStats` reports for one index on one node.

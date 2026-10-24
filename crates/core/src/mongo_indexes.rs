@@ -88,7 +88,7 @@ async fn listing_batch(
     Ok(Some(batch.clone()))
 }
 
-/// The readable entries of a `listIndexes` batch with their sizes (0 when unknown). An entry the
+/// The readable entries of a `listIndexes` batch with their sizes (`None` when unknown). An entry the
 /// definition model cannot read is skipped with a warning instead of failing the collection.
 fn collection_indexes(
     batch: &[Bson],
@@ -97,7 +97,7 @@ fn collection_indexes(
     readable_specs(batch)
         .into_iter()
         .map(|spec| {
-            let size_bytes = sizes.get(&spec.name).copied().unwrap_or(0);
+            let size_bytes = sizes.get(&spec.name).copied();
             CollectionIndex { spec, size_bytes }
         })
         .collect()
@@ -123,7 +123,7 @@ fn readable_specs(batch: &[Bson]) -> Vec<IndexSpec> {
 
 /// Index name -> bytes from `collStats.indexSizes`. Sizes are a nicety: when `collStats` is
 /// refused (no privilege, a dropped collection) or its reply is odd, every size is unknown
-/// (empty map, read as 0) and the listing is kept.
+/// (empty map, read as `None`) and the listing is kept.
 async fn index_sizes(
     db: &Database,
     ns: &Namespace,
@@ -321,7 +321,7 @@ mod tests {
         let listed = collection_indexes(&batch, &sizes);
         let names: Vec<_> = listed.iter().map(|i| i.spec.name.as_str()).collect();
         assert_eq!(names, ["a_1", "hay"]);
-        assert_eq!((listed[0].size_bytes, listed[1].size_bytes), (8, 0));
+        assert_eq!((listed[0].size_bytes, listed[1].size_bytes), (Some(8), None));
     }
 
     #[test]

@@ -39,7 +39,7 @@ fn connected() -> AppState {
 fn listed(name: &str) -> CollectionIndex {
     CollectionIndex {
         spec: mock_index_spec_named(name, &[("a", KeyKind::Asc)]),
-        size_bytes: 4096,
+        size_bytes: Some(4096),
     }
 }
 
