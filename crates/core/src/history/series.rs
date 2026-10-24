@@ -105,12 +105,15 @@ pub fn derive(samples: &[Sample], max_continuous_secs: i64) -> Vec<Point> {
 /// accepted one. The single definition of that rule; the store uses it to pick what it may
 /// roll up and delete, so a backwards-clock sample never decides that.
 ///
-/// Clock steps: a sample far ahead of the wall clock never reaches this rule, because the store
-/// leaves it out when reading and deletes it when thinning (see [`MAX_FUTURE_SKEW_SECS`]). A
-/// step back of less than that skew between two passes makes the next samples not strictly
-/// after the last stored one; they are ignored until real time catches up, at most the skew. A
-/// bigger step back makes the stored samples "future" ones, so the new samples take over at
-/// once. Either way nothing grows: the buckets are bounded by [`MAX_BUCKETS`].
+/// Clock steps: a sample ahead of the wall clock by more than [`MAX_FUTURE_SKEW_SECS`] never
+/// reaches this rule, because the store leaves it out when reading. Thinning does not delete it
+/// for that, since the clock may be the wrong one: the roll-up skips such rows, the size cap
+/// drops a series holding nothing else before any real history, and only a sample more than 400
+/// days ahead is expired. A step back of less than the skew between two passes makes the next
+/// samples not strictly after the last stored one; they are ignored until real time catches up,
+/// at most the skew. A bigger step back makes the stored samples "future" ones, so the new
+/// samples take over at once while the stored ones stay until the clock reaches them or they
+/// expire. Either way nothing grows: the buckets are bounded by [`MAX_BUCKETS`].
 pub fn accepted_indices(samples: &[Sample]) -> Vec<usize> {
     let mut out: Vec<usize> = Vec::new();
     for (i, cur) in samples.iter().enumerate() {

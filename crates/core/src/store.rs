@@ -302,6 +302,11 @@ pub trait DocumentStore: Send + Sync {
     }
 
     /// `$indexStats` for `ns`: one row per index per node.
+    ///
+    /// Never pass a view: the server answers `$indexStats` on a view with the rows of the
+    /// collection underneath, so the rows would be recorded under the view's name. Callers list
+    /// the collection kinds first and skip views (and time-series collections, which the server
+    /// refuses with an error).
     async fn index_stats(&self, _ns: &Namespace) -> Result<Vec<IndexUsage>> {
         Err(CoreError::Unsupported(
             "this store cannot read index usage".into(),
