@@ -1,10 +1,13 @@
 //! View-model of the Indexes tab: which tab of a collection is shown, and what the tab holds.
 //! Pure and egui-free; the updaters return new values.
 use super::index_builder::{BuilderEdit, IndexBuilderState};
+use super::index_detail::{series_matching, series_of};
 use super::index_write::{DropConfirm, DropOld, IndexWrite, TtlPrompt};
 use curlybrace_core::history::ChartRange;
+use curlybrace_core::indexes::IndexSpec;
 use curlybrace_core::runtime::{IndexSeries, SamplerStatus};
 use curlybrace_core::store::{CollectionIndex, Namespace};
+use std::collections::BTreeMap;
 
 /// Which tab of the selected collection the workspace shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -30,6 +33,10 @@ pub struct IndexesState {
     /// The collection the lists below belong to; answers for another one are stale.
     pub ns: Option<Namespace>,
     pub indexes: Vec<CollectionIndex>,
+    /// The definition hash of each listed index by name, taken once when the list arrives (a
+    /// hash is a SHA-256 over the definition, too much to redo per index per frame). An index
+    /// that is missing here, a list set without [`Self::with_indexes`], is hashed on demand.
+    pub definition_hashes: BTreeMap<String, String>,
     pub series: Vec<IndexSeries>,
     /// Name of the index whose chart and details are shown.
     pub selected: Option<String>,
@@ -59,6 +66,7 @@ impl Default for IndexesState {
         Self {
             ns: None,
             indexes: Vec::new(),
+            definition_hashes: BTreeMap::new(),
             series: Vec::new(),
             selected: None,
             range: ChartRange::Day,
@@ -99,11 +107,25 @@ impl IndexesState {
         let selected = self
             .selected
             .filter(|name| indexes.iter().any(|i| i.spec.name == *name));
+        let definition_hashes = indexes
+            .iter()
+            .map(|i| (i.spec.name.clone(), i.spec.definition_hash()))
+            .collect();
         Self {
             indexes,
+            definition_hashes,
             selected,
             loading: false,
             ..self
+        }
+    }
+
+    /// The series drawn for `spec` (see [`series_of`]), matched on the hash taken when the list
+    /// arrived.
+    pub fn series_of(&self, spec: &IndexSpec) -> Option<&IndexSeries> {
+        match self.definition_hashes.get(&spec.name) {
+            Some(hash) => series_matching(&self.series, &spec.name, hash),
+            None => series_of(&self.series, spec),
         }
     }
 

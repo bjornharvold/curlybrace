@@ -11,10 +11,18 @@ use curlybrace_core::runtime::{IndexSeries, SamplerPause, SamplerStatus};
 /// series without a reading loses to one with it, and equal readings fall back to the first host
 /// in sort order.
 pub fn series_of<'a>(series: &'a [IndexSeries], spec: &IndexSpec) -> Option<&'a IndexSeries> {
-    let hash = spec.definition_hash();
+    series_matching(series, &spec.name, &spec.definition_hash())
+}
+
+/// [`series_of`] for a definition hash that is already known, so nothing is hashed here.
+pub fn series_matching<'a>(
+    series: &'a [IndexSeries],
+    name: &str,
+    definition_hash: &str,
+) -> Option<&'a IndexSeries> {
     series
         .iter()
-        .filter(|s| s.index_name == spec.name && s.definition_hash == hash)
+        .filter(|s| s.index_name == name && s.definition_hash == definition_hash)
         .min_by(|a, b| {
             let newest = |s: &IndexSeries| s.latest.map(|sample| sample.at_secs);
             newest(b).cmp(&newest(a)).then_with(|| a.host.cmp(&b.host))
@@ -196,6 +204,46 @@ mod tests {
         let all = vec![series(&recreated, "n1"), series(&spec, "n2")];
         assert_eq!(series_of(&all, &spec).map(|s| s.host.as_str()), Some("n2"));
         assert!(series_of(&all[..1], &spec).is_none(), "older index only");
+    }
+
+    #[test]
+    fn the_state_hashes_a_definition_once_when_the_list_arrives() {
+        use crate::viewmodel::indexes::IndexesState;
+        use curlybrace_core::store::CollectionIndex;
+        let listed = |spec: &IndexSpec| CollectionIndex {
+            spec: spec.clone(),
+            size_bytes: 0,
+        };
+        let spec = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
+        let recreated = mock_index_spec_named("a_1", &[("a", KeyKind::Desc)]);
+        let all = vec![series(&recreated, "n1"), series(&spec, "n2")];
+
+        let state = IndexesState::default()
+            .with_indexes(vec![listed(&spec)])
+            .with_series(all.clone());
+        assert_eq!(
+            state.definition_hashes.get("a_1"),
+            Some(&spec.definition_hash())
+        );
+        assert_eq!(
+            state.series_of(&spec).map(|s| s.host.as_str()),
+            series_of(&all, &spec).map(|s| s.host.as_str())
+        );
+
+        // The index was dropped and recreated: the next list replaces the hash.
+        let state = state.with_indexes(vec![listed(&recreated)]);
+        assert_eq!(
+            state.series_of(&recreated).map(|s| s.host.as_str()),
+            Some("n1")
+        );
+
+        // A list set without `with_indexes` is still matched, by hashing on demand.
+        let direct = IndexesState {
+            indexes: vec![listed(&spec)],
+            series: all,
+            ..IndexesState::default()
+        };
+        assert_eq!(direct.series_of(&spec).map(|s| s.host.as_str()), Some("n2"));
     }
 
     #[test]

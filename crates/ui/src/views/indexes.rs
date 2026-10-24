@@ -7,7 +7,7 @@ use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_chart::observed_uses;
-use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key, series_of};
+use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key};
 use crate::viewmodel::{IndexWrite, IndexesAction, IndexesState};
 use curlybrace_core::runtime::{SamplerPause, SamplerStatus};
 use curlybrace_core::store::CollectionIndex;
@@ -66,7 +66,7 @@ pub fn show_indexes(
                     Some(index) => {
                         let input = DetailInput {
                             index,
-                            series: series_of(&state.series, &index.spec),
+                            series: state.series_of(&index.spec),
                             any_series: !state.series.is_empty(),
                             sampler: state.sampler,
                             range: state.range,
@@ -180,7 +180,8 @@ fn list(
     for index in &state.indexes {
         let spec = &index.spec;
         // `None` unless the window was observed: a guessed zero would mark an index unused.
-        let uses = series_of(&state.series, spec)
+        let uses = state
+            .series_of(spec)
             .and_then(|series| observed_uses(series, state.range, now));
         let is_shown = shown.is_some_and(|s| s.spec.name == spec.name);
         ui.horizontal(|ui| {
