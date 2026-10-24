@@ -61,7 +61,7 @@ impl BuilderProblem {
             Self::Index(IndexProblem::EmptyField) => "indexes.builder.problem_empty_field",
             Self::Index(IndexProblem::DuplicateField(_)) => "indexes.builder.problem_duplicate",
             Self::Index(IndexProblem::TtlNeedsOneOrderedKey) => "indexes.builder.problem_ttl_keys",
-            Self::Index(IndexProblem::TtlNotPositive) => "indexes.builder.problem_ttl_positive",
+            Self::Index(IndexProblem::TtlNegative) => "indexes.builder.problem_ttl_non_negative",
             Self::EmptyName => "indexes.builder.problem_empty_name",
             Self::PartialFilterInvalid => "indexes.builder.problem_partial_filter",
             Self::CollationInvalid => "indexes.builder.problem_collation",

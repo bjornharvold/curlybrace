@@ -479,7 +479,7 @@ fn the_ttl_prompt_applies_only_a_positive_number_of_seconds() {
         ok.state().seen,
         vec![IndexesAction::SetTtl("ttl_1".into(), 60)]
     );
-    for bad in ["", "0", "-4", "soon"] {
+    for bad in ["", "-4", "soon"] {
         let prompt = TtlPrompt::new("ttl_1".into(), Some(60)).with_text(bad.into());
         let harness = open_dialog(Dialog::Ttl(prompt), ConnectionBadge::default(), false);
         assert!(
@@ -488,7 +488,7 @@ fn the_ttl_prompt_applies_only_a_positive_number_of_seconds() {
                 .is_disabled(),
             "{bad:?}"
         );
-        harness.get_by_label(&t("indexes.builder.problem_ttl_positive"));
+        harness.get_by_label(&t("indexes.builder.problem_ttl_non_negative"));
     }
 }
 

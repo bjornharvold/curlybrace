@@ -271,8 +271,8 @@ fn a_ttl_only_change_uses_set_index_ttl_not_a_copy() {
     let (s, _) = act(s, IndexesAction::TtlTyped("3600".into()));
     assert_eq!(s.indexes.ttl_prompt.as_ref().unwrap().text, "3600");
 
-    // Not a positive number of seconds: nothing is sent.
-    for bad in [0, -5] {
+    // Below zero seconds: nothing is sent.
+    for bad in [-1, -5] {
         let (fresh, _) = on_a_normal_collection();
         let (_, commands) = act(fresh, IndexesAction::SetTtl("createdAt_1".into(), bad));
         assert!(commands.is_empty(), "{bad}");

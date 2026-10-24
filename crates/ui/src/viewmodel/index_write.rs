@@ -92,19 +92,19 @@ impl TtlPrompt {
             .text
             .trim()
             .parse::<i64>()
-            .map_err(|_| not_positive())?;
+            .map_err(|_| negative_ttl())?;
         ttl_problem(seconds).map_or(Ok(seconds), Err)
     }
 }
 
 /// Whether `seconds` is a valid expiry; the reducer re-checks what the view sends.
 pub fn ttl_problem(seconds: i64) -> Option<BuilderProblem> {
-    (seconds <= 0).then(not_positive)
+    (seconds < 0).then(negative_ttl)
 }
 
 /// The problem the builder reports for the same input, so both say the same words.
-fn not_positive() -> BuilderProblem {
-    BuilderProblem::Index(IndexProblem::TtlNotPositive)
+fn negative_ttl() -> BuilderProblem {
+    BuilderProblem::Index(IndexProblem::TtlNegative)
 }
 
 /// The name of a copy of `base` that no index in `existing` has: `base_v2`, `base_v3`, ... A

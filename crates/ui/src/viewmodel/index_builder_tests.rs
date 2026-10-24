@@ -90,9 +90,11 @@ fn a_ttl_with_a_compound_key_is_rejected() {
         Some(BuilderProblem::Index(IndexProblem::TtlNeedsOneOrderedKey))
     );
     let zero = on("a").with_ttl(Some(0));
+    assert_eq!(zero.problem(), None, "0 expires documents at once");
+    let negative = on("a").with_ttl(Some(-1));
     assert_eq!(
-        zero.problem(),
-        Some(BuilderProblem::Index(IndexProblem::TtlNotPositive))
+        negative.problem(),
+        Some(BuilderProblem::Index(IndexProblem::TtlNegative))
     );
     let fine = on("a").with_ttl(Some(3_600));
     assert_eq!(

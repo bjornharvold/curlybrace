@@ -55,19 +55,20 @@ fn only_the_exact_name_confirms_a_drop() {
 }
 
 #[test]
-fn the_ttl_prompt_needs_a_positive_whole_number_of_seconds() {
+fn the_ttl_prompt_needs_a_whole_number_of_zero_or_more_of_seconds() {
     let prompt = TtlPrompt::new("t".into(), Some(100));
     assert_eq!(prompt.seconds(), Ok(100), "starts at the current expiry");
-    let key = BuilderProblem::Index(IndexProblem::TtlNotPositive);
-    for bad in ["", "abc", "0", "-1", "1.5"] {
+    let key = BuilderProblem::Index(IndexProblem::TtlNegative);
+    for bad in ["", "abc", "-1", "1.5"] {
         assert_eq!(
             prompt.clone().with_text(bad.into()).seconds(),
             Err(key.clone()),
             "{bad:?}"
         );
     }
-    assert_eq!(prompt.with_text(" 60 ".into()).seconds(), Ok(60));
-    assert_eq!(ttl_problem(0), Some(key.clone()));
+    assert_eq!(prompt.clone().with_text(" 60 ".into()).seconds(), Ok(60));
+    assert_eq!(prompt.with_text("0".into()).seconds(), Ok(0));
+    assert_eq!(ttl_problem(0), None);
     assert_eq!(ttl_problem(-3), Some(key));
     assert_eq!(ttl_problem(1), None);
 }

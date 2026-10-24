@@ -161,7 +161,7 @@ pub fn show_drop_old(
     action.or(dismissed.then_some(IndexesAction::KeepOld))
 }
 
-/// The expiry input of "Change TTL...". Apply is enabled for a positive whole number of seconds;
+/// The expiry input of "Change TTL...". Apply is enabled for a whole number of seconds, zero or more;
 /// otherwise the builder's own message says what is wrong.
 pub fn show_ttl_prompt(
     ctx: &egui::Context,

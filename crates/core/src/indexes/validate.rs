@@ -12,7 +12,8 @@ pub enum IndexProblem {
     DuplicateField(String),
     /// A TTL index needs exactly one key, ascending or descending.
     TtlNeedsOneOrderedKey,
-    TtlNotPositive,
+    /// Below zero; 0 is fine, MongoDB expires such documents at once.
+    TtlNegative,
 }
 
 /// Checks a spec before it is sent to the server.
@@ -34,8 +35,8 @@ pub fn validate_new(spec: &IndexSpec) -> std::result::Result<(), IndexProblem> {
         if spec.keys.len() != 1 || !ordered {
             return Err(IndexProblem::TtlNeedsOneOrderedKey);
         }
-        if seconds <= 0 {
-            return Err(IndexProblem::TtlNotPositive);
+        if seconds < 0 {
+            return Err(IndexProblem::TtlNegative);
         }
     }
     Ok(())

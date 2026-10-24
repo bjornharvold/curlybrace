@@ -246,8 +246,16 @@ fn validate_new_rejects_a_ttl_on_a_compound_or_unordered_key() {
 }
 
 #[test]
-fn validate_new_rejects_a_ttl_that_is_not_positive() {
-    for seconds in [0, -5] {
+fn validate_new_rejects_a_negative_ttl_and_accepts_zero() {
+    let zero = IndexSpec {
+        options: IndexOptions {
+            expire_after_seconds: Some(0),
+            ..IndexOptions::default()
+        },
+        ..mock_index_spec_named("t", &[("at", KeyKind::Asc)])
+    };
+    assert_eq!(validate_new(&zero), Ok(()), "the server accepts 0");
+    for seconds in [-1, -5] {
         let spec = IndexSpec {
             options: IndexOptions {
                 expire_after_seconds: Some(seconds),
@@ -255,7 +263,7 @@ fn validate_new_rejects_a_ttl_that_is_not_positive() {
             },
             ..mock_index_spec_named("t", &[("at", KeyKind::Asc)])
         };
-        assert_eq!(validate_new(&spec), Err(IndexProblem::TtlNotPositive));
+        assert_eq!(validate_new(&spec), Err(IndexProblem::TtlNegative));
     }
 }
 

@@ -119,7 +119,7 @@ pub(super) fn ttl_cancelled(state: AppState) -> Out {
 }
 
 /// Changes the expiry in place (`collMod`), not a copy. Only an index that already expires has
-/// one to change, and the seconds must be positive (the builder's rule and wording).
+/// one to change, and the seconds must not be negative (the builder's rule and wording).
 pub(super) fn set_ttl(state: AppState, name: String, seconds: i64) -> Out {
     let expires =
         writable(&state, &name).is_some_and(|i| i.spec.options.expire_after_seconds.is_some());
