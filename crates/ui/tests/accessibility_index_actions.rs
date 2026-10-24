@@ -483,6 +483,10 @@ fn the_ttl_prompt_applies_only_a_positive_number_of_seconds() {
         ("", "indexes.builder.problem_ttl_not_a_number"),
         ("-4", "indexes.builder.problem_ttl_non_negative"),
         ("soon", "indexes.builder.problem_ttl_not_a_number"),
+        (
+            "99999999999999999999",
+            "indexes.builder.problem_ttl_too_large",
+        ),
     ] {
         let prompt = TtlPrompt::new("ttl_1".into(), Some(60)).with_text(bad.into());
         let harness = open_dialog(Dialog::Ttl(prompt), ConnectionBadge::default(), false);

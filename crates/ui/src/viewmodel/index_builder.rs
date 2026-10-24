@@ -53,6 +53,8 @@ pub enum BuilderProblem {
     KeyNotRebuildable,
     /// The TTL prompt holds text that is not a whole number (empty, letters, a fraction).
     TtlNotANumber,
+    /// The TTL prompt holds a whole number that the server would not accept as an expiry.
+    TtlTooLarge,
     /// The named index already has these keys, collation and partial filter. The server tells
     /// indexes apart by those alone, so it refuses another name or other options on them.
     SameKeysAsExisting(String),
@@ -75,6 +77,7 @@ impl BuilderProblem {
             Self::CollationInvalid => "indexes.builder.problem_collation",
             Self::KeyNotRebuildable => "indexes.builder.problem_unrebuildable",
             Self::TtlNotANumber => "indexes.builder.problem_ttl_not_a_number",
+            Self::TtlTooLarge => "indexes.builder.problem_ttl_too_large",
             Self::SameKeysAsExisting(_) => "indexes.builder.problem_same_keys",
             Self::IdIndexExists => "indexes.builder.problem_id_exists",
         }

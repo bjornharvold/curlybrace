@@ -59,7 +59,7 @@ fn the_ttl_prompt_needs_a_whole_number_of_zero_or_more_of_seconds() {
     let prompt = TtlPrompt::new("t".into(), Some(100));
     assert_eq!(prompt.seconds(), Ok(100), "starts at the current expiry");
     let key = BuilderProblem::Index(IndexProblem::TtlNegative);
-    for bad in ["", "abc", "1.5", "99999999999999999999"] {
+    for bad in ["", "abc", "1.5", "1e3", "+-4"] {
         assert_eq!(
             prompt.clone().with_text(bad.into()).seconds(),
             Err(BuilderProblem::TtlNotANumber),
@@ -74,11 +74,45 @@ fn the_ttl_prompt_needs_a_whole_number_of_zero_or_more_of_seconds() {
         BuilderProblem::TtlNotANumber.message_key(),
         "indexes.builder.problem_ttl_not_a_number"
     );
+    assert_eq!(
+        BuilderProblem::TtlTooLarge.message_key(),
+        "indexes.builder.problem_ttl_too_large"
+    );
     assert_eq!(prompt.clone().with_text(" 60 ".into()).seconds(), Ok(60));
     assert_eq!(prompt.with_text("0".into()).seconds(), Ok(0));
     assert_eq!(ttl_problem(0), None);
     assert_eq!(ttl_problem(-3), Some(key));
     assert_eq!(ttl_problem(1), None);
+}
+
+#[test]
+fn a_whole_number_that_does_not_fit_is_too_large_not_a_non_number() {
+    let prompt = TtlPrompt::new("t".into(), None);
+    let max = MAX_TTL_SECONDS.to_string();
+    let over = (MAX_TTL_SECONDS + 1).to_string();
+    assert_eq!(MAX_TTL_SECONDS, i64::from(i32::MAX));
+    for big in ["99999999999999999999", over.as_str(), "  9999999999  "] {
+        assert_eq!(
+            prompt.clone().with_text(big.into()).seconds(),
+            Err(BuilderProblem::TtlTooLarge),
+            "{big:?}"
+        );
+    }
+    assert_eq!(
+        prompt.clone().with_text(max).seconds(),
+        Ok(MAX_TTL_SECONDS),
+        "the largest the server accepts"
+    );
+    assert_eq!(
+        prompt.with_text("-99999999999999999999".into()).seconds(),
+        Err(BuilderProblem::Index(IndexProblem::TtlNegative)),
+        "a huge negative is still negative"
+    );
+    assert_eq!(ttl_problem(MAX_TTL_SECONDS), None);
+    assert_eq!(
+        ttl_problem(MAX_TTL_SECONDS + 1),
+        Some(BuilderProblem::TtlTooLarge)
+    );
 }
 
 #[test]

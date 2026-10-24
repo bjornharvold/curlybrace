@@ -75,6 +75,9 @@ pub struct TtlPrompt {
     pub text: String,
 }
 
+/// The largest expiry the server accepts for `expireAfterSeconds` (a 32-bit integer).
+pub const MAX_TTL_SECONDS: i64 = i32::MAX as i64;
+
 impl TtlPrompt {
     /// A prompt for `name`, showing its current expiry.
     pub fn new(name: String, current: Option<i64>) -> Self {
@@ -88,18 +91,30 @@ impl TtlPrompt {
 
     /// The seconds typed, or the problem that keeps Apply disabled.
     pub fn seconds(&self) -> Result<i64, BuilderProblem> {
-        let seconds = self
-            .text
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| BuilderProblem::TtlNotANumber)?;
-        ttl_problem(seconds).map_or(Ok(seconds), Err)
+        let text = self.text.trim();
+        match text.parse::<i64>() {
+            Ok(seconds) => ttl_problem(seconds).map_or(Ok(seconds), Err),
+            // A whole number that does not fit is too large (or, signed, too negative), not
+            // "not a number".
+            Err(_) => match digits_only(text.strip_prefix('-').unwrap_or(text)) {
+                true if text.starts_with('-') => Err(negative_ttl()),
+                true => Err(BuilderProblem::TtlTooLarge),
+                false => Err(BuilderProblem::TtlNotANumber),
+            },
+        }
     }
+}
+
+fn digits_only(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Whether `seconds` is a valid expiry; the reducer re-checks what the view sends.
 pub fn ttl_problem(seconds: i64) -> Option<BuilderProblem> {
-    (seconds < 0).then(negative_ttl)
+    if seconds < 0 {
+        return Some(negative_ttl());
+    }
+    (seconds > MAX_TTL_SECONDS).then_some(BuilderProblem::TtlTooLarge)
 }
 
 /// The problem the builder reports for the same input, so both say the same words.
