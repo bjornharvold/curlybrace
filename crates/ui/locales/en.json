@@ -720,7 +720,7 @@
       "problem_empty_name": "Give the index a name.",
       "problem_no_keys": "Add at least one field.",
       "problem_partial_filter": "The partial filter is not a valid JSON object.",
-      "problem_same_keys": "The index {name} already has the same fields, collation, partial filter, unique, sparse and wildcard projection, so the server will not create another one. To change only its TTL or visibility, use Change TTL or Hide; otherwise change the fields or one of those options.",
+      "problem_same_keys": "The index {name} already has the same fields, collation, partial filter, unique, sparse and wildcard projection, so the server will not create another one. To change only its TTL or visibility, use Change TTL..., Hide from planner or Unhide; otherwise change the fields or one of those options.",
       "problem_ttl_keys": "An expiring (TTL) index needs exactly one ascending or descending field.",
       "problem_ttl_non_negative": "The expiry must be zero or more whole seconds.",
       "problem_unrebuildable": "This text index was listed without its fields, so it cannot be copied without changing it.",
