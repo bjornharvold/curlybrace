@@ -32,7 +32,8 @@ const MAX_BACKOFF: Duration = Duration::from_secs(600);
 /// How many store calls in a row may time out (or fail like a dead connection) before the pass
 /// gives up and reports `Failing`: a dead connection that never errors would otherwise cost one
 /// timeout per collection, hours on a large deployment, while the status still reads `Running`.
-/// A call that reads data restarts the count.
+/// A call that reads data restarts the count. The pass scales this by its concurrency: one
+/// network blip fails every call in flight at once, and that burst is one event, not several.
 pub(super) const MAX_CONSECUTIVE_TIMEOUTS: usize = 3;
 
 /// A pass may last this many intervals at most, whatever its calls did, so a connection that
@@ -286,7 +287,7 @@ async fn run_pass(
         })
         .buffer_unordered(width);
     let mut recorded = 0;
-    let mut timeouts = Streak::default();
+    let mut timeouts = Streak::for_concurrency(width);
     loop {
         let Ok(next) = tokio::time::timeout_at(deadline, results.next()).await else {
             log::warn!("index usage: the pass ran past its deadline, abandoned");
@@ -307,7 +308,8 @@ async fn run_pass(
         }
         if timeouts.exhausted() {
             log::warn!(
-                "index usage: {MAX_CONSECUTIVE_TIMEOUTS} calls in a row timed out, pass abandoned"
+                "index usage: {} calls in a row timed out, pass abandoned",
+                timeouts.limit
             );
             // Dropping the stream cancels the calls still in flight.
             return health.finish(recorded).map(Pass::abandoned);
@@ -344,12 +346,26 @@ impl Answer {
 /// Consecutive calls of a pass that timed out or hit a dead connection. A read restarts the
 /// count, so a few slow collections never starve the ones after them; a run of them ends the pass
 /// however many calls succeeded before it.
-#[derive(Default)]
 pub(super) struct Streak {
     timeouts: usize,
+    limit: usize,
+}
+
+impl Default for Streak {
+    fn default() -> Self {
+        Self::for_concurrency(1)
+    }
 }
 
 impl Streak {
+    /// A streak that ends the pass after [`MAX_CONSECUTIVE_TIMEOUTS`] bursts of `width` calls.
+    pub(super) fn for_concurrency(width: usize) -> Self {
+        Self {
+            timeouts: 0,
+            limit: MAX_CONSECUTIVE_TIMEOUTS.saturating_mul(width.max(1)),
+        }
+    }
+
     pub(super) fn observe(&mut self, answer: Answer) {
         match answer {
             Answer::Read | Answer::Failed => self.timeouts = 0,
@@ -358,7 +374,7 @@ impl Streak {
     }
 
     pub(super) fn exhausted(&self) -> bool {
-        self.timeouts >= MAX_CONSECUTIVE_TIMEOUTS
+        self.timeouts >= self.limit
     }
 }
 

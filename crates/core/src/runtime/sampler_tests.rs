@@ -74,6 +74,8 @@ struct ProbeStore {
     failure: Mutex<Option<(Option<String>, CoreError)>>,
     /// Fails `list_databases` while set.
     databases_failure: Mutex<Option<CoreError>>,
+    /// Fails the first this-many `index_stats` calls, whatever the collection.
+    fail_first: Mutex<Option<(usize, CoreError)>>,
     calls: Mutex<Vec<(Namespace, Instant)>>,
     in_flight: AtomicUsize,
     peak: AtomicUsize,
@@ -89,6 +91,7 @@ impl ProbeStore {
             databases_delay: Duration::ZERO,
             failure: Mutex::default(),
             databases_failure: Mutex::default(),
+            fail_first: Mutex::default(),
             calls: Mutex::default(),
             in_flight: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
@@ -126,6 +129,10 @@ impl ProbeStore {
 
     fn fail(&self, collection: Option<&str>, error: Option<CoreError>) {
         *self.failure.lock().unwrap() = error.map(|e| (collection.map(str::to_string), e));
+    }
+
+    fn fail_first_calls(&self, count: usize, error: CoreError) {
+        *self.fail_first.lock().unwrap() = Some((count, error));
     }
 
     fn fail_databases(&self, error: Option<CoreError>) {
@@ -198,14 +205,20 @@ impl DocumentStore for ProbeStore {
     }
 
     async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
-        self.calls
-            .lock()
-            .unwrap()
-            .push((ns.clone(), Instant::now()));
+        let call_number = {
+            let mut calls = self.calls.lock().unwrap();
+            calls.push((ns.clone(), Instant::now()));
+            calls.len()
+        };
         let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.peak.fetch_max(now, Ordering::SeqCst);
         tokio::time::sleep(self.delay_for(&ns.collection)).await;
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
+        if let Some((count, error)) = self.fail_first.lock().unwrap().clone() {
+            if call_number <= count {
+                return Err(error);
+            }
+        }
         let failure = self.failure.lock().unwrap().clone();
         match failure {
             Some((only, error)) if only.as_deref().is_none_or(|c| c == ns.collection) => Err(error),
@@ -779,3 +792,4 @@ async fn a_store_that_never_lists_databases_ends_the_pass_as_failing() {
 }
 
 mod guard;
+mod rotation;
