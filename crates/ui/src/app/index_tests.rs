@@ -60,6 +60,8 @@ fn series_of(name: &str) -> IndexSeries {
             ops: 3,
             since_ms: 1,
         }),
+        last_used_at_secs: Some(10),
+        tracked_since_secs: Some(0),
     }
 }
 

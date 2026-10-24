@@ -14,6 +14,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use uuid::Uuid;
 
+/// Real timestamps of a series, independent of any chart range or bucket width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SeriesFacts {
+    /// When the newest use was seen: the time of the sample that showed it, or the end of the
+    /// rolled row when only rolled data holds a use.
+    pub last_used_at_secs: Option<i64>,
+    /// The oldest sample (or, once thinned, the start of the oldest rolled row) on hand.
+    pub tracked_since_secs: Option<i64>,
+}
+
 /// Identifies one plotted series. A different definition hash (an index recreated with other
 /// options) or a different host (another node) is a different series; they are never joined.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -156,6 +166,12 @@ impl HistoryDb {
     /// wide. See [`super::usage`] for how raw and rolled data are merged.
     pub fn usage(&self, key: &SeriesKey, range: ChartRange, now_secs: i64) -> Result<Vec<Bucket>> {
         usage::usage(&self.lock(), key, range, now_secs)
+    }
+
+    /// The real times behind "last used" and "tracked since" of a series; no range is involved,
+    /// so they read the same whatever chart is drawn.
+    pub fn facts(&self, key: &SeriesKey) -> Result<SeriesFacts> {
+        usage::facts(&self.lock(), key)
     }
 
     /// The most recently inserted sample of a series (not the one with the latest timestamp).

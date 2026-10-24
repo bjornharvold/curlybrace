@@ -12,7 +12,7 @@
 //!   they are not counted twice. Its uses sit at its far end, in raw time, and are kept.
 //! - Buckets are returned oldest first, limited to the window that ends at `now_secs`.
 
-use super::db::{SeriesKey, sql_err};
+use super::db::{SeriesFacts, SeriesKey, sql_err};
 use super::retention::ChartRange;
 use super::series::{Bucket, Point, Sample, bucketize, derive};
 use crate::error::Result;
@@ -95,6 +95,44 @@ pub(super) fn usage(
         .into_values()
         .filter(|b| b.start_secs + b.width_secs > window_start && b.start_secs <= now_secs)
         .collect())
+}
+
+/// The time of the newest use and of the oldest data, over everything stored (no range).
+pub(super) fn facts(conn: &Connection, key: &SeriesKey) -> Result<SeriesFacts> {
+    let Some((series_id, _)) = find_series(conn, key)? else {
+        return Ok(SeriesFacts::default());
+    };
+    let samples: Vec<Sample> = raw_samples(conn, series_id)?
+        .into_iter()
+        .map(|(_, sample)| sample)
+        .collect();
+    let raw_use = derive(&samples)
+        .into_iter()
+        .filter_map(|p| match p {
+            Point::Delta { at_secs, uses, .. } if uses > 0 => Some(at_secs),
+            Point::Restart {
+                at_secs,
+                uses_since_restart,
+            } if uses_since_restart > 0 => Some(at_secs),
+            Point::Gap { to_secs, uses, .. } if uses > 0 => Some(to_secs),
+            _ => None,
+        })
+        .max();
+    let (rolled_use, rolled_first): (Option<i64>, Option<i64>) = conn
+        .query_row(
+            "SELECT MAX(CASE WHEN uses > 0
+                        THEN start_secs + CASE tier WHEN ?2 THEN ?3 ELSE ?4 END END),
+                    MIN(start_secs)
+             FROM rolled WHERE series_id = ?1",
+            params![series_id, TIER_HOURLY, HOUR_SECS, DAY_SECS],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(sql_err)?;
+    let raw_first = samples.iter().map(|s| s.at_secs).min();
+    Ok(SeriesFacts {
+        last_used_at_secs: raw_use.or(rolled_use),
+        tracked_since_secs: [rolled_first, raw_first].into_iter().flatten().min(),
+    })
 }
 
 /// A gap's seconds before the seam are already in the rolled rows.

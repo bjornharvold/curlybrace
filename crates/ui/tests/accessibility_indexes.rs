@@ -59,6 +59,8 @@ fn used_series(spec: &IndexSpec, host: &str, hours_ago: i64) -> IndexSeries {
             ops: 42,
             since_ms: 1,
         }),
+        last_used_at_secs: Some(last + 600),
+        tracked_since_secs: Some(end - 20 * HOUR),
     }
 }
 
@@ -71,6 +73,8 @@ fn idle_series(spec: &IndexSpec, host: &str) -> IndexSeries {
             ops: 0,
             since_ms: 1,
         }),
+        last_used_at_secs: None,
+        tracked_since_secs: Some(end - 2 * HOUR),
         ..used_series(spec, host, 0)
     }
 }
@@ -398,28 +402,58 @@ fn the_view_output_depends_only_on_the_injected_now() {
     assert!(later.contains(&ago("6")) && !later.contains(&ago("3")));
 }
 
-/// "Last used" and "Tracked since" are ages against the real clock, not against the chart's
-/// bucket-anchored right edge, so the range selector cannot change them.
+/// The series the server returns for `range`: buckets as wide as the range makes them, and the
+/// facts as real times.
+fn served(spec: &IndexSpec, range: ChartRange, now: i64, used: i64, since: i64) -> IndexSeries {
+    let width = range.bucket_width_secs();
+    let end = anchored_now(range, now);
+    IndexSeries {
+        buckets: vec![Bucket {
+            start_secs: end - width,
+            width_secs: width,
+            uses: 5,
+            restarts: 0,
+            gap_secs: 0,
+        }],
+        last_used_at_secs: Some(used),
+        tracked_since_secs: Some(since),
+        ..used_series(spec, "node-1", 0)
+    }
+}
+
+/// "Last used" and "Tracked since" are real times against the wall clock, so no range (and no
+/// bucket width) changes them, and a use earlier today never reads "just now".
 #[test]
 fn last_used_and_tracked_since_do_not_depend_on_the_range() {
     let a = spec("a_1", "a");
-    let mut series = used_series(&a, "node-1", 0);
-    series.buckets = vec![bucket(NOW - 20 * HOUR, 0), bucket(NOW - 3 * HOUR - 600, 5)];
-    let ago = |h: &str| I18n::english().t_with("indexes.ago_hours", &[("n", h)]);
-    for range in [ChartRange::Day, ChartRange::Week, ChartRange::Month] {
-        let state = IndexesState {
-            range,
-            ..state(vec![listed(a.clone())], vec![series.clone()])
-        };
-        let shown = texts(&open(state, false));
-        assert!(
-            shown.contains(&ago("3")),
-            "{range:?}: last used in {shown:?}"
-        );
-        assert!(
-            shown.contains(&ago("20")),
-            "{range:?}: tracked since in {shown:?}"
-        );
-        assert!(!shown.contains(&t("indexes.ago_now")), "{range:?}");
+    let midnight = NOW / 86_400 * 86_400;
+    let minutes = |n: &str| I18n::english().t_with("indexes.ago_minutes", &[("n", n)]);
+    let hours = |n: &str| I18n::english().t_with("indexes.ago_hours", &[("n", n)]);
+    let days = |n: &str| I18n::english().t_with("indexes.ago_days", &[("n", n)]);
+    // (used, viewed at, expected last used)
+    let cases = [
+        (NOW - 59 * 60, NOW, minutes("59")),
+        (midnight + 5 * 60, midnight + 23 * HOUR, hours("22")),
+    ];
+    for (used, viewed, expected) in cases {
+        for range in [ChartRange::Day, ChartRange::Week, ChartRange::Month] {
+            let state = IndexesState {
+                range,
+                ..state(
+                    vec![listed(a.clone())],
+                    vec![served(&a, range, viewed, used, viewed - 3 * 86_400)],
+                )
+            };
+            let shown = texts(&open_at(state, false, viewed));
+            assert!(
+                shown.contains(&expected),
+                "{range:?}: last used in {shown:?}"
+            );
+            assert!(
+                shown.contains(&days("3")),
+                "{range:?}: tracked in {shown:?}"
+            );
+            assert!(!shown.contains(&t("indexes.ago_now")), "{range:?}");
+        }
     }
 }

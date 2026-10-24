@@ -124,6 +124,8 @@ mod tests {
             host: "n1".into(),
             buckets,
             latest: None,
+            last_used_at_secs: None,
+            tracked_since_secs: None,
         }
     }
 

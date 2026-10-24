@@ -26,6 +26,10 @@ pub struct IndexSeries {
     pub buckets: Vec<Bucket>,
     /// The newest recorded reading, for the "uses since" line.
     pub latest: Option<Sample>,
+    /// When the index was last used, as a real time; the same whatever the range or bucket width.
+    pub last_used_at_secs: Option<i64>,
+    /// When tracking began (oldest data on hand); the same whatever the range.
+    pub tracked_since_secs: Option<i64>,
 }
 
 /// Opens the history database. Called once, synchronously, when the runtime is spawned: a
@@ -83,7 +87,10 @@ pub(super) async fn series_for(
             .into_iter()
             .filter(|key| listed.contains(&(key.index_name.clone(), key.definition_hash.clone())))
             .map(|key| {
+                let facts = history.facts(&key)?;
                 Ok(IndexSeries {
+                    last_used_at_secs: facts.last_used_at_secs,
+                    tracked_since_secs: facts.tracked_since_secs,
                     buckets: history.usage(&key, range, now)?,
                     latest: history.latest(&key)?,
                     index_name: key.index_name,

@@ -47,6 +47,9 @@ fn day_of_usage(spec: &IndexSpec, ops: i64) -> IndexSeries {
             ops,
             since_ms: 1,
         }),
+        // Real times: the last use ten minutes before the wall clock the shots freeze.
+        last_used_at_secs: Some(SHOT_NOW - 600),
+        tracked_since_secs: Some(end - BUCKETS * WIDTH),
     }
 }
 

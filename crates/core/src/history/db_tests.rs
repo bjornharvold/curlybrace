@@ -559,3 +559,64 @@ fn record_many_is_all_or_nothing() {
     assert_eq!(count(&db, "SELECT COUNT(*) FROM samples"), 0);
     assert_eq!(count(&db, "SELECT COUNT(*) FROM series"), 0);
 }
+
+#[test]
+fn facts_are_the_real_time_of_the_last_use_and_of_the_first_sample() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let key = key();
+    let first = NOW - 2 * HOUR;
+    let used = NOW - 59 * 60;
+    // One sample a minute; the counter moves once, at `used`, and then stands still.
+    let mut at = first;
+    while at < NOW {
+        db.record(&key, s(at, if at >= used { 3 } else { 0 }))
+            .unwrap();
+        at += 60;
+    }
+
+    let facts = db.facts(&key).unwrap();
+
+    assert_eq!(facts.last_used_at_secs, Some(used));
+    assert_eq!(facts.tracked_since_secs, Some(first));
+}
+
+#[test]
+fn facts_of_an_unused_or_unknown_series_have_no_last_use() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    assert_eq!(db.facts(&key()).unwrap(), SeriesFacts::default());
+    for minute in 0..5 {
+        db.record(&key(), s(NOW - 600 + minute * 60, 7)).unwrap();
+    }
+    let facts = db.facts(&key()).unwrap();
+    assert_eq!(facts.last_used_at_secs, None);
+    assert_eq!(facts.tracked_since_secs, Some(NOW - 600));
+}
+
+#[test]
+fn facts_survive_thinning_without_depending_on_a_range() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let key = key();
+    let start = NOW - 10 * DAY;
+    // Used every minute until 5 days ago, idle since (the counter stops).
+    let used_until = NOW - 5 * DAY;
+    let mut ops = 0;
+    let mut at = start;
+    while at < NOW {
+        if at < used_until {
+            ops += 2;
+        }
+        db.record(&key, s(at, ops)).unwrap();
+        at += 10 * 60;
+    }
+    db.thin(NOW).unwrap();
+
+    let facts = db.facts(&key).unwrap();
+
+    let last = facts.last_used_at_secs.expect("rolled uses remain");
+    assert!(
+        (used_until - HOUR..=used_until + DAY).contains(&last),
+        "within the rolled row of the last use: {last}"
+    );
+    let since = facts.tracked_since_secs.expect("rolled rows remain");
+    assert!(since <= start + DAY && since >= start - DAY, "{since}");
+}

@@ -77,19 +77,20 @@ impl Age {
     }
 }
 
-/// When the index was last used: the end of the newest bucket that holds a use.
-pub fn last_used_secs(series: &IndexSeries) -> Option<i64> {
+/// How long ago the index was last used, from the real time of its newest use (never from a
+/// bucket edge, so it is the same on every range and a recent use is never rounded into the
+/// future). `None` when no use is on record.
+pub fn last_used_age(series: &IndexSeries, now_secs: i64) -> Option<Age> {
     series
-        .buckets
-        .iter()
-        .filter(|b| b.uses > 0)
-        .map(|b| b.start_secs + b.width_secs)
-        .max()
+        .last_used_at_secs
+        .map(|at| Age::of((now_secs - at).max(0)))
 }
 
-/// The start of the oldest bucket on hand.
-pub fn tracked_since_secs(series: &IndexSeries) -> Option<i64> {
-    series.buckets.iter().map(|b| b.start_secs).min()
+/// How long ago tracking began, from the oldest data on hand (the same on every range).
+pub fn tracked_since_age(series: &IndexSeries, now_secs: i64) -> Option<Age> {
+    series
+        .tracked_since_secs
+        .map(|at| Age::of((now_secs - at).max(0)))
 }
 
 /// A size as an `en.json` key and the number to put in `{n}`.
@@ -171,16 +172,8 @@ mod tests {
             host: host.into(),
             buckets: Vec::new(),
             latest: None,
-        }
-    }
-
-    fn bucket(start_secs: i64, uses: i64) -> Bucket {
-        Bucket {
-            start_secs,
-            width_secs: 3_600,
-            uses,
-            restarts: 0,
-            gap_secs: 0,
+            last_used_at_secs: None,
+            tracked_since_secs: None,
         }
     }
 
@@ -260,14 +253,46 @@ mod tests {
         assert_eq!(Age::Now.key(), "indexes.ago_now");
     }
 
+    /// The series the server returns for `range`: the facts are real times, the buckets are
+    /// as wide as the range makes them.
+    fn for_range(range: ChartRange, now: i64, used: Option<i64>, since: i64) -> IndexSeries {
+        let width = range.bucket_width_secs();
+        let end = anchored_now(range, now);
+        IndexSeries {
+            buckets: vec![Bucket {
+                start_secs: end - width,
+                width_secs: width,
+                uses: 1,
+                restarts: 0,
+                gap_secs: 0,
+            }],
+            last_used_at_secs: used,
+            tracked_since_secs: Some(since),
+            ..series(&mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]), "n1")
+        }
+    }
+
     #[test]
-    fn last_used_and_tracked_since_come_from_the_buckets() {
-        let spec = mock_index_spec_named("a_1", &[("a", KeyKind::Asc)]);
-        let mut s = series(&spec, "n1");
-        assert_eq!((last_used_secs(&s), tracked_since_secs(&s)), (None, None));
-        s.buckets = vec![bucket(0, 0), bucket(3_600, 4), bucket(7_200, 0)];
-        assert_eq!(last_used_secs(&s), Some(7_200));
-        assert_eq!(tracked_since_secs(&s), Some(0));
+    fn last_used_and_tracked_since_are_the_same_on_every_range() {
+        let now = 1_800_000_000 / 86_400 * 86_400 + 23 * 3_600;
+        for (used, expected) in [
+            (now - 59 * 60, Age::Minutes(59)),
+            (now - (23 * 3_600 - 300), Age::Hours(22)),
+        ] {
+            for range in RANGES {
+                let s = for_range(range, now, Some(used), now - 3 * 86_400);
+                assert_eq!(last_used_age(&s, now), Some(expected), "{range:?}");
+                assert_eq!(tracked_since_age(&s, now), Some(Age::Days(3)), "{range:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn no_recorded_use_is_none_and_a_clock_behind_the_sample_is_just_now() {
+        let s = for_range(ChartRange::Week, 10_000, None, 0);
+        assert_eq!(last_used_age(&s, 10_000), None);
+        let ahead = for_range(ChartRange::Week, 10_000, Some(10_500), 0);
+        assert_eq!(last_used_age(&ahead, 10_000), Some(Age::Now));
     }
 
     #[test]

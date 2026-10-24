@@ -5,7 +5,7 @@ use crate::I18n;
 use crate::viewmodel::IndexesAction;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_detail::{
-    Age, definition_text, last_used_secs, option_phrases, size_parts, tracked_since_secs,
+    Age, definition_text, last_used_age, option_phrases, size_parts, tracked_since_age,
 };
 use crate::viewmodel::index_write::is_id_index;
 use curlybrace_core::history::ChartRange;
@@ -152,10 +152,7 @@ fn series_rows(ui: &mut egui::Ui, series: &IndexSeries, input: &DetailInput<'_>,
     );
     show_chart(ui, series, input.range, input.chart_end_secs, i18n);
     ui.add_space(ui.spacing().item_spacing.y);
-    let ago = |at: i64| {
-        let age = Age::of(input.now_secs - at);
-        i18n.t_with(age.key(), &[("n", &age.count().to_string())])
-    };
+    let ago = |age: Age| i18n.t_with(age.key(), &[("n", &age.count().to_string())]);
     egui::Grid::new("index_facts")
         .num_columns(2)
         .show(ui, |ui| {
@@ -167,14 +164,14 @@ fn series_rows(ui: &mut egui::Ui, series: &IndexSeries, input: &DetailInput<'_>,
             });
             ui.end_row();
             ui.strong(i18n.t("indexes.last_used"));
-            ui.label(match last_used_secs(series) {
-                Some(at) => ago(at),
+            ui.label(match last_used_age(series, input.now_secs) {
+                Some(age) => ago(age),
                 None => i18n.t("indexes.not_in_range"),
             });
             ui.end_row();
-            if let Some(start) = tracked_since_secs(series) {
+            if let Some(age) = tracked_since_age(series, input.now_secs) {
                 ui.strong(i18n.t("indexes.tracked_since"));
-                ui.label(ago(start));
+                ui.label(ago(age));
                 ui.end_row();
             }
         });
