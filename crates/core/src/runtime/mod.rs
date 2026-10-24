@@ -475,8 +475,8 @@ pub(crate) struct Shared {
     /// The read-only flags of the open stores, so a lock reaches stores that are already open.
     pub(crate) read_only: read_only_registry::ReadOnlyRegistry,
     /// The usage history, opened once at spawn. `None` when `history_path` is unset or opening
-    /// failed (logged); then no sampler starts and `IndexHistory` answers empty. The failure is
-    /// not yet visible to the UI: a later task can add an event or a flag here to tell the person.
+    /// failed (logged); then no sampler starts and `IndexHistory` answers empty. When a path was
+    /// set but opening failed, every connect reports `Paused(HistoryUnavailable)`.
     pub(crate) history: Option<Arc<HistoryDb>>,
     /// The sampler tunables shared by every sampler; each holds a receiver.
     pub(crate) sampler_config: watch::Sender<SamplerConfig>,

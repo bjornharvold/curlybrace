@@ -114,6 +114,16 @@ pub(super) fn start_sampler(
     events: UnboundedSender<Event>,
     repaint: Repaint,
 ) {
+    if shared.history.is_none() && shared.config.history_path.is_some() {
+        // History was wanted but could not be opened (logged at spawn): tell the person instead
+        // of leaving the tab to promise sampling that never happens.
+        let status = sampler::SamplerStatus::Paused(sampler::SamplerPause::HistoryUnavailable);
+        if let Forwarded::Sent = forward(&Arc::downgrade(session), generation, &events, id, status)
+        {
+            repaint();
+        }
+        return;
+    }
     let (Some(history), Some(store)) = (shared.history.clone(), session.current_store()) else {
         return;
     };

@@ -687,3 +687,23 @@ async fn a_sampler_status_never_follows_disconnected() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(rx.try_recv().is_err(), "a status followed the epoch change");
 }
+
+#[tokio::test]
+async fn a_history_that_cannot_be_opened_is_reported_on_connect() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = dir.path().join("blocker");
+    std::fs::write(&blocker, b"a file, not a directory").unwrap();
+    let config = RuntimeConfig {
+        history_path: Some(blocker.join("history.sqlite")),
+        ..RuntimeConfig::default()
+    };
+    let mut h = spawn_connecting(store_with(&["testdb"]), config);
+    let cfg = conn_config(false);
+    connect(&mut h, &cfg).await;
+    expect_sampler(
+        &mut h,
+        cfg.id,
+        SamplerStatus::Paused(SamplerPause::HistoryUnavailable),
+    )
+    .await;
+}
