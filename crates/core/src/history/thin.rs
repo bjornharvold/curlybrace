@@ -1,8 +1,9 @@
 //! Retention: rolling old samples into coarser rows, expiring them, and the size cap.
 //!
 //! Rolling uses `derive` + `bucketize`, so a rolled row holds exactly a `Bucket`'s fields: the
-//! sum of deltas (gap uses included), the restart count and the seconds of no data. Restarts
-//! and gaps therefore stay visible after thinning.
+//! sum of deltas (gap uses and the uses counted since a restart included), the restart count and
+//! the seconds of no data. Restarts and gaps therefore stay visible after thinning. Rows rolled
+//! before restart uses were counted lack them.
 //!
 //! ## The seam between rolled and raw data
 //!
