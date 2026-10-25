@@ -207,6 +207,7 @@ fn show_counts(ui: &mut egui::Ui, dialog: &CopyDialog, i18n: &I18n) {
                 ui.label(count_text(dialog, index, &item.source.collection, i18n));
             }
         });
+    ui.weak(i18n.t("copy.dialog.no_snapshot"));
 }
 
 fn count_text(dialog: &CopyDialog, index: usize, collection: &str, i18n: &I18n) -> String {

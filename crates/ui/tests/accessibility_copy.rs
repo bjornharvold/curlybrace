@@ -133,6 +133,8 @@ fn the_dialog_names_its_controls_and_shows_the_counts() {
     ));
     // Unavailable counts say so and keep Copy enabled.
     h.get_by_label(&i18n.t_with("copy.dialog.counts.unavailable", &[("collection", "users")]));
+    // The source is not snapshotted: the dialog says so.
+    h.get_by_label(&t("copy.dialog.no_snapshot"));
     assert!(!disabled(&h, &t("copy.dialog.copy")));
     h.get_by_role_and_label(Role::CheckBox, &t("copy.dialog.indexes_and_options"));
 }

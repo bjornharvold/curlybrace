@@ -568,6 +568,7 @@
       "indexes_and_options": "Also copy indexes and collection options",
       "name_label": "Name for {source} in the target",
       "names_title": "Names in the target",
+      "no_snapshot": "The source is read as the copy goes: changes made to it during the copy may or may not be included.",
       "overwrite_note": "Overwrite replaces documents that already exist in the target. Nothing is deleted.",
       "policy": {
         "overwrite": "Overwrite: replace existing documents, never add new ones",
