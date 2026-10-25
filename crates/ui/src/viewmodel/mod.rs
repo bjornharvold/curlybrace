@@ -4,6 +4,7 @@ pub mod compare;
 pub mod connection_form;
 pub mod connection_list;
 pub mod connection_tag;
+pub mod copy_clipboard;
 pub mod doc_actions;
 pub mod editor;
 pub mod findbar;
@@ -29,6 +30,7 @@ pub use connection_list::{
     visible,
 };
 pub use connection_tag::{ColorTag, ConnectionBadge, color_tag};
+pub use copy_clipboard::{CopyClipboard, DocSelection, PasteBlock, PasteContext, PasteTarget};
 pub use doc_actions::{
     DeleteConfirm, DocAction, MenuItem, choose, id_preview, is_projected, menu_items,
 };
