@@ -2,7 +2,8 @@
 //!
 //! The UI sends [`Command`]s and drains [`Event`]s. Every command yields
 //! EXACTLY ONE event, followed by one `repaint()` call, on every code path:
-//! success, error, timeout and even a panic inside a handler. There are two exceptions.
+//! success, error, timeout and even a panic inside a handler. There are three exceptions.
+//! `Command::Copy`: a run answers with a stream of events (see the `copy` module). And
 //! `Command::Compare`: compare sessions are long-lived and independent of the connections,
 //! so `Cancel`, `Discard` and `Close` have no answer of their own and `Start` answers with a
 //! stream of events (one `PairDone` per pair, then one `RunDone`). The answer rule per compare
@@ -21,6 +22,13 @@
 
 mod compare;
 mod config;
+mod copy;
+#[cfg(test)]
+mod copy_failure_tests;
+#[cfg(test)]
+mod copy_support;
+#[cfg(test)]
+mod copy_tests;
 #[cfg(test)]
 mod epoch_tests;
 mod handlers;
@@ -188,6 +196,9 @@ pub enum Command {
     },
     /// A data-compare session command; see [`compare`] for how it is answered.
     Compare(crate::compare::protocol::CompareCommand),
+    /// A copy between two open sessions; see [`copy`] for how it is answered. Like Compare it
+    /// streams its own events and is not a per-session write for the UI's write guard.
+    Copy(crate::copy::CopyCommand),
     /// Opens a throw-away connection and reports on it with [`Event::TestConnection`]. It never
     /// begins an epoch and never touches the installed store or tunnel.
     TestConnection {
@@ -276,6 +287,7 @@ impl Command {
             | Self::ListCollections { .. }
             | Self::Find { .. }
             | Self::Compare(_)
+            | Self::Copy(_)
             | Self::TestConnection { .. }
             | Self::LockReadOnly { .. }
             | Self::ListIndexes { .. }
@@ -309,6 +321,7 @@ impl Command {
             Self::Delete { .. } => "delete",
             Self::Clone { .. } => "clone",
             Self::Compare(_) => "compare",
+            Self::Copy(_) => "copy",
             Self::TestConnection { .. } => "test_connection",
             Self::LockReadOnly { .. } => "lock_read_only",
             Self::ListIndexes { .. } => "list_indexes",
@@ -344,6 +357,7 @@ impl Command {
             | Self::SetIndexHidden { session, .. }
             | Self::SetIndexTtl { session, .. } => Some(*session),
             Self::Compare(_)
+            | Self::Copy(_)
             | Self::TestConnection { .. }
             | Self::LockReadOnly { .. }
             | Self::SetSamplingExcluded { .. }
@@ -412,6 +426,8 @@ pub enum Event {
     },
     /// An answer or progress report of a compare session (see [`compare`]).
     Compare(crate::compare::protocol::CompareEvent),
+    /// An event of a copy run (see [`copy`]).
+    Copy(crate::copy::CopyEvent),
     /// The answer to `Command::TestConnection { request_id, .. }`; carries no secret.
     TestConnection {
         request_id: u64,
@@ -479,7 +495,7 @@ impl Event {
             | Self::Sampler { session, .. }
             | Self::Failed { session, .. }
             | Self::RequestFailed { session, .. } => Some(*session),
-            Self::Compare(_) | Self::TestConnection { .. } => None,
+            Self::Compare(_) | Self::Copy(_) | Self::TestConnection { .. } => None,
         }
     }
 }
@@ -504,6 +520,8 @@ pub(crate) struct Shared {
     pub config: RuntimeConfig,
     /// Compare sessions: independent of the connections above.
     compare: compare::Registry,
+    /// The one active copy run.
+    copy: copy::CopySlot,
     /// The flag of the newest connection test: a newer test ends it, so at most one test's
     /// host-key question is live. Locked only briefly, never across an await.
     latest_test: std::sync::Mutex<Option<job_flag::JobFlag>>,
@@ -521,6 +539,8 @@ impl Shared {
     /// Gets or creates the session and starts its next epoch. Called only from the dispatcher
     /// (single-threaded), so request order decides.
     fn begin_session_epoch(&self, id: SessionId) -> (Arc<Session>, u64) {
+        // A copy over this session must stop before its store is replaced.
+        self.copy.session_changing(id);
         let generation = self.next_epoch.fetch_add(1, Ordering::SeqCst) + 1;
         let session = {
             let mut map = self.sessions.write().unwrap_or_else(|e| e.into_inner());
@@ -535,6 +555,8 @@ impl Shared {
     /// Starts the next epoch for `id`, drops its store and tunnel and removes it from the map.
     /// Tasks that still hold the `Arc<Session>` see a stale generation.
     fn end_session(&self, id: SessionId) -> u64 {
+        // A copy over this session must stop before its store is dropped.
+        self.copy.session_changing(id);
         let generation = self.next_epoch.fetch_add(1, Ordering::SeqCst) + 1;
         let removed = self
             .sessions
@@ -604,6 +626,7 @@ pub fn spawn_runtime_with_connector(
         connector,
         config,
         compare: Default::default(),
+        copy: Default::default(),
         latest_test: Default::default(),
         read_only: Default::default(),
         history,
@@ -627,6 +650,10 @@ fn dispatch(
 ) {
     if let Command::Compare(c) = command {
         compare::dispatch(shared, events, repaint, c);
+        return;
+    }
+    if let Command::Copy(c) = command {
+        copy::dispatch(shared, events, repaint, c);
         return;
     }
     // Like Compare: independent of the connection epoch (no begin_epoch, no generation read).

@@ -23,6 +23,7 @@ use support::compare_export_shots as export;
 use support::compare_field_shots as fields;
 use support::compare_multi_states::{overview_mixed, pair_results, pairs_setup};
 use support::compare_states::{Through, compare_state};
+use support::copy_shots as copy_shots_fixtures;
 use support::db::sample_people;
 use support::production_shots as production_shots_fixtures;
 use support::shots::{Shot, browsing};
@@ -175,6 +176,49 @@ shot!(
     production_write_warning,
     vec![],
     production_shots_fixtures::write_warning
+);
+
+// The spinner repaints forever, so these two settle with `snapshot_animated`.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn copy_dialog_counting() {
+    if !snapshots_enabled("copy_dialog_counting") {
+        return;
+    }
+    let mut shot = Shot::sized(
+        (1000.0, 1100.0),
+        vec![],
+        copy_shots_fixtures::dialog_counting,
+    );
+    shot.snapshot_animated("copy_dialog_counting");
+}
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn copy_dialog_overwrite_production() {
+    if !snapshots_enabled("copy_dialog_overwrite_production") {
+        return;
+    }
+    let setup = copy_shots_fixtures::dialog_overwrite_production;
+    Shot::sized((1000.0, 1100.0), vec![], setup).snapshot("copy_dialog_overwrite_production");
+}
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn copy_progress() {
+    if !snapshots_enabled("copy_progress") {
+        return;
+    }
+    let mut shot = Shot::new(vec![], copy_shots_fixtures::progress);
+    shot.snapshot_animated("copy_progress");
+}
+shot!(
+    copy_report_cancelled,
+    vec![],
+    copy_shots_fixtures::report_cancelled
+);
+shot!(
+    copy_report_indexes,
+    vec![],
+    copy_shots_fixtures::report_indexes
 );
 
 shot!(editor_modal, vec![], |state| {

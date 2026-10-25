@@ -14,6 +14,27 @@ pub fn mock_doc_with_id(id: impl Into<Bson>) -> Document {
     doc! { "_id": id.into(), "name": "alice", "n": 1_i32 }
 }
 
+/// Eight documents whose `_id`s span several BSON types (ObjectId, string, int, compound
+/// document), listed out of key order.
+pub fn mock_docs_with_mixed_ids() -> Vec<Document> {
+    let oid = |last: u8| ObjectId::from_bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, last]);
+    vec![
+        doc! { "_id": oid(2), "kind": "oid" },
+        doc! { "_id": "beta", "kind": "string" },
+        doc! { "_id": doc! { "a": 1_i32, "b": "y" }, "kind": "compound" },
+        doc! { "_id": 7_i32, "kind": "int" },
+        doc! { "_id": oid(1), "kind": "oid" },
+        doc! { "_id": "alpha", "kind": "string" },
+        doc! { "_id": doc! { "a": 1_i32, "b": "x" }, "kind": "compound" },
+        doc! { "_id": 3_i32, "kind": "int" },
+    ]
+}
+
+/// `count` documents with integer `_id`s `0..count`, each carrying its number as `n`.
+pub fn mock_numbered_docs(count: i32) -> Vec<Document> {
+    (0..count).map(|n| doc! { "_id": n, "n": n }).collect()
+}
+
 pub fn mock_namespace() -> Namespace {
     Namespace::new("testdb", "people")
 }

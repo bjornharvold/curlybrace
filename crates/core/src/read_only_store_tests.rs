@@ -13,8 +13,8 @@ use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
 use crate::read_only_store::ReadOnlyStore;
 use crate::store::{
-    CollectionIndex, CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, IndexUsage,
-    Namespace, Page, Query, Topology, WriteFailure, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
+    IndexUsage, Namespace, Page, Query, Topology, WriteFailure, WriteOp, WriteOutcome,
 };
 use crate::test_support::mock_objects::mock_index_spec;
 
@@ -40,7 +40,7 @@ impl RecordingStore {
 
 /// Every write method of `DocumentStore`. Adding a write to the trait? Name it here, give
 /// `RecordingStore` a counter for it, refuse it in `ReadOnlyStore`, and cover it below.
-const WRITES: [&str; 8] = [
+const WRITES: [&str; 9] = [
     "insert",
     "replace",
     "delete",
@@ -49,6 +49,7 @@ const WRITES: [&str; 8] = [
     "drop_index",
     "set_index_hidden",
     "set_index_ttl",
+    "create_collection",
 ];
 
 fn ns() -> Namespace {
@@ -188,6 +189,22 @@ impl DocumentStore for RecordingStore {
         self.hit("set_index_ttl");
         Ok(())
     }
+    async fn collection_options(&self, _ns: &Namespace) -> Result<Option<CollectionOptions>> {
+        self.hit("collection_options");
+        Ok(Some(recorded_options()))
+    }
+    async fn create_collection(&self, _ns: &Namespace, _options: &CollectionOptions) -> Result<()> {
+        self.hit("create_collection");
+        Ok(())
+    }
+}
+
+/// Options no trait default would ever produce.
+fn recorded_options() -> CollectionOptions {
+    CollectionOptions {
+        validation_level: Some("via_collection_options".into()),
+        ..CollectionOptions::default()
+    }
 }
 
 fn wrapped(locked: bool) -> (Arc<RecordingStore>, Arc<AtomicBool>, Arc<dyn DocumentStore>) {
@@ -215,6 +232,12 @@ async fn refused_writes(store: &dyn DocumentStore) -> [bool; WRITES.len()] {
         is_ro(store.drop_index(&ns(), "a_1").await.err()),
         is_ro(store.set_index_hidden(&ns(), "a_1", true).await.err()),
         is_ro(store.set_index_ttl(&ns(), "a_1", 60).await.err()),
+        is_ro(
+            store
+                .create_collection(&ns(), &CollectionOptions::default())
+                .await
+                .err(),
+        ),
     ]
 }
 
@@ -238,7 +261,7 @@ async fn unlocked_store_forwards_writes() {
         .await
         .unwrap();
     assert_eq!(out, vec![Err(WriteFailure::Rejected(42))]);
-    for w in &WRITES[..4] {
+    for w in ["insert", "replace", "delete", "bulk_write"] {
         assert_eq!(inner.count(w), 1, "{w}");
     }
     assert!(!store.is_read_only());
@@ -262,9 +285,39 @@ async fn read_only_refuses_create_drop_hide_and_ttl() {
     assert_eq!(store.drop_index(&ns(), "a_1").await, Ok(()));
     assert_eq!(store.set_index_hidden(&ns(), "a_1", true).await, Ok(()));
     assert_eq!(store.set_index_ttl(&ns(), "a_1", 60).await, Ok(()));
-    for w in &WRITES[4..] {
+    for w in [
+        "create_index",
+        "drop_index",
+        "set_index_hidden",
+        "set_index_ttl",
+    ] {
         assert_eq!(inner.count(w), 1, "{w}");
     }
+}
+
+#[tokio::test]
+async fn create_collection_is_refused_when_locked() {
+    let (inner, _flag, store) = wrapped(true);
+    let created = store
+        .create_collection(&ns(), &CollectionOptions::default())
+        .await;
+    assert_eq!(created, Err(CoreError::ReadOnly));
+    assert_eq!(inner.count("create_collection"), 0);
+
+    let (inner, _flag, store) = wrapped(false);
+    let created = store
+        .create_collection(&ns(), &CollectionOptions::default())
+        .await;
+    assert_eq!(created, Ok(()));
+    assert_eq!(inner.count("create_collection"), 1);
+}
+
+#[tokio::test]
+async fn collection_options_is_forwarded_when_locked() {
+    let (inner, _flag, store) = wrapped(true);
+    let options = store.collection_options(&ns()).await.unwrap();
+    assert_eq!(options, Some(recorded_options()));
+    assert_eq!(inner.count("collection_options"), 1);
 }
 
 #[tokio::test]
@@ -354,6 +407,10 @@ async fn reads_and_defaulted_methods_forward_to_inner() {
         store.duplicate_keys(&n, &f, &key, 3).await.unwrap().len(),
         1
     );
+    assert_eq!(
+        store.collection_options(&n).await.unwrap(),
+        Some(recorded_options())
+    );
 
     for m in [
         "list_databases",
@@ -368,6 +425,7 @@ async fn reads_and_defaulted_methods_forward_to_inner() {
         "key_index_status",
         "list_collection_kinds",
         "duplicate_keys",
+        "collection_options",
     ] {
         assert_eq!(inner.count(m), 1, "{m}");
     }

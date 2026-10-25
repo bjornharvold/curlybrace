@@ -3,6 +3,7 @@ use super::persistence::Recovery;
 use super::session::session_display_name;
 use super::state::{AppState, Banner};
 use crate::I18n;
+use crate::viewmodel::paste_block_key;
 
 /// `(headline, detail)` for a banner; every string comes from the locale.
 pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
@@ -13,6 +14,11 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::ExportFailed(_) => (i18n.t("banner.export_failed"), None),
         Banner::Recovery(r) => (recovery_headline(r, i18n), None),
         Banner::NotConnected => (i18n.t("banner.not_connected"), None),
+        Banner::PasteBlocked(block) => (
+            i18n.t("copy.banner.paste_blocked"),
+            Some(i18n.t(paste_block_key(*block))),
+        ),
+        Banner::CopyUnavailable => (i18n.t("copy.menu.copy_unavailable"), None),
         Banner::HostForgotten => (i18n.t("banner.host_forgotten"), None),
         Banner::ProjectionReadOnly => (i18n.t("banner.projection_read_only"), None),
         Banner::ReadOnly => (i18n.t("banner.read_only"), None),
@@ -131,9 +137,11 @@ mod tests {
             Banner::Recovery(Recovery::Sampling { backed_up: true }),
             Banner::Recovery(Recovery::Sampling { backed_up: false }),
             Banner::NotConnected,
+            Banner::CopyUnavailable,
             Banner::HostForgotten,
             Banner::ProjectionReadOnly,
             Banner::ReadOnly,
+            Banner::PasteBlocked(crate::viewmodel::PasteBlock::ReadOnlyTarget),
             Banner::CompareApplyReadOnly,
             Banner::CompareApplyReadOnlySource,
             Banner::FieldsConflict,

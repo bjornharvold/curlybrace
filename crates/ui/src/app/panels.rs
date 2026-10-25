@@ -2,11 +2,12 @@
 //! Every decision lives in the reducer and view-models; nothing here has logic worth testing
 //! beyond "it renders" (covered by the headless frame tests in `mod.rs`).
 use super::banner::{banner_detail, banner_prefix, banner_text};
+use super::copy::CopyInput;
 use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
-use crate::viewmodel::CollectionTab;
+use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
@@ -199,6 +200,7 @@ fn show_collection(
         return;
     };
     state.tree.projected = state.page_is_projected();
+    state.tree.copy_blocked = state.selected_ns().is_some_and(copy_blocked);
     let action = show_documents_keyed(
         ui,
         state.view_mode,
@@ -276,6 +278,7 @@ pub fn show_modals(
     });
     out.extend(decided.map(UiEvent::HostKey));
     show_write_warning_modal(ctx, state, i18n, out);
+    show_copy(ctx, state, i18n, out);
     if let Some(endpoint) = &state.forget_confirm {
         let port = endpoint.port.to_string();
         let message = i18n.t_with(
@@ -355,6 +358,17 @@ fn show_write_warning_modal(
         .unwrap_or_default();
     if let Some(action) = show_write_warning(ctx, parked, &name, &badge, i18n) {
         out.push(UiEvent::Input(Input::WriteWarning(action)));
+    }
+}
+
+/// The paste dialog: a pending paste opens it, and while it is open it shows the choices, then
+/// the progress and the report.
+fn show_copy(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    if state.pending_paste.is_some() {
+        out.push(UiEvent::Input(Input::Copy(CopyInput::Open)));
+    }
+    if let Some(input) = crate::views::copy_dialog::show_copy_modal(ctx, state, i18n) {
+        out.push(UiEvent::Input(Input::Copy(input)));
     }
 }
 

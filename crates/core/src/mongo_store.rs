@@ -13,8 +13,8 @@ use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
 use crate::store::{
-    CollectionIndex, CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, IndexUsage,
-    Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
+    IndexUsage, Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
 };
 use mongodb::options::{AggregateOptions, Collation, ReadPreference, SelectionCriteria};
 
@@ -360,6 +360,16 @@ impl DocumentStore for MongoStore {
         let change = ("expireAfterSeconds", Bson::Int64(seconds));
         let db = self.client.database(&ns.db);
         crate::mongo_indexes::modify_index(&db, ns, name, change, db_err).await
+    }
+
+    async fn create_collection(&self, ns: &Namespace, options: &CollectionOptions) -> Result<()> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_collection_options::create_collection(&db, ns, options, db_err).await
+    }
+
+    async fn collection_options(&self, ns: &Namespace) -> Result<Option<CollectionOptions>> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_collection_options::collection_options(&db, ns, db_err).await
     }
 
     async fn duplicate_keys(

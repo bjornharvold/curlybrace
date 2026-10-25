@@ -6,6 +6,7 @@ mod bson_order;
 mod memory_bulk_tests;
 mod memory_fields;
 mod memory_indexes;
+mod memory_options;
 mod memory_store;
 pub mod mock_objects;
 mod query_eval;

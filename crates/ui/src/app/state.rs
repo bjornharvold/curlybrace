@@ -6,12 +6,13 @@ use super::sampling_settings::SamplingSettings;
 use super::session::SessionView;
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{
-    CollectionTab, EditorState, FindBarState, IndexesState, PageKey, SidebarState, TreeState,
-    ViewMode,
+    CollectionTab, CopyClipboard, EditorState, FindBarState, IndexesState, PageKey, PasteBlock,
+    SidebarSelection, SidebarState, TreeState, ViewMode,
 };
 use crate::views::connections::ConnectionsState;
 use bson::Bson;
 use curlybrace_core::connection::ConnectionConfig;
+use curlybrace_core::copy::protocol::CopyRequest;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{Namespace, Page, Query, Topology};
 use std::collections::{BTreeMap, BTreeSet};
@@ -55,6 +56,10 @@ pub enum Banner {
     /// A data action was attempted without a live connection.
     NotConnected,
     HostForgotten,
+    /// Paste was refused for this reason; nothing was stored or sent.
+    PasteBlocked(PasteBlock),
+    /// Copy was refused: the selection cannot be copied; the clipboard is unchanged.
+    CopyUnavailable,
     /// Edit/Clone were refused because the page is shown with a projection (partial documents).
     ProjectionReadOnly,
     /// A write was refused because the session's connection is read-only; nothing was sent.
@@ -178,6 +183,20 @@ pub struct AppState {
     /// epoch belongs to a request the user has since replaced.
     pub latest_requested_epoch: u64,
     pub sidebar: SidebarState,
+    /// The sidebar rows selected, of one session. Not parked: it belongs to the sidebar, which
+    /// shows every session's tree, and is cleared when its session closes.
+    pub selection: SidebarSelection,
+    /// What Copy stored: references to databases or collections, never data.
+    pub clipboard: Option<CopyClipboard>,
+    /// The copy a Paste asked for, waiting for the paste dialog to take it.
+    pub pending_paste: Option<CopyRequest>,
+    /// The paste dialog, from the moment it took `pending_paste` until its report is closed.
+    pub copy: Option<super::copy_state::CopyDialog>,
+    /// Copy run ids handed out so far (previews and copies share the counter).
+    pub copy_runs: curlybrace_core::compare::protocol::RunId,
+    /// A cancelled preview whose dialog is gone but whose terminal event has not arrived: it
+    /// still holds the runtime's one run slot, so the next preview or copy waits for it.
+    pub copy_draining: Option<curlybrace_core::compare::protocol::RunId>,
     /// Databases whose collection list is in flight.
     pub loading: BTreeSet<String>,
     pub find: FindBarState,
@@ -292,6 +311,9 @@ impl AppState {
     pub fn session_cleared(self) -> Self {
         Self {
             sidebar: SidebarState::default(),
+            selection: SidebarSelection::default(),
+            pending_paste: None,
+            copy: None,
             loading: BTreeSet::new(),
             find: FindBarState::default(),
             issued_query: Query::default(),

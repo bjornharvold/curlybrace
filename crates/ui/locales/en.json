@@ -546,7 +546,126 @@
     "uri_password_warning": "This string contains your password. Do not share it.",
     "username": "Username"
   },
+  "copy": {
+    "banner": {
+      "paste_blocked": "Cannot paste here"
+    },
+    "dialog": {
+      "blocked_names": "Fix the names above before copying.",
+      "blocked_typed": "Type the text above to enable Copy.",
+      "confirm_prompt": "To confirm, type this text exactly: {text}",
+      "copy": "Copy",
+      "counting_note": "Counting documents… You can copy now, but the counts will then be incomplete.",
+      "counts": {
+        "counted": "{collection}: new {new}, changed {changed}, unchanged {unchanged}",
+        "counting": "{collection}: counting… {scanned} documents read",
+        "failed": "The counts could not be computed: {reason}",
+        "title": "Documents per collection",
+        "unavailable": "{collection}: counts unavailable",
+        "waiting": "{collection}: waiting"
+      },
+      "from": "From: {connection} / {database}",
+      "indexes_and_options": "Also copy indexes and collection options",
+      "name_label": "Name for {source} in the target",
+      "names_title": "Names in the target",
+      "no_snapshot": "The source is read as the copy goes: changes made to it during the copy may or may not be included.",
+      "overwrite_note": "Overwrite replaces documents that already exist in the target. Nothing is deleted.",
+      "policy": {
+        "overwrite": "Overwrite: replace existing documents, never add new ones",
+        "skip": "Skip: add new documents, leave existing ones alone",
+        "title": "When a document already exists in the target",
+        "upsert": "Upsert by _id: replace existing documents and add new ones"
+      },
+      "production_line": "Warning: {connection} is a production connection.",
+      "starting": "Starting the copy…",
+      "title": "Paste",
+      "to": "To: {connection} / {database}",
+      "upsert_note": "Upsert replaces documents that already exist in the target and adds the new ones. Nothing is deleted."
+    },
+    "failure": {
+      "duplicate_key": "A unique index already holds this value",
+      "missing": "The document no longer exists in the target",
+      "rejected": "The target refused the document"
+    },
+    "index_failure": {
+      "connection_lost": "the connection was lost",
+      "duplicate_data": "the data holds duplicate values for a unique index",
+      "not_allowed": "this connection may not create indexes",
+      "rejected": "the target refused the index",
+      "unsupported": "the target cannot build this kind of index"
+    },
+    "menu": {
+      "copy": "Copy",
+      "copy_collection": "Copy collection",
+      "copy_collections": "Copy {count} collections",
+      "copy_database": "Copy database",
+      "copy_document": "Copy document",
+      "copy_documents": "Copy {count} documents",
+      "copy_query_result": "Copy all documents of the query",
+      "copy_unavailable": "Select one database, or collections of one database, to copy."
+    },
+    "name_problem": {
+      "collides_with_source": "This name is the source of another collection in this paste. Choose another name.",
+      "duplicate": "Another name in this paste is the same.",
+      "empty": "The name cannot be empty.",
+      "excluded_database": "Server-owned databases (admin, local, config) cannot be written to.",
+      "forbidden_char": "The name contains a character MongoDB does not allow.",
+      "same_as_source": "A collection cannot be copied onto itself. Choose another name.",
+      "system_prefix": "Names starting with system. are reserved for the server.",
+      "too_long": "The name is too long."
+    },
+    "paste": "Paste",
+    "paste_blocked": {
+      "collections_onto_collection": "Collections can only be pasted onto a database, not onto a collection.",
+      "collections_onto_connection": "Collections can only be pasted onto a database. Paste them onto one of its databases.",
+      "database_onto_collection": "A database can only be pasted onto a connection, not onto a collection.",
+      "database_onto_database": "A database can only be pasted onto a connection. Paste it onto the connection's name.",
+      "documents_onto_database": "Documents can only be pasted onto a collection.",
+      "empty_clipboard": "Nothing has been copied yet.",
+      "empty_selection": "Select at least one document to copy.",
+      "excluded_database": "Server-owned databases (admin, local, config) cannot be copied.",
+      "invalid_name": "A name in the copy is not valid.",
+      "read_only_target": "This connection is read-only, so nothing can be pasted into it.",
+      "same_namespace_documents": "Documents cannot be pasted onto the collection they came from.",
+      "source_closed": "The connection the data was copied from is closed.",
+      "system_source": "Documents of system. collections are server-owned and cannot be copied.",
+      "target_closed": "This connection is closed.",
+      "too_many_documents": "Too many documents are selected to copy by hand. Copy the query result instead."
+    },
+    "progress": {
+      "cancel": "Cancel copy",
+      "cancelling": "Cancelling…",
+      "row": "{collection}: {written} written, {skipped} skipped, {failed} failed",
+      "row_estimated": "{collection}: {scanned} of about {total} read, {written} written, {skipped} skipped, {failed} failed",
+      "row_waiting": "{collection}: waiting",
+      "title": "Copying"
+    },
+    "report": {
+      "close": "Close",
+      "counts_incomplete": "The counts were still being computed when the copy started, so they were incomplete.",
+      "error": "Reason: {reason}",
+      "failures_title": "Documents that were not copied",
+      "index_failed": "Index {name} of {collection} was not built: {reason}. The copied documents were kept.",
+      "indexes": "{collection}: indexes built {built}, already in the target {existing}, failed {failed}.",
+      "indexes_not_built": "The copy did not finish, so no further indexes were built.",
+      "more_failures": "{failed} documents failed in all. Only the first {listed} are listed, the rest are not shown.",
+      "not_started": "{collection}: not started.",
+      "not_written": "{collection}: skipped {skipped}, failed {failed}.",
+      "nothing_else": "Nothing else was changed. Documents already written are not rolled back.",
+      "nothing_written": "No documents were written.",
+      "options_created": "{collection}: created with the options of the source collection.",
+      "options_kept": "{collection}: already existed, so its options were left as they are.",
+      "options_not_plain": "{collection}: a view or time-series collection. Only its documents were copied, without options or indexes.",
+      "options_overwrite_missing": "{collection}: does not exist in the target and Overwrite never adds documents, so it was not created and no options or indexes were copied.",
+      "session_lost": "A connection was closed or reconnected during the copy, so it stopped.",
+      "title_cancelled": "Copy cancelled",
+      "title_completed": "Copy finished",
+      "title_failed": "Copy stopped",
+      "written": "Documents written to {collection}: {count}."
+    }
+  },
   "doc": {
+    "clear_selection": "Clear selection",
     "clone": "Clone",
     "confirm_delete": "Delete the document with _id {id} from {connection}? This cannot be undone.",
     "connection": "Connection: {name}",
@@ -554,7 +673,10 @@
     "delete": "Delete",
     "edit": "Edit",
     "header": "Document {n}",
-    "insert": "Insert document"
+    "insert": "Insert document",
+    "select_all_result": "Select all documents of the query",
+    "select_row": "Select document {n}",
+    "selection_hint": "Tick documents to copy them."
   },
   "editor": {
     "cancel": "Cancel",
@@ -576,6 +698,12 @@
     "compare_key_not_indexed": "No index covers this key, and the collection is too large to compare without one. Create an index on the key fields and try again.",
     "compare_key_order": "The documents did not arrive in the expected key order, so the comparison was stopped to avoid wrong results. This can happen with an unusual collation; please report it if it persists.",
     "compare_setup_invalid": "The key or field list is not valid. Each name must be non-empty, have no empty path segments, and be listed only once. Fields can be dotted paths such as address.city.",
+    "copy_already_running": "Another copy is already running. Wait for it to finish, then try again.",
+    "copy_invalid_target_name": "The target name is not one MongoDB accepts. Choose another name.",
+    "copy_not_connected": "A connection of this copy is not open. Reconnect and try again.",
+    "copy_nothing_to_copy": "There is nothing to copy.",
+    "copy_onto_itself": "A collection cannot be copied onto itself. Choose another target.",
+    "copy_server_owned": "Databases and collections the server owns (admin, local, config and system collections) cannot be copied.",
     "database": "The database reported a problem. Check your connection and try again.",
     "export_file_not_removed": "The export failed and the incomplete file could not be removed. Delete it yourself before you use it.",
     "export_write_failed": "The export could not be written. Check that the folder exists and that you are allowed to write to it, then try again.",
@@ -787,7 +915,7 @@
     "refresh": "Refresh",
     "restart": "Server restarted",
     "sampler_failing": "Sampling is failing: no collection could be read. Retrying every minute.",
-    "sampler_running":"Sampling usage every minute.",
+    "sampler_running": "Sampling usage every minute.",
     "sampling": {
       "add": "Exclude",
       "built_in": "admin, local and config are never sampled.",

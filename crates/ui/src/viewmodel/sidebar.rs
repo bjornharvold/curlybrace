@@ -1,5 +1,7 @@
 //! Sidebar tree state: databases, lazily loaded collections, selection.
 //! Every transition consumes the state and returns a new value.
+use super::copy_clipboard::{CopyClipboard, PasteTarget};
+use super::sidebar_selection::{NodeRef, SelectMode};
 use curlybrace_core::store::Namespace;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -33,6 +35,13 @@ impl DbNode {
 /// - `Refresh`: reload the database list.
 /// - `CompareTo(ns)`: start a comparison with `ns` as the source side.
 /// - `CompareDatabaseTo(db)`: start a comparison with database `db` as the source side.
+/// - `Select { node, mode }`: a modified click (Cmd/Ctrl or Shift) or a focus move changed the
+///   selection. It never opens or expands the node. A plain click is `Open`/`Toggle`/
+///   `LoadCollections`, which also make the node the single selection.
+/// - `Copy`: store the selection as the copy clipboard.
+/// - `Paste(target)`: paste the clipboard onto `target`.
+/// - `Drop { clipboard, target }`: a drag of rows ended on `target`; the drag's payload becomes the
+///   clipboard and is pasted like `Paste(target)`. A target that refuses it changes nothing.
 /// - `InSession { session, action }`: `action` happened under the root of `session`, which may
 ///   not be the active one. Expanding keeps the view where it is; anything else focuses it first.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +52,16 @@ pub enum SidebarAction {
     Refresh,
     CompareTo(Namespace),
     CompareDatabaseTo(String),
+    Select {
+        node: NodeRef,
+        mode: SelectMode,
+    },
+    Copy,
+    Paste(PasteTarget),
+    Drop {
+        clipboard: Box<CopyClipboard>,
+        target: PasteTarget,
+    },
     InSession {
         session: Uuid,
         action: Box<SidebarAction>,
@@ -77,6 +96,9 @@ pub fn collection_click_action(db: &str, collection: &str) -> SidebarAction {
 pub struct SidebarState {
     pub databases: Vec<DbNode>,
     pub selected: Option<Namespace>,
+    /// Counts every replacement of the database or collection name lists, so a reader can tell
+    /// that the names changed without comparing them (a rename keeps every count).
+    pub generation: u64,
 }
 
 /// Removes duplicates, keeping the first occurrence order.
@@ -95,6 +117,7 @@ impl SidebarState {
         let Self {
             databases,
             selected,
+            generation,
         } = self;
         let mut old: std::collections::HashMap<String, DbNode> =
             databases.into_iter().map(|n| (n.name.clone(), n)).collect();
@@ -106,16 +129,20 @@ impl SidebarState {
         Self {
             databases,
             selected,
+            generation: generation + 1,
         }
     }
 
     /// Stores the loaded collections of `db`; a no-op for an unknown database.
     pub fn with_collections(self, db: &str, names: Vec<String>) -> Self {
         let names = dedupe(names);
-        self.map_db(db, |node| DbNode {
+        let known = self.databases.iter().any(|node| node.name == db);
+        let generation = self.generation + usize::from(known) as u64;
+        let next = self.map_db(db, |node| DbNode {
             collections: Some(names),
             ..node
-        })
+        });
+        Self { generation, ..next }
     }
 
     pub fn toggled(self, db: &str) -> Self {

@@ -12,6 +12,7 @@ pub mod compare_field_shots;
 pub mod compare_field_states;
 pub mod compare_multi_states;
 pub mod compare_states;
+pub mod copy_shots;
 pub mod db;
 pub mod export_flow;
 pub mod fixture;

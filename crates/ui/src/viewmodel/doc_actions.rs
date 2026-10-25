@@ -1,4 +1,6 @@
 //! Document actions from row context menus and the delete confirmation step.
+use super::copy_clipboard::MENU_COPY_DOCUMENT;
+use super::doc_copy::DocCopy;
 use super::page_key::PageKey;
 use bson::{Bson, Document};
 use curlybrace_core::crud::id_of;
@@ -13,13 +15,16 @@ pub enum DocAction {
     Clone(Document),
     Delete(Bson),
     Insert,
+    /// Copy documents of the shown collection to the copy clipboard (nothing is written).
+    Copy(DocCopy),
 }
 
-/// An entry of the row context menu.
+/// An entry of the row context menu. Only Copy leaves the connection untouched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
     Edit,
     Clone,
+    Copy,
     Delete,
     Insert,
 }
@@ -29,6 +34,7 @@ impl MenuItem {
         match self {
             MenuItem::Edit => "doc.edit",
             MenuItem::Clone => "doc.clone",
+            MenuItem::Copy => MENU_COPY_DOCUMENT,
             MenuItem::Delete => "doc.delete",
             MenuItem::Insert => "doc.insert",
         }
@@ -41,7 +47,7 @@ pub fn is_projected(projection: Option<&Document>) -> bool {
     projection.is_some_and(|p| !p.is_empty())
 }
 
-/// Entries offered for `doc`; Edit and Delete need an `_id` to address the document.
+/// Entries offered for `doc`; Edit, Copy and Delete need an `_id` to address the document.
 /// On a `projected` page the documents are partial copies, so Edit and Clone (which would
 /// write the partial copy back) are not offered; Delete by `_id` and Insert are unaffected.
 pub fn menu_items(doc: &Document, projected: bool) -> Vec<MenuItem> {
@@ -53,7 +59,9 @@ pub fn menu_items(doc: &Document, projected: bool) -> Vec<MenuItem> {
     if !projected {
         items.push(MenuItem::Clone);
     }
+    // Copy works from a projected page too: the clipboard keeps `_id`s, never the partial copies.
     if has_id {
+        items.push(MenuItem::Copy);
         items.push(MenuItem::Delete);
     }
     items.push(MenuItem::Insert);
@@ -142,6 +150,10 @@ pub fn choose(
         MenuItem::Edit if id_of(doc).is_ok() => (confirm, Some(DocAction::Edit(doc.clone()))),
         MenuItem::Edit => (confirm, None),
         MenuItem::Clone => (confirm, Some(DocAction::Clone(doc.clone()))),
+        MenuItem::Copy => {
+            let copy = id_of(doc).ok().map(|id| DocCopy::Ids(vec![id.clone()]));
+            (confirm, copy.map(DocAction::Copy))
+        }
         MenuItem::Insert => (confirm, Some(DocAction::Insert)),
         MenuItem::Delete => (confirm.requested(doc, page), None),
     }
@@ -241,7 +253,10 @@ mod tests {
     fn every_id_kind_flows_through_menu_confirm_and_editor_exactly() {
         for id in id_kinds() {
             let d = doc! { "_id": id.clone(), "v": 1_i32 };
-            assert_eq!(menu_items(&d, false).len(), 4, "{id:?}");
+            assert_eq!(menu_items(&d, false).len(), 5, "{id:?}");
+            let copied = choose(DeleteConfirm::None, MenuItem::Copy, &d, key(1)).1;
+            let by_id = DocAction::Copy(DocCopy::Ids(vec![id.clone()]));
+            assert_eq!(copied, Some(by_id), "{id:?}");
             let edit = choose(DeleteConfirm::None, MenuItem::Edit, &d, key(1)).1;
             assert_eq!(edit, Some(DocAction::Edit(d.clone())), "{id:?}");
             let cloned = choose(DeleteConfirm::None, MenuItem::Clone, &d, key(1)).1;
@@ -273,17 +288,18 @@ mod tests {
     }
 
     #[test]
-    fn projected_pages_offer_neither_edit_nor_clone_but_keep_delete_and_insert() {
+    fn projected_pages_offer_neither_edit_nor_clone_but_keep_copy_delete_and_insert() {
         let d = doc! { "_id": 1_i32, "v": 1_i32 };
         assert_eq!(
             menu_items(&d, true),
-            vec![MenuItem::Delete, MenuItem::Insert]
+            vec![MenuItem::Copy, MenuItem::Delete, MenuItem::Insert]
         );
         assert_eq!(
             menu_items(&d, false),
             vec![
                 MenuItem::Edit,
                 MenuItem::Clone,
+                MenuItem::Copy,
                 MenuItem::Delete,
                 MenuItem::Insert
             ]

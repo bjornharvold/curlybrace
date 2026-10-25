@@ -1,5 +1,7 @@
 //! Which error details may be shown or logged, and how failures are logged.
 use curlybrace_core::compare::protocol::{CompareEvent, PairOutcome};
+use curlybrace_core::copy::CopyOutcome;
+use curlybrace_core::copy::protocol::CopyEvent;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Event;
 
@@ -23,6 +25,7 @@ pub fn failure_log_line(ev: &Event) -> Option<String> {
         }
         Event::ConnectFailed { error, .. } => ("connect", error),
         Event::Compare(compare) => return compare_log_line(compare),
+        Event::Copy(copy) => return copy_log_line(copy),
         _ => return None,
     };
     (*error != CoreError::Superseded).then(|| format!("{context} failed: {error}"))
@@ -43,13 +46,47 @@ fn compare_log_line(ev: &CompareEvent) -> Option<String> {
     Some(format!("{context} failed: {}", error.i18n_key()))
 }
 
+/// Copy failures are logged by error KIND (the refusal reason is a kind too), the collection's
+/// position in the paste and counts only. Never a database, collection or connection name, a
+/// document key or value, or the error text: a server message can carry any of them.
+fn copy_log_line(ev: &CopyEvent) -> Option<String> {
+    match ev {
+        CopyEvent::Failed { error, .. } if *error != CoreError::Superseded => {
+            Some(format!("copy failed: {}", error.i18n_key()))
+        }
+        CopyEvent::ItemDone { index, report, .. } => match &report.outcome {
+            // A lost connection is not a copy fault, whether it ended the run or one item.
+            CopyOutcome::Failed(CoreError::Superseded) => None,
+            CopyOutcome::Failed(error) => Some(format!(
+                "copy_item failed: {} (collection {index})",
+                error.i18n_key()
+            )),
+            _ => report
+                .indexes
+                .as_ref()
+                .filter(|indexes| !indexes.failed.is_empty())
+                .map(|indexes| {
+                    format!(
+                        "copy_indexes failed: {} index(es) (collection {index})",
+                        indexes.failed.len()
+                    )
+                }),
+        },
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use curlybrace_core::compare::key::KeyTuple;
     use curlybrace_core::compare::protocol::DuplicateReport;
+    use curlybrace_core::copy::engine::{CopyFailure, CopyReport};
+    use curlybrace_core::copy::structure::{IndexFailReason, IndexFailure, IndexReport};
+    use curlybrace_core::error::CopyRefusal;
     use curlybrace_core::runtime::EMBEDDED_SESSION;
     use curlybrace_core::store::DuplicateGroup;
+    use curlybrace_core::store::WriteFailure;
 
     #[test]
     fn compare_failures_are_logged_without_error_text() {
@@ -86,6 +123,87 @@ mod tests {
             run: 1,
             pair: 1,
             outcome: PairOutcome::Completed(Default::default()),
+        });
+        assert_eq!(failure_log_line(&done), None);
+    }
+
+    fn item_done(outcome: CopyOutcome, indexes: Option<IndexReport>) -> Event {
+        Event::Copy(CopyEvent::ItemDone {
+            run: 3,
+            index: 2,
+            report: CopyReport {
+                progress: Default::default(),
+                failures: vec![CopyFailure {
+                    key: bson::Bson::String("doc-key-SECRET".into()),
+                    reason: WriteFailure::Rejected(121),
+                }],
+                outcome,
+                structure: None,
+                indexes,
+            },
+        })
+    }
+
+    #[test]
+    fn copy_failures_are_logged_by_kind_without_names_keys_or_values() {
+        let secret = "secret-db.secret-coll doc-key-SECRET value-SECRET hunter2";
+        let failed = Event::Copy(CopyEvent::Failed {
+            run: 1,
+            error: CoreError::Database(secret.into()),
+        });
+        assert_eq!(
+            failure_log_line(&failed).as_deref(),
+            Some("copy failed: errors.database")
+        );
+        let refused = Event::Copy(CopyEvent::Failed {
+            run: 1,
+            error: CoreError::CopyRefused(CopyRefusal::AlreadyRunning),
+        });
+        assert_eq!(
+            failure_log_line(&refused).as_deref(),
+            Some("copy failed: errors.copy_already_running")
+        );
+        let item = item_done(
+            CopyOutcome::Failed(CoreError::Database(secret.into())),
+            None,
+        );
+        let line = failure_log_line(&item).unwrap();
+        assert_eq!(line, "copy_item failed: errors.database (collection 2)");
+        assert!(!line.contains("SECRET") && !line.contains("hunter2"));
+    }
+
+    #[test]
+    fn copy_logs_failed_indexes_by_count_and_ignores_good_and_superseded_runs() {
+        let bad = IndexReport {
+            failed: vec![IndexFailure {
+                name: "idx-SECRET".into(),
+                reason: IndexFailReason::DuplicateData,
+            }],
+            ..IndexReport::default()
+        };
+        let line = failure_log_line(&item_done(CopyOutcome::Completed, Some(bad))).unwrap();
+        assert_eq!(line, "copy_indexes failed: 1 index(es) (collection 2)");
+        assert_eq!(
+            failure_log_line(&item_done(
+                CopyOutcome::Completed,
+                Some(IndexReport::default())
+            )),
+            None
+        );
+        assert_eq!(
+            failure_log_line(&item_done(CopyOutcome::Cancelled, None)),
+            None
+        );
+        let superseded = Event::Copy(CopyEvent::Failed {
+            run: 1,
+            error: CoreError::Superseded,
+        });
+        assert_eq!(failure_log_line(&superseded), None);
+        let lost_item = item_done(CopyOutcome::Failed(CoreError::Superseded), None);
+        assert_eq!(failure_log_line(&lost_item), None);
+        let done = Event::Copy(CopyEvent::Done {
+            run: 1,
+            cancelled: false,
         });
         assert_eq!(failure_log_line(&done), None);
     }

@@ -4,10 +4,11 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const PREFIXES: [&str; 6] = [
+const PREFIXES: [&str; 7] = [
     "compare.",
     "connection.",
     "connections.",
+    "copy.",
     "indexes.",
     "workspace.",
     "write_warning.",

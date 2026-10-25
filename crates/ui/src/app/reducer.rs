@@ -2,6 +2,7 @@
 use super::actions;
 use super::compare::{self, CompareAction};
 use super::connection_test;
+use super::copy::{self, CopyInput};
 use super::index_actions;
 use super::index_write_actions;
 use super::persistence::PersistError;
@@ -41,6 +42,8 @@ pub enum Input {
     ShowConnections,
     TestConnection(Box<ConnectionForm>),
     Compare(CompareAction),
+    /// The paste dialog.
+    Copy(CopyInput),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -63,6 +66,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::ShowConnections => session_actions::show_connections(state),
         Input::TestConnection(form) => connection_test::start(state, &form),
         Input::Compare(a) => compare::on_action(state, a),
+        Input::Copy(a) => copy::on_input(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
@@ -100,6 +104,7 @@ fn on_event(state: AppState, ev: Event) -> Out {
     };
     match (ev, session) {
         (Event::Compare(e), _) => compare::on_event(state, e),
+        (Event::Copy(e), _) => copy::on_event(state, e),
         (
             Event::TestConnection {
                 request_id,
@@ -273,7 +278,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             (index_actions::sampler_reported(state, status), Vec::new())
         }
         // Routed before; these have no session.
-        Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
+        Event::Compare(_) | Event::Copy(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }
 }
 

@@ -1,5 +1,6 @@
 //! Document area: mode switcher, insert button, the three views and the delete confirmation.
 use super::connection_badge::show_badge;
+use super::doc_select::show_selection_bar;
 use super::write_warning::focus_cancel_unless_focused;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
@@ -69,13 +70,14 @@ pub fn show_documents_keyed(
     state.synced_to(&key);
     state.read_only = target.read_only;
     let action = show_insert(ui, target.read_only, i18n);
+    let copy = show_selection_bar(ui, state, i18n);
     let from_view = match mode {
         ViewMode::Tree => show_tree(ui, page, &key, state, i18n),
         ViewMode::Table => show_table(ui, page, &key, state, i18n),
         ViewMode::Json => show_json(ui, page, &key, state, i18n),
     };
     let from_dialog = show_delete_confirm(ui.ctx(), &key, state, target, i18n);
-    action.or(from_view).or(from_dialog)
+    action.or(copy).or(from_view).or(from_dialog)
 }
 
 /// The Insert button. On a read-only connection it is disabled and the reason is both its hover

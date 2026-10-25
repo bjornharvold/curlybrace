@@ -12,13 +12,14 @@ use bson::{Bson, Document, oid::ObjectId};
 use super::bson_order::cmp_bson;
 use super::memory_fields::update_fields;
 use super::memory_indexes::{self as idx, IndexMap, UsageMap};
+use super::memory_options::{self as opts, OptionsMap};
 use super::query_eval::{check_filter, compare, matches, parse_sort, project};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
 use crate::indexes::{IndexOptions, IndexSpec};
 use crate::store::{
-    CollectionIndex, CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, IndexUsage,
-    Namespace, Page, Query, WriteFailure, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
+    IndexUsage, Namespace, Page, Query, WriteFailure, WriteOp, WriteOutcome,
 };
 
 type Collections = BTreeMap<(String, String), Vec<Document>>;
@@ -28,6 +29,7 @@ pub struct InMemoryStore {
     data: Mutex<Collections>,
     pub(super) indexes: Mutex<IndexMap>,
     pub(super) usage: Mutex<UsageMap>,
+    options: Mutex<OptionsMap>,
 }
 
 impl InMemoryStore {
@@ -317,6 +319,20 @@ impl DocumentStore for InMemoryStore {
         };
         idx::update_options(&mut *self.lock_indexes()?, &key(ns), name, change)
     }
+
+    async fn create_collection(&self, ns: &Namespace, options: &CollectionOptions) -> Result<()> {
+        let mut data = self.lock()?;
+        let mut stored = self.options.lock().map_err(|_| poisoned())?;
+        opts::create(&mut stored, key(ns), data.contains_key(&key(ns)), options)?;
+        data.insert(key(ns), Vec::new());
+        Ok(())
+    }
+
+    async fn collection_options(&self, ns: &Namespace) -> Result<Option<CollectionOptions>> {
+        let data = self.lock()?;
+        let stored = self.options.lock().map_err(|_| poisoned())?;
+        Ok(opts::get(&stored, &key(ns), data.contains_key(&key(ns))))
+    }
 }
 
 #[cfg(test)]
@@ -421,6 +437,54 @@ mod tests {
         };
         let err = store(6).find(&mock_namespace(), &q).await.unwrap_err();
         assert!(matches!(err, CoreError::Unsupported(_)));
+    }
+
+    #[tokio::test]
+    async fn in_filter_matches_any_listed_value_with_bson_equality() {
+        let q = Query {
+            filter: doc! { "_id": { "$in": [1_i64, 3.0_f64, 99_i32] } },
+            ..Query::default()
+        };
+        let page = store(6).find(&mock_namespace(), &q).await.unwrap();
+        let ids: Vec<i32> = page
+            .docs
+            .iter()
+            .map(|d| d.get_i32("_id").unwrap())
+            .collect();
+        assert_eq!(ids, vec![1, 3]);
+        let none = Query {
+            filter: doc! { "_id": { "$in": [] } },
+            ..Query::default()
+        };
+        let page = store(6).find(&mock_namespace(), &none).await.unwrap();
+        assert!(page.docs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn in_filter_is_honoured_by_scan_sorted_and_combines_with_equality() {
+        let filter = doc! { "a": 1, "_id": { "$in": [1, 2, 3] } };
+        let docs = store(6)
+            .scan_sorted(&mock_namespace(), &filter, &KeySpec::id(), None, 10)
+            .await
+            .unwrap();
+        let ids: Vec<i32> = docs.iter().map(|d| d.get_i32("_id").unwrap()).collect();
+        assert_eq!(ids, vec![1, 3]);
+    }
+
+    #[tokio::test]
+    async fn in_filter_needs_an_array_and_other_operators_stay_unsupported() {
+        for filter in [
+            doc! { "_id": { "$in": 1 } },
+            doc! { "_id": { "$in": [1], "$gt": 0 } },
+            doc! { "_id": { "$nin": [1] } },
+        ] {
+            let q = Query {
+                filter,
+                ..Query::default()
+            };
+            let err = store(6).find(&mock_namespace(), &q).await.unwrap_err();
+            assert!(matches!(err, CoreError::Unsupported(_)));
+        }
     }
 
     #[tokio::test]

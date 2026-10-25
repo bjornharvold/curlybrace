@@ -34,6 +34,12 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         SidebarAction::CompareDatabaseTo(db) => {
             gated(state, |s| super::compare::compare_database_to(s, db))
         }
+        SidebarAction::Select { node, mode } => super::copy_actions::select(state, node, mode),
+        SidebarAction::Copy => super::copy_actions::copy(state),
+        SidebarAction::Paste(target) => super::copy_actions::paste(state, target),
+        SidebarAction::Drop { clipboard, target } => {
+            super::copy_drag::drop_onto(state, *clipboard, target)
+        }
         SidebarAction::InSession { session, action } => in_session(state, session, *action),
     }
 }
@@ -46,9 +52,18 @@ fn in_session(state: AppState, session: Uuid, action: SidebarAction) -> Out {
     }
     match action {
         SidebarAction::Toggle(_) | SidebarAction::LoadCollections(_) => {
+            let state = super::copy_actions::clicked(state, session, &action);
             state.with_session(session, |s| sidebar(s, action))
         }
-        other => sidebar(state.activated(session), other),
+        // Selecting, copying, pasting and dropping name their own sessions: no focus change.
+        SidebarAction::Select { .. }
+        | SidebarAction::Copy
+        | SidebarAction::Paste(_)
+        | SidebarAction::Drop { .. } => sidebar(state, action),
+        other => {
+            let state = super::copy_actions::clicked(state, session, &other);
+            sidebar(state.activated(session), other)
+        }
     }
 }
 
@@ -188,6 +203,7 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
         return (AppState { banner, ..state }, Vec::new());
     }
     match action {
+        DocAction::Copy(what) => super::copy_documents::copy(state, what),
         DocAction::Edit(d) => with_editor(state, EditorState::for_edit(&d)),
         DocAction::Insert => with_editor(state, EditorState::for_new()),
         DocAction::Clone(source) => {

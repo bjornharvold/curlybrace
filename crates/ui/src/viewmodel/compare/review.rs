@@ -141,10 +141,7 @@ impl Review {
     pub fn confirm_enabled(&self, word: &str) -> bool {
         match self.required_text(word) {
             None => true,
-            Some(required) => {
-                let required = required.trim();
-                !required.is_empty() && self.confirm_text.trim() == required
-            }
+            Some(required) => crate::viewmodel::typed_text_matches(required, &self.confirm_text),
         }
     }
 
