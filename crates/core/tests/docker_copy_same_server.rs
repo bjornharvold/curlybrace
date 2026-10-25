@@ -7,6 +7,7 @@ mod support;
 
 use bson::doc;
 use curlybrace_core::copy::{ConflictPolicy, CopyEvent, CopyOutcome, CopyScope};
+use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
 use support::copy_flow::{
     all_docs, collection_names, connect, db_names, has_planned, id_v, item, numbered_range,
@@ -157,8 +158,12 @@ async fn system_databases_are_never_copied() {
             .await;
             assert!(!has_planned(&events), "{sys}: refused before planning");
             assert!(
-                matches!(events.as_slice(), [CopyEvent::Failed { .. }]),
-                "{sys}: a single Failed"
+                matches!(
+                    events.as_slice(),
+                    [CopyEvent::Failed { error: CoreError::Unsupported(text), .. }]
+                        if text == "server-owned databases cannot be copied"
+                ),
+                "{sys}: a single Failed(Unsupported) with the fixed refusal text"
             );
         }
     }

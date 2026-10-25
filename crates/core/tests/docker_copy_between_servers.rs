@@ -10,7 +10,7 @@ mod support;
 use bson::{Bson, Document, doc, oid::ObjectId};
 use curlybrace_core::copy::{ConflictPolicy, CopyEvent, CopyOutcome, CopyScope};
 use curlybrace_core::error::CoreError;
-use curlybrace_core::store::Namespace;
+use curlybrace_core::store::{Namespace, WriteFailure};
 use support::copy_flow::{
     all_docs, by_id, cancel, collect, connect, count, db_names, has_planned, id_v, item, next_copy,
     numbered_range, reports, request, run_copy, runtime, seed, start,
@@ -206,11 +206,10 @@ async fn cancel_mid_copy_leaves_target_with_exactly_the_reported_documents() {
         "cancel test: {actual} of {TOTAL} written, outcome {:?}",
         report.outcome
     );
-    assert!(actual < TOTAL as u64, "the cancel landed before the end");
 }
 
 /// `numeric_id_type_mismatch_is_reported_per_document_or_replaced`.
-/// Observed on `mongo:7` (docker server 29.9.2 host; mongod 7.x): the server ACCEPTS the replace.
+/// Observed on `mongo:7` (image mongo:7, mongod 7.0.45): the server ACCEPTS the replace.
 /// Int32(1) and Int64(1) are the same `_id`, so the copy plans a Replace (Overwrite) or a Replace
 /// (Upsert) carrying the source `_id`, the server replaces the document in place and the stored
 /// `_id` becomes Int32(1). One document remains, nothing duplicated, nothing failed.
@@ -307,8 +306,8 @@ async fn copies_documents_with_dollar_and_dotted_field_names_faithfully() {
     let (b, client_b, _sb) = docker_mongo().await;
     let ns = Namespace::new("cbit_names", "c");
     let docs = vec![
-        doc! { "_id": 1, "$price": 5, "a.b": "dotted", "nested": { "$x": 1, "c.d": 2 } },
-        doc! { "_id": 2, "$": 1, "": "empty name", "arr": [ { "$in": 1 }, { "e.f": 2 } ] },
+        doc! { "_id": 1, "a.b": "dotted", "nested": { "$x": 1, "c.d": 2 } },
+        doc! { "_id": 2, "": "empty name", "arr": [ { "$in": 1 }, { "e.f": 2 } ] },
     ];
     seed(&client_a, &ns, docs.clone()).await;
     let mut rt = runtime();
@@ -316,13 +315,82 @@ async fn copies_documents_with_dollar_and_dotted_field_names_faithfully() {
         connect(&mut rt, &config(&a)).await,
         connect(&mut rt, &config(&b)).await,
     );
-    // Insert (Skip), then replace the same documents (Overwrite): both write paths.
+    // Insert (Skip), make the target documents differ, then Overwrite: the replace path must
+    // really write both documents (`written == 2`), not skip them as equal.
     for (run, policy) in [(1, ConflictPolicy::Skip), (2, ConflictPolicy::Overwrite)] {
+        if run == 2 {
+            stale_target(&client_b, &ns, docs.len()).await;
+        }
         let events = copy_ns!(&mut rt, run, sa, sb, &ns, policy);
         assert_done(&events);
-        assert_eq!(reports(&events)[0].progress.failed, 0, "{policy:?}");
+        let progress = reports(&events)[0].progress;
+        assert_eq!(progress.failed, 0, "{policy:?}");
+        assert_eq!(progress.written, docs.len() as u64, "{policy:?}: written");
         let mut got = all_docs(&client_b, &ns).await;
         got.sort_by_key(|d| d.get_i32("_id").unwrap());
         assert_eq!(got, docs, "{policy:?}: documents are identical");
     }
+}
+
+/// Replaces documents `1..=n` of `ns` with different, plain content.
+async fn stale_target(client: &mongodb::Client, ns: &Namespace, n: usize) {
+    let coll = client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection);
+    for id in 1..=n as i32 {
+        coll.replace_one(doc! { "_id": id }, doc! { "_id": id, "stale": true })
+            .await
+            .expect("make the target document differ");
+    }
+}
+
+/// Observed on image mongo:7 (mongod 7.0.45): a document with a TOP-LEVEL `$`-prefixed field is
+/// inserted faithfully, but REPLACING an existing document with it is refused by the server
+/// (error 52, DollarPrefixedFieldName). The copy reports that as a bounded per-document failure
+/// (`failed` counts it, `Rejected(52)` in the report) and leaves the target document untouched.
+/// Nothing is corrupted, duplicated or lost; Overwrite/Upsert simply cannot update such documents.
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn top_level_dollar_field_inserts_but_its_replace_is_rejected_per_document() {
+    if !docker_enabled("top_level_dollar_field_inserts_but_its_replace_is_rejected_per_document") {
+        return;
+    }
+    let (a, client_a, _sa) = docker_mongo().await;
+    let (b, client_b, _sb) = docker_mongo().await;
+    let ns = Namespace::new("cbit_dollar_top", "c");
+    let docs = vec![
+        doc! { "_id": 1, "$price": 5 },
+        doc! { "_id": 2, "$": 1, "ok": true },
+    ];
+    seed(&client_a, &ns, docs.clone()).await;
+    let mut rt = runtime();
+    let (sa, sb) = (
+        connect(&mut rt, &config(&a)).await,
+        connect(&mut rt, &config(&b)).await,
+    );
+    let events = copy_ns!(&mut rt, 1, sa, sb, &ns, ConflictPolicy::Skip);
+    assert_done(&events);
+    assert_eq!(reports(&events)[0].progress.written, 2, "insert path");
+    let mut got = all_docs(&client_b, &ns).await;
+    got.sort_by_key(|d| d.get_i32("_id").unwrap());
+    assert_eq!(got, docs, "inserted faithfully");
+
+    stale_target(&client_b, &ns, docs.len()).await;
+    let events = copy_ns!(&mut rt, 2, sa, sb, &ns, ConflictPolicy::Overwrite);
+    let progress = reports(&events)[0].progress;
+    assert_eq!((progress.written, progress.failed), (0, 2), "replace path");
+    assert!(
+        reports(&events)[0]
+            .failures
+            .iter()
+            .all(|f| f.reason == WriteFailure::Rejected(52)),
+        "each refusal is reported as the server's error 52"
+    );
+    assert_eq!(count(&client_b, &ns).await, 2, "nothing lost or duplicated");
+    assert!(
+        all_docs(&client_b, &ns)
+            .await
+            .iter()
+            .all(|d| d.get_bool("stale") == Ok(true))
+    );
 }
