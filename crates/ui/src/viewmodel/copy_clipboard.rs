@@ -289,16 +289,18 @@ fn collections_scope(
 ) -> Result<CopyScope, PasteBlock> {
     reject_excluded(db)?;
     reject_excluded(target_db)?;
-    // Only a paste next to the source needs new names; elsewhere the conflict policy decides.
-    let rename = from == to && db == target_db;
-    let mut taken = if rename {
-        (ctx.existing_names)(to, target_db)
-    } else {
-        Vec::new()
+    // Only a paste within one connection needs new names: next to the source every name does, in
+    // another database only the names the target already holds. Across connections the conflict
+    // policy decides, so the names are kept.
+    let same_session = from == to;
+    let next_to_source = same_session && db == target_db;
+    let mut taken = match same_session {
+        true => (ctx.existing_names)(to, target_db),
+        false => Vec::new(),
     };
     let mut items = Vec::with_capacity(names.len());
     for name in names {
-        let target_name = if rename {
+        let target_name = if next_to_source || (same_session && taken.contains(name)) {
             let fresh = unique_copy_name(name, &taken);
             taken.push(fresh.clone());
             fresh

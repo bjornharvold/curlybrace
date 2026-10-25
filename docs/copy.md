@@ -55,7 +55,9 @@ The dialog appears on **every** paste. Nothing is written until you press **Copy
   (the same cap as [Compare](compare.md#requirements-and-limits)), it shows "counts unavailable"
   and **Copy** stays enabled.
 - **Names in the target**, editable. The suggestion is `<name>_copy`. A new name is required when
-  you paste within the same connection onto a name that already exists.
+  you paste within the same connection onto a name that already exists in the target database,
+  even when that database is another one. Across connections the names are kept and a collection
+  that already exists is merged under the policy.
 - **When a document already exists in the target**: the [policy](#conflict-policies).
 - **Also copy indexes and collection options**, off by default.
 - A **typed confirmation** when the policy is Overwrite or the target connection is marked as
@@ -92,8 +94,9 @@ With **Also copy indexes and collection options** ticked:
 - Indexes are built last. Only indexes the target lacks, by name, are added. The `_id` index is
   never copied.
 - An index that fails to build is reported by name with the reason, and the copied data stays.
-- **Views and time-series collections** copy their documents only, with a note in the report. They
-  get no options or indexes.
+- **Views and time-series collections** that you paste explicitly, with this option ticked, copy
+  their documents only, with a note in the report. They get no options or indexes. Without the
+  option there is no note. See [Limits](#limits) for what a whole-database paste does with them.
 
 ## Progress, cancel and the report
 
@@ -132,6 +135,8 @@ Paste (and Copy) are disabled with the reason shown, when:
 - **Top-level field names starting with `$`** cannot be replaced by the server (error 52). Such
   documents fail to overwrite or upsert, and are reported by key.
 - **Only `_id` is supported** as the key for the policies.
+- **A whole-database paste leaves out views and time-series collections**, silently and with no
+  note: only plain collections are copied. Paste such a collection by itself to copy its documents.
 - **One copy at a time.**
 - Creation options other than validator, collation and capped settings are not copied (see
   [above](#indexes-and-collection-options)).

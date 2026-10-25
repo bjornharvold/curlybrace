@@ -323,8 +323,26 @@ fn same_database_same_connection_suggests_unique_copy_names() {
 }
 
 #[test]
-fn another_database_on_the_same_connection_keeps_the_names() {
-    let f = Fixture::new().with_names(A, "backup", &["orders"]);
+fn another_database_on_the_same_connection_renames_only_names_that_exist_there() {
+    let f = Fixture::new().with_names(A, "backup", &["orders", "orders_copy"]);
+    let r = f
+        .paste(
+            &collections(A, "shop", &["orders", "users"]),
+            &db_target(A, "backup"),
+        )
+        .unwrap();
+    assert_eq!(
+        r.scope,
+        CopyScope::Collections(vec![
+            item(("shop", "orders"), ("backup", "orders_copy2"), doc! {}),
+            item(("shop", "users"), ("backup", "users"), doc! {}),
+        ])
+    );
+}
+
+#[test]
+fn another_database_on_the_same_connection_without_the_name_keeps_it() {
+    let f = Fixture::new().with_names(A, "backup", &["invoices"]);
     let r = f
         .paste(
             &collections(A, "shop", &["orders"]),
@@ -344,6 +362,18 @@ fn another_database_on_the_same_connection_keeps_the_names() {
 #[test]
 fn the_same_database_name_on_another_connection_keeps_the_names() {
     let f = Fixture::new().with_names(A, "shop", &["orders"]);
+    let r = f
+        .paste(&collections(A, "shop", &["orders"]), &db_target(B, "shop"))
+        .unwrap();
+    assert_eq!(
+        r.scope,
+        CopyScope::Collections(vec![item(("shop", "orders"), ("shop", "orders"), doc! {})])
+    );
+}
+
+#[test]
+fn another_connection_merges_into_an_existing_name_without_renaming() {
+    let f = Fixture::new().with_names(B, "shop", &["orders"]);
     let r = f
         .paste(&collections(A, "shop", &["orders"]), &db_target(B, "shop"))
         .unwrap();
