@@ -131,6 +131,9 @@ Paste (and Copy) are disabled with the reason shown, when:
 
 - **Hand-picked documents are capped at 10,000.** Beyond that, use **Select all documents of the
   query**.
+- **"Select all documents of the query" matches with the simple collation**, so its results (and
+  the preview's counts) can differ from the browse view on collections with a case-insensitive
+  collation. The copy reads by `_id` order, which has to use the same collation on both sides.
 - **No snapshot consistency.** The source is read as the copy goes, so writes to it during the copy
   may or may not be included.
 - **Top-level field names starting with `$`** cannot be replaced by the server (error 52). Such
