@@ -55,6 +55,8 @@ fn copy_log_line(ev: &CopyEvent) -> Option<String> {
             Some(format!("copy failed: {}", error.i18n_key()))
         }
         CopyEvent::ItemDone { index, report, .. } => match &report.outcome {
+            // A lost connection is not a copy fault, whether it ended the run or one item.
+            CopyOutcome::Failed(CoreError::Superseded) => None,
             CopyOutcome::Failed(error) => Some(format!(
                 "copy_item failed: {} (collection {index})",
                 error.i18n_key()
@@ -197,6 +199,8 @@ mod tests {
             error: CoreError::Superseded,
         });
         assert_eq!(failure_log_line(&superseded), None);
+        let lost_item = item_done(CopyOutcome::Failed(CoreError::Superseded), None);
+        assert_eq!(failure_log_line(&lost_item), None);
         let done = Event::Copy(CopyEvent::Done {
             run: 1,
             cancelled: false,
