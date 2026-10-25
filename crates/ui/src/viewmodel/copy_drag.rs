@@ -4,6 +4,7 @@
 use super::copy_clipboard::{CopyClipboard, PasteContext, PasteTarget};
 use super::copy_menu::paste_block_key;
 use super::sidebar_selection::{NodeRef, SidebarSelection, clipboard_from_selection};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Whether a target takes what is being dragged over it.
@@ -52,9 +53,10 @@ pub fn drop_verdict(
 
 /// What a verdict depends on, cheaply readable (no name list is cloned): whether the source and
 /// the target are open, whether the target is read-only, and how many databases and collections
-/// the target side has loaded. A drag lasts seconds, so a count that changes is how a refresh
-/// shows; a connection that opens, fails or is locked changes the booleans.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// the target side has loaded, plus the generation of its name lists (a renamed collection keeps
+/// every count). A drag lasts seconds, so a refresh shows as a new generation; a connection that
+/// opens, fails or is locked changes the booleans.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DropContextKey {
     pub source_open: bool,
     pub target_open: bool,
@@ -62,6 +64,8 @@ pub struct DropContextKey {
     pub databases: usize,
     /// The collections loaded for the target database; `None` when not loaded (or no database).
     pub collections: Option<usize>,
+    /// [`SidebarState::generation`](super::sidebar::SidebarState) of the target's sidebar.
+    pub names_generation: u64,
 }
 
 /// The verdicts of one drag, per target, so a frame does not run the paste rules again for a
@@ -70,14 +74,14 @@ pub struct DropContextKey {
 #[derive(Clone, Debug)]
 pub struct DropVerdictCache {
     payload: Arc<CopyClipboard>,
-    entries: Vec<(PasteTarget, DropContextKey, DropVerdict)>,
+    entries: HashMap<PasteTarget, (DropContextKey, DropVerdict)>,
 }
 
 impl DropVerdictCache {
     pub fn new(payload: Arc<CopyClipboard>) -> Self {
         Self {
             payload,
-            entries: Vec::new(),
+            entries: HashMap::new(),
         }
     }
 
@@ -94,18 +98,13 @@ impl DropVerdictCache {
         key: DropContextKey,
         compute: impl FnOnce() -> DropVerdict,
     ) -> DropVerdict {
-        let known = self.entries.iter().position(|(t, _, _)| t == target);
-        if let Some(i) = known {
-            let (_, remembered, verdict) = &self.entries[i];
+        if let Some((remembered, verdict)) = self.entries.get(target) {
             if *remembered == key {
                 return *verdict;
             }
         }
         let verdict = compute();
-        match known {
-            Some(i) => self.entries[i] = (target.clone(), key, verdict),
-            None => self.entries.push((target.clone(), key, verdict)),
-        }
+        self.entries.insert(target.clone(), (key, verdict));
         verdict
     }
 }

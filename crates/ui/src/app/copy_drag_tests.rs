@@ -308,6 +308,69 @@ fn the_cache_recomputes_when_the_target_collections_change() {
     );
 }
 
+/// The target database holds `orders` instead of `contacts`: the same count, another name.
+fn renamed_target_collection() -> AppState {
+    let mut after = state();
+    let view = after.parked.get_mut(&sid(B)).unwrap();
+    view.sidebar = view
+        .sidebar
+        .clone()
+        .with_collections("crm", names(&["orders"]));
+    after
+}
+
+#[test]
+fn the_cache_recomputes_when_a_collection_is_renamed_with_unchanged_counts() {
+    let payload = Arc::new(collections("shop", &["orders"]));
+    let before = state();
+    let after = renamed_target_collection();
+    assert_ne!(
+        before.drop_context_key(&payload, &onto_crm()),
+        after.drop_context_key(&payload, &onto_crm()),
+        "same counts, different names: the key must tell"
+    );
+    let mut cache = DropVerdictCache::new(payload.clone());
+    drop_cached(&before, &mut cache, &payload, &onto_crm());
+    assert_eq!(
+        drop_cached(&after, &mut cache, &payload, &onto_crm()),
+        after.drop_verdict(&payload, &onto_crm()),
+        "the verdict is the fresh one, not the remembered one"
+    );
+}
+
+#[test]
+fn an_untouched_sidebar_keeps_its_context_key() {
+    let payload = Arc::new(collections("shop", &["orders"]));
+    assert_eq!(
+        state().drop_context_key(&payload, &onto_crm()),
+        state().drop_context_key(&payload, &onto_crm())
+    );
+}
+
+#[test]
+fn the_cache_serves_many_distinct_targets_each_computed_once() {
+    let payload = Arc::new(collections("shop", &["orders"]));
+    let s = state();
+    let mut cache = DropVerdictCache::new(payload.clone());
+    let targets: Vec<PasteTarget> = (0..500)
+        .map(|i| PasteTarget::Collection {
+            session: sid(B),
+            ns: Namespace::new("crm", format!("c{i}")),
+        })
+        .collect();
+    let mut computed = 0;
+    for _ in 0..3 {
+        for target in &targets {
+            let key = s.drop_context_key(&payload, target);
+            cache.verdict(target, key, || {
+                computed += 1;
+                DropVerdict::Accept
+            });
+        }
+    }
+    assert_eq!(computed, 500);
+}
+
 #[test]
 fn a_cache_belongs_to_one_drag_payload() {
     let payload = Arc::new(collections("shop", &["orders"]));

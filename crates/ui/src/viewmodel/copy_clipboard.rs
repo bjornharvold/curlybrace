@@ -81,7 +81,7 @@ pub enum CopyClipboard {
 }
 
 /// Where a paste lands.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PasteTarget {
     Connection { session: SessionId },
     Database { session: SessionId, db: String },

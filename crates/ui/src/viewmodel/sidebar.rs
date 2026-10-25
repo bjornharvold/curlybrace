@@ -96,6 +96,9 @@ pub fn collection_click_action(db: &str, collection: &str) -> SidebarAction {
 pub struct SidebarState {
     pub databases: Vec<DbNode>,
     pub selected: Option<Namespace>,
+    /// Counts every replacement of the database or collection name lists, so a reader can tell
+    /// that the names changed without comparing them (a rename keeps every count).
+    pub generation: u64,
 }
 
 /// Removes duplicates, keeping the first occurrence order.
@@ -114,6 +117,7 @@ impl SidebarState {
         let Self {
             databases,
             selected,
+            generation,
         } = self;
         let mut old: std::collections::HashMap<String, DbNode> =
             databases.into_iter().map(|n| (n.name.clone(), n)).collect();
@@ -125,16 +129,20 @@ impl SidebarState {
         Self {
             databases,
             selected,
+            generation: generation + 1,
         }
     }
 
     /// Stores the loaded collections of `db`; a no-op for an unknown database.
     pub fn with_collections(self, db: &str, names: Vec<String>) -> Self {
         let names = dedupe(names);
-        self.map_db(db, |node| DbNode {
+        let known = self.databases.iter().any(|node| node.name == db);
+        let generation = self.generation + usize::from(known) as u64;
+        let next = self.map_db(db, |node| DbNode {
             collections: Some(names),
             ..node
-        })
+        });
+        Self { generation, ..next }
     }
 
     pub fn toggled(self, db: &str) -> Self {

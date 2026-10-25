@@ -59,6 +59,7 @@ impl AppState {
                 let node = s.databases.iter().find(|d| Some(d.name.as_str()) == db)?;
                 node.collections.as_ref().map(Vec::len)
             }),
+            names_generation: sidebar.map_or(0, |s| s.generation),
         }
     }
 }
