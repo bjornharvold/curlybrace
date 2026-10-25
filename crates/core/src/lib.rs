@@ -13,6 +13,7 @@ pub mod ejson;
 pub mod error;
 pub mod history;
 pub mod indexes;
+mod mongo_collection_options;
 mod mongo_indexes;
 pub mod mongo_store;
 mod mongo_write;

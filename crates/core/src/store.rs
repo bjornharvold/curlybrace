@@ -80,6 +80,26 @@ pub enum CollectionKind {
     Timeseries,
 }
 
+/// The size cap of a capped collection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CappedSpec {
+    /// Maximum size in bytes.
+    pub size: u64,
+    /// Maximum number of documents, when the collection has one.
+    pub max: Option<u64>,
+}
+
+/// What a collection is created with (the `create` command's options). `Default` is a plain
+/// collection.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct CollectionOptions {
+    pub capped: Option<CappedSpec>,
+    pub validator: Option<Document>,
+    pub validation_level: Option<String>,
+    pub validation_action: Option<String>,
+    pub collation: Option<Document>,
+}
+
 /// A key tuple shared by `count` (two or more) documents.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DuplicateGroup {
@@ -153,7 +173,7 @@ pub trait DocumentStore: Send + Sync {
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page>;
 
     // WRITE METHODS (`insert`, `replace`, `delete`, `bulk_write`, `create_index`, `drop_index`,
-    // `set_index_hidden`, `set_index_ttl`): `ReadOnlyStore` must refuse each of them. Adding a write method to this trait? Update `ReadOnlyStore` and the
+    // `set_index_hidden`, `set_index_ttl`, `create_collection`): `ReadOnlyStore` must refuse each of them. Adding a write method to this trait? Update `ReadOnlyStore` and the
     // `WRITES` list and `every_write_method_is_covered` in `read_only_store_tests.rs`.
     /// Inserts `doc`, returning its `_id` (generated when absent).
     async fn insert(&self, ns: &Namespace, doc: Document) -> Result<Bson>;
@@ -183,6 +203,19 @@ pub trait DocumentStore: Send + Sync {
     async fn set_index_ttl(&self, _ns: &Namespace, _name: &str, _seconds: i64) -> Result<()> {
         Err(CoreError::Unsupported(
             "this store cannot change an index expiry".into(),
+        ))
+    }
+
+    /// Creates the collection `ns` with `options`; fails when it already exists.
+    async fn create_collection(&self, _ns: &Namespace, _options: &CollectionOptions) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot create collections".into(),
+        ))
+    }
+    /// The options `ns` was created with; `None` when the collection does not exist.
+    async fn collection_options(&self, _ns: &Namespace) -> Result<Option<CollectionOptions>> {
+        Err(CoreError::Unsupported(
+            "this store cannot read collection options".into(),
         ))
     }
 

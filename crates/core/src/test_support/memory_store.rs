@@ -12,13 +12,14 @@ use bson::{Bson, Document, oid::ObjectId};
 use super::bson_order::cmp_bson;
 use super::memory_fields::update_fields;
 use super::memory_indexes::{self as idx, IndexMap, UsageMap};
+use super::memory_options::{self as opts, OptionsMap};
 use super::query_eval::{check_filter, compare, matches, parse_sort, project};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
 use crate::indexes::{IndexOptions, IndexSpec};
 use crate::store::{
-    CollectionIndex, CollectionKind, DocumentStore, DuplicateGroup, IndexStatus, IndexUsage,
-    Namespace, Page, Query, WriteFailure, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
+    IndexUsage, Namespace, Page, Query, WriteFailure, WriteOp, WriteOutcome,
 };
 
 type Collections = BTreeMap<(String, String), Vec<Document>>;
@@ -28,6 +29,7 @@ pub struct InMemoryStore {
     data: Mutex<Collections>,
     pub(super) indexes: Mutex<IndexMap>,
     pub(super) usage: Mutex<UsageMap>,
+    options: Mutex<OptionsMap>,
 }
 
 impl InMemoryStore {
@@ -316,6 +318,20 @@ impl DocumentStore for InMemoryStore {
             ..o
         };
         idx::update_options(&mut *self.lock_indexes()?, &key(ns), name, change)
+    }
+
+    async fn create_collection(&self, ns: &Namespace, options: &CollectionOptions) -> Result<()> {
+        let mut data = self.lock()?;
+        let mut stored = self.options.lock().map_err(|_| poisoned())?;
+        opts::create(&mut stored, key(ns), data.contains_key(&key(ns)), options)?;
+        data.insert(key(ns), Vec::new());
+        Ok(())
+    }
+
+    async fn collection_options(&self, ns: &Namespace) -> Result<Option<CollectionOptions>> {
+        let data = self.lock()?;
+        let stored = self.options.lock().map_err(|_| poisoned())?;
+        Ok(opts::get(&stored, &key(ns), data.contains_key(&key(ns))))
     }
 }
 
