@@ -91,6 +91,12 @@ pub struct CappedSpec {
 
 /// What a collection is created with (the `create` command's options). `Default` is a plain
 /// collection.
+///
+/// Only capped size/max, validator, validationLevel, validationAction and collation are read and
+/// created. Other creation options (clusteredIndex, changeStreamPreImagesEnabled,
+/// encryptedFields, storageEngine, expireAfterSeconds, view and time-series options) are neither
+/// read nor copied. `DocumentStore::collection_options` is meant for entries of kind
+/// `CollectionKind::Collection` only; callers pre-filter with `list_collection_kinds`.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct CollectionOptions {
     pub capped: Option<CappedSpec>,
@@ -206,7 +212,10 @@ pub trait DocumentStore: Send + Sync {
         ))
     }
 
-    /// Creates the collection `ns` with `options`; fails when it already exists.
+    /// Creates the collection `ns` with `options`. When `ns` already exists the store may fail
+    /// (the in-memory store always does) or treat it as a no-op (MongoDB does when the options
+    /// are identical, and fails when they differ). A caller that needs conflict semantics must
+    /// call `collection_options` first; that check-then-create is inherently racy.
     async fn create_collection(&self, _ns: &Namespace, _options: &CollectionOptions) -> Result<()> {
         Err(CoreError::Unsupported(
             "this store cannot create collections".into(),

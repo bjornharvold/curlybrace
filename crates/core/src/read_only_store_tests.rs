@@ -261,7 +261,7 @@ async fn unlocked_store_forwards_writes() {
         .await
         .unwrap();
     assert_eq!(out, vec![Err(WriteFailure::Rejected(42))]);
-    for w in &WRITES[..4] {
+    for w in ["insert", "replace", "delete", "bulk_write"] {
         assert_eq!(inner.count(w), 1, "{w}");
     }
     assert!(!store.is_read_only());
@@ -285,7 +285,12 @@ async fn read_only_refuses_create_drop_hide_and_ttl() {
     assert_eq!(store.drop_index(&ns(), "a_1").await, Ok(()));
     assert_eq!(store.set_index_hidden(&ns(), "a_1", true).await, Ok(()));
     assert_eq!(store.set_index_ttl(&ns(), "a_1", 60).await, Ok(()));
-    for w in &WRITES[4..8] {
+    for w in [
+        "create_index",
+        "drop_index",
+        "set_index_hidden",
+        "set_index_ttl",
+    ] {
         assert_eq!(inner.count(w), 1, "{w}");
     }
 }
