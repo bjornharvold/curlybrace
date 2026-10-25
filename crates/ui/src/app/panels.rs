@@ -334,18 +334,6 @@ fn show_index_dialogs(
 /// Draws the production write warning whenever a write is parked, whichever session is active:
 /// a parked write blocks every session's writes until it is answered. The connection is named
 /// from the parked write's own session, not the active one.
-/// The paste dialog: a pending paste opens it (the word the person types is localized here), and
-/// while it is open it shows the choices, then the progress and the report.
-fn show_copy(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
-    if state.pending_paste.is_some() {
-        let word = i18n.t("copy.dialog.confirm_word");
-        out.push(UiEvent::Input(Input::Copy(CopyInput::Open { word })));
-    }
-    if let Some(input) = crate::views::copy_dialog::show_copy_modal(ctx, state, i18n) {
-        out.push(UiEvent::Input(Input::Copy(input)));
-    }
-}
-
 fn show_write_warning_modal(
     ctx: &egui::Context,
     state: &AppState,
@@ -369,6 +357,17 @@ fn show_write_warning_modal(
         .unwrap_or_default();
     if let Some(action) = show_write_warning(ctx, parked, &name, &badge, i18n) {
         out.push(UiEvent::Input(Input::WriteWarning(action)));
+    }
+}
+
+/// The paste dialog: a pending paste opens it, and while it is open it shows the choices, then
+/// the progress and the report.
+fn show_copy(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    if state.pending_paste.is_some() {
+        out.push(UiEvent::Input(Input::Copy(CopyInput::Open)));
+    }
+    if let Some(input) = crate::views::copy_dialog::show_copy_modal(ctx, state, i18n) {
+        out.push(UiEvent::Input(Input::Copy(input)));
     }
 }
 

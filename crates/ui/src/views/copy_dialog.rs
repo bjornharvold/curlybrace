@@ -250,8 +250,12 @@ fn show_confirmation(
     if dialog.policy == ConflictPolicy::Overwrite {
         ui.label(i18n.t("copy.dialog.overwrite_note"));
     }
-    let caption = ui.label(i18n.t("copy.dialog.confirm_prompt"));
-    ui.label(egui::RichText::new(&dialog.word).strong().monospace());
+    // The prompt carries the required text, so the box's accessible name states it too.
+    let prompt = i18n.t_with(
+        "copy.dialog.confirm_prompt",
+        &[("text", &dialog.required_text())],
+    );
+    let caption = ui.label(egui::RichText::new(prompt).strong());
     let mut text = dialog.typed.clone();
     let edit = egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY);
     let response = ui.add_enabled(enabled, edit).labelled_by(caption.id);

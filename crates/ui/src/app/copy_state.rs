@@ -3,6 +3,7 @@
 //! Holds keys, counts and typed errors only; document values never get here (a failed document is
 //! shown by its `_id`).
 use crate::viewmodel::compare::key_label;
+use crate::viewmodel::typed_text_matches;
 use bson::Bson;
 use curlybrace_core::compare::apply::MAX_REPORTED_FAILURES;
 use curlybrace_core::compare::key::KeyTuple;
@@ -28,6 +29,9 @@ pub enum NameIssue {
     SameAsSource,
     /// Another name of this paste is the same.
     Duplicate,
+    /// The name is the source of another collection of this paste, in the same database of the
+    /// same connection: writing it would change what that collection reads.
+    CollidesWithSource,
 }
 
 impl NameIssue {
@@ -40,6 +44,7 @@ impl NameIssue {
             NameIssue::ExcludedDatabase => "copy.name_problem.excluded_database",
             NameIssue::SameAsSource => "copy.name_problem.same_as_source",
             NameIssue::Duplicate => "copy.name_problem.duplicate",
+            NameIssue::CollidesWithSource => "copy.name_problem.collides_with_source",
         }
     }
 }
@@ -290,8 +295,6 @@ pub struct CopyDialog {
     /// The preview is still running.
     pub counting: bool,
     pub typed: String,
-    /// The localized word the typed confirmation must match.
-    pub word: String,
     /// The collections the paste goes through; a database paste learns them from `Planned`.
     pub items: Vec<CopyItem>,
     /// Collections whose count has settled.
@@ -309,7 +312,7 @@ pub struct CopyDialog {
 
 impl CopyDialog {
     /// The dialog for `request`: default policy, options off, nothing counted yet.
-    pub fn opened(request: CopyRequest, word: &str) -> Self {
+    pub fn opened(request: CopyRequest) -> Self {
         let (items, names) = match &request.scope {
             CopyScope::Collections(items) => {
                 let names = items
@@ -331,7 +334,6 @@ impl CopyDialog {
             names,
             counting: false,
             typed: String::new(),
-            word: word.to_string(),
             items,
             counted: 0,
             scanned: 0,
@@ -352,8 +354,21 @@ impl CopyDialog {
         if !self.needs_typed_confirmation(target_is_production) {
             return true;
         }
-        let word = self.word.trim();
-        !word.is_empty() && self.typed.trim() == word
+        typed_text_matches(&self.required_text(), &self.typed)
+    }
+
+    /// What the person types to confirm, as Compare asks for a collection or database name: the
+    /// target collection for one collection, else the target database.
+    pub fn required_text(&self) -> String {
+        match &self.request.scope {
+            CopyScope::Database { .. } => self.names.first().map(|(_, t)| t.clone()),
+            CopyScope::Collections(items) => match (items.as_slice(), self.names.first()) {
+                ([_], Some((_, name))) => Some(name.clone()),
+                ([first, ..], _) => Some(first.target.db.clone()),
+                _ => None,
+            },
+        }
+        .unwrap_or_default()
     }
 
     /// Confirm may fire: the person is choosing, every name is usable and the typed word passes.
@@ -398,7 +413,27 @@ impl CopyDialog {
             .iter()
             .enumerate()
             .any(|(i, (_, other))| i != index && other == name);
-        twin.then_some(NameIssue::Duplicate)
+        match twin {
+            true => Some(NameIssue::Duplicate),
+            false => self
+                .collides_with_source(index)
+                .then_some(NameIssue::CollidesWithSource),
+        }
+    }
+
+    fn collides_with_source(&self, index: usize) -> bool {
+        let (CopyScope::Collections(items), Some((_, name))) =
+            (&self.request.scope, self.names.get(index))
+        else {
+            return false;
+        };
+        let Some(item) = items.get(index) else {
+            return false;
+        };
+        self.request.source == self.request.target
+            && items.iter().enumerate().any(|(j, other)| {
+                j != index && other.source.db == item.target.db && other.source.collection == *name
+            })
     }
 
     fn is_source_itself(&self, index: usize) -> bool {

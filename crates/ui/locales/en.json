@@ -553,8 +553,7 @@
     "dialog": {
       "blocked_names": "Fix the names above before copying.",
       "blocked_typed": "Type the text above to enable Copy.",
-      "confirm_prompt": "To confirm, type this text exactly:",
-      "confirm_word": "copy",
+      "confirm_prompt": "To confirm, type this text exactly: {text}",
       "copy": "Copy",
       "counting_note": "Counting documents… You can copy now, but the counts will then be incomplete.",
       "counts": {
@@ -597,6 +596,7 @@
       "copy_unavailable": "Select one database, or collections of one database, to copy."
     },
     "name_problem": {
+      "collides_with_source": "This name is the source of another collection in this paste. Choose another name.",
       "duplicate": "Another name in this paste is the same.",
       "empty": "The name cannot be empty.",
       "excluded_database": "Server-owned databases (admin, local, config) cannot be written to.",

@@ -17,7 +17,8 @@ use super::copy::CopyInput;
 
 pub(super) const A: u128 = 1;
 pub(super) const B: u128 = 2;
-pub(super) const WORD: &str = "copy";
+/// What the person types to confirm a paste of two collections onto `crm`: the target database.
+pub(super) const REQUIRED: &str = "crm";
 
 pub(super) fn sid(n: u128) -> Uuid {
     Uuid::from_u128(n)
@@ -81,7 +82,7 @@ pub(super) fn event(state: AppState, event: CopyEvent) -> (AppState, Vec<Command
 /// A dialog for orders and users pasted onto `crm` of B, opened, with the preview sent.
 pub(super) fn opened(b_production: bool) -> (AppState, u64) {
     let s = paste_onto(base(b_production, false), onto_crm());
-    let (s, commands) = input(s, CopyInput::Open { word: WORD.into() });
+    let (s, commands) = input(s, CopyInput::Open);
     let run = preview_run(&commands);
     (s, run)
 }
@@ -172,7 +173,7 @@ pub(super) fn started(b_production: bool) -> (AppState, u64) {
     let (s, run) = opened(b_production);
     let s = counted(s, run);
     let s = match b_production {
-        true => typed(s, WORD),
+        true => typed(s, REQUIRED),
         false => s,
     };
     let (s, commands) = input(s, CopyInput::Confirm);
@@ -192,7 +193,7 @@ pub(super) fn run_of(state: &AppState) -> &super::copy_state::CopyRun {
 fn opening_sends_preview_and_dialog_shows_counting() {
     let s = paste_onto(base(false, false), onto_crm());
     assert!(s.pending_paste.is_some());
-    let (s, commands) = input(s, CopyInput::Open { word: WORD.into() });
+    let (s, commands) = input(s, CopyInput::Open);
     let Command::Copy(CopyCommand::Preview { request, .. }) = &commands[0] else {
         panic!("{commands:?}")
     };
@@ -206,7 +207,7 @@ fn opening_sends_preview_and_dialog_shows_counting() {
 
 #[test]
 fn opening_without_a_pending_paste_does_nothing() {
-    let (s, commands) = input(base(false, false), CopyInput::Open { word: WORD.into() });
+    let (s, commands) = input(base(false, false), CopyInput::Open);
     assert!(s.copy.is_none() && commands.is_empty());
 }
 
@@ -346,7 +347,7 @@ fn production_target_needs_the_typed_word_to_send_start() {
     let s = typed(s, "cop");
     let (s, commands) = input(s, CopyInput::Confirm);
     assert!(commands.is_empty());
-    let s = typed(s, "  copy ");
+    let s = typed(s, "  crm ");
     let (_, commands) = input(s, CopyInput::Confirm);
     assert!(matches!(
         commands.as_slice(),
@@ -362,7 +363,7 @@ fn overwrite_needs_the_typed_word() {
     assert!(!dialog(&s).can_confirm(false));
     let (s, commands) = input(s, CopyInput::Confirm);
     assert!(commands.is_empty());
-    let s = typed(s, WORD);
+    let s = typed(s, REQUIRED);
     assert!(dialog(&s).can_confirm(false));
     let (_, commands) = input(s, CopyInput::Confirm);
     let (_, request) = start_run(&commands);
@@ -523,7 +524,7 @@ fn pasting_next_to_the_source_suggests_copy_names_and_blocks_the_source_name() {
             db: "shop".into(),
         },
     );
-    let (s, _) = input(s, CopyInput::Open { word: WORD.into() });
+    let (s, _) = input(s, CopyInput::Open);
     assert_eq!(dialog(&s).names[0], ("orders".into(), "orders_copy".into()));
     let (s, _) = input(
         s,
@@ -550,7 +551,7 @@ fn a_database_paste_names_the_target_database_and_rows_come_from_planned() {
         })),
     )
     .0;
-    let (s, commands) = input(s, CopyInput::Open { word: WORD.into() });
+    let (s, commands) = input(s, CopyInput::Open);
     let run = preview_run(&commands);
     assert_eq!(
         dialog(&s).names,
@@ -604,4 +605,110 @@ fn a_paste_while_the_dialog_is_open_is_ignored() {
     let again = paste_onto(s, onto_crm());
     assert_eq!(again.pending_paste, None);
     assert!(again.copy.is_some());
+}
+
+fn overwriting(state: AppState) -> AppState {
+    with_policy(state, ConflictPolicy::Overwrite)
+}
+
+#[test]
+fn the_required_text_is_the_target_collection_for_a_single_collection() {
+    let s = AppState {
+        clipboard: CopyClipboard::collections(sid(A), "shop", names(&["orders"])).ok(),
+        ..base(false, false)
+    };
+    let s = update(s, Input::Sidebar(SidebarAction::Paste(onto_crm()))).0;
+    let (s, _) = input(s, CopyInput::Open);
+    let s = overwriting(s);
+    assert_eq!(dialog(&s).required_text(), "orders");
+    // A renamed target is what has to be typed.
+    let (s, _) = input(
+        s,
+        CopyInput::SetName {
+            index: 0,
+            name: "orders2".into(),
+        },
+    );
+    assert_eq!(dialog(&s).required_text(), "orders2");
+    assert!(!dialog(&typed(s, "orders")).can_confirm(false));
+}
+
+#[test]
+fn the_required_text_is_the_target_database_for_several_collections() {
+    let (s, _) = opened(false);
+    assert_eq!(dialog(&s).required_text(), "crm");
+    let s = typed(overwriting(s), "crm");
+    assert!(dialog(&s).can_confirm(false));
+}
+
+#[test]
+fn the_required_text_is_the_target_database_for_a_database_paste() {
+    let s = AppState {
+        clipboard: CopyClipboard::database(sid(A), "shop").ok(),
+        ..base(false, false)
+    };
+    let s = update(
+        s,
+        Input::Sidebar(SidebarAction::Paste(PasteTarget::Connection {
+            session: sid(B),
+        })),
+    )
+    .0;
+    let (s, _) = input(s, CopyInput::Open);
+    assert_eq!(dialog(&s).required_text(), "shop");
+    let (s, _) = input(
+        s,
+        CopyInput::SetName {
+            index: 0,
+            name: "shop2".into(),
+        },
+    );
+    assert_eq!(dialog(&s).required_text(), "shop2");
+}
+
+#[test]
+fn compare_and_copy_share_one_matching_rule() {
+    use crate::viewmodel::typed_text_matches;
+    assert!(typed_text_matches("crm", "  crm "));
+    assert!(!typed_text_matches("crm", "CRM"));
+    assert!(
+        !typed_text_matches("", ""),
+        "an empty requirement never passes"
+    );
+}
+
+#[test]
+fn a_name_equal_to_another_collections_source_name_is_flagged() {
+    // orders -> users, while users is itself copied from the same database of the same session.
+    let s = paste_onto(
+        base(false, false),
+        PasteTarget::Database {
+            session: sid(A),
+            db: "shop".into(),
+        },
+    );
+    let (s, _) = input(s, CopyInput::Open);
+    let (s, _) = input(
+        s,
+        CopyInput::SetName {
+            index: 0,
+            name: "users".into(),
+        },
+    );
+    assert_eq!(
+        dialog(&s).name_issue(0),
+        Some(NameIssue::CollidesWithSource)
+    );
+    assert!(!dialog(&s).can_confirm(false));
+    // On another connection the same name is just the conflict policy's business.
+    let (s, run) = opened(false);
+    let s = counted(s, run);
+    let (s, _) = input(
+        s,
+        CopyInput::SetName {
+            index: 0,
+            name: "users2".into(),
+        },
+    );
+    assert_eq!(dialog(&s).name_issue(0), None);
 }

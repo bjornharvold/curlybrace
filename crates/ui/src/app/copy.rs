@@ -18,10 +18,8 @@ use curlybrace_core::runtime::Command;
 /// What the person did in the paste dialog.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CopyInput {
-    /// Show the dialog for the pending paste; `word` is the localized confirmation word.
-    Open {
-        word: String,
-    },
+    /// Show the dialog for the pending paste.
+    Open,
     SetPolicy(ConflictPolicy),
     SetName {
         index: usize,
@@ -66,7 +64,7 @@ fn next_run(state: AppState) -> (AppState, RunId) {
 
 pub(super) fn on_input(state: AppState, input: CopyInput) -> Out {
     match input {
-        CopyInput::Open { word } => open(state, &word),
+        CopyInput::Open => open(state),
         CopyInput::SetPolicy(policy) => none(with_dialog(state, |d| d.with_policy(policy))),
         CopyInput::SetName { index, name } => rename(state, index, name),
         CopyInput::ToggleIndexesAndOptions => {
@@ -81,7 +79,7 @@ pub(super) fn on_input(state: AppState, input: CopyInput) -> Out {
 
 /// Takes the pending paste into a dialog and asks for its counts. A paste that arrives while a
 /// dialog is open is dropped.
-fn open(state: AppState, word: &str) -> Out {
+fn open(state: AppState) -> Out {
     let Some(request) = state.pending_paste.clone() else {
         return none(state);
     };
@@ -92,7 +90,7 @@ fn open(state: AppState, word: &str) -> Out {
     if state.copy.is_some() {
         return none(state);
     }
-    let dialog = CopyDialog::opened(request, word);
+    let dialog = CopyDialog::opened(request);
     start_preview(AppState {
         copy: Some(dialog),
         ..state
@@ -148,22 +146,30 @@ fn confirm(state: AppState) -> Out {
     if state.session_read_only(dialog.request.target) {
         return refused_read_only(state);
     }
-    match dialog.preview_run {
-        Some(preview) => (
+    // A preview that a rename already cancelled is not cancelled twice.
+    match (dialog.preview_run, dialog.restart_preview) {
+        (Some(preview), restarting) => (
             with_dialog(state, |d| d.with_phase(CopyPhase::Starting)),
-            send(CopyCommand::Cancel { run: preview }),
+            match restarting {
+                true => Vec::new(),
+                false => send(CopyCommand::Cancel { run: preview }),
+            },
         ),
-        None => start_copy(state, false),
+        (None, _) => start_copy(state, false),
     }
 }
 
 /// The target was locked after the dialog opened: nothing is sent, and the report says so.
 fn refused_read_only(state: AppState) -> Out {
+    let preview = state.copy.as_ref().and_then(|d| d.preview_run);
     let (state, run) = next_run(state);
     let report = CopyRun::new(run, false).ended(RunOutcome::Failed(CoreError::ReadOnly));
-    none(with_dialog(state, |d| {
-        d.with_phase(CopyPhase::Running(report))
-    }))
+    let state = with_dialog(state, |d| d.with_phase(CopyPhase::Running(report)));
+    // The preview still holds the run slot: it is stopped, nothing else is sent.
+    let commands = preview
+        .map(|run| send(CopyCommand::Cancel { run }))
+        .unwrap_or_default();
+    (state, commands)
 }
 
 /// Sends the copy the dialog describes. `counts_incomplete`: the preview was cut short.
@@ -173,7 +179,9 @@ fn start_copy(state: AppState, counts_incomplete: bool) -> Out {
     };
     let (state, run) = next_run(state);
     let phase = CopyPhase::Running(CopyRun::new(run, counts_incomplete));
-    let state = with_dialog(state, |d| d.with_phase(phase).preview_ended(None));
+    let state = with_dialog(state, |d| {
+        d.with_phase(phase).preview_ended(None).with_restart(false)
+    });
     (state, send(CopyCommand::Start { run, request }))
 }
 

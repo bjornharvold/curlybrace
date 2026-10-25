@@ -21,7 +21,12 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use uuid::Uuid;
 
-const WORD: &str = "copy";
+/// Two collections pasted onto `crm`: the target database is what the person types.
+const REQUIRED: &str = "crm";
+
+fn prompt() -> String {
+    I18n::english().t_with("copy.dialog.confirm_prompt", &[("text", REQUIRED)])
+}
 
 fn t(key: &str) -> String {
     I18n::english().t(key)
@@ -43,7 +48,7 @@ fn dialog(policy: ConflictPolicy) -> CopyDialog {
         policy,
         with_indexes_and_options: false,
     };
-    CopyDialog::opened(request, WORD).with_policy(policy)
+    CopyDialog::opened(request).with_policy(policy)
 }
 
 struct Run {
@@ -134,7 +139,7 @@ fn copy_waits_for_the_typed_word_when_overwriting() {
     let mut h = harness(counted(dialog(ConflictPolicy::Overwrite)));
     assert!(disabled(&h, &t("copy.dialog.copy")));
     h.get_by_label(&t("copy.dialog.blocked_typed"));
-    h.get_by_label(&t("copy.dialog.confirm_prompt"));
+    h.get_by_label(&prompt());
     // Cancel has the initial focus, so Enter cannot confirm.
     let cancel = t("common.cancel");
     assert!(h.get_by_label(&cancel).accesskit_node().is_focused());
@@ -146,12 +151,12 @@ fn copy_waits_for_the_typed_word_when_overwriting() {
 #[test]
 fn typing_the_word_enables_copy_and_confirm_sends_it() {
     let mut h = harness(counted(dialog(ConflictPolicy::Overwrite)));
-    let prompt = t("copy.dialog.confirm_prompt");
+    let prompt = prompt();
     let word_box = h.get_by_role_and_label(Role::TextInput, &prompt);
     word_box.focus();
     h.run_steps(3);
     h.get_by_role_and_label(Role::TextInput, &prompt)
-        .type_text(WORD);
+        .type_text(REQUIRED);
     h.run_steps(4);
     assert!(!disabled(&h, &t("copy.dialog.copy")));
     h.get_by_role_and_label(Role::Button, &t("copy.dialog.copy"))
@@ -159,7 +164,7 @@ fn typing_the_word_enables_copy_and_confirm_sends_it() {
     h.run_steps(4);
     let inputs = &h.state().inputs;
     assert_eq!(inputs.last(), Some(&CopyInput::Confirm));
-    assert!(inputs.contains(&CopyInput::TypeConfirmation(WORD.into())));
+    assert!(inputs.contains(&CopyInput::TypeConfirmation(REQUIRED.into())));
 }
 
 #[test]
@@ -294,4 +299,40 @@ fn the_failure_report_lists_keys_and_message_keys_only() {
     h.get_by_label(&t("copy.failure.rejected"));
     h.get_by_label(&t("copy.report.counts_incomplete"));
     assert!(h.query_by_label_contains("121").is_none(), "no server code");
+}
+
+fn click_at(h: &mut Harness<'_, Run>, pos: egui::Pos2) {
+    for pressed in [true, false] {
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+}
+
+#[test]
+fn a_backdrop_click_never_cancels_a_running_copy() {
+    let mut h = harness(running(None));
+    click_at(&mut h, egui::pos2(4.0, 4.0));
+    assert!(h.state().inputs.is_empty(), "{:?}", h.state().inputs);
+    // Escape and the Cancel button still do.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    assert_eq!(h.state().inputs, vec![CopyInput::Cancel]);
+}
+
+#[test]
+fn a_backdrop_click_closes_a_finished_report() {
+    let mut h = harness(running(Some(RunOutcome::Cancelled)));
+    click_at(&mut h, egui::pos2(4.0, 4.0));
+    assert_eq!(h.state().inputs, vec![CopyInput::Close]);
+}
+
+#[test]
+fn the_typed_box_is_named_by_the_text_to_type() {
+    let h = harness(counted(dialog(ConflictPolicy::Overwrite)));
+    h.get_by_role_and_label(Role::TextInput, &prompt());
 }

@@ -32,7 +32,7 @@ fn dialog(state: &AppState, policy: ConflictPolicy) -> CopyDialog {
         policy,
         with_indexes_and_options: false,
     };
-    CopyDialog::opened(request, "copy").with_policy(policy)
+    CopyDialog::opened(request).with_policy(policy)
 }
 
 fn counts(new: u64, changed: u64, unchanged: u64) -> Option<PreviewCounts> {
@@ -55,7 +55,7 @@ pub fn dialog_counting(state: &mut AppState) {
     state.copy = Some(d);
 }
 
-/// Overwrite on a production connection: the typed word is asked for, Copy is off.
+/// Overwrite on a production connection: the target to type is asked for, Copy is off.
 pub fn dialog_overwrite_production(state: &mut AppState) {
     super::production_shots::production_root(state);
     let d = dialog(state, ConflictPolicy::Overwrite)

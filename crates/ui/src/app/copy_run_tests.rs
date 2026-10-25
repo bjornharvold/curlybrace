@@ -1,13 +1,17 @@
 //! The progress, the cancel and the report of a copy: pure reducer tests over the copy events.
 use super::copy::CopyInput;
+use super::copy_state::CopyPhase;
 use super::copy_state::RunOutcome;
-use super::copy_tests::{B, dialog, event, input, opened, report, run_of, sid, started};
+use super::copy_tests::{
+    B, dialog, event, input, opened, planned, report, run_of, sid, start_run, started,
+};
 use super::reducer::{Input, update};
 use super::state::Banner;
 use crate::I18n;
 use bson::Bson;
 use curlybrace_core::compare::apply::MAX_REPORTED_FAILURES;
 use curlybrace_core::copy::engine::{CopyFailure, CopyOutcome, CopyProgress};
+use curlybrace_core::copy::policy::ConflictPolicy;
 use curlybrace_core::copy::protocol::{CopyCommand, CopyEvent};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Command;
@@ -224,4 +228,116 @@ fn a_new_session_state_drops_the_dialog() {
 fn banner_is_untouched_by_the_dialog() {
     let (s, _) = opened(false);
     assert_eq!(s.banner, None::<Banner>);
+}
+
+/// Confirmed while counting: the preview is being cancelled and the copy waits for its end.
+fn starting() -> (super::state::AppState, u64) {
+    let (s, run) = opened(false);
+    let s = planned(s, run);
+    let (s, _) = input(s, CopyInput::Confirm);
+    assert!(matches!(dialog(&s).phase, CopyPhase::Starting));
+    (s, run)
+}
+
+#[test]
+fn cancel_in_starting_then_the_late_end_of_the_preview_sends_no_start() {
+    let (s, run) = starting();
+    let (s, commands) = input(s, CopyInput::Cancel);
+    assert!(s.copy.is_none());
+    assert!(matches!(
+        commands.as_slice(),
+        [Command::Copy(CopyCommand::Cancel { .. })]
+    ));
+    let (s, commands) = event(
+        s,
+        CopyEvent::Done {
+            run,
+            cancelled: true,
+        },
+    );
+    assert!(s.copy.is_none() && commands.is_empty());
+}
+
+#[test]
+fn a_preview_that_fails_in_starting_still_starts_the_copy_flagged_incomplete() {
+    let (s, run) = starting();
+    let (s, commands) = event(
+        s,
+        CopyEvent::Failed {
+            run,
+            error: CoreError::Unreachable,
+        },
+    );
+    let (_, request) = start_run(&commands);
+    assert_eq!(request.policy, ConflictPolicy::Skip);
+    assert!(run_of(&s).counts_incomplete);
+}
+
+#[test]
+fn a_second_confirm_in_starting_sends_nothing() {
+    let (s, _) = starting();
+    let (s, commands) = input(s, CopyInput::Confirm);
+    assert!(commands.is_empty());
+    assert!(matches!(dialog(&s).phase, CopyPhase::Starting));
+}
+
+#[test]
+fn a_session_closing_in_starting_drops_the_dialog_and_sends_no_start() {
+    let (s, run) = starting();
+    let (s, _) = update(s, Input::Disconnect(sid(B)));
+    assert!(s.copy.is_none());
+    let (s, commands) = event(
+        s,
+        CopyEvent::Failed {
+            run,
+            error: CoreError::Superseded,
+        },
+    );
+    assert!(s.copy.is_none() && commands.is_empty());
+}
+
+#[test]
+fn confirm_with_a_rename_restart_pending_cancels_once_and_starts_with_the_latest_names() {
+    let (s, run) = opened(false);
+    let s = planned(s, run);
+    let (s, commands) = input(
+        s,
+        CopyInput::SetName {
+            index: 0,
+            name: "orders2".into(),
+        },
+    );
+    assert_eq!(commands.len(), 1, "the rename cancelled the preview");
+    let (s, commands) = input(s, CopyInput::Confirm);
+    assert!(
+        commands.is_empty(),
+        "the preview is already being cancelled"
+    );
+    assert!(matches!(dialog(&s).phase, CopyPhase::Starting));
+    let (s, commands) = event(
+        s,
+        CopyEvent::Done {
+            run,
+            cancelled: true,
+        },
+    );
+    let (_, request) = start_run(&commands);
+    let curlybrace_core::copy::protocol::CopyScope::Collections(items) = request.scope else {
+        panic!()
+    };
+    assert_eq!(items[0].target.collection, "orders2");
+    assert!(!dialog(&s).restart_preview, "no preview follows the copy");
+    assert!(run_of(&s).counts_incomplete);
+}
+
+#[test]
+fn a_read_only_refusal_stops_the_preview_in_flight() {
+    let (s, run) = opened(false);
+    let mut s = planned(s, run);
+    s.parked.get_mut(&sid(B)).unwrap().read_only = true;
+    let (_, commands) = input(s, CopyInput::Confirm);
+    assert!(matches!(
+        commands.as_slice(),
+        [Command::Copy(CopyCommand::Cancel { run: r })] if *r == run
+    ));
 }

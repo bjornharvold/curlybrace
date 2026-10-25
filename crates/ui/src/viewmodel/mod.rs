@@ -21,6 +21,7 @@ pub mod sidebar_selection;
 pub mod table;
 pub mod tree;
 pub mod tree_state;
+pub mod typed_confirmation;
 
 pub use cell::cell_text;
 pub use connection_form::{
@@ -62,3 +63,4 @@ pub use tree::{
     MAX_ROWS_PER_LEVEL, RowDetail, TreeRow, ViewMode, flatten_doc, row_value_text, type_label_key,
 };
 pub use tree_state::{PageRow, TreeState, flatten_page};
+pub use typed_confirmation::typed_text_matches;

@@ -20,12 +20,15 @@ pub fn show_progress(ctx: &egui::Context, run: &CopyRun, i18n: &I18n) -> Option<
             Some(outcome) => show_report(ui, run, outcome, i18n),
         }
     });
+    // A click on the backdrop must never stop a copy that is under way: only the Cancel button
+    // and Escape do. The finished report closes either way.
+    let backdrop = response.backdrop_response.clicked();
     let closed = response.should_close();
-    let escape = match run.is_finished() {
-        true => CopyInput::Close,
-        false => CopyInput::Cancel,
+    let leave = match run.is_finished() {
+        true => closed.then_some(CopyInput::Close),
+        false => (closed && !backdrop).then_some(CopyInput::Cancel),
     };
-    response.inner.or(closed.then_some(escape))
+    response.inner.or(leave)
 }
 
 fn show_running(ui: &mut egui::Ui, run: &CopyRun, i18n: &I18n) -> Option<CopyInput> {
