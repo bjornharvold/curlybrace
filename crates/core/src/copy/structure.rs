@@ -24,7 +24,7 @@ use super::engine::{
 use super::policy::ConflictPolicy;
 use crate::compare::engine::CancelFlag;
 use crate::error::{CoreError, Result};
-use crate::indexes::IndexSpec;
+use crate::indexes::{IndexSpec, KeyKind};
 use crate::store::{CollectionKind, CollectionOptions};
 
 /// The name of the index every collection has; it is never copied.
@@ -153,9 +153,11 @@ pub async fn copy_indexes_after(job: &CopyJob) -> Result<IndexReport> {
     Ok(report)
 }
 
-/// The server's own `_id` index: by name, or any index whose only key is `_id`.
+/// The server's own `_id` index: by name, or a plain ascending index whose only key is `_id`
+/// (the server accepts no other name for it). A hashed or descending `_id` index is a user index.
 fn is_id_index(spec: &IndexSpec) -> bool {
-    spec.name == ID_INDEX || matches!(spec.keys.as_slice(), [key] if key.field == "_id")
+    spec.name == ID_INDEX
+        || matches!(spec.keys.as_slice(), [key] if key.field == "_id" && key.kind == KeyKind::Asc)
 }
 
 /// The index definitions of the source or the target; a missing collection has none.

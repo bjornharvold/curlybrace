@@ -494,6 +494,17 @@ async fn an_index_whose_only_key_is_id_is_not_copied_whatever_its_name() {
     assert_eq!(report.indexes.unwrap().built, ["a_1"]);
 }
 
+#[tokio::test]
+async fn a_hashed_or_descending_id_index_is_a_user_index_and_is_copied() {
+    let hashed = mock_index_spec_named("_id_hashed", &[("_id", KeyKind::Hashed)]);
+    let desc = mock_index_spec_named("_id_-1", &[("_id", KeyKind::Desc)]);
+    let source = Spy::source(&capped(), &[hashed, desc]).await;
+    let target = Arc::new(Spy::new());
+    let report = run(&source, &target, true).await;
+    assert_eq!(report.indexes.unwrap().built, ["_id_hashed", "_id_-1"]);
+    assert!(target.at("index:_id_hashed").is_some());
+}
+
 #[test]
 fn index_failures_are_classified_without_keeping_text() {
     use super::classify_index_error as classify;
