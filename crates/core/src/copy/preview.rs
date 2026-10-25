@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bson::Document;
+use bson::{Bson, Document};
 
 use crate::compare::engine::{CancelFlag, EngineOutcome, PairInput, run_pair};
 use crate::compare::key::KeySpec;
@@ -21,7 +21,8 @@ pub struct PreviewCounts {
     pub unchanged: u64,
 }
 
-/// Compares the source (under `job.filter`) with the whole target, keyed on `_id`. Uses the compare
+/// Compares the source (under `job.filter`) with the target, keyed on `_id`: the whole target, or
+/// only the listed ids when the filter is an `_id` list (see `target_filter`). Uses the compare
 /// engine's default rules for an `_id` key: strict BSON equality except field order, so a numeric
 /// type difference counts as changed. `changed` therefore means "differs", whatever the conflict
 /// policy: it is not "would be written" (under Skip nothing existing is rewritten). `on_progress`
@@ -44,7 +45,7 @@ pub async fn preview_collection(
         source_filter: job.filter.clone(),
         target: Arc::clone(&job.target),
         target_ns: job.target_ns.clone(),
-        target_filter: Document::new(),
+        target_filter: target_filter(&job.filter),
         rules: CompareRules::for_key(&key),
         key,
         budget: Budget::new(Limits::default()),
@@ -57,6 +58,24 @@ pub async fn preview_collection(
         unchanged: summary.equal,
     };
     Ok((outcome, counts))
+}
+
+/// The part of the target a preview needs. A selection of documents is an `_id` list
+/// (`{_id: {$in: [..]}}`): only those ids can be new, changed or unchanged, so the target scan
+/// is restricted to them instead of reading the whole collection. Any other filter keeps the
+/// whole target, because which target documents match it is not known.
+fn target_filter(source_filter: &Document) -> Document {
+    match is_id_list(source_filter) {
+        true => source_filter.clone(),
+        false => Document::new(),
+    }
+}
+
+fn is_id_list(filter: &Document) -> bool {
+    let Some(Bson::Document(operator)) = filter.get("_id") else {
+        return false;
+    };
+    filter.len() == 1 && operator.len() == 1 && matches!(operator.get("$in"), Some(Bson::Array(_)))
 }
 
 #[cfg(test)]

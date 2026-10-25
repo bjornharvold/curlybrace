@@ -1,12 +1,15 @@
 //! Tests for the preview counts, against in-memory stores.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bson::{Document, doc};
+use async_trait::async_trait;
+use bson::{Bson, Document, doc};
 
 use super::*;
+use crate::compare::key::KeyTuple;
 use crate::copy::policy::ConflictPolicy;
-use crate::store::Namespace;
+use crate::store::{DocumentStore, Namespace, Page, Query};
 use crate::test_support::InMemoryStore;
 
 fn src_ns() -> Namespace {
@@ -101,4 +104,82 @@ async fn cancel_returns_cancelled_outcome() {
         .await
         .unwrap();
     assert_eq!(outcome, EngineOutcome::Cancelled);
+}
+
+/// An in-memory store that counts the documents its sorted scans hand back.
+struct Counting {
+    inner: InMemoryStore,
+    returned: AtomicUsize,
+}
+
+#[async_trait]
+impl DocumentStore for Counting {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        self.inner.list_databases().await
+    }
+
+    async fn list_collections(&self, db: &str) -> Result<Vec<String>> {
+        self.inner.list_collections(db).await
+    }
+
+    async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page> {
+        self.inner.find(ns, q).await
+    }
+
+    async fn insert(&self, ns: &Namespace, doc: Document) -> Result<Bson> {
+        self.inner.insert(ns, doc).await
+    }
+
+    async fn replace(&self, ns: &Namespace, id: &Bson, doc: Document) -> Result<()> {
+        self.inner.replace(ns, id, doc).await
+    }
+
+    async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()> {
+        self.inner.delete(ns, id).await
+    }
+
+    async fn scan_sorted(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        key: &KeySpec,
+        from: Option<&KeyTuple>,
+        limit: u32,
+    ) -> Result<Vec<Document>> {
+        let docs = self.inner.scan_sorted(ns, filter, key, from, limit).await?;
+        self.returned.fetch_add(docs.len(), Ordering::SeqCst);
+        Ok(docs)
+    }
+}
+
+fn counting_job(filter: Document) -> (CopyJob, Arc<Counting>) {
+    let source: Vec<Document> = (0..20).map(|n| doc! { "_id": n, "v": n }).collect();
+    let target_docs: Vec<Document> = (0..200).map(|n| doc! { "_id": n, "v": n }).collect();
+    let target = Arc::new(Counting {
+        inner: InMemoryStore::new().with_docs(&dst_ns(), target_docs),
+        returned: AtomicUsize::new(0),
+    });
+    let job = CopyJob {
+        target: target.clone(),
+        ..job(source, None, filter)
+    };
+    (job, target)
+}
+
+#[tokio::test]
+async fn an_id_list_selection_scans_only_those_ids_of_the_target() {
+    let filter = doc! { "_id": { "$in": [1, 2, 3, 500] } };
+    let (job, target) = counting_job(filter);
+    let (outcome, got) = preview(&job).await;
+    assert_eq!(outcome, EngineOutcome::Completed);
+    assert_eq!(got, counts(0, 0, 3));
+    assert_eq!(target.returned.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn any_other_filter_still_scans_the_whole_target() {
+    let (job, target) = counting_job(doc! { "v": 5 });
+    let (_, got) = preview(&job).await;
+    assert_eq!(got, counts(0, 0, 1));
+    assert_eq!(target.returned.load(Ordering::SeqCst), 200);
 }
