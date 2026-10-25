@@ -440,6 +440,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn in_filter_matches_any_listed_value_with_bson_equality() {
+        let q = Query {
+            filter: doc! { "_id": { "$in": [1_i64, 3.0_f64, 99_i32] } },
+            ..Query::default()
+        };
+        let page = store(6).find(&mock_namespace(), &q).await.unwrap();
+        let ids: Vec<i32> = page
+            .docs
+            .iter()
+            .map(|d| d.get_i32("_id").unwrap())
+            .collect();
+        assert_eq!(ids, vec![1, 3]);
+        let none = Query {
+            filter: doc! { "_id": { "$in": [] } },
+            ..Query::default()
+        };
+        let page = store(6).find(&mock_namespace(), &none).await.unwrap();
+        assert!(page.docs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn in_filter_is_honoured_by_scan_sorted_and_combines_with_equality() {
+        let filter = doc! { "a": 1, "_id": { "$in": [1, 2, 3] } };
+        let docs = store(6)
+            .scan_sorted(&mock_namespace(), &filter, &KeySpec::id(), None, 10)
+            .await
+            .unwrap();
+        let ids: Vec<i32> = docs.iter().map(|d| d.get_i32("_id").unwrap()).collect();
+        assert_eq!(ids, vec![1, 3]);
+    }
+
+    #[tokio::test]
+    async fn in_filter_needs_an_array_and_other_operators_stay_unsupported() {
+        for filter in [
+            doc! { "_id": { "$in": 1 } },
+            doc! { "_id": { "$in": [1], "$gt": 0 } },
+            doc! { "_id": { "$nin": [1] } },
+        ] {
+            let q = Query {
+                filter,
+                ..Query::default()
+            };
+            let err = store(6).find(&mock_namespace(), &q).await.unwrap_err();
+            assert!(matches!(err, CoreError::Unsupported(_)));
+        }
+    }
+
+    #[tokio::test]
     async fn insert_returns_given_or_generated_id() {
         let s = InMemoryStore::new();
         let ns = mock_namespace();

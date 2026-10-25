@@ -13,24 +13,42 @@ fn unsupported(what: &str) -> CoreError {
     CoreError::Unsupported(format!("in-memory store: {what}"))
 }
 
-/// Validates that `filter` only uses top-level equality conditions.
+/// The list of `{ "$in": [list] }`, when `value` is exactly that and nothing else.
+fn in_list(value: &Bson) -> Option<&[Bson]> {
+    match value {
+        Bson::Document(d) if d.len() == 1 => match d.get("$in") {
+            Some(Bson::Array(list)) => Some(list),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Validates that `filter` only uses top-level equality conditions and `$in` on a top-level
+/// field (any other operator is unsupported).
 pub fn check_filter(filter: &Document) -> Result<()> {
     for (key, value) in filter {
         if key.starts_with('$') || key.contains('.') {
             return Err(unsupported(&format!("filter key `{key}`")));
         }
-        if matches!(value, Bson::Document(d) if d.keys().any(|k| k.starts_with('$'))) {
+        let has_operator =
+            matches!(value, Bson::Document(d) if d.keys().any(|k| k.starts_with('$')));
+        if has_operator && in_list(value).is_none() {
             return Err(unsupported(&format!("operator in filter field `{key}`")));
         }
     }
     Ok(())
 }
 
-/// Equality match on top-level fields; a missing field equals `null`.
+/// Equality match on top-level fields (or membership for `$in`); a missing field equals `null`.
 pub fn matches(doc: &Document, filter: &Document) -> bool {
-    filter
-        .iter()
-        .all(|(k, want)| cmp_bson(doc.get(k).unwrap_or(&NULL), want) == Ordering::Equal)
+    filter.iter().all(|(k, want)| {
+        let have = doc.get(k).unwrap_or(&NULL);
+        match in_list(want) {
+            Some(list) => list.iter().any(|v| cmp_bson(have, v) == Ordering::Equal),
+            None => cmp_bson(have, want) == Ordering::Equal,
+        }
+    })
 }
 
 /// Parses a sort spec into `(field, ascending)` pairs.
