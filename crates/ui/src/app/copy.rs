@@ -178,7 +178,10 @@ fn start_copy(state: AppState, counts_incomplete: bool) -> Out {
         return none(state);
     };
     let (state, run) = next_run(state);
-    let phase = CopyPhase::Running(CopyRun::new(run, counts_incomplete));
+    let structure_requested = request.with_indexes_and_options;
+    let phase = CopyPhase::Running(
+        CopyRun::new(run, counts_incomplete).with_structure_requested(structure_requested),
+    );
     let state = with_dialog(state, |d| {
         d.with_phase(phase).preview_ended(None).with_restart(false)
     });

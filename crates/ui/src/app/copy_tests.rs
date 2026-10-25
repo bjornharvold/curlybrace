@@ -165,6 +165,8 @@ pub(super) fn report(written: u64, outcome: CopyOutcome) -> CopyReport {
         },
         failures: Vec::new(),
         outcome,
+        structure: None,
+        indexes: None,
     }
 }
 

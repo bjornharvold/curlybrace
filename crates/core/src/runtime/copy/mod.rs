@@ -199,6 +199,8 @@ struct Job {
     target: Side,
     scope: CopyScope,
     policy: ConflictPolicy,
+    /// Collection options first and indexes last (see `copy::structure`).
+    with_indexes_and_options: bool,
     cancel: CancelFlag,
     /// Set when a session was found stale, or the dispatcher saw its epoch change (see
     /// `CopySlot::session_changing`); the run then ends with `Superseded`.
@@ -288,6 +290,7 @@ fn register(
         target,
         scope: request.scope,
         policy: request.policy,
+        with_indexes_and_options: request.with_indexes_and_options,
         cancel,
         lost,
     };

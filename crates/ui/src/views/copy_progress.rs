@@ -97,6 +97,7 @@ fn show_report(
     ui.heading(i18n.t(title));
     show_reason(ui, run, outcome, i18n);
     show_written(ui, run, i18n);
+    show_structure(ui, run, i18n);
     if !matches!(outcome, RunOutcome::Completed) {
         ui.label(i18n.t("copy.report.nothing_else"));
     }
@@ -138,6 +139,37 @@ fn show_written(ui: &mut egui::Ui, run: &CopyRun, i18n: &I18n) {
             None => i18n.t_with("copy.report.not_started", &[("collection", &collection)]),
         };
         ui.label(text);
+    }
+}
+
+/// The options and indexes of each collection: created with the source's options or kept as
+/// they were, the index counts, and every index that failed by its name and reason.
+fn show_structure(ui: &mut egui::Ui, run: &CopyRun, i18n: &I18n) {
+    for line in run.options_lines() {
+        ui.label(i18n.t_with(line.key, &[("collection", &line.collection)]));
+    }
+    for line in run.index_lines() {
+        let params = [
+            ("collection", line.collection),
+            ("built", line.built.to_string()),
+            ("existing", line.existing.to_string()),
+            ("failed", line.failed.to_string()),
+        ];
+        let params: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        ui.label(i18n.t_with("copy.report.indexes", &params));
+    }
+    for row in run.index_failures() {
+        let reason = i18n.t(row.reason_key);
+        let params = [
+            ("collection", row.collection.as_str()),
+            ("name", row.name.as_str()),
+            ("reason", reason.as_str()),
+        ];
+        let text = i18n.t_with("copy.report.index_failed", &params);
+        ui.colored_label(ui.visuals().warn_fg_color, text);
+    }
+    if run.indexes_skipped() {
+        ui.label(i18n.t("copy.report.indexes_not_built"));
     }
 }
 

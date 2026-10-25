@@ -26,6 +26,7 @@ pub mod copy;
 mod copy_actions;
 mod copy_documents;
 pub mod copy_state;
+pub mod copy_structure_report;
 mod dialog_banner;
 pub mod file_picker;
 pub mod host_key;
@@ -775,6 +776,9 @@ mod copy_menu_tests;
 
 #[cfg(test)]
 mod copy_run_tests;
+
+#[cfg(test)]
+mod copy_structure_report_tests;
 
 #[cfg(test)]
 mod copy_tests;

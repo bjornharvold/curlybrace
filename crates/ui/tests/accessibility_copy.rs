@@ -7,6 +7,9 @@ use curlybrace_core::copy::engine::{CopyFailure, CopyOutcome, CopyProgress, Copy
 use curlybrace_core::copy::policy::ConflictPolicy;
 use curlybrace_core::copy::preview::PreviewCounts;
 use curlybrace_core::copy::protocol::{CopyItem, CopyRequest, CopyScope};
+use curlybrace_core::copy::structure::{
+    IndexFailReason, IndexFailure, IndexReport, StructureOutcome, StructureReport,
+};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{Namespace, WriteFailure};
 use curlybrace_ui::I18n;
@@ -220,6 +223,8 @@ fn running(outcome: Option<RunOutcome>) -> CopyDialog {
                 progress,
                 failures: Vec::new(),
                 outcome: CopyOutcome::Cancelled,
+                structure: None,
+                indexes: None,
             },
         );
     let run = match outcome {
@@ -288,6 +293,8 @@ fn the_failure_report_lists_keys_and_message_keys_only() {
         },
         failures,
         outcome: CopyOutcome::Completed,
+        structure: None,
+        indexes: None,
     };
     let run = CopyRun::new(3, true)
         .with_plan(&[item("orders")])
@@ -299,6 +306,74 @@ fn the_failure_report_lists_keys_and_message_keys_only() {
     h.get_by_label(&t("copy.failure.rejected"));
     h.get_by_label(&t("copy.report.counts_incomplete"));
     assert!(h.query_by_label_contains("121").is_none(), "no server code");
+}
+
+#[test]
+fn the_report_shows_options_and_indexes_by_name_and_typed_reason() {
+    let finished =
+        |built: &[&str], existing: &[&str], failed: Vec<IndexFailure>, kind| CopyReport {
+            progress: CopyProgress {
+                scanned: 5,
+                written: 5,
+                skipped: 0,
+                failed: 0,
+            },
+            failures: Vec::new(),
+            outcome: CopyOutcome::Completed,
+            structure: Some(StructureReport { outcome: kind }),
+            indexes: Some(IndexReport {
+                built: built.iter().map(|n| n.to_string()).collect(),
+                existing: existing.iter().map(|n| n.to_string()).collect(),
+                failed,
+            }),
+        };
+    let unique = IndexFailure {
+        name: "email_unique".into(),
+        reason: IndexFailReason::DuplicateData,
+    };
+    let run = CopyRun::new(3, false)
+        .with_structure_requested(true)
+        .with_plan(&[item("orders"), item("users")])
+        .with_item_done(
+            0,
+            finished(&["a_1", "b_1"], &[], vec![], StructureOutcome::Created),
+        )
+        .with_item_done(
+            1,
+            finished(
+                &["c_1"],
+                &["a_1"],
+                vec![unique],
+                StructureOutcome::ExistingKept,
+            ),
+        )
+        .ended(RunOutcome::Completed);
+    let h = harness(dialog(ConflictPolicy::Skip).with_phase(CopyPhase::Running(run)));
+    let i18n = I18n::english();
+    h.get_by_label(&i18n.t_with("copy.report.options_created", &[("collection", "orders")]));
+    h.get_by_label(&i18n.t_with("copy.report.options_kept", &[("collection", "users")]));
+    h.get_by_label(&i18n.t_with(
+        "copy.report.indexes",
+        &[
+            ("collection", "users"),
+            ("built", "1"),
+            ("existing", "1"),
+            ("failed", "1"),
+        ],
+    ));
+    let reason = t("copy.index_failure.duplicate_data");
+    h.get_by_label(&i18n.t_with(
+        "copy.report.index_failed",
+        &[
+            ("collection", "users"),
+            ("name", "email_unique"),
+            ("reason", &reason),
+        ],
+    ));
+    assert!(
+        h.query_by_label(&t("copy.report.indexes_not_built"))
+            .is_none()
+    );
 }
 
 fn click_at(h: &mut Harness<'_, Run>, pos: egui::Pos2) {

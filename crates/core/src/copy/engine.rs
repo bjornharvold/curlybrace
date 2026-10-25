@@ -21,6 +21,7 @@ use bson::{Bson, Document, doc};
 
 use super::names::is_same_namespace;
 use super::policy::{ConflictPolicy, ExistingIds, plan_batch};
+use super::structure::{IndexReport, StructureReport};
 use crate::compare::apply::MAX_REPORTED_FAILURES;
 use crate::compare::engine::CancelFlag;
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
@@ -28,6 +29,7 @@ use crate::error::{CoreError, Result};
 use crate::store::{DocumentStore, Namespace, Query, WriteFailure, WriteOp, WriteOutcome};
 
 /// One collection to copy.
+#[derive(Clone)]
 pub struct CopyJob {
     pub source: Arc<dyn DocumentStore>,
     pub source_ns: Namespace,
@@ -71,6 +73,11 @@ pub struct CopyReport {
     /// The first `MAX_REPORTED_FAILURES` failures; the rest are only in `progress.failed`.
     pub failures: Vec<CopyFailure>,
     pub outcome: CopyOutcome,
+    /// What happened to the target collection's options; `None` when options were not copied.
+    pub structure: Option<StructureReport>,
+    /// The indexes built after the data; `None` when they were not copied, or when the data copy
+    /// was cancelled or failed (no index is built then).
+    pub indexes: Option<IndexReport>,
 }
 
 /// One batch read from the source and planned against the target, not yet written.
@@ -92,6 +99,8 @@ pub async fn copy_collection(
         progress: CopyProgress::default(),
         failures: Vec::new(),
         outcome: CopyOutcome::Completed,
+        structure: None,
+        indexes: None,
     };
     if is_same_collection(&job) {
         report.outcome = CopyOutcome::Failed(CoreError::Unsupported(
@@ -105,7 +114,7 @@ pub async fn copy_collection(
 
 /// The same collection of the same store. Stores are told apart by the identity of their `Arc`
 /// (a `Namespace` alone cannot); two wrappers around one store look different and are allowed.
-fn is_same_collection(job: &CopyJob) -> bool {
+pub(super) fn is_same_collection(job: &CopyJob) -> bool {
     let same_store = std::ptr::addr_eq(Arc::as_ptr(&job.source), Arc::as_ptr(&job.target));
     same_store && is_same_namespace(&job.source_ns, &job.target_ns)
 }

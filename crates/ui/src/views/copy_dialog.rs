@@ -179,7 +179,6 @@ fn show_options(ui: &mut egui::Ui, dialog: &CopyDialog, i18n: &I18n) -> Option<C
     ui.separator();
     let mut checked = dialog.with_indexes_and_options;
     let toggle = ui.checkbox(&mut checked, i18n.t("copy.dialog.indexes_and_options"));
-    ui.weak(i18n.t("copy.dialog.indexes_and_options_note"));
     toggle
         .changed()
         .then_some(CopyInput::ToggleIndexesAndOptions)

@@ -566,7 +566,6 @@
       },
       "from": "From: {connection} / {database}",
       "indexes_and_options": "Also copy indexes and collection options",
-      "indexes_and_options_note": "Copying indexes and options is not available yet, so this choice has no effect for now.",
       "name_label": "Name for {source} in the target",
       "names_title": "Names in the target",
       "overwrite_note": "Overwrite replaces documents that already exist in the target. Nothing is deleted.",
@@ -584,6 +583,13 @@
       "duplicate_key": "A unique index already holds this value",
       "missing": "The document no longer exists in the target",
       "rejected": "The target refused the document"
+    },
+    "index_failure": {
+      "connection_lost": "the connection was lost",
+      "duplicate_data": "the data holds duplicate values for a unique index",
+      "not_allowed": "this connection may not create indexes",
+      "rejected": "the target refused the index",
+      "unsupported": "the target cannot build this kind of index"
     },
     "menu": {
       "copy": "Copy",
@@ -636,10 +642,16 @@
       "counts_incomplete": "The counts were still being computed when the copy started, so they were incomplete.",
       "error": "Reason: {reason}",
       "failures_title": "Documents that were not copied",
+      "index_failed": "Index {name} of {collection} was not built: {reason}. The copied documents were kept.",
+      "indexes": "{collection}: indexes built {built}, already in the target {existing}, failed {failed}.",
+      "indexes_not_built": "The copy did not finish, so no further indexes were built.",
       "more_failures": "More failures are not shown.",
       "not_started": "{collection}: not started.",
       "nothing_else": "Nothing else was changed. Documents already written are not rolled back.",
       "nothing_written": "No documents were written.",
+      "options_created": "{collection}: created with the options of the source collection.",
+      "options_kept": "{collection}: already existed, so its options were left as they are.",
+      "options_not_plain": "{collection}: a view or time-series collection. Only its documents were copied, without options or indexes.",
       "session_lost": "A connection was closed or reconnected during the copy, so it stopped.",
       "title_cancelled": "Copy cancelled",
       "title_completed": "Copy finished",

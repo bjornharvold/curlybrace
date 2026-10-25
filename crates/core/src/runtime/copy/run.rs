@@ -1,7 +1,7 @@
 //! The copy loop of a `Start`: one collection after another through the engine.
 
 use super::{CopyEvent, CopyItem, Job};
-use crate::copy::{CopyOutcome, CopyReport, copy_collection};
+use crate::copy::{CopyOutcome, CopyReport, copy_with_structure};
 use crate::error::CoreError;
 
 /// Runs every item; returns the terminal event.
@@ -48,7 +48,13 @@ async fn copy_item(job: &Job, index: usize, item: &CopyItem) -> CopyReport {
         // After the event, so the counts of the batch just written are delivered either way.
         job.sessions_current();
     };
-    copy_collection(job.copy_job(item), &job.cancel, &mut on_progress).await
+    copy_with_structure(
+        job.copy_job(item),
+        job.with_indexes_and_options,
+        &job.cancel,
+        &mut on_progress,
+    )
+    .await
 }
 
 /// The progress denominator: the estimated count of the whole collection. A filtered copy has

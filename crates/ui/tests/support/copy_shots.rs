@@ -86,6 +86,8 @@ fn report(written: u64, failed: u64, outcome: CopyOutcome, keys: Vec<Bson>) -> C
             })
             .collect(),
         outcome,
+        structure: None,
+        indexes: None,
     }
 }
 

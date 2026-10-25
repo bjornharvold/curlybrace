@@ -45,7 +45,8 @@ pub struct CopyRequest {
     pub target: SessionId,
     pub scope: CopyScope,
     pub policy: ConflictPolicy,
-    /// Whether indexes and collection options are copied too (a later slice acts on it).
+    /// Whether collection options (first) and indexes (last) are copied too. The result is in
+    /// `CopyReport::structure` and `CopyReport::indexes` of each `ItemDone`.
     pub with_indexes_and_options: bool,
 }
 

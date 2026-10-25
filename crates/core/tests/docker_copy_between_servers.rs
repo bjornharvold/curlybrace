@@ -8,7 +8,9 @@
 mod support;
 
 use bson::{Bson, Document, doc, oid::ObjectId};
-use curlybrace_core::copy::{ConflictPolicy, CopyEvent, CopyOutcome, CopyScope};
+use curlybrace_core::copy::{
+    ConflictPolicy, CopyEvent, CopyOutcome, CopyRequest, CopyScope, IndexFailReason, IndexFailure,
+};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{Namespace, WriteFailure};
 use support::copy_flow::{
@@ -393,4 +395,133 @@ async fn top_level_dollar_field_inserts_but_its_replace_is_rejected_per_document
             .iter()
             .all(|d| d.get_bool("stale") == Ok(true))
     );
+}
+
+/// The `create` options of `ns` as the server lists them.
+async fn options_of(client: &mongodb::Client, ns: &Namespace) -> Document {
+    let reply = client
+        .database(&ns.db)
+        .run_command(doc! { "listCollections": 1, "filter": { "name": &ns.collection } })
+        .await
+        .expect("listCollections");
+    let first = reply
+        .get_document("cursor")
+        .and_then(|c| c.get_array("firstBatch"))
+        .expect("firstBatch");
+    first[0]
+        .as_document()
+        .and_then(|d| d.get_document("options").ok())
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The index names of `ns`, sorted.
+async fn index_names(client: &mongodb::Client, ns: &Namespace) -> Vec<String> {
+    let reply = client
+        .database(&ns.db)
+        .run_command(doc! { "listIndexes": &ns.collection })
+        .await
+        .expect("listIndexes");
+    let first = reply
+        .get_document("cursor")
+        .and_then(|c| c.get_array("firstBatch"))
+        .expect("firstBatch");
+    let mut names: Vec<String> = first
+        .iter()
+        .filter_map(|i| i.as_document()?.get_str("name").ok().map(str::to_owned))
+        .collect();
+    names.sort();
+    names
+}
+
+/// Creates `ns` as a capped collection with a plain and a unique index.
+async fn seed_structured(client: &mongodb::Client, ns: &Namespace, docs: Vec<Document>) {
+    let db = client.database(&ns.db);
+    db.run_command(
+        doc! { "create": &ns.collection, "capped": true, "size": 1_048_576_i64, "max": 100_i64 },
+    )
+    .await
+    .expect("create capped");
+    seed(client, ns, docs).await;
+    db.run_command(doc! { "createIndexes": &ns.collection, "indexes": [
+        { "key": { "v": 1 }, "name": "v_1" },
+        { "key": { "u": 1 }, "name": "u_1", "unique": true },
+    ] })
+    .await
+    .expect("createIndexes");
+}
+
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn copies_options_and_indexes_between_two_containers() {
+    if !docker_enabled("copies_options_and_indexes_between_two_containers") {
+        return;
+    }
+    let (a, client_a, _sa) = docker_mongo().await;
+    let (b, client_b, _sb) = docker_mongo().await;
+    let fresh = Namespace::new("cbit_struct", "fresh");
+    let dups = Namespace::new("cbit_struct", "dups");
+    let docs = |n: i32| -> Vec<Document> {
+        (1..=n)
+            .map(|id| doc! { "_id": id, "v": "x", "u": id })
+            .collect()
+    };
+    seed_structured(&client_a, &fresh, docs(5)).await;
+    seed_structured(&client_a, &dups, docs(2)).await;
+    // The target already holds a document whose `u` collides with the source's `u: 1`; it has no
+    // unique index yet, so the data copies and only the unique index build fails.
+    seed(
+        &client_b,
+        &dups,
+        vec![doc! { "_id": 100, "v": "t", "u": 1 }],
+    )
+    .await;
+
+    let mut rt = runtime();
+    let (sa, sb) = (
+        connect(&mut rt, &config(&a)).await,
+        connect(&mut rt, &config(&b)).await,
+    );
+    let scope = CopyScope::Collections(vec![item(&fresh, &fresh), item(&dups, &dups)]);
+    let req = CopyRequest {
+        with_indexes_and_options: true,
+        ..request(sa, sb, scope, ConflictPolicy::Skip)
+    };
+    let events = run_copy(&mut rt, 1, req).await;
+    assert_done(&events);
+    let reports = reports(&events);
+
+    // A new target gets the source's options (capped) and every index but `_id_`.
+    let options = options_of(&client_b, &fresh).await;
+    assert_eq!(options.get_bool("capped"), Ok(true));
+    let max = options.get("max");
+    assert!(
+        matches!(max, Some(Bson::Int32(100) | Bson::Int64(100))),
+        "max is 100"
+    );
+    assert_eq!(count(&client_b, &fresh).await, 5);
+    assert_eq!(index_names(&client_b, &fresh).await, ["_id_", "u_1", "v_1"]);
+    let built = &reports[0].indexes.as_ref().expect("index report").built;
+    assert_eq!(built, &["v_1", "u_1"], "in the source's order");
+
+    // An existing target keeps its (default) options; the unique build over duplicates is
+    // reported by name and the copied data stays.
+    assert!(
+        options_of(&client_b, &dups)
+            .await
+            .get_bool("capped")
+            .is_err()
+    );
+    assert_eq!(count(&client_b, &dups).await, 3);
+    let indexes = reports[1].indexes.as_ref().expect("index report");
+    assert_eq!(indexes.built, ["v_1"]);
+    assert_eq!(
+        indexes.failed,
+        [IndexFailure {
+            name: "u_1".into(),
+            reason: IndexFailReason::DuplicateData
+        }]
+    );
+    assert_eq!(index_names(&client_b, &dups).await, ["_id_", "v_1"]);
+    assert_eq!(reports[1].outcome, CopyOutcome::Completed);
 }

@@ -15,6 +15,7 @@ use curlybrace_core::copy::names::{
 use curlybrace_core::copy::policy::ConflictPolicy;
 use curlybrace_core::copy::preview::PreviewCounts;
 use curlybrace_core::copy::protocol::{CopyItem, CopyRequest, CopyScope};
+use curlybrace_core::copy::structure::{IndexReport, StructureReport};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{Namespace, WriteFailure};
 
@@ -80,6 +81,11 @@ pub struct CopyRow {
     /// The collection reported its exact counts.
     pub finished: bool,
     pub error: Option<CoreError>,
+    /// What happened to the target's options; `None` when they were not copied.
+    pub structure: Option<StructureReport>,
+    /// The indexes built after the data; `None` when none were (not asked for, or the data copy
+    /// did not complete).
+    pub indexes: Option<IndexReport>,
 }
 
 impl CopyRow {
@@ -90,6 +96,8 @@ impl CopyRow {
             estimated_total: None,
             finished: false,
             error: None,
+            structure: None,
+            indexes: None,
         }
     }
 
@@ -138,6 +146,8 @@ pub struct CopyRun {
     pub more_failures: bool,
     /// Confirm was pressed while the counts were still being computed.
     pub counts_incomplete: bool,
+    /// The copy was sent with "also copy indexes and collection options".
+    pub structure_requested: bool,
 }
 
 impl CopyRun {
@@ -150,6 +160,7 @@ impl CopyRun {
             failures: Vec::new(),
             more_failures: false,
             counts_incomplete,
+            structure_requested: false,
         }
     }
 
@@ -200,6 +211,8 @@ impl CopyRun {
             progress: report.progress,
             finished: true,
             error,
+            structure: report.structure,
+            indexes: report.indexes.clone(),
             ..row
         });
         Self {
