@@ -459,3 +459,106 @@ fn a_clean_collection_has_no_skipped_or_failed_line() {
     assert!(run_of(&s).not_written_lines().is_empty());
     assert_eq!(run_of(&s).failed_total(), 0);
 }
+
+// ---- a new paste right after a cancelled preview waits for the run slot ----
+
+use super::copy_tests::{counted, onto_crm, paste_onto, preview_run};
+use super::state::AppState;
+
+/// The first dialog was cancelled while counting: its preview (the returned run) still holds the
+/// runtime's one run slot. A second paste is then opened.
+fn cancelled_then_pasted() -> (AppState, u64, Vec<Command>) {
+    let (s, old) = opened(false);
+    let (s, _) = input(s, CopyInput::Cancel);
+    let s = paste_onto(s, onto_crm());
+    let (s, commands) = input(s, CopyInput::Open);
+    (s, old, commands)
+}
+
+#[test]
+fn a_paste_after_cancelling_a_counting_dialog_waits_for_the_old_run_to_end() {
+    let (s, old, commands) = cancelled_then_pasted();
+    assert!(commands.is_empty(), "the slot is still taken: {commands:?}");
+    assert!(dialog(&s).counting, "the dialog shows that it is counting");
+    // Events of the old run that are not its end change nothing.
+    let (s, commands) = event(
+        s,
+        CopyEvent::PreviewProgress {
+            run: old,
+            index: 0,
+            scanned: 9,
+        },
+    );
+    assert!(commands.is_empty());
+    let (s, commands) = event(s, CopyEvent::PreviewDone { run: old });
+    let fresh = preview_run(&commands);
+    assert_ne!(fresh, old);
+    assert_eq!(commands.len(), 1, "exactly one Preview: {commands:?}");
+    let s = counted(s, fresh);
+    assert_eq!(dialog(&s).counted, 2);
+    assert!(!dialog(&s).counting);
+    // A repeated terminal event of the old run sends nothing more.
+    let (_, commands) = event(s, CopyEvent::PreviewDone { run: old });
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn the_old_run_ending_with_a_failure_also_releases_the_held_preview() {
+    let (s, old, _) = cancelled_then_pasted();
+    let (_, commands) = event(
+        s,
+        CopyEvent::Failed {
+            run: old,
+            error: CoreError::Superseded,
+        },
+    );
+    assert_eq!(commands.len(), 1);
+    preview_run(&commands);
+}
+
+#[test]
+fn closing_the_held_dialog_drops_the_pending_preview() {
+    let (s, old, _) = cancelled_then_pasted();
+    let (s, commands) = input(s, CopyInput::Cancel);
+    assert!(s.copy.is_none() && commands.is_empty(), "no run to cancel");
+    let (s, commands) = event(s, CopyEvent::PreviewDone { run: old });
+    assert!(s.copy.is_none() && commands.is_empty());
+    // The slot is free again: the next paste previews at once.
+    let s = paste_onto(s, onto_crm());
+    let (_, commands) = input(s, CopyInput::Open);
+    preview_run(&commands);
+}
+
+#[test]
+fn confirm_while_the_preview_is_held_starts_the_copy_only_after_the_old_run_ends() {
+    let (s, old, _) = cancelled_then_pasted();
+    let (s, commands) = input(s, CopyInput::Confirm);
+    assert!(commands.is_empty(), "no Start while the slot is taken");
+    assert!(matches!(dialog(&s).phase, CopyPhase::Starting));
+    let (s, commands) = event(s, CopyEvent::PreviewDone { run: old });
+    let (_, request) = start_run(&commands);
+    assert_eq!(request.policy, ConflictPolicy::Skip);
+    assert!(run_of(&s).outcome.is_none());
+    assert!(run_of(&s).counts_incomplete);
+}
+
+#[test]
+fn renaming_while_the_preview_is_held_keeps_one_pending_preview() {
+    let (s, old, _) = cancelled_then_pasted();
+    let (s, commands) = input(
+        s,
+        CopyInput::SetName {
+            index: 0,
+            name: "orders_2".into(),
+        },
+    );
+    assert!(commands.is_empty());
+    let (_, commands) = event(s, CopyEvent::PreviewDone { run: old });
+    let fresh = preview_run(&commands);
+    assert_eq!(commands.len(), 1);
+    let Command::Copy(CopyCommand::Preview { request, .. }) = &commands[0] else {
+        panic!()
+    };
+    assert_ne!(fresh, old);
+    assert!(format!("{:?}", request.scope).contains("orders_2"));
+}

@@ -194,6 +194,9 @@ pub struct AppState {
     pub copy: Option<super::copy_state::CopyDialog>,
     /// Copy run ids handed out so far (previews and copies share the counter).
     pub copy_runs: curlybrace_core::compare::protocol::RunId,
+    /// A cancelled preview whose dialog is gone but whose terminal event has not arrived: it
+    /// still holds the runtime's one run slot, so the next preview or copy waits for it.
+    pub copy_draining: Option<curlybrace_core::compare::protocol::RunId>,
     /// Databases whose collection list is in flight.
     pub loading: BTreeSet<String>,
     pub find: FindBarState,

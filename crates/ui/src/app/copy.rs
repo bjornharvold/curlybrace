@@ -120,6 +120,11 @@ fn start_preview(state: AppState) -> Out {
     if !dialog.names_valid() {
         return none(state);
     }
+    if state.copy_draining.is_some() {
+        // The slot is still taken by a cancelled preview: the dialog shows it is counting and
+        // the preview goes out when that run ends (`drain_ended`).
+        return none(with_dialog(state, CopyDialog::preview_held));
+    }
     let request = dialog.final_request();
     let (state, run) = next_run(state);
     let state = with_dialog(state, |d| d.counting_run(run));
@@ -170,6 +175,10 @@ fn confirm(state: AppState) -> Out {
                 false => send(CopyCommand::Cancel { run: preview }),
             },
         ),
+        // The slot is held by a cancelled preview of a closed dialog: the copy waits for it.
+        (None, _) if state.copy_draining.is_some() => {
+            none(with_dialog(state, |d| d.with_phase(CopyPhase::Starting)))
+        }
         (None, _) => start_copy(state, false),
     }
 }
@@ -254,10 +263,38 @@ fn close(state: AppState) -> Out {
     }
 }
 
+/// Closes the dialog. A preview still in flight keeps the run slot until its terminal event, so
+/// its id is remembered; the held preview or copy of a later dialog waits for it.
 fn close_dialog(state: AppState) -> AppState {
+    let in_flight = state.copy.as_ref().and_then(|d| d.preview_run);
     AppState {
+        copy_draining: in_flight.or(state.copy_draining),
         copy: None,
         ..state
+    }
+}
+
+/// An event of the cancelled preview that is still draining: only its end matters. It frees the
+/// slot, and the copy or the preview the open dialog was holding goes out now.
+fn drain_event(state: AppState, event: CopyEvent) -> Out {
+    let ends = matches!(
+        event,
+        CopyEvent::PreviewDone { .. } | CopyEvent::Done { .. } | CopyEvent::Failed { .. }
+    );
+    if !ends {
+        return none(state);
+    }
+    let state = AppState {
+        copy_draining: None,
+        ..state
+    };
+    let Some(dialog) = &state.copy else {
+        return none(state);
+    };
+    match (&dialog.phase, dialog.restart_preview) {
+        (CopyPhase::Starting, _) => start_copy(state, true),
+        (CopyPhase::Editing, true) => start_preview(with_dialog(state, |d| d.with_restart(false))),
+        _ => none(state),
     }
 }
 
@@ -277,10 +314,13 @@ fn run_of(event: &CopyEvent) -> RunId {
 
 /// Applies an event of the dialog's preview or copy; an event of any other run is dropped.
 pub(super) fn on_event(state: AppState, event: CopyEvent) -> Out {
+    let run = run_of(&event);
+    if state.copy_draining == Some(run) {
+        return drain_event(state, event);
+    }
     let Some(dialog) = &state.copy else {
         return none(state);
     };
-    let run = run_of(&event);
     if dialog.preview_run == Some(run) {
         return preview_event(state, event);
     }

@@ -602,6 +602,16 @@ impl CopyDialog {
         }
     }
 
+    /// A preview could not be sent yet because a cancelled one still holds the run slot: the
+    /// dialog counts, and a preview goes out when that run ends.
+    pub fn preview_held(self) -> Self {
+        Self {
+            counting: true,
+            restart_preview: true,
+            ..self.counts_cleared()
+        }
+    }
+
     /// The preview ended (or failed with `error`).
     pub fn preview_ended(self, error: Option<CoreError>) -> Self {
         Self {
