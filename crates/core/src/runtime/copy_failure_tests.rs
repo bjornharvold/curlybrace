@@ -11,6 +11,7 @@ use std::time::Duration;
 use super::copy_support::*;
 use super::*;
 use crate::copy::{ConflictPolicy, CopyCommand, CopyEvent, CopyOutcome};
+use crate::error::CopyRefusal;
 
 /// The run ends in `Failed(Superseded)`, with exactly the first batch written through exactly one
 /// `bulk_write`, and nothing follows the terminal event.
@@ -183,7 +184,7 @@ async fn second_start_while_running_is_refused() {
     for run in [2, 3] {
         let refusal = CopyEvent::Failed {
             run,
-            error: CoreError::Unsupported("a copy is already running".into()),
+            error: CoreError::CopyRefused(CopyRefusal::AlreadyRunning),
         };
         assert!(events.contains(&refusal), "run {run} is refused");
     }

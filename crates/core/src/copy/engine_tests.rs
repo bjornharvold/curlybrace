@@ -8,6 +8,7 @@ use bson::doc;
 use super::*;
 use crate::compare::apply::APPLY_BATCH;
 use crate::compare::key::compare_bson;
+use crate::error::CopyRefusal;
 use crate::store::Page;
 use crate::test_support::InMemoryStore;
 use crate::test_support::mock_objects::mock_docs_with_mixed_ids;
@@ -358,7 +359,7 @@ async fn same_namespace_in_same_store_is_refused() {
     .await;
     assert!(matches!(
         report.outcome,
-        CopyOutcome::Failed(CoreError::Unsupported(_))
+        CopyOutcome::Failed(CoreError::CopyRefused(CopyRefusal::OntoItself))
     ));
     assert_eq!(report.progress, CopyProgress::default());
     assert_eq!(store.scans.load(Ordering::SeqCst), 0);

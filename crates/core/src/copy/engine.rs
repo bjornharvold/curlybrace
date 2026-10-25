@@ -25,7 +25,7 @@ use super::structure::{IndexReport, StructureReport};
 use crate::compare::apply::MAX_REPORTED_FAILURES;
 use crate::compare::engine::CancelFlag;
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
-use crate::error::{CoreError, Result};
+use crate::error::{CopyRefusal, CoreError, Result};
 use crate::store::{DocumentStore, Namespace, Query, WriteFailure, WriteOp, WriteOutcome};
 
 /// One collection to copy.
@@ -105,9 +105,7 @@ pub async fn copy_collection(
         indexes: None,
     };
     if is_same_collection(&job) {
-        report.outcome = CopyOutcome::Failed(CoreError::Unsupported(
-            "a collection cannot be copied onto itself".into(),
-        ));
+        report.outcome = CopyOutcome::Failed(CoreError::CopyRefused(CopyRefusal::OntoItself));
         return report;
     }
     report.outcome = stream(&job, cancel, on_progress, &mut report).await;

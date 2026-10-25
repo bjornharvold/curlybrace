@@ -58,7 +58,7 @@ use crate::copy::names::{
 use crate::copy::{
     ConflictPolicy, CopyCommand, CopyEvent, CopyItem, CopyJob, CopyRequest, CopyScope,
 };
-use crate::error::{CoreError, Result};
+use crate::error::{CopyRefusal, CoreError, Result};
 use crate::store::{CollectionKind, DocumentStore, Namespace};
 
 type Events = UnboundedSender<Event>;
@@ -83,7 +83,7 @@ impl CopySlot {
     fn take(&self, active: Active) -> Result<()> {
         let mut slot = self.active.lock().unwrap_or_else(|e| e.into_inner());
         if slot.is_some() {
-            return Err(CoreError::Unsupported("a copy is already running".into()));
+            return Err(CoreError::CopyRefused(CopyRefusal::AlreadyRunning));
         }
         *slot = Some(active);
         Ok(())
@@ -173,7 +173,7 @@ struct Side {
 
 impl Side {
     fn open(shared: &Shared, id: SessionId) -> Result<Self> {
-        let not_connected = || CoreError::Unsupported("not connected".into());
+        let not_connected = || CoreError::CopyRefused(CopyRefusal::NotConnected);
         let session = shared.session(id).ok_or_else(not_connected)?;
         // The generation is read BEFORE the store: a reconnect in between leaves a stale
         // generation (noticed at once), never a new store under an old generation.
@@ -297,13 +297,13 @@ fn register(
     Ok((job, guard))
 }
 
-fn unsupported(text: &str) -> CoreError {
-    CoreError::Unsupported(text.into())
+fn refused(reason: CopyRefusal) -> CoreError {
+    CoreError::CopyRefused(reason)
 }
 
 /// Server-owned databases and collections are never copied, from or into, and every target name
 /// must be one MongoDB accepts. Judged before anything is read or written. The refusals carry
-/// fixed text: a name is data and is never echoed.
+/// a fixed typed reason: a name is data and is never echoed.
 fn refuse_bad_names(scope: &CopyScope) -> Result<()> {
     match scope {
         CopyScope::Database {
@@ -311,13 +311,13 @@ fn refuse_bad_names(scope: &CopyScope) -> Result<()> {
             target_db,
         } => {
             if is_excluded_database(source_db) || is_excluded_database(target_db) {
-                return Err(unsupported("server-owned databases cannot be copied"));
+                return Err(refused(CopyRefusal::ServerOwned));
             }
-            validate_database_name(target_db).map_err(|_| unsupported("invalid target name"))
+            validate_database_name(target_db).map_err(|_| refused(CopyRefusal::InvalidTargetName))
         }
         CopyScope::Collections(items) => {
             if items.is_empty() {
-                return Err(unsupported("nothing to copy"));
+                return Err(refused(CopyRefusal::NothingToCopy));
             }
             items.iter().try_for_each(refuse_bad_item)
         }
@@ -329,9 +329,9 @@ fn refuse_bad_item(item: &CopyItem) -> Result<()> {
         || is_excluded_database(&item.target.db)
         || is_excluded_collection(&item.source.collection);
     if excluded {
-        return Err(unsupported("server-owned databases cannot be copied"));
+        return Err(refused(CopyRefusal::ServerOwned));
     }
-    validate_namespace(&item.target).map_err(|_| unsupported("invalid target name"))
+    validate_namespace(&item.target).map_err(|_| refused(CopyRefusal::InvalidTargetName))
 }
 
 fn spawn_run(job: Job, guard: SlotGuard) {

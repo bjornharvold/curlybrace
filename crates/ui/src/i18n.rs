@@ -224,6 +224,29 @@ mod tests {
     }
 
     #[test]
+    fn every_copy_refusal_has_its_own_text() {
+        use curlybrace_core::error::CopyRefusal;
+        let i = I18n::english();
+        let reasons = [
+            CopyRefusal::AlreadyRunning,
+            CopyRefusal::NotConnected,
+            CopyRefusal::NothingToCopy,
+            CopyRefusal::InvalidTargetName,
+            CopyRefusal::ServerOwned,
+            CopyRefusal::OntoItself,
+        ];
+        let mut texts: Vec<String> = reasons
+            .iter()
+            .map(|r| i.error(&CoreError::CopyRefused(*r)))
+            .collect();
+        assert!(texts.iter().all(|t| !t.starts_with('⟦')));
+        assert!(texts.iter().all(|t| *t != i.t("errors.unsupported")));
+        texts.sort();
+        texts.dedup();
+        assert_eq!(texts.len(), reasons.len());
+    }
+
+    #[test]
     fn english_covers_every_core_error_and_failure_context() {
         let i = I18n::english();
         let errors = [
@@ -263,6 +286,7 @@ mod tests {
             CoreError::ApplyOutcomeUnknown,
             CoreError::ExportWriteFailed,
             CoreError::ExportFileNotRemoved,
+            CoreError::ReadOnly,
         ];
         for e in &errors {
             let s = i.error(e);

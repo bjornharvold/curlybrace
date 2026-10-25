@@ -118,6 +118,41 @@ pub enum CoreError {
     /// A write was refused because the connection is marked read-only. Nothing was sent.
     #[error("connection is read-only")]
     ReadOnly,
+    /// A copy was refused before any read or write. The reason is typed so the UI can say which;
+    /// no name or value is carried.
+    #[error("copy refused: {0}")]
+    CopyRefused(CopyRefusal),
+}
+
+/// Why a copy request was refused. Fixed variants only: a name is data and is never echoed.
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum CopyRefusal {
+    #[error("a copy is already running")]
+    AlreadyRunning,
+    #[error("a connection is not open")]
+    NotConnected,
+    #[error("nothing to copy")]
+    NothingToCopy,
+    #[error("invalid target name")]
+    InvalidTargetName,
+    #[error("server-owned databases cannot be copied")]
+    ServerOwned,
+    #[error("a collection cannot be copied onto itself")]
+    OntoItself,
+}
+
+impl CopyRefusal {
+    /// Key into the UI's `en.json`.
+    pub fn i18n_key(self) -> &'static str {
+        match self {
+            Self::AlreadyRunning => "errors.copy_already_running",
+            Self::NotConnected => "errors.copy_not_connected",
+            Self::NothingToCopy => "errors.copy_nothing_to_copy",
+            Self::InvalidTargetName => "errors.copy_invalid_target_name",
+            Self::ServerOwned => "errors.copy_server_owned",
+            Self::OntoItself => "errors.copy_onto_itself",
+        }
+    }
 }
 
 impl CoreError {
@@ -162,6 +197,7 @@ impl CoreError {
             Self::ExportWriteFailed => "errors.export_write_failed",
             Self::ExportFileNotRemoved => "errors.export_file_not_removed",
             Self::ReadOnly => "errors.read_only",
+            Self::CopyRefused(reason) => reason.i18n_key(),
         }
     }
 }
@@ -209,6 +245,12 @@ mod tests {
             CoreError::ExportWriteFailed,
             CoreError::ExportFileNotRemoved,
             CoreError::ReadOnly,
+            CoreError::CopyRefused(CopyRefusal::AlreadyRunning),
+            CoreError::CopyRefused(CopyRefusal::NotConnected),
+            CoreError::CopyRefused(CopyRefusal::NothingToCopy),
+            CoreError::CopyRefused(CopyRefusal::InvalidTargetName),
+            CoreError::CopyRefused(CopyRefusal::ServerOwned),
+            CoreError::CopyRefused(CopyRefusal::OntoItself),
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.

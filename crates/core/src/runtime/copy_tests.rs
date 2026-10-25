@@ -10,6 +10,7 @@ use super::*;
 use crate::copy::{
     ConflictPolicy, CopyCommand, CopyEvent, CopyOutcome, CopyRequest, CopyScope, PreviewCounts,
 };
+use crate::error::CopyRefusal;
 use crate::test_support::mock_objects::mock_numbered_docs;
 
 #[tokio::test]
@@ -252,33 +253,51 @@ async fn refusals_come_before_any_read_or_write() {
         source_db: source_db.into(),
         target_db: target_db.into(),
     };
+    let owned = CopyRefusal::ServerOwned;
+    let bad_name = CopyRefusal::InvalidTargetName;
     let refused = [
-        database("admin", "t"),
-        database("s", "bad name"),
-        database("s", "config"),
-        CopyScope::Collections(vec![item(("s", "orders"), ("t", "system.users"))]),
-        CopyScope::Collections(vec![item(("s", "system.profile"), ("t", "x"))]),
-        CopyScope::Collections(vec![item(("local", "oplog"), ("t", "x"))]),
-        CopyScope::Collections(vec![item(("s", "orders"), ("t", "a$b"))]),
-        CopyScope::Collections(vec![item(("s", "orders"), ("t", ""))]),
-        CopyScope::Collections(Vec::new()),
+        (database("admin", "t"), owned),
+        (database("s", "bad name"), bad_name),
+        (database("s", "config"), owned),
+        (
+            CopyScope::Collections(vec![item(("s", "orders"), ("t", "system.users"))]),
+            bad_name,
+        ),
+        (
+            CopyScope::Collections(vec![item(("s", "system.profile"), ("t", "x"))]),
+            owned,
+        ),
+        (
+            CopyScope::Collections(vec![item(("local", "oplog"), ("t", "x"))]),
+            owned,
+        ),
+        (
+            CopyScope::Collections(vec![item(("s", "orders"), ("t", "a$b"))]),
+            bad_name,
+        ),
+        (
+            CopyScope::Collections(vec![item(("s", "orders"), ("t", ""))]),
+            bad_name,
+        ),
+        (
+            CopyScope::Collections(Vec::new()),
+            CopyRefusal::NothingToCopy,
+        ),
     ];
-    for (run, scope) in (1..).zip(refused) {
+    for (run, (scope, reason)) in (1..).zip(refused) {
         rig.send(CopyCommand::Start {
             run,
             request: rig.request(scope, ConflictPolicy::Skip),
         });
         let events = rig.until_terminal(run).await;
         assert_eq!(events.len(), 1, "run {run}: a single refusal, no Planned");
-        assert!(
-            matches!(
-                &events[0],
-                CopyEvent::Failed {
-                    error: CoreError::Unsupported(_),
-                    ..
-                }
-            ),
-            "run {run}: {events:?}"
+        assert_eq!(
+            events[0],
+            CopyEvent::Failed {
+                run,
+                error: CoreError::CopyRefused(reason)
+            },
+            "run {run}"
         );
     }
     assert_eq!(rig.source.scans.load(Ordering::SeqCst), 0);
@@ -298,7 +317,7 @@ async fn a_session_that_is_not_open_is_refused() {
         events,
         [CopyEvent::Failed {
             run: 1,
-            error: CoreError::Unsupported("not connected".into())
+            error: CoreError::CopyRefused(CopyRefusal::NotConnected)
         }]
     );
 }
@@ -318,13 +337,13 @@ async fn copying_a_collection_onto_itself_stays_unsupported() {
     let reports = item_reports(&events);
     assert!(matches!(
         reports[0].outcome,
-        CopyOutcome::Failed(CoreError::Unsupported(_))
+        CopyOutcome::Failed(CoreError::CopyRefused(CopyRefusal::OntoItself))
     ));
     assert_eq!(reports[0].progress.written, 0);
     assert!(matches!(
         events.last(),
         Some(CopyEvent::Failed {
-            error: CoreError::Unsupported(_),
+            error: CoreError::CopyRefused(CopyRefusal::OntoItself),
             ..
         })
     ));
