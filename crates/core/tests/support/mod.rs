@@ -12,6 +12,7 @@ use curlybrace_core::mongo_store::MongoStore;
 use mongodb::Client;
 
 pub mod compare_flow;
+pub mod copy_flow;
 pub mod export_flow;
 pub mod mongosh;
 
