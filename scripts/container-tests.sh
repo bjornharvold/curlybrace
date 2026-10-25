@@ -27,7 +27,7 @@ run() { "$@" || status=$?; }
 run cargo test -p curlybrace-core --test docker_mongo_auth --test docker_runtime_failures \
   --test docker_ssh_tunnel --test docker_mongo_sessions --test docker_tls_handshake \
   --test docker_mongo_indexes --test docker_index_sampling --test docker_copy_same_server \
-  --test docker_copy_between_servers --locked -- --include-ignored --nocapture "${extra[@]}"
+  --test docker_copy_between_servers --test docker_copy_options --locked -- --include-ignored --nocapture "${extra[@]}"
 run cargo test -p curlybrace-ui --test docker_e2e_failures --locked -- --include-ignored \
   --nocapture "${extra[@]}"
 
