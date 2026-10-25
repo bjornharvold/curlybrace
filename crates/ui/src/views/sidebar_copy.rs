@@ -140,7 +140,12 @@ fn key_action(
         return Some(SidebarAction::Copy);
     }
     let pasted = events.iter().any(|e| matches!(e, egui::Event::Paste(_)));
-    pasted.then(|| SidebarAction::Paste(paste_target_for(node, ctx.state.clipboard.as_ref())))
+    pasted.then(|| SidebarAction::Paste(row_paste_target(ctx, node)))
+}
+
+/// Where Paste lands for `node`, in the row's menu and on Cmd/Ctrl+V alike.
+pub fn row_paste_target(ctx: &TreeCtx, node: &NodeRef) -> PasteTarget {
+    paste_target_for(node, ctx.state.clipboard.as_ref())
 }
 
 /// The Copy entry (disabled when the selection cannot be copied) and the Paste entry for

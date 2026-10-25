@@ -2,8 +2,9 @@
 use super::reducer::Out;
 use super::state::{AppState, Banner, ConnStatus};
 use crate::viewmodel::{
-    NodeRef, PasteContext, PasteEntry, PasteTarget, SelectMode, SidebarAction, SidebarState,
-    clipboard_from_selection, copy_entry, paste_entry, visible_nodes,
+    NodeRef, PasteBlock, PasteContext, PasteEntry, PasteTarget, SelectMode, SidebarAction,
+    SidebarSelection, SidebarState, clipboard_from_selection, copy_entry, paste_entry,
+    visible_nodes,
 };
 use uuid::Uuid;
 
@@ -19,9 +20,22 @@ impl AppState {
         }
     }
 
+    /// The selected rows that are on screen: what Copy takes, like a drag does.
+    pub fn visible_selection(&self) -> SidebarSelection {
+        let visible = self
+            .selection
+            .session()
+            .and_then(|session| {
+                let sidebar = self.sidebar_of(session)?;
+                Some(visible_nodes(session, sidebar))
+            })
+            .unwrap_or_default();
+        self.selection.clone().visible_only(&visible)
+    }
+
     /// The label key and count of the Copy entry for the current selection (`None`: disabled).
     pub fn copy_entry(&self) -> Option<(&'static str, u64)> {
-        copy_entry(&self.selection)
+        copy_entry(&self.visible_selection())
     }
 
     /// The Paste entry for `target` against the stored clipboard.
@@ -86,10 +100,21 @@ pub(super) fn select(state: AppState, node: NodeRef, mode: SelectMode) -> Out {
     (AppState { selection, ..state }, Vec::new())
 }
 
-/// Stores the selection as the clipboard; a selection that cannot be copied changes nothing.
+/// Stores the visible selection as the clipboard. A selection that cannot be copied keeps the old
+/// clipboard and says so.
 pub(super) fn copy(state: AppState) -> Out {
-    let clipboard = clipboard_from_selection(&state.selection).or(state.clipboard);
-    (AppState { clipboard, ..state }, Vec::new())
+    let next = match clipboard_from_selection(&state.visible_selection()) {
+        Some(clipboard) => AppState {
+            clipboard: Some(clipboard),
+            ..state.without_banner()
+        },
+        None => AppState {
+            banner: Some(Banner::CopyUnavailable),
+            banner_session: None,
+            ..state
+        },
+    };
+    (next, Vec::new())
 }
 
 /// Pastes the clipboard onto `target`: the request waits in `pending_paste` for the paste dialog,
@@ -99,10 +124,10 @@ pub(super) fn paste(state: AppState, target: PasteTarget) -> Out {
     if state.copy.is_some() {
         return (state, Vec::new());
     }
-    let Some(clipboard) = &state.clipboard else {
-        return (state, Vec::new());
+    let outcome = match &state.clipboard {
+        Some(clipboard) => state.with_paste_context(|ctx| clipboard.paste_onto(&target, ctx)),
+        None => Err(PasteBlock::EmptyClipboard),
     };
-    let outcome = state.with_paste_context(|ctx| clipboard.paste_onto(&target, ctx));
     let next = match outcome {
         Ok(request) => AppState {
             pending_paste: Some(request),

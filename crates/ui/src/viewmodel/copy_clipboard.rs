@@ -102,6 +102,8 @@ pub struct PasteContext<'a> {
 /// Why a clipboard cannot be pasted (or created).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PasteBlock {
+    /// Nothing has been copied yet.
+    EmptyClipboard,
     ReadOnlyTarget,
     SourceClosed,
     TargetClosed,

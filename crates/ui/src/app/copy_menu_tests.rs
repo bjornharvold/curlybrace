@@ -76,6 +76,19 @@ fn select(state: AppState, node: NodeRef, mode: SelectMode) -> AppState {
     act(state, SidebarAction::Select { node, mode })
 }
 
+/// `state` with `logs` expanded too, so collections of two databases are both on screen.
+fn two_databases_open() -> AppState {
+    let s = state(false);
+    AppState {
+        sidebar: s
+            .sidebar
+            .clone()
+            .toggled("logs")
+            .with_collections("logs", names(&["x"])),
+        ..s
+    }
+}
+
 fn orders_and_users() -> AppState {
     let s = select(state(false), coll(A, "shop", "orders"), SelectMode::Single);
     select(s, coll(A, "shop", "users"), SelectMode::Toggle)
@@ -95,7 +108,11 @@ fn copy_entry_names_the_count() {
 
 #[test]
 fn copy_entry_is_disabled_for_collections_of_two_databases() {
-    let s = select(state(false), coll(A, "shop", "orders"), SelectMode::Single);
+    let s = select(
+        two_databases_open(),
+        coll(A, "shop", "orders"),
+        SelectMode::Single,
+    );
     let s = select(s, coll(A, "logs", "x"), SelectMode::Toggle);
     assert_eq!(s.copy_entry(), None);
 }
@@ -142,7 +159,6 @@ fn paste_entry_is_disabled_while_the_clipboard_is_empty() {
 #[test]
 fn paste_is_disabled_on_a_read_only_connection() {
     let s = act(orders_and_users(), SidebarAction::Copy);
-    let s = AppState { ..s };
     let target = PasteTarget::Database {
         session: sid(B),
         db: "crm".into(),
@@ -179,16 +195,6 @@ fn copy_action_stores_a_reference_clipboard() {
 }
 
 #[test]
-fn copy_of_an_uncopyable_selection_keeps_the_old_clipboard() {
-    let s = act(orders_and_users(), SidebarAction::Copy);
-    let s = select(s, coll(A, "shop", "orders"), SelectMode::Single);
-    let s = select(s, coll(A, "logs", "x"), SelectMode::Toggle);
-    let before = s.clipboard.clone();
-    let s = act(s, SidebarAction::Copy);
-    assert_eq!(s.clipboard, before);
-}
-
-#[test]
 fn paste_action_opens_the_paste_dialog_request() {
     let s = AppState {
         banner: Some(Banner::NotConnected),
@@ -206,10 +212,49 @@ fn paste_action_opens_the_paste_dialog_request() {
 }
 
 #[test]
-fn paste_with_an_empty_clipboard_does_nothing() {
+fn paste_with_an_empty_clipboard_says_nothing_was_copied() {
     let target = PasteTarget::Connection { session: sid(B) };
     let s = act(state(false), SidebarAction::Paste(target));
-    assert_eq!((s.pending_paste, s.banner), (None, None));
+    assert_eq!(s.pending_paste, None);
+    assert_eq!(
+        s.banner,
+        Some(Banner::PasteBlocked(PasteBlock::EmptyClipboard))
+    );
+}
+
+#[test]
+fn copy_of_an_uncopyable_selection_says_so_and_keeps_the_clipboard() {
+    let s = select(
+        two_databases_open(),
+        coll(A, "shop", "orders"),
+        SelectMode::Single,
+    );
+    let s = act(s, SidebarAction::Copy);
+    let before = s.clipboard.clone();
+    let s = select(s, coll(A, "shop", "orders"), SelectMode::Single);
+    let s = select(s, coll(A, "logs", "x"), SelectMode::Toggle);
+    let s = act(s, SidebarAction::Copy);
+    assert_eq!(s.clipboard, before);
+    assert_eq!(s.banner, Some(Banner::CopyUnavailable));
+    // A copy that works clears it again.
+    let s = select(s, coll(A, "shop", "orders"), SelectMode::Single);
+    assert_eq!(act(s, SidebarAction::Copy).banner, None);
+}
+
+#[test]
+fn copy_leaves_out_selected_rows_that_are_no_longer_visible() {
+    let s = act(orders_and_users(), SidebarAction::Copy);
+    let s = select(s, coll(A, "shop", "orders"), SelectMode::Single);
+    let s = select(s, coll(A, "shop", "users"), SelectMode::Toggle);
+    // The database is collapsed: its collections are selected but off screen.
+    let collapsed = AppState {
+        sidebar: s.sidebar.clone().toggled("shop"),
+        ..s
+    };
+    assert_eq!(collapsed.copy_entry(), None);
+    let before = collapsed.clipboard.clone();
+    let after = act(collapsed, SidebarAction::Copy);
+    assert_eq!(after.clipboard, before, "nothing off screen is copied");
 }
 
 #[test]

@@ -6,6 +6,7 @@ use crate::viewmodel::{
 };
 use crate::views::sidebar_copy::{
     TreeCtx, collection_node, copy_paste_entries, database_node, is_selected, node_action,
+    row_paste_target,
 };
 use crate::views::sidebar_drag::{drop_target, row_button, start_drag};
 use curlybrace_core::store::Namespace;
@@ -291,7 +292,7 @@ fn collection_menu(
             chosen = Some(compare_to_action(db, name));
             ui.close();
         }
-        let target = collection_target(ctx, db, name);
+        let target = ctx.map(|c| row_paste_target(c, &collection_node(ctx, db, name)));
         let copy_paste = target.and_then(|t| copy_paste_entries(ui, ctx, t, i18n));
         chosen = copy_paste.or(chosen.take());
     });

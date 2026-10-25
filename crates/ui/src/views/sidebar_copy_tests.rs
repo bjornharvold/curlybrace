@@ -36,3 +36,58 @@ fn shift_tab_selects_the_row_alone() {
         Some(SelectMode::Single)
     );
 }
+
+fn orders_row(session: Uuid) -> NodeRef {
+    NodeRef::Collection {
+        session,
+        ns: Namespace::new("shop", "orders"),
+    }
+}
+
+#[test]
+fn a_collection_row_menu_and_keyboard_paste_share_one_target() {
+    let session = Uuid::from_u128(1);
+    let collections =
+        crate::viewmodel::CopyClipboard::collections(session, "shop", vec!["users".to_string()])
+            .unwrap();
+    let state = AppState {
+        clipboard: Some(collections),
+        ..AppState::default()
+    };
+    let ctx = TreeCtx {
+        state: &state,
+        session,
+    };
+    // Collections go onto the database of the row, in the menu as on Cmd+V.
+    assert_eq!(
+        row_paste_target(&ctx, &orders_row(session)),
+        PasteTarget::Database {
+            session,
+            db: "shop".into()
+        }
+    );
+    // Documents still go onto the collection itself.
+    let documents = crate::viewmodel::CopyClipboard::Documents {
+        session,
+        ns: Namespace::new("shop", "users"),
+        selection: crate::viewmodel::DocSelection::Query {
+            filter: bson::doc! {},
+            sort: None,
+        },
+    };
+    let state = AppState {
+        clipboard: Some(documents),
+        ..AppState::default()
+    };
+    let ctx = TreeCtx {
+        state: &state,
+        session,
+    };
+    assert_eq!(
+        row_paste_target(&ctx, &orders_row(session)),
+        PasteTarget::Collection {
+            session,
+            ns: Namespace::new("shop", "orders")
+        }
+    );
+}

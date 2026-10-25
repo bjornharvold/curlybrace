@@ -19,6 +19,7 @@ pub enum PasteEntry {
 /// The i18n key that explains `block`.
 pub fn paste_block_key(block: PasteBlock) -> &'static str {
     match block {
+        PasteBlock::EmptyClipboard => EMPTY_CLIPBOARD_KEY,
         PasteBlock::ReadOnlyTarget => "copy.paste_blocked.read_only_target",
         PasteBlock::SourceClosed => "copy.paste_blocked.source_closed",
         PasteBlock::TargetClosed => "copy.paste_blocked.target_closed",
@@ -78,17 +79,6 @@ pub fn paste_target_for(node: &NodeRef, clipboard: Option<&CopyClipboard>) -> Pa
     }
 }
 
-/// [`paste_target_for`] the one selected node; `None` when the selection is not a single node.
-pub fn keyboard_paste_target(
-    selection: &SidebarSelection,
-    clipboard: Option<&CopyClipboard>,
-) -> Option<PasteTarget> {
-    match selection.nodes() {
-        [node] => Some(paste_target_for(node, clipboard)),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,18 +132,5 @@ mod tests {
                 ns: Namespace::new("shop", "orders"),
             }
         );
-    }
-
-    #[test]
-    fn the_keyboard_target_needs_exactly_one_selected_node() {
-        let none = SidebarSelection::default();
-        assert_eq!(keyboard_paste_target(&none, None), None);
-        let one = none.clone().single(collection());
-        assert_eq!(keyboard_paste_target(&one, None), Some(database_target()));
-        let two = one.toggled(NodeRef::Database {
-            session: sid(),
-            db: "crm".into(),
-        });
-        assert_eq!(keyboard_paste_target(&two, None), None);
     }
 }

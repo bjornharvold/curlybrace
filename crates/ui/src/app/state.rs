@@ -58,6 +58,8 @@ pub enum Banner {
     HostForgotten,
     /// Paste was refused for this reason; nothing was stored or sent.
     PasteBlocked(PasteBlock),
+    /// Copy was refused: the selection cannot be copied; the clipboard is unchanged.
+    CopyUnavailable,
     /// Edit/Clone were refused because the page is shown with a projection (partial documents).
     ProjectionReadOnly,
     /// A write was refused because the session's connection is read-only; nothing was sent.
