@@ -341,6 +341,11 @@ impl AppState {
         let mut next = self.write_warning_dropped_for(id);
         next.open.retain(|open| *open != id);
         next.parked.remove(&id);
+        next.selection = std::mem::take(&mut next.selection).without_session(id);
+        next.pending_paste = next
+            .pending_paste
+            .take()
+            .filter(|request| request.source != id && request.target != id);
         if next.active == Some(id) {
             next.take_view();
             next.active = None;

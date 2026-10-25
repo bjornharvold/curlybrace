@@ -1,5 +1,7 @@
 //! Sidebar tree state: databases, lazily loaded collections, selection.
 //! Every transition consumes the state and returns a new value.
+use super::copy_clipboard::PasteTarget;
+use super::sidebar_selection::{NodeRef, SelectMode};
 use curlybrace_core::store::Namespace;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -33,6 +35,11 @@ impl DbNode {
 /// - `Refresh`: reload the database list.
 /// - `CompareTo(ns)`: start a comparison with `ns` as the source side.
 /// - `CompareDatabaseTo(db)`: start a comparison with database `db` as the source side.
+/// - `Select { node, mode }`: a modified click (Cmd/Ctrl or Shift) or a focus move changed the
+///   selection. It never opens or expands the node. A plain click is `Open`/`Toggle`/
+///   `LoadCollections`, which also make the node the single selection.
+/// - `Copy`: store the selection as the copy clipboard.
+/// - `Paste(target)`: paste the clipboard onto `target`.
 /// - `InSession { session, action }`: `action` happened under the root of `session`, which may
 ///   not be the active one. Expanding keeps the view where it is; anything else focuses it first.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +50,12 @@ pub enum SidebarAction {
     Refresh,
     CompareTo(Namespace),
     CompareDatabaseTo(String),
+    Select {
+        node: NodeRef,
+        mode: SelectMode,
+    },
+    Copy,
+    Paste(PasteTarget),
     InSession {
         session: Uuid,
         action: Box<SidebarAction>,

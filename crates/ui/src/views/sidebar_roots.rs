@@ -7,6 +7,7 @@ use crate::app::state::{AppState, ConnStatus};
 use crate::viewmodel::SidebarAction;
 use crate::views::connection_badge::show_badge;
 use crate::views::sidebar::{preferred_body_height, show_sidebar_body};
+use crate::views::sidebar_copy::{TreeCtx, root_action};
 use curlybrace_core::store::Topology;
 use eframe::egui;
 use eframe::egui::collapsing_header::CollapsingState;
@@ -37,7 +38,7 @@ pub fn show_roots(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) -> Option<In
 fn show_root(ui: &mut egui::Ui, state: &AppState, root: &Root, i18n: &I18n) -> Option<Input> {
     let id = ui.make_persistent_id("collapse");
     let mut collapse = CollapsingState::load_with_default_open(ui.ctx(), id, true);
-    let header = ui.vertical(|ui| show_header(ui, &mut collapse, root, i18n));
+    let header = ui.vertical(|ui| show_header(ui, &mut collapse, state, root, i18n));
     let body = collapse
         .show_body_indented(&header.response, ui, |ui| show_body(ui, state, root, i18n))
         .and_then(|shown| shown.inner);
@@ -52,11 +53,12 @@ fn show_root(ui: &mut egui::Ui, state: &AppState, root: &Root, i18n: &I18n) -> O
 fn show_header(
     ui: &mut egui::Ui,
     collapse: &mut CollapsingState,
+    state: &AppState,
     root: &Root,
     i18n: &I18n,
 ) -> Option<Input> {
     let title = ui
-        .horizontal(|ui| show_title_line(ui, collapse, root, i18n))
+        .horizontal(|ui| show_title_line(ui, collapse, state, root, i18n))
         .inner;
     let status = ui.horizontal(|ui| show_status_line(ui, root, i18n)).inner;
     show_tag_line(ui, root, i18n);
@@ -90,6 +92,7 @@ fn show_tag_line(ui: &mut egui::Ui, root: &Root, i18n: &I18n) {
 fn show_title_line(
     ui: &mut egui::Ui,
     collapse: &mut CollapsingState,
+    state: &AppState,
     root: &Root,
     i18n: &I18n,
 ) -> Option<Input> {
@@ -112,7 +115,11 @@ fn show_title_line(
         egui::Layout::top_down(egui::Align::Min),
         |ui| {
             ui.set_width(name_width);
-            if ui.selectable_label(root.active, &root.name).clicked() {
+            let name = ui.selectable_label(root.active, &root.name);
+            let paste = root_action(&name, ui, state, root.id, i18n);
+            if let Some(action) = paste {
+                input = Some(Input::Sidebar(action));
+            } else if name.clicked() {
                 input = Some(Input::Activate(root.id));
             }
         },
@@ -180,8 +187,12 @@ fn show_tree(ui: &mut egui::Ui, state: &AppState, root: &Root, i18n: &I18n) -> O
         ui.available_width(),
         preferred_body_height(ui, sidebar, MAX_TREE_ROWS),
     );
+    let ctx = TreeCtx {
+        state,
+        session: root.id,
+    };
     let action = ui
-        .allocate_ui(size, |ui| show_sidebar_body(ui, sidebar, i18n))
+        .allocate_ui(size, |ui| show_sidebar_body(ui, sidebar, Some(&ctx), i18n))
         .inner?;
     Some(Input::Sidebar(SidebarAction::InSession {
         session: root.id,
@@ -211,10 +222,14 @@ fn topology_key(topology: Topology) -> &'static str {
 mod tests {
     use super::*;
     use crate::app::session::SessionView;
-    use crate::viewmodel::SidebarState;
     use crate::viewmodel::connection_tag::PRODUCTION_BADGE_KEY;
+    use crate::viewmodel::{
+        CopyClipboard, NodeRef, PasteTarget, SelectMode, SidebarSelection, SidebarState,
+    };
+    use crate::views::sidebar::db_row_label;
     use curlybrace_core::connection::ConnectionConfig;
     use curlybrace_core::error::CoreError;
+    use curlybrace_core::store::Namespace;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
     use uuid::Uuid;
@@ -548,5 +563,171 @@ mod tests {
         let label = I18n::english().t_with("sidebar.disconnect_named", &[("name", long)]);
         let rect = harness.get_by_label(&label).rect();
         assert!(rect.right() <= 320.0, "{rect:?}");
+    }
+
+    fn selection_action(input: Option<Input>) -> (Uuid, SidebarAction) {
+        match input {
+            Some(Input::Sidebar(SidebarAction::InSession { session, action })) => {
+                (session, *action)
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_command_click_toggles_and_a_shift_click_extends_without_opening() {
+        for (modifiers, expected) in [
+            (egui::Modifiers::COMMAND, SelectMode::Toggle),
+            (egui::Modifiers::SHIFT, SelectMode::Extend),
+        ] {
+            let f = fixture();
+            let mut harness = harness(f.state);
+            harness.get_by_label("orders").click_modifiers(modifiers);
+            harness.run();
+            let (session, action) = selection_action(harness.state_mut().1.take());
+            assert_eq!(session, f.active);
+            match action {
+                SidebarAction::Select { node, mode } => {
+                    assert_eq!(mode, expected);
+                    assert!(
+                        matches!(node, NodeRef::Collection { ns, .. } if ns.collection == "orders")
+                    );
+                }
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_right_click_selects_an_unselected_row_alone() {
+        let f = fixture();
+        let mut harness = harness(f.state);
+        harness.get_by_label("orders").click_secondary();
+        harness.run();
+        let (_, action) = selection_action(harness.state_mut().1.take());
+        assert!(matches!(
+            action,
+            SidebarAction::Select {
+                mode: SelectMode::Single,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_row_menu_lists_copy_and_paste_disabled_when_there_is_nothing_to_do() {
+        let i18n = I18n::english();
+        let mut harness = harness(fixture().state);
+        harness
+            .get_by_label(&db_row_label("shop", true))
+            .click_secondary();
+        harness.run();
+        harness.state_mut().1.take();
+        // Nothing is selected and nothing was copied: both entries are listed, and clicking does
+        // nothing.
+        harness.get_by_label(&i18n.t("copy.menu.copy")).click();
+        harness.get_by_label(&i18n.t("copy.paste")).click();
+        harness.run();
+        assert!(harness.state_mut().1.take().is_none());
+    }
+
+    #[test]
+    fn a_row_menu_names_the_count_and_copies_the_selection() {
+        let i18n = I18n::english();
+        let mut f = fixture();
+        let a = f.active;
+        let node = NodeRef::Collection {
+            session: a,
+            ns: Namespace::new("shop", "orders"),
+        };
+        f.state.selection = SidebarSelection::default().single(node);
+        let mut harness = harness(f.state);
+        harness
+            .get_by_label(&db_row_label("shop", true))
+            .click_secondary();
+        harness.run();
+        harness.state_mut().1.take();
+        let label = i18n.t_with("copy.menu.copy_collection", &[("count", "1")]);
+        harness.get_by_label(&label).click();
+        harness.run();
+        let (session, action) = selection_action(harness.state_mut().1.take());
+        assert_eq!((session, action), (a, SidebarAction::Copy));
+    }
+
+    #[test]
+    fn a_row_menu_pastes_onto_the_row_when_the_rules_allow_it() {
+        let i18n = I18n::english();
+        let mut f = fixture();
+        let a = f.active;
+        f.state.clipboard = CopyClipboard::collections(a, "shop", vec!["orders".into()]).ok();
+        let mut harness = harness(f.state);
+        harness
+            .get_by_label(&db_row_label("shop", true))
+            .click_secondary();
+        harness.run();
+        harness.state_mut().1.take();
+        harness.get_by_label(&i18n.t("copy.paste")).click();
+        harness.run();
+        let (_, action) = selection_action(harness.state_mut().1.take());
+        assert!(matches!(
+            action,
+            SidebarAction::Paste(PasteTarget::Database { db, .. }) if db == "shop"
+        ));
+    }
+
+    #[test]
+    fn copy_and_paste_keys_act_on_the_focused_row_only() {
+        let mut f = fixture();
+        let a = f.active;
+        f.state.clipboard = CopyClipboard::collections(a, "shop", vec!["orders".into()]).ok();
+        let mut harness = harness(f.state);
+        harness.get_by_label("orders").focus();
+        harness.run();
+        harness.state_mut().1.take();
+        harness.input_mut().events.push(egui::Event::Copy);
+        harness.run();
+        let (_, action) = selection_action(harness.state_mut().1.take());
+        assert_eq!(action, SidebarAction::Copy);
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::Paste(String::new()));
+        harness.run();
+        let (_, action) = selection_action(harness.state_mut().1.take());
+        assert!(matches!(
+            action,
+            SidebarAction::Paste(PasteTarget::Database { db, .. }) if db == "shop"
+        ));
+    }
+
+    #[test]
+    fn the_keys_do_nothing_when_no_row_has_focus() {
+        let mut harness = harness(fixture().state);
+        harness.input_mut().events.push(egui::Event::Copy);
+        harness.run();
+        assert!(harness.state_mut().1.take().is_none());
+    }
+
+    #[test]
+    fn a_roots_menu_and_key_paste_onto_the_connection() {
+        let mut f = fixture();
+        let a = f.active;
+        f.state.clipboard = CopyClipboard::database(a, "shop").ok();
+        let beta = f.parked;
+        let mut harness = harness(f.state);
+        harness.get_by_label("Beta").focus();
+        harness.run();
+        harness.state_mut().1.take();
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::Paste(String::new()));
+        harness.run();
+        match harness.state_mut().1.take() {
+            Some(Input::Sidebar(SidebarAction::Paste(PasteTarget::Connection { session }))) => {
+                assert_eq!(session, beta);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

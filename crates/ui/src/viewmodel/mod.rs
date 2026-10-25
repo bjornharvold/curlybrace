@@ -5,6 +5,7 @@ pub mod connection_form;
 pub mod connection_list;
 pub mod connection_tag;
 pub mod copy_clipboard;
+pub mod copy_menu;
 pub mod doc_actions;
 pub mod editor;
 pub mod findbar;
@@ -16,6 +17,7 @@ pub mod indexes;
 pub mod json_cache;
 pub mod page_key;
 pub mod sidebar;
+pub mod sidebar_selection;
 pub mod table;
 pub mod tree;
 pub mod tree_state;
@@ -31,6 +33,9 @@ pub use connection_list::{
 };
 pub use connection_tag::{ColorTag, ConnectionBadge, color_tag};
 pub use copy_clipboard::{CopyClipboard, DocSelection, PasteBlock, PasteContext, PasteTarget};
+pub use copy_menu::{
+    PasteEntry, copy_entry, keyboard_paste_target, paste_block_key, paste_entry, paste_target_for,
+};
 pub use doc_actions::{
     DeleteConfirm, DocAction, MenuItem, choose, id_preview, is_projected, menu_items,
 };
@@ -48,6 +53,9 @@ pub use page_key::{PageKey, page_key};
 pub use sidebar::{
     DbNode, SidebarAction, SidebarState, collection_click_action, compare_database_to_action,
     compare_to_action, db_click_action,
+};
+pub use sidebar_selection::{
+    NodeRef, SelectMode, SidebarSelection, clipboard_from_selection, visible_nodes,
 };
 pub use table::table_columns;
 pub use tree::{

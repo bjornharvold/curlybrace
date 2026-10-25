@@ -546,6 +546,37 @@
     "uri_password_warning": "This string contains your password. Do not share it.",
     "username": "Username"
   },
+  "copy": {
+    "banner": {
+      "paste_blocked": "Cannot paste here"
+    },
+    "menu": {
+      "copy": "Copy",
+      "copy_collection": "Copy collection",
+      "copy_collections": "Copy {count} collections",
+      "copy_database": "Copy database",
+      "copy_document": "Copy document",
+      "copy_documents": "Copy {count} documents",
+      "copy_query_result": "Copy all documents of the query",
+      "copy_unavailable": "Select one database, or collections of one database, to copy."
+    },
+    "paste": "Paste",
+    "paste_blocked": {
+      "collections_onto_collection": "Collections can only be pasted onto a database, not onto a collection.",
+      "collections_onto_connection": "Collections can only be pasted onto a database. Paste them onto one of its databases.",
+      "database_onto_collection": "A database can only be pasted onto a connection, not onto a collection.",
+      "database_onto_database": "A database can only be pasted onto a connection. Paste it onto the connection's name.",
+      "documents_onto_database": "Documents can only be pasted onto a collection.",
+      "empty_clipboard": "Nothing has been copied yet.",
+      "excluded_database": "Server-owned databases (admin, local, config) cannot be copied.",
+      "invalid_name": "A name in the copy is not valid.",
+      "read_only_target": "This connection is read-only, so nothing can be pasted into it.",
+      "same_namespace_documents": "Documents cannot be pasted onto the collection they came from.",
+      "source_closed": "The connection the data was copied from is closed.",
+      "target_closed": "This connection is closed.",
+      "too_many_documents": "Too many documents are selected to copy by hand. Copy the query result instead."
+    }
+  },
   "doc": {
     "clone": "Clone",
     "confirm_delete": "Delete the document with _id {id} from {connection}? This cannot be undone.",

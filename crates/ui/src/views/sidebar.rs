@@ -1,9 +1,13 @@
 //! Sidebar view: database tree with lazily loaded collections.
 use crate::I18n;
 use crate::viewmodel::{
-    DbNode, SidebarState, collection_click_action, compare_database_to_action, compare_to_action,
-    db_click_action,
+    DbNode, PasteTarget, SidebarState, collection_click_action, compare_database_to_action,
+    compare_to_action, db_click_action,
 };
+use crate::views::sidebar_copy::{
+    TreeCtx, collection_node, copy_paste_entries, database_node, is_selected, node_action,
+};
+use curlybrace_core::store::Namespace;
 use eframe::egui;
 use std::ops::Range;
 
@@ -125,13 +129,14 @@ pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Opt
             action = Some(SidebarAction::Refresh);
         }
     });
-    action.or(show_tree_rows(ui, state, i18n))
+    action.or(show_tree_rows(ui, state, None, i18n))
 }
 
 /// A root's tree without the heading: a compact, right-aligned Refresh, then the tree.
 pub fn show_sidebar_body(
     ui: &mut egui::Ui,
     state: &SidebarState,
+    ctx: Option<&TreeCtx>,
     i18n: &I18n,
 ) -> Option<SidebarAction> {
     // A right-aligned layout would claim the whole remaining height: give the row its own.
@@ -143,11 +148,16 @@ pub fn show_sidebar_body(
             |ui| ui.small_button(i18n.t("sidebar.refresh")).clicked(),
         )
         .inner;
-    let action = show_tree_rows(ui, state, i18n);
+    let action = show_tree_rows(ui, state, ctx, i18n);
     refresh.then_some(SidebarAction::Refresh).or(action)
 }
 
-fn show_tree_rows(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Option<SidebarAction> {
+fn show_tree_rows(
+    ui: &mut egui::Ui,
+    state: &SidebarState,
+    ctx: Option<&TreeCtx>,
+    i18n: &I18n,
+) -> Option<SidebarAction> {
     let mut action = None;
     if state.databases.is_empty() {
         ui.label(i18n.t("sidebar.empty"));
@@ -159,7 +169,7 @@ fn show_tree_rows(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Optio
         .auto_shrink([false; 2])
         .show_rows(ui, row_height, total_rows(state), |ui, range| {
             for row in visible_rows(state, range) {
-                if let Some(a) = show_fixed_row(ui, state, row, row_height, i18n) {
+                if let Some(a) = show_fixed_row(ui, state, row, ctx, row_height, i18n) {
                     action = Some(a);
                 }
             }
@@ -172,6 +182,7 @@ fn show_fixed_row(
     ui: &mut egui::Ui,
     state: &SidebarState,
     row: Row<'_>,
+    ctx: Option<&TreeCtx>,
     row_height: f32,
     i18n: &I18n,
 ) -> Option<SidebarAction> {
@@ -179,7 +190,7 @@ fn show_fixed_row(
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.allocate_ui_with_layout(size, layout, |ui| {
         ui.set_min_height(row_height);
-        show_row(ui, state, row, i18n)
+        show_row(ui, state, row, ctx, i18n)
     })
     .inner
 }
@@ -188,26 +199,30 @@ fn show_row(
     ui: &mut egui::Ui,
     state: &SidebarState,
     row: Row<'_>,
+    ctx: Option<&TreeCtx>,
     i18n: &I18n,
 ) -> Option<SidebarAction> {
     match row {
         Row::Db(node) => {
-            let response = ui.selectable_label(false, db_row_label(&node.name, node.expanded));
-            let menu = database_menu(&response, &node.name, i18n);
-            menu.or_else(|| response.clicked().then(|| db_click_action(node)))
+            let node_ref = database_node(ctx, &node.name);
+            let selected = is_selected(ctx, &node_ref);
+            let response = ui.selectable_label(selected, db_row_label(&node.name, node.expanded));
+            let menu = database_menu(&response, &node.name, ctx, i18n);
+            menu.or_else(|| node_action(ui, &response, ctx, &node_ref, || db_click_action(node)))
         }
         Row::Collection { db, name } => {
-            let selected = state
+            let node_ref = collection_node(ctx, db, name);
+            let opened = state
                 .selected
                 .as_ref()
                 .is_some_and(|ns| ns.db == db && ns.collection == name);
             ui.add_space(ui.spacing().indent);
-            let response = ui.selectable_label(selected, name);
-            let menu = collection_menu(&response, db, name, i18n);
+            let response = ui.selectable_label(opened || is_selected(ctx, &node_ref), name);
+            let menu = collection_menu(&response, db, name, ctx, i18n);
             menu.or_else(|| {
-                response
-                    .clicked()
-                    .then(|| collection_click_action(db, name))
+                node_action(ui, &response, ctx, &node_ref, || {
+                    collection_click_action(db, name)
+                })
             })
         }
         Row::Loading => placeholder(ui, &i18n.t("sidebar.loading")),
@@ -215,23 +230,36 @@ fn show_row(
     }
 }
 
-/// Right-click menu of a database: start a comparison with it as the source.
-fn database_menu(response: &egui::Response, db: &str, i18n: &I18n) -> Option<SidebarAction> {
+/// Right-click menu of a database: compare, copy the selection, paste onto it.
+fn database_menu(
+    response: &egui::Response,
+    db: &str,
+    ctx: Option<&TreeCtx>,
+    i18n: &I18n,
+) -> Option<SidebarAction> {
     let mut chosen = None;
     response.context_menu(|ui| {
         if ui.button(i18n.t("sidebar.compare_database_to")).clicked() {
             chosen = Some(compare_database_to_action(db));
             ui.close();
         }
+        let target = ctx.map(|c| PasteTarget::Database {
+            session: c.session,
+            db: db.to_string(),
+        });
+        let copy_paste = target.and_then(|t| copy_paste_entries(ui, ctx, t, i18n));
+        chosen = copy_paste.or(chosen.take());
     });
     chosen
 }
 
-/// Right-click menu of a collection: start a comparison with it as the source.
+/// Right-click menu of a collection: compare, copy the selection, paste onto it (which only
+/// documents allow; the paste rules say why a clipboard of collections cannot).
 fn collection_menu(
     response: &egui::Response,
     db: &str,
     name: &str,
+    ctx: Option<&TreeCtx>,
     i18n: &I18n,
 ) -> Option<SidebarAction> {
     let mut chosen = None;
@@ -240,6 +268,12 @@ fn collection_menu(
             chosen = Some(compare_to_action(db, name));
             ui.close();
         }
+        let target = ctx.map(|c| PasteTarget::Collection {
+            session: c.session,
+            ns: Namespace::new(db, name),
+        });
+        let copy_paste = target.and_then(|t| copy_paste_entries(ui, ctx, t, i18n));
+        chosen = copy_paste.or(chosen.take());
     });
     chosen
 }

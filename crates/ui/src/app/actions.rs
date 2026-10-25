@@ -34,6 +34,9 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         SidebarAction::CompareDatabaseTo(db) => {
             gated(state, |s| super::compare::compare_database_to(s, db))
         }
+        SidebarAction::Select { node, mode } => super::copy_actions::select(state, node, mode),
+        SidebarAction::Copy => super::copy_actions::copy(state),
+        SidebarAction::Paste(target) => super::copy_actions::paste(state, target),
         SidebarAction::InSession { session, action } => in_session(state, session, *action),
     }
 }
@@ -46,9 +49,17 @@ fn in_session(state: AppState, session: Uuid, action: SidebarAction) -> Out {
     }
     match action {
         SidebarAction::Toggle(_) | SidebarAction::LoadCollections(_) => {
+            let state = super::copy_actions::clicked(state, session, &action);
             state.with_session(session, |s| sidebar(s, action))
         }
-        other => sidebar(state.activated(session), other),
+        // Selecting, copying and pasting name their own sessions: no focus change.
+        SidebarAction::Select { .. } | SidebarAction::Copy | SidebarAction::Paste(_) => {
+            sidebar(state, action)
+        }
+        other => {
+            let state = super::copy_actions::clicked(state, session, &other);
+            sidebar(state.activated(session), other)
+        }
     }
 }
 
