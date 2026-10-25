@@ -628,3 +628,27 @@ fn item_done_on_a_big_run_keeps_the_failures_of_the_earlier_items() {
     assert_eq!(keys, vec![(5, Bson::Int32(1)), (1999, Bson::Int32(2))]);
     assert!(run.rows[5].finished && run.rows[1999].finished && !run.rows[6].finished);
 }
+
+#[test]
+fn an_invalid_rename_of_a_held_preview_leaves_nothing_counting() {
+    let (s, old, _) = cancelled_then_pasted();
+    let rename = |s, name: &str| {
+        input(
+            s,
+            CopyInput::SetName {
+                index: 0,
+                name: name.into(),
+            },
+        )
+    };
+    let (s, commands) = rename(s, "bad$name");
+    assert!(commands.is_empty());
+    assert!(!dialog(&s).counting, "an invalid name starts no count");
+    let (s, commands) = event(s, CopyEvent::PreviewDone { run: old });
+    assert!(commands.is_empty(), "no Preview for an invalid name");
+    assert!(!dialog(&s).counting, "no run is behind the counting flag");
+    let (s, commands) = rename(s, "orders_2");
+    preview_run(&commands);
+    assert_eq!(commands.len(), 1, "exactly one Preview: {commands:?}");
+    assert!(dialog(&s).counting);
+}
