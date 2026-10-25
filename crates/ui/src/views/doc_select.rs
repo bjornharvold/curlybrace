@@ -2,8 +2,9 @@
 //! "select all documents of the query", "clear" and Copy. Every control is a plain button or
 //! checkbox, so the whole flow works from the keyboard.
 use crate::I18n;
-use crate::viewmodel::{DocAction, TreeState};
+use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState};
 use bson::Bson;
+use curlybrace_core::store::Page;
 use eframe::egui;
 use eframe::egui::{WidgetInfo, WidgetType};
 
@@ -31,6 +32,43 @@ pub fn row_checkbox(
     let label = i18n.t_with("doc.select_row", &[("n", &number.to_string())]);
     response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, pickable, checked, &label));
     response.changed()
+}
+
+/// The checkbox of the document at `index` of `page`, ticked as the pick says; true when it was
+/// toggled.
+pub fn doc_checkbox(
+    ui: &mut egui::Ui,
+    state: &TreeState,
+    page: &Page,
+    index: usize,
+    i18n: &I18n,
+) -> bool {
+    let id = page.docs.get(index).and_then(pick_id);
+    let checked = id.is_some_and(|id| state.pick.contains(id));
+    let number = page.skip + index as u64 + 1;
+    row_checkbox(ui, checked, id.is_some(), number, i18n)
+}
+
+/// Applies the toggle of the checkbox of the document at `toggled`, if one was clicked.
+pub fn apply_toggle(state: &mut TreeState, page: &Page, toggled: Option<usize>) {
+    if let Some(id) = toggled.and_then(|i| page.docs.get(i)).and_then(pick_id) {
+        state.pick = std::mem::take(&mut state.pick).row_toggled(id, page);
+    }
+}
+
+/// Hands the row-menu choice (the document index and the item) to the tree state; the action it
+/// asks the page for, if any.
+pub fn resolve_choice(
+    state: &mut TreeState,
+    page: &Page,
+    key: &PageKey,
+    chosen: Option<(usize, MenuItem)>,
+) -> Option<DocAction> {
+    let (index, item) = chosen?;
+    let doc = page.docs.get(index)?;
+    let (next, action) = std::mem::take(state).menu_chosen(item, doc, key);
+    *state = next;
+    action
 }
 
 /// The `_id` of the document, when it can be picked by hand.

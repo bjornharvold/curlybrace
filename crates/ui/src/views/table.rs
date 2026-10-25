@@ -1,6 +1,6 @@
 //! Table view: one column per field name, one virtualised row per document.
 use super::context_menu::row_context_menu;
-use super::doc_select::{checkbox_width, pick_id, row_checkbox};
+use super::doc_select::{apply_toggle, checkbox_width, doc_checkbox, resolve_choice};
 use super::metrics::row_height;
 use crate::I18n;
 use crate::viewmodel::{DocAction, PageKey, TreeState, cell_text, menu_items, table_columns};
@@ -9,6 +9,19 @@ use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
 const COLUMN_INITIAL_WIDTH: f32 = 140.0;
+
+/// The table: a checkbox column, then one resizable column per field.
+fn table_builder(ui: &mut egui::Ui, fields: usize, check_width: f32) -> TableBuilder<'_> {
+    let builder = TableBuilder::new(ui)
+        .striped(true)
+        .resizable(true)
+        .sense(egui::Sense::click())
+        .vscroll(true)
+        .column(Column::exact(check_width));
+    (0..fields).fold(builder, |builder, _| {
+        builder.column(Column::initial(COLUMN_INITIAL_WIDTH).clip(true))
+    })
+}
 
 pub fn show_table(
     ui: &mut egui::Ui,
@@ -27,24 +40,8 @@ pub fn show_table(
     let mut chosen = None;
     let mut toggled = None;
     let check_width = checkbox_width(ui);
-    let mut builder = TableBuilder::new(ui)
-        .striped(true)
-        .resizable(true)
-        .sense(egui::Sense::click())
-        .vscroll(true);
-    builder = builder.column(Column::exact(check_width));
-    for _ in &columns {
-        builder = builder.column(Column::initial(COLUMN_INITIAL_WIDTH).clip(true));
-    }
-    builder
-        .header(height, |mut header| {
-            header.col(|_| {});
-            for name in &columns {
-                header.col(|ui| {
-                    ui.strong(name);
-                });
-            }
-        })
+    table_builder(ui, columns.len(), check_width)
+        .header(height, |header| header_cells(header, &columns))
         .body(|body| {
             body.rows(height, page.docs.len(), |mut row| {
                 let index = row.index();
@@ -52,21 +49,12 @@ pub fn show_table(
                     return;
                 };
                 row.col(|ui| {
-                    let id = pick_id(doc);
-                    let checked = id.is_some_and(|id| state.pick.contains(id));
-                    let number = page.skip + index as u64 + 1;
-                    if row_checkbox(ui, checked, id.is_some(), number, i18n) {
+                    if doc_checkbox(ui, state, page, index, i18n) {
                         toggled = Some(index);
                     }
                 });
                 for name in &columns {
-                    row.col(|ui| {
-                        let text = doc
-                            .get(name)
-                            .map(|b| cell_text(b, i18n))
-                            .unwrap_or_default();
-                        ui.add(egui::Label::new(text).truncate());
-                    });
+                    row.col(|ui| cell(ui, doc, name, i18n));
                 }
                 let items = menu_items(doc, projected);
                 let copy = state.copy_entry_for(doc);
@@ -76,12 +64,23 @@ pub fn show_table(
                 }
             });
         });
-    if let Some(id) = toggled.and_then(|i| page.docs.get(i)).and_then(pick_id) {
-        state.pick = std::mem::take(&mut state.pick).row_toggled(id, page);
+    apply_toggle(state, page, toggled);
+    resolve_choice(state, page, key, chosen)
+}
+
+fn header_cells(mut header: egui_extras::TableRow<'_, '_>, columns: &[String]) {
+    header.col(|_| {});
+    for name in columns {
+        header.col(|ui| {
+            ui.strong(name);
+        });
     }
-    let (index, item) = chosen?;
-    let doc = page.docs.get(index)?;
-    let (next, action) = std::mem::take(state).menu_chosen(item, doc, key);
-    *state = next;
-    action
+}
+
+fn cell(ui: &mut egui::Ui, doc: &bson::Document, name: &str, i18n: &I18n) {
+    let text = doc
+        .get(name)
+        .map(|b| cell_text(b, i18n))
+        .unwrap_or_default();
+    ui.add(egui::Label::new(text).truncate());
 }

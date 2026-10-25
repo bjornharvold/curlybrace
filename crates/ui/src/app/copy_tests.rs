@@ -319,8 +319,7 @@ fn confirm_is_enabled_while_counting_and_says_counts_are_incomplete() {
 
 #[test]
 fn confirm_after_counting_does_not_flag_incomplete_counts() {
-    let (s, copy_run) = started(false);
-    let _ = copy_run;
+    let (s, _) = started(false);
     assert!(!run_of(&s).counts_incomplete);
 }
 

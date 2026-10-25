@@ -41,7 +41,6 @@ pub struct SidebarSelection {
 impl SidebarSelection {
     /// Selects `node` alone.
     pub fn single(self, node: NodeRef) -> Self {
-        let _ = self;
         Self {
             nodes: vec![node.clone()],
             anchor: Some(node),

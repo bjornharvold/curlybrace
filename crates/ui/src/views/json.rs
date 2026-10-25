@@ -4,7 +4,7 @@
 //! a 10,000-element document as a single text widget every frame is too slow. Lines keep
 //! their natural width inside a two-axis scroll area so long values stay readable.
 use super::context_menu::row_context_menu;
-use super::doc_select::{checkbox_width, pick_id, row_checkbox};
+use super::doc_select::{apply_toggle, checkbox_width, doc_checkbox, resolve_choice};
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
 use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState, menu_items};
@@ -19,11 +19,7 @@ pub fn show_json(
     i18n: &I18n,
 ) -> Option<DocAction> {
     let (_, chosen) = render_json(ui, page, key, state, i18n);
-    let (doc_index, item) = chosen?;
-    let doc = page.docs.get(doc_index)?;
-    let (next, action) = std::mem::take(state).menu_chosen(item, doc, key);
-    *state = next;
-    action
+    resolve_choice(state, page, key, chosen)
 }
 
 type Chosen = Option<(usize, MenuItem)>;
@@ -38,12 +34,12 @@ pub(crate) fn render_json(
 ) -> (egui::scroll_area::ScrollAreaOutput<()>, Chosen) {
     let lines = state.json_cache(page, key).shared_lines();
     let height = row_height(ui);
-    let projected = state.projected;
-    let read_only = state.read_only;
-    let font = egui::TextStyle::Monospace.resolve(ui.style());
-    let color = ui.visuals().text_color();
-    let mut chosen: Chosen = None;
-    let mut toggled: Option<usize> = None;
+    let (projected, read_only) = (state.projected, state.read_only);
+    let (font, color) = (
+        egui::TextStyle::Monospace.resolve(ui.style()),
+        ui.visuals().text_color(),
+    );
+    let (mut chosen, mut toggled): (Chosen, Option<usize>) = (None, None);
     let check_width = checkbox_width(ui);
     let output = egui::ScrollArea::both()
         .id_salt("json_view")
@@ -56,31 +52,17 @@ pub(crate) fn render_json(
                 let Some(doc) = page.docs.get(line.doc_index) else {
                     continue;
                 };
-                let text_width = ui.fonts(|f| {
-                    f.layout_no_wrap(line.text.clone(), font.clone(), color)
-                        .size()
-                        .x
-                });
-                let width = (text_width + check_width).max(ui.available_width());
+                let width = line_width(ui, &line.text, &font, color, check_width);
                 let (_, (response, tick)) = fixed_row_sized(ui, height, width, |ui| {
                     // The checkbox sits on the first line of each document only.
-                    let tick = match (first_of_doc, pick_id(doc)) {
-                        (true, id) => {
-                            let checked = id.is_some_and(|id| state.pick.contains(id));
-                            let number = page.skip + line.doc_index as u64 + 1;
-                            row_checkbox(ui, checked, id.is_some(), number, i18n)
-                        }
-                        (false, _) => {
+                    let tick = match first_of_doc {
+                        true => doc_checkbox(ui, state, page, line.doc_index, i18n),
+                        false => {
                             ui.add_space(check_width);
                             false
                         }
                     };
-                    let text = egui::RichText::new(&line.text).monospace();
-                    let label = egui::Label::new(text)
-                        .wrap_mode(egui::TextWrapMode::Extend)
-                        .selectable(true)
-                        .sense(egui::Sense::click());
-                    (ui.add(label), tick)
+                    (ui.add(line_label(&line.text)), tick)
                 });
                 if tick {
                     toggled = Some(line.doc_index);
@@ -92,10 +74,31 @@ pub(crate) fn render_json(
                 }
             }
         });
-    if let Some(id) = toggled.and_then(|i| page.docs.get(i)).and_then(pick_id) {
-        state.pick = std::mem::take(&mut state.pick).row_toggled(id, page);
-    }
+    apply_toggle(state, page, toggled);
     (output, chosen)
+}
+
+fn line_label(text: &str) -> egui::Label {
+    egui::Label::new(egui::RichText::new(text).monospace())
+        .wrap_mode(egui::TextWrapMode::Extend)
+        .selectable(true)
+        .sense(egui::Sense::click())
+}
+
+/// The width of a line with the checkbox column in front of it, at least the viewport's.
+fn line_width(
+    ui: &egui::Ui,
+    text: &str,
+    font: &egui::FontId,
+    color: egui::Color32,
+    check_width: f32,
+) -> f32 {
+    let text_width = ui.fonts(|f| {
+        f.layout_no_wrap(text.to_string(), font.clone(), color)
+            .size()
+            .x
+    });
+    (text_width + check_width).max(ui.available_width())
 }
 
 #[cfg(test)]
