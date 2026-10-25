@@ -670,6 +670,7 @@ fn shared_with_history() -> Arc<Shared> {
         connector: Arc::new(FixedConnector(store_with(&[]))),
         config: RuntimeConfig::default(),
         compare: Default::default(),
+        copy: Default::default(),
         latest_test: Default::default(),
         read_only: Default::default(),
         history: Some(Arc::new(HistoryDb::open_in_memory().unwrap())),

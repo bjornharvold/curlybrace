@@ -30,6 +30,11 @@ pub fn mock_docs_with_mixed_ids() -> Vec<Document> {
     ]
 }
 
+/// `count` documents with integer `_id`s `0..count`, each carrying its number as `n`.
+pub fn mock_numbered_docs(count: i32) -> Vec<Document> {
+    (0..count).map(|n| doc! { "_id": n, "n": n }).collect()
+}
+
 pub fn mock_namespace() -> Namespace {
     Namespace::new("testdb", "people")
 }

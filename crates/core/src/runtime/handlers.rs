@@ -323,11 +323,12 @@ async fn data_command(
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
+        | Command::Copy(_)
         | Command::TestConnection { .. }
         | Command::LockReadOnly { .. }
         | Command::SetSamplingExcluded { .. }
         | Command::PurgeHistory { .. } => {
-            unreachable!("connection and compare commands are handled before data dispatch")
+            unreachable!("connection, compare and copy commands are handled before data dispatch")
         }
     })
 }

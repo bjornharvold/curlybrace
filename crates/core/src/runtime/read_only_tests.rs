@@ -340,7 +340,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 21;
+const COMMAND_VARIANTS: usize = 22;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -361,6 +361,7 @@ fn classify(command: &Command) -> Class {
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
+        | Command::Copy(_)
         | Command::TestConnection { .. }
         | Command::LockReadOnly { .. }
         | Command::SetSamplingExcluded { .. }
@@ -408,6 +409,7 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
             databases: Default::default(),
         },
         Command::PurgeHistory { connection: cfg.id },
+        Command::Copy(crate::copy::CopyCommand::Cancel { run: 1 }),
     ];
     assert!(
         others

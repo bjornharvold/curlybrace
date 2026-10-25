@@ -273,7 +273,8 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             (index_actions::sampler_reported(state, status), Vec::new())
         }
         // Routed before; these have no session.
-        Event::Compare(_) | Event::TestConnection { .. } => (state, Vec::new()),
+        // Copy events are not consumed by the UI yet (a later task wires the dialog).
+        Event::Compare(_) | Event::Copy(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }
 }
 
