@@ -84,11 +84,12 @@ async fn filter_applies_to_the_source_side_only() {
         doc! { "_id": 2, "k": "b" },
         doc! { "_id": 3, "k": "a" },
     ];
-    // _id 2 is filtered out of the source, so it is target-only and ignored; the target side is
-    // not filtered, or _id 1 would not be found there.
-    let target = vec![doc! { "_id": 1, "k": "a" }, doc! { "_id": 2, "k": "z" }];
+    // The target copy of _id 1 has k "z", so it does not match the filter. Filtered on the source
+    // side only it is found and counts as changed; had the filter leaked to the target it would be
+    // hidden and _id 1 would count as new. _id 2 is excluded from the source: it is not counted.
+    let target = vec![doc! { "_id": 1, "k": "z" }, doc! { "_id": 2, "k": "b" }];
     let (_, got) = preview(&job(source, Some(target), doc! { "k": "a" })).await;
-    assert_eq!(got, counts(1, 0, 1));
+    assert_eq!(got, counts(1, 1, 0));
 }
 
 #[tokio::test]

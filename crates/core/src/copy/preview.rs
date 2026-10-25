@@ -23,11 +23,15 @@ pub struct PreviewCounts {
 
 /// Compares the source (under `job.filter`) with the whole target, keyed on `_id`. Uses the compare
 /// engine's default rules for an `_id` key: strict BSON equality except field order, so a numeric
-/// type difference counts as changed. `on_progress` receives the number of source documents
-/// scanned so far.
+/// type difference counts as changed. `changed` therefore means "differs", whatever the conflict
+/// policy: it is not "would be written" (under Skip nothing existing is rewritten). `on_progress`
+/// receives the number of source documents scanned so far.
 ///
-/// The engine keeps every new and changed document in a capped result set (the default `Limits`);
-/// a preview that exceeds the cap fails with `CoreError::CompareCapExceeded` and yields no counts.
+/// The engine keeps every new, changed AND target-only document in a capped result set
+/// (`Limits::default`: 1,000,000 entries and 256 MiB). Target-only documents are ignored by the
+/// counts but still consume that cap, so a preview of a small or filtered source against a large
+/// existing target can fail too. Exceeding the cap fails with `CoreError::CompareCapExceeded` and
+/// yields no counts.
 pub async fn preview_collection(
     job: &CopyJob,
     cancel: &CancelFlag,
