@@ -652,6 +652,7 @@
       "options_created": "{collection}: created with the options of the source collection.",
       "options_kept": "{collection}: already existed, so its options were left as they are.",
       "options_not_plain": "{collection}: a view or time-series collection. Only its documents were copied, without options or indexes.",
+      "options_overwrite_missing": "{collection}: does not exist in the target and Overwrite never adds documents, so it was not created and no options or indexes were copied.",
       "session_lost": "A connection was closed or reconnected during the copy, so it stopped.",
       "title_cancelled": "Copy cancelled",
       "title_completed": "Copy finished",

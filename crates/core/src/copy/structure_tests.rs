@@ -52,6 +52,8 @@ struct Spy {
     failing_index: Option<&'static str>,
     fail_writes: bool,
     kind: CollectionKind,
+    /// Someone else creates the collection between the check and `create_collection`.
+    race_create: bool,
 }
 
 impl Spy {
@@ -62,6 +64,7 @@ impl Spy {
             failing_index: None,
             fail_writes: false,
             kind: CollectionKind::Collection,
+            race_create: false,
         }
     }
 
@@ -152,6 +155,11 @@ impl DocumentStore for Spy {
 
     async fn create_collection(&self, ns: &Namespace, options: &CollectionOptions) -> Result<()> {
         self.note("create_collection");
+        if self.race_create {
+            let theirs = CollectionOptions::default();
+            self.inner.create_collection(ns, &theirs).await?;
+            return Err(CoreError::Database("NamespaceExists".into()));
+        }
         self.inner.create_collection(ns, options).await
     }
 
@@ -370,6 +378,120 @@ async fn a_view_source_is_copied_data_only() {
     );
     assert_eq!(report.indexes, None);
     assert_eq!(target.at("create_collection"), None);
+}
+
+async fn run_with(
+    source: &Arc<Spy>,
+    target: &Arc<Spy>,
+    policy: ConflictPolicy,
+    cancel: &CancelFlag,
+    on_progress: &mut (dyn FnMut(CopyProgress) + Send),
+) -> CopyReport {
+    let job = CopyJob {
+        policy,
+        ..job(source, target)
+    };
+    copy_with_structure(job, true, cancel, on_progress).await
+}
+
+#[tokio::test]
+async fn a_cancel_after_the_last_batch_ends_the_copy_cancelled_without_indexes() {
+    let source = Spy::source(&capped(), &[index("a_1", "a")]).await;
+    let target = Arc::new(Spy::new());
+    let cancel = CancelFlag::default();
+    let flag = cancel.clone();
+    let mut calls = 0;
+    let report = run_with(&source, &target, ConflictPolicy::Skip, &cancel, &mut |_| {
+        calls += 1;
+        // Two batches of up to two documents: this is the final one.
+        if calls == 2 {
+            flag.cancel();
+        }
+    })
+    .await;
+    assert_eq!(report.progress.written, 3, "counts stay exact");
+    assert_eq!(report.outcome, CopyOutcome::Cancelled);
+    assert_eq!(report.indexes, None);
+    assert_eq!(target.at("index:a_1"), None);
+}
+
+#[tokio::test]
+async fn overwrite_into_a_missing_target_creates_nothing_and_builds_no_index() {
+    let source = Spy::source(&capped(), &[index("a_1", "a")]).await;
+    let target = Arc::new(Spy::new());
+    let (cancel, mut none) = (CancelFlag::default(), |_: CopyProgress| {});
+    let report = run_with(
+        &source,
+        &target,
+        ConflictPolicy::Overwrite,
+        &cancel,
+        &mut none,
+    )
+    .await;
+    assert_eq!(report.outcome, CopyOutcome::Completed);
+    assert_eq!(
+        report.structure,
+        structure(StructureOutcome::TargetMissingOverwrite)
+    );
+    assert_eq!(report.indexes, None);
+    assert_eq!(target.at("create_collection"), None);
+    assert_eq!(target.at("index:a_1"), None);
+}
+
+#[tokio::test]
+async fn skip_and_upsert_still_create_a_missing_target() {
+    for policy in [ConflictPolicy::Skip, ConflictPolicy::Upsert] {
+        let source = Spy::source(&capped(), &[index("a_1", "a")]).await;
+        let target = Arc::new(Spy::new());
+        let (cancel, mut none) = (CancelFlag::default(), |_: CopyProgress| {});
+        let report = run_with(&source, &target, policy, &cancel, &mut none).await;
+        assert_eq!(report.structure, structure(StructureOutcome::Created));
+        assert_eq!(report.indexes.unwrap().built, ["a_1"]);
+    }
+}
+
+#[tokio::test]
+async fn overwrite_into_an_existing_target_still_builds_missing_indexes() {
+    let source = Spy::source(&capped(), &[index("a_1", "a")]).await;
+    let target = Arc::new(Spy::new());
+    let own = CollectionOptions::default();
+    target
+        .inner
+        .create_collection(&dst_ns(), &own)
+        .await
+        .unwrap();
+    let (cancel, mut none) = (CancelFlag::default(), |_: CopyProgress| {});
+    let report = run_with(
+        &source,
+        &target,
+        ConflictPolicy::Overwrite,
+        &cancel,
+        &mut none,
+    )
+    .await;
+    assert_eq!(report.structure, structure(StructureOutcome::ExistingKept));
+    assert_eq!(report.indexes.unwrap().built, ["a_1"]);
+}
+
+#[tokio::test]
+async fn a_collection_created_in_the_race_is_kept_not_a_failure() {
+    let source = Spy::source(&capped(), &[]).await;
+    let mut target = Spy::new();
+    target.race_create = true;
+    let target = Arc::new(target);
+    let report = run(&source, &target, true).await;
+    assert_eq!(report.outcome, CopyOutcome::Completed);
+    assert_eq!(report.structure, structure(StructureOutcome::ExistingKept));
+    assert_eq!(report.progress.written, 3);
+}
+
+#[tokio::test]
+async fn an_index_whose_only_key_is_id_is_not_copied_whatever_its_name() {
+    let source = Spy::source(&capped(), &[index("by_id", "_id"), index("a_1", "a")]).await;
+    let target = Arc::new(Spy::new());
+    let report = run(&source, &target, true).await;
+    assert_eq!(target.at("index:by_id"), None);
+    assert_eq!(report.indexes.unwrap().built, ["a_1"]);
 }
 
 #[test]

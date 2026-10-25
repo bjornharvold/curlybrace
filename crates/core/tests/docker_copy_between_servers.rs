@@ -501,6 +501,13 @@ async fn copies_options_and_indexes_between_two_containers() {
     );
     assert_eq!(count(&client_b, &fresh).await, 5);
     assert_eq!(index_names(&client_b, &fresh).await, ["_id_", "u_1", "v_1"]);
+    // The unique index is still unique on the new target: a repeated `u` is refused.
+    let repeat = client_b
+        .database(&fresh.db)
+        .collection::<Document>(&fresh.collection)
+        .insert_one(doc! { "_id": 99, "v": "y", "u": 1 })
+        .await;
+    assert!(repeat.is_err(), "u_1 must stay unique on the target");
     let built = &reports[0].indexes.as_ref().expect("index report").built;
     assert_eq!(built, &["v_1", "u_1"], "in the source's order");
 

@@ -128,6 +128,7 @@ fn every_message_of_the_index_report_resolves() {
         "copy.report.options_created",
         "copy.report.options_kept",
         "copy.report.options_not_plain",
+        "copy.report.options_overwrite_missing",
         "copy.report.indexes",
         "copy.report.index_failed",
         "copy.report.indexes_not_built",

@@ -21,10 +21,11 @@ use std::collections::HashSet;
 use super::engine::{
     CopyJob, CopyOutcome, CopyProgress, CopyReport, copy_collection, is_same_collection,
 };
+use super::policy::ConflictPolicy;
 use crate::compare::engine::CancelFlag;
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
-use crate::store::CollectionKind;
+use crate::store::{CollectionKind, CollectionOptions};
 
 /// The name of the index every collection has; it is never copied.
 const ID_INDEX: &str = "_id_";
@@ -40,6 +41,9 @@ pub enum StructureOutcome {
     SourceNotPlain,
     /// The source collection does not exist: nothing to take options or indexes from.
     SourceMissing,
+    /// The target does not exist and the policy is Overwrite, which only replaces and never
+    /// adds: nothing was created, so there are no options and no indexes.
+    TargetMissingOverwrite,
 }
 
 impl StructureOutcome {
@@ -98,20 +102,28 @@ async fn structure_outcome(job: &CopyJob) -> Result<StructureOutcome> {
     let Some(options) = job.source.collection_options(&job.source_ns).await? else {
         return Ok(StructureOutcome::SourceMissing);
     };
-    // Check-then-create is racy by nature; a collection that appears in between makes
-    // `create_collection` fail, and the item then fails with that typed error.
-    if job
-        .target
-        .collection_options(&job.target_ns)
-        .await?
-        .is_some()
-    {
+    let target_options = job.target.collection_options(&job.target_ns).await?;
+    if target_options.is_some() {
         return Ok(StructureOutcome::ExistingKept);
     }
-    job.target
-        .create_collection(&job.target_ns, &options)
-        .await?;
-    Ok(StructureOutcome::Created)
+    // Overwrite only replaces documents that exist: it never adds, so it never creates.
+    if job.policy == ConflictPolicy::Overwrite {
+        return Ok(StructureOutcome::TargetMissingOverwrite);
+    }
+    create_if_absent(job, &options).await
+}
+
+/// Check-then-create is racy by nature. When `create_collection` fails because the collection
+/// appeared in between (NamespaceExists), a second look finds it and it counts as an existing
+/// target, untouched. Any other failure is returned.
+async fn create_if_absent(job: &CopyJob, options: &CollectionOptions) -> Result<StructureOutcome> {
+    let Err(error) = job.target.create_collection(&job.target_ns, options).await else {
+        return Ok(StructureOutcome::Created);
+    };
+    match job.target.collection_options(&job.target_ns).await {
+        Ok(Some(_)) => Ok(StructureOutcome::ExistingKept),
+        _ => Err(error),
+    }
 }
 
 /// False for a view or a time-series collection. A source missing from the listing is "plain":
@@ -135,10 +147,15 @@ pub async fn copy_indexes_after(job: &CopyJob) -> Result<IndexReport> {
         .map(|spec| spec.name)
         .collect();
     let mut report = IndexReport::default();
-    for spec in wanted.into_iter().filter(|spec| spec.name != ID_INDEX) {
+    for spec in wanted.into_iter().filter(|spec| !is_id_index(spec)) {
         report = build_one(job, spec, &present, report).await;
     }
     Ok(report)
+}
+
+/// The server's own `_id` index: by name, or any index whose only key is `_id`.
+fn is_id_index(spec: &IndexSpec) -> bool {
+    spec.name == ID_INDEX || matches!(spec.keys.as_slice(), [key] if key.field == "_id")
 }
 
 /// The index definitions of the source or the target; a missing collection has none.
@@ -222,11 +239,17 @@ pub async fn copy_with_structure(
     };
     let mut report = copy_collection(job.clone(), cancel, on_progress).await;
     report.structure = Some(structure);
-    let wanted = report.outcome == CopyOutcome::Completed
-        && structure.outcome.copies_indexes()
-        && !cancel.is_cancelled();
-    if !wanted {
+    if report.outcome != CopyOutcome::Completed || !structure.outcome.copies_indexes() {
         return report;
+    }
+    // A cancel (or a lost session, which cancels the flag) that arrives after the last batch
+    // leaves the indexes unbuilt: the copy is reported cancelled, the exact counts stay, and
+    // the runtime's cancelled / superseded handling applies.
+    if cancel.is_cancelled() {
+        return CopyReport {
+            outcome: CopyOutcome::Cancelled,
+            ..report
+        };
     }
     match copy_indexes_after(&job).await {
         Ok(indexes) => CopyReport {

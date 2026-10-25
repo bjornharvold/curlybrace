@@ -34,6 +34,7 @@ pub fn options_key(outcome: StructureOutcome) -> Option<&'static str> {
         StructureOutcome::Created => Some("copy.report.options_created"),
         StructureOutcome::ExistingKept => Some("copy.report.options_kept"),
         StructureOutcome::SourceNotPlain => Some("copy.report.options_not_plain"),
+        StructureOutcome::TargetMissingOverwrite => Some("copy.report.options_overwrite_missing"),
         StructureOutcome::SourceMissing => None,
     }
 }

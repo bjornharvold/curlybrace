@@ -5,6 +5,9 @@ use curlybrace_core::copy::engine::{CopyFailure, CopyOutcome, CopyProgress, Copy
 use curlybrace_core::copy::policy::ConflictPolicy;
 use curlybrace_core::copy::preview::PreviewCounts;
 use curlybrace_core::copy::protocol::{CopyItem, CopyRequest, CopyScope};
+use curlybrace_core::copy::structure::{
+    IndexFailReason, IndexFailure, IndexReport, StructureOutcome, StructureReport,
+};
 use curlybrace_core::store::{Namespace, WriteFailure};
 use curlybrace_ui::app::copy_state::{CopyDialog, CopyPhase, CopyRun, RunOutcome};
 use curlybrace_ui::app::state::AppState;
@@ -107,6 +110,43 @@ pub fn progress(state: &mut AppState) {
             },
             Some(10_000),
         );
+    state.copy = Some(running_dialog(state, run));
+}
+
+/// A finished copy with options and indexes: one collection created with the source's options,
+/// one that existed (an index left alone) with a unique index that could not be built.
+pub fn report_indexes(state: &mut AppState) {
+    browsing(ViewMode::Tree)(state);
+    let created = CopyReport {
+        structure: Some(StructureReport {
+            outcome: StructureOutcome::Created,
+        }),
+        indexes: Some(IndexReport {
+            built: vec!["customer_1".into(), "createdAt_-1".into()],
+            ..IndexReport::default()
+        }),
+        ..report(1230, 0, CopyOutcome::Completed, Vec::new())
+    };
+    let kept = CopyReport {
+        structure: Some(StructureReport {
+            outcome: StructureOutcome::ExistingKept,
+        }),
+        indexes: Some(IndexReport {
+            built: vec!["status_1".into()],
+            existing: vec!["customer_1".into()],
+            failed: vec![IndexFailure {
+                name: "email_unique".into(),
+                reason: IndexFailReason::DuplicateData,
+            }],
+        }),
+        ..report(80, 0, CopyOutcome::Completed, Vec::new())
+    };
+    let run = CopyRun::new(2, false)
+        .with_structure_requested(true)
+        .with_plan(&items()[..2])
+        .with_item_done(0, created)
+        .with_item_done(1, kept)
+        .ended(RunOutcome::Completed);
     state.copy = Some(running_dialog(state, run));
 }
 

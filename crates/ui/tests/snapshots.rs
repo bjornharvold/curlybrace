@@ -215,6 +215,11 @@ shot!(
     vec![],
     copy_shots_fixtures::report_cancelled
 );
+shot!(
+    copy_report_indexes,
+    vec![],
+    copy_shots_fixtures::report_indexes
+);
 
 shot!(editor_modal, vec![], |state| {
     browsing(ViewMode::Tree)(state);

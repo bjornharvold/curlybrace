@@ -63,7 +63,9 @@ pub struct CopyFailure {
 pub enum CopyOutcome {
     Completed,
     Cancelled,
-    /// The copy stopped: a read failed, or a `bulk_write` failed as a whole.
+    /// The copy stopped: a read failed, or a `bulk_write` failed as a whole. With options and
+    /// indexes requested it is also the outcome when the target could not be created, or when the
+    /// indexes could not be listed after the data was copied (the counts stay exact then).
     Failed(CoreError),
 }
 
