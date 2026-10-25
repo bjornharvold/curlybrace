@@ -243,8 +243,9 @@ fn replace_note_key(policy: ConflictPolicy) -> Option<&'static str> {
     }
 }
 
-/// The typed confirmation, when Overwrite, Upsert or a production target asks for one: the prompt, the
-/// text to type and a full-width box. Also reports whether the box holds the keyboard focus.
+/// The typed confirmation, when Overwrite, Upsert or a production target asks for one: the
+/// prompt, the text to type and a full-width box. Also reports whether the box holds the
+/// keyboard focus.
 fn show_confirmation(
     ui: &mut egui::Ui,
     dialog: &CopyDialog,
@@ -274,9 +275,9 @@ fn show_confirmation(
     (input, response.has_focus())
 }
 
-/// Cancel comes first. When the copy replaces documents or the target is production, Cancel also holds
-/// the initial focus, so Enter can never confirm; it leaves the focus alone while the person is
-/// typing into any box.
+/// Cancel comes first. When the copy replaces documents or the target is production, Cancel also
+/// holds the initial focus, so Enter can never confirm; it leaves the focus alone while the
+/// person is typing into any box.
 fn show_buttons(
     ui: &mut egui::Ui,
     dialog: &CopyDialog,

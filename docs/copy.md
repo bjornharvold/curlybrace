@@ -61,9 +61,9 @@ The dialog appears on **every** paste. Nothing is written until you press **Copy
   that already exists is merged under the policy.
 - **When a document already exists in the target**: the [policy](#conflict-policies).
 - **Also copy indexes and collection options**, off by default.
-- A **typed confirmation** when the policy is Overwrite or Upsert (both replace existing documents) or the target connection is marked as
-  production. Type the target collection name when one collection is pasted, otherwise the target
-  database name. A production warning names the connection.
+- A **typed confirmation** when the policy is Overwrite or Upsert (both replace existing documents)
+  or the target connection is marked as production. Type the target collection name when one
+  collection is pasted, otherwise the target database name. A production warning names the connection.
 
 The counts inform you, but the copy does not depend on them: it applies your policy to whatever it
 finds when it writes.
