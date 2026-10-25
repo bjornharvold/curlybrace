@@ -577,6 +577,7 @@
         "upsert": "Upsert by _id: replace existing documents and add new ones"
       },
       "production_line": "Warning: {connection} is a production connection.",
+      "starting": "Starting the copy…",
       "title": "Paste",
       "to": "To: {connection} / {database}"
     },
@@ -646,8 +647,9 @@
       "index_failed": "Index {name} of {collection} was not built: {reason}. The copied documents were kept.",
       "indexes": "{collection}: indexes built {built}, already in the target {existing}, failed {failed}.",
       "indexes_not_built": "The copy did not finish, so no further indexes were built.",
-      "more_failures": "More failures are not shown.",
+      "more_failures": "{failed} documents failed in all. Only the first {listed} are listed, the rest are not shown.",
       "not_started": "{collection}: not started.",
+      "not_written": "{collection}: skipped {skipped}, failed {failed}.",
       "nothing_else": "Nothing else was changed. Documents already written are not rolled back.",
       "nothing_written": "No documents were written.",
       "options_created": "{collection}: created with the options of the source collection.",

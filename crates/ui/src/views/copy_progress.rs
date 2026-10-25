@@ -140,6 +140,15 @@ fn show_written(ui: &mut egui::Ui, run: &CopyRun, i18n: &I18n) {
         };
         ui.label(text);
     }
+    for line in run.not_written_lines() {
+        let params = [
+            ("collection", line.collection),
+            ("skipped", line.skipped.to_string()),
+            ("failed", line.failed.to_string()),
+        ];
+        let params: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        ui.label(i18n.t_with("copy.report.not_written", &params));
+    }
 }
 
 /// The options and indexes of each collection: created with the source's options or kept as
@@ -196,6 +205,11 @@ fn show_failures(ui: &mut egui::Ui, run: &CopyRun, i18n: &I18n) {
             }
         });
     if run.more_failures {
-        ui.label(i18n.t("copy.report.more_failures"));
+        let params = [
+            ("listed", rows.len().to_string()),
+            ("failed", run.failed_total().to_string()),
+        ];
+        let params: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        ui.label(i18n.t_with("copy.report.more_failures", &params));
     }
 }

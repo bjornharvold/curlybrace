@@ -292,7 +292,7 @@ fn show_buttons(
         }
         if matches!(dialog.phase, CopyPhase::Starting) {
             ui.spinner();
-            ui.label(i18n.t("copy.progress.cancelling"));
+            ui.label(i18n.t("copy.dialog.starting"));
         }
         copy.clicked()
             .then_some(CopyInput::Confirm)

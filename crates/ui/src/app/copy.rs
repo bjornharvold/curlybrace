@@ -42,6 +42,19 @@ fn send(command: CopyCommand) -> Vec<Command> {
     vec![Command::Copy(command)]
 }
 
+/// The state with `change` applied to the dialog while it is being edited: once Confirm was
+/// pressed the request is fixed, whatever input still arrives.
+fn with_editing_dialog(state: AppState, change: impl FnOnce(CopyDialog) -> CopyDialog) -> AppState {
+    let editing = state
+        .copy
+        .as_ref()
+        .is_some_and(|d| matches!(d.phase, CopyPhase::Editing));
+    match editing {
+        true => with_dialog(state, change),
+        false => state,
+    }
+}
+
 /// The state with `change` applied to the dialog, if one is open.
 fn with_dialog(state: AppState, change: impl FnOnce(CopyDialog) -> CopyDialog) -> AppState {
     let AppState { copy, .. } = state;
@@ -65,12 +78,14 @@ fn next_run(state: AppState) -> (AppState, RunId) {
 pub(super) fn on_input(state: AppState, input: CopyInput) -> Out {
     match input {
         CopyInput::Open => open(state),
-        CopyInput::SetPolicy(policy) => none(with_dialog(state, |d| d.with_policy(policy))),
+        CopyInput::SetPolicy(policy) => none(with_editing_dialog(state, |d| d.with_policy(policy))),
         CopyInput::SetName { index, name } => rename(state, index, name),
         CopyInput::ToggleIndexesAndOptions => {
-            none(with_dialog(state, CopyDialog::with_options_toggled))
+            none(with_editing_dialog(state, CopyDialog::with_options_toggled))
         }
-        CopyInput::TypeConfirmation(text) => none(with_dialog(state, |d| d.with_typed(text))),
+        CopyInput::TypeConfirmation(text) => {
+            none(with_editing_dialog(state, |d| d.with_typed(text)))
+        }
         CopyInput::Confirm => confirm(state),
         CopyInput::Cancel => cancel(state),
         CopyInput::Close => close(state),
@@ -161,22 +176,37 @@ fn confirm(state: AppState) -> Out {
 
 /// The target was locked after the dialog opened: nothing is sent, and the report says so.
 fn refused_read_only(state: AppState) -> Out {
-    let preview = state.copy.as_ref().and_then(|d| d.preview_run);
+    let dialog = state.copy.as_ref();
+    let preview = dialog.and_then(|d| d.preview_run);
+    let already_cancelling = dialog.is_some_and(|d| d.restart_preview);
     let (state, run) = next_run(state);
     let report = CopyRun::new(run, false).ended(RunOutcome::Failed(CoreError::ReadOnly));
-    let state = with_dialog(state, |d| d.with_phase(CopyPhase::Running(report)));
-    // The preview still holds the run slot: it is stopped, nothing else is sent.
-    let commands = preview
-        .map(|run| send(CopyCommand::Cancel { run }))
-        .unwrap_or_default();
+    // No preview follows: a rename that was waiting for the slot is dropped with it.
+    let state = with_dialog(state, |d| {
+        d.with_phase(CopyPhase::Running(report)).with_restart(false)
+    });
+    // The preview still holds the run slot: it is stopped unless a rename already stopped it.
+    let commands = match (preview, already_cancelling) {
+        (Some(run), false) => send(CopyCommand::Cancel { run }),
+        _ => Vec::new(),
+    };
     (state, commands)
 }
 
 /// Sends the copy the dialog describes. `counts_incomplete`: the preview was cut short.
 fn start_copy(state: AppState, counts_incomplete: bool) -> Out {
-    let Some(request) = state.copy.as_ref().map(CopyDialog::final_request) else {
+    let Some(dialog) = &state.copy else {
         return none(state);
     };
+    // The dialog may have changed since Confirm (the target became production): it is checked
+    // again, and a copy that no longer passes goes back to the person.
+    let production = state.session_production(dialog.request.target);
+    if !(dialog.names_valid() && dialog.confirmation_passes(production)) {
+        return none(with_dialog(state, |d| {
+            d.preview_ended(None).with_phase(CopyPhase::Editing)
+        }));
+    }
+    let request = dialog.final_request();
     let (state, run) = next_run(state);
     let structure_requested = request.with_indexes_and_options;
     let phase = CopyPhase::Running(

@@ -413,3 +413,53 @@ fn the_typed_box_is_named_by_the_text_to_type() {
     let h = harness(counted(dialog(ConflictPolicy::Overwrite)));
     h.get_by_role_and_label(Role::TextInput, &prompt());
 }
+
+#[test]
+fn right_after_copy_the_dialog_says_it_is_starting_not_cancelling() {
+    let h = harness(counted(dialog(ConflictPolicy::Skip)).with_phase(CopyPhase::Starting));
+    h.get_by_label(&t("copy.dialog.starting"));
+    assert!(
+        h.query_by_label(&t("copy.progress.cancelling")).is_none(),
+        "nothing was cancelled"
+    );
+}
+
+#[test]
+fn the_report_states_skipped_and_failed_counts_and_the_total_when_cut_short() {
+    let i18n = I18n::english();
+    let failures: Vec<CopyFailure> = (0..100)
+        .map(|n| CopyFailure {
+            key: Bson::Int32(n),
+            reason: WriteFailure::DuplicateKey,
+        })
+        .collect();
+    let report = CopyReport {
+        progress: CopyProgress {
+            scanned: 400,
+            written: 140,
+            skipped: 10,
+            failed: 250,
+        },
+        failures,
+        outcome: CopyOutcome::Completed,
+        structure: None,
+        indexes: None,
+    };
+    let run = CopyRun::new(3, false)
+        .with_plan(&[item("orders")])
+        .with_item_done(0, report)
+        .ended(RunOutcome::Completed);
+    let h = harness(dialog(ConflictPolicy::Skip).with_phase(CopyPhase::Running(run)));
+    h.get_by_label(&i18n.t_with(
+        "copy.report.not_written",
+        &[
+            ("collection", "orders"),
+            ("skipped", "10"),
+            ("failed", "250"),
+        ],
+    ));
+    h.get_by_label(&i18n.t_with(
+        "copy.report.more_failures",
+        &[("failed", "250"), ("listed", "100")],
+    ));
+}

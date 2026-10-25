@@ -115,6 +115,14 @@ pub struct RunFailure {
     pub reason: WriteFailure,
 }
 
+/// What a collection did not write: documents left alone, and documents the target refused.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NotWrittenLine {
+    pub collection: String,
+    pub skipped: u64,
+    pub failed: u64,
+}
+
 /// A failed document as the report lists it: the collection, the key text and a message key.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FailureRow {
@@ -260,6 +268,24 @@ impl CopyRun {
                 (row.target.collection.clone(), written)
             })
             .collect()
+    }
+
+    /// The collections that skipped or failed documents, with how many.
+    pub fn not_written_lines(&self) -> Vec<NotWrittenLine> {
+        self.rows
+            .iter()
+            .filter(|row| row.progress.skipped > 0 || row.progress.failed > 0)
+            .map(|row| NotWrittenLine {
+                collection: row.target.collection.clone(),
+                skipped: row.progress.skipped,
+                failed: row.progress.failed,
+            })
+            .collect()
+    }
+
+    /// The documents that failed in the whole copy, listed or not.
+    pub fn failed_total(&self) -> u64 {
+        self.rows.iter().map(|row| row.progress.failed).sum()
     }
 
     pub fn nothing_written(&self) -> bool {

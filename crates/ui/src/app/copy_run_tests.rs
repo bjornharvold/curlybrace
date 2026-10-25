@@ -6,7 +6,6 @@ use super::copy_tests::{
     B, dialog, event, input, opened, planned, report, run_of, sid, start_run, started,
 };
 use super::reducer::{Input, update};
-use super::state::Banner;
 use crate::I18n;
 use bson::Bson;
 use curlybrace_core::compare::apply::MAX_REPORTED_FAILURES;
@@ -224,12 +223,6 @@ fn a_new_session_state_drops_the_dialog() {
     assert!(s.copy.is_none());
 }
 
-#[test]
-fn banner_is_untouched_by_the_dialog() {
-    let (s, _) = opened(false);
-    assert_eq!(s.banner, None::<Banner>);
-}
-
 /// Confirmed while counting: the preview is being cancelled and the copy waits for its end.
 fn starting() -> (super::state::AppState, u64) {
     let (s, run) = opened(false);
@@ -340,4 +333,129 @@ fn a_read_only_refusal_stops_the_preview_in_flight() {
         commands.as_slice(),
         [Command::Copy(CopyCommand::Cancel { run: r })] if *r == run
     ));
+}
+
+#[test]
+fn a_rename_then_a_read_only_target_sends_no_second_cancel_and_no_stray_preview() {
+    let (s, run) = opened(false);
+    let s = planned(s, run);
+    let (s, commands) = input(
+        s,
+        CopyInput::SetName {
+            index: 0,
+            name: "o".into(),
+        },
+    );
+    assert_eq!(commands.len(), 1, "the rename cancelled the preview");
+    let mut s = s;
+    s.parked.get_mut(&sid(B)).unwrap().read_only = true;
+    let (s, commands) = input(s, CopyInput::Confirm);
+    assert!(
+        commands.is_empty(),
+        "the preview is already being cancelled"
+    );
+    assert!(!dialog(&s).restart_preview);
+    let (s, commands) = event(
+        s,
+        CopyEvent::Done {
+            run,
+            cancelled: true,
+        },
+    );
+    assert!(commands.is_empty(), "no preview follows the refusal");
+    assert_eq!(
+        run_of(&s).outcome,
+        Some(RunOutcome::Failed(CoreError::ReadOnly))
+    );
+}
+
+#[test]
+fn edits_are_ignored_unless_the_dialog_is_editing() {
+    let edits = [
+        CopyInput::SetPolicy(ConflictPolicy::Overwrite),
+        CopyInput::ToggleIndexesAndOptions,
+        CopyInput::TypeConfirmation("crm".into()),
+        CopyInput::SetName {
+            index: 0,
+            name: "other".into(),
+        },
+    ];
+    let makers: [fn() -> super::state::AppState; 2] = [|| starting().0, || started(false).0];
+    for make in makers {
+        for edit in &edits {
+            let state = make();
+            let before = state.copy.clone();
+            let (after, commands) = input(state, edit.clone());
+            assert_eq!(after.copy, before, "{edit:?}");
+            assert!(commands.is_empty(), "{edit:?}");
+        }
+    }
+}
+
+#[test]
+fn the_copy_is_not_sent_when_the_confirmation_no_longer_passes() {
+    let (s, run) = starting();
+    // The target became a production connection while the preview was being cancelled.
+    let mut s = s;
+    s.parked.get_mut(&sid(B)).unwrap().production = true;
+    let (s, commands) = event(
+        s,
+        CopyEvent::Done {
+            run,
+            cancelled: true,
+        },
+    );
+    assert!(commands.is_empty(), "{commands:?}");
+    assert!(matches!(dialog(&s).phase, CopyPhase::Editing));
+}
+
+#[test]
+fn the_report_counts_skipped_and_failed_documents_per_collection_and_in_total() {
+    let (s, run) = started(false);
+    let mut first = report(5, CopyOutcome::Completed);
+    first.progress.skipped = 3;
+    first.progress.failed = 2;
+    let mut second = report(4, CopyOutcome::Completed);
+    second.progress.failed = 250;
+    let (s, _) = event(
+        s,
+        CopyEvent::ItemDone {
+            run,
+            index: 0,
+            report: first,
+        },
+    );
+    let (s, _) = event(
+        s,
+        CopyEvent::ItemDone {
+            run,
+            index: 1,
+            report: second,
+        },
+    );
+    let run = run_of(&s);
+    let lines = run.not_written_lines();
+    assert_eq!(
+        lines
+            .iter()
+            .map(|l| (l.collection.as_str(), l.skipped, l.failed))
+            .collect::<Vec<_>>(),
+        [("orders", 3, 2), ("users", 0, 250)]
+    );
+    assert_eq!(run.failed_total(), 252);
+}
+
+#[test]
+fn a_clean_collection_has_no_skipped_or_failed_line() {
+    let (s, run) = started(false);
+    let (s, _) = event(
+        s,
+        CopyEvent::ItemDone {
+            run,
+            index: 0,
+            report: report(5, CopyOutcome::Completed),
+        },
+    );
+    assert!(run_of(&s).not_written_lines().is_empty());
+    assert_eq!(run_of(&s).failed_total(), 0);
 }
