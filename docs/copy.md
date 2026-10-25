@@ -54,9 +54,10 @@ The dialog appears on **every** paste. Nothing is written until you press **Copy
   counted; the report then says the counts were incomplete. If a collection is too large to count
   (the same cap as [Compare](compare.md#requirements-and-limits)), it shows "counts unavailable"
   and **Copy** stays enabled.
-- **Names in the target**, editable. The suggestion is `<name>_copy`. A new name is required when
+- **Names in the target**, editable. The suggestion is `<name>_copy`. When
   you paste within the same connection onto a name that already exists in the target database,
-  even when that database is another one. Across connections the names are kept and a collection
+  even when that database is another one, the suggested name is a new one; you can type the
+  original name back to merge into the existing collection under the policy. Across connections the names are kept and a collection
   that already exists is merged under the policy.
 - **When a document already exists in the target**: the [policy](#conflict-policies).
 - **Also copy indexes and collection options**, off by default.
