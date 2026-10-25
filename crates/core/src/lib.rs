@@ -6,6 +6,7 @@ mod connection_color;
 pub mod connection_folders;
 pub mod connection_names;
 pub mod connection_repair;
+pub mod copy;
 pub mod crud;
 pub mod driver_error;
 pub mod ejson;
