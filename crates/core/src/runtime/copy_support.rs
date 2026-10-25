@@ -27,8 +27,20 @@ pub(super) const BATCH: u64 = 500;
 /// Commands a store sends to the runtime right after one of its `bulk_write` calls completed.
 pub(super) struct Armed {
     tx: UnboundedSender<Command>,
-    after_call: usize,
+    point: Point,
+    call: usize,
     commands: Vec<Command>,
+}
+
+/// Where in a store call an `Armed` set of commands is sent.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Point {
+    /// After the n-th `bulk_write` completed.
+    AfterWrite,
+    /// At the start of the n-th `scan_sorted`, so while the engine prepares a batch.
+    DuringScan,
+    /// At the start of the n-th `find`, so while the engine reads the target's existing ids.
+    DuringFind,
 }
 
 /// An in-memory store that counts its calls, can show views, fail scans of one collection and
@@ -39,6 +51,7 @@ pub(super) struct TestStore {
     fail_scan: Option<(String, CoreError)>,
     pub(super) scans: AtomicUsize,
     pub(super) writes: AtomicUsize,
+    finds: AtomicUsize,
     armed: Mutex<Option<Armed>>,
 }
 
@@ -55,6 +68,7 @@ impl TestStore {
             fail_scan: None,
             scans: AtomicUsize::new(0),
             writes: AtomicUsize::new(0),
+            finds: AtomicUsize::new(0),
             armed: Mutex::new(None),
         }
     }
@@ -73,15 +87,27 @@ impl TestStore {
         }
     }
 
+    /// Sends `commands` after the `after_call`-th `bulk_write`.
     pub(super) fn arm(
         &self,
         tx: &UnboundedSender<Command>,
         after_call: usize,
         commands: Vec<Command>,
     ) {
+        self.arm_at(tx, Point::AfterWrite, after_call, commands);
+    }
+
+    pub(super) fn arm_at(
+        &self,
+        tx: &UnboundedSender<Command>,
+        point: Point,
+        call: usize,
+        commands: Vec<Command>,
+    ) {
         *self.lock_armed() = Some(Armed {
             tx: tx.clone(),
-            after_call,
+            point,
+            call,
             commands,
         });
     }
@@ -98,12 +124,16 @@ impl TestStore {
         self.inner.find(ns, &query).await.unwrap().docs
     }
 
-    /// Sends the armed commands once the call numbered `call` is done, then lets the dispatcher
-    /// handle them before the write returns (the test runtime is single threaded).
-    pub(super) async fn fire_if_armed(&self, call: usize) {
+    /// Sends the armed commands when the call numbered `call` reaches `point`, then lets the
+    /// dispatcher handle them before the call goes on. This relies on the CURRENT-THREAD test
+    /// runtime: the yields below run the dispatcher task to completion.
+    pub(super) async fn fire_if_armed(&self, point: Point, call: usize) {
         let due = {
             let mut armed = self.lock_armed();
-            match armed.as_ref().is_some_and(|a| a.after_call == call) {
+            match armed
+                .as_ref()
+                .is_some_and(|a| a.point == point && a.call == call)
+            {
                 true => armed.take(),
                 false => None,
             }
@@ -129,6 +159,8 @@ impl DocumentStore for TestStore {
     }
 
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page> {
+        let call = self.finds.fetch_add(1, Ordering::SeqCst) + 1;
+        self.fire_if_armed(Point::DuringFind, call).await;
         self.inner.find(ns, q).await
     }
 
@@ -147,7 +179,7 @@ impl DocumentStore for TestStore {
     async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<Vec<WriteOutcome>> {
         let call = self.writes.fetch_add(1, Ordering::SeqCst) + 1;
         let outcomes = self.inner.bulk_write(ns, ops).await;
-        self.fire_if_armed(call).await;
+        self.fire_if_armed(Point::AfterWrite, call).await;
         outcomes
     }
 
@@ -163,7 +195,8 @@ impl DocumentStore for TestStore {
         from: Option<&KeyTuple>,
         limit: u32,
     ) -> Result<Vec<Document>> {
-        self.scans.fetch_add(1, Ordering::SeqCst);
+        let call = self.scans.fetch_add(1, Ordering::SeqCst) + 1;
+        self.fire_if_armed(Point::DuringScan, call).await;
         if let Some((collection, error)) = &self.fail_scan {
             if *collection == ns.collection {
                 return Err(error.clone());
@@ -210,6 +243,8 @@ pub(super) struct Rig {
     pub(super) target: Arc<TestStore>,
     pub(super) source_cfg: ConnectionConfig,
     pub(super) target_cfg: ConnectionConfig,
+    /// A third connection the connector knows but the rig never connects; a run does not use it.
+    pub(super) other_cfg: ConnectionConfig,
 }
 
 impl Rig {
@@ -228,9 +263,14 @@ impl Rig {
             read_only: target_read_only,
             ..ConnectionConfig::new("target", "mongodb://localhost:27018")
         };
+        let other_cfg = ConnectionConfig::new("other", "mongodb://localhost:27019");
         let stores: HashMap<Uuid, Arc<dyn DocumentStore>> = HashMap::from([
             (source_cfg.id, source.clone() as Arc<dyn DocumentStore>),
             (target_cfg.id, target.clone() as Arc<dyn DocumentStore>),
+            (
+                other_cfg.id,
+                Arc::new(TestStore::new(&[])) as Arc<dyn DocumentStore>,
+            ),
         ]);
         let mut h = spawn_runtime_with_connector(
             None,
@@ -249,6 +289,7 @@ impl Rig {
             target,
             source_cfg,
             target_cfg,
+            other_cfg,
         }
     }
 

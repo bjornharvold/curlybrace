@@ -539,6 +539,8 @@ impl Shared {
     /// Gets or creates the session and starts its next epoch. Called only from the dispatcher
     /// (single-threaded), so request order decides.
     fn begin_session_epoch(&self, id: SessionId) -> (Arc<Session>, u64) {
+        // A copy over this session must stop before its store is replaced.
+        self.copy.session_changing(id);
         let generation = self.next_epoch.fetch_add(1, Ordering::SeqCst) + 1;
         let session = {
             let mut map = self.sessions.write().unwrap_or_else(|e| e.into_inner());
@@ -553,6 +555,8 @@ impl Shared {
     /// Starts the next epoch for `id`, drops its store and tunnel and removes it from the map.
     /// Tasks that still hold the `Arc<Session>` see a stale generation.
     fn end_session(&self, id: SessionId) -> u64 {
+        // A copy over this session must stop before its store is dropped.
+        self.copy.session_changing(id);
         let generation = self.next_epoch.fetch_add(1, Ordering::SeqCst) + 1;
         let removed = self
             .sessions

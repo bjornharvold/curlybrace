@@ -23,11 +23,17 @@
 //!   the error as its outcome) is followed by `Failed { error }`. A preview whose counts are
 //!   unavailable because of the compare result cap is NOT an error (`counts: None`).
 //! - A session that is closed or reconnected mid-run (its epoch moved) is noticed before each
-//!   collection and after each written batch; the run is cancelled, the collection in progress
-//!   reports its exact counts, and the run ends with `Failed { error: Superseded }`. Nothing is
-//!   written after that. A collection that had already written its last batch when the epoch
+//!   collection and after each written batch, and the dispatcher cancels the run the moment a
+//!   `Connect` or `Disconnect` of either of its sessions is requested (`CopySlot::session_changing`),
+//!   which abandons a read in flight. The collection in progress reports its exact counts and the
+//!   run ends with `Failed { error: Superseded }`. No write is STARTED after the epoch change is
+//!   observed; only a `bulk_write` already in flight may complete (its documents are counted).
+//!   An epoch change of an unrelated session does not touch the run. A collection that had already written its last batch when the epoch
 //!   moved still reports `Completed`; the run then fails before the next collection, or is `Done`
 //!   when it was the last.
+//! - Caveats: a cancelled preview emits no `PreviewItemDone` for the item in progress, and a panic
+//!   in the middle of an item ends the run with `Failed` (internal error) without an `ItemDone`
+//!   for that item.
 //! - The slot is released BEFORE the terminal event is sent, so a client that reacts to it with
 //!   a new run is never refused.
 //!
@@ -60,23 +66,45 @@ type Events = UnboundedSender<Event>;
 /// The one active run of the runtime, if any.
 #[derive(Default)]
 pub(super) struct CopySlot {
-    active: Mutex<Option<(RunId, CancelFlag)>>,
+    active: Mutex<Option<Active>>,
+}
+
+/// What the dispatcher needs to know about the running copy.
+struct Active {
+    run: RunId,
+    cancel: CancelFlag,
+    /// The source and target sessions of the run.
+    sessions: [SessionId; 2],
+    /// The run's `Job::lost`: set when one of its sessions changed epoch.
+    lost: Arc<AtomicBool>,
 }
 
 impl CopySlot {
-    fn take(&self, run: RunId, cancel: &CancelFlag) -> Result<()> {
-        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
-        if active.is_some() {
+    fn take(&self, active: Active) -> Result<()> {
+        let mut slot = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_some() {
             return Err(CoreError::Unsupported("a copy is already running".into()));
         }
-        *active = Some((run, cancel.clone()));
+        *slot = Some(active);
         Ok(())
     }
 
     fn cancel(&self, run: RunId) {
         let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((_, cancel)) = active.as_ref().filter(|(id, _)| *id == run) {
-            cancel.cancel();
+        if let Some(active) = active.as_ref().filter(|a| a.run == run) {
+            active.cancel.cancel();
+        }
+    }
+
+    /// Called synchronously by the dispatcher, before a `Connect` or `Disconnect` of `session`
+    /// moves its epoch. A run over that session is marked lost and cancelled at once, so even a
+    /// read still in flight is abandoned and no further batch is started. Other runs are not
+    /// touched.
+    pub(super) fn session_changing(&self, session: SessionId) {
+        let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(active) = active.as_ref().filter(|a| a.sessions.contains(&session)) {
+            active.lost.store(true, Ordering::SeqCst);
+            active.cancel.cancel();
         }
     }
 }
@@ -95,7 +123,7 @@ impl SlotGuard {
             .active
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if active.as_ref().is_some_and(|(id, _)| *id == self.run) {
+        if active.as_ref().is_some_and(|a| a.run == self.run) {
             *active = None;
         }
     }
@@ -172,8 +200,9 @@ struct Job {
     scope: CopyScope,
     policy: ConflictPolicy,
     cancel: CancelFlag,
-    /// Set when a session was found stale; the run then ends with `Superseded`.
-    lost: AtomicBool,
+    /// Set when a session was found stale, or the dispatcher saw its epoch change (see
+    /// `CopySlot::session_changing`); the run then ends with `Superseded`.
+    lost: Arc<AtomicBool>,
 }
 
 impl Job {
@@ -241,7 +270,13 @@ fn register(
         return Err(CoreError::ReadOnly);
     }
     let cancel = CancelFlag::default();
-    shared.copy.take(ctx.run, &cancel)?;
+    let lost = Arc::new(AtomicBool::new(false));
+    shared.copy.take(Active {
+        run: ctx.run,
+        cancel: cancel.clone(),
+        sessions: [request.source, request.target],
+        lost: Arc::clone(&lost),
+    })?;
     let guard = SlotGuard {
         shared: Arc::clone(shared),
         run: ctx.run,
@@ -254,7 +289,7 @@ fn register(
         scope: request.scope,
         policy: request.policy,
         cancel,
-        lost: AtomicBool::new(false),
+        lost,
     };
     Ok((job, guard))
 }
