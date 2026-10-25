@@ -58,11 +58,12 @@ pub fn click_mode(modifiers: &egui::Modifiers) -> Option<SelectMode> {
 }
 
 /// What moving the keyboard focus onto a row does to the selection: the row alone, or the range
-/// with Shift held; with Cmd/Ctrl held the selection is left alone (Cmd/Ctrl+Enter toggles).
-pub fn focus_mode(modifiers: &egui::Modifiers) -> Option<SelectMode> {
+/// with Shift held (an arrow key); with Cmd/Ctrl held the selection is left alone (Cmd/Ctrl+Enter
+/// toggles). Shift+Tab is only "focus backwards", so after a Tab the row is selected alone.
+pub fn focus_mode(modifiers: &egui::Modifiers, tabbed: bool) -> Option<SelectMode> {
     if modifiers.command {
         None
-    } else if modifiers.shift {
+    } else if modifiers.shift && !tabbed {
         Some(SelectMode::Extend)
     } else {
         Some(SelectMode::Single)
@@ -91,6 +92,8 @@ pub fn node_action(
         return response.clicked().then(plain);
     };
     let modifiers = ui.input(|i| i.modifiers);
+    // Read every pass for every row, so the pass of the key press is never missed.
+    let tabbed = tab_recently_pressed(ui);
     if response.clicked() {
         return Some(match click_mode(&modifiers) {
             Some(mode) => select(node, mode),
@@ -101,11 +104,23 @@ pub fn node_action(
         return (!ctx.is_selected(node)).then(|| select(node, SelectMode::Single));
     }
     if response.gained_focus() {
-        let mode = focus_mode(&modifiers);
+        let mode = focus_mode(&modifiers, tabbed);
         let alone = ctx.state.selection.nodes() == std::slice::from_ref(node);
         return mode.filter(|_| !alone).map(|mode| select(node, mode));
     }
     key_action(ui, response, ctx, node)
+}
+
+/// Whether Tab was pressed this pass or the one before: egui may land a Tab's focus move a pass
+/// after the key, so the row that gains focus can see the key only in the previous pass.
+fn tab_recently_pressed(ui: &egui::Ui) -> bool {
+    let id = egui::Id::new("sidebar_last_tab_pass");
+    let pass = ui.ctx().cumulative_pass_nr();
+    if ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+        ui.data_mut(|d| d.insert_temp(id, pass));
+    }
+    let last: Option<u64> = ui.data(|d| d.get_temp(id));
+    last.is_some_and(|last| pass.saturating_sub(last) <= 1)
 }
 
 /// Cmd/Ctrl+C and Cmd/Ctrl+V reach egui as copy and paste events, only while no text field holds

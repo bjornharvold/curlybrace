@@ -305,3 +305,71 @@ fn selecting_under_a_parked_root_does_not_change_the_active_session() {
     assert_eq!(s.active, Some(sid(A)));
     assert_eq!(s.selection.nodes(), [coll(B, "crm", "contacts")]);
 }
+
+/// `state(false)` with the parked session `B` in `status`.
+fn with_b_status(status: ConnStatus) -> AppState {
+    let mut s = state(false);
+    s.parked.get_mut(&sid(B)).unwrap().status = status;
+    s
+}
+
+fn database_of_b() -> PasteTarget {
+    PasteTarget::Database {
+        session: sid(B),
+        db: "crm".into(),
+    }
+}
+
+fn copied_from_a(s: AppState) -> AppState {
+    AppState {
+        clipboard: CopyClipboard::collections(sid(A), "shop", names(&["orders"])).ok(),
+        ..s
+    }
+}
+
+#[test]
+fn a_failed_or_connecting_target_is_closed_for_pasting() {
+    for status in [ConnStatus::Failed, ConnStatus::Connecting] {
+        let s = copied_from_a(with_b_status(status));
+        assert_eq!(
+            s.paste_entry(&database_of_b()),
+            PasteEntry::Disabled("copy.paste_blocked.target_closed"),
+            "{status:?}"
+        );
+        let s = act(s, SidebarAction::Paste(database_of_b()));
+        assert_eq!(s.pending_paste, None, "{status:?}");
+        assert_eq!(
+            s.banner,
+            Some(Banner::PasteBlocked(PasteBlock::TargetClosed))
+        );
+    }
+}
+
+#[test]
+fn a_source_that_failed_after_copy_is_closed_for_pasting() {
+    let clipboard = CopyClipboard::collections(sid(B), "crm", names(&["contacts"])).ok();
+    let s = AppState {
+        clipboard,
+        ..with_b_status(ConnStatus::Failed)
+    };
+    let onto_a = PasteTarget::Database {
+        session: sid(A),
+        db: "shop".into(),
+    };
+    assert_eq!(
+        s.paste_entry(&onto_a),
+        PasteEntry::Disabled("copy.paste_blocked.source_closed")
+    );
+    let s = act(s, SidebarAction::Paste(onto_a));
+    assert_eq!(s.pending_paste, None);
+    assert_eq!(
+        s.banner,
+        Some(Banner::PasteBlocked(PasteBlock::SourceClosed))
+    );
+}
+
+#[test]
+fn a_connected_parked_session_is_still_open_for_pasting() {
+    let s = copied_from_a(with_b_status(ConnStatus::Connected));
+    assert_eq!(s.paste_entry(&database_of_b()), PasteEntry::Enabled);
+}

@@ -1,6 +1,6 @@
 //! Selecting sidebar rows, Copy and Paste. Pure like the rest of the reducer.
 use super::reducer::Out;
-use super::state::{AppState, Banner};
+use super::state::{AppState, Banner, ConnStatus};
 use crate::viewmodel::{
     NodeRef, PasteContext, PasteEntry, PasteTarget, SelectMode, SidebarAction, SidebarState,
     clipboard_from_selection, copy_entry, paste_entry, visible_nodes,
@@ -35,7 +35,8 @@ impl AppState {
     /// none, and a paste never fetches anything.
     fn with_paste_context<R>(&self, f: impl FnOnce(&PasteContext) -> R) -> R {
         f(&PasteContext {
-            open: &|session| self.is_open(session),
+            // Failed and connecting roots are in `open` too, but have no live client to copy with.
+            open: &|session| self.status_of(session) == Some(ConnStatus::Connected),
             read_only: &|session| self.session_read_only(session),
             existing_names: &|session, db| {
                 let Some(sidebar) = self.sidebar_of(session) else {

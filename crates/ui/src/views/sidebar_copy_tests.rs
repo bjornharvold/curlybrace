@@ -18,7 +18,21 @@ fn a_modified_click_changes_the_selection_and_a_plain_click_does_not() {
 
 #[test]
 fn keyboard_focus_selects_the_row_extends_with_shift_and_keeps_with_command() {
-    assert_eq!(focus_mode(&mods(false, false)), Some(SelectMode::Single));
-    assert_eq!(focus_mode(&mods(false, true)), Some(SelectMode::Extend));
-    assert_eq!(focus_mode(&mods(true, false)), None);
+    assert_eq!(
+        focus_mode(&mods(false, false), false),
+        Some(SelectMode::Single)
+    );
+    assert_eq!(
+        focus_mode(&mods(false, true), false),
+        Some(SelectMode::Extend)
+    );
+    assert_eq!(focus_mode(&mods(true, false), false), None);
+}
+
+#[test]
+fn shift_tab_selects_the_row_alone() {
+    assert_eq!(
+        focus_mode(&mods(false, true), true),
+        Some(SelectMode::Single)
+    );
 }

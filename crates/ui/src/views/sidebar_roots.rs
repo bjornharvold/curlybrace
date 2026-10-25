@@ -730,4 +730,52 @@ mod tests {
             other => panic!("unexpected {other:?}"),
         }
     }
+
+    /// Focus on a row, then a key press with `modifiers` that moves the focus; returns what the
+    /// sidebar emitted for the move.
+    fn focus_move(key: egui::Key, modifiers: egui::Modifiers) -> SidebarAction {
+        let mut harness = harness(fixture().state);
+        harness.get_by_label("orders").focus();
+        harness.run();
+        harness.state_mut().1.take();
+        harness.input_mut().modifiers = modifiers;
+        harness.input_mut().events.push(egui::Event::Key {
+            key,
+            physical_key: Some(key),
+            pressed: true,
+            repeat: false,
+            modifiers,
+        });
+        harness.run();
+        selection_action(harness.state_mut().1.take()).1
+    }
+
+    #[test]
+    fn shift_tab_onto_a_row_selects_it_alone() {
+        match focus_move(egui::Key::Tab, egui::Modifiers::SHIFT) {
+            SidebarAction::Select { node, mode } => {
+                assert_eq!(mode, SelectMode::Single);
+                assert!(matches!(node, NodeRef::Database { db, .. } if db == "shop"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn shift_arrow_still_extends_the_selection() {
+        // The focus moves by an arrow key with Shift held (no Tab press): the row is added as a
+        // range. (egui lands an arrow's focus move a frame late; moving the focus directly keeps
+        // the test about the sidebar's reading of the modifiers.)
+        let mut harness = harness(fixture().state);
+        harness.get_by_label("orders").focus();
+        harness.run();
+        harness.state_mut().1.take();
+        harness.input_mut().modifiers = egui::Modifiers::SHIFT;
+        harness.get_by_label(&db_row_label("shop", true)).focus();
+        harness.run();
+        match selection_action(harness.state_mut().1.take()).1 {
+            SidebarAction::Select { mode, .. } => assert_eq!(mode, SelectMode::Extend),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
 }
