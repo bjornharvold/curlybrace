@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Curlybrace: a free MongoDB GUI for Mac</title>
-<meta name="description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query, edit and compare your MongoDB collections. No account, no trial, no paid tier.">
+<meta name="description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query, edit, compare and copy your MongoDB collections. No account, no trial, no paid tier.">
 <meta name="theme-color" content="#F2F5F7">
 <meta property="og:title" content="Curlybrace: a free MongoDB GUI for Mac">
-<meta property="og:description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query, edit and compare your MongoDB collections. Builders welcome.">
+<meta property="og:description" content="Curlybrace is a free, open-source MongoDB GUI for Mac. Browse, query, edit, compare and copy your MongoDB collections. Builders welcome.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://bjornharvold.github.io/curlybrace/">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -212,7 +212,7 @@
     <section class="hero">
       <div>
         <h1>Curlybrace is a free MongoDB GUI for Mac.</h1>
-        <p class="lede">Browse, query, edit and compare your MongoDB collections in a native Mac app. No account, no trial, no paid tier, and the source is open.</p>
+        <p class="lede">Browse, query, edit, compare and copy your MongoDB collections in a native Mac app. No account, no trial, no paid tier, and the source is open.</p>
         <div class="actions">
           <a class="btn btn-primary" href="https://github.com/bjornharvold/curlybrace/releases/latest">Download for macOS</a>
           <a class="btn btn-quiet" href="https://github.com/bjornharvold/curlybrace">View the source</a>
@@ -287,7 +287,7 @@
   <div class="wrap">
     <section id="what-it-does" style="padding-top:20px">
       <h2>What you can do with it</h2>
-      <p class="section-lede">The basics, done carefully, plus a compare tool for moving data between databases safely. Everything here works today.</p>
+      <p class="section-lede">The basics, done carefully, plus tools for comparing and copying data between databases safely. Everything here works today.</p>
       <dl class="can">
         <div>
           <dt>Connect the way your servers need</dt>
@@ -312,6 +312,14 @@
         <div>
           <dt>Compare collections or whole databases</dt>
           <dd>Pick a source and a target, even on different servers, and compare two collections or a whole database. See what is only on one side and what differs, field by field. <b>Comparing never writes.</b> To change data you tick the differences, review exactly what will be written where, and confirm; every document is checked again just before it is written. You can also export the changes as a mongosh script or JSON plan, or the differences as a CSV report. <a href="https://github.com/bjornharvold/curlybrace/blob/main/docs/compare.md">Read the compare guide</a>.</dd>
+        </div>
+        <div>
+          <dt>Copy between connections</dt>
+          <dd>Select databases, collections or documents, then copy and paste them onto another open connection, or within the same one, from the right-click menu, <code>Cmd+C</code> and <code>Cmd+V</code>, or by dragging. A <b>review dialog appears on every paste</b> with the counts of new, changed and unchanged documents. Choose Skip, Overwrite or Upsert by <code>_id</code>; nothing is ever deleted from the target. Indexes and collection options can come along. A free alternative to <code>mongodump</code> and paid copy tools, with progress, Cancel, and a report of exactly what was written. <a href="https://github.com/bjornharvold/curlybrace/blob/main/docs/copy.md">Read the copy guide</a>.</dd>
+        </div>
+        <div>
+          <dt>Indexes, and how much they are used</dt>
+          <dd>An Indexes tab on each collection shows its indexes with size and use over the last 24 hours, 7 days or 30 days, from a local history. Create an index with a builder that shows the command first, edit a copy, hide or drop one, and change a TTL. Index changes follow the same production and read-only rules as document writes. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/68">#68</a>.</dd>
         </div>
         <div>
           <dt>Several connections at once</dt>
@@ -347,7 +355,7 @@
         <div>
           <h3>Next</h3>
           <ul>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/48">Copy data between servers</a><span>A collection, a query result or chosen documents, with a preview.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/17">Signing and notarization</a><span>So the app opens without a Gatekeeper warning.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/50">A shell tab</a><span>Run your own <code>mongosh</code> inside the app, with history.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/51">Bulk update and delete</a><span>Change many documents at once, after a count and sample preview.</span></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/52">Collection administration</a><span>Create, rename and drop databases, collections and views.</span></li>

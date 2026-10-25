@@ -3,7 +3,8 @@
 # Curlybrace
 
 **Curlybrace is a free, native MongoDB GUI for macOS.** Browse your MongoDB collections, run queries,
-edit documents and compare data between databases, without an account, a trial, or a license fee.
+edit documents, compare and copy data between databases, and see how your indexes are used, without
+an account, a trial, or a license fee.
 
 [![CI](https://github.com/bjornharvold/curlybrace/actions/workflows/ci.yml/badge.svg)](https://github.com/bjornharvold/curlybrace/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/bjornharvold/curlybrace?include_prereleases)](https://github.com/bjornharvold/curlybrace/releases/latest)
@@ -147,6 +148,9 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 - No inline editing in the table or tree. Documents are edited as JSON in the editor.
 - Documents shown with a projection cannot be edited or cloned (delete and insert still work).
 - Kerberos is untested against a real server.
+- Copy between connections has limits: documents with top-level `$`-prefixed field names cannot be
+  replaced, views and time-series collections copy data only, hand-picked documents are capped at
+  10,000, and the source is not read as a snapshot. The list is in [docs/copy.md](docs/copy.md#limits).
 - A TLS connection through an SSH tunnel is refused unless "allow invalid certificates" is on,
   because the driver cannot verify the certificate against the original host name. Turning that on
   removes certificate protection on the bastion-to-MongoDB leg.
