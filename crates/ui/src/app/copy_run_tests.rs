@@ -562,3 +562,69 @@ fn renaming_while_the_preview_is_held_keeps_one_pending_preview() {
     assert_ne!(fresh, old);
     assert!(format!("{:?}", request.scope).contains("orders_2"));
 }
+
+// ---- a big run applies progress to one row and leaves every other row as it was ----
+
+fn big_run(rows: usize) -> super::copy_state::CopyRun {
+    use curlybrace_core::copy::protocol::CopyItem;
+    use curlybrace_core::store::Namespace;
+    let items: Vec<CopyItem> = (0..rows)
+        .map(|i| CopyItem {
+            source: Namespace::new("shop", format!("c{i}")),
+            target: Namespace::new("crm", format!("c{i}")),
+            filter: Default::default(),
+        })
+        .collect();
+    super::copy_state::CopyRun::new(7, false).with_plan(&items)
+}
+
+#[test]
+fn progress_on_a_2000_row_run_changes_only_its_row() {
+    let progress = |n: u64| CopyProgress {
+        scanned: n,
+        written: n,
+        skipped: 0,
+        failed: 0,
+    };
+    let untouched = big_run(2000);
+    let mut run = untouched.clone();
+    for index in (0..2000).step_by(3) {
+        run = run.with_progress(index, progress(index as u64 + 1), Some(5000));
+    }
+    assert_eq!(run.rows.len(), 2000);
+    for (index, row) in run.rows.iter().enumerate() {
+        match index % 3 == 0 {
+            true => {
+                assert_eq!(row.progress, progress(index as u64 + 1));
+                assert_eq!(row.estimated_total, Some(5000));
+                assert_eq!(row.target, untouched.rows[index].target);
+            }
+            false => assert_eq!(row, &untouched.rows[index]),
+        }
+    }
+    // An index past the end changes nothing, and neither does it panic.
+    assert_eq!(run.clone().with_progress(2000, progress(1), None), run);
+    assert_eq!((run.run, run.outcome.clone()), (7, None));
+}
+
+#[test]
+fn item_done_on_a_big_run_keeps_the_failures_of_the_earlier_items() {
+    let failing = |key: i32| {
+        let mut r = report(0, CopyOutcome::Completed);
+        r.failures = vec![CopyFailure {
+            key: Bson::Int32(key),
+            reason: WriteFailure::DuplicateKey,
+        }];
+        r
+    };
+    let run = big_run(2000)
+        .with_item_done(5, failing(1))
+        .with_item_done(1999, failing(2));
+    let keys: Vec<_> = run
+        .failures
+        .iter()
+        .map(|f| (f.item, f.key.clone()))
+        .collect();
+    assert_eq!(keys, vec![(5, Bson::Int32(1)), (1999, Bson::Int32(2))]);
+    assert!(run.rows[5].finished && run.rows[1999].finished && !run.rows[6].finished);
+}

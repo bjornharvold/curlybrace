@@ -101,6 +101,19 @@ impl CopyRow {
         }
     }
 
+    /// A placeholder that owns no heap memory, for moving a row out of its slot.
+    fn blank() -> Self {
+        Self {
+            target: Namespace::new(String::new(), String::new()),
+            progress: CopyProgress::default(),
+            estimated_total: None,
+            finished: false,
+            error: None,
+            structure: None,
+            indexes: None,
+        }
+    }
+
     /// The collection was reached: it reported progress or its exact counts.
     pub fn started(&self) -> bool {
         self.finished || self.progress != CopyProgress::default()
@@ -204,28 +217,34 @@ impl CopyRun {
         let room = MAX_REPORTED_FAILURES.saturating_sub(self.failures.len());
         let listed = report.failures.len().min(room);
         let hidden = report.failures.len() > listed || report.progress.failed > listed as u64;
-        let mut failures = self.failures.clone();
-        failures.extend(report.failures.iter().take(listed).map(|f| RunFailure {
-            item: index,
-            key: f.key.clone(),
-            reason: f.reason,
-        }));
+        let added: Vec<RunFailure> = report
+            .failures
+            .iter()
+            .take(listed)
+            .map(|f| RunFailure {
+                item: index,
+                key: f.key.clone(),
+                reason: f.reason,
+            })
+            .collect();
         let error = match &report.outcome {
             curlybrace_core::copy::CopyOutcome::Failed(error) => Some(error.clone()),
             _ => None,
         };
-        let more_failures = self.more_failures || hidden;
         let next = self.with_row(index, |row| CopyRow {
             progress: report.progress,
             finished: true,
             error,
             structure: report.structure,
-            indexes: report.indexes.clone(),
+            indexes: report.indexes,
             ..row
         });
+        // `next` is owned: its failure list is moved out and extended, not cloned.
+        let mut failures = next.failures;
+        failures.extend(added);
         Self {
             failures,
-            more_failures,
+            more_failures: next.more_failures || hidden,
             ..next
         }
     }
@@ -245,11 +264,14 @@ impl CopyRun {
     }
 
     fn with_row(self, index: usize, change: impl FnOnce(CopyRow) -> CopyRow) -> Self {
-        let Some(row) = self.rows.get(index).cloned() else {
+        if index >= self.rows.len() {
             return self;
-        };
-        let mut rows = self.rows.clone();
-        rows[index] = change(row);
+        }
+        // The row is moved out (leaving a blank, which owns no heap memory) and the changed one
+        // moved back: no row of a big run is cloned per progress event.
+        let mut rows = self.rows;
+        let old = std::mem::replace(&mut rows[index], CopyRow::blank());
+        rows[index] = change(old);
         Self { rows, ..self }
     }
 
@@ -651,8 +673,11 @@ impl CopyDialog {
 
     /// The sent copy changed by `change`; a dialog that has sent none stays as it is.
     pub fn with_run(self, change: impl FnOnce(CopyRun) -> CopyRun) -> Self {
-        match self.phase.clone() {
-            CopyPhase::Running(run) => self.with_phase(CopyPhase::Running(change(run))),
+        match self.phase {
+            CopyPhase::Running(run) => Self {
+                phase: CopyPhase::Running(change(run)),
+                ..self
+            },
             _ => self,
         }
     }
