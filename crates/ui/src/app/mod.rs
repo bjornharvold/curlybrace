@@ -25,6 +25,7 @@ pub mod connections;
 pub mod copy;
 mod copy_actions;
 mod copy_documents;
+mod copy_drag;
 pub mod copy_state;
 pub mod copy_structure_report;
 mod dialog_banner;
@@ -770,6 +771,9 @@ mod connection_lock_tests;
 
 #[cfg(test)]
 mod copy_documents_tests;
+
+#[cfg(test)]
+mod copy_drag_tests;
 
 #[cfg(test)]
 mod copy_menu_tests;

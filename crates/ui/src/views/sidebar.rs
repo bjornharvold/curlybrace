@@ -7,6 +7,7 @@ use crate::viewmodel::{
 use crate::views::sidebar_copy::{
     TreeCtx, collection_node, copy_paste_entries, database_node, is_selected, node_action,
 };
+use crate::views::sidebar_drag::{drop_target, row_button, start_drag};
 use curlybrace_core::store::Namespace;
 use eframe::egui;
 use std::ops::Range;
@@ -206,9 +207,15 @@ fn show_row(
         Row::Db(node) => {
             let node_ref = database_node(ctx, &node.name);
             let selected = is_selected(ctx, &node_ref);
-            let response = ui.selectable_label(selected, db_row_label(&node.name, node.expanded));
+            let label = db_row_label(&node.name, node.expanded);
+            let response = row_button(ui, ctx, selected, label);
+            start_drag(&response, ctx, &node_ref);
+            let target = database_target(ctx, &node.name);
+            let dropped = target.and_then(|t| drop_target(&response, ctx, t, i18n));
             let menu = database_menu(&response, &node.name, ctx, i18n);
-            menu.or_else(|| node_action(ui, &response, ctx, &node_ref, || db_click_action(node)))
+            dropped
+                .or(menu)
+                .or_else(|| node_action(ui, &response, ctx, &node_ref, || db_click_action(node)))
         }
         Row::Collection { db, name } => {
             let node_ref = collection_node(ctx, db, name);
@@ -217,9 +224,12 @@ fn show_row(
                 .as_ref()
                 .is_some_and(|ns| ns.db == db && ns.collection == name);
             ui.add_space(ui.spacing().indent);
-            let response = ui.selectable_label(opened || is_selected(ctx, &node_ref), name);
+            let response = row_button(ui, ctx, opened || is_selected(ctx, &node_ref), name);
+            start_drag(&response, ctx, &node_ref);
+            let target = collection_target(ctx, db, name);
+            let dropped = target.and_then(|t| drop_target(&response, ctx, t, i18n));
             let menu = collection_menu(&response, db, name, ctx, i18n);
-            menu.or_else(|| {
+            dropped.or(menu).or_else(|| {
                 node_action(ui, &response, ctx, &node_ref, || {
                     collection_click_action(db, name)
                 })
@@ -228,6 +238,22 @@ fn show_row(
         Row::Loading => placeholder(ui, &i18n.t("sidebar.loading")),
         Row::NoCollections => placeholder(ui, &i18n.t("sidebar.no_collections")),
     }
+}
+
+/// Where a paste or drop on the database row `db` lands (none without a selection model).
+fn database_target(ctx: Option<&TreeCtx>, db: &str) -> Option<PasteTarget> {
+    ctx.map(|c| PasteTarget::Database {
+        session: c.session,
+        db: db.to_string(),
+    })
+}
+
+/// Like [`database_target`] for a collection row.
+fn collection_target(ctx: Option<&TreeCtx>, db: &str, name: &str) -> Option<PasteTarget> {
+    ctx.map(|c| PasteTarget::Collection {
+        session: c.session,
+        ns: Namespace::new(db, name),
+    })
 }
 
 /// Right-click menu of a database: compare, copy the selection, paste onto it.
@@ -243,10 +269,7 @@ fn database_menu(
             chosen = Some(compare_database_to_action(db));
             ui.close();
         }
-        let target = ctx.map(|c| PasteTarget::Database {
-            session: c.session,
-            db: db.to_string(),
-        });
+        let target = database_target(ctx, db);
         let copy_paste = target.and_then(|t| copy_paste_entries(ui, ctx, t, i18n));
         chosen = copy_paste.or(chosen.take());
     });
@@ -268,10 +291,7 @@ fn collection_menu(
             chosen = Some(compare_to_action(db, name));
             ui.close();
         }
-        let target = ctx.map(|c| PasteTarget::Collection {
-            session: c.session,
-            ns: Namespace::new(db, name),
-        });
+        let target = collection_target(ctx, db, name);
         let copy_paste = target.and_then(|t| copy_paste_entries(ui, ctx, t, i18n));
         chosen = copy_paste.or(chosen.take());
     });

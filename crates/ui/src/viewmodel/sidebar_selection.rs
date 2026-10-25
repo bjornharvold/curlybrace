@@ -111,6 +111,17 @@ impl SidebarSelection {
         self.nodes.first().map(NodeRef::session)
     }
 
+    /// Only the selected nodes that are in `visible`; the anchor goes when it is not.
+    pub fn visible_only(self, visible: &[NodeRef]) -> Self {
+        let anchor = self.anchor.filter(|a| visible.contains(a));
+        let nodes = self
+            .nodes
+            .into_iter()
+            .filter(|n| visible.contains(n))
+            .collect();
+        Self { nodes, anchor }
+    }
+
     /// Nothing selected.
     pub fn clear(self) -> Self {
         Self::default()

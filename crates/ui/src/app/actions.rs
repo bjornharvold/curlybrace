@@ -37,6 +37,9 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         SidebarAction::Select { node, mode } => super::copy_actions::select(state, node, mode),
         SidebarAction::Copy => super::copy_actions::copy(state),
         SidebarAction::Paste(target) => super::copy_actions::paste(state, target),
+        SidebarAction::Drop { clipboard, target } => {
+            super::copy_drag::drop_onto(state, *clipboard, target)
+        }
         SidebarAction::InSession { session, action } => in_session(state, session, *action),
     }
 }
@@ -52,10 +55,11 @@ fn in_session(state: AppState, session: Uuid, action: SidebarAction) -> Out {
             let state = super::copy_actions::clicked(state, session, &action);
             state.with_session(session, |s| sidebar(s, action))
         }
-        // Selecting, copying and pasting name their own sessions: no focus change.
-        SidebarAction::Select { .. } | SidebarAction::Copy | SidebarAction::Paste(_) => {
-            sidebar(state, action)
-        }
+        // Selecting, copying, pasting and dropping name their own sessions: no focus change.
+        SidebarAction::Select { .. }
+        | SidebarAction::Copy
+        | SidebarAction::Paste(_)
+        | SidebarAction::Drop { .. } => sidebar(state, action),
         other => {
             let state = super::copy_actions::clicked(state, session, &other);
             sidebar(state.activated(session), other)

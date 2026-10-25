@@ -31,6 +31,7 @@ pub mod json;
 pub mod metrics;
 pub mod sidebar;
 pub mod sidebar_copy;
+pub mod sidebar_drag;
 pub mod sidebar_roots;
 pub mod table;
 pub mod tree;

@@ -33,7 +33,7 @@ impl AppState {
     /// databases of the session and `existing_names(session, db)` the collections of `db`, as far
     /// as the sidebar has loaded them: a database whose collections are not loaded yet reports
     /// none, and a paste never fetches anything.
-    fn with_paste_context<R>(&self, f: impl FnOnce(&PasteContext) -> R) -> R {
+    pub(super) fn with_paste_context<R>(&self, f: impl FnOnce(&PasteContext) -> R) -> R {
         f(&PasteContext {
             // Failed and connecting roots are in `open` too, but have no live client to copy with.
             open: &|session| self.status_of(session) == Some(ConnStatus::Connected),

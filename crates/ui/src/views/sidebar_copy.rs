@@ -7,6 +7,7 @@ use crate::viewmodel::copy_menu::PASTE_KEY;
 use crate::viewmodel::{
     NodeRef, PasteEntry, PasteTarget, SelectMode, SidebarAction, paste_target_for,
 };
+use crate::views::sidebar_drag::drop_target;
 use curlybrace_core::store::Namespace;
 use eframe::egui;
 use uuid::Uuid;
@@ -193,7 +194,8 @@ pub fn paste_entry_button(
 }
 
 /// The Paste entry of a connection root's menu, and Cmd/Ctrl+V while the root name has focus.
-/// Only the root-level paste (a database onto a connection) lands here.
+/// Only the root-level paste (a database onto a connection) lands here, and a dragged database
+/// dropped on the root name.
 pub fn root_action(
     response: &egui::Response,
     ui: &egui::Ui,
@@ -208,7 +210,11 @@ pub fn root_action(
     });
     let pasted = response.has_focus()
         && ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Paste(_))));
-    chosen.or_else(|| pasted.then_some(SidebarAction::Paste(target)))
+    let tree = TreeCtx { state, session };
+    let dropped = drop_target(response, Some(&tree), target.clone(), i18n);
+    chosen
+        .or(dropped)
+        .or_else(|| pasted.then_some(SidebarAction::Paste(target)))
 }
 
 #[cfg(test)]

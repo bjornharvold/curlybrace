@@ -5,6 +5,7 @@ pub mod connection_form;
 pub mod connection_list;
 pub mod connection_tag;
 pub mod copy_clipboard;
+pub mod copy_drag;
 pub mod copy_menu;
 pub mod doc_actions;
 pub mod doc_copy;
@@ -35,6 +36,7 @@ pub use connection_list::{
 };
 pub use connection_tag::{ColorTag, ConnectionBadge, color_tag};
 pub use copy_clipboard::{CopyClipboard, DocSelection, PasteBlock, PasteContext, PasteTarget};
+pub use copy_drag::{DropVerdict, drag_payload, drag_selection, drop_verdict};
 pub use copy_menu::{
     PasteEntry, copy_entry, keyboard_paste_target, paste_block_key, paste_entry, paste_target_for,
 };

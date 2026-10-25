@@ -1,6 +1,6 @@
 //! Sidebar tree state: databases, lazily loaded collections, selection.
 //! Every transition consumes the state and returns a new value.
-use super::copy_clipboard::PasteTarget;
+use super::copy_clipboard::{CopyClipboard, PasteTarget};
 use super::sidebar_selection::{NodeRef, SelectMode};
 use curlybrace_core::store::Namespace;
 use std::collections::HashSet;
@@ -40,6 +40,8 @@ impl DbNode {
 ///   `LoadCollections`, which also make the node the single selection.
 /// - `Copy`: store the selection as the copy clipboard.
 /// - `Paste(target)`: paste the clipboard onto `target`.
+/// - `Drop { clipboard, target }`: a drag of rows ended on `target`; the drag's payload becomes the
+///   clipboard and is pasted like `Paste(target)`. A target that refuses it changes nothing.
 /// - `InSession { session, action }`: `action` happened under the root of `session`, which may
 ///   not be the active one. Expanding keeps the view where it is; anything else focuses it first.
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +58,10 @@ pub enum SidebarAction {
     },
     Copy,
     Paste(PasteTarget),
+    Drop {
+        clipboard: Box<CopyClipboard>,
+        target: PasteTarget,
+    },
     InSession {
         session: Uuid,
         action: Box<SidebarAction>,
