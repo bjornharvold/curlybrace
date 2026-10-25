@@ -95,6 +95,10 @@ pub(super) fn copy(state: AppState) -> Out {
 /// Pastes the clipboard onto `target`: the request waits in `pending_paste` for the paste dialog,
 /// or the reason it cannot be pasted is shown. Nothing is sent to the runtime here.
 pub(super) fn paste(state: AppState, target: PasteTarget) -> Out {
+    // One paste dialog at a time: it is modal, and a copy under way is not disturbed.
+    if state.copy.is_some() {
+        return (state, Vec::new());
+    }
     let Some(clipboard) = &state.clipboard else {
         return (state, Vec::new());
     };

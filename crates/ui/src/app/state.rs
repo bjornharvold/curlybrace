@@ -188,6 +188,10 @@ pub struct AppState {
     pub clipboard: Option<CopyClipboard>,
     /// The copy a Paste asked for, waiting for the paste dialog to take it.
     pub pending_paste: Option<CopyRequest>,
+    /// The paste dialog, from the moment it took `pending_paste` until its report is closed.
+    pub copy: Option<super::copy_state::CopyDialog>,
+    /// Copy run ids handed out so far (previews and copies share the counter).
+    pub copy_runs: curlybrace_core::compare::protocol::RunId,
     /// Databases whose collection list is in flight.
     pub loading: BTreeSet<String>,
     pub find: FindBarState,
@@ -304,6 +308,7 @@ impl AppState {
             sidebar: SidebarState::default(),
             selection: SidebarSelection::default(),
             pending_paste: None,
+            copy: None,
             loading: BTreeSet::new(),
             find: FindBarState::default(),
             issued_query: Query::default(),

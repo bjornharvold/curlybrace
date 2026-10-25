@@ -2,6 +2,7 @@
 //! Every decision lives in the reducer and view-models; nothing here has logic worth testing
 //! beyond "it renders" (covered by the headless frame tests in `mod.rs`).
 use super::banner::{banner_detail, banner_prefix, banner_text};
+use super::copy::CopyInput;
 use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
@@ -276,6 +277,7 @@ pub fn show_modals(
     });
     out.extend(decided.map(UiEvent::HostKey));
     show_write_warning_modal(ctx, state, i18n, out);
+    show_copy(ctx, state, i18n, out);
     if let Some(endpoint) = &state.forget_confirm {
         let port = endpoint.port.to_string();
         let message = i18n.t_with(
@@ -332,6 +334,18 @@ fn show_index_dialogs(
 /// Draws the production write warning whenever a write is parked, whichever session is active:
 /// a parked write blocks every session's writes until it is answered. The connection is named
 /// from the parked write's own session, not the active one.
+/// The paste dialog: a pending paste opens it (the word the person types is localized here), and
+/// while it is open it shows the choices, then the progress and the report.
+fn show_copy(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    if state.pending_paste.is_some() {
+        let word = i18n.t("copy.dialog.confirm_word");
+        out.push(UiEvent::Input(Input::Copy(CopyInput::Open { word })));
+    }
+    if let Some(input) = crate::views::copy_dialog::show_copy_modal(ctx, state, i18n) {
+        out.push(UiEvent::Input(Input::Copy(input)));
+    }
+}
+
 fn show_write_warning_modal(
     ctx: &egui::Context,
     state: &AppState,

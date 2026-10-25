@@ -1,0 +1,227 @@
+//! The progress, the cancel and the report of a copy: pure reducer tests over the copy events.
+use super::copy::CopyInput;
+use super::copy_state::RunOutcome;
+use super::copy_tests::{B, dialog, event, input, opened, report, run_of, sid, started};
+use super::reducer::{Input, update};
+use super::state::Banner;
+use crate::I18n;
+use bson::Bson;
+use curlybrace_core::compare::apply::MAX_REPORTED_FAILURES;
+use curlybrace_core::copy::engine::{CopyFailure, CopyOutcome, CopyProgress};
+use curlybrace_core::copy::protocol::{CopyCommand, CopyEvent};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::Command;
+use curlybrace_core::store::WriteFailure;
+
+#[test]
+fn progress_events_update_the_view() {
+    let (s, run) = started(false);
+    let progress = CopyProgress {
+        scanned: 300,
+        written: 250,
+        skipped: 40,
+        failed: 10,
+    };
+    let (s, _) = event(
+        s,
+        CopyEvent::Progress {
+            run,
+            index: 0,
+            progress,
+            estimated_total: Some(1000),
+        },
+    );
+    let row = &run_of(&s).rows[0];
+    assert_eq!(row.progress, progress);
+    assert_eq!(row.estimated_total, Some(1000));
+    assert!(!row.finished);
+    let (s, _) = event(
+        s,
+        CopyEvent::ItemDone {
+            run,
+            index: 0,
+            report: report(250, CopyOutcome::Completed),
+        },
+    );
+    assert!(run_of(&s).rows[0].finished);
+    let (s, _) = event(
+        s,
+        CopyEvent::Done {
+            run,
+            cancelled: false,
+        },
+    );
+    assert_eq!(run_of(&s).outcome, Some(RunOutcome::Completed));
+    // Close ends the dialog; Cancel on a finished run is a plain close.
+    let (s, commands) = input(s, CopyInput::Close);
+    assert!(s.copy.is_none() && commands.is_empty());
+}
+
+#[test]
+fn cancel_sends_cancel_and_shows_exact_written_counts() {
+    let (s, run) = started(false);
+    let (s, commands) = input(s, CopyInput::Cancel);
+    assert!(matches!(
+        commands.as_slice(),
+        [Command::Copy(CopyCommand::Cancel { run: r })] if *r == run
+    ));
+    assert!(run_of(&s).cancel_requested);
+    // A second Cancel sends nothing.
+    let (s, commands) = input(s, CopyInput::Cancel);
+    assert!(commands.is_empty());
+    let (s, _) = event(
+        s,
+        CopyEvent::ItemDone {
+            run,
+            index: 0,
+            report: report(12_300, CopyOutcome::Cancelled),
+        },
+    );
+    let (s, _) = event(
+        s,
+        CopyEvent::Done {
+            run,
+            cancelled: true,
+        },
+    );
+    let run = run_of(&s);
+    assert_eq!(run.outcome, Some(RunOutcome::Cancelled));
+    let lines = run.written_lines();
+    assert_eq!(lines[0], ("orders".to_string(), Some(12_300)));
+    assert_eq!(lines[1], ("users".to_string(), None), "never started");
+    assert!(!run.nothing_written());
+}
+
+#[test]
+fn superseded_means_the_session_was_lost_and_keeps_the_written_counts() {
+    let (s, run) = started(false);
+    let (s, _) = event(
+        s,
+        CopyEvent::ItemDone {
+            run,
+            index: 0,
+            report: report(7, CopyOutcome::Failed(CoreError::Superseded)),
+        },
+    );
+    let (s, _) = event(
+        s,
+        CopyEvent::Failed {
+            run,
+            error: CoreError::Superseded,
+        },
+    );
+    let run = run_of(&s);
+    assert_eq!(run.outcome, Some(RunOutcome::Failed(CoreError::Superseded)));
+    assert!(run.session_lost());
+    assert_eq!(run.written_lines()[0].1, Some(7));
+}
+
+#[test]
+fn closing_a_session_closes_a_dialog_that_wrote_nothing_but_keeps_a_running_copy() {
+    let (s, _) = opened(false);
+    let (s, _) = update(s, Input::Disconnect(sid(B)));
+    assert!(s.copy.is_none());
+    let (s, _) = started(false);
+    let (s, _) = update(s, Input::Disconnect(sid(B)));
+    // A running copy stays on screen: the runtime ends it with Superseded and the report says so.
+    assert!(run_of(&s).outcome.is_none());
+}
+
+#[test]
+fn failure_report_shows_keys_only_and_is_bounded() {
+    let (s, run) = started(false);
+    let failures: Vec<CopyFailure> = (0..MAX_REPORTED_FAILURES as i32)
+        .map(|n| CopyFailure {
+            key: Bson::Int32(n),
+            reason: WriteFailure::Rejected(121),
+        })
+        .collect();
+    let mut first = report(0, CopyOutcome::Completed);
+    first.progress.failed = failures.len() as u64;
+    first.failures = failures;
+    let (s, _) = event(
+        s,
+        CopyEvent::ItemDone {
+            run,
+            index: 0,
+            report: first,
+        },
+    );
+    let mut second = report(0, CopyOutcome::Completed);
+    second.progress.failed = 5;
+    second.failures = vec![
+        CopyFailure {
+            key: Bson::String("secret value".into()),
+            reason: WriteFailure::DuplicateKey,
+        };
+        5
+    ];
+    let (s, _) = event(
+        s,
+        CopyEvent::ItemDone {
+            run,
+            index: 1,
+            report: second,
+        },
+    );
+    let run = run_of(&s);
+    let rows = run.failure_rows();
+    assert_eq!(rows.len(), MAX_REPORTED_FAILURES, "bounded across items");
+    assert!(run.more_failures, "the rest is only counted");
+    assert_eq!(rows[0].collection, "orders");
+    assert_eq!(rows[0].reason_key, "copy.failure.rejected");
+    let i18n = I18n::english();
+    // A reason is a key, never the server's code or text.
+    assert!(!i18n.t(rows[0].reason_key).contains("121"));
+    assert!(!i18n.t(rows[0].reason_key).starts_with('⟦'));
+    assert_eq!(rows[0].key, "0");
+}
+
+#[test]
+fn read_only_error_shows_the_localized_message() {
+    let (s, run) = started(false);
+    // The core refused it (the connection was locked after the dialog opened).
+    let (s, _) = event(
+        s,
+        CopyEvent::Failed {
+            run,
+            error: CoreError::ReadOnly,
+        },
+    );
+    let run = run_of(&s);
+    let Some(RunOutcome::Failed(error)) = &run.outcome else {
+        panic!("{:?}", run.outcome)
+    };
+    let text = I18n::english().error(error);
+    assert_eq!(text, I18n::english().t("errors.read_only"));
+    assert!(run.nothing_written());
+}
+
+#[test]
+fn a_preview_that_fails_keeps_copy_enabled_and_names_the_reason() {
+    let (s, run) = opened(false);
+    let (s, _) = event(
+        s,
+        CopyEvent::Failed {
+            run,
+            error: CoreError::Unreachable,
+        },
+    );
+    let d = dialog(&s);
+    assert!(!d.counting);
+    assert_eq!(d.preview_error, Some(CoreError::Unreachable));
+    assert!(d.can_confirm(false));
+}
+
+#[test]
+fn a_new_session_state_drops_the_dialog() {
+    let (s, _) = opened(false);
+    let s = s.session_cleared();
+    assert!(s.copy.is_none());
+}
+
+#[test]
+fn banner_is_untouched_by_the_dialog() {
+    let (s, _) = opened(false);
+    assert_eq!(s.banner, None::<Banner>);
+}

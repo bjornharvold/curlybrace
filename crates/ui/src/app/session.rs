@@ -346,6 +346,10 @@ impl AppState {
             .pending_paste
             .take()
             .filter(|request| request.source != id && request.target != id);
+        next.copy = next
+            .copy
+            .take()
+            .and_then(|dialog| dialog.after_session_closed(id));
         if next.active == Some(id) {
             next.take_view();
             next.active = None;

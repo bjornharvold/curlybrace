@@ -22,7 +22,9 @@ mod connection_save;
 mod connection_test;
 mod connection_uri;
 pub mod connections;
+pub mod copy;
 mod copy_actions;
+pub mod copy_state;
 mod dialog_banner;
 pub mod file_picker;
 pub mod host_key;
@@ -766,6 +768,12 @@ mod connection_lock_tests;
 
 #[cfg(test)]
 mod copy_menu_tests;
+
+#[cfg(test)]
+mod copy_run_tests;
+
+#[cfg(test)]
+mod copy_tests;
 
 #[cfg(test)]
 mod tests;

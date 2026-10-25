@@ -550,6 +550,42 @@
     "banner": {
       "paste_blocked": "Cannot paste here"
     },
+    "dialog": {
+      "blocked_names": "Fix the names above before copying.",
+      "blocked_typed": "Type the text above to enable Copy.",
+      "confirm_prompt": "To confirm, type this text exactly:",
+      "confirm_word": "copy",
+      "copy": "Copy",
+      "counting_note": "Counting documents… You can copy now, but the counts will then be incomplete.",
+      "counts": {
+        "counted": "{collection}: new {new}, changed {changed}, unchanged {unchanged}",
+        "counting": "{collection}: counting… {scanned} documents read",
+        "failed": "The counts could not be computed: {reason}",
+        "title": "Documents per collection",
+        "unavailable": "{collection}: counts unavailable",
+        "waiting": "{collection}: waiting"
+      },
+      "from": "From: {connection} / {database}",
+      "indexes_and_options": "Also copy indexes and collection options",
+      "indexes_and_options_note": "Copying indexes and options is not available yet, so this choice has no effect for now.",
+      "name_label": "Name for {source} in the target",
+      "names_title": "Names in the target",
+      "overwrite_note": "Overwrite replaces documents that already exist in the target. Nothing is deleted.",
+      "policy": {
+        "overwrite": "Overwrite: replace existing documents, never add new ones",
+        "skip": "Skip: add new documents, leave existing ones alone",
+        "title": "When a document already exists in the target",
+        "upsert": "Upsert by _id: replace existing documents and add new ones"
+      },
+      "production_line": "Warning: {connection} is a production connection.",
+      "title": "Paste",
+      "to": "To: {connection} / {database}"
+    },
+    "failure": {
+      "duplicate_key": "A unique index already holds this value",
+      "missing": "The document no longer exists in the target",
+      "rejected": "The target refused the document"
+    },
     "menu": {
       "copy": "Copy",
       "copy_collection": "Copy collection",
@@ -559,6 +595,15 @@
       "copy_documents": "Copy {count} documents",
       "copy_query_result": "Copy all documents of the query",
       "copy_unavailable": "Select one database, or collections of one database, to copy."
+    },
+    "name_problem": {
+      "duplicate": "Another name in this paste is the same.",
+      "empty": "The name cannot be empty.",
+      "excluded_database": "Server-owned databases (admin, local, config) cannot be written to.",
+      "forbidden_char": "The name contains a character MongoDB does not allow.",
+      "same_as_source": "A collection cannot be copied onto itself. Choose another name.",
+      "system_prefix": "Names starting with system. are reserved for the server.",
+      "too_long": "The name is too long."
     },
     "paste": "Paste",
     "paste_blocked": {
@@ -575,6 +620,29 @@
       "source_closed": "The connection the data was copied from is closed.",
       "target_closed": "This connection is closed.",
       "too_many_documents": "Too many documents are selected to copy by hand. Copy the query result instead."
+    },
+    "progress": {
+      "cancel": "Cancel copy",
+      "cancelling": "Cancelling…",
+      "row": "{collection}: {written} written, {skipped} skipped, {failed} failed",
+      "row_estimated": "{collection}: {scanned} of about {total} read, {written} written, {skipped} skipped, {failed} failed",
+      "row_waiting": "{collection}: waiting",
+      "title": "Copying"
+    },
+    "report": {
+      "close": "Close",
+      "counts_incomplete": "The counts were still being computed when the copy started, so they were incomplete.",
+      "error": "Reason: {reason}",
+      "failures_title": "Documents that were not copied",
+      "more_failures": "More failures are not shown.",
+      "not_started": "{collection}: not started.",
+      "nothing_else": "Nothing else was changed. Documents already written are not rolled back.",
+      "nothing_written": "No documents were written.",
+      "session_lost": "A connection was closed or reconnected during the copy, so it stopped.",
+      "title_cancelled": "Copy cancelled",
+      "title_completed": "Copy finished",
+      "title_failed": "Copy stopped",
+      "written": "Documents written to {collection}: {count}."
     }
   },
   "doc": {
