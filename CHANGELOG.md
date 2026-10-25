@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/bjornharvold/curlybrace/compare/v0.5.0...v0.6.0) (2026-10-25)
+
+
+### Features
+
+* **copy:** copy and paste databases, collections and documents between connections ([#119](https://github.com/bjornharvold/curlybrace/issues/119)) ([cf58af8](https://github.com/bjornharvold/curlybrace/commit/cf58af801ad94f38d5b361e65014751a67eb2a7e))
+
 ## [0.5.0](https://github.com/bjornharvold/curlybrace/compare/v0.4.0...v0.5.0) (2026-10-24)
 
 
