@@ -324,14 +324,26 @@ fn confirm_after_counting_does_not_flag_incomplete_counts() {
 }
 
 #[test]
-fn skip_and_upsert_need_no_typed_word_unless_target_is_production() {
-    for policy in [ConflictPolicy::Skip, ConflictPolicy::Upsert] {
-        let s = with_policy(counted_dialog(false), policy);
-        let d = dialog(&s);
-        assert!(!d.needs_typed_confirmation(false), "{policy:?}");
-        assert!(d.needs_typed_confirmation(true), "{policy:?} on production");
-        assert!(d.can_confirm(false), "{policy:?}");
-    }
+fn skip_needs_no_typed_word_unless_target_is_production() {
+    let s = with_policy(counted_dialog(false), ConflictPolicy::Skip);
+    let d = dialog(&s);
+    assert!(!d.needs_typed_confirmation(false));
+    assert!(d.needs_typed_confirmation(true), "skip on production");
+    assert!(d.can_confirm(false));
+}
+
+#[test]
+fn upsert_replaces_like_overwrite_so_it_needs_the_typed_word() {
+    let s = with_policy(counted_dialog(false), ConflictPolicy::Upsert);
+    assert!(dialog(&s).needs_typed_confirmation(false));
+    assert!(!dialog(&s).can_confirm(false));
+    let (s, commands) = input(s, CopyInput::Confirm);
+    assert!(commands.is_empty());
+    let s = typed(s, REQUIRED);
+    assert!(dialog(&s).can_confirm(false));
+    let (_, commands) = input(s, CopyInput::Confirm);
+    let (_, request) = start_run(&commands);
+    assert_eq!(request.policy, ConflictPolicy::Upsert);
 }
 
 /// A dialog whose preview finished counting.
@@ -404,7 +416,7 @@ fn the_request_sent_carries_policy_options_and_edited_names() {
     );
     // The edit cancelled nothing (the preview was done) and asked for fresh counts.
     let fresh = preview_run(&commands);
-    let s = counted(s, fresh);
+    let s = typed(counted(s, fresh), REQUIRED);
     let (_, commands) = input(s, CopyInput::Confirm);
     let (_, request) = start_run(&commands);
     assert!(request.with_indexes_and_options);

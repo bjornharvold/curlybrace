@@ -579,7 +579,8 @@
       "production_line": "Warning: {connection} is a production connection.",
       "starting": "Starting the copy…",
       "title": "Paste",
-      "to": "To: {connection} / {database}"
+      "to": "To: {connection} / {database}",
+      "upsert_note": "Upsert replaces documents that already exist in the target and adds the new ones. Nothing is deleted."
     },
     "failure": {
       "duplicate_key": "A unique index already holds this value",

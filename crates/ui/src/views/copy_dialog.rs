@@ -234,7 +234,16 @@ fn count_text(dialog: &CopyDialog, index: usize, collection: &str, i18n: &I18n) 
     }
 }
 
-/// The typed confirmation, when Overwrite or a production target asks for one: the prompt, the
+/// The note that says what a replacing policy does; Skip replaces nothing.
+fn replace_note_key(policy: ConflictPolicy) -> Option<&'static str> {
+    match policy {
+        ConflictPolicy::Overwrite => Some("copy.dialog.overwrite_note"),
+        ConflictPolicy::Upsert => Some("copy.dialog.upsert_note"),
+        ConflictPolicy::Skip => None,
+    }
+}
+
+/// The typed confirmation, when Overwrite, Upsert or a production target asks for one: the prompt, the
 /// text to type and a full-width box. Also reports whether the box holds the keyboard focus.
 fn show_confirmation(
     ui: &mut egui::Ui,
@@ -247,8 +256,8 @@ fn show_confirmation(
         return (None, false);
     }
     ui.separator();
-    if dialog.policy == ConflictPolicy::Overwrite {
-        ui.label(i18n.t("copy.dialog.overwrite_note"));
+    if let Some(key) = replace_note_key(dialog.policy) {
+        ui.label(i18n.t(key));
     }
     // The prompt carries the required text, so the box's accessible name states it too.
     let prompt = i18n.t_with(
@@ -265,7 +274,7 @@ fn show_confirmation(
     (input, response.has_focus())
 }
 
-/// Cancel comes first. When the copy overwrites or the target is production, Cancel also holds
+/// Cancel comes first. When the copy replaces documents or the target is production, Cancel also holds
 /// the initial focus, so Enter can never confirm; it leaves the focus alone while the person is
 /// typing into any box.
 fn show_buttons(

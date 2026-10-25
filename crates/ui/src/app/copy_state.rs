@@ -383,9 +383,10 @@ impl CopyDialog {
         }
     }
 
-    /// Overwrite replaces documents, and a production target is never written casually.
+    /// Overwrite and Upsert replace existing documents wholesale, and a production target is
+    /// never written casually. Only Skip, which leaves existing documents alone, asks for nothing.
     pub fn needs_typed_confirmation(&self, target_is_production: bool) -> bool {
-        self.policy == ConflictPolicy::Overwrite || target_is_production
+        self.policy != ConflictPolicy::Skip || target_is_production
     }
 
     /// The typed text equals the word (trimmed, exactly), or nothing has to be typed.
