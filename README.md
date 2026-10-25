@@ -73,6 +73,14 @@ edit documents and compare data between databases, without an account, a trial, 
   mongosh script or JSON plan and the differences as a CSV report.
 - The full guide is [docs/compare.md](docs/compare.md).
 
+**Copy between connections** ([#48](https://github.com/bjornharvold/curlybrace/issues/48))
+- Copy a database, collections or documents to another connection, or within the same one, from the
+  right-click menu, Cmd/Ctrl+C and Cmd/Ctrl+V, or by dragging. A dialog shows the counts of new,
+  changed and unchanged documents first. Choose Skip, Overwrite or Upsert by `_id`; nothing is ever
+  deleted from the target. Indexes and collection options can come along.
+- An alternative to `mongodump` and `mongorestore`, with progress, Cancel, and a report of exactly
+  what was written. The full guide is [docs/copy.md](docs/copy.md).
+
 **Indexes** ([#68](https://github.com/bjornharvold/curlybrace/issues/68))
 - An **Indexes** tab on each collection: the indexes on the left, the selected one on the right with
   its size and how often it was used over the last 24 hours, 7 days or 30 days. Server restarts
@@ -177,13 +185,17 @@ contribute.
   the TTL of indexes, and see their use over time from a local history. Finding queries that miss
   an index is a follow-up that builds on the profiler ([#60](https://github.com/bjornharvold/curlybrace/issues/60)) and explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)).
 
+- **Copy between connections** ([#48](https://github.com/bjornharvold/curlybrace/issues/48)): copy a database, collections or documents to
+  another open connection or within one, with a review dialog, Skip, Overwrite or Upsert by `_id`,
+  optional indexes and options, progress and Cancel. Nothing is left to build; feedback and fixes
+  are welcome. See the [guide](docs/copy.md).
+
 ### In progress
 
 Nothing is being built right now. Pick something from **Next**.
 
 ### Next
 
-- **Copy collections and documents between connections** ([#48](https://github.com/bjornharvold/curlybrace/issues/48)).
 - **Signing and notarization** ([#17](https://github.com/bjornharvold/curlybrace/issues/17)): planned (`P2`), so the app opens without a
   Gatekeeper warning.
 - **Paths for `mongosh`, `mongodump` and `mongorestore`** ([#49](https://github.com/bjornharvold/curlybrace/issues/49)) and a **shell tab** that runs your
