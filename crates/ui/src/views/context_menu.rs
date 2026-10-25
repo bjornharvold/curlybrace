@@ -1,11 +1,9 @@
 //! Shared row context menu; which entries appear is decided by `viewmodel::menu_items`.
 use crate::I18n;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
+use crate::viewmodel::copy_menu::SYSTEM_SOURCE_BLOCKED_KEY;
 use crate::viewmodel::{CopyEntry, MenuItem};
 use eframe::egui;
-
-/// Why Copy is disabled: the documents of a `system.*` collection are never copied.
-const COPY_BLOCKED_REASON_KEY: &str = "copy.paste_blocked.system_source";
 
 /// Shows `items` in a context menu on `response`; returns the entry clicked this frame. On a
 /// `read_only` connection every write entry is listed disabled and says why on hover; Copy is not
@@ -47,7 +45,7 @@ fn copy_entry(ui: &mut egui::Ui, copy: CopyEntry, i18n: &I18n) -> bool {
     let label = i18n.t_with(key, &[("count", &count.to_string())]);
     let entry = ui.add_enabled(copy.enabled, egui::Button::new(label));
     if !copy.enabled {
-        entry.on_disabled_hover_text(i18n.t(COPY_BLOCKED_REASON_KEY));
+        entry.on_disabled_hover_text(i18n.t(SYSTEM_SOURCE_BLOCKED_KEY));
         return false;
     }
     entry.clicked()

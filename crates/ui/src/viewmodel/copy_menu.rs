@@ -16,6 +16,10 @@ pub enum PasteEntry {
     Disabled(&'static str),
 }
 
+/// Why documents of a `system.*` collection cannot be copied: shared by the paste rules and by the
+/// disabled Copy entries of the document views.
+pub const SYSTEM_SOURCE_BLOCKED_KEY: &str = "copy.paste_blocked.system_source";
+
 /// The i18n key that explains `block`.
 pub fn paste_block_key(block: PasteBlock) -> &'static str {
     match block {
@@ -32,7 +36,7 @@ pub fn paste_block_key(block: PasteBlock) -> &'static str {
         PasteBlock::ExcludedDatabase => "copy.paste_blocked.excluded_database",
         PasteBlock::TooManyDocuments => "copy.paste_blocked.too_many_documents",
         PasteBlock::EmptySelection => "copy.paste_blocked.empty_selection",
-        PasteBlock::SystemSource => "copy.paste_blocked.system_source",
+        PasteBlock::SystemSource => SYSTEM_SOURCE_BLOCKED_KEY,
         PasteBlock::InvalidName(_) => "copy.paste_blocked.invalid_name",
     }
 }

@@ -2,6 +2,7 @@
 //! "select all documents of the query", "clear" and Copy. Every control is a plain button or
 //! checkbox, so the whole flow works from the keyboard.
 use crate::I18n;
+use crate::viewmodel::copy_menu::SYSTEM_SOURCE_BLOCKED_KEY;
 use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState};
 use bson::Bson;
 use curlybrace_core::store::Page;
@@ -9,7 +10,6 @@ use eframe::egui;
 use eframe::egui::{WidgetInfo, WidgetType};
 
 /// Why Copy is disabled on the documents of a `system.*` collection.
-const BLOCKED_REASON_KEY: &str = "copy.paste_blocked.system_source";
 /// Key of the plain Copy label, shown while nothing is picked.
 const COPY_KEY: &str = "copy.menu.copy";
 
@@ -111,7 +111,7 @@ fn copy_button(ui: &mut egui::Ui, state: &TreeState, i18n: &I18n) -> Option<DocA
     let button = ui.add_enabled(action.is_some(), egui::Button::new(label));
     match (&action, state.copy_blocked) {
         (None, true) => {
-            button.on_disabled_hover_text(i18n.t(BLOCKED_REASON_KEY));
+            button.on_disabled_hover_text(i18n.t(SYSTEM_SOURCE_BLOCKED_KEY));
             None
         }
         (None, false) => {

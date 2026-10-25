@@ -1,4 +1,5 @@
 //! Document actions from row context menus and the delete confirmation step.
+use super::copy_clipboard::MENU_COPY_DOCUMENT;
 use super::doc_copy::DocCopy;
 use super::page_key::PageKey;
 use bson::{Bson, Document};
@@ -33,7 +34,7 @@ impl MenuItem {
         match self {
             MenuItem::Edit => "doc.edit",
             MenuItem::Clone => "doc.clone",
-            MenuItem::Copy => "copy.menu.copy_document",
+            MenuItem::Copy => MENU_COPY_DOCUMENT,
             MenuItem::Delete => "doc.delete",
             MenuItem::Insert => "doc.insert",
         }
