@@ -21,13 +21,15 @@ fn dst_ns() -> Namespace {
 }
 
 /// How a `Probe` makes writes fail.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Fail {
     Never,
     /// The n-th `bulk_write` call (1-based) fails as a whole.
     CallNumber(usize),
     /// Every op of every `bulk_write` is refused, and nothing is written.
     EveryOp,
+    /// The write completes, then the flag is cancelled and the call yields before it returns.
+    CancelDuringWrite(CancelFlag),
 }
 
 /// An in-memory store that counts scans and bulk writes and can fail writes.
@@ -85,12 +87,18 @@ impl DocumentStore for Probe {
 
     async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<Vec<WriteOutcome>> {
         let call = self.writes.fetch_add(1, Ordering::SeqCst) + 1;
-        match self.fail {
-            Fail::CallNumber(n) if n == call => Err(CoreError::ApplyOutcomeUnknown),
+        match &self.fail {
+            Fail::CallNumber(n) if *n == call => Err(CoreError::ApplyOutcomeUnknown),
             Fail::EveryOp => Ok(ops
                 .iter()
                 .map(|_| Err(WriteFailure::Rejected(121)))
                 .collect()),
+            Fail::CancelDuringWrite(cancel) => {
+                let outcomes = self.inner.bulk_write(ns, ops).await;
+                cancel.cancel();
+                tokio::task::yield_now().await;
+                outcomes
+            }
             _ => self.inner.bulk_write(ns, ops).await,
         }
     }
@@ -264,6 +272,23 @@ async fn cancel_between_batches_reports_exact_written_count_equal_to_target_len(
         report.progress.written,
         target.contents(&dst_ns()).await.len() as u64
     );
+}
+
+#[tokio::test]
+async fn cancel_during_an_in_flight_write_still_counts_exactly() {
+    let cancel = CancelFlag::default();
+    let source = Probe::new(&src_ns(), numbered(10), Fail::Never);
+    let target = Probe::new(&dst_ns(), vec![], Fail::CancelDuringWrite(cancel.clone()));
+    let report = copy_collection(
+        job(&source, &target, ConflictPolicy::Skip, 3),
+        &cancel,
+        &mut |_| {},
+    )
+    .await;
+    assert_eq!(report.outcome, CopyOutcome::Cancelled);
+    assert_eq!(report.progress.written, 3);
+    assert_eq!(target.contents(&dst_ns()).await.len(), 3);
+    assert_eq!(target.writes.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
