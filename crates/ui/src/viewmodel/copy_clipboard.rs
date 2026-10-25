@@ -147,7 +147,7 @@ impl CopyClipboard {
         Ok(CopyClipboard::Collections { session, db, names })
     }
 
-    fn source_session(&self) -> SessionId {
+    pub fn source_session(&self) -> SessionId {
         match self {
             CopyClipboard::Collections { session, .. }
             | CopyClipboard::Database { session, .. }
@@ -245,7 +245,7 @@ impl CopyClipboard {
 }
 
 impl PasteTarget {
-    fn session(&self) -> SessionId {
+    pub fn session(&self) -> SessionId {
         match self {
             PasteTarget::Connection { session }
             | PasteTarget::Database { session, .. }

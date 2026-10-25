@@ -215,3 +215,103 @@ fn a_valid_target_is_accepted() {
         DropVerdict::Accept
     );
 }
+
+// ---- the verdict cache of a drag ----
+
+use crate::viewmodel::DropVerdictCache;
+use std::sync::Arc;
+
+fn drop_cached(
+    state: &AppState,
+    cache: &mut DropVerdictCache,
+    payload: &CopyClipboard,
+    target: &PasteTarget,
+) -> DropVerdict {
+    state.drop_verdict_cached(cache, payload, target)
+}
+
+#[test]
+fn the_cached_verdict_equals_the_computed_one_for_every_target() {
+    let payload = Arc::new(collections("shop", &["orders"]));
+    let targets = [
+        onto_crm(),
+        PasteTarget::Connection { session: sid(B) },
+        PasteTarget::Collection {
+            session: sid(B),
+            ns: Namespace::new("crm", "contacts"),
+        },
+    ];
+    let s = state();
+    let mut cache = DropVerdictCache::new(payload.clone());
+    for _ in 0..2 {
+        for target in &targets {
+            assert_eq!(
+                drop_cached(&s, &mut cache, &payload, target),
+                s.drop_verdict(&payload, target),
+                "{target:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_cache_answers_from_memory_while_the_context_is_unchanged() {
+    let payload = Arc::new(collections("shop", &["orders"]));
+    let s = state();
+    let key = s.drop_context_key(&payload, &onto_crm());
+    let mut cache = DropVerdictCache::new(payload);
+    let mut computed = 0;
+    for _ in 0..3 {
+        cache.verdict(&onto_crm(), key, || {
+            computed += 1;
+            DropVerdict::Accept
+        });
+    }
+    assert_eq!(computed, 1);
+}
+
+#[test]
+fn the_cache_recomputes_when_the_connection_status_changes() {
+    let payload = Arc::new(collections("shop", &["orders"]));
+    let mut cache = DropVerdictCache::new(payload.clone());
+    let connected = state();
+    assert_eq!(
+        drop_cached(&connected, &mut cache, &payload, &onto_crm()),
+        DropVerdict::Accept
+    );
+    let mut lost = state();
+    lost.parked.get_mut(&sid(B)).unwrap().status = ConnStatus::Failed;
+    let verdict = drop_cached(&lost, &mut cache, &payload, &onto_crm());
+    assert_eq!(verdict, lost.drop_verdict(&payload, &onto_crm()));
+    assert_ne!(verdict, DropVerdict::Accept, "the target is not open");
+    // And back: the connected context is recomputed, not served stale.
+    assert_eq!(
+        drop_cached(&connected, &mut cache, &payload, &onto_crm()),
+        DropVerdict::Accept
+    );
+}
+
+#[test]
+fn the_cache_recomputes_when_the_target_collections_change() {
+    let payload = Arc::new(collections("shop", &["orders"]));
+    let mut cache = DropVerdictCache::new(payload.clone());
+    let before = state();
+    drop_cached(&before, &mut cache, &payload, &onto_crm());
+    let mut after = state();
+    after.parked.get_mut(&sid(B)).unwrap().sidebar = SidebarState::default()
+        .with_databases(names(&["crm"]))
+        .toggled("crm")
+        .with_collections("crm", names(&["contacts", "orders"]));
+    assert_ne!(
+        before.drop_context_key(&payload, &onto_crm()),
+        after.drop_context_key(&payload, &onto_crm())
+    );
+}
+
+#[test]
+fn a_cache_belongs_to_one_drag_payload() {
+    let payload = Arc::new(collections("shop", &["orders"]));
+    let cache = DropVerdictCache::new(payload.clone());
+    assert!(cache.is_for(&payload));
+    assert!(!cache.is_for(&Arc::new(collections("shop", &["orders"]))));
+}

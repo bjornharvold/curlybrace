@@ -3,9 +3,12 @@
 //! which decide everything; this only reads egui's drag state and draws. Menus and keys stay the
 //! primary way: nothing here is needed to Copy and Paste.
 use crate::I18n;
-use crate::viewmodel::{CopyClipboard, DropVerdict, NodeRef, PasteTarget, SidebarAction};
+use crate::viewmodel::{
+    CopyClipboard, DropVerdict, DropVerdictCache, NodeRef, PasteTarget, SidebarAction,
+};
 use crate::views::sidebar_copy::TreeCtx;
 use eframe::egui;
+use std::sync::Arc;
 
 /// A selectable row that can also be dragged. Without a `ctx` (no selection model) it is a
 /// plain selectable label.
@@ -46,9 +49,12 @@ pub fn drop_target(
     i18n: &I18n,
 ) -> Option<SidebarAction> {
     let ctx = ctx?;
-    let payload = egui::DragAndDrop::payload::<CopyClipboard>(&response.ctx)?;
+    let Some(payload) = egui::DragAndDrop::payload::<CopyClipboard>(&response.ctx) else {
+        forget_verdicts(&response.ctx);
+        return None;
+    };
     let over = response.contains_pointer();
-    match ctx.state.drop_verdict(&payload, &target) {
+    match cached_verdict(response, ctx, &payload, &target) {
         DropVerdict::Accept => {
             outline(response, over);
             let released = over.then(|| response.dnd_release_payload::<CopyClipboard>());
@@ -64,6 +70,39 @@ pub fn drop_target(
             None
         }
     }
+}
+
+/// What egui's temp memory holds for the drag in progress (`Default` is what it needs to forget).
+#[derive(Clone, Default)]
+struct DragVerdicts(Option<DropVerdictCache>);
+
+/// The id of the verdict cache of the drag in progress, in egui's temp memory.
+fn cache_id() -> egui::Id {
+    egui::Id::new("sidebar_drop_verdicts")
+}
+
+/// The verdict for `target` from the cache of this drag: every visible row asks every frame, and
+/// the paste rules run again only for a row whose context changed.
+fn cached_verdict(
+    response: &egui::Response,
+    ctx: &TreeCtx,
+    payload: &Arc<CopyClipboard>,
+    target: &PasteTarget,
+) -> DropVerdict {
+    response.ctx.data_mut(|data| {
+        let DragVerdicts(slot) =
+            data.get_temp_mut_or_insert_with(cache_id(), DragVerdicts::default);
+        if !slot.as_ref().is_some_and(|cache| cache.is_for(payload)) {
+            *slot = Some(DropVerdictCache::new(payload.clone()));
+        }
+        let cache = slot.get_or_insert_with(|| DropVerdictCache::new(payload.clone()));
+        ctx.state.drop_verdict_cached(cache, payload, target)
+    })
+}
+
+/// The drag ended: its verdicts are dropped.
+fn forget_verdicts(egui_ctx: &egui::Context) {
+    egui_ctx.data_mut(|data| data.remove_temp::<DragVerdicts>(cache_id()));
 }
 
 /// Marks a row that takes the drag; `strong` while the pointer is over it.

@@ -36,7 +36,9 @@ pub use connection_list::{
 };
 pub use connection_tag::{ColorTag, ConnectionBadge, color_tag};
 pub use copy_clipboard::{CopyClipboard, DocSelection, PasteBlock, PasteContext, PasteTarget};
-pub use copy_drag::{DropVerdict, drag_payload, drag_selection, drop_verdict};
+pub use copy_drag::{
+    DropContextKey, DropVerdict, DropVerdictCache, drag_payload, drag_selection, drop_verdict,
+};
 pub use copy_menu::{PasteEntry, copy_entry, paste_block_key, paste_entry, paste_target_for};
 pub use doc_actions::{
     DeleteConfirm, DocAction, MenuItem, choose, id_preview, is_projected, menu_items,
