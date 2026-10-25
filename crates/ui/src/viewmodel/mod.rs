@@ -7,6 +7,7 @@ pub mod connection_tag;
 pub mod copy_clipboard;
 pub mod copy_menu;
 pub mod doc_actions;
+pub mod doc_copy;
 pub mod editor;
 pub mod findbar;
 pub mod index_builder;
@@ -40,6 +41,7 @@ pub use copy_menu::{
 pub use doc_actions::{
     DeleteConfirm, DocAction, MenuItem, choose, id_preview, is_projected, menu_items,
 };
+pub use doc_copy::{CopyEntry, DocCopy, DocPick, clipboard_for, copy_blocked};
 pub use editor::{
     EditorAction, EditorIntent, EditorState, dismissal_action, resolve_editor, try_save,
 };

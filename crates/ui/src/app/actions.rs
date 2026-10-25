@@ -199,6 +199,7 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
         return (AppState { banner, ..state }, Vec::new());
     }
     match action {
+        DocAction::Copy(what) => super::copy_documents::copy(state, what),
         DocAction::Edit(d) => with_editor(state, EditorState::for_edit(&d)),
         DocAction::Insert => with_editor(state, EditorState::for_new()),
         DocAction::Clone(source) => {

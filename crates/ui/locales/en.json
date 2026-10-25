@@ -613,11 +613,13 @@
       "database_onto_database": "A database can only be pasted onto a connection. Paste it onto the connection's name.",
       "documents_onto_database": "Documents can only be pasted onto a collection.",
       "empty_clipboard": "Nothing has been copied yet.",
+      "empty_selection": "Select at least one document to copy.",
       "excluded_database": "Server-owned databases (admin, local, config) cannot be copied.",
       "invalid_name": "A name in the copy is not valid.",
       "read_only_target": "This connection is read-only, so nothing can be pasted into it.",
       "same_namespace_documents": "Documents cannot be pasted onto the collection they came from.",
       "source_closed": "The connection the data was copied from is closed.",
+      "system_source": "Documents of system. collections are server-owned and cannot be copied.",
       "target_closed": "This connection is closed.",
       "too_many_documents": "Too many documents are selected to copy by hand. Copy the query result instead."
     },
@@ -646,6 +648,7 @@
     }
   },
   "doc": {
+    "clear_selection": "Clear selection",
     "clone": "Clone",
     "confirm_delete": "Delete the document with _id {id} from {connection}? This cannot be undone.",
     "connection": "Connection: {name}",
@@ -653,7 +656,10 @@
     "delete": "Delete",
     "edit": "Edit",
     "header": "Document {n}",
-    "insert": "Insert document"
+    "insert": "Insert document",
+    "select_all_result": "Select all documents of the query",
+    "select_row": "Select document {n}",
+    "selection_hint": "Tick documents to copy them."
   },
   "editor": {
     "cancel": "Cancel",
@@ -886,7 +892,7 @@
     "refresh": "Refresh",
     "restart": "Server restarted",
     "sampler_failing": "Sampling is failing: no collection could be read. Retrying every minute.",
-    "sampler_running":"Sampling usage every minute.",
+    "sampler_running": "Sampling usage every minute.",
     "sampling": {
       "add": "Exclude",
       "built_in": "admin, local and config are never sampled.",

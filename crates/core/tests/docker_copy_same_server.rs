@@ -6,6 +6,7 @@
 mod support;
 
 use bson::doc;
+use curlybrace_core::copy::protocol::CopyItem;
 use curlybrace_core::copy::{ConflictPolicy, CopyEvent, CopyOutcome, CopyScope};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
@@ -208,4 +209,49 @@ async fn a_database_copy_leaves_out_views() {
         })
     ));
     assert_eq!(collection_names(&client, "cbit_viewless").await, ["base"]);
+}
+
+#[tokio::test]
+#[ignore = "needs docker; set CURLYBRACE_IT=1"]
+async fn copies_selected_documents_by_id_between_collections() {
+    if !docker_enabled("copies_selected_documents_by_id_between_collections") {
+        return;
+    }
+    let (c, client, _store) = docker_mongo().await;
+    let src = Namespace::new("cbit_pick", "orders");
+    let dst = Namespace::new("cbit_pick", "picked");
+    let mut docs = numbered_range(1, 20, "a");
+    docs.push(doc! { "_id": "k", "v": "text-id" });
+    seed(&client, &src, docs).await;
+
+    let mut rt = runtime();
+    let session = connect(&mut rt, &config(&c)).await;
+    // What the documents pane copies by hand: the picked `_id`s, of any BSON type.
+    let picked = CopyItem {
+        filter: doc! { "_id": { "$in": [bson::Bson::Int32(3), bson::Bson::Int32(7), bson::Bson::String("k".into())] } },
+        ..item(&src, &dst)
+    };
+    let scope = CopyScope::Collections(vec![picked]);
+    let events = run_copy(
+        &mut rt,
+        1,
+        request(session, session, scope, ConflictPolicy::Skip),
+    )
+    .await;
+
+    assert!(matches!(
+        events.last(),
+        Some(CopyEvent::Done {
+            cancelled: false,
+            ..
+        })
+    ));
+    let copied = all_docs(&client, &dst).await;
+    let mut ids: Vec<String> = copied
+        .iter()
+        .map(|d| d.get("_id").unwrap().to_string())
+        .collect();
+    ids.sort();
+    assert_eq!(ids, ["\"k\"", "3", "7"]);
+    assert_eq!(all_docs(&client, &src).await.len(), 21, "source untouched");
 }

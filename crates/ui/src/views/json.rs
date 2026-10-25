@@ -4,6 +4,7 @@
 //! a 10,000-element document as a single text widget every frame is too slow. Lines keep
 //! their natural width inside a two-axis scroll area so long values stay readable.
 use super::context_menu::row_context_menu;
+use super::doc_select::{checkbox_width, pick_id, row_checkbox};
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
 use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState, menu_items};
@@ -42,11 +43,16 @@ pub(crate) fn render_json(
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let color = ui.visuals().text_color();
     let mut chosen: Chosen = None;
+    let mut toggled: Option<usize> = None;
+    let check_width = checkbox_width(ui);
     let output = egui::ScrollArea::both()
         .id_salt("json_view")
         .auto_shrink([false; 2])
         .show_rows(ui, height, lines.len(), |ui, range| {
-            for line in &lines[range] {
+            let first_index = range.start;
+            for (offset, line) in lines[range].iter().enumerate() {
+                let index = first_index + offset;
+                let first_of_doc = index == 0 || lines[index - 1].doc_index != line.doc_index;
                 let Some(doc) = page.docs.get(line.doc_index) else {
                     continue;
                 };
@@ -55,21 +61,40 @@ pub(crate) fn render_json(
                         .size()
                         .x
                 });
-                let width = text_width.max(ui.available_width());
-                let (_, response) = fixed_row_sized(ui, height, width, |ui| {
+                let width = (text_width + check_width).max(ui.available_width());
+                let (_, (response, tick)) = fixed_row_sized(ui, height, width, |ui| {
+                    // The checkbox sits on the first line of each document only.
+                    let tick = match (first_of_doc, pick_id(doc)) {
+                        (true, id) => {
+                            let checked = id.is_some_and(|id| state.pick.contains(id));
+                            let number = page.skip + line.doc_index as u64 + 1;
+                            row_checkbox(ui, checked, id.is_some(), number, i18n)
+                        }
+                        (false, _) => {
+                            ui.add_space(check_width);
+                            false
+                        }
+                    };
                     let text = egui::RichText::new(&line.text).monospace();
                     let label = egui::Label::new(text)
                         .wrap_mode(egui::TextWrapMode::Extend)
                         .selectable(true)
                         .sense(egui::Sense::click());
-                    ui.add(label)
+                    (ui.add(label), tick)
                 });
+                if tick {
+                    toggled = Some(line.doc_index);
+                }
                 let items = menu_items(doc, projected);
-                if let Some(item) = row_context_menu(&response, &items, read_only, i18n) {
+                let copy = state.copy_entry_for(doc);
+                if let Some(item) = row_context_menu(&response, &items, read_only, copy, i18n) {
                     chosen = Some((line.doc_index, item));
                 }
             }
         });
+    if let Some(id) = toggled.and_then(|i| page.docs.get(i)).and_then(pick_id) {
+        state.pick = std::mem::take(&mut state.pick).row_toggled(id, page);
+    }
     (output, chosen)
 }
 

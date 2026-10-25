@@ -1,9 +1,12 @@
 //! View state shared by the document views: expansion, delete confirmation, caches.
+use super::copy_clipboard::MENU_COPY_DOCUMENT;
 use super::doc_actions::{DeleteConfirm, DocAction, MenuItem, choose};
+use super::doc_copy::{CopyEntry, DocCopy, DocPick};
 use super::json_cache::JsonCache;
 use super::page_key::PageKey;
 use super::tree::{TreeRow, flatten_doc};
 use bson::{Bson, Document};
+use curlybrace_core::crud::id_of;
 use curlybrace_core::store::Page;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -61,6 +64,11 @@ pub struct TreeState {
     /// The connection is read-only: every write entry is shown disabled. Set by the documents
     /// view every frame from its target.
     pub read_only: bool,
+    /// The documents ticked for Copy, or the whole result. Dropped with the page it was made on.
+    pub pick: DocPick,
+    /// The shown collection is server-owned (`system.*`): Copy is shown disabled. Set by the app
+    /// every frame.
+    pub copy_blocked: bool,
     json: JsonCache,
     rows: Option<(CacheKey, Rc<Vec<PageRow>>)>,
     /// Identity of the page the state last rendered.
@@ -78,6 +86,7 @@ impl TreeState {
             confirm: self.confirm.results_replaced(),
             projected: self.projected,
             read_only: self.read_only,
+            copy_blocked: self.copy_blocked,
             ..Self::default()
         }
     }
@@ -123,8 +132,45 @@ impl TreeState {
         doc: &Document,
         key: &PageKey,
     ) -> (Self, Option<DocAction>) {
+        if item == MenuItem::Copy && !self.copy_blocked {
+            let action = self.copy_for_row(doc);
+            return (self, action);
+        }
+        if item == MenuItem::Copy {
+            return (self, None);
+        }
         let (confirm, action) = choose(self.confirm.clone(), item, doc, *key);
         (Self { confirm, ..self }, action)
+    }
+
+    /// Copy from the menu of the row of `doc`: the whole pick when the row is part of it, else
+    /// just this document.
+    fn copy_for_row(&self, doc: &Document) -> Option<DocAction> {
+        let id = id_of(doc).ok()?;
+        match self.pick.contains(id) {
+            true => self.pick.copy().map(DocAction::Copy),
+            false => Some(DocAction::Copy(DocCopy::Ids(vec![id.clone()]))),
+        }
+    }
+
+    /// The Copy entry for the row of `doc`: it names the whole pick when the row is part of it.
+    pub fn copy_entry_for(&self, doc: &Document) -> CopyEntry {
+        let in_pick = id_of(doc).is_ok_and(|id| self.pick.contains(id));
+        CopyEntry {
+            enabled: !self.copy_blocked,
+            label: match in_pick {
+                true => self.pick.menu_label_key(),
+                false => (MENU_COPY_DOCUMENT, 1),
+            },
+        }
+    }
+
+    /// Copy from the selection bar; `None` while nothing is picked or copying is blocked.
+    pub fn copy_picked(&self) -> Option<DocAction> {
+        match self.copy_blocked {
+            true => None,
+            false => self.pick.copy().map(DocAction::Copy),
+        }
     }
 
     /// Emits the parked delete once, and only while `key` is the page it was requested on.
@@ -154,6 +200,7 @@ impl TreeState {
             Some(seen) if seen == key => return,
             Some(_) => {
                 self.expanded.clear();
+                self.pick = DocPick::default();
                 self.revision += 1;
                 self.rows = None;
             }

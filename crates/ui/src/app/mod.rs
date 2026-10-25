@@ -24,6 +24,7 @@ mod connection_uri;
 pub mod connections;
 pub mod copy;
 mod copy_actions;
+mod copy_documents;
 pub mod copy_state;
 mod dialog_banner;
 pub mod file_picker;
@@ -765,6 +766,9 @@ mod read_only_snapshot_tests;
 
 #[cfg(test)]
 mod connection_lock_tests;
+
+#[cfg(test)]
+mod copy_documents_tests;
 
 #[cfg(test)]
 mod copy_menu_tests;

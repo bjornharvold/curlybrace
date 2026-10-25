@@ -7,7 +7,7 @@ use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
-use crate::viewmodel::CollectionTab;
+use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections};
@@ -200,6 +200,7 @@ fn show_collection(
         return;
     };
     state.tree.projected = state.page_is_projected();
+    state.tree.copy_blocked = state.selected_ns().is_some_and(copy_blocked);
     let action = show_documents_keyed(
         ui,
         state.view_mode,

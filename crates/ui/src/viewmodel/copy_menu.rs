@@ -30,6 +30,8 @@ pub fn paste_block_key(block: PasteBlock) -> &'static str {
         PasteBlock::SameNamespaceDocuments => "copy.paste_blocked.same_namespace_documents",
         PasteBlock::ExcludedDatabase => "copy.paste_blocked.excluded_database",
         PasteBlock::TooManyDocuments => "copy.paste_blocked.too_many_documents",
+        PasteBlock::EmptySelection => "copy.paste_blocked.empty_selection",
+        PasteBlock::SystemSource => "copy.paste_blocked.system_source",
         PasteBlock::InvalidName(_) => "copy.paste_blocked.invalid_name",
     }
 }

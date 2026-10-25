@@ -14,6 +14,9 @@ mod connections_list_tests;
 pub mod context_menu;
 pub mod copy_dialog;
 pub mod copy_progress;
+pub mod doc_select;
+#[cfg(test)]
+mod doc_select_tests;
 pub mod documents;
 pub mod editor;
 pub mod error_label;

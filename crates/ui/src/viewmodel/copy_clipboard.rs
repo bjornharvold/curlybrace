@@ -42,8 +42,11 @@ pub enum DocSelection {
 }
 
 impl DocSelection {
-    /// A hand-picked selection; refused above [`MAX_CLIPBOARD_IDS`].
+    /// A hand-picked selection; refused when empty or above [`MAX_CLIPBOARD_IDS`].
     pub fn ids(ids: Vec<Bson>) -> Result<DocSelection, PasteBlock> {
+        if ids.is_empty() {
+            return Err(PasteBlock::EmptySelection);
+        }
         if ids.len() > MAX_CLIPBOARD_IDS {
             return Err(PasteBlock::TooManyDocuments);
         }
@@ -110,6 +113,10 @@ pub enum PasteBlock {
     SameNamespaceDocuments,
     ExcludedDatabase,
     TooManyDocuments,
+    /// No document is selected, so there is nothing to copy.
+    EmptySelection,
+    /// The documents come from a `system.*` collection, which is server-owned.
+    SystemSource,
     /// A kept or suggested target name is not valid. The dialog lets the user edit names, so this
     /// is only the safety net.
     InvalidName(NameProblem),
@@ -321,8 +328,15 @@ fn documents_scope(
     }
     reject_excluded(&ns.db)?;
     reject_excluded(&target_ns.db)?;
-    if matches!(selection, DocSelection::Ids(ids) if ids.len() > MAX_CLIPBOARD_IDS) {
-        return Err(PasteBlock::TooManyDocuments);
+    if is_excluded_collection(&ns.collection) {
+        return Err(PasteBlock::SystemSource);
+    }
+    match selection {
+        DocSelection::Ids(ids) if ids.is_empty() => return Err(PasteBlock::EmptySelection),
+        DocSelection::Ids(ids) if ids.len() > MAX_CLIPBOARD_IDS => {
+            return Err(PasteBlock::TooManyDocuments);
+        }
+        _ => {}
     }
     validate_namespace(target_ns).map_err(PasteBlock::InvalidName)?;
     Ok(CopyScope::Collections(vec![CopyItem {

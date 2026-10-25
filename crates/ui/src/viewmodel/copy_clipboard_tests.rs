@@ -484,3 +484,27 @@ fn menu_label_keys_carry_the_count() {
         (MENU_COPY_QUERY_RESULT, 0)
     );
 }
+
+#[test]
+fn an_empty_ids_selection_is_refused_instead_of_copying_nothing() {
+    assert_eq!(DocSelection::ids(vec![]), Err(PasteBlock::EmptySelection));
+    let clip = documents(A, "shop", "orders", DocSelection::Ids(vec![]));
+    assert_eq!(
+        Fixture::new().paste(&clip, &coll_target(B, "shop", "orders")),
+        Err(PasteBlock::EmptySelection)
+    );
+}
+
+#[test]
+fn documents_from_a_system_collection_are_refused() {
+    let clip = documents(
+        A,
+        "shop",
+        "system.views",
+        DocSelection::Ids(vec![Bson::Int32(1)]),
+    );
+    assert_eq!(
+        Fixture::new().paste(&clip, &coll_target(B, "crm", "views")),
+        Err(PasteBlock::SystemSource)
+    );
+}
