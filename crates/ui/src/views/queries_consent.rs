@@ -11,25 +11,30 @@ use eframe::egui;
 
 const MODAL_WIDTH: f32 = 520.0;
 
-/// Draws the dialog for `consent`; `production` adds the notice every guarded write carries.
+/// Draws the dialog for `consent`; `production` adds the notice every guarded write carries and
+/// `already_on` (the profiler records slow operations already) words the title as widening what
+/// is recorded instead of turning the profiler on.
 pub fn show_profiler_consent(
     ctx: &egui::Context,
     consent: &ProfilerConsent,
-    busy: bool,
-    read_only: bool,
-    production: bool,
+    (busy, read_only, production): (bool, bool, bool),
+    already_on: bool,
     i18n: &I18n,
 ) -> Option<QueriesAction> {
     let turning_on = consent.level == PROFILER_LEVEL_ON;
     let mut action = None;
     let modal = egui::Modal::new(egui::Id::new("profiler_consent")).show(ctx, |ui| {
         ui.set_width(MODAL_WIDTH);
-        let (title, message) = match turning_on {
-            true => (
+        let (title, message) = match (turning_on, already_on) {
+            (true, true) => (
+                "indexes.queries.consent.title_record_all",
+                "indexes.queries.consent.message_on",
+            ),
+            (true, false) => (
                 "indexes.queries.consent.title_on",
                 "indexes.queries.consent.message_on",
             ),
-            false => (
+            (false, _) => (
                 "indexes.queries.consent.title_off",
                 "indexes.queries.consent.message_off",
             ),

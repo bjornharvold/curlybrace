@@ -104,6 +104,7 @@ pub use config::{
     COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT, INDEX_BUILD_TIMEOUT, PING_TIMEOUT,
     RuntimeConfig, default_history_path,
 };
+pub use handlers::COMMAND_TIMEOUT_MESSAGE;
 pub use indexes::IndexSeries;
 pub use profiler_status::ProfilerStatus;
 pub use sampler::{MIN_INTERVAL, SamplerConfig, SamplerPause, SamplerStatus};

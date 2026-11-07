@@ -101,9 +101,11 @@ pub struct QueriesState {
     /// The profiler command sent and not yet answered (see [`InFlight`]); it survives a change of
     /// collection, since its answer is still on its way.
     pub in_flight: Option<InFlight>,
-    /// The last thing that went wrong: a failed shapes read, or a profiler change whose outcome
-    /// is unknown.
-    pub error: Option<CoreError>,
+    /// The last shapes read failed. Cleared only by a shapes read that succeeds (or a new request
+    /// for them), never by a profiler answer: the two are independent.
+    pub shapes_error: Option<CoreError>,
+    /// A profiler change whose outcome is unknown. Cleared only by a profiler state that arrives.
+    pub profiler_error: Option<CoreError>,
 }
 
 impl Default for QueriesState {
@@ -117,7 +119,8 @@ impl Default for QueriesState {
             range: ChartRange::Day,
             loading: false,
             in_flight: None,
-            error: None,
+            shapes_error: None,
+            profiler_error: None,
         }
     }
 }
@@ -140,7 +143,7 @@ impl QueriesState {
     pub fn requested(self) -> Self {
         Self {
             loading: true,
-            error: None,
+            shapes_error: None,
             request: self.request + 1,
             ..self
         }
@@ -160,7 +163,7 @@ impl QueriesState {
         Self {
             shapes,
             loading: false,
-            error: None,
+            shapes_error: None,
             ..self
         }
     }
@@ -169,7 +172,7 @@ impl QueriesState {
     pub fn failed(self, error: CoreError) -> Self {
         Self {
             loading: false,
-            error: Some(error),
+            shapes_error: Some(error),
             ..self
         }
     }
@@ -239,19 +242,23 @@ pub struct QueryRow {
     pub executions: u64,
     pub misses: u64,
     pub max_millis: u64,
+    /// The worst verdict of the range (shown as secondary text).
     pub worst: VerdictKind,
+    /// What the shape does now: the verdict of its newest bucket. Drives the title, the sort and
+    /// the suggestion.
+    pub latest: VerdictKind,
     /// A ready-to-copy `createIndex` command, for a shape that missed an index only.
     pub suggestion: Option<String>,
 }
 
-/// The shapes of `state` as rows, misses first: worst severity, then most misses, then slowest;
+/// The shapes of `state` as rows, misses first: latest severity, then most misses, then slowest;
 /// the shape text last so the order is stable.
 pub fn rows(state: &QueriesState, ns: &Namespace) -> Vec<QueryRow> {
     let mut rows: Vec<QueryRow> = state.shapes.iter().map(|s| row_of(s, ns)).collect();
     rows.sort_by(|a, b| {
-        b.worst
+        b.latest
             .severity()
-            .cmp(&a.worst.severity())
+            .cmp(&a.latest.severity())
             .then(b.misses.cmp(&a.misses))
             .then(b.max_millis.cmp(&a.max_millis))
             .then_with(|| a.shape_json.cmp(&b.shape_json))
@@ -267,14 +274,15 @@ fn row_of(summary: &ShapeSummary, ns: &Namespace) -> QueryRow {
         misses: summary.misses,
         max_millis: summary.max_millis,
         worst: summary.worst,
+        latest: summary.latest,
         suggestion: suggestion_of(summary, ns),
     }
 }
 
-/// The advice for a shape that missed an index; a neutral or good one needs none, and a shape
-/// that cannot be read back is shown without.
+/// The advice for a shape that misses an index now; a neutral or good one (an index created since
+/// included) needs none, and a shape that cannot be read back is shown without.
 fn suggestion_of(summary: &ShapeSummary, ns: &Namespace) -> Option<String> {
-    if !is_miss(summary.worst) {
+    if !is_miss(summary.latest) {
         return None;
     }
     let shape = Shape::from_json(&summary.shape_json).ok()?;

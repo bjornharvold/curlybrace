@@ -27,6 +27,7 @@ fn summary(field: &str, worst: VerdictKind, misses: u64, max_millis: u64) -> Sha
         total_millis: max_millis * 2,
         max_millis,
         worst,
+        latest: worst,
         buckets: Vec::new(),
     }
 }
@@ -53,6 +54,41 @@ fn rows_sort_misses_first() {
         order,
         ["many", "few", "sort", "good"].map(shape_json).to_vec()
     );
+}
+
+/// A shape that once scanned and, per its newest bucket, no longer does.
+fn with_latest(shape: ShapeSummary, latest: VerdictKind) -> ShapeSummary {
+    ShapeSummary { latest, ..shape }
+}
+
+#[test]
+fn a_fixed_query_stops_showing_as_a_miss_and_loses_its_suggestion() {
+    let fixed = with_latest(
+        summary("email", VerdictKind::CollectionScan, 3, 10),
+        VerdictKind::IndexUsed,
+    );
+    let rows = rows(&state_of(vec![fixed]), &ns());
+    assert_eq!(rows[0].latest, VerdictKind::IndexUsed);
+    assert_eq!(
+        rows[0].worst,
+        VerdictKind::CollectionScan,
+        "still available"
+    );
+    assert_eq!(rows[0].suggestion, None, "the index exists now");
+}
+
+#[test]
+fn sort_orders_by_latest_verdict_first() {
+    let fixed = with_latest(
+        summary("fixed", VerdictKind::CollectionScan, 99, 900),
+        VerdictKind::IndexUsed,
+    );
+    let state = state_of(vec![
+        fixed,
+        summary("sort", VerdictKind::SortNotCovered, 1, 1),
+    ]);
+    let order = fields(&rows(&state, &ns()));
+    assert_eq!(order, ["sort", "fixed"].map(shape_json).to_vec());
 }
 
 #[test]

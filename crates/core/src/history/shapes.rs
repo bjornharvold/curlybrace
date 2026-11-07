@@ -101,7 +101,11 @@ pub struct ShapeSummary {
     pub misses: u64,
     pub total_millis: u64,
     pub max_millis: u64,
+    /// The worst verdict of the whole range.
     pub worst: VerdictKind,
+    /// The verdict of the newest bucket that ran the shape: what it does now. After an index is
+    /// created this stops being a miss while `worst` still remembers the scans.
+    pub latest: VerdictKind,
     pub buckets: Vec<ShapeBucket>,
 }
 

@@ -8,7 +8,7 @@ use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
 use crate::viewmodel::verdict::badge;
-use crate::viewmodel::{CollectionTab, IndexesAction, copy_blocked};
+use crate::viewmodel::{CollectionTab, IndexesAction, ProfilingView, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections_with_tools};
@@ -372,8 +372,10 @@ fn show_index_dialogs(
             .map(|a| UiEvent::Input(Input::Indexes(a))),
     );
     let consent = indexes.queries.consent.as_ref().and_then(|consent| {
-        let (busy, read_only) = (indexes.queries.busy(), badge.read_only);
-        show_profiler_consent(ctx, consent, busy, read_only, badge.production, i18n)
+        let flags = (indexes.queries.busy(), badge.read_only, badge.production);
+        let already_on =
+            matches!(&indexes.queries.profiling, ProfilingView::Known(p) if p.level == 1);
+        show_profiler_consent(ctx, consent, flags, already_on, i18n)
     });
     out.extend(consent.map(|a| UiEvent::Input(Input::Indexes(IndexesAction::Queries(a)))));
 }

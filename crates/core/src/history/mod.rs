@@ -28,6 +28,8 @@ mod shape_thin;
 #[cfg(test)]
 mod shape_thin_tests;
 pub mod shapes;
+#[cfg(test)]
+mod shapes_latest_tests;
 mod shapes_read;
 #[cfg(test)]
 mod shapes_tests;

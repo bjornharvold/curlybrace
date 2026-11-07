@@ -22,9 +22,9 @@ pub fn show_rows(ui: &mut egui::Ui, rows: &[QueryRow], i18n: &I18n) {
 /// so each is told apart by assistive technology.
 fn show_row(ui: &mut egui::Ui, row: &QueryRow, place: (usize, usize), i18n: &I18n) {
     ui.horizontal_wrapped(|ui| {
-        let (icon, title_key) = row_title(row.worst);
+        let (icon, title_key) = row_title(row.latest);
         let title = egui::RichText::new(format!("{icon} {}", i18n.t(title_key))).strong();
-        let title = if is_miss(row.worst) {
+        let title = if is_miss(row.latest) {
             title.color(ui.visuals().warn_fg_color)
         } else {
             title
@@ -33,8 +33,16 @@ fn show_row(ui: &mut egui::Ui, row: &QueryRow, place: (usize, usize), i18n: &I18
         ui.weak(i18n.t(source_key(row.source)));
         ui.label(count(runs_key(row.executions), row.executions, i18n));
         ui.label(count(misses_key(row.misses), row.misses, i18n));
-        ui.label(count("indexes.queries.slowest", row.max_millis, i18n));
+        // Typed observations carry no durations: "slowest 0 ms" would be a false statement.
+        if row.source == ShapeSource::App {
+            ui.label(count("indexes.queries.slowest", row.max_millis, i18n));
+        }
     });
+    if row.worst != row.latest {
+        let (_, worst_key) = row_title(row.worst);
+        let worst = i18n.t(worst_key);
+        ui.weak(i18n.t_with("indexes.queries.worst_in_range", &[("verdict", &worst)]));
+    }
     let params = [
         ("position", place.0.to_string()),
         ("total", place.1.to_string()),

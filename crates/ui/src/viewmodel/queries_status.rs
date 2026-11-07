@@ -5,7 +5,7 @@ use super::queries::{ProfilingView, QueriesState};
 use super::verdict::kind_presentation;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::VerdictKind;
-use curlybrace_core::runtime::{ProfilerStatus, SamplerPause};
+use curlybrace_core::runtime::{COMMAND_TIMEOUT_MESSAGE, ProfilerStatus, SamplerPause};
 use curlybrace_core::store::PROFILER_MONGOS_MESSAGE;
 
 /// An i18n key with its parameters.
@@ -57,6 +57,8 @@ pub enum Body {
     Loading,
     /// No rows and the profiler is off: explain what enabling does.
     ProfilerOff,
+    /// The shapes could not be read: the inline error says so, "nothing recorded" would be untrue.
+    ReadFailed,
     /// No rows yet and the profiler is on.
     ProfilerOnEmpty,
     /// No rows and the profiler cannot be read.
@@ -107,6 +109,12 @@ fn profiler_line(profiling: &ProfilingView) -> Line {
 pub fn unavailable_key(error: &CoreError) -> &'static str {
     match error {
         CoreError::Unauthorized => "indexes.queries.profiler_unauthorized",
+        CoreError::Database(text) if text == COMMAND_TIMEOUT_MESSAGE => {
+            "indexes.queries.profiler_timed_out"
+        }
+        CoreError::Unreachable | CoreError::ConnectionInterrupted(_) => {
+            "indexes.queries.profiler_connection_lost"
+        }
         CoreError::Unsupported(text) if text == PROFILER_MONGOS_MESSAGE => {
             "indexes.queries.profiler_mongos"
         }
@@ -185,6 +193,7 @@ pub fn misses_key(n: u64) -> &'static str {
 pub fn body(state: &QueriesState, rows: usize) -> Body {
     match (&state.profiling, rows) {
         (_, n) if n > 0 => Body::Rows,
+        (_, _) if state.shapes_error.is_some() => Body::ReadFailed,
         (ProfilingView::Known(p), _) if p.level == 0 => Body::ProfilerOff,
         (ProfilingView::Known(_), _) => Body::ProfilerOnEmpty,
         (ProfilingView::Unavailable(_), _) => Body::Unavailable,

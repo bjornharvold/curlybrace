@@ -53,6 +53,7 @@ fn summary(field: &str, worst: VerdictKind, misses: u64) -> ShapeSummary {
         total_millis: 900,
         max_millis: 350,
         worst,
+        latest: worst,
         buckets: vec![ShapeBucket {
             start_secs: NOW - 1_200,
             width_secs: 600,
@@ -332,6 +333,18 @@ fn unavailable_reasons_are_fixed_texts_never_server_text() {
             "indexes.queries.profiler_mongos",
         ),
         (
+            CoreError::Database(curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE.into()),
+            "indexes.queries.profiler_timed_out",
+        ),
+        (
+            CoreError::Unreachable,
+            "indexes.queries.profiler_connection_lost",
+        ),
+        (
+            CoreError::ConnectionInterrupted(SECRET.into()),
+            "indexes.queries.profiler_connection_lost",
+        ),
+        (
             CoreError::Database(SECRET.into()),
             "indexes.queries.profiler_unavailable",
         ),
@@ -356,6 +369,40 @@ fn a_failed_read_is_shown_inline_without_the_server_text() {
     let state = known(2).failed(CoreError::Database(SECRET.into()));
     let harness = open(state, false);
     assert_shows(&harness, &[t("indexes.queries.error")]);
+}
+
+#[test]
+fn a_failed_read_is_not_hidden_by_the_profiler_being_on() {
+    // The profiler answered after the failed history read: the body must not claim nothing was
+    // recorded.
+    let state = known(2).failed(CoreError::Database(SECRET.into()));
+    let harness = open(state, false);
+    assert_shows(&harness, &[t("indexes.queries.error")]);
+    assert!(
+        !texts(&harness).contains(&t("indexes.queries.empty_on")),
+        "the empty-profiler text would be untrue"
+    );
+}
+
+#[test]
+fn an_unconfirmed_profiler_change_is_shown_next_to_the_rows() {
+    let mut state = known(2).with_shapes(vec![summary("a", VerdictKind::CollectionScan, 1)]);
+    state.profiler_error = Some(CoreError::Database(SECRET.into()));
+    let harness = open(state, false);
+    assert_shows(&harness, &[t("indexes.queries.profiler_error")]);
+}
+
+#[test]
+fn a_row_that_is_fine_now_says_what_the_worst_was() {
+    let mut fixed = summary("a", VerdictKind::CollectionScan, 4);
+    fixed.latest = VerdictKind::IndexUsed;
+    let harness = open(known(2).with_shapes(vec![fixed]), false);
+    let worst_title = t("query.verdict.title_collscan");
+    let note = I18n::english().t_with(
+        "indexes.queries.worst_in_range",
+        &[("verdict", &worst_title)],
+    );
+    assert_shows(&harness, &[note]);
 }
 
 #[test]
@@ -459,8 +506,19 @@ fn the_chart_has_a_text_alternative() {
     assert_shows(
         &harness,
         &[i18n.t_with(
-            "indexes.queries.chart_summary",
+            "indexes.queries.chart_summary_other",
             &[("misses", "12"), ("range", &t("indexes.range_day"))],
+        )],
+    );
+    let one = open(
+        known(2).with_shapes(vec![summary("status", VerdictKind::CollectionScan, 1)]),
+        false,
+    );
+    assert_shows(
+        &one,
+        &[i18n.t_with(
+            "indexes.queries.chart_summary_one",
+            &[("misses", "1"), ("range", &t("indexes.range_day"))],
         )],
     );
     let empty = open(known(2), false);

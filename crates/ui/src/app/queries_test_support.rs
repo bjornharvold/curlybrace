@@ -50,6 +50,7 @@ pub(super) fn shape(hash: &str) -> ShapeSummary {
         total_millis: 30,
         max_millis: 20,
         worst: VerdictKind::CollectionScan,
+        latest: VerdictKind::CollectionScan,
         buckets: Vec::new(),
     }
 }

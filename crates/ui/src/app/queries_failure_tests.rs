@@ -135,7 +135,59 @@ fn a_bare_failed_set_command_settles_the_write_and_rereads_without_a_banner() {
     assert!(s.banner.is_none());
     assert!(s.pending.is_none());
     assert!(!s.indexes.queries.writing());
-    assert_eq!(s.indexes.queries.error, Some(failure()));
+    assert_eq!(s.indexes.queries.profiler_error, Some(failure()));
+}
+
+fn shapes_failure(session: uuid::Uuid, request: u64) -> Event {
+    Event::RequestFailed {
+        session,
+        context: "query_shapes",
+        request,
+        error: CoreError::Database("busy".into()),
+    }
+}
+
+#[test]
+fn shapes_failure_then_profiling_ok_keeps_the_shapes_error() {
+    let (s, id) = opened(flags(false, false));
+    let request = s.indexes.queries.request;
+    let (s, _) = event(s, shapes_failure(id, request));
+    assert!(s.indexes.queries.shapes_error.is_some());
+    // The profiler answers second: it must not wipe the failed history read.
+    let (s, _) = event(s, answer(id, "app", Ok(level(2))));
+    assert!(s.indexes.queries.shapes_error.is_some(), "still failed");
+    assert_eq!(s.indexes.queries.profiler_error, None);
+}
+
+#[test]
+fn profiling_error_then_shapes_ok_keeps_the_profiler_error() {
+    let (s, id) = asked(flags(false, false), true);
+    let (s, _) = queries(s, QueriesAction::ConfirmEnable);
+    // The change failed: the error is kept while the state is read once more.
+    let (s, _) = event(s, answer(id, "app", Err(failure())));
+    assert_eq!(s.indexes.queries.profiler_error, Some(failure()));
+    let request = s.indexes.queries.request;
+    let (s, _) = event(s, shapes_event(id, ChartRange::Day, request, &["a"]));
+    assert_eq!(s.indexes.queries.shapes.len(), 1, "the shapes did arrive");
+    assert_eq!(s.indexes.queries.profiler_error, Some(failure()));
+    // Only a profiler state that arrives clears it.
+    let (s, _) = event(s, answer(id, "app", Ok(level(2))));
+    assert_eq!(s.indexes.queries.profiler_error, None);
+}
+
+#[test]
+fn a_new_shapes_request_clears_only_the_shapes_error() {
+    let (s, id) = opened(flags(false, false));
+    let request = s.indexes.queries.request;
+    let (s, _) = event(s, shapes_failure(id, request));
+    let queries_state = AppState {
+        indexes: s
+            .indexes
+            .clone()
+            .with_queries(s.indexes.queries.clone().requested()),
+        ..s
+    };
+    assert_eq!(queries_state.indexes.queries.shapes_error, None);
 }
 
 #[test]

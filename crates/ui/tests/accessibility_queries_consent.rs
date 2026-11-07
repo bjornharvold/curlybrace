@@ -15,6 +15,7 @@ struct Frame {
     busy: bool,
     read_only: bool,
     production: bool,
+    already_on: bool,
     seen: Vec<QueriesAction>,
     copied: Vec<String>,
 }
@@ -43,9 +44,8 @@ fn open(
                 let action = show_profiler_consent(
                     ui.ctx(),
                     &f.consent,
-                    f.busy,
-                    f.read_only,
-                    f.production,
+                    (f.busy, f.read_only, f.production),
+                    f.already_on,
                     &I18n::english(),
                 );
                 f.seen.extend(action);
@@ -65,6 +65,7 @@ fn open(
                 busy,
                 read_only,
                 production,
+                already_on: false,
                 seen: Vec::new(),
                 copied: Vec::new(),
             },
@@ -112,6 +113,23 @@ fn turning_on_explains_the_overhead_and_shows_the_exact_command() {
     assert!(all.contains(&message), "{all}");
     assert!(message.contains("overhead") && message.contains("capped"));
     assert!(!all.contains(&t("write_warning.production_line")));
+}
+
+#[test]
+fn widening_level_one_to_all_operations_is_not_called_turning_on() {
+    let mut harness = open(on(), false, false, false);
+    harness.state_mut().already_on = true;
+    harness.run_steps(3);
+    let all = texts(&harness);
+    assert!(
+        all.contains(&t("indexes.queries.consent.title_record_all")),
+        "{all}"
+    );
+    assert!(
+        !all.contains(&t("indexes.queries.consent.title_on")),
+        "{all}"
+    );
+    assert!(all.contains(COMMAND_ON), "{all}");
 }
 
 #[test]

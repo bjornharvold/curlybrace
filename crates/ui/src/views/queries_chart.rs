@@ -99,8 +99,12 @@ fn summary_line(total: u64, any_bar: bool, range: ChartRange, i18n: &I18n) -> St
     if !any_bar {
         return i18n.t("indexes.queries.chart_empty");
     }
+    let key = match total {
+        1 => "indexes.queries.chart_summary_one",
+        _ => "indexes.queries.chart_summary_other",
+    };
     i18n.t_with(
-        "indexes.queries.chart_summary",
+        key,
         &[
             ("misses", &total.to_string()),
             ("range", &i18n.t(range_key(range))),

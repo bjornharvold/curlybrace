@@ -25,7 +25,7 @@ use super::{Command, Event, SessionId, Shared};
 
 /// The text of the `Database` error a client-side timeout becomes, shared by every handler that
 /// reports one.
-pub(super) const COMMAND_TIMEOUT_MESSAGE: &str = "timeout";
+pub const COMMAND_TIMEOUT_MESSAGE: &str = "timeout";
 
 /// What a dispatched command runs as. Only a connect carries a read-only flag, and it always
 /// does: the dispatcher attaches it synchronously, so a lock sent while the connect is in flight

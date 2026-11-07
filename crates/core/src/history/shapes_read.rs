@@ -36,6 +36,9 @@ struct SummaryAcc {
     total_millis: u64,
     max_millis: u64,
     worst: VerdictKind,
+    /// Start and verdict of the newest bucket row that executed the shape (the worse of equal
+    /// starts, e.g. two nodes).
+    latest: Option<(i64, VerdictKind)>,
     buckets: BTreeMap<i64, BucketAcc>,
 }
 
@@ -64,6 +67,7 @@ impl SummaryAcc {
             total_millis: 0,
             max_millis: 0,
             worst: VerdictKind::NoFilter,
+            latest: None,
             buckets: BTreeMap::new(),
         }
     }
@@ -74,6 +78,9 @@ impl SummaryAcc {
         self.total_millis = self.total_millis.saturating_add(row.total_millis);
         self.max_millis = self.max_millis.max(row.max_millis);
         self.worst = worst(self.worst, row.verdict);
+        if row.executions > 0 {
+            self.note_latest(row.start_secs, row.verdict);
+        }
         let bucket = self
             .buckets
             .entry(bucket_start(row.start_secs, width))
@@ -82,6 +89,16 @@ impl SummaryAcc {
         bucket.misses = bucket.misses.saturating_add(row.misses);
         let gap = bucket.gap_by_host.entry(row.host.clone()).or_default();
         *gap = gap.saturating_add(row.gap_secs);
+    }
+}
+
+impl SummaryAcc {
+    fn note_latest(&mut self, start_secs: i64, verdict: VerdictKind) {
+        self.latest = match self.latest {
+            Some((start, _)) if start > start_secs => self.latest,
+            Some((start, seen)) if start == start_secs => Some((start, worst(seen, verdict))),
+            _ => Some((start_secs, verdict)),
+        };
     }
 }
 
@@ -97,7 +114,7 @@ impl HistoryDb {
     /// Every shape stored for a collection, summed over `range` (the `range.secs()` before
     /// `now_secs`; rows stamped after `now_secs` are ignored) and bucketed
     /// `range.bucket_width_secs()` wide. Hosts are summed (grouped by hash and source); see the
-    /// module docs for how gaps combine. Ordered by worst verdict, then misses, then slowest
+    /// module docs for how gaps combine. Ordered by latest verdict, then misses, then slowest
     /// execution, all descending.
     pub fn shapes_for(
         &self,
@@ -112,7 +129,11 @@ impl HistoryDb {
         let window = (bucket_start(now_secs - range.secs(), width), now_secs);
         let mut summaries = read_shapes(&conn, connection, (db, collection), window, width)?;
         for (host, start, gap) in read_gaps(&conn, connection, db, window)? {
-            for summary in summaries.values_mut() {
+            // Only shapes seen in the profile can have missed entries; a typed query never was.
+            for summary in summaries
+                .values_mut()
+                .filter(|s| s.source == ShapeSource::App)
+            {
                 let bucket = summary
                     .buckets
                     .entry(bucket_start(start, width))
@@ -126,8 +147,8 @@ impl HistoryDb {
             .map(|((hash, _), acc)| finish(hash, acc, width))
             .collect();
         out.sort_by(|a, b| {
-            (b.worst.severity(), b.misses, b.max_millis, &a.hash).cmp(&(
-                a.worst.severity(),
+            (b.latest.severity(), b.misses, b.max_millis, &a.hash).cmp(&(
+                a.latest.severity(),
                 a.misses,
                 a.max_millis,
                 &b.hash,
@@ -164,6 +185,7 @@ fn finish(hash: String, acc: SummaryAcc, width: i64) -> ShapeSummary {
         total_millis: acc.total_millis,
         max_millis: acc.max_millis,
         worst: acc.worst,
+        latest: acc.latest.map_or(acc.worst, |(_, verdict)| verdict),
         buckets,
     }
 }

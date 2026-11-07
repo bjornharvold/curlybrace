@@ -256,7 +256,7 @@ fn profiling_known(state: AppState, profiling: ProfilingState, wrote: bool) -> A
     let queries = QueriesState {
         profiling: ProfilingView::Known(profiling),
         consent,
-        error: None,
+        profiler_error: None,
         ..queries.clone()
     };
     let indexes = state.indexes.clone().with_queries(queries);
@@ -268,7 +268,7 @@ fn profiling_known(state: AppState, profiling: ProfilingState, wrote: bool) -> A
 fn reread(state: AppState, db: String, error: CoreError) -> Out {
     let session = state.session_id();
     let queries = QueriesState {
-        error: Some(error),
+        profiler_error: Some(error),
         ..state.indexes.queries.clone()
     }
     .read_sent(&db);

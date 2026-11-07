@@ -244,7 +244,7 @@ fn a_successful_set_updates_the_state_and_closes_the_prompt() {
     assert_eq!(s.indexes.queries.profiling, ProfilingView::Known(level(2)));
     assert!(!s.indexes.queries.writing());
     assert_eq!(s.indexes.queries.consent, None);
-    assert_eq!(s.indexes.queries.error, None);
+    assert_eq!(s.indexes.queries.profiler_error, None);
     assert!(s.pending.is_none(), "the write is settled");
 }
 
@@ -333,7 +333,7 @@ fn a_failed_set_is_ambiguous_and_rereads_the_state() {
         }])
     );
     assert!(s.banner.is_none());
-    assert_eq!(s.indexes.queries.error, Some(failure()));
+    assert_eq!(s.indexes.queries.profiler_error, Some(failure()));
     assert!(!s.indexes.queries.writing());
     assert_eq!(s.indexes.queries.profiling, ProfilingView::Loading);
     assert!(s.pending.is_none(), "the write is no longer in flight");
@@ -344,7 +344,7 @@ fn a_failed_set_is_ambiguous_and_rereads_the_state() {
     // The re-read settles what the server really holds.
     let (s, _) = event(s, answer(id, "app", Ok(level(2))));
     assert_eq!(s.indexes.queries.profiling, ProfilingView::Known(level(2)));
-    assert_eq!(s.indexes.queries.error, None);
+    assert_eq!(s.indexes.queries.profiler_error, None);
     assert_eq!(s.indexes.queries.consent, None);
 }
 
@@ -371,12 +371,12 @@ fn a_failed_shapes_read_is_inline_and_settles_only_the_awaited_request() {
     let (s, _) = queries(s, QueriesAction::Refresh);
     let (s, _) = event(s, failed(1));
     assert!(s.indexes.queries.loading);
-    assert_eq!(s.indexes.queries.error, None);
+    assert_eq!(s.indexes.queries.shapes_error, None);
     // The awaited one settles with an inline error and no banner.
     let (s, commands) = event(s, failed(2));
     assert!(commands.is_empty());
     assert!(!s.indexes.queries.loading);
-    assert_eq!(s.indexes.queries.error, Some(failure()));
+    assert_eq!(s.indexes.queries.shapes_error, Some(failure()));
     assert!(s.banner.is_none());
     assert!(s.failure.is_none());
 }

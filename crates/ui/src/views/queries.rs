@@ -31,8 +31,15 @@ pub fn show_queries(
     // The chart ends at a bucket boundary, so it holds still between frames.
     let end = anchored_now(state.range, now_secs);
     show_miss_chart(ui, &state.shapes, state.range, end, i18n);
-    if state.error.is_some() {
+    // Two independent failures, each with its own text; neither hides the other.
+    if state.shapes_error.is_some() {
         ui.colored_label(ui.visuals().error_fg_color, i18n.t("indexes.queries.error"));
+    }
+    if state.profiler_error.is_some() {
+        ui.colored_label(
+            ui.visuals().error_fg_color,
+            i18n.t("indexes.queries.profiler_error"),
+        );
     }
     ui.separator();
     if let Some(note) = level_note(state) {
@@ -46,6 +53,8 @@ pub fn show_queries(
                 .auto_shrink([false; 2])
                 .show(ui, |ui| show_rows(ui, &list, i18n));
         }
+        // The inline error above says why there is nothing; "no queries yet" would be untrue.
+        Body::ReadFailed => {}
         other => {
             ui.label(i18n.t(empty_key(other)));
         }
@@ -55,7 +64,7 @@ pub fn show_queries(
 
 fn empty_key(body: Body) -> &'static str {
     match body {
-        Body::Loading | Body::Rows => "indexes.queries.loading",
+        Body::Loading | Body::Rows | Body::ReadFailed => "indexes.queries.loading",
         Body::ProfilerOff => "indexes.queries.empty_off",
         Body::ProfilerOnEmpty => "indexes.queries.empty_on",
         Body::Unavailable => "indexes.queries.empty_unavailable",

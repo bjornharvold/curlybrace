@@ -28,6 +28,7 @@ fn shape(buckets: Vec<ShapeBucket>) -> ShapeSummary {
         total_millis: 0,
         max_millis: 0,
         worst: VerdictKind::CollectionScan,
+        latest: VerdictKind::CollectionScan,
         buckets,
     }
 }

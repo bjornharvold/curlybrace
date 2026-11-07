@@ -912,7 +912,8 @@
     "queries": {
       "busy": "Waiting for the server...",
       "chart_empty": "No query history for this range yet.",
-      "chart_summary": "{misses} queries missed an index in the last {range}.",
+      "chart_summary_one": "{misses} query missed an index in the last {range}.",
+      "chart_summary_other": "{misses} queries missed an index in the last {range}.",
       "consent": {
         "command": "The app will run this command:",
         "confirm_off": "Turn off",
@@ -921,7 +922,8 @@
         "message_off": "This sets the profiler of database {db} to level 0, so it stops recording operations. Shapes already recorded stay in the history.",
         "message_on": "This sets the profiler of database {db} to level 2, which records every operation on this database. It adds overhead to the server. The profile collection is a small capped collection, so old entries roll off. Only the shape of each query is kept here, never its values.",
         "title_off": "Turn off the profiler?",
-        "title_on": "Turn on the profiler?"
+        "title_on": "Turn on the profiler?",
+        "title_record_all": "Record all operations?"
       },
       "copy_shape": "Copy query shape {position} of {total}",
       "copy_suggestion": "Copy suggested index for query {position} of {total}",
@@ -929,7 +931,7 @@
       "empty_on": "The profiler is on. No queries have been recorded for this collection in this range yet.",
       "empty_unavailable": "Queries from your applications cannot be read right now. Queries you run in this app are still recorded here.",
       "enable": "Enable profiler",
-      "error": "The query history could not be read or the last profiler change could not be confirmed. Refresh to try again.",
+      "error": "The query history could not be read. Refresh to try again.",
       "level_one_note": "Level 1 records only slow operations (slower than {slow_ms} ms); fast queries that miss an index are not captured.",
       "loading": "Loading...",
       "lower_bound_tooltip": "At least {n} missed (part of this period was not observed)",
@@ -947,9 +949,12 @@
       "poller_reading_one": "Reading {databases} database",
       "poller_reading_other": "Reading {databases} databases",
       "profiler_checking": "Profiler: checking...",
+      "profiler_connection_lost": "Profiler: the connection to the server was lost",
+      "profiler_error": "The last profiler change could not be confirmed. Refresh to try again.",
       "profiler_level": "Profiler: on at level {level}",
       "profiler_mongos": "Profiler: not available through mongos",
       "profiler_off": "Profiler: off",
+      "profiler_timed_out": "Profiler: the server did not answer in time",
       "profiler_unauthorized": "Profiler: this user is not allowed to use it",
       "profiler_unavailable": "Profiler: unavailable",
       "read_only_note": "Read-only connection",
@@ -963,7 +968,8 @@
       "title_no_filter": "No filter",
       "turn_off": "Turn off profiler",
       "view_indexes": "Index usage",
-      "view_queries": "Queries"
+      "view_queries": "Queries",
+      "worst_in_range": "Worst in this range: {verdict}"
     },
     "range_day": "24 h",
     "range_month": "30 d",
@@ -1137,7 +1143,7 @@
     "message_insert": "This is your production server, {connection}. Are you sure you want to insert this document?",
     "message_replace": "This is your production server, {connection}. Are you sure you want to edit this document?",
     "message_set_index_ttl": "This is your production server, {connection}. Are you sure you want to change when this index expires documents?",
-    "message_set_profiling_level": "This is your production server, {connection}. Are you sure you want to change the profiler of this database? Level 2 records every operation and adds load to the server.",
+    "message_set_profiling_level": "This is your production server, {connection}. Are you sure you want to change the profiler of this database? A profiler that records operations adds load to the server.",
     "production_line": "Warning: this is a production connection.",
     "title": "Confirm write to production"
   }
