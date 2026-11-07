@@ -6,10 +6,8 @@ use std::collections::BTreeMap;
 use super::memory_store::InMemoryStore;
 use crate::error::{CoreError, Result};
 use crate::profile::ProfileEntry;
-use crate::store::{ProfileRead, ProfilingState};
+use crate::store::{PROFILE_READ_LIMIT, ProfileRead, ProfilingState};
 
-/// At most this many entries per read, like the real store.
-const READ_LIMIT: usize = 1000;
 /// The node every read reports as its source.
 const FAKE_HOST: &str = "localhost:27017";
 /// The server's default `slowms`.
@@ -20,6 +18,8 @@ const DEFAULT_SLOW_MS: i64 = 100;
 pub(super) struct ScriptedProfile {
     level: i32,
     entries: Vec<ProfileEntry>,
+    /// Timestamps (ms) of documents the real store would fail to parse.
+    unparseable: Vec<i64>,
     error: Option<CoreError>,
 }
 
@@ -30,6 +30,15 @@ impl InMemoryStore {
     pub fn with_profile(self, db: &str, entries: Vec<ProfileEntry>) -> Self {
         self.script(db, |p| ScriptedProfile {
             entries: p.entries.into_iter().chain(entries).collect(),
+            ..p
+        })
+    }
+
+    /// Scripts documents with these `ts` (ms) that cannot be parsed: they take part in paging,
+    /// `newest`/`oldest` and `skipped`, but yield no entry.
+    pub fn with_profile_unparseable(self, db: &str, ts_millis: Vec<i64>) -> Self {
+        self.script(db, |p| ScriptedProfile {
+            unparseable: p.unparseable.into_iter().chain(ts_millis).collect(),
             ..p
         })
     }
@@ -82,22 +91,39 @@ pub(super) fn level(map: &ProfileMap, db: &str) -> Result<ProfilingState> {
     }))
 }
 
-pub(super) fn read(map: &ProfileMap, db: &str, since_ts_secs: i64) -> Result<ProfileRead> {
-    let entries = scripted(map, db)?
-        .map(|p| p.entries.as_slice())
-        .unwrap_or(&[]);
-    let mut newer: Vec<ProfileEntry> = entries
+/// Mirrors the real read: `ts > since` (strict), ascending, capped; `skipped`, `newest` and
+/// `oldest` computed from raw timestamps so unparseable documents count.
+pub(super) fn read(map: &ProfileMap, db: &str, since_ts_millis: i64) -> Result<ProfileRead> {
+    let Some(p) = scripted(map, db)? else {
+        return Ok(empty_read());
+    };
+    let mut rows: Vec<(i64, Option<&ProfileEntry>)> = p
+        .entries
         .iter()
-        .filter(|e| e.ts_secs > since_ts_secs)
-        .cloned()
+        .map(|e| (e.ts_millis, Some(e)))
+        .chain(p.unparseable.iter().map(|ts| (*ts, None)))
         .collect();
-    newer.sort_by_key(|e| e.ts_secs);
-    newer.truncate(READ_LIMIT);
+    let oldest = rows.iter().map(|(ts, _)| *ts).min();
+    rows.retain(|(ts, _)| *ts > since_ts_millis);
+    rows.sort_by_key(|(ts, _)| *ts);
+    rows.truncate(PROFILE_READ_LIMIT);
     Ok(ProfileRead {
-        entries: newer,
-        oldest_ts_secs: entries.iter().map(|e| e.ts_secs).min(),
+        newest_ts_millis: rows.last().map(|(ts, _)| *ts),
+        skipped: rows.iter().filter(|(_, e)| e.is_none()).count() as u64,
+        entries: rows.iter().filter_map(|(_, e)| e.cloned()).collect(),
+        oldest_ts_millis: oldest,
         host: FAKE_HOST.into(),
     })
+}
+
+fn empty_read() -> ProfileRead {
+    ProfileRead {
+        entries: Vec::new(),
+        oldest_ts_millis: None,
+        newest_ts_millis: None,
+        skipped: 0,
+        host: FAKE_HOST.into(),
+    }
 }
 
 pub(super) fn set_level(map: &mut ProfileMap, db: &str, level: i32) -> Result<ProfilingState> {
@@ -120,12 +146,13 @@ pub(super) fn set_level(map: &mut ProfileMap, db: &str, level: i32) -> Result<Pr
 mod tests {
     use crate::error::CoreError;
     use crate::profile::ProfileEntry;
-    use crate::store::DocumentStore;
+    use crate::store::{DocumentStore, PROFILE_READ_LIMIT, ProfileRead};
     use crate::test_support::InMemoryStore;
 
-    fn entry(ts_secs: i64) -> ProfileEntry {
+    fn entry(ts_millis: i64) -> ProfileEntry {
         ProfileEntry {
-            ts_secs,
+            ts_millis,
+            ts_secs: ts_millis.div_euclid(1000),
             ns: "db.c".into(),
             op: "query".into(),
             millis: 1,
@@ -139,8 +166,8 @@ mod tests {
         }
     }
 
-    fn ts(read: &crate::store::ProfileRead) -> Vec<i64> {
-        read.entries.iter().map(|e| e.ts_secs).collect()
+    fn ts(read: &ProfileRead) -> Vec<i64> {
+        read.entries.iter().map(|e| e.ts_millis).collect()
     }
 
     #[tokio::test]
@@ -148,12 +175,21 @@ mod tests {
         let store = InMemoryStore::new().with_profile("db", vec![entry(30), entry(10), entry(20)]);
         let read = store.read_profile("db", 10).await.unwrap();
         assert_eq!(ts(&read), vec![20, 30], "strictly greater than since");
-        assert_eq!(
-            read.oldest_ts_secs,
-            Some(10),
-            "oldest over all scripted entries"
-        );
+        assert_eq!(read.oldest_ts_millis, Some(10), "oldest over all entries");
+        assert_eq!(read.newest_ts_millis, Some(30));
+        assert_eq!(read.skipped, 0);
         assert_eq!(read.host, "localhost:27017");
+    }
+
+    #[tokio::test]
+    async fn fake_and_real_filter_agree_on_same_second_entries() {
+        let (first, second) = (7_100, 7_900);
+        let store = InMemoryStore::new().with_profile("db", vec![entry(first), entry(second)]);
+        let read = store.read_profile("db", first).await.unwrap();
+        assert_eq!(ts(&read), vec![second]);
+        let bound = bson::DateTime::from_millis(first);
+        let real = crate::mongo_profile::since_query(first);
+        assert_eq!(real.filter, bson::doc! { "ts": { "$gt": bound } });
     }
 
     #[tokio::test]
@@ -163,7 +199,8 @@ mod tests {
         assert_eq!((state.level, state.slow_ms), (0, 100));
         let read = store.read_profile("db", 0).await.unwrap();
         assert!(read.entries.is_empty());
-        assert_eq!(read.oldest_ts_secs, None);
+        assert_eq!(read.oldest_ts_millis, None);
+        assert_eq!(read.newest_ts_millis, None);
     }
 
     #[tokio::test]
@@ -210,14 +247,41 @@ mod tests {
         let store = InMemoryStore::new().with_profile("db", all);
         let read = store.read_profile("db", 500).await.unwrap();
         assert_eq!(read.entries.len(), 1000);
-        assert_eq!(read.entries[0].ts_secs, 501);
-        assert_eq!(read.entries[999].ts_secs, 1500);
-        assert_eq!(read.oldest_ts_secs, Some(1));
+        assert_eq!(read.entries[0].ts_millis, 501);
+        assert_eq!(read.entries[999].ts_millis, 1500);
+        assert_eq!(read.newest_ts_millis, Some(1500));
+        assert_eq!(read.oldest_ts_millis, Some(1));
         let capped = store.read_profile("db", 0).await.unwrap();
-        assert_eq!(capped.entries.len(), 1000);
+        assert_eq!(capped.entries.len(), PROFILE_READ_LIMIT);
+        assert_eq!(capped.entries[999].ts_millis, 1000, "oldest 1000 first");
+        assert_eq!(capped.newest_ts_millis, Some(1000));
+    }
+
+    #[tokio::test]
+    async fn unparseable_entries_count_and_move_newest_and_oldest() {
+        let store = InMemoryStore::new()
+            .with_profile("db", vec![entry(20), entry(30)])
+            .with_profile_unparseable("db", vec![5, 40]);
+        let read = store.read_profile("db", 10).await.unwrap();
+        assert_eq!(ts(&read), vec![20, 30]);
+        assert_eq!(read.skipped, 1, "only the one inside the page");
+        assert_eq!(read.newest_ts_millis, Some(40));
         assert_eq!(
-            capped.entries[999].ts_secs, 1000,
-            "the oldest 1000 come first"
+            read.oldest_ts_millis,
+            Some(5),
+            "an unparseable oldest counts"
         );
+    }
+
+    #[tokio::test]
+    async fn full_page_is_detectable() {
+        let parseable: Vec<ProfileEntry> = (1..=600).map(entry).collect();
+        let broken: Vec<i64> = (601..=1200).collect();
+        let store = InMemoryStore::new()
+            .with_profile("db", parseable)
+            .with_profile_unparseable("db", broken);
+        let read = store.read_profile("db", 0).await.unwrap();
+        assert_eq!(read.entries.len() as u64 + read.skipped, 1000);
+        assert_eq!(read.newest_ts_millis, Some(1000));
     }
 }

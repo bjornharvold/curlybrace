@@ -36,6 +36,7 @@ fn minimal() -> Document {
 fn parses_a_collscan_fixture() {
     let e = entry("collscan");
     assert_eq!(e.ts_secs, 1_762_500_000);
+    assert_eq!(e.ts_millis.div_euclid(1000), e.ts_secs);
     assert_eq!(e.ns, "shop.orders");
     assert_eq!(e.op, "query");
     assert_eq!(e.plan_summary, "COLLSCAN");
@@ -92,7 +93,7 @@ fn negative_and_nonsense_numbers_read_as_zero() {
 #[test]
 fn optional_fields_default() {
     let e = parse_entry(&minimal()).unwrap();
-    assert_eq!(e.ts_secs, 5);
+    assert_eq!((e.ts_secs, e.ts_millis), (5, 5_999));
     assert_eq!(e.op, "");
     assert_eq!(e.plan_summary, "");
     assert!(!e.has_sort_stage);

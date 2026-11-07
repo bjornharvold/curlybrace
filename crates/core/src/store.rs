@@ -156,13 +156,27 @@ pub struct ProfilingState {
 pub struct ProfileRead {
     /// Entries newer than the requested time, oldest first.
     pub entries: Vec<ProfileEntry>,
-    /// The oldest `ts` currently in `system.profile` (to detect that a capped collection rolled
-    /// entries off before they were read); `None` when the collection is empty or missing.
-    pub oldest_ts_secs: Option<i64>,
+    /// The oldest `ts` (ms) currently in `system.profile` (to detect that a capped collection
+    /// rolled entries off before they were read), even when that document cannot be parsed;
+    /// `None` when the collection is empty or missing.
+    pub oldest_ts_millis: Option<i64>,
+    /// The newest raw `ts` (ms) of the whole returned page, unparseable entries included, so a
+    /// caller can advance its watermark past a page it could not use. `None` for an empty page.
+    pub newest_ts_millis: Option<i64>,
+    /// How many documents of the page could not be parsed. `entries.len() + skipped` equal to
+    /// [`PROFILE_READ_LIMIT`] means a full page: more may be waiting.
+    pub skipped: u64,
     /// The server node the profile was read from (`hello`'s `me`). A secondary's profiler holds
-    /// only that node's own operations.
+    /// only that node's own operations. Empty when the server does not name itself (a standalone
+    /// mongod or a mongos): an unknown node, which callers key as host `""`.
     pub host: String,
 }
+
+/// The most entries one `read_profile` returns.
+pub const PROFILE_READ_LIMIT: usize = 1000;
+
+/// The refusal for the profiler through a mongos. The UI maps this exact text.
+pub const PROFILER_MONGOS_MESSAGE: &str = "profiler not available through mongos";
 
 /// One write against one collection. Matched by `_id`.
 #[derive(Clone, Debug, PartialEq)]
@@ -402,10 +416,15 @@ pub trait DocumentStore: Send + Sync {
         ))
     }
 
-    /// The `system.profile` entries of `db` with `ts` strictly after `since_ts_secs`, oldest
-    /// first, at most 1000 per call. Entries that cannot be parsed are skipped. A missing
-    /// collection (profiler never on) is an empty read, not an error.
-    async fn read_profile(&self, _db: &str, _since_ts_secs: i64) -> Result<ProfileRead> {
+    /// The `system.profile` entries of `db` with `ts` strictly after `since_ts_millis`, oldest
+    /// first, at most [`PROFILE_READ_LIMIT`] per call. Entries that cannot be parsed are
+    /// skipped and counted. A missing collection (profiler never on) is an empty read, not an
+    /// error.
+    ///
+    /// The bound is strict: an entry that shares the exact millisecond of the watermark with an
+    /// entry already read, but was not yet written when that read happened, can be missed. That
+    /// is negligible and accepted.
+    async fn read_profile(&self, _db: &str, _since_ts_millis: i64) -> Result<ProfileRead> {
         Err(CoreError::Unsupported(
             "this store cannot read the profiler".into(),
         ))

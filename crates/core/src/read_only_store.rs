@@ -183,8 +183,8 @@ impl DocumentStore for ReadOnlyStore {
         self.inner.profiling_level(db).await
     }
 
-    async fn read_profile(&self, db: &str, since_ts_secs: i64) -> Result<ProfileRead> {
-        self.inner.read_profile(db, since_ts_secs).await
+    async fn read_profile(&self, db: &str, since_ts_millis: i64) -> Result<ProfileRead> {
+        self.inner.read_profile(db, since_ts_millis).await
     }
 
     async fn set_profiling_level(&self, db: &str, level: i32) -> Result<ProfilingState> {

@@ -28,7 +28,7 @@ fn level_out_of_range_is_rejected() {
 
 #[test]
 fn since_filter_uses_ts_gt_and_sorts_by_ts() {
-    let q = since_query(1_700_000_000);
+    let q = since_query(1_700_000_000_000);
     let expected = DateTime::from_millis(1_700_000_000_000);
     assert_eq!(q.filter, doc! { "ts": { "$gt": expected } });
     assert_eq!(q.sort, doc! { "ts": 1 });
@@ -37,9 +37,23 @@ fn since_filter_uses_ts_gt_and_sorts_by_ts() {
 }
 
 #[test]
+fn filter_uses_millisecond_precision() {
+    let q = since_query(1_700_000_000_123);
+    let expected = DateTime::from_millis(1_700_000_000_123);
+    assert_eq!(q.filter, doc! { "ts": { "$gt": expected } });
+}
+
+#[test]
 fn mongos_decision_is_unsupported() {
     let refused = mongos_decision(Some(Topology::Sharded));
-    assert!(matches!(refused, Err(CoreError::Unsupported(m)) if m.contains("mongos")));
+    assert_eq!(
+        refused,
+        Err(CoreError::Unsupported(PROFILER_MONGOS_MESSAGE.into()))
+    );
+    assert_eq!(
+        PROFILER_MONGOS_MESSAGE,
+        "profiler not available through mongos"
+    );
     assert_eq!(mongos_decision(Some(Topology::ReplicaSet)), Ok(()));
     assert_eq!(mongos_decision(Some(Topology::Direct)), Ok(()));
     assert_eq!(mongos_decision(None), Ok(()));
@@ -76,6 +90,20 @@ fn hello_host_comes_from_me() {
     assert_eq!(hello_host(&doc! { "me": Bson::Int32(1) }), "");
 }
 
+#[test]
+fn set_reply_gives_new_level_and_slowms() {
+    // `was` is the PREVIOUS level; the new one is what was asked for.
+    let reply = doc! { "was": 0, "slowms": 250_i64, "ratelimit": 1, "ok": 1.0 };
+    assert_eq!(
+        parse_set_reply(&reply, 2),
+        ProfilingState {
+            level: 2,
+            slow_ms: 250
+        }
+    );
+    assert_eq!(parse_set_reply(&doc! { "was": 1 }, 1).slow_ms, 0);
+}
+
 fn raw(ts_millis: i64) -> bson::Document {
     doc! { "ts": DateTime::from_millis(ts_millis), "ns": "db.c", "op": "query" }
 }
@@ -83,15 +111,52 @@ fn raw(ts_millis: i64) -> bson::Document {
 #[test]
 fn entries_skip_unparseable_and_count_them() {
     let docs = vec![raw(1000), doc! { "ns": "db.c" }, raw(2000), doc! {}];
-    let (entries, skipped) = parse_entries(&docs);
-    assert_eq!(skipped, 2);
-    let secs: Vec<i64> = entries.iter().map(|e| e.ts_secs).collect();
-    assert_eq!(secs, vec![1, 2]);
+    let page = summarize_page(&docs);
+    assert_eq!(page.skipped, 2);
+    let millis: Vec<i64> = page.entries.iter().map(|e| e.ts_millis).collect();
+    assert_eq!(millis, vec![1000, 2000]);
 }
 
 #[test]
-fn oldest_ts_is_read_from_the_first_document() {
-    assert_eq!(oldest_ts_secs(&[raw(5000)]), Some(5));
-    assert_eq!(oldest_ts_secs(&[]), None);
-    assert_eq!(oldest_ts_secs(&[doc! { "x": 1 }]), None);
+fn a_ts_that_is_not_a_datetime_is_skipped_and_counted() {
+    let page = summarize_page(&[doc! { "ts": "x", "ns": "db.c" }]);
+    assert!(page.entries.is_empty());
+    assert_eq!(page.skipped, 1);
+    assert_eq!(page.newest_ts_millis, None, "no usable ts to advance to");
+}
+
+#[test]
+fn newest_ts_covers_unparseable_entries() {
+    // The newest document has no `ns`, so it cannot be parsed, yet the watermark must pass it.
+    let broken = doc! { "ts": DateTime::from_millis(9_500) };
+    let page = summarize_page(&[raw(1_000), raw(2_000), broken]);
+    assert_eq!(page.entries.len(), 2);
+    assert_eq!(page.skipped, 1);
+    assert_eq!(page.newest_ts_millis, Some(9_500));
+    assert_eq!(summarize_page(&[]).newest_ts_millis, None);
+}
+
+#[test]
+fn oldest_ts_survives_an_unparseable_oldest_document() {
+    let broken = doc! { "ts": DateTime::from_millis(5_250), "ns": 1 };
+    assert_eq!(oldest_ts_millis(&[broken]), Some(5_250));
+    assert_eq!(oldest_ts_millis(&[raw(5_000)]), Some(5_000));
+    assert_eq!(oldest_ts_millis(&[]), None);
+    assert_eq!(oldest_ts_millis(&[doc! { "x": 1 }]), None);
+}
+
+#[test]
+fn full_page_is_detectable() {
+    let docs: Vec<_> = (0..PROFILE_READ_LIMIT)
+        .map(|i| {
+            if i % 2 == 0 {
+                raw(i)
+            } else {
+                doc! { "ts": DateTime::from_millis(i) }
+            }
+        })
+        .collect();
+    let page = summarize_page(&docs);
+    let total = page.entries.len() as u64 + page.skipped;
+    assert_eq!(total, PROFILE_READ_LIMIT as u64);
 }

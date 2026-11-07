@@ -327,9 +327,9 @@ impl DocumentStore for InMemoryStore {
         prof::level(&*self.profiles.lock().map_err(|_| poisoned())?, db)
     }
 
-    async fn read_profile(&self, db: &str, since_ts_secs: i64) -> Result<ProfileRead> {
+    async fn read_profile(&self, db: &str, since_ts_millis: i64) -> Result<ProfileRead> {
         let profiles = self.profiles.lock().map_err(|_| poisoned())?;
-        prof::read(&profiles, db, since_ts_secs)
+        prof::read(&profiles, db, since_ts_millis)
     }
 
     async fn set_profiling_level(&self, db: &str, level: i32) -> Result<ProfilingState> {

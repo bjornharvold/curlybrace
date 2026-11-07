@@ -10,6 +10,9 @@ pub const OWN_APP_NAME: &str = "curlybrace";
 
 #[derive(Clone, PartialEq)]
 pub struct ProfileEntry {
+    /// The entry's `ts` in milliseconds since the epoch.
+    pub ts_millis: i64,
+    /// `ts_millis` in whole seconds (for bucketing).
     pub ts_secs: i64,
     pub ns: String,
     pub op: String,
@@ -37,6 +40,7 @@ impl ProfileEntry {
 impl fmt::Debug for ProfileEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProfileEntry")
+            .field("ts_millis", &self.ts_millis)
             .field("ts_secs", &self.ts_secs)
             .field("ns", &self.ns)
             .field("op", &self.op)
@@ -61,8 +65,8 @@ const MILLIS_PER_SEC: i64 = 1000;
 /// Reads one `system.profile` document. Numbers may be any width; every field but `ts` and `ns`
 /// is optional and defaults to empty/zero. Errors with `CoreError::Database` without them.
 pub fn parse_entry(doc: &Document) -> Result<ProfileEntry> {
-    let ts_secs = match doc.get("ts") {
-        Some(Bson::DateTime(ts)) => ts.timestamp_millis().div_euclid(MILLIS_PER_SEC),
+    let ts_millis = match doc.get("ts") {
+        Some(Bson::DateTime(ts)) => ts.timestamp_millis(),
         _ => return Err(CoreError::Database("profile entry has no ts".into())),
     };
     let ns = doc
@@ -71,7 +75,8 @@ pub fn parse_entry(doc: &Document) -> Result<ProfileEntry> {
         .to_owned();
     let text = |key: &str| doc.get_str(key).unwrap_or_default().to_owned();
     Ok(ProfileEntry {
-        ts_secs,
+        ts_millis,
+        ts_secs: ts_millis.div_euclid(MILLIS_PER_SEC),
         ns,
         op: text("op"),
         millis: count(Some(doc), "millis"),

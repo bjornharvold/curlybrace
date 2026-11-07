@@ -205,11 +205,13 @@ impl DocumentStore for RecordingStore {
             slow_ms: 111,
         })
     }
-    async fn read_profile(&self, _db: &str, _since_ts_secs: i64) -> Result<ProfileRead> {
+    async fn read_profile(&self, _db: &str, _since_ts_millis: i64) -> Result<ProfileRead> {
         self.hit("read_profile");
         Ok(ProfileRead {
             entries: Vec::new(),
-            oldest_ts_secs: Some(42),
+            oldest_ts_millis: Some(42),
+            newest_ts_millis: Some(43),
+            skipped: 3,
             host: "via_read_profile:27017".into(),
         })
     }
@@ -486,7 +488,8 @@ async fn read_only_store_forwards_the_profile_reads() {
         }
     );
     let read = store.read_profile("db", 0).await.unwrap();
-    assert_eq!(read.oldest_ts_secs, Some(42));
+    assert_eq!(read.oldest_ts_millis, Some(42));
+    assert_eq!((read.newest_ts_millis, read.skipped), (Some(43), 3));
     assert_eq!(read.host, "via_read_profile:27017");
     assert_eq!(inner.count("profiling_level"), 1);
     assert_eq!(inner.count("read_profile"), 1);
@@ -509,4 +512,15 @@ async fn read_only_store_refuses_set_profiling_level_with_read_only_error() {
     let state = store.set_profiling_level("db", 2).await.unwrap();
     assert_eq!(state.level, 2);
     assert_eq!(inner.count("set_profiling_level"), 1);
+}
+
+#[tokio::test]
+async fn locked_store_refuses_an_invalid_level_with_read_only_first() {
+    // The guard runs before anything looks at the level.
+    let (inner, _flag, store) = wrapped(true);
+    assert_eq!(
+        store.set_profiling_level("db", 7).await,
+        Err(CoreError::ReadOnly)
+    );
+    assert_eq!(inner.count("set_profiling_level"), 0);
 }

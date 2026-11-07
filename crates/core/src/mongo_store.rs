@@ -348,9 +348,9 @@ impl DocumentStore for MongoStore {
         crate::mongo_profile::profiling_level(&self.client.database(db)).await
     }
 
-    async fn read_profile(&self, db: &str, since_ts_secs: i64) -> Result<ProfileRead> {
+    async fn read_profile(&self, db: &str, since_ts_millis: i64) -> Result<ProfileRead> {
         crate::mongo_profile::mongos_decision(self.topology().await?)?;
-        crate::mongo_profile::read_profile(&self.client.database(db), since_ts_secs).await
+        crate::mongo_profile::read_profile(&self.client.database(db), since_ts_millis).await
     }
 
     async fn set_profiling_level(&self, db: &str, level: i32) -> Result<ProfilingState> {
