@@ -1,7 +1,7 @@
 {
   "explainVersion": "1",
   "queryPlanner": {
-    "namespace": "cbit_586445038d22.orders",
+    "namespace": "test.orders",
     "parsedQuery": {
       "c": {
         "$eq": {
@@ -17,7 +17,7 @@
       "$numberInt": "0"
     },
     "optimizationTimeMicros": {
-      "$numberInt": "149"
+      "$numberInt": "270"
     },
     "maxIndexedOrSolutionsReached": false,
     "maxIndexedAndSolutionsReached": false,
@@ -41,7 +41,7 @@
         },
         "inputStage": {
           "stage": "IXSCAN",
-          "nss": "cbit_586445038d22.orders",
+          "nss": "test.orders",
           "keyPattern": {
             "c": {
               "$numberInt": "1"
@@ -75,10 +75,10 @@
       "$numberInt": "1"
     },
     "executionTimeMillis": {
-      "$numberInt": "4"
+      "$numberInt": "0"
     },
     "executionTimeMicros": {
-      "$numberInt": "4271"
+      "$numberInt": "955"
     },
     "totalKeysExamined": {
       "$numberInt": "1"
@@ -93,7 +93,7 @@
         "$numberInt": "1"
       },
       "executionTimeMillisEstimate": {
-        "$numberInt": "4"
+        "$numberInt": "0"
       },
       "works": {
         "$numberInt": "2"
@@ -125,7 +125,7 @@
           "$numberInt": "1"
         },
         "executionTimeMillisEstimate": {
-          "$numberInt": "4"
+          "$numberInt": "0"
         },
         "works": {
           "$numberInt": "2"
@@ -162,7 +162,7 @@
             "$numberInt": "1"
           },
           "executionTimeMillisEstimate": {
-            "$numberInt": "4"
+            "$numberInt": "0"
           },
           "works": {
             "$numberInt": "2"
@@ -185,7 +185,7 @@
           "isEOF": {
             "$numberInt": "1"
           },
-          "nss": "cbit_586445038d22.orders",
+          "nss": "test.orders",
           "keyPattern": {
             "c": {
               "$numberInt": "1"
@@ -227,7 +227,7 @@
       }
     }
   },
-  "queryShapeHash": "876D9260B117BCDE74C7EBC301AACA71315CA408401B67DF91CDE6377747FDF8",
+  "queryShapeHash": "77711DED7EEDF142EFABF65A7C9F59700CD47892EFDC69C3EBAE8A8D5120EFD9",
   "command": {
     "find": "orders",
     "filter": {
@@ -246,15 +246,15 @@
     "limit": {
       "$numberLong": "51"
     },
-    "$db": "cbit_586445038d22"
+    "$db": "test"
   },
   "serverInfo": {
-    "host": "crash-8.local",
+    "host": "localhost",
     "port": {
-      "$numberInt": "27018"
+      "$numberInt": "27017"
     },
     "version": "9.0.4",
-    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+    "gitVersion": "0000000000000000000000000000000000000000"
   },
   "serverParameters": {
     "internalQueryFacetMaxOutputDocSizeBytes": {

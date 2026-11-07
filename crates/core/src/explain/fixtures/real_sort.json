@@ -1,7 +1,7 @@
 {
   "explainVersion": "1",
   "queryPlanner": {
-    "namespace": "cbit_a44a84b0e0f7.orders",
+    "namespace": "test.orders",
     "parsedQuery": {
       "a": {
         "$eq": {
@@ -17,7 +17,7 @@
       "$numberInt": "0"
     },
     "optimizationTimeMicros": {
-      "$numberInt": "136"
+      "$numberInt": "161"
     },
     "maxIndexedOrSolutionsReached": false,
     "maxIndexedAndSolutionsReached": false,
@@ -40,10 +40,10 @@
       "type": "simple",
       "inputStage": {
         "stage": "FETCH",
-        "nss": "cbit_a44a84b0e0f7.orders",
+        "nss": "test.orders",
         "inputStage": {
           "stage": "IXSCAN",
-          "nss": "cbit_a44a84b0e0f7.orders",
+          "nss": "test.orders",
           "keyPattern": {
             "a": {
               "$numberInt": "1"
@@ -80,7 +80,7 @@
       "$numberInt": "0"
     },
     "executionTimeMicros": {
-      "$numberInt": "635"
+      "$numberInt": "850"
     },
     "totalKeysExamined": {
       "$numberInt": "30"
@@ -178,7 +178,7 @@
         "isEOF": {
           "$numberInt": "1"
         },
-        "nss": "cbit_a44a84b0e0f7.orders",
+        "nss": "test.orders",
         "docsExamined": {
           "$numberInt": "30"
         },
@@ -214,7 +214,7 @@
           "isEOF": {
             "$numberInt": "1"
           },
-          "nss": "cbit_a44a84b0e0f7.orders",
+          "nss": "test.orders",
           "keyPattern": {
             "a": {
               "$numberInt": "1"
@@ -256,7 +256,7 @@
       }
     }
   },
-  "queryShapeHash": "8A54B42ABFDC0A891BE6DB83CBCCC70BFC31C4EA6D09ED4C1BF00DCFA3DB3605",
+  "queryShapeHash": "279F7CBAFE89C26B8D42531B848DB11A89F93DFD4AEFF6874DD7338807E03674",
   "peakTrackedMemBytes": {
     "$numberLong": "2580"
   },
@@ -275,15 +275,15 @@
     "limit": {
       "$numberLong": "51"
     },
-    "$db": "cbit_a44a84b0e0f7"
+    "$db": "test"
   },
   "serverInfo": {
-    "host": "crash-8.local",
+    "host": "localhost",
     "port": {
-      "$numberInt": "27018"
+      "$numberInt": "27017"
     },
     "version": "9.0.4",
-    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+    "gitVersion": "0000000000000000000000000000000000000000"
   },
   "serverParameters": {
     "internalQueryFacetMaxOutputDocSizeBytes": {

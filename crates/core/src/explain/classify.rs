@@ -67,6 +67,8 @@ impl Plan<'_> {
     }
 
     fn kind(&self) -> VerdictKind {
+        // Clustered-collection edge: 0 docs examined can also mean the `_id` bounds matched
+        // nothing in a non-empty clustered collection; that reads as empty here too.
         // The server plans EOF for a collection that does not exist, but a COLLSCAN that read
         // nothing for one that exists and is empty; both are empty, whatever the filter.
         if self.has("EOF") || self.scanned_nothing {

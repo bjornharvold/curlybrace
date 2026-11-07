@@ -1,7 +1,7 @@
 {
   "explainVersion": "1",
   "queryPlanner": {
-    "namespace": "cbit_dc7ce4a2893f.orders",
+    "namespace": "test.orders",
     "parsedQuery": {
       "c": {
         "$eq": {
@@ -17,7 +17,7 @@
       "$numberInt": "0"
     },
     "optimizationTimeMicros": {
-      "$numberInt": "129"
+      "$numberInt": "79"
     },
     "maxIndexedOrSolutionsReached": false,
     "maxIndexedAndSolutionsReached": false,
@@ -38,7 +38,7 @@
             }
           }
         },
-        "nss": "cbit_dc7ce4a2893f.orders",
+        "nss": "test.orders",
         "direction": "forward"
       }
     },
@@ -53,7 +53,7 @@
       "$numberInt": "0"
     },
     "executionTimeMicros": {
-      "$numberInt": "350"
+      "$numberInt": "200"
     },
     "totalKeysExamined": {
       "$numberInt": "0"
@@ -130,7 +130,7 @@
         "isEOF": {
           "$numberInt": "1"
         },
-        "nss": "cbit_dc7ce4a2893f.orders",
+        "nss": "test.orders",
         "direction": "forward",
         "docsExamined": {
           "$numberInt": "300"
@@ -141,7 +141,7 @@
       }
     }
   },
-  "queryShapeHash": "4415FA73B1B8BA70EBF87D773C7ADAF54A4DECFC9F0F991D60C63E3355E7A8B5",
+  "queryShapeHash": "47BDF133D6F3953E429CA6F0F0948A06377B39FBE7C88CF762A02975047AA449",
   "command": {
     "find": "orders",
     "filter": {
@@ -152,15 +152,15 @@
     "limit": {
       "$numberLong": "51"
     },
-    "$db": "cbit_dc7ce4a2893f"
+    "$db": "test"
   },
   "serverInfo": {
-    "host": "crash-8.local",
+    "host": "localhost",
     "port": {
-      "$numberInt": "27018"
+      "$numberInt": "27017"
     },
     "version": "9.0.4",
-    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+    "gitVersion": "0000000000000000000000000000000000000000"
   },
   "serverParameters": {
     "internalQueryFacetMaxOutputDocSizeBytes": {

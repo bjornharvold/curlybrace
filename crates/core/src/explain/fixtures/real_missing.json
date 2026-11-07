@@ -1,7 +1,7 @@
 {
   "explainVersion": "1",
   "queryPlanner": {
-    "namespace": "cbit_0fb87e7eeb68.never_created",
+    "namespace": "test.never_created",
     "parsedQuery": {
       "c": {
         "$eq": {
@@ -14,7 +14,7 @@
       "$numberInt": "0"
     },
     "optimizationTimeMicros": {
-      "$numberInt": "57"
+      "$numberInt": "47"
     },
     "maxIndexedOrSolutionsReached": false,
     "maxIndexedAndSolutionsReached": false,
@@ -36,7 +36,7 @@
       "$numberInt": "0"
     },
     "executionTimeMicros": {
-      "$numberInt": "86"
+      "$numberInt": "76"
     },
     "totalKeysExamined": {
       "$numberInt": "0"
@@ -77,7 +77,7 @@
       "type": "nonExistentNamespace"
     }
   },
-  "queryShapeHash": "98A535C485131A7249537FB5B96D72646C1DBA0F86CB361A3B99AA6C26B55C5F",
+  "queryShapeHash": "0E56BBAC76A4853F634DC7342C97DA35061392B4FFD2D84E6E082F65F57C9F53",
   "command": {
     "find": "never_created",
     "filter": {
@@ -88,15 +88,15 @@
     "limit": {
       "$numberLong": "51"
     },
-    "$db": "cbit_0fb87e7eeb68"
+    "$db": "test"
   },
   "serverInfo": {
-    "host": "crash-8.local",
+    "host": "localhost",
     "port": {
-      "$numberInt": "27018"
+      "$numberInt": "27017"
     },
     "version": "9.0.4",
-    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+    "gitVersion": "0000000000000000000000000000000000000000"
   },
   "serverParameters": {
     "internalQueryFacetMaxOutputDocSizeBytes": {

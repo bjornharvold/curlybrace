@@ -218,3 +218,37 @@ fn real_documents_classify_like_the_hand_written_ones() {
         VerdictKind::IndexUsed
     );
 }
+
+/// `real_empty` with its statistics removed, as a plan-only explain looks.
+fn plan_only_empty() -> Document {
+    let mut d = fixture("real_empty");
+    d.remove("executionStats");
+    d
+}
+
+#[test]
+fn a_plan_only_collscan_is_not_taken_for_an_empty_collection() {
+    let v = classify(&plan_only_empty(), &filtered()).unwrap();
+    assert!(v.plan_only);
+    assert_eq!(v.kind, VerdictKind::CollectionScan);
+    let v = classify(&plan_only_empty(), &Query::default()).unwrap();
+    assert_eq!(v.kind, VerdictKind::NoFilter);
+}
+
+#[test]
+fn an_empty_collection_with_a_sort_is_still_empty() {
+    // The plan is SORT over COLLSCAN; the scan read nothing.
+    let mut d = fixture("real_empty");
+    let winning = d
+        .get_document_mut("queryPlanner")
+        .and_then(|p| p.get_document_mut("winningPlan"))
+        .unwrap();
+    let scan = std::mem::take(winning);
+    *winning = doc! { "stage": "SORT", "sortPattern": { "c": -1 }, "inputStage": scan };
+    let q = Query {
+        sort: Some(doc! { "c": -1 }),
+        ..filtered()
+    };
+    let v = classify(&d, &q).unwrap();
+    assert_eq!(v.kind, VerdictKind::EmptyCollection);
+}

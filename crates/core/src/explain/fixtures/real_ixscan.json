@@ -1,7 +1,7 @@
 {
   "explainVersion": "1",
   "queryPlanner": {
-    "namespace": "cbit_1ca7e91e6145.orders",
+    "namespace": "test.orders",
     "parsedQuery": {
       "c": {
         "$eq": {
@@ -17,7 +17,7 @@
       "$numberInt": "0"
     },
     "optimizationTimeMicros": {
-      "$numberInt": "112"
+      "$numberInt": "98"
     },
     "maxIndexedOrSolutionsReached": false,
     "maxIndexedAndSolutionsReached": false,
@@ -31,10 +31,10 @@
       },
       "inputStage": {
         "stage": "FETCH",
-        "nss": "cbit_1ca7e91e6145.orders",
+        "nss": "test.orders",
         "inputStage": {
           "stage": "IXSCAN",
-          "nss": "cbit_1ca7e91e6145.orders",
+          "nss": "test.orders",
           "keyPattern": {
             "c": {
               "$numberInt": "1"
@@ -71,7 +71,7 @@
       "$numberInt": "0"
     },
     "executionTimeMicros": {
-      "$numberInt": "542"
+      "$numberInt": "530"
     },
     "totalKeysExamined": {
       "$numberInt": "1"
@@ -141,7 +141,7 @@
         "isEOF": {
           "$numberInt": "1"
         },
-        "nss": "cbit_1ca7e91e6145.orders",
+        "nss": "test.orders",
         "docsExamined": {
           "$numberInt": "1"
         },
@@ -177,7 +177,7 @@
           "isEOF": {
             "$numberInt": "1"
           },
-          "nss": "cbit_1ca7e91e6145.orders",
+          "nss": "test.orders",
           "keyPattern": {
             "c": {
               "$numberInt": "1"
@@ -219,7 +219,7 @@
       }
     }
   },
-  "queryShapeHash": "2C1CD8C6DB12309F429C286164FA5852548B696C4D99246BC0DB3EFF51A6C552",
+  "queryShapeHash": "CAE9C2B2F2C3A791E9B208F4ACAE8C6741EC75971753AA4782B9B97A74881F72",
   "command": {
     "find": "orders",
     "filter": {
@@ -230,15 +230,15 @@
     "limit": {
       "$numberLong": "51"
     },
-    "$db": "cbit_1ca7e91e6145"
+    "$db": "test"
   },
   "serverInfo": {
-    "host": "crash-8.local",
+    "host": "localhost",
     "port": {
-      "$numberInt": "27018"
+      "$numberInt": "27017"
     },
     "version": "9.0.4",
-    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+    "gitVersion": "0000000000000000000000000000000000000000"
   },
   "serverParameters": {
     "internalQueryFacetMaxOutputDocSizeBytes": {

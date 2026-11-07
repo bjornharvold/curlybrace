@@ -1,7 +1,7 @@
 {
   "explainVersion": "1",
   "queryPlanner": {
-    "namespace": "cbit_bbbd3695257b.orders",
+    "namespace": "test.orders",
     "parsedQuery": {
       "$and": [
         {
@@ -28,7 +28,7 @@
       "$numberInt": "0"
     },
     "optimizationTimeMicros": {
-      "$numberInt": "71"
+      "$numberInt": "96"
     },
     "optimizedPipeline": true,
     "maxIndexedOrSolutionsReached": false,
@@ -61,7 +61,7 @@
             }
           ]
         },
-        "nss": "cbit_bbbd3695257b.orders",
+        "nss": "test.orders",
         "direction": "forward"
       }
     },
@@ -76,7 +76,7 @@
       "$numberInt": "0"
     },
     "executionTimeMicros": {
-      "$numberInt": "313"
+      "$numberInt": "413"
     },
     "totalKeysExamined": {
       "$numberInt": "0"
@@ -164,7 +164,7 @@
         "isEOF": {
           "$numberInt": "1"
         },
-        "nss": "cbit_bbbd3695257b.orders",
+        "nss": "test.orders",
         "direction": "forward",
         "docsExamined": {
           "$numberInt": "300"
@@ -175,7 +175,7 @@
       }
     }
   },
-  "queryShapeHash": "568B496A3534457EA1B2EB92B9DCD15CBD02B609496F99EED447E2819C7AC986",
+  "queryShapeHash": "1296A644092DEFF36F6FC499B98C80834CFD435DF3BCA76DD6C7012AD9F29F74",
   "command": {
     "aggregate": "orders",
     "pipeline": [
@@ -208,12 +208,12 @@
     "querySettings": {}
   },
   "serverInfo": {
-    "host": "crash-8.local",
+    "host": "localhost",
     "port": {
-      "$numberInt": "27018"
+      "$numberInt": "27017"
     },
     "version": "9.0.4",
-    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+    "gitVersion": "0000000000000000000000000000000000000000"
   },
   "serverParameters": {
     "internalQueryFacetMaxOutputDocSizeBytes": {

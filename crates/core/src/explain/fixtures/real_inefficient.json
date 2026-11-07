@@ -1,7 +1,7 @@
 {
   "explainVersion": "1",
   "queryPlanner": {
-    "namespace": "cbit_7e633d728d71.orders",
+    "namespace": "test.orders",
     "parsedQuery": {
       "$and": [
         {
@@ -35,7 +35,7 @@
       "$numberInt": "0"
     },
     "optimizationTimeMicros": {
-      "$numberInt": "126"
+      "$numberInt": "133"
     },
     "maxIndexedOrSolutionsReached": false,
     "maxIndexedAndSolutionsReached": false,
@@ -49,10 +49,10 @@
       },
       "inputStage": {
         "stage": "FETCH",
-        "nss": "cbit_7e633d728d71.orders",
+        "nss": "test.orders",
         "inputStage": {
           "stage": "IXSCAN",
-          "nss": "cbit_7e633d728d71.orders",
+          "nss": "test.orders",
           "keyPattern": {
             "b": {
               "$numberInt": "1"
@@ -93,10 +93,10 @@
       "$numberInt": "6"
     },
     "executionTimeMillis": {
-      "$numberInt": "3"
+      "$numberInt": "4"
     },
     "executionTimeMicros": {
-      "$numberInt": "3666"
+      "$numberInt": "4147"
     },
     "totalKeysExamined": {
       "$numberInt": "5999"
@@ -166,7 +166,7 @@
         "isEOF": {
           "$numberInt": "1"
         },
-        "nss": "cbit_7e633d728d71.orders",
+        "nss": "test.orders",
         "docsExamined": {
           "$numberInt": "6"
         },
@@ -202,7 +202,7 @@
           "isEOF": {
             "$numberInt": "1"
           },
-          "nss": "cbit_7e633d728d71.orders",
+          "nss": "test.orders",
           "keyPattern": {
             "b": {
               "$numberInt": "1"
@@ -251,7 +251,7 @@
       }
     }
   },
-  "queryShapeHash": "131ADBCF0BE69D77C1471047FBDA0D7564448CE0E2C67EA4FEF99DE57EAB5B3E",
+  "queryShapeHash": "762786A64D997210E45C1E7AC4529196A3DB2DDF840470E3559410FD51C5967D",
   "command": {
     "find": "orders",
     "filter": {
@@ -270,15 +270,15 @@
     "limit": {
       "$numberLong": "51"
     },
-    "$db": "cbit_7e633d728d71"
+    "$db": "test"
   },
   "serverInfo": {
-    "host": "crash-8.local",
+    "host": "localhost",
     "port": {
-      "$numberInt": "27018"
+      "$numberInt": "27017"
     },
     "version": "9.0.4",
-    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+    "gitVersion": "0000000000000000000000000000000000000000"
   },
   "serverParameters": {
     "internalQueryFacetMaxOutputDocSizeBytes": {
