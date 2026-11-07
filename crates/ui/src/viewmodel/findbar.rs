@@ -27,6 +27,8 @@ pub enum FindAction {
     Prev,
     Next,
     Clear,
+    /// The "check index use automatically" box was toggled; the value is the new setting.
+    SetAutomaticVerdict(bool),
 }
 
 /// A raw user gesture on the find bar, before validation.

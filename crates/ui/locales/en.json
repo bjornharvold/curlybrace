@@ -953,6 +953,8 @@
     "corrupt": "The saved connections file is not valid.",
     "corrupt_backed_up": "The saved connections file was not readable. A backup copy was kept next to it; saving a connection will replace the original file.",
     "corrupt_backup_failed": "The saved connections file was not readable and a backup copy could not be made. Saving is turned off so nothing is overwritten.",
+    "explain_backed_up": "The index check setting file was not readable, so the index check is on again. A backup copy was kept next to it; changing the setting will replace the original file.",
+    "explain_backup_failed": "The index check setting file was not readable and a backup copy could not be made. The index check is on, and changes to the setting are not saved so nothing is overwritten.",
     "invalid_path": "The connections file location is not valid.",
     "read_failed": "Could not read the saved connections file.",
     "repaired_backed_up": "{n} saved connection(s) were adjusted to the current rules (spacing or invisible and control characters fixed in a name or folder, a long label shortened, a blank name replaced, or a damaged production or read-only flag read as production or read-only). No connection was dropped; a backup copy of the original file was kept.",
@@ -973,6 +975,7 @@
   },
   "query": {
     "verdict": {
+      "automatic": "Check index use automatically",
       "checking": "Checking how this query runs...",
       "copy": "Copy index command",
       "plan_only": "Estimated from the query plan only; the server returned no execution counts.",

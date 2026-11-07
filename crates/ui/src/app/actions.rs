@@ -150,11 +150,16 @@ fn refresh(state: AppState) -> Out {
 }
 
 pub(super) fn find(state: AppState, action: FindAction) -> Out {
+    // A global setting, not a query: it needs no connection.
+    if let FindAction::SetAutomaticVerdict(automatic) = action {
+        return super::explain_settings::set_automatic(state, automatic);
+    }
     gated(state, |s| match action {
         FindAction::Run(query) => {
             let enabled = s.explain_enabled();
             super::explain_actions::run(s, query, enabled)
         }
+        FindAction::SetAutomaticVerdict(_) => (s, Vec::new()),
         FindAction::Clear => {
             let s = AppState {
                 find: FindBarState::default(),

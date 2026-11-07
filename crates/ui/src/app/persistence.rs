@@ -73,6 +73,10 @@ pub enum Recovery {
     Sampling {
         backed_up: bool,
     },
+    /// The explain setting file was not usable; the default (on) applies.
+    Explain {
+        backed_up: bool,
+    },
     /// The tool paths file was not usable; the defaults apply.
     Tools {
         backed_up: bool,
@@ -106,6 +110,8 @@ impl Recovery {
             } => "persist.repaired_backup_failed",
             Self::Sampling { backed_up: true } => "persist.sampling_backed_up",
             Self::Sampling { backed_up: false } => "persist.sampling_backup_failed",
+            Self::Explain { backed_up: true } => "persist.explain_backed_up",
+            Self::Explain { backed_up: false } => "persist.explain_backup_failed",
             Self::Tools { backed_up: true } => "persist.tools_backed_up",
             Self::Tools { backed_up: false } => "persist.tools_backup_failed",
         }

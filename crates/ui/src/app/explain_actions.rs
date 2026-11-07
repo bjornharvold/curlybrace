@@ -44,11 +44,6 @@ pub(super) fn same_run(a: &Query, b: &Query) -> bool {
     a.filter == b.filter && a.sort == b.sort && a.projection == b.projection && a.limit == b.limit
 }
 
-/// Whether the Run action should also ask for a verdict. A constant until the setting exists.
-pub(super) fn enabled() -> bool {
-    true
-}
-
 /// Stores the outcome of an explain when it belongs to the run still shown; any other (another
 /// collection, a superseded run) is dropped and the state returned unchanged.
 pub(super) fn arrived(

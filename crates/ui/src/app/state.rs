@@ -1,6 +1,7 @@
 //! Application state. Immutable by convention: the reducer consumes a state and returns the next.
 use super::connection_io::ImportError;
 use super::dialog_banner::DialogBannerWatch;
+use super::explain_settings::ExplainSettings;
 use super::persistence::{PersistError, PersistGuard, Recovery};
 use super::sampling_settings::SamplingSettings;
 use super::session::SessionView;
@@ -223,6 +224,8 @@ pub struct AppState {
     /// The databases the usage sampler skips. Global: it belongs to no session, so it is not
     /// parked with one.
     pub sampling: SamplingSettings,
+    /// Whether a Run also asks for the index verdict. Global too.
+    pub explain: ExplainSettings,
     /// The tool paths (global and per connection) and their version checks. Global too.
     pub tools: ToolsState,
     pub editor: Option<EditorState>,
@@ -300,9 +303,9 @@ impl AppState {
         self.page.is_some() && crate::viewmodel::is_projected(self.page_query.projection.as_ref())
     }
 
-    /// Whether a Run also asks the server to explain the query. Always on until the setting lands.
+    /// Whether a Run also asks the server to explain the query (the global setting).
     pub fn explain_enabled(&self) -> bool {
-        super::explain_actions::enabled()
+        self.explain.automatic
     }
 
     /// `(has_prev, has_next)` for the find bar.

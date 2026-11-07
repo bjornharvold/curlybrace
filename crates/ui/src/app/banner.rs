@@ -52,6 +52,7 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
         Recovery::Corrupt { .. }
         | Recovery::Unreadable { .. }
         | Recovery::Sampling { .. }
+        | Recovery::Explain { .. }
         | Recovery::Tools { .. } => i18n.t(key),
     }
 }
@@ -140,6 +141,8 @@ mod tests {
             }),
             Banner::Recovery(Recovery::Sampling { backed_up: true }),
             Banner::Recovery(Recovery::Sampling { backed_up: false }),
+            Banner::Recovery(Recovery::Explain { backed_up: true }),
+            Banner::Recovery(Recovery::Explain { backed_up: false }),
             Banner::Recovery(Recovery::Tools { backed_up: true }),
             Banner::Recovery(Recovery::Tools { backed_up: false }),
             Banner::NotConnected,

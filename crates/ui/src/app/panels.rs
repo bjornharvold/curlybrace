@@ -16,7 +16,7 @@ use crate::views::documents::{
     DocTarget, show_connection_header, show_documents_keyed, show_mode_switcher,
 };
 use crate::views::editor::show_editor_with;
-use crate::views::findbar::show_findbar;
+use crate::views::findbar::{show_automatic_verdict, show_findbar};
 use crate::views::index_builder::{BuilderContext, show_index_builder};
 use crate::views::index_dialogs::{
     DialogContext, show_drop_confirm, show_drop_old, show_ttl_prompt,
@@ -205,6 +205,9 @@ fn show_collection(
     }
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
+        out.push(UiEvent::Input(Input::Find(action)));
+    }
+    if let Some(action) = show_automatic_verdict(ui, state.explain_enabled(), i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
     }
     show_verdict(ui, state, i18n);

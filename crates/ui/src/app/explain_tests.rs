@@ -11,7 +11,7 @@ use curlybrace_core::runtime::EMBEDDED_SESSION;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{Namespace, Page, Query};
 
-fn ns() -> Namespace {
+pub(super) fn ns() -> Namespace {
     Namespace::new("app", "people")
 }
 
@@ -19,7 +19,7 @@ fn other_ns() -> Namespace {
     Namespace::new("app", "pets")
 }
 
-fn browsing() -> AppState {
+pub(super) fn browsing() -> AppState {
     let mut s = AppState::new(vec![]);
     s.open = vec![EMBEDDED_SESSION];
     s.active = Some(EMBEDDED_SESSION);
@@ -33,7 +33,7 @@ fn browsing() -> AppState {
     s
 }
 
-fn query_a() -> Query {
+pub(super) fn query_a() -> Query {
     Query {
         filter: doc! { "age": 1 },
         ..Query::default()
@@ -47,7 +47,7 @@ fn query_b() -> Query {
     }
 }
 
-fn verdict() -> Verdict {
+pub(super) fn verdict() -> Verdict {
     Verdict {
         kind: VerdictKind::CollectionScan,
         index_name: None,
@@ -60,11 +60,11 @@ fn verdict() -> Verdict {
     }
 }
 
-fn act(state: AppState, action: FindAction) -> (AppState, Vec<Command>) {
+pub(super) fn act(state: AppState, action: FindAction) -> (AppState, Vec<Command>) {
     update(state, Input::Find(action))
 }
 
-fn explained(
+pub(super) fn explained(
     state: AppState,
     ns: Namespace,
     query: Query,
