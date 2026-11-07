@@ -28,8 +28,8 @@ use curlybrace_core::store::{DocumentStore, Namespace, Query};
 use mongodb::{Client, Collection};
 use support::local_enabled;
 use support::profiler::{
-    APP, Env, capture, collect, entry_of, filter_is, raw_of, raw_profile, serial, start_mark,
-    verb_of, workload,
+    APP, Env, capture, capturing, collect, entry_of, filter_is, raw_of, raw_profile, serial,
+    start_mark, verb_of, workload,
 };
 
 #[tokio::test]
@@ -63,7 +63,6 @@ async fn real_profiling_level_roundtrip() {
 /// Runs one of each operation against `orders` (300 documents, indexes on `c` and `a`).
 async fn run_every_op(env: &Env) {
     let orders = env.coll("orders");
-    orders.find(doc! { "b": 5 }).await.unwrap();
     let _ =
         futures::TryStreamExt::try_collect::<Vec<_>>(orders.find(doc! { "b": 5 }).await.unwrap())
             .await
@@ -576,11 +575,16 @@ async fn real_system_profile_reads_and_explain_are_own_traffic() {
             .unwrap(),
     )
     .await;
-    if let Some(d) = docs.iter().find(|d| {
+    let found = docs.iter().find(|d| {
         d.get_document("command")
             .is_ok_and(|c| c.contains_key("find"))
-    }) {
-        capture("system_profile_read", d);
+    });
+    match found {
+        Some(d) => capture("system_profile_read", d),
+        None => assert!(
+            !capturing(),
+            "capture mode: the system.profile read entry was not found, fixture not refreshed"
+        ),
     }
 }
 
@@ -669,4 +673,53 @@ async fn real_set_profiling_level_is_refused_on_a_read_only_store_and_level_unch
 #[ignore = "not feasible without enabling auth server-wide; see the comment"]
 async fn real_unauthorised_is_a_clear_error() {
     eprintln!("SKIPPED real_unauthorised_is_a_clear_error: needs a server started with --auth");
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn real_multi_document_writes_through_an_index_are_not_inefficient() {
+    if !local_enabled("real_multi_document_writes_through_an_index_are_not_inefficient") {
+        return;
+    }
+    let _serial = serial().await;
+    let env = Env::new().await;
+    // 6000 documents, `a` takes 10 values: 600 documents per value, all reached by the index.
+    env.seed("bulk", 6000).await;
+    env.index("bulk", doc! { "a": 1 }).await;
+    let start = start_mark().await;
+    env.level(2).await;
+    let bulk = env.coll("bulk");
+    bulk.update_many(doc! { "a": 3 }, doc! { "$set": { "touched": true } })
+        .await
+        .unwrap();
+    bulk.delete_many(doc! { "a": 4 }).await.unwrap();
+    env.level(0).await;
+
+    let read = env.read(start).await;
+    assert_eq!(read.skipped, 0);
+    let ns = format!("{}.bulk", env.db());
+    let update = read
+        .entries
+        .iter()
+        .find(|e| e.ns == ns && e.op == "update")
+        .expect("update");
+    let delete = read
+        .entries
+        .iter()
+        .find(|e| e.ns == ns && e.op == "remove")
+        .expect("remove");
+    for (name, e) in [("update", update), ("delete", delete)] {
+        assert!(e.plan_summary.contains("IXSCAN"), "{name}: {e:?}");
+        assert!(e.keys_examined >= 600, "{name}: {e:?}");
+        assert_eq!(e.returned, 600, "{name}: matched/deleted count as returned");
+        assert_eq!(verdict(e), VerdictKind::IndexUsed, "{name}: {e:?}");
+    }
+    let raw = raw_profile(&env.app, env.db(), start).await;
+    for (name, op) in [("update_many", "update"), ("delete_many", "remove")] {
+        let d = raw
+            .iter()
+            .find(|d| d.get_str("ns") == Ok(ns.as_str()) && d.get_str("op") == Ok(op))
+            .expect(op);
+        capture(name, d);
+    }
 }

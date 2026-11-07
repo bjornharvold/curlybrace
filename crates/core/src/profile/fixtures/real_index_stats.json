@@ -13,7 +13,7 @@
     "$db": "test"
   },
   "opid": {
-    "$numberInt": "1894406"
+    "$numberInt": "183302"
   },
   "keysExamined": {
     "$numberInt": "0"
@@ -28,7 +28,7 @@
   "nreturned": {
     "$numberInt": "2"
   },
-  "queryShapeHash": "C9D5F6D0E51D81AE6AA397E7F939DBE346913B541A1910BE8DC67964786C03B1",
+  "queryShapeHash": "D5213E272CC188EED0AD107EC1FEAB83364D5CE0D71605072E0F1DD3A2FA0CFA",
   "queryFramework": "classic",
   "planRanker": "none",
   "responseLength": {
@@ -39,11 +39,11 @@
     "$numberInt": "0"
   },
   "micros": {
-    "$numberInt": "347"
+    "$numberInt": "132"
   },
   "ts": {
     "$date": {
-      "$numberLong": "1794068650088"
+      "$numberLong": "1794070743679"
     }
   },
   "client": "127.0.0.1",

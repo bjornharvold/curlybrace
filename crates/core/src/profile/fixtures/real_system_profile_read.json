@@ -8,7 +8,7 @@
     "$db": "test"
   },
   "opid": {
-    "$numberInt": "1894404"
+    "$numberInt": "183300"
   },
   "keysExamined": {
     "$numberInt": "0"
@@ -39,15 +39,15 @@
     "$numberInt": "0"
   },
   "micros": {
-    "$numberInt": "125"
+    "$numberInt": "166"
   },
   "planSummary": "COLLSCAN",
   "planningTimeMicros": {
-    "$numberInt": "81"
+    "$numberInt": "102"
   },
   "ts": {
     "$date": {
-      "$numberLong": "1794068650086"
+      "$numberLong": "1794070743677"
     }
   },
   "client": "127.0.0.1",

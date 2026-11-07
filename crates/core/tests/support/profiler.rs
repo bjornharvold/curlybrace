@@ -197,9 +197,14 @@ pub fn scrub(value: Bson) -> Bson {
     }
 }
 
+/// True when `CURLYBRACE_CAPTURE=1`: fixtures are being refreshed.
+pub fn capturing() -> bool {
+    std::env::var(CAPTURE_ENV).as_deref() == Ok("1")
+}
+
 /// Writes the scrubbed profile document to the fixtures directory when capturing is switched on.
 pub fn capture(name: &str, entry: &Document) {
-    if std::env::var(CAPTURE_ENV).as_deref() != Ok("1") {
+    if !capturing() {
         return;
     }
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -15,7 +15,7 @@
     "$db": "test"
   },
   "opid": {
-    "$numberInt": "1894405"
+    "$numberInt": "183301"
   },
   "numYield": {
     "$numberInt": "0"
@@ -23,7 +23,7 @@
   "planCacheShapeHash": "630D4E40",
   "queryHash": "630D4E40",
   "planCacheKey": "A19AF62F",
-  "queryShapeHash": "07978A3FF4DA485AD88D851F70A1FD927400E8CE2A7E4BAD15C786539172F204",
+  "queryShapeHash": "3EF3249090E3FD6DC6554333BE1D1C81C9626B3B7419708230BE0958DD40AEE3",
   "planRanker": "none",
   "responseLength": {
     "$numberInt": "2284"
@@ -33,14 +33,14 @@
     "$numberInt": "0"
   },
   "micros": {
-    "$numberInt": "547"
+    "$numberInt": "697"
   },
   "planningTimeMicros": {
-    "$numberInt": "67"
+    "$numberInt": "90"
   },
   "ts": {
     "$date": {
-      "$numberLong": "1794068650087"
+      "$numberLong": "1794070743679"
     }
   },
   "client": "127.0.0.1",

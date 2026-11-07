@@ -2,7 +2,7 @@
 //! `CURLYBRACE_CAPTURE=1`: the profile code must read, judge and shape them as it does the
 //! hand-written fixtures. Refresh them with that mode; never edit them by hand.
 
-use bson::Document;
+use bson::{Bson, Document};
 
 use super::{ProfileEntry, classify_entry, entry_has_filter, is_own_traffic, parse_entry};
 use crate::ejson::editor_json_to_doc;
@@ -29,12 +29,14 @@ fn raw(name: &str) -> Document {
         "own_traffic_prefixed" => include_str!("fixtures/real_own_traffic_prefixed.json"),
         "system_profile_read" => include_str!("fixtures/real_system_profile_read.json"),
         "update" => include_str!("fixtures/real_update.json"),
+        "update_many" => include_str!("fixtures/real_update_many.json"),
+        "delete_many" => include_str!("fixtures/real_delete_many.json"),
         other => panic!("unknown real fixture {other}"),
     };
     editor_json_to_doc(text).expect("real fixture parses")
 }
 
-const ALL: [&str; 18] = [
+const ALL: [&str; 20] = [
     "aggregate",
     "app_find",
     "count",
@@ -53,6 +55,8 @@ const ALL: [&str; 18] = [
     "own_traffic_prefixed",
     "system_profile_read",
     "update",
+    "update_many",
+    "delete_many",
 ];
 
 fn entry(name: &str) -> ProfileEntry {
@@ -75,6 +79,7 @@ fn every_real_fixture_parses_and_is_scrubbed() {
         let text = format!("{:?}", raw(name));
         assert!(!text.contains("cbit_"), "{name} names a throwaway database");
         assert_eq!(raw(name).get_str("client"), Ok("127.0.0.1"), "{name}");
+        assert_scrubbed(name, &Bson::Document(raw(name)));
     }
 }
 
@@ -216,4 +221,83 @@ fn an_aggregate_that_scans_the_collection_is_still_a_collection_scan() {
         classify_entry(&e, entry_has_filter(&e)),
         VerdictKind::CollectionScan
     );
+}
+
+/// A real write entry with its counters replaced: `keys` examined through the index and
+/// `done` documents matched (update) or deleted (remove).
+fn write_entry(name: &str, keys: i32, done: i32) -> ProfileEntry {
+    let mut d = raw(name);
+    d.insert("keysExamined", keys);
+    d.insert("docsExamined", keys);
+    d.remove("nreturned");
+    d.insert("planSummary", "IXSCAN { a: 1 }");
+    for key in ["nMatched", "ndeleted"] {
+        if d.contains_key(key) {
+            d.insert(key, done);
+        }
+    }
+    parse_entry(&d).unwrap()
+}
+
+#[test]
+fn a_write_counts_its_matched_or_deleted_documents_as_returned() {
+    assert_eq!(write_entry("update", 6000, 6000).returned, 6000);
+    assert_eq!(write_entry("delete", 6000, 6000).returned, 6000);
+    assert_eq!(
+        entry("find_ixscan").returned,
+        1,
+        "nreturned still wins for reads"
+    );
+}
+
+#[test]
+fn a_multi_document_write_through_an_index_is_not_inefficient() {
+    for name in ["update", "delete"] {
+        let e = write_entry(name, 6000, 6000);
+        assert_eq!(classify_entry(&e, true), VerdictKind::IndexUsed, "{name}");
+    }
+    // The same keys for a handful of matches is wasteful.
+    let e = write_entry("update", 6000, 3);
+    assert_eq!(classify_entry(&e, true), VerdictKind::InefficientIndex);
+    let mut find = entry("find_ixscan");
+    (find.keys_examined, find.docs_examined, find.returned) = (6000, 6000, 3);
+    assert_eq!(classify_entry(&find, true), VerdictKind::InefficientIndex);
+}
+
+/// No session, host or user field and no throwaway database name at any depth.
+fn assert_scrubbed(name: &str, value: &Bson) {
+    match value {
+        Bson::Document(d) => {
+            for (key, v) in d {
+                assert!(
+                    !["lsid", "$clusterTime", "txnNumber"].contains(&key.as_str()),
+                    "{name}: {key} was not scrubbed"
+                );
+                match (key.as_str(), v) {
+                    ("me" | "host", _) => panic!("{name}: {key} was not scrubbed"),
+                    ("user", Bson::String(u)) => assert!(u.is_empty(), "{name}: user {u}"),
+                    _ => assert_scrubbed(name, v),
+                }
+            }
+        }
+        Bson::Array(items) => items.iter().for_each(|v| assert_scrubbed(name, v)),
+        Bson::String(s) => assert!(!s.contains("cbit_"), "{name}: {s}"),
+        _ => {}
+    }
+}
+
+#[test]
+fn real_multi_document_writes_are_index_used_with_matched_and_deleted_as_returned() {
+    for name in ["update_many", "delete_many"] {
+        let e = entry(name);
+        assert!(e.plan_summary.contains("IXSCAN"), "{name}: {e:?}");
+        assert!(e.keys_examined >= 600 && e.returned == 600, "{name}: {e:?}");
+        assert!(
+            raw(name).get("nreturned").is_none(),
+            "{name} has no nreturned"
+        );
+        assert_eq!(verdict(name), VerdictKind::IndexUsed, "{name}");
+    }
+    assert_eq!(entry("update_many").op, "update");
+    assert_eq!(entry("delete_many").op, "remove");
 }

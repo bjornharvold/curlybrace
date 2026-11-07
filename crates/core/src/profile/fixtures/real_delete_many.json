@@ -1,0 +1,56 @@
+{
+  "op": "remove",
+  "ns": "test.bulk",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "q": {
+      "a": {
+        "$numberInt": "4"
+      }
+    },
+    "limit": {
+      "$numberInt": "0"
+    }
+  },
+  "opid": {
+    "$numberInt": "63493"
+  },
+  "keysExamined": {
+    "$numberInt": "600"
+  },
+  "docsExamined": {
+    "$numberInt": "600"
+  },
+  "ndeleted": {
+    "$numberInt": "600"
+  },
+  "keysDeleted": {
+    "$numberInt": "1200"
+  },
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "planCacheShapeHash": "83CCBB74",
+  "queryHash": "83CCBB74",
+  "planCacheKey": "B79368F1",
+  "queryShapeHash": "2E8C1DE11A1FCA78A1649D43765E72040C92BDE74260283B423068E21957306D",
+  "planRanker": "none",
+  "millis": {
+    "$numberInt": "2"
+  },
+  "micros": {
+    "$numberInt": "2431"
+  },
+  "planSummary": "IXSCAN { a: 1 }",
+  "planningTimeMicros": {
+    "$numberInt": "41"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794070742980"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

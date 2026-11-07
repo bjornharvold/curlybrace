@@ -8,10 +8,10 @@
     "$db": "test"
   },
   "opid": {
-    "$numberInt": "227338"
+    "$numberInt": "78858"
   },
   "cursorid": {
-    "$numberLong": "3703296772442879085"
+    "$numberLong": "5410012029593941091"
   },
   "keysExamined": {
     "$numberInt": "0"
@@ -31,7 +31,7 @@
   "planCacheShapeHash": "0F20F9A9",
   "queryHash": "0F20F9A9",
   "planCacheKey": "8CEEBFD3",
-  "queryShapeHash": "972AE1C7194E9012F30E9AD196E0704419DCFB11734CC7443C7D10302D4FA7F2",
+  "queryShapeHash": "2554B0C78559E74DBD00B623CA8C74A2D44BFCE20D4044A2E8E34B4FA437E06F",
   "queryFramework": "classic",
   "planRanker": "none",
   "responseLength": {
@@ -42,15 +42,15 @@
     "$numberInt": "0"
   },
   "micros": {
-    "$numberInt": "90"
+    "$numberInt": "72"
   },
   "planSummary": "COLLSCAN",
   "planningTimeMicros": {
-    "$numberInt": "33"
+    "$numberInt": "24"
   },
   "ts": {
     "$date": {
-      "$numberLong": "1794068641971"
+      "$numberLong": "1794070743241"
     }
   },
   "client": "127.0.0.1",

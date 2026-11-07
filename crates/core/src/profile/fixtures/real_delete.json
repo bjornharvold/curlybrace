@@ -13,7 +13,7 @@
     }
   },
   "opid": {
-    "$numberInt": "1599501"
+    "$numberInt": "97292"
   },
   "keysExamined": {
     "$numberInt": "0"
@@ -33,21 +33,21 @@
   "planCacheShapeHash": "FBF6A5FF",
   "queryHash": "FBF6A5FF",
   "planCacheKey": "40EAC3FF",
-  "queryShapeHash": "939526EDEC9DA58DB1DE04E7FA298FC12BBE1D2965EE5599F0FFDFA499B25783",
+  "queryShapeHash": "559F6506444DAFBF1604659F4B97BDE76FA4EBE26A37B810D0425A2DC08EEB7B",
   "planRanker": "none",
   "millis": {
     "$numberInt": "0"
   },
   "micros": {
-    "$numberInt": "68"
+    "$numberInt": "107"
   },
   "planSummary": "COLLSCAN",
   "planningTimeMicros": {
-    "$numberInt": "29"
+    "$numberInt": "42"
   },
   "ts": {
     "$date": {
-      "$numberLong": "1794068649820"
+      "$numberLong": "1794070743387"
     }
   },
   "client": "127.0.0.1",
