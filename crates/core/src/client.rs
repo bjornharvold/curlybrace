@@ -1,6 +1,7 @@
 use crate::connection::{AuthMechanism, ConnectionConfig};
 use crate::driver_error::classify_connect_error;
 use crate::error::{CoreError, Result};
+use crate::profile::{OWN_APP_NAME, name_is_ours};
 use crate::uri_problem::UriProblem;
 use bson::doc;
 use mongodb::Client;
@@ -12,6 +13,8 @@ use std::time::Duration;
 
 pub const SERVER_SELECTION_TIMEOUT: Duration = Duration::from_secs(8);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+/// The longest `appName` the driver and the server handshake accept.
+pub const MAX_APP_NAME_BYTES: usize = 128;
 
 /// Query-string parameters that carry secrets and must never live in the stored URI.
 const SECRET_QUERY_PARAMS: [&str; 3] = [
@@ -48,7 +51,32 @@ pub async fn build_client_options(
         }];
         options.direct_connection = Some(true);
     }
-    Ok(options)
+    Ok(with_own_app_name(options))
+}
+
+/// Stamps the connection with the marker the profiler uses to skip our own traffic: no `appName`
+/// becomes `curlybrace`, the user's becomes `"<theirs> curlybrace"`. The whole value stays within
+/// [`MAX_APP_NAME_BYTES`]; it is the user's part that gets truncated, never the marker.
+pub fn with_own_app_name(mut options: ClientOptions) -> ClientOptions {
+    options.app_name = Some(marked_app_name(options.app_name.as_deref()));
+    options
+}
+
+fn marked_app_name(user: Option<&str>) -> String {
+    let user = user.unwrap_or("");
+    if user.is_empty() || name_is_ours(user) {
+        return if user.is_empty() { OWN_APP_NAME } else { user }.to_owned();
+    }
+    let room = MAX_APP_NAME_BYTES - OWN_APP_NAME.len() - 1;
+    format!("{} {OWN_APP_NAME}", truncate_on_char_boundary(user, room))
+}
+
+fn truncate_on_char_boundary(text: &str, max_bytes: usize) -> &str {
+    let end = (0..=max_bytes.min(text.len()))
+        .rev()
+        .find(|&i| text.is_char_boundary(i))
+        .unwrap_or(0);
+    &text[..end]
 }
 
 pub async fn connect(

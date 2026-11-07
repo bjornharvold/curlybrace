@@ -1,4 +1,6 @@
 pub mod client;
+#[cfg(test)]
+mod client_app_name_tests;
 pub mod clock;
 pub mod compare;
 pub mod connection;

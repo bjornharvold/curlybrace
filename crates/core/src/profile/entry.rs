@@ -102,10 +102,14 @@ pub fn is_own_traffic(entry: &ProfileEntry) -> bool {
 }
 
 fn app_name_is_ours(app_name: Option<&str>) -> bool {
-    app_name.is_some_and(|name| {
-        name.strip_suffix(OWN_APP_NAME)
-            .is_some_and(|rest| rest.is_empty() || rest.ends_with(' '))
-    })
+    app_name.is_some_and(name_is_ours)
+}
+
+/// True when `name` is [`OWN_APP_NAME`] or ends with it after a space. The one definition of
+/// "ours", shared with the connection code that stamps the marker.
+pub(crate) fn name_is_ours(name: &str) -> bool {
+    name.strip_suffix(OWN_APP_NAME)
+        .is_some_and(|rest| rest.is_empty() || rest.ends_with(' '))
 }
 
 fn first_key_is(command: &Document, verb: &str) -> bool {

@@ -12,5 +12,6 @@ mod filter;
 mod filter_tests;
 
 pub use classify::classify_entry;
+pub(crate) use entry::name_is_ours;
 pub use entry::{OWN_APP_NAME, ProfileEntry, is_own_traffic, parse_entry};
 pub use filter::entry_has_filter;
