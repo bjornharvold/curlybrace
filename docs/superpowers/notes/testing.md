@@ -228,7 +228,7 @@ PNG after adding any new symbol.
 
 - `check` (required): the policy guard, `cargo fmt --check`, clippy, `cargo test --workspace`.
 - `ui-snapshots` (non-blocking, `continue-on-error`, 30 minute timeout): the screenshot tests on
-  `macos-14`; on failure the `*.new.png` and `*.diff.png` files are uploaded as an artifact. Whether
+  `macos-15`; on failure the `*.new.png` and `*.diff.png` files are uploaded as an artifact. Whether
   the runners expose a usable Metal device is not guaranteed, which is why it is not required.
 
 Nothing on GitHub starts a database. Tier 1 and tier 2 are run by hand with the scripts above.
