@@ -160,3 +160,37 @@ fn full_page_is_detectable() {
     let total = page.entries.len() as u64 + page.skipped;
     assert_eq!(total, PROFILE_READ_LIMIT as u64);
 }
+
+#[test]
+fn every_profiler_call_goes_to_the_primary() {
+    assert!(matches!(
+        profiler_criteria(),
+        SelectionCriteria::ReadPreference(ReadPreference::Primary)
+    ));
+    assert!(matches!(
+        primary(),
+        Some(SelectionCriteria::ReadPreference(ReadPreference::Primary))
+    ));
+}
+
+#[tokio::test]
+async fn the_profiler_ignores_a_secondary_read_preference() {
+    // Building a client does not connect, so this stays offline.
+    let db = mongodb::Client::with_uri_str("mongodb://127.0.0.1:1/?readPreference=secondary")
+        .await
+        .expect("uri parses")
+        .database("db");
+    assert!(
+        matches!(
+            db.selection_criteria(),
+            Some(SelectionCriteria::ReadPreference(
+                ReadPreference::Secondary { .. }
+            ))
+        ),
+        "the connection prefers secondaries"
+    );
+    assert!(matches!(
+        profiler_criteria(),
+        SelectionCriteria::ReadPreference(ReadPreference::Primary)
+    ));
+}

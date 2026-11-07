@@ -2,18 +2,19 @@
 //! [`crate::mongo_store::MongoStore`]. Commands, filters and reply parsing are pure functions so
 //! tests can check them; the runners are a few driver calls each.
 //!
-//! Reads follow the connection's read preference, like the explains and finds they describe. A
-//! secondary's profiler records only the operations that node served itself, so reading from one
-//! shows that node's traffic: expected, and why [`ProfileRead::host`] names the node. The level
-//! change always goes to the primary.
+//! The profiler is read from the node where its level is set: the primary. The level is per node
+//! and not replicated, so a read that followed a `secondaryPreferred` read preference would ask a
+//! secondary whose profiler is off while the level just set on the primary shows 2, and the
+//! feature would look dead. Every call here (the level, `hello`, both `system.profile` finds)
+//! therefore goes to the primary whatever the read preference; on a direct connection the driver
+//! selects the single server. Reading a secondary's profile is not supported. The explains of
+//! release A keep following the read preference. [`ProfileRead::host`] names the node read.
 
 use bson::{Bson, DateTime, Document, doc};
 use futures::TryStreamExt;
 use mongodb::Database;
 use mongodb::action::Action;
 use mongodb::options::{ReadPreference, SelectionCriteria};
-
-use crate::mongo_explain::explain_criteria as read_criteria;
 
 use crate::driver_error::classify_driver_error;
 use crate::error::{CoreError, Result};
@@ -160,13 +161,18 @@ async fn run(
         .map_err(db_err)
 }
 
-fn primary() -> Option<SelectionCriteria> {
-    Some(SelectionCriteria::ReadPreference(ReadPreference::Primary))
+/// Where every profiler call goes: the primary (see the module doc).
+pub(crate) fn profiler_criteria() -> SelectionCriteria {
+    SelectionCriteria::ReadPreference(ReadPreference::Primary)
 }
 
-/// The setting as the node the connection reads from reports it.
+fn primary() -> Option<SelectionCriteria> {
+    Some(profiler_criteria())
+}
+
+/// The setting as the primary, where it is set, reports it.
 pub(crate) async fn profiling_level(db: &Database) -> Result<ProfilingState> {
-    let reply = run(db, profile_level_command(), read_criteria(db)).await?;
+    let reply = run(db, profile_level_command(), primary()).await?;
     parse_profiling_state(&reply)
 }
 
@@ -183,6 +189,7 @@ async fn find_profile(db: &Database, query: ProfileQuery) -> Result<Vec<Document
         .find(query.filter)
         .sort(query.sort)
         .limit(query.limit)
+        .selection_criteria(profiler_criteria())
         .await
         .map_err(db_err)?;
     cursor.try_collect().await.map_err(db_err)
@@ -191,7 +198,7 @@ async fn find_profile(db: &Database, query: ProfileQuery) -> Result<Vec<Document
 /// Reads the entries strictly newer than `since_ts_millis`. A missing collection finds nothing.
 /// Only the count of unparseable entries is logged: an entry holds the query's literal values.
 pub(crate) async fn read_profile(db: &Database, since_ts_millis: i64) -> Result<ProfileRead> {
-    let host = hello_host(&run(db, doc! { "hello": 1 }, read_criteria(db)).await?);
+    let host = hello_host(&run(db, doc! { "hello": 1 }, primary()).await?);
     let docs = find_profile(db, since_query(since_ts_millis)).await?;
     let oldest = find_profile(db, oldest_query()).await?;
     let page = summarize_page(&docs);
