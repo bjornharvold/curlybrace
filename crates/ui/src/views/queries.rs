@@ -7,7 +7,9 @@ use super::queries_rows::show_rows;
 use crate::I18n;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key};
-use crate::viewmodel::queries_status::{Body, Line, ProfilerControl, StatusRow, body, status_row};
+use crate::viewmodel::queries_status::{
+    Body, Line, ProfilerControl, StatusRow, body, level_note, status_row,
+};
 use crate::viewmodel::{QueriesAction, QueriesState, rows};
 use curlybrace_core::store::Namespace;
 use eframe::egui;
@@ -33,6 +35,9 @@ pub fn show_queries(
         ui.colored_label(ui.visuals().error_fg_color, i18n.t("indexes.queries.error"));
     }
     ui.separator();
+    if let Some(note) = level_note(state) {
+        ui.weak(text(&note, i18n));
+    }
     let list = rows(state, ns);
     match body(state, list.len()) {
         Body::Rows => {
@@ -62,22 +67,22 @@ fn text(line: &Line, i18n: &I18n) -> String {
     i18n.t_with(line.key, &params)
 }
 
-/// The one-line status: profiler state, the button, why it is off, and the poller's status.
+/// The status: profiler state, the buttons, why they are off, and the poller's status. One line of
+/// constant height at normal widths; when the window is too narrow it wraps onto more lines so
+/// nothing is pushed past the right edge.
 fn show_status(ui: &mut egui::Ui, row: &StatusRow, i18n: &I18n) -> Option<QueriesAction> {
     let height = ui.spacing().interact_size.y;
     let mut action = None;
-    let layout = egui::Layout::left_to_right(egui::Align::Center);
-    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), height), layout, |ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.set_min_height(height);
         ui.strong(text(&row.profiler, i18n));
-        action = row
-            .control
-            .and_then(|control| button(ui, row, control, i18n));
+        for control in &row.controls {
+            action = button(ui, row, *control, i18n).or(action.take());
+        }
         if let Some(key) = row.disabled_reason {
             ui.label(i18n.t(key));
         }
-        let poller = egui::RichText::new(text(&row.poller, i18n)).weak();
-        ui.add(egui::Label::new(poller).truncate());
+        ui.weak(text(&row.poller, i18n));
     });
     action
 }
@@ -91,9 +96,10 @@ fn button(
     let (label_key, action) = match control {
         ProfilerControl::Enable => ("indexes.queries.enable", QueriesAction::AskEnable),
         ProfilerControl::TurnOff => ("indexes.queries.turn_off", QueriesAction::AskDisable),
+        ProfilerControl::RecordAll => ("indexes.queries.record_all", QueriesAction::AskEnable),
     };
     let response = ui.add_enabled(row.enabled, egui::Button::new(i18n.t(label_key)));
-    // The reason is visible next to the button; hovering gives the full sentence.
+    // The reason is visible next to the buttons; hovering gives the full sentence.
     if let Some(key) = row.disabled_reason {
         let full = if key == READ_ONLY_NOTE_KEY {
             READ_ONLY_REASON_KEY

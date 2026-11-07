@@ -27,6 +27,14 @@ struct Cell {
     gap_secs: i64,
 }
 
+/// Assumption (checked against `HistoryDb::shapes_for`, `history/shapes_read.rs`): every bucket
+/// `shapes_for` returns for a range is exactly the range's bucket width wide and starts on a
+/// multiple of it, because the read folds every stored tier (10 minute, hourly, daily rows) into
+/// the bucket its start falls in (`bucket_start(row.start_secs, width)`). So a bucket coarser than
+/// the range's never reaches this model from the store, and flooring a start to the range width
+/// is exact. Buckets of other widths are still summed by their start (the unit tests feed them) but
+/// a coarser one would then land in one bar rather than be spread.
+///
 /// Plots the misses of `summaries` over the last `range` before `now_secs` (the chart's end,
 /// anchored to a bucket boundary by the caller). Stored buckets of any width (10 minutes, hours,
 /// days: older data is rolled up) are summed into the range's own bucket by the bucket start.

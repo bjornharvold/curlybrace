@@ -14,19 +14,24 @@ fn known(level: i32) -> QueriesState {
 #[test]
 fn the_button_follows_the_level() {
     assert_eq!(
-        status_row(&known(0), false).control,
-        Some(ProfilerControl::Enable)
+        status_row(&known(0), false).controls,
+        vec![ProfilerControl::Enable]
     );
     assert_eq!(
-        status_row(&known(2), false).control,
-        Some(ProfilerControl::TurnOff)
+        status_row(&known(2), false).controls,
+        vec![ProfilerControl::TurnOff]
+    );
+    // Level 1 records only slow operations: it can be turned off or raised to record everything.
+    assert_eq!(
+        status_row(&known(1), false).controls,
+        vec![ProfilerControl::TurnOff, ProfilerControl::RecordAll]
     );
     for state in [
         QueriesState::default(),
         QueriesState::default().with_profiling(ProfilingView::Loading),
         QueriesState::default().with_profiling(ProfilingView::Unavailable(CoreError::Unauthorized)),
     ] {
-        assert_eq!(status_row(&state, false).control, None);
+        assert!(status_row(&state, false).controls.is_empty());
     }
 }
 
@@ -82,7 +87,11 @@ fn the_poller_lines_use_their_own_keys() {
     );
     assert_eq!(
         line(ProfilerStatus::Reading { databases: 2 }),
-        "indexes.queries.poller_reading"
+        "indexes.queries.poller_reading_other"
+    );
+    assert_eq!(
+        line(ProfilerStatus::Reading { databases: 1 }),
+        "indexes.queries.poller_reading_one"
     );
     assert_eq!(
         line(ProfilerStatus::MissedEntries { db: "shop".into() }),
@@ -116,14 +125,61 @@ fn the_body_depends_on_the_profiler_when_there_are_no_rows() {
     assert_eq!(body(&known(0), 3), Body::Rows);
 }
 
+const ALL_KINDS: [VerdictKind; 7] = [
+    VerdictKind::IndexUsed,
+    VerdictKind::CoveredByIndex,
+    VerdictKind::CollectionScan,
+    VerdictKind::SortNotCovered,
+    VerdictKind::InefficientIndex,
+    VerdictKind::NoFilter,
+    VerdictKind::EmptyCollection,
+];
+
 #[test]
 fn every_verdict_kind_has_an_icon_and_a_title() {
-    for kind in [
-        VerdictKind::IndexUsed,
-        VerdictKind::CollectionScan,
-        VerdictKind::NoFilter,
-    ] {
+    for kind in ALL_KINDS {
         let (icon, key) = crate::viewmodel::verdict::kind_presentation(kind);
         assert!(!icon.is_empty() && key.starts_with("query.verdict.title_"));
+        let (list_icon, list_key) = row_title(kind);
+        assert_eq!(list_icon, icon);
+        assert!(
+            list_key.starts_with("query.verdict.title_")
+                || list_key.starts_with("indexes.queries.")
+        );
     }
+}
+
+#[test]
+fn the_neutral_kinds_have_list_specific_titles() {
+    assert_eq!(
+        row_title(VerdictKind::EmptyCollection).1,
+        "indexes.queries.title_empty"
+    );
+    assert_eq!(
+        row_title(VerdictKind::NoFilter).1,
+        "indexes.queries.title_no_filter"
+    );
+    assert_eq!(
+        row_title(VerdictKind::CollectionScan).1,
+        "query.verdict.title_collscan"
+    );
+}
+
+#[test]
+fn counts_pick_one_or_other() {
+    assert_eq!(runs_key(1), "indexes.queries.runs_one");
+    for n in [0, 2, 40] {
+        assert_eq!(runs_key(n), "indexes.queries.runs_other");
+        assert_eq!(misses_key(n), "indexes.queries.misses_other");
+    }
+    assert_eq!(misses_key(1), "indexes.queries.misses_one");
+}
+
+#[test]
+fn level_one_explains_that_fast_queries_are_not_captured() {
+    let note = level_note(&known(1)).unwrap();
+    assert_eq!(note.key, "indexes.queries.level_one_note");
+    assert_eq!(note.params, vec![("slow_ms", "100".to_string())]);
+    assert!(level_note(&known(0)).is_none() && level_note(&known(2)).is_none());
+    assert!(level_note(&QueriesState::default()).is_none());
 }

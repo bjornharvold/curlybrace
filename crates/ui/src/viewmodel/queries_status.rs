@@ -2,7 +2,9 @@
 //! button) and what its body shows. Pure and egui-free: the view only draws what is decided here.
 //! Every text is an i18n key; no server text is ever carried.
 use super::queries::{ProfilingView, QueriesState};
+use super::verdict::kind_presentation;
 use curlybrace_core::error::CoreError;
+use curlybrace_core::explain::VerdictKind;
 use curlybrace_core::runtime::{ProfilerStatus, SamplerPause};
 use curlybrace_core::store::PROFILER_MONGOS_MESSAGE;
 
@@ -34,14 +36,16 @@ impl Line {
 pub enum ProfilerControl {
     Enable,
     TurnOff,
+    /// Level 1 records only slow operations: ask for level 2 (every operation) instead.
+    RecordAll,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatusRow {
     pub profiler: Line,
     pub poller: Line,
-    /// `None` when there is nothing to switch (state unknown, loading or unavailable).
-    pub control: Option<ProfilerControl>,
+    /// Empty when there is nothing to switch (state unknown, loading or unavailable).
+    pub controls: Vec<ProfilerControl>,
     pub enabled: bool,
     /// Why the button is off, as an i18n key.
     pub disabled_reason: Option<&'static str>,
@@ -61,10 +65,13 @@ pub enum Body {
 }
 
 pub fn status_row(state: &QueriesState, read_only: bool) -> StatusRow {
-    let control = match &state.profiling {
-        ProfilingView::Known(profiling) if profiling.level == 0 => Some(ProfilerControl::Enable),
-        ProfilingView::Known(_) => Some(ProfilerControl::TurnOff),
-        _ => None,
+    let controls = match &state.profiling {
+        ProfilingView::Known(p) if p.level == 0 => vec![ProfilerControl::Enable],
+        ProfilingView::Known(p) if p.level == 1 => {
+            vec![ProfilerControl::TurnOff, ProfilerControl::RecordAll]
+        }
+        ProfilingView::Known(_) => vec![ProfilerControl::TurnOff],
+        _ => Vec::new(),
     };
     let disabled_reason = match (read_only, state.busy()) {
         (true, _) => Some("indexes.queries.read_only_note"),
@@ -74,9 +81,9 @@ pub fn status_row(state: &QueriesState, read_only: bool) -> StatusRow {
     StatusRow {
         profiler: profiler_line(&state.profiling),
         poller: poller_line(&state.profiler_status()),
-        control,
         enabled: disabled_reason.is_none(),
-        disabled_reason: control.and(disabled_reason),
+        disabled_reason: disabled_reason.filter(|_| !controls.is_empty()),
+        controls,
     }
 }
 
@@ -110,11 +117,13 @@ pub fn unavailable_key(error: &CoreError) -> &'static str {
 fn poller_line(status: &ProfilerStatus) -> Line {
     match status {
         ProfilerStatus::Idle => Line::plain("indexes.queries.poller_idle"),
-        ProfilerStatus::Reading { databases } => Line::with(
-            "indexes.queries.poller_reading",
-            "databases",
-            databases.to_string(),
-        ),
+        ProfilerStatus::Reading { databases } => {
+            let key = match databases {
+                1 => "indexes.queries.poller_reading_one",
+                _ => "indexes.queries.poller_reading_other",
+            };
+            Line::with(key, "databases", databases.to_string())
+        }
         ProfilerStatus::MissedEntries { db } => {
             Line::with("indexes.queries.poller_missed", "db", db.clone())
         }
@@ -129,6 +138,46 @@ fn pause_key(pause: SamplerPause) -> &'static str {
         SamplerPause::ConnectionLost => "indexes.queries.poller_paused_connection_lost",
         SamplerPause::HistoryUnavailable => "indexes.queries.poller_paused_history_unavailable",
         SamplerPause::HistoryBusy => "indexes.queries.poller_paused_history_busy",
+    }
+}
+
+/// The note for level 1, which records only operations slower than `slow_ms`: a fast query that
+/// misses an index is never captured, and the person should know before trusting an empty list.
+pub fn level_note(state: &QueriesState) -> Option<Line> {
+    match &state.profiling {
+        ProfilingView::Known(p) if p.level == 1 => Some(Line::with(
+            "indexes.queries.level_one_note",
+            "slow_ms",
+            p.slow_ms.to_string(),
+        )),
+        _ => None,
+    }
+}
+
+/// The icon and title key of a row: the verdict's own, except that the neutral kinds read as a
+/// list of app queries ("ran against an empty collection"), not as a verdict on the collection.
+pub fn row_title(kind: VerdictKind) -> (&'static str, &'static str) {
+    let (icon, key) = kind_presentation(kind);
+    let key = match kind {
+        VerdictKind::EmptyCollection => "indexes.queries.title_empty",
+        VerdictKind::NoFilter => "indexes.queries.title_no_filter",
+        _ => key,
+    };
+    (icon, key)
+}
+
+/// The run count's key: the language has one form for exactly 1 and one for the rest.
+pub fn runs_key(n: u64) -> &'static str {
+    match n {
+        1 => "indexes.queries.runs_one",
+        _ => "indexes.queries.runs_other",
+    }
+}
+
+pub fn misses_key(n: u64) -> &'static str {
+    match n {
+        1 => "indexes.queries.misses_one",
+        _ => "indexes.queries.misses_other",
     }
 }
 

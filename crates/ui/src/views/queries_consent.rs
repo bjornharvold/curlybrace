@@ -3,6 +3,7 @@
 //! default, so a stray Enter changes nothing; Escape and a click away cancel. Confirm is off
 //! while a change is in flight or the connection is read-only, with the reason in plain text.
 use super::index_dialogs::focus_once;
+use super::queries_rows::copyable;
 use crate::I18n;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{PROFILER_LEVEL_ON, ProfilerConsent, QueriesAction};
@@ -56,12 +57,7 @@ pub fn show_profiler_consent(
 
 fn show_command(ui: &mut egui::Ui, command: &str, i18n: &I18n) {
     ui.label(i18n.t("indexes.queries.consent.command"));
-    ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new(command).monospace());
-        if ui.button(i18n.t("indexes.queries.consent.copy")).clicked() {
-            ui.ctx().copy_text(command.to_string());
-        }
-    });
+    copyable(ui, command, &i18n.t("indexes.queries.consent.copy"));
 }
 
 fn buttons(
