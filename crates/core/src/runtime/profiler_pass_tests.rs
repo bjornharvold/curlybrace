@@ -144,7 +144,7 @@ async fn consecutive_timeouts_end_the_pass_early() {
     assert!(began.elapsed() < secs(5 * 4), "{:?}", began.elapsed());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn all_reads_failing_reports_failing_not_idle() {
     let boom = CoreError::Database("boom".into());
     let probe = Probe::new(&["a", "b"], InMemoryStore::new());
@@ -169,6 +169,8 @@ async fn nothing_to_read_is_idle() {
     assert_eq!(status.ok(), Some(ProfilerStatus::Idle));
 }
 
+/// A regression guard rather than a fix check: a failing database must not hide the readable one
+/// (it passed before the pass learned to fail when nothing at all could be read).
 #[tokio::test]
 async fn a_db_failing_while_another_reads_is_still_reading() {
     let inner = store_of("good", 1, vec![entry_on(at(1), "good.t", doc! { "a": 1 })])
@@ -264,7 +266,10 @@ async fn host_change_resets_the_anchor_without_a_gap() {
     probe.set_host("other:27017");
     let status = poll(&probe, &db, &mut marks).await.unwrap();
     assert_eq!(status, ProfilerStatus::Reading { databases: 1 });
-    assert!(gap_secs(&db).is_empty(), "another node's profile is no loss");
+    assert!(
+        gap_secs(&db).is_empty(),
+        "another node's profile is no loss"
+    );
 }
 
 #[tokio::test]
@@ -277,4 +282,157 @@ async fn dropped_databases_forget_their_marks() {
     let gone = Probe::new(&[], InMemoryStore::new());
     poll(&gone, &db, &mut marks).await.unwrap();
     assert!(!marks.tracks("shop"));
+}
+
+// ------------------------------------------------------ rotation and deferral
+
+/// Every database has the profiler on; reads of the `hanging` ones never answer, and `level_delay`
+/// stretches the level call.
+struct Selective {
+    inner: InMemoryStore,
+    dbs: Vec<String>,
+    hanging: Vec<String>,
+    level_delay: Duration,
+    reads: Mutex<Vec<String>>,
+}
+
+impl Selective {
+    fn new(dbs: &[String], hanging: &[&str], inner: InMemoryStore) -> Arc<Self> {
+        let inner = dbs.iter().fold(inner, |s, d| s.with_profiling_level(d, 1));
+        Arc::new(Self {
+            inner,
+            dbs: dbs.to_vec(),
+            hanging: hanging.iter().map(|d| (*d).to_owned()).collect(),
+            level_delay: Duration::ZERO,
+            reads: Mutex::default(),
+        })
+    }
+
+    fn read_of(&self, db: &str) -> usize {
+        self.reads
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|d| *d == db)
+            .count()
+    }
+}
+
+#[async_trait::async_trait]
+impl DocumentStore for Selective {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        Ok(self.dbs.clone())
+    }
+    async fn list_collections(&self, db: &str) -> Result<Vec<String>> {
+        self.inner.list_collections(db).await
+    }
+    async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page> {
+        self.inner.find(ns, q).await
+    }
+    async fn insert(&self, ns: &Namespace, doc: Document) -> Result<Bson> {
+        self.inner.insert(ns, doc).await
+    }
+    async fn replace(&self, ns: &Namespace, id: &Bson, doc: Document) -> Result<()> {
+        self.inner.replace(ns, id, doc).await
+    }
+    async fn delete(&self, ns: &Namespace, id: &Bson) -> Result<()> {
+        self.inner.delete(ns, id).await
+    }
+    async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {
+        tokio::time::sleep(self.level_delay).await;
+        self.inner.profiling_level(db).await
+    }
+    async fn read_profile(&self, db: &str, since: i64) -> Result<ProfileRead> {
+        self.reads.lock().unwrap().push(db.to_owned());
+        if self.hanging.iter().any(|d| d == db) {
+            std::future::pending::<()>().await;
+        }
+        self.inner.read_profile(db, since).await
+    }
+}
+
+fn names(count: usize) -> Vec<String> {
+    (0..count).map(|i| format!("db{i:02}")).collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_slow_early_database_does_not_starve_the_later_ones() {
+    // Hanging and healthy databases alternate, so the run of timeouts never reaches the cap, but
+    // six timeouts of 100 s use up the 600 s pass deadline before the last database.
+    let dbs = names(12);
+    let hanging = ["db00", "db02", "db04", "db06", "db08", "db10"];
+    let last = entry_on(at(1), "db11.t", doc! { "a": 1 });
+    let store = Selective::new(&dbs, &hanging, store_of("db11", 1, vec![last]));
+    let config = SamplerConfig {
+        command_timeout: secs(100),
+        ..SamplerConfig::default()
+    };
+    let db = history();
+    let mut marks = Marks::default();
+    let store_ref: &dyn DocumentStore = &*store;
+
+    poll_once(store_ref, &db, CONN, &config, NOW, &mut marks)
+        .await
+        .map_err(|_| "pass failed")
+        .unwrap();
+    assert_eq!(store.read_of("db11"), 0, "the deadline came first");
+    assert_eq!(
+        marks.resume(),
+        11,
+        "the next pass starts at the one it missed"
+    );
+
+    poll_once(store_ref, &db, CONN, &config, NOW, &mut marks)
+        .await
+        .map_err(|_| "pass failed")
+        .unwrap();
+    assert_eq!(store.read_of("db11"), 1, "read first by the next pass");
+    assert_eq!(totals(&db, "db11", "t").0, 1);
+}
+
+#[test]
+fn resume_wraps_around_the_listing() {
+    use crate::runtime::sampler::{resume_point, rotated};
+    assert_eq!(resume_point(10, 3, 12), 1);
+    assert_eq!(resume_point(0, 12, 12), 0);
+    assert_eq!(resume_point(5, 0, 0), 0);
+    assert_eq!(rotated(vec![0, 1, 2, 3, 4], 3), vec![3, 4, 0, 1, 2]);
+    assert_eq!(rotated(vec![0, 1, 2], 7), vec![1, 2, 0]);
+    assert_eq!(rotated(Vec::<u8>::new(), 3), Vec::<u8>::new());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_database_cut_by_the_deadline_during_the_level_call_is_deferred() {
+    let dbs = names(1);
+    let mut store = Selective::new(&dbs, &[], store_of("db00", 1, vec![]));
+    Arc::get_mut(&mut store).unwrap().level_delay = secs(700);
+    let config = SamplerConfig {
+        command_timeout: secs(1_000),
+        ..SamplerConfig::default()
+    };
+    let mut marks = Marks::default();
+    let store_ref: &dyn DocumentStore = &*store;
+    let poll = poll_once(store_ref, &history(), CONN, &config, NOW, &mut marks)
+        .await
+        .map_err(|_| "pass failed")
+        .unwrap();
+    assert_eq!(poll.status(), ProfilerStatus::Idle, "not reading");
+    assert_eq!(store.read_of("db00"), 0);
+    assert_eq!(marks.resume(), 0, "revisited first by the next pass");
+}
+
+#[tokio::test(start_paused = true)]
+async fn failing_recovers_to_reading_when_reads_succeed_again() {
+    let probe = Probe::new(&["shop"], shop(vec![scan(at(1))]));
+    probe.fail_levels(Some(CoreError::Database("boom".into())));
+    let db = history();
+    let mut running = start(&probe, &db, SamplerConfig::default());
+    assert_eq!(next_status(&mut running).await, ProfilerStatus::Failing);
+    probe.fail_levels(None);
+    assert_eq!(
+        next_status(&mut running).await,
+        ProfilerStatus::Reading { databases: 1 }
+    );
+    assert_eq!(totals(&db, "shop", "orders").0, 1);
+    running.handle.abort();
 }

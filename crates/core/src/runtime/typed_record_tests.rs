@@ -250,8 +250,14 @@ fn typed_observation_is_value_free_and_counts_misses_by_verdict() {
         assert_eq!((o.at_secs, o.gap_secs, o.worst), (at, 0, kind));
         assert_eq!(o.key.source, ShapeSource::Typed);
         assert_eq!(o.key.host, crate::history::TYPED_HOST);
-        assert_eq!((o.key.db.as_str(), o.key.collection.as_str()), (ns.db.as_str(), ns.collection.as_str()));
+        assert_eq!(
+            (o.key.db.as_str(), o.key.collection.as_str()),
+            (ns.db.as_str(), ns.collection.as_str())
+        );
         let dump = format!("{o:?}");
-        assert!(!dump.contains("zebra-secret") && !dump.contains("424242"), "{dump}");
+        assert!(
+            !dump.contains("zebra-secret") && !dump.contains("424242"),
+            "{dump}"
+        );
     }
 }

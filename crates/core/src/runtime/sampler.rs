@@ -430,7 +430,7 @@ impl Progress {
 const SLOW_TOLERANCE: usize = 10;
 
 /// The targets starting at `start` (wrapping), so consecutive cut-short passes cover the whole list.
-fn rotated(mut targets: Vec<Namespace>, start: usize) -> Vec<Namespace> {
+pub(super) fn rotated<T>(mut targets: Vec<T>, start: usize) -> Vec<T> {
     if !targets.is_empty() {
         let by = start % targets.len();
         targets.rotate_left(by);
@@ -439,7 +439,7 @@ fn rotated(mut targets: Vec<Namespace>, start: usize) -> Vec<Namespace> {
 }
 
 /// Where the pass that began at `start` and finished `completed` targets leaves the next one.
-fn resume_point(start: usize, completed: usize, total: usize) -> usize {
+pub(super) fn resume_point(start: usize, completed: usize, total: usize) -> usize {
     match total {
         0 => 0,
         total => (start % total + completed) % total,

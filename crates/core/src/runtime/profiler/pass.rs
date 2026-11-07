@@ -7,8 +7,13 @@
 //!   and entries of the new node older than the mark are not read.
 //! - Dropping and recreating `system.profile` while the profiler stays on looks like a roll-off
 //!   and may report a false `MissedEntries`.
-//! - Databases are polled in listing order; a pass that runs out of time leaves the later ones
-//!   for the next tick.
+//! - A database that flips between two nodes (A, B, A) is a first sight at every flip, and each
+//!   node's rows are keyed by its host: entries of a node older than the mark are skipped, and a
+//!   node's entries the mark has already passed are never read twice but may be missed.
+//! - A database that disappears from the listing and returns loses its mark and starts again
+//!   from the retention floor, so entries still in its profile are counted a second time.
+//! - Databases are polled in a rotating order: a pass that runs out of time resumes at the
+//!   database it stopped at, so none starves.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,7 +24,7 @@ use uuid::Uuid;
 use super::super::profiler_status::ProfilerStatus;
 use super::super::sampler::{
     Answer, SYSTEM_DBS, SamplerConfig, SamplerPause, Streak, TickError, blocking, bounded,
-    pass_deadline, pause_reason,
+    pass_deadline, pause_reason, resume_point, rotated,
 };
 use super::fold_entries;
 use crate::error::CoreError;
@@ -50,12 +55,16 @@ struct Mark {
 /// The per-database watermarks of one poller (in memory: a restart starts afresh from the
 /// retention floor).
 #[derive(Default)]
-pub(in super::super) struct Marks(HashMap<String, Mark>);
+pub(in super::super) struct Marks {
+    dbs: HashMap<String, Mark>,
+    /// Where the next pass starts in the listing (see `resume_point`).
+    resume: usize,
+}
 
 impl Marks {
     /// The mark of `db`, created at `floor` the first time it is asked for.
     fn get_or_floor(&mut self, db: &str, floor: i64) -> Mark {
-        self.0
+        self.dbs
             .entry(db.to_owned())
             .or_insert(Mark {
                 ts_millis: floor,
@@ -68,7 +77,7 @@ impl Marks {
 
     /// Notes the node the latest read came from; another node than before is a first sight.
     fn observe_host(&mut self, db: &str, host: &str) {
-        let Some(mark) = self.0.get_mut(db) else {
+        let Some(mark) = self.dbs.get_mut(db) else {
             return;
         };
         if mark.host.as_deref().is_some_and(|known| known != host) {
@@ -80,7 +89,7 @@ impl Marks {
 
     /// Moves the mark to `newest` (never backwards) and anchors it. Returns whether it moved.
     fn advance(&mut self, db: &str, newest: Option<i64>) -> bool {
-        let (Some(newest), Some(mark)) = (newest, self.0.get_mut(db)) else {
+        let (Some(newest), Some(mark)) = (newest, self.dbs.get_mut(db)) else {
             return false;
         };
         let moved = newest > mark.ts_millis;
@@ -93,7 +102,7 @@ impl Marks {
     }
 
     fn set_gap_done(&mut self, db: &str, span: (i64, i64)) {
-        if let Some(mark) = self.0.get_mut(db) {
+        if let Some(mark) = self.dbs.get_mut(db) {
             mark.gap_done = Some(span);
         }
     }
@@ -101,7 +110,7 @@ impl Marks {
     /// The profiler of `db` is off: nothing is written meanwhile, so what is missing when it
     /// is on again is no loss.
     fn unanchor(&mut self, db: &str) {
-        if let Some(mark) = self.0.get_mut(db) {
+        if let Some(mark) = self.dbs.get_mut(db) {
             mark.anchored = false;
             mark.gap_done = None;
         }
@@ -109,12 +118,17 @@ impl Marks {
 
     /// Forgets the databases the server no longer lists.
     fn retain_listed(&mut self, listed: &[String]) {
-        self.0.retain(|db, _| listed.contains(db));
+        self.dbs.retain(|db, _| listed.contains(db));
     }
 
     #[cfg(test)]
     pub(in super::super) fn tracks(&self, db: &str) -> bool {
-        self.0.contains_key(db)
+        self.dbs.contains_key(db)
+    }
+
+    #[cfg(test)]
+    pub(in super::super) fn resume(&self) -> usize {
+        self.resume
     }
 }
 
@@ -142,6 +156,9 @@ enum DbOutcome {
     Off,
     /// Skipped: the server cannot profile it.
     Skipped,
+    /// The pass ran out of time before its profile was read; it counts as nothing and is
+    /// revisited first by the next pass.
+    Deferred,
     /// The user may not read it.
     Denied,
     /// A call failed in a way that is not a pause (a timeout, a server error).
@@ -156,7 +173,7 @@ impl DbOutcome {
     fn answer(&self) -> Answer {
         match self {
             Self::Failed(error) => Answer::of_error(error),
-            Self::Skipped | Self::Denied => Answer::Failed,
+            Self::Skipped | Self::Denied | Self::Deferred => Answer::Failed,
             Self::Off | Self::Read { .. } => Answer::Read,
         }
     }
@@ -213,22 +230,30 @@ pub(in super::super) async fn poll_once(
     marks.retain_listed(&databases);
     let mut tally = Tally::default();
     let mut streak = Streak::default();
-    for db in databases
-        .iter()
-        .filter(|db| !SYSTEM_DBS.contains(&db.as_str()) && !cfg.excluded_dbs.contains(*db))
-    {
+    let targets: Vec<String> = databases
+        .into_iter()
+        .filter(|db| !SYSTEM_DBS.contains(&db.as_str()) && !cfg.excluded_dbs.contains(db))
+        .collect();
+    let (total, start, mut completed) = (targets.len(), marks.resume, 0);
+    for db in rotated(targets, start) {
         if Instant::now() >= ctx.deadline {
             log::warn!("profile poller: the pass ran past its deadline, the rest waits");
             break;
         }
-        let outcome = poll_db(&ctx, db, marks).await?;
+        let outcome = poll_db(&ctx, &db, marks).await?;
+        if matches!(outcome, DbOutcome::Deferred) {
+            break;
+        }
+        completed += 1;
         streak.observe(outcome.answer());
-        tally.take(db, outcome);
+        tally.take(&db, outcome);
         if streak.exhausted() {
             log::warn!("profile poller: calls in a row timed out, pass abandoned");
             break;
         }
     }
+    // The next pass resumes where this one stopped, so no database starves behind slow ones.
+    marks.resume = resume_point(start, completed, total);
     tally.finish()
 }
 
@@ -246,7 +271,7 @@ impl Tally {
             DbOutcome::Failed(error) => {
                 self.first_failure.get_or_insert(error);
             }
-            DbOutcome::Off | DbOutcome::Skipped => {}
+            DbOutcome::Off | DbOutcome::Skipped | DbOutcome::Deferred => {}
         }
     }
 
@@ -272,6 +297,9 @@ async fn poll_db(ctx: &Ctx<'_>, db: &str, marks: &mut Marks) -> Result<DbOutcome
     if state.level <= 0 {
         marks.unanchor(db);
         return Ok(DbOutcome::Off);
+    }
+    if Instant::now() >= ctx.deadline {
+        return Ok(DbOutcome::Deferred);
     }
     let mut missed = false;
     for _ in 0..MAX_PAGES_PER_TICK {

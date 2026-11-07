@@ -58,7 +58,10 @@ mod tests {
         let samples = [
             (CoreError::Database(secret.into()), "Database"),
             (CoreError::Unsupported(secret.into()), "Unsupported"),
-            (CoreError::ConnectionInterrupted(secret.into()), "ConnectionInterrupted"),
+            (
+                CoreError::ConnectionInterrupted(secret.into()),
+                "ConnectionInterrupted",
+            ),
             (CoreError::InvalidJson(secret.into()), "InvalidJson"),
             (CoreError::Unauthorized, "Unauthorized"),
             (CoreError::Unreachable, "Unreachable"),

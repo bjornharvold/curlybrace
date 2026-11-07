@@ -11,6 +11,8 @@ mod db_schema_v2_tests;
 mod db_tests;
 #[cfg(test)]
 mod db_wal_tests;
+#[cfg(test)]
+mod gap_span_tests;
 pub mod retention;
 mod seam;
 #[cfg(test)]
