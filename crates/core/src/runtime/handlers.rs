@@ -171,6 +171,11 @@ async fn run(
         _ => shared.config.command_timeout,
     };
     let is_write = command.is_write();
+    // An explain that outruns the bound is a missing verdict, not a failure: kept to answer it.
+    let explain_target = match &command {
+        Command::ExplainFind { ns, query, .. } => Some((ns.clone(), query.clone())),
+        _ => None,
+    };
     // Refused before any timeout or ping bookkeeping: a refusal is an answer, never a lost write.
     if is_write && store.is_read_only() {
         return Err(gate(session, generation, CoreError::ReadOnly));
@@ -195,6 +200,16 @@ async fn run(
     // re-fetches after reconnecting).
     if !session.is_current(generation) {
         return Err(CoreError::Superseded);
+    }
+    // No ping settle for an explain: `Unreachable` would mark the session lost and raise a
+    // banner, and a slow `executionStats` run says nothing about the server.
+    if let (true, Some((ns, query))) = (timed_out, explain_target) {
+        return Ok(Event::Explain {
+            session: id,
+            ns,
+            query,
+            outcome: Err(CoreError::Database("timeout".into())),
+        });
     }
     match result {
         Err(error) if timed_out || matches!(error, CoreError::ConnectionInterrupted(_)) => {
