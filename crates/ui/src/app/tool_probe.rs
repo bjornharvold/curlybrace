@@ -22,35 +22,59 @@ pub(super) struct ProbeAnswer {
     pub result: Result<ToolVersion, ToolError>,
 }
 
-/// Starts the check; the answer arrives on `answers` and `repaint` wakes the window.
-/// `path` is the `PATH` a `PATH` choice is searched in and the tool is given.
+/// Starts the check; the answer arrives on `answers` and `repaint` wakes the window. `path` is
+/// the `PATH` a `PATH` choice is searched in and the tool is given.
 pub(super) fn spawn(
     request: ProbeRequest,
     answers: Sender<ProbeAnswer>,
     repaint: Repaint,
     path: Option<OsString>,
 ) {
-    let spawned = std::thread::Builder::new()
-        .name("tool-probe".into())
-        .spawn(move || {
-            let ProbeRequest {
-                scope,
-                kind,
-                request,
-                choice,
-            } = request;
-            let result = resolve(kind, &choice, path.as_deref()).and_then(|exe| {
-                probe_version_with_path(kind, &exe, PROBE_TIMEOUT, path.as_deref())
-            });
-            let _ = answers.send(ProbeAnswer {
-                scope,
-                kind,
-                request,
-                result,
-            });
-            repaint();
+    spawn_with(request, answers, repaint, path, |work| {
+        std::thread::Builder::new()
+            .name("tool-probe".into())
+            .spawn(work)
+            .map(|_| ())
+    });
+}
+
+/// [`spawn`] with the way a thread is started. Whatever happens, one answer is sent: a thread
+/// that cannot start or that panics answers `CouldNotRun`, so a row never stays on "Checking…".
+pub(super) fn spawn_with(
+    request: ProbeRequest,
+    answers: Sender<ProbeAnswer>,
+    repaint: Repaint,
+    path: Option<OsString>,
+    start: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
+) {
+    let ProbeRequest {
+        scope,
+        kind,
+        request,
+        choice,
+    } = request;
+    let reply = move |answers: &Sender<ProbeAnswer>,
+                      repaint: &Repaint,
+                      result: Result<ToolVersion, ToolError>| {
+        let _ = answers.send(ProbeAnswer {
+            scope,
+            kind,
+            request,
+            result,
         });
-    if let Err(e) = spawned {
+        repaint();
+    };
+    let (worker_answers, worker_repaint) = (answers.clone(), repaint.clone());
+    let work: Box<dyn FnOnce() + Send> = Box::new(move || {
+        let run = std::panic::AssertUnwindSafe(|| {
+            resolve(kind, &choice, path.as_deref())
+                .and_then(|exe| probe_version_with_path(kind, &exe, PROBE_TIMEOUT, path.as_deref()))
+        });
+        let result = std::panic::catch_unwind(run).unwrap_or(Err(ToolError::CouldNotRun));
+        reply(&worker_answers, &worker_repaint, result);
+    });
+    if let Err(e) = start(work) {
         log::warn!("could not start a tool version check: {e}");
+        reply(&answers, &repaint, Err(ToolError::CouldNotRun));
     }
 }

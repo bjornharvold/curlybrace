@@ -220,3 +220,38 @@ fn nothing_is_asked_for_when_every_tool_is_checked() {
     open_section(&mut harness);
     assert!(harness.state().actions.is_empty());
 }
+
+#[test]
+fn saving_right_after_typing_an_override_path_keeps_the_path() {
+    let cfg = ConnectionConfig::new("Alpha", "mongodb://alpha.example.com");
+    let (tools, _) = ToolsState::default()
+        .choose_override(cfg.id, ToolKind::Mongosh, ToolChoice::Path)
+        .take_queue();
+    let mut harness = harness(editing(&cfg), settled(tools, cfg.id));
+    open_section(&mut harness);
+    let name = t("tools.name_mongosh");
+    let label = I18n::english().t_with("tools.path_field", &[("tool", &name)]);
+    harness
+        .get_by_role_and_label(Role::TextInput, &label)
+        .scroll_to_me();
+    harness.run();
+    let input = harness.get_by_role_and_label(Role::TextInput, &label);
+    input.click();
+    input.type_text("/new/mongosh");
+    harness.run();
+    harness
+        .get_by_role_and_label(Role::Button, &t("common.save"))
+        .click();
+    harness.run();
+    assert_eq!(
+        harness.state().actions,
+        vec![
+            ConnectionAction::Tools(ToolsAction::ChooseOverride {
+                connection: cfg.id,
+                kind: ToolKind::Mongosh,
+                choice: ToolChoice::Executable("/new/mongosh".into()),
+            }),
+            ConnectionAction::Save(Box::new(ConnectionForm::from_config(&cfg))),
+        ]
+    );
+}

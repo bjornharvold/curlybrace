@@ -1005,7 +1005,7 @@
     "error_missing": "No file exists at that path.",
     "error_no_version": "The file did not report a version.",
     "error_not_a_file": "That path is not a file.",
-    "error_not_absolute": "Enter the full path, starting with /.",
+    "error_not_absolute": "Enter the full path to the file.",
     "error_not_executable": "That file is not executable.",
     "error_not_on_path": "Not found on your PATH. Choose a file instead.",
     "error_timed_out": "The file did not answer in time.",

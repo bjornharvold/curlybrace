@@ -251,3 +251,24 @@ fn check_again_is_unavailable_while_a_check_is_running() {
     let idle = harness.get_by_role_and_label(Role::Button, &idle_label);
     assert!(!idle.accesskit_node().is_disabled());
 }
+
+#[test]
+fn escape_drops_a_half_typed_path_instead_of_applying_it() {
+    let mut harness = harness(opened());
+    let label = path_box_label(ToolKind::Mongosh);
+    let input = harness.get_by_role_and_label(Role::TextInput, &label);
+    input.click();
+    input.type_text("/usr/lo");
+    harness.run_steps(2);
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(3);
+    assert!(
+        !harness
+            .state()
+            .actions
+            .iter()
+            .any(|a| matches!(a, ToolsAction::ChooseGlobal { .. })),
+        "a path the person backed out of must not be chosen: {:?}",
+        harness.state().actions
+    );
+}

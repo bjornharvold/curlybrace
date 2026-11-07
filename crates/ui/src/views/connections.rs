@@ -363,16 +363,20 @@ pub fn show_connections(
     state: &mut ConnectionsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
+    // Without tool paths nothing is ever listed before the deciding action.
     show_connections_with_tools(ui, state, &ToolsState::default(), i18n)
+        .into_iter()
+        .last()
 }
 
-/// [`show_connections`] with the tool paths the dialog's section edits.
+/// [`show_connections`] with the tool paths the dialog's section edits. Returns what was done,
+/// in order: a tool path applied by the same click as Save comes before it.
 pub fn show_connections_with_tools(
     ui: &mut egui::Ui,
     state: &mut ConnectionsState,
     tools: &ToolsState,
     i18n: &I18n,
-) -> Option<ConnectionAction> {
+) -> Vec<ConnectionAction> {
     state.invalidate_stale_test();
     // Before the dialog draws, so a closed dialog's pasted text is gone from egui at once.
     super::connections_from_uri::wipe_if_pending(ui.ctx(), state);
@@ -382,10 +386,13 @@ pub fn show_connections_with_tools(
     // Apply or Cancel inside the dialog: wipe this frame, not the next.
     super::connections_from_uri::wipe_if_pending(ui.ctx(), state);
     let prompt = super::connections_folder_prompt::show_folder_prompt(ui.ctx(), state, i18n);
-    show_delete_confirm(ui.ctx(), state, i18n)
-        .or(prompt)
-        .or(edit)
-        .or(action)
+    if let Some(decided) = show_delete_confirm(ui.ctx(), state, i18n).or(prompt) {
+        return vec![decided];
+    }
+    if edit.is_empty() {
+        return action.into_iter().collect();
+    }
+    edit
 }
 
 /// Modal asking to confirm a delete; Escape or clicking outside cancels.

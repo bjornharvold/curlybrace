@@ -9,6 +9,7 @@ use super::connections::ConfigPath;
 use super::persistence::{
     BackupFn, PersistError, PersistGuard, Recovery, atomic_write, default_connections_path,
 };
+use super::settings_file::{self, Startup};
 use super::state::Banner;
 use curlybrace_core::tools::ToolSettings;
 use std::path::Path;
@@ -20,64 +21,19 @@ pub fn default_tools_path() -> ConfigPath {
     default_connections_path().map(|path| path.with_file_name(FILE_NAME))
 }
 
-/// The settings found at startup, whether saving them again is allowed and what, if anything,
-/// was wrong with the file.
-#[derive(Debug, PartialEq)]
-pub struct ToolsStartup {
-    pub settings: ToolSettings,
-    pub guard: PersistGuard,
-    pub recovery: Option<Recovery>,
-}
+/// The tool paths found at startup.
+pub type ToolsStartup = Startup<ToolSettings>;
 
-/// Reads the file. A missing file is the defaults. A file that cannot be read or is not the
-/// expected shape is backed up first (tag `corrupt` or `unreadable`, like the connection list);
-/// if that fails the guard refuses every later save.
+/// Reads the file (see `settings_file::load` for the rules).
 pub fn load(path: &Path, backup: BackupFn<'_>) -> ToolsStartup {
-    let tag = match std::fs::read(path) {
-        Ok(bytes) => match parse(&bytes) {
-            Ok(settings) => return usable(settings),
-            Err(_) => "corrupt",
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return usable(ToolSettings::default());
-        }
-        Err(_) => "unreadable",
-    };
-    let backed_up = match backup(path, tag) {
-        Ok(_) => true,
-        Err(e) => {
-            log::warn!("could not back up the tool paths ({tag}): {e}");
-            false
-        }
-    };
-    ToolsStartup {
-        settings: ToolSettings::default(),
-        guard: if backed_up {
-            PersistGuard::default()
-        } else {
-            PersistGuard::blocked()
-        },
-        recovery: Some(Recovery::Tools { backed_up }),
-    }
+    settings_file::load(path, backup, "tool paths", parse, |backed_up| {
+        Recovery::Tools { backed_up }
+    })
 }
 
-fn usable(settings: ToolSettings) -> ToolsStartup {
-    ToolsStartup {
-        settings,
-        guard: PersistGuard::default(),
-        recovery: None,
-    }
-}
-
-/// A JSON object of the expected shape. Anything else (an array, a string, a wrong field type)
-/// is corrupt: serde alone would accept an array as a struct.
+/// A JSON object of the expected shape.
 fn parse(bytes: &[u8]) -> Result<ToolSettings, PersistError> {
-    let value: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|_| PersistError::Corrupt)?;
-    if !value.is_object() {
-        return Err(PersistError::Corrupt);
-    }
-    serde_json::from_value(value).map_err(|_| PersistError::Corrupt)
+    serde_json::from_value(settings_file::json_object(bytes)?).map_err(|_| PersistError::Corrupt)
 }
 
 /// Atomically writes the settings (pretty JSON, 0600).

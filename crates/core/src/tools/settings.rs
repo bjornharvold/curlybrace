@@ -3,7 +3,7 @@
 //! Overrides are keyed by connection id and live here, never on `ConnectionConfig`, so an
 //! exported connection file carries no executable paths. Every change returns a new value.
 use super::{ToolChoice, ToolKind};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -11,10 +11,57 @@ type Choices = BTreeMap<ToolKind, ToolChoice>;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolSettings {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "lenient_choices"
+    )]
     global: Choices,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "lenient_connections"
+    )]
     connections: BTreeMap<Uuid, Choices>,
+}
+
+/// Reads the choices of the tools this build knows. A tool it does not know (a newer build also
+/// manages `mongoexport`, say) is skipped, so going back to an older build keeps every known
+/// entry instead of treating the whole file as unusable; the unknown one is gone at the next
+/// save. A known tool with a choice that makes no sense is still an error.
+fn lenient_choices<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Choices, D::Error> {
+    let raw = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    let mut choices = Choices::new();
+    for (name, value) in raw {
+        let Ok(kind) = serde_json::from_value::<ToolKind>(serde_json::Value::String(name)) else {
+            log::warn!("the tool paths name a tool this version does not know; ignoring it");
+            continue;
+        };
+        let choice =
+            serde_json::from_value::<ToolChoice>(value).map_err(serde::de::Error::custom)?;
+        choices.insert(kind, choice);
+    }
+    Ok(choices)
+}
+
+/// A connection's choices through [`lenient_choices`].
+struct Lenient(Choices);
+
+impl<'de> Deserialize<'de> for Lenient {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        lenient_choices(deserializer).map(Self)
+    }
+}
+
+fn lenient_connections<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<Uuid, Choices>, D::Error> {
+    let raw = BTreeMap::<Uuid, Lenient>::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .map(|(id, Lenient(choices))| (id, choices))
+        .filter(|(_, choices)| !choices.is_empty())
+        .collect())
 }
 
 impl ToolSettings {

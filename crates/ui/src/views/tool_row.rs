@@ -183,7 +183,14 @@ fn path_box(
         info.current_text_value = Some(draft.clone());
         info
     });
-    let submitted = response.lost_focus() && draft.trim() != saved && !draft.trim().is_empty();
+    // Escape also takes the focus away: that is backing out, so the draft goes back to what is
+    // saved instead of being applied. Enter and clicking elsewhere apply it.
+    let backed_out = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape));
+    if backed_out {
+        draft.clone_from(&saved);
+    }
+    let submitted =
+        response.lost_focus() && !backed_out && draft.trim() != saved && !draft.trim().is_empty();
     ui.data_mut(|d| d.insert_temp(id, (saved, draft.clone())));
     submitted.then(|| {
         choose(

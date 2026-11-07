@@ -100,6 +100,9 @@ pub struct ToolsState {
     issued: u64,
     dialog: Option<ToolsDialog>,
     browsing: Option<(ProbeScope, ToolKind)>,
+    /// Moves every time the settings may have changed, so callers can tell whether the file
+    /// needs writing with a number compare instead of comparing (or cloning) the settings.
+    revision: u64,
 }
 
 impl ToolsState {
@@ -113,6 +116,16 @@ impl ToolsState {
 
     pub fn status(&self, scope: ProbeScope, kind: ToolKind) -> Option<&ProbeStatus> {
         self.probes.get(&(scope, kind))
+    }
+
+    /// See the field: changes whenever the settings may have.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Whether checks are waiting to be started.
+    pub fn has_requests(&self) -> bool {
+        !self.queue.is_empty()
     }
 
     pub fn dialog(&self) -> Option<&ToolsDialog> {
@@ -215,8 +228,10 @@ impl ToolsState {
     pub fn connection_removed(self, connection: Uuid) -> Self {
         let scope = ProbeScope::Connection(connection);
         let settings = self.settings.without_connection(connection);
+        let revision = self.revision_after(&settings);
         Self {
             settings,
+            revision,
             probes: self
                 .probes
                 .into_iter()
@@ -267,7 +282,18 @@ impl ToolsState {
     }
 
     fn with_settings(self, settings: ToolSettings) -> Self {
-        Self { settings, ..self }
+        let revision = self.revision_after(&settings);
+        Self {
+            settings,
+            revision,
+            ..self
+        }
+    }
+
+    /// The revision for `settings` replacing the current ones: moved only if they differ, so a
+    /// choice that changes nothing (or a deleted connection with no overrides) writes no file.
+    fn revision_after(&self, settings: &ToolSettings) -> u64 {
+        self.revision + u64::from(*settings != self.settings)
     }
 
     /// Queues a check of what applies to `scope`, replacing one still waiting for the same tool.

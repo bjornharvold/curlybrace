@@ -189,3 +189,9 @@ fn every_status_has_a_text() {
         assert!(!status_line(&status, None, &i18n).text.is_empty());
     }
 }
+
+#[test]
+fn the_full_path_message_does_not_assume_a_unix_path() {
+    let text = I18n::english().t(ToolError::NotAbsolute.i18n_key());
+    assert!(!text.contains('/') && !text.contains('\\'), "{text}");
+}

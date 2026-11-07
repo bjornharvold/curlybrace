@@ -129,9 +129,8 @@ pub fn show_connections_screen(
         if opening {
             ui.label(i18n.t("connections.connecting"));
         }
-        if let Some(action) = show_connections_with_tools(ui, &mut state.conn, &state.tools, i18n) {
-            out.push(UiEvent::Connection(action));
-        }
+        let actions = show_connections_with_tools(ui, &mut state.conn, &state.tools, i18n);
+        out.extend(actions.into_iter().map(UiEvent::Connection));
     });
 }
 

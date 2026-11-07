@@ -44,13 +44,18 @@ impl CurlybraceApp {
 
     /// After any step: writes the tool paths if they changed, starts the version checks the
     /// step asked for and opens the file dialog the state is waiting for.
-    pub(super) fn tools_changed(&mut self, before: &curlybrace_core::tools::ToolSettings) {
-        if self.state.tools.settings != *before {
+    pub(super) fn tools_changed(&mut self, revision_before: u64) {
+        if self.state.tools.revision() != revision_before {
             self.save_tools();
         }
         self.raise_tools_notice();
-        let (tools, requests) = std::mem::take(&mut self.state.tools).take_queue();
-        self.state.tools = tools;
+        let requests = if self.state.tools.has_requests() {
+            let (tools, requests) = std::mem::take(&mut self.state.tools).take_queue();
+            self.state.tools = tools;
+            requests
+        } else {
+            Vec::new()
+        };
         for request in requests {
             tool_probe::spawn(
                 request,
@@ -90,6 +95,10 @@ impl CurlybraceApp {
             Ok(path) => tool_settings::saved(path, &self.tools_guard, &self.state.tools.settings),
             Err(e) => Err(ToolsSaveError::Persist(e.clone())),
         };
+        if result.is_ok() {
+            // The file is up to date again: a failure still waiting behind a banner is stale.
+            self.tools_notice = None;
+        }
         if let Err(e) = result {
             log::warn!("could not save the tool paths: {e:?}");
             // A banner that is already showing keeps its place; the notice waits for the slot

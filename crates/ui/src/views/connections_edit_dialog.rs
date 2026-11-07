@@ -14,16 +14,21 @@ const BODY_MAX_HEIGHT: f32 = 460.0;
 /// Draws the dialog while `state.editing`. Cancel and Escape close it (and reset the tools); a
 /// click outside does NOT, so a stray click never discards a typed form. Save returns the
 /// action once the form validates.
+///
+/// Returns what was done, in order. A tool path typed just before Save (or Cancel) is applied in
+/// the frame its box loses focus, so it comes first and Save never drops it. Tool paths are kept
+/// apart from the form and apply at once, so Cancel keeps them too.
 pub(super) fn show_edit_dialog(
     ctx: &egui::Context,
     state: &mut ConnectionsState,
     tools: &ToolsState,
     i18n: &I18n,
-) -> Option<ConnectionAction> {
+) -> Vec<ConnectionAction> {
     if !state.editing {
-        return None;
+        return Vec::new();
     }
     let mut action = None;
+    let mut tool_action = None;
     let mut cancelled = false;
     let modal = egui::Modal::new(egui::Id::new("connection_edit")).show(ctx, |ui| {
         ui.set_width(DIALOG_WIDTH);
@@ -32,7 +37,7 @@ pub(super) fn show_edit_dialog(
             .max_height(BODY_MAX_HEIGHT)
             .auto_shrink([false, true])
             .show(ui, |ui| {
-                action = show_body(ui, state, tools, i18n);
+                (action, tool_action) = show_body(ui, state, tools, i18n);
             });
         // Outside the clipped scroll area, so a long result or error is always fully visible.
         show_test_result(ui, state, i18n);
@@ -53,11 +58,15 @@ pub(super) fn show_edit_dialog(
             }
         });
     });
-    if cancelled || closed_by_escape(&modal) {
+    let closing = cancelled || closed_by_escape(&modal);
+    if closing {
         state.close_edit();
-        return None;
     }
-    action
+    let mut actions: Vec<ConnectionAction> = tool_action.into_iter().collect();
+    if !closing {
+        actions.extend(action);
+    }
+    actions
 }
 
 /// `Modal::should_close` also fires on a backdrop click; only Escape (with no popup open, and
@@ -75,7 +84,7 @@ fn show_body(
     state: &mut ConnectionsState,
     tools: &ToolsState,
     i18n: &I18n,
-) -> Option<ConnectionAction> {
+) -> (Option<ConnectionAction>, Option<ConnectionAction>) {
     text_row(ui, &i18n.t("connections.name"), &mut state.form.name, false);
     show_folder_row(ui, state, i18n);
     super::connections_from_uri::show_from_uri(ui, state, i18n);
@@ -85,7 +94,7 @@ fn show_body(
     ui.separator();
     let tested = show_test(ui, state, i18n);
     let built = show_to_uri(ui, state, i18n);
-    tested.or(built).or(tool_paths)
+    (tested.or(built), tool_paths)
 }
 
 /// Validates the form; a failure stays in `state.error` and nothing is emitted.

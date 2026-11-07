@@ -152,3 +152,29 @@ fn the_file_holds_no_connection_details_beyond_the_id() {
     assert!(json.contains(&id.to_string()));
     assert!(!json.contains("uri"));
 }
+
+#[test]
+fn a_tool_this_build_does_not_know_is_ignored_and_the_others_are_kept() {
+    // A file written by a newer build that also manages mongoexport.
+    let id = Uuid::new_v4();
+    let json = format!(
+        r#"{{"global": {{"mongoexport": "path", "mongosh": {{"executable": "/opt/mongosh"}}}},
+            "connections": {{"{id}": {{"mongoimport": "path", "mongodump": "path"}}}}}}"#
+    );
+    let settings: ToolSettings = serde_json::from_str(&json).unwrap();
+    assert_eq!(settings.global(ToolKind::Mongosh), exe("/opt/mongosh"));
+    assert!(settings.overrides(id, ToolKind::Mongodump));
+}
+
+#[test]
+fn a_known_tool_with_a_choice_that_makes_no_sense_is_still_an_error() {
+    assert!(serde_json::from_str::<ToolSettings>(r#"{"global": {"mongosh": 5}}"#).is_err());
+}
+
+#[test]
+fn a_connection_left_with_only_unknown_tools_leaves_no_entry() {
+    let id = Uuid::new_v4();
+    let json = format!(r#"{{"connections": {{"{id}": {{"mongoexport": "path"}}}}}}"#);
+    let settings: ToolSettings = serde_json::from_str(&json).unwrap();
+    assert_eq!(settings, ToolSettings::default());
+}

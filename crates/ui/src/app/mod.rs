@@ -40,6 +40,7 @@ pub mod reducer;
 pub mod sampling_settings;
 pub mod session;
 mod session_actions;
+pub mod settings_file;
 pub mod state;
 mod tool_picker;
 mod tool_probe;
@@ -331,13 +332,13 @@ impl CurlybraceApp {
             _ => None,
         };
         let sampling_before = self.state.sampling.clone();
-        let tools_before = self.state.tools.settings.clone();
+        let tools_before = self.state.tools.revision();
         let (state, commands) = update(std::mem::take(&mut self.state), input);
         self.state = state;
         if self.state.sampling != sampling_before {
             self.save_sampling();
         }
-        self.tools_changed(&tools_before);
+        self.tools_changed(tools_before);
         self.state = std::mem::take(&mut self.state).with_queued_recovery_shown();
         self.reject_closed_hosts_question(closing_host);
         // A dialog only belongs to an export that is waiting for it: when the person cancelled
@@ -460,7 +461,7 @@ impl CurlybraceApp {
         let state = std::mem::take(&mut self.state);
         let secrets = self.secrets.as_ref();
         let now = curlybrace_core::clock::now_secs();
-        let tools_before = state.tools.settings.clone();
+        let tools_before = state.tools.revision();
         match action {
             ConnectionAction::Connect(id) => {
                 // Defensive: the modal blocks the list, but never connect with the dialog open.
@@ -553,7 +554,7 @@ impl CurlybraceApp {
                 self.start_connection_pick(ConnPickKind::Export);
             }
         }
-        self.tools_changed(&tools_before);
+        self.tools_changed(tools_before);
     }
 
     /// Opens the import or export dialog unless one is already open.

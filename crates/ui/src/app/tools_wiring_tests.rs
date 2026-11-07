@@ -571,3 +571,37 @@ fn a_save_failure_hidden_behind_another_banner_is_raised_when_it_goes() {
     app.dispatch(Input::DismissBanner);
     assert_eq!(app.state().banner, None);
 }
+
+#[test]
+fn a_probe_thread_that_cannot_start_still_answers() {
+    let (answers_tx, answers_rx) = std::sync::mpsc::channel();
+    let request = tools_state::ProbeRequest {
+        scope: ProbeScope::Global,
+        kind: ToolKind::Mongosh,
+        request: 7,
+        choice: ToolChoice::Path,
+    };
+    tool_probe::spawn_with(request, answers_tx, Arc::new(|| {}), None, |_work| {
+        Err(std::io::Error::other("no threads"))
+    });
+    let answer = answers_rx.try_recv().expect("an answer, not silence");
+    assert_eq!(answer.request, 7);
+    assert_eq!(answer.result, Err(ToolError::CouldNotRun));
+}
+
+#[test]
+fn a_later_successful_save_clears_a_failure_waiting_behind_a_banner() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(mut app) = app_with_unwritable_tools_file(&dir) else {
+        return;
+    };
+    app.state_mut().banner = Some(Banner::NotConnected);
+    choose_global(&mut app, ToolKind::Mongosh, ToolChoice::Path);
+    // The folder becomes writable again and the next change is saved.
+    let folder = dir.path().join("readonly");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    choose_global(&mut app, ToolKind::Mongodump, ToolChoice::Path);
+    assert!(folder.join("tools.json").exists(), "the second save worked");
+    app.dispatch(Input::DismissBanner);
+    assert_eq!(app.state().banner, None, "the old failure is not raised");
+}

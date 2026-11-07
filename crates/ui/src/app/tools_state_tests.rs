@@ -284,3 +284,45 @@ fn an_answer_with_no_dialog_waiting_is_ignored() {
     let state = ToolsState::default().browsed(Some("/stray".into()));
     assert_eq!(state, ToolsState::default());
 }
+
+#[test]
+fn the_revision_moves_only_when_the_settings_can_have_changed() {
+    let id = Uuid::new_v4();
+    let start = ToolsState::default();
+    assert_eq!(start.revision(), ToolsState::default().revision());
+    let chosen = start.clone().choose_global(ToolKind::Mongosh, exe("/x"));
+    assert_ne!(chosen.revision(), start.revision());
+    let overridden = chosen
+        .clone()
+        .choose_override(id, ToolKind::Mongosh, exe("/y"));
+    assert_ne!(overridden.revision(), chosen.revision());
+    let removed = overridden.clone().connection_removed(id);
+    assert_ne!(removed.revision(), overridden.revision());
+    // Checks, dialogs and answers never touch the settings.
+    let (idle, queue) = chosen
+        .clone()
+        .recheck(ProbeScope::Global, ToolKind::Mongosh)
+        .take_queue();
+    let answered = idle.clone().probed(
+        ProbeScope::Global,
+        ToolKind::Mongosh,
+        queue[0].request,
+        Ok(V2),
+    );
+    let dialog = answered
+        .clone()
+        .open_settings(Default::default())
+        .close_settings();
+    assert_eq!(dialog.revision(), chosen.revision());
+}
+
+#[test]
+fn a_state_with_nothing_queued_says_so() {
+    let state = ToolsState::default();
+    assert!(!state.has_requests());
+    assert!(
+        state
+            .recheck(ProbeScope::Global, ToolKind::Mongosh)
+            .has_requests()
+    );
+}
