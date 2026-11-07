@@ -1,0 +1,59 @@
+{
+  "op": "query",
+  "ns": "test.scan",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "find": "scan",
+    "filter": {},
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "227338"
+  },
+  "cursorid": {
+    "$numberLong": "3703296772442879085"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "101"
+  },
+  "nBatches": {
+    "$numberInt": "1"
+  },
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "101"
+  },
+  "planCacheShapeHash": "0F20F9A9",
+  "queryHash": "0F20F9A9",
+  "planCacheKey": "8CEEBFD3",
+  "queryShapeHash": "972AE1C7194E9012F30E9AD196E0704419DCFB11734CC7443C7D10302D4FA7F2",
+  "queryFramework": "classic",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "5960"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "90"
+  },
+  "planSummary": "COLLSCAN",
+  "planningTimeMicros": {
+    "$numberInt": "33"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794068641971"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

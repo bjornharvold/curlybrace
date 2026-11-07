@@ -1,5 +1,5 @@
 {
-  "op": "command",
+  "op": "query",
   "ns": "shop.orders",
   "command": {
     "find": "orders",

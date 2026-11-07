@@ -1,0 +1,75 @@
+{
+  "op": "getmore",
+  "ns": "test.orders",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "getMore": {
+      "$numberLong": "3726144522378849923"
+    },
+    "collection": "orders",
+    "batchSize": {
+      "$numberInt": "1"
+    },
+    "$db": "test"
+  },
+  "originatingCommand": {
+    "find": "orders",
+    "batchSize": {
+      "$numberInt": "1"
+    },
+    "filter": {
+      "a": {
+        "$gte": {
+          "$numberInt": "0"
+        }
+      }
+    },
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "193540"
+  },
+  "cursorid": {
+    "$numberLong": "3726144522378849923"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "1"
+  },
+  "nBatches": {
+    "$numberInt": "1"
+  },
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "1"
+  },
+  "planCacheShapeHash": "F5BB3A2E",
+  "queryHash": "F5BB3A2E",
+  "planCacheKey": "D605FC4D",
+  "queryShapeHash": "04E38E7169A5D4C27EA562FD618BF31D3545664B389C46FAB1942C0B24F689F7",
+  "queryFramework": "classic",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "169"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "58"
+  },
+  "planSummary": "COLLSCAN",
+  "ts": {
+    "$date": {
+      "$numberLong": "1794068641682"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

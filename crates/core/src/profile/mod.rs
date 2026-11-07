@@ -10,6 +10,8 @@ mod entry_tests;
 mod filter;
 #[cfg(test)]
 mod filter_tests;
+#[cfg(test)]
+mod real_fixture_tests;
 
 pub use classify::classify_entry;
 pub(crate) use entry::name_is_ours;

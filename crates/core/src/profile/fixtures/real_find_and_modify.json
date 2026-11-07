@@ -1,0 +1,77 @@
+{
+  "op": "command",
+  "ns": "test.orders",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "findAndModify": "orders",
+    "query": {
+      "b": {
+        "$numberInt": "8"
+      }
+    },
+    "update": {
+      "$set": {
+        "fam": {
+          "$numberInt": "1"
+        }
+      }
+    },
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "1599502"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "8"
+  },
+  "nMatched": {
+    "$numberInt": "1"
+  },
+  "nModified": {
+    "$numberInt": "1"
+  },
+  "nUpserted": {
+    "$numberInt": "0"
+  },
+  "keysInserted": {
+    "$numberInt": "0"
+  },
+  "keysDeleted": {
+    "$numberInt": "0"
+  },
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "1"
+  },
+  "planCacheShapeHash": "FBF6A5FF",
+  "queryHash": "FBF6A5FF",
+  "planCacheKey": "40EAC3FF",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "146"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "63"
+  },
+  "planSummary": "COLLSCAN",
+  "planningTimeMicros": {
+    "$numberInt": "28"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794068649821"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}
