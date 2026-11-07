@@ -1,6 +1,7 @@
 //! `ProfilingState`, `SetProfilingLevel` and `QueryShapes`: the profiler answers are outcomes
 //! inside `Event::ProfilingState` (never an `Event::Failed`), shapes come from the history.
 
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -110,6 +111,39 @@ impl Connector for FixedConnector {
         _tunnel: Option<std::net::SocketAddr>,
     ) -> Result<Arc<dyn DocumentStore>> {
         Ok(self.0.clone())
+    }
+}
+
+/// Hands out its stores one per connect, in order.
+struct SeqConnector(Mutex<VecDeque<Arc<dyn DocumentStore>>>);
+
+#[async_trait::async_trait]
+impl Connector for SeqConnector {
+    async fn connect(
+        &self,
+        _cfg: &ConnectionConfig,
+        _password: Option<&str>,
+        _tunnel: Option<std::net::SocketAddr>,
+    ) -> Result<Arc<dyn DocumentStore>> {
+        self.0
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or_else(|| CoreError::Unsupported("no more stores".into()))
+    }
+}
+
+struct FailingConnector;
+
+#[async_trait::async_trait]
+impl Connector for FailingConnector {
+    async fn connect(
+        &self,
+        _cfg: &ConnectionConfig,
+        _password: Option<&str>,
+        _tunnel: Option<std::net::SocketAddr>,
+    ) -> Result<Arc<dyn DocumentStore>> {
+        Err(CoreError::Unsupported("refused".into()))
     }
 }
 
@@ -270,7 +304,9 @@ async fn profiler_timeout_is_an_outcome_not_a_failure() {
     for command in [state_command(session), set_command(session, 1)] {
         h.tx.send(command).unwrap();
         match outcome(&mut h, session).await {
-            Err(CoreError::Database(text)) => assert_eq!(text, "timeout"),
+            Err(CoreError::Database(text)) => {
+                assert_eq!(text, super::handlers::COMMAND_TIMEOUT_MESSAGE)
+            }
             other => panic!("expected a timeout outcome, got {other:?}"),
         }
     }
@@ -382,14 +418,189 @@ async fn query_shapes_failure_is_a_request_failed() {
 
 #[tokio::test]
 async fn only_the_set_command_ever_writes_the_profiler_level() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = RuntimeConfig {
+        history_path: Some(dir.path().join("history.sqlite")),
+        ..RuntimeConfig::default()
+    };
     let store = Recording::new(InMemoryStore::new().with_profiling_level("shop", 1));
-    let (mut h, session) = connected(store.clone(), false).await;
+    let (mut h, session) = connected_with(store.clone(), false, config).await;
     h.tx.send(state_command(session)).unwrap();
     outcome(&mut h, session).await.expect("a state");
     h.tx.send(shapes_command(session, mock_namespace(), 1))
         .unwrap();
-    assert!(matches!(next(&mut h).await, Event::QueryShapes { .. }));
+    // The sampler may report on its own before the answer.
+    loop {
+        match next(&mut h).await {
+            Event::QueryShapes { .. } => break,
+            Event::Sampler { .. } => {}
+            other => panic!("expected QueryShapes, got {other:?}"),
+        }
+    }
     h.tx.send(Command::Disconnect { session }).unwrap();
-    assert!(matches!(next(&mut h).await, Event::Disconnected { .. }));
+    loop {
+        if matches!(next(&mut h).await, Event::Disconnected { .. }) {
+            break;
+        }
+    }
+    // Let anything still running in the background show itself before counting.
+    tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(store.sets().is_empty(), "nothing changed the profiler");
+}
+
+#[tokio::test]
+async fn query_shapes_returns_only_the_asking_connections_shapes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history.sqlite");
+    let ns = mock_namespace();
+    let config = RuntimeConfig {
+        history_path: Some(path.clone()),
+        ..RuntimeConfig::default()
+    };
+    let (mut h, session) =
+        connected_with(Recording::new(InMemoryStore::new()), false, config).await;
+    let stranger = uuid::Uuid::from_u128(77);
+    let (db, _) = HistoryDb::open(&path).unwrap();
+    db.record_shapes(&[
+        observation(session, "mine", &ns),
+        observation(stranger, "stranger", &ns),
+    ])
+    .unwrap();
+    h.tx.send(shapes_command(session, ns, 1)).unwrap();
+    loop {
+        match next(&mut h).await {
+            Event::QueryShapes { shapes, .. } => {
+                let hashes: Vec<_> = shapes.iter().map(|s| s.hash.as_str()).collect();
+                assert_eq!(hashes, ["mine"]);
+                break;
+            }
+            Event::Sampler { .. } => {}
+            other => panic!("expected QueryShapes, got {other:?}"),
+        }
+    }
+}
+
+async fn bare_runtime() -> RuntimeHandle {
+    spawn_runtime_with_connector(
+        None,
+        None,
+        Arc::new(FailingConnector),
+        Arc::new(|| {}),
+        RuntimeConfig::default(),
+    )
+}
+
+#[tokio::test]
+async fn profiling_state_for_a_missing_session_is_an_outcome() {
+    let mut h = bare_runtime().await;
+    let session = uuid::Uuid::from_u128(404);
+    h.tx.send(state_command(session)).unwrap();
+    assert!(matches!(
+        outcome(&mut h, session).await,
+        Err(CoreError::Unsupported(_))
+    ));
+}
+
+#[tokio::test]
+async fn set_profiling_level_for_a_missing_session_is_an_outcome() {
+    let mut h = bare_runtime().await;
+    let session = uuid::Uuid::from_u128(404);
+    h.tx.send(set_command(session, 1)).unwrap();
+    assert!(matches!(
+        outcome(&mut h, session).await,
+        Err(CoreError::Unsupported(_))
+    ));
+}
+
+#[tokio::test]
+async fn profiling_state_not_connected_is_an_outcome() {
+    let mut h = bare_runtime().await;
+    let cfg = ConnectionConfig::new("c", "mongodb://localhost:27017");
+    h.tx.send(Command::Connect(cfg.clone())).unwrap();
+    assert!(matches!(next(&mut h).await, Event::ConnectFailed { .. }));
+    for command in [state_command(cfg.id), set_command(cfg.id, 1)] {
+        h.tx.send(command).unwrap();
+        assert!(matches!(
+            outcome(&mut h, cfg.id).await,
+            Err(CoreError::Unsupported(_))
+        ));
+    }
+}
+
+/// Connects to `old`, then sends `command` and a reconnect (to `new`) back to back, so the
+/// command is issued for a generation that is over before it runs. Returns its answer.
+async fn answer_of_a_command_overtaken_by_a_reconnect(
+    command: impl FnOnce(SessionId) -> Command,
+    new: Arc<Recording>,
+) -> Event {
+    let old = Recording::new(InMemoryStore::new().with_profiling_level("shop", 0));
+    let connector = SeqConnector(Mutex::new(VecDeque::from([
+        old as Arc<dyn DocumentStore>,
+        new as Arc<dyn DocumentStore>,
+    ])));
+    let mut h = spawn_runtime_with_connector(
+        None,
+        None,
+        Arc::new(connector),
+        Arc::new(|| {}),
+        RuntimeConfig::default(),
+    );
+    let cfg = ConnectionConfig::new("c", "mongodb://localhost:27017");
+    h.tx.send(Command::Connect(cfg.clone())).unwrap();
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    h.tx.send(command(cfg.id)).unwrap();
+    h.tx.send(Command::Connect(cfg.clone())).unwrap();
+    let mut answer = None;
+    let mut connected = false;
+    while answer.is_none() || !connected {
+        match next(&mut h).await {
+            Event::Connected { .. } => connected = true,
+            Event::Sampler { .. } => {}
+            other => answer = Some(other),
+        }
+    }
+    answer.unwrap()
+}
+
+#[tokio::test]
+async fn set_profiling_level_from_an_old_generation_never_reaches_the_new_connection() {
+    let new = Recording::new(InMemoryStore::new().with_profiling_level("shop", 0));
+    let event =
+        answer_of_a_command_overtaken_by_a_reconnect(|s| set_command(s, 2), new.clone()).await;
+    assert!(new.sets().is_empty(), "the new connection saw the write");
+    assert!(
+        !matches!(event, Event::ProfilingState { outcome: Ok(_), .. }),
+        "{event:?}"
+    );
+}
+
+#[tokio::test]
+async fn superseded_profiler_command_is_not_a_banner() {
+    // Kept as `Failed { Superseded }`, like every other superseded command: the UI drops it, and
+    // it is no real failure to show inline.
+    let new = Recording::new(InMemoryStore::new());
+    let event = answer_of_a_command_overtaken_by_a_reconnect(|s| set_command(s, 2), new).await;
+    assert!(
+        matches!(
+            event,
+            Event::Failed {
+                context: "set_profiling_level",
+                error: CoreError::Superseded,
+                ..
+            }
+        ),
+        "{event:?}"
+    );
+    let new = Recording::new(InMemoryStore::new());
+    let event = answer_of_a_command_overtaken_by_a_reconnect(state_command, new).await;
+    assert!(
+        matches!(
+            event,
+            Event::Failed {
+                error: CoreError::Superseded,
+                ..
+            }
+        ),
+        "{event:?}"
+    );
 }

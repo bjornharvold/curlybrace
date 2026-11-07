@@ -55,6 +55,17 @@ impl DocumentStore for CountingStore {
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
         self.inner.estimated_count(ns).await
     }
+    async fn profiling_level(&self, db: &str) -> Result<crate::store::ProfilingState> {
+        self.inner.profiling_level(db).await
+    }
+    async fn set_profiling_level(
+        &self,
+        db: &str,
+        level: i32,
+    ) -> Result<crate::store::ProfilingState> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.set_profiling_level(db, level).await
+    }
     async fn list_indexes(&self, ns: &Namespace) -> Result<Vec<crate::store::CollectionIndex>> {
         self.inner.list_indexes(ns).await
     }
@@ -280,10 +291,7 @@ async fn reads_still_work_on_a_read_only_session() {
                     | Event::IndexHistory { .. }
                     | Event::EstimatedCount { .. }
                     | Event::QueryShapes { .. }
-            ) || matches!(
-                event,
-                Event::ProfilingState { ref outcome, .. } if *outcome != Err(CoreError::ReadOnly)
-            ),
+            ) || matches!(event, Event::ProfilingState { outcome: Ok(_), .. }),
             "{event:?}"
         );
     }

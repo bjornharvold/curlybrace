@@ -6,21 +6,21 @@
 use std::sync::Arc;
 
 use super::indexes::shapes_for;
-use super::{Event, SessionId};
+use super::{Command, Event, SessionId};
 use crate::error::{CoreError, Result};
 use crate::history::{ChartRange, HistoryDb};
 use crate::store::{DocumentStore, Namespace, ProfilingState};
 
 /// The database a profiler command addresses, if it is one.
-pub(super) fn profiler_db(command: &super::Command) -> Option<&str> {
+pub(super) fn profiler_db(command: &Command) -> Option<&str> {
     match command {
-        super::Command::ProfilingState { db, .. }
-        | super::Command::SetProfilingLevel { db, .. } => Some(db),
+        Command::ProfilingState { db, .. } | Command::SetProfilingLevel { db, .. } => Some(db),
         _ => None,
     }
 }
 
-/// The answer to a profiler command that could not finish: carries `error` as its outcome.
+/// The answer to a profiler command that could not finish, wherever it stopped (no session, not
+/// connected, a lost connection, a timeout): `error` is its outcome, never a banner.
 pub(super) fn profiler_failure(session: SessionId, db: String, error: CoreError) -> Event {
     Event::ProfilingState {
         session,

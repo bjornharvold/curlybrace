@@ -83,7 +83,7 @@ pub(super) async fn series_for(
         .iter()
         .map(|spec| (spec.name.clone(), spec.definition_hash()))
         .collect();
-    tokio::task::spawn_blocking(move || {
+    blocking(move || {
         let now = clock::now_secs();
         history
             .series_for(session, &ns.db, &ns.collection)?
@@ -104,10 +104,19 @@ pub(super) async fn series_for(
             .collect()
     })
     .await
-    .map_err(|_| CoreError::Database("internal error".into()))?
 }
 
-/// The query shapes stored for the collection over `range`. No history means none.
+/// Runs a history read on the blocking pool; a panic in it is an internal error.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|_| CoreError::Database("internal error".into()))?
+}
+
+/// The query shapes stored for the collection over `range`. No history means none. Lives here
+/// beside `series_for` because both are history reads sharing [`blocking`].
 pub(super) async fn shapes_for(
     history: Option<Arc<HistoryDb>>,
     session: SessionId,
@@ -118,11 +127,8 @@ pub(super) async fn shapes_for(
         return Ok(Vec::new());
     };
     let ns = ns.clone();
-    tokio::task::spawn_blocking(move || {
-        history.shapes_for(session, &ns.db, &ns.collection, range, clock::now_secs())
-    })
-    .await
-    .map_err(|_| CoreError::Database("internal error".into()))?
+    blocking(move || history.shapes_for(session, &ns.db, &ns.collection, range, clock::now_secs()))
+        .await
 }
 
 /// Deletes a connection's history in the background; there is no answer, a failure is logged.

@@ -402,7 +402,12 @@ pub enum Event {
         outcome: std::result::Result<Verdict, CoreError>,
     },
     /// The answer to `ProfilingState` and `SetProfilingLevel`. A failure, a refusal or a timeout
-    /// is an `Err` outcome shown inline; it is never an [`Event::Failed`], which raises a banner.
+    /// is an `Err` outcome shown inline; it is never an [`Event::Failed`], which raises a banner
+    /// (a superseded command is the one exception and is dropped, like any superseded answer).
+    ///
+    /// An `Err` outcome of a `SetProfilingLevel`, notably a timeout or a lost connection, is
+    /// AMBIGUOUS: the server may have applied the change. The UI must re-read the state with
+    /// [`Command::ProfilingState`].
     ProfilingState {
         session: SessionId,
         db: String,
@@ -660,13 +665,11 @@ fn dispatch(
         data => {
             let id = data.session().expect("a data command names its session");
             let Some(session) = shared.session(id) else {
-                let unknown = handlers::failure_event(
-                    id,
-                    context,
-                    request,
-                    0,
-                    CoreError::Unsupported("not connected".into()),
-                );
+                let error = CoreError::Unsupported("not connected".into());
+                let unknown = match profiler_handlers::profiler_db(&data) {
+                    Some(db) => profiler_handlers::profiler_failure(id, db.to_owned(), error),
+                    None => handlers::failure_event(id, context, request, 0, error),
+                };
                 if events.send(unknown).is_ok() {
                     repaint();
                 }
