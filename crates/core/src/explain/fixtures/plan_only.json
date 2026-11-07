@@ -1,0 +1,1 @@
+{ "queryPlanner": { "namespace": "shop.orders", "indexFilterSet": false, "parsedQuery": {}, "winningPlan": { "stage": "FETCH", "inputStage": { "stage": "IXSCAN", "keyPattern": { "status": 1 }, "indexName": "status_1" } }, "rejectedPlans": [] }, "ok": 1 }
