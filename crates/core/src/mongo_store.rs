@@ -13,8 +13,8 @@ use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
 use crate::store::{
-    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
-    IndexUsage, Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
+    IndexStatus, IndexUsage, Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
 };
 use mongodb::options::{AggregateOptions, Collation, ReadPreference, SelectionCriteria};
 
@@ -336,6 +336,10 @@ impl DocumentStore for MongoStore {
 
     async fn list_index_specs(&self, ns: &Namespace) -> Result<Vec<IndexSpec>> {
         crate::mongo_indexes::list_index_specs(&self.client.database(&ns.db), ns, db_err).await
+    }
+
+    async fn explain_find(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
+        crate::mongo_explain::explain_find(&self.client.database(&ns.db), ns, q).await
     }
 
     async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {

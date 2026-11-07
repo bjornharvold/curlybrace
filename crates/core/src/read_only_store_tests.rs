@@ -13,8 +13,8 @@ use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
 use crate::read_only_store::ReadOnlyStore;
 use crate::store::{
-    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
-    IndexUsage, Namespace, Page, Query, Topology, WriteFailure, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
+    IndexStatus, IndexUsage, Namespace, Page, Query, Topology, WriteFailure, WriteOp, WriteOutcome,
 };
 use crate::test_support::mock_objects::mock_index_spec;
 
@@ -172,6 +172,13 @@ impl DocumentStore for RecordingStore {
             since_ms: 1_000,
             spec: mock_index_spec(),
         }])
+    }
+    async fn explain_find(&self, _ns: &Namespace, _q: &Query) -> Result<Explain> {
+        self.hit("explain_find");
+        Ok(Explain {
+            document: doc! { "via": "explain_find" },
+            plan_only: true,
+        })
     }
     async fn create_index(&self, _ns: &Namespace, _spec: &IndexSpec) -> Result<()> {
         self.hit("create_index");
@@ -339,6 +346,16 @@ async fn read_only_forwards_list_indexes_and_index_stats() {
     assert_eq!(stats[0].name, "via_index_stats");
     assert_eq!(inner.count("list_indexes"), 1);
     assert_eq!(inner.count("index_stats"), 1);
+}
+
+#[tokio::test]
+async fn read_only_store_forwards_explain_find() {
+    // Locked on purpose: explain is a read.
+    let (inner, _flag, store) = wrapped(true);
+    let out = store.explain_find(&ns(), &Query::default()).await.unwrap();
+    assert_eq!(out.document, doc! { "via": "explain_find" });
+    assert!(out.plan_only);
+    assert_eq!(inner.count("explain_find"), 1);
 }
 
 #[tokio::test]

@@ -121,6 +121,14 @@ pub struct CollectionIndex {
     pub size_bytes: Option<u64>,
 }
 
+/// The server's explain output for a query. `plan_only` is true when the run was cut short by
+/// the time limit and only the plan (no execution statistics) was fetched.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Explain {
+    pub document: Document,
+    pub plan_only: bool,
+}
+
 /// What `$indexStats` reports for one index on one node.
 #[derive(Clone, Debug, PartialEq)]
 pub struct IndexUsage {
@@ -353,6 +361,15 @@ pub trait DocumentStore: Send + Sync {
     async fn index_stats(&self, _ns: &Namespace) -> Result<Vec<IndexUsage>> {
         Err(CoreError::Unsupported(
             "this store cannot read index usage".into(),
+        ))
+    }
+
+    /// Explains the find a query sends (filter, sort, projection, skip, limit) with execution
+    /// statistics. A read, so a read-only connection may call it. A query that outruns the
+    /// explain time limit comes back with `plan_only` set.
+    async fn explain_find(&self, _ns: &Namespace, _q: &Query) -> Result<Explain> {
+        Err(CoreError::Unsupported(
+            "this store cannot explain queries".into(),
         ))
     }
 }

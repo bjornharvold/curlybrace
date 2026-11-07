@@ -18,8 +18,8 @@ use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_va
 use crate::error::{CoreError, Result};
 use crate::indexes::{IndexOptions, IndexSpec};
 use crate::store::{
-    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
-    IndexUsage, Namespace, Page, Query, WriteFailure, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
+    IndexStatus, IndexUsage, Namespace, Page, Query, WriteFailure, WriteOp, WriteOutcome,
 };
 
 type Collections = BTreeMap<(String, String), Vec<Document>>;
@@ -30,6 +30,7 @@ pub struct InMemoryStore {
     pub(super) indexes: Mutex<IndexMap>,
     pub(super) usage: Mutex<UsageMap>,
     options: Mutex<OptionsMap>,
+    explains: Mutex<BTreeMap<(String, String), Document>>,
 }
 
 impl InMemoryStore {
@@ -38,6 +39,15 @@ impl InMemoryStore {
     }
 
     /// Returns a store seeded with `docs` in `ns` (added to any existing docs).
+    /// Scripts the explain output `explain_find` answers for `ns`.
+    pub fn with_explain(self, ns: &Namespace, document: Document) -> Self {
+        self.explains
+            .lock()
+            .expect("fresh mutex cannot be poisoned")
+            .insert(key(ns), document);
+        self
+    }
+
     pub fn with_docs(self, ns: &Namespace, docs: Vec<Document>) -> Self {
         {
             let mut data = self.data.lock().expect("fresh mutex cannot be poisoned");
@@ -297,6 +307,17 @@ impl DocumentStore for InMemoryStore {
     async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
         let usage = self.usage.lock().map_err(|_| poisoned())?;
         Ok(usage.get(&key(ns)).cloned().unwrap_or_default())
+    }
+
+    async fn explain_find(&self, ns: &Namespace, _q: &Query) -> Result<Explain> {
+        let scripted = self.explains.lock().map_err(|_| poisoned())?;
+        scripted
+            .get(&key(ns))
+            .map(|document| Explain {
+                document: document.clone(),
+                plan_only: false,
+            })
+            .ok_or_else(|| CoreError::Unsupported("this store cannot explain queries".into()))
     }
 
     async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {
@@ -796,5 +817,25 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn memory_store_unscripted_explain_is_unsupported() {
+        let store = InMemoryStore::new();
+        let out = store
+            .explain_find(&Namespace::new("db", "c"), &Query::default())
+            .await;
+        assert!(matches!(out, Err(CoreError::Unsupported(_))), "{out:?}");
+    }
+
+    #[tokio::test]
+    async fn memory_store_answers_scripted_explain_per_namespace() {
+        let ns = Namespace::new("db", "c");
+        let store = InMemoryStore::new().with_explain(&ns, doc! { "ok": 1 });
+        let out = store.explain_find(&ns, &Query::default()).await.unwrap();
+        assert_eq!(out.document, doc! { "ok": 1 });
+        assert!(!out.plan_only);
+        let other = Namespace::new("db", "other");
+        assert!(store.explain_find(&other, &Query::default()).await.is_err());
     }
 }

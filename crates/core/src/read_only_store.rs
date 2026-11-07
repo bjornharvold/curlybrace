@@ -13,8 +13,8 @@ use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
 use crate::store::{
-    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
-    IndexUsage, Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
+    IndexStatus, IndexUsage, Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
 };
 
 pub struct ReadOnlyStore {
@@ -143,6 +143,10 @@ impl DocumentStore for ReadOnlyStore {
 
     async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {
         self.inner.index_stats(ns).await
+    }
+
+    async fn explain_find(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
+        self.inner.explain_find(ns, q).await
     }
 
     async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {
