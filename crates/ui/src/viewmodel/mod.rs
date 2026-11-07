@@ -19,6 +19,8 @@ pub mod indexes;
 pub mod json_cache;
 pub mod page_key;
 pub mod queries;
+pub mod queries_chart;
+pub mod queries_status;
 pub mod sidebar;
 pub mod sidebar_selection;
 pub mod table;

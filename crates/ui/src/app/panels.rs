@@ -8,7 +8,7 @@ use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
 use crate::viewmodel::verdict::badge;
-use crate::viewmodel::{CollectionTab, copy_blocked};
+use crate::viewmodel::{CollectionTab, IndexesAction, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections_with_tools};
@@ -22,6 +22,7 @@ use crate::views::index_dialogs::{
     DialogContext, show_drop_confirm, show_drop_old, show_ttl_prompt,
 };
 use crate::views::indexes::show_indexes;
+use crate::views::queries_consent::show_profiler_consent;
 use crate::views::sidebar_roots::show_roots;
 use crate::views::tools_settings::show_tools_settings;
 use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
@@ -370,6 +371,11 @@ fn show_index_dialogs(
             .flatten()
             .map(|a| UiEvent::Input(Input::Indexes(a))),
     );
+    let consent = indexes.queries.consent.as_ref().and_then(|consent| {
+        let (busy, read_only) = (indexes.queries.busy(), badge.read_only);
+        show_profiler_consent(ctx, consent, busy, read_only, badge.production, i18n)
+    });
+    out.extend(consent.map(|a| UiEvent::Input(Input::Indexes(IndexesAction::Queries(a)))));
 }
 
 /// Draws the production write warning whenever a write is parked, whichever session is active:
