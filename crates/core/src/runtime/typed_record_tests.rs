@@ -230,3 +230,28 @@ async fn history_failure_never_changes_the_verdict_event() {
     };
     assert_eq!(outcome.unwrap().kind, VerdictKind::CollectionScan);
 }
+
+#[test]
+fn typed_observation_is_value_free_and_counts_misses_by_verdict() {
+    use super::typed_record::typed_observation;
+    let ns = mock_namespace();
+    let at = 1_800_000_123;
+    for (kind, misses) in [
+        (VerdictKind::CollectionScan, 1),
+        (VerdictKind::SortNotCovered, 1),
+        (VerdictKind::InefficientIndex, 1),
+        (VerdictKind::IndexUsed, 0),
+        (VerdictKind::NoFilter, 0),
+        (VerdictKind::EmptyCollection, 0),
+    ] {
+        let o = typed_observation(SessionId::from_u128(5), &ns, &typed_query(), kind, at);
+        assert_eq!(o.misses, misses, "{kind:?}");
+        assert_eq!((o.executions, o.total_millis, o.max_millis), (1, 0, 0));
+        assert_eq!((o.at_secs, o.gap_secs, o.worst), (at, 0, kind));
+        assert_eq!(o.key.source, ShapeSource::Typed);
+        assert_eq!(o.key.host, crate::history::TYPED_HOST);
+        assert_eq!((o.key.db.as_str(), o.key.collection.as_str()), (ns.db.as_str(), ns.collection.as_str()));
+        let dump = format!("{o:?}");
+        assert!(!dump.contains("zebra-secret") && !dump.contains("424242"), "{dump}");
+    }
+}

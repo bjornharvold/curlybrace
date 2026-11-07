@@ -218,6 +218,7 @@ struct Probe {
     reads: Mutex<Vec<(String, i64)>>,
     sets: AtomicUsize,
     level_failure: Mutex<Option<CoreError>>,
+    host: Mutex<Option<String>>,
 }
 
 impl Probe {
@@ -229,6 +230,7 @@ impl Probe {
             reads: Mutex::default(),
             sets: AtomicUsize::new(0),
             level_failure: Mutex::default(),
+            host: Mutex::default(),
         })
     }
 
@@ -238,6 +240,10 @@ impl Probe {
 
     fn swap(&self, inner: InMemoryStore) {
         *self.inner.lock().unwrap() = Arc::new(inner);
+    }
+
+    fn set_host(&self, host: &str) {
+        *self.host.lock().unwrap() = Some(host.to_owned());
     }
 
     fn fail_levels(&self, error: Option<CoreError>) {
@@ -289,7 +295,12 @@ impl DocumentStore for Probe {
             .lock()
             .unwrap()
             .push((db.to_owned(), since_ts_millis));
-        self.store().read_profile(db, since_ts_millis).await
+        let read = self.store().read_profile(db, since_ts_millis).await?;
+        let host = self.host.lock().unwrap().clone();
+        Ok(ProfileRead {
+            host: host.unwrap_or(read.host.clone()),
+            ..read
+        })
     }
     async fn set_profiling_level(&self, _db: &str, _level: i32) -> Result<ProfilingState> {
         self.sets.fetch_add(1, Ordering::SeqCst);
@@ -641,6 +652,9 @@ async fn stops_when_the_status_channel_closes() {
         .expect("the task ends")
         .expect("without a panic");
 }
+
+#[path = "profiler_pass_tests.rs"]
+mod pass_tests;
 
 // ------------------------------------------------------ session attachment
 

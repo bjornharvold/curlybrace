@@ -8,8 +8,7 @@
 use std::sync::Arc;
 
 use super::SessionId;
-use super::profiler::variant_of;
-use crate::clock;
+use crate::error_name::variant_of;
 use crate::explain::VerdictKind;
 use crate::history::{HistoryDb, ShapeKey, ShapeObservation, ShapeSource, TYPED_HOST, is_miss};
 use crate::shape::from_query;
@@ -45,7 +44,8 @@ pub(super) fn typed_observation(
     }
 }
 
-/// Records the typed shape in the background. A purged connection is skipped by the history
+/// Records the typed shape in the background, stamped by `now` (the wall clock in Unix seconds,
+/// passed in like everywhere else in the runtime). A purged connection is skipped by the history
 /// itself; any other failure is logged and otherwise ignored.
 pub(super) fn record_typed(
     history: &Arc<HistoryDb>,
@@ -53,8 +53,9 @@ pub(super) fn record_typed(
     ns: &Namespace,
     query: &Query,
     kind: VerdictKind,
+    now: &dyn Fn() -> i64,
 ) {
-    let row = typed_observation(connection, ns, query, kind, clock::now_secs());
+    let row = typed_observation(connection, ns, query, kind, now());
     let history = Arc::clone(history);
     // Detached on purpose: nothing waits for the recording.
     drop(tokio::task::spawn_blocking(move || {

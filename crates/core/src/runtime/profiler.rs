@@ -24,12 +24,12 @@ use super::sampler::{
     report, wait_for_tick,
 };
 use crate::clock;
+use crate::error_name::variant_of;
 use crate::history::HistoryDb;
 use crate::store::DocumentStore;
-use pass::{Marks, Poll, poll_once};
+pub(super) use pass::{Marks, Poll, poll_once};
 
 pub use super::profiler_fold::fold_entries;
-pub(super) use pass::variant_of;
 
 /// What the loop remembers between ticks.
 struct LoopState {
@@ -65,7 +65,7 @@ impl LoopState {
     }
 
     /// The status a finished tick stands for, or `None` when it leaves the last one standing
-    /// (a history file that is busy for a moment, an error that is only worth a log line).
+    /// (a history file that is busy for a moment).
     fn status_of(&mut self, result: Result<Poll, TickError>) -> Option<ProfilerStatus> {
         match result {
             Ok(poll) => {
@@ -95,9 +95,11 @@ impl LoopState {
                 Some(ProfilerStatus::Paused(reason))
             }
             None => {
+                // The server answers, so this is no reason to pause; but nothing was learned, so
+                // the last status must not stay up.
                 log::warn!("profile polling failed: {}", variant_of(error.error()));
                 self.failures = 0;
-                None
+                Some(ProfilerStatus::Failing)
             }
         }
     }

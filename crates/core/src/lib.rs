@@ -13,6 +13,7 @@ pub mod crud;
 pub mod driver_error;
 pub mod ejson;
 pub mod error;
+mod error_name;
 pub mod explain;
 pub mod history;
 pub mod indexes;

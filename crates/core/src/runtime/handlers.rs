@@ -315,7 +315,9 @@ async fn data_command(
             };
             // Only a verdict is recorded; a failed explain says nothing about the query.
             if let (Ok(verdict), Some(history)) = (&outcome, history.as_ref()) {
-                super::typed_record::record_typed(history, session, &ns, &query, verdict.kind);
+                let kind = verdict.kind;
+                let now = crate::clock::now_secs;
+                super::typed_record::record_typed(history, session, &ns, &query, kind, &now);
             }
             Event::Explain {
                 session,

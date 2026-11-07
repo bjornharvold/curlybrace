@@ -12,6 +12,9 @@ pub enum ProfilerStatus {
     Idle,
     /// Entries of `databases` databases are being read.
     Reading { databases: usize },
+    /// Every database that was tried failed in a way that is not a pause (see the log for the
+    /// cause); the poller retries every interval. Never `Idle`: that means nothing to read.
+    Failing,
     /// The profile of `db` rolled entries off before they were read; the loss is on the record.
     /// Reported for the tick that found it; the next tick without a loss reports `Reading` again.
     MissedEntries { db: String },

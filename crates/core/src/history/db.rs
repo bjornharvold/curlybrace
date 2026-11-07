@@ -125,6 +125,12 @@ impl HistoryDb {
             .expect("rename the samples table");
     }
 
+    /// Runs raw SQL on the connection, to break and mend the schema in a test.
+    #[cfg(test)]
+    pub(crate) fn exec_for_tests(&self, sql: &str) {
+        self.lock().execute_batch(sql).expect("run the test SQL");
+    }
+
     /// Opens (creating, with mode 0600 on unix) the database at `path`. A corrupt file is moved
     /// to `<name>.corrupt` and replaced; a file from a newer build is refused untouched.
     pub fn open(path: &Path) -> Result<(Self, Option<Recovery>)> {

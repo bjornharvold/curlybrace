@@ -270,6 +270,41 @@ impl HistoryDb {
     }
 }
 
+impl HistoryDb {
+    /// Notes that entries of `db` may have been missed from `from_secs` for `span_secs`, spread
+    /// over the 10-minute buckets the span covers (the last one gets the remainder), in ONE
+    /// transaction so a retry never counts a part of it twice. At most [`MAX_GAP_BUCKETS`]
+    /// buckets are written: of a longer span only its newest part is kept.
+    pub fn record_gap_span(
+        &self,
+        connection: Uuid,
+        host: &str,
+        db: &str,
+        from_secs: i64,
+        span_secs: u64,
+    ) -> Result<()> {
+        if self.is_purged(connection) {
+            return Ok(());
+        }
+        let span = i64::try_from(span_secs).unwrap_or(i64::MAX);
+        let end = from_secs.saturating_add(span);
+        let start = from_secs.max(end.saturating_sub(MAX_GAP_BUCKETS * RAW_BUCKET_SECS));
+        let id = connection.to_string();
+        let mut conn = self.lock();
+        let tx = conn.transaction().map_err(sql_err)?;
+        let mut at = start;
+        while at < end {
+            let part = (end - at).min(RAW_BUCKET_SECS);
+            add_gap(&tx, (&id, host, db), TIER_RAW, at.div_euclid(RAW_BUCKET_SECS) * RAW_BUCKET_SECS, part)?;
+            at += part;
+        }
+        tx.commit().map_err(sql_err)
+    }
+}
+
+/// Most buckets one lost span is spread over: the raw retention in buckets.
+const MAX_GAP_BUCKETS: i64 = super::retention::RAW_RETENTION_SECS / RAW_BUCKET_SECS;
+
 /// Deletes every shape row and gap of a connection (the caller holds the connection lock).
 pub(super) fn delete_connection(conn: &Connection, connection: Uuid) -> Result<()> {
     let id = connection.to_string();
