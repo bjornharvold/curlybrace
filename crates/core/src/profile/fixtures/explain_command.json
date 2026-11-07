@@ -1,0 +1,33 @@
+{
+  "op": "command",
+  "ns": "shop.orders",
+  "command": {
+    "explain": {
+      "find": "orders",
+      "filter": {
+        "status": "open"
+      }
+    },
+    "verbosity": "executionStats",
+    "$db": "shop"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "5000"
+  },
+  "nreturned": {
+    "$numberInt": "12"
+  },
+  "millis": {
+    "$numberInt": "38"
+  },
+  "planSummary": "COLLSCAN",
+  "appName": "mongosh 2.3.0",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

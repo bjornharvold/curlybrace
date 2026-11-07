@@ -1,0 +1,32 @@
+{
+  "op": "command",
+  "ns": "shop.orders",
+  "command": {
+    "aggregate": "orders",
+    "pipeline": [
+      {
+        "$indexStats": {}
+      }
+    ],
+    "cursor": {},
+    "$db": "shop"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "4"
+  },
+  "millis": {
+    "$numberInt": "1"
+  },
+  "appName": "mongosh 2.3.0",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

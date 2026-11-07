@@ -12,7 +12,8 @@ const INEFFICIENT_MIN_EXAMINED: u64 = 100;
 /// Examined must be at least this many times the returned count.
 const INEFFICIENT_RATIO: u64 = 10;
 
-fn count(doc: Option<&Document>, key: &str) -> u64 {
+/// A non-negative count read from `doc[key]` in any numeric width; anything else reads as 0.
+pub(crate) fn count(doc: Option<&Document>, key: &str) -> u64 {
     match doc.and_then(|d| d.get(key)) {
         Some(Bson::Int32(n)) => u64::try_from(*n).unwrap_or(0),
         Some(Bson::Int64(n)) => u64::try_from(*n).unwrap_or(0),
@@ -80,7 +81,9 @@ fn has_access_stage(stages: &[&str]) -> bool {
     stages.iter().any(|s| ACCESS_STAGES.contains(s))
 }
 
-fn is_inefficient(keys: u64, docs: u64, returned: u64) -> bool {
+/// Whether examining `keys`/`docs` to return `returned` is wasteful. Shared with the profiler so
+/// both judge by the same thresholds.
+pub(crate) fn is_inefficient(keys: u64, docs: u64, returned: u64) -> bool {
     let examined = keys.max(docs);
     examined >= INEFFICIENT_MIN_EXAMINED && examined >= INEFFICIENT_RATIO * returned.max(1)
 }

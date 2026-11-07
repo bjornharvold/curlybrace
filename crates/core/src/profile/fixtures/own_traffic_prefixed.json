@@ -1,0 +1,30 @@
+{
+  "op": "command",
+  "ns": "shop.orders",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "status": "open"
+    },
+    "$db": "shop"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "5000"
+  },
+  "nreturned": {
+    "$numberInt": "12"
+  },
+  "millis": {
+    "$numberInt": "41"
+  },
+  "planSummary": "COLLSCAN",
+  "appName": "myapp curlybrace",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

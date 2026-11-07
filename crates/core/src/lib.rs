@@ -20,6 +20,7 @@ mod mongo_indexes;
 pub mod mongo_store;
 mod mongo_write;
 mod mongo_write_fields;
+pub mod profile;
 pub mod query;
 pub mod read_only_store;
 #[cfg(test)]

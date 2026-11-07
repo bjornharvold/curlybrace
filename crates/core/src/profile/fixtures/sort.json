@@ -1,0 +1,34 @@
+{
+  "op": "query",
+  "ns": "shop.orders",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "status": "open"
+    },
+    "$db": "shop",
+    "sort": {
+      "createdAt": -1
+    }
+  },
+  "keysExamined": {
+    "$numberInt": "40"
+  },
+  "docsExamined": {
+    "$numberInt": "40"
+  },
+  "nreturned": {
+    "$numberInt": "40"
+  },
+  "millis": {
+    "$numberInt": "6"
+  },
+  "planSummary": "IXSCAN { status: 1 }",
+  "hasSortStage": true,
+  "appName": "orders-service",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

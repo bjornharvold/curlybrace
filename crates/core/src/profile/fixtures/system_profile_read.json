@@ -1,0 +1,36 @@
+{
+  "op": "query",
+  "ns": "shop.system.profile",
+  "command": {
+    "find": "system.profile",
+    "filter": {
+      "ts": {
+        "$gt": {
+          "$date": {
+            "$numberLong": "1762499990000"
+          }
+        }
+      }
+    },
+    "$db": "shop"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "800"
+  },
+  "nreturned": {
+    "$numberInt": "25"
+  },
+  "millis": {
+    "$numberInt": "5"
+  },
+  "planSummary": "COLLSCAN",
+  "appName": "mongosh 2.3.0",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}
