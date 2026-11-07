@@ -159,3 +159,25 @@ fn no_status_yet_reads_as_idle() {
     let state = state.with_status(ProfilerStatus::Failing);
     assert_eq!(state.profiler_status(), ProfilerStatus::Failing);
 }
+
+#[test]
+fn rows_survive_a_non_canonical_stored_shape() {
+    // Valid JSON, but carrying a literal value: not something the recorder writes.
+    let odd = ShapeSummary {
+        shape_json: r#"{"filter":{"email":"a@b.c"}}"#.into(),
+        ..summary("x", VerdictKind::CollectionScan, 5, 5)
+    };
+    let rows = rows(&state_of(vec![odd]), &ns());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].suggestion, None);
+}
+
+#[test]
+fn consent_command_text_for_a_nasty_name_is_exactly_this() {
+    let text = ProfilerConsent {
+        db: "a\"b)\n".into(),
+        level: 2,
+    }
+    .command_text();
+    assert_eq!(text, r#"db.getSiblingDB("a\"b)\n").setProfilingLevel(2)"#);
+}

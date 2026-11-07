@@ -57,6 +57,16 @@ pub enum IndexesView {
     Queries,
 }
 
+/// The one profiler command a session has sent and not had answered. The runtime's answers carry
+/// no request number, so at most one is ever in flight and the answer is attributed by it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InFlight {
+    /// A `ProfilingState` read for this database.
+    Read(String),
+    /// A `SetProfilingLevel` for this database.
+    Write(String),
+}
+
 /// What the person did in the Queries view.
 #[derive(Clone, Debug, PartialEq)]
 pub enum QueriesAction {
@@ -88,11 +98,9 @@ pub struct QueriesState {
     pub range: ChartRange,
     /// The shapes were requested and have not arrived yet.
     pub loading: bool,
-    /// A profiler change was sent and has not been answered.
-    pub writing: bool,
-    /// The database the change in flight was sent for (its answer settles it, even when the person
-    /// has moved on to another collection).
-    pub write_db: Option<String>,
+    /// The profiler command sent and not yet answered (see [`InFlight`]); it survives a change of
+    /// collection, since its answer is still on its way.
+    pub in_flight: Option<InFlight>,
     /// The last thing that went wrong: a failed shapes read, or a profiler change whose outcome
     /// is unknown.
     pub error: Option<CoreError>,
@@ -108,8 +116,7 @@ impl Default for QueriesState {
             request: 0,
             range: ChartRange::Day,
             loading: false,
-            writing: false,
-            write_db: None,
+            in_flight: None,
             error: None,
         }
     }
@@ -124,8 +131,7 @@ impl QueriesState {
             request: self.request,
             range: self.range,
             status: self.status.clone(),
-            writing: self.writing,
-            write_db: self.write_db.clone(),
+            in_flight: self.in_flight.clone(),
             ..Self::default()
         }
     }
@@ -191,22 +197,35 @@ impl QueriesState {
     /// A profiler change for `db` was sent.
     pub fn write_sent(self, db: &str) -> Self {
         Self {
-            writing: true,
-            write_db: Some(db.to_string()),
+            in_flight: Some(InFlight::Write(db.to_string())),
             ..self
         }
     }
 
-    /// Whether the change in flight was sent for `db`.
-    pub fn is_writing_to(&self, db: &str) -> bool {
-        self.writing && self.write_db.as_deref() == Some(db)
+    /// A profiler read for `db` was sent: the state is loading until it is answered.
+    pub fn read_sent(self, db: &str) -> Self {
+        Self {
+            in_flight: Some(InFlight::Read(db.to_string())),
+            profiling: ProfilingView::Loading,
+            ..self
+        }
     }
 
-    /// The change in flight was answered.
-    pub fn write_settled(self) -> Self {
+    /// Whether a profiler change is being sent or answered.
+    pub fn writing(&self) -> bool {
+        matches!(self.in_flight, Some(InFlight::Write(_)))
+    }
+
+    /// Whether the profiler state cannot be asked about or changed right now: a command is in
+    /// flight, or the state is still loading.
+    pub fn busy(&self) -> bool {
+        self.in_flight.is_some() || self.profiling == ProfilingView::Loading
+    }
+
+    /// The command in flight was answered.
+    pub fn settled(self) -> Self {
         Self {
-            writing: false,
-            write_db: None,
+            in_flight: None,
             ..self
         }
     }

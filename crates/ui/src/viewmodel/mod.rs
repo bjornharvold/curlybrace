@@ -59,7 +59,7 @@ pub use indexes::{CollectionTab, IndexesAction, IndexesState};
 pub use json_cache::{JsonCache, view_json_cache};
 pub use page_key::{PageKey, page_key};
 pub use queries::{
-    IndexesView, PROFILER_LEVEL_OFF, PROFILER_LEVEL_ON, ProfilerConsent, ProfilingView,
+    InFlight, IndexesView, PROFILER_LEVEL_OFF, PROFILER_LEVEL_ON, ProfilerConsent, ProfilingView,
     QueriesAction, QueriesState, QueryRow, rows,
 };
 pub use sidebar::{

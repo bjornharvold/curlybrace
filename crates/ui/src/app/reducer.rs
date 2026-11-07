@@ -234,6 +234,13 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
                 ),
             }
         }
+        // A profiler command that failed as a command (not as an outcome) is an inline outcome
+        // too: no banner, and what was in flight is settled.
+        Event::Failed {
+            context: context @ ("profiling_state" | "set_profiling_level"),
+            error,
+            ..
+        } => queries_actions::command_failed(state, context, error),
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
         // A failed numbered read settles only the request still awaited: a late failure of an
         // older one must not end the wait for the newer or put a banner over its data. The
@@ -251,8 +258,20 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         } => {
             // The shapes read is numbered on its own and fails inline, never as a banner.
             if context == "query_shapes" {
-                let next = queries_actions::shapes_failed(state, request, error);
-                return (next, Vec::new());
+                // Only a lost server still takes the connection-lost path, like any numbered
+                // read; every other failure stays inline.
+                let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
+                let current = state.indexes.queries.request == request;
+                let next = queries_actions::shapes_failed(state, request, error.clone());
+                if !(lost && current) {
+                    return (next, Vec::new());
+                }
+                let failed = Event::Failed {
+                    session,
+                    context,
+                    error,
+                };
+                return on_session_event(next, failed, background);
             }
             let current = state.indexes.request == request;
             let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);

@@ -4,10 +4,10 @@
 //! write) ever send a command; asking and cancelling never do.
 use super::actions::{gated, mutation};
 use super::reducer::Out;
-use super::state::AppState;
+use super::state::{AppState, Banner};
 use super::write_guard::{Guard, WriteKind};
 use crate::viewmodel::{
-    IndexesView, PROFILER_LEVEL_OFF, PROFILER_LEVEL_ON, ProfilerConsent, ProfilingView,
+    InFlight, IndexesView, PROFILER_LEVEL_OFF, PROFILER_LEVEL_ON, ProfilerConsent, ProfilingView,
     QueriesAction, QueriesState,
 };
 use curlybrace_core::error::CoreError;
@@ -48,8 +48,9 @@ fn held_for(state: &AppState, ns: &Namespace) -> crate::viewmodel::IndexesState 
 
 /// Shows the Queries view and asks for the recorded shapes (under `range`, when the person just
 /// chose one) and the profiler state of the collection's database. A read: allowed on a read-only
-/// connection. While a profiler change is in flight the state is not asked for, since its answer
-/// would be taken for the answer to the change.
+/// connection. The runtime's profiler answers carry no number, so at most one profiler command is
+/// in flight: the state is read only when none is (a read already on its way, or a change being
+/// sent or warned about, makes the new one wait for that answer instead).
 fn read(state: AppState, range: Option<ChartRange>) -> Out {
     let Some(ns) = state.selected_ns().cloned() else {
         return (state, Vec::new());
@@ -61,32 +62,42 @@ fn read(state: AppState, range: Option<ChartRange>) -> Out {
         None => base.queries.clone(),
     };
     let queries = queries.requested();
-    let queries = match queries.profiling {
-        ProfilingView::Unknown => queries.with_profiling(ProfilingView::Loading),
-        _ => queries,
-    };
     let mut commands = vec![Command::QueryShapes {
         session,
         ns: ns.clone(),
         range: queries.range,
         request: queries.request,
     }];
-    if !queries.writing {
-        commands.push(Command::ProfilingState {
-            session,
-            db: ns.db.clone(),
-        });
-    }
+    let sends = queries.in_flight.is_none() && state.write_warning.is_none();
+    let waits = matches!(queries.in_flight, Some(InFlight::Read(_)));
+    let queries = match (sends, waits || queries.profiling == ProfilingView::Unknown) {
+        (true, _) => {
+            commands.push(Command::ProfilingState {
+                session,
+                db: ns.db.clone(),
+            });
+            queries.read_sent(&ns.db)
+        }
+        (false, true) => queries.with_profiling(ProfilingView::Loading),
+        (false, false) => queries,
+    };
     let indexes = base.with_view(IndexesView::Queries).with_queries(queries);
     (AppState { indexes, ..state }, commands)
 }
 
-/// Opens the consent step for `level`. Sends nothing.
+/// Opens the consent step for `level`. Sends nothing. Refused on a read-only connection (the
+/// read-only banner, no prompt), and while a profiler command is in flight or the state is still
+/// loading, since what is being asked is not known yet.
 fn ask(state: AppState, level: i32) -> Out {
     let Some(ns) = state.selected_ns().cloned() else {
         return (state, Vec::new());
     };
-    if state.indexes.queries.writing || state.write_warning.is_some() {
+    if state.active_is_read_only() {
+        let banner = Some(Banner::ReadOnly);
+        return (AppState { banner, ..state }, Vec::new());
+    }
+    let queries = &state.indexes.queries;
+    if queries.busy() || state.write_warning.is_some() {
         return (state, Vec::new());
     }
     let base = held_for(&state, &ns);
@@ -99,7 +110,7 @@ fn ask(state: AppState, level: i32) -> Out {
 /// Closes the consent step. Sends nothing; refused while the change is being sent or warned about,
 /// like the drop confirmation.
 fn cancel(state: AppState) -> Out {
-    if state.indexes.queries.writing || state.write_warning.is_some() {
+    if state.indexes.queries.writing() || state.write_warning.is_some() {
         return (state, Vec::new());
     }
     let queries = state.indexes.queries.clone().with_consent(None);
@@ -110,7 +121,8 @@ fn cancel(state: AppState) -> Out {
 /// Sends `SetProfilingLevel` for the database of the open consent step, which must be the one
 /// asked for `level` and the one of the collection on screen. Through the write guard: refused on
 /// a read-only connection, parked for the production warning on a production one. The prompt
-/// stays open until the change is answered.
+/// stays open until the change is answered. Nothing is sent while another profiler command is in
+/// flight or the state is loading.
 fn confirm(state: AppState, level: i32) -> Out {
     let db = state
         .indexes
@@ -123,7 +135,7 @@ fn confirm(state: AppState, level: i32) -> Out {
     let Some(db) = db else {
         return (state, Vec::new());
     };
-    if state.indexes.queries.writing {
+    if state.indexes.queries.busy() {
         return (state, Vec::new());
     }
     mutation(
@@ -142,22 +154,25 @@ pub(super) fn write_sent(state: AppState, db: &str) -> AppState {
     AppState { indexes, ..state }
 }
 
-/// The answer to `ProfilingState` or `SetProfilingLevel` for `db`. The answer to the change in
-/// flight settles it wherever the person is by now; any other is for the collection on screen
-/// only. A failure is never a banner: a failed read leaves the profiler unavailable (inline), and
-/// a failed change is ambiguous (the server may have applied it), so the state is read again.
+/// The answer to `ProfilingState` or `SetProfilingLevel` for `db`. With one profiler command in
+/// flight, the answer is attributed by it: the answer to the change settles it wherever the person
+/// is by now; any other answer is just stored when it is for the collection on screen. A failure
+/// is never a banner: a failed read leaves the profiler unavailable (inline, nothing more is
+/// sent), and a failed change is ambiguous (the server may have applied it), so the state is read
+/// once more.
 pub(super) fn profiling_answered(
     state: AppState,
     db: String,
     outcome: Result<ProfilingState, CoreError>,
 ) -> Out {
-    let wrote = state.indexes.queries.is_writing_to(&db);
-    let state = match wrote {
-        true => write_settled(state, &db),
-        false => state,
+    let wrote = state.indexes.queries.in_flight == Some(InFlight::Write(db.clone()));
+    let read = state.indexes.queries.in_flight == Some(InFlight::Read(db.clone()));
+    let state = match (wrote, read) {
+        (false, false) => state,
+        _ => settled(state, &db, wrote),
     };
     if state.selected_ns().is_none_or(|ns| ns.db != db) {
-        return (state, Vec::new());
+        return follow_up(state);
     }
     match outcome {
         Ok(profiling) => (profiling_known(state, profiling, wrote), Vec::new()),
@@ -169,17 +184,50 @@ pub(super) fn profiling_answered(
     }
 }
 
-/// The change in flight was answered: the write is over, and so is the pending marker the write
-/// guard set for it.
-fn write_settled(state: AppState, db: &str) -> AppState {
-    let pending = state.pending.filter(|p| p.ns.db != db);
-    let queries = state.indexes.queries.clone().write_settled();
+/// A profiler command failed as a command (not an outcome): it is treated as the `Err` outcome of
+/// the command in flight of that kind, never as a banner. Nothing in flight, nothing to settle.
+pub(super) fn command_failed(state: AppState, context: &str, error: CoreError) -> Out {
+    let db = match (&state.indexes.queries.in_flight, context) {
+        (Some(InFlight::Write(db)), "set_profiling_level") => db.clone(),
+        (Some(InFlight::Read(db)), "profiling_state") => db.clone(),
+        _ => return (state, Vec::new()),
+    };
+    profiling_answered(state, db, Err(error))
+}
+
+/// The command in flight was answered: nothing is in flight any more, and a change also ends the
+/// pending marker the write guard set for it.
+fn settled(state: AppState, db: &str, wrote: bool) -> AppState {
+    let pending = match wrote {
+        true => state.pending.filter(|p| p.ns.db != db),
+        false => state.pending,
+    };
+    let queries = state.indexes.queries.clone().settled();
     let indexes = state.indexes.clone().with_queries(queries);
     AppState {
         indexes,
         pending,
         ..state
     }
+}
+
+/// After an answer for another database: the collection on screen may have been waiting for it
+/// (it asked while that command was in flight), so its state is read now.
+fn follow_up(state: AppState) -> Out {
+    let queries = &state.indexes.queries;
+    let waiting = queries.in_flight.is_none()
+        && queries.profiling == ProfilingView::Loading
+        && state.write_warning.is_none();
+    let Some(ns) = state.selected_ns().cloned().filter(|_| waiting) else {
+        return (state, Vec::new());
+    };
+    let command = Command::ProfilingState {
+        session: state.session_id(),
+        db: ns.db.clone(),
+    };
+    let queries = queries.clone().read_sent(&ns.db);
+    let indexes = state.indexes.clone().with_queries(queries);
+    (AppState { indexes, ..state }, vec![command])
 }
 
 fn profiling_set(state: AppState, profiling: ProfilingView) -> AppState {
@@ -206,14 +254,15 @@ fn profiling_known(state: AppState, profiling: ProfilingState, wrote: bool) -> A
     AppState { indexes, ..state }
 }
 
-/// The outcome of the change is unknown: keep the error, wait for the state and ask for it.
+/// The outcome of the change is unknown: keep the error, wait for the state and ask for it once.
+/// If that read fails too the state is unavailable and nothing more is sent.
 fn reread(state: AppState, db: String, error: CoreError) -> Out {
     let session = state.session_id();
     let queries = QueriesState {
         error: Some(error),
-        profiling: ProfilingView::Loading,
         ..state.indexes.queries.clone()
-    };
+    }
+    .read_sent(&db);
     let indexes = state.indexes.clone().with_queries(queries);
     let command = Command::ProfilingState { session, db };
     (AppState { indexes, ..state }, vec![command])
