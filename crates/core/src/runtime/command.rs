@@ -14,7 +14,8 @@ impl Command {
             | Self::CreateIndex { .. }
             | Self::DropIndex { .. }
             | Self::SetIndexHidden { .. }
-            | Self::SetIndexTtl { .. } => true,
+            | Self::SetIndexTtl { .. }
+            | Self::SetProfilingLevel { .. } => true,
             Self::Connect(_)
             | Self::Disconnect { .. }
             | Self::ListDatabases { .. }
@@ -28,6 +29,8 @@ impl Command {
             | Self::ListIndexes { .. }
             | Self::IndexHistory { .. }
             | Self::EstimatedCount { .. }
+            | Self::ProfilingState { .. }
+            | Self::QueryShapes { .. }
             | Self::SetSamplingExcluded { .. }
             | Self::PurgeHistory { .. } => false,
         }
@@ -36,9 +39,9 @@ impl Command {
     /// The number a numbered read carries (echoed by its answer and its failure).
     pub fn request(&self) -> Option<u64> {
         match self {
-            Self::ListIndexes { request, .. } | Self::IndexHistory { request, .. } => {
-                Some(*request)
-            }
+            Self::ListIndexes { request, .. }
+            | Self::IndexHistory { request, .. }
+            | Self::QueryShapes { request, .. } => Some(*request),
             _ => None,
         }
     }
@@ -63,6 +66,9 @@ impl Command {
             Self::ListIndexes { .. } => "list_indexes",
             Self::IndexHistory { .. } => "index_history",
             Self::EstimatedCount { .. } => "estimated_count",
+            Self::ProfilingState { .. } => "profiling_state",
+            Self::SetProfilingLevel { .. } => "set_profiling_level",
+            Self::QueryShapes { .. } => "query_shapes",
             Self::CreateIndex { .. } => "create_index",
             Self::DropIndex { .. } => "drop_index",
             Self::SetIndexHidden { .. } => "set_index_hidden",
@@ -89,6 +95,9 @@ impl Command {
             | Self::ListIndexes { session, .. }
             | Self::IndexHistory { session, .. }
             | Self::EstimatedCount { session, .. }
+            | Self::ProfilingState { session, .. }
+            | Self::SetProfilingLevel { session, .. }
+            | Self::QueryShapes { session, .. }
             | Self::CreateIndex { session, .. }
             | Self::DropIndex { session, .. }
             | Self::SetIndexHidden { session, .. }
@@ -118,6 +127,8 @@ impl Event {
             | Self::Indexes { session, .. }
             | Self::IndexHistory { session, .. }
             | Self::EstimatedCount { session, .. }
+            | Self::ProfilingState { session, .. }
+            | Self::QueryShapes { session, .. }
             | Self::IndexChanged { session, .. }
             | Self::Sampler { session, .. }
             | Self::Failed { session, .. }

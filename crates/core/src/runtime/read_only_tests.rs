@@ -215,7 +215,26 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             session,
             ns: mock_namespace(),
         },
+        Command::ProfilingState {
+            session,
+            db: "testdb".into(),
+        },
+        Command::QueryShapes {
+            session,
+            ns: mock_namespace(),
+            range: crate::history::ChartRange::Day,
+            request: 0,
+        },
     ]
+}
+
+/// The one write that is refused as an outcome of its own answer, not as `Event::Failed`.
+fn profiler_write(session: SessionId) -> Command {
+    Command::SetProfilingLevel {
+        session,
+        db: "testdb".into(),
+        level: 1,
+    }
 }
 
 async fn assert_each_write_refused(h: &mut RuntimeHandle, session: SessionId) {
@@ -260,6 +279,10 @@ async fn reads_still_work_on_a_read_only_session() {
                     | Event::Indexes { .. }
                     | Event::IndexHistory { .. }
                     | Event::EstimatedCount { .. }
+                    | Event::QueryShapes { .. }
+            ) || matches!(
+                event,
+                Event::ProfilingState { ref outcome, .. } if *outcome != Err(CoreError::ReadOnly)
             ),
             "{event:?}"
         );
@@ -349,7 +372,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 23;
+const COMMAND_VARIANTS: usize = 26;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -360,14 +383,17 @@ fn classify(command: &Command) -> Class {
         | Command::CreateIndex { .. }
         | Command::DropIndex { .. }
         | Command::SetIndexHidden { .. }
-        | Command::SetIndexTtl { .. } => Class::Write,
+        | Command::SetIndexTtl { .. }
+        | Command::SetProfilingLevel { .. } => Class::Write,
         Command::ListDatabases { .. }
         | Command::ListCollections { .. }
         | Command::Find { .. }
         | Command::ExplainFind { .. }
         | Command::ListIndexes { .. }
         | Command::IndexHistory { .. }
-        | Command::EstimatedCount { .. } => Class::Read,
+        | Command::EstimatedCount { .. }
+        | Command::ProfilingState { .. }
+        | Command::QueryShapes { .. } => Class::Read,
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
@@ -396,6 +422,17 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
             }
         ));
     }
+    let profiler = profiler_write(cfg.id);
+    assert_eq!(classify(&profiler), Class::Write);
+    assert!(profiler.is_write());
+    h.tx.send(profiler.clone()).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::ProfilingState {
+            outcome: Err(CoreError::ReadOnly),
+            ..
+        }
+    ));
     for command in read_commands(cfg.id) {
         assert_eq!(classify(&command), Class::Read);
         assert!(!command.is_write());
@@ -428,6 +465,7 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
     );
     let samples: Vec<Command> = write_commands(cfg.id)
         .into_iter()
+        .chain([profiler])
         .chain(read_commands(cfg.id))
         .chain(others.iter().cloned())
         .collect();

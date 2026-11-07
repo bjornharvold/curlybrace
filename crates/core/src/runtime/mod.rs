@@ -49,6 +49,9 @@ mod indexes;
 mod job_flag;
 #[cfg(test)]
 mod lost_server_tests;
+mod profiler_handlers;
+#[cfg(test)]
+mod profiler_tests;
 #[cfg(test)]
 mod prompt_gate_tests;
 mod read_only_registry;
@@ -80,10 +83,12 @@ use tokio::sync::watch;
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
 use crate::explain::Verdict;
-use crate::history::{ChartRange, HistoryDb};
+use crate::history::{ChartRange, HistoryDb, ShapeSummary};
 use crate::indexes::IndexSpec;
 use crate::secrets::SecretStore;
-use crate::store::{CollectionIndex, DocumentStore, Namespace, Page, Query, Topology};
+use crate::store::{
+    CollectionIndex, DocumentStore, Namespace, Page, ProfilingState, Query, Topology,
+};
 use session::Session;
 
 pub use config::{
@@ -239,6 +244,29 @@ pub enum Command {
         /// Echoed by the answer, like [`Command::ListIndexes`]'s.
         request: u64,
     },
+    /// Reads the profiler level of `db`; answered with [`Event::ProfilingState`], whose `outcome`
+    /// also carries any failure. A read: it starts no background task.
+    ProfilingState {
+        session: SessionId,
+        db: String,
+    },
+    /// Sets the profiler level of `db` (the only runtime path that does), a write refused by a
+    /// read-only store. Answered with [`Event::ProfilingState`] like [`Command::ProfilingState`],
+    /// a refusal included. Starts no background task.
+    SetProfilingLevel {
+        session: SessionId,
+        db: String,
+        level: i32,
+    },
+    /// Reads the recorded query shapes of the collection; answered with [`Event::QueryShapes`]
+    /// (none when history is off), a failure with [`Event::RequestFailed`].
+    QueryShapes {
+        session: SessionId,
+        ns: Namespace,
+        range: ChartRange,
+        /// Echoed by the answer, like [`Command::ListIndexes`]'s.
+        request: u64,
+    },
     /// Asks for the collection's estimated document count; answered with
     /// [`Event::EstimatedCount`].
     EstimatedCount {
@@ -372,6 +400,23 @@ pub enum Event {
         ns: Namespace,
         query: Query,
         outcome: std::result::Result<Verdict, CoreError>,
+    },
+    /// The answer to `ProfilingState` and `SetProfilingLevel`. A failure, a refusal or a timeout
+    /// is an `Err` outcome shown inline; it is never an [`Event::Failed`], which raises a banner.
+    ProfilingState {
+        session: SessionId,
+        db: String,
+        outcome: std::result::Result<ProfilingState, CoreError>,
+    },
+    /// The answer to `QueryShapes`: the shapes recorded for the collection, empty when none were
+    /// or history is off.
+    QueryShapes {
+        session: SessionId,
+        ns: Namespace,
+        range: ChartRange,
+        shapes: Vec<ShapeSummary>,
+        /// The `request` of the command this answers.
+        request: u64,
     },
     /// The answer to `EstimatedCount`.
     EstimatedCount {

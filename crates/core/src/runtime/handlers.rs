@@ -14,6 +14,9 @@ use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
 use super::job_flag::JobFlag;
+use super::profiler_handlers::{
+    profiler_db, profiler_failure, profiling_state, query_shapes, set_profiling_level,
+};
 use super::session::Session;
 use super::tunneling::{
     AttemptCurrent, ConnectionCurrent, Currentness, SshSecretSource, open_tunnel_if_configured,
@@ -176,8 +179,11 @@ async fn run(
         Command::ExplainFind { ns, query, .. } => Some((ns.clone(), query.clone())),
         _ => None,
     };
+    // A profiler command answers every outcome as an event of its own (see `profiler_handlers`),
+    // so the read-only refusal comes from the store, below, and not from this gate.
+    let profiler_target = profiler_db(&command).map(str::to_owned);
     // Refused before any timeout or ping bookkeeping: a refusal is an answer, never a lost write.
-    if is_write && store.is_read_only() {
+    if is_write && profiler_target.is_none() && store.is_read_only() {
         return Err(gate(session, generation, CoreError::ReadOnly));
     }
     // The silence that is not yet a gap follows the sampling interval, a runtime tunable.
@@ -209,6 +215,12 @@ async fn run(
             ns,
             query,
             outcome: Err(CoreError::Database("timeout".into())),
+        });
+    }
+    if let Some(db) = profiler_target {
+        return Ok(match result {
+            Ok(event) => event,
+            Err(error) => profiler_failure(id, db, error),
         });
     }
     match result {
@@ -326,6 +338,13 @@ async fn data_command(
                 request,
             }
         }
+        Command::ProfilingState { db, .. } => profiling_state(session, &store, db).await,
+        Command::SetProfilingLevel { db, level, .. } => {
+            set_profiling_level(session, &store, db, level).await
+        }
+        Command::QueryShapes {
+            ns, range, request, ..
+        } => query_shapes(session, history, ns, range, request).await?,
         Command::EstimatedCount { ns, .. } => {
             let count = store.estimated_count(&ns).await?;
             Event::EstimatedCount { session, ns, count }

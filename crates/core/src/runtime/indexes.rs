@@ -12,7 +12,7 @@ use super::session::Session;
 use super::{Event, Repaint, SessionId, Shared};
 use crate::clock;
 use crate::error::{CoreError, Result};
-use crate::history::{Bucket, ChartRange, HistoryDb, Recovery, Sample};
+use crate::history::{Bucket, ChartRange, HistoryDb, Recovery, Sample, ShapeSummary};
 use crate::indexes::IndexSpec;
 use crate::store::Namespace;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -102,6 +102,24 @@ pub(super) async fn series_for(
                 })
             })
             .collect()
+    })
+    .await
+    .map_err(|_| CoreError::Database("internal error".into()))?
+}
+
+/// The query shapes stored for the collection over `range`. No history means none.
+pub(super) async fn shapes_for(
+    history: Option<Arc<HistoryDb>>,
+    session: SessionId,
+    ns: &Namespace,
+    range: ChartRange,
+) -> Result<Vec<ShapeSummary>> {
+    let Some(history) = history else {
+        return Ok(Vec::new());
+    };
+    let ns = ns.clone();
+    tokio::task::spawn_blocking(move || {
+        history.shapes_for(session, &ns.db, &ns.collection, range, clock::now_secs())
     })
     .await
     .map_err(|_| CoreError::Database("internal error".into()))?

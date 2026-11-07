@@ -298,6 +298,8 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::Sampler { status, .. } => {
             (index_actions::sampler_reported(state, status), Vec::new())
         }
+        // Handled by the profiler UI, which does not exist yet.
+        Event::ProfilingState { .. } | Event::QueryShapes { .. } => (state, Vec::new()),
         // Routed before; these have no session.
         Event::Compare(_) | Event::Copy(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }
