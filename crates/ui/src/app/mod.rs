@@ -821,6 +821,12 @@ mod index_edit_tests;
 mod index_write_tests;
 
 #[cfg(test)]
+mod queries_failure_tests;
+
+#[cfg(test)]
+mod queries_test_support;
+
+#[cfg(test)]
 mod queries_tests;
 
 #[cfg(test)]
