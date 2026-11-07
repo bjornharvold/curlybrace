@@ -198,10 +198,15 @@ fn dump_all_text(db: &HistoryDb) -> String {
         while let Some(row) = rows.next().unwrap() {
             for i in 0..cols {
                 let v: rusqlite::types::Value = row.get(i).unwrap();
-                if let rusqlite::types::Value::Text(t) = v {
-                    dump.push_str(&t);
-                    dump.push('\n');
+                use rusqlite::types::Value;
+                match v {
+                    Value::Text(t) => dump.push_str(&t),
+                    Value::Integer(n) => dump.push_str(&n.to_string()),
+                    Value::Real(n) => dump.push_str(&n.to_string()),
+                    Value::Blob(b) => dump.push_str(&String::from_utf8_lossy(&b)),
+                    Value::Null => {}
                 }
+                dump.push('\n');
             }
         }
     }
@@ -370,7 +375,99 @@ fn is_miss_table() {
 #[test]
 fn source_text_round_trips() {
     for s in [ShapeSource::App, ShapeSource::Typed] {
-        assert_eq!(ShapeSource::from_str(s.as_str()), Some(s));
+        assert_eq!(s.as_str().parse::<ShapeSource>(), Ok(s));
     }
-    assert_eq!(ShapeSource::from_str("other"), None);
+    assert!("other".parse::<ShapeSource>().is_err());
+}
+
+#[test]
+fn purge_is_all_or_nothing() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let usage = super::db::SeriesKey {
+        connection: conn_id(1),
+        host: "h".into(),
+        db: "shop".into(),
+        collection: "orders".into(),
+        index_name: "i".into(),
+        definition_hash: "x".into(),
+    };
+    let sample = super::series::Sample {
+        at_secs: NOW,
+        ops: 1,
+        since_ms: 1,
+    };
+    db.record(&usage, sample).unwrap();
+    db.record_shapes(&[obs(app("a"), NOW, 1, 0, (1, 1), VerdictKind::IndexUsed)])
+        .unwrap();
+    db.record_gap(conn_id(1), "h", "shop", NOW, 60).unwrap();
+    let tables = ["series", "shape", "shape_bucket", "shape_gap"];
+    let counts = |db: &HistoryDb| -> Vec<i64> {
+        tables
+            .iter()
+            .map(|t| count(db, &format!("SELECT COUNT(*) FROM {t}")))
+            .collect()
+    };
+    // The gap delete is the last statement: make it fail.
+    db.conn
+        .lock()
+        .unwrap()
+        .execute("ALTER TABLE shape_gap RENAME TO shape_gap_away", [])
+        .unwrap();
+    assert!(db.purge_connection(conn_id(1)).is_err());
+    db.conn
+        .lock()
+        .unwrap()
+        .execute("ALTER TABLE shape_gap_away RENAME TO shape_gap", [])
+        .unwrap();
+    assert_eq!(counts(&db), [1, 1, 1, 1], "nothing was deleted");
+    db.purge_connection(conn_id(1)).unwrap();
+    assert_eq!(counts(&db), [0, 0, 0, 0]);
+}
+
+#[test]
+fn gap_is_the_worst_host_not_the_sum_of_hosts() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let at = NOW - 3_600;
+    let mut other = app("h");
+    other.host = "node-b:27017".into();
+    let seen = ShapeObservation {
+        gap_secs: 30,
+        ..obs(app("h"), at, 1, 0, (1, 1), VerdictKind::IndexUsed)
+    };
+    db.record_shapes(&[seen, obs(other, at, 1, 0, (1, 1), VerdictKind::IndexUsed)])
+        .unwrap();
+    // Host a: 30 (observation) + 60 (recorded) = 90. Host b: 60. The bucket gets 90, not 150.
+    db.record_gap(conn_id(1), "node-a:27017", "shop", at, 60)
+        .unwrap();
+    db.record_gap(conn_id(1), "node-b:27017", "shop", at, 60)
+        .unwrap();
+    let got = read(&db, ChartRange::Day);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].buckets.len(), 1);
+    assert_eq!(got[0].buckets[0].gap_secs, 90);
+    // Never more than the bucket is wide.
+    db.record_gap(conn_id(1), "node-a:27017", "shop", at, 5_000)
+        .unwrap();
+    assert_eq!(read(&db, ChartRange::Day)[0].buckets[0].gap_secs, 600);
+}
+
+#[test]
+fn typed_shapes_always_have_the_empty_host() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    let mut k = key(1, ShapeSource::Typed, "t");
+    k.host = "node-a:27017".into();
+    db.record_shapes(&[obs(
+        k.clone(),
+        NOW - 600,
+        1,
+        0,
+        (1, 1),
+        VerdictKind::IndexUsed,
+    )])
+    .unwrap();
+    k.host = String::new();
+    db.record_shapes(&[obs(k, NOW - 600, 1, 0, (1, 1), VerdictKind::IndexUsed)])
+        .unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM shape WHERE host = ''"), 1);
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM shape"), 1);
 }

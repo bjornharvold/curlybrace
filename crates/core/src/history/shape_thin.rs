@@ -13,7 +13,7 @@ use super::db_schema::{TIER_DAILY, TIER_HOURLY};
 use super::retention::{
     DAILY_RETENTION_SECS, DAY_SECS, HOUR_SECS, HOURLY_RETENTION_SECS, RAW_RETENTION_SECS,
 };
-use super::shape_schema::TIER_RAW;
+use super::shape_schema::{COUNT_CEILING, TIER_RAW};
 use super::shapes::{BucketValues, add_bucket, add_gap};
 use crate::error::Result;
 use crate::explain::VerdictKind;
@@ -70,14 +70,14 @@ fn roll_buckets(conn: &Connection, (from, to): (i64, i64), width: i64, cutoff: i
     let mut stmt = conn
         .prepare(
             "SELECT shape_id, start_secs - (((start_secs % ?1) + ?1) % ?1) AS rolled_start,
-                    SUM(executions), SUM(misses), SUM(total_millis), MAX(max_millis),
-                    GROUP_CONCAT(DISTINCT worst), SUM(gap_secs)
+                    MIN(SUM(executions), ?4), MIN(SUM(misses), ?4), MIN(SUM(total_millis), ?4),
+                    MAX(max_millis), GROUP_CONCAT(DISTINCT worst), MIN(SUM(gap_secs), ?4)
              FROM shape_bucket WHERE tier = ?2 AND start_secs < ?3
              GROUP BY shape_id, rolled_start",
         )
         .map_err(sql_err)?;
     let rows = stmt
-        .query_map(params![width, from, cutoff], |r| {
+        .query_map(params![width, from, cutoff, COUNT_CEILING], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, i64>(1)?,
@@ -118,13 +118,13 @@ fn roll_gaps(conn: &Connection, (from, to): (i64, i64), width: i64, cutoff: i64)
     let mut stmt = conn
         .prepare(
             "SELECT connection, host, db, start_secs - (((start_secs % ?1) + ?1) % ?1) AS s,
-                    SUM(gap_secs)
+                    MIN(SUM(gap_secs), ?4)
              FROM shape_gap WHERE tier = ?2 AND start_secs < ?3
              GROUP BY connection, host, db, s",
         )
         .map_err(sql_err)?;
     let rows = stmt
-        .query_map(params![width, from, cutoff], |r| {
+        .query_map(params![width, from, cutoff, COUNT_CEILING], |r| {
             Ok((
                 [r.get::<_, String>(0)?, r.get(1)?, r.get(2)?],
                 r.get::<_, i64>(3)?,
@@ -177,6 +177,22 @@ pub(super) fn cap_step(
                         SELECT shape_id FROM shape_bucket WHERE tier = ?1 AND start_secs <= ?3))
              ORDER BY start_secs LIMIT ?2)",
         params![tier, batch, believable_until, i64::from(future_only)],
+    )
+    .map_err(sql_err)
+}
+
+/// The stamp of the oldest bucket `step` would delete, if any (to decide whose turn is first).
+pub(super) fn oldest(conn: &Connection, step: CapStep) -> Result<Option<i64>> {
+    let tier = match step {
+        CapStep::FutureOnlyRaw => return Ok(None),
+        CapStep::OldestDaily => TIER_DAILY,
+        CapStep::OldestHourly => TIER_HOURLY,
+        CapStep::OldestRaw => TIER_RAW,
+    };
+    conn.query_row(
+        "SELECT MIN(start_secs) FROM shape_bucket WHERE tier = ?1",
+        [tier],
+        |r| r.get(0),
     )
     .map_err(sql_err)
 }

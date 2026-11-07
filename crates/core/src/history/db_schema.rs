@@ -10,7 +10,7 @@
 //! - Version 2 adds the `shape*` tables (see [`super::shape_schema`]).
 
 use super::shape_schema::V2;
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 
 /// The schema version this build writes.
 pub const SCHEMA_VERSION: i64 = 2;
@@ -95,8 +95,15 @@ pub(super) fn migrate_to_v1(conn: &mut Connection) -> Result<(), SchemaError> {
 
 /// Adds the query shape tables (see [`super::shape_schema`]). Creates tables only: the
 /// `auto_vacuum` setting is fixed once the first table exists and is not repeated here.
-fn migrate_to_v2(conn: &mut Connection) -> Result<(), SchemaError> {
-    let tx = conn.transaction()?;
+///
+/// Takes the write lock first and re-reads `user_version` inside it, so two opens racing on a
+/// v1 file migrate once: the second finds version 2 and does nothing.
+pub(super) fn migrate_to_v2(conn: &mut Connection) -> Result<(), SchemaError> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let version: i64 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if version >= 2 {
+        return Ok(());
+    }
     tx.execute_batch(V2)?;
     tx.pragma_update(None, "user_version", 2)?;
     tx.commit()?;

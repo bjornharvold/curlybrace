@@ -1,15 +1,22 @@
 //! Reading shape history for a chart: all tiers folded into buckets of the range's width.
 //!
 //! Tiers never overlap (rolling deletes what it folds, on whole-hour and whole-day cutoffs), so
-//! the tiers are simply summed into the bucket each row's start falls in. Gap seconds of the
-//! database are added to every bucket, including buckets where the shape has no execution.
+//! the tiers are simply summed into the bucket each row's start falls in.
+//!
+//! ## Gap seconds
+//!
+//! A bucket's `gap_secs` is the seconds in which entries of its database may have been missed.
+//! Per host it is the shape row's own gap plus the gap rows recorded for that database and host;
+//! the bucket takes the MAX over hosts (a union upper bound: hosts are polled in the same
+//! seconds, so they are never added together), clamped to the bucket width. Buckets where a
+//! shape has no execution but its database has a gap are returned too (zero executions).
 
 use super::db::{HistoryDb, sql_err};
 use super::retention::ChartRange;
 use super::shapes::{ShapeBucket, ShapeSource, ShapeSummary};
 use crate::error::Result;
 use crate::explain::{VerdictKind, worst};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, Row, params};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -17,7 +24,8 @@ use uuid::Uuid;
 struct BucketAcc {
     executions: u64,
     misses: u64,
-    gap_secs: u64,
+    /// Gap seconds by host (see the module docs).
+    gap_by_host: BTreeMap<String, u64>,
 }
 
 struct SummaryAcc {
@@ -31,6 +39,52 @@ struct SummaryAcc {
     buckets: BTreeMap<i64, BucketAcc>,
 }
 
+/// One stored bucket row, decoded.
+struct RowData {
+    hash: String,
+    source: ShapeSource,
+    shape_json: String,
+    host: String,
+    start_secs: i64,
+    executions: u64,
+    misses: u64,
+    total_millis: u64,
+    max_millis: u64,
+    verdict: VerdictKind,
+    gap_secs: u64,
+}
+
+impl SummaryAcc {
+    fn new(row: &RowData) -> Self {
+        Self {
+            shape_json: row.shape_json.clone(),
+            source: row.source,
+            executions: 0,
+            misses: 0,
+            total_millis: 0,
+            max_millis: 0,
+            worst: VerdictKind::NoFilter,
+            buckets: BTreeMap::new(),
+        }
+    }
+
+    fn add(&mut self, row: &RowData, width: i64) {
+        self.executions = self.executions.saturating_add(row.executions);
+        self.misses = self.misses.saturating_add(row.misses);
+        self.total_millis = self.total_millis.saturating_add(row.total_millis);
+        self.max_millis = self.max_millis.max(row.max_millis);
+        self.worst = worst(self.worst, row.verdict);
+        let bucket = self
+            .buckets
+            .entry(bucket_start(row.start_secs, width))
+            .or_default();
+        bucket.executions = bucket.executions.saturating_add(row.executions);
+        bucket.misses = bucket.misses.saturating_add(row.misses);
+        let gap = bucket.gap_by_host.entry(row.host.clone()).or_default();
+        *gap = gap.saturating_add(row.gap_secs);
+    }
+}
+
 fn unsigned(n: i64) -> u64 {
     u64::try_from(n).unwrap_or(0)
 }
@@ -42,8 +96,9 @@ fn bucket_start(start_secs: i64, width: i64) -> i64 {
 impl HistoryDb {
     /// Every shape stored for a collection, summed over `range` (the `range.secs()` before
     /// `now_secs`; rows stamped after `now_secs` are ignored) and bucketed
-    /// `range.bucket_width_secs()` wide. Hosts are summed (grouped by hash and source). Ordered
-    /// by worst verdict, then misses, then slowest execution, all descending.
+    /// `range.bucket_width_secs()` wide. Hosts are summed (grouped by hash and source); see the
+    /// module docs for how gaps combine. Ordered by worst verdict, then misses, then slowest
+    /// execution, all descending.
     pub fn shapes_for(
         &self,
         connection: Uuid,
@@ -54,12 +109,16 @@ impl HistoryDb {
     ) -> Result<Vec<ShapeSummary>> {
         let conn = self.lock();
         let width = range.bucket_width_secs();
-        let from = bucket_start(now_secs - range.secs(), width);
-        let mut summaries =
-            read_shapes(&conn, connection, (db, collection), (from, now_secs), width)?;
-        for (start, gap) in read_gaps(&conn, connection, db, (from, now_secs), width)? {
+        let window = (bucket_start(now_secs - range.secs(), width), now_secs);
+        let mut summaries = read_shapes(&conn, connection, (db, collection), window, width)?;
+        for (host, start, gap) in read_gaps(&conn, connection, db, window)? {
             for summary in summaries.values_mut() {
-                summary.buckets.entry(start).or_default().gap_secs += gap;
+                let bucket = summary
+                    .buckets
+                    .entry(bucket_start(start, width))
+                    .or_default();
+                let slot = bucket.gap_by_host.entry(host.clone()).or_default();
+                *slot = slot.saturating_add(gap);
             }
         }
         let mut out: Vec<_> = summaries
@@ -87,7 +146,13 @@ fn finish(hash: String, acc: SummaryAcc, width: i64) -> ShapeSummary {
             width_secs: width,
             executions: b.executions,
             misses: b.misses,
-            gap_secs: b.gap_secs.min(unsigned(width)),
+            gap_secs: b
+                .gap_by_host
+                .values()
+                .copied()
+                .max()
+                .unwrap_or(0)
+                .min(unsigned(width)),
         })
         .collect();
     ShapeSummary {
@@ -105,6 +170,34 @@ fn finish(hash: String, acc: SummaryAcc, width: i64) -> ShapeSummary {
 
 type Summaries = BTreeMap<(String, &'static str), SummaryAcc>;
 
+/// Decodes a row; `unknown` counts values this build does not understand.
+fn decode(r: &Row, unknown: &mut usize) -> Result<Option<RowData>> {
+    let count = |i: usize| r.get::<_, i64>(i).map(unsigned).map_err(sql_err);
+    let source_text: String = r.get(1).map_err(sql_err)?;
+    let Ok(source) = source_text.parse::<ShapeSource>() else {
+        *unknown += 1;
+        return Ok(None);
+    };
+    let code: String = r.get(9).map_err(sql_err)?;
+    let verdict = VerdictKind::from_code(&code).unwrap_or_else(|| {
+        *unknown += 1;
+        VerdictKind::NoFilter
+    });
+    Ok(Some(RowData {
+        hash: r.get(0).map_err(sql_err)?,
+        source,
+        shape_json: r.get(2).map_err(sql_err)?,
+        host: r.get(3).map_err(sql_err)?,
+        start_secs: r.get(4).map_err(sql_err)?,
+        executions: count(5)?,
+        misses: count(6)?,
+        total_millis: count(7)?,
+        max_millis: count(8)?,
+        verdict,
+        gap_secs: count(10)?,
+    }))
+}
+
 fn read_shapes(
     conn: &Connection,
     connection: Uuid,
@@ -114,8 +207,8 @@ fn read_shapes(
 ) -> Result<Summaries> {
     let mut stmt = conn
         .prepare(
-            "SELECT s.hash, s.source, s.shape_json, b.start_secs, b.executions, b.misses,
-                    b.total_millis, b.max_millis, b.worst, b.gap_secs
+            "SELECT s.hash, s.source, s.shape_json, s.host, b.start_secs, b.executions,
+                    b.misses, b.total_millis, b.max_millis, b.worst, b.gap_secs
              FROM shape s JOIN shape_bucket b ON b.shape_id = s.id
              WHERE s.connection = ?1 AND s.db = ?2 AND s.collection = ?3
                AND b.start_secs >= ?4 AND b.start_secs <= ?5",
@@ -127,40 +220,12 @@ fn read_shapes(
     let mut out = Summaries::new();
     let mut unknown = 0_usize;
     while let Some(r) = rows.next().map_err(sql_err)? {
-        let get = |i: usize| r.get::<_, i64>(i).map(unsigned).map_err(sql_err);
-        let source_text: String = r.get(1).map_err(sql_err)?;
-        let Some(source) = ShapeSource::from_str(&source_text) else {
-            unknown += 1;
+        let Some(row) = decode(r, &mut unknown)? else {
             continue;
         };
-        let code: String = r.get(8).map_err(sql_err)?;
-        let verdict = VerdictKind::from_code(&code).unwrap_or_else(|| {
-            unknown += 1;
-            VerdictKind::NoFilter
-        });
-        let acc = out
-            .entry((r.get(0).map_err(sql_err)?, source.as_str()))
-            .or_insert_with(|| SummaryAcc {
-                shape_json: r.get(2).unwrap_or_default(),
-                source,
-                executions: 0,
-                misses: 0,
-                total_millis: 0,
-                max_millis: 0,
-                worst: VerdictKind::NoFilter,
-                buckets: BTreeMap::new(),
-            });
-        let start = bucket_start(r.get(3).map_err(sql_err)?, width);
-        let (executions, misses) = (get(4)?, get(5)?);
-        acc.executions = acc.executions.saturating_add(executions);
-        acc.misses = acc.misses.saturating_add(misses);
-        acc.total_millis = acc.total_millis.saturating_add(get(6)?);
-        acc.max_millis = acc.max_millis.max(get(7)?);
-        acc.worst = worst(acc.worst, verdict);
-        let bucket = acc.buckets.entry(start).or_default();
-        bucket.executions = bucket.executions.saturating_add(executions);
-        bucket.misses = bucket.misses.saturating_add(misses);
-        bucket.gap_secs = bucket.gap_secs.saturating_add(get(9)?);
+        out.entry((row.hash.clone(), row.source.as_str()))
+            .or_insert_with(|| SummaryAcc::new(&row))
+            .add(&row, width);
     }
     if unknown > 0 {
         log::warn!("history database: {unknown} shape value(s) not understood by this build");
@@ -168,29 +233,24 @@ fn read_shapes(
     Ok(out)
 }
 
+/// Gap rows of the database in the window: (host, start, seconds).
 fn read_gaps(
     conn: &Connection,
     connection: Uuid,
     db: &str,
     (from, to): (i64, i64),
-    width: i64,
-) -> Result<BTreeMap<i64, u64>> {
+) -> Result<Vec<(String, i64, u64)>> {
     let mut stmt = conn
         .prepare(
-            "SELECT start_secs, gap_secs FROM shape_gap
+            "SELECT host, start_secs, gap_secs FROM shape_gap
              WHERE connection = ?1 AND db = ?2 AND start_secs >= ?3 AND start_secs <= ?4",
         )
         .map_err(sql_err)?;
     let rows = stmt
         .query_map(params![connection.to_string(), db, from, to], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            Ok((r.get(0)?, r.get(1)?, unsigned(r.get(2)?)))
         })
         .map_err(sql_err)?;
-    let mut out = BTreeMap::new();
-    for row in rows {
-        let (start, gap) = row.map_err(sql_err)?;
-        let slot: &mut u64 = out.entry(bucket_start(start, width)).or_default();
-        *slot = slot.saturating_add(unsigned(gap));
-    }
-    Ok(out)
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(sql_err)
 }

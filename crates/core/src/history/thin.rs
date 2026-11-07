@@ -309,21 +309,55 @@ fn enforce_cap(conn: &Connection, max_bytes: u64, now_secs: i64) -> Result<()> {
             if used_bytes(conn)? <= max_bytes {
                 return Ok(());
             }
-            let mut deleted = match takes_until {
-                true => conn.execute(delete, params![CAP_BATCH_ROWS, believable_until]),
-                false => conn.execute(delete, [CAP_BATCH_ROWS]),
+            // The set whose oldest row is older goes first; the other follows, and the size is
+            // re-checked after each batch, so neither set starves the other.
+            let shape_first = shape_goes_first(conn, shape_step)?;
+            let mut deleted = 0;
+            for shape_turn in [shape_first, !shape_first] {
+                deleted += match shape_turn {
+                    true => shape_batch(conn, shape_step, believable_until)?,
+                    false => usage_batch(conn, delete, takes_until, believable_until)?,
+                };
+                release_free_pages(conn)?;
+                if used_bytes(conn)? <= max_bytes {
+                    return Ok(());
+                }
             }
-            .map_err(sql_err)?;
-            release_free_pages(conn)?;
-            if used_bytes(conn)? <= max_bytes {
-                return Ok(());
-            }
-            deleted += shape_thin::cap_step(conn, shape_step, CAP_BATCH_ROWS, believable_until)?;
-            release_free_pages(conn)?;
             if deleted == 0 {
                 break;
             }
         }
     }
     Ok(())
+}
+
+fn usage_batch(conn: &Connection, delete: &str, takes_until: bool, until: i64) -> Result<usize> {
+    match takes_until {
+        true => conn.execute(delete, params![CAP_BATCH_ROWS, until]),
+        false => conn.execute(delete, [CAP_BATCH_ROWS]),
+    }
+    .map_err(sql_err)
+}
+
+/// A batch of the oldest shape buckets, then the shapes it left empty: their `shape_json` text
+/// counts against the cap until they are gone.
+fn shape_batch(conn: &Connection, step: CapStep, until: i64) -> Result<usize> {
+    let deleted = shape_thin::cap_step(conn, step, CAP_BATCH_ROWS, until)?;
+    shape_thin::remove_empty_shapes(conn)?;
+    Ok(deleted)
+}
+
+/// Whether the shape history holds an older row than the usage history for this step.
+fn shape_goes_first(conn: &Connection, step: CapStep) -> Result<bool> {
+    let usage_oldest_sql = match step {
+        CapStep::FutureOnlyRaw => return Ok(false),
+        CapStep::OldestDaily => "SELECT MIN(start_secs) FROM rolled WHERE tier = 2",
+        CapStep::OldestHourly => "SELECT MIN(start_secs) FROM rolled WHERE tier = 1",
+        CapStep::OldestRaw => "SELECT MIN(at_secs) FROM samples",
+    };
+    let usage: Option<i64> = conn
+        .query_row(usage_oldest_sql, [], |r| r.get(0))
+        .map_err(sql_err)?;
+    let shapes = shape_thin::oldest(conn, step)?;
+    Ok(matches!((shapes, usage), (Some(s), Some(u)) if s < u))
 }

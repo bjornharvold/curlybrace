@@ -352,3 +352,154 @@ fn cap_drops_future_only_shape_rows_first() {
         ) < 1_500
     );
 }
+
+fn fill_usage(db: &HistoryDb, count: i64, first_at: i64) {
+    let batch: Vec<_> = (0..count)
+        .map(|i| {
+            (
+                usage_key(usize::try_from(i % 5).unwrap()),
+                Sample {
+                    at_secs: first_at + 60 * i,
+                    ops: i,
+                    since_ms: 1_000,
+                },
+            )
+        })
+        .collect();
+    db.record_many(&batch).unwrap();
+}
+
+fn fill_shapes(db: &HistoryDb, shapes: i64, buckets: i64, first_at: i64) {
+    let rows: Vec<_> = (0..shapes)
+        .flat_map(|s| {
+            (0..buckets).map(move |b| {
+                let k = key(1, ShapeSource::App, &format!("shape-{s}"));
+                obs(
+                    k,
+                    first_at + 600 * b,
+                    3,
+                    1,
+                    (30, 20),
+                    VerdictKind::CollectionScan,
+                )
+            })
+        })
+        .collect();
+    db.record_shapes(&rows).unwrap();
+}
+
+#[test]
+fn saturated_counters_do_not_break_thinning_or_the_cap() {
+    use super::shape_schema::COUNT_CEILING;
+    use super::shapes::ShapeObservation;
+    let db = HistoryDb::open_in_memory().unwrap();
+    let ceiling = u64::try_from(COUNT_CEILING).unwrap();
+    let hour = (NOW - 10 * DAY_SECS).div_euclid(HOUR_SECS) * HOUR_SECS;
+    let huge = |at| ShapeObservation {
+        gap_secs: u64::MAX,
+        ..obs(
+            key(1, ShapeSource::App, "h"),
+            at,
+            u64::MAX,
+            u64::MAX,
+            (u64::MAX, u64::MAX),
+            VerdictKind::CollectionScan,
+        )
+    };
+    db.record_shapes(&[huge(hour), huge(hour), huge(hour + 600), huge(hour + 1_200)])
+        .unwrap();
+    db.record_shapes(&[huge(NOW - 600), huge(NOW - 600)])
+        .unwrap();
+    for at in [hour, hour, hour + 600, NOW - 600, NOW - 600] {
+        db.record_gap(conn_id(1), "node-a:27017", "shop", at, u64::MAX)
+            .unwrap();
+    }
+    thin(&db);
+    let got = db
+        .shapes_for(conn_id(1), "shop", "orders", ChartRange::Month, NOW)
+        .unwrap();
+    assert_eq!(got.len(), 1);
+    assert!(got[0].buckets.iter().all(|b| b.executions <= ceiling));
+    assert!(got[0].buckets.iter().all(|b| b.gap_secs <= 86_400));
+    assert!(got[0].executions >= ceiling);
+    // The cap still runs for the whole file afterwards.
+    fill_usage(&db, 1_500, NOW - 90_000);
+    let cap = db.used_bytes().unwrap() * 3 / 4;
+    let db = db.with_max_bytes(cap);
+    thin(&db);
+    assert!(db.used_bytes().unwrap() <= cap);
+}
+
+#[test]
+fn large_shape_json_freed_by_the_cap_does_not_cost_extra_usage_rows() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    fill_usage(&db, 1_500, NOW - 90_000);
+    let rows: Vec<_> = (0..1_200)
+        .map(|s| {
+            let mut o = obs(
+                key(1, ShapeSource::App, &format!("shape-{s}")),
+                NOW - 3_600,
+                1,
+                0,
+                (1, 1),
+                VerdictKind::IndexUsed,
+            );
+            o.shape_json = "x".repeat(2_500);
+            o
+        })
+        .collect();
+    db.record_shapes(&rows).unwrap();
+    let before = count(&db, "SELECT COUNT(*) FROM samples");
+    // About one batch of shapes (500 x 2.5 KB) has to go.
+    let cap = db.used_bytes().unwrap() - 1_000_000;
+    let db = db.with_max_bytes(cap);
+    thin(&db);
+    assert!(db.used_bytes().unwrap() <= cap);
+    let lost = before - count(&db, "SELECT COUNT(*) FROM samples");
+    assert!(lost <= 500, "usage lost {lost} rows, more than one batch");
+}
+
+fn lost_rows(db: HistoryDb, delta: u64) -> (i64, i64) {
+    let rows = |db: &HistoryDb| {
+        (
+            count(db, "SELECT COUNT(*) FROM samples"),
+            count(db, "SELECT COUNT(*) FROM shape_bucket"),
+        )
+    };
+    let before = rows(&db);
+    let cap = db.used_bytes().unwrap() - delta;
+    let db = db.with_max_bytes(cap);
+    thin(&db);
+    let after = rows(&db);
+    (before.0 - after.0, before.1 - after.1)
+}
+
+#[test]
+fn the_older_set_loses_rows_first() {
+    // Usage is 20 hours older than the shapes: a small excess is taken from usage alone.
+    let db = HistoryDb::open_in_memory().unwrap();
+    fill_usage(&db, 1_200, NOW - 46 * HOUR_SECS);
+    fill_shapes(&db, 8, 140, NOW - 23 * HOUR_SECS);
+    let (usage, shapes) = lost_rows(db, 8_000);
+    assert!(usage > 0 && shapes == 0, "{usage} {shapes}");
+    // And the other way round.
+    let db = HistoryDb::open_in_memory().unwrap();
+    fill_usage(&db, 1_200, NOW - 23 * HOUR_SECS);
+    fill_shapes(&db, 8, 140, NOW - 46 * HOUR_SECS);
+    let (usage, shapes) = lost_rows(db, 8_000);
+    assert!(shapes > 0 && usage == 0, "{usage} {shapes}");
+}
+
+#[test]
+fn equally_old_sets_lose_comparable_shares() {
+    let db = HistoryDb::open_in_memory().unwrap();
+    fill_usage(&db, 1_500, NOW - 25 * HOUR_SECS);
+    fill_shapes(&db, 8, 150, NOW - 25 * HOUR_SECS);
+    let used = db.used_bytes().unwrap();
+    let (usage, shapes) = lost_rows(db, used / 3);
+    assert!(usage > 0 && shapes > 0, "{usage} {shapes}");
+    assert!(
+        usage <= 3 * shapes && shapes <= 3 * usage,
+        "{usage} {shapes}"
+    );
+}

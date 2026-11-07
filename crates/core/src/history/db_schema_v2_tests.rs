@@ -1,7 +1,7 @@
 //! The v1 to v2 migration: shape tables appear, nothing of v1 is touched.
 
 use super::db::HistoryDb;
-use super::db_schema::{SCHEMA_VERSION, migrate_to_v1, prepare};
+use super::db_schema::{SCHEMA_VERSION, migrate_to_v1, migrate_to_v2, prepare};
 use rusqlite::Connection;
 
 fn user_version(conn: &Connection) -> i64 {
@@ -89,4 +89,47 @@ fn newer_than_v2_is_refused_as_before() {
     assert!(path.exists());
     assert!(!dir.path().join("history.sqlite.corrupt").exists());
     assert_eq!(user_version(&Connection::open(&path).unwrap()), 3);
+}
+
+#[test]
+fn migrating_twice_is_a_no_op_the_second_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history.sqlite");
+    let mut first = Connection::open(&path).unwrap();
+    let mut second = Connection::open(&path).unwrap();
+    migrate_to_v1(&mut first).unwrap();
+    // Both opens read version 1 before either migrated; the loser must not fail on CREATE TABLE.
+    migrate_to_v2(&mut first).unwrap();
+    migrate_to_v2(&mut second).unwrap();
+    assert_eq!(user_version(&second), 2);
+}
+
+#[test]
+fn a_wal_mode_v1_file_with_data_migrates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history.sqlite");
+    {
+        let mut conn = Connection::open(&path).unwrap();
+        migrate_to_v1(&mut conn).unwrap();
+        let mode: String = conn
+            .pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))
+            .unwrap();
+        assert_eq!(mode.to_lowercase(), "wal");
+        conn.execute_batch(
+            "INSERT INTO series (id, connection, host, db, collection, index_name, definition_hash)
+                 VALUES (1, 'c', 'h', 'shop', 'orders', 'by_sku', 'x');
+             INSERT INTO samples (series_id, at_secs, ops, since_ms) VALUES (1, 100, 5, 1000);",
+        )
+        .unwrap();
+    }
+    let (db, recovery) = HistoryDb::open(&path).unwrap();
+    assert!(recovery.is_none());
+    drop(db);
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(user_version(&conn), 2);
+    let samples: i64 = conn
+        .query_row("SELECT COUNT(*) FROM samples", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(samples, 1);
+    assert!(tables(&conn).contains(&"shape_bucket".to_owned()));
 }

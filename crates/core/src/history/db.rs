@@ -356,15 +356,18 @@ impl HistoryDb {
     /// Deletes everything stored for one connection (its samples and rolled rows).
     /// Also marks it purged, so nothing written for it afterwards recreates the series.
     pub fn purge_connection(&self, connection: Uuid) -> Result<()> {
-        let conn = self.lock();
+        let mut conn = self.lock();
         self.mark_purged(connection);
-        conn.execute(
+        // One transaction: all of the connection's history goes, or none of it does.
+        let tx = conn.transaction().map_err(sql_err)?;
+        tx.execute(
             "DELETE FROM series WHERE connection = ?1",
             [connection.to_string()],
         )
         .map_err(sql_err)?;
         // Same locked section: shape rows (typed ones included) and their gaps go with it.
-        shapes::delete_connection(&conn, connection)?;
+        shapes::delete_connection(&tx, connection)?;
+        tx.commit().map_err(sql_err)?;
         thin::release_free_pages(&conn)
     }
 

@@ -20,6 +20,14 @@ pub const RAW_BUCKET_SECS: i64 = 600;
 /// Tier of a raw shape bucket.
 pub const TIER_RAW: i64 = 0;
 
+/// Largest value any shape counter may hold (2^43 - 1). Incoming values are clamped to it and
+/// every accumulation is `MIN(a + b, ceiling)`, so a stored value never exceeds it. A rolling
+/// `SUM` adds at most one row per distinct start second of one bucket width (at most 86 400,
+/// under 2^17 rows) of values at most 2^43, which stays under 2^60 and cannot overflow `i64`.
+/// Without this a hostile or corrupt count could turn a sum into a REAL or raise "integer
+/// overflow", aborting the thinning (and the size cap with it) for the whole file.
+pub const COUNT_CEILING: i64 = i64::MAX >> 20;
+
 /// Host recorded for `typed` shapes: they come from the app, not from a node.
 pub const TYPED_HOST: &str = "";
 

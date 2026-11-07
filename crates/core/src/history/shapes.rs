@@ -11,7 +11,7 @@
 //! read side folds in Rust with `explain::worst`.
 
 use super::db::{HistoryDb, sql_err};
-use super::shape_schema::{RAW_BUCKET_SECS, TIER_RAW, severity_sql};
+use super::shape_schema::{COUNT_CEILING, RAW_BUCKET_SECS, TIER_RAW, TYPED_HOST, severity_sql};
 use crate::error::Result;
 use crate::explain::VerdictKind;
 use rusqlite::{Connection, params};
@@ -35,14 +35,21 @@ impl ShapeSource {
             Self::Typed => "typed",
         }
     }
+}
 
-    /// The inverse of [`Self::as_str`]; `None` for any other text.
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(text: &str) -> Option<Self> {
+/// The text is not a stored [`ShapeSource`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownShapeSource;
+
+impl std::str::FromStr for ShapeSource {
+    type Err = UnknownShapeSource;
+
+    /// The inverse of [`ShapeSource::as_str`].
+    fn from_str(text: &str) -> std::result::Result<Self, Self::Err> {
         match text {
-            "app" => Some(Self::App),
-            "typed" => Some(Self::Typed),
-            _ => None,
+            "app" => Ok(Self::App),
+            "typed" => Ok(Self::Typed),
+            _ => Err(UnknownShapeSource),
         }
     }
 }
@@ -124,12 +131,13 @@ static UPSERT_BUCKET: LazyLock<String> = LazyLock::new(|| {
               gap_secs)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT (shape_id, tier, start_secs) DO UPDATE SET
-             executions = executions + excluded.executions,
-             misses = misses + excluded.misses,
-             total_millis = total_millis + excluded.total_millis,
+             executions = MIN(executions + excluded.executions, {ceiling}),
+             misses = MIN(misses + excluded.misses, {ceiling}),
+             total_millis = MIN(total_millis + excluded.total_millis, {ceiling}),
              max_millis = MAX(max_millis, excluded.max_millis),
              worst = CASE WHEN {incoming} > {stored} THEN excluded.worst ELSE worst END,
-             gap_secs = gap_secs + excluded.gap_secs",
+             gap_secs = MIN(gap_secs + excluded.gap_secs, {ceiling})",
+        ceiling = COUNT_CEILING,
         incoming = severity_sql("excluded.worst"),
         stored = severity_sql("shape_bucket.worst"),
     )
@@ -173,29 +181,42 @@ pub(super) fn add_gap(
         "INSERT INTO shape_gap (connection, host, db, tier, start_secs, gap_secs)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT (connection, host, db, tier, start_secs) DO UPDATE SET
-             gap_secs = gap_secs + excluded.gap_secs",
-        params![connection, host, db, tier, start_secs, gap_secs],
+             gap_secs = MIN(gap_secs + excluded.gap_secs, ?7)",
+        params![
+            connection,
+            host,
+            db,
+            tier,
+            start_secs,
+            gap_secs,
+            COUNT_CEILING
+        ],
     )
     .map(drop)
     .map_err(sql_err)
 }
 
-/// A count that does not fit SQLite's signed 64 bits is stored as the largest one.
+/// A count clamped to [`COUNT_CEILING`], so sums of stored values cannot overflow.
 pub(super) fn to_sql(n: u64) -> i64 {
-    i64::try_from(n).unwrap_or(i64::MAX)
+    i64::try_from(n).map_or(COUNT_CEILING, |v| v.min(COUNT_CEILING))
 }
 
 fn shape_id(conn: &Connection, row: &ShapeObservation) -> Result<i64> {
     let key = &row.key;
+    // A typed query belongs to no node: its host is always empty, whatever the caller passed.
+    let host = match key.source {
+        ShapeSource::App => key.host.as_str(),
+        ShapeSource::Typed => TYPED_HOST,
+    };
     conn.query_row(
         "INSERT INTO shape (connection, host, db, collection, hash, source, shape_json)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT (connection, host, db, collection, hash, source)
-         DO UPDATE SET shape_json = excluded.shape_json
+         DO UPDATE SET id = id
          RETURNING id",
         params![
             key.connection.to_string(),
-            key.host,
+            host,
             key.db,
             key.collection,
             key.hash,
