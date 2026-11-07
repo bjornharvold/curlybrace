@@ -1,5 +1,5 @@
-use super::classify_entry;
 use super::entry_tests::entry;
+use super::{ProfileEntry, classify_entry};
 use crate::explain::VerdictKind;
 
 #[test]
@@ -96,9 +96,94 @@ fn ops_without_a_plan_summary_are_neutral() {
 }
 
 #[test]
-fn a_getmore_collscan_is_judged_by_its_plan() {
+fn classify_entry_is_neutral_for_a_continuation() {
+    // The poller skips continuations; if one slips through it must never read as a miss
+    // (nor as an empty collection), whatever its own plan says.
+    for has_filter in [true, false] {
+        assert_eq!(
+            classify_entry(&entry("getmore"), has_filter),
+            VerdictKind::NoFilter
+        );
+    }
+    let mut e = entry("getmore");
+    e.docs_examined = 0;
+    assert_eq!(classify_entry(&e, true), VerdictKind::NoFilter);
+}
+
+fn with_plan(plan: &str, keys: u64, docs: u64, returned: u64) -> ProfileEntry {
+    let mut e = entry("ixscan");
+    e.plan_summary = plan.into();
+    e.keys_examined = keys;
+    e.docs_examined = docs;
+    e.returned = returned;
+    e
+}
+
+#[test]
+fn collscan_anywhere_in_the_summary_is_a_collection_scan() {
+    for plan in [
+        "COLLSCAN { direction: 1 }",
+        "COLLSCAN",
+        "IXSCAN { a: 1 }, COLLSCAN",
+        "COLLSCAN, IXSCAN { a: 1 }",
+    ] {
+        let e = with_plan(plan, 0, 500, 5);
+        assert_eq!(
+            classify_entry(&e, true),
+            VerdictKind::CollectionScan,
+            "{plan}"
+        );
+        assert_eq!(classify_entry(&e, false), VerdictKind::NoFilter, "{plan}");
+        let none = with_plan(plan, 0, 0, 0);
+        assert_eq!(
+            classify_entry(&none, true),
+            VerdictKind::EmptyCollection,
+            "{plan}"
+        );
+        let mut sorted = with_plan(plan, 0, 500, 5);
+        sorted.has_sort_stage = true;
+        assert_eq!(
+            classify_entry(&sorted, false),
+            VerdictKind::SortNotCovered,
+            "{plan}"
+        );
+    }
+}
+
+#[test]
+fn a_stage_that_only_contains_the_word_is_not_a_collscan() {
+    let e = with_plan("NOT_A_COLLSCAN_AT_ALL", 1, 1, 1);
+    assert_eq!(classify_entry(&e, true), VerdictKind::IndexUsed);
+}
+
+#[test]
+fn other_plan_summaries() {
+    // EOF: the collection does not exist or is empty, as in release A.
     assert_eq!(
-        classify_entry(&entry("getmore"), true),
-        VerdictKind::CollectionScan
+        classify_entry(&with_plan("EOF", 0, 0, 0), true),
+        VerdictKind::EmptyCollection
+    );
+    // Index-ish plans are IndexUsed unless they examined far more than they returned.
+    for plan in [
+        "IDHACK",
+        "COUNT_SCAN { a: 1 }",
+        "DISTINCT_SCAN { a: 1 }",
+        "EXPRESS_IXSCAN { a: 1 }",
+    ] {
+        assert_eq!(
+            classify_entry(&with_plan(plan, 2, 2, 2), true),
+            VerdictKind::IndexUsed,
+            "{plan}"
+        );
+        assert_eq!(
+            classify_entry(&with_plan(plan, 900, 900, 3), true),
+            VerdictKind::InefficientIndex,
+            "{plan}"
+        );
+    }
+    // Unknown or non-index summaries show no evidence of a miss: IndexUsed (still size-checked).
+    assert_eq!(
+        classify_entry(&with_plan("MULTI_ITERATOR", 0, 3, 3), true),
+        VerdictKind::IndexUsed
     );
 }

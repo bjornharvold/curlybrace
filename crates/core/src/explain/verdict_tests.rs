@@ -1,14 +1,6 @@
 use super::{VerdictKind, worst};
 
-const ALL: [VerdictKind; 7] = [
-    VerdictKind::IndexUsed,
-    VerdictKind::CoveredByIndex,
-    VerdictKind::CollectionScan,
-    VerdictKind::SortNotCovered,
-    VerdictKind::InefficientIndex,
-    VerdictKind::NoFilter,
-    VerdictKind::EmptyCollection,
-];
+const ALL: [VerdictKind; 7] = VerdictKind::ALL;
 
 #[test]
 fn code_round_trips_for_every_variant() {

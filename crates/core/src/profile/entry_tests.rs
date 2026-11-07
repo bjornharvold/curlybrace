@@ -177,3 +177,55 @@ fn a_ns_that_merely_mentions_system_profile_is_not_own_traffic() {
     e.ns = "shop.system.profile_archive".into();
     assert!(!is_own_traffic(&e));
 }
+
+fn named(app: Option<&str>) -> ProfileEntry {
+    let mut e = entry("collscan");
+    e.app_name = app.map(str::to_owned);
+    e
+}
+
+#[test]
+fn app_name_boundaries() {
+    assert!(is_own_traffic(&named(Some("curlybrace"))));
+    assert!(is_own_traffic(&named(Some("myapp curlybrace"))));
+    for not_ours in [
+        None,
+        Some(""),
+        Some("curlybrace-2"),
+        // Trailing space: the name does not end with the token, so it is the user's.
+        Some("x curlybrace "),
+        Some("Curlybrace"),
+        Some("mycurlybrace"),
+    ] {
+        assert!(!is_own_traffic(&named(not_ours)), "{not_ours:?}");
+    }
+}
+
+#[test]
+fn continuations_are_detected_by_op_and_by_command_key() {
+    assert!(entry("getmore").is_continuation());
+    let mut e = entry("collscan");
+    assert!(!e.is_continuation());
+    for op in ["getmore", "getMore", "GETMORE"] {
+        e.op = op.into();
+        assert!(e.is_continuation(), "{op}");
+    }
+    e.op = "command".into();
+    e.command = doc! { "getMore": 7_i64, "collection": "orders" };
+    assert!(e.is_continuation());
+    e.command = doc! { "find": "orders", "getMore": 1 };
+    assert!(!e.is_continuation());
+    assert!(!entry("insert").is_continuation());
+}
+
+#[test]
+fn debug_output_never_contains_command_values() {
+    let mut e = entry("collscan");
+    e.command = doc! { "find": "orders", "filter": { "email": "zebra-secret-7731@example.com" } };
+    let shown = format!("{e:?}");
+    assert!(!shown.contains("zebra-secret-7731"), "{shown}");
+    assert!(!shown.contains("email"), "{shown}");
+    assert!(shown.contains("shop.orders"));
+    assert!(shown.contains("COLLSCAN"));
+    assert!(shown.contains("<redacted 2 keys>"), "{shown}");
+}

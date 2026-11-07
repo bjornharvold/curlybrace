@@ -488,3 +488,10 @@ fn profile_command_ops_without_a_filter_are_none() {
     assert!(from_profile_command("command", &doc! { "ping": 1 }).is_none());
     assert!(from_profile_command("command", &doc! {}).is_none());
 }
+
+#[test]
+fn has_filter_is_true_only_for_a_non_empty_filter() {
+    assert!(shape_of(doc! { "a": 1 }).has_filter());
+    assert!(!shape_of(doc! {}).has_filter());
+    assert!(!sorted(doc! { "a": 1 }).has_filter());
+}

@@ -59,6 +59,11 @@ impl Shape {
         self.canonical.get(SORT_KEY).and_then(Value::as_object)
     }
 
+    /// True when the shape has a non-empty filter section.
+    pub fn has_filter(&self) -> bool {
+        self.filter().is_some_and(|filter| !filter.is_empty())
+    }
+
     /// Stable canonical JSON; holds field names, operators and `"?"` placeholders only.
     pub fn json(&self) -> String {
         Value::Object(self.canonical.clone()).to_string()

@@ -15,6 +15,29 @@ pub enum VerdictKind {
 }
 
 impl VerdictKind {
+    /// Every variant, in declaration order. `index` is an exhaustive match, so adding a variant
+    /// without extending this list (and `index`) fails to compile or trips the check below.
+    pub(crate) const ALL: [VerdictKind; 7] = [
+        Self::IndexUsed,
+        Self::CoveredByIndex,
+        Self::CollectionScan,
+        Self::SortNotCovered,
+        Self::InefficientIndex,
+        Self::NoFilter,
+        Self::EmptyCollection,
+    ];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::IndexUsed => 0,
+            Self::CoveredByIndex => 1,
+            Self::CollectionScan => 2,
+            Self::SortNotCovered => 3,
+            Self::InefficientIndex => 4,
+            Self::NoFilter => 5,
+            Self::EmptyCollection => 6,
+        }
+    }
     /// How bad the verdict is; higher is worse. Order, best to worst:
     /// `NoFilter` = `EmptyCollection` (0, neutral: nothing an index could fix) <
     /// `IndexUsed` = `CoveredByIndex` (1) < `InefficientIndex` (2) < `SortNotCovered` (3) <
@@ -45,16 +68,7 @@ impl VerdictKind {
 
     /// The inverse of [`VerdictKind::code`]; `None` for a code this build does not know.
     pub fn from_code(code: &str) -> Option<VerdictKind> {
-        const ALL: [VerdictKind; 7] = [
-            VerdictKind::IndexUsed,
-            VerdictKind::CoveredByIndex,
-            VerdictKind::CollectionScan,
-            VerdictKind::SortNotCovered,
-            VerdictKind::InefficientIndex,
-            VerdictKind::NoFilter,
-            VerdictKind::EmptyCollection,
-        ];
-        ALL.into_iter().find(|k| k.code() == code)
+        Self::ALL.into_iter().find(|k| k.code() == code)
     }
 }
 
@@ -62,6 +76,14 @@ impl VerdictKind {
 pub fn worst(a: VerdictKind, b: VerdictKind) -> VerdictKind {
     if b.severity() > a.severity() { b } else { a }
 }
+
+const _: () = {
+    let mut i = 0;
+    while i < VerdictKind::ALL.len() {
+        assert!(VerdictKind::ALL[i].index() == i);
+        i += 1;
+    }
+};
 
 /// Why a verdict was reached. `key` is an i18n key suffix under `query.verdict.`;
 /// core never carries English text.

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use bson::{Bson, Document};
 
 use crate::error::{CoreError, Result};
@@ -6,7 +8,7 @@ use crate::explain::count;
 /// The `appName` this application connects with; its profiler entries are our own traffic.
 pub const OWN_APP_NAME: &str = "curlybrace";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ProfileEntry {
     pub ts_secs: i64,
     pub ns: String,
@@ -19,6 +21,38 @@ pub struct ProfileEntry {
     pub has_sort_stage: bool,
     pub app_name: Option<String>,
     pub command: Document,
+}
+
+impl ProfileEntry {
+    /// True for a cursor continuation (`getMore`): it re-reads an earlier query's cursor, so it
+    /// is neither a new execution nor judged by its own plan. The poller skips continuations:
+    /// the originating find entry carries the plan and the shape.
+    pub fn is_continuation(&self) -> bool {
+        self.op.eq_ignore_ascii_case("getmore") || first_key_is(&self.command, "getMore")
+    }
+}
+
+/// `command` holds the query's literal values, so Debug (logs, panics, test output) shows only
+/// how many keys it has.
+impl fmt::Debug for ProfileEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProfileEntry")
+            .field("ts_secs", &self.ts_secs)
+            .field("ns", &self.ns)
+            .field("op", &self.op)
+            .field("millis", &self.millis)
+            .field("plan_summary", &self.plan_summary)
+            .field("keys_examined", &self.keys_examined)
+            .field("docs_examined", &self.docs_examined)
+            .field("returned", &self.returned)
+            .field("has_sort_stage", &self.has_sort_stage)
+            .field("app_name", &self.app_name)
+            .field(
+                "command",
+                &format_args!("<redacted {} keys>", self.command.len()),
+            )
+            .finish()
+    }
 }
 
 const PROFILE_NS_SUFFIX: &str = ".system.profile";
