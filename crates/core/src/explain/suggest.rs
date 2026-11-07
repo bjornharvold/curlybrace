@@ -17,15 +17,15 @@ fn operators(value: &Bson) -> Option<Vec<&str>> {
     }
 }
 
-fn is_equality(value: &Bson) -> bool {
+pub(crate) fn is_equality(value: &Bson) -> bool {
     operators(value).is_none_or(|ops| ops.iter().all(|o| EQUALITY_OPS.contains(o)))
 }
 
-fn is_range(value: &Bson) -> bool {
+pub(crate) fn is_range(value: &Bson) -> bool {
     operators(value).is_some_and(|ops| ops.iter().any(|o| RANGE_OPS.contains(o)))
 }
 
-fn direction(value: &Bson) -> i32 {
+pub(crate) fn direction(value: &Bson) -> i32 {
     let negative = match value {
         Bson::Int32(n) => *n < 0,
         Bson::Int64(n) => *n < 0,
@@ -46,15 +46,20 @@ fn filter_fields(filter: &Document, keep: fn(&Bson) -> bool) -> Vec<(String, i32
 /// Equality fields (filter order), then sort fields (direction kept), then range
 /// fields; duplicates dropped. `None` when there is no filter and no sort.
 pub fn suggest(query: &Query) -> Option<SuggestedIndex> {
-    let sort: Vec<(String, i32)> = query
-        .sort
+    suggest_from(&query.filter, query.sort.as_ref())
+}
+
+/// The equality, sort, range rule over a filter and a sort document. Shared with the
+/// value-free query shapes, which classify fields from the same operators.
+pub(crate) fn suggest_from(filter: &Document, sort: Option<&Document>) -> Option<SuggestedIndex> {
+    let sort: Vec<(String, i32)> = sort
         .iter()
         .flat_map(|s| s.iter().map(|(k, v)| (k.clone(), direction(v))))
         .collect();
-    let keys = filter_fields(&query.filter, is_equality)
+    let keys = filter_fields(filter, is_equality)
         .into_iter()
         .chain(sort)
-        .chain(filter_fields(&query.filter, is_range))
+        .chain(filter_fields(filter, is_range))
         .fold(Vec::<(String, i32)>::new(), |acc, key| {
             if acc.iter().any(|(f, _)| *f == key.0) {
                 acc

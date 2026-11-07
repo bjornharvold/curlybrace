@@ -26,6 +26,7 @@ pub mod read_only_store;
 mod read_only_store_tests;
 pub mod runtime;
 pub mod secrets;
+pub mod shape;
 pub mod store;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

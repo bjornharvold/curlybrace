@@ -6,7 +6,7 @@ mod classify;
 mod classify_sharded_tests;
 #[cfg(test)]
 mod classify_tests;
-mod suggest;
+pub(crate) mod suggest;
 #[cfg(test)]
 mod suggest_tests;
 mod verdict;
