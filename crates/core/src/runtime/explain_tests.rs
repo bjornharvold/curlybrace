@@ -101,7 +101,10 @@ async fn explain_failure_is_an_outcome_not_a_failed_event() {
     h.tx.send(explain_command(session)).unwrap();
     match next(&mut h).await {
         Event::Explain { outcome, .. } => {
-            assert!(matches!(outcome, Err(CoreError::Unsupported(_))), "{outcome:?}");
+            assert!(
+                matches!(outcome, Err(CoreError::Unsupported(_))),
+                "{outcome:?}"
+            );
         }
         other => panic!("expected Explain, got {other:?}"),
     }
@@ -114,7 +117,10 @@ async fn unclassifiable_explain_is_an_outcome_not_a_failed_event() {
     h.tx.send(explain_command(session)).unwrap();
     match next(&mut h).await {
         Event::Explain { outcome, .. } => {
-            assert!(matches!(outcome, Err(CoreError::Database(_))), "{outcome:?}");
+            assert!(
+                matches!(outcome, Err(CoreError::Database(_))),
+                "{outcome:?}"
+            );
         }
         other => panic!("expected Explain, got {other:?}"),
     }
@@ -180,9 +186,14 @@ async fn explain_timeout_is_an_outcome_not_a_failed_event() {
     assert!(matches!(next(&mut h).await, Event::Connected { .. }));
     h.tx.send(explain_command(cfg.id)).unwrap();
     match next(&mut h).await {
-        Event::Explain { session, outcome, .. } => {
+        Event::Explain {
+            session, outcome, ..
+        } => {
             assert_eq!(session, cfg.id);
-            assert!(matches!(outcome, Err(CoreError::Database(_))), "{outcome:?}");
+            assert!(
+                matches!(outcome, Err(CoreError::Database(_))),
+                "{outcome:?}"
+            );
         }
         other => panic!("expected Explain, got {other:?}"),
     }
