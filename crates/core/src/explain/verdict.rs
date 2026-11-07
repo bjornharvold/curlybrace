@@ -45,16 +45,30 @@ pub struct SuggestedIndex {
 }
 
 impl SuggestedIndex {
-    /// A ready-to-copy `db.<collection>.createIndex({...})` command. Advice only.
+    /// A ready-to-copy `db.getCollection("<collection>").createIndex({...})` command.
+    /// Advice only. Every name is rendered as an escaped string literal, so a name can
+    /// never change what the pasted command does.
     pub fn command(&self, collection: &str) -> String {
         let keys = self
             .keys
             .iter()
-            .map(|(field, dir)| format!("{}: {dir}", serde_json::Value::from(field.as_str())))
+            .map(|(field, dir)| format!("{}: {dir}", js_string(field)))
             .collect::<Vec<_>>()
             .join(", ");
-        format!("db.{collection}.createIndex({{ {keys} }})")
+        format!(
+            "db.getCollection({}).createIndex({{ {keys} }})",
+            js_string(collection)
+        )
     }
+}
+
+/// A JavaScript string literal for `text`. JSON escaping covers quotes, backslashes and
+/// control characters; U+2028/U+2029 are valid in JSON but end a line in JavaScript.
+fn js_string(text: &str) -> String {
+    serde_json::Value::from(text)
+        .to_string()
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
 }
 
 #[derive(Debug, Clone, PartialEq)]

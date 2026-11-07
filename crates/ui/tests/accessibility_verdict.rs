@@ -19,7 +19,7 @@ fn warn_model() -> BadgeModel {
         icon: "\u{26a0}",
         title_key: "query.verdict.title_collscan",
         reasons: vec![Reason::new("collscan")],
-        suggestion: Some("db.orders.createIndex({ \"status\": 1 })".into()),
+        suggestion: Some("db.getCollection(\"orders\").createIndex({ \"status\": 1 })".into()),
         plan_only: true,
     }
 }
@@ -46,7 +46,7 @@ fn the_title_leads_with_an_icon_and_the_reasons_are_text() {
     harness.get_by_label(&title);
     harness.get_by_label(&t("query.verdict.reason_collscan"));
     harness.get_by_label(&t("query.verdict.plan_only"));
-    harness.get_by_label("db.orders.createIndex({ \"status\": 1 })");
+    harness.get_by_label("db.getCollection(\"orders\").createIndex({ \"status\": 1 })");
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn the_copy_button_is_named_and_reports_the_command() {
     assert_eq!(
         harness.state().1,
         vec![VerdictAction::CopySuggestion(
-            "db.orders.createIndex({ \"status\": 1 })".into()
+            "db.getCollection(\"orders\").createIndex({ \"status\": 1 })".into()
         )]
     );
 }

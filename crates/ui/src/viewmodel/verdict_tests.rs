@@ -106,7 +106,7 @@ fn suggestion_command_uses_collection_name() {
     let m = badge(&ready(v), "orders").unwrap();
     assert_eq!(
         m.suggestion.as_deref(),
-        Some("db.orders.createIndex({ \"status\": 1 })")
+        Some("db.getCollection(\"orders\").createIndex({ \"status\": 1 })")
     );
     assert_eq!(m.reasons[0].key, "collscan");
 }
