@@ -239,3 +239,21 @@ fn an_unknown_planned_namespace_keeps_the_suggestion() {
             .is_some()
     );
 }
+
+#[test]
+fn an_unauthorized_explain_gets_its_own_reason_because_retrying_cannot_help() {
+    let m = unavailable(CoreError::Unauthorized);
+    assert_eq!(m.reasons[0].key, "unauthorized");
+    assert_eq!(
+        reason_text_key("unauthorized"),
+        Some("query.verdict.reason_unauthorized")
+    );
+}
+
+#[test]
+fn timeouts_and_other_failures_stay_on_the_retryable_reason() {
+    assert_eq!(
+        unavailable(CoreError::Unreachable).reasons[0].key,
+        "unavailable"
+    );
+}

@@ -67,10 +67,11 @@ fn simple(
     }
 }
 
-/// The server detail is never shown: a view or unsupported target and any other failure get a
-/// fixed, localized reason.
+/// The server detail is never shown: each failure gets a fixed, localized reason. Only a refusal
+/// of permission is told apart from "try again later", since retrying cannot fix it.
 fn unavailable_reason(error: &CoreError) -> &'static str {
     match error {
+        CoreError::Unauthorized => "unauthorized",
         CoreError::Unsupported(_) => "unsupported",
         _ => "unavailable",
     }
@@ -119,6 +120,7 @@ pub fn reason_text_key(suffix: &str) -> Option<&'static str> {
         "inefficient" => "query.verdict.reason_inefficient",
         "no_filter" => "query.verdict.reason_no_filter",
         "empty_collection" => "query.verdict.reason_empty_collection",
+        "unauthorized" => "query.verdict.reason_unauthorized",
         "unsupported" => "query.verdict.reason_unsupported",
         "unavailable" => "query.verdict.reason_unavailable",
         _ => return None,

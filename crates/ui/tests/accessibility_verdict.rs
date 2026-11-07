@@ -187,7 +187,11 @@ fn unavailable_states_a_fixed_reason_and_never_the_server_text() {
     for (error, reason) in [
         (
             CoreError::Unsupported("secret-detail".into()),
-            "view or a target that does not support explain",
+            "server or store cannot explain this query",
+        ),
+        (
+            CoreError::Unauthorized,
+            "not allowed to explain queries here",
         ),
         (
             CoreError::Database("secret-detail".into()),

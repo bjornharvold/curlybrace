@@ -248,7 +248,7 @@ fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
     if !state.explain_enabled() {
         return;
     }
-    let model = badge(&state.verdict, state.selected_ns());
+    let model = badge(&super::explain_actions::shown(state), state.selected_ns());
     if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
         ui.ctx().copy_text(text);
     }

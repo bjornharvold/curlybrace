@@ -44,6 +44,47 @@ pub(super) fn same_run(a: &Query, b: &Query) -> bool {
     a.filter == b.filter && a.sort == b.sort && a.projection == b.projection && a.limit == b.limit
 }
 
+/// The verdict to draw beside the page on screen. A finished verdict shows only over the page of
+/// its own run: while the run's find is still in flight (the explain answered first) it reads
+/// as "checking", and when that find failed and the previous page stays it shows nothing, so a
+/// badge never describes documents it was not computed for.
+pub fn shown(state: &AppState) -> VerdictState {
+    let Some(run) = state.verdict.run() else {
+        return VerdictState::None;
+    };
+    match &state.verdict {
+        VerdictState::Pending { .. } => state.verdict.clone(),
+        _ if same_run(run, &state.page_query) => state.verdict.clone(),
+        _ if state.loading_page && same_run(run, &state.issued_query) => {
+            VerdictState::Pending { query: run.clone() }
+        }
+        _ => VerdictState::None,
+    }
+}
+
+/// The name of an error's variant, e.g. `Database`. The message is never part of it: it can
+/// quote the literal values of the query, so only the variant is safe to log.
+pub(super) fn error_variant(error: &CoreError) -> String {
+    format!("{error:?}")
+        .chars()
+        .take_while(|c| c.is_alphanumeric())
+        .collect()
+}
+
+/// An explain command that failed as a command: the run still waiting turns unavailable, any
+/// other state is left alone. The explain is advice, so this never raises a banner.
+pub(super) fn command_failed(state: AppState, error: CoreError) -> AppState {
+    let VerdictState::Pending { query } = &state.verdict else {
+        return state;
+    };
+    log::warn!("explain failed: {}", error_variant(&error));
+    let verdict = VerdictState::Unavailable {
+        query: query.clone(),
+        error,
+    };
+    AppState { verdict, ..state }
+}
+
 /// Stores the outcome of an explain when it belongs to the run still shown; any other (another
 /// collection, a superseded run) is dropped and the state returned unchanged.
 pub(super) fn arrived(
@@ -59,7 +100,10 @@ pub(super) fn arrived(
     }
     let verdict = match outcome {
         Ok(verdict) => VerdictState::Ready { query, verdict },
-        Err(error) => VerdictState::Unavailable { query, error },
+        Err(error) => {
+            log::warn!("explain unavailable: {}", error_variant(&error));
+            VerdictState::Unavailable { query, error }
+        }
     };
     AppState { verdict, ..state }
 }

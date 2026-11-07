@@ -200,6 +200,16 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             )
         }
         Event::Mutated { ns, .. } => mutated(state, ns),
+        // The explain is advice: even as a failed command it never raises a banner or touches a
+        // loading flag; the run waiting for it just has no verdict.
+        Event::Failed {
+            context: "explain_find",
+            error,
+            ..
+        } => (
+            super::explain_actions::command_failed(state, error),
+            Vec::new(),
+        ),
         // The server of an open session cannot be reached any more: the root fails like a failed
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever
