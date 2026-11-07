@@ -3,6 +3,7 @@
 use super::index_builder::{BuilderEdit, IndexBuilderState};
 use super::index_detail::{series_matching, series_of};
 use super::index_write::{DropConfirm, DropOld, IndexWrite, TtlPrompt};
+use super::queries::{IndexesView, QueriesAction, QueriesState};
 use curlybrace_core::history::ChartRange;
 use curlybrace_core::indexes::IndexSpec;
 use curlybrace_core::runtime::{IndexSeries, SamplerStatus};
@@ -68,6 +69,10 @@ pub struct IndexesState {
     pub drop_old: Option<DropOld>,
     /// The number input of "Change TTL...", while it is open.
     pub ttl_prompt: Option<TtlPrompt>,
+    /// Which view of the tab is shown.
+    pub view: IndexesView,
+    /// The Queries view: recorded query shapes and the profiler of the collection's database.
+    pub queries: QueriesState,
 }
 
 impl Default for IndexesState {
@@ -89,6 +94,8 @@ impl Default for IndexesState {
             drop_confirm: None,
             drop_old: None,
             ttl_prompt: None,
+            view: IndexesView::Indexes,
+            queries: QueriesState::default(),
         }
     }
 }
@@ -103,6 +110,7 @@ impl IndexesState {
             sampler: self.sampler,
             request: self.request,
             answered: self.answered,
+            queries: self.queries.for_collection(),
             ..Self::default()
         }
     }
@@ -281,6 +289,15 @@ impl IndexesState {
             || self.drop_confirm.is_some()
             || self.drop_old.is_some()
             || self.ttl_prompt.is_some()
+            || self.queries.consent.is_some()
+    }
+
+    pub fn with_view(self, view: IndexesView) -> Self {
+        Self { view, ..self }
+    }
+
+    pub fn with_queries(self, queries: QueriesState) -> Self {
+        Self { queries, ..self }
     }
 
     /// The builder modal open on `builder`, or closed with `None`.
@@ -333,6 +350,10 @@ pub enum IndexesAction {
     ExcludeDatabase(String),
     /// Sample this excluded database again.
     IncludeDatabase(String),
+    /// Show one view of the tab; the Queries view also reads its data.
+    ShowView(IndexesView),
+    /// Something in the Queries view.
+    Queries(QueriesAction),
 }
 
 impl IndexesAction {

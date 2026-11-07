@@ -6,6 +6,7 @@ use super::copy::{self, CopyInput};
 use super::index_actions;
 use super::index_write_actions;
 use super::persistence::PersistError;
+use super::queries_actions;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use super::tools_actions;
@@ -248,6 +249,11 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             request,
             error,
         } => {
+            // The shapes read is numbered on its own and fails inline, never as a banner.
+            if context == "query_shapes" {
+                let next = queries_actions::shapes_failed(state, request, error);
+                return (next, Vec::new());
+            }
             let current = state.indexes.request == request;
             let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
             if !(current || lost && state.indexes.answered <= request) {
@@ -298,10 +304,23 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::Sampler { status, .. } => {
             (index_actions::sampler_reported(state, status), Vec::new())
         }
-        // Handled by the profiler UI, which does not exist yet.
-        Event::ProfilingState { .. } | Event::QueryShapes { .. } | Event::Profiler { .. } => {
-            (state, Vec::new())
+        Event::ProfilingState { db, outcome, .. } => {
+            queries_actions::profiling_answered(state, db, outcome)
         }
+        Event::QueryShapes {
+            ns,
+            range,
+            shapes,
+            request,
+            ..
+        } => (
+            queries_actions::shapes_arrived(state, ns, range, shapes, request),
+            Vec::new(),
+        ),
+        Event::Profiler { status, .. } => (
+            queries_actions::profiler_reported(state, status),
+            Vec::new(),
+        ),
         // Routed before; these have no session.
         Event::Compare(_) | Event::Copy(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }

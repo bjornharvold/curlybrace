@@ -39,6 +39,7 @@ mod index_edit_actions;
 mod index_write_actions;
 mod panels;
 pub mod persistence;
+mod queries_actions;
 pub mod reducer;
 pub mod sampling_settings;
 pub mod session;
@@ -818,6 +819,9 @@ mod index_edit_tests;
 
 #[cfg(test)]
 mod index_write_tests;
+
+#[cfg(test)]
+mod queries_tests;
 
 #[cfg(test)]
 mod connection_import_tests;

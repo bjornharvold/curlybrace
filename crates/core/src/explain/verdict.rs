@@ -138,8 +138,9 @@ impl SuggestedIndex {
 }
 
 /// A JavaScript string literal for `text`. JSON escaping covers quotes, backslashes and
-/// control characters; U+2028/U+2029 are valid in JSON but end a line in JavaScript.
-fn js_string(text: &str) -> String {
+/// control characters; U+2028/U+2029 are valid in JSON but end a line in JavaScript. Shared by
+/// every command text the app offers for copying or confirming, so there is one escaper.
+pub fn js_string(text: &str) -> String {
     serde_json::Value::from(text)
         .to_string()
         .replace('\u{2028}', "\\u2028")

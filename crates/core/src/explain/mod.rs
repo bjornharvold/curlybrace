@@ -16,4 +16,4 @@ mod verdict_tests;
 pub use classify::classify;
 pub(crate) use classify::{count, is_inefficient};
 pub use suggest::suggest;
-pub use verdict::{Reason, SuggestedIndex, Verdict, VerdictKind, worst};
+pub use verdict::{Reason, SuggestedIndex, Verdict, VerdictKind, js_string, worst};

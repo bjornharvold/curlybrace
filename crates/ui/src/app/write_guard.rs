@@ -16,6 +16,8 @@ pub enum WriteKind {
     /// Hiding or unhiding an index.
     HideIndex,
     SetIndexTtl,
+    /// Switching the profiler of a database on or off.
+    SetProfilingLevel,
 }
 
 /// Whether a mutation must wait for the user's confirmation when it targets a production

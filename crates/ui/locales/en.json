@@ -1081,6 +1081,7 @@
     "message_insert": "This is your production server, {connection}. Are you sure you want to insert this document?",
     "message_replace": "This is your production server, {connection}. Are you sure you want to edit this document?",
     "message_set_index_ttl": "This is your production server, {connection}. Are you sure you want to change when this index expires documents?",
+    "message_set_profiling_level": "This is your production server, {connection}. Are you sure you want to change the profiler of this database? Level 2 records every operation and adds load to the server.",
     "production_line": "Warning: this is a production connection.",
     "title": "Confirm write to production"
   }
