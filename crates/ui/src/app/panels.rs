@@ -10,7 +10,7 @@ use crate::I18n;
 use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
-use crate::views::connections::{ConnectionAction, show_connections};
+use crate::views::connections::{ConnectionAction, show_connections_with_tools};
 use crate::views::documents::{
     DocTarget, show_connection_header, show_documents_keyed, show_mode_switcher,
 };
@@ -22,6 +22,7 @@ use crate::views::index_dialogs::{
 };
 use crate::views::indexes::show_indexes;
 use crate::views::sidebar_roots::show_roots;
+use crate::views::tools_settings::show_tools_settings;
 use crate::views::write_warning::show_write_warning;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
@@ -35,6 +36,21 @@ pub enum UiEvent {
     Connection(ConnectionAction),
     HostKey(HostKeyAnswer),
     ForgetConfirmed,
+    /// The gear was clicked. The app layer looks for the usual install folders (it reads the
+    /// disk, the reducer does not) and opens the dialog with what it found.
+    OpenToolSettings,
+}
+
+/// The gear that opens the tool paths. Its glyph is an icon; the name a screen reader hears is
+/// translated.
+pub fn show_settings_button(ui: &mut egui::Ui, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    const GEAR: &str = "\u{2699}";
+    let name = i18n.t("tools.settings_button");
+    let button = ui.button(GEAR).on_hover_text(&name);
+    button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone()));
+    if button.clicked() {
+        out.push(UiEvent::OpenToolSettings);
+    }
 }
 
 pub fn show_banner(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
@@ -109,10 +125,11 @@ pub fn show_connections_screen(
         .iter()
         .any(|root| root.status == ConnStatus::Connecting);
     egui::CentralPanel::default().show(ctx, |ui| {
+        show_settings_button(ui, i18n, out);
         if opening {
             ui.label(i18n.t("connections.connecting"));
         }
-        if let Some(action) = show_connections(ui, &mut state.conn, i18n) {
+        if let Some(action) = show_connections_with_tools(ui, &mut state.conn, &state.tools, i18n) {
             out.push(UiEvent::Connection(action));
         }
     });
@@ -128,6 +145,7 @@ pub fn show_sessions_panel(
     egui::SidePanel::left("sidebar")
         .resizable(true)
         .show(ctx, |ui| {
+            show_settings_button(ui, i18n, out);
             if let Some(action) = show_workspace_switcher(ui, state.workspace, i18n) {
                 out.push(UiEvent::Input(Input::Compare(action)));
             }
@@ -279,6 +297,11 @@ pub fn show_modals(
     out.extend(decided.map(UiEvent::HostKey));
     show_write_warning_modal(ctx, state, i18n, out);
     show_copy(ctx, state, i18n, out);
+    out.extend(
+        show_tools_settings(ctx, &state.tools, i18n)
+            .into_iter()
+            .map(|a| UiEvent::Input(Input::Tools(a))),
+    );
     if let Some(endpoint) = &state.forget_confirm {
         let port = endpoint.port.to_string();
         let message = i18n.t_with(

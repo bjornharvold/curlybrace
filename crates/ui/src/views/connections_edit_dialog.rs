@@ -4,6 +4,7 @@ use super::connections::{ConnectionAction, ConnectionsState, TestState};
 use super::connections_edit::{show_fields, text_row};
 use super::error_label::show_error;
 use crate::I18n;
+use crate::app::tools_state::ToolsState;
 use curlybrace_core::runtime::TestReport;
 use eframe::egui;
 
@@ -16,6 +17,7 @@ const BODY_MAX_HEIGHT: f32 = 460.0;
 pub(super) fn show_edit_dialog(
     ctx: &egui::Context,
     state: &mut ConnectionsState,
+    tools: &ToolsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
     if !state.editing {
@@ -30,7 +32,7 @@ pub(super) fn show_edit_dialog(
             .max_height(BODY_MAX_HEIGHT)
             .auto_shrink([false, true])
             .show(ui, |ui| {
-                action = show_body(ui, state, i18n);
+                action = show_body(ui, state, tools, i18n);
             });
         // Outside the clipped scroll area, so a long result or error is always fully visible.
         show_test_result(ui, state, i18n);
@@ -71,6 +73,7 @@ fn closed_by_escape<T>(modal: &egui::ModalResponse<T>) -> bool {
 fn show_body(
     ui: &mut egui::Ui,
     state: &mut ConnectionsState,
+    tools: &ToolsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
     text_row(ui, &i18n.t("connections.name"), &mut state.form.name, false);
@@ -78,9 +81,11 @@ fn show_body(
     super::connections_from_uri::show_from_uri(ui, state, i18n);
     show_fields(ui, state, i18n);
     ui.separator();
+    let tool_paths = super::connections_edit_tools::show_tools_section(ui, state, tools, i18n);
+    ui.separator();
     let tested = show_test(ui, state, i18n);
     let built = show_to_uri(ui, state, i18n);
-    tested.or(built)
+    tested.or(built).or(tool_paths)
 }
 
 /// Validates the form; a failure stays in `state.error` and nothing is emitted.

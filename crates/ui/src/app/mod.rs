@@ -41,6 +41,12 @@ pub mod sampling_settings;
 pub mod session;
 mod session_actions;
 pub mod state;
+mod tool_picker;
+mod tool_probe;
+pub mod tool_settings;
+mod tools_actions;
+mod tools_app;
+pub mod tools_state;
 pub mod write_guard;
 
 use crate::I18n;
@@ -71,6 +77,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
+use tool_probe::ProbeAnswer;
+use tool_settings::default_tools_path;
 
 /// Slack on top of the prompt timeout so a user who answers just in time still connects
 /// (the runtime's connect timeout bounds the whole connect, prompt included).
@@ -115,6 +123,18 @@ pub struct CurlybraceApp {
     sampling_path: ConfigPath,
     /// Whether `sampling.json` may be replaced (not when a bad one could not be backed up).
     sampling_guard: persistence::PersistGuard,
+    /// Where the tool paths are saved; like `sampling_path`, unset in `new` so a test never
+    /// writes the real config directory.
+    tools_path: ConfigPath,
+    /// Whether `tools.json` may be replaced (not when a bad one could not be backed up).
+    tools_guard: persistence::PersistGuard,
+    /// Where the version-check threads put their answers, drained once per frame.
+    probe_answers: Receiver<ProbeAnswer>,
+    probe_sender: std::sync::mpsc::Sender<ProbeAnswer>,
+    /// The `PATH` the tool checks search and pass on; the process's own unless replaced.
+    tool_path_var: Option<std::ffi::OsString>,
+    /// The executable dialog being shown, if any: at most one at a time.
+    tool_pick: Option<tool_picker::ToolPick>,
     known_hosts: Option<PathBuf>,
     prompt: PromptState,
     prompt_requests: Option<Receiver<HostKeyRequest>>,
@@ -138,6 +158,7 @@ impl CurlybraceApp {
         secrets: Arc<dyn SecretStore>,
     ) -> Self {
         let state = refresh_flags(AppState::new(connections), secrets.as_ref());
+        let (probe_sender, probe_answers) = std::sync::mpsc::channel();
         Self {
             state,
             handle,
@@ -146,6 +167,12 @@ impl CurlybraceApp {
             config_path: default_connections_path(),
             sampling_path: Err(persistence::PersistError::ConfigDirUnknown),
             sampling_guard: persistence::PersistGuard::default(),
+            tools_path: Err(persistence::PersistError::ConfigDirUnknown),
+            tools_guard: persistence::PersistGuard::default(),
+            probe_answers,
+            probe_sender,
+            tool_path_var: std::env::var_os("PATH"),
+            tool_pick: None,
             known_hosts: default_known_hosts_path(),
             prompt: PromptState::default(),
             prompt_requests: None,
@@ -188,6 +215,7 @@ impl CurlybraceApp {
             .with_persist_guard(guard)
             .with_banner(startup_banner)
             .with_sampling_path(default_sampling_path())
+            .with_tools_path(default_tools_path())
     }
 
     pub fn with_config_path(self, config_path: ConfigPath) -> Self {
@@ -296,11 +324,13 @@ impl CurlybraceApp {
             _ => None,
         };
         let sampling_before = self.state.sampling.clone();
+        let tools_before = self.state.tools.settings.clone();
         let (state, commands) = update(std::mem::take(&mut self.state), input);
         self.state = state;
         if self.state.sampling != sampling_before {
             self.save_sampling();
         }
+        self.tools_changed(&tools_before);
         self.state = std::mem::take(&mut self.state).with_queued_recovery_shown();
         self.reject_closed_hosts_question(closing_host);
         // A dialog only belongs to an export that is waiting for it: when the person cancelled
@@ -423,6 +453,7 @@ impl CurlybraceApp {
         let state = std::mem::take(&mut self.state);
         let secrets = self.secrets.as_ref();
         let now = curlybrace_core::clock::now_secs();
+        let tools_before = state.tools.settings.clone();
         match action {
             ConnectionAction::Connect(id) => {
                 // Defensive: the modal blocks the list, but never connect with the dialog open.
@@ -458,8 +489,10 @@ impl CurlybraceApp {
                 // goes. A purge cannot be undone, so it follows only a delete that reached the
                 // disk: if the write failed the connection returns at the next launch.
                 self.send(purges_after(saved, &before, &self.state));
+                self.forget_tools_of_removed(saved, &before);
             }
             ConnectionAction::Duplicate(id) => {
+                let before = connection_ops::saved_ids(&state);
                 let source = state.connection(id).map(|c| c.name.clone());
                 let name = self.i18n.t_with(
                     "connections.copy_name",
@@ -467,6 +500,7 @@ impl CurlybraceApp {
                 );
                 self.state =
                     connection_ops::duplicate(state, id, name, now, secrets, &self.config_path);
+                self.copy_tools_to_new(id, &before);
             }
             ConnectionAction::MoveToFolder { id, folder } => {
                 self.state =
@@ -484,6 +518,7 @@ impl CurlybraceApp {
                 // purges nothing; it keeps the history of any connection a delete removes,
                 // under the same rule: only once the list was written.
                 self.send(purges_after(saved, &before, &self.state));
+                self.forget_tools_of_removed(saved, &before);
             }
             ConnectionAction::Test(form) => {
                 self.state = state;
@@ -495,6 +530,13 @@ impl CurlybraceApp {
             } => {
                 self.state = connection_uri::build(state, &form, include_password, secrets);
             }
+            ConnectionAction::Tools(action) => {
+                self.state = state;
+                // `dispatch` saves and starts the checks itself; saving again from the snapshot
+                // taken above would write the same file twice.
+                self.dispatch(Input::Tools(action));
+                return;
+            }
             ConnectionAction::StartImport => {
                 self.state = state;
                 self.start_connection_pick(ConnPickKind::Import);
@@ -504,6 +546,7 @@ impl CurlybraceApp {
                 self.start_connection_pick(ConnPickKind::Export);
             }
         }
+        self.tools_changed(&tools_before);
     }
 
     /// Opens the import or export dialog unless one is already open.
@@ -560,6 +603,7 @@ impl CurlybraceApp {
             UiEvent::Connection(action) => self.handle_connection_action(action),
             UiEvent::HostKey(answer) => self.answer_host_key(answer),
             UiEvent::ForgetConfirmed => self.confirm_forget(),
+            UiEvent::OpenToolSettings => self.open_tool_settings(),
         }
     }
 
@@ -577,6 +621,8 @@ impl CurlybraceApp {
     /// Moves host-key requests and runtime events into the state.
     fn pump(&mut self) {
         self.drain_requests();
+        self.drain_probe_answers();
+        self.poll_tool_picker();
         self.prompt = std::mem::take(&mut self.prompt).pruned();
         loop {
             let event = match self.handle.rx.try_recv() {
@@ -729,6 +775,12 @@ mod file_picker_tests;
 
 #[cfg(test)]
 mod sampling_settings_tests;
+#[cfg(test)]
+mod tool_settings_tests;
+#[cfg(test)]
+mod tools_state_tests;
+#[cfg(test)]
+mod tools_wiring_tests;
 
 #[cfg(test)]
 mod index_tests;

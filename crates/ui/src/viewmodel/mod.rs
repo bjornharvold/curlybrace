@@ -21,6 +21,7 @@ pub mod page_key;
 pub mod sidebar;
 pub mod sidebar_selection;
 pub mod table;
+pub mod tool_rows;
 pub mod tree;
 pub mod tree_state;
 pub mod typed_confirmation;

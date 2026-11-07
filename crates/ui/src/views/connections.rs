@@ -1,5 +1,6 @@
 //! Connection manager view: saved connections list plus an editable form.
 use crate::I18n;
+use crate::app::tools_state::ToolsState;
 use crate::viewmodel::{ConnectionForm, Sort, StoredSecrets};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
@@ -35,6 +36,8 @@ pub enum ConnectionAction {
         form: Box<ConnectionForm>,
         include_password: bool,
     },
+    /// A choice in the tool paths section of the dialog.
+    Tools(crate::app::tools_state::ToolsAction),
 }
 
 /// Progress of the Test Connection button. `tls` and `authenticated` in a finished report mean
@@ -360,12 +363,22 @@ pub fn show_connections(
     state: &mut ConnectionsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
+    show_connections_with_tools(ui, state, &ToolsState::default(), i18n)
+}
+
+/// [`show_connections`] with the tool paths the dialog's section edits.
+pub fn show_connections_with_tools(
+    ui: &mut egui::Ui,
+    state: &mut ConnectionsState,
+    tools: &ToolsState,
+    i18n: &I18n,
+) -> Option<ConnectionAction> {
     state.invalidate_stale_test();
     // Before the dialog draws, so a closed dialog's pasted text is gone from egui at once.
     super::connections_from_uri::wipe_if_pending(ui.ctx(), state);
     ui.heading(i18n.t("connections.title"));
     let action = super::connections_list::show_list(ui, state, i18n);
-    let edit = super::connections_edit_dialog::show_edit_dialog(ui.ctx(), state, i18n);
+    let edit = super::connections_edit_dialog::show_edit_dialog(ui.ctx(), state, tools, i18n);
     // Apply or Cancel inside the dialog: wipe this frame, not the next.
     super::connections_from_uri::wipe_if_pending(ui.ctx(), state);
     let prompt = super::connections_folder_prompt::show_folder_prompt(ui.ctx(), state, i18n);

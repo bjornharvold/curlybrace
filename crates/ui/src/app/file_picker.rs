@@ -23,6 +23,11 @@ pub trait FilePicker: Send + Sync {
     fn open_file(&self, _extension: &str) -> Option<PathBuf> {
         None
     }
+
+    /// Any file, for choosing a program. `None` when cancelled. Default: not supported.
+    fn pick_executable(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// The production picker: the operating system's native save dialog (`rfd`).
@@ -42,6 +47,10 @@ impl FilePicker for NativeFilePicker {
         rfd::FileDialog::new()
             .add_filter(extension, &[extension])
             .pick_file()
+    }
+
+    fn pick_executable(&self) -> Option<PathBuf> {
+        rfd::FileDialog::new().pick_file()
     }
 }
 
