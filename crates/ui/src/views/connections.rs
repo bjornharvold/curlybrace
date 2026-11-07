@@ -366,7 +366,7 @@ pub fn show_connections(
     // Without tool paths nothing is ever listed before the deciding action.
     show_connections_with_tools(ui, state, &ToolsState::default(), i18n)
         .into_iter()
-        .last()
+        .next_back()
 }
 
 /// [`show_connections`] with the tool paths the dialog's section edits. Returns what was done,
