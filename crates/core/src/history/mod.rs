@@ -6,6 +6,8 @@ pub mod db;
 mod db_purge_tests;
 mod db_schema;
 #[cfg(test)]
+mod db_schema_v2_tests;
+#[cfg(test)]
 mod db_tests;
 #[cfg(test)]
 mod db_wal_tests;
@@ -16,6 +18,14 @@ mod seam_tests;
 pub mod series;
 #[cfg(test)]
 mod series_tests;
+mod shape_schema;
+mod shape_thin;
+#[cfg(test)]
+mod shape_thin_tests;
+pub mod shapes;
+mod shapes_read;
+#[cfg(test)]
+mod shapes_tests;
 #[cfg(test)]
 mod skew_roll_tests;
 #[cfg(test)]
@@ -29,6 +39,8 @@ mod usage;
 
 pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView, is_history_busy};
 pub use retention::{ChartRange, MAX_DB_BYTES};
+pub use shape_schema::TYPED_HOST;
+pub use shapes::{ShapeBucket, ShapeKey, ShapeObservation, ShapeSource, ShapeSummary, is_miss};
 
 pub use series::{
     Bucket, DEFAULT_MAX_CONTINUOUS_SECS, GAP_INTERVALS, MAX_BUCKETS, MAX_FUTURE_SKEW_SECS, Point,

@@ -7,11 +7,13 @@
 //! - `samples`: raw readings. The autoincrement `id` is the insertion order, which is the order
 //!   `derive` must see them in (it never re-sorts by timestamp).
 //! - `rolled`: thinned rows, `tier` 1 = hourly, 2 = daily, holding exactly a `Bucket`'s fields.
+//! - Version 2 adds the `shape*` tables (see [`super::shape_schema`]).
 
+use super::shape_schema::V2;
 use rusqlite::Connection;
 
 /// The schema version this build writes.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Tier of an hourly rolled row.
 pub const TIER_HOURLY: i64 = 1;
@@ -75,15 +77,28 @@ pub fn prepare(conn: &mut Connection) -> Result<(), SchemaError> {
     if version < 1 {
         migrate_to_v1(conn)?;
     }
+    if version < 2 {
+        migrate_to_v2(conn)?;
+    }
     Ok(())
 }
 
-fn migrate_to_v1(conn: &mut Connection) -> Result<(), SchemaError> {
+pub(super) fn migrate_to_v1(conn: &mut Connection) -> Result<(), SchemaError> {
     // Only takes effect before the first table exists: lets deleted rows give pages back.
     conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
     let tx = conn.transaction()?;
     tx.execute_batch(V1)?;
     tx.pragma_update(None, "user_version", 1)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Adds the query shape tables (see [`super::shape_schema`]). Creates tables only: the
+/// `auto_vacuum` setting is fixed once the first table exists and is not repeated here.
+fn migrate_to_v2(conn: &mut Connection) -> Result<(), SchemaError> {
+    let tx = conn.transaction()?;
+    tx.execute_batch(V2)?;
+    tx.pragma_update(None, "user_version", 2)?;
     tx.commit()?;
     Ok(())
 }

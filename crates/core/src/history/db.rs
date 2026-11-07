@@ -7,7 +7,7 @@
 use super::db_schema::{SchemaError, prepare};
 use super::retention::{ChartRange, MAX_DB_BYTES};
 use super::series::{Bucket, Sample};
-use super::{thin, usage};
+use super::{shapes, thin, usage};
 use crate::error::{CoreError, Result};
 use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
 use std::collections::HashSet;
@@ -183,7 +183,7 @@ impl HistoryDb {
 
     /// A poisoned lock only means another call panicked; transactions roll back on drop, so the
     /// connection is still consistent.
-    fn lock(&self) -> MutexGuard<'_, Connection> {
+    pub(super) fn lock(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -346,7 +346,7 @@ impl HistoryDb {
             .remove(&connection);
     }
 
-    fn is_purged(&self, connection: Uuid) -> bool {
+    pub(super) fn is_purged(&self, connection: Uuid) -> bool {
         self.purged
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -363,6 +363,8 @@ impl HistoryDb {
             [connection.to_string()],
         )
         .map_err(sql_err)?;
+        // Same locked section: shape rows (typed ones included) and their gaps go with it.
+        shapes::delete_connection(&conn, connection)?;
         thin::release_free_pages(&conn)
     }
 
