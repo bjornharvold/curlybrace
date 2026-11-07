@@ -24,7 +24,7 @@ use crate::views::index_dialogs::{
 use crate::views::indexes::show_indexes;
 use crate::views::sidebar_roots::show_roots;
 use crate::views::tools_settings::show_tools_settings;
-use crate::views::verdict_badge::{VerdictAction, show_verdict_badge};
+use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
 use crate::views::write_warning::show_write_warning;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
@@ -239,17 +239,18 @@ fn show_collection(
     }
 }
 
-/// The index verdict of the current run, above the documents; its copy button goes to the
-/// clipboard here, the reducer needs no record of it.
+/// The index verdict of the current run in a fixed-height row above the documents (reserved
+/// whenever explain is on, so nothing shifts); its copy button goes to the clipboard here.
 fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
+    if !state.explain_enabled() {
+        return;
+    }
     let collection = state
         .selected_ns()
         .map(|ns| ns.collection.as_str())
         .unwrap_or_default();
-    let Some(model) = badge(&state.verdict, collection) else {
-        return;
-    };
-    if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_badge(ui, &model, i18n) {
+    let model = badge(&state.verdict, collection);
+    if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
         ui.ctx().copy_text(text);
     }
 }

@@ -1,5 +1,5 @@
 //! The query bar's index verdict as a badge: tone, icon, title and reasons, all as i18n keys.
-use crate::app::explain_actions::VerdictState;
+use crate::app::VerdictState;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{Reason, Verdict, VerdictKind};
 
@@ -85,8 +85,10 @@ fn ready(verdict: &Verdict, collection: &str) -> BadgeModel {
         VerdictKind::NoFilter => (Tone::Neutral, ICON_INFO, "query.verdict.title_no_filter"),
         VerdictKind::EmptyCollection => (Tone::Neutral, ICON_INFO, "query.verdict.title_empty"),
     };
+    // No `db..createIndex` when no collection is selected; a good verdict needs no advice.
     let suggestion = match tone {
         Tone::Good => None,
+        _ if collection.is_empty() => None,
         _ => verdict.suggestion.as_ref().map(|s| s.command(collection)),
     };
     BadgeModel {

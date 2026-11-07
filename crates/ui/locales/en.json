@@ -982,6 +982,7 @@
       "reason_no_filter": "The query has no filter, so it returns documents in natural order.",
       "reason_sort_blocking": "The sort cannot use an index, so the server sorts the results in memory.",
       "reason_unavailable": "The server could not explain this query right now.",
+      "reason_unknown": "This query has a note this version cannot describe ({key}).",
       "reason_unsupported": "This is a view or a target that does not support explain.",
       "suggestion": "Suggested index",
       "title_collscan": "Collection scan: no index used",

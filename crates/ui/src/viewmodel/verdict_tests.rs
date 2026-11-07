@@ -128,18 +128,72 @@ fn plan_only_adds_the_estimate_note() {
     assert!(!model(VerdictKind::CollectionScan).plan_only);
 }
 
-#[test]
-fn every_reason_key_core_emits_has_a_string_key() {
-    for key in [
-        "collscan",
-        "sort_blocking",
-        "inefficient",
-        "no_filter",
-        "empty_collection",
-        "unsupported",
-        "unavailable",
-    ] {
-        assert!(reason_text_key(key).is_some(), "{key}");
+/// Every `{name}` placeholder of `template`.
+fn placeholders(template: &str) -> Vec<String> {
+    template
+        .split('{')
+        .skip(1)
+        .filter_map(|rest| rest.split_once('}').map(|(name, _)| name.to_string()))
+        .collect()
+}
+
+/// The reasons core really emits: `classify` over every fixture, with and without a filter.
+fn emitted_reasons() -> Vec<Reason> {
+    use curlybrace_core::ejson::editor_json_to_doc;
+    use curlybrace_core::explain::classify;
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../core/src/explain/fixtures");
+    let queries = [
+        Query {
+            filter: bson::doc! { "status": "open" },
+            ..Query::default()
+        },
+        Query::default(),
+    ];
+    let mut reasons = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        let explain = editor_json_to_doc(&text).unwrap();
+        for query in &queries {
+            let verdict = classify(&explain, query).unwrap();
+            reasons.extend(verdict.reasons);
+        }
     }
-    assert_eq!(reason_text_key("nope"), None);
+    reasons
+}
+
+#[test]
+fn every_reason_core_really_emits_has_a_resolvable_string_with_supplied_params() {
+    let i18n = crate::I18n::english();
+    let mut reasons = emitted_reasons();
+    for error in [
+        CoreError::Unsupported("x".into()),
+        CoreError::Database("x".into()),
+    ] {
+        reasons.extend(unavailable(error).reasons);
+    }
+    assert!(reasons.len() >= 5, "fixtures should cover many reasons");
+    for reason in reasons {
+        let key = reason_text_key(reason.key)
+            .unwrap_or_else(|| panic!("core emits `{}` but the badge has no string", reason.key));
+        let template = i18n.t(key);
+        assert!(
+            !template.starts_with('\u{27e6}'),
+            "{key} missing from en.json"
+        );
+        for name in placeholders(&template) {
+            assert!(
+                reason.params.iter().any(|(n, _)| *n == name),
+                "{key} uses {{{name}}} but core does not supply it"
+            );
+        }
+    }
+}
+
+#[test]
+fn no_collection_selected_means_no_suggestion() {
+    let mut v = verdict(VerdictKind::CollectionScan);
+    v.suggestion = Some(SuggestedIndex {
+        keys: vec![("status".into(), 1)],
+    });
+    assert_eq!(badge(&ready(v), "").unwrap().suggestion, None);
 }
