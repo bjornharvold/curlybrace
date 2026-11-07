@@ -34,6 +34,16 @@ impl PersistError {
     }
 }
 
+impl PersistError {
+    /// The message for a failure to save the tool paths (not the connection list).
+    pub fn tools_i18n_key(&self) -> &'static str {
+        match self {
+            Self::ConfigDirUnknown => "persist.tools_config_dir_unknown",
+            _ => "persist.tools_write_failed",
+        }
+    }
+}
+
 /// What startup found wrong with the saved list and whether the original file was preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Recovery {
@@ -61,6 +71,10 @@ pub enum Recovery {
     },
     /// The sampling settings file was not usable; the defaults apply.
     Sampling {
+        backed_up: bool,
+    },
+    /// The tool paths file was not usable; the defaults apply.
+    Tools {
         backed_up: bool,
     },
 }
@@ -92,6 +106,8 @@ impl Recovery {
             } => "persist.repaired_backup_failed",
             Self::Sampling { backed_up: true } => "persist.sampling_backed_up",
             Self::Sampling { backed_up: false } => "persist.sampling_backup_failed",
+            Self::Tools { backed_up: true } => "persist.tools_backed_up",
+            Self::Tools { backed_up: false } => "persist.tools_backup_failed",
         }
     }
 }

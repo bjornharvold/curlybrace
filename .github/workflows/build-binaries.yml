@@ -33,7 +33,7 @@ jobs:
       matrix:
         include:
           - label: macos-arm64
-            runner: macos-14
+            runner: macos-15
             target: aarch64-apple-darwin
             package: scripts/package-macos.sh
     runs-on: ${{ matrix.runner }}

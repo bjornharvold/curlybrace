@@ -23,6 +23,11 @@ pub trait FilePicker: Send + Sync {
     fn open_file(&self, _extension: &str) -> Option<PathBuf> {
         None
     }
+
+    /// Any file, for choosing a program. `None` when cancelled. Default: not supported.
+    fn pick_executable(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// The production picker: the operating system's native save dialog (`rfd`).
@@ -42,6 +47,10 @@ impl FilePicker for NativeFilePicker {
         rfd::FileDialog::new()
             .add_filter(extension, &[extension])
             .pick_file()
+    }
+
+    fn pick_executable(&self) -> Option<PathBuf> {
+        rfd::FileDialog::new().pick_file()
     }
 }
 
@@ -95,11 +104,35 @@ impl PendingPick {
     }
 
     pub fn poll(&self) -> PickPoll {
-        match self.answers.try_recv() {
-            Ok(path) => PickPoll::Done(path),
-            Err(TryRecvError::Empty) => PickPoll::Waiting,
-            Err(TryRecvError::Disconnected) => PickPoll::Done(None),
-        }
+        poll_dialog(&self.answers)
+    }
+}
+
+/// Runs a blocking dialog on a worker thread called `name`, so the UI thread never blocks, and
+/// wakes the UI when it answers. The answer comes through the returned receiver; read it with
+/// [`poll_dialog`]. If the thread cannot start the sender is dropped with the closure, which
+/// reads as cancelled. Shared by every file dialog the app opens.
+pub(super) fn spawn_dialog(
+    name: &'static str,
+    repaint: Repaint,
+    dialog: impl FnOnce() -> Option<PathBuf> + Send + 'static,
+) -> Receiver<Option<PathBuf>> {
+    let (tx, answers) = channel();
+    let work = move || {
+        let _ = tx.send(dialog());
+        repaint();
+    };
+    let _ = std::thread::Builder::new().name(name.into()).spawn(work);
+    answers
+}
+
+/// What a dialog started with [`spawn_dialog`] has answered so far. A worker that died reads as
+/// cancelled.
+pub(super) fn poll_dialog(answers: &Receiver<Option<PathBuf>>) -> PickPoll {
+    match answers.try_recv() {
+        Ok(path) => PickPoll::Done(path),
+        Err(TryRecvError::Empty) => PickPoll::Waiting,
+        Err(TryRecvError::Disconnected) => PickPoll::Done(None),
     }
 }
 
@@ -111,14 +144,8 @@ pub fn start_pick(
     extension: &'static str,
     repaint: Repaint,
 ) -> PendingPick {
-    let (tx, answers) = channel();
-    let work = move || {
-        let _ = tx.send(picker.save_file(suggested_name, extension));
-        repaint();
-    };
-    // If the thread cannot start the sender is dropped with the closure: reads as cancelled.
-    let _ = std::thread::Builder::new()
-        .name("curlybrace-file-picker".into())
-        .spawn(work);
+    let answers = spawn_dialog("curlybrace-file-picker", repaint, move || {
+        picker.save_file(suggested_name, extension)
+    });
     PendingPick { draft, answers }
 }

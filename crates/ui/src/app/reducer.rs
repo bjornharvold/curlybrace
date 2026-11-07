@@ -8,6 +8,8 @@ use super::index_write_actions;
 use super::persistence::PersistError;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
+use super::tools_actions;
+use super::tools_state::ToolsAction;
 use super::write_guard::{self, WriteWarningAction};
 use crate::viewmodel::{
     CollectionTab, ConnectionForm, DocAction, EditorAction, EditorState, FindAction, IndexesAction,
@@ -44,6 +46,8 @@ pub enum Input {
     Compare(CompareAction),
     /// The paste dialog.
     Copy(CopyInput),
+    /// A choice of tool path, or the answer of a version check.
+    Tools(ToolsAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -67,6 +71,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::TestConnection(form) => connection_test::start(state, &form),
         Input::Compare(a) => compare::on_action(state, a),
         Input::Copy(a) => copy::on_input(state, a),
+        Input::Tools(a) => tools_actions::on_action(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (

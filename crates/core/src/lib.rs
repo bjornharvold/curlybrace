@@ -27,6 +27,7 @@ pub mod secrets;
 pub mod store;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+pub mod tools;
 pub mod tunnel;
 pub mod uri;
 mod uri_host;

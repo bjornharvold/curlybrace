@@ -82,6 +82,19 @@ an account, a trial, or a license fee.
 - An alternative to `mongodump` and `mongorestore`, with progress, Cancel, and a report of exactly
   what was written. The full guide is [docs/copy.md](docs/copy.md).
 
+**Tool paths** ([#49](https://github.com/bjornharvold/curlybrace/issues/49))
+- Curlybrace does not bundle the MongoDB tools. Choose which `mongosh`, `mongodump` and
+  `mongorestore` to use from the gear: the one found on your `PATH`, or a file you pick, with the
+  detected version shown next to it and a clear reason when it cannot be used.
+- Set a global default and, per connection, either follow it or use a different tool (for example
+  an older `mongodump` for an old server). A tool older than the server you tested the connection
+  against is flagged.
+- The only programs run are the ones on your `PATH` and the usual install folders (the default
+  choice) or the files you pick, to ask for their version; the suggested install folders are only looked at. The check has a timeout
+  and a minimal environment, and the paths are kept in their own file, never in exported
+  connections. The design is in
+  [docs/superpowers/specs](docs/superpowers/specs/2026-11-07-tool-paths-design.md).
+
 **Indexes** ([#68](https://github.com/bjornharvold/curlybrace/issues/68))
 - An **Indexes** tab on each collection: the indexes on the left, the selected one on the right with
   its size and how often it was used over the last 24 hours, 7 days or 30 days. Server restarts
@@ -202,8 +215,7 @@ Nothing is being built right now. Pick something from **Next**.
 
 - **Signing and notarization** ([#17](https://github.com/bjornharvold/curlybrace/issues/17)): planned (`P2`), so the app opens without a
   Gatekeeper warning.
-- **Paths for `mongosh`, `mongodump` and `mongorestore`** ([#49](https://github.com/bjornharvold/curlybrace/issues/49)) and a **shell tab** that runs your
-  own `mongosh` ([#50](https://github.com/bjornharvold/curlybrace/issues/50)).
+- A **shell tab** that runs your own `mongosh` ([#50](https://github.com/bjornharvold/curlybrace/issues/50)).
 - **Bulk update and delete** with a count preview ([#51](https://github.com/bjornharvold/curlybrace/issues/51)).
 - **Create, rename and drop** databases, collections and views ([#52](https://github.com/bjornharvold/curlybrace/issues/52)).
 

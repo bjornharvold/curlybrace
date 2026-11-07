@@ -8,6 +8,7 @@ use super::persistence::{
     BackupFn, PersistError, PersistGuard, Recovery, atomic_write, default_connections_path,
 };
 use super::reducer::Out;
+use super::settings_file::{self, Startup};
 use super::state::{AppState, Banner};
 use curlybrace_core::runtime::Command;
 use serde_json::{Value, json};
@@ -61,59 +62,20 @@ pub fn default_sampling_path() -> ConfigPath {
     default_connections_path().map(|path| path.with_file_name(FILE_NAME))
 }
 
-/// The settings found at startup, whether saving them again is allowed and what, if anything, was
-/// wrong with the file.
-#[derive(Debug, PartialEq)]
-pub struct SamplingStartup {
-    pub settings: SamplingSettings,
-    pub guard: PersistGuard,
-    pub recovery: Option<Recovery>,
-}
+/// The sampling settings found at startup.
+pub type SamplingStartup = Startup<SamplingSettings>;
 
-/// Reads the file. A missing file is the defaults. A file that cannot be read or is not the
-/// expected shape is backed up first (tag `corrupt` or `unreadable`, like the connection list);
-/// if that fails the guard refuses every later save.
+/// Reads the file (see `settings_file::load` for the rules).
 pub fn load(path: &Path, backup: BackupFn<'_>) -> SamplingStartup {
-    let tag = match std::fs::read(path) {
-        Ok(bytes) => match parse(&bytes) {
-            Ok(settings) => return usable(settings),
-            Err(_) => "corrupt",
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return usable(SamplingSettings::default());
-        }
-        Err(_) => "unreadable",
-    };
-    let backed_up = match backup(path, tag) {
-        Ok(_) => true,
-        Err(e) => {
-            log::warn!("could not back up the sampling settings ({tag}): {e}");
-            false
-        }
-    };
-    SamplingStartup {
-        settings: SamplingSettings::default(),
-        guard: if backed_up {
-            PersistGuard::default()
-        } else {
-            PersistGuard::blocked()
-        },
-        recovery: Some(Recovery::Sampling { backed_up }),
-    }
-}
-
-fn usable(settings: SamplingSettings) -> SamplingStartup {
-    SamplingStartup {
-        settings,
-        guard: PersistGuard::default(),
-        recovery: None,
-    }
+    settings_file::load(path, backup, "sampling settings", parse, |backed_up| {
+        Recovery::Sampling { backed_up }
+    })
 }
 
 /// `{"excluded_dbs": ["name", ...]}`; a missing list is an empty one, anything of another shape
 /// is corrupt.
 fn parse(bytes: &[u8]) -> Result<SamplingSettings, PersistError> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| PersistError::Corrupt)?;
+    let value: Value = settings_file::json_object(bytes)?;
     let object = value.as_object().ok_or(PersistError::Corrupt)?;
     let excluded_dbs = match object.get(FIELD) {
         None => BTreeSet::new(),

@@ -4,6 +4,7 @@ use super::dialog_banner::DialogBannerWatch;
 use super::persistence::{PersistError, PersistGuard, Recovery};
 use super::sampling_settings::SamplingSettings;
 use super::session::SessionView;
+use super::tools_state::ToolsState;
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{
     CollectionTab, CopyClipboard, EditorState, FindBarState, IndexesState, PageKey, PasteBlock,
@@ -47,6 +48,8 @@ pub enum Banner {
         error: CoreError,
     },
     Persist(PersistError),
+    /// The tool paths file could not be written; the change applies until the app closes.
+    ToolsPersist(PersistError),
     /// The file chosen for import was refused. Says nothing about the saved list.
     ImportFailed(ImportError),
     /// Writing the export file failed. Says nothing about the saved list.
@@ -218,6 +221,8 @@ pub struct AppState {
     /// The databases the usage sampler skips. Global: it belongs to no session, so it is not
     /// parked with one.
     pub sampling: SamplingSettings,
+    /// The tool paths (global and per connection) and their version checks. Global too.
+    pub tools: ToolsState,
     pub editor: Option<EditorState>,
     /// The mutating command in flight; further mutations are ignored until it resolves.
     pub pending: Option<Pending>,

@@ -10,6 +10,7 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
     match banner {
         Banner::Failure { context, error } => (i18n.failure(context), Some(i18n.error(error))),
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
+        Banner::ToolsPersist(e) => (i18n.t(e.tools_i18n_key()), None),
         Banner::ImportFailed(e) => (i18n.t(e.i18n_key()), None),
         Banner::ExportFailed(_) => (i18n.t("banner.export_failed"), None),
         Banner::Recovery(r) => (recovery_headline(r, i18n), None),
@@ -48,9 +49,10 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
                 ("repaired", &repaired.to_string()),
             ],
         ),
-        Recovery::Corrupt { .. } | Recovery::Unreadable { .. } | Recovery::Sampling { .. } => {
-            i18n.t(key)
-        }
+        Recovery::Corrupt { .. }
+        | Recovery::Unreadable { .. }
+        | Recovery::Sampling { .. }
+        | Recovery::Tools { .. } => i18n.t(key),
     }
 }
 
@@ -99,6 +101,8 @@ mod tests {
             Banner::Persist(PersistError::Write(std::io::ErrorKind::Other)),
             Banner::Persist(PersistError::InvalidPath),
             Banner::Persist(PersistError::Blocked),
+            Banner::ToolsPersist(PersistError::ConfigDirUnknown),
+            Banner::ToolsPersist(PersistError::Write(std::io::ErrorKind::Other)),
             Banner::ImportFailed(ImportError::TooLarge),
             Banner::ImportFailed(ImportError::NotValid),
             Banner::ImportFailed(ImportError::TooManyEntries),
@@ -136,6 +140,8 @@ mod tests {
             }),
             Banner::Recovery(Recovery::Sampling { backed_up: true }),
             Banner::Recovery(Recovery::Sampling { backed_up: false }),
+            Banner::Recovery(Recovery::Tools { backed_up: true }),
+            Banner::Recovery(Recovery::Tools { backed_up: false }),
             Banner::NotConnected,
             Banner::CopyUnavailable,
             Banner::HostForgotten,
