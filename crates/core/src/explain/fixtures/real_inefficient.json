@@ -1,0 +1,301 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "cbit_7e633d728d71.orders",
+    "parsedQuery": {
+      "$and": [
+        {
+          "a": {
+            "$eq": {
+              "$numberInt": "3"
+            }
+          }
+        },
+        {
+          "b": {
+            "$lt": {
+              "$numberInt": "6000"
+            }
+          }
+        },
+        {
+          "b": {
+            "$gte": {
+              "$numberInt": "0"
+            }
+          }
+        }
+      ]
+    },
+    "indexFilterSet": false,
+    "queryHash": "ED22310D",
+    "planCacheShapeHash": "ED22310D",
+    "planCacheKey": "A6FA8C1B",
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "126"
+    },
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "FETCH",
+        "nss": "cbit_7e633d728d71.orders",
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nss": "cbit_7e633d728d71.orders",
+          "keyPattern": {
+            "b": {
+              "$numberInt": "1"
+            },
+            "a": {
+              "$numberInt": "1"
+            }
+          },
+          "indexName": "b_1_a_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "b": [],
+            "a": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": {
+            "$numberInt": "2"
+          },
+          "direction": "forward",
+          "indexBounds": {
+            "b": [
+              "[0, 6000)"
+            ],
+            "a": [
+              "[3, 3]"
+            ]
+          }
+        }
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": {
+      "$numberInt": "6"
+    },
+    "executionTimeMillis": {
+      "$numberInt": "3"
+    },
+    "executionTimeMicros": {
+      "$numberInt": "3666"
+    },
+    "totalKeysExamined": {
+      "$numberInt": "5999"
+    },
+    "totalDocsExamined": {
+      "$numberInt": "6"
+    },
+    "executionStages": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "nReturned": {
+        "$numberInt": "6"
+      },
+      "executionTimeMillisEstimate": {
+        "$numberInt": "0"
+      },
+      "works": {
+        "$numberInt": "6000"
+      },
+      "advanced": {
+        "$numberInt": "6"
+      },
+      "needTime": {
+        "$numberInt": "5993"
+      },
+      "needYield": {
+        "$numberInt": "0"
+      },
+      "saveState": {
+        "$numberInt": "0"
+      },
+      "restoreState": {
+        "$numberInt": "0"
+      },
+      "isEOF": {
+        "$numberInt": "1"
+      },
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "FETCH",
+        "nReturned": {
+          "$numberInt": "6"
+        },
+        "executionTimeMillisEstimate": {
+          "$numberInt": "0"
+        },
+        "works": {
+          "$numberInt": "6000"
+        },
+        "advanced": {
+          "$numberInt": "6"
+        },
+        "needTime": {
+          "$numberInt": "5993"
+        },
+        "needYield": {
+          "$numberInt": "0"
+        },
+        "saveState": {
+          "$numberInt": "0"
+        },
+        "restoreState": {
+          "$numberInt": "0"
+        },
+        "isEOF": {
+          "$numberInt": "1"
+        },
+        "nss": "cbit_7e633d728d71.orders",
+        "docsExamined": {
+          "$numberInt": "6"
+        },
+        "alreadyHasObj": {
+          "$numberInt": "0"
+        },
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nReturned": {
+            "$numberInt": "6"
+          },
+          "executionTimeMillisEstimate": {
+            "$numberInt": "0"
+          },
+          "works": {
+            "$numberInt": "6000"
+          },
+          "advanced": {
+            "$numberInt": "6"
+          },
+          "needTime": {
+            "$numberInt": "5993"
+          },
+          "needYield": {
+            "$numberInt": "0"
+          },
+          "saveState": {
+            "$numberInt": "0"
+          },
+          "restoreState": {
+            "$numberInt": "0"
+          },
+          "isEOF": {
+            "$numberInt": "1"
+          },
+          "nss": "cbit_7e633d728d71.orders",
+          "keyPattern": {
+            "b": {
+              "$numberInt": "1"
+            },
+            "a": {
+              "$numberInt": "1"
+            }
+          },
+          "indexName": "b_1_a_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "b": [],
+            "a": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": {
+            "$numberInt": "2"
+          },
+          "direction": "forward",
+          "indexBounds": {
+            "b": [
+              "[0, 6000)"
+            ],
+            "a": [
+              "[3, 3]"
+            ]
+          },
+          "keysExamined": {
+            "$numberInt": "5999"
+          },
+          "seeks": {
+            "$numberInt": "5994"
+          },
+          "dupsTested": {
+            "$numberInt": "0"
+          },
+          "dupsDropped": {
+            "$numberInt": "0"
+          },
+          "peakTrackedMemBytes": {
+            "$numberInt": "0"
+          }
+        }
+      }
+    }
+  },
+  "queryShapeHash": "131ADBCF0BE69D77C1471047FBDA0D7564448CE0E2C67EA4FEF99DE57EAB5B3E",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "a": {
+        "$numberInt": "3"
+      },
+      "b": {
+        "$gte": {
+          "$numberInt": "0"
+        },
+        "$lt": {
+          "$numberInt": "6000"
+        }
+      }
+    },
+    "limit": {
+      "$numberLong": "51"
+    },
+    "$db": "cbit_7e633d728d71"
+  },
+  "serverInfo": {
+    "host": "crash-8.local",
+    "port": {
+      "$numberInt": "27018"
+    },
+    "version": "9.0.4",
+    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}

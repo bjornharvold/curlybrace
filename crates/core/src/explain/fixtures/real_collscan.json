@@ -1,0 +1,183 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "cbit_dc7ce4a2893f.orders",
+    "parsedQuery": {
+      "c": {
+        "$eq": {
+          "$numberInt": "5"
+        }
+      }
+    },
+    "indexFilterSet": false,
+    "queryHash": "630D4E40",
+    "planCacheShapeHash": "630D4E40",
+    "planCacheKey": "A8E1B03B",
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "129"
+    },
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "COLLSCAN",
+        "filter": {
+          "c": {
+            "$eq": {
+              "$numberInt": "5"
+            }
+          }
+        },
+        "nss": "cbit_dc7ce4a2893f.orders",
+        "direction": "forward"
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": {
+      "$numberInt": "1"
+    },
+    "executionTimeMillis": {
+      "$numberInt": "0"
+    },
+    "executionTimeMicros": {
+      "$numberInt": "350"
+    },
+    "totalKeysExamined": {
+      "$numberInt": "0"
+    },
+    "totalDocsExamined": {
+      "$numberInt": "300"
+    },
+    "executionStages": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "nReturned": {
+        "$numberInt": "1"
+      },
+      "executionTimeMillisEstimate": {
+        "$numberInt": "0"
+      },
+      "works": {
+        "$numberInt": "301"
+      },
+      "advanced": {
+        "$numberInt": "1"
+      },
+      "needTime": {
+        "$numberInt": "299"
+      },
+      "needYield": {
+        "$numberInt": "0"
+      },
+      "saveState": {
+        "$numberInt": "0"
+      },
+      "restoreState": {
+        "$numberInt": "0"
+      },
+      "isEOF": {
+        "$numberInt": "1"
+      },
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "COLLSCAN",
+        "filter": {
+          "c": {
+            "$eq": {
+              "$numberInt": "5"
+            }
+          }
+        },
+        "nReturned": {
+          "$numberInt": "1"
+        },
+        "executionTimeMillisEstimate": {
+          "$numberInt": "0"
+        },
+        "works": {
+          "$numberInt": "301"
+        },
+        "advanced": {
+          "$numberInt": "1"
+        },
+        "needTime": {
+          "$numberInt": "299"
+        },
+        "needYield": {
+          "$numberInt": "0"
+        },
+        "saveState": {
+          "$numberInt": "0"
+        },
+        "restoreState": {
+          "$numberInt": "0"
+        },
+        "isEOF": {
+          "$numberInt": "1"
+        },
+        "nss": "cbit_dc7ce4a2893f.orders",
+        "direction": "forward",
+        "docsExamined": {
+          "$numberInt": "300"
+        },
+        "seeks": {
+          "$numberInt": "0"
+        }
+      }
+    }
+  },
+  "queryShapeHash": "4415FA73B1B8BA70EBF87D773C7ADAF54A4DECFC9F0F991D60C63E3355E7A8B5",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "c": {
+        "$numberInt": "5"
+      }
+    },
+    "limit": {
+      "$numberLong": "51"
+    },
+    "$db": "cbit_dc7ce4a2893f"
+  },
+  "serverInfo": {
+    "host": "crash-8.local",
+    "port": {
+      "$numberInt": "27018"
+    },
+    "version": "9.0.4",
+    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "cbit_398888cdec76.orders",
+    "parsedQuery": {
+      "c": {
+        "$eq": {
+          "$numberInt": "5"
+        }
+      }
+    },
+    "indexFilterSet": false,
+    "queryHash": "630D4E40",
+    "planCacheShapeHash": "630D4E40",
+    "planCacheKey": "A19AF62F",
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "129"
+    },
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "FETCH",
+        "nss": "cbit_398888cdec76.orders",
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nss": "cbit_398888cdec76.orders",
+          "keyPattern": {
+            "c": {
+              "$numberInt": "1"
+            }
+          },
+          "indexName": "c_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "c": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": {
+            "$numberInt": "2"
+          },
+          "direction": "forward",
+          "indexBounds": {
+            "c": [
+              "[5, 5]"
+            ]
+          }
+        }
+      }
+    },
+    "rejectedPlans": []
+  },
+  "queryShapeHash": "26C15711C5C7B2817C4542E4458A39C4185FFD9A2A7E46B4FBBD5803216E8D39",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "c": {
+        "$numberInt": "5"
+      }
+    },
+    "limit": {
+      "$numberLong": "51"
+    },
+    "$db": "cbit_398888cdec76"
+  },
+  "serverInfo": {
+    "host": "crash-8.local",
+    "port": {
+      "$numberInt": "27018"
+    },
+    "version": "9.0.4",
+    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}

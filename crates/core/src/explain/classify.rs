@@ -57,6 +57,8 @@ struct Plan<'a> {
     filter_empty: bool,
     plan_only: bool,
     inefficient: bool,
+    /// Statistics are present and a collection scan read no document: the collection is empty.
+    scanned_nothing: bool,
 }
 
 impl Plan<'_> {
@@ -65,10 +67,12 @@ impl Plan<'_> {
     }
 
     fn kind(&self) -> VerdictKind {
-        if self.filter_empty && !self.has_sort_key && self.has("COLLSCAN") {
-            VerdictKind::NoFilter
-        } else if self.has("EOF") {
+        // The server plans EOF for a collection that does not exist, but a COLLSCAN that read
+        // nothing for one that exists and is empty; both are empty, whatever the filter.
+        if self.has("EOF") || self.scanned_nothing {
             VerdictKind::EmptyCollection
+        } else if self.filter_empty && !self.has_sort_key && self.has("COLLSCAN") {
+            VerdictKind::NoFilter
         } else if self.has("SORT") {
             VerdictKind::SortNotCovered
         } else if self.has("COLLSCAN") {
@@ -125,12 +129,14 @@ pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
         count(stats, "totalDocsExamined"),
         count(stats, "nReturned"),
     );
+    let scanned_nothing = stats.is_some() && stages.contains(&"COLLSCAN") && docs == 0;
     let plan = Plan {
         stages,
         has_sort_key: query.sort.as_ref().is_some_and(|s| !s.is_empty()),
         filter_empty: query.filter.is_empty(),
         plan_only: stats.is_none(),
         inefficient: is_inefficient(keys, docs, returned),
+        scanned_nothing,
     };
     let kind = plan.kind();
     Ok(Verdict {

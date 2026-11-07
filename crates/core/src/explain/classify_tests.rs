@@ -16,6 +16,15 @@ fn fixture(name: &str) -> Document {
         "eof" => include_str!("fixtures/eof.json"),
         "plan_only" => include_str!("fixtures/plan_only.json"),
         "id_only" => include_str!("fixtures/id_only.json"),
+        "real_collscan" => include_str!("fixtures/real_collscan.json"),
+        "real_ixscan" => include_str!("fixtures/real_ixscan.json"),
+        "real_sort" => include_str!("fixtures/real_sort.json"),
+        "real_inefficient" => include_str!("fixtures/real_inefficient.json"),
+        "real_covered" => include_str!("fixtures/real_covered.json"),
+        "real_view" => include_str!("fixtures/real_view.json"),
+        "real_empty" => include_str!("fixtures/real_empty.json"),
+        "real_missing" => include_str!("fixtures/real_missing.json"),
+        "real_plan_only" => include_str!("fixtures/real_plan_only.json"),
         other => panic!("unknown fixture {other}"),
     };
     editor_json_to_doc(text).expect("fixture parses")
@@ -147,4 +156,65 @@ fn classify_query_planner_only_sets_plan_only() {
 fn classify_garbage_document_errors() {
     let err = classify(&doc! { "hello": "world" }, &filtered()).unwrap_err();
     assert!(matches!(err, crate::error::CoreError::Database(_)));
+}
+
+// Documents captured from a real server (mongod 9.0.4); see tests/local_explain.rs.
+
+#[test]
+fn real_empty_existing_collection_is_empty_not_a_collection_scan() {
+    // The server plans a COLLSCAN (not EOF) for a collection that exists but holds nothing.
+    let v = classify(&fixture("real_empty"), &filtered()).unwrap();
+    assert_eq!(v.kind, VerdictKind::EmptyCollection);
+    assert_eq!(v.reasons[0].key, "empty_collection");
+    assert!(v.suggestion.is_none());
+}
+
+#[test]
+fn real_empty_existing_collection_with_no_filter_is_empty() {
+    let v = classify(&fixture("real_empty"), &Query::default()).unwrap();
+    assert_eq!(v.kind, VerdictKind::EmptyCollection);
+}
+
+#[test]
+fn real_nonexistent_collection_is_empty() {
+    let v = classify(&fixture("real_missing"), &filtered()).unwrap();
+    assert_eq!(v.kind, VerdictKind::EmptyCollection);
+}
+
+#[test]
+fn real_documents_classify_like_the_hand_written_ones() {
+    let q = |sort: Option<bson::Document>, filter: bson::Document| Query {
+        filter,
+        sort,
+        ..Query::default()
+    };
+    let kind = |name: &str, q: &Query| classify(&fixture(name), q).unwrap().kind;
+    assert_eq!(
+        kind("real_collscan", &q(None, doc! { "c": 5 })),
+        VerdictKind::CollectionScan
+    );
+    assert_eq!(
+        kind("real_ixscan", &q(None, doc! { "c": 5 })),
+        VerdictKind::IndexUsed
+    );
+    assert_eq!(
+        kind("real_sort", &q(Some(doc! { "c": -1 }), doc! { "a": 3 })),
+        VerdictKind::SortNotCovered
+    );
+    assert_eq!(
+        kind("real_inefficient", &q(None, doc! { "a": 3 })),
+        VerdictKind::InefficientIndex
+    );
+    assert_eq!(
+        kind("real_covered", &q(None, doc! { "c": 5 })),
+        VerdictKind::CoveredByIndex
+    );
+    assert_eq!(
+        kind("real_view", &q(None, doc! { "c": 5 })),
+        VerdictKind::CollectionScan
+    );
+    assert_eq!(
+        kind("real_plan_only", &q(None, doc! { "c": 5 })),
+        VerdictKind::IndexUsed
+    );
 }

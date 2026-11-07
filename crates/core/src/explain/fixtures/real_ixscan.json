@@ -1,0 +1,261 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "cbit_1ca7e91e6145.orders",
+    "parsedQuery": {
+      "c": {
+        "$eq": {
+          "$numberInt": "5"
+        }
+      }
+    },
+    "indexFilterSet": false,
+    "queryHash": "630D4E40",
+    "planCacheShapeHash": "630D4E40",
+    "planCacheKey": "A19AF62F",
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "112"
+    },
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "FETCH",
+        "nss": "cbit_1ca7e91e6145.orders",
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nss": "cbit_1ca7e91e6145.orders",
+          "keyPattern": {
+            "c": {
+              "$numberInt": "1"
+            }
+          },
+          "indexName": "c_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "c": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": {
+            "$numberInt": "2"
+          },
+          "direction": "forward",
+          "indexBounds": {
+            "c": [
+              "[5, 5]"
+            ]
+          }
+        }
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": {
+      "$numberInt": "1"
+    },
+    "executionTimeMillis": {
+      "$numberInt": "0"
+    },
+    "executionTimeMicros": {
+      "$numberInt": "542"
+    },
+    "totalKeysExamined": {
+      "$numberInt": "1"
+    },
+    "totalDocsExamined": {
+      "$numberInt": "1"
+    },
+    "executionStages": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "nReturned": {
+        "$numberInt": "1"
+      },
+      "executionTimeMillisEstimate": {
+        "$numberInt": "0"
+      },
+      "works": {
+        "$numberInt": "2"
+      },
+      "advanced": {
+        "$numberInt": "1"
+      },
+      "needTime": {
+        "$numberInt": "0"
+      },
+      "needYield": {
+        "$numberInt": "0"
+      },
+      "saveState": {
+        "$numberInt": "0"
+      },
+      "restoreState": {
+        "$numberInt": "0"
+      },
+      "isEOF": {
+        "$numberInt": "1"
+      },
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "FETCH",
+        "nReturned": {
+          "$numberInt": "1"
+        },
+        "executionTimeMillisEstimate": {
+          "$numberInt": "0"
+        },
+        "works": {
+          "$numberInt": "2"
+        },
+        "advanced": {
+          "$numberInt": "1"
+        },
+        "needTime": {
+          "$numberInt": "0"
+        },
+        "needYield": {
+          "$numberInt": "0"
+        },
+        "saveState": {
+          "$numberInt": "0"
+        },
+        "restoreState": {
+          "$numberInt": "0"
+        },
+        "isEOF": {
+          "$numberInt": "1"
+        },
+        "nss": "cbit_1ca7e91e6145.orders",
+        "docsExamined": {
+          "$numberInt": "1"
+        },
+        "alreadyHasObj": {
+          "$numberInt": "0"
+        },
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nReturned": {
+            "$numberInt": "1"
+          },
+          "executionTimeMillisEstimate": {
+            "$numberInt": "0"
+          },
+          "works": {
+            "$numberInt": "2"
+          },
+          "advanced": {
+            "$numberInt": "1"
+          },
+          "needTime": {
+            "$numberInt": "0"
+          },
+          "needYield": {
+            "$numberInt": "0"
+          },
+          "saveState": {
+            "$numberInt": "0"
+          },
+          "restoreState": {
+            "$numberInt": "0"
+          },
+          "isEOF": {
+            "$numberInt": "1"
+          },
+          "nss": "cbit_1ca7e91e6145.orders",
+          "keyPattern": {
+            "c": {
+              "$numberInt": "1"
+            }
+          },
+          "indexName": "c_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "c": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": {
+            "$numberInt": "2"
+          },
+          "direction": "forward",
+          "indexBounds": {
+            "c": [
+              "[5, 5]"
+            ]
+          },
+          "keysExamined": {
+            "$numberInt": "1"
+          },
+          "seeks": {
+            "$numberInt": "1"
+          },
+          "dupsTested": {
+            "$numberInt": "0"
+          },
+          "dupsDropped": {
+            "$numberInt": "0"
+          },
+          "peakTrackedMemBytes": {
+            "$numberInt": "0"
+          }
+        }
+      }
+    }
+  },
+  "queryShapeHash": "2C1CD8C6DB12309F429C286164FA5852548B696C4D99246BC0DB3EFF51A6C552",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "c": {
+        "$numberInt": "5"
+      }
+    },
+    "limit": {
+      "$numberLong": "51"
+    },
+    "$db": "cbit_1ca7e91e6145"
+  },
+  "serverInfo": {
+    "host": "crash-8.local",
+    "port": {
+      "$numberInt": "27018"
+    },
+    "version": "9.0.4",
+    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}

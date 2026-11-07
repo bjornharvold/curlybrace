@@ -1,0 +1,119 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "cbit_0fb87e7eeb68.never_created",
+    "parsedQuery": {
+      "c": {
+        "$eq": {
+          "$numberInt": "5"
+        }
+      }
+    },
+    "indexFilterSet": false,
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "57"
+    },
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "EOF",
+      "type": "nonExistentNamespace"
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": {
+      "$numberInt": "0"
+    },
+    "executionTimeMillis": {
+      "$numberInt": "0"
+    },
+    "executionTimeMicros": {
+      "$numberInt": "86"
+    },
+    "totalKeysExamined": {
+      "$numberInt": "0"
+    },
+    "totalDocsExamined": {
+      "$numberInt": "0"
+    },
+    "executionStages": {
+      "isCached": false,
+      "stage": "EOF",
+      "nReturned": {
+        "$numberInt": "0"
+      },
+      "executionTimeMillisEstimate": {
+        "$numberInt": "0"
+      },
+      "works": {
+        "$numberInt": "1"
+      },
+      "advanced": {
+        "$numberInt": "0"
+      },
+      "needTime": {
+        "$numberInt": "0"
+      },
+      "needYield": {
+        "$numberInt": "0"
+      },
+      "saveState": {
+        "$numberInt": "0"
+      },
+      "restoreState": {
+        "$numberInt": "0"
+      },
+      "isEOF": {
+        "$numberInt": "1"
+      },
+      "type": "nonExistentNamespace"
+    }
+  },
+  "queryShapeHash": "98A535C485131A7249537FB5B96D72646C1DBA0F86CB361A3B99AA6C26B55C5F",
+  "command": {
+    "find": "never_created",
+    "filter": {
+      "c": {
+        "$numberInt": "5"
+      }
+    },
+    "limit": {
+      "$numberLong": "51"
+    },
+    "$db": "cbit_0fb87e7eeb68"
+  },
+  "serverInfo": {
+    "host": "crash-8.local",
+    "port": {
+      "$numberInt": "27018"
+    },
+    "version": "9.0.4",
+    "gitVersion": "64ade602b836c9adeffba7fa038c887ffab56196"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}
