@@ -75,3 +75,29 @@ fn time_limit_is_code_50_only() {
     assert!(!is_time_limit(Some(13)));
     assert!(!is_time_limit(None));
 }
+
+async fn database(uri: &str) -> mongodb::Database {
+    // Building a client does not connect, so this stays offline.
+    mongodb::Client::with_uri_str(uri)
+        .await
+        .expect("uri parses")
+        .database("db")
+}
+
+#[tokio::test]
+async fn explain_follows_the_connections_read_preference() {
+    let db = database("mongodb://127.0.0.1:1/?readPreference=secondary").await;
+    let criteria = explain_criteria(&db).expect("the read preference is carried");
+    assert!(matches!(
+        criteria,
+        mongodb::options::SelectionCriteria::ReadPreference(
+            mongodb::options::ReadPreference::Secondary { .. }
+        )
+    ));
+}
+
+#[tokio::test]
+async fn explain_without_a_read_preference_sets_none_and_so_uses_the_default() {
+    let db = database("mongodb://127.0.0.1:1/").await;
+    assert!(explain_criteria(&db).is_none());
+}

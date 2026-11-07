@@ -4,7 +4,9 @@
 
 use bson::{Document, doc};
 use mongodb::Database;
+use mongodb::action::Action;
 use mongodb::error::ErrorKind;
+use mongodb::options::SelectionCriteria;
 
 use crate::error::Result;
 use crate::mongo_store::{fetch_limit, skip_as_i64};
@@ -71,19 +73,32 @@ fn timed_out(e: &mongodb::error::Error) -> bool {
     })
 }
 
+/// Where an explain runs: the connection's read preference, like the `find` it describes, so a
+/// secondary-reading connection neither loads the primary nor judges another node's plan.
+pub(crate) fn explain_criteria(db: &Database) -> Option<SelectionCriteria> {
+    db.selection_criteria().cloned()
+}
+
+async fn run_explain(db: &Database, command: Document) -> mongodb::error::Result<Document> {
+    db.run_command(command)
+        .optional(explain_criteria(db), |action, c| {
+            action.selection_criteria(c)
+        })
+        .await
+}
+
 /// Explains `q` with execution statistics; when the time limit expires, falls back to the plan
 /// alone (`plan_only`). Any other error is classified like every store error.
 pub(crate) async fn explain_find(db: &Database, ns: &Namespace, q: &Query) -> Result<Explain> {
     let stats = explain_command(ns, q, Verbosity::ExecutionStats)?;
-    match db.run_command(stats).await {
+    match run_explain(db, stats).await {
         Ok(document) => Ok(Explain {
             document,
             plan_only: false,
         }),
         Err(e) if timed_out(&e) => {
             let plan = explain_command(ns, q, Verbosity::QueryPlanner)?;
-            let document = db
-                .run_command(plan)
+            let document = run_explain(db, plan)
                 .await
                 .map_err(|e| crate::driver_error::classify_driver_error(&e))?;
             Ok(Explain {
