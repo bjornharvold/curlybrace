@@ -7,6 +7,7 @@ use crate::compare::diff::PathSegment;
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
+use crate::profile::ProfileEntry;
 
 /// How the connected MongoDB server is deployed, as its `hello` reply tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +141,27 @@ pub struct IndexUsage {
     /// When the node started counting, in ms since the epoch.
     pub since_ms: i64,
     pub spec: IndexSpec,
+}
+
+/// The profiler setting of one database: `level` is 0 (off), 1 (slow operations) or 2 (all),
+/// `slow_ms` the threshold of level 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProfilingState {
+    pub level: i32,
+    pub slow_ms: i64,
+}
+
+/// What one read of a database's `system.profile` returned.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProfileRead {
+    /// Entries newer than the requested time, oldest first.
+    pub entries: Vec<ProfileEntry>,
+    /// The oldest `ts` currently in `system.profile` (to detect that a capped collection rolled
+    /// entries off before they were read); `None` when the collection is empty or missing.
+    pub oldest_ts_secs: Option<i64>,
+    /// The server node the profile was read from (`hello`'s `me`). A secondary's profiler holds
+    /// only that node's own operations.
+    pub host: String,
 }
 
 /// One write against one collection. Matched by `_id`.
@@ -370,6 +392,29 @@ pub trait DocumentStore: Send + Sync {
     async fn explain_find(&self, _ns: &Namespace, _q: &Query) -> Result<Explain> {
         Err(CoreError::Unsupported(
             "this store cannot explain queries".into(),
+        ))
+    }
+
+    /// The profiler setting of `db`.
+    async fn profiling_level(&self, _db: &str) -> Result<ProfilingState> {
+        Err(CoreError::Unsupported(
+            "this store cannot read the profiler".into(),
+        ))
+    }
+
+    /// The `system.profile` entries of `db` with `ts` strictly after `since_ts_secs`, oldest
+    /// first, at most 1000 per call. Entries that cannot be parsed are skipped. A missing
+    /// collection (profiler never on) is an empty read, not an error.
+    async fn read_profile(&self, _db: &str, _since_ts_secs: i64) -> Result<ProfileRead> {
+        Err(CoreError::Unsupported(
+            "this store cannot read the profiler".into(),
+        ))
+    }
+
+    /// Sets the profiler level of `db` (0, 1 or 2) on the primary and returns the new state.
+    async fn set_profiling_level(&self, _db: &str, _level: i32) -> Result<ProfilingState> {
+        Err(CoreError::Unsupported(
+            "this store cannot set the profiler".into(),
         ))
     }
 }

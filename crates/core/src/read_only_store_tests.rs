@@ -14,7 +14,8 @@ use crate::indexes::IndexSpec;
 use crate::read_only_store::ReadOnlyStore;
 use crate::store::{
     CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
-    IndexStatus, IndexUsage, Namespace, Page, Query, Topology, WriteFailure, WriteOp, WriteOutcome,
+    IndexStatus, IndexUsage, Namespace, Page, ProfileRead, ProfilingState, Query, Topology,
+    WriteFailure, WriteOp, WriteOutcome,
 };
 use crate::test_support::mock_objects::mock_index_spec;
 
@@ -40,7 +41,7 @@ impl RecordingStore {
 
 /// Every write method of `DocumentStore`. Adding a write to the trait? Name it here, give
 /// `RecordingStore` a counter for it, refuse it in `ReadOnlyStore`, and cover it below.
-const WRITES: [&str; 9] = [
+const WRITES: [&str; 10] = [
     "insert",
     "replace",
     "delete",
@@ -50,6 +51,7 @@ const WRITES: [&str; 9] = [
     "set_index_hidden",
     "set_index_ttl",
     "create_collection",
+    "set_profiling_level",
 ];
 
 fn ns() -> Namespace {
@@ -196,6 +198,28 @@ impl DocumentStore for RecordingStore {
         self.hit("set_index_ttl");
         Ok(())
     }
+    async fn profiling_level(&self, _db: &str) -> Result<ProfilingState> {
+        self.hit("profiling_level");
+        Ok(ProfilingState {
+            level: 1,
+            slow_ms: 111,
+        })
+    }
+    async fn read_profile(&self, _db: &str, _since_ts_secs: i64) -> Result<ProfileRead> {
+        self.hit("read_profile");
+        Ok(ProfileRead {
+            entries: Vec::new(),
+            oldest_ts_secs: Some(42),
+            host: "via_read_profile:27017".into(),
+        })
+    }
+    async fn set_profiling_level(&self, _db: &str, level: i32) -> Result<ProfilingState> {
+        self.hit("set_profiling_level");
+        Ok(ProfilingState {
+            level,
+            slow_ms: 111,
+        })
+    }
     async fn collection_options(&self, _ns: &Namespace) -> Result<Option<CollectionOptions>> {
         self.hit("collection_options");
         Ok(Some(recorded_options()))
@@ -245,6 +269,7 @@ async fn refused_writes(store: &dyn DocumentStore) -> [bool; WRITES.len()] {
                 .await
                 .err(),
         ),
+        is_ro(store.set_profiling_level("db", 1).await.err()),
     ]
 }
 
@@ -446,4 +471,42 @@ async fn reads_and_defaulted_methods_forward_to_inner() {
     ] {
         assert_eq!(inner.count(m), 1, "{m}");
     }
+}
+
+#[tokio::test]
+async fn read_only_store_forwards_the_profile_reads() {
+    // Locked on purpose: reading the profiler is a read.
+    let (inner, _flag, store) = wrapped(true);
+    let state = store.profiling_level("db").await.unwrap();
+    assert_eq!(
+        state,
+        ProfilingState {
+            level: 1,
+            slow_ms: 111
+        }
+    );
+    let read = store.read_profile("db", 0).await.unwrap();
+    assert_eq!(read.oldest_ts_secs, Some(42));
+    assert_eq!(read.host, "via_read_profile:27017");
+    assert_eq!(inner.count("profiling_level"), 1);
+    assert_eq!(inner.count("read_profile"), 1);
+}
+
+#[tokio::test]
+async fn read_only_store_refuses_set_profiling_level_with_read_only_error() {
+    let (inner, _flag, store) = wrapped(true);
+    assert_eq!(
+        store.set_profiling_level("db", 2).await,
+        Err(CoreError::ReadOnly)
+    );
+    assert_eq!(
+        inner.count("set_profiling_level"),
+        0,
+        "inner store was not called"
+    );
+
+    let (inner, _flag, store) = wrapped(false);
+    let state = store.set_profiling_level("db", 2).await.unwrap();
+    assert_eq!(state.level, 2);
+    assert_eq!(inner.count("set_profiling_level"), 1);
 }

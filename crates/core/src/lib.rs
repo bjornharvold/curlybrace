@@ -17,6 +17,7 @@ pub mod indexes;
 mod mongo_collection_options;
 mod mongo_explain;
 mod mongo_indexes;
+mod mongo_profile;
 pub mod mongo_store;
 mod mongo_write;
 mod mongo_write_fields;

@@ -14,7 +14,8 @@ use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
 use crate::store::{
     CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
-    IndexStatus, IndexUsage, Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
+    IndexStatus, IndexUsage, Namespace, Page, ProfileRead, ProfilingState, Query, Topology,
+    WriteOp, WriteOutcome,
 };
 
 pub struct ReadOnlyStore {
@@ -176,5 +177,18 @@ impl DocumentStore for ReadOnlyStore {
 
     async fn collection_options(&self, ns: &Namespace) -> Result<Option<CollectionOptions>> {
         self.inner.collection_options(ns).await
+    }
+
+    async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {
+        self.inner.profiling_level(db).await
+    }
+
+    async fn read_profile(&self, db: &str, since_ts_secs: i64) -> Result<ProfileRead> {
+        self.inner.read_profile(db, since_ts_secs).await
+    }
+
+    async fn set_profiling_level(&self, db: &str, level: i32) -> Result<ProfilingState> {
+        self.guard()?;
+        self.inner.set_profiling_level(db, level).await
     }
 }
