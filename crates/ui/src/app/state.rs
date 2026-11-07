@@ -156,7 +156,7 @@ pub struct Pending {
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
-/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `tab`, `indexes`, `editor`, `pending`,
+/// `loading_page`, `page`, `page_key`, `verdict`, `tree`, `view_mode`, `tab`, `indexes`, `editor`, `pending`,
 /// `ssh_endpoint`, `production` and `read_only`. They are parked per session and must be added to `SessionView` (and to
 /// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
@@ -212,6 +212,8 @@ pub struct AppState {
     pub page: Option<Page>,
     /// Content key of `page`, computed once when the page arrives.
     pub page_key: Option<PageKey>,
+    /// How the query bar's current run is served (see `explain_actions`).
+    pub verdict: super::explain_actions::VerdictState,
     pub tree: TreeState,
     pub view_mode: ViewMode,
     /// Which tab of the selected collection is shown.
@@ -298,6 +300,11 @@ impl AppState {
         self.page.is_some() && crate::viewmodel::is_projected(self.page_query.projection.as_ref())
     }
 
+    /// Whether a Run also asks the server to explain the query. Always on until the setting lands.
+    pub fn explain_enabled(&self) -> bool {
+        super::explain_actions::enabled()
+    }
+
     /// `(has_prev, has_next)` for the find bar.
     pub fn paging(&self) -> (bool, bool) {
         (
@@ -326,6 +333,7 @@ impl AppState {
             loading_page: false,
             page: None,
             page_key: None,
+            verdict: Default::default(),
             tree: self.tree.results_replaced(),
             tab: CollectionTab::default(),
             indexes: IndexesState::default(),

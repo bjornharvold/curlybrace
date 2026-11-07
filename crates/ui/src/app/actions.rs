@@ -117,6 +117,7 @@ fn open(state: AppState, ns: Namespace) -> Out {
         loading_page: true,
         page: None,
         page_key: None,
+        verdict: Default::default(),
         tree: state.tree.results_replaced(),
         editor: None,
         ..state
@@ -150,10 +151,11 @@ fn refresh(state: AppState) -> Out {
 
 pub(super) fn find(state: AppState, action: FindAction) -> Out {
     gated(state, |s| match action {
-        FindAction::Run(query) => issue_find(s, query),
+        FindAction::Run(query) => super::explain_actions::run(s, query),
         FindAction::Clear => {
             let s = AppState {
                 find: FindBarState::default(),
+                verdict: Default::default(),
                 ..s
             };
             issue_find(s, Query::default())

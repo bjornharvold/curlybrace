@@ -29,6 +29,7 @@ mod copy_drag;
 pub mod copy_state;
 pub mod copy_structure_report;
 mod dialog_banner;
+mod explain_actions;
 pub mod file_picker;
 pub mod host_key;
 mod index_actions;
@@ -789,6 +790,9 @@ mod tool_settings_tests;
 mod tools_state_tests;
 #[cfg(test)]
 mod tools_wiring_tests;
+
+#[cfg(test)]
+mod explain_tests;
 
 #[cfg(test)]
 mod index_tests;

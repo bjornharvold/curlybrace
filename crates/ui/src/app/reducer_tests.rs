@@ -500,7 +500,11 @@ fn run_stores_the_query_and_sends_find() {
     };
     let (s, cmds) = run(browsing(), Input::Find(FindAction::Run(q.clone())));
     assert_eq!(s.issued_query, q);
-    assert!(matches!(cmds.as_slice(), [Command::Find { query, .. }] if *query == q));
+    assert!(matches!(
+        cmds.as_slice(),
+        [Command::Find { query, .. }, Command::ExplainFind { query: explained, .. }]
+            if *query == q && *explained == q
+    ));
 }
 
 fn results_for(s: &AppState, has_more: bool) -> Event {
