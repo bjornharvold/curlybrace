@@ -27,8 +27,10 @@ fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<St
         stages.push(stage);
         if index.is_none() {
             *index = match stage {
-                "IXSCAN" => node.get_str("indexName").ok().map(str::to_owned),
-                "IDHACK" => Some("_id_".to_owned()),
+                "IXSCAN" | "EXPRESS_IXSCAN" | "EXPRESS_CLUSTERED_IXSCAN" => {
+                    node.get_str("indexName").ok().map(str::to_owned)
+                }
+                "IDHACK" | "EXPRESS_IDHACK" => Some("_id_".to_owned()),
                 _ => None,
             };
         }
@@ -44,6 +46,38 @@ fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<St
             .filter_map(Bson::as_document)
             .for_each(|c| walk(c, stages, index));
     }
+    // mongos: the merge stage on top, each shard's own plan under `shards[].winningPlan`.
+    if let Ok(shards) = node.get_array("shards") {
+        shards
+            .iter()
+            .filter_map(Bson::as_document)
+            .filter_map(|s| s.get_document("winningPlan").ok())
+            .for_each(|plan| walk(plan, stages, index));
+    }
+}
+
+/// Stages that read documents or index entries. A plan with none of them says nothing about
+/// whether an index served the query, so it is not judged.
+const ACCESS_STAGES: [&str; 15] = [
+    "COLLSCAN",
+    "IXSCAN",
+    "IDHACK",
+    "EOF",
+    "EXPRESS_IXSCAN",
+    "EXPRESS_CLUSTERED_IXSCAN",
+    "EXPRESS_IDHACK",
+    "COUNT_SCAN",
+    "DISTINCT_SCAN",
+    "TEXT_MATCH",
+    "TEXT_OR",
+    "GEO_NEAR_2D",
+    "GEO_NEAR_2DSPHERE",
+    "RECORD_STORE_FAST_COUNT",
+    "VIRTUAL_SCAN",
+];
+
+fn has_access_stage(stages: &[&str]) -> bool {
+    stages.iter().any(|s| ACCESS_STAGES.contains(s))
 }
 
 fn is_inefficient(keys: u64, docs: u64, returned: u64) -> bool {
@@ -89,9 +123,13 @@ impl Plan<'_> {
     }
 }
 
-fn reasons(kind: VerdictKind, keys: u64, docs: u64, returned: u64) -> Vec<Reason> {
+fn reasons(plan: &Plan, kind: VerdictKind, keys: u64, docs: u64, returned: u64) -> Vec<Reason> {
     match kind {
         VerdictKind::CollectionScan => vec![Reason::new("collscan")],
+        // A blocking sort over a full scan: the scan is the more severe news, so both show.
+        VerdictKind::SortNotCovered if plan.has("COLLSCAN") => {
+            vec![Reason::new("sort_blocking"), Reason::new("collscan")]
+        }
         VerdictKind::SortNotCovered => vec![Reason::new("sort_blocking")],
         VerdictKind::InefficientIndex => vec![
             Reason::new("inefficient")
@@ -120,9 +158,9 @@ pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
         .map_err(|_| CoreError::Database("explain output has no winning plan".into()))?;
     let (mut stages, mut index_name) = (Vec::new(), None);
     walk(winning, &mut stages, &mut index_name);
-    if stages.is_empty() {
+    if !has_access_stage(&stages) {
         return Err(CoreError::Database(
-            "explain winning plan has no stages".into(),
+            "explain winning plan has no access stage".into(),
         ));
     }
     let stats = explain.get_document("executionStats").ok();
@@ -148,7 +186,7 @@ pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
         docs_examined: docs,
         returned,
         plan_only: plan.plan_only,
-        reasons: reasons(kind, keys, docs, returned),
+        reasons: reasons(&plan, kind, keys, docs, returned),
         suggestion: wants_suggestion(kind).then(|| suggest(query)).flatten(),
     })
 }

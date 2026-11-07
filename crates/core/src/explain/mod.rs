@@ -3,6 +3,8 @@
 
 mod classify;
 #[cfg(test)]
+mod classify_sharded_tests;
+#[cfg(test)]
 mod classify_tests;
 mod suggest;
 #[cfg(test)]
