@@ -10,8 +10,13 @@
 //! - A database that flips between two nodes (A, B, A) is a first sight at every flip, and each
 //!   node's rows are keyed by its host: entries of a node older than the mark are skipped, and a
 //!   node's entries the mark has already passed are never read twice but may be missed.
-//! - A database that disappears from the listing and returns loses its mark and starts again
-//!   from the retention floor, so entries still in its profile are counted a second time.
+//! - The mark is persisted with every recorded page (see `HistoryDb::record_page`), so a restart
+//!   or reconnect continues after the newest entry already counted instead of counting the whole
+//!   profile again. A database seen for the first time by a poller starts at the later of the
+//!   retention floor and the stored mark (the newest over all nodes, since the node is unknown
+//!   before the first read), and that start is NOT anchored: a restart cannot tell whether
+//!   entries rolled off while the app was closed, so it never reports that as a loss. A database
+//!   that disappears from the listing and returns is seeded from the stored mark the same way.
 //! - Databases are polled in a rotating order: a pass that runs out of time resumes at the
 //!   database it stopped at, so none starves.
 
@@ -30,7 +35,7 @@ use super::fold_entries;
 use crate::error::CoreError;
 use crate::error_name::variant_of;
 use crate::history::retention::RAW_RETENTION_SECS;
-use crate::history::{HistoryDb, RAW_BUCKET_SECS};
+use crate::history::{HistoryDb, ProfileMark, RAW_BUCKET_SECS};
 use crate::store::{DocumentStore, PROFILE_READ_LIMIT, ProfileRead};
 
 /// Most pages one database is read for in one tick; a larger backlog goes on at the next tick.
@@ -52,8 +57,8 @@ struct Mark {
     gap_done: Option<(i64, i64)>,
 }
 
-/// The per-database watermarks of one poller (in memory: a restart starts afresh from the
-/// retention floor).
+/// The per-database watermarks of one poller (a copy of the persisted marks, seeded at first
+/// sight of a database).
 #[derive(Default)]
 pub(in super::super) struct Marks {
     dbs: HashMap<String, Mark>,
@@ -62,6 +67,16 @@ pub(in super::super) struct Marks {
 }
 
 impl Marks {
+    /// Starts tracking `db` at `ts_millis`, unanchored; keeps an existing mark.
+    fn seed(&mut self, db: &str, ts_millis: i64) {
+        self.dbs.entry(db.to_owned()).or_insert(Mark {
+            ts_millis,
+            anchored: false,
+            host: None,
+            gap_done: None,
+        });
+    }
+
     /// The mark of `db`, created at `floor` the first time it is asked for.
     fn get_or_floor(&mut self, db: &str, floor: i64) -> Mark {
         self.dbs
@@ -121,7 +136,6 @@ impl Marks {
         self.dbs.retain(|db, _| listed.contains(db));
     }
 
-    #[cfg(test)]
     pub(in super::super) fn tracks(&self, db: &str) -> bool {
         self.dbs.contains_key(db)
     }
@@ -301,6 +315,7 @@ async fn poll_db(ctx: &Ctx<'_>, db: &str, marks: &mut Marks) -> Result<DbOutcome
     if Instant::now() >= ctx.deadline {
         return Ok(DbOutcome::Deferred);
     }
+    seed_from_history(ctx, db, marks).await?;
     let mut missed = false;
     for _ in 0..MAX_PAGES_PER_TICK {
         if Instant::now() >= ctx.deadline {
@@ -327,6 +342,20 @@ async fn poll_db(ctx: &Ctx<'_>, db: &str, marks: &mut Marks) -> Result<DbOutcome
         }
     }
     Ok(DbOutcome::Read { missed })
+}
+
+/// First sight of `db` by this poller: continues after the stored mark, never earlier than the
+/// retention floor.
+async fn seed_from_history(ctx: &Ctx<'_>, db: &str, marks: &mut Marks) -> Result<(), TickError> {
+    if marks.tracks(db) {
+        return Ok(());
+    }
+    let (history, connection, db_name) = (Arc::clone(ctx.history), ctx.connection, db.to_owned());
+    let stored = blocking(move || history.profile_mark(connection, &db_name))
+        .await
+        .map_err(TickError::history)?;
+    marks.seed(db, stored.map_or(ctx.floor, |ts| ts.max(ctx.floor)));
+    Ok(())
 }
 
 /// A failed profiler call: fatal for the connection, or only for this database.
@@ -377,7 +406,8 @@ async fn record_gap_if_lost(
     Ok(true)
 }
 
-/// Folds and records one page; a page without observations costs no history call.
+/// Folds and records one page and moves the persisted mark past it, atomically; a page with
+/// neither observations nor a newer position costs no history call.
 async fn record_page(ctx: &Ctx<'_>, db: &str, read: &ProfileRead) -> Result<(), TickError> {
     let rows = fold_entries(
         ctx.connection,
@@ -386,11 +416,17 @@ async fn record_page(ctx: &Ctx<'_>, db: &str, read: &ProfileRead) -> Result<(), 
         &read.entries,
         RAW_BUCKET_SECS,
     );
-    if rows.is_empty() {
+    let mark = read.newest_ts_millis.map(|ts_millis| ProfileMark {
+        connection: ctx.connection,
+        host: read.host.clone(),
+        db: db.to_owned(),
+        ts_millis,
+    });
+    if rows.is_empty() && mark.is_none() {
         return Ok(());
     }
     let history = Arc::clone(ctx.history);
-    blocking(move || history.record_shapes(&rows))
+    blocking(move || history.record_page(&rows, mark.as_ref()))
         .await
         .map_err(TickError::history)
 }

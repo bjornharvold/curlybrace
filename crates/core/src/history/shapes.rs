@@ -234,8 +234,19 @@ impl HistoryDb {
     pub fn record_shapes(&self, rows: &[ShapeObservation]) -> Result<()> {
         let mut conn = self.lock();
         let tx = conn.transaction().map_err(sql_err)?;
+        self.insert_observations(&tx, rows)?;
+        tx.commit().map_err(sql_err)
+    }
+
+    /// Adds the observations of connections not purged (the caller holds the connection lock
+    /// and owns the transaction).
+    pub(super) fn insert_observations(
+        &self,
+        conn: &Connection,
+        rows: &[ShapeObservation],
+    ) -> Result<()> {
         for row in rows.iter().filter(|r| !self.is_purged(r.key.connection)) {
-            let id = shape_id(&tx, row)?;
+            let id = shape_id(conn, row)?;
             let values = BucketValues {
                 executions: to_sql(row.executions),
                 misses: to_sql(row.misses),
@@ -245,9 +256,9 @@ impl HistoryDb {
                 gap_secs: to_sql(row.gap_secs),
             };
             let start = row.at_secs.div_euclid(RAW_BUCKET_SECS) * RAW_BUCKET_SECS;
-            add_bucket(&tx, id, TIER_RAW, start, &values)?;
+            add_bucket(conn, id, TIER_RAW, start, &values)?;
         }
-        tx.commit().map_err(sql_err)
+        Ok(())
     }
 
     /// Notes that the profile poller may have missed entries of `db` for `gap_secs` seconds
@@ -314,6 +325,7 @@ pub(super) fn delete_connection(conn: &Connection, connection: Uuid) -> Result<(
     for sql in [
         "DELETE FROM shape WHERE connection = ?1",
         "DELETE FROM shape_gap WHERE connection = ?1",
+        "DELETE FROM profile_mark WHERE connection = ?1",
     ] {
         conn.execute(sql, [&id]).map_err(sql_err)?;
     }

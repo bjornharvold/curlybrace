@@ -13,6 +13,9 @@ mod db_tests;
 mod db_wal_tests;
 #[cfg(test)]
 mod gap_span_tests;
+mod profile_mark;
+#[cfg(test)]
+mod profile_mark_tests;
 pub mod retention;
 mod seam;
 #[cfg(test)]
@@ -40,6 +43,7 @@ mod thin_lock_tests;
 mod usage;
 
 pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView, is_history_busy};
+pub use profile_mark::ProfileMark;
 pub use retention::{ChartRange, MAX_DB_BYTES};
 pub use shape_schema::{RAW_BUCKET_SECS, TYPED_HOST};
 pub use shapes::{ShapeBucket, ShapeKey, ShapeObservation, ShapeSource, ShapeSummary, is_miss};

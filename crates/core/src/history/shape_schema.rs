@@ -69,6 +69,19 @@ CREATE TABLE shape_gap (
 CREATE INDEX shape_gap_by_db ON shape_gap (connection, db, start_secs);
 ";
 
+/// The poller's watermark per (connection, node, database): the newest profile `ts` (ms) whose
+/// entries are recorded, so a restart continues there. Created idempotently on every open,
+/// independent of `user_version`, so files an earlier build of version 2 wrote get it too.
+pub(super) const PROFILE_MARK: &str = "
+CREATE TABLE IF NOT EXISTS profile_mark (
+    connection TEXT NOT NULL,
+    host TEXT NOT NULL,
+    db TEXT NOT NULL,
+    ts_millis INTEGER NOT NULL,
+    PRIMARY KEY (connection, host, db)
+) WITHOUT ROWID;
+";
+
 /// A SQL expression giving the severity of the verdict code in column `column`, built from
 /// [`VerdictKind::ALL`] so it cannot drift from [`VerdictKind::severity`]. An unknown code ranks
 /// 0 (neutral). Lets an upsert keep the worse of the stored and the incoming verdict in SQL.

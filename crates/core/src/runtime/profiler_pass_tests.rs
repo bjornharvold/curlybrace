@@ -81,6 +81,63 @@ async fn a_thirty_minute_loss_is_spread_over_three_buckets() {
     assert_eq!(gap_secs(&db), vec![600, 600, 600]);
 }
 
+// ------------------------------------------------------ restart (persisted mark)
+
+#[tokio::test]
+async fn poller_restart_does_not_count_the_profile_twice() {
+    let probe = Probe::new(
+        &["shop"],
+        shop(vec![scan(at(0)), scan(at(9)), scan(at(20))]),
+    );
+    let db = history();
+    let mut first = Marks::default();
+    poll(&probe, &db, &mut first).await.unwrap();
+    assert_eq!(totals(&db, "shop", "orders").0, 3);
+
+    // A reconnect or restart: a new poller on the same history, the profile unchanged.
+    let mut second = Marks::default();
+    let status = poll(&probe, &db, &mut second).await.unwrap();
+    assert_eq!(totals(&db, "shop", "orders").0, 3, "nothing counted again");
+    assert_eq!(status, ProfilerStatus::Reading { databases: 1 });
+    assert!(gap_secs(&db).is_empty(), "the time closed is no loss");
+}
+
+#[tokio::test]
+async fn a_restart_reads_only_what_arrived_while_closed() {
+    let probe = Probe::new(&["shop"], shop(vec![scan(at(0)), scan(at(9))]));
+    let db = history();
+    poll(&probe, &db, &mut Marks::default()).await.unwrap();
+
+    probe.swap(shop(vec![
+        scan(at(0)),
+        scan(at(9)),
+        scan(at(30)),
+        scan(at(31)),
+    ]));
+    let status = poll(&probe, &db, &mut Marks::default()).await.unwrap();
+    assert_eq!(totals(&db, "shop", "orders").0, 4);
+    assert_eq!(status, ProfilerStatus::Reading { databases: 1 });
+    assert!(gap_secs(&db).is_empty());
+}
+
+#[tokio::test]
+async fn a_stored_mark_older_than_the_raw_retention_is_floored() {
+    use crate::history::{ProfileMark, retention::RAW_RETENTION_SECS};
+    let ancient = (NOW - RAW_RETENTION_SECS - 3_600) * 1_000;
+    let probe = Probe::new(&["shop"], shop(vec![scan(at(0))]));
+    let db = history();
+    let mark = ProfileMark {
+        connection: CONN,
+        host: "any".into(),
+        db: "shop".into(),
+        ts_millis: ancient,
+    };
+    db.record_page(&[], Some(&mark)).unwrap();
+    // Nothing older than the retention floor is read, so the stored mark changes nothing.
+    poll(&probe, &db, &mut Marks::default()).await.unwrap();
+    assert_eq!(totals(&db, "shop", "orders").0, 1);
+}
+
 // ------------------------------------------------------------- bounded pass
 
 /// Every profile read hangs; the profiler is on in every database.

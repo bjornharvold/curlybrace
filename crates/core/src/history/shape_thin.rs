@@ -63,6 +63,12 @@ pub(super) fn thin_shapes(conn: &Connection, now_secs: i64) -> Result<()> {
         )
         .map_err(sql_err)?;
     }
+    // A mark older than the raw retention is ignored when read (the poller starts no earlier).
+    conn.execute(
+        "DELETE FROM profile_mark WHERE ts_millis < ?1",
+        [(now_secs - RAW_RETENTION_SECS) * 1_000],
+    )
+    .map_err(sql_err)?;
     Ok(())
 }
 

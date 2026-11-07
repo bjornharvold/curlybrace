@@ -400,28 +400,33 @@ fn purge_is_all_or_nothing() {
     db.record_shapes(&[obs(app("a"), NOW, 1, 0, (1, 1), VerdictKind::IndexUsed)])
         .unwrap();
     db.record_gap(conn_id(1), "h", "shop", NOW, 60).unwrap();
-    let tables = ["series", "shape", "shape_bucket", "shape_gap"];
+    let mark = super::profile_mark::ProfileMark {
+        connection: conn_id(1),
+        host: "h".into(),
+        db: "shop".into(),
+        ts_millis: 1_000,
+    };
+    db.record_page(&[], Some(&mark)).unwrap();
+    let tables = [
+        "series",
+        "shape",
+        "shape_bucket",
+        "shape_gap",
+        "profile_mark",
+    ];
     let counts = |db: &HistoryDb| -> Vec<i64> {
         tables
             .iter()
             .map(|t| count(db, &format!("SELECT COUNT(*) FROM {t}")))
             .collect()
     };
-    // The gap delete is the last statement: make it fail.
-    db.conn
-        .lock()
-        .unwrap()
-        .execute("ALTER TABLE shape_gap RENAME TO shape_gap_away", [])
-        .unwrap();
+    // The mark delete is the last statement: make it fail.
+    db.exec_for_tests("ALTER TABLE profile_mark RENAME TO profile_mark_away");
     assert!(db.purge_connection(conn_id(1)).is_err());
-    db.conn
-        .lock()
-        .unwrap()
-        .execute("ALTER TABLE shape_gap_away RENAME TO shape_gap", [])
-        .unwrap();
-    assert_eq!(counts(&db), [1, 1, 1, 1], "nothing was deleted");
+    db.exec_for_tests("ALTER TABLE profile_mark_away RENAME TO profile_mark");
+    assert_eq!(counts(&db), [1, 1, 1, 1, 1], "nothing was deleted");
     db.purge_connection(conn_id(1)).unwrap();
-    assert_eq!(counts(&db), [0, 0, 0, 0]);
+    assert_eq!(counts(&db), [0, 0, 0, 0, 0]);
 }
 
 #[test]

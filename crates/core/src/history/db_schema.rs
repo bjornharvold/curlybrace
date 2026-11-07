@@ -9,7 +9,7 @@
 //! - `rolled`: thinned rows, `tier` 1 = hourly, 2 = daily, holding exactly a `Bucket`'s fields.
 //! - Version 2 adds the `shape*` tables (see [`super::shape_schema`]).
 
-use super::shape_schema::V2;
+use super::shape_schema::{PROFILE_MARK, V2};
 use rusqlite::{Connection, TransactionBehavior};
 
 /// The schema version this build writes.
@@ -79,6 +79,23 @@ pub fn prepare(conn: &mut Connection) -> Result<(), SchemaError> {
     }
     if version < 2 {
         migrate_to_v2(conn)?;
+    }
+    ensure_profile_mark(conn)?;
+    Ok(())
+}
+
+/// Adds the `profile_mark` table when the file lacks it (version 2 is unreleased, so files of an
+/// earlier build of it exist without). Only writes when missing, so opening stays read-cheap.
+fn ensure_profile_mark(conn: &mut Connection) -> Result<(), SchemaError> {
+    let present: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'profile_mark'",
+        [],
+        |r| r.get(0),
+    )?;
+    if present == 0 {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute_batch(PROFILE_MARK)?;
+        tx.commit()?;
     }
     Ok(())
 }
