@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 use crate::connection::ConnectionConfig;
 use crate::crud::DocumentService;
 use crate::error::{CoreError, Result};
+use crate::explain::classify;
 use crate::history::{HistoryDb, max_continuous_secs};
 use crate::read_only_store::ReadOnlyStore;
 use crate::secrets::{SecretKind, secret_key};
@@ -249,6 +250,20 @@ async fn data_command(
                 ns,
                 query,
                 page,
+            }
+        }
+        Command::ExplainFind { ns, query, .. } => {
+            // Both the server call and the classification fold into the outcome: a miss verdict
+            // is advice, not a failure, so nothing here may reach `Event::Failed`.
+            let outcome = match store.explain_find(&ns, &query).await {
+                Ok(explain) => classify(&explain.document, &query),
+                Err(error) => Err(error),
+            };
+            Event::Explain {
+                session,
+                ns,
+                query,
+                outcome,
             }
         }
         Command::Insert { ns, json, .. } => {

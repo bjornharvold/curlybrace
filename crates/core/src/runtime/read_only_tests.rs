@@ -37,6 +37,9 @@ impl DocumentStore for CountingStore {
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page> {
         self.inner.find(ns, q).await
     }
+    async fn explain_find(&self, ns: &Namespace, q: &Query) -> Result<crate::store::Explain> {
+        self.inner.explain_find(ns, q).await
+    }
     async fn insert(&self, ns: &Namespace, doc: Document) -> Result<Bson> {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.insert(ns, doc).await
@@ -192,6 +195,11 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             ns: mock_namespace(),
             query: Query::default(),
         },
+        Command::ExplainFind {
+            session,
+            ns: mock_namespace(),
+            query: Query::default(),
+        },
         Command::ListIndexes {
             session,
             ns: mock_namespace(),
@@ -248,6 +256,7 @@ async fn reads_still_work_on_a_read_only_session() {
                 Event::Databases { .. }
                     | Event::Collections { .. }
                     | Event::Results { .. }
+                    | Event::Explain { .. }
                     | Event::Indexes { .. }
                     | Event::IndexHistory { .. }
                     | Event::EstimatedCount { .. }
@@ -340,7 +349,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 22;
+const COMMAND_VARIANTS: usize = 23;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -355,6 +364,7 @@ fn classify(command: &Command) -> Class {
         Command::ListDatabases { .. }
         | Command::ListCollections { .. }
         | Command::Find { .. }
+        | Command::ExplainFind { .. }
         | Command::ListIndexes { .. }
         | Command::IndexHistory { .. }
         | Command::EstimatedCount { .. } => Class::Read,

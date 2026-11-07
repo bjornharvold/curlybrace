@@ -275,6 +275,8 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             Vec::new(),
         ),
         Event::IndexChanged { ns, .. } => index_actions::changed(state, ns),
+        // Handled by the query bar's verdict wiring (a later task); ignored until then.
+        Event::Explain { .. } => (state, Vec::new()),
         Event::EstimatedCount { ns, count, .. } => (
             index_write_actions::estimate_arrived(state, ns, count),
             Vec::new(),

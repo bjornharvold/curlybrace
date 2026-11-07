@@ -31,6 +31,8 @@ mod copy_support;
 mod copy_tests;
 #[cfg(test)]
 mod epoch_tests;
+#[cfg(test)]
+mod explain_tests;
 mod handlers;
 #[cfg(test)]
 mod index_build_timeout_tests;
@@ -76,6 +78,7 @@ use tokio::sync::watch;
 
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
+use crate::explain::Verdict;
 use crate::history::{ChartRange, HistoryDb};
 use crate::indexes::IndexSpec;
 use crate::secrets::SecretStore;
@@ -169,6 +172,13 @@ pub enum Command {
         db: String,
     },
     Find {
+        session: SessionId,
+        ns: Namespace,
+        query: Query,
+    },
+    /// Explains how the server runs `query` and judges it. A read, allowed on a read-only
+    /// connection. Answered by [`Event::Explain`], whose `outcome` also carries any failure.
+    ExplainFind {
         session: SessionId,
         ns: Namespace,
         query: Query,
@@ -286,6 +296,7 @@ impl Command {
             | Self::ListDatabases { .. }
             | Self::ListCollections { .. }
             | Self::Find { .. }
+            | Self::ExplainFind { .. }
             | Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
@@ -316,6 +327,7 @@ impl Command {
             Self::ListDatabases { .. } => "list_databases",
             Self::ListCollections { .. } => "list_collections",
             Self::Find { .. } => "find",
+            Self::ExplainFind { .. } => "explain_find",
             Self::Insert { .. } => "insert",
             Self::Replace { .. } => "replace",
             Self::Delete { .. } => "delete",
@@ -345,6 +357,7 @@ impl Command {
             | Self::ListDatabases { session }
             | Self::ListCollections { session, .. }
             | Self::Find { session, .. }
+            | Self::ExplainFind { session, .. }
             | Self::Insert { session, .. }
             | Self::Replace { session, .. }
             | Self::Delete { session, .. }
@@ -451,6 +464,14 @@ pub enum Event {
         /// The `request` of the command this answers.
         request: u64,
     },
+    /// The answer to `ExplainFind`. A failed explain or an unreadable plan is an `Err` outcome
+    /// shown inline by the query bar; it is never an [`Event::Failed`], which raises a banner.
+    Explain {
+        session: SessionId,
+        ns: Namespace,
+        query: Query,
+        outcome: std::result::Result<Verdict, CoreError>,
+    },
     /// The answer to `EstimatedCount`.
     EstimatedCount {
         session: SessionId,
@@ -487,6 +508,7 @@ impl Event {
             | Self::Databases { session, .. }
             | Self::Collections { session, .. }
             | Self::Results { session, .. }
+            | Self::Explain { session, .. }
             | Self::Mutated { session, .. }
             | Self::Indexes { session, .. }
             | Self::IndexHistory { session, .. }
