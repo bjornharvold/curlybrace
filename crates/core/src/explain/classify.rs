@@ -152,8 +152,13 @@ fn wants_suggestion(kind: VerdictKind) -> bool {
 /// Classifies an explain document produced for `query`. Errors with
 /// `CoreError::Database` when the document has no recognisable winning plan.
 pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
-    let winning = explain
-        .get_document("queryPlanner")
+    let planner = explain.get_document("queryPlanner");
+    let namespace = planner
+        .as_ref()
+        .ok()
+        .and_then(|p| p.get_str("namespace").ok())
+        .map(str::to_owned);
+    let winning = planner
         .and_then(|p| p.get_document("winningPlan"))
         .map_err(|_| CoreError::Database("explain output has no winning plan".into()))?;
     let (mut stages, mut index_name) = (Vec::new(), None);
@@ -188,5 +193,6 @@ pub fn classify(explain: &Document, query: &Query) -> Result<Verdict> {
         plan_only: plan.plan_only,
         reasons: reasons(&plan, kind, keys, docs, returned),
         suggestion: wants_suggestion(kind).then(|| suggest(query)).flatten(),
+        namespace,
     })
 }

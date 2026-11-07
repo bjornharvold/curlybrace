@@ -2,6 +2,7 @@
 use crate::app::VerdictState;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{Reason, Verdict, VerdictKind};
+use curlybrace_core::store::Namespace;
 
 /// How the badge reads at a glance. Never the only signal: the icon and title say it too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +32,7 @@ const ICON_INFO: &str = "\u{2139}";
 const ICON_WAIT: &str = "\u{2026}";
 
 /// The badge for `state`, or `None` when there is nothing to show.
-pub fn badge(state: &VerdictState, collection: &str) -> Option<BadgeModel> {
+pub fn badge(state: &VerdictState, ns: Option<&Namespace>) -> Option<BadgeModel> {
     match state {
         VerdictState::None => None,
         VerdictState::Pending { .. } => Some(simple(
@@ -40,7 +41,7 @@ pub fn badge(state: &VerdictState, collection: &str) -> Option<BadgeModel> {
             "query.verdict.checking",
             Vec::new(),
         )),
-        VerdictState::Ready { verdict, .. } => Some(ready(verdict, collection)),
+        VerdictState::Ready { verdict, .. } => Some(ready(verdict, ns)),
         VerdictState::Unavailable { error, .. } => Some(simple(
             Tone::Unavailable,
             ICON_INFO,
@@ -75,7 +76,7 @@ fn unavailable_reason(error: &CoreError) -> &'static str {
     }
 }
 
-fn ready(verdict: &Verdict, collection: &str) -> BadgeModel {
+fn ready(verdict: &Verdict, ns: Option<&Namespace>) -> BadgeModel {
     let (tone, icon, title_key) = match verdict.kind {
         VerdictKind::IndexUsed => (Tone::Good, ICON_GOOD, "query.verdict.title_index_used"),
         VerdictKind::CoveredByIndex => (Tone::Good, ICON_GOOD, "query.verdict.title_covered"),
@@ -85,11 +86,10 @@ fn ready(verdict: &Verdict, collection: &str) -> BadgeModel {
         VerdictKind::NoFilter => (Tone::Neutral, ICON_INFO, "query.verdict.title_no_filter"),
         VerdictKind::EmptyCollection => (Tone::Neutral, ICON_INFO, "query.verdict.title_empty"),
     };
-    // No `db..createIndex` when no collection is selected; a good verdict needs no advice.
-    let suggestion = match tone {
-        Tone::Good => None,
-        _ if collection.is_empty() => None,
-        _ => verdict.suggestion.as_ref().map(|s| s.command(collection)),
+    let suggestion = match (tone, ns) {
+        (Tone::Good, _) | (_, None) => None,
+        (_, Some(ns)) if !planned_on(verdict, ns) => None,
+        (_, Some(ns)) => verdict.suggestion.as_ref().map(|s| s.command(ns)),
     };
     BadgeModel {
         tone,
@@ -99,6 +99,15 @@ fn ready(verdict: &Verdict, collection: &str) -> BadgeModel {
         suggestion,
         plan_only: verdict.plan_only,
     }
+}
+
+/// Whether the plan ran on `ns` itself. A view runs on its source collection, so an index
+/// proposed for the view's name would be a command that fails; an unknown namespace is trusted.
+fn planned_on(verdict: &Verdict, ns: &Namespace) -> bool {
+    verdict
+        .namespace
+        .as_deref()
+        .is_none_or(|planned| planned == format!("{}.{}", ns.db, ns.collection))
 }
 
 /// The full `en.json` key of a reason core (or `badge`) names by suffix. Spelled out as literals

@@ -248,11 +248,7 @@ fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
     if !state.explain_enabled() {
         return;
     }
-    let collection = state
-        .selected_ns()
-        .map(|ns| ns.collection.as_str())
-        .unwrap_or_default();
-    let model = badge(&state.verdict, collection);
+    let model = badge(&state.verdict, state.selected_ns());
     if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
         ui.ctx().copy_text(text);
     }

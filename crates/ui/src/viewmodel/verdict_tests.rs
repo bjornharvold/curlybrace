@@ -1,7 +1,7 @@
 use super::*;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{Reason, SuggestedIndex, Verdict, VerdictKind};
-use curlybrace_core::store::Query;
+use curlybrace_core::store::{Namespace, Query};
 
 fn verdict(kind: VerdictKind) -> Verdict {
     Verdict {
@@ -13,7 +13,12 @@ fn verdict(kind: VerdictKind) -> Verdict {
         plan_only: false,
         reasons: Vec::new(),
         suggestion: None,
+        namespace: Some("shop.orders".into()),
     }
+}
+
+fn orders() -> Namespace {
+    Namespace::new("shop", "orders")
 }
 
 fn ready(verdict: Verdict) -> VerdictState {
@@ -24,7 +29,7 @@ fn ready(verdict: Verdict) -> VerdictState {
 }
 
 fn model(kind: VerdictKind) -> BadgeModel {
-    badge(&ready(verdict(kind)), "orders").expect("a ready verdict has a badge")
+    badge(&ready(verdict(kind)), Some(&orders())).expect("a ready verdict has a badge")
 }
 
 #[test]
@@ -53,7 +58,7 @@ fn badge_for_each_kind_has_distinct_title_and_tone() {
 
 #[test]
 fn none_has_no_badge() {
-    assert_eq!(badge(&VerdictState::None, "orders"), None);
+    assert_eq!(badge(&VerdictState::None, Some(&orders())), None);
 }
 
 #[test]
@@ -62,7 +67,7 @@ fn pending_is_checking() {
         &VerdictState::Pending {
             query: Query::default(),
         },
-        "orders",
+        Some(&orders()),
     )
     .unwrap();
     assert_eq!(m.tone, Tone::Checking);
@@ -76,7 +81,7 @@ fn unavailable(error: CoreError) -> BadgeModel {
             query: Query::default(),
             error,
         },
-        "orders",
+        Some(&orders()),
     )
     .unwrap()
 }
@@ -97,16 +102,16 @@ fn unavailable_shows_reason_key_for_unsupported_and_database_errors() {
 }
 
 #[test]
-fn suggestion_command_uses_collection_name() {
+fn suggestion_command_names_database_and_collection() {
     let mut v = verdict(VerdictKind::CollectionScan);
     v.reasons = vec![Reason::new("collscan")];
     v.suggestion = Some(SuggestedIndex {
         keys: vec![("status".into(), 1)],
     });
-    let m = badge(&ready(v), "orders").unwrap();
+    let m = badge(&ready(v), Some(&orders())).unwrap();
     assert_eq!(
         m.suggestion.as_deref(),
-        Some("db.getCollection(\"orders\").createIndex({ \"status\": 1 })")
+        Some("db.getSiblingDB(\"shop\").getCollection(\"orders\").createIndex({ \"status\": 1 })")
     );
     assert_eq!(m.reasons[0].key, "collscan");
 }
@@ -117,14 +122,14 @@ fn a_good_verdict_offers_no_suggestion() {
     v.suggestion = Some(SuggestedIndex {
         keys: vec![("a".into(), 1)],
     });
-    assert_eq!(badge(&ready(v), "orders").unwrap().suggestion, None);
+    assert_eq!(badge(&ready(v), Some(&orders())).unwrap().suggestion, None);
 }
 
 #[test]
 fn plan_only_adds_the_estimate_note() {
     let mut v = verdict(VerdictKind::CollectionScan);
     v.plan_only = true;
-    assert!(badge(&ready(v), "orders").unwrap().plan_only);
+    assert!(badge(&ready(v), Some(&orders())).unwrap().plan_only);
     assert!(!model(VerdictKind::CollectionScan).plan_only);
 }
 
@@ -195,5 +200,42 @@ fn no_collection_selected_means_no_suggestion() {
     v.suggestion = Some(SuggestedIndex {
         keys: vec![("status".into(), 1)],
     });
-    assert_eq!(badge(&ready(v), "").unwrap().suggestion, None);
+    assert_eq!(badge(&ready(v), None).unwrap().suggestion, None);
+}
+
+fn scan_with_suggestion(planned: Option<&str>) -> Verdict {
+    let mut v = verdict(VerdictKind::CollectionScan);
+    v.suggestion = Some(SuggestedIndex {
+        keys: vec![("status".into(), 1)],
+    });
+    v.namespace = planned.map(str::to_owned);
+    v
+}
+
+#[test]
+fn a_view_gets_no_suggestion_because_the_plan_ran_on_its_source() {
+    let v = scan_with_suggestion(Some("shop.orders_source"));
+    assert_eq!(badge(&ready(v), Some(&orders())).unwrap().suggestion, None);
+}
+
+#[test]
+fn a_matching_planned_namespace_keeps_the_suggestion() {
+    let v = scan_with_suggestion(Some("shop.orders"));
+    assert!(
+        badge(&ready(v), Some(&orders()))
+            .unwrap()
+            .suggestion
+            .is_some()
+    );
+}
+
+#[test]
+fn an_unknown_planned_namespace_keeps_the_suggestion() {
+    let v = scan_with_suggestion(None);
+    assert!(
+        badge(&ready(v), Some(&orders()))
+            .unwrap()
+            .suggestion
+            .is_some()
+    );
 }

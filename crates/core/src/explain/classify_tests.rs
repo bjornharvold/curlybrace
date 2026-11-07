@@ -252,3 +252,11 @@ fn an_empty_collection_with_a_sort_is_still_empty() {
     let v = classify(&d, &q).unwrap();
     assert_eq!(v.kind, VerdictKind::EmptyCollection);
 }
+
+#[test]
+fn the_planned_namespace_is_carried_on_the_verdict() {
+    let v = classify(&fixture("sort"), &filtered()).unwrap();
+    assert_eq!(v.namespace.as_deref(), Some("shop.orders"));
+    let v = classify(&fixture("real_view"), &filtered()).unwrap();
+    assert_eq!(v.namespace.as_deref(), Some("test.orders"));
+}

@@ -3,7 +3,7 @@
 //! on demand without moving what is below, and the copy button has a name. Fast, offline.
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{Reason, SuggestedIndex, Verdict, VerdictKind};
-use curlybrace_core::store::Query;
+use curlybrace_core::store::{Namespace, Query};
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::VerdictState;
 use curlybrace_ui::viewmodel::verdict::{BadgeModel, badge};
@@ -13,7 +13,8 @@ use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
-const COMMAND: &str = "db.getCollection(\"orders\").createIndex({ \"status\": 1 })";
+const COMMAND: &str =
+    "db.getSiblingDB(\"shop\").getCollection(\"orders\").createIndex({ \"status\": 1 })";
 
 struct Frame {
     model: Option<BadgeModel>,
@@ -34,6 +35,7 @@ fn verdict(kind: VerdictKind, reasons: Vec<Reason>, suggested: bool) -> Verdict 
         suggestion: suggested.then(|| SuggestedIndex {
             keys: vec![("status".into(), 1)],
         }),
+        namespace: Some("shop.orders".into()),
     }
 }
 
@@ -53,7 +55,7 @@ fn scan() -> Verdict {
 }
 
 fn open(state: &VerdictState) -> Harness<'static, Frame> {
-    let model = badge(state, "orders");
+    let model = badge(state, Some(&Namespace::new("shop", "orders")));
     let mut harness = Harness::builder()
         .with_size(egui::vec2(800.0, 400.0))
         .build_ui_state(

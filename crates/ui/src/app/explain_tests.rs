@@ -57,6 +57,7 @@ pub(super) fn verdict() -> Verdict {
         plan_only: false,
         reasons: Vec::new(),
         suggestion: None,
+        namespace: None,
     }
 }
 

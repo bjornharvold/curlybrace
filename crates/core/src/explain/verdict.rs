@@ -1,5 +1,7 @@
 //! The typed result of judging a query's explain output.
 
+use crate::store::Namespace;
+
 /// How the winning plan serves the query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerdictKind {
@@ -45,10 +47,11 @@ pub struct SuggestedIndex {
 }
 
 impl SuggestedIndex {
-    /// A ready-to-copy `db.getCollection("<collection>").createIndex({...})` command.
-    /// Advice only. Every name is rendered as an escaped string literal, so a name can
-    /// never change what the pasted command does.
-    pub fn command(&self, collection: &str) -> String {
+    /// A ready-to-copy `db.getSiblingDB("<db>").getCollection("<collection>").createIndex({...})`
+    /// command. Advice only. The database is named so a paste into a session that is in another
+    /// database cannot index a stray collection there. Every name is rendered as an escaped
+    /// string literal, so a name can never change what the pasted command does.
+    pub fn command(&self, ns: &Namespace) -> String {
         let keys = self
             .keys
             .iter()
@@ -56,8 +59,9 @@ impl SuggestedIndex {
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "db.getCollection({}).createIndex({{ {keys} }})",
-            js_string(collection)
+            "db.getSiblingDB({}).getCollection({}).createIndex({{ {keys} }})",
+            js_string(&ns.db),
+            js_string(&ns.collection)
         )
     }
 }
@@ -82,4 +86,7 @@ pub struct Verdict {
     pub plan_only: bool,
     pub reasons: Vec<Reason>,
     pub suggestion: Option<SuggestedIndex>,
+    /// The `<db>.<collection>` the server planned the query on (`queryPlanner.namespace`). It
+    /// differs from the namespace queried for a view, which runs on its source collection.
+    pub namespace: Option<String>,
 }
