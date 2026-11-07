@@ -9,8 +9,6 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::history::ChartRange;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::Namespace;
-const PROFILER_ON: i32 = 2;
-
 #[test]
 fn a_read_in_flight_blocks_ask_and_confirm() {
     let (s, _) = opened(flags(false, false));
@@ -72,18 +70,25 @@ fn refresh_while_a_read_is_in_flight_sends_one_profiling_read_in_total() {
     assert_eq!(s.indexes.queries.profiling, ProfilingView::Loading);
 }
 
+/// Single-flight is what protects a written level: while the change is in flight no second
+/// profiler command is sent, so the next answer is the change's.
 #[test]
-fn a_late_read_answer_cannot_overwrite_a_written_level() {
+fn the_written_level_is_shown_after_open_ask_and_confirm() {
     let (s, id) = ready(flags(false, false), 0);
+    assert_eq!(s.indexes.queries.profiling, ProfilingView::Known(level(0)));
     let (s, _) = queries(s, QueriesAction::AskEnable);
     let (s, commands) = queries(s, QueriesAction::ConfirmEnable);
     assert_eq!(commands.len(), 1);
-    // The write is the only command in flight, so its answer is attributed to it.
     let (s, _) = event(s, answer(id, "app", Ok(level(2))));
     assert_eq!(s.indexes.queries.profiling, ProfilingView::Known(level(2)));
     assert!(s.indexes.queries.in_flight.is_none());
-    // With nothing in flight an answer is simply stored (it can only be the server's current
-    // word); it cannot be mistaken for a write's.
+}
+
+/// With nothing in flight an answer cannot be told from the server's current word, so it is
+/// simply stored (it cannot be mistaken for a change's answer either).
+#[test]
+fn an_unattributed_answer_with_nothing_in_flight_is_stored() {
+    let (s, id) = ready(flags(false, false), 2);
     let (s, _) = event(s, answer(id, "app", Ok(level(0))));
     assert_eq!(s.indexes.queries.profiling, ProfilingView::Known(level(0)));
     assert!(!s.indexes.queries.writing());
@@ -186,6 +191,8 @@ fn an_answer_for_the_old_database_is_followed_by_a_read_of_the_new_one() {
     assert_eq!(s.indexes.queries.profiling, ProfilingView::Known(level(0)));
 }
 
+/// The switch drops the prompt, so this shows the reset; the database filter of a confirm is
+/// covered by `consent_for_another_db_never_confirms`.
 #[test]
 fn ask_then_switch_collection_then_confirm_sends_nothing() {
     let (s, _) = asked(flags(false, false), true);
@@ -258,4 +265,83 @@ fn an_older_unreachable_query_shapes_failure_is_ignored() {
     let (s, _) = event(s, failed);
     assert!(s.failure.is_none());
     assert!(s.indexes.queries.loading);
+}
+
+fn bare_failure(session: uuid::Uuid, context: &'static str, error: CoreError) -> Event {
+    Event::Failed {
+        session,
+        context,
+        error,
+    }
+}
+
+#[test]
+fn a_bare_unreachable_set_failure_is_inline_and_rereads_without_a_banner() {
+    for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
+        let (s, id) = asked(flags(false, false), true);
+        let (s, _) = queries(s, QueriesAction::ConfirmEnable);
+        assert!(
+            s.indexes.has_prompt(),
+            "the prompt is open while a SET is in flight"
+        );
+        let (s, commands) = event(s, bare_failure(id, "set_profiling_level", error));
+        assert_eq!(
+            shown(&commands),
+            shown(&[Command::ProfilingState {
+                session: id,
+                db: "app".into()
+            }])
+        );
+        assert!(s.banner.is_none());
+        assert!(s.failure.is_none());
+        assert!(s.pending.is_none());
+        assert!(!s.indexes.queries.writing());
+        assert!(s.indexes.queries.in_flight.is_some(), "the re-read");
+    }
+}
+
+#[test]
+fn a_bare_unreachable_read_failure_is_unavailable_without_a_banner() {
+    for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
+        let (s, id) = opened(flags(false, false));
+        let s = consenting(s, "app", 2);
+        assert!(s.indexes.has_prompt());
+        let (s, commands) = event(s, bare_failure(id, "profiling_state", error.clone()));
+        assert!(commands.is_empty());
+        assert!(s.banner.is_none());
+        assert!(s.failure.is_none());
+        assert_eq!(
+            s.indexes.queries.profiling,
+            ProfilingView::Unavailable(error)
+        );
+        assert!(s.indexes.queries.in_flight.is_none());
+    }
+}
+
+#[test]
+fn other_contexts_with_unreachable_still_take_the_lost_connection_path() {
+    let (s, id) = opened(flags(false, false));
+    let (s, _) = event(s, bare_failure(id, "index_history", CoreError::Unreachable));
+    assert!(s.failure.is_some(), "the session is marked lost");
+}
+
+#[test]
+fn cancelling_the_parked_warning_retriggers_a_pending_read() {
+    let (s, id) = asked(flags(true, false), true);
+    let (s, _) = queries(s, QueriesAction::ConfirmEnable);
+    assert!(s.write_warning.is_some());
+    let s = switched_to(s, Namespace::new("other", "x"));
+    let (s, commands) = queries(s, QueriesAction::Open);
+    assert!(matches!(commands.as_slice(), [Command::QueryShapes { .. }]));
+    assert_eq!(s.indexes.queries.profiling, ProfilingView::Loading);
+    let (s, commands) = update(s, Input::WriteWarning(WriteWarningAction::Cancel));
+    assert_eq!(
+        shown(&commands),
+        shown(&[Command::ProfilingState {
+            session: id,
+            db: "other".into()
+        }])
+    );
+    assert!(s.write_warning.is_none());
+    assert!(s.indexes.queries.in_flight.is_some());
 }

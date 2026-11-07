@@ -211,6 +211,15 @@ fn settled(state: AppState, db: &str, wrote: bool) -> AppState {
     }
 }
 
+/// The parked profiler change was cancelled: a state read that waited for it (the Queries view is
+/// open and still loading, nothing in flight) is sent now, once.
+pub(super) fn resume_read(state: AppState) -> Out {
+    match state.indexes.view {
+        IndexesView::Queries => follow_up(state),
+        IndexesView::Indexes => (state, Vec::new()),
+    }
+}
+
 /// After an answer for another database: the collection on screen may have been waiting for it
 /// (it asked while that command was in flight), so its state is read now.
 fn follow_up(state: AppState) -> Out {

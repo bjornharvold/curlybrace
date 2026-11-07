@@ -151,6 +151,12 @@ pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
             });
             (AppState { banner, ..state }, Vec::new())
         }
+        // A cancelled profiler change may leave a read that waited for it: ask for it now.
+        (WriteWarningAction::Cancel, Some(parked))
+            if parked.kind == WriteKind::SetProfilingLevel =>
+        {
+            super::queries_actions::resume_read(state)
+        }
         _ => (state, Vec::new()),
     }
 }

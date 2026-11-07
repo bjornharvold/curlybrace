@@ -211,6 +211,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             super::explain_actions::command_failed(state, error),
             Vec::new(),
         ),
+        // A profiler command that failed as a command (not as an outcome) is an inline outcome
+        // too, a lost server included: no banner, and what was in flight is settled. Only these
+        // two contexts match, so no other failure is shadowed; other commands notice a lost
+        // server on their own.
+        Event::Failed {
+            context: context @ ("profiling_state" | "set_profiling_level"),
+            error,
+            ..
+        } => queries_actions::command_failed(state, context, error),
         // The server of an open session cannot be reached any more: the root fails like a failed
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever
@@ -234,13 +243,6 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
                 ),
             }
         }
-        // A profiler command that failed as a command (not as an outcome) is an inline outcome
-        // too: no banner, and what was in flight is settled.
-        Event::Failed {
-            context: context @ ("profiling_state" | "set_profiling_level"),
-            error,
-            ..
-        } => queries_actions::command_failed(state, context, error),
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
         // A failed numbered read settles only the request still awaited: a late failure of an
         // older one must not end the wait for the newer or put a banner over its data. The

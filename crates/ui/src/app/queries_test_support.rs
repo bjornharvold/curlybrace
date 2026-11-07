@@ -74,7 +74,6 @@ pub(super) fn flags(production: bool, read_only: bool) -> ConnectionConfig {
 }
 
 /// The Queries view opened on `app.people` of a connection with these flags.
-
 pub(super) fn opened(cfg: ConnectionConfig) -> (AppState, Uuid) {
     let (s, id) = browsing(cfg);
     let (s, _) = queries(s, QueriesAction::Open);
@@ -82,7 +81,6 @@ pub(super) fn opened(cfg: ConnectionConfig) -> (AppState, Uuid) {
 }
 
 /// Opened, and the profiler state answered: `current` is the level the server reports.
-
 pub(super) fn ready(cfg: ConnectionConfig, current: i32) -> (AppState, Uuid) {
     let (s, id) = opened(cfg);
     let (s, _) = event(s, answer(id, "app", Ok(level(current))));
@@ -135,7 +133,6 @@ pub(super) fn consenting(s: AppState, db: &str, level: i32) -> AppState {
 }
 
 /// Selects `ns` in the sidebar and opens it, as a click would.
-
 pub(super) fn switched_to(s: AppState, ns: Namespace) -> AppState {
     let sidebar = s
         .sidebar
