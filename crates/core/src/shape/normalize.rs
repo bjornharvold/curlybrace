@@ -176,6 +176,47 @@ fn verb<'a>(op: &'a str, command: &'a Document) -> Option<&'a str> {
     }
 }
 
+/// What a profiled operation does, from the same verb [`from_profile_command`] dispatches on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OperationKind {
+    Find,
+    Update,
+    Remove,
+    FindAndModify,
+    Count,
+    Distinct,
+    Aggregate,
+    /// Any other verb (insert, getMore, createIndexes, ...).
+    Other,
+}
+
+impl OperationKind {
+    /// True when the examined/returned ratio says something about the index: the operation
+    /// matches documents and `returned` counts them. A distinct, count or aggregate reads many
+    /// keys to return few values whatever the index.
+    pub(crate) fn matches_documents(self) -> bool {
+        matches!(
+            self,
+            Self::Find | Self::Update | Self::Remove | Self::FindAndModify
+        )
+    }
+}
+
+/// The kind of the operation of a profiler entry (`op` and `command` as for
+/// [`from_profile_command`]).
+pub(crate) fn operation_kind(op: &str, command: &Document) -> OperationKind {
+    match verb(op, command) {
+        Some("query" | "find") => OperationKind::Find,
+        Some("update") => OperationKind::Update,
+        Some("remove" | "delete") => OperationKind::Remove,
+        Some("findAndModify" | "findandmodify") => OperationKind::FindAndModify,
+        Some("count") => OperationKind::Count,
+        Some("distinct") => OperationKind::Distinct,
+        Some("aggregate") => OperationKind::Aggregate,
+        _ => OperationKind::Other,
+    }
+}
+
 /// The shape of a profiler entry. `op` is the raw `op` field of the `system.profile` entry and
 /// `command` its `command` document: `query`, `update` and `remove` name the verb directly,
 /// while `aggregate`, `count`, `distinct`, `findAndModify` and (on modern servers) `find`

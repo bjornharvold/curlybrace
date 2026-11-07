@@ -385,6 +385,11 @@ async fn real_profile_commands_map_to_shapes() {
             "{op}/{verb_name} yielded no shape on this server"
         );
     }
+    // A distinct, count or aggregate reads many keys to return few values: never an inefficient index.
+    for verb_name in ["distinct", "count", "aggregate"] {
+        let e = entry_of(&read, &ns, verb_name, |_| true);
+        assert_eq!(verdict(e), VerdictKind::IndexUsed, "{verb_name}: {e:?}");
+    }
     for expected in [
         "find",
         "count",

@@ -117,10 +117,9 @@ fn real_find_entries_classify_as_the_explain_classifier_would() {
 #[test]
 fn real_non_find_entries_classify() {
     assert_eq!(verdict("count"), VerdictKind::IndexUsed);
-    // Pinned as observed, and arguably a false positive: a distinct reads every key of its
-    // range to return few values (here 300 keys for 10 values), which the examined/returned
-    // ratio reads as an inefficient index although no index could do better.
-    assert_eq!(verdict("distinct"), VerdictKind::InefficientIndex);
+    // A distinct reads every key of its range to return few values: no index could do better,
+    // so it is not judged by the examined/returned ratio (only documents-matching ops are).
+    assert_eq!(verdict("distinct"), VerdictKind::IndexUsed);
     assert_eq!(verdict("aggregate"), VerdictKind::IndexUsed);
     assert_eq!(verdict("update"), VerdictKind::IndexUsed);
     assert_eq!(verdict("delete"), VerdictKind::CollectionScan);
@@ -195,4 +194,26 @@ fn a_real_getmore_is_a_continuation_judged_neutral() {
     assert_eq!(more.op, "getmore");
     assert_eq!(classify_entry(&more, false), VerdictKind::NoFilter);
     assert!(!entry("find_collscan").is_continuation());
+}
+
+#[test]
+fn a_ratio_that_would_be_inefficient_is_not_for_distinct_count_or_aggregate() {
+    for name in ["distinct", "count", "aggregate"] {
+        let mut e = entry(name);
+        (e.keys_examined, e.docs_examined, e.returned) = (6000, 6000, 1);
+        assert_eq!(classify_entry(&e, true), VerdictKind::IndexUsed, "{name}");
+    }
+    let mut find = entry("find_ixscan");
+    (find.keys_examined, find.docs_examined, find.returned) = (6000, 6000, 1);
+    assert_eq!(classify_entry(&find, true), VerdictKind::InefficientIndex);
+}
+
+#[test]
+fn an_aggregate_that_scans_the_collection_is_still_a_collection_scan() {
+    let text = include_str!("fixtures/aggregate_match.json");
+    let e = parse_entry(&editor_json_to_doc(text).unwrap()).unwrap();
+    assert_eq!(
+        classify_entry(&e, entry_has_filter(&e)),
+        VerdictKind::CollectionScan
+    );
 }

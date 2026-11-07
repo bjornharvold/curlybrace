@@ -495,3 +495,31 @@ fn has_filter_is_true_only_for_a_non_empty_filter() {
     assert!(!shape_of(doc! {}).has_filter());
     assert!(!sorted(doc! { "a": 1 }).has_filter());
 }
+
+#[test]
+fn operation_kind_follows_the_verb_dispatch_of_from_profile_command() {
+    use super::normalize::{OperationKind as K, operation_kind};
+    let cmd = |verb: &str| doc! { verb: "orders" };
+    let cases = [
+        ("query", Document::new(), K::Find),
+        ("command", cmd("find"), K::Find),
+        ("update", Document::new(), K::Update),
+        ("remove", Document::new(), K::Remove),
+        ("command", cmd("delete"), K::Remove),
+        ("command", cmd("findAndModify"), K::FindAndModify),
+        ("command", cmd("count"), K::Count),
+        ("command", cmd("distinct"), K::Distinct),
+        ("command", cmd("aggregate"), K::Aggregate),
+        ("command", cmd("createIndexes"), K::Other),
+        ("command", Document::new(), K::Other),
+        ("getmore", Document::new(), K::Other),
+        ("insert", Document::new(), K::Other),
+    ];
+    for (op, command, kind) in cases {
+        assert_eq!(operation_kind(op, &command), kind, "{op} {command:?}");
+    }
+    assert!(K::Find.matches_documents() && K::Update.matches_documents());
+    assert!(K::Remove.matches_documents() && K::FindAndModify.matches_documents());
+    assert!(!K::Count.matches_documents() && !K::Distinct.matches_documents());
+    assert!(!K::Aggregate.matches_documents() && !K::Other.matches_documents());
+}

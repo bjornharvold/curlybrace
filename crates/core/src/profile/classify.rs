@@ -2,6 +2,7 @@
 
 use super::ProfileEntry;
 use crate::explain::{VerdictKind, is_inefficient};
+use crate::shape::operation_kind;
 
 const COLLSCAN: &str = "COLLSCAN";
 const EOF: &str = "EOF";
@@ -24,7 +25,9 @@ fn has_stage(plan: &str, stage: &str) -> bool {
 /// `NoFilter`. A continuation (`getMore`) is never judged by its own plan (its command has no
 /// filter); it is the neutral `NoFilter` too. A summary naming `COLLSCAN` in any stage is a
 /// scan; `EOF` is an `EmptyCollection`; `MULTI_ITERATOR` and other summaries are judged as
-/// index plans, so `IndexUsed` unless inefficient.
+/// index plans, so `IndexUsed` unless inefficient. Only an operation that matches documents
+/// (find, update, remove, findAndModify) can be inefficient: a distinct, count or aggregate
+/// examines many keys to return few values whatever the index, so its index plan is `IndexUsed`.
 pub fn classify_entry(entry: &ProfileEntry, has_filter: bool) -> VerdictKind {
     let plan = entry.plan_summary.as_str();
     if plan.is_empty() || entry.is_continuation() {
@@ -39,7 +42,9 @@ pub fn classify_entry(entry: &ProfileEntry, has_filter: bool) -> VerdictKind {
         VerdictKind::SortNotCovered
     } else if scan {
         VerdictKind::CollectionScan
-    } else if is_inefficient(entry.keys_examined, entry.docs_examined, entry.returned) {
+    } else if operation_kind(&entry.op, &entry.command).matches_documents()
+        && is_inefficient(entry.keys_examined, entry.docs_examined, entry.returned)
+    {
         VerdictKind::InefficientIndex
     } else {
         VerdictKind::IndexUsed

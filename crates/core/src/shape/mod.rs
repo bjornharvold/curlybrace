@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::CoreError;
 
+pub(crate) use normalize::operation_kind;
 pub use normalize::{from_profile_command, from_query};
 pub use suggest::suggest_for_shape;
 
