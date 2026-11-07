@@ -147,11 +147,18 @@ impl Connector for FailingConnector {
     }
 }
 
+/// The next event that is not a spontaneous status of the sampler or the profile poller, which
+/// the tasks started on connect may emit at any moment.
 async fn next(h: &mut RuntimeHandle) -> Event {
-    tokio::time::timeout(WAIT, h.rx.recv())
-        .await
-        .expect("event within bound")
-        .expect("channel open")
+    loop {
+        let event = tokio::time::timeout(WAIT, h.rx.recv())
+            .await
+            .expect("event within bound")
+            .expect("channel open");
+        if !matches!(event, Event::Sampler { .. } | Event::Profiler { .. }) {
+            return event;
+        }
+    }
 }
 
 async fn connected_with(
