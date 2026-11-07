@@ -1,6 +1,14 @@
 //! Value-free query shapes: a filter, sort and projection reduced to field names and operators
 //! (every literal becomes `"?"`), so equal-shaped queries group together and no data of the
 //! author's is ever stored. A shape has a stable canonical JSON form and a SHA-256 hash of it.
+//!
+//! Which keys are kept: only those of QUERY documents (the filter root, children of
+//! `$and`/`$or`/`$nor`, the operand of `$elemMatch`), where keys are field paths or operators,
+//! and OPERATOR documents (every key starts with `$`, used as a field's value), whose
+//! operators are kept and operands are literals. Any other document is a literal whose keys
+//! are data (ids, emails): an equality value, the operand of `$eq`/`$ne`/`$all`/`$in`/`$gt`,
+//! geo operands, `$expr`, `$text`, `$where`, or a document mixing `$` and plain keys. It
+//! collapses to `"?"`, as does every scalar; `$in`/`$nin`/`$all` lists become `["?"]`.
 
 mod normalize;
 #[cfg(test)]

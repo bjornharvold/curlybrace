@@ -9,21 +9,11 @@ use crate::explain::suggest::direction;
 use crate::store::Query;
 
 const LOGICAL_OPS: [&str; 3] = ["$and", "$or", "$nor"];
-const LIST_OPS: [&str; 2] = ["$in", "$nin"];
+const LIST_OPS: [&str; 3] = ["$in", "$nin", "$all"];
 const ID_FIELD: &str = "_id";
 
 fn placeholder() -> Value {
     Value::String(PLACEHOLDER.to_string())
-}
-
-fn dedup(items: Vec<Value>) -> Vec<Value> {
-    items.into_iter().fold(Vec::new(), |acc, item| {
-        if acc.contains(&item) {
-            acc
-        } else {
-            acc.into_iter().chain([item]).collect()
-        }
-    })
 }
 
 fn sorted_by_text(items: Vec<Value>) -> Vec<Value> {
@@ -32,32 +22,73 @@ fn sorted_by_text(items: Vec<Value>) -> Vec<Value> {
     keyed.into_iter().map(|(_, v)| v).collect()
 }
 
-fn value_for(key: &str, value: &Bson) -> Value {
+fn is_operator_doc(doc: &Document) -> bool {
+    !doc.is_empty() && doc.keys().all(|k| k.starts_with('$'))
+}
+
+fn has_logical_op(doc: &Document) -> bool {
+    doc.keys().any(|k| LOGICAL_OPS.contains(&k.as_str()))
+}
+
+fn sorted_entries(doc: &Document) -> Vec<(&String, &Bson)> {
+    let mut entries: Vec<(&String, &Bson)> = doc.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    entries
+}
+
+/// A query document: keys are field paths or operators and are kept, sorted.
+fn query_doc(doc: &Document) -> Map<String, Value> {
+    sorted_entries(doc)
+        .into_iter()
+        .map(|(k, v)| (k.clone(), query_entry(k, v)))
+        .collect()
+}
+
+fn query_entry(key: &str, value: &Bson) -> Value {
     match value {
-        Bson::Array(_) if LIST_OPS.contains(&key) => json!([PLACEHOLDER]),
-        Bson::Array(items) if LOGICAL_OPS.contains(&key) => {
-            Value::Array(sorted_by_text(items.iter().map(literal_free).collect()))
-        }
-        other => literal_free(other),
+        Bson::Array(items) if LOGICAL_OPS.contains(&key) => Value::Array(sorted_by_text(
+            items
+                .iter()
+                .map(|c| c.as_document().map_or_else(placeholder, query_value))
+                .collect(),
+        )),
+        _ if key.starts_with('$') => placeholder(),
+        other => field_value(other),
     }
 }
 
-/// Keys and operators kept (keys sorted), every scalar masked, scalar arrays collapsed.
-fn literal_free(value: &Bson) -> Value {
+fn query_value(doc: &Document) -> Value {
+    Value::Object(query_doc(doc))
+}
+
+/// A field's value: an operator document keeps its operators; anything else is a literal.
+fn field_value(value: &Bson) -> Value {
     match value {
-        Bson::Document(doc) => Value::Object(object_of(doc)),
-        Bson::Array(items) => Value::Array(dedup(items.iter().map(literal_free).collect())),
+        Bson::Document(doc) if is_operator_doc(doc) => Value::Object(operator_doc(doc)),
         _ => placeholder(),
     }
 }
 
-fn object_of(doc: &Document) -> Map<String, Value> {
-    let mut entries: Vec<(&String, &Bson)> = doc.iter().collect();
-    entries.sort_by(|a, b| a.0.cmp(b.0));
-    entries
+fn operator_doc(doc: &Document) -> Map<String, Value> {
+    sorted_entries(doc)
         .into_iter()
-        .map(|(k, v)| (k.clone(), value_for(k, v)))
+        .map(|(op, operand)| (op.clone(), operand_value(op, operand)))
         .collect()
+}
+
+/// The operand of an operator: a literal, except that `$elemMatch` holds a query (or
+/// operator) document and `$not` an operator document.
+fn operand_value(op: &str, operand: &Bson) -> Value {
+    match (op, operand) {
+        (op, Bson::Array(_)) if LIST_OPS.contains(&op) => json!([PLACEHOLDER]),
+        ("$elemMatch", Bson::Document(doc)) if has_logical_op(doc) || !is_operator_doc(doc) => {
+            query_value(doc)
+        }
+        ("$elemMatch" | "$not", Bson::Document(doc)) if is_operator_doc(doc) => {
+            Value::Object(operator_doc(doc))
+        }
+        _ => placeholder(),
+    }
 }
 
 fn sort_of(sort: &Document) -> Map<String, Value> {
@@ -91,7 +122,7 @@ fn projection_of(projection: &Document) -> Map<String, Value> {
 
 fn build(filter: &Document, sort: Option<&Document>, projection: Option<&Document>) -> Shape {
     let mut canonical = Map::new();
-    canonical.insert(FILTER_KEY.into(), Value::Object(object_of(filter)));
+    canonical.insert(FILTER_KEY.into(), query_value(filter));
     if let Some(sort) = sort.filter(|s| !s.is_empty()) {
         canonical.insert(SORT_KEY.into(), Value::Object(sort_of(sort)));
     }
@@ -135,11 +166,24 @@ fn aggregate_shape(command: &Document) -> Option<Shape> {
     Some(build(matched, sort, None))
 }
 
-/// The shape of a profiler entry's `command`, per op. `None` for ops without a filter
-/// (`getMore`, `insert`, commands) or that are unsupported.
+/// The verb to dispatch on: the profiler's `command` op names it in the first key of the
+/// command document; any other op is the verb itself.
+fn verb<'a>(op: &'a str, command: &'a Document) -> Option<&'a str> {
+    if op == "command" {
+        command.keys().next().map(String::as_str)
+    } else {
+        Some(op)
+    }
+}
+
+/// The shape of a profiler entry. `op` is the raw `op` field of the `system.profile` entry and
+/// `command` its `command` document: `query`, `update` and `remove` name the verb directly,
+/// while `aggregate`, `count`, `distinct`, `findAndModify` and (on modern servers) `find`
+/// arrive as `op: "command"` with the verb as the first key of `command`. `None` for ops
+/// without a filter (`getmore`, `insert`, other commands) or that are unsupported.
 pub fn from_profile_command(op: &str, command: &Document) -> Option<Shape> {
     let empty = Document::new();
-    match op {
+    match verb(op, command)? {
         "query" | "find" => Some(build(
             doc(command, "filter").unwrap_or(&empty),
             doc(command, "sort"),
@@ -149,7 +193,7 @@ pub fn from_profile_command(op: &str, command: &Document) -> Option<Shape> {
         "aggregate" => aggregate_shape(command),
         "update" => statement_filter(command, "updates").map(|q| build(q, None, None)),
         "remove" | "delete" => statement_filter(command, "deletes").map(|q| build(q, None, None)),
-        "findAndModify" => Some(build(
+        "findAndModify" | "findandmodify" => Some(build(
             doc(command, "query").unwrap_or(&empty),
             doc(command, "sort"),
             None,
@@ -158,13 +202,29 @@ pub fn from_profile_command(op: &str, command: &Document) -> Option<Shape> {
     }
 }
 
-fn value_free(value: &Value) -> Result<(), String> {
+fn to_bson(value: &Value) -> Bson {
     match value {
-        Value::Object(map) => map.values().try_for_each(value_free),
-        Value::Array(items) => items.iter().try_for_each(value_free),
-        Value::String(s) if s == PLACEHOLDER => Ok(()),
-        _ => Err("a literal value".to_string()),
+        Value::Object(map) => Bson::Document(to_document(map)),
+        Value::Array(items) => Bson::Array(items.iter().map(to_bson).collect()),
+        Value::String(s) => Bson::String(s.clone()),
+        Value::Number(n) => n
+            .as_i64()
+            .map_or_else(|| Bson::Double(n.as_f64().unwrap_or_default()), Bson::Int64),
+        Value::Bool(b) => Bson::Boolean(*b),
+        Value::Null => Bson::Null,
     }
+}
+
+pub(super) fn to_document(map: &Map<String, Value>) -> Document {
+    map.iter().map(|(k, v)| (k.clone(), to_bson(v))).collect()
+}
+
+/// A filter is canonical when normalising it changes nothing: no literal, no literal
+/// document keys, sorted keys, `["?"]` lists. Compared as text, as a map compares unordered.
+fn canonical_filter(filter: &Map<String, Value>) -> bool {
+    let again = query_value(&to_document(filter));
+    let (again, given) = (again.to_string(), Value::Object(filter.clone()).to_string());
+    again == given
 }
 
 fn names(value: &Value) -> bool {
@@ -195,7 +255,9 @@ pub(super) fn validate(canonical: &Map<String, Value>) -> Result<(), String> {
     if !filter.is_object() {
         return Err("filter is not an object".into());
     }
-    value_free(filter)?;
+    if !canonical_filter(filter.as_object().ok_or("filter is not an object")?) {
+        return Err("filter is not in canonical, value-free form".into());
+    }
     if canonical
         .keys()
         .any(|k| ![FILTER_KEY, SORT_KEY, PROJECTION_KEY].contains(&k.as_str()))

@@ -1,6 +1,8 @@
 use bson::oid::ObjectId;
 use bson::spec::BinarySubtype;
-use bson::{Binary, Bson, DateTime, Document, Regex, doc};
+use bson::{
+    Binary, Bson, DateTime, Decimal128, Document, JavaScriptCodeWithScope, Regex, Timestamp, doc,
+};
 
 use super::{Shape, from_profile_command, from_query};
 use crate::store::Query;
@@ -285,4 +287,204 @@ fn profile_getmore_and_unsupported_ops_are_none() {
     assert!(from_profile_command("aggregate", &doc! {}).is_none());
     assert!(from_profile_command("update", &doc! { "updates": [] }).is_none());
     assert!(from_profile_command("delete", &doc! {}).is_none());
+}
+
+fn json_of_filter(filter: Document) -> String {
+    shape_of(filter).json()
+}
+
+#[test]
+fn literal_document_keys_never_appear() {
+    let filters = [
+        doc! { "meta": { "user-SECRET-7f3a": 1 } },
+        doc! { "tags": { "$all": [{ "k-SECRET-7f3a": 1 }] } },
+        doc! { "meta": { "$eq": { "user-SECRET-7f3a": 1 } } },
+        doc! { "meta": { "$in": [{ "user-SECRET-7f3a": 1 }] } },
+        doc! { "meta": { "$ne": { "user-SECRET-7f3a": 1 } } },
+        doc! { "items": { "$elemMatch": { "meta": { "user-SECRET-7f3a": { "deep-SECRET-7f3a": 1 } } } } },
+        doc! { "$expr": { "$eq": ["$a", { "user-SECRET-7f3a": 1 }] } },
+        doc! { "meta": { "$gt": { "user-SECRET-7f3a": 1 } } },
+        doc! { "meta": { "$gt": 1, "user-SECRET-7f3a": 1 } },
+        doc! { "$or": [{ "meta": { "user-SECRET-7f3a": 1 } }] },
+        doc! { "loc": { "$near": { "$geometry": { "user-SECRET-7f3a": [1, 2] } } } },
+    ];
+    for filter in filters {
+        let json = json_of_filter(filter.clone());
+        assert!(!json.contains("SECRET"), "{filter} leaked: {json}");
+    }
+}
+
+#[test]
+fn operator_documents_keep_their_operators() {
+    assert_eq!(
+        json_of_filter(doc! { "age": { "$lt": 9, "$gt": 5 }, "meta": { "k": 1 } }),
+        r#"{"filter":{"age":{"$gt":"?","$lt":"?"},"meta":"?"}}"#
+    );
+    assert_eq!(
+        json_of_filter(doc! { "n": { "$not": { "$gt": 5 } }, "t": { "$all": [1, 2] } }),
+        r#"{"filter":{"n":{"$not":{"$gt":"?"}},"t":{"$all":["?"]}}}"#
+    );
+}
+
+#[test]
+fn elemmatch_operand_keeps_field_paths() {
+    assert_eq!(
+        json_of_filter(
+            doc! { "items": { "$elemMatch": { "sku": "x", "qty": { "$gt": 1 },
+            "$or": [{ "z": 1 }, { "a": 2 }] } } }
+        ),
+        r#"{"filter":{"items":{"$elemMatch":{"$or":[{"a":"?"},{"z":"?"}],"qty":{"$gt":"?"},"sku":"?"}}}}"#
+    );
+    assert_eq!(
+        json_of_filter(doc! { "n": { "$elemMatch": { "$gt": 1, "$lt": 5 } } }),
+        r#"{"filter":{"n":{"$elemMatch":{"$gt":"?","$lt":"?"}}}}"#
+    );
+}
+
+#[test]
+fn from_json_rejects_literal_documents_with_data_keys() {
+    for bad in [
+        r#"{"filter":{"meta":{"user-1":"?"}}}"#,
+        r#"{"filter":{"t":{"$all":[{"k":"?"}]}}}"#,
+        r#"{"filter":{"m":{"$eq":{"user-1":"?"}}}}"#,
+        r#"{"filter":{"m":{"$gt":"?","user-1":"?"}}}"#,
+        r#"{"filter":{"m":{}}}"#,
+    ] {
+        assert!(Shape::from_json(bad).is_err(), "{bad} accepted");
+    }
+}
+
+#[test]
+fn two_queries_differing_only_in_embedded_document_keys_share_a_shape() {
+    let a = shape_of(doc! { "meta": { "user-1": 1 }, "t": { "$eq": { "a": 1 } } });
+    let b = shape_of(doc! { "meta": { "user-2": 7, "other": 8 }, "t": { "$eq": { "b": 2 } } });
+    assert_eq!(a.hash(), b.hash());
+}
+
+#[test]
+fn from_json_round_trips_and_is_canonical() {
+    let s = shape_of(doc! { "b": { "$in": [1, 2] }, "a": 1, "$or": [{ "z": 1 }, { "y": 1 }] });
+    assert_eq!(Shape::from_json(&s.json()).unwrap().hash(), s.hash());
+    for non_canonical in [
+        r#"{"filter":{"b":"?","a":"?"}}"#,
+        r#"{"filter":{"a":{"$in":["?","?"]}}}"#,
+        r#"{"filter":{"$or":[{"z":"?"},{"y":"?"}]}}"#,
+    ] {
+        assert!(Shape::from_json(non_canonical).is_err(), "{non_canonical}");
+    }
+}
+
+#[test]
+fn every_bson_literal_kind_is_masked() {
+    let filter = doc! {
+        "expr": 1,
+        "$expr": { "$gt": ["$spent-SECRET-field", 918273645] },
+        "$text": { "$search": "SECRET-search" },
+        "$where": "this.pw == 'SECRET-where'",
+        "js": Bson::JavaScriptCode("SECRET-js".into()),
+        "jsws": Bson::JavaScriptCodeWithScope(JavaScriptCodeWithScope {
+            code: "SECRET-jsws".into(), scope: doc! { "SECRET-scope": 5551212 } }),
+        "geo": { "$geoWithin": { "$geometry": { "type": "Polygon",
+            "coordinates": [[[11.111, 22.222], [33.333, 44.444]]] } } },
+        "near": { "$near": { "$geometry": { "type": "Point", "coordinates": [55.555, 66.666] },
+            "$maxDistance": 98765 } },
+        "docs": { "$in": [{ "k": "SECRET-in" }] },
+        "dec": Bson::Decimal128("123456.789".parse::<Decimal128>().unwrap()),
+        "ts": Bson::Timestamp(Timestamp { time: 1_234_567_890, increment: 7 }),
+        "sym": Bson::Symbol("SECRET-sym".into()),
+        "min": Bson::MinKey,
+        "max": Bson::MaxKey,
+        "undef": Bson::Undefined,
+        "null": Bson::Null,
+        "re": Bson::RegularExpression(Regex { pattern: "SECRET-re".into(), options: "i".into() }),
+        "nested": [[{ "a": "SECRET-nested" }], [{ "b": 424242 }]],
+        "$and": [{ "n": [{ "SECRET-and": 1 }] }],
+    };
+    let json = json_of_filter(filter);
+    for leak in [
+        "SECRET",
+        "918273645",
+        "5551212",
+        "11.111",
+        "22.222",
+        "33.333",
+        "44.444",
+        "55.555",
+        "66.666",
+        "98765",
+        "123456",
+        "1234567890",
+        "424242",
+    ] {
+        assert!(!json.contains(leak), "{leak} leaked into {json}");
+    }
+}
+
+#[test]
+fn profile_dispatches_on_the_real_op_and_command_verb() {
+    let find = doc! { "find": "c", "filter": { "a": 1 }, "sort": { "b": -1 }, "$db": "d" };
+    let want_find = r#"{"filter":{"a":"?"},"sort":{"b":-1}}"#;
+    assert_eq!(json_of("query", find.clone()), want_find);
+    assert_eq!(json_of("command", find), want_find);
+    let want = r#"{"filter":{"a":"?"}}"#;
+    assert_eq!(
+        json_of(
+            "command",
+            doc! { "aggregate": "c", "pipeline": [{ "$match": { "a": 1 } }, { "$sort": { "b": 1 } }], "cursor": {} }
+        ),
+        r#"{"filter":{"a":"?"},"sort":{"b":1}}"#
+    );
+    assert_eq!(
+        json_of("command", doc! { "count": "c", "query": { "a": 1 } }),
+        want
+    );
+    assert_eq!(
+        json_of(
+            "command",
+            doc! { "distinct": "c", "key": "k", "query": { "a": 1 } }
+        ),
+        want
+    );
+    assert_eq!(
+        json_of(
+            "command",
+            doc! { "findAndModify": "c", "query": { "a": 1 }, "sort": { "b": 1 }, "update": {} }
+        ),
+        r#"{"filter":{"a":"?"},"sort":{"b":1}}"#
+    );
+    assert_eq!(
+        json_of(
+            "command",
+            doc! { "update": "c", "updates": [{ "q": { "a": 1 }, "u": {} }] }
+        ),
+        want
+    );
+    assert_eq!(
+        json_of(
+            "command",
+            doc! { "delete": "c", "deletes": [{ "q": { "a": 1 }, "limit": 0 }] }
+        ),
+        want
+    );
+    assert_eq!(json_of("update", doc! { "q": { "a": 1 }, "u": {} }), want);
+    assert_eq!(
+        json_of("remove", doc! { "q": { "a": 1 }, "limit": 0 }),
+        want
+    );
+}
+
+#[test]
+fn profile_command_ops_without_a_filter_are_none() {
+    assert!(
+        from_profile_command("getmore", &doc! { "getMore": 1_i64, "collection": "c" }).is_none()
+    );
+    assert!(
+        from_profile_command("command", &doc! { "getMore": 1_i64, "collection": "c" }).is_none()
+    );
+    assert!(
+        from_profile_command("insert", &doc! { "insert": "c", "documents": [{ "a": 1 }] })
+            .is_none()
+    );
+    assert!(from_profile_command("command", &doc! { "ping": 1 }).is_none());
+    assert!(from_profile_command("command", &doc! {}).is_none());
 }
