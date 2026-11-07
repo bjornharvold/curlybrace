@@ -29,7 +29,7 @@ mod copy_drag;
 pub mod copy_state;
 pub mod copy_structure_report;
 mod dialog_banner;
-mod explain_actions;
+pub mod explain_actions;
 pub mod file_picker;
 pub mod host_key;
 mod index_actions;

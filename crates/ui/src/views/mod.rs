@@ -38,4 +38,5 @@ pub mod table;
 pub mod tool_row;
 pub mod tools_settings;
 pub mod tree;
+pub mod verdict_badge;
 pub mod write_warning;

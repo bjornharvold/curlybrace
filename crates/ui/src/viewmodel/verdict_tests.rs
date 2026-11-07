@@ -1,0 +1,145 @@
+use super::*;
+use curlybrace_core::error::CoreError;
+use curlybrace_core::explain::{Reason, SuggestedIndex, Verdict, VerdictKind};
+use curlybrace_core::store::Query;
+
+fn verdict(kind: VerdictKind) -> Verdict {
+    Verdict {
+        kind,
+        index_name: None,
+        keys_examined: 0,
+        docs_examined: 0,
+        returned: 0,
+        plan_only: false,
+        reasons: Vec::new(),
+        suggestion: None,
+    }
+}
+
+fn ready(verdict: Verdict) -> VerdictState {
+    VerdictState::Ready {
+        query: Query::default(),
+        verdict,
+    }
+}
+
+fn model(kind: VerdictKind) -> BadgeModel {
+    badge(&ready(verdict(kind)), "orders").expect("a ready verdict has a badge")
+}
+
+#[test]
+fn badge_for_each_kind_has_distinct_title_and_tone() {
+    let kinds = [
+        (VerdictKind::IndexUsed, Tone::Good),
+        (VerdictKind::CoveredByIndex, Tone::Good),
+        (VerdictKind::CollectionScan, Tone::Warn),
+        (VerdictKind::SortNotCovered, Tone::Warn),
+        (VerdictKind::InefficientIndex, Tone::Warn),
+        (VerdictKind::NoFilter, Tone::Neutral),
+        (VerdictKind::EmptyCollection, Tone::Neutral),
+    ];
+    let mut titles = Vec::new();
+    for (kind, tone) in kinds {
+        let m = model(kind);
+        assert_eq!(m.tone, tone, "{kind:?}");
+        assert!(!m.icon.is_empty(), "{kind:?}");
+        titles.push(m.title_key);
+    }
+    let mut unique = titles.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), titles.len(), "{titles:?}");
+}
+
+#[test]
+fn none_has_no_badge() {
+    assert_eq!(badge(&VerdictState::None, "orders"), None);
+}
+
+#[test]
+fn pending_is_checking() {
+    let m = badge(
+        &VerdictState::Pending {
+            query: Query::default(),
+        },
+        "orders",
+    )
+    .unwrap();
+    assert_eq!(m.tone, Tone::Checking);
+    assert_eq!(m.title_key, "query.verdict.checking");
+    assert!(m.suggestion.is_none() && !m.plan_only);
+}
+
+fn unavailable(error: CoreError) -> BadgeModel {
+    badge(
+        &VerdictState::Unavailable {
+            query: Query::default(),
+            error,
+        },
+        "orders",
+    )
+    .unwrap()
+}
+
+#[test]
+fn unavailable_shows_reason_key_for_unsupported_and_database_errors() {
+    let unsupported = unavailable(CoreError::Unsupported("view: secret detail".into()));
+    let database = unavailable(CoreError::Database("boom 10.0.0.1".into()));
+    for m in [&unsupported, &database] {
+        assert_eq!(m.tone, Tone::Unavailable);
+        assert_eq!(m.title_key, "query.verdict.unavailable");
+        assert_eq!(m.reasons.len(), 1);
+    }
+    assert_eq!(unsupported.reasons[0].key, "unsupported");
+    assert_eq!(database.reasons[0].key, "unavailable");
+    assert!(unsupported.reasons[0].params.is_empty());
+    assert!(database.reasons[0].params.is_empty());
+}
+
+#[test]
+fn suggestion_command_uses_collection_name() {
+    let mut v = verdict(VerdictKind::CollectionScan);
+    v.reasons = vec![Reason::new("collscan")];
+    v.suggestion = Some(SuggestedIndex {
+        keys: vec![("status".into(), 1)],
+    });
+    let m = badge(&ready(v), "orders").unwrap();
+    assert_eq!(
+        m.suggestion.as_deref(),
+        Some("db.orders.createIndex({ \"status\": 1 })")
+    );
+    assert_eq!(m.reasons[0].key, "collscan");
+}
+
+#[test]
+fn a_good_verdict_offers_no_suggestion() {
+    let mut v = verdict(VerdictKind::IndexUsed);
+    v.suggestion = Some(SuggestedIndex {
+        keys: vec![("a".into(), 1)],
+    });
+    assert_eq!(badge(&ready(v), "orders").unwrap().suggestion, None);
+}
+
+#[test]
+fn plan_only_adds_the_estimate_note() {
+    let mut v = verdict(VerdictKind::CollectionScan);
+    v.plan_only = true;
+    assert!(badge(&ready(v), "orders").unwrap().plan_only);
+    assert!(!model(VerdictKind::CollectionScan).plan_only);
+}
+
+#[test]
+fn every_reason_key_core_emits_has_a_string_key() {
+    for key in [
+        "collscan",
+        "sort_blocking",
+        "inefficient",
+        "no_filter",
+        "empty_collection",
+        "unsupported",
+        "unavailable",
+    ] {
+        assert!(reason_text_key(key).is_some(), "{key}");
+    }
+    assert_eq!(reason_text_key("nope"), None);
+}

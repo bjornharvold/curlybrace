@@ -25,6 +25,7 @@ pub mod tool_rows;
 pub mod tree;
 pub mod tree_state;
 pub mod typed_confirmation;
+pub mod verdict;
 
 pub use cell::cell_text;
 pub use connection_form::{

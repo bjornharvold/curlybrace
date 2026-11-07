@@ -971,6 +971,30 @@
     "unreadable_backup_failed": "The saved connections file could not be read or backed up. Saving is turned off so nothing is overwritten.",
     "write_failed": "Could not write the saved connections file."
   },
+  "query": {
+    "verdict": {
+      "checking": "Checking how this query runs...",
+      "copy": "Copy index command",
+      "plan_only": "Estimated from the query plan only; the server returned no execution counts.",
+      "reason_collscan": "The query reads every document in the collection because no index fits its filter.",
+      "reason_empty_collection": "The collection is empty, so there is nothing to scan.",
+      "reason_inefficient": "An index is used, but it examined {examined} entries to return {returned} documents.",
+      "reason_no_filter": "The query has no filter, so it returns documents in natural order.",
+      "reason_sort_blocking": "The sort cannot use an index, so the server sorts the results in memory.",
+      "reason_unavailable": "The server could not explain this query right now.",
+      "reason_unsupported": "This is a view or a target that does not support explain.",
+      "suggestion": "Suggested index",
+      "title_collscan": "Collection scan: no index used",
+      "title_covered": "Covered by an index",
+      "title_empty": "Collection is empty",
+      "title_index_used": "Uses an index",
+      "title_inefficient": "Index used, but inefficient",
+      "title_no_filter": "No filter",
+      "title_sort": "Sort is not covered by an index",
+      "unavailable": "Index check unavailable",
+      "why": "Why"
+    }
+  },
   "sidebar": {
     "compare_database_to": "Compare database to...",
     "compare_to": "Compare to...",

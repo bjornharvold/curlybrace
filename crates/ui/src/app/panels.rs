@@ -7,6 +7,7 @@ use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
+use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
@@ -23,6 +24,7 @@ use crate::views::index_dialogs::{
 use crate::views::indexes::show_indexes;
 use crate::views::sidebar_roots::show_roots;
 use crate::views::tools_settings::show_tools_settings;
+use crate::views::verdict_badge::{VerdictAction, show_verdict_badge};
 use crate::views::write_warning::show_write_warning;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
@@ -205,6 +207,7 @@ fn show_collection(
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
     }
+    show_verdict(ui, state, i18n);
     state.view_mode = show_mode_switcher(ui, state.view_mode, i18n);
     ui.separator();
     let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
@@ -233,6 +236,21 @@ fn show_collection(
     );
     if let Some(action) = action {
         out.push(UiEvent::Input(Input::Doc(action)));
+    }
+}
+
+/// The index verdict of the current run, above the documents; its copy button goes to the
+/// clipboard here, the reducer needs no record of it.
+fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
+    let collection = state
+        .selected_ns()
+        .map(|ns| ns.collection.as_str())
+        .unwrap_or_default();
+    let Some(model) = badge(&state.verdict, collection) else {
+        return;
+    };
+    if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_badge(ui, &model, i18n) {
+        ui.ctx().copy_text(text);
     }
 }
 
