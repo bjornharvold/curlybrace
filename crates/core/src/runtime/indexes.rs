@@ -15,7 +15,8 @@ use crate::error::{CoreError, Result};
 use crate::history::{Bucket, ChartRange, HistoryDb, Recovery, Sample, ShapeSummary};
 use crate::indexes::IndexSpec;
 use crate::store::Namespace;
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::task::AbortHandle;
 
 /// One plotted series of the Indexes tab: an index definition on one node.
 #[derive(Clone, Debug, PartialEq)]
@@ -175,7 +176,7 @@ pub(super) fn start_sampler(
         return;
     };
     history.allow_recording(id);
-    let (status_tx, mut statuses) = unbounded_channel();
+    let (status_tx, statuses) = unbounded_channel();
     let handle = sampler::spawn(
         store,
         history,
@@ -189,9 +190,32 @@ pub(super) fn start_sampler(
     }
     // Weak: a strong reference would keep the session (and so the sampler and its store) alive
     // for as long as the sampler runs, a cycle that outlives the runtime.
-    let session = Arc::downgrade(session);
-    // Ends when the sampler is aborted (its sender drops), the session is gone or the event
-    // channel closes; in the last two cases it stops the sampler itself.
+    spawn_forwarder(
+        statuses,
+        abort,
+        Arc::downgrade(session),
+        generation,
+        events,
+        repaint,
+        move |status| Event::Sampler {
+            session: id,
+            status,
+        },
+    );
+}
+
+/// Forwards what a background task (sampler, profile poller) reports as events, wrapped by `wrap`.
+/// Ends when the task is aborted (its sender drops), the session is gone or moved on, or the
+/// event channel closes; in the last case it stops the task itself.
+pub(super) fn spawn_forwarder<S: Send + 'static>(
+    mut statuses: UnboundedReceiver<S>,
+    abort: AbortHandle,
+    session: std::sync::Weak<Session>,
+    generation: u64,
+    events: UnboundedSender<Event>,
+    repaint: Repaint,
+    wrap: impl Fn(S) -> Event + Send + 'static,
+) {
     tokio::spawn(async move {
         loop {
             let status = tokio::select! {
@@ -202,7 +226,7 @@ pub(super) fn start_sampler(
                 abort.abort();
                 return;
             };
-            match forward(&session, generation, &events, id, status) {
+            match forward_event(&session, generation, &events, wrap(status)) {
                 Forwarded::Sent => repaint(),
                 Forwarded::Stale => return,
                 Forwarded::Closed => {
@@ -214,7 +238,7 @@ pub(super) fn start_sampler(
     });
 }
 
-enum Forwarded {
+pub(super) enum Forwarded {
     Sent,
     /// The session moved on (or is gone): the sampler is already aborted, the status is dropped.
     Stale,
@@ -222,17 +246,16 @@ enum Forwarded {
     Closed,
 }
 
-/// Sends one status unless the session left the epoch the sampler was started in. The currentness
-/// check and the send happen under the READ side of the session's `epoch_lock`, like
+/// Sends one event unless the session left the epoch the background task was started in. The
+/// currentness check and the send happen under the READ side of the session's `epoch_lock`, like
 /// `handlers::send_answer`, so `Session::begin` cannot slip in between: a status is never
 /// delivered after the `Disconnected` or the newer `Connected` of its session. Synchronous, so the
 /// std lock is never held across an `.await`.
-fn forward(
+pub(super) fn forward_event(
     session: &std::sync::Weak<Session>,
     generation: u64,
     events: &UnboundedSender<Event>,
-    id: SessionId,
-    status: sampler::SamplerStatus,
+    event: Event,
 ) -> Forwarded {
     let Some(session) = session.upgrade() else {
         return Forwarded::Stale;
@@ -241,11 +264,23 @@ fn forward(
     if !session.is_current(generation) {
         return Forwarded::Stale;
     }
-    match events.send(Event::Sampler {
-        session: id,
-        status,
-    }) {
+    match events.send(event) {
         Ok(()) => Forwarded::Sent,
         Err(_) => Forwarded::Closed,
     }
+}
+
+/// [`forward_event`] for a sampler status.
+fn forward(
+    session: &std::sync::Weak<Session>,
+    generation: u64,
+    events: &UnboundedSender<Event>,
+    id: SessionId,
+    status: sampler::SamplerStatus,
+) -> Forwarded {
+    let event = Event::Sampler {
+        session: id,
+        status,
+    };
+    forward_event(session, generation, events, event)
 }

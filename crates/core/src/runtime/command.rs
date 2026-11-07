@@ -131,6 +131,7 @@ impl Event {
             | Self::QueryShapes { session, .. }
             | Self::IndexChanged { session, .. }
             | Self::Sampler { session, .. }
+            | Self::Profiler { session, .. }
             | Self::Failed { session, .. }
             | Self::RequestFailed { session, .. } => Some(*session),
             Self::Compare(_) | Self::Copy(_) | Self::TestConnection { .. } => None,

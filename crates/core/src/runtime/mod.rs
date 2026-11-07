@@ -49,7 +49,13 @@ mod indexes;
 mod job_flag;
 #[cfg(test)]
 mod lost_server_tests;
+mod profiler;
+mod profiler_fold;
 mod profiler_handlers;
+#[cfg(test)]
+mod profiler_poll_tests;
+mod profiler_start;
+mod profiler_status;
 #[cfg(test)]
 mod profiler_tests;
 #[cfg(test)]
@@ -70,6 +76,9 @@ mod tests;
 #[cfg(test)]
 mod tunnel_tests;
 mod tunneling;
+mod typed_record;
+#[cfg(test)]
+mod typed_record_tests;
 
 use std::collections::{BTreeSet, HashMap};
 use std::net::SocketAddr;
@@ -96,6 +105,7 @@ pub use config::{
     RuntimeConfig, default_history_path,
 };
 pub use indexes::IndexSeries;
+pub use profiler_status::ProfilerStatus;
 pub use sampler::{MIN_INTERVAL, SamplerConfig, SamplerPause, SamplerStatus};
 pub use session::{EMBEDDED_SESSION, SessionId};
 /// What `RuntimeHandle::rx.try_recv()` reports, so callers can tell "no event yet" from "the
@@ -437,6 +447,11 @@ pub enum Event {
         session: SessionId,
         status: SamplerStatus,
     },
+    /// SPONTANEOUS, like `Sampler`: the profile poller started, resumed, paused or lost entries.
+    Profiler {
+        session: SessionId,
+        status: ProfilerStatus,
+    },
 }
 
 /// A config whose session is [`EMBEDDED_SESSION`], so a test that connects and then sends data
@@ -708,7 +723,15 @@ fn dispatch(
         }
         // After `Connected` is queued, so the sampler's first status can never overtake it.
         if connected {
-            indexes::start_sampler(&shared, &session, id, generation, events, repaint);
+            indexes::start_sampler(
+                &shared,
+                &session,
+                id,
+                generation,
+                events.clone(),
+                repaint.clone(),
+            );
+            profiler_start::start_profiler(&shared, &session, id, generation, events, repaint);
         }
     });
 }

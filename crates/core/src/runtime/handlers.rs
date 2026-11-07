@@ -313,6 +313,10 @@ async fn data_command(
                 Ok(explain) => classify(&explain.document, &query),
                 Err(error) => Err(error),
             };
+            // Only a verdict is recorded; a failed explain says nothing about the query.
+            if let (Ok(verdict), Some(history)) = (&outcome, history.as_ref()) {
+                super::typed_record::record_typed(history, session, &ns, &query, verdict.kind);
+            }
             Event::Explain {
                 session,
                 ns,

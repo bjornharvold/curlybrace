@@ -39,7 +39,7 @@ mod usage;
 
 pub use db::{HistoryDb, Recovery, SeriesFacts, SeriesKey, SeriesView, is_history_busy};
 pub use retention::{ChartRange, MAX_DB_BYTES};
-pub use shape_schema::TYPED_HOST;
+pub use shape_schema::{RAW_BUCKET_SECS, TYPED_HOST};
 pub use shapes::{ShapeBucket, ShapeKey, ShapeObservation, ShapeSource, ShapeSummary, is_miss};
 
 pub use series::{
