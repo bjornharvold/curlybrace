@@ -156,9 +156,9 @@ pub struct Pending {
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
-/// `loading_page`, `page`, `page_key`, `verdict`, `tree`, `view_mode`, `tab`, `indexes`, `editor`, `pending`,
-/// `ssh_endpoint`, `production` and `read_only`. They are parked per session and must be added to `SessionView` (and to
-/// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
+/// `loading_page`, `page`, `page_key`, `verdict`, `tree`, `view_mode`, `tab`, `indexes`, `editor`,
+/// `pending`, `ssh_endpoint`, `production` and `read_only`. They are parked per session and must
+/// be added to `SessionView` (and to `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
 #[derive(Debug, Default)]
 pub struct AppState {

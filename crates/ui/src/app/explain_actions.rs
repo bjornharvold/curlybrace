@@ -69,16 +69,27 @@ pub(super) fn arrived(
     AppState { verdict, ..state }
 }
 
-/// `FindAction::Run`: fetches the page and, when enabled, asks for the run's verdict too.
-pub(super) fn run(state: AppState, query: Query) -> super::reducer::Out {
+/// `FindAction::Run`: fetches the page and, when `explain_enabled`, asks for the run's verdict
+/// too. A run that issues the find without an explain drops the previous run's verdict: it no
+/// longer describes what is shown.
+pub(super) fn run(state: AppState, query: Query, explain_enabled: bool) -> super::reducer::Out {
     let (state, mut commands) = super::actions::issue_find(state, query.clone());
     let Some(ns) = state
         .selected_ns()
         .cloned()
-        .filter(|_| state.explain_enabled())
+        .filter(|_| !commands.is_empty())
     else {
         return (state, commands);
     };
+    if !explain_enabled {
+        return (
+            AppState {
+                verdict: VerdictState::None,
+                ..state
+            },
+            commands,
+        );
+    }
     commands.push(Command::ExplainFind {
         session: state.session_id(),
         ns,

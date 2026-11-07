@@ -1,9 +1,9 @@
 //! The verdict of the current run: issued with `Run`, kept across paging, dropped when stale.
 
-use super::explain_actions::VerdictState;
+use super::explain_actions::{VerdictState, run, same_run};
 use super::reducer::{Input, update};
 use super::state::{AppState, ConnStatus};
-use crate::viewmodel::FindAction;
+use crate::viewmodel::{FindAction, SidebarAction};
 use bson::doc;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{Verdict, VerdictKind};
@@ -144,7 +144,7 @@ fn clear_and_open_reset_the_verdict_without_explaining() {
     );
 
     let (s, _) = act(browsing(), FindAction::Run(query_a()));
-    let sidebar = crate::viewmodel::SidebarAction::Open(other_ns());
+    let sidebar = SidebarAction::Open(other_ns());
     let (opened, cmds) = update(s, Input::Sidebar(sidebar));
     assert_eq!(opened.verdict, VerdictState::None);
     assert!(
@@ -225,5 +225,79 @@ fn mutation_refresh_keeps_the_verdict() {
         matches!(cmds.as_slice(), [Command::Find { .. }]),
         "{cmds:?}"
     );
+    assert!(matches!(s.verdict, VerdictState::Ready { .. }));
+}
+
+fn ready_for(query: Query) -> VerdictState {
+    VerdictState::Ready {
+        query,
+        verdict: verdict(),
+    }
+}
+
+#[test]
+fn run_with_explain_disabled_clears_the_previous_verdict_and_issues_only_find() {
+    let s = AppState {
+        verdict: ready_for(query_a()),
+        ..browsing()
+    };
+    let (s, cmds) = run(s, query_b(), false);
+    assert_eq!(s.verdict, VerdictState::None);
+    assert!(
+        matches!(cmds.as_slice(), [Command::Find { .. }]),
+        "{cmds:?}"
+    );
+}
+
+#[test]
+fn run_without_a_selected_collection_is_a_no_op_that_keeps_the_verdict() {
+    let s = AppState {
+        verdict: ready_for(query_a()),
+        ..AppState::new(vec![])
+    };
+    let (s, cmds) = run(s, query_b(), false);
+    assert_eq!(s.verdict, ready_for(query_a()));
+    assert!(cmds.is_empty());
+}
+
+#[test]
+fn explain_arriving_after_clear_is_dropped() {
+    let (s, _) = act(browsing(), FindAction::Run(query_a()));
+    let (s, _) = act(s, FindAction::Clear);
+    let s = explained(s, ns(), query_a(), Ok(verdict()));
+    assert_eq!(s.verdict, VerdictState::None);
+}
+
+#[test]
+fn explain_arriving_after_open_is_dropped() {
+    let (s, _) = act(browsing(), FindAction::Run(query_a()));
+    let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(other_ns())));
+    let s = explained(s, ns(), query_a(), Ok(verdict()));
+    assert_eq!(s.verdict, VerdictState::None);
+}
+
+#[test]
+fn same_run_ignores_skip() {
+    let paged = Query {
+        skip: 50,
+        ..query_a()
+    };
+    assert!(same_run(&query_a(), &paged));
+    assert!(!same_run(&query_a(), &query_b()));
+    let limited = Query {
+        limit: 7,
+        ..query_a()
+    };
+    assert!(!same_run(&query_a(), &limited));
+}
+
+#[test]
+fn explain_with_a_different_skip_is_still_accepted() {
+    let (s, _) = act(browsing(), FindAction::Run(query_a()));
+    let paged = Query {
+        skip: 50,
+        ..query_a()
+    };
+    let s = explained(s, ns(), paged, Ok(verdict()));
     assert!(matches!(s.verdict, VerdictState::Ready { .. }));
 }

@@ -151,7 +151,10 @@ fn refresh(state: AppState) -> Out {
 
 pub(super) fn find(state: AppState, action: FindAction) -> Out {
     gated(state, |s| match action {
-        FindAction::Run(query) => super::explain_actions::run(s, query),
+        FindAction::Run(query) => {
+            let enabled = s.explain_enabled();
+            super::explain_actions::run(s, query, enabled)
+        }
         FindAction::Clear => {
             let s = AppState {
                 find: FindBarState::default(),
