@@ -40,7 +40,7 @@ use super::series::{MAX_FUTURE_SKEW_SECS, bucketize_within, derive};
 use super::shape_thin::{self, CapStep};
 use super::usage::{clip_gap, trusted_seam};
 use crate::error::Result;
-use rusqlite::{Connection, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 /// Rows deleted per step while enforcing the size cap.
 const CAP_BATCH_ROWS: i64 = 500;
@@ -348,16 +348,20 @@ fn shape_batch(conn: &Connection, step: CapStep, until: i64) -> Result<usize> {
 }
 
 /// Whether the shape history holds an older row than the usage history for this step.
-fn shape_goes_first(conn: &Connection, step: CapStep) -> Result<bool> {
+pub(super) fn shape_goes_first(conn: &Connection, step: CapStep) -> Result<bool> {
     let usage_oldest_sql = match step {
         CapStep::FutureOnlyRaw => return Ok(false),
         CapStep::OldestDaily => "SELECT MIN(start_secs) FROM rolled WHERE tier = 2",
         CapStep::OldestHourly => "SELECT MIN(start_secs) FROM rolled WHERE tier = 1",
-        CapStep::OldestRaw => "SELECT MIN(at_secs) FROM samples",
+        // The row the usage delete takes next (`ORDER BY id`), by the primary key: a `MIN` over
+        // the unindexed timestamp would scan every sample at each iteration under the lock.
+        CapStep::OldestRaw => "SELECT at_secs FROM samples ORDER BY id LIMIT 1",
     };
     let usage: Option<i64> = conn
-        .query_row(usage_oldest_sql, [], |r| r.get(0))
-        .map_err(sql_err)?;
+        .query_row(usage_oldest_sql, [], |r| r.get::<_, Option<i64>>(0))
+        .optional()
+        .map_err(sql_err)?
+        .flatten();
     let shapes = shape_thin::oldest(conn, step)?;
     Ok(matches!((shapes, usage), (Some(s), Some(u)) if s < u))
 }

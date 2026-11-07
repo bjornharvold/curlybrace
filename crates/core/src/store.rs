@@ -166,8 +166,8 @@ pub struct ProfileRead {
     /// How many documents of the page could not be parsed. `entries.len() + skipped` equal to
     /// [`PROFILE_READ_LIMIT`] means a full page: more may be waiting.
     pub skipped: u64,
-    /// The server node the profile was read from (`hello`'s `me`). A secondary's profiler holds
-    /// only that node's own operations. Empty when the server does not name itself (a standalone
+    /// The server node the profile was read from (`hello`'s `me`): the primary, where the
+    /// profiling level is set (a secondary's profile is not read). Empty when the server does not name itself (a standalone
     /// mongod or a mongos): an unknown node, which callers key as host `""`.
     pub host: String,
 }
