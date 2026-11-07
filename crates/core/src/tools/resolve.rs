@@ -52,7 +52,7 @@ pub fn resolve(
 ) -> Result<PathBuf, ToolError> {
     match choice {
         ToolChoice::Executable(path) => check(path),
-        ToolChoice::Path => search(kind.binary_name(), path_var),
+        ToolChoice::Path => search(&kind.file_name(), path_var),
     }
 }
 

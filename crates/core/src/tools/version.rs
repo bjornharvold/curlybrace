@@ -13,7 +13,12 @@ pub enum ToolKind {
 impl ToolKind {
     pub const ALL: [Self; 3] = [Self::Mongosh, Self::Mongodump, Self::Mongorestore];
 
-    /// The executable name looked up on `PATH`. Not translated: it is a file name.
+    /// The name of the file on this platform (`mongosh`, or `mongosh.exe` on Windows).
+    pub fn file_name(self) -> String {
+        format!("{}{}", self.binary_name(), std::env::consts::EXE_SUFFIX)
+    }
+
+    /// The command's name. Not translated: it is what the program calls itself.
     pub const fn binary_name(self) -> &'static str {
         match self {
             Self::Mongosh => "mongosh",
@@ -47,6 +52,26 @@ impl ToolVersion {
             .lines()
             .flat_map(str::split_whitespace)
             .find_map(Self::parse_token)
+    }
+
+    /// The version `kind` prints, and only that: a program that is not the tool but prints
+    /// something shaped like a version (`Python 3.12.1`) is not accepted. `mongosh` prints the
+    /// number alone on a line (warnings may come first); the database tools print
+    /// `<name> version: x.y.z`.
+    pub fn parse_for(kind: ToolKind, output: &str) -> Option<Self> {
+        match kind {
+            ToolKind::Mongosh => output.lines().map(str::trim).find_map(|line| {
+                let bare = !line.is_empty() && !line.contains(char::is_whitespace);
+                bare.then(|| Self::parse_token(line)).flatten()
+            }),
+            ToolKind::Mongodump | ToolKind::Mongorestore => {
+                let marker = format!("{} version:", kind.binary_name());
+                output
+                    .lines()
+                    .find_map(|line| line.trim().strip_prefix(marker.as_str()))
+                    .and_then(|rest| Self::parse_token(rest.trim()))
+            }
+        }
     }
 
     fn parse_token(token: &str) -> Option<Self> {

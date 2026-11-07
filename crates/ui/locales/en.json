@@ -965,6 +965,8 @@
     "skipped_repaired_backup_failed": "{skipped} saved connection(s) were invalid or from a newer version and were not loaded, and {repaired} were adjusted to the current rules (a name or folder fixed, or a damaged production or read-only flag read as production or read-only). No backup copy could be made. Saving is turned off so the original file is not overwritten.",
     "tools_backed_up": "The tool paths file was not readable, so the tools are looked up on your PATH for now. A backup copy was kept next to it; changing a tool path will replace the original file.",
     "tools_backup_failed": "The tool paths file was not readable and a backup copy could not be made. The tools are looked up on your PATH for now, and changes to tool paths are not saved so nothing is overwritten.",
+    "tools_config_dir_unknown": "The tool paths cannot be saved because there is no settings folder for this account. The change applies until you close the app.",
+    "tools_write_failed": "Could not save the tool paths. The change applies until you close the app.",
     "unreadable_backed_up": "The saved connections file could not be read. A backup copy was kept next to it.",
     "unreadable_backup_failed": "The saved connections file could not be read or backed up. Saving is turned off so nothing is overwritten.",
     "write_failed": "Could not write the saved connections file."

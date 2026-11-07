@@ -128,10 +128,14 @@ pub struct CurlybraceApp {
     tools_path: ConfigPath,
     /// Whether `tools.json` may be replaced (not when a bad one could not be backed up).
     tools_guard: persistence::PersistGuard,
+    /// A tool-paths save failure that could not be shown because another banner was up; raised
+    /// when the banner slot is free.
+    tools_notice: Option<Banner>,
     /// Where the version-check threads put their answers, drained once per frame.
     probe_answers: Receiver<ProbeAnswer>,
     probe_sender: std::sync::mpsc::Sender<ProbeAnswer>,
-    /// The `PATH` the tool checks search and pass on; the process's own unless replaced.
+    /// The `PATH` the tool checks search and pass on: the process's own plus the usual install
+    /// folders (an app started from the Finder lacks Homebrew's), unless replaced.
     tool_path_var: Option<std::ffi::OsString>,
     /// The executable dialog being shown, if any: at most one at a time.
     tool_pick: Option<tool_picker::ToolPick>,
@@ -169,9 +173,12 @@ impl CurlybraceApp {
             sampling_guard: persistence::PersistGuard::default(),
             tools_path: Err(persistence::PersistError::ConfigDirUnknown),
             tools_guard: persistence::PersistGuard::default(),
+            tools_notice: None,
             probe_answers,
             probe_sender,
-            tool_path_var: std::env::var_os("PATH"),
+            tool_path_var: Some(curlybrace_core::tools::default_search_path(
+                std::env::var_os("PATH").as_deref(),
+            )),
             tool_pick: None,
             known_hosts: default_known_hosts_path(),
             prompt: PromptState::default(),

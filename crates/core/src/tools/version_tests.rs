@@ -108,3 +108,52 @@ fn a_server_version_that_is_not_a_number_is_none() {
     assert_eq!(ServerVersion::parse("x.y.z"), None);
     assert_eq!(ServerVersion::parse("8"), None);
 }
+
+#[test]
+fn mongosh_must_print_a_bare_version_line() {
+    assert_eq!(
+        ToolVersion::parse_for(ToolKind::Mongosh, "2.3.1\n"),
+        Some(ToolVersion::new(2, 3, 1))
+    );
+    // A warning before the version is fine; a program that is not mongosh is not.
+    assert_eq!(
+        ToolVersion::parse_for(ToolKind::Mongosh, "(node:1) Warning: x\n2.1.5\n"),
+        Some(ToolVersion::new(2, 1, 5))
+    );
+    assert_eq!(
+        ToolVersion::parse_for(ToolKind::Mongosh, "Python 3.12.1\n"),
+        None
+    );
+    assert_eq!(
+        ToolVersion::parse_for(ToolKind::Mongosh, "node v22.1.0\n"),
+        None
+    );
+}
+
+#[test]
+fn the_database_tools_must_name_themselves() {
+    let dump = "mongodump version: 100.10.0\ngit version: abc\n";
+    assert_eq!(
+        ToolVersion::parse_for(ToolKind::Mongodump, dump),
+        Some(ToolVersion::new(100, 10, 0))
+    );
+    assert_eq!(ToolVersion::parse_for(ToolKind::Mongorestore, dump), None);
+    assert_eq!(
+        ToolVersion::parse_for(ToolKind::Mongodump, "Python 3.12.1\n"),
+        None
+    );
+    assert_eq!(
+        ToolVersion::parse_for(ToolKind::Mongodump, "100.10.0\n"),
+        None
+    );
+}
+
+#[test]
+fn the_file_name_carries_the_platform_suffix() {
+    for kind in ToolKind::ALL {
+        assert_eq!(
+            kind.file_name(),
+            format!("{}{}", kind.binary_name(), std::env::consts::EXE_SUFFIX)
+        );
+    }
+}

@@ -5,7 +5,7 @@
 use super::connections::{ConnectionAction, ConnectionsState, TestState};
 use super::tool_row::{RowContext, show_tool_row};
 use crate::I18n;
-use crate::app::tools_state::{ProbeScope, ToolsState};
+use crate::app::tools_state::{ProbeScope, ToolsAction, ToolsState};
 use crate::viewmodel::tool_rows::tool_row;
 use curlybrace_core::tools::{ServerVersion, ToolKind};
 use eframe::egui;
@@ -53,6 +53,15 @@ pub(super) fn show_tools_section(
                 action = show_tool_row(ui, &row, &context, i18n)
                     .map(ConnectionAction::Tools)
                     .or(action.take());
+                // A row with no check yet asks for one, so the version and the "older than the
+                // server" warning are there without a click. The request gives the row a status,
+                // so it is made once; the others follow in the next frames.
+                if action.is_none() && tools.shown_status(scope, kind).is_none() {
+                    action = Some(ConnectionAction::Tools(ToolsAction::Recheck {
+                        scope,
+                        kind,
+                    }));
+                }
                 ui.separator();
             }
         });

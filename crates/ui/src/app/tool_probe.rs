@@ -39,8 +39,9 @@ pub(super) fn spawn(
                 request,
                 choice,
             } = request;
-            let result = resolve(kind, &choice, path.as_deref())
-                .and_then(|exe| probe_version_with_path(&exe, PROBE_TIMEOUT, path.as_deref()));
+            let result = resolve(kind, &choice, path.as_deref()).and_then(|exe| {
+                probe_version_with_path(kind, &exe, PROBE_TIMEOUT, path.as_deref())
+            });
             let _ = answers.send(ProbeAnswer {
                 scope,
                 kind,

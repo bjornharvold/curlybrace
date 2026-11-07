@@ -49,8 +49,40 @@ fn suggesting_never_runs_the_file() {
     assert!(!marker.exists());
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn the_common_folders_are_the_homebrew_and_usr_local_ones() {
     assert!(COMMON_DIRS.contains(&"/opt/homebrew/bin"));
     assert!(COMMON_DIRS.contains(&"/usr/local/bin"));
+}
+
+#[test]
+fn the_search_path_gains_the_common_folders_it_lacks() {
+    let base = std::ffi::OsString::from("/usr/bin:/opt/homebrew/bin");
+    let joined = search_path(Some(&base), &["/opt/homebrew/bin", "/usr/local/bin"]);
+    let parts: Vec<_> = std::env::split_paths(&joined).collect();
+    assert_eq!(
+        parts,
+        vec![
+            PathBuf::from("/usr/bin"),
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+        ],
+        "the existing order is kept and nothing is repeated"
+    );
+}
+
+#[test]
+fn without_a_path_the_common_folders_are_the_search_path() {
+    let joined = search_path(None, &["/a", "/b"]);
+    let parts: Vec<_> = std::env::split_paths(&joined).collect();
+    assert_eq!(parts, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
+}
+
+#[test]
+fn the_default_search_path_includes_the_common_folders() {
+    let joined = default_search_path(None);
+    for dir in COMMON_DIRS {
+        assert!(std::env::split_paths(&joined).any(|p| p == Path::new(dir)));
+    }
 }

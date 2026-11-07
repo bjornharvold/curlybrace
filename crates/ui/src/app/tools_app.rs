@@ -33,8 +33,6 @@ impl CurlybraceApp {
         self
     }
 
-    /// After any step: writes the tool paths if they changed and starts the version checks the
-    /// step asked for.
     /// The `PATH` that `PATH` choices are searched in. Tests pass `None` or a temp folder so
     /// that no program of the developer's machine is ever run.
     pub fn with_tool_path_var(self, path: Option<std::ffi::OsString>) -> Self {
@@ -44,10 +42,13 @@ impl CurlybraceApp {
         }
     }
 
+    /// After any step: writes the tool paths if they changed, starts the version checks the
+    /// step asked for and opens the file dialog the state is waiting for.
     pub(super) fn tools_changed(&mut self, before: &curlybrace_core::tools::ToolSettings) {
         if self.state.tools.settings != *before {
             self.save_tools();
         }
+        self.raise_tools_notice();
         let (tools, requests) = std::mem::take(&mut self.state.tools).take_queue();
         self.state.tools = tools;
         for request in requests {
@@ -58,10 +59,25 @@ impl CurlybraceApp {
                 self.tool_path_var.clone(),
             );
         }
-        // A dialog belongs to a request in the state; the state keeps asking until it is answered.
-        if self.state.tools.browsing().is_some() && self.tool_pick.is_none() {
+        self.open_tool_dialog_if_wanted();
+    }
+
+    /// Shows the waiting save-failure notice once no other banner is showing.
+    fn raise_tools_notice(&mut self) {
+        if self.state.banner.is_none() {
+            self.state.banner = self.tools_notice.take();
+        }
+    }
+
+    /// A dialog belongs to a request in the state, which keeps asking until it is answered.
+    fn open_tool_dialog_if_wanted(&mut self) {
+        if self.tool_pick.is_some() {
+            return;
+        }
+        if let Some(target) = self.state.tools.browsing() {
             self.tool_pick = Some(tool_picker::start(
                 self.picker.clone(),
+                target,
                 self.repaint.clone(),
             ));
         }
@@ -76,7 +92,10 @@ impl CurlybraceApp {
         };
         if let Err(e) = result {
             log::warn!("could not save the tool paths: {e:?}");
-            self.state.banner = Some(e.banner());
+            // A banner that is already showing keeps its place; the notice waits for the slot
+            // (`raise_tools_notice`) so the failure is never silent.
+            self.tools_notice = Some(e.banner());
+            self.raise_tools_notice();
         }
     }
 
@@ -137,7 +156,13 @@ impl CurlybraceApp {
         let Some(PickPoll::Done(path)) = self.tool_pick.as_ref().map(|p| p.poll()) else {
             return;
         };
-        self.tool_pick = None;
-        self.dispatch(Input::Tools(ToolsAction::Browsed { path }));
+        let opened_for = self.tool_pick.take().map(|pick| pick.target());
+        if opened_for == self.state.tools.browsing() {
+            self.dispatch(Input::Tools(ToolsAction::Browsed { path }));
+        } else {
+            // The file was chosen for something that is no longer asked about (its connection
+            // was deleted, say). Dropping it, and opening the dialog the state now wants.
+            self.open_tool_dialog_if_wanted();
+        }
     }
 }

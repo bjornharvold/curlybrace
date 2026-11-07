@@ -1,6 +1,6 @@
 //! The tool paths inside the running app: they are saved when they change, checked on a worker
 //! thread, and follow a connection that is deleted or duplicated. Every file lives in a tempdir.
-use super::persistence::Recovery;
+use super::persistence::{PersistError, Recovery};
 use super::tool_settings::{load, save};
 use super::tools_state::{ProbeScope, ProbeStatus, ToolsAction};
 use super::*;
@@ -394,7 +394,7 @@ fn a_choice_made_in_the_connection_dialog_is_saved_for_that_connection() {
 #[test]
 fn a_path_choice_searches_only_the_path_the_app_was_given() {
     let dir = tempfile::tempdir().unwrap();
-    let tool = fake_tool(&dir, "mongodump", "echo 100.10.0");
+    let tool = fake_tool(&dir, "mongodump", "echo 'mongodump version: 100.10.0'");
     let (app, _events, _commands) = app_in(&dir, Vec::new());
     let mut app = app.with_tool_path_var(Some(dir.path().as_os_str().to_owned()));
     choose_global(&mut app, ToolKind::Mongodump, ToolChoice::Path);
@@ -414,4 +414,160 @@ fn without_a_path_nothing_is_found_and_nothing_runs() {
         finished(&mut app, ProbeScope::Global, ToolKind::Mongosh),
         ProbeStatus::Done(Err(ToolError::NotOnPath))
     );
+}
+
+#[test]
+fn by_default_the_app_also_searches_the_usual_install_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let (tx, _commands) = tokio::sync::mpsc::unbounded_channel();
+    let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = CurlybraceApp::new(
+        RuntimeHandle { tx, rx },
+        I18n::english(),
+        Vec::new(),
+        Arc::new(MemorySecretStore::default()),
+    )
+    .with_config_path(Ok(dir.path().join("connections.json")));
+    let path = app.tool_path_var.clone().expect("a search path");
+    for folder in curlybrace_core::tools::COMMON_DIRS {
+        assert!(
+            std::env::split_paths(&path).any(|p| p == std::path::Path::new(folder)),
+            "{folder} is missing"
+        );
+    }
+}
+
+/// An app whose tool paths load fine (no file yet) but cannot be written: the folder is
+/// read-only. `None` when the permission is not enforced (running as root), where the failure
+/// cannot be produced this way and the test has nothing to check.
+fn app_with_unwritable_tools_file(dir: &tempfile::TempDir) -> Option<CurlybraceApp> {
+    let folder = dir.path().join("readonly");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::write(folder.join("probe"), "x").is_ok() {
+        return None;
+    }
+    let (app, _events, _commands) = app_in(dir, Vec::new());
+    Some(app.with_tools_path(Ok(folder.join("tools.json"))))
+}
+
+#[test]
+fn a_failed_save_says_the_tool_paths_could_not_be_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(mut app) = app_with_unwritable_tools_file(&dir) else {
+        return;
+    };
+    choose_global(&mut app, ToolKind::Mongosh, ToolChoice::Path);
+    assert!(matches!(
+        app.state().banner,
+        Some(Banner::ToolsPersist(PersistError::Write(_)))
+    ));
+    let text = banner::banner_text(&app.state().banner.clone().unwrap(), &I18n::english()).0;
+    assert!(text.contains("tool paths"), "{text}");
+    assert!(!text.contains("connections"), "{text}");
+    assert_eq!(
+        app.state().tools.settings.global(ToolKind::Mongosh),
+        ToolChoice::Path,
+        "the change still applies for this run"
+    );
+}
+
+#[test]
+fn a_failed_save_does_not_replace_a_banner_already_showing() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(mut app) = app_with_unwritable_tools_file(&dir) else {
+        return;
+    };
+    app.state_mut().banner = Some(Banner::NotConnected);
+    choose_global(&mut app, ToolKind::Mongosh, ToolChoice::Path);
+    assert_eq!(app.state().banner, Some(Banner::NotConnected));
+}
+
+/// A picker that answers only when the test says so, one answer per dialog opened.
+struct GatedPicker {
+    answers: std::sync::Mutex<std::sync::mpsc::Receiver<Option<PathBuf>>>,
+    opened: std::sync::atomic::AtomicUsize,
+}
+
+impl file_picker::FilePicker for GatedPicker {
+    fn save_file(&self, _suggested_name: &str, _extension: &str) -> Option<PathBuf> {
+        None
+    }
+
+    fn pick_executable(&self) -> Option<PathBuf> {
+        self.opened
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.answers.lock().unwrap().recv().ok().flatten()
+    }
+}
+
+#[test]
+fn a_late_dialog_answer_is_not_given_to_a_different_tool() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let id = cfg.id;
+    let (app, _events, _commands) = app_in(&dir, vec![cfg]);
+    let (send, answers) = std::sync::mpsc::channel();
+    let picker = Arc::new(GatedPicker {
+        answers: std::sync::Mutex::new(answers),
+        opened: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let mut app = app.with_file_picker(picker.clone(), Arc::new(|| {}));
+    // A dialog for the connection's mongosh opens, then the connection is deleted.
+    app.dispatch(Input::Tools(ToolsAction::Browse {
+        scope: ProbeScope::Connection(id),
+        kind: ToolKind::Mongosh,
+    }));
+    app.dispatch_connection(ConnectionAction::Delete(id));
+    assert_eq!(app.state().tools.browsing(), None);
+    // The person asks for a file for the global mongodump while the old dialog is still open.
+    app.dispatch(Input::Tools(ToolsAction::Browse {
+        scope: ProbeScope::Global,
+        kind: ToolKind::Mongodump,
+    }));
+    // The old dialog answers: that file was chosen for something else.
+    send.send(Some(PathBuf::from("/chosen/for/the/old/dialog")))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while picker.opened.load(std::sync::atomic::Ordering::SeqCst) < 2 {
+        assert!(Instant::now() < deadline, "no second dialog was opened");
+        app.pump();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        app.state().tools.settings.global(ToolKind::Mongodump),
+        ToolChoice::Path,
+        "the old answer was not applied"
+    );
+    assert!(
+        app.state().tools.browsing().is_some(),
+        "still waiting for its own dialog"
+    );
+    // Its own dialog answers.
+    send.send(Some(PathBuf::from("/chosen/for/mongodump")))
+        .unwrap();
+    pumped_until(&mut app, |s| s.tools.browsing().is_none());
+    assert_eq!(
+        app.state().tools.settings.global(ToolKind::Mongodump),
+        ToolChoice::Executable("/chosen/for/mongodump".into())
+    );
+}
+
+#[test]
+fn a_save_failure_hidden_behind_another_banner_is_raised_when_it_goes() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(mut app) = app_with_unwritable_tools_file(&dir) else {
+        return;
+    };
+    app.state_mut().banner = Some(Banner::NotConnected);
+    choose_global(&mut app, ToolKind::Mongosh, ToolChoice::Path);
+    assert_eq!(app.state().banner, Some(Banner::NotConnected));
+    app.dispatch(Input::DismissBanner);
+    assert!(matches!(
+        app.state().banner,
+        Some(Banner::ToolsPersist(PersistError::Write(_)))
+    ));
+    // Said once: dismissing it again leaves nothing behind.
+    app.dispatch(Input::DismissBanner);
+    assert_eq!(app.state().banner, None);
 }

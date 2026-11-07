@@ -34,6 +34,16 @@ impl PersistError {
     }
 }
 
+impl PersistError {
+    /// The message for a failure to save the tool paths (not the connection list).
+    pub fn tools_i18n_key(&self) -> &'static str {
+        match self {
+            Self::ConfigDirUnknown => "persist.tools_config_dir_unknown",
+            _ => "persist.tools_write_failed",
+        }
+    }
+}
+
 /// What startup found wrong with the saved list and whether the original file was preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Recovery {

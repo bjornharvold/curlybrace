@@ -101,7 +101,7 @@ impl ToolsSaveError {
     pub fn banner(self) -> Banner {
         match self {
             Self::Blocked => Banner::Recovery(Recovery::Tools { backed_up: false }),
-            Self::Persist(e) => Banner::Persist(e),
+            Self::Persist(e) => Banner::ToolsPersist(e),
         }
     }
 }

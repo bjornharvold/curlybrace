@@ -48,6 +48,8 @@ pub enum Banner {
         error: CoreError,
     },
     Persist(PersistError),
+    /// The tool paths file could not be written; the change applies until the app closes.
+    ToolsPersist(PersistError),
     /// The file chosen for import was refused. Says nothing about the saved list.
     ImportFailed(ImportError),
     /// Writing the export file failed. Says nothing about the saved list.

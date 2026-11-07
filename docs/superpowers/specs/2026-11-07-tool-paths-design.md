@@ -33,7 +33,7 @@ the reason it cannot be used.
 - `curlybrace-core::tools` holds everything that is not UI: `ToolKind`, `ToolChoice`
   (`Path` | `Executable(path)`), `ToolSettings` (global map plus per-connection overrides, every
   change returns a new value), `resolve` (absolute, existing, regular, executable file, or a
-  `PATH` search that skips relative entries), `probe_version` and `compatibility`.
+  `PATH` search that skips relative entries and also looks in the usual install folders), `probe_version` and `compatibility`.
 - `tools.json`, beside `connections.json`, stores `ToolSettings`. It follows the `sampling.json`
   rules: atomic 0600 write, a file that cannot be used is backed up and the defaults apply, and
   saving is refused if the backup failed so the original is never overwritten.
@@ -50,10 +50,18 @@ wanted, so the answer to a replaced choice is dropped (the same idea as the runt
 It is not a runtime `Command`: the runtime promises one answer per command and a check never
 touches the server.
 
+`PATH` choices are searched in the process's `PATH` plus the usual install folders
+(`/opt/homebrew/bin`, `/usr/local/bin` on macOS), because an app started from the Finder has a
+`PATH` without Homebrew's folder. The same list is passed to the tool, so a wrapper script can find
+`node`.
+
 A check resolves the choice first (nothing runs for a missing, non-regular or non-executable
 file), then runs `<file> --version`: never through a shell, no stdin or stderr, an environment of
 only `PATH` (wrappers such as a `node` script need it), a 5 second timeout after which the
-process is killed, and at most 8 KiB of output read. Paths and output are never logged.
+process is killed, and at most 8 KiB of output read. The program must exit successfully and print what the tool
+prints (`mongosh`: the version alone on a line; `mongodump`/`mongorestore`: `<name> version:
+x.y.z`), so picking some other program that happens to print a number is refused. Anything the tool
+left running with its output open is killed once it has exited. Paths and output are never logged.
 
 ## "Too old for the server"
 
@@ -80,6 +88,6 @@ delete/duplicate; accessibility tests (accesskit tree) for both dialogs.
 - Show a "too old" warning in the global dialog and in the shell tab by storing the server version
   of a connected session (it needs a field on `Event::Connected`, which touches many tests).
 - Verify the compatibility table against the tools' release notes.
-- A macOS app started from the Finder has a minimal `PATH` without Homebrew, so "found on `PATH`"
-  often finds nothing there; the suggested folders are the answer. Reading the login shell's
-  `PATH` would be a separate decision.
+- The install folders and file names are macOS and Unix only (`ToolKind::file_name` adds the
+  platform suffix and the probe passes `SystemRoot` on Windows, but neither is tested there).
+  Reading the login shell's `PATH` would be a separate decision.

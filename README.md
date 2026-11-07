@@ -89,8 +89,8 @@ an account, a trial, or a license fee.
 - Set a global default and, per connection, either follow it or use a different tool (for example
   an older `mongodump` for an old server). A tool older than the server you tested the connection
   against is flagged.
-- The only programs run are the ones on your `PATH` (the default choice) or the files you pick, to
-  ask for their version; the suggested install folders are only looked at. The check has a timeout
+- The only programs run are the ones on your `PATH` and the usual install folders (the default
+  choice) or the files you pick, to ask for their version; the suggested install folders are only looked at. The check has a timeout
   and a minimal environment, and the paths are kept in their own file, never in exported
   connections. The design is in
   [docs/superpowers/specs](docs/superpowers/specs/2026-11-07-tool-paths-design.md).

@@ -45,6 +45,19 @@ fn harness(conn: ConnectionsState, tools: ToolsState) -> Harness<'static, Run> {
     harness
 }
 
+/// Every tool already checked in both scopes, so the section has nothing to ask for.
+fn settled(mut tools: ToolsState, connection: uuid::Uuid) -> ToolsState {
+    for kind in ToolKind::ALL {
+        for scope in [ProbeScope::Global, ProbeScope::Connection(connection)] {
+            let (next, queue) = tools.recheck(scope, kind).take_queue();
+            tools = queue.into_iter().fold(next, |t, r| {
+                t.probed(r.scope, r.kind, r.request, Ok(ToolVersion::new(2, 3, 1)))
+            });
+        }
+    }
+    tools
+}
+
 fn editing(cfg: &ConnectionConfig) -> ConnectionsState {
     let mut state = ConnectionsState::new(vec![cfg.clone()]);
     state.editing = true;
@@ -79,7 +92,7 @@ fn open_section(harness: &mut Harness<'static, Run>) {
 #[test]
 fn a_saved_connection_follows_the_global_settings_by_default() {
     let cfg = ConnectionConfig::new("Alpha", "mongodb://alpha.example.com");
-    let mut harness = harness(editing(&cfg), ToolsState::default());
+    let mut harness = harness(editing(&cfg), settled(ToolsState::default(), cfg.id));
     open_section(&mut harness);
     for kind in ToolKind::ALL {
         harness.get_by_role_and_label(Role::CheckBox, &use_global_label(kind));
@@ -89,7 +102,7 @@ fn a_saved_connection_follows_the_global_settings_by_default() {
 #[test]
 fn unticking_use_global_gives_the_connection_its_own_choice() {
     let cfg = ConnectionConfig::new("Alpha", "mongodb://alpha.example.com");
-    let mut harness = harness(editing(&cfg), ToolsState::default());
+    let mut harness = harness(editing(&cfg), settled(ToolsState::default(), cfg.id));
     open_section(&mut harness);
     click_first_use_global(&mut harness);
     assert_eq!(
@@ -111,7 +124,7 @@ fn ticking_use_global_again_drops_the_override() {
         ToolChoice::Executable("/mine".into()),
     );
     let (tools, _) = tools.take_queue();
-    let mut harness = harness(editing(&cfg), tools);
+    let mut harness = harness(editing(&cfg), settled(tools, cfg.id));
     open_section(&mut harness);
     click_first_use_global(&mut harness);
     assert_eq!(
@@ -169,4 +182,41 @@ fn a_tool_older_than_the_tested_server_is_called_out() {
     harness.get_by_label(
         &I18n::english().t_with("tools.too_old", &[("version", "1.10.0"), ("server", "8.0")]),
     );
+}
+
+#[test]
+fn opening_the_section_asks_for_the_checks_it_has_not_got() {
+    let cfg = ConnectionConfig::new("Alpha", "mongodb://alpha.example.com");
+    let mut harness = harness(editing(&cfg), ToolsState::default());
+    open_section(&mut harness);
+    let asked: Vec<_> = harness
+        .state()
+        .actions
+        .iter()
+        .filter_map(|a| match a {
+            ConnectionAction::Tools(ToolsAction::Recheck { scope, kind }) => Some((*scope, *kind)),
+            _ => None,
+        })
+        .collect();
+    assert!(!asked.is_empty(), "a check was asked for");
+    assert!(
+        asked
+            .iter()
+            .all(|(scope, _)| *scope == ProbeScope::Connection(cfg.id))
+    );
+}
+
+#[test]
+fn a_closed_section_asks_for_nothing() {
+    let cfg = ConnectionConfig::new("Alpha", "mongodb://alpha.example.com");
+    let harness = harness(editing(&cfg), ToolsState::default());
+    assert!(harness.state().actions.is_empty());
+}
+
+#[test]
+fn nothing_is_asked_for_when_every_tool_is_checked() {
+    let cfg = ConnectionConfig::new("Alpha", "mongodb://alpha.example.com");
+    let mut harness = harness(editing(&cfg), settled(ToolsState::default(), cfg.id));
+    open_section(&mut harness);
+    assert!(harness.state().actions.is_empty());
 }
