@@ -74,20 +74,36 @@ pub fn parse_entry(doc: &Document) -> Result<ProfileEntry> {
         .map_err(|_| CoreError::Database("profile entry has no ns".into()))?
         .to_owned();
     let text = |key: &str| doc.get_str(key).unwrap_or_default().to_owned();
+    let op = text("op");
     Ok(ProfileEntry {
         ts_millis,
         ts_secs: ts_millis.div_euclid(MILLIS_PER_SEC),
         ns,
-        op: text("op"),
+        op: op.clone(),
         millis: count(Some(doc), "millis"),
         plan_summary: text("planSummary"),
         keys_examined: count(Some(doc), "keysExamined"),
         docs_examined: count(Some(doc), "docsExamined"),
-        returned: count(Some(doc), "nreturned"),
+        returned: returned(doc, &op),
         has_sort_stage: doc.get_bool("hasSortStage").unwrap_or(false),
         app_name: doc.get_str("appName").ok().map(str::to_owned),
         command: doc.get_document("command").cloned().unwrap_or_default(),
     })
+}
+
+/// How many documents the operation produced: `nreturned` when the entry has it. Writes carry no
+/// `nreturned`: an update reports `nMatched` and a remove `ndeleted`, the documents it found
+/// through its plan, so those count as returned (otherwise a multi-document write through a
+/// perfect index would look like many keys examined for nothing). Inserts have no plan: 0.
+fn returned(doc: &Document, op: &str) -> u64 {
+    if doc.contains_key("nreturned") {
+        return count(Some(doc), "nreturned");
+    }
+    match op {
+        "update" => count(Some(doc), "nMatched"),
+        "remove" => count(Some(doc), "ndeleted"),
+        _ => 0,
+    }
 }
 
 /// True for traffic this application generated itself, which must not be recorded as a miss:
