@@ -6,8 +6,37 @@ use std::collections::BTreeSet;
 
 const BUDGET_BYTES: usize = 1_500_000;
 
-/// Glyphs drawn from code that the theme does not own (connection tag symbols).
-const TAG_GLYPHS: &str = "♥▶■♣★♦";
+/// Every non-ASCII char in the string and char literals of `crates/ui/src/**/*.rs`
+/// (comment-only lines skipped), as `(char, file)`. Test-only code (`*_tests.rs` files and
+/// everything from a file's first `#[cfg(test)]`) is skipped: it holds deliberately odd data.
+fn source_glyphs() -> Vec<(char, String)> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("readable source dir") {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && !path.to_string_lossy().ends_with("_tests.rs")
+            {
+                out.push(path);
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    walk(&root, &mut files);
+    let mut found = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(&file).expect("utf-8 source");
+        let production = text.lines().take_while(|l| l.trim() != "#[cfg(test)]");
+        for line in production.filter(|l| !l.trim_start().starts_with("//")) {
+            for c in non_ascii(line) {
+                found.push((c, file.strip_prefix(&root).unwrap().display().to_string()));
+            }
+        }
+    }
+    found
+}
 
 /// A context with the theme installed and one frame run, so fonts exist.
 fn ready_context() -> Context {
@@ -29,6 +58,8 @@ fn fonts_stay_within_the_size_budget() {
     assert!(total <= BUDGET_BYTES, "bundled fonts are {total} bytes");
 }
 
+/// Checks the whole stack, including egui's fallback fonts, not Roboto alone: every non-ASCII
+/// char in `en.json`, in the source literals and in the icon constants must have a glyph.
 #[test]
 fn every_glyph_the_ui_draws_resolves() {
     let ctx = ready_context();
@@ -38,10 +69,13 @@ fn every_glyph_the_ui_draws_resolves() {
         let body = FontId::new(14.0, FontFamily::Proportional);
         let medium = FontId::new(14.0, FontFamily::Name(MEDIUM_FAMILY.into()));
         let symbols = FontId::new(24.0, FontFamily::Name(SYMBOLS_FAMILY.into()));
-        for c in non_ascii(text).into_iter().chain(TAG_GLYPHS.chars()) {
+        let from_json = non_ascii(text)
+            .into_iter()
+            .map(|c| (c, "en.json".to_owned()));
+        for (c, origin) in from_json.chain(source_glyphs()) {
             for (what, id) in [("proportional", &body), ("medium", &medium)] {
                 if !f.has_glyph(id, c) {
-                    missing.push(format!("{c:?} ({what})"));
+                    missing.push(format!("{c:?} U+{:04X} in {origin} ({what})", c as u32));
                 }
             }
         }
@@ -82,7 +116,7 @@ fn icon_uses_the_symbols_family_at_the_given_size() {
             assert_eq!(font.size, 20.0);
         });
     });
-    drop(job);
+    let _ = job;
 }
 
 #[test]
@@ -108,7 +142,7 @@ fn roboto_text_style_uses_roboto() {
 
 #[test]
 fn roboto_is_wider_than_the_egui_default_for_the_same_text() {
-    // Roboto's "Connections" at 14pt must come from Roboto, not Ubuntu-Light: the widths differ.
+    // Roboto's 'm' at 14pt must come from Roboto, not Ubuntu-Light: the widths differ.
     let ctx = ready_context();
     let id = FontId::new(14.0, FontFamily::Proportional);
     let roboto = ctx.fonts(|f| f.glyph_width(&id, 'm'));

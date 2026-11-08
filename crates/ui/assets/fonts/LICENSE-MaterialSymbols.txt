@@ -200,3 +200,8 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+----------------------------------------------------------------------
+Modification notice (Apache License 2.0, section 4(b)): MaterialSymbolsSubset.ttf is a
+modified version of the Material Symbols Outlined variable font from
+google/material-design-icons. It was pinned to FILL=0, GRAD=0, opsz=24, wght=400 and subset to
+10 glyphs by scripts/subset-icons.sh.

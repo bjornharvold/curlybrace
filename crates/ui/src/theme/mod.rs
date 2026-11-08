@@ -15,6 +15,6 @@ mod install_tests;
 #[cfg(test)]
 mod scheme_tests;
 
-pub use fonts::font_definitions;
+pub use fonts::{MEDIUM_FAMILY, SYMBOLS_FAMILY, font_definitions};
 pub use install::{StateLayer, current, current_ui, install, state_layer, visuals_for};
 pub use scheme::{Mode, Scheme, Tone, ToneColors, scheme};
