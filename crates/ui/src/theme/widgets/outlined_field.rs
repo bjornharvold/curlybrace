@@ -47,6 +47,9 @@ pub struct FieldOptions<'a> {
     pub password: bool,
     /// A fixed widget id, for a field whose editor state or focus is addressed from outside.
     pub id: Option<Id>,
+    /// Keep the row of the error message free while there is none, so showing an error does not
+    /// move what is below the field.
+    pub reserve_error_row: bool,
 }
 
 /// [`outlined_field_with`] over any text buffer (a read-only `&str` shows selectable text) with
@@ -92,8 +95,10 @@ pub fn outlined_field_opts(
                 label_galley,
             );
         }
-        if let Some(message) = error {
-            supporting_text(ui, s, message, small);
+        match (error, options.reserve_error_row) {
+            (Some(message), _) => supporting_text(ui, s, message, small),
+            (None, true) => reserve_supporting_row(ui, &small),
+            (None, false) => {}
         }
         response
     })
@@ -111,6 +116,13 @@ fn describe(ui: &Ui, response: &Response, label: &str, hint: &str, error: Option
             node.set_description(message);
         }
     });
+}
+
+/// The height of a supporting text row, left empty.
+fn reserve_supporting_row(ui: &mut Ui, font: &FontId) {
+    let galley = one_row(ui, " ", font.clone(), ui.available_width());
+    let height = galley.size().y + shape::SPACE_1;
+    ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
 }
 
 /// One row of `message` in `error` under the field, aligned with the field's text.

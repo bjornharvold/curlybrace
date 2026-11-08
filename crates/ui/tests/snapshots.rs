@@ -192,6 +192,35 @@ shot!(sessions_tree_two_connected, vec![], |state| {
 
 shot!(indexes_tab, vec![], support::indexes_shots::indexes_tab);
 
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn indexes_tab_dark() {
+    if !snapshots_enabled("indexes_tab_dark") {
+        return;
+    }
+    Shot::new(vec![], support::indexes_shots::indexes_tab)
+        .mode(Mode::Dark)
+        .snapshot("indexes_tab_dark");
+}
+
+// The Queries view with a bad, a warning and a good verdict chip and the miss trend.
+shot!(
+    queries_view_light,
+    vec![],
+    support::indexes_shots::queries_view
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn queries_view_dark() {
+    if !snapshots_enabled("queries_view_dark") {
+        return;
+    }
+    Shot::new(vec![], support::indexes_shots::queries_view)
+        .mode(Mode::Dark)
+        .snapshot("queries_view_dark");
+}
+
 shot!(
     index_drop_confirm,
     vec![],
@@ -243,6 +272,17 @@ fn copy_dialog_overwrite_production() {
     }
     let setup = copy_shots_fixtures::dialog_overwrite_production;
     Shot::sized((1000.0, 1100.0), vec![], setup).snapshot("copy_dialog_overwrite_production");
+}
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn copy_dialog_overwrite_production_dark() {
+    if !snapshots_enabled("copy_dialog_overwrite_production_dark") {
+        return;
+    }
+    let setup = copy_shots_fixtures::dialog_overwrite_production;
+    Shot::sized((1000.0, 1100.0), vec![], setup)
+        .mode(Mode::Dark)
+        .snapshot("copy_dialog_overwrite_production_dark");
 }
 #[test]
 #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]

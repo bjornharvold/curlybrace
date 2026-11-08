@@ -1,20 +1,25 @@
 //! The index builder modal: ordered key rows, the options, the exact command that will be sent,
 //! and Create / Cancel. Draws the state it is given and reports what the person did; the reducer
 //! decides what happens.
+use super::tone_notice::tone_notice;
 use crate::I18n;
+use crate::theme::{
+    FieldOptions, Tone, card, compact_text_button, filled_button, modal_frame, outlined_field_opts,
+    text_button, tonal_button, typography,
+};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_builder::{BUILDER_KINDS, kind_label_key};
 use crate::viewmodel::{
     BuildWarning, BuilderEdit, BuilderProblem, IndexBuilderState, IndexesAction,
 };
-use curlybrace_core::indexes::KeyKind;
+use curlybrace_core::indexes::{IndexProblem, KeyKind};
 use curlybrace_core::store::CollectionIndex;
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
 const MODAL_WIDTH: f32 = 640.0;
 const FIELD_WIDTH: f32 = 220.0;
 const NAME_WIDTH: f32 = 300.0;
-const TTL_WIDTH: f32 = 100.0;
+const TTL_WIDTH: f32 = 240.0;
 const JSON_ROWS: usize = 3;
 /// The preview grows with the command, between these many lines.
 const PREVIEW_ROWS: std::ops::RangeInclusive<usize> = 6..=20;
@@ -45,35 +50,41 @@ pub fn show_index_builder(
 ) -> Option<IndexesAction> {
     let mut action = None;
     let max_height = (ctx.screen_rect().height() - CHROME_HEIGHT).max(200.0);
-    let modal = egui::Modal::new(egui::Id::new("index_builder")).show(ctx, |ui| {
-        ui.set_width(MODAL_WIDTH);
-        let namespace = format!("{}.{}", builder.ns.db, builder.ns.collection);
-        match builder.replaces() {
-            Some(original) => {
-                ui.heading(i18n.t_with("indexes.builder.title_copy", &[("name", original)]))
-            }
-            None => ui.heading(i18n.t("indexes.builder.title")),
-        };
-        ui.label(i18n.t_with(
-            "indexes.builder.writing_to",
-            &[
-                ("connection", context.connection),
-                ("collection", &namespace),
-            ],
-        ));
-        egui::ScrollArea::vertical()
-            .max_height(max_height)
-            .auto_shrink([false, true])
-            .min_scrolled_height(max_height)
-            .show(ui, |ui| {
-                // What was sent cannot be edited while the server works on it.
-                let editable = !builder.submitted;
-                let edit = ui.add_enabled_ui(editable, |ui| body(ui, builder, i18n));
-                action = edit.inner.map(IndexesAction::Builder);
-            });
-        ui.separator();
-        action = footer(ui, builder, context, i18n).or(action.take());
-    });
+    let modal = egui::Modal::new(egui::Id::new("index_builder"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(MODAL_WIDTH);
+            let namespace = format!("{}.{}", builder.ns.db, builder.ns.collection);
+            match builder.replaces() {
+                Some(original) => {
+                    let title = i18n.t_with("indexes.builder.title_copy", &[("name", original)]);
+                    ui.label(typography::dialog_title(ui, title))
+                }
+                None => ui.label(typography::dialog_title(
+                    ui,
+                    i18n.t("indexes.builder.title"),
+                )),
+            };
+            ui.label(i18n.t_with(
+                "indexes.builder.writing_to",
+                &[
+                    ("connection", context.connection),
+                    ("collection", &namespace),
+                ],
+            ));
+            egui::ScrollArea::vertical()
+                .max_height(max_height)
+                .auto_shrink([false, true])
+                .min_scrolled_height(max_height)
+                .show(ui, |ui| {
+                    // What was sent cannot be edited while the server works on it.
+                    let editable = !builder.submitted;
+                    let edit = ui.add_enabled_ui(editable, |ui| body(ui, builder, i18n));
+                    action = edit.inner.map(IndexesAction::Builder);
+                });
+            ui.separator();
+            action = footer(ui, builder, context, i18n).or(action.take());
+        });
     // Escape or a click outside closes the builder only while it holds nothing to lose.
     let dismissed = modal.should_close() && builder.is_untouched() && !context.busy;
     action.or(dismissed.then_some(IndexesAction::CancelBuilder))
@@ -86,7 +97,7 @@ fn body(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Option<B
     }
     ui.strong(i18n.t("indexes.builder.keys_heading"));
     edit = key_rows(ui, builder, i18n).or(edit);
-    if ui.button(i18n.t("indexes.builder.add_key")).clicked() {
+    if tonal_button(ui, i18n.t("indexes.builder.add_key")).clicked() {
         edit = Some(BuilderEdit::AddKey);
     }
     if (0..builder.keys.len()).any(|i| builder.is_fixed(i)) {
@@ -104,20 +115,21 @@ fn body(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Option<B
 fn key_rows(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Option<BuilderEdit> {
     let mut edit = None;
     let last = builder.keys.len().saturating_sub(1);
+    let problem = builder.problem();
     for (i, key) in builder.keys.iter().enumerate() {
         let n = (i + 1).to_string();
         let numbered = [("n", n.as_str())];
         // A hashed or 2d key of the original is shown and kept as it is.
         let fixed = builder.is_fixed(i);
+        let error = duplicate_error(builder, i, problem.as_ref(), i18n);
         ui.horizontal(|ui| {
-            let caption = ui.label(i18n.t_with("indexes.builder.key_field_n", &numbered));
+            let label = i18n.t_with("indexes.builder.key_field_n", &numbered);
             let mut text = key.field.clone();
             let field = ui
-                .add_enabled(
-                    !fixed,
-                    egui::TextEdit::singleline(&mut text).desired_width(FIELD_WIDTH),
-                )
-                .labelled_by(caption.id);
+                .add_enabled_ui(!fixed, |ui| {
+                    sized_field(ui, FIELD_WIDTH, &label, &mut text, error.as_deref())
+                })
+                .inner;
             if field.changed() {
                 edit = Some(BuilderEdit::SetField(i, text));
             }
@@ -136,6 +148,43 @@ fn key_rows(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Opti
         });
     }
     edit
+}
+
+/// An outlined field `width` wide that keeps the row of its error free, so an error appearing
+/// does not move the dialog.
+fn sized_field(
+    ui: &mut egui::Ui,
+    width: f32,
+    label: &str,
+    text: &mut String,
+    error: Option<&str>,
+) -> egui::Response {
+    ui.vertical(|ui| {
+        ui.set_width(width);
+        let options = FieldOptions {
+            error,
+            reserve_error_row: true,
+            ..FieldOptions::default()
+        };
+        outlined_field_opts(ui, label, text, "", options)
+    })
+    .inner
+}
+
+/// The message under the key row `index` when it repeats the field of an earlier row.
+fn duplicate_error(
+    builder: &IndexBuilderState,
+    index: usize,
+    problem: Option<&BuilderProblem>,
+    i18n: &I18n,
+) -> Option<String> {
+    let problem = problem?;
+    let BuilderProblem::Index(IndexProblem::DuplicateField(field)) = problem else {
+        return None;
+    };
+    let repeated = builder.keys[index].field == *field
+        && builder.keys[..index].iter().any(|k| k.field == *field);
+    repeated.then(|| problem_text(problem, i18n))
 }
 
 /// A button of a key row: a short visible text and a longer accessible name (which says to which
@@ -166,7 +215,9 @@ fn row_button(
     params: &[(&str, &str)],
     i18n: &I18n,
 ) -> bool {
-    let response = ui.add_enabled(enabled, egui::Button::new(i18n.t(button.text)));
+    let response = ui
+        .add_enabled_ui(enabled, |ui| compact_text_button(ui, i18n.t(button.text)))
+        .inner;
     let name = i18n.t_with(button.name, params);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, name.clone()));
     response.clicked()
@@ -208,31 +259,42 @@ fn kind_combo(
 
 fn options(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Option<BuilderEdit> {
     let mut edit = None;
-    ui.horizontal(|ui| {
-        let caption = ui.label(i18n.t("indexes.builder.name"));
-        let mut name = builder.name.clone();
-        let response = ui
-            .add(egui::TextEdit::singleline(&mut name).desired_width(NAME_WIDTH))
-            .labelled_by(caption.id);
-        if response.changed() {
-            edit = Some(BuilderEdit::SetName(name));
-        }
-    });
-    ui.horizontal(|ui| {
-        let caption = ui.label(i18n.t("indexes.builder.ttl"));
-        let mut text = builder
-            .options
-            .expire_after_seconds
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-        let response = ui
-            .add(egui::TextEdit::singleline(&mut text).desired_width(TTL_WIDTH))
-            .labelled_by(caption.id);
-        // Text that is not a whole number is not an edit: the box shows the value again.
-        if let (true, Some(ttl)) = (response.changed(), parse_seconds(&text)) {
-            edit = Some(BuilderEdit::SetTtl(ttl));
-        }
-    });
+    let problem = builder.problem();
+    let name_error = match problem {
+        Some(BuilderProblem::EmptyName) => problem.as_ref().map(|p| problem_text(p, i18n)),
+        _ => None,
+    };
+    let mut name = builder.name.clone();
+    let field = sized_field(
+        ui,
+        NAME_WIDTH,
+        &i18n.t("indexes.builder.name"),
+        &mut name,
+        name_error.as_deref(),
+    );
+    if field.changed() {
+        edit = Some(BuilderEdit::SetName(name));
+    }
+    let mut text = builder
+        .options
+        .expire_after_seconds
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let ttl_error = problem
+        .as_ref()
+        .filter(|p| is_ttl(p))
+        .map(|p| problem_text(p, i18n));
+    let response = sized_field(
+        ui,
+        TTL_WIDTH,
+        &i18n.t("indexes.builder.ttl"),
+        &mut text,
+        ttl_error.as_deref(),
+    );
+    // Text that is not a whole number is not an edit: the box shows the value again.
+    if let (true, Some(ttl)) = (response.changed(), parse_seconds(&text)) {
+        edit = Some(BuilderEdit::SetTtl(ttl));
+    }
     ui.horizontal(|ui| {
         let flags: [Flag; 3] = [
             (
@@ -276,6 +338,14 @@ fn options(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Optio
         .or(edit)
 }
 
+fn is_ttl(problem: &BuilderProblem) -> bool {
+    matches!(
+        problem,
+        BuilderProblem::Index(IndexProblem::TtlNeedsOneOrderedKey | IndexProblem::TtlNegative)
+            | BuilderProblem::TtlTooLarge
+    )
+}
+
 /// `Some(None)` for blank text, `Some(Some(n))` for a whole number, `None` for anything else.
 fn parse_seconds(text: &str) -> Option<Option<i64>> {
     match text.trim().is_empty() {
@@ -301,23 +371,27 @@ fn json_box(ui: &mut egui::Ui, caption_key: &str, current: &str, i18n: &I18n) ->
     response.changed().then_some(text)
 }
 
-/// The command exactly as the store will receive it, read-only but selectable.
+/// The command exactly as the store will receive it, read-only but selectable, in a card.
 fn preview(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) {
     let caption = ui.strong(i18n.t("indexes.builder.preview_heading"));
     let json = builder.preview_json();
     let mut shown: &str = &json;
-    ui.add(
-        egui::TextEdit::multiline(&mut shown)
-            .font(egui::TextStyle::Monospace)
-            .lock_focus(false)
-            .desired_rows(
-                json.lines()
-                    .count()
-                    .clamp(*PREVIEW_ROWS.start(), *PREVIEW_ROWS.end()),
-            )
-            .desired_width(f32::INFINITY),
-    )
-    .labelled_by(caption.id);
+    card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.add(
+            egui::TextEdit::multiline(&mut shown)
+                .font(egui::TextStyle::Monospace)
+                .lock_focus(false)
+                .frame(false)
+                .desired_rows(
+                    json.lines()
+                        .count()
+                        .clamp(*PREVIEW_ROWS.start(), *PREVIEW_ROWS.end()),
+                )
+                .desired_width(f32::INFINITY),
+        )
+        .labelled_by(caption.id);
+    });
 }
 
 /// The warning and the reason Create is off (if any), then Create and Cancel.
@@ -332,7 +406,7 @@ fn footer(
             "indexes.builder.warning_large",
             &[("documents", &documents.to_string())],
         );
-        ui.colored_label(ui.visuals().warn_fg_color, text);
+        tone_notice(ui, Tone::Warning, &text, false);
     }
     let problem = builder.problem_among(context.existing);
     if context.read_only {
@@ -344,11 +418,15 @@ fn footer(
     let mut action = None;
     ui.horizontal(|ui| {
         let enabled = problem.is_none() && !context.read_only && !context.busy;
-        let create = ui.add_enabled(enabled, egui::Button::new(i18n.t("indexes.builder.create")));
+        let create = ui
+            .add_enabled_ui(enabled, |ui| {
+                filled_button(ui, i18n.t("indexes.builder.create"))
+            })
+            .inner;
         if create.clicked() {
             action = Some(IndexesAction::Create);
         }
-        if ui.button(i18n.t("common.cancel")).clicked() {
+        if text_button(ui, i18n.t("common.cancel")).clicked() {
             action = Some(IndexesAction::CancelBuilder);
         }
         if let Some(problem) = &problem {

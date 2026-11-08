@@ -6,7 +6,7 @@ use super::index_sampling::show_sampling;
 use super::queries::show_queries;
 use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
-use crate::theme::segmented;
+use crate::theme::{PILL_HEIGHT, filled_button, pill, segmented, tonal_button};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_chart::observed_uses;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key};
@@ -139,7 +139,7 @@ fn toolbar(
         if let Some(range) = segmented(ui, &ranges, state.range) {
             action = Some(IndexesAction::SetRange(range));
         }
-        if ui.button(i18n.t("indexes.refresh")).clicked() {
+        if tonal_button(ui, i18n.t("indexes.refresh")).clicked() {
             action = Some(IndexesAction::Refresh);
         }
         if create_button(ui, read_only, state.writing.as_ref(), i18n) {
@@ -166,10 +166,11 @@ fn create_button(
         (false, Some(_)) => Some("indexes.write_busy"),
         (false, None) => None,
     };
-    let button = ui.add_enabled(
-        reason.is_none(),
-        egui::Button::new(i18n.t("indexes.create")),
-    );
+    let button = ui
+        .add_enabled_ui(reason.is_none(), |ui| {
+            filled_button(ui, i18n.t("indexes.create"))
+        })
+        .inner;
     if let Some(key) = reason {
         button.on_disabled_hover_text(i18n.t(key));
         ui.label(i18n.t(key));
@@ -214,27 +215,63 @@ fn list(
             .series_of(spec)
             .and_then(|series| observed_uses(series, state.range, now));
         let is_shown = shown.is_some_and(|s| s.spec.name == spec.name);
-        ui.horizontal(|ui| {
-            // A never-used index is dimmed: it is the one worth a second look.
-            let name = match uses {
-                Some(0) => egui::RichText::new(&spec.name).weak(),
-                _ => egui::RichText::new(&spec.name),
-            };
-            if ui.selectable_label(is_shown, name).clicked() {
-                action = Some(IndexesAction::Select(spec.name.clone()));
-            }
-            if spec.options.hidden {
-                hidden_marker(ui, i18n);
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(match uses {
-                    Some(n) => i18n.t_with("indexes.uses_count", &[("n", &n.to_string())]),
-                    None => i18n.t("indexes.no_data"),
-                });
-            });
-        });
+        // A never-used index is dimmed: it is the one worth a second look.
+        let name = match uses {
+            Some(0) => egui::RichText::new(&spec.name).weak(),
+            _ => egui::RichText::new(&spec.name),
+        };
+        let count = match uses {
+            Some(n) => i18n.t_with("indexes.uses_count", &[("n", &n.to_string())]),
+            None => i18n.t("indexes.no_data"),
+        };
+        if row(ui, (name, is_shown, spec.options.hidden), &count, i18n) {
+            action = Some(IndexesAction::Select(spec.name.clone()));
+        }
     }
     action
+}
+
+/// One index: its name as a pill that elides when it is long, and the usage count (with the
+/// hidden marker) kept readable at the right edge. Returns whether the row was clicked.
+fn row(
+    ui: &mut egui::Ui,
+    (name, selected, hidden): (egui::RichText, bool, bool),
+    count: &str,
+    i18n: &I18n,
+) -> bool {
+    let gap = ui.spacing().item_spacing.x;
+    let width_of = |ui: &egui::Ui, text: egui::RichText| {
+        egui::WidgetText::from(text)
+            .into_galley(
+                ui,
+                Some(egui::TextWrapMode::Extend),
+                f32::INFINITY,
+                egui::TextStyle::Body,
+            )
+            .size()
+            .x
+    };
+    let count_width = width_of(ui, egui::RichText::new(count));
+    let marker = i18n.t("indexes.hidden");
+    let marker_width = width_of(ui, egui::RichText::new(&marker).small());
+    let trailing = count_width + if hidden { marker_width + gap } else { 0.0 } + gap;
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        let pill_size = egui::vec2((ui.available_width() - trailing).max(0.0), PILL_HEIGHT);
+        let left_to_right = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(pill_size, left_to_right, |ui| {
+            clicked = pill(ui, selected, name).clicked();
+        });
+        let layout = egui::Layout::right_to_left(egui::Align::Center);
+        let size = egui::vec2(ui.available_width(), PILL_HEIGHT);
+        ui.allocate_ui_with_layout(size, layout, |ui| {
+            ui.label(count);
+            if hidden {
+                hidden_marker(ui, i18n);
+            }
+        });
+    });
+    clicked
 }
 
 /// The small "hidden" badge next to the name of a hidden index.

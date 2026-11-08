@@ -4,7 +4,9 @@
 //! while a write is in flight, and a write control is disabled on a read-only connection, with
 //! the reason in plain text.
 use super::connection_badge::show_badge;
+use super::tone_notice::tone_notice;
 use crate::I18n;
+use crate::theme::{Tone, filled_button, modal_frame, outlined_field, text_button, typography};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{
     ConnectionBadge, DropConfirm, DropOld, IndexesAction, TtlPrompt, index_write::ttl_problem,
@@ -12,7 +14,6 @@ use crate::viewmodel::{
 use eframe::egui;
 
 const MODAL_WIDTH: f32 = 480.0;
-const INPUT_WIDTH: f32 = 260.0;
 
 /// What the modals need besides their own state.
 pub struct DialogContext<'a> {
@@ -29,7 +30,7 @@ pub struct DialogContext<'a> {
 fn heading(ui: &mut egui::Ui, title_key: &str, context: &DialogContext<'_>, i18n: &I18n) {
     ui.horizontal(|ui| {
         show_badge(ui, context.badge, i18n);
-        ui.heading(i18n.t(title_key));
+        ui.label(typography::dialog_title(ui, i18n.t(title_key)));
     });
 }
 
@@ -67,51 +68,59 @@ pub fn show_drop_confirm(
     i18n: &I18n,
 ) -> Option<IndexesAction> {
     let mut action = None;
-    let modal = egui::Modal::new(egui::Id::new("index_drop_confirm")).show(ctx, |ui| {
-        ui.set_width(MODAL_WIDTH);
-        heading(ui, "indexes.drop.title", context, i18n);
-        ui.label(i18n.t_with(
-            "indexes.drop.message",
-            &[
-                ("name", &confirm.name),
-                ("collection", context.collection),
-                ("connection", context.connection),
-            ],
-        ));
-        if context.badge.production {
-            ui.label(
-                egui::RichText::new(i18n.t("write_warning.production_line"))
-                    .strong()
-                    .color(ui.visuals().error_fg_color),
-            );
-        }
-        let caption = ui.label(i18n.t_with("indexes.drop.type_name", &[("name", &confirm.name)]));
-        let mut typed = confirm.typed.clone();
-        let input = ui
-            .add_enabled(
-                !context.busy,
-                egui::TextEdit::singleline(&mut typed).desired_width(INPUT_WIDTH),
-            )
-            .labelled_by(caption.id);
-        if input.changed() {
-            action = Some(IndexesAction::DropTyped(typed));
-        }
-        // The text box takes the focus when the modal opens; a stray Enter cannot drop anything
-        // because the button stays off until the name is typed.
-        focus_once(ui, &input, ("index_drop_focus", &confirm.name));
-        note(ui, context, i18n);
-        ui.horizontal(|ui| {
-            let cancel = ui.add_enabled(!context.busy, egui::Button::new(i18n.t("common.cancel")));
-            let enabled = confirm.confirmed() && !context.busy && !context.badge.read_only;
-            let drop = ui.add_enabled(enabled, egui::Button::new(i18n.t("indexes.drop.confirm")));
-            if cancel.clicked() {
-                action = Some(IndexesAction::DropCancelled);
+    let modal = egui::Modal::new(egui::Id::new("index_drop_confirm"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(MODAL_WIDTH);
+            heading(ui, "indexes.drop.title", context, i18n);
+            ui.label(i18n.t_with(
+                "indexes.drop.message",
+                &[
+                    ("name", &confirm.name),
+                    ("collection", context.collection),
+                    ("connection", context.connection),
+                ],
+            ));
+            if context.badge.production {
+                tone_notice(
+                    ui,
+                    Tone::Bad,
+                    &i18n.t("write_warning.production_line"),
+                    true,
+                );
             }
-            if drop.clicked() {
-                action = Some(IndexesAction::DropConfirmed);
+            let caption = i18n.t_with("indexes.drop.type_name", &[("name", &confirm.name)]);
+            let mut typed = confirm.typed.clone();
+            let input = ui
+                .add_enabled_ui(!context.busy, |ui| {
+                    outlined_field(ui, &caption, &mut typed, "")
+                })
+                .inner;
+            if input.changed() {
+                action = Some(IndexesAction::DropTyped(typed));
             }
+            // The text box takes the focus when the modal opens; a stray Enter cannot drop anything
+            // because the button stays off until the name is typed.
+            focus_once(ui, &input, ("index_drop_focus", &confirm.name));
+            note(ui, context, i18n);
+            ui.horizontal(|ui| {
+                let cancel = ui
+                    .add_enabled_ui(!context.busy, |ui| text_button(ui, i18n.t("common.cancel")))
+                    .inner;
+                let enabled = confirm.confirmed() && !context.busy && !context.badge.read_only;
+                let drop = ui
+                    .add_enabled_ui(enabled, |ui| {
+                        filled_button(ui, i18n.t("indexes.drop.confirm"))
+                    })
+                    .inner;
+                if cancel.clicked() {
+                    action = Some(IndexesAction::DropCancelled);
+                }
+                if drop.clicked() {
+                    action = Some(IndexesAction::DropConfirmed);
+                }
+            });
         });
-    });
     let dismissed = modal.should_close() && !context.busy;
     action.or(dismissed.then_some(IndexesAction::DropCancelled))
 }
@@ -125,38 +134,46 @@ pub fn show_drop_old(
     i18n: &I18n,
 ) -> Option<IndexesAction> {
     let mut action = None;
-    let modal = egui::Modal::new(egui::Id::new("index_drop_old")).show(ctx, |ui| {
-        ui.set_width(MODAL_WIDTH);
-        heading(ui, "indexes.drop_old.title", context, i18n);
-        ui.label(i18n.t_with(
-            "indexes.drop_old.message",
-            &[("new", &prompt.new), ("old", &prompt.old)],
-        ));
-        if context.badge.production {
-            ui.label(
-                egui::RichText::new(i18n.t("write_warning.production_line"))
-                    .strong()
-                    .color(ui.visuals().error_fg_color),
-            );
-        }
-        note(ui, context, i18n);
-        ui.horizontal(|ui| {
-            let keep = ui.add_enabled(
-                !context.busy,
-                egui::Button::new(i18n.t("indexes.drop_old.keep")),
-            );
-            let enabled = !context.busy && !context.badge.read_only;
-            let drop = ui.add_enabled(enabled, egui::Button::new(i18n.t("indexes.drop_old.drop")));
-            // Keep owns the first focus, so a stray Enter drops nothing.
-            focus_once(ui, &keep, ("index_drop_old_focus", &prompt.old));
-            if keep.clicked() {
-                action = Some(IndexesAction::KeepOld);
+    let modal = egui::Modal::new(egui::Id::new("index_drop_old"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(MODAL_WIDTH);
+            heading(ui, "indexes.drop_old.title", context, i18n);
+            ui.label(i18n.t_with(
+                "indexes.drop_old.message",
+                &[("new", &prompt.new), ("old", &prompt.old)],
+            ));
+            if context.badge.production {
+                tone_notice(
+                    ui,
+                    Tone::Bad,
+                    &i18n.t("write_warning.production_line"),
+                    true,
+                );
             }
-            if drop.clicked() {
-                action = Some(IndexesAction::ConfirmDropOld);
-            }
+            note(ui, context, i18n);
+            ui.horizontal(|ui| {
+                let keep = ui
+                    .add_enabled_ui(!context.busy, |ui| {
+                        text_button(ui, i18n.t("indexes.drop_old.keep"))
+                    })
+                    .inner;
+                let enabled = !context.busy && !context.badge.read_only;
+                let drop = ui
+                    .add_enabled_ui(enabled, |ui| {
+                        filled_button(ui, i18n.t("indexes.drop_old.drop"))
+                    })
+                    .inner;
+                // Keep owns the first focus, so a stray Enter drops nothing.
+                focus_once(ui, &keep, ("index_drop_old_focus", &prompt.old));
+                if keep.clicked() {
+                    action = Some(IndexesAction::KeepOld);
+                }
+                if drop.clicked() {
+                    action = Some(IndexesAction::ConfirmDropOld);
+                }
+            });
         });
-    });
     let dismissed = modal.should_close() && !context.busy;
     action.or(dismissed.then_some(IndexesAction::KeepOld))
 }
@@ -170,42 +187,44 @@ pub fn show_ttl_prompt(
     i18n: &I18n,
 ) -> Option<IndexesAction> {
     let mut action = None;
-    let modal = egui::Modal::new(egui::Id::new("index_ttl_prompt")).show(ctx, |ui| {
-        ui.set_width(MODAL_WIDTH);
-        heading(ui, "indexes.ttl.title", context, i18n);
-        ui.label(i18n.t_with("indexes.ttl.message", &[("name", &prompt.name)]));
-        ui.horizontal(|ui| {
-            let caption = ui.label(i18n.t("indexes.builder.ttl"));
+    let modal = egui::Modal::new(egui::Id::new("index_ttl_prompt"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(MODAL_WIDTH);
+            heading(ui, "indexes.ttl.title", context, i18n);
+            ui.label(i18n.t_with("indexes.ttl.message", &[("name", &prompt.name)]));
             let mut text = prompt.text.clone();
             let input = ui
-                .add_enabled(
-                    !context.busy,
-                    egui::TextEdit::singleline(&mut text).desired_width(INPUT_WIDTH),
-                )
-                .labelled_by(caption.id);
+                .add_enabled_ui(!context.busy, |ui| {
+                    outlined_field(ui, &i18n.t("indexes.builder.ttl"), &mut text, "")
+                })
+                .inner;
             if input.changed() {
                 action = Some(IndexesAction::TtlTyped(text));
             }
             focus_once(ui, &input, ("index_ttl_focus", &prompt.name));
-        });
-        let seconds = prompt.seconds();
-        if let Err(problem) = &seconds {
-            ui.colored_label(ui.visuals().error_fg_color, i18n.t(problem.message_key()));
-        }
-        note(ui, context, i18n);
-        ui.horizontal(|ui| {
-            let ready = seconds.as_ref().ok().filter(|s| ttl_problem(**s).is_none());
-            let enabled = ready.is_some() && !context.busy && !context.badge.read_only;
-            let apply = ui.add_enabled(enabled, egui::Button::new(i18n.t("indexes.ttl.apply")));
-            if let (true, Some(seconds)) = (apply.clicked(), ready) {
-                action = Some(IndexesAction::SetTtl(prompt.name.clone(), *seconds));
+            let seconds = prompt.seconds();
+            if let Err(problem) = &seconds {
+                tone_notice(ui, Tone::Bad, &i18n.t(problem.message_key()), false);
             }
-            let cancel = ui.add_enabled(!context.busy, egui::Button::new(i18n.t("common.cancel")));
-            if cancel.clicked() {
-                action = Some(IndexesAction::TtlCancelled);
-            }
+            note(ui, context, i18n);
+            ui.horizontal(|ui| {
+                let ready = seconds.as_ref().ok().filter(|s| ttl_problem(**s).is_none());
+                let enabled = ready.is_some() && !context.busy && !context.badge.read_only;
+                let apply = ui
+                    .add_enabled_ui(enabled, |ui| filled_button(ui, i18n.t("indexes.ttl.apply")))
+                    .inner;
+                if let (true, Some(seconds)) = (apply.clicked(), ready) {
+                    action = Some(IndexesAction::SetTtl(prompt.name.clone(), *seconds));
+                }
+                let cancel = ui
+                    .add_enabled_ui(!context.busy, |ui| text_button(ui, i18n.t("common.cancel")))
+                    .inner;
+                if cancel.clicked() {
+                    action = Some(IndexesAction::TtlCancelled);
+                }
+            });
         });
-    });
     let dismissed = modal.should_close() && !context.busy;
     action.or(dismissed.then_some(IndexesAction::TtlCancelled))
 }

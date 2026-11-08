@@ -487,7 +487,11 @@ fn busy_disables_the_button() {
 #[test]
 fn range_and_refresh_report_their_actions() {
     let mut harness = open(known(2), false);
-    click(&mut harness, &t("indexes.range_week"));
+    // The range switch is a segmented control (radio buttons), like the Indexes toolbar's.
+    harness
+        .get_by_role_and_label(Role::RadioButton, &t("indexes.range_week"))
+        .click();
+    harness.run_steps(3);
     click(&mut harness, &t("indexes.refresh"));
     assert_eq!(
         harness.state().seen,

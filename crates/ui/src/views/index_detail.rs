@@ -2,6 +2,7 @@
 use super::index_chart::show_chart;
 use super::indexes::hidden_marker;
 use crate::I18n;
+use crate::theme::{card, tonal_button};
 use crate::viewmodel::IndexesAction;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_detail::{
@@ -98,11 +99,16 @@ fn buttons(ui: &mut egui::Ui, input: &DetailInput<'_>, i18n: &I18n) -> Option<In
     writes.push(("indexes.action_drop", IndexesAction::DropRequested(name)));
     let mut action = None;
     ui.horizontal_wrapped(|ui| {
-        if ui.button(i18n.t("indexes.copy_json")).clicked() {
+        if tonal_button(ui, i18n.t("indexes.copy_json")).clicked() {
             action = Some(IndexesAction::CopyJson(spec.to_json()));
         }
+        // Disabled for the rest of the row, not per button: a button in its own scope would
+        // see only the room left on the line and be cut instead of moving to the next one.
+        if reason.is_some() {
+            ui.disable();
+        }
         for (label, write) in writes {
-            let button = ui.add_enabled(reason.is_none(), egui::Button::new(i18n.t(label)));
+            let button = tonal_button(ui, i18n.t(label));
             if let Some(key) = reason {
                 button.on_disabled_hover_text(i18n.t(key));
             } else if button.clicked() {
@@ -126,21 +132,23 @@ fn definition_rows(ui: &mut egui::Ui, index: &CollectionIndex, i18n: &I18n) {
         })
         .collect();
     let (size_key, size) = size_parts(index.size_bytes);
-    egui::Grid::new("index_definition")
-        .num_columns(2)
-        .show(ui, |ui| {
-            ui.strong(i18n.t("indexes.definition"));
-            ui.vertical(|ui| {
-                ui.monospace(definition_text(spec));
-                if !options.is_empty() {
-                    ui.label(options.join(", "));
-                }
+    panel(ui, |ui| {
+        egui::Grid::new("index_definition")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.strong(i18n.t("indexes.definition"));
+                ui.vertical(|ui| {
+                    ui.monospace(definition_text(spec));
+                    if !options.is_empty() {
+                        ui.label(options.join(", "));
+                    }
+                });
+                ui.end_row();
+                ui.strong(i18n.t("indexes.size"));
+                ui.label(i18n.t_with(size_key, &[("n", &size)]));
+                ui.end_row();
             });
-            ui.end_row();
-            ui.strong(i18n.t("indexes.size"));
-            ui.label(i18n.t_with(size_key, &[("n", &size)]));
-            ui.end_row();
-        });
+    });
 }
 
 fn series_rows(ui: &mut egui::Ui, series: &IndexSeries, input: &DetailInput<'_>, i18n: &I18n) {
@@ -151,28 +159,39 @@ fn series_rows(ui: &mut egui::Ui, series: &IndexSeries, input: &DetailInput<'_>,
     show_chart(ui, series, input.range, input.chart_end_secs, i18n);
     ui.add_space(ui.spacing().item_spacing.y);
     let ago = |age: Age| i18n.t_with(age.key(), &[("n", &age.count().to_string())]);
-    egui::Grid::new("index_facts")
-        .num_columns(2)
-        .show(ui, |ui| {
-            ui.strong(i18n.t("indexes.uses_since_restart"));
-            ui.label(match series.latest {
-                Some(sample) if sample.ops > 0 => sample.ops.to_string(),
-                Some(_) => i18n.t("indexes.never_since_restart"),
-                None => i18n.t("indexes.no_data"),
-            });
-            ui.end_row();
-            ui.strong(i18n.t("indexes.last_used"));
-            ui.label(match last_used_age(series, input.now_secs) {
-                Some(age) => ago(age),
-                None => i18n.t("indexes.not_in_range"),
-            });
-            ui.end_row();
-            if let Some(age) = tracked_since_age(series, input.now_secs) {
-                ui.strong(i18n.t("indexes.tracked_since"));
-                ui.label(ago(age));
+    panel(ui, |ui| {
+        egui::Grid::new("index_facts")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.strong(i18n.t("indexes.uses_since_restart"));
+                ui.label(match series.latest {
+                    Some(sample) if sample.ops > 0 => sample.ops.to_string(),
+                    Some(_) => i18n.t("indexes.never_since_restart"),
+                    None => i18n.t("indexes.no_data"),
+                });
                 ui.end_row();
-            }
-        });
-    ui.label(i18n.t_with("indexes.node", &[("host", &series.host)]));
-    ui.weak(i18n.t("indexes.node_note"));
+                ui.strong(i18n.t("indexes.last_used"));
+                ui.label(match last_used_age(series, input.now_secs) {
+                    Some(age) => ago(age),
+                    None => i18n.t("indexes.not_in_range"),
+                });
+                ui.end_row();
+                if let Some(age) = tracked_since_age(series, input.now_secs) {
+                    ui.strong(i18n.t("indexes.tracked_since"));
+                    ui.label(ago(age));
+                    ui.end_row();
+                }
+            });
+        ui.label(i18n.t_with("indexes.node", &[("host", &series.host)]));
+        ui.weak(i18n.t("indexes.node_note"));
+    });
+}
+
+/// `add` in a card as wide as the pane.
+fn panel<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        add(ui)
+    })
+    .inner
 }

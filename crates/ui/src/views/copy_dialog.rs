@@ -5,11 +5,15 @@
 //! `CopyDialog::can_confirm` the reducer repeats.
 use super::connection_badge::show_badge;
 use super::copy_progress::show_progress;
+use super::tone_notice::tone_notice;
 use super::write_warning::focus_cancel_unless_focused;
 use crate::I18n;
 use crate::app::copy::CopyInput;
 use crate::app::copy_state::{CopyDialog, CopyPhase, CountRow};
 use crate::app::state::AppState;
+use crate::theme::{
+    Tone, card, filled_button, modal_frame, outlined_field, text_button, typography,
+};
 use crate::viewmodel::ConnectionBadge;
 use curlybrace_core::copy::policy::ConflictPolicy;
 use curlybrace_core::copy::protocol::CopyScope;
@@ -83,7 +87,7 @@ fn show_dialog(
     context: &Context,
     i18n: &I18n,
 ) -> Option<CopyInput> {
-    let modal = egui::Modal::new(egui::Id::new("copy_dialog"));
+    let modal = egui::Modal::new(egui::Id::new("copy_dialog")).frame(modal_frame(ctx));
     let response = modal.show(ctx, |ui| show_body(ui, dialog, context, i18n));
     let closed = response.should_close();
     response.inner.or(closed.then_some(CopyInput::Cancel))
@@ -117,7 +121,7 @@ fn show_body(
 fn show_header(ui: &mut egui::Ui, context: &Context, i18n: &I18n) {
     ui.horizontal(|ui| {
         show_badge(ui, &context.badge, i18n);
-        ui.heading(i18n.t("copy.dialog.title"));
+        ui.label(typography::dialog_title(ui, i18n.t("copy.dialog.title")));
     });
     let line = |key: &str, connection: &str, database: &str| {
         i18n.t_with(key, &[("connection", connection), ("database", database)])
@@ -133,8 +137,7 @@ fn show_header(ui: &mut egui::Ui, context: &Context, i18n: &I18n) {
             "copy.dialog.production_line",
             &[("connection", &context.target)],
         );
-        let color = ui.visuals().error_fg_color;
-        ui.label(egui::RichText::new(notice).strong().color(color));
+        tone_notice(ui, Tone::Bad, &notice, true);
     }
 }
 
@@ -159,16 +162,15 @@ fn show_names(ui: &mut egui::Ui, dialog: &CopyDialog, i18n: &I18n) -> (Option<Co
     let mut editing = false;
     for (index, (source, target)) in dialog.names.iter().enumerate() {
         ui.push_id(index, |ui| {
-            let caption = ui.label(i18n.t_with("copy.dialog.name_label", &[("source", source)]));
+            let label = i18n.t_with("copy.dialog.name_label", &[("source", source)]);
             let mut text = target.clone();
-            let edit = egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY);
-            let response = ui.add(edit).labelled_by(caption.id);
+            let response = outlined_field(ui, &label, &mut text, "");
             editing |= response.has_focus();
             if response.changed() {
                 changed = Some(CopyInput::SetName { index, name: text });
             }
             if let Some(issue) = dialog.name_issue(index) {
-                ui.colored_label(ui.visuals().error_fg_color, i18n.t(issue.i18n_key()));
+                tone_notice(ui, Tone::Bad, &i18n.t(issue.i18n_key()), false);
             }
         });
     }
@@ -196,17 +198,20 @@ fn show_counts(ui: &mut egui::Ui, dialog: &CopyDialog, i18n: &I18n) {
     if let Some(error) = &dialog.preview_error {
         let reason = i18n.error(error);
         let text = i18n.t_with("copy.dialog.counts.failed", &[("reason", &reason)]);
-        ui.colored_label(ui.visuals().warn_fg_color, text);
+        tone_notice(ui, Tone::Warning, &text, false);
     }
-    egui::ScrollArea::vertical()
-        .id_salt("copy_counts")
-        .max_height(COUNTS_MAX_HEIGHT)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            for (index, item) in dialog.items.iter().enumerate() {
-                ui.label(count_text(dialog, index, &item.source.collection, i18n));
-            }
-        });
+    card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        egui::ScrollArea::vertical()
+            .id_salt("copy_counts")
+            .max_height(COUNTS_MAX_HEIGHT)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for (index, item) in dialog.items.iter().enumerate() {
+                    ui.label(count_text(dialog, index, &item.source.collection, i18n));
+                }
+            });
+    });
     ui.weak(i18n.t("copy.dialog.no_snapshot"));
 }
 
@@ -265,10 +270,10 @@ fn show_confirmation(
         "copy.dialog.confirm_prompt",
         &[("text", &dialog.required_text())],
     );
-    let caption = ui.label(egui::RichText::new(prompt).strong());
     let mut text = dialog.typed.clone();
-    let edit = egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY);
-    let response = ui.add_enabled(enabled, edit).labelled_by(caption.id);
+    let response = ui
+        .add_enabled_ui(enabled, |ui| outlined_field(ui, &prompt, &mut text, ""))
+        .inner;
     let input = response
         .changed()
         .then_some(CopyInput::TypeConfirmation(text));
@@ -292,11 +297,13 @@ fn show_buttons(
             true => "copy.dialog.blocked_typed",
             false => "copy.dialog.blocked_names",
         };
-        ui.colored_label(ui.visuals().warn_fg_color, i18n.t(key));
+        tone_notice(ui, Tone::Warning, &i18n.t(key), false);
     }
     ui.horizontal(|ui| {
-        let cancel = ui.button(i18n.t("common.cancel"));
-        let copy = ui.add_enabled(allowed, egui::Button::new(i18n.t("copy.dialog.copy")));
+        let cancel = text_button(ui, i18n.t("common.cancel"));
+        let copy = ui
+            .add_enabled_ui(allowed, |ui| filled_button(ui, i18n.t("copy.dialog.copy")))
+            .inner;
         if dialog.needs_typed_confirmation(production) && !typing {
             focus_cancel_unless_focused(&cancel, &copy);
         }
