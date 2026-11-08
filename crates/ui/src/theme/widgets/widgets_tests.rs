@@ -334,3 +334,43 @@ fn pill_with_unbounded_width_stays_finite() {
         "{rect:?}"
     );
 }
+
+const LONG_LABEL: &str = "Type the index name to confirm: an_exceedingly_long_index_name_that_does_not_fit_1";
+
+#[test]
+fn an_elided_field_label_is_shown_in_full_on_hover() {
+    let mut harness = themed(240.0, String::new(), |ui, text: &mut String| {
+        outlined_field(ui, LONG_LABEL, text, "");
+    });
+    assert_eq!(
+        harness.query_all_by_role_and_label(Role::Label, LONG_LABEL).count(),
+        0,
+        "no tooltip before hovering"
+    );
+    harness.get_by_role_and_label(Role::TextInput, LONG_LABEL).hover();
+    harness.run_steps(12);
+    harness.get_by_role_and_label(Role::Label, LONG_LABEL);
+}
+
+#[test]
+fn a_label_that_fits_has_no_tooltip() {
+    let mut harness = themed(400.0, String::new(), |ui, text: &mut String| {
+        outlined_field(ui, "Name", text, "");
+    });
+    harness.get_by_role_and_label(Role::TextInput, "Name").hover();
+    harness.run_steps(12);
+    assert_eq!(harness.query_all_by_role_and_label(Role::Label, "Name").count(), 0);
+}
+
+#[test]
+fn the_accessible_name_can_differ_from_the_floating_label() {
+    let mut harness = themed(400.0, String::new(), |ui, text: &mut String| {
+        let options = super::FieldOptions {
+            accessible_name: Some("Type this to confirm: abc"),
+            ..super::FieldOptions::default()
+        };
+        super::outlined_field_opts(ui, "Confirmation", text, "", options);
+    });
+    harness.get_by_role_and_label(Role::TextInput, "Type this to confirm: abc");
+    assert_eq!(harness.query_all_by_label("Confirmation").count(), 0);
+}

@@ -553,6 +553,8 @@
     "dialog": {
       "blocked_names": "Fix the names above before copying.",
       "blocked_typed": "Type the text above to enable Copy.",
+      "confirm_field": "Confirmation",
+      "confirm_instruction": "To confirm, type this text exactly:",
       "confirm_prompt": "To confirm, type this text exactly: {text}",
       "copy": "Copy",
       "counting_note": "Counting documents… You can copy now, but the counts will then be incomplete.",
@@ -877,7 +879,9 @@
       "confirm": "Drop index",
       "message": "Drop the index {name} from {collection} on {connection}? Queries that relied on it get slower. This cannot be undone.",
       "title": "Drop index",
-      "type_name": "Type the index name to confirm: {name}"
+      "type_name": "Type the index name to confirm: {name}",
+      "type_name_field": "Index name",
+      "type_name_instruction": "Type the index name to confirm:"
     },
     "drop_old": {
       "drop": "Drop old",

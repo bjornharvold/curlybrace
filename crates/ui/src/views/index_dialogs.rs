@@ -5,6 +5,7 @@
 //! the reason in plain text.
 use super::connection_badge::show_badge;
 use super::tone_notice::tone_notice;
+use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
 use crate::I18n;
 use crate::theme::{Tone, filled_button, modal_frame, outlined_field, text_button, typography};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
@@ -89,11 +90,18 @@ pub fn show_drop_confirm(
                     true,
                 );
             }
+            // The name is on its own line above the box; the box's accessible name has it too.
             let caption = i18n.t_with("indexes.drop.type_name", &[("name", &confirm.name)]);
+            let prompt = TypedConfirmation {
+                instruction: &i18n.t("indexes.drop.type_name_instruction"),
+                required: &confirm.name,
+                field_label: &i18n.t("indexes.drop.type_name_field"),
+                accessible_name: &caption,
+            };
             let mut typed = confirm.typed.clone();
             let input = ui
                 .add_enabled_ui(!context.busy, |ui| {
-                    outlined_field(ui, &caption, &mut typed, "")
+                    show_typed_confirmation(ui, &prompt, &mut typed)
                 })
                 .inner;
             if input.changed() {

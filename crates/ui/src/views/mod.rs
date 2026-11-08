@@ -42,6 +42,7 @@ pub mod sidebar_drag;
 pub mod sidebar_roots;
 pub mod table;
 pub mod tone_notice;
+pub mod typed_confirmation;
 pub mod tool_row;
 pub mod tools_settings;
 pub mod tree;

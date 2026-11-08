@@ -53,6 +53,9 @@ pub struct FieldOptions<'a> {
     /// A box of this many rows in the monospace font instead of a single line (JSON). Tab moves
     /// on to the next control instead of typing a tab.
     pub multiline_rows: Option<usize>,
+    /// The accessible name when it should say more than the (short) floating label, e.g. the
+    /// text the person has to type. Defaults to the label.
+    pub accessible_name: Option<&'a str>,
 }
 
 /// [`outlined_field_with`] over any text buffer (a read-only `&str` shows selectable text) with
@@ -70,6 +73,7 @@ pub fn outlined_field_opts(
     let max_label = ui.available_width() - 2.0 * (shape::SPACE_3 + LABEL_GAP);
     let label_galley = one_row(ui, label, small.clone(), max_label);
     let half_label = label_galley.size().y / 2.0;
+    let label_elided = label_galley.elided;
     ui.vertical(|ui| {
         // Room above the border for the upper half of the floating label.
         ui.add_space(half_label);
@@ -94,8 +98,12 @@ pub fn outlined_field_opts(
         if let Some(id) = options.id {
             edit = edit.id(id);
         }
-        let response = ui.add(edit);
-        describe(ui, &response, label, hint, error);
+        let mut response = ui.add(edit);
+        if label_elided {
+            // The floating label is cut at the end; hovering shows all of it.
+            response = response.on_hover_text(label);
+        }
+        describe(ui, &response, options.accessible_name.unwrap_or(label), hint, error);
         if ui.is_rect_visible(response.rect) {
             let look = Look::of(ui, &response);
             let (stroke, label_color) = colors(s, look, error.is_some());

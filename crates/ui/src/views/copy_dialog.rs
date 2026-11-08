@@ -6,6 +6,7 @@
 use super::connection_badge::show_badge;
 use super::copy_progress::show_progress;
 use super::tone_notice::tone_notice;
+use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
 use super::write_warning::focus_cancel_unless_focused;
 use crate::I18n;
 use crate::app::copy::CopyInput;
@@ -265,14 +266,18 @@ fn show_confirmation(
     if let Some(key) = replace_note_key(dialog.policy) {
         ui.label(i18n.t(key));
     }
-    // The prompt carries the required text, so the box's accessible name states it too.
-    let prompt = i18n.t_with(
-        "copy.dialog.confirm_prompt",
-        &[("text", &dialog.required_text())],
-    );
+    // The required text is on its own line above the box; the box's accessible name has it too.
+    let required = dialog.required_text();
+    let accessible_name = i18n.t_with("copy.dialog.confirm_prompt", &[("text", &required)]);
+    let prompt = TypedConfirmation {
+        instruction: &i18n.t("copy.dialog.confirm_instruction"),
+        required: &required,
+        field_label: &i18n.t("copy.dialog.confirm_field"),
+        accessible_name: &accessible_name,
+    };
     let mut text = dialog.typed.clone();
     let response = ui
-        .add_enabled_ui(enabled, |ui| outlined_field(ui, &prompt, &mut text, ""))
+        .add_enabled_ui(enabled, |ui| show_typed_confirmation(ui, &prompt, &mut text))
         .inner;
     let input = response
         .changed()
