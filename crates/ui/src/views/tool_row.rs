@@ -6,7 +6,8 @@ use crate::I18n;
 use crate::app::tools_state::{ProbeScope, ToolsAction};
 use crate::theme::widgets::CONTROL_HEIGHT;
 use crate::theme::{
-    FieldOptions, Tone as ChipTone, chip, outlined_field_opts, shape, text_button, tonal_button,
+    FieldOptions, Tone as ChipTone, chip, gate, outlined_field_opts, shape, text_button,
+    tonal_button,
 };
 use crate::viewmodel::tool_rows::{Tone, ToolRow, ToolStatus, status_line};
 use curlybrace_core::tools::{ServerVersion, ToolChoice, ToolKind};
@@ -97,9 +98,7 @@ pub fn show_tool_row(
         // One check at a time per tool: another click while it runs would only start another
         // program whose answer is thrown away.
         let idle = !matches!(row.status, ToolStatus::Checking);
-        let again = ui
-            .add_enabled_ui(idle, |ui| text_button(ui, i18n.t("tools.check_again")))
-            .inner;
+        let again = gate(ui, idle, |ui| text_button(ui, i18n.t("tools.check_again")));
         let named = i18n.t_with("tools.check_again_named", &[("tool", &name)]);
         again.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, idle, named.clone())

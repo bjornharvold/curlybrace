@@ -4,7 +4,7 @@ use super::doc_select::show_selection_bar;
 use super::write_warning::focus_cancel_unless_focused;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
-use crate::theme::{filled_button, modal_frame, segmented, text_button, tonal_button};
+use crate::theme::{filled_button, gate, modal_frame, segmented, text_button, tonal_button};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{
     ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview, page_key,
@@ -81,11 +81,9 @@ pub fn show_documents_keyed(
 /// The Insert button. On a read-only connection it is disabled and the reason is both its hover
 /// text and a visible note, so the state is never colour or hover alone.
 fn show_insert(ui: &mut egui::Ui, read_only: bool, i18n: &I18n) -> Option<DocAction> {
-    let insert = ui
-        .add_enabled_ui(!read_only, |ui| tonal_button(ui, i18n.t("doc.insert")))
-        .inner;
+    let insert = gate(ui, !read_only, |ui| tonal_button(ui, i18n.t("doc.insert")));
     if read_only {
-        insert.on_disabled_hover_text(i18n.t(READ_ONLY_REASON_KEY));
+        insert.on_hover_text(i18n.t(READ_ONLY_REASON_KEY));
         ui.label(i18n.t(READ_ONLY_REASON_KEY));
         return None;
     }

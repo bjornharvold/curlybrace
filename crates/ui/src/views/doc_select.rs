@@ -2,7 +2,7 @@
 //! "select all documents of the query", "clear" and Copy. Every control is a plain button or
 //! checkbox, so the whole flow works from the keyboard.
 use crate::I18n;
-use crate::theme::{text_button, tonal_button};
+use crate::theme::{gate, text_button, tonal_button};
 use crate::viewmodel::copy_menu::SYSTEM_SOURCE_BLOCKED_KEY;
 use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState};
 use bson::Bson;
@@ -88,11 +88,9 @@ pub fn show_selection_bar(
         if text_button(ui, i18n.t("doc.select_all_result")).clicked() {
             state.pick = std::mem::take(&mut state.pick).all_selected();
         }
-        let clear = ui
-            .add_enabled_ui(!state.pick.is_empty(), |ui| {
-                text_button(ui, i18n.t("doc.clear_selection"))
-            })
-            .inner;
+        let clear = gate(ui, !state.pick.is_empty(), |ui| {
+            text_button(ui, i18n.t("doc.clear_selection"))
+        });
         if clear.clicked() {
             state.pick = Default::default();
         }
@@ -110,16 +108,14 @@ fn copy_button(ui: &mut egui::Ui, state: &TreeState, i18n: &I18n) -> Option<DocA
         }
     };
     let action = state.copy_picked();
-    let button = ui
-        .add_enabled_ui(action.is_some(), |ui| tonal_button(ui, label))
-        .inner;
+    let button = gate(ui, action.is_some(), |ui| tonal_button(ui, label));
     match (&action, state.copy_blocked) {
         (None, true) => {
-            button.on_disabled_hover_text(i18n.t(SYSTEM_SOURCE_BLOCKED_KEY));
+            button.on_hover_text(i18n.t(SYSTEM_SOURCE_BLOCKED_KEY));
             None
         }
         (None, false) => {
-            button.on_disabled_hover_text(i18n.t("doc.selection_hint"));
+            button.on_hover_text(i18n.t("doc.selection_hint"));
             None
         }
         (Some(_), _) => button.clicked().then(|| action.clone()).flatten(),

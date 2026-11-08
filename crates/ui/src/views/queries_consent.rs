@@ -6,7 +6,7 @@ use super::index_dialogs::focus_once;
 use super::queries_rows::copyable;
 use super::tone_notice::tone_notice;
 use crate::I18n;
-use crate::theme::{Tone, filled_button, modal_frame, text_button, typography};
+use crate::theme::{Tone, filled_button, gate, modal_frame, text_button, typography};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{PROFILER_LEVEL_ON, ProfilerConsent, QueriesAction};
 use eframe::egui;
@@ -80,9 +80,7 @@ fn buttons(
 ) -> Option<QueriesAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let cancel = ui
-            .add_enabled_ui(!busy, |ui| text_button(ui, i18n.t("common.cancel")))
-            .inner;
+        let cancel = gate(ui, !busy, |ui| text_button(ui, i18n.t("common.cancel")));
         // Cancel owns the first focus, so a stray Enter changes nothing.
         focus_once(ui, &cancel, ("profiler_consent_focus", &consent.db));
         let (label, confirmed) = match turning_on {
@@ -95,9 +93,7 @@ fn buttons(
                 QueriesAction::ConfirmDisable,
             ),
         };
-        let confirm = ui
-            .add_enabled_ui(!confirm_off, |ui| filled_button(ui, i18n.t(label)))
-            .inner;
+        let confirm = gate(ui, !confirm_off, |ui| filled_button(ui, i18n.t(label)));
         if cancel.clicked() {
             action = Some(QueriesAction::CancelEnable);
         }

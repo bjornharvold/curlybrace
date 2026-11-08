@@ -4,8 +4,8 @@
 use super::tone_notice::tone_notice;
 use crate::I18n;
 use crate::theme::{
-    FieldOptions, Tone, card, compact_text_button, filled_button, modal_frame, outlined_field_opts,
-    text_button, tonal_button, typography,
+    FieldOptions, Tone, card, compact_text_button, filled_button, gate, modal_frame,
+    outlined_field_opts, text_button, tonal_button, typography,
 };
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_builder::{BUILDER_KINDS, kind_label_key};
@@ -226,9 +226,9 @@ fn row_button(
     params: &[(&str, &str)],
     i18n: &I18n,
 ) -> bool {
-    let response = ui
-        .add_enabled_ui(enabled, |ui| compact_text_button(ui, i18n.t(button.text)))
-        .inner;
+    let response = gate(ui, enabled, |ui| {
+        compact_text_button(ui, i18n.t(button.text))
+    });
     let name = i18n.t_with(button.name, params);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, name.clone()));
     response.clicked()
@@ -444,11 +444,9 @@ fn footer(
     let mut action = None;
     ui.horizontal(|ui| {
         let enabled = problem.is_none() && !context.read_only && !context.busy;
-        let create = ui
-            .add_enabled_ui(enabled, |ui| {
-                filled_button(ui, i18n.t("indexes.builder.create"))
-            })
-            .inner;
+        let create = gate(ui, enabled, |ui| {
+            filled_button(ui, i18n.t("indexes.builder.create"))
+        });
         if create.clicked() {
             action = Some(IndexesAction::Create);
         }

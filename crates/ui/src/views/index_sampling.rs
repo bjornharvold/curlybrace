@@ -4,7 +4,7 @@
 //! what the person did; the typed text is the only thing it keeps (in egui's memory).
 use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
-use crate::theme::{compact_text_button, outlined_field, tonal_button};
+use crate::theme::{compact_text_button, gate, outlined_field, tonal_button};
 use crate::viewmodel::IndexesAction;
 use eframe::egui;
 
@@ -70,12 +70,10 @@ fn add_row(ui: &mut egui::Ui, i18n: &I18n) -> Option<IndexesAction> {
         let can_add = SamplingSettings::normalized(&draft).is_some();
         let pressed_enter =
             response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-        let clicked = ui
-            .add_enabled_ui(can_add, |ui| {
-                tonal_button(ui, i18n.t("indexes.sampling.add"))
-            })
-            .inner
-            .clicked();
+        let clicked = gate(ui, can_add, |ui| {
+            tonal_button(ui, i18n.t("indexes.sampling.add"))
+        })
+        .clicked();
         let submitted = can_add && (clicked || pressed_enter);
         let action = submitted.then(|| IndexesAction::ExcludeDatabase(draft.clone()));
         if submitted {

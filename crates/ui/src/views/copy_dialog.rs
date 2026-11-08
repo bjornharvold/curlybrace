@@ -13,7 +13,7 @@ use crate::app::copy::CopyInput;
 use crate::app::copy_state::{CopyDialog, CopyPhase, CountRow};
 use crate::app::state::AppState;
 use crate::theme::{
-    Tone, card, filled_button, modal_frame, outlined_field, text_button, typography,
+    Tone, card, filled_button, gate, modal_frame, outlined_field, text_button, typography,
 };
 use crate::viewmodel::ConnectionBadge;
 use curlybrace_core::copy::policy::ConflictPolicy;
@@ -308,9 +308,9 @@ fn show_buttons(
     }
     ui.horizontal(|ui| {
         let cancel = text_button(ui, i18n.t("common.cancel"));
-        let copy = ui
-            .add_enabled_ui(allowed, |ui| filled_button(ui, i18n.t("copy.dialog.copy")))
-            .inner;
+        let copy = gate(ui, allowed, |ui| {
+            filled_button(ui, i18n.t("copy.dialog.copy"))
+        });
         if dialog.needs_typed_confirmation(production) && !typing {
             focus_cancel_unless_focused(&cancel, &copy);
         }

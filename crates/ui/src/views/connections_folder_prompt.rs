@@ -2,7 +2,7 @@
 use super::connections::{ConnectionAction, ConnectionsState, FolderPrompt};
 use crate::I18n;
 use crate::theme::{
-    FieldOptions, filled_button, modal_frame, outlined_field_opts, text_button, tonal_button,
+    FieldOptions, filled_button, gate, modal_frame, outlined_field_opts, text_button, tonal_button,
     typography,
 };
 use eframe::egui;
@@ -54,10 +54,8 @@ pub(super) fn show_folder_prompt(
             }
             ui.horizontal(|ui| {
                 cancelled = text_button(ui, i18n.t("common.cancel")).clicked();
-                confirmed |= ui
-                    .add_enabled_ui(!blank, |ui| filled_button(ui, i18n.t("common.ok")))
-                    .inner
-                    .clicked();
+                confirmed |=
+                    gate(ui, !blank, |ui| filled_button(ui, i18n.t("common.ok"))).clicked();
             });
         });
     if confirmed {

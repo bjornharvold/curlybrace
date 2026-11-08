@@ -2,7 +2,7 @@
 //! Validation and state transitions live in `viewmodel::editor`.
 use crate::I18n;
 use crate::theme::typography::dialog_title;
-use crate::theme::{filled_button, modal_frame, text_button};
+use crate::theme::{filled_button, gate, modal_frame, text_button};
 use crate::viewmodel::{EditorAction, EditorIntent, EditorState, dismissal_action, resolve_editor};
 use eframe::egui;
 
@@ -64,9 +64,9 @@ pub fn show_editor_with(
 fn buttons(ui: &mut egui::Ui, i18n: &I18n, save_enabled: bool) -> Option<EditorIntent> {
     ui.horizontal(|ui| {
         let mut intent = None;
-        let save = ui
-            .add_enabled_ui(save_enabled, |ui| filled_button(ui, i18n.t("editor.save")))
-            .inner;
+        let save = gate(ui, save_enabled, |ui| {
+            filled_button(ui, i18n.t("editor.save"))
+        });
         if save.clicked() {
             intent = Some(EditorIntent::Save);
         }

@@ -6,7 +6,7 @@ use super::index_sampling::show_sampling;
 use super::queries::show_queries;
 use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
-use crate::theme::{PILL_HEIGHT, filled_button, pill, segmented, tonal_button};
+use crate::theme::{PILL_HEIGHT, filled_button, gate, pill, segmented, tonal_button};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_chart::observed_uses;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key};
@@ -166,13 +166,11 @@ fn create_button(
         (false, Some(_)) => Some("indexes.write_busy"),
         (false, None) => None,
     };
-    let button = ui
-        .add_enabled_ui(reason.is_none(), |ui| {
-            filled_button(ui, i18n.t("indexes.create"))
-        })
-        .inner;
+    let button = gate(ui, reason.is_none(), |ui| {
+        filled_button(ui, i18n.t("indexes.create"))
+    });
     if let Some(key) = reason {
-        button.on_disabled_hover_text(i18n.t(key));
+        button.on_hover_text(i18n.t(key));
         ui.label(i18n.t(key));
         return false;
     }

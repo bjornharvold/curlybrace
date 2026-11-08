@@ -5,7 +5,7 @@ use super::tone_notice::tone_notice;
 use crate::I18n;
 use crate::app::copy::CopyInput;
 use crate::app::copy_state::{CopyRow, CopyRun, RunOutcome};
-use crate::theme::{Tone, card, filled_button, modal_frame, tonal_button, typography};
+use crate::theme::{Tone, card, filled_button, gate, modal_frame, tonal_button, typography};
 use eframe::egui;
 
 const MODAL_WIDTH: f32 = 620.0;
@@ -44,11 +44,9 @@ fn show_running(ui: &mut egui::Ui, run: &CopyRun, i18n: &I18n) -> Option<CopyInp
         }
     });
     ui.separator();
-    let cancel = ui
-        .add_enabled_ui(run.can_cancel(), |ui| {
-            tonal_button(ui, i18n.t("copy.progress.cancel"))
-        })
-        .inner;
+    let cancel = gate(ui, run.can_cancel(), |ui| {
+        tonal_button(ui, i18n.t("copy.progress.cancel"))
+    });
     if run.cancel_requested {
         ui.label(i18n.t("copy.progress.cancelling"));
     }

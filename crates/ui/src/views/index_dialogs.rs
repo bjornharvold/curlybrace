@@ -7,7 +7,9 @@ use super::connection_badge::show_badge;
 use super::tone_notice::tone_notice;
 use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
 use crate::I18n;
-use crate::theme::{Tone, filled_button, modal_frame, outlined_field, text_button, typography};
+use crate::theme::{
+    Tone, filled_button, gate, modal_frame, outlined_field, text_button, typography,
+};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{
     ConnectionBadge, DropConfirm, DropOld, IndexesAction, TtlPrompt, index_write::ttl_problem,
@@ -112,15 +114,13 @@ pub fn show_drop_confirm(
             focus_once(ui, &input, ("index_drop_focus", &confirm.name));
             note(ui, context, i18n);
             ui.horizontal(|ui| {
-                let cancel = ui
-                    .add_enabled_ui(!context.busy, |ui| text_button(ui, i18n.t("common.cancel")))
-                    .inner;
+                let cancel = gate(ui, !context.busy, |ui| {
+                    text_button(ui, i18n.t("common.cancel"))
+                });
                 let enabled = confirm.confirmed() && !context.busy && !context.badge.read_only;
-                let drop = ui
-                    .add_enabled_ui(enabled, |ui| {
-                        filled_button(ui, i18n.t("indexes.drop.confirm"))
-                    })
-                    .inner;
+                let drop = gate(ui, enabled, |ui| {
+                    filled_button(ui, i18n.t("indexes.drop.confirm"))
+                });
                 if cancel.clicked() {
                     action = Some(IndexesAction::DropCancelled);
                 }
@@ -161,17 +161,13 @@ pub fn show_drop_old(
             }
             note(ui, context, i18n);
             ui.horizontal(|ui| {
-                let keep = ui
-                    .add_enabled_ui(!context.busy, |ui| {
-                        text_button(ui, i18n.t("indexes.drop_old.keep"))
-                    })
-                    .inner;
+                let keep = gate(ui, !context.busy, |ui| {
+                    text_button(ui, i18n.t("indexes.drop_old.keep"))
+                });
                 let enabled = !context.busy && !context.badge.read_only;
-                let drop = ui
-                    .add_enabled_ui(enabled, |ui| {
-                        filled_button(ui, i18n.t("indexes.drop_old.drop"))
-                    })
-                    .inner;
+                let drop = gate(ui, enabled, |ui| {
+                    filled_button(ui, i18n.t("indexes.drop_old.drop"))
+                });
                 // Keep owns the first focus, so a stray Enter drops nothing.
                 focus_once(ui, &keep, ("index_drop_old_focus", &prompt.old));
                 if keep.clicked() {
@@ -219,15 +215,15 @@ pub fn show_ttl_prompt(
             ui.horizontal(|ui| {
                 let ready = seconds.as_ref().ok().filter(|s| ttl_problem(**s).is_none());
                 let enabled = ready.is_some() && !context.busy && !context.badge.read_only;
-                let apply = ui
-                    .add_enabled_ui(enabled, |ui| filled_button(ui, i18n.t("indexes.ttl.apply")))
-                    .inner;
+                let apply = gate(ui, enabled, |ui| {
+                    filled_button(ui, i18n.t("indexes.ttl.apply"))
+                });
                 if let (true, Some(seconds)) = (apply.clicked(), ready) {
                     action = Some(IndexesAction::SetTtl(prompt.name.clone(), *seconds));
                 }
-                let cancel = ui
-                    .add_enabled_ui(!context.busy, |ui| text_button(ui, i18n.t("common.cancel")))
-                    .inner;
+                let cancel = gate(ui, !context.busy, |ui| {
+                    text_button(ui, i18n.t("common.cancel"))
+                });
                 if cancel.clicked() {
                     action = Some(IndexesAction::TtlCancelled);
                 }

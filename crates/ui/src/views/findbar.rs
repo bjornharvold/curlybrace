@@ -1,7 +1,7 @@
 //! Find bar view: filter/sort/projection/skip/limit inputs and paging controls.
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
 use crate::I18n;
-use crate::theme::{filled_button, outlined_field, text_button, tonal_button};
+use crate::theme::{filled_button, gate, outlined_field, text_button, tonal_button};
 use crate::viewmodel::{FindBarState, FindIntent, pick_intent, resolve_find_intent};
 use curlybrace_core::query::QueryText;
 use eframe::egui::{self, vec2};
@@ -91,15 +91,11 @@ fn buttons(ui: &mut egui::Ui, has_prev: bool, has_next: bool, i18n: &I18n) -> Op
         if tonal_button(ui, i18n.t("findbar.clear")).clicked() {
             intent = Some(FindIntent::ClearButton);
         }
-        let prev = ui
-            .add_enabled_ui(has_prev, |ui| text_button(ui, i18n.t("findbar.prev")))
-            .inner;
+        let prev = gate(ui, has_prev, |ui| text_button(ui, i18n.t("findbar.prev")));
         if prev.clicked() {
             intent = Some(FindIntent::PrevButton);
         }
-        let next = ui
-            .add_enabled_ui(has_next, |ui| text_button(ui, i18n.t("findbar.next")))
-            .inner;
+        let next = gate(ui, has_next, |ui| text_button(ui, i18n.t("findbar.next")));
         if next.clicked() {
             intent = Some(FindIntent::NextButton);
         }
