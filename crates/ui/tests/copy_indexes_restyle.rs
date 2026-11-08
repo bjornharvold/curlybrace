@@ -123,6 +123,13 @@ fn series(name: &str) -> IndexSeries {
 // ---------------------------------------------------------------- the Indexes list
 
 fn indexes(read_only: bool) -> Harness<'static, (IndexesState, Vec<IndexesAction>)> {
+    indexes_in(read_only, egui::vec2(1000.0, 700.0))
+}
+
+fn indexes_in(
+    read_only: bool,
+    size: egui::Vec2,
+) -> Harness<'static, (IndexesState, Vec<IndexesAction>)> {
     let state = IndexesState {
         ns: Some(Namespace::new("shop", "orders")),
         indexes: vec![CollectionIndex {
@@ -134,25 +141,23 @@ fn indexes(read_only: bool) -> Harness<'static, (IndexesState, Vec<IndexesAction
         ..IndexesState::default()
     };
     let mut installed = false;
-    let mut harness = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_state(
-            move |ctx, (state, seen): &mut (IndexesState, Vec<IndexesAction>)| {
-                themed(ctx, &mut installed);
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    let action = show_indexes(
-                        ui,
-                        state,
-                        read_only,
-                        &I18n::english(),
-                        NOW,
-                        &SamplingSettings::default(),
-                    );
-                    seen.extend(action);
-                });
-            },
-            (state, Vec::new()),
-        );
+    let mut harness = Harness::builder().with_size(size).build_state(
+        move |ctx, (state, seen): &mut (IndexesState, Vec<IndexesAction>)| {
+            themed(ctx, &mut installed);
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let action = show_indexes(
+                    ui,
+                    state,
+                    read_only,
+                    &I18n::english(),
+                    NOW,
+                    &SamplingSettings::default(),
+                );
+                seen.extend(action);
+            });
+        },
+        (state, Vec::new()),
+    );
     harness.run_steps(6);
     harness
 }
@@ -284,12 +289,101 @@ fn a_ttl_error_is_in_place_and_does_not_move_the_fields_below() {
 }
 
 #[test]
-fn a_duplicate_field_marks_its_row() {
+fn a_duplicate_field_marks_the_repeated_row_and_not_the_first() {
     let builder = one_key().adding_key().with_field(1, "a");
     let h = builder_harness(builder);
-    let label = named("indexes.builder.key_field_n", "2");
-    let second = h.get_by_role_and_label(Role::TextInput, &label);
-    assert!(second.accesskit_node().description().is_some());
+    let description = |n: &str| {
+        let label = named("indexes.builder.key_field_n", n);
+        h.get_by_role_and_label(Role::TextInput, &label)
+            .accesskit_node()
+            .description()
+    };
+    assert_eq!(description("1"), None, "the first row is not at fault");
+    assert!(
+        description("2").is_some(),
+        "the repeated row carries the error"
+    );
+}
+
+#[test]
+fn the_json_boxes_are_outlined_multiline_fields() {
+    let mut h = builder_harness(one_key().with_partial_filter_text("{ nope"));
+    for key in [
+        "indexes.builder.collation",
+        "indexes.builder.partial_filter",
+    ] {
+        let label = t(key);
+        h.get_by_role_and_label(Role::MultilineTextInput, &label);
+        assert_eq!(
+            h.query_all_by_role_and_label(Role::Label, &label).count(),
+            0
+        );
+    }
+    // The invalid filter is marked with its message and the border is drawn in the error color.
+    let filter = t("indexes.builder.partial_filter");
+    let message = h
+        .get_by_role_and_label(Role::MultilineTextInput, &filter)
+        .accesskit_node()
+        .description();
+    assert_eq!(
+        message.as_deref(),
+        Some(t("indexes.builder.problem_partial_filter").as_str())
+    );
+    let error = light().error;
+    let drawn = h
+        .output()
+        .shapes
+        .iter()
+        .any(|clipped| match &clipped.shape {
+            Shape::Rect(r) => r.stroke.color == error,
+            Shape::Vec(inner) => inner
+                .iter()
+                .any(|s| matches!(s, Shape::Rect(r) if r.stroke.color == error)),
+            _ => false,
+        });
+    assert!(drawn, "the border of the invalid box uses the error color");
+    // Typing edits the builder.
+    let collation = t("indexes.builder.collation");
+    h.get_by_role_and_label(Role::MultilineTextInput, &collation)
+        .focus();
+    h.run_steps(3);
+    h.get_by_role_and_label(Role::MultilineTextInput, &collation)
+        .type_text("{}");
+    h.run_steps(4);
+    assert_eq!(h.state().builder.collation_text, "{}");
+}
+
+#[test]
+fn the_key_type_and_row_buttons_are_centred_on_the_field_box() {
+    for builder in [one_key(), one_key().adding_key().with_field(1, "a")] {
+        let h = builder_harness(builder);
+        let field = named("indexes.builder.key_field_n", "1");
+        let kind = named("indexes.builder.key_type_n", "1");
+        let remove = named("indexes.builder.remove_key_n", "1");
+        let box_y = h
+            .get_by_role_and_label(Role::TextInput, &field)
+            .rect()
+            .center()
+            .y;
+        let combo_y = h
+            .get_by_role_and_label(Role::ComboBox, &kind)
+            .rect()
+            .center()
+            .y;
+        let button_y = h
+            .get_by_role_and_label(Role::Button, &remove)
+            .rect()
+            .center()
+            .y;
+        assert!(
+            (combo_y - box_y).abs() <= 1.0,
+            "combo {combo_y} vs field {box_y}"
+        );
+        assert!(
+            (button_y - box_y).abs() <= 1.0,
+            "button {button_y} vs field {box_y}"
+        );
+    }
 }
 
 #[test]
@@ -518,4 +612,84 @@ fn the_copy_dialog_is_themed_with_outlined_name_fields() {
         0
     );
     assert!(on_fill(&h, &t("copy.dialog.copy"), light().primary, 12));
+}
+
+// ---------------------------------------------------------------- narrow status row
+
+fn status_at(width: f32, level: i32) -> Harness<'static, QueriesState> {
+    let state = QueriesState::default().with_profiling(ProfilingView::Known(ProfilingState {
+        level,
+        slow_ms: 100,
+    }));
+    let mut installed = false;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(width, 600.0))
+        .build_state(
+            move |ctx, state: &mut QueriesState| {
+                themed(ctx, &mut installed);
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let ns = Namespace::new("shop", "orders");
+                    let _: Option<QueriesAction> =
+                        show_queries(ui, state, &ns, false, &I18n::english(), NOW);
+                });
+            },
+            state,
+        );
+    harness.run_steps(6);
+    harness
+}
+
+#[test]
+fn status_buttons_are_not_truncated_when_the_row_wraps() {
+    for (level, keys) in [
+        (0, vec!["indexes.queries.enable"]),
+        (
+            1,
+            vec!["indexes.queries.turn_off", "indexes.queries.record_all"],
+        ),
+    ] {
+        let wide = status_at(1000.0, level);
+        let narrow = status_at(400.0, level);
+        for key in keys {
+            let label = t(key);
+            let natural = wide.get_by_role_and_label(Role::Button, &label).rect();
+            let cut = narrow.get_by_role_and_label(Role::Button, &label).rect();
+            assert!(
+                (natural.width() - cut.width()).abs() < 0.5,
+                "{label} was cut from {} to {}",
+                natural.width(),
+                cut.width()
+            );
+            assert!(cut.right() <= 400.0, "{label} runs past the row: {cut:?}");
+        }
+    }
+}
+
+#[test]
+fn a_narrow_status_row_wraps_onto_a_second_line() {
+    let narrow = status_at(400.0, 1);
+    let first = t("indexes.queries.turn_off");
+    let last = t("indexes.queries.record_all");
+    let top = |label: &str| {
+        narrow
+            .get_by_role_and_label(Role::Button, label)
+            .rect()
+            .top()
+    };
+    assert!(top(&last) > top(&first), "the buttons stayed on one line");
+}
+
+#[test]
+fn the_facts_stay_reachable_by_scrolling_at_the_smallest_window() {
+    let mut h = indexes_in(false, egui::vec2(800.0, 500.0));
+    let facts = t("indexes.uses_since_restart");
+    let before = h.get_by_label(&facts).rect().top();
+    assert!(before > 500.0, "the facts start below the fold ({before})");
+    h.get_by_label(&facts).scroll_to_me();
+    h.run_steps(4);
+    let after = h.get_by_label(&facts).rect().top();
+    assert!(
+        after < 500.0,
+        "scrolling brings the facts into view ({after})"
+    );
 }

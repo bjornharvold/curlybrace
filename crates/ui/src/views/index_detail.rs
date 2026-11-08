@@ -2,7 +2,7 @@
 use super::index_chart::show_chart;
 use super::indexes::hidden_marker;
 use crate::I18n;
-use crate::theme::{card, tonal_button};
+use crate::theme::{card, gate, tonal_button};
 use crate::viewmodel::IndexesAction;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_detail::{
@@ -102,15 +102,10 @@ fn buttons(ui: &mut egui::Ui, input: &DetailInput<'_>, i18n: &I18n) -> Option<In
         if tonal_button(ui, i18n.t("indexes.copy_json")).clicked() {
             action = Some(IndexesAction::CopyJson(spec.to_json()));
         }
-        // Disabled for the rest of the row, not per button: a button in its own scope would
-        // see only the room left on the line and be cut instead of moving to the next one.
-        if reason.is_some() {
-            ui.disable();
-        }
         for (label, write) in writes {
-            let button = tonal_button(ui, i18n.t(label));
+            let button = gate(ui, reason.is_none(), |ui| tonal_button(ui, i18n.t(label)));
             if let Some(key) = reason {
-                button.on_disabled_hover_text(i18n.t(key));
+                button.on_hover_text(i18n.t(key));
             } else if button.clicked() {
                 action = Some(write);
             }

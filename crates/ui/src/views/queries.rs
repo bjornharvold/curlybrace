@@ -6,7 +6,7 @@ use super::queries_chart::show_miss_chart;
 use super::queries_rows::show_rows;
 use super::tone_notice::tone_notice;
 use crate::I18n;
-use crate::theme::{CONTROL_HEIGHT, Tone, filled_button, segmented, tonal_button};
+use crate::theme::{CONTROL_HEIGHT, Tone, filled_button, gate, segmented, tonal_button};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key};
 use crate::viewmodel::queries_status::{
@@ -113,12 +113,10 @@ fn button(
         ProfilerControl::RecordAll => ("indexes.queries.record_all", QueriesAction::AskEnable),
     };
     let label = i18n.t(label_key);
-    let response = ui
-        .add_enabled_ui(row.enabled, |ui| match control {
-            ProfilerControl::Enable => filled_button(ui, label),
-            ProfilerControl::TurnOff | ProfilerControl::RecordAll => tonal_button(ui, label),
-        })
-        .inner;
+    let response = gate(ui, row.enabled, |ui| match control {
+        ProfilerControl::Enable => filled_button(ui, label),
+        ProfilerControl::TurnOff | ProfilerControl::RecordAll => tonal_button(ui, label),
+    });
     // The reason is visible next to the buttons; hovering gives the full sentence.
     if let Some(key) = row.disabled_reason {
         let full = if key == READ_ONLY_NOTE_KEY {
@@ -126,7 +124,7 @@ fn button(
         } else {
             key
         };
-        response.clone().on_disabled_hover_text(i18n.t(full));
+        response.clone().on_hover_text(i18n.t(full));
     }
     (response.clicked() && row.enabled).then_some(action)
 }

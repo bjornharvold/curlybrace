@@ -7,7 +7,7 @@ use super::{
 use crate::theme::shape::{self, radius};
 use crate::theme::{Scheme, current_ui};
 use eframe::egui::{
-    Color32, FontSelection, Response, Sense, TextStyle, TextWrapMode, Ui, Vec2, WidgetInfo,
+    Color32, FontSelection, Id, Response, Sense, TextStyle, TextWrapMode, Ui, Vec2, WidgetInfo,
     WidgetText, WidgetType,
 };
 
@@ -61,7 +61,26 @@ pub fn compact_text_button(ui: &mut Ui, text: impl Into<WidgetText>) -> Response
     button(ui, text.into(), Kind::TextCompact)
 }
 
+/// Marks the theme buttons drawn by [`gate`] as off.
+const GATE: &str = "theme_button_gate";
+
+/// Draws the theme button `add` makes as enabled or, when `enabled` is false, in Material's
+/// disabled look, reported disabled and without click. Unlike `Ui::add_enabled_ui` it opens no
+/// child `Ui`: a child sees only the room left on the current line and a wrapping parent
+/// never gets to move the button to the next one, so the button was cut to the remainder.
+pub fn gate(ui: &mut Ui, enabled: bool, add: impl FnOnce(&mut Ui) -> Response) -> Response {
+    let id = Id::new(GATE);
+    ui.data_mut(|d| d.insert_temp(id, !enabled));
+    let response = add(ui);
+    ui.data_mut(|d| d.remove::<bool>(id));
+    response
+}
+
 fn button(ui: &mut Ui, text: WidgetText, kind: Kind) -> Response {
+    let off = ui
+        .data(|d| d.get_temp::<bool>(Id::new(GATE)))
+        .unwrap_or(false);
+    let usable = ui.is_enabled() && !off;
     let s = current_ui(ui);
     let padding = kind.padding();
     let size = TextStyle::Button.resolve(ui.style()).size;
@@ -70,15 +89,29 @@ fn button(ui: &mut Ui, text: WidgetText, kind: Kind) -> Response {
     let label = text.text().to_owned();
     let galley = text.into_galley(ui, Some(TextWrapMode::Truncate), max_text, font);
     let desired = Vec2::new(galley.size().x + 2.0 * padding, CONTROL_HEIGHT);
-    let (rect, mut response) = ui.allocate_exact_size(desired, Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), &label));
+    let (rect, mut response) = ui.allocate_exact_size(
+        desired,
+        if usable {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, usable, &label));
     if galley.elided {
         response = response.on_hover_text(&label);
     }
     if !ui.is_rect_visible(rect) {
         return response;
     }
-    let look = Look::of(ui, &response);
+    let look = match usable {
+        true => Look::of(ui, &response),
+        false => Look {
+            layer: None,
+            focused: false,
+            enabled: false,
+        },
+    };
     let (container, content) = kind.colors(s);
     let (fill, text_color) = if !look.enabled {
         let fill = match kind {
