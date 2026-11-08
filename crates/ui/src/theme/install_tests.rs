@@ -69,25 +69,54 @@ fn switching_the_theme_changes_the_panel_color() {
 
 #[test]
 fn text_styles_lay_out_at_two_pixels_per_point() {
+    let mut harness = Harness::builder()
+        .with_pixels_per_point(2.0)
+        .with_size(egui::vec2(400.0, 200.0))
+        .build_ui(|ui| {
+            ui.label("Connections");
+        });
+    install(&harness.ctx);
+    harness.run();
+    let ctx = &harness.ctx;
+    assert_eq!(ctx.pixels_per_point(), 2.0);
+
     let styles = typography::text_styles();
-    assert!(styles.contains_key(&TextStyle::Body));
     assert!(styles.contains_key(&typography::title_medium()));
     assert!(styles.contains_key(&typography::title_large()));
-    for style in styles.keys() {
-        let mut harness = Harness::builder()
-            .with_pixels_per_point(2.0)
-            .with_size(egui::vec2(400.0, 200.0))
-            .build_ui(|ui| {
-                ui.label("Connections");
-            });
-        install(&harness.ctx);
-        harness.run();
-        let font_id = harness.ctx.style().text_styles[style].clone();
-        let rows = harness.ctx.fonts(|f| {
-            f.layout("Connections".into(), font_id, Color32::BLACK, 300.0)
-                .rows
-                .len()
-        });
-        assert_eq!(rows, 1, "{style:?} wrapped a one-line label");
+    for (style, font) in &styles {
+        let physical = font.size * ctx.pixels_per_point();
+        assert_eq!(
+            physical.fract(),
+            0.0,
+            "{style:?} is not whole physical pixels"
+        );
     }
+
+    let height = |style: TextStyle| {
+        let font_id = ctx.style().text_styles[&style].clone();
+        ctx.fonts(|f| f.row_height(&font_id)) * ctx.pixels_per_point()
+    };
+    let scale = [
+        TextStyle::Small,
+        TextStyle::Body,
+        typography::title_medium(),
+        typography::title_large(),
+        TextStyle::Heading,
+    ];
+    let heights: Vec<f32> = scale.into_iter().map(height).collect();
+    assert!(heights.iter().all(|h| *h > 0.0), "{heights:?}");
+    assert!(
+        heights.windows(2).all(|w| w[0] < w[1]),
+        "heights must grow along the Material scale: {heights:?}"
+    );
+}
+
+#[test]
+fn install_follows_the_system_theme_preference() {
+    let harness = Harness::builder().build_ui(|_| {});
+    install(&harness.ctx);
+    assert_eq!(
+        harness.ctx.options(|o| o.theme_preference),
+        egui::ThemePreference::System
+    );
 }
