@@ -212,3 +212,36 @@ fn with_alpha_maps_percent_to_alpha() {
     assert_eq!(with_alpha(c, 0).a(), 0);
     assert_eq!(with_alpha(c, 38).a(), 97);
 }
+
+#[test]
+fn outlined_field_error_paints_the_error_color() {
+    let s = scheme(Mode::Light);
+    let mut harness = themed(300.0, String::new(), |ui, text: &mut String| {
+        super::outlined_field_with(ui, "TTL", text, "seconds", Some("Must be a number"));
+    });
+    harness.run();
+    let stroked = harness.output().shapes.iter().any(|c| match &c.shape {
+        Shape::Rect(r) => r.stroke.color == s.error,
+        _ => false,
+    });
+    assert!(stroked, "no border in the error color");
+}
+
+#[test]
+fn error_meets_contrast_on_the_field_surfaces() {
+    use crate::theme::contrast::ratio;
+    for mode in [Mode::Light, Mode::Dark] {
+        let s = scheme(mode);
+        for surface in [
+            s.background,
+            s.surface,
+            s.surface_container_low,
+            s.surface_container,
+            s.surface_container_high,
+        ] {
+            // The supporting text is small text: AA 4.5; the border is a boundary: 3:1.
+            let r = ratio(s.error, surface);
+            assert!(r >= 4.5, "{mode:?}: error on {surface:?} is {r}");
+        }
+    }
+}

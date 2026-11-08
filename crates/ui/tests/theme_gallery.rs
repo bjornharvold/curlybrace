@@ -1,5 +1,5 @@
 //! The theme gallery: every custom widget in every state (enabled, hover, pressed, focused,
-//! disabled, and the error tone) in both modes, rendered with wgpu and compared with
+//! disabled, and error) in both modes, rendered with wgpu and compared with
 //! `tests/snapshots/theme_gallery_{light,dark}.png`. A token change is reviewed here in one place.
 //!
 //! Hover, pressed and focused are forced per column with `theme::widgets::with_forced`, so the

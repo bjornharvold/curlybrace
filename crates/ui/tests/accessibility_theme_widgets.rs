@@ -5,7 +5,10 @@
 mod widget_gallery;
 
 use curlybrace_ui::theme::{Mode, Tone, chip, scheme};
-use eframe::egui::{self, Rect, Shape, accesskit::Role, accesskit::Toggled};
+use eframe::egui::{
+    self, Rect, Shape,
+    accesskit::{Invalid, Role, Toggled},
+};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use std::collections::BTreeSet;
@@ -145,4 +148,33 @@ fn custom_widgets_are_reachable_by_tab_and_show_focus() {
     let reached: BTreeSet<&str> = reached.iter().map(String::as_str).collect();
     let expected: BTreeSet<&str> = TAB_ORDER.iter().copied().collect();
     assert_eq!(reached, expected);
+}
+
+#[test]
+fn outlined_field_error_is_invalid_with_the_message_as_description() {
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(400.0, 200.0))
+        .build_ui_state(
+            themed(Mode::Light, |ui, text: &mut String| {
+                curlybrace_ui::theme::outlined_field_with(
+                    ui,
+                    "TTL",
+                    text,
+                    "seconds",
+                    Some("Must be a number"),
+                );
+                curlybrace_ui::theme::outlined_field(ui, "Name", &mut String::new(), "e.g. crm");
+            }),
+            "abc".to_owned(),
+        );
+    harness.run();
+    let field = harness.get_by_role_and_label(Role::TextInput, "TTL");
+    let node = field.accesskit_node();
+    assert_eq!(node.data().invalid(), Some(Invalid::True));
+    assert_eq!(node.description().as_deref(), Some("Must be a number"));
+    assert_eq!(node.placeholder(), Some("seconds"));
+    assert_eq!(field.value().as_deref(), Some("abc"));
+    let valid = harness.get_by_role_and_label(Role::TextInput, "Name");
+    assert_eq!(valid.accesskit_node().data().invalid(), None);
+    assert_eq!(valid.accesskit_node().placeholder(), Some("e.g. crm"));
 }

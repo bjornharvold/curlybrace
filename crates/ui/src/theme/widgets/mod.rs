@@ -18,7 +18,7 @@ mod widgets_tests;
 pub use button::{filled_button, text_button, tonal_button};
 pub use card::card;
 pub use chip::chip;
-pub use outlined_field::outlined_field;
+pub use outlined_field::{outlined_field, outlined_field_with};
 pub use pill::pill;
 pub use segmented::segmented;
 

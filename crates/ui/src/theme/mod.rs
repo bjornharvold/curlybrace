@@ -20,5 +20,6 @@ pub use fonts::{MEDIUM_FAMILY, SYMBOLS_FAMILY, font_definitions};
 pub use install::{StateLayer, current, current_ui, install, state_layer, visuals_for};
 pub use scheme::{Mode, Scheme, Tone, ToneColors, scheme};
 pub use widgets::{
-    card, chip, filled_button, outlined_field, pill, segmented, text_button, tonal_button,
+    card, chip, filled_button, outlined_field, outlined_field_with, pill, segmented, text_button,
+    tonal_button,
 };

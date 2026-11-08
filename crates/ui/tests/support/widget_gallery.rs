@@ -5,8 +5,8 @@
 
 use curlybrace_ui::theme::widgets::{Forced, with_forced};
 use curlybrace_ui::theme::{
-    self, Mode, Tone, card, chip, filled_button, outlined_field, pill, segmented, text_button,
-    tonal_button,
+    self, Mode, Tone, card, chip, filled_button, outlined_field, outlined_field_with, pill,
+    segmented, text_button, tonal_button,
 };
 use eframe::egui;
 
@@ -126,13 +126,17 @@ const ROWS: &[Row] = &[
     ("field hint", |ui, _| {
         outlined_field(ui, "Database", &mut String::new(), "e.g. crm");
     }),
+    ("field error", |ui, _| {
+        let error = Some("Must be a whole number");
+        outlined_field_with(ui, "TTL", &mut "ten".to_owned(), "seconds", error);
+    }),
     ("long", |ui, _| {
         filled_button(ui, LONG);
     }),
 ];
 
-/// Every widget in every state: one row per widget, one column per state, then the chips in
-/// each tone (the error state is the `Bad` tone) and a card.
+/// Every widget in every state: one row per widget, one column per state (the "field error"
+/// row is the field's error state), then the chips in each tone and a card.
 pub fn gallery(ui: &mut egui::Ui, state: &mut GalleryState) {
     egui::Grid::new("theme_gallery")
         .num_columns(COLUMNS.len() + 1)
