@@ -16,7 +16,7 @@ pub enum StateLayer {
 
 impl StateLayer {
     /// Overlay opacity in 1/100: hover 8%, focus 10%, pressed 10%.
-    fn percent(self) -> u32 {
+    pub(crate) fn percent(self) -> u32 {
         match self {
             Self::Hover => 8,
             Self::Focus | Self::Pressed => 10,

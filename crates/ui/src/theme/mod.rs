@@ -7,6 +7,7 @@ mod install;
 pub mod scheme;
 pub mod shape;
 pub mod typography;
+pub mod widgets;
 
 #[cfg(test)]
 mod fonts_tests;
@@ -18,3 +19,6 @@ mod scheme_tests;
 pub use fonts::{MEDIUM_FAMILY, SYMBOLS_FAMILY, font_definitions};
 pub use install::{StateLayer, current, current_ui, install, state_layer, visuals_for};
 pub use scheme::{Mode, Scheme, Tone, ToneColors, scheme};
+pub use widgets::{
+    card, chip, filled_button, outlined_field, pill, segmented, text_button, tonal_button,
+};
