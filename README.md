@@ -298,6 +298,12 @@ at your option. Unless you explicitly state otherwise, any contribution intentio
 inclusion in this project, as defined in the Apache-2.0 license, is dual licensed as above, without
 any additional terms or conditions.
 
+Bundled fonts: Roboto is licensed under the SIL Open Font License 1.1
+([crates/ui/assets/fonts/LICENSE-Roboto.txt](crates/ui/assets/fonts/LICENSE-Roboto.txt)) and the
+Material Symbols subset under the Apache License 2.0
+([crates/ui/assets/fonts/LICENSE-MaterialSymbols.txt](crates/ui/assets/fonts/LICENSE-MaterialSymbols.txt)).
+The macOS app bundle ships both texts in `Contents/Resources`.
+
 ## Disclaimer
 
 Curlybrace is an independent open-source project. It is not affiliated with, endorsed by, or
