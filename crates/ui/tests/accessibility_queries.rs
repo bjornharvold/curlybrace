@@ -473,6 +473,36 @@ fn read_only_disables_the_button_and_says_why() {
     }
 }
 
+/// Every status button (Enable profiler, Turn off, Record all operations) is reported disabled
+/// and inert on a read-only connection, whichever level the profiler is at.
+#[test]
+fn read_only_status_buttons_are_disabled_and_emit_nothing() {
+    let cases = [
+        (0, vec!["indexes.queries.enable"]),
+        (
+            1,
+            vec!["indexes.queries.turn_off", "indexes.queries.record_all"],
+        ),
+        (2, vec!["indexes.queries.turn_off"]),
+    ];
+    for (level, keys) in cases {
+        let mut harness = open(known(level), true);
+        for key in keys {
+            let label = t(key);
+            assert!(
+                button(&harness, &label).accesskit_node().is_disabled(),
+                "level {level}: {key} is not disabled"
+            );
+            click(&mut harness, &label);
+            assert!(
+                harness.state().seen.is_empty(),
+                "level {level}: clicking {key} emitted {:?}",
+                harness.state().seen
+            );
+        }
+    }
+}
+
 #[test]
 fn busy_disables_the_button() {
     let harness = open(known(0).write_sent("shop"), false);

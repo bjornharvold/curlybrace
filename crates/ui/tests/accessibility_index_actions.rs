@@ -203,6 +203,32 @@ fn a_read_only_connection_disables_every_write_control_and_shows_why() {
     harness.get_by_label(&t("connection.read_only_reason"));
 }
 
+/// The gated index actions (Hide, Edit a copy, Drop) are reported disabled AND inert, in every
+/// situation that closes them: read-only, a write in flight and the `_id_` index.
+#[test]
+fn gated_index_actions_are_disabled_and_emit_nothing_when_closed() {
+    let sent = Some(IndexWrite::Hide { name: "a_1".into() });
+    let closed = [
+        ("read-only", tab("ttl_1", None), true),
+        ("write in flight", tab("ttl_1", sent), false),
+        ("_id_ index", tab("_id_", None), false),
+    ];
+    for (why, state, read_only) in closed {
+        let mut harness = open_tab(state, read_only);
+        for key in WRITES {
+            let label = t(key);
+            assert!(disabled(&harness, &label), "{why}: {key} is not disabled");
+            button(&harness, &label).click();
+            harness.run_steps(3);
+            assert!(
+                harness.state().1.is_empty(),
+                "{why}: clicking {key} emitted {:?}",
+                harness.state().1
+            );
+        }
+    }
+}
+
 #[test]
 fn write_controls_wait_while_a_write_is_in_flight() {
     let sent = Some(IndexWrite::Hide { name: "a_1".into() });
