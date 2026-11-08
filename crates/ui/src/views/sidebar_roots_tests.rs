@@ -9,7 +9,7 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
 use egui_kittest::Harness;
-use egui_kittest::kittest::{NodeT, Queryable};
+use egui_kittest::kittest::Queryable;
 use uuid::Uuid;
 
 /// The width the app's sidebar opens at.
@@ -400,16 +400,30 @@ fn a_row_menu_lists_copy_and_paste_disabled_when_there_is_nothing_to_do() {
         .click_secondary();
     harness.run();
     harness.state_mut().1.take();
-    // Nothing is selected and nothing was copied: both entries are listed, and disabled. They
-    // are not clicked: a click on a disabled entry falls through to whatever is under the menu
-    // (here another root's Disconnect, now that rows span the sidebar's width).
-    for key in ["copy.menu.copy", "copy.paste"] {
-        let label = i18n.t(key);
-        let entry = harness.get_by_label(&label);
-        assert!(entry.accesskit_node().is_disabled(), "{key} is enabled");
+    // Nothing is selected and nothing was copied: both entries are listed, and clicking does
+    // nothing. Each is clicked on its own with a frame in between (a click on a disabled entry
+    // closes the menu, so the menu is opened again for the next one). The Paste entry sits over
+    // the second root's Disconnect button, which the click must not reach.
+    let paste = harness.get_by_label(&i18n.t("copy.paste")).rect();
+    let disconnects: Vec<_> = harness
+        .get_all_by_label_contains("Disconnect")
+        .map(|n| n.rect())
+        .collect();
+    assert!(
+        disconnects.iter().any(|d| d.intersects(paste)),
+        "precondition: the menu overlaps a Disconnect button"
+    );
+    for key in ["copy.paste", "copy.menu.copy"] {
+        harness.get_by_label(&i18n.t(key)).click();
+        harness.run();
+        let got = harness.state_mut().1.take();
+        assert!(got.is_none(), "{key}: {got:?}");
+        harness
+            .get_by_label(&db_row_label("shop", true))
+            .click_secondary();
+        harness.run();
+        harness.state_mut().1.take();
     }
-    harness.run();
-    assert!(harness.state_mut().1.take().is_none());
 }
 
 #[test]

@@ -12,7 +12,7 @@ use curlybrace_ui::viewmodel::index_detail::anchored_now;
 use curlybrace_ui::viewmodel::{IndexWrite, IndexesAction, IndexesState};
 use curlybrace_ui::views::indexes::show_indexes;
 use eframe::egui;
-use eframe::egui::accesskit::Role;
+use eframe::egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
@@ -231,7 +231,14 @@ fn every_control_has_an_accessible_label() {
         "indexes.range_week",
         "indexes.range_month",
     ] {
-        harness.get_by_role_and_label(Role::RadioButton, &t(key));
+        let label = t(key);
+        let node = harness.get_by_role_and_label(Role::RadioButton, &label);
+        let expected = if key == "indexes.range_day" {
+            Toggled::True
+        } else {
+            Toggled::False
+        };
+        assert_eq!(node.accesskit_node().toggled(), Some(expected), "{key}");
     }
     // The chart is drawn, not read: its numbers are also in a text line.
     harness.get_by_label(&I18n::english().t_with(

@@ -17,7 +17,7 @@ use curlybrace_ui::views::indexes::show_indexes;
 use curlybrace_ui::views::queries::show_queries;
 use eframe::egui;
 use eframe::egui::OutputCommand;
-use eframe::egui::accesskit::Role;
+use eframe::egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
@@ -662,6 +662,19 @@ fn the_toggle_switches_views_and_opens_the_queries() {
             ),
         );
     harness.run_steps(3);
+    let selected = |h: &Harness<'_, _>, key: &str| {
+        h.get_by_role_and_label(Role::RadioButton, &t(key))
+            .accesskit_node()
+            .toggled()
+    };
+    assert_eq!(
+        selected(&harness, "indexes.queries.view_indexes"),
+        Some(Toggled::True)
+    );
+    assert_eq!(
+        selected(&harness, "indexes.queries.view_queries"),
+        Some(Toggled::False)
+    );
     harness
         .get_by_role_and_label(Role::RadioButton, &t("indexes.queries.view_queries"))
         .click();
@@ -674,6 +687,10 @@ fn the_toggle_switches_views_and_opens_the_queries() {
     harness.state_mut().0.view = IndexesView::Queries;
     harness.run_steps(3);
     harness.get_by_label(&t("indexes.queries.profiler_checking"));
+    assert_eq!(
+        selected(&harness, "indexes.queries.view_queries"),
+        Some(Toggled::True)
+    );
     harness
         .get_by_role_and_label(Role::RadioButton, &t("indexes.queries.view_indexes"))
         .click();
