@@ -56,6 +56,9 @@ pub struct FieldOptions<'a> {
     /// The accessible name when it should say more than the (short) floating label, e.g. the
     /// text the person has to type. Defaults to the label.
     pub accessible_name: Option<&'a str>,
+    /// Stop typing and pasting at this many characters (egui's `TextEdit::char_limit`), so the
+    /// field never holds more than the limit and nothing has to cut the value afterwards.
+    pub char_limit: Option<usize>,
 }
 
 /// [`outlined_field_with`] over any text buffer (a read-only `&str` shows selectable text) with
@@ -82,6 +85,11 @@ pub fn outlined_field_opts(
             Some(_) => shape::SPACE_3,
             None => ((CONTROL_HEIGHT - row) / 2.0).max(0.0),
         };
+        // A single line is exactly the control height whatever the font size rounds to.
+        let min_height = match options.multiline_rows {
+            Some(_) => 0.0,
+            None => CONTROL_HEIGHT,
+        };
         let mut edit = match options.multiline_rows {
             Some(rows) => TextEdit::multiline(text)
                 .font(TextStyle::Monospace)
@@ -91,6 +99,8 @@ pub fn outlined_field_opts(
         }
         .hint_text(hint)
         .frame(false)
+        .min_size(vec2(0.0, min_height))
+        .char_limit(options.char_limit.unwrap_or(usize::MAX))
         .margin(Margin::symmetric(shape::SPACE_4 as i8, vertical as i8))
         .desired_width(f32::INFINITY)
         .password(options.password)

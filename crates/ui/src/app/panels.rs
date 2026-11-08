@@ -2,7 +2,8 @@
 //! Every decision lives in the reducer and view-models; nothing here has logic worth testing
 //! beyond "it renders" (covered by the headless frame tests in `mod.rs`).
 use super::banner::{
-    banner_colors, banner_detail, banner_icon, banner_level, banner_prefix, banner_text,
+    banner_colors, banner_detail, banner_icon, banner_level, banner_level_key, banner_prefix,
+    banner_text,
 };
 use super::copy::CopyInput;
 use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
@@ -79,9 +80,13 @@ pub fn show_banner(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut
         .show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 let text = |s: String| egui::RichText::new(s).color(on_container);
-                ui.label(
-                    icons::inline_icon(ui, banner_icon(banner_level(banner))).color(on_container),
-                );
+                let level = banner_level(banner);
+                // The icon is a private-use codepoint: name the level for assistive technology.
+                let level_name = i18n.t(banner_level_key(level));
+                let icon = ui.label(icons::inline_icon(ui, banner_icon(level)).color(on_container));
+                icon.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, level_name.clone())
+                });
                 if let Some(prefix) = prefix {
                     ui.label(text(prefix).strong());
                 }
@@ -514,6 +519,8 @@ fn show_forget_confirm(ctx: &egui::Context, message: &str, i18n: &I18n, out: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::banner::BannerLevel;
+    use crate::app::state::Banner;
     use crate::viewmodel::{MenuItem, page_key};
     use bson::Document;
     use curlybrace_core::connection::ConnectionConfig;
@@ -565,6 +572,26 @@ mod tests {
         harness.get_by_label(&i18n.t("doc.delete"));
         let line = i18n.t("write_warning.production_line");
         harness.query_by_label(&line).is_some()
+    }
+
+    #[test]
+    fn the_banner_icon_is_named_by_its_level_not_by_its_glyph() {
+        let mut state = AppState::new(Vec::new());
+        state.banner = Some(Banner::ReadOnly);
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(900.0, 200.0))
+            .build_state(
+                |ctx, state: &mut AppState| {
+                    crate::theme::install(ctx);
+                    show_banner(ctx, state, &I18n::english(), &mut Vec::new());
+                },
+                state,
+            );
+        harness.run_steps(4);
+        let i18n = I18n::english();
+        harness.get_by_label(&i18n.t("banner.level.warning"));
+        let glyph = banner_icon(BannerLevel::Warning).to_string();
+        assert_eq!(harness.query_all_by_label(&glyph).count(), 0);
     }
 
     #[test]

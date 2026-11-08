@@ -13,10 +13,9 @@ use crate::viewmodel::{
 };
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use eframe::egui;
+use eframe::egui::accesskit::SortDirection;
 use eframe::egui::collapsing_header::CollapsingState;
 
-const SORT_ASC: &str = "\u{23F6}";
-const SORT_DESC: &str = "\u{23F7}";
 /// Share of the table width per column, in `COLUMNS` order.
 const SHARES: [f32; 5] = [0.25, 0.22, 0.15, 0.19, 0.19];
 const COLUMNS: [(SortColumn, &str); 5] = [
@@ -202,20 +201,36 @@ fn column_widths(ui: &egui::Ui) -> [f32; 5] {
     SHARES.map(|share| usable * share)
 }
 
+/// A column header button. The sorted column shows an arrow from the icon font (down when
+/// `descending`); its accessible name stays the plain `label` and the direction is exposed as the
+/// node's sort direction, since the arrow is a private-use codepoint.
+fn sort_button(ui: &mut egui::Ui, label: &str, active: Option<bool>) -> egui::Response {
+    let shown: egui::WidgetText = match active {
+        Some(true) => icons::text_then_icon(ui, label, icons::ARROW_DOWN),
+        Some(false) => icons::text_then_icon(ui, label, icons::ARROW_UP),
+        None => label.into(),
+    };
+    let button = text_button(ui, shown);
+    button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    if let Some(descending) = active {
+        let direction = if descending {
+            SortDirection::Descending
+        } else {
+            SortDirection::Ascending
+        };
+        ui.ctx()
+            .accesskit_node_builder(button.id, |node| node.set_sort_direction(direction));
+    }
+    button
+}
+
 fn show_header(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n, widths: &[f32; 5]) {
     ui.horizontal(|ui| {
         for ((column, key), width) in COLUMNS.into_iter().zip(widths) {
-            let mut label = i18n.t(key);
-            if state.sort.column == column {
-                label.push(' ');
-                label.push_str(if state.sort.descending {
-                    SORT_DESC
-                } else {
-                    SORT_ASC
-                });
-            }
+            let label = i18n.t(key);
+            let active = (state.sort.column == column).then_some(state.sort.descending);
             cell(ui, *width, |ui| {
-                if text_button(ui, label).clicked() {
+                if sort_button(ui, &label, active).clicked() {
                     state.sort = state.sort.toggled(column);
                 }
             });

@@ -20,10 +20,8 @@ UPSTREAM='https://github.com/google/material-design-icons/raw/master/variablefon
 # name:codepoint (Material Symbols codepoints)
 GLYPHS=(
   settings:e8b8          # GEAR
-  check:e5ca             # CHECK
   chevron_right:e5cc     # CHEVRON_RIGHT
   expand_more:e5cf       # CHEVRON_DOWN
-  close:e5cd             # CLOSE
   warning:e002           # WARNING
   error:e000             # ERROR
   info:e88e              # INFO

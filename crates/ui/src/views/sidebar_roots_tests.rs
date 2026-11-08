@@ -4,7 +4,6 @@ use crate::viewmodel::connection_tag::PRODUCTION_BADGE_KEY;
 use crate::viewmodel::{
     CopyClipboard, NodeRef, PasteTarget, SelectMode, SidebarSelection, SidebarState,
 };
-use crate::views::sidebar::db_row_label;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
@@ -395,9 +394,7 @@ fn a_right_click_selects_an_unselected_row_alone() {
 fn a_row_menu_lists_copy_and_paste_disabled_when_there_is_nothing_to_do() {
     let i18n = I18n::english();
     let mut harness = harness(fixture().state);
-    harness
-        .get_by_label(&db_row_label("shop", true))
-        .click_secondary();
+    harness.get_by_label("shop").click_secondary();
     harness.run();
     harness.state_mut().1.take();
     // Nothing is selected and nothing was copied: both entries are listed, and clicking does
@@ -418,9 +415,7 @@ fn a_row_menu_lists_copy_and_paste_disabled_when_there_is_nothing_to_do() {
         harness.run();
         let got = harness.state_mut().1.take();
         assert!(got.is_none(), "{key}: {got:?}");
-        harness
-            .get_by_label(&db_row_label("shop", true))
-            .click_secondary();
+        harness.get_by_label("shop").click_secondary();
         harness.run();
         harness.state_mut().1.take();
     }
@@ -437,9 +432,7 @@ fn a_row_menu_names_the_count_and_copies_the_selection() {
     };
     f.state.selection = SidebarSelection::default().single(node);
     let mut harness = harness(f.state);
-    harness
-        .get_by_label(&db_row_label("shop", true))
-        .click_secondary();
+    harness.get_by_label("shop").click_secondary();
     harness.run();
     harness.state_mut().1.take();
     let label = i18n.t_with("copy.menu.copy_collection", &[("count", "1")]);
@@ -456,9 +449,7 @@ fn a_row_menu_pastes_onto_the_row_when_the_rules_allow_it() {
     let a = f.active;
     f.state.clipboard = CopyClipboard::collections(a, "shop", vec!["orders".into()]).ok();
     let mut harness = harness(f.state);
-    harness
-        .get_by_label(&db_row_label("shop", true))
-        .click_secondary();
+    harness.get_by_label("shop").click_secondary();
     harness.run();
     harness.state_mut().1.take();
     harness.get_by_label(&i18n.t("copy.paste")).click();
@@ -566,7 +557,7 @@ fn shift_arrow_still_extends_the_selection() {
     harness.run();
     harness.state_mut().1.take();
     harness.input_mut().modifiers = egui::Modifiers::SHIFT;
-    harness.get_by_label(&db_row_label("shop", true)).focus();
+    harness.get_by_label("shop").focus();
     harness.run();
     match selection_action(harness.state_mut().1.take()).1 {
         SidebarAction::Select { mode, .. } => assert_eq!(mode, SelectMode::Extend),

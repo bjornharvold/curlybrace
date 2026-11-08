@@ -100,6 +100,15 @@ pub fn banner_icon(level: BannerLevel) -> char {
     }
 }
 
+/// The i18n key naming a banner level, the accessible name of its icon.
+pub fn banner_level_key(level: BannerLevel) -> &'static str {
+    match level {
+        BannerLevel::Error => "banner.level.error",
+        BannerLevel::Warning => "banner.level.warning",
+        BannerLevel::Info => "banner.level.info",
+    }
+}
+
 /// (container, content) of a banner level: `error_container`, `warning_container` or
 /// `secondary_container` with the matching `on_` role.
 pub fn banner_colors(scheme: &Scheme, level: BannerLevel) -> (Color32, Color32) {

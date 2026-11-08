@@ -21,24 +21,32 @@ const UNBOUNDED_WIDTH: f32 = 240.0;
 /// container. Long text is elided. The focus ring is drawn inside the row, since a row that
 /// fills its panel has no room outside it. Reported like `selectable_label` (a toggled button).
 pub fn pill(ui: &mut Ui, selected: bool, text: impl Into<WidgetText>) -> Response {
-    show(ui, selected, text.into(), Sense::click())
+    let text = text.into();
+    let label = text.text().to_owned();
+    show(ui, selected, text, &label, Sense::click())
 }
 
-/// A [`pill`] that can also be dragged (a sidebar row that is a drag source), with an optional
-/// leading icon from the icon font. Its accessible label is the icon's character, a space and
-/// the text, or just the text without an icon.
+/// A [`pill`] that can also be dragged (a sidebar row that is a drag source). `expanded` makes it
+/// a disclosure row: `Some(open)` draws the matching chevron (from the icon font) before the
+/// text and reports the open state to assistive technology. The accessible label is always just
+/// the text: the chevron is a private-use codepoint that a screen reader would read out.
 pub fn pill_row(
     ui: &mut Ui,
     selected: bool,
-    icon: Option<char>,
+    expanded: Option<bool>,
     text: &str,
     sense: Sense,
 ) -> Response {
-    let label = match icon {
-        Some(c) => row_text(ui, selected, c, text),
+    let shown = match expanded {
+        Some(open) => row_text(ui, selected, icons::chevron(open), text),
         None => WidgetText::from(text),
     };
-    show(ui, selected, label, sense)
+    let response = show(ui, selected, shown, text, sense);
+    if let Some(open) = expanded {
+        ui.ctx()
+            .accesskit_node_builder(response.id, |node| node.set_expanded(open));
+    }
+    response
 }
 
 /// The icon, a space and the text as one galley: the icon in the icon font, the text in the
@@ -63,7 +71,8 @@ fn row_text(ui: &Ui, selected: bool, icon: char, text: &str) -> WidgetText {
     job.into()
 }
 
-fn show(ui: &mut Ui, selected: bool, text: WidgetText, sense: Sense) -> Response {
+/// Draws `text`; `label` is what assistive technology and the tooltip get instead of its glyphs.
+fn show(ui: &mut Ui, selected: bool, text: WidgetText, label: &str, sense: Sense) -> Response {
     let s = current_ui(ui);
     let padding = shape::SPACE_4;
     let size = TextStyle::Body.resolve(ui.style()).size;
@@ -73,7 +82,6 @@ fn show(ui: &mut Ui, selected: bool, text: WidgetText, sense: Sense) -> Response
         FontSelection::Style(TextStyle::Body)
     };
     let width = finite_width(ui, UNBOUNDED_WIDTH);
-    let label = text.text().to_owned();
     let galley = text.into_galley(
         ui,
         Some(TextWrapMode::Truncate),
@@ -87,11 +95,11 @@ fn show(ui: &mut Ui, selected: bool, text: WidgetText, sense: Sense) -> Response
             WidgetType::SelectableLabel,
             ui.is_enabled(),
             selected,
-            &label,
+            label,
         )
     });
     if galley.elided {
-        response = response.on_hover_text(&label);
+        response = response.on_hover_text(label);
     }
     if !ui.is_rect_visible(rect) {
         return response;

@@ -60,7 +60,8 @@ pub struct Scheme {
     pub shadow: Color32,
 }
 
-const fn hex(h: u32) -> Color32 {
+/// `0xRRGGBB` as a color. Shared with `semantic`.
+pub(super) const fn hex(h: u32) -> Color32 {
     Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8)
 }
 

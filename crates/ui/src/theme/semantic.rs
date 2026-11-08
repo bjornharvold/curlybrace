@@ -2,6 +2,7 @@
 //! Material's tonal spirit (tone 40 in light, tone 80 in dark) and tied to the scheme's roles
 //! where a role fits; `semantic_tests` arbitrates the contrast (JSON 4.5:1 and chart series 3:1
 //! against both `surface` and `surface_container_low`).
+use super::scheme::hex;
 use super::{Mode, Scheme};
 use eframe::egui::Color32;
 
@@ -30,15 +31,11 @@ pub struct ChartColors {
     pub grid: Color32,
 }
 
-const fn rgb(h: u32) -> Color32 {
-    Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8)
-}
-
 /// JSON syntax colors for `scheme`.
 pub fn json_colors(scheme: &Scheme) -> JsonColors {
     let (key, number, boolean, null) = match scheme.mode() {
-        Mode::Light => (rgb(0x1B5E9B), rgb(0x8A4B00), rgb(0x7A3F9A), rgb(0x9C3560)),
-        Mode::Dark => (rgb(0x9CC9FF), rgb(0xF7BD48), rgb(0xDDB8F5), rgb(0xF5A8C6)),
+        Mode::Light => (hex(0x1B5E9B), hex(0x8A4B00), hex(0x7A3F9A), hex(0x9C3560)),
+        Mode::Dark => (hex(0x9CC9FF), hex(0xF7BD48), hex(0xDDB8F5), hex(0xF5A8C6)),
     };
     JsonColors {
         key,
@@ -53,8 +50,8 @@ pub fn json_colors(scheme: &Scheme) -> JsonColors {
 /// Chart colors for `scheme`: primary green, warning amber, then a blue and a purple.
 pub fn chart_colors(scheme: &Scheme) -> ChartColors {
     let (blue, purple) = match scheme.mode() {
-        Mode::Light => (rgb(0x2F5F9E), rgb(0x7B4F9C)),
-        Mode::Dark => (rgb(0x9CC3FF), rgb(0xD2B0F0)),
+        Mode::Light => (hex(0x2F5F9E), hex(0x7B4F9C)),
+        Mode::Dark => (hex(0x9CC3FF), hex(0xD2B0F0)),
     };
     ChartColors {
         series: [scheme.primary, scheme.warning, blue, purple],

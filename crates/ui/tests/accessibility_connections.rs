@@ -4,7 +4,7 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_ui::I18n;
 use curlybrace_ui::views::connections::{ConnectionsState, show_connections};
 use eframe::egui;
-use eframe::egui::accesskit::Role;
+use eframe::egui::accesskit::{Role, SortDirection};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
@@ -125,7 +125,21 @@ fn clicking_a_header_sorts_and_marks_the_active_column() {
         harness.state().sort.column,
         curlybrace_ui::viewmodel::SortColumn::Server
     );
-    harness.get_by_role_and_label(Role::Button, &format!("{server} \u{23F6}"));
+    let header = harness.get_by_role_and_label(Role::Button, &server);
+    assert_eq!(
+        header.accesskit_node().data().sort_direction(),
+        Some(SortDirection::Ascending)
+    );
+    header.click();
+    harness.run();
+    let header = harness.get_by_role_and_label(Role::Button, &server);
+    assert_eq!(
+        header.accesskit_node().data().sort_direction(),
+        Some(SortDirection::Descending)
+    );
+    let name_label = i18n.t("connections.col_name");
+    let name = harness.get_by_role_and_label(Role::Button, &name_label);
+    assert_eq!(name.accesskit_node().data().sort_direction(), None);
 }
 
 #[test]

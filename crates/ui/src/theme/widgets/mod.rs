@@ -15,6 +15,8 @@ mod segmented;
 mod tabs;
 
 #[cfg(test)]
+mod control_tests;
+#[cfg(test)]
 mod widgets_tests;
 
 pub use button::{compact_text_button, filled_button, gate, text_button, tonal_button};
@@ -26,11 +28,10 @@ pub use pill::{PILL_HEIGHT, pill, pill_row};
 pub use segmented::segmented;
 pub use tabs::tabs;
 
-use super::fonts::MEDIUM_FAMILY;
+use super::fonts::{has_family, medium_family};
 use super::{StateLayer, state_layer};
 use eframe::egui::{
-    Color32, CornerRadius, FontFamily, FontId, Galley, Id, Painter, Rect, Response, Stroke,
-    StrokeKind, Ui,
+    Color32, CornerRadius, FontId, Galley, Painter, Rect, Response, Stroke, StrokeKind, Ui,
     text::{LayoutJob, TextWrapping},
 };
 use std::sync::Arc;
@@ -55,12 +56,15 @@ pub enum Forced {
     Focused,
 }
 
-fn forced_id() -> Id {
-    Id::new("curlybrace.theme.widgets.forced")
+#[cfg(feature = "test-support")]
+fn forced_id() -> eframe::egui::Id {
+    eframe::egui::Id::new("curlybrace.theme.widgets.forced")
 }
 
 /// Draws `add` with `forced` applied to every theme widget inside it. Interaction still works;
-/// only the look is forced. Meant for previews such as the theme gallery, not for views.
+/// only the look is forced. Meant for previews such as the theme gallery, not for views, so it
+/// exists only with the `test-support` feature (the crate's own dev-dependency turns it on).
+#[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub fn with_forced<R>(ui: &mut Ui, forced: Forced, add: impl FnOnce(&mut Ui) -> R) -> R {
     let id = forced_id();
@@ -74,8 +78,15 @@ pub fn with_forced<R>(ui: &mut Ui, forced: Forced, add: impl FnOnce(&mut Ui) -> 
     result
 }
 
+#[cfg(feature = "test-support")]
 fn forced(ui: &Ui) -> Option<Forced> {
     ui.ctx().data(|d| d.get_temp::<Forced>(forced_id()))
+}
+
+/// Without `test-support` nothing is ever forced and the per-frame lookup compiles away.
+#[cfg(not(feature = "test-support"))]
+fn forced(_ui: &Ui) -> Option<Forced> {
+    None
 }
 
 /// How a widget looks this frame: its state layer (if any) and whether it shows focus.
@@ -206,10 +217,9 @@ pub(crate) fn finite_width(ui: &Ui, fallback: f32) -> f32 {
 /// Roboto Medium at `size` when the theme's fonts are installed, else the proportional font
 /// (a bare test context without [`super::install`] has no Medium family).
 pub(crate) fn medium_font(ui: &Ui, size: f32) -> FontId {
-    let family = FontFamily::Name(MEDIUM_FAMILY.into());
-    let installed = ui.fonts(|f| f.lock().fonts.definitions().families.contains_key(&family));
-    if installed {
-        FontId::new(size, family)
+    let family = medium_family();
+    if has_family(ui.ctx(), family) {
+        FontId::new(size, family.clone())
     } else {
         FontId::proportional(size)
     }

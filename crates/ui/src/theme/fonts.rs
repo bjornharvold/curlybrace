@@ -1,6 +1,6 @@
 //! The bundled font stack: Roboto (Regular and Medium) and a Material Symbols subset.
-use eframe::egui::{FontData, FontDefinitions, FontFamily};
-use std::sync::Arc;
+use eframe::egui::{Context, FontData, FontDefinitions, FontFamily};
+use std::sync::{Arc, OnceLock};
 
 /// Family for Roboto Medium (titles, `RichText::strong`).
 pub const MEDIUM_FAMILY: &str = "roboto-medium";
@@ -44,4 +44,24 @@ fn with_first(first: &str, rest: &[String]) -> Vec<String> {
     std::iter::once(first.to_owned())
         .chain(rest.iter().cloned())
         .collect()
+}
+
+/// The `Name(MEDIUM_FAMILY)` family, built once: `FontFamily::Name` holds an `Arc<str>`, so
+/// building it per call would allocate on every button and pill drawn.
+pub(crate) fn medium_family() -> &'static FontFamily {
+    static FAMILY: OnceLock<FontFamily> = OnceLock::new();
+    FAMILY.get_or_init(|| FontFamily::Name(MEDIUM_FAMILY.into()))
+}
+
+/// The `Name(SYMBOLS_FAMILY)` family, built once (see [`medium_family`]).
+pub(crate) fn symbols_family() -> &'static FontFamily {
+    static FAMILY: OnceLock<FontFamily> = OnceLock::new();
+    FAMILY.get_or_init(|| FontFamily::Name(SYMBOLS_FAMILY.into()))
+}
+
+/// Whether `family` is among the installed fonts. A bare test context without
+/// [`super::install`] lacks the theme's families, and egui panics on an unknown one. This is a
+/// map lookup under the font lock: it neither allocates nor builds the family list.
+pub(crate) fn has_family(ctx: &Context, family: &FontFamily) -> bool {
+    ctx.fonts(|f| f.lock().fonts.definitions().families.contains_key(family))
 }

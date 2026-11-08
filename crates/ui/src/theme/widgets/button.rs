@@ -70,9 +70,15 @@ const GATE: &str = "theme_button_gate";
 /// never gets to move the button to the next one, so the button was cut to the remainder.
 pub fn gate(ui: &mut Ui, enabled: bool, add: impl FnOnce(&mut Ui) -> Response) -> Response {
     let id = Id::new(GATE);
-    ui.data_mut(|d| d.insert_temp(id, !enabled));
+    let outer_off = ui.data(|d| d.get_temp::<bool>(id));
+    // An enabled gate inside a disabled one stays disabled: it never lifts the outer state.
+    let off = !enabled || outer_off.unwrap_or(false);
+    ui.data_mut(|d| d.insert_temp(id, off));
     let response = add(ui);
-    ui.data_mut(|d| d.remove::<bool>(id));
+    ui.data_mut(|d| match outer_off {
+        Some(outer) => d.insert_temp(id, outer),
+        None => d.remove::<bool>(id),
+    });
     response
 }
 

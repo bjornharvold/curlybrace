@@ -5,7 +5,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
 /// A harness of `width` x 200 with the theme installed and the light mode active.
-fn themed<S>(
+pub(super) fn themed<S>(
     width: f32,
     state: S,
     mut app: impl FnMut(&mut egui::Ui, &mut S) + 'static,

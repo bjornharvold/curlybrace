@@ -18,7 +18,7 @@ pub fn row_button(
     ui: &mut egui::Ui,
     ctx: Option<&TreeCtx>,
     selected: bool,
-    icon: Option<char>,
+    expanded: Option<bool>,
     text: &str,
 ) -> egui::Response {
     let sense = if ctx.is_none() {
@@ -26,7 +26,7 @@ pub fn row_button(
     } else {
         egui::Sense::click_and_drag()
     };
-    pill_row(ui, selected, icon, text, sense)
+    pill_row(ui, selected, expanded, text, sense)
 }
 
 /// Starts a drag from `response`: it carries what the Copy menu would copy if `node` were
