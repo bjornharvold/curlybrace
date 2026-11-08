@@ -80,6 +80,7 @@ Material component library.
   fully rounded; tables inside rounded cards with a tonal header row and subtle row hover; the index
   verdict as a tonal chip; dark surfaces use tonal elevation (higher means lighter) rather than heavy shadows.
 - **Material 3 default density.**
+- **Mode is controlled only by the system** (no manual switch for now).
 
 ## Calls made by the design author (not discussed with the author; flagged for review)
 
@@ -90,7 +91,8 @@ Material component library.
   re-generating the tables.
 - **Mode follows the system** (egui's system theme preference; the builder verifies that eframe on macOS
   picks up appearance changes while the app runs). The author did not discuss how the mode is chosen.
-  Whether to add a manual Light / Dark / System switch is an open question for the author (see the end).
+  **Decided with the author:** the mode is controlled only by the system for now. There is no manual
+  Light / Dark switch and no stored mode setting; one can be added later.
 - **The mockups are the reference for the look.** They are local and git-ignored
   (`.superpowers/brainstorm/*/content/theme-direction.html`), so the values are copied here. Light (green):
   primary `#2C6B30`, on-primary `#FFFFFF`, primary container `#B0F2AC`, secondary container `#D4E8CF`,
@@ -159,9 +161,3 @@ Material component library.
 - Which Material Symbols glyphs are needed and how the subset font is produced and checked in.
 - Order of screen groups in the plan, and how the screenshot set is split between light and dark.
 - Whether egui's default text sizes map onto Material's type scale directly or need per-style overrides.
-
-## Open question for the author
-
-- **Manual mode switch.** With the app following the system, there is no control to force light or dark.
-  A Light / Dark / System choice would add one control (in the settings dialog the tool paths already use),
-  its i18n keys, and one stored setting. It is left out of the first version unless the author wants it.
