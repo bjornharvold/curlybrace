@@ -21,7 +21,7 @@ pub use button::{filled_button, text_button, tonal_button};
 pub use card::card;
 pub use chip::{CHIP_HEIGHT, chip};
 pub use modal::modal_frame;
-pub use outlined_field::{outlined_field, outlined_field_with};
+pub use outlined_field::{FieldOptions, outlined_field, outlined_field_opts, outlined_field_with};
 pub use pill::{PILL_HEIGHT, pill, pill_row};
 pub use segmented::segmented;
 pub use tabs::tabs;

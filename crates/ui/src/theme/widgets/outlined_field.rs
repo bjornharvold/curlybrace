@@ -4,8 +4,8 @@ use super::{CONTROL_HEIGHT, Look, disabled_container, disabled_content, one_row,
 use crate::theme::shape::{self, radius};
 use crate::theme::{Scheme, current_ui};
 use eframe::egui::{
-    Color32, FontId, Galley, Margin, Painter, Rect, Response, Sense, Stroke, StrokeKind, TextEdit,
-    TextStyle, Ui, accesskit::Invalid, pos2, vec2,
+    Color32, FontId, Galley, Id, Margin, Painter, Rect, Response, Sense, Stroke, StrokeKind,
+    TextEdit, TextStyle, Ui, accesskit::Invalid, pos2, text_edit::TextBuffer, vec2,
 };
 use std::sync::Arc;
 
@@ -31,6 +31,34 @@ pub fn outlined_field_with(
     hint: &str,
     error: Option<&str>,
 ) -> Response {
+    let options = FieldOptions {
+        error,
+        ..FieldOptions::default()
+    };
+    outlined_field_opts(ui, label, text, hint, options)
+}
+
+/// What an outlined field can do beyond editing a `String`.
+#[derive(Clone, Copy, Default)]
+pub struct FieldOptions<'a> {
+    /// A validation message, as in [`outlined_field_with`].
+    pub error: Option<&'a str>,
+    /// Mask the text (a secret); the field is then reported as a password input.
+    pub password: bool,
+    /// A fixed widget id, for a field whose editor state or focus is addressed from outside.
+    pub id: Option<Id>,
+}
+
+/// [`outlined_field_with`] over any text buffer (a read-only `&str` shows selectable text) with
+/// the extra [`FieldOptions`].
+pub fn outlined_field_opts(
+    ui: &mut Ui,
+    label: &str,
+    text: &mut dyn TextBuffer,
+    hint: &str,
+    options: FieldOptions<'_>,
+) -> Response {
+    let error = options.error;
     let s = current_ui(ui);
     let small = FontId::proportional(TextStyle::Small.resolve(ui.style()).size);
     let max_label = ui.available_width() - 2.0 * (shape::SPACE_3 + LABEL_GAP);
@@ -41,12 +69,16 @@ pub fn outlined_field_with(
         ui.add_space(half_label);
         let row = ui.text_style_height(&TextStyle::Body);
         let vertical = ((CONTROL_HEIGHT - row) / 2.0).max(0.0);
-        let edit = TextEdit::singleline(text)
+        let mut edit = TextEdit::singleline(text)
             .hint_text(hint)
             .frame(false)
             .margin(Margin::symmetric(shape::SPACE_4 as i8, vertical as i8))
             .desired_width(f32::INFINITY)
+            .password(options.password)
             .text_color(s.on_surface);
+        if let Some(id) = options.id {
+            edit = edit.id(id);
+        }
         let response = ui.add(edit);
         describe(ui, &response, label, hint, error);
         if ui.is_rect_visible(response.rect) {

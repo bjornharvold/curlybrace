@@ -5,7 +5,8 @@ use crate::app::reducer::Input;
 use crate::app::session::Root;
 use crate::app::state::{AppState, ConnStatus};
 use crate::theme::shape;
-use crate::theme::{PILL_HEIGHT, icons, pill};
+use crate::theme::widgets::medium_font;
+use crate::theme::{PILL_HEIGHT, icons, pill, text_button, tonal_button};
 use crate::viewmodel::SidebarAction;
 use crate::views::connection_badge::show_badge;
 use crate::views::sidebar::{preferred_body_height, show_sidebar_body};
@@ -26,8 +27,7 @@ const MIN_NAME_WIDTH: f32 = 76.0;
 
 /// The Connections button followed by one root per open session. Returns what the user did.
 pub fn show_roots(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) -> Option<Input> {
-    let mut input = ui
-        .button(i18n.t("sidebar.connections"))
+    let mut input = tonal_button(ui, i18n.t("sidebar.connections"))
         .clicked()
         .then_some(Input::ShowConnections);
     for root in state.roots(i18n) {
@@ -68,8 +68,6 @@ fn show_header(
     let title = ui
         .scope(|ui| {
             ui.spacing_mut().interact_size.y = PILL_HEIGHT;
-            // Snug buttons leave the name its room: the pill elides what does not fit.
-            ui.spacing_mut().button_padding.x = shape::SPACE_2;
             ui.horizontal(|ui| show_title_line(ui, collapse, state, root, i18n))
                 .inner
         })
@@ -88,7 +86,7 @@ fn show_status_line(ui: &mut egui::Ui, root: &Root, i18n: &I18n) -> Option<Input
     }
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let name = [("name", root.name.as_str())];
-        let reconnect = ui.small_button(i18n.t("sidebar.reconnect"));
+        let reconnect = text_button(ui, i18n.t("sidebar.reconnect"));
         named(&reconnect, i18n.t_with("sidebar.reconnect_named", &name));
         reconnect.clicked().then_some(Input::Connect(root.id))
     })
@@ -112,7 +110,7 @@ fn show_title_line(
 ) -> Option<Input> {
     let name = [("name", root.name.as_str())];
     let arrow = icons::inline_icon(ui, icons::chevron(collapse.is_open()));
-    let toggle = ui.small_button(arrow);
+    let toggle = text_button(ui, arrow);
     named(&toggle, i18n.t_with("sidebar.toggle_named", &name));
     if toggle.clicked() {
         collapse.toggle(ui);
@@ -139,7 +137,7 @@ fn show_title_line(
             }
         },
     );
-    let disconnect = ui.small_button(disconnect_text);
+    let disconnect = text_button(ui, disconnect_text);
     named(&disconnect, i18n.t_with("sidebar.disconnect_named", &name));
     if disconnect.clicked() {
         input = Some(Input::Disconnect(root.id));
@@ -147,12 +145,14 @@ fn show_title_line(
     input
 }
 
-/// Width `ui.small_button(text)` will take.
+/// Width `text_button(ui, text)` will take: the label in the button font plus its side padding.
 fn small_button_width(ui: &egui::Ui, text: &str) -> f32 {
-    let font = egui::TextStyle::Button.resolve(ui.style());
+    let size = egui::TextStyle::Button.resolve(ui.style()).size;
     let color = ui.visuals().text_color();
-    let galley = ui.painter().layout_no_wrap(text.to_owned(), font, color);
-    galley.size().x + 2.0 * ui.spacing().button_padding.x
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), medium_font(ui, size), color);
+    galley.size().x + 2.0 * shape::SPACE_3
 }
 
 /// "Connected · Replica set", or just the status while the topology is unknown.

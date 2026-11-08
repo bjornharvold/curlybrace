@@ -2,6 +2,7 @@
 use super::tool_row::{RowContext, show_tool_row};
 use crate::I18n;
 use crate::app::tools_state::{ProbeScope, ToolsAction, ToolsState};
+use crate::theme::{filled_button, modal_frame, typography};
 use crate::viewmodel::tool_rows::tool_row;
 use curlybrace_core::tools::ToolKind;
 use eframe::egui;
@@ -20,23 +21,26 @@ pub fn show_tools_settings(
     };
     let mut actions = Vec::new();
     let mut closed = false;
-    let modal = egui::Modal::new(egui::Id::new("tool_settings")).show(ctx, |ui| {
-        ui.set_width(DIALOG_WIDTH);
-        ui.heading(i18n.t("tools.heading"));
-        ui.weak(i18n.t("tools.intro"));
-        for kind in ToolKind::ALL {
+    let frame = modal_frame(ctx);
+    let modal = egui::Modal::new(egui::Id::new("tool_settings"))
+        .frame(frame)
+        .show(ctx, |ui| {
+            ui.set_width(DIALOG_WIDTH);
+            ui.label(typography::dialog_title(ui, i18n.t("tools.heading")));
+            ui.weak(i18n.t("tools.intro"));
+            for kind in ToolKind::ALL {
+                ui.separator();
+                let row = tool_row(tools, ProbeScope::Global, kind, None);
+                let context = RowContext {
+                    scope: ProbeScope::Global,
+                    server: None,
+                    suggestions: dialog.suggestions(kind),
+                };
+                actions.extend(show_tool_row(ui, &row, &context, i18n));
+            }
             ui.separator();
-            let row = tool_row(tools, ProbeScope::Global, kind, None);
-            let context = RowContext {
-                scope: ProbeScope::Global,
-                server: None,
-                suggestions: dialog.suggestions(kind),
-            };
-            actions.extend(show_tool_row(ui, &row, &context, i18n));
-        }
-        ui.separator();
-        closed = ui.button(i18n.t("common.close")).clicked();
-    });
+            closed = filled_button(ui, i18n.t("common.close")).clicked();
+        });
     let escape = modal.is_top_modal
         && !modal.any_popup_open
         && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));

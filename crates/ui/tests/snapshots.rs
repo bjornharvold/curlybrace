@@ -73,6 +73,18 @@ shot!(
 
 shot!(connection_manager_list, mock_connections(), |_| {});
 
+// The connection list again with the system in dark mode.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn connection_manager_list_dark() {
+    if !snapshots_enabled("connection_manager_list_dark") {
+        return;
+    }
+    Shot::new(mock_connections(), |_| {})
+        .mode(Mode::Dark)
+        .snapshot("connection_manager_list_dark");
+}
+
 shot!(connection_manager_filtered, mock_connections(), |state| {
     state.conn.filter = "prod".into();
 });

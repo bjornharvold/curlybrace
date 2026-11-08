@@ -24,6 +24,7 @@ pub use install::{StateLayer, current, current_ui, install, state_layer, visuals
 pub use scheme::{Mode, Scheme, Tone, ToneColors, scheme};
 pub use semantic::{ChartColors, JsonColors, chart_colors, json_colors};
 pub use widgets::{
-    CHIP_HEIGHT, PILL_HEIGHT, card, chip, filled_button, modal_frame, outlined_field,
-    outlined_field_with, pill, pill_row, segmented, tabs, text_button, tonal_button,
+    CHIP_HEIGHT, FieldOptions, PILL_HEIGHT, card, chip, filled_button, modal_frame, outlined_field,
+    outlined_field_opts, outlined_field_with, pill, pill_row, segmented, tabs, text_button,
+    tonal_button,
 };

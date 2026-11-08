@@ -202,6 +202,13 @@ fn dialog_harness(
     harness
 }
 
+/// The dialog body is a scroll area and the outlined fields make the form taller than its
+/// fold, so a control further down is scrolled into view before it is clicked.
+fn scroll_into_view(harness: &mut Harness<'static, ConnectionsState>, role: Role, label: &str) {
+    harness.get_by_role_and_label(role, label).scroll_to_me();
+    harness.run();
+}
+
 #[test]
 fn every_field_of_the_edit_dialog_has_a_label() {
     let harness = dialog_harness(|state| {
@@ -311,31 +318,104 @@ fn the_folder_drop_down_exposes_its_current_folder_as_its_value() {
     assert_eq!(without, Some(i18n.t("connections.no_folder")));
 }
 
+/// The authentication choices are a segmented control: one radio button per mechanism (the
+/// role deliberately changed from the old drop-down's ComboBox), the current one marked.
 #[test]
-fn the_authentication_drop_down_has_the_authentication_label() {
+fn the_authentication_choices_are_radio_buttons_with_the_current_one_selected() {
+    use curlybrace_core::connection::AuthMechanism;
+    use curlybrace_ui::viewmodel::{auth_label_key, auth_options};
     let i18n = I18n::english();
-    let harness = dialog_harness(|_| {});
-    harness.get_by_role_and_label(Role::ComboBox, &i18n.t("connections.auth"));
+    for current in [AuthMechanism::None, AuthMechanism::ScramSha256] {
+        let harness = dialog_harness(move |state| state.form.auth = current);
+        for option in auth_options() {
+            let label = i18n.t(auth_label_key(option));
+            let node = harness.get_by_role_and_label(Role::RadioButton, &label);
+            let selected = node.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True);
+            assert_eq!(selected, option == current, "{option:?} while {current:?}");
+        }
+    }
 }
 
 #[test]
-fn the_authentication_drop_down_exposes_its_current_mechanism_as_its_value() {
+fn clicking_an_authentication_choice_changes_the_form() {
     use curlybrace_core::connection::AuthMechanism;
     use curlybrace_ui::viewmodel::auth_label_key;
     let i18n = I18n::english();
-    let value_of = |prepare: fn(&mut ConnectionsState)| {
-        let harness = dialog_harness(prepare);
-        harness
-            .get_by_role_and_label(Role::ComboBox, &i18n.t("connections.auth"))
-            .accesskit_node()
-            .value()
-    };
-    let none = value_of(|state| state.form.auth = AuthMechanism::None);
-    assert_eq!(none, Some(i18n.t(auth_label_key(AuthMechanism::None))));
-    let scram = value_of(|state| state.form.auth = AuthMechanism::ScramSha256);
-    assert_eq!(
-        scram,
-        Some(i18n.t(auth_label_key(AuthMechanism::ScramSha256)))
+    let mut harness = dialog_harness(|state| state.form.auth = AuthMechanism::None);
+    harness
+        .get_by_role_and_label(
+            Role::RadioButton,
+            &i18n.t(auth_label_key(AuthMechanism::ScramSha1)),
+        )
+        .click();
+    harness.run();
+    assert_eq!(harness.state().form.auth, AuthMechanism::ScramSha1);
+}
+
+/// Every field of the form is an editable text field found by its label; the two secrets are
+/// masked inputs.
+#[test]
+fn every_form_field_is_found_by_its_label_as_an_editable_field() {
+    let i18n = I18n::english();
+    let harness = dialog_harness(|state| {
+        state.form.tls_enabled = true;
+        state.form.ssh_enabled = true;
+    });
+    for key in [
+        "connections.name",
+        "connections.folder",
+        "connections.uri",
+        "connections.username",
+        "connections.auth_source",
+        "connections.tls_ca",
+        "connections.tls_client_cert",
+        "connections.ssh_host",
+        "connections.ssh_port",
+        "connections.ssh_user",
+        "connections.ssh_key",
+    ] {
+        harness.get_by_role_and_label(Role::TextInput, &i18n.t(key));
+    }
+    for key in ["connections.password", "connections.ssh_secret"] {
+        harness.get_by_role_and_label(Role::PasswordInput, &i18n.t(key));
+    }
+}
+
+#[test]
+fn typing_in_a_form_field_edits_the_form() {
+    let i18n = I18n::english();
+    let mut harness = dialog_harness(|_| {});
+    let label = i18n.t("connections.username");
+    harness
+        .get_by_role_and_label(Role::TextInput, &label)
+        .click();
+    harness.run();
+    harness
+        .get_by_role_and_label(Role::TextInput, &label)
+        .type_text("ada");
+    harness.run();
+    assert!(harness.state().form.username.ends_with("ada"));
+}
+
+#[test]
+fn the_test_connection_result_is_a_labelled_status() {
+    use curlybrace_core::runtime::TestReport;
+    use curlybrace_ui::views::connections::TestState;
+    let i18n = I18n::english();
+    let harness = dialog_harness(|state| {
+        state.test_form = Some(state.form.clone());
+        state.test = TestState::Done {
+            request_id: 1,
+            outcome: Ok(TestReport {
+                server_version: Some("7.0.1".into()),
+                tls: false,
+                authenticated: false,
+            }),
+        };
+    });
+    harness.get_by_role_and_label(
+        Role::Label,
+        &i18n.t_with("connections.test_ok", &[("version", "7.0.1")]),
     );
 }
 
@@ -346,6 +426,7 @@ fn the_colour_drop_down_is_labelled_and_picking_a_colour_changes_the_form() {
     let i18n = I18n::english();
     let label = i18n.t("connections.color");
     let mut harness = dialog_harness(|_| {});
+    scroll_into_view(&mut harness, Role::ComboBox, &label);
     let combo = harness.get_by_role_and_label(Role::ComboBox, &label);
     assert_eq!(
         combo.accesskit_node().value(),
@@ -373,8 +454,10 @@ fn the_production_checkbox_is_labelled_with_a_hint_and_toggles_the_form() {
     let i18n = I18n::english();
     let mut harness = dialog_harness(|_| {});
     harness.get_by_label(&i18n.t("connections.production_hint"));
+    let label = i18n.t("connections.production");
+    scroll_into_view(&mut harness, Role::CheckBox, &label);
     harness
-        .get_by_role_and_label(Role::CheckBox, &i18n.t("connections.production"))
+        .get_by_role_and_label(Role::CheckBox, &label)
         .click();
     harness.run();
     assert!(harness.state().form.production);
@@ -386,8 +469,10 @@ fn read_only_checkbox_is_labelled_and_toggles() {
     let i18n = I18n::english();
     let mut harness = dialog_harness(|_| {});
     harness.get_by_label(&i18n.t("connections.read_only_hint"));
+    let label = i18n.t("connections.read_only");
+    scroll_into_view(&mut harness, Role::CheckBox, &label);
     harness
-        .get_by_role_and_label(Role::CheckBox, &i18n.t("connections.read_only"))
+        .get_by_role_and_label(Role::CheckBox, &label)
         .click();
     harness.run();
     assert!(harness.state().form.read_only);
@@ -643,6 +728,7 @@ fn an_unrecognised_colour_shows_as_none_and_picking_a_colour_replaces_it() {
         state.connections[0].color = Some(raw.clone());
         state.form = curlybrace_ui::viewmodel::ConnectionForm::from_config(&state.connections[0]);
     });
+    scroll_into_view(&mut harness, Role::ComboBox, &label);
     let combo = harness.get_by_role_and_label(Role::ComboBox, &label);
     assert_eq!(
         combo.accesskit_node().value(),

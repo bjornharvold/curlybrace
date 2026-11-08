@@ -9,7 +9,9 @@ use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
-use crate::theme::{current, icons, shape, text_button};
+use crate::theme::{
+    current, filled_button, icons, modal_frame, shape, text_button, tonal_button, typography,
+};
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, IndexesAction, ProfilingView, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
@@ -445,29 +447,32 @@ fn show_host_key_prompt(
     i18n: &I18n,
 ) -> Option<HostKeyAnswer> {
     let mut decision = None;
-    let modal = egui::Modal::new(dialog_id(host, fingerprint)).show(ctx, |ui| {
-        ui.heading(i18n.t("hostkey.title"));
-        if let Some(name) = asking {
-            ui.label(i18n.t_with("hostkey.for_connection", &[("name", name)]));
-        }
-        ui.label(i18n.t_with("hostkey.message", &[("host", host)]));
-        ui.label(i18n.t("hostkey.fingerprint"));
-        ui.monospace(fingerprint);
-        ui.horizontal(|ui| {
-            // Reject comes first and owns the initial focus, so Enter can never trust a key.
-            let reject = ui.button(i18n.t("hostkey.reject"));
-            focus_once(ui, &reject, (host, fingerprint));
-            if reject.clicked() {
-                decision = Some(HostKeyDecision::Reject);
+    let frame = modal_frame(ctx);
+    let modal = egui::Modal::new(dialog_id(host, fingerprint))
+        .frame(frame)
+        .show(ctx, |ui| {
+            ui.label(typography::dialog_title(ui, i18n.t("hostkey.title")));
+            if let Some(name) = asking {
+                ui.label(i18n.t_with("hostkey.for_connection", &[("name", name)]));
             }
-            if ui.button(i18n.t("hostkey.trust_once")).clicked() {
-                decision = Some(HostKeyDecision::Trust);
-            }
-            if ui.button(i18n.t("hostkey.trust_remember")).clicked() {
-                decision = Some(HostKeyDecision::TrustAndRemember);
-            }
+            ui.label(i18n.t_with("hostkey.message", &[("host", host)]));
+            ui.label(i18n.t("hostkey.fingerprint"));
+            ui.monospace(fingerprint);
+            ui.horizontal(|ui| {
+                // Reject comes first and owns the initial focus, so Enter can never trust a key.
+                let reject = filled_button(ui, i18n.t("hostkey.reject"));
+                focus_once(ui, &reject, (host, fingerprint));
+                if reject.clicked() {
+                    decision = Some(HostKeyDecision::Reject);
+                }
+                if text_button(ui, i18n.t("hostkey.trust_once")).clicked() {
+                    decision = Some(HostKeyDecision::Trust);
+                }
+                if tonal_button(ui, i18n.t("hostkey.trust_remember")).clicked() {
+                    decision = Some(HostKeyDecision::TrustAndRemember);
+                }
+            });
         });
-    });
     let decision = decision.or_else(|| modal.should_close().then_some(HostKeyDecision::Reject));
     // The answer names the question that was drawn, so it cannot answer a different one.
     decision.map(|decision| HostKeyAnswer::new(host, fingerprint, decision))
@@ -488,14 +493,17 @@ fn focus_once(ui: &egui::Ui, response: &egui::Response, question: (&str, &str)) 
 fn show_forget_confirm(ctx: &egui::Context, message: &str, i18n: &I18n, out: &mut Vec<UiEvent>) {
     let mut confirmed = false;
     let mut cancelled = false;
-    let modal = egui::Modal::new(egui::Id::new("forget_host")).show(ctx, |ui| {
-        ui.heading(i18n.t("forget.title"));
-        ui.label(message);
-        ui.horizontal(|ui| {
-            confirmed = ui.button(i18n.t("forget.confirm")).clicked();
-            cancelled = ui.button(i18n.t("common.cancel")).clicked();
+    let frame = modal_frame(ctx);
+    let modal = egui::Modal::new(egui::Id::new("forget_host"))
+        .frame(frame)
+        .show(ctx, |ui| {
+            ui.label(typography::dialog_title(ui, i18n.t("forget.title")));
+            ui.label(message);
+            ui.horizontal(|ui| {
+                confirmed = filled_button(ui, i18n.t("forget.confirm")).clicked();
+                cancelled = text_button(ui, i18n.t("common.cancel")).clicked();
+            });
         });
-    });
     if confirmed {
         out.push(UiEvent::ForgetConfirmed);
     } else if cancelled || modal.should_close() {
