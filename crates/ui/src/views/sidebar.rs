@@ -1,6 +1,6 @@
 //! Sidebar view: database tree with lazily loaded collections.
 use crate::I18n;
-use crate::theme::icons;
+use crate::theme::{PILL_HEIGHT, icons};
 use crate::viewmodel::{
     DbNode, PasteTarget, SidebarState, collection_click_action, compare_database_to_action,
     compare_to_action, db_click_action,
@@ -32,7 +32,7 @@ enum Row<'a> {
 
 /// Height of every rendered row; the single source of truth for `show_rows` and the rows.
 fn row_height(ui: &egui::Ui) -> f32 {
-    ui.spacing().interact_size.y
+    PILL_HEIGHT.max(ui.spacing().interact_size.y)
 }
 
 /// Rows a database occupies: its header plus children or one placeholder when expanded.
@@ -209,8 +209,8 @@ fn show_row(
         Row::Db(node) => {
             let node_ref = database_node(ctx, &node.name);
             let selected = is_selected(ctx, &node_ref);
-            let chevron = icons::inline_icon(ui, icons::chevron(node.expanded));
-            let response = row_button(ui, ctx, selected, (chevron, node.name.as_str()));
+            let chevron = icons::chevron(node.expanded);
+            let response = row_button(ui, ctx, selected, Some(chevron), node.name.as_str());
             start_drag(&response, ctx, &node_ref);
             let target = database_target(ctx, &node.name);
             let dropped = target.and_then(|t| drop_target(&response, ctx, t, i18n));
@@ -226,7 +226,7 @@ fn show_row(
                 .as_ref()
                 .is_some_and(|ns| ns.db == db && ns.collection == name);
             ui.add_space(ui.spacing().indent);
-            let response = row_button(ui, ctx, opened || is_selected(ctx, &node_ref), name);
+            let response = row_button(ui, ctx, opened || is_selected(ctx, &node_ref), None, name);
             start_drag(&response, ctx, &node_ref);
             let target = collection_target(ctx, db, name);
             let dropped = target.and_then(|t| drop_target(&response, ctx, t, i18n));

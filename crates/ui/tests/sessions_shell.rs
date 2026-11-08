@@ -9,8 +9,9 @@ use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::session::SessionView;
 use curlybrace_ui::app::state::{AppState, ConnStatus, HostEndpoint, Workspace};
 use curlybrace_ui::viewmodel::ViewMode;
+use eframe::egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use std::sync::mpsc::Sender;
 use support::shots::{browsing, build_app};
 
@@ -205,5 +206,58 @@ fn an_active_connecting_session_shows_the_manager_and_its_root() {
     assert!(
         r.shows("Reporting"),
         "the connecting root is in the sidebar"
+    );
+}
+
+fn toggled(r: &Rig, role: Role, label: &str) -> Option<Toggled> {
+    r.harness
+        .get_by_role_and_label(role, label)
+        .accesskit_node()
+        .toggled()
+}
+
+#[test]
+fn the_workspace_switcher_is_two_radio_buttons_with_the_current_one_marked() {
+    let r = connected_rig();
+    let t = |key: &str| I18n::english().t(key);
+    assert_eq!(
+        toggled(&r, Role::RadioButton, &t("workspace.browse")),
+        Some(Toggled::True)
+    );
+    assert_eq!(
+        toggled(&r, Role::RadioButton, &t("workspace.compare")),
+        Some(Toggled::False)
+    );
+}
+
+#[test]
+fn the_selected_collection_is_a_selected_row_as_wide_as_the_others() {
+    let r = connected_rig();
+    assert_eq!(toggled(&r, Role::Button, "customers"), Some(Toggled::True));
+    assert_eq!(toggled(&r, Role::Button, "invoices"), Some(Toggled::False));
+    // A pill fills the sidebar's width whatever its text, selected or not.
+    let width = |label: &str| r.harness.get_by_label(label).rect().width();
+    assert!((width("customers") - width("invoices")).abs() < 0.5);
+    assert!(width("customers") > 120.0, "{}", width("customers"));
+}
+
+#[test]
+fn the_gear_is_a_button_named_by_the_settings_label() {
+    let r = connected_rig();
+    let name = I18n::english().t("tools.settings_button");
+    r.harness.get_by_role_and_label(Role::Button, &name);
+}
+
+#[test]
+fn the_collection_tabs_are_buttons_with_the_current_one_marked() {
+    let r = connected_rig();
+    let t = |key: &str| I18n::english().t(key);
+    assert_eq!(
+        toggled(&r, Role::Button, &t("browser.tab_documents")),
+        Some(Toggled::True)
+    );
+    assert_eq!(
+        toggled(&r, Role::Button, &t("indexes.tab")),
+        Some(Toggled::False)
     );
 }

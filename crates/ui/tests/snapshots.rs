@@ -14,6 +14,7 @@ use curlybrace_testkit::snapshots_enabled;
 use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::session::SessionView;
 use curlybrace_ui::app::state::{AppState, Banner, ConnStatus, HostEndpoint};
+use curlybrace_ui::theme::Mode;
 use curlybrace_ui::viewmodel::{
     EditorIntent, EditorState, MenuItem, SidebarState, ViewMode, page_key, resolve_editor,
 };
@@ -101,6 +102,18 @@ shot!(connection_edit_dialog, mock_connections(), |state| {
 shot!(browser_tree_view, vec![], browsing(ViewMode::Tree));
 shot!(browser_table_view, vec![], browsing(ViewMode::Table));
 shot!(browser_json_view, vec![], browsing(ViewMode::Json));
+
+// The table view again with the system in dark mode.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn browser_table_view_dark() {
+    if !snapshots_enabled("browser_table_view_dark") {
+        return;
+    }
+    Shot::new(vec![], browsing(ViewMode::Table))
+        .mode(Mode::Dark)
+        .snapshot("browser_table_view_dark");
+}
 
 /// Parks a root for a connection named `name` in the given status.
 fn parked_root(state: &mut AppState, name: &str, status: ConnStatus, failure: Option<CoreError>) {

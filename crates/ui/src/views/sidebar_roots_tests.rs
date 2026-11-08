@@ -9,11 +9,11 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use uuid::Uuid;
 
-/// `egui::SidePanel`'s default width.
-const DEFAULT_SIDEBAR_WIDTH: f32 = 200.0;
+/// The width the app's sidebar opens at.
+const DEFAULT_SIDEBAR_WIDTH: f32 = SIDEBAR_DEFAULT_WIDTH;
 
 fn names(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
@@ -102,6 +102,7 @@ fn panel_harness(state: AppState) -> Harness<'static, f32> {
             move |ctx, width: &mut f32| {
                 let panel = egui::SidePanel::left("sidebar")
                     .resizable(true)
+                    .default_width(DEFAULT_SIDEBAR_WIDTH)
                     .show(ctx, |ui| {
                         egui::ScrollArea::vertical()
                             .auto_shrink([false; 2])
@@ -399,10 +400,14 @@ fn a_row_menu_lists_copy_and_paste_disabled_when_there_is_nothing_to_do() {
         .click_secondary();
     harness.run();
     harness.state_mut().1.take();
-    // Nothing is selected and nothing was copied: both entries are listed, and clicking does
-    // nothing.
-    harness.get_by_label(&i18n.t("copy.menu.copy")).click();
-    harness.get_by_label(&i18n.t("copy.paste")).click();
+    // Nothing is selected and nothing was copied: both entries are listed, and disabled. They
+    // are not clicked: a click on a disabled entry falls through to whatever is under the menu
+    // (here another root's Disconnect, now that rows span the sidebar's width).
+    for key in ["copy.menu.copy", "copy.paste"] {
+        let label = i18n.t(key);
+        let entry = harness.get_by_label(&label);
+        assert!(entry.accesskit_node().is_disabled(), "{key} is enabled");
+    }
     harness.run();
     assert!(harness.state_mut().1.take().is_none());
 }

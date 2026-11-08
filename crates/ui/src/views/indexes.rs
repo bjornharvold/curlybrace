@@ -6,6 +6,7 @@ use super::index_sampling::show_sampling;
 use super::queries::show_queries;
 use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
+use crate::theme::segmented;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_chart::observed_uses;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key};
@@ -94,18 +95,13 @@ pub fn show_indexes(
 /// The Indexes | Queries switch. The selected side is marked by the selection state, which
 /// assistive technology reads, not by colour alone.
 fn view_toggle(ui: &mut egui::Ui, view: IndexesView, i18n: &I18n) -> Option<IndexesAction> {
-    let mut action = None;
-    ui.horizontal(|ui| {
-        for (side, key) in [
-            (IndexesView::Indexes, "indexes.queries.view_indexes"),
-            (IndexesView::Queries, "indexes.queries.view_queries"),
-        ] {
-            if ui.selectable_label(view == side, i18n.t(key)).clicked() && view != side {
-                action = Some(IndexesAction::ShowView(side));
-            }
-        }
-    });
-    action
+    let items = [
+        (IndexesView::Indexes, i18n.t("indexes.queries.view_indexes")),
+        (IndexesView::Queries, i18n.t("indexes.queries.view_queries")),
+    ];
+    ui.horizontal(|ui| segmented(ui, &items, view))
+        .inner
+        .map(IndexesAction::ShowView)
 }
 
 /// The Queries view of the collection the tab is on.
@@ -139,11 +135,9 @@ fn toolbar(
 ) -> Option<IndexesAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        for range in RANGES {
-            let label = i18n.t(range_key(range));
-            if ui.selectable_label(state.range == range, label).clicked() {
-                action = Some(IndexesAction::SetRange(range));
-            }
+        let ranges = RANGES.map(|range| (range, i18n.t(range_key(range))));
+        if let Some(range) = segmented(ui, &ranges, state.range) {
+            action = Some(IndexesAction::SetRange(range));
         }
         if ui.button(i18n.t("indexes.refresh")).clicked() {
             action = Some(IndexesAction::Refresh);

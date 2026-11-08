@@ -4,6 +4,7 @@ use super::doc_select::show_selection_bar;
 use super::write_warning::focus_cancel_unless_focused;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
+use crate::theme::segmented;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{
     ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview, page_key,
@@ -11,18 +12,15 @@ use crate::viewmodel::{
 use curlybrace_core::store::Page;
 use eframe::egui;
 
-/// Radio-style mode switcher; returns the (possibly changed) mode.
+/// Segmented mode switcher; returns the (possibly changed) mode.
 pub fn show_mode_switcher(ui: &mut egui::Ui, mode: ViewMode, i18n: &I18n) -> ViewMode {
-    let mut next = mode;
-    ui.horizontal(|ui| {
-        for candidate in ViewMode::ALL {
-            let label = i18n.t(candidate.label_key());
-            if ui.selectable_label(mode == candidate, label).clicked() {
-                next = candidate;
-            }
-        }
-    });
-    next
+    let items: Vec<(ViewMode, String)> = ViewMode::ALL
+        .into_iter()
+        .map(|candidate| (candidate, i18n.t(candidate.label_key())))
+        .collect();
+    ui.horizontal(|ui| segmented(ui, &items, mode))
+        .inner
+        .unwrap_or(mode)
 }
 
 /// Renders the page in `mode`.

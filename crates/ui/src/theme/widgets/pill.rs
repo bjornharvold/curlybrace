@@ -4,15 +4,15 @@ use super::{
     Look, Ring, disabled_container, disabled_content, finite_width, focus_ring, medium_font,
     painter,
 };
-use crate::theme::current_ui;
 use crate::theme::shape::{self, radius};
+use crate::theme::{current_ui, icons};
 use eframe::egui::{
-    Color32, FontSelection, Response, Sense, TextStyle, TextWrapMode, Ui, Vec2, WidgetInfo,
-    WidgetText, WidgetType, pos2,
+    Align, Color32, FontSelection, Response, RichText, Sense, TextStyle, TextWrapMode, Ui, Vec2,
+    WidgetInfo, WidgetText, WidgetType, pos2, text::LayoutJob,
 };
 
 /// Row height: compact enough for a tree of databases and collections.
-const PILL_HEIGHT: f32 = 32.0;
+pub const PILL_HEIGHT: f32 = 32.0;
 /// Width used when the available width is unbounded (inside a horizontal scroll area).
 const UNBOUNDED_WIDTH: f32 = 240.0;
 
@@ -21,8 +21,50 @@ const UNBOUNDED_WIDTH: f32 = 240.0;
 /// container. Long text is elided. The focus ring is drawn inside the row, since a row that
 /// fills its panel has no room outside it. Reported like `selectable_label` (a toggled button).
 pub fn pill(ui: &mut Ui, selected: bool, text: impl Into<WidgetText>) -> Response {
+    show(ui, selected, text.into(), Sense::click())
+}
+
+/// A [`pill`] that can also be dragged (a sidebar row that is a drag source), with an optional
+/// leading icon from the icon font. Its accessible label is the icon's character, a space and
+/// the text, or just the text without an icon.
+pub fn pill_row(
+    ui: &mut Ui,
+    selected: bool,
+    icon: Option<char>,
+    text: &str,
+    sense: Sense,
+) -> Response {
+    let label = match icon {
+        Some(c) => row_text(ui, selected, c, text),
+        None => WidgetText::from(text),
+    };
+    show(ui, selected, label, sense)
+}
+
+/// The icon, a space and the text as one galley: the icon in the icon font, the text in the
+/// pill's own font (Medium when selected).
+fn row_text(ui: &Ui, selected: bool, icon: char, text: &str) -> WidgetText {
+    let size = TextStyle::Body.resolve(ui.style()).size;
+    let font = if selected {
+        medium_font(ui, size)
+    } else {
+        TextStyle::Body.resolve(ui.style())
+    };
+    let style = ui.style();
+    let mut job = LayoutJob::default();
+    let parts = [
+        icons::inline_icon(ui, icon),
+        RichText::new(" "),
+        RichText::new(text).font(font),
+    ];
+    for part in parts {
+        part.append_to(&mut job, style, FontSelection::Default, Align::Center);
+    }
+    job.into()
+}
+
+fn show(ui: &mut Ui, selected: bool, text: WidgetText, sense: Sense) -> Response {
     let s = current_ui(ui);
-    let text = text.into();
     let padding = shape::SPACE_4;
     let size = TextStyle::Body.resolve(ui.style()).size;
     let font = if selected {
@@ -39,7 +81,7 @@ pub fn pill(ui: &mut Ui, selected: bool, text: impl Into<WidgetText>) -> Respons
         font,
     );
     let desired = Vec2::new(width.max(galley.size().x + 2.0 * padding), PILL_HEIGHT);
-    let (rect, mut response) = ui.allocate_exact_size(desired, Sense::click());
+    let (rect, mut response) = ui.allocate_exact_size(desired, sense);
     response.widget_info(|| {
         WidgetInfo::selected(
             WidgetType::SelectableLabel,

@@ -1,12 +1,15 @@
 //! The thin egui layer: draws panels from the state and reports what the user did.
 //! Every decision lives in the reducer and view-models; nothing here has logic worth testing
 //! beyond "it renders" (covered by the headless frame tests in `mod.rs`).
-use super::banner::{banner_detail, banner_prefix, banner_text};
+use super::banner::{
+    banner_colors, banner_detail, banner_icon, banner_level, banner_prefix, banner_text,
+};
 use super::copy::CopyInput;
 use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
+use crate::theme::{current, icons, shape, text_button};
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, IndexesAction, ProfilingView, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
@@ -23,7 +26,7 @@ use crate::views::index_dialogs::{
 };
 use crate::views::indexes::show_indexes;
 use crate::views::queries_consent::show_profiler_consent;
-use crate::views::sidebar_roots::show_roots;
+use crate::views::sidebar_roots::{SIDEBAR_DEFAULT_WIDTH, show_roots};
 use crate::views::tools_settings::show_tools_settings;
 use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
 use crate::views::write_warning::show_write_warning;
@@ -47,9 +50,9 @@ pub enum UiEvent {
 /// The gear that opens the tool paths. Its glyph is an icon; the name a screen reader hears is
 /// translated.
 pub fn show_settings_button(ui: &mut egui::Ui, i18n: &I18n, out: &mut Vec<UiEvent>) {
-    const GEAR: &str = "\u{2699}";
     let name = i18n.t("tools.settings_button");
-    let button = ui.button(GEAR).on_hover_text(&name);
+    let gear = icons::inline_icon(ui, icons::GEAR);
+    let button = text_button(ui, gear).on_hover_text(&name);
     button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone()));
     if button.clicked() {
         out.push(UiEvent::OpenToolSettings);
@@ -62,29 +65,41 @@ pub fn show_banner(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut
     };
     let (headline, detail) = banner_text(banner, i18n);
     let prefix = banner_prefix(state, i18n);
-    egui::TopBottomPanel::top("banner").show(ctx, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            let color = ui.visuals().error_fg_color;
-            if let Some(prefix) = prefix {
-                ui.colored_label(color, prefix);
-            }
-            ui.colored_label(color, headline);
-            if let Some(detail) = detail {
-                ui.label(detail);
-            }
-            if let Some(raw) = banner_detail(banner) {
-                ui.weak(raw);
-            }
-            if state.forgettable_host().is_some()
-                && ui.button(i18n.t("banner.forget_host")).clicked()
-            {
-                out.push(UiEvent::Input(Input::ForgetRequested));
-            }
-            if ui.button(i18n.t("banner.dismiss")).clicked() {
-                out.push(UiEvent::Input(Input::DismissBanner));
-            }
+    let (container, on_container) = banner_colors(current(ctx), banner_level(banner));
+    let frame = egui::Frame::NONE
+        .fill(container)
+        .inner_margin(egui::Margin::symmetric(
+            shape::SPACE_4 as i8,
+            shape::SPACE_2 as i8,
+        ));
+    egui::TopBottomPanel::top("banner")
+        .frame(frame)
+        .show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let text = |s: String| egui::RichText::new(s).color(on_container);
+                ui.label(
+                    icons::inline_icon(ui, banner_icon(banner_level(banner))).color(on_container),
+                );
+                if let Some(prefix) = prefix {
+                    ui.label(text(prefix).strong());
+                }
+                ui.label(text(headline).strong());
+                if let Some(detail) = detail {
+                    ui.label(text(detail));
+                }
+                if let Some(raw) = banner_detail(banner) {
+                    ui.label(text(raw.to_owned()));
+                }
+                if state.forgettable_host().is_some()
+                    && text_button(ui, i18n.t("banner.forget_host")).clicked()
+                {
+                    out.push(UiEvent::Input(Input::ForgetRequested));
+                }
+                if text_button(ui, i18n.t("banner.dismiss")).clicked() {
+                    out.push(UiEvent::Input(Input::DismissBanner));
+                }
+            });
         });
-    });
 }
 
 /// The banner as plain lines for the edit dialog: headline, detail, raw server text. Empty
@@ -146,6 +161,7 @@ pub fn show_sessions_panel(
 ) {
     egui::SidePanel::left("sidebar")
         .resizable(true)
+        .default_width(SIDEBAR_DEFAULT_WIDTH)
         .show(ctx, |ui| {
             show_settings_button(ui, i18n, out);
             if let Some(action) = show_workspace_switcher(ui, state.workspace, i18n) {

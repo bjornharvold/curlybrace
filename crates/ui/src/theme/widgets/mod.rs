@@ -11,6 +11,7 @@ mod chip;
 mod outlined_field;
 mod pill;
 mod segmented;
+mod tabs;
 
 #[cfg(test)]
 mod widgets_tests;
@@ -19,8 +20,9 @@ pub use button::{filled_button, text_button, tonal_button};
 pub use card::card;
 pub use chip::{CHIP_HEIGHT, chip};
 pub use outlined_field::{outlined_field, outlined_field_with};
-pub use pill::pill;
+pub use pill::{PILL_HEIGHT, pill, pill_row};
 pub use segmented::segmented;
+pub use tabs::tabs;
 
 use super::fonts::MEDIUM_FAMILY;
 use super::{StateLayer, state_layer};

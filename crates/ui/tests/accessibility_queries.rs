@@ -663,7 +663,7 @@ fn the_toggle_switches_views_and_opens_the_queries() {
         );
     harness.run_steps(3);
     harness
-        .get_by_role_and_label(Role::Button, &t("indexes.queries.view_queries"))
+        .get_by_role_and_label(Role::RadioButton, &t("indexes.queries.view_queries"))
         .click();
     harness.run_steps(3);
     assert_eq!(
@@ -675,7 +675,7 @@ fn the_toggle_switches_views_and_opens_the_queries() {
     harness.run_steps(3);
     harness.get_by_label(&t("indexes.queries.profiler_checking"));
     harness
-        .get_by_role_and_label(Role::Button, &t("indexes.queries.view_indexes"))
+        .get_by_role_and_label(Role::RadioButton, &t("indexes.queries.view_indexes"))
         .click();
     harness.run_steps(3);
     assert_eq!(
