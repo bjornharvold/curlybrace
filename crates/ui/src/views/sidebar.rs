@@ -1,5 +1,6 @@
 //! Sidebar view: database tree with lazily loaded collections.
 use crate::I18n;
+use crate::theme::icons;
 use crate::viewmodel::{
     DbNode, PasteTarget, SidebarState, collection_click_action, compare_database_to_action,
     compare_to_action, db_click_action,
@@ -94,11 +95,11 @@ fn push_node_rows<'a>(
     }
 }
 
-/// The text of a database row: an expand/collapse arrow and the name (one place, shared with the
-/// UI tests so they do not hardcode the glyphs).
+/// The accessible text of a database row: the chevron's codepoint, a space and the name (one
+/// place, shared with the UI tests so they do not hardcode the glyphs). The row draws the same
+/// two atoms, the chevron in the icon font.
 pub fn db_row_label(name: &str, expanded: bool) -> String {
-    let arrow = if expanded { "▾" } else { "▸" };
-    format!("{arrow} {name}")
+    format!("{} {name}", icons::chevron(expanded))
 }
 
 /// Height that fits the heading line and up to `max_rows` rows of `state`'s tree, so a root's
@@ -208,8 +209,8 @@ fn show_row(
         Row::Db(node) => {
             let node_ref = database_node(ctx, &node.name);
             let selected = is_selected(ctx, &node_ref);
-            let label = db_row_label(&node.name, node.expanded);
-            let response = row_button(ui, ctx, selected, label);
+            let chevron = icons::inline_icon(ui, icons::chevron(node.expanded));
+            let response = row_button(ui, ctx, selected, (chevron, node.name.as_str()));
             start_drag(&response, ctx, &node_ref);
             let target = database_target(ctx, &node.name);
             let dropped = target.and_then(|t| drop_target(&response, ctx, t, i18n));

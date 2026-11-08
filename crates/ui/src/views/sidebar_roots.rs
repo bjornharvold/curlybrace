@@ -4,6 +4,7 @@ use crate::I18n;
 use crate::app::reducer::Input;
 use crate::app::session::Root;
 use crate::app::state::{AppState, ConnStatus};
+use crate::theme::icons;
 use crate::viewmodel::SidebarAction;
 use crate::views::connection_badge::show_badge;
 use crate::views::sidebar::{preferred_body_height, show_sidebar_body};
@@ -97,7 +98,7 @@ fn show_title_line(
     i18n: &I18n,
 ) -> Option<Input> {
     let name = [("name", root.name.as_str())];
-    let arrow = if collapse.is_open() { "▾" } else { "▸" };
+    let arrow = icons::inline_icon(ui, icons::chevron(collapse.is_open()));
     let toggle = ui.small_button(arrow);
     named(&toggle, i18n.t_with("sidebar.toggle_named", &name));
     if toggle.clicked() {

@@ -3,6 +3,7 @@ use super::context_menu::row_context_menu;
 use super::doc_select::{checkbox_width, pick_id, row_checkbox};
 use super::metrics::{fixed_row, row_height};
 use crate::I18n;
+use crate::theme::icons;
 use crate::viewmodel::copy_clipboard::MENU_COPY_DOCUMENT;
 use crate::viewmodel::{
     CopyEntry, DocAction, MenuItem, PageKey, PageRow, TreeRow, TreeState, menu_items,
@@ -10,10 +11,6 @@ use crate::viewmodel::{
 };
 use curlybrace_core::store::Page;
 use eframe::egui;
-
-const ARROW_OPEN: &str = "▾";
-const ARROW_CLOSED: &str = "▸";
-const ARROW_NONE: &str = " ";
 
 /// What happened on one row this frame.
 #[derive(Default)]
@@ -150,16 +147,17 @@ fn field_cells(ui: &mut egui::Ui, row: &TreeRow, open: bool, i18n: &I18n) {
         ui.weak(row_value_text(row, i18n));
         return;
     }
-    ui.label(arrow(row, open));
+    arrow(ui, row, open);
     ui.label(egui::RichText::new(&row.key).strong());
     ui.weak(i18n.t(&type_label_key(row.type_name)));
     ui.add(egui::Label::new(row_value_text(row, i18n)).truncate());
 }
 
-fn arrow(row: &TreeRow, open: bool) -> &'static str {
-    match (row.is_expandable(), open) {
-        (false, _) => ARROW_NONE,
-        (true, true) => ARROW_OPEN,
-        (true, false) => ARROW_CLOSED,
+/// The disclosure chevron of an expandable row; other rows get a blank of the same width.
+fn arrow(ui: &mut egui::Ui, row: &TreeRow, open: bool) {
+    if row.is_expandable() {
+        ui.label(icons::inline_icon(ui, icons::chevron(open)));
+    } else {
+        ui.label(" ");
     }
 }
