@@ -156,16 +156,29 @@ fn field_cells(ui: &mut egui::Ui, row: &TreeRow, open: bool, i18n: &I18n) {
 /// The disclosure chevron of an expandable row. Every row reserves the same slot (the wider of
 /// the two chevrons), so keys line up whether or not a row can be expanded or is open.
 fn arrow(ui: &mut egui::Ui, row: &TreeRow, open: bool) {
-    let slot = [false, true]
-        .map(|state| chevron_galley(ui, state).size())
-        .into_iter()
-        .fold(egui::Vec2::ZERO, |widest, size| widest.max(size));
-    let (rect, _) = ui.allocate_exact_size(slot, egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(chevron_slot(ui), egui::Sense::hover());
     if row.is_expandable() && ui.is_rect_visible(rect) {
         let color = ui.visuals().text_color();
         ui.painter()
             .galley(rect.min, chevron_galley(ui, open), color);
     }
+}
+
+/// The size of the chevron slot (the wider of the two chevrons). It depends only on the fonts, so
+/// it is measured once per pass and shared by every row of that pass, not laid out per row.
+fn chevron_slot(ui: &egui::Ui) -> egui::Vec2 {
+    let id = egui::Id::new("tree_chevron_slot");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let cached = ui.data(|d| d.get_temp::<(u64, egui::Vec2)>(id));
+    if let Some((_, slot)) = cached.filter(|(cached, _)| *cached == pass) {
+        return slot;
+    }
+    let slot = [false, true]
+        .map(|state| chevron_galley(ui, state).size())
+        .into_iter()
+        .fold(egui::Vec2::ZERO, |widest, size| widest.max(size));
+    ui.data_mut(|d| d.insert_temp(id, (pass, slot)));
+    slot
 }
 
 fn chevron_galley(ui: &egui::Ui, open: bool) -> std::sync::Arc<egui::Galley> {

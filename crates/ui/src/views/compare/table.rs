@@ -1,12 +1,13 @@
 //! Fixed-height, fixed-width cells for the long lists (pair table, preflight rows, run overview),
 //! so `ScrollArea::show_rows` can draw only the visible ones.
 use crate::I18n;
-use crate::theme::{Tone, card, chip, current_ui, gate, shape};
+use crate::theme::{CONTROL_HEIGHT, Tone, card, chip, current_ui, gate, shape};
 use crate::viewmodel::compare::{EntryStatus, StatusIcon};
 use eframe::egui;
 
-/// Height of one table row; `show_rows` needs it fixed.
-pub const ROW_HEIGHT: f32 = 24.0;
+/// Height of one table row; `show_rows` needs it fixed. A theme button (40 dp) or an outlined field
+/// (40 dp plus its floating label's overhang) fits in it.
+pub const ROW_HEIGHT: f32 = CONTROL_HEIGHT + shape::SPACE_2;
 /// Most rows a list shows before it scrolls.
 pub const MAX_ROWS_HEIGHT: f32 = 260.0;
 

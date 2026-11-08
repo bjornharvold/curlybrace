@@ -48,8 +48,10 @@ pub fn show_table(
         // layer over the card's own surface instead of over the stripe color.
         ui.visuals_mut().widgets.hovered.bg_fill =
             state_layer(s.surface_container_low, s.on_surface, StateLayer::Hover);
+        // Where the table sits inside the card; the header band is never painted outside of it.
+        let viewport = ui.available_rect_before_wrap().intersect(ui.clip_rect());
         table_builder(ui, columns.len(), check_width)
-            .header(height, |header| header_cells(header, &columns, s))
+            .header(height, |header| header_cells(header, &columns, s, viewport))
             .body(|body| {
                 body.rows(height, page.docs.len(), |mut row| {
                     let index = row.index();
@@ -77,23 +79,31 @@ pub fn show_table(
     resolve_choice(state, page, key, chosen)
 }
 
-fn header_cells(mut header: egui_extras::TableRow<'_, '_>, columns: &[String], s: &Scheme) {
-    header.col(|ui| paint_header_cell(ui, s));
+fn header_cells(
+    mut header: egui_extras::TableRow<'_, '_>,
+    columns: &[String],
+    s: &Scheme,
+    viewport: egui::Rect,
+) {
+    header.col(|ui| paint_header_cell(ui, s, viewport));
     for name in columns {
         header.col(|ui| {
-            paint_header_cell(ui, s);
+            paint_header_cell(ui, s, viewport);
             ui.strong(name);
         });
     }
 }
 
 /// The header row's tonal fill behind one cell, widened by half the spacing on each side so the
-/// cells join into one band (the cell itself clips to its own rectangle).
-fn paint_header_cell(ui: &egui::Ui, s: &Scheme) {
+/// cells join into one band. A cell's own clip rectangle would cut that widening, so the band is
+/// clipped to the table's `viewport` instead: a cell scrolled out of view never paints over the
+/// card's padding or the panels around it.
+fn paint_header_cell(ui: &egui::Ui, s: &Scheme, viewport: egui::Rect) {
     let band = ui.max_rect().expand2(0.5 * ui.spacing().item_spacing);
-    ui.ctx()
-        .layer_painter(ui.layer_id())
-        .rect_filled(band, 0.0, s.surface_container_high);
+    // `set_clip_rect` replaces the cell's clip rect (`with_clip_rect` would intersect with it).
+    let mut painter = ui.painter().clone();
+    painter.set_clip_rect(viewport);
+    painter.rect_filled(band, 0.0, s.surface_container_high);
 }
 
 fn cell(ui: &mut egui::Ui, doc: &bson::Document, name: &str, i18n: &I18n) {
@@ -170,6 +180,51 @@ mod tests {
             .into_iter()
             .any(|(rect, fill)| fill == s.surface_container_high && rect.contains_rect(name));
         assert!(painted, "no surface_container_high behind the header cell");
+    }
+
+    #[test]
+    fn the_header_band_of_a_wide_table_stays_inside_the_card() {
+        let page = Page {
+            docs: vec![bson::Document::from_iter(
+                (0..12).map(|i| (format!("field_{i}"), bson::Bson::Int32(i))),
+            )],
+            skip: 0,
+            has_more: false,
+        };
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(360.0, 200.0))
+            .build_ui_state(
+                |ui, pane: &mut Pane| {
+                    let key = page_key(&pane.page);
+                    egui::Frame::new().inner_margin(24).show(ui, |ui| {
+                        show_table(ui, &pane.page, &key, &mut pane.state, &I18n::english());
+                    });
+                },
+                Pane {
+                    page,
+                    state: TreeState::default(),
+                },
+            );
+        theme::install(&harness.ctx);
+        harness.run_steps(4);
+        let s = theme::current(&harness.ctx);
+        let screen = harness.ctx.screen_rect();
+        let bands: Vec<egui::Rect> = harness
+            .output()
+            .shapes
+            .iter()
+            .filter(|clipped| {
+                matches!(&clipped.shape, egui::Shape::Rect(r) if r.fill == s.surface_container_high)
+            })
+            .map(|clipped| clipped.clip_rect)
+            .collect();
+        assert!(!bands.is_empty(), "no header band was painted");
+        for clip in bands {
+            assert!(
+                clip.left() >= screen.left() + 24.0 && clip.right() <= screen.right() - 24.0,
+                "a header band is clipped to {clip:?}, wider than the table's card"
+            );
+        }
     }
 
     #[test]

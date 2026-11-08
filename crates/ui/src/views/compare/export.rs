@@ -10,7 +10,8 @@ use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::theme::typography::dialog_title;
 use crate::theme::{
-    filled_button, modal_frame, outlined_field, segmented, text_button, tonal_button,
+    FieldOptions, filled_button, modal_frame, outlined_field_opts, segmented, text_button,
+    tonal_button,
 };
 use crate::viewmodel::compare::{
     CompareState, ExportBlock, ExportDraft, ExportKind, ExportUi, LABEL_MAX_CHARS, PendingView,
@@ -217,9 +218,12 @@ fn show_label(ui: &mut egui::Ui, draft: &ExportDraft, i18n: &I18n) -> Option<Com
         ExportKind::Report => draft.report.label.clone(),
     };
     let caption = i18n.t("compare.export.label.caption");
-    let changed = outlined_field(ui, &caption, &mut text, "").changed();
-    // The box has no length limit of its own: the label is cut to the limit before it is sent.
-    let text: String = text.chars().take(LABEL_MAX_CHARS).collect();
+    // The box stops at the limit while typing, so nothing is cut behind the person's back.
+    let options = FieldOptions {
+        char_limit: Some(LABEL_MAX_CHARS),
+        ..FieldOptions::default()
+    };
+    let changed = outlined_field_opts(ui, &caption, &mut text, "", options).changed();
     changed.then_some(CompareAction::SetExportLabel(text))
 }
 

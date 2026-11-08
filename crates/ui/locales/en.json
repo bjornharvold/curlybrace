@@ -342,6 +342,8 @@
         "target": "Target"
       },
       "counterpart_name_hint": "Name on the other side",
+      "counterpart_name_label": "Counterpart name",
+      "counterpart_name_named": "Counterpart name for {name}",
       "customised": "Customised",
       "defaults_title": "Defaults for all pairs",
       "edit_settings": "Edit settings",

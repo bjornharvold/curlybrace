@@ -8,7 +8,7 @@ use super::table::{
 };
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::tonal_button;
+use crate::theme::{FieldOptions, compact_text_button, outlined_field_opts, tonal_button};
 use crate::viewmodel::compare::preflight::side_key;
 use crate::viewmodel::compare::{
     CompareState, ListView, PairRow, StatusIcon, Unmatched, can_pair_with,
@@ -24,7 +24,7 @@ const COLUMNS: [Col; 6] = [
     Col::Fixed(80.0),
     Col::Fixed(100.0),
     Col::Flex(2.6),
-    Col::Fixed(190.0),
+    Col::Fixed(210.0),
 ];
 const UNMATCHED_NAME_W: f32 = 200.0;
 
@@ -127,11 +127,13 @@ fn status_cell(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) {
 
 fn row_buttons(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
-    if ui.button(i18n.t("compare.pairs.edit_settings")).clicked() {
+    if compact_text_button(ui, i18n.t("compare.pairs.edit_settings")).clicked() {
         action = Some(CompareAction::EditPair(Some(row.entry)));
     }
-    let remove = egui::Button::new(i18n.t("compare.pairs.remove"));
-    if ui.add_enabled(row.can_remove, remove).clicked() {
+    let remove = gated(ui, row.can_remove, |ui| {
+        compact_text_button(ui, i18n.t("compare.pairs.remove"))
+    });
+    if remove.clicked() {
         action = Some(CompareAction::RemovePair(row.entry));
     }
     action
@@ -200,10 +202,22 @@ fn show_unmatched_row(ui: &mut egui::Ui, item: &Unmatched, i18n: &I18n) -> Optio
         let name_w = (ui.available_width() - UNMATCHED_NAME_W - 140.0).max(120.0);
         cell(ui, name_w, |ui| truncated(ui, &text));
         let hint = i18n.t("compare.pairs.counterpart_name_hint");
-        let edit = egui::TextEdit::singleline(&mut typed).hint_text(hint);
-        ui.add(edit.desired_width(UNMATCHED_NAME_W));
-        let pair = egui::Button::new(i18n.t("compare.pairs.pair_with_name"));
-        if ui.add_enabled(can_pair_with(&typed), pair).clicked() {
+        let label = i18n.t("compare.pairs.counterpart_name_label");
+        let named = i18n.t_with(
+            "compare.pairs.counterpart_name_named",
+            &[("name", &item.name)],
+        );
+        let options = FieldOptions {
+            accessible_name: Some(&named),
+            ..FieldOptions::default()
+        };
+        ui.allocate_ui(egui::vec2(UNMATCHED_NAME_W, ROW_HEIGHT), |ui| {
+            outlined_field_opts(ui, &label, &mut typed, &hint, options);
+        });
+        let pair = gated(ui, can_pair_with(&typed), |ui| {
+            compact_text_button(ui, i18n.t("compare.pairs.pair_with_name"))
+        });
+        if pair.clicked() {
             action = Some(CompareAction::AddUnmatched {
                 side: item.side,
                 name: item.name.clone(),

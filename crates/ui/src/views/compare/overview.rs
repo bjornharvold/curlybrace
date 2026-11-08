@@ -8,7 +8,7 @@ use super::table::{
 };
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::tonal_button;
+use crate::theme::{compact_text_button, tonal_button};
 use crate::viewmodel::compare::{
     CompareState, ExportKind, OverviewRow, RowCounts, RowDetail, RunOverview, Totals,
 };
@@ -19,7 +19,7 @@ const COLUMNS: [Col; 4] = [
     Col::Flex(3.0),
     Col::Fixed(120.0),
     Col::Flex(3.5),
-    Col::Fixed(300.0),
+    Col::Fixed(360.0),
 ];
 
 pub fn show_overview(
@@ -160,7 +160,8 @@ fn counts_text(counts: &RowCounts, i18n: &I18n) -> String {
 fn row_buttons(ui: &mut egui::Ui, row: &OverviewRow, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     let mut button = |ui: &mut egui::Ui, key: &str, on: bool, make: CompareAction| {
-        if ui.add_enabled(on, egui::Button::new(i18n.t(key))).clicked() {
+        let pressed = gated(ui, on, |ui| compact_text_button(ui, i18n.t(key)));
+        if pressed.clicked() {
             action = Some(make);
         }
     };
