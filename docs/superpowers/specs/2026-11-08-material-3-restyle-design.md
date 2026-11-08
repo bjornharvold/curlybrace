@@ -123,8 +123,8 @@ Material component library.
 - **Screenshots** are regenerated locally on macOS with CI's toolchain (1.87.0) and committed with the
   change; the same baselines passed on the CI runner after the last regeneration (#130). The author
   reviews the changed images in the PR.
-- **Fonts.** Bundle Roboto (Apache 2.0) Regular and Medium for text, keep a monospace face for JSON and
-  query text, and a subset of Material Symbols (Outlined) limited to the icons actually used. Binary-size
+- **Fonts.** Bundle Roboto (SIL Open Font License 1.1) Regular and Medium for text, keep a monospace face for JSON and
+  query text, and a subset of Material Symbols (Outlined, Apache 2.0) limited to the icons actually used. Binary-size
   impact is checked and reported; if it is large, fall back to fewer weights or system fonts.
 - **Semantic colors beyond Material's roles.** Material 3 has no success/warning roles. Add *success*,
   *warning* and their containers as extra roles, harmonised to the seed, for the verdict chip, status rows

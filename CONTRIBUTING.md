@@ -170,6 +170,14 @@ flows when you have a local MongoDB). Those test binaries are `#[ignore]`d, so t
 `cargo test --workspace` gate never exercises them; `cargo clippy --workspace --all-targets` only
 proves that they still compile.
 
+The look comes from the Material 3 theme in `crates/ui/src/theme/`; UI colors and sizes come from the
+theme, never literals. The `theme_drift` test (`crates/ui/tests/theme_drift.rs`) fails on any `Color32`
+constructor or named color (except `Color32::TRANSPARENT`) and any literal font size in
+`crates/ui/src` or `crates/app/src` outside `theme/`; its one allow-listed file is
+`views/connection_badge.rs`, which draws the user-chosen tag color. Screenshots are rendered in light
+mode, with dark variants for key screens via `Shot::mode`. Regenerate changed baselines with
+`UPDATE_SNAPSHOTS=1` using CI's toolchain (`cargo +1.87.0`), and review the changed PNGs.
+
 Prefer real values (real `bson` documents from `mock_objects`) over mocks. Mock only boundaries:
 the driver, SSH and the Keychain.
 
