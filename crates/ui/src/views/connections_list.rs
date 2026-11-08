@@ -4,7 +4,7 @@ use super::connections::{ConnectionAction, ConnectionsState, Notice};
 use crate::I18n;
 use crate::theme::widgets::CONTROL_HEIGHT;
 use crate::theme::{
-    FieldOptions, Tone, chip, outlined_field_opts, pill, shape, text_button, tonal_button,
+    FieldOptions, Tone, chip, gate, outlined_field_opts, pill, shape, text_button, tonal_button,
 };
 use crate::viewmodel::{
     ConnectionBadge, SortColumn, auth_label_key, format_utc, grouped, security, server_hosts,
@@ -86,9 +86,7 @@ fn show_toolbar(
         .cloned();
     ui.horizontal_wrapped(|ui| {
         let tool = |ui: &mut egui::Ui, enabled: bool, key: &str| {
-            ui.add_enabled_ui(enabled, |ui| tonal_button(ui, i18n.t(key)))
-                .inner
-                .clicked()
+            gate(ui, enabled, |ui| tonal_button(ui, i18n.t(key))).clicked()
         };
         let current = selected.as_ref();
         if tool(ui, true, "connections.new") {

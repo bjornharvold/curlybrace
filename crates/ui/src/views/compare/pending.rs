@@ -173,7 +173,7 @@ fn show_line(
             egui::WidgetInfo::labeled(egui::WidgetType::Button, !busy, named.clone())
         });
         let remove = match busy {
-            true => remove.on_disabled_hover_text(i18n.t(ActionBlock::Busy.i18n_key())),
+            true => remove.on_hover_text(i18n.t(ActionBlock::Busy.i18n_key())),
             false => remove,
         };
         remove
@@ -204,7 +204,7 @@ fn show_buttons(
             filled_button(ui, i18n.t("compare.apply.pending.review"))
         });
         if !shown.is_empty() {
-            review.on_disabled_hover_text(reasons_text(&shown, i18n));
+            review.on_hover_text(reasons_text(&shown, i18n));
         } else if review.clicked() {
             action = Some(CompareAction::ReviewApply {
                 word: i18n.t(CONFIRM_WORD_KEY),

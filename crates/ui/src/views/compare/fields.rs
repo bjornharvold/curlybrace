@@ -167,6 +167,6 @@ fn guarded_button(ui: &mut egui::Ui, text: String, reasons: &[&str], i18n: &I18n
     if reasons.is_empty() {
         return response.clicked();
     }
-    response.on_disabled_hover_text(reasons_text(reasons, i18n));
+    response.on_hover_text(reasons_text(reasons, i18n));
     false
 }

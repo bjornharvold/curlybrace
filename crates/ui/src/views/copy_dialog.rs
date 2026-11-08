@@ -277,7 +277,9 @@ fn show_confirmation(
     };
     let mut text = dialog.typed.clone();
     let response = ui
-        .add_enabled_ui(enabled, |ui| show_typed_confirmation(ui, &prompt, &mut text))
+        .add_enabled_ui(enabled, |ui| {
+            show_typed_confirmation(ui, &prompt, &mut text)
+        })
         .inner;
     let input = response
         .changed()

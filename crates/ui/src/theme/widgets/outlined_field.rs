@@ -103,7 +103,13 @@ pub fn outlined_field_opts(
             // The floating label is cut at the end; hovering shows all of it.
             response = response.on_hover_text(label);
         }
-        describe(ui, &response, options.accessible_name.unwrap_or(label), hint, error);
+        describe(
+            ui,
+            &response,
+            options.accessible_name.unwrap_or(label),
+            hint,
+            error,
+        );
         if ui.is_rect_visible(response.rect) {
             let look = Look::of(ui, &response);
             let (stroke, label_color) = colors(s, look, error.is_some());

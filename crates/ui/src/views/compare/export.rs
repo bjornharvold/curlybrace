@@ -53,7 +53,7 @@ fn hover_reason(
     i18n: &I18n,
 ) -> egui::Response {
     match block {
-        Some(reason) => response.on_disabled_hover_text(i18n.t(reason.i18n_key())),
+        Some(reason) => response.on_hover_text(i18n.t(reason.i18n_key())),
         None => response,
     }
 }

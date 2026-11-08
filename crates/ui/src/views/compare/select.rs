@@ -70,7 +70,7 @@ fn guarded_button(
         return response.clicked();
     }
     if !reasons.is_empty() {
-        response.on_disabled_hover_text(reasons_text(reasons, i18n));
+        response.on_hover_text(reasons_text(reasons, i18n));
     }
     false
 }

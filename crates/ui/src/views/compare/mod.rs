@@ -147,3 +147,6 @@ fn list_view(ui: &egui::Ui, state: &CompareState) -> std::sync::Arc<ListView> {
         || (ListInputs::of(state), ListView::of(state)),
     )
 }
+
+#[cfg(test)]
+mod select_tests;
