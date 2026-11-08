@@ -3,6 +3,7 @@
 use super::actions::gated;
 use super::index_edit_actions as edit;
 use super::index_write_actions as write;
+use super::queries_actions as queries;
 use super::reducer::Out;
 use super::sampling_settings as sampling;
 use super::state::AppState;
@@ -44,6 +45,8 @@ pub(super) fn on_action(state: AppState, action: IndexesAction) -> Out {
         // Global settings, not tied to a session: no connection needed.
         IndexesAction::ExcludeDatabase(name) => sampling::exclude_database(state, &name),
         IndexesAction::IncludeDatabase(name) => sampling::include_database(state, &name),
+        IndexesAction::ShowView(view) => queries::show_view(state, view),
+        IndexesAction::Queries(action) => queries::on_action(state, action),
     }
 }
 

@@ -122,6 +122,10 @@ pub(super) fn estimate_arrived(state: AppState, ns: Namespace, count: u64) -> Ap
 /// `command` was just sent (immediately, or confirmed after the production warning): the write
 /// is recorded as what it was, so its answer acts on that and not on whatever is open by then.
 pub(super) fn sent(state: AppState, command: &Command) -> AppState {
+    // A profiler change is no index write: the Queries view tracks it on its own.
+    if let Command::SetProfilingLevel { db, .. } = command {
+        return super::queries_actions::write_sent(state, db);
+    }
     let (ns, write) = match command {
         Command::CreateIndex { ns, spec, .. } => {
             let write = match state.indexes.intended.clone() {

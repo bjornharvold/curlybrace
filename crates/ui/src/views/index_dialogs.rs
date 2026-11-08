@@ -37,7 +37,7 @@ fn heading(ui: &mut egui::Ui, title_key: &str, context: &DialogContext<'_>, i18n
 /// and not again while it stays open, so Tab moves through the modal and wraps around it as
 /// usual. A modal is drawn on every frame while open, so a gap in the frames it was drawn on
 /// means it was closed in between, and the next draw is a new open.
-fn focus_once(ui: &egui::Ui, target: &egui::Response, key: (&str, &str)) {
+pub(super) fn focus_once(ui: &egui::Ui, target: &egui::Response, key: (&str, &str)) {
     let id = egui::Id::new(key);
     let frame = ui.ctx().cumulative_frame_nr();
     let last_drawn = ui.data_mut(|d| d.get_temp::<u64>(id));

@@ -1,0 +1,30 @@
+{
+  "op": "query",
+  "ns": "shop.orders",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "region": "eu"
+    },
+    "$db": "shop"
+  },
+  "keysExamined": {
+    "$numberInt": "2500"
+  },
+  "docsExamined": {
+    "$numberInt": "2500"
+  },
+  "nreturned": {
+    "$numberInt": "4"
+  },
+  "millis": {
+    "$numberInt": "33"
+  },
+  "planSummary": "IXSCAN { region: 1 }",
+  "appName": "orders-service",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

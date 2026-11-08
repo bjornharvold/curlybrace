@@ -1,0 +1,69 @@
+{
+  "op": "update",
+  "ns": "test.orders",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "q": {
+      "a": {
+        "$numberInt": "4"
+      }
+    },
+    "u": {
+      "$set": {
+        "touched": true
+      }
+    },
+    "multi": true,
+    "upsert": false
+  },
+  "opid": {
+    "$numberInt": "97291"
+  },
+  "keysExamined": {
+    "$numberInt": "30"
+  },
+  "docsExamined": {
+    "$numberInt": "30"
+  },
+  "nMatched": {
+    "$numberInt": "30"
+  },
+  "nModified": {
+    "$numberInt": "30"
+  },
+  "nUpserted": {
+    "$numberInt": "0"
+  },
+  "keysInserted": {
+    "$numberInt": "0"
+  },
+  "keysDeleted": {
+    "$numberInt": "0"
+  },
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "planCacheShapeHash": "83CCBB74",
+  "queryHash": "83CCBB74",
+  "planCacheKey": "B79368F1",
+  "queryShapeHash": "3F3FA0F7D479E98B46F72652A2A87D8F0BA58383FC45A0237750003C7A1C5857",
+  "planRanker": "none",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "403"
+  },
+  "planSummary": "IXSCAN { a: 1 }",
+  "planningTimeMicros": {
+    "$numberInt": "84"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794070743387"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

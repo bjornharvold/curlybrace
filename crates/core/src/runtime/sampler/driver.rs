@@ -20,7 +20,7 @@ use crate::store::DocumentStore;
 /// How often the history is thinned.
 const THIN_EVERY: Duration = Duration::from_secs(3_600);
 
-fn new_ticker(period: Duration, immediate: bool) -> Interval {
+pub(in crate::runtime) fn new_ticker(period: Duration, immediate: bool) -> Interval {
     let start = if immediate {
         Instant::now()
     } else {
@@ -67,7 +67,7 @@ pub(in crate::runtime) async fn run(
         let result = tick(&*store, &history, connection, &current, &now, &mut state).await;
         let next = status_of(result, &mut state);
         settle_overrun(&mut state, began).await;
-        if !report(&mut state, &status, next) {
+        if !report(&mut state.reported, &status, next) {
             return;
         }
     }
@@ -156,19 +156,20 @@ async fn settle_overrun(state: &mut LoopState, began: Instant) {
     }
 }
 
-/// Sends `next` when it differs from the last status sent. `false` when nobody listens any more.
-fn report(
-    state: &mut LoopState,
-    status: &UnboundedSender<SamplerStatus>,
-    next: SamplerStatus,
+/// Sends `next` when it differs from the last status sent (`reported`). `false` when nobody
+/// listens any more.
+pub(in crate::runtime) fn report<T: PartialEq + Clone>(
+    reported: &mut Option<T>,
+    status: &UnboundedSender<T>,
+    next: T,
 ) -> bool {
-    if state.reported == Some(next) {
+    if reported.as_ref() == Some(&next) {
         return true;
     }
-    if status.send(next).is_err() {
+    if status.send(next.clone()).is_err() {
         return false;
     }
-    state.reported = Some(next);
+    *reported = Some(next);
     true
 }
 
@@ -177,13 +178,24 @@ async fn wait_for_next_tick(
     state: &mut LoopState,
     status: &UnboundedSender<SamplerStatus>,
 ) -> bool {
+    wait_for_tick(&mut state.ticker, state.interval, state.failures, status).await
+}
+
+/// Waits for the next tick of `ticker` (after `failures` consecutive pauses: the backoff of
+/// `interval` instead). `false` when the status channel closed.
+pub(in crate::runtime) async fn wait_for_tick<T>(
+    ticker: &mut Interval,
+    interval: Duration,
+    failures: u32,
+    status: &UnboundedSender<T>,
+) -> bool {
     let wait = async {
-        if state.failures == 0 {
-            state.ticker.tick().await;
+        if failures == 0 {
+            ticker.tick().await;
         } else {
-            tokio::time::sleep(backoff(state.interval, state.failures)).await;
+            tokio::time::sleep(backoff(interval, failures)).await;
             // The ticks missed while backing off must not fire as a burst afterwards.
-            state.ticker.reset();
+            ticker.reset();
         }
     };
     tokio::select! {

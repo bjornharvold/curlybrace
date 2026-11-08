@@ -1,0 +1,38 @@
+{
+  "op": "getmore",
+  "ns": "shop.orders",
+  "command": {
+    "getMore": {
+      "$numberLong": "7340998123456"
+    },
+    "collection": "orders",
+    "batchSize": 101,
+    "$db": "shop"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "101"
+  },
+  "nreturned": {
+    "$numberInt": "101"
+  },
+  "millis": {
+    "$numberInt": "3"
+  },
+  "planSummary": "COLLSCAN",
+  "originatingCommand": {
+    "find": "orders",
+    "filter": {
+      "status": "open"
+    },
+    "$db": "shop"
+  },
+  "appName": "orders-service",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

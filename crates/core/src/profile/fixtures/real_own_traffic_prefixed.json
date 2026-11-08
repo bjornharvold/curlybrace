@@ -1,0 +1,61 @@
+{
+  "op": "query",
+  "ns": "test.own_suffixed",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "find": "own_suffixed",
+    "filter": {
+      "x": {
+        "$numberInt": "1"
+      }
+    },
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "123908"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "1"
+  },
+  "nBatches": {
+    "$numberInt": "1"
+  },
+  "cursorExhausted": true,
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "1"
+  },
+  "planCacheShapeHash": "3ECEFF74",
+  "queryHash": "3ECEFF74",
+  "planCacheKey": "BC072E58",
+  "queryShapeHash": "922ACB82BA4DC538A084DB94E72DE6D83F6BF86D7A0D3DDFD48F16209A74D4A5",
+  "queryFramework": "classic",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "151"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "65"
+  },
+  "planSummary": "COLLSCAN",
+  "planningTimeMicros": {
+    "$numberInt": "36"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794070743516"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "shopapp curlybrace",
+  "user": ""
+}

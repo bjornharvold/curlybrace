@@ -1,0 +1,52 @@
+{
+  "op": "command",
+  "ns": "test.orders",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "aggregate": "orders",
+    "pipeline": [
+      {
+        "$indexStats": {}
+      }
+    ],
+    "cursor": {},
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "183302"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "0"
+  },
+  "cursorExhausted": true,
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "2"
+  },
+  "queryShapeHash": "D5213E272CC188EED0AD107EC1FEAB83364D5CE0D71605072E0F1DD3A2FA0CFA",
+  "queryFramework": "classic",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "441"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "132"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794070743679"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

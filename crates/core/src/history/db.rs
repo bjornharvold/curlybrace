@@ -7,7 +7,7 @@
 use super::db_schema::{SchemaError, prepare};
 use super::retention::{ChartRange, MAX_DB_BYTES};
 use super::series::{Bucket, Sample};
-use super::{thin, usage};
+use super::{shapes, thin, usage};
 use crate::error::{CoreError, Result};
 use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
 use std::collections::HashSet;
@@ -125,6 +125,12 @@ impl HistoryDb {
             .expect("rename the samples table");
     }
 
+    /// Runs raw SQL on the connection, to break and mend the schema in a test.
+    #[cfg(test)]
+    pub(crate) fn exec_for_tests(&self, sql: &str) {
+        self.lock().execute_batch(sql).expect("run the test SQL");
+    }
+
     /// Opens (creating, with mode 0600 on unix) the database at `path`. A corrupt file is moved
     /// to `<name>.corrupt` and replaced; a file from a newer build is refused untouched.
     pub fn open(path: &Path) -> Result<(Self, Option<Recovery>)> {
@@ -183,7 +189,7 @@ impl HistoryDb {
 
     /// A poisoned lock only means another call panicked; transactions roll back on drop, so the
     /// connection is still consistent.
-    fn lock(&self) -> MutexGuard<'_, Connection> {
+    pub(super) fn lock(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -346,7 +352,7 @@ impl HistoryDb {
             .remove(&connection);
     }
 
-    fn is_purged(&self, connection: Uuid) -> bool {
+    pub(super) fn is_purged(&self, connection: Uuid) -> bool {
         self.purged
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -356,13 +362,18 @@ impl HistoryDb {
     /// Deletes everything stored for one connection (its samples and rolled rows).
     /// Also marks it purged, so nothing written for it afterwards recreates the series.
     pub fn purge_connection(&self, connection: Uuid) -> Result<()> {
-        let conn = self.lock();
+        let mut conn = self.lock();
         self.mark_purged(connection);
-        conn.execute(
+        // One transaction: all of the connection's history goes, or none of it does.
+        let tx = conn.transaction().map_err(sql_err)?;
+        tx.execute(
             "DELETE FROM series WHERE connection = ?1",
             [connection.to_string()],
         )
         .map_err(sql_err)?;
+        // Same locked section: shape rows (typed ones included) and their gaps go with it.
+        shapes::delete_connection(&tx, connection)?;
+        tx.commit().map_err(sql_err)?;
         thin::release_free_pages(&conn)
     }
 

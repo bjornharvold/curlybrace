@@ -18,6 +18,9 @@ pub mod index_write;
 pub mod indexes;
 pub mod json_cache;
 pub mod page_key;
+pub mod queries;
+pub mod queries_chart;
+pub mod queries_status;
 pub mod sidebar;
 pub mod sidebar_selection;
 pub mod table;
@@ -57,6 +60,10 @@ pub use index_write::{DropConfirm, DropOld, IndexWrite, TtlPrompt};
 pub use indexes::{CollectionTab, IndexesAction, IndexesState};
 pub use json_cache::{JsonCache, view_json_cache};
 pub use page_key::{PageKey, page_key};
+pub use queries::{
+    InFlight, IndexesView, PROFILER_LEVEL_OFF, PROFILER_LEVEL_ON, ProfilerConsent, ProfilingView,
+    QueriesAction, QueriesState, QueryRow, rows,
+};
 pub use sidebar::{
     DbNode, SidebarAction, SidebarState, collection_click_action, compare_database_to_action,
     compare_to_action, db_click_action,

@@ -14,11 +14,18 @@ use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
 use super::job_flag::JobFlag;
+use super::profiler_handlers::{
+    profiler_db, profiler_failure, profiling_state, query_shapes, set_profiling_level,
+};
 use super::session::Session;
 use super::tunneling::{
     AttemptCurrent, ConnectionCurrent, Currentness, SshSecretSource, open_tunnel_if_configured,
 };
 use super::{Command, Event, SessionId, Shared};
+
+/// The text of the `Database` error a client-side timeout becomes, shared by every handler that
+/// reports one.
+pub const COMMAND_TIMEOUT_MESSAGE: &str = "timeout";
 
 /// What a dispatched command runs as. Only a connect carries a read-only flag, and it always
 /// does: the dispatcher attaches it synchronously, so a lock sent while the connect is in flight
@@ -40,6 +47,14 @@ impl Work {
         }
     }
 
+    /// The database of a profiler command, whose every failure is an outcome of its own event.
+    fn profiler_db(&self) -> Option<String> {
+        match self {
+            Self::Connect { .. } => None,
+            Self::Data(command) => profiler_db(command).map(str::to_owned),
+        }
+    }
+
     fn request(&self) -> Option<u64> {
         match self {
             Self::Connect { .. } => None,
@@ -56,10 +71,16 @@ pub(super) async fn execute(
     work: Work,
     generation: u64,
 ) -> Event {
-    let (context, request) = (work.context(), work.request());
+    let (context, request, profiler) = (work.context(), work.request(), work.profiler_db());
     match run(&shared, &session, id, work, generation).await {
         Ok(event) => event,
-        Err(error) => failure_event(id, context, request, generation, error),
+        // A profiler command shows its failure inline, wherever it stopped. `Superseded` stays an
+        // `Event::Failed` like every superseded command: the UI drops it, as the answer of a
+        // connection the person already left, and it is no failure to show.
+        Err(error) => match profiler {
+            Some(db) if error != CoreError::Superseded => profiler_failure(id, db, error),
+            _ => failure_event(id, context, request, generation, error),
+        },
     }
 }
 
@@ -176,9 +197,18 @@ async fn run(
         Command::ExplainFind { ns, query, .. } => Some((ns.clone(), query.clone())),
         _ => None,
     };
+    // A profiler command is the one write whose read-only refusal is not decided here: the store
+    // wrapper is the authority and its refusal is the outcome. Every other check (session,
+    // currency, generation) still applies to it, `execute` turns its failures into outcomes.
+    let is_profiler = profiler_db(&command).is_some();
     // Refused before any timeout or ping bookkeeping: a refusal is an answer, never a lost write.
-    if is_write && store.is_read_only() {
+    if is_write && !is_profiler && store.is_read_only() {
         return Err(gate(session, generation, CoreError::ReadOnly));
+    }
+    // A command issued for a connection that was replaced meanwhile must not run against the
+    // new one (the store installed now may be the new connection's).
+    if is_profiler && !session.is_current(generation) {
+        return Err(CoreError::Superseded);
     }
     // The silence that is not yet a gap follows the sampling interval, a runtime tunable.
     let max_continuous = max_continuous_secs(shared.sampler_config.borrow().interval);
@@ -193,7 +223,10 @@ async fn run(
     // an answer from a server that is there.
     let (result, timed_out) = match tokio::time::timeout(limit, work).await {
         Ok(result) => (result, false),
-        Err(_) => (Err(CoreError::Database("timeout".into())), true),
+        Err(_) => (
+            Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
+            true,
+        ),
     };
     // A newer Connect/Disconnect ended this command's session while it ran: its answer belongs
     // to a previous server and must not reach the UI (mutations may have committed; the UI
@@ -208,8 +241,14 @@ async fn run(
             session: id,
             ns,
             query,
-            outcome: Err(CoreError::Database("timeout".into())),
+            outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
+    }
+    // A profiler command is not settled by a ping either, whether it timed out or lost the
+    // connection: a timeout is an outcome, and the loss is detected by the next ordinary command
+    // or the sampler. `execute` turns the error into its outcome.
+    if is_profiler {
+        return result;
     }
     match result {
         Err(error) if timed_out || matches!(error, CoreError::ConnectionInterrupted(_)) => {
@@ -274,6 +313,12 @@ async fn data_command(
                 Ok(explain) => classify(&explain.document, &query),
                 Err(error) => Err(error),
             };
+            // Only a verdict is recorded; a failed explain says nothing about the query.
+            if let (Ok(verdict), Some(history)) = (&outcome, history.as_ref()) {
+                let kind = verdict.kind;
+                let now = crate::clock::now_secs;
+                super::typed_record::record_typed(history, session, &ns, &query, kind, &now);
+            }
             Event::Explain {
                 session,
                 ns,
@@ -326,6 +371,13 @@ async fn data_command(
                 request,
             }
         }
+        Command::ProfilingState { db, .. } => profiling_state(session, &store, db).await,
+        Command::SetProfilingLevel { db, level, .. } => {
+            set_profiling_level(session, &store, db, level).await
+        }
+        Command::QueryShapes {
+            ns, range, request, ..
+        } => query_shapes(session, history, ns, range, request).await?,
         Command::EstimatedCount { ns, .. } => {
             let count = store.estimated_count(&ns).await?;
             Event::EstimatedCount { session, ns, count }
@@ -370,7 +422,7 @@ async fn bounded<T>(
 ) -> Result<T> {
     tokio::time::timeout(limit, work)
         .await
-        .map_err(|_| CoreError::Database("timeout".into()))?
+        .map_err(|_| CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into()))?
 }
 
 /// Opens and installs a store. Superseded connects (a newer Connect or a

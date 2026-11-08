@@ -77,8 +77,15 @@ fn unavailable_reason(error: &CoreError) -> &'static str {
     }
 }
 
-fn ready(verdict: &Verdict, ns: Option<&Namespace>) -> BadgeModel {
-    let (tone, icon, title_key) = match verdict.kind {
+/// The tone, icon and title key of a verdict kind: the one place the kinds are worded, shared
+/// by the badge and the rows of the Queries view.
+pub fn kind_presentation(kind: VerdictKind) -> (&'static str, &'static str) {
+    let (_, icon, title_key) = presentation(kind);
+    (icon, title_key)
+}
+
+fn presentation(kind: VerdictKind) -> (Tone, &'static str, &'static str) {
+    match kind {
         VerdictKind::IndexUsed => (Tone::Good, ICON_GOOD, "query.verdict.title_index_used"),
         VerdictKind::CoveredByIndex => (Tone::Good, ICON_GOOD, "query.verdict.title_covered"),
         VerdictKind::CollectionScan => (Tone::Warn, ICON_WARN, "query.verdict.title_collscan"),
@@ -86,7 +93,11 @@ fn ready(verdict: &Verdict, ns: Option<&Namespace>) -> BadgeModel {
         VerdictKind::InefficientIndex => (Tone::Warn, ICON_WARN, "query.verdict.title_inefficient"),
         VerdictKind::NoFilter => (Tone::Neutral, ICON_INFO, "query.verdict.title_no_filter"),
         VerdictKind::EmptyCollection => (Tone::Neutral, ICON_INFO, "query.verdict.title_empty"),
-    };
+    }
+}
+
+fn ready(verdict: &Verdict, ns: Option<&Namespace>) -> BadgeModel {
+    let (tone, icon, title_key) = presentation(verdict.kind);
     let suggestion = match (tone, ns) {
         (Tone::Good, _) | (_, None) => None,
         (_, Some(ns)) if !planned_on(verdict, ns) => None,

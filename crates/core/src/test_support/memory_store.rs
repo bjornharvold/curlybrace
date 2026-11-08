@@ -13,13 +13,15 @@ use super::bson_order::cmp_bson;
 use super::memory_fields::update_fields;
 use super::memory_indexes::{self as idx, IndexMap, UsageMap};
 use super::memory_options::{self as opts, OptionsMap};
+use super::memory_profile::{self as prof, ProfileMap};
 use super::query_eval::{check_filter, compare, matches, parse_sort, project};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
 use crate::indexes::{IndexOptions, IndexSpec};
 use crate::store::{
     CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
-    IndexStatus, IndexUsage, Namespace, Page, Query, WriteFailure, WriteOp, WriteOutcome,
+    IndexStatus, IndexUsage, Namespace, Page, ProfileRead, ProfilingState, Query, WriteFailure,
+    WriteOp, WriteOutcome,
 };
 
 type Collections = BTreeMap<(String, String), Vec<Document>>;
@@ -31,6 +33,7 @@ pub struct InMemoryStore {
     pub(super) usage: Mutex<UsageMap>,
     options: Mutex<OptionsMap>,
     explains: Mutex<BTreeMap<(String, String), Document>>,
+    pub(super) profiles: Mutex<ProfileMap>,
 }
 
 impl InMemoryStore {
@@ -318,6 +321,23 @@ impl DocumentStore for InMemoryStore {
                 plan_only: false,
             })
             .ok_or_else(|| CoreError::Unsupported("this store cannot explain queries".into()))
+    }
+
+    async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {
+        prof::level(&*self.profiles.lock().map_err(|_| poisoned())?, db)
+    }
+
+    async fn read_profile(&self, db: &str, since_ts_millis: i64) -> Result<ProfileRead> {
+        let profiles = self.profiles.lock().map_err(|_| poisoned())?;
+        prof::read(&profiles, db, since_ts_millis)
+    }
+
+    async fn set_profiling_level(&self, db: &str, level: i32) -> Result<ProfilingState> {
+        prof::set_level(
+            &mut *self.profiles.lock().map_err(|_| poisoned())?,
+            db,
+            level,
+        )
     }
 
     async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {

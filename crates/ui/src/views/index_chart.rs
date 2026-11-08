@@ -95,7 +95,12 @@ pub fn show_chart(
 }
 
 /// A translucent rectangle over `(from, to)`, as tall as the chart.
-fn gap_band(name: &str, (from, to): (f64, f64), top: f64, fill: egui::Color32) -> Polygon<'static> {
+pub(super) fn gap_band(
+    name: &str,
+    (from, to): (f64, f64),
+    top: f64,
+    fill: egui::Color32,
+) -> Polygon<'static> {
     let corners = vec![[from, 0.0], [to, 0.0], [to, top], [from, top]];
     Polygon::new(name, PlotPoints::from(corners))
         .fill_color(fill)
@@ -135,7 +140,7 @@ pub fn summary_line(series: &IndexSeries, range: ChartRange, now_secs: i64, i18n
 }
 
 /// Spacing of the small, medium and large grid lines, in seconds.
-fn grid_steps(range: ChartRange) -> [f64; 3] {
+pub(super) fn grid_steps(range: ChartRange) -> [f64; 3] {
     match range {
         ChartRange::Day => [3_600.0, 10_800.0, 21_600.0],
         ChartRange::Week => [43_200.0, 86_400.0, 172_800.0],
@@ -144,7 +149,7 @@ fn grid_steps(range: ChartRange) -> [f64; 3] {
 }
 
 /// An x tick: how long before now it is, in hours for a day and in days otherwise.
-fn axis_label(x: f64, range: ChartRange, i18n: &I18n) -> String {
+pub(super) fn axis_label(x: f64, range: ChartRange, i18n: &I18n) -> String {
     let (unit, key) = match range {
         ChartRange::Day => (3_600.0, "indexes.axis_hours"),
         ChartRange::Week | ChartRange::Month => (86_400.0, "indexes.axis_days"),
@@ -156,7 +161,7 @@ fn axis_label(x: f64, range: ChartRange, i18n: &I18n) -> String {
     i18n.t_with(key, &[("n", &whole_number(ago))])
 }
 
-fn whole_number(value: f64) -> String {
+pub(super) fn whole_number(value: f64) -> String {
     format!("{}", value.round() as i64)
 }
 

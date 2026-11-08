@@ -1,0 +1,76 @@
+{
+  "op": "command",
+  "ns": "test.orders",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "aggregate": "orders",
+    "pipeline": [
+      {
+        "$match": {
+          "a": {
+            "$numberInt": "3"
+          }
+        }
+      },
+      {
+        "$group": {
+          "_id": "$a",
+          "n": {
+            "$sum": {
+              "$numberInt": "1"
+            }
+          }
+        }
+      }
+    ],
+    "cursor": {},
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "97290"
+  },
+  "keysExamined": {
+    "$numberInt": "30"
+  },
+  "docsExamined": {
+    "$numberInt": "0"
+  },
+  "peakTrackedMemBytes": {
+    "$numberLong": "50"
+  },
+  "cursorExhausted": true,
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "1"
+  },
+  "planCacheShapeHash": "2A1F1D01",
+  "queryHash": "2A1F1D01",
+  "planCacheKey": "6DE71FD4",
+  "queryShapeHash": "E7CE8845C7435D962EE55F2053EF53166F17E014C2A18EA0A16D94E4C2098E1B",
+  "queryFramework": "sbe",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "137"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "684"
+  },
+  "planSummary": "IXSCAN { a: 1 }",
+  "planningTimeMicros": {
+    "$numberInt": "420"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794070743386"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

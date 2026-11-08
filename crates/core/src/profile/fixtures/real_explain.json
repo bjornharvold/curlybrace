@@ -1,0 +1,49 @@
+{
+  "op": "command",
+  "ns": "test.orders",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "explain": {
+      "find": "orders",
+      "filter": {
+        "c": {
+          "$numberInt": "5"
+        }
+      }
+    },
+    "verbosity": "executionStats",
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "183301"
+  },
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "planCacheShapeHash": "630D4E40",
+  "queryHash": "630D4E40",
+  "planCacheKey": "A19AF62F",
+  "queryShapeHash": "3EF3249090E3FD6DC6554333BE1D1C81C9626B3B7419708230BE0958DD40AEE3",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "2284"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "697"
+  },
+  "planningTimeMicros": {
+    "$numberInt": "90"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794070743679"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

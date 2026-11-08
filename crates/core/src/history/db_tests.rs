@@ -469,17 +469,23 @@ fn thinning_drops_daily_rows_older_than_two_years() {
     );
 }
 
+/// Above the fixed size of the empty schema (every table and index takes a page), so the cap
+/// leaves room for rows and the test sees which of them go first.
+const SIZE_CAP_BYTES: u64 = 120_000;
+
 #[test]
 fn the_size_cap_removes_the_oldest_rows_first() {
-    let db = HistoryDb::open_in_memory().unwrap().with_max_bytes(80_000);
+    let db = HistoryDb::open_in_memory()
+        .unwrap()
+        .with_max_bytes(SIZE_CAP_BYTES);
     let k = key();
     record_minutely(&db, &k, NOW - 40 * HOUR, NOW, 0);
     let oldest = |db: &HistoryDb| count(db, "SELECT MIN(at_secs) FROM samples");
     let first = oldest(&db);
     let rows = count(&db, "SELECT COUNT(*) FROM samples");
-    assert!(db.used_bytes().unwrap() > 80_000);
+    assert!(db.used_bytes().unwrap() > SIZE_CAP_BYTES);
     db.thin(NOW, DEFAULT_MAX_CONTINUOUS_SECS).unwrap();
-    assert!(db.used_bytes().unwrap() <= 80_000);
+    assert!(db.used_bytes().unwrap() <= SIZE_CAP_BYTES);
     assert!(count(&db, "SELECT COUNT(*) FROM samples") < rows);
     assert!(oldest(&db) > first);
     // The newest sample survives.

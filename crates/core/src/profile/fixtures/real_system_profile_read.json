@@ -1,0 +1,56 @@
+{
+  "op": "query",
+  "ns": "test.system.profile",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "find": "system.profile",
+    "filter": {},
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "183300"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "0"
+  },
+  "nBatches": {
+    "$numberInt": "1"
+  },
+  "cursorExhausted": true,
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "0"
+  },
+  "planCacheShapeHash": "0F20F9A9",
+  "queryHash": "0F20F9A9",
+  "planCacheKey": "8CEEBFD3",
+  "queryFramework": "classic",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "121"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "166"
+  },
+  "planSummary": "COLLSCAN",
+  "planningTimeMicros": {
+    "$numberInt": "102"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794070743677"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

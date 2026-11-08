@@ -37,9 +37,10 @@ use super::retention::{
 };
 use super::seam;
 use super::series::{MAX_FUTURE_SKEW_SECS, bucketize_within, derive};
+use super::shape_thin::{self, CapStep};
 use super::usage::{clip_gap, trusted_seam};
 use crate::error::Result;
-use rusqlite::{Connection, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 /// Rows deleted per step while enforcing the size cap.
 const CAP_BATCH_ROWS: i64 = 500;
@@ -59,11 +60,14 @@ pub(super) fn thin(
     roll_raw_into_hourly(&tx, now_secs, max_continuous_secs)?;
     roll_hourly_into_daily(&tx, now_secs)?;
     expire(&tx, now_secs)?;
+    shape_thin::thin_shapes(&tx, now_secs)?;
     remove_empty_series(&tx)?;
+    shape_thin::remove_empty_shapes(&tx)?;
     tx.commit().map_err(sql_err)?;
     release_free_pages(conn)?;
     enforce_cap(conn, max_bytes, now_secs)?;
     remove_empty_series(conn)?;
+    shape_thin::remove_empty_shapes(conn)?;
     reset_wal(conn);
     Ok(())
 }
@@ -261,7 +265,9 @@ pub(super) fn release_free_pages(conn: &Connection) -> Result<()> {
 
 /// Deletes rows until the file fits: first the raw rows of series that hold no sample the reads
 /// can see (all stamped ahead of the clock, whether or not they also have rolled rows), then the
-/// oldest daily rows, then hourly, then raw.
+/// oldest daily rows, then hourly, then raw. Shape history shares the cap: at every step a batch
+/// of usage rows and a batch of shape buckets go in turn, with the size re-checked between them,
+/// so neither set starves the other.
 ///
 /// The cap is the one place a wall-clock comparison deletes samples: with a clock *behind*, the
 /// real rows of a dead series look like future ones and go first. That is acceptable, because
@@ -275,40 +281,87 @@ fn enforce_cap(conn: &Connection, max_bytes: u64, now_secs: i64) -> Result<()> {
                  WHERE series_id NOT IN (SELECT series_id FROM samples WHERE at_secs <= ?2)
                  ORDER BY id LIMIT ?1)",
             true,
+            CapStep::FutureOnlyRaw,
         ),
         (
             "DELETE FROM rolled WHERE (series_id, tier, start_secs) IN (
                  SELECT series_id, tier, start_secs FROM rolled WHERE tier = 2
                  ORDER BY start_secs LIMIT ?1)",
             false,
+            CapStep::OldestDaily,
         ),
         (
             "DELETE FROM rolled WHERE (series_id, tier, start_secs) IN (
                  SELECT series_id, tier, start_secs FROM rolled WHERE tier = 1
                  ORDER BY start_secs LIMIT ?1)",
             false,
+            CapStep::OldestHourly,
         ),
         (
             "DELETE FROM samples WHERE id IN (SELECT id FROM samples ORDER BY id LIMIT ?1)
                 ",
             false,
+            CapStep::OldestRaw,
         ),
     ];
-    for (delete, takes_until) in steps {
+    for (delete, takes_until, shape_step) in steps {
         loop {
             if used_bytes(conn)? <= max_bytes {
                 return Ok(());
             }
-            let deleted = match takes_until {
-                true => conn.execute(delete, params![CAP_BATCH_ROWS, believable_until]),
-                false => conn.execute(delete, [CAP_BATCH_ROWS]),
+            // The set whose oldest row is older goes first; the other follows, and the size is
+            // re-checked after each batch, so neither set starves the other.
+            let shape_first = shape_goes_first(conn, shape_step)?;
+            let mut deleted = 0;
+            for shape_turn in [shape_first, !shape_first] {
+                deleted += match shape_turn {
+                    true => shape_batch(conn, shape_step, believable_until)?,
+                    false => usage_batch(conn, delete, takes_until, believable_until)?,
+                };
+                release_free_pages(conn)?;
+                if used_bytes(conn)? <= max_bytes {
+                    return Ok(());
+                }
             }
-            .map_err(sql_err)?;
-            release_free_pages(conn)?;
             if deleted == 0 {
                 break;
             }
         }
     }
     Ok(())
+}
+
+fn usage_batch(conn: &Connection, delete: &str, takes_until: bool, until: i64) -> Result<usize> {
+    match takes_until {
+        true => conn.execute(delete, params![CAP_BATCH_ROWS, until]),
+        false => conn.execute(delete, [CAP_BATCH_ROWS]),
+    }
+    .map_err(sql_err)
+}
+
+/// A batch of the oldest shape buckets, then the shapes it left empty: their `shape_json` text
+/// counts against the cap until they are gone.
+fn shape_batch(conn: &Connection, step: CapStep, until: i64) -> Result<usize> {
+    let deleted = shape_thin::cap_step(conn, step, CAP_BATCH_ROWS, until)?;
+    shape_thin::remove_empty_shapes(conn)?;
+    Ok(deleted)
+}
+
+/// Whether the shape history holds an older row than the usage history for this step.
+pub(super) fn shape_goes_first(conn: &Connection, step: CapStep) -> Result<bool> {
+    let usage_oldest_sql = match step {
+        CapStep::FutureOnlyRaw => return Ok(false),
+        CapStep::OldestDaily => "SELECT MIN(start_secs) FROM rolled WHERE tier = 2",
+        CapStep::OldestHourly => "SELECT MIN(start_secs) FROM rolled WHERE tier = 1",
+        // The row the usage delete takes next (`ORDER BY id`), by the primary key: a `MIN` over
+        // the unindexed timestamp would scan every sample at each iteration under the lock.
+        CapStep::OldestRaw => "SELECT at_secs FROM samples ORDER BY id LIMIT 1",
+    };
+    let usage: Option<i64> = conn
+        .query_row(usage_oldest_sql, [], |r| r.get::<_, Option<i64>>(0))
+        .optional()
+        .map_err(sql_err)?
+        .flatten();
+    let shapes = shape_thin::oldest(conn, step)?;
+    Ok(matches!((shapes, usage), (Some(s), Some(u)) if s < u))
 }
