@@ -3,8 +3,11 @@
 //! way to close the modal while the dialog is open or a job runs, and the dialog itself is never
 //! driven from here: the app layer reacts to the `Choosing` state.
 use super::export::title_key;
+use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::typography::dialog_title;
+use crate::theme::{filled_button, text_button};
 use crate::viewmodel::compare::{ExportKind, ExportUi, RedactedPath};
 use curlybrace_core::compare::protocol::ExportOutcome;
 use eframe::egui;
@@ -13,14 +16,14 @@ const BAR_WIDTH: f32 = 320.0;
 
 /// The dialog is open: only a waiting text. The dialog's answer is the only way out.
 pub fn show_choosing(ui: &mut egui::Ui, kind: ExportKind, i18n: &I18n) -> Option<CompareAction> {
-    ui.heading(i18n.t(title_key(kind)));
+    ui.label(dialog_title(ui, i18n.t(title_key(kind))));
     ui.horizontal(|ui| {
         ui.spinner();
         ui.label(i18n.t("compare.export.choosing.waiting"));
     });
     ui.label(egui::RichText::new(i18n.t("compare.export.choosing.hint")).weak());
     // Back to the options; a late answer of the dialog is then dropped by the app.
-    let cancel = ui.button(i18n.t("compare.export.cancel"));
+    let cancel = text_button(ui, i18n.t("compare.export.cancel"));
     cancel
         .clicked()
         .then_some(CompareAction::ExportPathCancelled)
@@ -52,7 +55,7 @@ fn show_running(
     i18n: &I18n,
 ) -> Option<CompareAction> {
     ui.horizontal(|ui| {
-        ui.heading(i18n.t("compare.export.running.title"));
+        ui.label(dialog_title(ui, i18n.t("compare.export.running.title")));
         ui.spinner();
     });
     let fraction = match total {
@@ -68,8 +71,10 @@ fn show_running(
         ui.label(progress_text(done, total, i18n));
     });
     ui.horizontal(|ui| {
-        let cancel = egui::Button::new(i18n.t("compare.export.running.cancel"));
-        let clicked = ui.add_enabled(!cancel_requested, cancel).clicked();
+        let cancel = gated(ui, !cancel_requested, |ui| {
+            text_button(ui, i18n.t("compare.export.running.cancel"))
+        });
+        let clicked = cancel.clicked();
         if cancel_requested {
             ui.label(i18n.t("compare.export.running.cancelling"));
         }
@@ -103,7 +108,7 @@ fn show_finished(
     path: Option<&RedactedPath>,
     i18n: &I18n,
 ) -> Option<CompareAction> {
-    ui.heading(i18n.t("compare.export.finished.title"));
+    ui.label(dialog_title(ui, i18n.t("compare.export.finished.title")));
     if outcome.cancelled {
         ui.label(i18n.t("compare.export.finished.cancelled"));
     }
@@ -175,7 +180,7 @@ fn show_file(ui: &mut egui::Ui, outcome: &ExportOutcome, path: &RedactedPath, i1
 }
 
 fn show_copied(ui: &mut egui::Ui, rows: u64, i18n: &I18n) -> Option<CompareAction> {
-    ui.heading(i18n.t("compare.export.copied.title"));
+    ui.label(dialog_title(ui, i18n.t("compare.export.copied.title")));
     count_line(ui, "compare.export.copied.rows", rows, i18n);
     ui.label(egui::RichText::new(i18n.t("compare.export.copied.note")).weak());
     dismiss(ui, i18n)
@@ -183,6 +188,6 @@ fn show_copied(ui: &mut egui::Ui, rows: u64, i18n: &I18n) -> Option<CompareActio
 
 fn dismiss(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
     ui.separator();
-    let button = ui.button(i18n.t("compare.export.dismiss"));
+    let button = filled_button(ui, i18n.t("compare.export.dismiss"));
     button.clicked().then_some(CompareAction::CloseExport)
 }

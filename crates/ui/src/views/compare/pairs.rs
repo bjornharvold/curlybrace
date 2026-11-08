@@ -3,11 +3,12 @@
 //! collections that have no counterpart. Rows are drawn with `show_rows` (only the visible
 //! ones); every row's content comes from `CompareState::pair_row`.
 use super::table::{
-    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_label, header, status_text, truncated,
-    widths,
+    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_chip, gated, header, status_chip,
+    truncated, widths,
 };
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::tonal_button;
 use crate::viewmodel::compare::preflight::side_key;
 use crate::viewmodel::compare::{
     CompareState, ListView, PairRow, StatusIcon, Unmatched, can_pair_with,
@@ -93,7 +94,7 @@ fn show_row(ui: &mut egui::Ui, w: &[f32], row: &PairRow, i18n: &I18n) -> Option<
         cell(ui, w[3], |ui| {
             if row.customised {
                 let text = i18n.t("compare.pairs.customised");
-                ui.label(status_text(StatusIcon::Customised, &text));
+                status_chip(ui, StatusIcon::Customised, &text);
             }
         });
         cell(ui, w[4], |ui| status_cell(ui, row, i18n));
@@ -118,12 +119,10 @@ fn include_box(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareA
 }
 
 fn status_cell(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) {
-    let text = entry_status_label(&row.status, i18n);
-    let label = ui.add(egui::Label::new(text.as_str()).truncate());
-    match row.status.hover_key() {
-        Some(key) => label.on_hover_text(i18n.t(key)),
-        None => label.on_hover_text(text),
-    };
+    let chip = entry_status_chip(ui, &row.status, i18n);
+    if let Some(key) = row.status.hover_key() {
+        chip.on_hover_text(i18n.t(key));
+    }
 }
 
 fn row_buttons(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareAction> {
@@ -147,8 +146,10 @@ fn show_helpers(
 ) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let add_all = egui::Button::new(i18n.t("compare.pairs.add_all_same_named"));
-        if ui.add_enabled(list.can_add_all(), add_all).clicked() {
+        let add_all = gated(ui, list.can_add_all(), |ui| {
+            tonal_button(ui, i18n.t("compare.pairs.add_all_same_named"))
+        });
+        if add_all.clicked() {
             action = Some(CompareAction::AddAllSameNamed);
         }
         let mut system = state.pairing.include_system;

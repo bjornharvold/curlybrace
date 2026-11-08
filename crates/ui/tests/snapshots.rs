@@ -391,6 +391,22 @@ fn compare_overview_mixed() {
     shot.snapshot("compare_overview_mixed");
 }
 
+// The run overview again with the system in dark mode.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_overview_mixed_dark() {
+    if !snapshots_enabled("compare_overview_mixed_dark") {
+        return;
+    }
+    let mut shot = Shot::sized(
+        (1000.0, 1200.0),
+        vec![production(), staging()],
+        overview_mixed,
+    )
+    .mode(Mode::Dark);
+    shot.snapshot("compare_overview_mixed_dark");
+}
+
 /// An apply-flow screen in a window tall enough for the form, the lists and the panels.
 macro_rules! apply_shot {
     ($name:ident, $setup:expr) => {

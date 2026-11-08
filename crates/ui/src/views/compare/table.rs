@@ -1,6 +1,7 @@
 //! Fixed-height, fixed-width cells for the long lists (pair table, preflight rows, run overview),
 //! so `ScrollArea::show_rows` can draw only the visible ones.
 use crate::I18n;
+use crate::theme::{Tone, card, chip, current_ui, shape};
 use crate::viewmodel::compare::{EntryStatus, StatusIcon};
 use eframe::egui;
 
@@ -73,13 +74,68 @@ pub fn entry_status_label(status: &EntryStatus, i18n: &I18n) -> String {
     status_text(status.icon(), &text)
 }
 
-/// Column header line; `widths` are those of the rows below it. A blank title leaves its column blank.
+/// `add` in a full-width card: the container of one block of related content.
+pub fn panel<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        add(ui)
+    })
+    .inner
+}
+
+/// The tone a status icon is shown in: done is good, a problem is bad, the rest is neutral.
+pub fn tone_of(icon: StatusIcon) -> Tone {
+    match icon {
+        StatusIcon::Ok => Tone::Good,
+        StatusIcon::Warning => Tone::Warning,
+        StatusIcon::Failed => Tone::Bad,
+        StatusIcon::Pending
+        | StatusIcon::Running
+        | StatusIcon::Cancelled
+        | StatusIcon::Discarded
+        | StatusIcon::Unchecked
+        | StatusIcon::Customised => Tone::Neutral,
+    }
+}
+
+/// A state as a chip: the icon and the label in one text (so the state never relies on colour),
+/// on the tone of the icon. Returns the chip's response.
+pub fn status_chip(ui: &mut egui::Ui, icon: StatusIcon, label: &str) -> egui::Response {
+    chip(ui, tone_of(icon), &status_text(icon, label))
+}
+
+/// A pair's check verdict as a chip, the side named where it matters.
+pub fn entry_status_chip(ui: &mut egui::Ui, status: &EntryStatus, i18n: &I18n) -> egui::Response {
+    chip(
+        ui,
+        tone_of(status.icon()),
+        &entry_status_label(status, i18n),
+    )
+}
+
+/// `add` in the widget state `enabled` says: a disabled theme button draws Material's disabled
+/// look and reports itself disabled.
+pub fn gated(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
+    ui.add_enabled_ui(enabled, add).inner
+}
+
+/// Column header line; `widths` are those of the rows below it. A blank title leaves its column
+/// blank. The line sits on a `surface_container_high` band, like the other tables' headers.
 pub fn header(ui: &mut egui::Ui, widths: &[f32], titles: &[String]) {
-    ui.horizontal(|ui| {
-        for (width, title) in widths.iter().zip(titles) {
-            cell(ui, *width, |ui| {
-                ui.strong(title);
-            });
-        }
+    let band = egui::Frame::new()
+        .fill(current_ui(ui).surface_container_high)
+        .corner_radius(shape::radius(shape::SMALL));
+    band.show(ui, |ui| {
+        ui.horizontal(|ui| {
+            for (width, title) in widths.iter().zip(titles) {
+                cell(ui, *width, |ui| {
+                    ui.strong(title);
+                });
+            }
+        });
     });
 }

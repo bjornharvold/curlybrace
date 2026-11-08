@@ -3,8 +3,10 @@
 //! the destinations, why Review is closed) comes from `viewmodel::compare::pending_view`; a line
 //! that writes to a read-only connection carries the read-only badge (`viewmodel::compare::read_only`).
 use super::select::reasons_text;
+use super::table::{gated, panel};
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{filled_button, text_button};
 use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::compare::read_only::ReviewReason;
 use crate::viewmodel::compare::{
@@ -63,6 +65,15 @@ pub fn show_pending(
         return None;
     }
     ui.separator();
+    panel(ui, |ui| show_panel(ui, state, connections, i18n))
+}
+
+fn show_panel(
+    ui: &mut egui::Ui,
+    state: &CompareState,
+    connections: &ConnectionsState,
+    i18n: &I18n,
+) -> Option<CompareAction> {
     ui.strong(i18n.t("compare.apply.pending.title"));
     let name_of = |id: Uuid| {
         connections
@@ -153,10 +164,9 @@ fn show_line(
             );
         }
         ui.label(&text);
-        let remove = ui.add_enabled(
-            !busy,
-            egui::Button::new(i18n.t("compare.apply.pending.remove")),
-        );
+        let remove = gated(ui, !busy, |ui| {
+            text_button(ui, i18n.t("compare.apply.pending.remove"))
+        });
         let named = i18n.t_with("compare.apply.pending.remove_named", &[("line", &text)]);
         // The visible text stays short; screen readers hear which item it removes.
         remove.widget_info(|| {
@@ -190,8 +200,9 @@ fn show_buttons(
         .map(|r| r.i18n_key())
         .collect();
     ui.horizontal(|ui| {
-        let review = egui::Button::new(i18n.t("compare.apply.pending.review"));
-        let review = ui.add_enabled(reasons.is_empty(), review);
+        let review = gated(ui, reasons.is_empty(), |ui| {
+            filled_button(ui, i18n.t("compare.apply.pending.review"))
+        });
         if !shown.is_empty() {
             review.on_disabled_hover_text(reasons_text(&shown, i18n));
         } else if review.clicked() {
@@ -199,8 +210,10 @@ fn show_buttons(
                 word: i18n.t(CONFIRM_WORD_KEY),
             });
         }
-        let clear = egui::Button::new(i18n.t("compare.apply.pending.clear"));
-        if ui.add_enabled(!busy, clear).clicked() {
+        let clear = gated(ui, !busy, |ui| {
+            text_button(ui, i18n.t("compare.apply.pending.clear"))
+        });
+        if clear.clicked() {
             action = Some(CompareAction::ClearPending);
         }
         // Every reason on its own line, so clearing one never uncovers an unexplained other.

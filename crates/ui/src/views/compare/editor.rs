@@ -2,8 +2,10 @@
 //! defaults until the user types, with Use default to follow them again.
 use super::rules::show_rules;
 use super::setup::text_field_sized;
+use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{text_button, tonal_button};
 use crate::viewmodel::compare::rows::namespace_label;
 use crate::viewmodel::compare::{CompareState, EntryId, PairEntry, PairOverrides, RulesForm};
 use curlybrace_core::compare::protocol::Side;
@@ -38,7 +40,7 @@ fn show_header(
     let mut action = None;
     ui.horizontal(|ui| {
         ui.strong(i18n.t_with("compare.pairs.editor_title", &[("pair", &pair)]));
-        if ui.button(i18n.t("compare.pairs.editor_done")).clicked() {
+        if tonal_button(ui, i18n.t("compare.pairs.editor_done")).clicked() {
             action = Some(CompareAction::EditPair(None));
         }
     });
@@ -124,6 +126,8 @@ fn rules_override(
 }
 
 fn use_default_button(ui: &mut egui::Ui, overridden: bool, i18n: &I18n) -> bool {
-    let button = egui::Button::new(i18n.t("compare.pairs.use_default"));
-    ui.add_enabled(overridden, button).clicked()
+    gated(ui, overridden, |ui| {
+        text_button(ui, i18n.t("compare.pairs.use_default"))
+    })
+    .clicked()
 }

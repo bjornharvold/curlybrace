@@ -1,7 +1,9 @@
 //! Find duplicate keys: the panel under the run overview with what the lookup found (Find itself
 //! is on the pair's overview row, Try again in this panel).
+use super::table::{gated, panel};
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::tonal_button;
 use crate::viewmodel::compare::{CompareState, DuplicatesView, EntryId};
 use curlybrace_core::compare::protocol::DuplicateReport;
 use eframe::egui;
@@ -17,17 +19,19 @@ pub fn show_duplicates(
     let entry = view.entry()?;
     ui.push_id("compare_duplicates", |ui| {
         ui.add_space(4.0);
-        ui.strong(i18n.t("compare.duplicates.title"));
-        if let Some((source, target)) = state.entry_labels(entry) {
-            let pair = i18n.t_with(
-                "compare.pairs.pair_label",
-                &[("source", &source), ("target", &target)],
-            );
-            ui.weak(pair);
-        }
-        let retry = retry_button(ui, state, entry, i18n);
-        show_body(ui, view, i18n);
-        retry
+        panel(ui, |ui| {
+            ui.strong(i18n.t("compare.duplicates.title"));
+            if let Some((source, target)) = state.entry_labels(entry) {
+                let pair = i18n.t_with(
+                    "compare.pairs.pair_label",
+                    &[("source", &source), ("target", &target)],
+                );
+                ui.weak(pair);
+            }
+            let retry = retry_button(ui, state, entry, i18n);
+            show_body(ui, view, i18n);
+            retry
+        })
     })
     .inner
 }
@@ -42,9 +46,11 @@ fn retry_button(
     if !matches!(state.duplicates, DuplicatesView::Failed { .. }) {
         return None;
     }
-    let button = egui::Button::new(i18n.t("compare.duplicates.retry"));
     let enabled = state.can_find_duplicates_for(entry);
-    let clicked = ui.add_enabled(enabled, button).clicked();
+    let retry = gated(ui, enabled, |ui| {
+        tonal_button(ui, i18n.t("compare.duplicates.retry"))
+    });
+    let clicked = retry.clicked();
     clicked.then_some(CompareAction::FindDuplicates(entry))
 }
 

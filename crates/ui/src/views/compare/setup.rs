@@ -1,8 +1,10 @@
 //! The setup panel: the database and collection pickers (they only feed Add pair), and the
 //! defaults every pair follows unless it overrides them: key, the two filters and the rules.
 use super::rules::show_rules;
+use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{outlined_field, text_button, tonal_button};
 use crate::viewmodel::compare::{CompareState, Pick, SideForm};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::store::CollectionKind;
@@ -14,8 +16,10 @@ pub fn show_setup(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Optio
         let shown = show_side(ui, side, state.setup.side(side), i18n);
         action = shown.or(action);
     }
-    let add = egui::Button::new(i18n.t("compare.pairs.add_pair"));
-    if ui.add_enabled(state.can_add_pair(), add).clicked() {
+    let add = gated(ui, state.can_add_pair(), |ui| {
+        tonal_button(ui, i18n.t("compare.pairs.add_pair"))
+    });
+    if add.clicked() {
         action = Some(CompareAction::AddPair);
     }
     ui.separator();
@@ -88,14 +92,15 @@ pub(super) fn text_field_sized(
 ) -> Option<String> {
     let mut buffer = value.to_string();
     ui.push_id(id, |ui| {
-        ui.horizontal(|ui| {
-            let caption = ui.label(i18n.t(keys.0));
-            let edit = egui::TextEdit::singleline(&mut buffer)
-                .hint_text(i18n.t(keys.1))
-                .desired_width(width);
-            // The caption is the box's accessible name.
-            ui.add(edit).labelled_by(caption.id);
-        });
+        // The label floats on the border and is the box's accessible name.
+        let (label, hint) = (i18n.t(keys.0), i18n.t(keys.1));
+        if width.is_finite() {
+            ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+                outlined_field(ui, &label, &mut buffer, &hint)
+            });
+        } else {
+            outlined_field(ui, &label, &mut buffer, &hint);
+        }
     });
     (buffer != value).then_some(buffer)
 }
@@ -137,7 +142,7 @@ fn pickers(ui: &mut egui::Ui, form: &SideForm, i18n: &I18n) -> Option<Pick> {
 }
 
 fn reload_button(ui: &mut egui::Ui, side: Side, i18n: &I18n) -> Option<CompareAction> {
-    let button = ui.button(i18n.t("compare.setup.reload"));
+    let button = text_button(ui, i18n.t("compare.setup.reload"));
     let button = button.on_hover_text(i18n.t("compare.setup.reload_hint"));
     button.clicked().then_some(CompareAction::Reload(side))
 }

@@ -2,8 +2,11 @@
 //! the typed confirmation. It only reports actions; whether Apply may fire is decided by the
 //! same check the reducer repeats (`Review::confirmation_passes`).
 use super::pending::{destination_text, pair_text, read_only_reason_key};
+use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::typography::dialog_title;
+use crate::theme::{filled_button, modal_frame, outlined_field, segmented, text_button};
 use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::compare::{CompareState, Review, ReviewPair};
 use crate::views::connection_badge::show_badge;
@@ -29,7 +32,7 @@ pub fn show_review(
 ) -> Option<CompareAction> {
     let review = state.apply.review()?;
     let notice = review.production_destinations(production);
-    let modal = egui::Modal::new(egui::Id::new("compare_apply_review"));
+    let modal = egui::Modal::new(egui::Id::new("compare_apply_review")).frame(modal_frame(ctx));
     let response = modal.show(ctx, |ui| {
         show_body(ui, state, review, &notice, read_only, i18n)
     });
@@ -49,7 +52,7 @@ fn show_body(
 ) -> Option<CompareAction> {
     ui.set_width(MODAL_WIDTH);
     show_production_heading(ui, !production.is_empty(), i18n);
-    ui.heading(i18n.t("compare.apply.review.title"));
+    ui.label(dialog_title(ui, i18n.t("compare.apply.review.title")));
     show_pairs(ui, state, review, i18n);
     let total = review.op_total().to_string();
     ui.strong(i18n.t_with("compare.apply.review.total", &[("count", &total)]));
@@ -70,7 +73,7 @@ fn show_production_heading(ui: &mut egui::Ui, production: bool, i18n: &I18n) {
     }
     ui.horizontal(|ui| {
         show_badge(ui, &ConnectionBadge::new(None, true), i18n);
-        ui.heading(i18n.t("write_warning.title"));
+        ui.label(dialog_title(ui, i18n.t("write_warning.title")));
     });
 }
 
@@ -182,17 +185,14 @@ fn show_id_policy(ui: &mut egui::Ui, review: &Review, i18n: &I18n) -> Option<Com
     }
     ui.separator();
     ui.strong(i18n.t("compare.apply.id_policy.label"));
-    let mut action = None;
-    for (policy, key) in [
-        (IdPolicy::Keep, "compare.apply.id_policy.keep"),
-        (IdPolicy::Generate, "compare.apply.id_policy.generate"),
-    ] {
-        let chosen = review.id_policy == policy;
-        if ui.radio(chosen, i18n.t(key)).clicked() && !chosen {
-            action = Some(CompareAction::SetIdPolicy(policy));
-        }
-    }
-    action
+    let items = [
+        (IdPolicy::Keep, i18n.t("compare.apply.id_policy.keep")),
+        (
+            IdPolicy::Generate,
+            i18n.t("compare.apply.id_policy.generate"),
+        ),
+    ];
+    segmented(ui, &items, review.id_policy).map(CompareAction::SetIdPolicy)
 }
 
 /// One line per written connection that is production, so the person sees where the writes land.
@@ -235,11 +235,11 @@ fn show_confirmation(
         return (None, false);
     };
     ui.separator();
-    let caption = ui.label(i18n.t("compare.apply.review.confirm_prompt"));
     ui.label(egui::RichText::new(required).strong().monospace());
     let mut text = review.confirm_text.clone();
-    let edit = egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY);
-    let response = ui.add(edit).labelled_by(caption.id);
+    // The prompt floats on the box's border and is its accessible name.
+    let prompt = i18n.t("compare.apply.review.confirm_prompt");
+    let response = outlined_field(ui, &prompt, &mut text, "");
     let typing = response.has_focus();
     (
         response
@@ -270,18 +270,17 @@ fn show_buttons(
     }
     let may_apply = review.confirmation_passes() && read_only.is_none();
     ui.horizontal(|ui| {
-        let apply = egui::Button::new(i18n.t("compare.apply.review.apply"));
+        let apply_label = i18n.t("compare.apply.review.apply");
         let cancel_label = i18n.t("compare.apply.review.cancel");
         if !production {
-            let confirm = ui
-                .add_enabled(may_apply, apply)
+            let confirm = gated(ui, may_apply, |ui| filled_button(ui, apply_label))
                 .clicked()
                 .then_some(CompareAction::ConfirmApply);
-            let cancel = ui.button(cancel_label);
+            let cancel = text_button(ui, cancel_label);
             return confirm.or(cancel.clicked().then_some(CompareAction::CancelReview));
         }
-        let cancel = ui.button(cancel_label);
-        let apply = ui.add_enabled(may_apply, apply);
+        let cancel = text_button(ui, cancel_label);
+        let apply = gated(ui, may_apply, |ui| filled_button(ui, apply_label));
         if !typing {
             focus_cancel_unless_focused(&cancel, &apply);
         }

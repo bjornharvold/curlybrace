@@ -5,8 +5,13 @@
 //! from here, and nothing here starts a write.
 use super::export_result;
 use super::pending::pair_text;
+use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::typography::dialog_title;
+use crate::theme::{
+    filled_button, modal_frame, outlined_field, segmented, text_button, tonal_button,
+};
 use crate::viewmodel::compare::{
     CompareState, ExportBlock, ExportDraft, ExportKind, ExportUi, LABEL_MAX_CHARS, PendingView,
 };
@@ -29,8 +34,7 @@ pub fn show_entry(
         ExportKind::Report => "compare.export.open_report",
     };
     ui.horizontal(|ui| {
-        let button = egui::Button::new(i18n.t(key));
-        let response = ui.add_enabled(block.is_none(), button);
+        let response = gated(ui, block.is_none(), |ui| tonal_button(ui, i18n.t(key)));
         let response = hover_reason(response, block, i18n);
         let clicked = response.clicked();
         if let Some(reason) = block {
@@ -64,7 +68,7 @@ pub fn show_export(
     if state.export == ExportUi::Idle {
         return None;
     }
-    let modal = egui::Modal::new(egui::Id::new("compare_export"));
+    let modal = egui::Modal::new(egui::Id::new("compare_export")).frame(modal_frame(ctx));
     let response = modal.show(ctx, |ui| show_body(ui, state, i18n));
     let closes = response.should_close() && state.export.configuring().is_some();
     response
@@ -94,7 +98,7 @@ fn show_options(
     draft: &ExportDraft,
     i18n: &I18n,
 ) -> Option<CompareAction> {
-    ui.heading(i18n.t(title_key(draft.kind)));
+    ui.label(dialog_title(ui, i18n.t(title_key(draft.kind))));
     let options = match draft.kind {
         ExportKind::Plan => show_plan_options(ui, state, draft, i18n),
         ExportKind::Report => show_report_options(ui, state, draft, i18n),
@@ -165,17 +169,14 @@ fn show_format(
 fn show_id_policy(ui: &mut egui::Ui, draft: &ExportDraft, i18n: &I18n) -> Option<CompareAction> {
     ui.separator();
     ui.strong(i18n.t("compare.apply.id_policy.label"));
-    let mut action = None;
-    for (policy, key) in [
-        (IdPolicy::Keep, "compare.apply.id_policy.keep"),
-        (IdPolicy::Generate, "compare.apply.id_policy.generate"),
-    ] {
-        let chosen = draft.plan.id_policy == policy;
-        if ui.radio(chosen, i18n.t(key)).clicked() && !chosen {
-            action = Some(CompareAction::SetExportIdPolicy(policy));
-        }
-    }
-    action
+    let items = [
+        (IdPolicy::Keep, i18n.t("compare.apply.id_policy.keep")),
+        (
+            IdPolicy::Generate,
+            i18n.t("compare.apply.id_policy.generate"),
+        ),
+    ];
+    segmented(ui, &items, draft.plan.id_policy).map(CompareAction::SetExportIdPolicy)
 }
 
 /// A checkbox per pair with finished results (named by the pair) and the paths option.
@@ -211,15 +212,14 @@ fn show_report_options(
 /// The single-line label box. It reports an edit only: Enter in it does nothing.
 fn show_label(ui: &mut egui::Ui, draft: &ExportDraft, i18n: &I18n) -> Option<CompareAction> {
     ui.separator();
-    let caption = ui.label(i18n.t("compare.export.label.caption"));
     let mut text = match draft.kind {
         ExportKind::Plan => draft.plan.label.clone(),
         ExportKind::Report => draft.report.label.clone(),
     };
-    let edit = egui::TextEdit::singleline(&mut text)
-        .char_limit(LABEL_MAX_CHARS)
-        .desired_width(f32::INFINITY);
-    let changed = ui.add(edit).labelled_by(caption.id).changed();
+    let caption = i18n.t("compare.export.label.caption");
+    let changed = outlined_field(ui, &caption, &mut text, "").changed();
+    // The box has no length limit of its own: the label is cut to the limit before it is sent.
+    let text: String = text.chars().take(LABEL_MAX_CHARS).collect();
     changed.then_some(CompareAction::SetExportLabel(text))
 }
 
@@ -253,19 +253,23 @@ fn show_buttons(
     let copy = state.copy_block(draft);
     let mut action = None;
     ui.horizontal(|ui| {
-        let choose = egui::Button::new(i18n.t("compare.export.choose_file"));
-        let choose = hover_reason(ui.add_enabled(file.is_none(), choose), file, i18n);
+        let choose = gated(ui, file.is_none(), |ui| {
+            filled_button(ui, i18n.t("compare.export.choose_file"))
+        });
+        let choose = hover_reason(choose, file, i18n);
         if choose.clicked() {
             action = Some(CompareAction::ChooseExportFile);
         }
         if draft.kind == ExportKind::Report {
-            let button = egui::Button::new(i18n.t("compare.export.copy"));
-            let button = hover_reason(ui.add_enabled(copy.is_none(), button), copy, i18n);
+            let button = gated(ui, copy.is_none(), |ui| {
+                tonal_button(ui, i18n.t("compare.export.copy"))
+            });
+            let button = hover_reason(button, copy, i18n);
             if button.clicked() {
                 action = Some(CompareAction::CopyReport);
             }
         }
-        if ui.button(i18n.t("compare.export.cancel")).clicked() {
+        if text_button(ui, i18n.t("compare.export.cancel")).clicked() {
             action = Some(CompareAction::CloseExport);
         }
     });
