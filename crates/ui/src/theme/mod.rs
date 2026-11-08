@@ -5,6 +5,7 @@ mod fonts;
 pub mod icons;
 mod install;
 pub mod scheme;
+mod semantic;
 pub mod shape;
 pub mod typography;
 pub mod widgets;
@@ -15,11 +16,14 @@ mod fonts_tests;
 mod install_tests;
 #[cfg(test)]
 mod scheme_tests;
+#[cfg(test)]
+mod semantic_tests;
 
 pub use fonts::{MEDIUM_FAMILY, SYMBOLS_FAMILY, font_definitions};
 pub use install::{StateLayer, current, current_ui, install, state_layer, visuals_for};
 pub use scheme::{Mode, Scheme, Tone, ToneColors, scheme};
+pub use semantic::{ChartColors, JsonColors, chart_colors, json_colors};
 pub use widgets::{
-    card, chip, filled_button, outlined_field, outlined_field_with, pill, segmented, text_button,
-    tonal_button,
+    CHIP_HEIGHT, card, chip, filled_button, outlined_field, outlined_field_with, pill, segmented,
+    text_button, tonal_button,
 };

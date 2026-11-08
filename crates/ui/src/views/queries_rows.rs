@@ -1,9 +1,12 @@
 //! The shapes of the Queries view, one block each: verdict as icon plus words (never colour
 //! alone), where it was seen, how often it ran and missed, how slow it was, the shape text and,
 //! for a miss, the suggested index. The shape and the suggestion each have a copy button.
+use super::verdict_badge::chip_tone;
 use crate::I18n;
+use crate::theme::current_ui;
 use crate::viewmodel::QueryRow;
 use crate::viewmodel::queries_status::{misses_key, row_title, runs_key};
+use crate::viewmodel::verdict::kind_tone;
 use curlybrace_core::history::{ShapeSource, is_miss};
 use eframe::egui;
 
@@ -25,7 +28,7 @@ fn show_row(ui: &mut egui::Ui, row: &QueryRow, place: (usize, usize), i18n: &I18
         let (icon, title_key) = row_title(row.latest);
         let title = egui::RichText::new(format!("{icon} {}", i18n.t(title_key))).strong();
         let title = if is_miss(row.latest) {
-            title.color(ui.visuals().warn_fg_color)
+            title.color(current_ui(ui).tone(chip_tone(kind_tone(row.latest))).fg)
         } else {
             title
         };

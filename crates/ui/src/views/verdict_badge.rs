@@ -1,8 +1,9 @@
-//! The index verdict as one fixed-height row above the documents: icon and title as one text,
+//! The index verdict as one fixed-height row above the documents: icon and title as one text in a tonal chip,
 //! plus a "Why" button that opens the reasons, the suggested index (with a copy button) and the
 //! estimate note in a popup under the row. The row is reserved even when there is no verdict
 //! and the popup floats, so the documents never move.
 use crate::I18n;
+use crate::theme::{self, chip};
 use crate::viewmodel::verdict::{BadgeModel, Tone, reason_text_key};
 use eframe::egui;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -18,7 +19,8 @@ pub fn show_verdict_row(
     model: Option<&BadgeModel>,
     i18n: &I18n,
 ) -> Option<VerdictAction> {
-    let height = ui.spacing().interact_size.y;
+    // Tall enough for the chip, so the documents below never move when a verdict appears.
+    let height = ui.spacing().interact_size.y.max(theme::CHIP_HEIGHT);
     let mut action = None;
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), height), layout, |ui| {
@@ -30,11 +32,7 @@ pub fn show_verdict_row(
 
 fn show_row(ui: &mut egui::Ui, model: &BadgeModel, i18n: &I18n) -> Option<VerdictAction> {
     let title = format!("{} {}", model.icon, i18n.t(model.title_key));
-    ui.label(
-        egui::RichText::new(title)
-            .strong()
-            .color(tone_color(ui, model.tone)),
-    );
+    chip(ui, chip_tone(model.tone), &title);
     if !has_details(model) {
         return None;
     }
@@ -72,10 +70,14 @@ fn salt(model: &BadgeModel) -> u64 {
     hasher.finish()
 }
 
-fn tone_color(ui: &egui::Ui, tone: Tone) -> egui::Color32 {
+/// The theme tone a badge tone is drawn in. A check that is running or could not run says
+/// nothing about the query, so it reads as neutral.
+pub(super) fn chip_tone(tone: Tone) -> theme::Tone {
     match tone {
-        Tone::Warn => ui.visuals().warn_fg_color,
-        _ => ui.visuals().text_color(),
+        Tone::Good => theme::Tone::Good,
+        Tone::Warn => theme::Tone::Warning,
+        Tone::Bad => theme::Tone::Bad,
+        Tone::Neutral | Tone::Unavailable | Tone::Checking => theme::Tone::Neutral,
     }
 }
 
@@ -112,3 +114,7 @@ fn show_suggestion(ui: &mut egui::Ui, command: &str, i18n: &I18n) -> Option<Verd
         .clicked()
         .then(|| VerdictAction::CopySuggestion(command.to_string()))
 }
+
+#[cfg(test)]
+#[path = "verdict_badge_tests.rs"]
+mod tests;

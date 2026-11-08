@@ -5,7 +5,7 @@ use crate::theme::{Tone, current_ui};
 use eframe::egui::{Response, Sense, TextStyle, Ui, Vec2, WidgetInfo, WidgetType};
 
 /// Chip height: Material's 32 dp chip, compacted to sit inside a table row.
-const CHIP_HEIGHT: f32 = 24.0;
+pub const CHIP_HEIGHT: f32 = 24.0;
 
 /// `text` on the tone's container color, elided with an ellipsis when it does not fit the
 /// available width (the full text is then the tooltip). Exposed as a label with the full text.

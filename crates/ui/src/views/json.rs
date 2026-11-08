@@ -5,8 +5,10 @@
 //! their natural width inside a two-axis scroll area so long values stay readable.
 use super::context_menu::row_context_menu;
 use super::doc_select::{apply_toggle, checkbox_width, doc_checkbox, resolve_choice};
+use super::json_highlight::highlight;
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
+use crate::theme::{JsonColors, current_ui, json_colors};
 use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState, menu_items};
 use curlybrace_core::store::Page;
 use eframe::egui;
@@ -39,6 +41,7 @@ pub(crate) fn render_json(
         egui::TextStyle::Monospace.resolve(ui.style()),
         ui.visuals().text_color(),
     );
+    let syntax = json_colors(current_ui(ui));
     let (mut chosen, mut toggled): (Chosen, Option<usize>) = (None, None);
     let check_width = checkbox_width(ui);
     let output = egui::ScrollArea::both()
@@ -62,7 +65,7 @@ pub(crate) fn render_json(
                             false
                         }
                     };
-                    (ui.add(line_label(&line.text)), tick)
+                    (ui.add(line_label(&line.text, &font, color, &syntax)), tick)
                 });
                 if tick {
                     toggled = Some(line.doc_index);
@@ -78,8 +81,13 @@ pub(crate) fn render_json(
     (output, chosen)
 }
 
-fn line_label(text: &str) -> egui::Label {
-    egui::Label::new(egui::RichText::new(text).monospace())
+fn line_label(
+    text: &str,
+    font: &egui::FontId,
+    color: egui::Color32,
+    syntax: &JsonColors,
+) -> egui::Label {
+    egui::Label::new(highlight(text, font, color, syntax))
         .wrap_mode(egui::TextWrapMode::Extend)
         .selectable(true)
         .sense(egui::Sense::click())
