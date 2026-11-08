@@ -1,6 +1,8 @@
 //! Modal JSON editor for creating and editing a document.
 //! Validation and state transitions live in `viewmodel::editor`.
 use crate::I18n;
+use crate::theme::typography::dialog_title;
+use crate::theme::{filled_button, modal_frame, text_button};
 use crate::viewmodel::{EditorAction, EditorIntent, EditorState, dismissal_action, resolve_editor};
 use eframe::egui;
 
@@ -29,23 +31,25 @@ pub fn show_editor_with(
         "editor.title_new"
     };
     let mut intent = None;
-    let modal = egui::Modal::new(egui::Id::new("document_editor")).show(ctx, |ui| {
-        let title = ui.heading(i18n.t(title_key));
-        ui.label(i18n.t_with("editor.writing_to", &[("connection", connection)]));
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::multiline(&mut state.text)
-                    .code_editor()
-                    .desired_rows(EDITOR_ROWS)
-                    .desired_width(f32::INFINITY),
-            )
-            .labelled_by(title.id);
+    let modal = egui::Modal::new(egui::Id::new("document_editor"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            let title = ui.label(dialog_title(ui, i18n.t(title_key)));
+            ui.label(i18n.t_with("editor.writing_to", &[("connection", connection)]));
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut state.text)
+                        .code_editor()
+                        .desired_rows(EDITOR_ROWS)
+                        .desired_width(f32::INFINITY),
+                )
+                .labelled_by(title.id);
+            });
+            if let Some(e) = &state.error {
+                super::error_label::show_error(ui, e, i18n);
+            }
+            intent = buttons(ui, i18n, save_enabled);
         });
-        if let Some(e) = &state.error {
-            super::error_label::show_error(ui, e, i18n);
-        }
-        intent = buttons(ui, i18n, save_enabled);
-    });
     let Some(intent) = intent else {
         return modal
             .should_close()
@@ -60,11 +64,13 @@ pub fn show_editor_with(
 fn buttons(ui: &mut egui::Ui, i18n: &I18n, save_enabled: bool) -> Option<EditorIntent> {
     ui.horizontal(|ui| {
         let mut intent = None;
-        let save = ui.add_enabled(save_enabled, egui::Button::new(i18n.t("editor.save")));
+        let save = ui
+            .add_enabled_ui(save_enabled, |ui| filled_button(ui, i18n.t("editor.save")))
+            .inner;
         if save.clicked() {
             intent = Some(EditorIntent::Save);
         }
-        if ui.button(i18n.t("editor.cancel")).clicked() {
+        if text_button(ui, i18n.t("editor.cancel")).clicked() {
             intent = Some(EditorIntent::Cancel);
         }
         intent
@@ -96,6 +102,38 @@ mod tests {
             assert!(frames(&mut state).is_empty());
             assert_eq!(state, before);
         }
+    }
+
+    /// Every filled rectangle in `shape` (a frame with a shadow is a `Shape::Vec`).
+    fn collect_rects(shape: &egui::Shape, out: &mut Vec<(egui::Color32, egui::CornerRadius)>) {
+        match shape {
+            egui::Shape::Rect(r) => out.push((r.fill, r.corner_radius)),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_rects(s, out)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_editor_sits_on_the_themed_modal_frame() {
+        use crate::theme::shape::{EXTRA_LARGE, radius};
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let (i18n, mut state) = (I18n::english(), EditorState::for_new());
+        let mut output = None;
+        for _ in 0..8 {
+            output = Some(ctx.run(egui::RawInput::default(), |ctx| {
+                show_editor(ctx, &mut state, "test", &i18n);
+            }));
+        }
+        let high = crate::theme::current(&ctx).surface_container_high;
+        let mut rects = Vec::new();
+        for clipped in &output.expect("ran").shapes {
+            collect_rects(&clipped.shape, &mut rects);
+        }
+        let framed = rects
+            .iter()
+            .any(|(fill, corners)| *fill == high && *corners == radius(EXTRA_LARGE));
+        assert!(framed, "no modal frame among {rects:?}");
     }
 
     #[test]

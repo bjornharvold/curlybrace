@@ -1,5 +1,5 @@
 //! Material 3 type scale mapped onto egui's text styles (sizes in points).
-use eframe::egui::{FontFamily, FontId, TextStyle};
+use eframe::egui::{FontFamily, FontId, RichText, TextStyle, Ui};
 use std::collections::BTreeMap;
 
 const LABEL: f32 = 12.0;
@@ -17,6 +17,18 @@ pub fn title_medium() -> TextStyle {
 /// Material "title large" (22): screen titles.
 pub fn title_large() -> TextStyle {
     TextStyle::Name("title_large".into())
+}
+
+/// `text` in the dialog-title style. A context that never ran [`super::install`] (a bare test
+/// harness) has no title styles; there egui's heading is used instead of panicking in egui.
+pub fn dialog_title(ui: &Ui, text: impl Into<String>) -> RichText {
+    let text = RichText::new(text);
+    let style = title_large();
+    if ui.style().text_styles.contains_key(&style) {
+        text.text_style(style)
+    } else {
+        text.heading()
+    }
 }
 
 /// egui's styles on the Material scale: Small = label, Body/Button = body, Heading = headline,

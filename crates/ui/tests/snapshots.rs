@@ -115,6 +115,24 @@ fn browser_table_view_dark() {
         .snapshot("browser_table_view_dark");
 }
 
+// The browser with the "bad" verdict chip (a collection scan), in both modes.
+shot!(
+    browser_verdict_light,
+    vec![],
+    support::verdict_shots::collection_scan
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn browser_verdict_dark() {
+    if !snapshots_enabled("browser_verdict_dark") {
+        return;
+    }
+    Shot::new(vec![], support::verdict_shots::collection_scan)
+        .mode(Mode::Dark)
+        .snapshot("browser_verdict_dark");
+}
+
 /// Parks a root for a connection named `name` in the given status.
 fn parked_root(state: &mut AppState, name: &str, status: ConnStatus, failure: Option<CoreError>) {
     let cfg = ConnectionConfig::new(name, "mongodb://other.example.com:27017");
@@ -238,6 +256,20 @@ shot!(editor_modal, vec![], |state| {
     browsing(ViewMode::Tree)(state);
     state.editor = Some(EditorState::for_edit(&sample_people()[0]));
 });
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn editor_modal_dark() {
+    if !snapshots_enabled("editor_modal_dark") {
+        return;
+    }
+    Shot::new(vec![], |state| {
+        browsing(ViewMode::Tree)(state);
+        state.editor = Some(EditorState::for_edit(&sample_people()[0]));
+    })
+    .mode(Mode::Dark)
+    .snapshot("editor_modal_dark");
+}
 
 shot!(editor_modal_with_validation_error, vec![], |state| {
     browsing(ViewMode::Tree)(state);

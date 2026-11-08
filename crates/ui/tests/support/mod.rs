@@ -22,4 +22,5 @@ pub mod screen;
 pub mod shots;
 pub mod sidebar;
 pub mod snapshot_options;
+pub mod verdict_shots;
 pub mod wait;

@@ -8,7 +8,7 @@ use super::doc_select::{apply_toggle, checkbox_width, doc_checkbox, resolve_choi
 use super::json_highlight::highlight;
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
-use crate::theme::{JsonColors, current_ui, json_colors};
+use crate::theme::{current_ui, json_colors};
 use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState, menu_items};
 use curlybrace_core::store::Page;
 use eframe::egui;
@@ -55,7 +55,10 @@ pub(crate) fn render_json(
                 let Some(doc) = page.docs.get(line.doc_index) else {
                     continue;
                 };
-                let width = line_width(ui, &line.text, &font, color, check_width);
+                // One highlighted job serves both the width and the label; egui caches the
+                // galley for an identical job, so the row is laid out once.
+                let job = highlight(&line.text, &font, color, &syntax);
+                let width = line_width(ui, job.clone(), check_width);
                 let (_, (response, tick)) = fixed_row_sized(ui, height, width, |ui| {
                     // The checkbox sits on the first line of each document only.
                     let tick = match first_of_doc {
@@ -65,7 +68,7 @@ pub(crate) fn render_json(
                             false
                         }
                     };
-                    (ui.add(line_label(&line.text, &font, color, &syntax)), tick)
+                    (ui.add(line_label(job)), tick)
                 });
                 if tick {
                     toggled = Some(line.doc_index);
@@ -81,31 +84,17 @@ pub(crate) fn render_json(
     (output, chosen)
 }
 
-fn line_label(
-    text: &str,
-    font: &egui::FontId,
-    color: egui::Color32,
-    syntax: &JsonColors,
-) -> egui::Label {
-    egui::Label::new(highlight(text, font, color, syntax))
+fn line_label(job: egui::text::LayoutJob) -> egui::Label {
+    egui::Label::new(job)
         .wrap_mode(egui::TextWrapMode::Extend)
         .selectable(true)
         .sense(egui::Sense::click())
 }
 
-/// The width of a line with the checkbox column in front of it, at least the viewport's.
-fn line_width(
-    ui: &egui::Ui,
-    text: &str,
-    font: &egui::FontId,
-    color: egui::Color32,
-    check_width: f32,
-) -> f32 {
-    let text_width = ui.fonts(|f| {
-        f.layout_no_wrap(text.to_string(), font.clone(), color)
-            .size()
-            .x
-    });
+/// The width of a highlighted line with the checkbox column in front of it, at least the
+/// viewport's.
+fn line_width(ui: &egui::Ui, job: egui::text::LayoutJob, check_width: f32) -> f32 {
+    let text_width = ui.fonts(|f| f.layout_job(job).size().x);
     (text_width + check_width).max(ui.available_width())
 }
 
