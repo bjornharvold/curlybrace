@@ -27,7 +27,8 @@ impl VerdictKind {
         Self::EmptyCollection,
     ];
 
-    const fn index(self) -> usize {
+    #[cfg(test)]
+    pub(crate) const fn index(self) -> usize {
         match self {
             Self::IndexUsed => 0,
             Self::CoveredByIndex => 1,
@@ -76,14 +77,6 @@ impl VerdictKind {
 pub fn worst(a: VerdictKind, b: VerdictKind) -> VerdictKind {
     if b.severity() > a.severity() { b } else { a }
 }
-
-const _: () = {
-    let mut i = 0;
-    while i < VerdictKind::ALL.len() {
-        assert!(VerdictKind::ALL[i].index() == i);
-        i += 1;
-    }
-};
 
 /// Why a verdict was reached. `key` is an i18n key suffix under `query.verdict.`;
 /// core never carries English text.
@@ -161,4 +154,16 @@ pub struct Verdict {
     /// The `<db>.<collection>` the server planned the query on (`queryPlanner.namespace`). It
     /// differs from the namespace queried for a view, which runs on its source collection.
     pub namespace: Option<String>,
+}
+
+#[cfg(test)]
+mod all_variants_tests {
+    use super::VerdictKind;
+
+    #[test]
+    fn all_lists_every_variant_in_index_order() {
+        for (i, kind) in VerdictKind::ALL.iter().enumerate() {
+            assert_eq!(kind.index(), i);
+        }
+    }
 }
