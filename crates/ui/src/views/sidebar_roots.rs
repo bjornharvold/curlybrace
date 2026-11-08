@@ -6,7 +6,7 @@ use crate::app::session::Root;
 use crate::app::state::{AppState, ConnStatus};
 use crate::theme::shape;
 use crate::theme::widgets::medium_font;
-use crate::theme::{PILL_HEIGHT, icons, pill, text_button, tonal_button};
+use crate::theme::{PILL_HEIGHT, compact_text_button, icons, pill, text_button, tonal_button};
 use crate::viewmodel::SidebarAction;
 use crate::views::connection_badge::show_badge;
 use crate::views::sidebar::{preferred_body_height, show_sidebar_body};
@@ -110,7 +110,7 @@ fn show_title_line(
 ) -> Option<Input> {
     let name = [("name", root.name.as_str())];
     let arrow = icons::inline_icon(ui, icons::chevron(collapse.is_open()));
-    let toggle = text_button(ui, arrow);
+    let toggle = compact_text_button(ui, arrow);
     named(&toggle, i18n.t_with("sidebar.toggle_named", &name));
     if toggle.clicked() {
         collapse.toggle(ui);
@@ -137,7 +137,7 @@ fn show_title_line(
             }
         },
     );
-    let disconnect = text_button(ui, disconnect_text);
+    let disconnect = compact_text_button(ui, disconnect_text);
     named(&disconnect, i18n.t_with("sidebar.disconnect_named", &name));
     if disconnect.clicked() {
         input = Some(Input::Disconnect(root.id));
@@ -145,14 +145,14 @@ fn show_title_line(
     input
 }
 
-/// Width `text_button(ui, text)` will take: the label in the button font plus its side padding.
+/// Width `compact_text_button(ui, text)` will take: the label in the button font plus its side padding.
 fn small_button_width(ui: &egui::Ui, text: &str) -> f32 {
     let size = egui::TextStyle::Button.resolve(ui.style()).size;
     let color = ui.visuals().text_color();
     let galley = ui
         .painter()
         .layout_no_wrap(text.to_owned(), medium_font(ui, size), color);
-    galley.size().x + 2.0 * shape::SPACE_3
+    galley.size().x + 2.0 * shape::SPACE_2
 }
 
 /// "Connected · Replica set", or just the status while the topology is unknown.

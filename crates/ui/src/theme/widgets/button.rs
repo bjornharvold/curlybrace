@@ -16,6 +16,8 @@ enum Kind {
     Filled,
     Tonal,
     Text,
+    /// A text button with snug side padding, for a crowded row.
+    TextCompact,
 }
 
 impl Kind {
@@ -24,6 +26,7 @@ impl Kind {
         match self {
             Self::Filled | Self::Tonal => shape::SPACE_6,
             Self::Text => shape::SPACE_3,
+            Self::TextCompact => shape::SPACE_2,
         }
     }
 
@@ -32,7 +35,7 @@ impl Kind {
         match self {
             Self::Filled => (s.primary, s.on_primary),
             Self::Tonal => (s.secondary_container, s.on_secondary_container),
-            Self::Text => (Color32::TRANSPARENT, s.primary),
+            Self::Text | Self::TextCompact => (Color32::TRANSPARENT, s.primary),
         }
     }
 }
@@ -50,6 +53,12 @@ pub fn tonal_button(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
 /// The text button: no container, `primary` label. For the least prominent actions.
 pub fn text_button(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
     button(ui, text.into(), Kind::Text)
+}
+
+/// A [`text_button`] with 8 dp instead of 12 dp of side padding, for a crowded row such as a
+/// sidebar header.
+pub fn compact_text_button(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
+    button(ui, text.into(), Kind::TextCompact)
 }
 
 fn button(ui: &mut Ui, text: WidgetText, kind: Kind) -> Response {
@@ -73,7 +82,7 @@ fn button(ui: &mut Ui, text: WidgetText, kind: Kind) -> Response {
     let (container, content) = kind.colors(s);
     let (fill, text_color) = if !look.enabled {
         let fill = match kind {
-            Kind::Text => Color32::TRANSPARENT,
+            Kind::Text | Kind::TextCompact => Color32::TRANSPARENT,
             Kind::Filled | Kind::Tonal => disabled_container(s.on_surface),
         };
         (fill, disabled_content(s.on_surface))

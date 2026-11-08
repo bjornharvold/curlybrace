@@ -573,3 +573,47 @@ fn shift_arrow_still_extends_the_selection() {
         other => panic!("unexpected {other:?}"),
     }
 }
+
+/// "Production" is the name the sidebar's default width is sized for: it must be laid out whole
+/// beside the toggle and Disconnect, not elided to "Producti...".
+#[test]
+fn production_fits_beside_the_toggle_and_disconnect_at_the_default_width() {
+    let mut f = fixture();
+    f.state.conn.connections[0].name = "Production".into();
+    let shown = f.state;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(800.0, 900.0))
+        .build_state(
+            move |ctx, _: &mut ()| {
+                egui::SidePanel::left("sidebar")
+                    .resizable(true)
+                    .default_width(DEFAULT_SIDEBAR_WIDTH)
+                    .show(ctx, |ui| {
+                        show_roots(ui, &shown, &I18n::english());
+                    });
+            },
+            (),
+        );
+    // The real fonts, as the app and the screenshots draw them.
+    crate::theme::install(&harness.ctx);
+    harness.run();
+    let ctx = &harness.ctx;
+    let size = egui::TextStyle::Body.resolve(&ctx.style()).size;
+    let font = egui::FontId::new(
+        size,
+        egui::FontFamily::Name(crate::theme::MEDIUM_FAMILY.into()),
+    );
+    let text_width = ctx.fonts(|f| {
+        f.layout_no_wrap("Production".into(), font, egui::Color32::WHITE)
+            .size()
+            .x
+    });
+    // The active root's name is a selected (Medium) pill, as wide as the room it was given.
+    let pill = harness.get_by_label("Production").rect();
+    let needed = text_width + 2.0 * crate::theme::shape::SPACE_4;
+    assert!(
+        pill.width() >= needed,
+        "the name pill is {} wide but \"Production\" needs {needed}",
+        pill.width()
+    );
+}

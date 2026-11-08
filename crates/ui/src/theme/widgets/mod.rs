@@ -17,7 +17,7 @@ mod tabs;
 #[cfg(test)]
 mod widgets_tests;
 
-pub use button::{filled_button, text_button, tonal_button};
+pub use button::{compact_text_button, filled_button, text_button, tonal_button};
 pub use card::card;
 pub use chip::{CHIP_HEIGHT, chip};
 pub use modal::modal_frame;

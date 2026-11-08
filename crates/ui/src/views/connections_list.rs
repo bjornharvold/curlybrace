@@ -235,13 +235,17 @@ fn show_folder(
     let id = ui.make_persistent_id(("connection_folder", folder));
     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
         .show_header(ui, |ui| {
-            ui.label(folder);
-            if text_button(ui, i18n.t("connections.rename_folder")).clicked() {
-                state.open_rename_prompt(folder);
-            }
-            if text_button(ui, i18n.t("connections.delete_folder")).clicked() {
-                action = Some(ConnectionAction::DeleteFolder(folder.to_owned()));
-            }
+            // Centred on the row, so the (taller) buttons line up with the folder name.
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.set_min_height(CONTROL_HEIGHT);
+                ui.label(folder);
+                if text_button(ui, i18n.t("connections.rename_folder")).clicked() {
+                    state.open_rename_prompt(folder);
+                }
+                if text_button(ui, i18n.t("connections.delete_folder")).clicked() {
+                    action = Some(ConnectionAction::DeleteFolder(folder.to_owned()));
+                }
+            });
         })
         .body_unindented(|ui| {
             if let Some(row_action) = show_rows(ui, state, i18n, rows, layout) {
