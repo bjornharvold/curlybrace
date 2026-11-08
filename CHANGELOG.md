@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/bjornharvold/curlybrace/compare/v0.6.0...v0.7.0) (2026-11-08)
+
+
+### Features
+
+* **indexes:** find queries that miss an index, from apps and the query bar ([#127](https://github.com/bjornharvold/curlybrace/issues/127)) ([ec967ce](https://github.com/bjornharvold/curlybrace/commit/ec967ce993b808978a3ffdbb154be6f64e0fe8b7))
+* **settings:** global and per-connection paths for mongosh, mongodump and mongorestore ([#125](https://github.com/bjornharvold/curlybrace/issues/125)) ([f477922](https://github.com/bjornharvold/curlybrace/commit/f47792272bf7f96b97441fdd2f920efc1648bed9)), closes [#49](https://github.com/bjornharvold/curlybrace/issues/49)
+
+
+### Bug Fixes
+
+* **explain:** keep the verdict index helper test-only so clippy passes ([#129](https://github.com/bjornharvold/curlybrace/issues/129)) ([e9b11e5](https://github.com/bjornharvold/curlybrace/commit/e9b11e507645d045acea8c1e92d0d8c67e6f70da))
+
 ## [0.6.0](https://github.com/bjornharvold/curlybrace/compare/v0.5.0...v0.6.0) (2026-10-25)
 
 
