@@ -133,18 +133,29 @@ fn key_rows(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Opti
             if field.changed() {
                 edit = Some(BuilderEdit::SetField(i, text));
             }
-            if let Some(kind) = kind_combo(ui, i, (&key.kind, !fixed), &numbered, i18n) {
-                edit = Some(BuilderEdit::SetKind(i, kind));
-            }
-            if row_button(ui, i > 0, &MOVE_UP, &numbered, i18n) {
-                edit = Some(BuilderEdit::MoveKey { from: i, to: i - 1 });
-            }
-            if row_button(ui, i < last, &MOVE_DOWN, &numbered, i18n) {
-                edit = Some(BuilderEdit::MoveKey { from: i, to: i + 1 });
-            }
-            if row_button(ui, true, &REMOVE, &numbered, i18n) {
-                edit = Some(BuilderEdit::RemoveKey(i));
-            }
+            // The controls are centred on the field's box, not on the row, which also holds
+            // the floating label above and the reserved error row below the box.
+            let at = egui::Rect::from_min_max(
+                egui::pos2(ui.cursor().min.x, field.rect.top()),
+                egui::pos2(ui.max_rect().right(), field.rect.bottom()),
+            );
+            let centred = egui::UiBuilder::new()
+                .max_rect(at)
+                .layout(egui::Layout::left_to_right(egui::Align::Center));
+            ui.scope_builder(centred, |ui| {
+                if let Some(kind) = kind_combo(ui, i, (&key.kind, !fixed), &numbered, i18n) {
+                    edit = Some(BuilderEdit::SetKind(i, kind));
+                }
+                if row_button(ui, i > 0, &MOVE_UP, &numbered, i18n) {
+                    edit = Some(BuilderEdit::MoveKey { from: i, to: i - 1 });
+                }
+                if row_button(ui, i < last, &MOVE_DOWN, &numbered, i18n) {
+                    edit = Some(BuilderEdit::MoveKey { from: i, to: i + 1 });
+                }
+                if row_button(ui, true, &REMOVE, &numbered, i18n) {
+                    edit = Some(BuilderEdit::RemoveKey(i));
+                }
+            });
         });
     }
     edit
@@ -236,6 +247,10 @@ fn kind_combo(
     let shown = i18n.t(kind_label_key(current));
     let combo = ui
         .add_enabled_ui(enabled, |ui| {
+            // The picker's own row is as tall as the picker, so it is centred by its centre.
+            let height = ui.text_style_height(&egui::TextStyle::Button)
+                + 2.0 * ui.spacing().button_padding.y;
+            ui.spacing_mut().interact_size.y = ui.spacing().interact_size.y.max(height);
             egui::ComboBox::from_id_salt(("index_key_kind", index))
                 .selected_text(shown.clone())
                 .show_ui(ui, |ui| {
@@ -320,17 +335,27 @@ fn options(ui: &mut egui::Ui, builder: &IndexBuilderState, i18n: &I18n) -> Optio
             }
         }
     });
+    let error_of = |wanted: &BuilderProblem| {
+        problem
+            .as_ref()
+            .filter(|p| *p == wanted)
+            .map(|p| problem_text(p, i18n))
+    };
     let collation = json_box(
         ui,
-        "indexes.builder.collation",
-        &builder.collation_text,
-        i18n,
+        (
+            &i18n.t("indexes.builder.collation"),
+            &builder.collation_text,
+        ),
+        error_of(&BuilderProblem::CollationInvalid).as_deref(),
     );
     let partial = json_box(
         ui,
-        "indexes.builder.partial_filter",
-        &builder.partial_filter_text,
-        i18n,
+        (
+            &i18n.t("indexes.builder.partial_filter"),
+            &builder.partial_filter_text,
+        ),
+        error_of(&BuilderProblem::PartialFilterInvalid).as_deref(),
     );
     collation
         .map(BuilderEdit::SetCollationText)
@@ -354,20 +379,21 @@ fn parse_seconds(text: &str) -> Option<Option<i64>> {
     }
 }
 
-/// A captioned multi-line text box; returns the new text when it changed.
-fn json_box(ui: &mut egui::Ui, caption_key: &str, current: &str, i18n: &I18n) -> Option<String> {
-    let caption = ui.label(i18n.t(caption_key));
+/// An outlined multi-line JSON box labelled `label`, with the row of its error kept free;
+/// returns the new text when it changed.
+fn json_box(
+    ui: &mut egui::Ui,
+    (label, current): (&str, &str),
+    error: Option<&str>,
+) -> Option<String> {
     let mut text = current.to_string();
-    let response = ui
-        .add(
-            egui::TextEdit::multiline(&mut text)
-                .font(egui::TextStyle::Monospace)
-                // Tab moves on to the next control instead of typing a tab character.
-                .lock_focus(false)
-                .desired_rows(JSON_ROWS)
-                .desired_width(f32::INFINITY),
-        )
-        .labelled_by(caption.id);
+    let options = FieldOptions {
+        error,
+        reserve_error_row: true,
+        multiline_rows: Some(JSON_ROWS),
+        ..FieldOptions::default()
+    };
+    let response = outlined_field_opts(ui, label, &mut text, "", options);
     response.changed().then_some(text)
 }
 

@@ -50,6 +50,9 @@ pub struct FieldOptions<'a> {
     /// Keep the row of the error message free while there is none, so showing an error does not
     /// move what is below the field.
     pub reserve_error_row: bool,
+    /// A box of this many rows in the monospace font instead of a single line (JSON). Tab moves
+    /// on to the next control instead of typing a tab.
+    pub multiline_rows: Option<usize>,
 }
 
 /// [`outlined_field_with`] over any text buffer (a read-only `&str` shows selectable text) with
@@ -71,14 +74,23 @@ pub fn outlined_field_opts(
         // Room above the border for the upper half of the floating label.
         ui.add_space(half_label);
         let row = ui.text_style_height(&TextStyle::Body);
-        let vertical = ((CONTROL_HEIGHT - row) / 2.0).max(0.0);
-        let mut edit = TextEdit::singleline(text)
-            .hint_text(hint)
-            .frame(false)
-            .margin(Margin::symmetric(shape::SPACE_4 as i8, vertical as i8))
-            .desired_width(f32::INFINITY)
-            .password(options.password)
-            .text_color(s.on_surface);
+        let vertical = match options.multiline_rows {
+            Some(_) => shape::SPACE_3,
+            None => ((CONTROL_HEIGHT - row) / 2.0).max(0.0),
+        };
+        let mut edit = match options.multiline_rows {
+            Some(rows) => TextEdit::multiline(text)
+                .font(TextStyle::Monospace)
+                .lock_focus(false)
+                .desired_rows(rows),
+            None => TextEdit::singleline(text),
+        }
+        .hint_text(hint)
+        .frame(false)
+        .margin(Margin::symmetric(shape::SPACE_4 as i8, vertical as i8))
+        .desired_width(f32::INFINITY)
+        .password(options.password)
+        .text_color(s.on_surface);
         if let Some(id) = options.id {
             edit = edit.id(id);
         }
