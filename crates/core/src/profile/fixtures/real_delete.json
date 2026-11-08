@@ -1,0 +1,56 @@
+{
+  "op": "remove",
+  "ns": "test.orders",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "q": {
+      "b": {
+        "$numberInt": "7"
+      }
+    },
+    "limit": {
+      "$numberInt": "1"
+    }
+  },
+  "opid": {
+    "$numberInt": "97292"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "8"
+  },
+  "ndeleted": {
+    "$numberInt": "1"
+  },
+  "keysDeleted": {
+    "$numberInt": "3"
+  },
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "planCacheShapeHash": "FBF6A5FF",
+  "queryHash": "FBF6A5FF",
+  "planCacheKey": "40EAC3FF",
+  "queryShapeHash": "559F6506444DAFBF1604659F4B97BDE76FA4EBE26A37B810D0425A2DC08EEB7B",
+  "planRanker": "none",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "107"
+  },
+  "planSummary": "COLLSCAN",
+  "planningTimeMicros": {
+    "$numberInt": "42"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1794070743387"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

@@ -6,6 +6,7 @@ use super::copy::{self, CopyInput};
 use super::index_actions;
 use super::index_write_actions;
 use super::persistence::PersistError;
+use super::queries_actions;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use super::tools_actions;
@@ -200,6 +201,25 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             )
         }
         Event::Mutated { ns, .. } => mutated(state, ns),
+        // The explain is advice: even as a failed command it never raises a banner or touches a
+        // loading flag; the run waiting for it just has no verdict.
+        Event::Failed {
+            context: "explain_find",
+            error,
+            ..
+        } => (
+            super::explain_actions::command_failed(state, error),
+            Vec::new(),
+        ),
+        // A profiler command that failed as a command (not as an outcome) is an inline outcome
+        // too, a lost server included: no banner, and what was in flight is settled. Only these
+        // two contexts match, so no other failure is shadowed; other commands notice a lost
+        // server on their own.
+        Event::Failed {
+            context: context @ ("profiling_state" | "set_profiling_level"),
+            error,
+            ..
+        } => queries_actions::command_failed(state, context, error),
         // The server of an open session cannot be reached any more: the root fails like a failed
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever
@@ -238,6 +258,23 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             request,
             error,
         } => {
+            // The shapes read is numbered on its own and fails inline, never as a banner.
+            if context == "query_shapes" {
+                // Only a lost server still takes the connection-lost path, like any numbered
+                // read; every other failure stays inline.
+                let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
+                let current = state.indexes.queries.request == request;
+                let next = queries_actions::shapes_failed(state, request, error.clone());
+                if !(lost && current) {
+                    return (next, Vec::new());
+                }
+                let failed = Event::Failed {
+                    session,
+                    context,
+                    error,
+                };
+                return on_session_event(next, failed, background);
+            }
             let current = state.indexes.request == request;
             let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
             if !(current || lost && state.indexes.answered <= request) {
@@ -275,6 +312,12 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             Vec::new(),
         ),
         Event::IndexChanged { ns, .. } => index_actions::changed(state, ns),
+        Event::Explain {
+            ns, query, outcome, ..
+        } => (
+            super::explain_actions::arrived(state, ns, query, outcome),
+            Vec::new(),
+        ),
         Event::EstimatedCount { ns, count, .. } => (
             index_write_actions::estimate_arrived(state, ns, count),
             Vec::new(),
@@ -282,6 +325,23 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::Sampler { status, .. } => {
             (index_actions::sampler_reported(state, status), Vec::new())
         }
+        Event::ProfilingState { db, outcome, .. } => {
+            queries_actions::profiling_answered(state, db, outcome)
+        }
+        Event::QueryShapes {
+            ns,
+            range,
+            shapes,
+            request,
+            ..
+        } => (
+            queries_actions::shapes_arrived(state, ns, range, shapes, request),
+            Vec::new(),
+        ),
+        Event::Profiler { status, .. } => (
+            queries_actions::profiler_reported(state, status),
+            Vec::new(),
+        ),
         // Routed before; these have no session.
         Event::Compare(_) | Event::Copy(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }

@@ -1,0 +1,30 @@
+{
+  "op": "query",
+  "ns": "shop.orders",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "customerId": 7
+    },
+    "$db": "shop"
+  },
+  "keysExamined": {
+    "$numberInt": "3"
+  },
+  "docsExamined": {
+    "$numberInt": "3"
+  },
+  "nreturned": {
+    "$numberInt": "3"
+  },
+  "millis": {
+    "$numberInt": "1"
+  },
+  "planSummary": "IXSCAN { customerId: 1 }",
+  "appName": "orders-service",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

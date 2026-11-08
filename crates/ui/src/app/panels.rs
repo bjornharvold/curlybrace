@@ -7,7 +7,8 @@ use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
-use crate::viewmodel::{CollectionTab, copy_blocked};
+use crate::viewmodel::verdict::badge;
+use crate::viewmodel::{CollectionTab, IndexesAction, ProfilingView, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections_with_tools};
@@ -15,14 +16,16 @@ use crate::views::documents::{
     DocTarget, show_connection_header, show_documents_keyed, show_mode_switcher,
 };
 use crate::views::editor::show_editor_with;
-use crate::views::findbar::show_findbar;
+use crate::views::findbar::{show_automatic_verdict, show_findbar};
 use crate::views::index_builder::{BuilderContext, show_index_builder};
 use crate::views::index_dialogs::{
     DialogContext, show_drop_confirm, show_drop_old, show_ttl_prompt,
 };
 use crate::views::indexes::show_indexes;
+use crate::views::queries_consent::show_profiler_consent;
 use crate::views::sidebar_roots::show_roots;
 use crate::views::tools_settings::show_tools_settings;
+use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
 use crate::views::write_warning::show_write_warning;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
@@ -205,6 +208,10 @@ fn show_collection(
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
     }
+    if let Some(action) = show_automatic_verdict(ui, state.explain_enabled(), i18n) {
+        out.push(UiEvent::Input(Input::Find(action)));
+    }
+    show_verdict(ui, state, i18n);
     state.view_mode = show_mode_switcher(ui, state.view_mode, i18n);
     ui.separator();
     let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
@@ -233,6 +240,18 @@ fn show_collection(
     );
     if let Some(action) = action {
         out.push(UiEvent::Input(Input::Doc(action)));
+    }
+}
+
+/// The index verdict of the current run in a fixed-height row above the documents (reserved
+/// whenever explain is on, so nothing shifts); its copy button goes to the clipboard here.
+fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
+    if !state.explain_enabled() {
+        return;
+    }
+    let model = badge(&super::explain_actions::shown(state), state.selected_ns());
+    if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
+        ui.ctx().copy_text(text);
     }
 }
 
@@ -352,6 +371,13 @@ fn show_index_dialogs(
             .flatten()
             .map(|a| UiEvent::Input(Input::Indexes(a))),
     );
+    let consent = indexes.queries.consent.as_ref().and_then(|consent| {
+        let flags = (indexes.queries.busy(), badge.read_only, badge.production);
+        let already_on =
+            matches!(&indexes.queries.profiling, ProfilingView::Known(p) if p.level == 1);
+        show_profiler_consent(ctx, consent, flags, already_on, i18n)
+    });
+    out.extend(consent.map(|a| UiEvent::Input(Input::Indexes(IndexesAction::Queries(a)))));
 }
 
 /// Draws the production write warning whenever a write is parked, whichever session is active:

@@ -1,0 +1,1 @@
+{ "queryPlanner": { "namespace": "shop.orders", "indexFilterSet": false, "parsedQuery": {}, "winningPlan": { "stage": "IDHACK" }, "rejectedPlans": [] }, "executionStats": { "executionSuccess": true, "nReturned": 1, "totalKeysExamined": 1, "totalDocsExamined": 1 }, "ok": 1 }

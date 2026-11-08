@@ -82,6 +82,14 @@ run "core local_duplicate_keys" \
   cargo test -p curlybrace-core --test local_duplicate_keys --locked -- --include-ignored --nocapture "$@"
 run "core local_compare_session" \
   cargo test -p curlybrace-core --test local_compare_session --locked -- --include-ignored --nocapture "$@"
+run "core local_explain" \
+  cargo test -p curlybrace-core --test local_explain --locked -- --include-ignored --nocapture "$@"
+run "core local_profiler" \
+  cargo test -p curlybrace-core --test local_profiler --locked -- --include-ignored --nocapture "$@"
+run "core local_profiler_paging" \
+  cargo test -p curlybrace-core --test local_profiler_paging --locked -- --include-ignored --nocapture "$@"
+run "core local_profiler_poller" \
+  cargo test -p curlybrace-core --test local_profiler_poller --locked -- --include-ignored --nocapture "$@"
 run "ui local_e2e_flows" \
   cargo test -p curlybrace-ui --test local_e2e_flows --locked -- --include-ignored --nocapture "$@"
 run "ui local_compare_flows" \

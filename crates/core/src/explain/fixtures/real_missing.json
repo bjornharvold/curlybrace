@@ -1,0 +1,119 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "test.never_created",
+    "parsedQuery": {
+      "c": {
+        "$eq": {
+          "$numberInt": "5"
+        }
+      }
+    },
+    "indexFilterSet": false,
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "47"
+    },
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "EOF",
+      "type": "nonExistentNamespace"
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": {
+      "$numberInt": "0"
+    },
+    "executionTimeMillis": {
+      "$numberInt": "0"
+    },
+    "executionTimeMicros": {
+      "$numberInt": "76"
+    },
+    "totalKeysExamined": {
+      "$numberInt": "0"
+    },
+    "totalDocsExamined": {
+      "$numberInt": "0"
+    },
+    "executionStages": {
+      "isCached": false,
+      "stage": "EOF",
+      "nReturned": {
+        "$numberInt": "0"
+      },
+      "executionTimeMillisEstimate": {
+        "$numberInt": "0"
+      },
+      "works": {
+        "$numberInt": "1"
+      },
+      "advanced": {
+        "$numberInt": "0"
+      },
+      "needTime": {
+        "$numberInt": "0"
+      },
+      "needYield": {
+        "$numberInt": "0"
+      },
+      "saveState": {
+        "$numberInt": "0"
+      },
+      "restoreState": {
+        "$numberInt": "0"
+      },
+      "isEOF": {
+        "$numberInt": "1"
+      },
+      "type": "nonExistentNamespace"
+    }
+  },
+  "queryShapeHash": "0E56BBAC76A4853F634DC7342C97DA35061392B4FFD2D84E6E082F65F57C9F53",
+  "command": {
+    "find": "never_created",
+    "filter": {
+      "c": {
+        "$numberInt": "5"
+      }
+    },
+    "limit": {
+      "$numberLong": "51"
+    },
+    "$db": "test"
+  },
+  "serverInfo": {
+    "host": "localhost",
+    "port": {
+      "$numberInt": "27017"
+    },
+    "version": "9.0.4",
+    "gitVersion": "0000000000000000000000000000000000000000"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}

@@ -20,6 +20,7 @@
 //! runtime. Commands run concurrently, so a UI that needs ordering (e.g.
 //! `Connect` before `Find`) must wait for the corresponding event first.
 
+mod command;
 mod compare;
 mod config;
 mod copy;
@@ -31,6 +32,8 @@ mod copy_support;
 mod copy_tests;
 #[cfg(test)]
 mod epoch_tests;
+#[cfg(test)]
+mod explain_tests;
 mod handlers;
 #[cfg(test)]
 mod index_build_timeout_tests;
@@ -46,6 +49,15 @@ mod indexes;
 mod job_flag;
 #[cfg(test)]
 mod lost_server_tests;
+mod profiler;
+mod profiler_fold;
+mod profiler_handlers;
+#[cfg(test)]
+mod profiler_poll_tests;
+mod profiler_start;
+mod profiler_status;
+#[cfg(test)]
+mod profiler_tests;
 #[cfg(test)]
 mod prompt_gate_tests;
 mod read_only_registry;
@@ -64,6 +76,9 @@ mod tests;
 #[cfg(test)]
 mod tunnel_tests;
 mod tunneling;
+mod typed_record;
+#[cfg(test)]
+mod typed_record_tests;
 
 use std::collections::{BTreeSet, HashMap};
 use std::net::SocketAddr;
@@ -76,17 +91,22 @@ use tokio::sync::watch;
 
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
-use crate::history::{ChartRange, HistoryDb};
+use crate::explain::Verdict;
+use crate::history::{ChartRange, HistoryDb, ShapeSummary};
 use crate::indexes::IndexSpec;
 use crate::secrets::SecretStore;
-use crate::store::{CollectionIndex, DocumentStore, Namespace, Page, Query, Topology};
+use crate::store::{
+    CollectionIndex, DocumentStore, Namespace, Page, ProfilingState, Query, Topology,
+};
 use session::Session;
 
 pub use config::{
     COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT, INDEX_BUILD_TIMEOUT, PING_TIMEOUT,
     RuntimeConfig, default_history_path,
 };
+pub use handlers::COMMAND_TIMEOUT_MESSAGE;
 pub use indexes::IndexSeries;
+pub use profiler_status::ProfilerStatus;
 pub use sampler::{MIN_INTERVAL, SamplerConfig, SamplerPause, SamplerStatus};
 pub use session::{EMBEDDED_SESSION, SessionId};
 /// What `RuntimeHandle::rx.try_recv()` reports, so callers can tell "no event yet" from "the
@@ -173,6 +193,13 @@ pub enum Command {
         ns: Namespace,
         query: Query,
     },
+    /// Explains how the server runs `query` and judges it. A read, allowed on a read-only
+    /// connection. Answered by [`Event::Explain`], whose `outcome` also carries any failure.
+    ExplainFind {
+        session: SessionId,
+        ns: Namespace,
+        query: Query,
+    },
     Insert {
         session: SessionId,
         ns: Namespace,
@@ -228,6 +255,29 @@ pub enum Command {
         /// Echoed by the answer, like [`Command::ListIndexes`]'s.
         request: u64,
     },
+    /// Reads the profiler level of `db`; answered with [`Event::ProfilingState`], whose `outcome`
+    /// also carries any failure. A read: it starts no background task.
+    ProfilingState {
+        session: SessionId,
+        db: String,
+    },
+    /// Sets the profiler level of `db` (the only runtime path that does), a write refused by a
+    /// read-only store. Answered with [`Event::ProfilingState`] like [`Command::ProfilingState`],
+    /// a refusal included. Starts no background task.
+    SetProfilingLevel {
+        session: SessionId,
+        db: String,
+        level: i32,
+    },
+    /// Reads the recorded query shapes of the collection; answered with [`Event::QueryShapes`]
+    /// (none when history is off), a failure with [`Event::RequestFailed`].
+    QueryShapes {
+        session: SessionId,
+        ns: Namespace,
+        range: ChartRange,
+        /// Echoed by the answer, like [`Command::ListIndexes`]'s.
+        request: u64,
+    },
     /// Asks for the collection's estimated document count; answered with
     /// [`Event::EstimatedCount`].
     EstimatedCount {
@@ -267,103 +317,6 @@ pub enum Command {
     PurgeHistory {
         connection: uuid::Uuid,
     },
-}
-
-impl Command {
-    /// Whether this command changes data: a lost answer may hide a change the server applied.
-    pub fn is_write(&self) -> bool {
-        match self {
-            Self::Insert { .. }
-            | Self::Replace { .. }
-            | Self::Delete { .. }
-            | Self::Clone { .. }
-            | Self::CreateIndex { .. }
-            | Self::DropIndex { .. }
-            | Self::SetIndexHidden { .. }
-            | Self::SetIndexTtl { .. } => true,
-            Self::Connect(_)
-            | Self::Disconnect { .. }
-            | Self::ListDatabases { .. }
-            | Self::ListCollections { .. }
-            | Self::Find { .. }
-            | Self::Compare(_)
-            | Self::Copy(_)
-            | Self::TestConnection { .. }
-            | Self::LockReadOnly { .. }
-            | Self::ListIndexes { .. }
-            | Self::IndexHistory { .. }
-            | Self::EstimatedCount { .. }
-            | Self::SetSamplingExcluded { .. }
-            | Self::PurgeHistory { .. } => false,
-        }
-    }
-
-    /// The number a numbered read carries (echoed by its answer and its failure).
-    pub fn request(&self) -> Option<u64> {
-        match self {
-            Self::ListIndexes { request, .. } | Self::IndexHistory { request, .. } => {
-                Some(*request)
-            }
-            _ => None,
-        }
-    }
-
-    /// i18n key suffix reported in [`Event::Failed`] for this command.
-    pub fn context(&self) -> &'static str {
-        match self {
-            Self::Connect(_) => "connect",
-            Self::Disconnect { .. } => "disconnect",
-            Self::ListDatabases { .. } => "list_databases",
-            Self::ListCollections { .. } => "list_collections",
-            Self::Find { .. } => "find",
-            Self::Insert { .. } => "insert",
-            Self::Replace { .. } => "replace",
-            Self::Delete { .. } => "delete",
-            Self::Clone { .. } => "clone",
-            Self::Compare(_) => "compare",
-            Self::Copy(_) => "copy",
-            Self::TestConnection { .. } => "test_connection",
-            Self::LockReadOnly { .. } => "lock_read_only",
-            Self::ListIndexes { .. } => "list_indexes",
-            Self::IndexHistory { .. } => "index_history",
-            Self::EstimatedCount { .. } => "estimated_count",
-            Self::CreateIndex { .. } => "create_index",
-            Self::DropIndex { .. } => "drop_index",
-            Self::SetIndexHidden { .. } => "set_index_hidden",
-            Self::SetIndexTtl { .. } => "set_index_ttl",
-            Self::SetSamplingExcluded { .. } => "set_sampling_excluded",
-            Self::PurgeHistory { .. } => "purge_history",
-        }
-    }
-
-    /// The session this command addresses; `None` for compare, connection tests, read-only
-    /// locks and the history commands, which are independent of sessions.
-    pub fn session(&self) -> Option<SessionId> {
-        match self {
-            Self::Connect(cfg) => Some(cfg.id),
-            Self::Disconnect { session }
-            | Self::ListDatabases { session }
-            | Self::ListCollections { session, .. }
-            | Self::Find { session, .. }
-            | Self::Insert { session, .. }
-            | Self::Replace { session, .. }
-            | Self::Delete { session, .. }
-            | Self::Clone { session, .. }
-            | Self::ListIndexes { session, .. }
-            | Self::IndexHistory { session, .. }
-            | Self::EstimatedCount { session, .. }
-            | Self::CreateIndex { session, .. }
-            | Self::DropIndex { session, .. }
-            | Self::SetIndexHidden { session, .. }
-            | Self::SetIndexTtl { session, .. } => Some(*session),
-            Self::Compare(_)
-            | Self::Copy(_)
-            | Self::TestConnection { .. }
-            | Self::LockReadOnly { .. }
-            | Self::SetSamplingExcluded { .. }
-            | Self::PurgeHistory { .. } => None,
-        }
-    }
 }
 
 // Events are moved through a channel once; boxing `Query` would only add noise
@@ -451,6 +404,36 @@ pub enum Event {
         /// The `request` of the command this answers.
         request: u64,
     },
+    /// The answer to `ExplainFind`. A failed explain or an unreadable plan is an `Err` outcome
+    /// shown inline by the query bar; it is never an [`Event::Failed`], which raises a banner.
+    Explain {
+        session: SessionId,
+        ns: Namespace,
+        query: Query,
+        outcome: std::result::Result<Verdict, CoreError>,
+    },
+    /// The answer to `ProfilingState` and `SetProfilingLevel`. A failure, a refusal or a timeout
+    /// is an `Err` outcome shown inline; it is never an [`Event::Failed`], which raises a banner
+    /// (a superseded command is the one exception and is dropped, like any superseded answer).
+    ///
+    /// An `Err` outcome of a `SetProfilingLevel`, notably a timeout or a lost connection, is
+    /// AMBIGUOUS: the server may have applied the change. The UI must re-read the state with
+    /// [`Command::ProfilingState`].
+    ProfilingState {
+        session: SessionId,
+        db: String,
+        outcome: std::result::Result<ProfilingState, CoreError>,
+    },
+    /// The answer to `QueryShapes`: the shapes recorded for the collection, empty when none were
+    /// or history is off.
+    QueryShapes {
+        session: SessionId,
+        ns: Namespace,
+        range: ChartRange,
+        shapes: Vec<ShapeSummary>,
+        /// The `request` of the command this answers.
+        request: u64,
+    },
     /// The answer to `EstimatedCount`.
     EstimatedCount {
         session: SessionId,
@@ -465,6 +448,11 @@ pub enum Event {
         session: SessionId,
         status: SamplerStatus,
     },
+    /// SPONTANEOUS, like `Sampler`: the profile poller started, resumed, paused or lost entries.
+    Profiler {
+        session: SessionId,
+        status: ProfilerStatus,
+    },
 }
 
 /// A config whose session is [`EMBEDDED_SESSION`], so a test that connects and then sends data
@@ -474,29 +462,6 @@ fn embedded_config(name: &str, uri: &str) -> ConnectionConfig {
     ConnectionConfig {
         id: EMBEDDED_SESSION,
         ..ConnectionConfig::new(name, uri)
-    }
-}
-
-impl Event {
-    /// The session this event belongs to; `None` for compare and connection-test events.
-    pub fn session(&self) -> Option<SessionId> {
-        match self {
-            Self::Connected { session, .. }
-            | Self::Disconnected { session, .. }
-            | Self::ConnectFailed { session, .. }
-            | Self::Databases { session, .. }
-            | Self::Collections { session, .. }
-            | Self::Results { session, .. }
-            | Self::Mutated { session, .. }
-            | Self::Indexes { session, .. }
-            | Self::IndexHistory { session, .. }
-            | Self::EstimatedCount { session, .. }
-            | Self::IndexChanged { session, .. }
-            | Self::Sampler { session, .. }
-            | Self::Failed { session, .. }
-            | Self::RequestFailed { session, .. } => Some(*session),
-            Self::Compare(_) | Self::Copy(_) | Self::TestConnection { .. } => None,
-        }
     }
 }
 
@@ -716,13 +681,11 @@ fn dispatch(
         data => {
             let id = data.session().expect("a data command names its session");
             let Some(session) = shared.session(id) else {
-                let unknown = handlers::failure_event(
-                    id,
-                    context,
-                    request,
-                    0,
-                    CoreError::Unsupported("not connected".into()),
-                );
+                let error = CoreError::Unsupported("not connected".into());
+                let unknown = match profiler_handlers::profiler_db(&data) {
+                    Some(db) => profiler_handlers::profiler_failure(id, db.to_owned(), error),
+                    None => handlers::failure_event(id, context, request, 0, error),
+                };
                 if events.send(unknown).is_ok() {
                     repaint();
                 }
@@ -761,7 +724,15 @@ fn dispatch(
         }
         // After `Connected` is queued, so the sampler's first status can never overtake it.
         if connected {
-            indexes::start_sampler(&shared, &session, id, generation, events, repaint);
+            indexes::start_sampler(
+                &shared,
+                &session,
+                id,
+                generation,
+                events.clone(),
+                repaint.clone(),
+            );
+            profiler_start::start_profiler(&shared, &session, id, generation, events, repaint);
         }
     });
 }

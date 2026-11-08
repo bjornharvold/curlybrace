@@ -8,7 +8,7 @@
 //! runs on the blocking pool.
 
 mod driver;
-pub(super) use driver::run;
+pub(super) use driver::{new_ticker, report, run, wait_for_tick};
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ use crate::history::{HistoryDb, SAMPLE_INTERVAL_SECS, Sample, SeriesKey, is_hist
 use crate::store::{CollectionKind, DocumentStore, IndexUsage, Namespace};
 
 /// Databases the server owns; never sampled.
-const SYSTEM_DBS: [&str; 3] = ["admin", "local", "config"];
+pub(super) const SYSTEM_DBS: [&str; 3] = ["admin", "local", "config"];
 
 /// Longest wait between two attempts while the sampler is paused.
 const MAX_BACKOFF: Duration = Duration::from_secs(600);
@@ -166,7 +166,7 @@ impl TickError {
         }
     }
 
-    fn error(&self) -> &CoreError {
+    pub(super) fn error(&self) -> &CoreError {
         match self {
             Self::Store(error) | Self::History(error) | Self::HistoryBusy(error) => error,
         }
@@ -430,7 +430,7 @@ impl Progress {
 const SLOW_TOLERANCE: usize = 10;
 
 /// The targets starting at `start` (wrapping), so consecutive cut-short passes cover the whole list.
-fn rotated(mut targets: Vec<Namespace>, start: usize) -> Vec<Namespace> {
+pub(super) fn rotated<T>(mut targets: Vec<T>, start: usize) -> Vec<T> {
     if !targets.is_empty() {
         let by = start % targets.len();
         targets.rotate_left(by);
@@ -439,7 +439,7 @@ fn rotated(mut targets: Vec<Namespace>, start: usize) -> Vec<Namespace> {
 }
 
 /// Where the pass that began at `start` and finished `completed` targets leaves the next one.
-fn resume_point(start: usize, completed: usize, total: usize) -> usize {
+pub(super) fn resume_point(start: usize, completed: usize, total: usize) -> usize {
     match total {
         0 => 0,
         total => (start % total + completed) % total,
@@ -635,14 +635,17 @@ fn series_sample(
 
 /// Bounds a store call by `limit`. The timeout is a `Database` error, which is not a pause
 /// reason: the pass counts it as a failure and the next tick tries again.
-async fn bounded<T>(limit: Duration, call: impl Future<Output = Result<T>>) -> Result<T> {
+pub(super) async fn bounded<T>(
+    limit: Duration,
+    call: impl Future<Output = Result<T>>,
+) -> Result<T> {
     tokio::time::timeout(limit, call)
         .await
         .unwrap_or_else(|_| Err(CoreError::Database(TIMEOUT_TEXT.into())))
 }
 
 /// Runs a blocking `HistoryDb` call on the blocking pool. A panic there becomes an error.
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> Result<T> {
     tokio::task::spawn_blocking(work)

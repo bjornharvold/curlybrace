@@ -58,6 +58,12 @@ fn busy_view(n: i32) -> SessionView {
             skip: 0,
             fingerprint: n as u64,
         }),
+        verdict: crate::app::explain_actions::VerdictState::Pending {
+            query: Query {
+                skip: n as u64,
+                ..Query::default()
+            },
+        },
         tree: {
             let mut tree = TreeState::default();
             tree.projected = n % 2 == 0;
@@ -115,6 +121,7 @@ fn snapshot(s: &AppState) -> (String, Vec<(Uuid, String)>) {
         loading_page: s.loading_page,
         page: s.page.clone(),
         page_key: s.page_key,
+        verdict: s.verdict.clone(),
         tree: s.tree.clone(),
         view_mode: s.view_mode,
         tab: s.tab,

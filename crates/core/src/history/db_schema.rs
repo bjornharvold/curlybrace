@@ -7,11 +7,13 @@
 //! - `samples`: raw readings. The autoincrement `id` is the insertion order, which is the order
 //!   `derive` must see them in (it never re-sorts by timestamp).
 //! - `rolled`: thinned rows, `tier` 1 = hourly, 2 = daily, holding exactly a `Bucket`'s fields.
+//! - Version 2 adds the `shape*` tables (see [`super::shape_schema`]).
 
-use rusqlite::Connection;
+use super::shape_schema::{PROFILE_MARK, V2};
+use rusqlite::{Connection, TransactionBehavior};
 
 /// The schema version this build writes.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Tier of an hourly rolled row.
 pub const TIER_HOURLY: i64 = 1;
@@ -75,15 +77,52 @@ pub fn prepare(conn: &mut Connection) -> Result<(), SchemaError> {
     if version < 1 {
         migrate_to_v1(conn)?;
     }
+    if version < 2 {
+        migrate_to_v2(conn)?;
+    }
+    ensure_profile_mark(conn)?;
     Ok(())
 }
 
-fn migrate_to_v1(conn: &mut Connection) -> Result<(), SchemaError> {
+/// Adds the `profile_mark` table when the file lacks it (version 2 is unreleased, so files of an
+/// earlier build of it exist without). Only writes when missing, so opening stays read-cheap.
+fn ensure_profile_mark(conn: &mut Connection) -> Result<(), SchemaError> {
+    let present: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'profile_mark'",
+        [],
+        |r| r.get(0),
+    )?;
+    if present == 0 {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute_batch(PROFILE_MARK)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+pub(super) fn migrate_to_v1(conn: &mut Connection) -> Result<(), SchemaError> {
     // Only takes effect before the first table exists: lets deleted rows give pages back.
     conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
     let tx = conn.transaction()?;
     tx.execute_batch(V1)?;
     tx.pragma_update(None, "user_version", 1)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Adds the query shape tables (see [`super::shape_schema`]). Creates tables only: the
+/// `auto_vacuum` setting is fixed once the first table exists and is not repeated here.
+///
+/// Takes the write lock first and re-reads `user_version` inside it, so two opens racing on a
+/// v1 file migrate once: the second finds version 2 and does nothing.
+pub(super) fn migrate_to_v2(conn: &mut Connection) -> Result<(), SchemaError> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let version: i64 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if version >= 2 {
+        return Ok(());
+    }
+    tx.execute_batch(V2)?;
+    tx.pragma_update(None, "user_version", 2)?;
     tx.commit()?;
     Ok(())
 }

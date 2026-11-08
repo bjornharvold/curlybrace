@@ -1,0 +1,236 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "test.orders",
+    "parsedQuery": {
+      "$and": [
+        {
+          "c": {
+            "$eq": {
+              "$numberInt": "5"
+            }
+          }
+        },
+        {
+          "a": {
+            "$gte": {
+              "$numberInt": "0"
+            }
+          }
+        }
+      ]
+    },
+    "indexFilterSet": false,
+    "queryHash": "8211BC39",
+    "planCacheShapeHash": "8211BC39",
+    "planCacheKey": "4364463F",
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "96"
+    },
+    "optimizedPipeline": true,
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "COLLSCAN",
+        "filter": {
+          "$and": [
+            {
+              "c": {
+                "$eq": {
+                  "$numberInt": "5"
+                }
+              }
+            },
+            {
+              "a": {
+                "$gte": {
+                  "$numberInt": "0"
+                }
+              }
+            }
+          ]
+        },
+        "nss": "test.orders",
+        "direction": "forward"
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": {
+      "$numberInt": "1"
+    },
+    "executionTimeMillis": {
+      "$numberInt": "0"
+    },
+    "executionTimeMicros": {
+      "$numberInt": "413"
+    },
+    "totalKeysExamined": {
+      "$numberInt": "0"
+    },
+    "totalDocsExamined": {
+      "$numberInt": "300"
+    },
+    "executionStages": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "nReturned": {
+        "$numberInt": "1"
+      },
+      "executionTimeMillisEstimate": {
+        "$numberInt": "0"
+      },
+      "works": {
+        "$numberInt": "301"
+      },
+      "advanced": {
+        "$numberInt": "1"
+      },
+      "needTime": {
+        "$numberInt": "299"
+      },
+      "needYield": {
+        "$numberInt": "0"
+      },
+      "saveState": {
+        "$numberInt": "0"
+      },
+      "restoreState": {
+        "$numberInt": "0"
+      },
+      "isEOF": {
+        "$numberInt": "1"
+      },
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "COLLSCAN",
+        "filter": {
+          "$and": [
+            {
+              "c": {
+                "$eq": {
+                  "$numberInt": "5"
+                }
+              }
+            },
+            {
+              "a": {
+                "$gte": {
+                  "$numberInt": "0"
+                }
+              }
+            }
+          ]
+        },
+        "nReturned": {
+          "$numberInt": "1"
+        },
+        "executionTimeMillisEstimate": {
+          "$numberInt": "0"
+        },
+        "works": {
+          "$numberInt": "301"
+        },
+        "advanced": {
+          "$numberInt": "1"
+        },
+        "needTime": {
+          "$numberInt": "299"
+        },
+        "needYield": {
+          "$numberInt": "0"
+        },
+        "saveState": {
+          "$numberInt": "0"
+        },
+        "restoreState": {
+          "$numberInt": "0"
+        },
+        "isEOF": {
+          "$numberInt": "1"
+        },
+        "nss": "test.orders",
+        "direction": "forward",
+        "docsExamined": {
+          "$numberInt": "300"
+        },
+        "seeks": {
+          "$numberInt": "0"
+        }
+      }
+    }
+  },
+  "queryShapeHash": "1296A644092DEFF36F6FC499B98C80834CFD435DF3BCA76DD6C7012AD9F29F74",
+  "command": {
+    "aggregate": "orders",
+    "pipeline": [
+      {
+        "$match": {
+          "a": {
+            "$gte": {
+              "$numberInt": "0"
+            }
+          }
+        }
+      },
+      {
+        "$match": {
+          "c": {
+            "$numberInt": "5"
+          }
+        }
+      },
+      {
+        "$limit": {
+          "$numberLong": "51"
+        }
+      }
+    ],
+    "cursor": {},
+    "collation": {
+      "locale": "simple"
+    },
+    "querySettings": {}
+  },
+  "serverInfo": {
+    "host": "localhost",
+    "port": {
+      "$numberInt": "27017"
+    },
+    "version": "9.0.4",
+    "gitVersion": "0000000000000000000000000000000000000000"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}

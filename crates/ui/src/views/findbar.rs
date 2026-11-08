@@ -36,6 +36,20 @@ pub fn show_findbar(
     action
 }
 
+/// The global "check index use automatically" box. The label is the box's accessible name; the
+/// action carries the new setting when it was toggled this frame.
+pub fn show_automatic_verdict(
+    ui: &mut egui::Ui,
+    automatic: bool,
+    i18n: &I18n,
+) -> Option<FindAction> {
+    let mut checked = automatic;
+    let response = ui.checkbox(&mut checked, i18n.t("query.verdict.automatic"));
+    response
+        .changed()
+        .then_some(FindAction::SetAutomaticVerdict(checked))
+}
+
 /// A labelled single-line box; true when Enter was pressed in it.
 fn text_row(ui: &mut egui::Ui, keys: (&str, &str), value: &mut String, i18n: &I18n) -> bool {
     ui.horizontal(|ui| {

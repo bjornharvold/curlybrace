@@ -29,6 +29,9 @@ mod copy_drag;
 pub mod copy_state;
 pub mod copy_structure_report;
 mod dialog_banner;
+mod explain_actions;
+pub use explain_actions::VerdictState;
+mod explain_settings;
 pub mod file_picker;
 pub mod host_key;
 mod index_actions;
@@ -36,6 +39,7 @@ mod index_edit_actions;
 mod index_write_actions;
 mod panels;
 pub mod persistence;
+mod queries_actions;
 pub mod reducer;
 pub mod sampling_settings;
 pub mod session;
@@ -65,6 +69,7 @@ use curlybrace_core::runtime::{
 };
 use curlybrace_core::secrets::SecretStore;
 use eframe::egui;
+use explain_settings::default_explain_path;
 use file_picker::{FilePicker, NoFilePicker, PendingPick, PickPoll, start_pick, suggested_file};
 use host_key::{
     HOST_KEY_PROMPT_TIMEOUT, HostKeyAnswer, HostKeyRequest, InteractivePrompt, PromptState,
@@ -124,6 +129,10 @@ pub struct CurlybraceApp {
     sampling_path: ConfigPath,
     /// Whether `sampling.json` may be replaced (not when a bad one could not be backed up).
     sampling_guard: persistence::PersistGuard,
+    /// Where the explain setting is saved; unset in `new` like `sampling_path`.
+    explain_path: ConfigPath,
+    /// Whether `explain.json` may be replaced (not when a bad one could not be backed up).
+    explain_guard: persistence::PersistGuard,
     /// Where the tool paths are saved; like `sampling_path`, unset in `new` so a test never
     /// writes the real config directory.
     tools_path: ConfigPath,
@@ -172,6 +181,8 @@ impl CurlybraceApp {
             config_path: default_connections_path(),
             sampling_path: Err(persistence::PersistError::ConfigDirUnknown),
             sampling_guard: persistence::PersistGuard::default(),
+            explain_path: Err(persistence::PersistError::ConfigDirUnknown),
+            explain_guard: persistence::PersistGuard::default(),
             tools_path: Err(persistence::PersistError::ConfigDirUnknown),
             tools_guard: persistence::PersistGuard::default(),
             tools_notice: None,
@@ -223,6 +234,7 @@ impl CurlybraceApp {
             .with_persist_guard(guard)
             .with_banner(startup_banner)
             .with_sampling_path(default_sampling_path())
+            .with_explain_path(default_explain_path())
             .with_tools_path(default_tools_path())
     }
 
@@ -332,11 +344,15 @@ impl CurlybraceApp {
             _ => None,
         };
         let sampling_before = self.state.sampling.clone();
+        let explain_before = self.state.explain;
         let tools_before = self.state.tools.revision();
         let (state, commands) = update(std::mem::take(&mut self.state), input);
         self.state = state;
         if self.state.sampling != sampling_before {
             self.save_sampling();
+        }
+        if self.state.explain != explain_before {
+            self.save_explain();
         }
         self.tools_changed(tools_before);
         self.state = std::mem::take(&mut self.state).with_queued_recovery_shown();
@@ -791,6 +807,11 @@ mod tools_state_tests;
 mod tools_wiring_tests;
 
 #[cfg(test)]
+mod explain_settings_tests;
+#[cfg(test)]
+mod explain_tests;
+
+#[cfg(test)]
 mod index_tests;
 
 #[cfg(test)]
@@ -798,6 +819,15 @@ mod index_edit_tests;
 
 #[cfg(test)]
 mod index_write_tests;
+
+#[cfg(test)]
+mod queries_failure_tests;
+
+#[cfg(test)]
+mod queries_test_support;
+
+#[cfg(test)]
+mod queries_tests;
 
 #[cfg(test)]
 mod connection_import_tests;

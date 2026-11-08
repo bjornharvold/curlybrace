@@ -29,6 +29,8 @@ pub(crate) struct Session {
     /// The index usage sampler of the installed store. Aborted by `begin` (so by a Disconnect, a
     /// newer Connect and the removal of the session) and when the session is dropped.
     sampler: Mutex<Option<JoinHandle<()>>>,
+    /// The profile poller of the installed store, stopped with the sampler.
+    profiler: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Session {
@@ -39,6 +41,7 @@ impl Session {
             generation: AtomicU64::new(generation),
             epoch_lock: RwLock::new(()),
             sampler: Mutex::new(None),
+            profiler: Mutex::new(None),
         }
     }
 
@@ -66,8 +69,9 @@ impl Session {
         let old = self.tunnel.lock().unwrap_or_else(|e| e.into_inner()).take();
         drop(slot);
         drop(old);
-        // After the generation moved: an `attach_sampler` that takes the lock later sees it.
-        self.stop_sampler();
+        // After the generation moved: an `attach_sampler` or `attach_profiler` that takes the
+        // lock later sees it.
+        self.stop_background();
     }
 
     /// Keeps `sampler` as this session's sampler if `generation` is still the latest request,
@@ -86,20 +90,34 @@ impl Session {
         true
     }
 
+    /// Keeps `poller` as this session's profile poller under the same rule as
+    /// [`Self::attach_sampler`]: only while `generation` is still the latest request, otherwise
+    /// it is aborted.
+    pub(super) fn attach_profiler(&self, generation: u64, poller: JoinHandle<()>) -> bool {
+        let mut slot = self.profiler.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.is_current(generation) {
+            poller.abort();
+            return false;
+        }
+        if let Some(previous) = slot.replace(poller) {
+            previous.abort();
+        }
+        true
+    }
+
     /// Moves the generation without the bookkeeping of `begin`, as the caller holds `epoch_lock`.
     #[cfg(test)]
     pub(super) fn move_generation_for_tests(&self, generation: u64) {
         self.generation.store(generation, Ordering::SeqCst);
     }
 
-    fn stop_sampler(&self) {
-        let old = self
-            .sampler
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
-        if let Some(old) = old {
-            old.abort();
+    /// Aborts the sampler and the profile poller.
+    fn stop_background(&self) {
+        for slot in [&self.sampler, &self.profiler] {
+            let old = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(old) = old {
+                old.abort();
+            }
         }
     }
 
@@ -128,6 +146,6 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        self.stop_sampler();
+        self.stop_background();
     }
 }

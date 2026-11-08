@@ -1,0 +1,104 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "test.orders",
+    "parsedQuery": {
+      "c": {
+        "$eq": {
+          "$numberInt": "5"
+        }
+      }
+    },
+    "indexFilterSet": false,
+    "queryHash": "630D4E40",
+    "planCacheShapeHash": "630D4E40",
+    "planCacheKey": "A19AF62F",
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "127"
+    },
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "FETCH",
+        "nss": "test.orders",
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nss": "test.orders",
+          "keyPattern": {
+            "c": {
+              "$numberInt": "1"
+            }
+          },
+          "indexName": "c_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "c": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": {
+            "$numberInt": "2"
+          },
+          "direction": "forward",
+          "indexBounds": {
+            "c": [
+              "[5, 5]"
+            ]
+          }
+        }
+      }
+    },
+    "rejectedPlans": []
+  },
+  "queryShapeHash": "46547108522F573DBCC1685765976D7C48C2ECC1B4520307FA5732C4C53B2917",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "c": {
+        "$numberInt": "5"
+      }
+    },
+    "limit": {
+      "$numberLong": "51"
+    },
+    "$db": "test"
+  },
+  "serverInfo": {
+    "host": "localhost",
+    "port": {
+      "$numberInt": "27017"
+    },
+    "version": "9.0.4",
+    "gitVersion": "0000000000000000000000000000000000000000"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}

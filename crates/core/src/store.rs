@@ -7,6 +7,7 @@ use crate::compare::diff::PathSegment;
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
+use crate::profile::ProfileEntry;
 
 /// How the connected MongoDB server is deployed, as its `hello` reply tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,6 +122,14 @@ pub struct CollectionIndex {
     pub size_bytes: Option<u64>,
 }
 
+/// The server's explain output for a query. `plan_only` is true when the run was cut short by
+/// the time limit and only the plan (no execution statistics) was fetched.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Explain {
+    pub document: Document,
+    pub plan_only: bool,
+}
+
 /// What `$indexStats` reports for one index on one node.
 #[derive(Clone, Debug, PartialEq)]
 pub struct IndexUsage {
@@ -133,6 +142,41 @@ pub struct IndexUsage {
     pub since_ms: i64,
     pub spec: IndexSpec,
 }
+
+/// The profiler setting of one database: `level` is 0 (off), 1 (slow operations) or 2 (all),
+/// `slow_ms` the threshold of level 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProfilingState {
+    pub level: i32,
+    pub slow_ms: i64,
+}
+
+/// What one read of a database's `system.profile` returned.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProfileRead {
+    /// Entries newer than the requested time, oldest first.
+    pub entries: Vec<ProfileEntry>,
+    /// The oldest `ts` (ms) currently in `system.profile` (to detect that a capped collection
+    /// rolled entries off before they were read), even when that document cannot be parsed;
+    /// `None` when the collection is empty or missing.
+    pub oldest_ts_millis: Option<i64>,
+    /// The newest raw `ts` (ms) of the whole returned page, unparseable entries included, so a
+    /// caller can advance its watermark past a page it could not use. `None` for an empty page.
+    pub newest_ts_millis: Option<i64>,
+    /// How many documents of the page could not be parsed. `entries.len() + skipped` equal to
+    /// [`PROFILE_READ_LIMIT`] means a full page: more may be waiting.
+    pub skipped: u64,
+    /// The server node the profile was read from (`hello`'s `me`): the primary, where the
+    /// profiling level is set (a secondary's profile is not read). Empty when the server does not name itself (a standalone
+    /// mongod or a mongos): an unknown node, which callers key as host `""`.
+    pub host: String,
+}
+
+/// The most entries one `read_profile` returns.
+pub const PROFILE_READ_LIMIT: usize = 1000;
+
+/// The refusal for the profiler through a mongos. The UI maps this exact text.
+pub const PROFILER_MONGOS_MESSAGE: &str = "profiler not available through mongos";
 
 /// One write against one collection. Matched by `_id`.
 #[derive(Clone, Debug, PartialEq)]
@@ -353,6 +397,43 @@ pub trait DocumentStore: Send + Sync {
     async fn index_stats(&self, _ns: &Namespace) -> Result<Vec<IndexUsage>> {
         Err(CoreError::Unsupported(
             "this store cannot read index usage".into(),
+        ))
+    }
+
+    /// Explains the find a query sends (filter, sort, projection, skip, limit) with execution
+    /// statistics. A read, so a read-only connection may call it. A query that outruns the
+    /// explain time limit comes back with `plan_only` set.
+    async fn explain_find(&self, _ns: &Namespace, _q: &Query) -> Result<Explain> {
+        Err(CoreError::Unsupported(
+            "this store cannot explain queries".into(),
+        ))
+    }
+
+    /// The profiler setting of `db`.
+    async fn profiling_level(&self, _db: &str) -> Result<ProfilingState> {
+        Err(CoreError::Unsupported(
+            "this store cannot read the profiler".into(),
+        ))
+    }
+
+    /// The `system.profile` entries of `db` with `ts` strictly after `since_ts_millis`, oldest
+    /// first, at most [`PROFILE_READ_LIMIT`] per call. Entries that cannot be parsed are
+    /// skipped and counted. A missing collection (profiler never on) is an empty read, not an
+    /// error.
+    ///
+    /// The bound is strict: an entry that shares the exact millisecond of the watermark with an
+    /// entry already read, but was not yet written when that read happened, can be missed. That
+    /// is negligible and accepted.
+    async fn read_profile(&self, _db: &str, _since_ts_millis: i64) -> Result<ProfileRead> {
+        Err(CoreError::Unsupported(
+            "this store cannot read the profiler".into(),
+        ))
+    }
+
+    /// Sets the profiler level of `db` (0, 1 or 2) on the primary and returns the new state.
+    async fn set_profiling_level(&self, _db: &str, _level: i32) -> Result<ProfilingState> {
+        Err(CoreError::Unsupported(
+            "this store cannot set the profiler".into(),
         ))
     }
 }

@@ -13,8 +13,9 @@ use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
 use crate::store::{
-    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, IndexStatus,
-    IndexUsage, Namespace, Page, Query, Topology, WriteOp, WriteOutcome,
+    CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
+    IndexStatus, IndexUsage, Namespace, Page, ProfileRead, ProfilingState, Query, Topology,
+    WriteOp, WriteOutcome,
 };
 use mongodb::options::{AggregateOptions, Collation, ReadPreference, SelectionCriteria};
 
@@ -336,6 +337,26 @@ impl DocumentStore for MongoStore {
 
     async fn list_index_specs(&self, ns: &Namespace) -> Result<Vec<IndexSpec>> {
         crate::mongo_indexes::list_index_specs(&self.client.database(&ns.db), ns, db_err).await
+    }
+
+    async fn explain_find(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
+        crate::mongo_explain::explain_find(&self.client.database(&ns.db), ns, q).await
+    }
+
+    async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {
+        crate::mongo_profile::mongos_decision(self.topology().await?)?;
+        crate::mongo_profile::profiling_level(&self.client.database(db)).await
+    }
+
+    async fn read_profile(&self, db: &str, since_ts_millis: i64) -> Result<ProfileRead> {
+        crate::mongo_profile::mongos_decision(self.topology().await?)?;
+        crate::mongo_profile::read_profile(&self.client.database(db), since_ts_millis).await
+    }
+
+    async fn set_profiling_level(&self, db: &str, level: i32) -> Result<ProfilingState> {
+        crate::mongo_profile::set_level_command(level)?;
+        crate::mongo_profile::mongos_decision(self.topology().await?)?;
+        crate::mongo_profile::set_profiling_level(&self.client.database(db), level).await
     }
 
     async fn index_stats(&self, ns: &Namespace) -> Result<Vec<IndexUsage>> {

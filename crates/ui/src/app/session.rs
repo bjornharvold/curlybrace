@@ -29,6 +29,7 @@ pub struct SessionView {
     pub loading_page: bool,
     pub page: Option<Page>,
     pub page_key: Option<PageKey>,
+    pub verdict: super::explain_actions::VerdictState,
     pub tree: TreeState,
     pub view_mode: ViewMode,
     pub tab: CollectionTab,
@@ -97,6 +98,7 @@ impl AppState {
             loading_page: std::mem::take(&mut self.loading_page),
             page: self.page.take(),
             page_key: self.page_key.take(),
+            verdict: std::mem::take(&mut self.verdict),
             tree: std::mem::take(&mut self.tree),
             view_mode: std::mem::take(&mut self.view_mode),
             tab: std::mem::take(&mut self.tab),
@@ -125,6 +127,7 @@ impl AppState {
             loading_page,
             page,
             page_key,
+            verdict,
             tree,
             view_mode,
             tab,
@@ -147,6 +150,7 @@ impl AppState {
         self.loading_page = loading_page;
         self.page = page;
         self.page_key = page_key;
+        self.verdict = verdict;
         self.tree = tree;
         self.view_mode = view_mode;
         self.tab = tab;

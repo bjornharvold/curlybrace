@@ -1,0 +1,20 @@
+{
+  "op": "insert",
+  "ns": "shop.orders",
+  "command": {
+    "insert": "orders",
+    "ordered": true,
+    "$db": "shop"
+  },
+  "ninserted": 1,
+  "keysInserted": 2,
+  "millis": {
+    "$numberLong": "2"
+  },
+  "appName": "orders-service",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

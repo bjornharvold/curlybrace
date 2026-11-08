@@ -1,0 +1,43 @@
+{
+  "op": "command",
+  "ns": "shop.orders",
+  "command": {
+    "aggregate": "orders",
+    "pipeline": [
+      {
+        "$match": {
+          "status": "open"
+        }
+      },
+      {
+        "$group": {
+          "_id": "$region",
+          "n": {
+            "$sum": 1
+          }
+        }
+      }
+    ],
+    "cursor": {},
+    "$db": "shop"
+  },
+  "keysExamined": {
+    "$numberInt": "0"
+  },
+  "docsExamined": {
+    "$numberInt": "5000"
+  },
+  "nreturned": {
+    "$numberInt": "6"
+  },
+  "millis": {
+    "$numberInt": "52"
+  },
+  "planSummary": "COLLSCAN",
+  "appName": "orders-service",
+  "ts": {
+    "$date": {
+      "$numberLong": "1762500000123"
+    }
+  }
+}

@@ -3,12 +3,13 @@
 //! did; the reducer decides what happens.
 use super::index_detail::{DetailInput, show_detail};
 use super::index_sampling::show_sampling;
+use super::queries::show_queries;
 use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::index_chart::observed_uses;
 use crate::viewmodel::index_detail::{RANGES, anchored_now, range_key};
-use crate::viewmodel::{IndexWrite, IndexesAction, IndexesState};
+use crate::viewmodel::{IndexWrite, IndexesAction, IndexesState, IndexesView};
 use curlybrace_core::runtime::{SamplerPause, SamplerStatus};
 use curlybrace_core::store::CollectionIndex;
 use eframe::egui;
@@ -30,7 +31,11 @@ pub fn show_indexes(
     now_secs: i64,
     sampling: &SamplingSettings,
 ) -> Option<IndexesAction> {
-    let mut action = toolbar(ui, state, read_only, i18n);
+    let toggled = view_toggle(ui, state.view, i18n);
+    if state.view == IndexesView::Queries {
+        return queries_view(ui, state, read_only, i18n, now_secs).or(toggled);
+    }
+    let mut action = toolbar(ui, state, read_only, i18n).or(toggled);
     action = show_sampling(ui, sampling, i18n).or(action);
     ui.separator();
     if state.indexes.is_empty() {
@@ -84,6 +89,36 @@ pub fn show_indexes(
         });
     });
     action
+}
+
+/// The Indexes | Queries switch. The selected side is marked by the selection state, which
+/// assistive technology reads, not by colour alone.
+fn view_toggle(ui: &mut egui::Ui, view: IndexesView, i18n: &I18n) -> Option<IndexesAction> {
+    let mut action = None;
+    ui.horizontal(|ui| {
+        for (side, key) in [
+            (IndexesView::Indexes, "indexes.queries.view_indexes"),
+            (IndexesView::Queries, "indexes.queries.view_queries"),
+        ] {
+            if ui.selectable_label(view == side, i18n.t(key)).clicked() && view != side {
+                action = Some(IndexesAction::ShowView(side));
+            }
+        }
+    });
+    action
+}
+
+/// The Queries view of the collection the tab is on.
+fn queries_view(
+    ui: &mut egui::Ui,
+    state: &IndexesState,
+    read_only: bool,
+    i18n: &I18n,
+    now_secs: i64,
+) -> Option<IndexesAction> {
+    ui.separator();
+    let ns = state.ns.as_ref()?;
+    show_queries(ui, &state.queries, ns, read_only, i18n, now_secs).map(IndexesAction::Queries)
 }
 
 /// The selected index, or the first one while nothing is selected.

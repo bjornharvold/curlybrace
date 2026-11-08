@@ -1,4 +1,6 @@
 pub mod client;
+#[cfg(test)]
+mod client_app_name_tests;
 pub mod clock;
 pub mod compare;
 pub mod connection;
@@ -11,19 +13,25 @@ pub mod crud;
 pub mod driver_error;
 pub mod ejson;
 pub mod error;
+mod error_name;
+pub mod explain;
 pub mod history;
 pub mod indexes;
 mod mongo_collection_options;
+mod mongo_explain;
 mod mongo_indexes;
+mod mongo_profile;
 pub mod mongo_store;
 mod mongo_write;
 mod mongo_write_fields;
+pub mod profile;
 pub mod query;
 pub mod read_only_store;
 #[cfg(test)]
 mod read_only_store_tests;
 pub mod runtime;
 pub mod secrets;
+pub mod shape;
 pub mod store;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

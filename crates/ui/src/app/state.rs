@@ -1,6 +1,7 @@
 //! Application state. Immutable by convention: the reducer consumes a state and returns the next.
 use super::connection_io::ImportError;
 use super::dialog_banner::DialogBannerWatch;
+use super::explain_settings::ExplainSettings;
 use super::persistence::{PersistError, PersistGuard, Recovery};
 use super::sampling_settings::SamplingSettings;
 use super::session::SessionView;
@@ -156,9 +157,9 @@ pub struct Pending {
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
-/// `loading_page`, `page`, `page_key`, `tree`, `view_mode`, `tab`, `indexes`, `editor`, `pending`,
-/// `ssh_endpoint`, `production` and `read_only`. They are parked per session and must be added to `SessionView` (and to
-/// `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
+/// `loading_page`, `page`, `page_key`, `verdict`, `tree`, `view_mode`, `tab`, `indexes`, `editor`,
+/// `pending`, `ssh_endpoint`, `production` and `read_only`. They are parked per session and must
+/// be added to `SessionView` (and to `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
 #[derive(Debug, Default)]
 pub struct AppState {
@@ -212,6 +213,8 @@ pub struct AppState {
     pub page: Option<Page>,
     /// Content key of `page`, computed once when the page arrives.
     pub page_key: Option<PageKey>,
+    /// How the query bar's current run is served (see `explain_actions`).
+    pub verdict: super::explain_actions::VerdictState,
     pub tree: TreeState,
     pub view_mode: ViewMode,
     /// Which tab of the selected collection is shown.
@@ -221,6 +224,8 @@ pub struct AppState {
     /// The databases the usage sampler skips. Global: it belongs to no session, so it is not
     /// parked with one.
     pub sampling: SamplingSettings,
+    /// Whether a Run also asks for the index verdict. Global too.
+    pub explain: ExplainSettings,
     /// The tool paths (global and per connection) and their version checks. Global too.
     pub tools: ToolsState,
     pub editor: Option<EditorState>,
@@ -298,6 +303,11 @@ impl AppState {
         self.page.is_some() && crate::viewmodel::is_projected(self.page_query.projection.as_ref())
     }
 
+    /// Whether a Run also asks the server to explain the query (the global setting).
+    pub fn explain_enabled(&self) -> bool {
+        self.explain.automatic
+    }
+
     /// `(has_prev, has_next)` for the find bar.
     pub fn paging(&self) -> (bool, bool) {
         (
@@ -326,6 +336,7 @@ impl AppState {
             loading_page: false,
             page: None,
             page_key: None,
+            verdict: Default::default(),
             tree: self.tree.results_replaced(),
             tab: CollectionTab::default(),
             indexes: IndexesState::default(),
