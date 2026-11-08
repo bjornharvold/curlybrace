@@ -245,3 +245,92 @@ fn error_meets_contrast_on_the_field_surfaces() {
         }
     }
 }
+
+/// Every focus ring painted (2 dp `primary` stroke), with its painted extent and clip rect.
+fn rings(output: &egui::FullOutput, primary: egui::Color32) -> Vec<(Rect, Rect)> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Rect(r) if r.stroke.color == primary && r.stroke.width >= 2.0 => {
+                let extent = match r.stroke_kind {
+                    egui::StrokeKind::Inside => r.rect,
+                    egui::StrokeKind::Middle => r.rect.expand(r.stroke.width / 2.0),
+                    egui::StrokeKind::Outside => r.rect.expand(r.stroke.width),
+                };
+                Some((extent, c.clip_rect))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A frameless, narrow side panel (as the sidebar is) with `first` at the very top of a scroll
+/// area, so a ring drawn outside the widget would cross the clip rect.
+fn side_panel(first: fn(&mut egui::Ui)) -> Harness<'static> {
+    let mut installed = false;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(500.0, 300.0))
+        .build(move |ctx| {
+            if !installed {
+                install(ctx);
+                ctx.set_theme(egui::Theme::Light);
+                installed = true;
+            }
+            egui::SidePanel::left("side")
+                .frame(egui::Frame::NONE)
+                .exact_width(180.0)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, first);
+                });
+        });
+    harness.run();
+    harness
+}
+
+fn assert_ring_inside_clip(first: fn(&mut egui::Ui), label: &str) {
+    let primary = scheme(Mode::Light).primary;
+    let mut harness = side_panel(first);
+    harness.get_all_by_label(label).next().expect(label).focus();
+    harness.run();
+    let painted = rings(harness.output(), primary);
+    assert!(!painted.is_empty(), "{label}: no focus ring");
+    for (extent, clip) in painted {
+        assert!(
+            clip.expand(0.5).contains_rect(extent),
+            "{label}: ring {extent:?} leaves clip {clip:?}"
+        );
+    }
+}
+
+#[test]
+fn focus_ring_stays_inside_the_clip_of_full_width_widgets() {
+    assert_ring_inside_clip(
+        |ui| {
+            pill(ui, true, "customers");
+        },
+        "customers",
+    );
+    assert_ring_inside_clip(
+        |ui| {
+            segmented(ui, &items(&[LONG, LONG]), 0u8);
+        },
+        LONG,
+    );
+}
+
+#[test]
+fn pill_with_unbounded_width_stays_finite() {
+    let mut harness = themed(300.0, Bounds::default(), |ui, state: &mut Bounds| {
+        // What a horizontal scroll area's content sees: no bound on the width.
+        ui.allocate_ui(egui::vec2(f32::INFINITY, 40.0), |ui| {
+            state.widget = Some(pill(ui, false, "customers").rect);
+        });
+    });
+    harness.run();
+    let rect = harness.state().widget.expect("ran");
+    assert!(
+        rect.width().is_finite() && rect.width() < 10_000.0,
+        "{rect:?}"
+    );
+}

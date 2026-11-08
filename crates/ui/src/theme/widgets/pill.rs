@@ -1,6 +1,9 @@
 //! A sidebar row: a full-width, fully rounded pill, tonal when selected (Material's navigation
 //! drawer item).
-use super::{Look, disabled_container, disabled_content, focus_ring, medium_font, painter};
+use super::{
+    Look, Ring, disabled_container, disabled_content, finite_width, focus_ring, medium_font,
+    painter,
+};
 use crate::theme::current_ui;
 use crate::theme::shape::{self, radius};
 use eframe::egui::{
@@ -10,10 +13,13 @@ use eframe::egui::{
 
 /// Row height: compact enough for a tree of databases and collections.
 const PILL_HEIGHT: f32 = 32.0;
+/// Width used when the available width is unbounded (inside a horizontal scroll area).
+const UNBOUNDED_WIDTH: f32 = 240.0;
 
 /// A row filling the available width. Selected: `secondary_container` with
 /// `on_secondary_container` text in Roboto Medium; otherwise `on_surface_variant` text on no
-/// container. Long text is elided. Reported like `selectable_label` (a toggled button).
+/// container. Long text is elided. The focus ring is drawn inside the row, since a row that
+/// fills its panel has no room outside it. Reported like `selectable_label` (a toggled button).
 pub fn pill(ui: &mut Ui, selected: bool, text: impl Into<WidgetText>) -> Response {
     let s = current_ui(ui);
     let text = text.into();
@@ -24,7 +30,7 @@ pub fn pill(ui: &mut Ui, selected: bool, text: impl Into<WidgetText>) -> Respons
     } else {
         FontSelection::Style(TextStyle::Body)
     };
-    let width = ui.available_width();
+    let width = finite_width(ui, UNBOUNDED_WIDTH);
     let label = text.text().to_owned();
     let galley = text.into_galley(
         ui,
@@ -72,6 +78,6 @@ pub fn pill(ui: &mut Ui, selected: bool, text: impl Into<WidgetText>) -> Respons
         rect.center().y - galley.size().y / 2.0,
     );
     painter.galley(text_pos, galley, color);
-    focus_ring(&painter, rect, corners, look, s.primary);
+    focus_ring(&painter, rect, corners, look, s.primary, Ring::Inside);
     response
 }

@@ -43,6 +43,7 @@ const DISABLED_CONTAINER_PERCENT: u32 = 12;
 
 /// A widget state forced on every widget drawn inside [`with_forced`], for the theme gallery,
 /// which has to show hover, pressed and focus without a real pointer or keyboard.
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Forced {
     Hover,
@@ -56,6 +57,7 @@ fn forced_id() -> Id {
 
 /// Draws `add` with `forced` applied to every theme widget inside it. Interaction still works;
 /// only the look is forced. Meant for previews such as the theme gallery, not for views.
+#[doc(hidden)]
 pub fn with_forced<R>(ui: &mut Ui, forced: Forced, add: impl FnOnce(&mut Ui) -> R) -> R {
     let id = forced_id();
     let previous = ui.ctx().data(|d| d.get_temp::<Forced>(id));
@@ -149,29 +151,52 @@ pub(crate) fn painter(ui: &Ui) -> Painter {
     painter
 }
 
-/// The 2 dp `primary` ring drawn 2 dp outside `rect` while a widget holds focus.
+/// Where the focus ring goes relative to the widget's rect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Ring {
+    /// 2 dp outside the rect, so it shows on a `primary` fill (widgets sized to their content).
+    Outside,
+    /// On the rect's inner edge, for widgets that take the full available width: anything
+    /// outside them would fall outside the parent's clip rect (a side panel, a scroll area).
+    Inside,
+}
+
+/// The 2 dp `primary` ring drawn while a widget holds focus, placed as `ring` says.
 pub(crate) fn focus_ring(
     painter: &Painter,
     rect: Rect,
     radius: CornerRadius,
     look: Look,
     primary: Color32,
+    ring: Ring,
 ) {
-    if look.focused {
-        let offset = FOCUS_RING_OFFSET;
-        let ring_radius = CornerRadius {
-            nw: radius.nw.saturating_add(offset),
-            ne: radius.ne.saturating_add(offset),
-            sw: radius.sw.saturating_add(offset),
-            se: radius.se.saturating_add(offset),
-        };
-        painter.rect_stroke(
-            rect.expand(f32::from(offset)),
-            ring_radius,
-            Stroke::new(FOCUS_RING_WIDTH, primary),
-            StrokeKind::Outside,
-        );
+    if !look.focused {
+        return;
     }
+    let stroke = Stroke::new(FOCUS_RING_WIDTH, primary);
+    match ring {
+        Ring::Inside => {
+            painter.rect_stroke(rect, radius, stroke, StrokeKind::Inside);
+        }
+        Ring::Outside => {
+            let offset = FOCUS_RING_OFFSET;
+            let ring_radius = CornerRadius {
+                nw: radius.nw.saturating_add(offset),
+                ne: radius.ne.saturating_add(offset),
+                sw: radius.sw.saturating_add(offset),
+                se: radius.se.saturating_add(offset),
+            };
+            let outer = rect.expand(f32::from(offset));
+            painter.rect_stroke(outer, ring_radius, stroke, StrokeKind::Outside);
+        }
+    }
+}
+
+/// `ui.available_width()`, or `fallback` when it is unbounded (a horizontal scroll area), so a
+/// width-filling widget never allocates an infinite rect.
+pub(crate) fn finite_width(ui: &Ui, fallback: f32) -> f32 {
+    let width = ui.available_width();
+    if width.is_finite() { width } else { fallback }
 }
 
 /// Roboto Medium at `size` when the theme's fonts are installed, else the proportional font

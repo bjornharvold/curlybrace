@@ -1,7 +1,8 @@
 //! Material 3 segmented buttons: a connected row of mutually exclusive options with pill ends,
 //! an `outline` border and dividers, and the selected option on `secondary_container`.
 use super::{
-    CONTROL_HEIGHT, Look, disabled_container, disabled_content, focus_ring, medium_font, one_row,
+    CONTROL_HEIGHT, Look, Ring, disabled_container, disabled_content, focus_ring, medium_font,
+    one_row,
 };
 use crate::theme::shape::{self, radius};
 use crate::theme::{Scheme, current_ui};
@@ -27,6 +28,12 @@ pub fn segmented<T: PartialEq + Copy>(
     let font = medium_font(ui, TextStyle::Button.resolve(ui.style()).size);
     let count = items.len() as f32;
     let item_width = item_width(ui, items, &font, padding);
+    // A control that fills its row keeps the focus ring inside, clear of the parent's clip.
+    let placement = if item_width * count >= ui.available_width() - 0.5 {
+        Ring::Inside
+    } else {
+        Ring::Outside
+    };
     let base_id = ui.next_auto_id();
     let (rect, _) =
         ui.allocate_exact_size(vec2(item_width * count, CONTROL_HEIGHT), Sense::hover());
@@ -62,7 +69,7 @@ pub fn segmented<T: PartialEq + Copy>(
     paint_frame(&painter, s, rect, item_width, items.len(), ui.is_enabled());
     // Last, so the neighbouring options' fills and the dividers do not cover the ring.
     if let Some((item_rect, corners, look)) = ring {
-        focus_ring(&painter, item_rect, corners, look, s.primary);
+        focus_ring(&painter, item_rect, corners, look, s.primary, placement);
     }
     picked
 }

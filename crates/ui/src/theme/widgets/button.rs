@@ -1,7 +1,8 @@
 //! Material 3 common buttons: filled (primary action), tonal (secondary) and text (low
 //! emphasis). Fully rounded, 40 dp tall, label in Roboto Medium; long labels are elided.
 use super::{
-    CONTROL_HEIGHT, Look, disabled_container, disabled_content, focus_ring, medium_font, painter,
+    CONTROL_HEIGHT, Look, Ring, disabled_container, disabled_content, focus_ring, medium_font,
+    painter,
 };
 use crate::theme::shape::{self, radius};
 use crate::theme::{Scheme, current_ui};
@@ -86,6 +87,6 @@ fn button(ui: &mut Ui, text: WidgetText, kind: Kind) -> Response {
     painter.rect_filled(rect, corners, fill);
     let text_pos = rect.center() - galley.size() / 2.0;
     painter.galley(text_pos, galley, text_color);
-    focus_ring(&painter, rect, corners, look, s.primary);
+    focus_ring(&painter, rect, corners, look, s.primary, Ring::Outside);
     response
 }
