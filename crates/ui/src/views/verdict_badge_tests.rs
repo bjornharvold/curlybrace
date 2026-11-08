@@ -96,3 +96,54 @@ fn the_non_verdict_states_read_as_neutral() {
         assert_eq!(chip_tone(tone), ThemeTone::Neutral);
     }
 }
+
+/// (height the row took, Why button height if there is one) for `model`.
+fn row_metrics(model: Option<BadgeModel>) -> (f32, Option<f32>) {
+    use egui_kittest::kittest::Queryable;
+    let mut installed = false;
+    let mut height = 0.0;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(600.0, 200.0))
+        .build_ui(move |ui| {
+            if !installed {
+                theme::install(ui.ctx());
+                ui.ctx().set_theme(egui::Theme::Light);
+                installed = true;
+            }
+            let top = ui.cursor().top();
+            show_verdict_row(ui, model.as_ref(), &I18n::english());
+            height = ui.cursor().top() - top;
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(egui::Id::new("row_height"), height));
+        });
+    harness.run();
+    let height = harness
+        .ctx
+        .data(|d| d.get_temp::<f32>(egui::Id::new("row_height")))
+        .unwrap_or(height);
+    let why = harness
+        .query_by_label(&I18n::english().t("query.verdict.why"))
+        .map(|n| n.rect().height());
+    (height, why)
+}
+
+#[test]
+fn the_why_button_is_a_theme_button_and_the_row_height_does_not_depend_on_it() {
+    let mut with_details = model(VerdictKind::CollectionScan);
+    with_details.plan_only = true;
+    let plain = model(VerdictKind::IndexUsed);
+    assert!(!plain.plan_only && plain.reasons.is_empty() && plain.suggestion.is_none());
+    let (tall, why) = row_metrics(Some(with_details));
+    let (short, none) = row_metrics(Some(plain));
+    let (empty, _) = row_metrics(None);
+    assert_eq!(none, None);
+    assert_eq!(
+        why,
+        Some(theme::CONTROL_HEIGHT),
+        "Why is a 40 dp theme button, not egui's"
+    );
+    assert!(
+        (tall - short).abs() < 0.5 && (tall - empty).abs() < 0.5,
+        "{tall} {short} {empty}"
+    );
+}

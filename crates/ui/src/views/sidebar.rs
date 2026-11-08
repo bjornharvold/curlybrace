@@ -1,6 +1,6 @@
 //! Sidebar view: database tree with lazily loaded collections.
 use crate::I18n;
-use crate::theme::{PILL_HEIGHT, icons};
+use crate::theme::{CONTROL_HEIGHT, PILL_HEIGHT, compact_text_button, icons};
 use crate::viewmodel::{
     DbNode, PasteTarget, SidebarState, collection_click_action, compare_database_to_action,
     compare_to_action, db_click_action,
@@ -107,14 +107,15 @@ pub fn db_row_label(name: &str, expanded: bool) -> String {
 pub fn preferred_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize) -> f32 {
     let heading = ui
         .text_style_height(&egui::TextStyle::Heading)
-        .max(ui.spacing().interact_size.y);
+        .max(ui.spacing().interact_size.y)
+        .max(CONTROL_HEIGHT);
     tree_height(ui, state, max_rows, heading)
 }
 
 /// Like [`preferred_height`] for [`show_sidebar_body`]: a compact Refresh row instead of the
 /// heading line.
 pub fn preferred_body_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize) -> f32 {
-    tree_height(ui, state, max_rows, ui.spacing().interact_size.y)
+    tree_height(ui, state, max_rows, CONTROL_HEIGHT)
 }
 
 fn tree_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize, top_row: f32) -> f32 {
@@ -128,7 +129,7 @@ pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Opt
     let mut action = None;
     ui.horizontal(|ui| {
         ui.heading(i18n.t("sidebar.title"));
-        if ui.button(i18n.t("sidebar.refresh")).clicked() {
+        if compact_text_button(ui, i18n.t("sidebar.refresh")).clicked() {
             action = Some(SidebarAction::Refresh);
         }
     });
@@ -143,12 +144,12 @@ pub fn show_sidebar_body(
     i18n: &I18n,
 ) -> Option<SidebarAction> {
     // A right-aligned layout would claim the whole remaining height: give the row its own.
-    let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+    let row = egui::vec2(ui.available_width(), CONTROL_HEIGHT);
     let refresh = ui
         .allocate_ui_with_layout(
             row,
             egui::Layout::right_to_left(egui::Align::Center),
-            |ui| ui.small_button(i18n.t("sidebar.refresh")).clicked(),
+            |ui| compact_text_button(ui, i18n.t("sidebar.refresh")).clicked(),
         )
         .inner;
     let action = show_tree_rows(ui, state, ctx, i18n);

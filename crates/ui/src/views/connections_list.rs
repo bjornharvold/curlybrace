@@ -4,7 +4,8 @@ use super::connections::{ConnectionAction, ConnectionsState, Notice};
 use crate::I18n;
 use crate::theme::widgets::CONTROL_HEIGHT;
 use crate::theme::{
-    FieldOptions, Tone, chip, gate, outlined_field_opts, pill, shape, text_button, tonal_button,
+    FieldOptions, Tone, chip, current_ui, gate, icons, outlined_field_opts, pill, shape,
+    text_button, tonal_button,
 };
 use crate::viewmodel::{
     ConnectionBadge, SortColumn, auth_label_key, format_utc, grouped, security, server_hosts,
@@ -12,6 +13,7 @@ use crate::viewmodel::{
 };
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use eframe::egui;
+use eframe::egui::collapsing_header::CollapsingState;
 
 const SORT_ASC: &str = "\u{23F6}";
 const SORT_DESC: &str = "\u{23F7}";
@@ -231,25 +233,46 @@ fn show_folder(
 ) -> Option<ConnectionAction> {
     let mut action = None;
     let id = ui.make_persistent_id(("connection_folder", folder));
-    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-        .show_header(ui, |ui| {
-            // Centred on the row, so the (taller) buttons line up with the folder name.
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.set_min_height(CONTROL_HEIGHT);
-                ui.label(folder);
-                if text_button(ui, i18n.t("connections.rename_folder")).clicked() {
-                    state.open_rename_prompt(folder);
-                }
-                if text_button(ui, i18n.t("connections.delete_folder")).clicked() {
-                    action = Some(ConnectionAction::DeleteFolder(folder.to_owned()));
-                }
-            });
-        })
-        .body_unindented(|ui| {
-            if let Some(row_action) = show_rows(ui, state, i18n, rows, layout) {
-                action = Some(row_action);
-            }
+    let mut disclosure = CollapsingState::load_with_default_open(ui.ctx(), id, true);
+    ui.horizontal(|ui| {
+        // As tall as the buttons before the toggle is placed, so it centres on the same line.
+        ui.set_min_height(CONTROL_HEIGHT);
+        let key = match disclosure.is_open() {
+            true => "connections.folder_collapse",
+            false => "connections.folder_expand",
+        };
+        let label = i18n.t(key);
+        let open = disclosure.is_open();
+        let toggle = disclosure.show_toggle_button(ui, move |ui, _, icon| {
+            let color = current_ui(ui).on_surface_variant;
+            let glyph =
+                egui::WidgetText::from(icons::inline_icon(ui, icons::chevron(open)).color(color))
+                    .into_galley(
+                        ui,
+                        Some(egui::TextWrapMode::Extend),
+                        f32::INFINITY,
+                        egui::TextStyle::Body,
+                    );
+            let pos = icon.rect.center() - glyph.size() / 2.0;
+            ui.painter().galley(pos, glyph, color);
         });
+        toggle.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
+        });
+        ui.label(folder);
+        if text_button(ui, i18n.t("connections.rename_folder")).clicked() {
+            state.open_rename_prompt(folder);
+        }
+        if text_button(ui, i18n.t("connections.delete_folder")).clicked() {
+            action = Some(ConnectionAction::DeleteFolder(folder.to_owned()));
+        }
+    });
+    disclosure.show_body_unindented(ui, |ui| {
+        if let Some(row_action) = show_rows(ui, state, i18n, rows, layout) {
+            action = Some(row_action);
+        }
+    });
+    disclosure.store(ui.ctx());
     action
 }
 

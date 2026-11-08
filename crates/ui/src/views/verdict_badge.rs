@@ -3,7 +3,7 @@
 //! estimate note in a popup under the row. The row is reserved even when there is no verdict
 //! and the popup floats, so the documents never move.
 use crate::I18n;
-use crate::theme::{self, chip};
+use crate::theme::{self, chip, compact_text_button};
 use crate::viewmodel::verdict::{BadgeModel, Tone, reason_text_key};
 use eframe::egui;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -19,8 +19,13 @@ pub fn show_verdict_row(
     model: Option<&BadgeModel>,
     i18n: &I18n,
 ) -> Option<VerdictAction> {
-    // Tall enough for the chip, so the documents below never move when a verdict appears.
-    let height = ui.spacing().interact_size.y.max(theme::CHIP_HEIGHT);
+    // Tall enough for the chip and the Why button, so the documents below never move when a verdict appears.
+    let height = ui
+        .spacing()
+        .interact_size
+        .y
+        .max(theme::CHIP_HEIGHT)
+        .max(theme::CONTROL_HEIGHT);
     let mut action = None;
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), height), layout, |ui| {
@@ -36,7 +41,7 @@ fn show_row(ui: &mut egui::Ui, model: &BadgeModel, i18n: &I18n) -> Option<Verdic
     if !has_details(model) {
         return None;
     }
-    let toggle = ui.button(i18n.t("query.verdict.why"));
+    let toggle = compact_text_button(ui, i18n.t("query.verdict.why"));
     // Per verdict, so one verdict's open state does not carry over to an unrelated one.
     let open_id = ui.id().with(("verdict_why", salt(model)));
     let was_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
@@ -110,7 +115,7 @@ fn reason_line(key: &str, params: &[(&'static str, String)], i18n: &I18n) -> Str
 fn show_suggestion(ui: &mut egui::Ui, command: &str, i18n: &I18n) -> Option<VerdictAction> {
     ui.label(i18n.t("query.verdict.suggestion"));
     ui.label(egui::RichText::new(command).monospace());
-    ui.button(i18n.t("query.verdict.copy"))
+    compact_text_button(ui, i18n.t("query.verdict.copy"))
         .clicked()
         .then(|| VerdictAction::CopySuggestion(command.to_string()))
 }

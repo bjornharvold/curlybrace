@@ -496,6 +496,8 @@
     "filter": "Filter",
     "filter_count": "{shown} of {total}",
     "folder": "Folder",
+    "folder_collapse": "Collapse folder",
+    "folder_expand": "Expand folder",
     "folder_move_title": "Move to folder (leave empty for no folder)",
     "folder_rename_title": "Rename folder",
     "from_uri": "Fill from string",
