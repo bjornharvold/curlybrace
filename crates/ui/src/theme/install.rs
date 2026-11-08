@@ -1,6 +1,6 @@
 //! Installs the Material 3 theme into egui and exposes the active scheme.
 use super::shape::{self, radius};
-use super::{Mode, Scheme, scheme, typography};
+use super::{Mode, Scheme, font_definitions, scheme, typography};
 use eframe::egui::{
     Color32, Context, Shadow, Stroke, Theme, ThemePreference, Ui, Vec2, Visuals,
     style::{Selection, WidgetVisuals},
@@ -38,6 +38,7 @@ pub fn state_layer(base: Color32, on: Color32, state: StateLayer) -> Color32 {
 /// Follows the system appearance and installs both modes' visuals and the shared style.
 /// Call again at any time; egui picks the visuals for the current system theme each frame.
 pub fn install(ctx: &Context) {
+    ctx.set_fonts(font_definitions());
     ctx.options_mut(|o| o.theme_preference = ThemePreference::System);
     for (theme, mode) in [(Theme::Light, Mode::Light), (Theme::Dark, Mode::Dark)] {
         ctx.set_visuals_of(theme, visuals_for(scheme(mode)));
