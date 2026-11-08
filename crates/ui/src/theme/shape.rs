@@ -13,3 +13,10 @@ pub const SPACE_3: f32 = 12.0;
 pub const SPACE_4: f32 = 16.0;
 pub const SPACE_5: f32 = 20.0;
 pub const SPACE_6: f32 = 24.0;
+
+/// A uniform egui corner radius for `points`; egui stores radii as `u8`, so [`FULL`] and any
+/// other oversized value saturates (egui clamps to a pill anyway) and negatives become 0.
+pub fn radius(points: f32) -> eframe::egui::CornerRadius {
+    // `as` on f32 -> u8 saturates and maps NaN to 0.
+    eframe::egui::CornerRadius::same(points.round() as u8)
+}

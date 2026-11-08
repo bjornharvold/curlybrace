@@ -40,6 +40,7 @@ fn main() -> eframe::Result {
         &title,
         options,
         Box::new(move |cc| {
+            curlybrace_ui::theme::install(&cc.egui_ctx);
             Ok(Box::new(CurlybraceApp::launch(
                 secrets,
                 cc.egui_ctx.clone(),
