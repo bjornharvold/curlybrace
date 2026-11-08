@@ -96,7 +96,7 @@ Failure modes the spec implies that no task's tests would otherwise exercise; ea
 
 - [ ] **Step 1: Write the failing tests** in `fonts_tests.rs`: `fonts_stay_within_the_size_budget` (sum of the three bundled files plus nothing else ≤ 1_500_000 bytes), `every_glyph_the_ui_draws_resolves` (collect every non-ASCII character from `locales/en.json` and the `icons` constants; for each, `fonts.has_glyph` in the family it is drawn in — Review Focus 3), `roboto_text_style_uses_roboto`.
 - [ ] **Step 2: Run** — FAIL.
-- [ ] **Step 3: Implement.** Download Roboto (Apache 2.0) and Material Symbols Outlined (Apache 2.0) into `assets/fonts/`; write `scripts/subset-icons.sh` (documented `pyftsubset` call and the glyph list, so the subset is reproducible); `include_bytes!` them in `fonts.rs`; call `ctx.set_fonts(font_definitions())` in `install`. If the budget is exceeded, drop a weight or the icon subset and report it.
+- [ ] **Step 3: Implement.** Download Roboto (SIL OFL 1.1) and Material Symbols Outlined (Apache 2.0) into `assets/fonts/`; write `scripts/subset-icons.sh` (documented `pyftsubset` call and the glyph list, so the subset is reproducible); `include_bytes!` them in `fonts.rs`; call `ctx.set_fonts(font_definitions())` in `install`. If the budget is exceeded, drop a weight or the icon subset and report it.
 - [ ] **Step 4: Run** tests, workspace tests, clippy, fmt.
 - [ ] **Step 5: Regenerate all baselines** (text metrics change) and look at one.
 - [ ] **Step 6: Commit** `feat(theme): bundle Roboto and a Material Symbols subset`.

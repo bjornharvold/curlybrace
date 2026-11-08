@@ -3,7 +3,9 @@
 use crate::theme::{Tone, current_ui, shape};
 use eframe::egui;
 
-/// `text` wrapped over the full width on the container of `tone`; `strong` draws it in Medium.
+/// `text` wrapped over the full width on the container of `tone`, in the tone's `on_container`
+/// color. `strong` sets egui's strong flag, which only recolors text and so changes nothing here
+/// (the color is explicit); it does not switch to the Medium weight.
 pub fn tone_notice(ui: &mut egui::Ui, tone: Tone, text: &str, strong: bool) {
     let colors = current_ui(ui).tone(tone);
     egui::Frame::new()

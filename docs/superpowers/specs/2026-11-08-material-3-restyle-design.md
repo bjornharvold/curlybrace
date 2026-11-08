@@ -1,7 +1,7 @@
 # Material 3 restyle — Design
 
 Date: 2026-11-08
-Status: Draft, awaiting user review
+Status: Approved; implemented in #131
 Issue: #131 (`feat(ui): restyle the whole app with a Material 3 look (light and dark, green accent)`)
 
 ## Intent
