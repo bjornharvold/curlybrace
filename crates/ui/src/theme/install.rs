@@ -106,7 +106,8 @@ fn widget(fill: Color32, line: Color32, text: Color32) -> WidgetVisuals {
         bg_fill: fill,
         weak_bg_fill: fill,
         bg_stroke: Stroke::new(1.0, line),
-        corner_radius: radius(shape::SMALL),
+        // Small, so egui's checkbox box stays square (a circle reads as a radio button).
+        corner_radius: radius(shape::EXTRA_SMALL),
         fg_stroke: Stroke::new(1.0, text),
         expansion: 0.0,
     }

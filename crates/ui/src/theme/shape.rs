@@ -1,5 +1,7 @@
 //! Material 3 shape scale and the 4 dp spacing grid (values in egui points).
 
+/// Checkbox-sized corners (Material: 2-4 dp); what egui-native widgets use.
+pub const EXTRA_SMALL: f32 = 4.0;
 pub const SMALL: f32 = 8.0;
 pub const MEDIUM: f32 = 12.0;
 pub const LARGE: f32 = 16.0;

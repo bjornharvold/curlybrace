@@ -120,3 +120,41 @@ fn install_follows_the_system_theme_preference() {
         egui::ThemePreference::System
     );
 }
+
+#[test]
+fn native_widgets_keep_a_small_corner_radius() {
+    for mode in [Mode::Light, Mode::Dark] {
+        let v = visuals_for(scheme(mode));
+        for w in [&v.widgets.inactive, &v.widgets.hovered, &v.widgets.active] {
+            assert!(w.corner_radius.nw <= 4, "radius {:?}", w.corner_radius);
+        }
+    }
+}
+
+/// Every rect the checkbox paints must be square-ish; a radius of half the 14 px box is a circle.
+#[test]
+fn a_rendered_checkbox_is_not_a_circle_in_both_modes() {
+    for theme in [egui::Theme::Light, egui::Theme::Dark] {
+        let ctx = egui::Context::default();
+        ctx.set_theme(theme);
+        install(&ctx);
+        let mut checked = false;
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.checkbox(&mut checked, "x");
+            });
+        });
+        let radii: Vec<u8> = out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Rect(r) if r.rect.width() < 20.0 && r.rect.width() > 8.0 => {
+                    Some(r.corner_radius.nw)
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(!radii.is_empty(), "no checkbox box painted in {theme:?}");
+        assert!(radii.iter().all(|r| *r <= 4), "{theme:?}: radii {radii:?}");
+    }
+}

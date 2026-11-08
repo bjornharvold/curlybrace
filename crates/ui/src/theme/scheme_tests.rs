@@ -140,8 +140,8 @@ fn mockup_given_values_are_verbatim() {
 fn shape_and_spacing_scales_follow_material() {
     use super::shape::*;
     assert_eq!(
-        [SMALL, MEDIUM, LARGE, EXTRA_LARGE, FULL],
-        [8.0, 12.0, 16.0, 28.0, 999.0]
+        [EXTRA_SMALL, SMALL, MEDIUM, LARGE, EXTRA_LARGE, FULL],
+        [4.0, 8.0, 12.0, 16.0, 28.0, 999.0]
     );
     assert_eq!(
         [SPACE_1, SPACE_2, SPACE_3, SPACE_4, SPACE_5, SPACE_6],
