@@ -376,7 +376,7 @@ fn a_label_that_fits_has_no_tooltip() {
 
 #[test]
 fn the_accessible_name_can_differ_from_the_floating_label() {
-    let mut harness = themed(400.0, String::new(), |ui, text: &mut String| {
+    let harness = themed(400.0, String::new(), |ui, text: &mut String| {
         let options = super::FieldOptions {
             accessible_name: Some("Type this to confirm: abc"),
             ..super::FieldOptions::default()

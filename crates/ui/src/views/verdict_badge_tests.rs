@@ -101,7 +101,6 @@ fn the_non_verdict_states_read_as_neutral() {
 fn row_metrics(model: Option<BadgeModel>) -> (f32, Option<f32>) {
     use egui_kittest::kittest::Queryable;
     let mut installed = false;
-    let mut height = 0.0;
     let mut harness = Harness::builder()
         .with_size(egui::vec2(600.0, 200.0))
         .build_ui(move |ui| {
@@ -112,7 +111,7 @@ fn row_metrics(model: Option<BadgeModel>) -> (f32, Option<f32>) {
             }
             let top = ui.cursor().top();
             show_verdict_row(ui, model.as_ref(), &I18n::english());
-            height = ui.cursor().top() - top;
+            let height = ui.cursor().top() - top;
             ui.ctx()
                 .data_mut(|d| d.insert_temp(egui::Id::new("row_height"), height));
         });
@@ -120,7 +119,7 @@ fn row_metrics(model: Option<BadgeModel>) -> (f32, Option<f32>) {
     let height = harness
         .ctx
         .data(|d| d.get_temp::<f32>(egui::Id::new("row_height")))
-        .unwrap_or(height);
+        .expect("the row ran");
     let why = harness
         .query_by_label(&I18n::english().t("query.verdict.why"))
         .map(|n| n.rect().height());
