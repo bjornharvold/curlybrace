@@ -71,7 +71,8 @@ async fn send(
 }
 
 /// Server error code `Interrupted`: what `killOp` makes the killed write fail with (observed on
-/// mongod 9.0.4 for both `update` and `delete`).
+/// mongod 9.0.4 for both `update` and `delete`). A kill we did not issue (an admin's) also
+/// reports `cancelled: true`; that is acceptable, the write was cancelled either way.
 const CODE_INTERRUPTED: i32 = 11601;
 
 /// A failed write is unknown; it is `cancelled` only when the server says it was killed.

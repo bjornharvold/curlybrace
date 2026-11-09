@@ -6,9 +6,10 @@
 use bson::{Bson, Document, doc};
 use futures::TryStreamExt;
 use mongodb::Client;
+use mongodb::options::{ReadPreference, SelectionCriteria};
 
 use crate::bulk::BulkRunId;
-use crate::driver_error::server_error_code;
+use crate::driver_error::{classify_driver_error, server_error_code};
 use crate::error::{CoreError, Result};
 
 /// `Unauthorized`, `CommandNotFound`, `CommandNotSupported`, `UnrecognizedStage` (no
@@ -37,15 +38,35 @@ async fn find_ops(admin: &mongodb::Database, run: BulkRunId) -> mongodb::error::
         doc! { "$currentOp": {} },
         doc! { "$match": { "command.comment": run.0.to_string() } },
     ];
-    let found: Vec<Document> = admin.aggregate(pipeline).await?.try_collect().await?;
+    let found: Vec<Document> = admin
+        .aggregate(pipeline)
+        .selection_criteria(primary())
+        .await?
+        .try_collect()
+        .await?;
     Ok(found
         .iter()
         .filter_map(|op| op.get("opid").cloned())
         .collect())
 }
 
+/// The write and `killOp` go to the primary, so the lookup must too: on a secondary (a
+/// `secondaryPreferred` client) it would find nothing and the cancel would silently do nothing.
+pub(crate) fn primary() -> SelectionCriteria {
+    SelectionCriteria::ReadPreference(ReadPreference::Primary)
+}
+
+/// Server errors map by code alone (their text can quote documents). Other failures keep the
+/// driver's connection classification (unreachable, interrupted); a generic one stays static.
 fn fail(e: mongodb::error::Error) -> CoreError {
-    cancel_failure(server_error_code(&e))
+    let code = server_error_code(&e);
+    if code.is_some() {
+        return cancel_failure(code);
+    }
+    match classify_driver_error(&e) {
+        CoreError::Database(_) => cancel_failure(None),
+        other => other,
+    }
 }
 
 /// The error for a failed lookup or kill, from the server error code alone.

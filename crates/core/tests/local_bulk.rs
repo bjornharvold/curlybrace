@@ -495,8 +495,10 @@ async fn preview_during_a_write_conflict_reports_conflict() {
     assert_eq!(all_docs(&store, &ns).await, before);
 }
 
-/// Opids of the operations whose `command.comment` is the run id (the path a cancel matches).
-async fn ops_for_run(client: &mongodb::Client, run: BulkRunId) -> Vec<i64> {
+/// Opids of the operations whose `command.comment` is the run id. Deliberately its own
+/// `$currentOp` pipeline, an independent oracle of the one `cancel_bulk` runs in production.
+/// Returns an error instead of panicking so callers can clean up first.
+async fn ops_for_run(client: &mongodb::Client, run: BulkRunId) -> Result<Vec<i64>, String> {
     use futures::TryStreamExt;
     let pipeline = vec![
         doc! { "$currentOp": {} },
@@ -506,40 +508,43 @@ async fn ops_for_run(client: &mongodb::Client, run: BulkRunId) -> Vec<i64> {
         .database("admin")
         .aggregate(pipeline)
         .await
-        .expect("$currentOp on admin must be allowed on the local test server");
-    let ops: Vec<Document> = cursor.try_collect().await.unwrap();
-    ops.iter()
-        .filter_map(|op| op.get("opid"))
-        .filter_map(|id| match id {
-            Bson::Int32(n) => Some(i64::from(*n)),
-            Bson::Int64(n) => Some(*n),
+        .map_err(|e| format!("$currentOp on admin must be allowed on the test server: {e}"))?;
+    let ops: Vec<Document> = cursor.try_collect().await.map_err(|e| e.to_string())?;
+    Ok(ops
+        .iter()
+        .filter_map(|op| match op.get("opid") {
+            Some(Bson::Int32(n)) => Some(i64::from(*n)),
+            Some(Bson::Int64(n)) => Some(*n),
             _ => None,
         })
-        .collect()
+        .collect())
 }
 
-/// Waits (bounded) until the run's operation shows in `currentOp`, or fails saying why not.
+/// Waits (bounded) until the run's operation shows in `currentOp`; the error says why not.
 async fn wait_for_op(
     client: &mongodb::Client,
     run: BulkRunId,
     task: &tokio::task::JoinHandle<Result<BulkOutcome, CoreError>>,
-) {
+) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     while tokio::time::Instant::now() < deadline {
-        if !ops_for_run(client, run).await.is_empty() {
-            return;
+        if !ops_for_run(client, run).await?.is_empty() {
+            return Ok(());
         }
-        assert!(
-            !task.is_finished(),
-            "the bulk write ended before currentOp showed it: the server rejected the `comment` \
-             or the write was not slow enough"
-        );
+        if task.is_finished() {
+            return Err(
+                "the bulk write ended before currentOp showed it: the server rejected \
+                        the `comment` or the write was not slow enough"
+                    .into(),
+            );
+        }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!(
+    Err(
         "currentOp never showed an operation with command.comment == the run id: the comment \
          path is wrong or the server did not accept the comment"
-    );
+            .into(),
+    )
 }
 
 /// 300 documents; an update filtered by `$where` sleeping 20 ms per document runs for ~6 s.
@@ -577,15 +582,30 @@ async fn cancel_stops_a_slow_update_and_reports_unknown_cancelled() {
         let (store, ns) = (store.clone(), ns.clone());
         tokio::spawn(async move { store.update_many(&ns, &slow_update(), run).await })
     };
-    wait_for_op(&client, run, &task).await;
+    let seen = wait_for_op(&client, run, &task).await;
+    // Cleanup is unconditional and happens before any assertion can fail: keep killing the run
+    // until the task returns (an early failure may precede the op's registration), bounded.
     let cancelled = store.cancel_bulk(run).await;
-    // Whatever happens, never leave the slow operation behind.
-    let outcome = tokio::time::timeout(Duration::from_secs(20), task).await;
-    let _ = store.cancel_bulk(run).await;
+    let mut task = task;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let outcome = loop {
+        let wait = tokio::time::timeout(Duration::from_millis(50), &mut task).await;
+        if let Ok(done) = wait {
+            break Some(done);
+        }
+        if tokio::time::Instant::now() > deadline {
+            task.abort();
+            break None;
+        }
+        let _ = store.cancel_bulk(run).await;
+    };
+    let left = ops_for_run(&client, run).await;
+
+    seen.unwrap();
     cancelled.unwrap();
     let outcome = outcome.expect("the killed update must return").unwrap();
     assert_eq!(outcome.unwrap(), BulkOutcome::Unknown { cancelled: true });
-    assert!(ops_for_run(&client, run).await.is_empty());
+    assert_eq!(left.unwrap(), Vec::<i64>::new());
 }
 
 #[tokio::test]

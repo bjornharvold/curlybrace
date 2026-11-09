@@ -127,3 +127,12 @@ fn a_cancel_that_is_not_permitted_or_supported_is_unsupported() {
     assert!(matches!(cancel_failure(Some(2)), CoreError::Database(_)));
     assert!(matches!(cancel_failure(None), CoreError::Database(_)));
 }
+
+#[test]
+fn the_current_op_lookup_is_pinned_to_the_primary() {
+    use mongodb::options::SelectionCriteria;
+    assert!(matches!(
+        crate::mongo_bulk_cancel::primary(),
+        SelectionCriteria::ReadPreference(mongodb::options::ReadPreference::Primary)
+    ));
+}
