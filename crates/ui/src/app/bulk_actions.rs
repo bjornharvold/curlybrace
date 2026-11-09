@@ -155,8 +155,12 @@ fn numbered(state: AppState) -> (u64, AppState) {
     )
 }
 
-/// A preview reads only: an empty filter previews over the whole collection without the tick,
-/// which the run itself still needs.
+/// The scope a PREVIEW is sent with. The core's preview checks the scope like the write does, and
+/// the all-documents tick happens only at Confirm, after the preview; so an empty filter is
+/// previewed with `AllDocuments`. That is safe: the preview's transaction is always aborted (and
+/// it only reads when transactions are unavailable), so it writes nothing. `Run` never uses this:
+/// it always sends `flow.scope()`, which is `AllDocuments` only for an empty filter that was
+/// ticked.
 fn preview_scope(filter: &Document) -> MatchScope {
     match filter.is_empty() {
         true => MatchScope::AllDocuments,
@@ -226,8 +230,16 @@ fn back(state: AppState, bulk: BulkState) -> Out {
 /// a production connection is not asked a second time.
 fn run(state: AppState, bulk: BulkState) -> Out {
     let flow = &bulk.flow;
-    if !flow.can_run() || state.selected_ns() != Some(&flow.ns) {
+    if !flow.can_run() {
         return unchanged(state);
+    }
+    // The connection was locked since the flow opened: the write is refused and the flow over.
+    if state.active_is_read_only() {
+        return unchanged(write_refused(state, Banner::ReadOnly));
+    }
+    // The person moved to another collection: what was previewed is not what would run.
+    if state.selected_ns() != Some(&flow.ns) {
+        return closed(state);
     }
     let run = BulkRunId(Uuid::new_v4());
     let Some((kind, build)) = write_of(flow, run) else {
@@ -343,10 +355,16 @@ pub(super) fn count_arrived(
     count_settled(state, Some(&ns), request, count)
 }
 
-/// The count outran the client-side bound: it is unavailable, which asks for the typed
-/// confirmation. An answer to an older request changes nothing.
-pub(super) fn count_failed(state: AppState, request: u64) -> AppState {
-    count_settled(state, None, request, CountState::Unavailable)
+/// A numbered bulk read failed, settled by its own id. A count that failed (or outran the
+/// client-side bound) is unavailable, which asks for the typed confirmation; a sample that failed
+/// leaves the preview failed. A failure of an older request, or of a context that is no numbered
+/// read of the flow, changes nothing.
+pub(super) fn read_failed(state: AppState, context: &str, request: u64) -> AppState {
+    match context {
+        "bulk_count" => count_settled(state, None, request, CountState::Unavailable),
+        "bulk_sample" => preview_settled(state, None, request, PreviewState::Failed),
+        _ => state,
+    }
 }
 
 pub(super) fn sample_arrived(
@@ -419,8 +437,9 @@ pub(super) fn command_failed(state: AppState, context: &'static str, error: Core
     }
     let banner = Banner::Failure { context, error };
     match context {
-        "bulk_count" => unavailable_count(state),
-        "bulk_sample" | "bulk_preview" => preview_failed(state),
+        // The runtime sends the command-level failure of a preview (it has no request id).
+        // Counts and samples fail as `RequestFailed`, see `read_failed`.
+        "bulk_preview" => preview_failed(state),
         "bulk_cancel" => with_banner(state, banner),
         _ => write_refused(state, banner),
     }
@@ -446,14 +465,6 @@ fn write_refused(state: AppState, banner: Banner) -> AppState {
     with_banner(state, banner)
 }
 
-fn unavailable_count(state: AppState) -> AppState {
-    let request = flow_of(&state, None).and_then(|b| b.count_request);
-    match request {
-        Some(request) => count_settled(state, None, request, CountState::Unavailable),
-        None => state,
-    }
-}
-
 fn preview_failed(state: AppState) -> AppState {
     let request = flow_of(&state, None).and_then(|b| b.preview_request);
     match request {
@@ -476,7 +487,3 @@ impl AppState {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "bulk_tests.rs"]
-mod tests;

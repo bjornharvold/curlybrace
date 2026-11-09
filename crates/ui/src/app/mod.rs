@@ -863,6 +863,21 @@ mod read_only_snapshot_tests;
 mod connection_lock_tests;
 
 #[cfg(test)]
+mod bulk_answer_tests;
+
+#[cfg(test)]
+mod bulk_finish_tests;
+
+#[cfg(test)]
+mod bulk_open_tests;
+
+#[cfg(test)]
+mod bulk_run_tests;
+
+#[cfg(test)]
+mod bulk_test_support;
+
+#[cfg(test)]
 mod copy_documents_tests;
 
 #[cfg(test)]

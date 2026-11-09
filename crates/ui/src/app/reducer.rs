@@ -264,12 +264,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
-        // A count that outran the client-side bound: the count is unavailable.
+        // A numbered bulk read failed (a count that outran the client-side bound included). It
+        // settles by its own id and never reaches the index panel's arm below, whose counter is
+        // unrelated.
         Event::RequestFailed {
-            context: "bulk_count",
-            request,
-            ..
-        } => (bulk_actions::count_failed(state, request), Vec::new()),
+            context, request, ..
+        } if context.starts_with("bulk_") => (
+            bulk_actions::read_failed(state, context, request),
+            Vec::new(),
+        ),
         // A failed numbered read settles only the request still awaited: a late failure of an
         // older one must not end the wait for the newer or put a banner over its data. The
         // current one fails like any other command. A lost connection of an older request counts

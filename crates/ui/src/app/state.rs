@@ -104,6 +104,8 @@ impl Banner {
                     | "drop_index"
                     | "set_index_hidden"
                     | "set_index_ttl"
+                    // `bulk_cancel` is deliberately absent: its failure raises a banner while
+                    // the flow stays open, and a later connect must not withdraw it.
                     | "bulk_count"
                     | "bulk_sample"
                     | "bulk_update"
