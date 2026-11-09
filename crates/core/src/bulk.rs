@@ -76,6 +76,22 @@ pub enum UndoPolicy {
 pub struct UndoOffer {
     /// Documents the snapshot holds (the run's matches), not counting upserted ones.
     pub documents: u64,
+    /// Documents the write changed that the snapshot does not hold: they matched the filter
+    /// only after the snapshot was taken, so undo cannot bring them back. Usually 0.
+    pub uncovered: u64,
+}
+
+/// What a finished run can be undone with, and why not when it cannot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndoStatus {
+    /// The run asked for no snapshot (or never got as far as one).
+    NotRequested,
+    /// A snapshot was asked for but the run touched nothing (or never wrote): nothing to undo.
+    NothingToUndo,
+    /// The write ran but the snapshot could not be completed (for example the saved state of an
+    /// update did not fit the size cap): it can NOT be undone, although undo was asked for.
+    Lost,
+    Offered(UndoOffer),
 }
 
 /// A document the undo would restore: what it was, and what it is now.

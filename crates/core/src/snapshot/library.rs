@@ -90,11 +90,45 @@ pub fn delete(dir: &Path, run: BulkRunId) -> Result<()> {
     Ok(())
 }
 
-/// Removes every snapshot created more than `max_age_secs` before `now_unix`; returns how many.
+/// Removes every snapshot created more than `max_age_secs` before `now_unix`; returns how many
+/// files or snapshots went. A file of ours that is not a readable snapshot (torn by a crash, or
+/// an after-state whose snapshot is gone) is never listed, so it expires by its modification
+/// time instead: it holds the person's documents all the same.
 pub fn purge_older_than(dir: &Path, now_unix: i64, max_age_secs: i64) -> usize {
-    list(dir)
+    let snapshots = list(dir)
         .into_iter()
         .filter(|s| now_unix.saturating_sub(s.created_unix) > max_age_secs)
         .filter(|s| delete(dir, s.run).is_ok())
+        .count();
+    snapshots + purge_stray_files(dir, now_unix, max_age_secs)
+}
+
+/// Our files (`<uuid>.jsonl`, `<uuid>.after.jsonl`) older than the limit by modification time.
+fn purge_stray_files(dir: &Path, now_unix: i64, max_age_secs: i64) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| is_our_file(p))
+        .filter(|p| age_secs(p, now_unix).is_some_and(|age| age > max_age_secs))
+        .filter(|p| std::fs::remove_file(p).is_ok())
         .count()
+}
+
+fn is_our_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let stem = name
+        .strip_suffix(".after.jsonl")
+        .or_else(|| name.strip_suffix(".jsonl"));
+    stem.is_some_and(|stem| stem.parse::<uuid::Uuid>().is_ok())
+}
+
+fn age_secs(path: &Path, now_unix: i64) -> Option<i64> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let modified = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(now_unix.saturating_sub(i64::try_from(modified.as_secs()).ok()?))
 }

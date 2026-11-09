@@ -559,8 +559,8 @@ pub enum Event {
         ns: Namespace,
         run: crate::bulk::BulkRunId,
         outcome: std::result::Result<crate::bulk::BulkOutcome, CoreError>,
-        /// Present when the run left a snapshot the person can undo it with.
-        undo: Option<crate::bulk::UndoOffer>,
+        /// Whether the run left a snapshot the person can undo it with.
+        undo: crate::bulk::UndoStatus,
     },
     /// The answer to `BulkUndoPreview`. A failure is an `Err` outcome shown inline.
     BulkUndoPreview {
@@ -638,6 +638,9 @@ pub(crate) struct Shared {
     latest_test: std::sync::Mutex<Option<job_flag::JobFlag>>,
     /// The read-only flags of the open stores, so a lock reaches stores that are already open.
     pub(crate) read_only: read_only_registry::ReadOnlyRegistry,
+    /// Bulk runs the person asked to cancel, so a run still waiting or snapshotting does not go
+    /// on to write. Locked only briefly, never across an await.
+    pub(crate) cancelled: std::sync::Mutex<std::collections::HashSet<uuid::Uuid>>,
     /// The usage history, opened once at spawn. `None` when `history_path` is unset or opening
     /// failed (logged); then no sampler starts and `IndexHistory` answers empty. When a path was
     /// set but opening failed, every connect reports `Paused(HistoryUnavailable)`.
@@ -741,6 +744,7 @@ pub fn spawn_runtime_with_connector(
         copy: Default::default(),
         latest_test: Default::default(),
         read_only: Default::default(),
+        cancelled: Default::default(),
         history,
         sampler_config,
     });

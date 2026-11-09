@@ -144,6 +144,10 @@ pub enum CoreError {
     /// A snapshot is missing, unreadable or not a snapshot file. No path is carried.
     #[error("snapshot: the file is missing or unreadable")]
     SnapshotUnreadable,
+    /// A bulk write was cancelled before it started (while it waited or saved its snapshot).
+    /// Nothing was changed.
+    #[error("bulk: cancelled before it started")]
+    BulkCancelled,
     /// The snapshot was taken on another connection; restoring it here could write into the
     /// wrong server. Nothing was sent.
     #[error("snapshot: it belongs to another connection")]
@@ -232,6 +236,7 @@ impl CoreError {
             Self::SnapshotTooLarge => "errors.snapshot_too_large",
             Self::SnapshotUnreadable => "errors.snapshot_unreadable",
             Self::SnapshotOtherConnection => "errors.snapshot_other_connection",
+            Self::BulkCancelled => "errors.bulk_cancelled",
         }
     }
 }
@@ -293,6 +298,7 @@ mod tests {
             CoreError::SnapshotTooLarge,
             CoreError::SnapshotUnreadable,
             CoreError::SnapshotOtherConnection,
+            CoreError::BulkCancelled,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.

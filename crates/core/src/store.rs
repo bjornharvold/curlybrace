@@ -493,12 +493,13 @@ pub trait DocumentStore: Send + Sync {
     }
 
     /// Streams every document matching `filter` into `out`, one at a time, and returns how many
-    /// were written. Classified as a write: it exists only to undo one, so a read-only
+    /// were written. The read is tagged with `run` so a cancel can find it. Classified as a write: it exists only to undo one, so a read-only
     /// connection never creates a snapshot.
     async fn snapshot_matching(
         &self,
         _ns: &Namespace,
         _filter: &Document,
+        _run: BulkRunId,
         _out: &mut crate::snapshot::SnapshotWriter,
     ) -> Result<u64> {
         Err(CoreError::Unsupported("undo snapshots".into()))

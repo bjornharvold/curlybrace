@@ -287,9 +287,11 @@ impl DocumentStore for MongoStore {
         &self,
         ns: &Namespace,
         filter: &Document,
+        run: BulkRunId,
         out: &mut crate::snapshot::SnapshotWriter,
     ) -> Result<u64> {
-        crate::mongo_snapshot::snapshot_matching(&self.collection(ns), filter, out, db_err).await
+        crate::mongo_snapshot::snapshot_matching(&self.collection(ns), filter, run, out, db_err)
+            .await
     }
 
     async fn find_by_ids(&self, ns: &Namespace, ids: &[Bson]) -> Result<Vec<Document>> {
@@ -301,7 +303,13 @@ impl DocumentStore for MongoStore {
         ns: &Namespace,
         items: &[crate::snapshot::UndoItem],
     ) -> Result<Vec<crate::snapshot::ItemResult>> {
-        Ok(crate::mongo_snapshot::apply_undo(&self.collection(ns), items).await)
+        crate::mongo_snapshot::apply_undo(
+            &self.client.database(&ns.db),
+            &ns.collection,
+            items,
+            db_err,
+        )
+        .await
     }
 
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {

@@ -60,6 +60,8 @@ pub(super) struct FakeStore {
     pub(super) current: Vec<Document>,
     /// The order the store's steps were called in: "snapshot", "write", "find_by_ids", "undo".
     pub(super) order: Mutex<Vec<&'static str>>,
+    /// Makes `apply_undo` fail with this error.
+    pub(super) undo_error: Option<CoreError>,
     /// The items `apply_undo` was given.
     pub(super) undone: Mutex<Vec<crate::snapshot::UndoItem>>,
 }
@@ -89,6 +91,7 @@ impl FakeStore {
             current: vec![],
             order: Mutex::new(vec![]),
             undone: Mutex::new(vec![]),
+            undo_error: None,
         })
     }
 
@@ -198,6 +201,7 @@ impl DocumentStore for FakeStore {
         &self,
         _ns: &Namespace,
         _filter: &Document,
+        _run: BulkRunId,
         out: &mut crate::snapshot::SnapshotWriter,
     ) -> Result<u64> {
         self.order.lock().unwrap().push("snapshot");
@@ -224,6 +228,9 @@ impl DocumentStore for FakeStore {
         items: &[crate::snapshot::UndoItem],
     ) -> Result<Vec<crate::snapshot::ItemResult>> {
         self.order.lock().unwrap().push("undo");
+        if let Some(error) = &self.undo_error {
+            return Err(error.clone());
+        }
         self.undone.lock().unwrap().extend(items.iter().cloned());
         Ok(items
             .iter()

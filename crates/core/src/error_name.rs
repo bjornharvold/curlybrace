@@ -53,6 +53,7 @@ pub(crate) fn variant_of(error: &CoreError) -> &'static str {
         CoreError::SnapshotTooLarge => "SnapshotTooLarge",
         CoreError::SnapshotUnreadable => "SnapshotUnreadable",
         CoreError::SnapshotOtherConnection => "SnapshotOtherConnection",
+        CoreError::BulkCancelled => "BulkCancelled",
     }
 }
 

@@ -38,9 +38,9 @@ async fn all_docs(store: &impl DocumentStore, ns: &Namespace) -> Vec<Document> {
     store.find(ns, &query).await.unwrap().docs
 }
 
-fn header(ns: &Namespace, kind: SnapshotKind) -> SnapshotHeader {
+fn header(ns: &Namespace, run: BulkRunId, kind: SnapshotKind) -> SnapshotHeader {
     SnapshotHeader {
-        run: BulkRunId(uuid::Uuid::new_v4()),
+        run,
         connection: uuid::Uuid::nil(),
         ns: ns.clone(),
         kind,
@@ -58,11 +58,13 @@ async fn a_bulk_delete_is_undone_and_documents_recreated_meanwhile_are_kept() {
     let ns = dbs.ns("c");
     seed(&client, &ns).await;
     let dir = tempfile::tempdir().unwrap();
+    let run = BulkRunId(uuid::Uuid::new_v4());
     let filter = doc! { "group": "b" };
     let mut writer = SnapshotWriter::create(
         dir.path(),
         header(
             &ns,
+            run,
             SnapshotKind::Delete {
                 filter: filter.clone(),
             },
@@ -71,7 +73,7 @@ async fn a_bulk_delete_is_undone_and_documents_recreated_meanwhile_are_kept() {
     )
     .unwrap();
     let saved = store
-        .snapshot_matching(&ns, &filter, &mut writer)
+        .snapshot_matching(&ns, &filter, run, &mut writer)
         .await
         .unwrap();
     let path = writer.finish().unwrap();
@@ -135,14 +137,15 @@ async fn a_bulk_update_is_undone_but_a_concurrent_edit_is_not_overwritten() {
         scope: MatchScope::Filtered,
     };
     let dir = tempfile::tempdir().unwrap();
+    let run = BulkRunId(uuid::Uuid::new_v4());
     let kind = SnapshotKind::Update {
         filter: req.filter.clone(),
         update: req.update.clone(),
         upsert: true,
     };
-    let mut writer = SnapshotWriter::create(dir.path(), header(&ns, kind), u64::MAX).unwrap();
+    let mut writer = SnapshotWriter::create(dir.path(), header(&ns, run, kind), u64::MAX).unwrap();
     store
-        .snapshot_matching(&ns, &req.filter, &mut writer)
+        .snapshot_matching(&ns, &req.filter, run, &mut writer)
         .await
         .unwrap();
     let path = writer.finish().unwrap();
@@ -179,5 +182,69 @@ async fn a_bulk_update_is_undone_but_a_concurrent_edit_is_not_overwritten() {
     assert_eq!(
         after[1].get("label"),
         Some(&Bson::String("$notAFieldPath".into()))
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn a_unique_index_clash_is_not_reported_as_the_document_being_present() {
+    if !local_enabled("a_unique_index_clash_is_not_reported_as_the_document_being_present") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("c");
+    let coll = client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection);
+    coll.insert_many([doc! { "_id": 1, "email": "a@x" }])
+        .await
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let run = BulkRunId(uuid::Uuid::new_v4());
+    let filter = doc! { "_id": 1 };
+    let mut writer = SnapshotWriter::create(
+        dir.path(),
+        header(
+            &ns,
+            run,
+            SnapshotKind::Delete {
+                filter: filter.clone(),
+            },
+        ),
+        u64::MAX,
+    )
+    .unwrap();
+    store
+        .snapshot_matching(&ns, &filter, run, &mut writer)
+        .await
+        .unwrap();
+    let path = writer.finish().unwrap();
+    coll.delete_one(doc! { "_id": 1 }).await.unwrap();
+    coll.create_index(
+        mongodb::IndexModel::builder()
+            .keys(doc! { "email": 1 })
+            .options(
+                mongodb::options::IndexOptions::builder()
+                    .unique(true)
+                    .build(),
+            )
+            .build(),
+    )
+    .await
+    .unwrap();
+    // A different document now holds the e-mail that document 1 had.
+    coll.insert_one(doc! { "_id": 2, "email": "a@x" })
+        .await
+        .unwrap();
+
+    let report = run_undo(&store, &path, None).await.unwrap();
+
+    assert_eq!(
+        report,
+        UndoReport {
+            errors: 1,
+            ..UndoReport::default()
+        },
+        "blocked by another document, not 'already there'"
     );
 }

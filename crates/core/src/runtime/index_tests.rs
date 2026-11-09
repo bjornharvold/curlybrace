@@ -673,6 +673,7 @@ fn shared_with_history() -> Arc<Shared> {
         copy: Default::default(),
         latest_test: Default::default(),
         read_only: Default::default(),
+        cancelled: Default::default(),
         history: Some(Arc::new(HistoryDb::open_in_memory().unwrap())),
         sampler_config: tokio::sync::watch::channel(SamplerConfig::default().clamped()).0,
     })

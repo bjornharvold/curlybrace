@@ -9,7 +9,7 @@ use super::bulk_undo;
 use super::handlers::{bounded, gate};
 use super::session::Session;
 use super::{BULK_COUNT_MAX_TIME, Command, Event, SessionId, Shared};
-use crate::bulk::{BULK_PREVIEW_DOCS, BulkOutcome, UndoPolicy};
+use crate::bulk::{BULK_PREVIEW_DOCS, BulkOutcome, UndoPolicy, UndoStatus};
 use crate::bulk::{BulkDeleteRequest, BulkRunId, BulkUpdateRequest};
 use crate::error::{CoreError, Result};
 use crate::snapshot::SnapshotKind;
@@ -201,11 +201,15 @@ async fn run_read(
             request_id,
             outcome: bulk_undo::preview(shared, store, session, run).await,
         }),
-        ReadBulk::Cancel { run } => Ok(Event::BulkCancelResult {
-            session,
-            run,
-            outcome: bounded(limit, store.cancel_bulk(run)).await,
-        }),
+        ReadBulk::Cancel { run } => {
+            // Before the kill, so a run still waiting or snapshotting sees it and does not write.
+            mark_cancelled(shared, run);
+            Ok(Event::BulkCancelResult {
+                session,
+                run,
+                outcome: bounded(limit, store.cancel_bulk(run)).await,
+            })
+        }
     }
 }
 
@@ -293,7 +297,8 @@ async fn run_write(
 }
 
 /// Snapshots (when asked), writes, then seals the snapshot. A snapshot that cannot be taken ends
-/// the run before anything is sent to the server.
+/// the run before anything is sent to the server, and so does a cancel that arrived while the
+/// run waited or saved its snapshot.
 #[allow(clippy::too_many_arguments)]
 async fn finish<F, Fut>(
     shared: &Shared,
@@ -309,26 +314,47 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<BulkOutcome>>,
 {
-    let taken = match bulk_undo::take(shared, store, session, &ns, kind, run, policy).await {
-        Ok(taken) => taken,
-        Err(error) => {
-            return Event::BulkFinished {
-                session,
-                ns,
-                run,
-                outcome: Err(error),
-                undo: None,
-            };
-        }
-    };
-    let outcome = write_outcome(shared, store, run, apply()).await;
-    let undo = bulk_undo::seal(shared, store, taken, &outcome).await;
-    Event::BulkFinished {
+    let finished = |outcome, undo| Event::BulkFinished {
         session,
-        ns,
+        ns: ns.clone(),
         run,
         outcome,
         undo,
+    };
+    let taken = bulk_undo::take(shared, store, session, &ns, kind, run, policy).await;
+    if cancel_requested(shared, run) {
+        if let Ok(Some(taken)) = &taken {
+            bulk_undo::discard_taken(shared, taken);
+        }
+        clear_cancel(shared, run);
+        return finished(Err(CoreError::BulkCancelled), UndoStatus::NotRequested);
+    }
+    let taken = match taken {
+        Ok(taken) => taken,
+        Err(error) => return finished(Err(error), UndoStatus::NotRequested),
+    };
+    let outcome = write_outcome(shared, store, run, apply()).await;
+    let undo = bulk_undo::seal(shared, store, taken, &outcome).await;
+    clear_cancel(shared, run);
+    finished(outcome, undo)
+}
+
+fn mark_cancelled(shared: &Shared, run: BulkRunId) {
+    if let Ok(mut set) = shared.cancelled.lock() {
+        set.insert(run.0);
+    }
+}
+
+fn cancel_requested(shared: &Shared, run: BulkRunId) -> bool {
+    shared
+        .cancelled
+        .lock()
+        .is_ok_and(|set| set.contains(&run.0))
+}
+
+fn clear_cancel(shared: &Shared, run: BulkRunId) {
+    if let Ok(mut set) = shared.cancelled.lock() {
+        set.remove(&run.0);
     }
 }
 

@@ -85,7 +85,7 @@ async fn finished_after_reconnect(command: impl FnOnce(SessionId, BulkRunId) -> 
             ns: mock_namespace(),
             run,
             outcome: Ok(applied()),
-            undo: None,
+            undo: crate::bulk::UndoStatus::NotRequested,
         }
     );
 }
@@ -153,7 +153,7 @@ async fn cancel_reaches_a_bulk_write_that_is_still_in_flight() {
         ns: mock_namespace(),
         run,
         outcome: Ok(BulkOutcome::Unknown { cancelled: true }),
-        undo: None,
+        undo: crate::bulk::UndoStatus::NotRequested,
     }));
 }
 

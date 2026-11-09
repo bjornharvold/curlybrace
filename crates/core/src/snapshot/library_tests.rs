@@ -92,3 +92,48 @@ fn purge_removes_only_snapshots_older_than_the_limit() {
         [fresh]
     );
 }
+
+fn age_file(path: &std::path::Path, secs_ago: u64) {
+    let when = std::time::SystemTime::now() - std::time::Duration::from_secs(secs_ago);
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(when)
+        .unwrap();
+}
+
+fn now() -> i64 {
+    crate::clock::now_secs()
+}
+
+#[test]
+fn purge_also_removes_old_orphans_and_torn_files_by_their_age() {
+    let dir = tempdir().unwrap();
+    let orphan_after = dir
+        .path()
+        .join(format!("{}.after.jsonl", uuid::Uuid::new_v4()));
+    let torn = dir.path().join(format!("{}.jsonl", uuid::Uuid::new_v4()));
+    std::fs::write(&orphan_after, "{\"x\":1}\n").unwrap();
+    std::fs::write(&torn, "{\"format\":").unwrap();
+    age_file(&orphan_after, 5_000);
+    age_file(&torn, 5_000);
+
+    let removed = purge_older_than(dir.path(), now(), 1_000);
+
+    assert_eq!(removed, 2);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn purge_keeps_recent_orphans_and_foreign_files() {
+    let dir = tempdir().unwrap();
+    let recent = dir.path().join(format!("{}.jsonl", uuid::Uuid::new_v4()));
+    let foreign = dir.path().join("notes.txt");
+    std::fs::write(&recent, "{\"format\":").unwrap();
+    std::fs::write(&foreign, "mine").unwrap();
+    age_file(&foreign, 999_999);
+
+    assert_eq!(purge_older_than(dir.path(), now(), 1_000), 0);
+    assert!(recent.exists() && foreign.exists());
+}

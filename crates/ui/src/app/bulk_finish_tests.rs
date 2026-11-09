@@ -79,7 +79,7 @@ fn finished_on_an_unselected_collection_does_not_requery() {
         ns: Namespace::new("shop", "other"),
         run: BulkRunId(Uuid::new_v4()),
         outcome: Ok(applied()),
-        undo: None,
+        undo: curlybrace_core::bulk::UndoStatus::NotRequested,
     };
     let (_, cmds) = ev(s, event);
     assert!(cmds.is_empty());

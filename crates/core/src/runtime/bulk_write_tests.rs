@@ -28,7 +28,7 @@ async fn bulk_update_answers_finished_with_the_store_outcome() {
             ns: mock_namespace(),
             run,
             outcome: Ok(applied()),
-            undo: None,
+            undo: crate::bulk::UndoStatus::NotRequested,
         }
     );
     no_more_events(&mut h).await;
@@ -55,7 +55,7 @@ async fn bulk_delete_and_store_errors_are_outcomes_of_finished() {
             ns: mock_namespace(),
             run,
             outcome: Err(error),
-            undo: None,
+            undo: crate::bulk::UndoStatus::NotRequested,
         }
     );
     assert_eq!(store.pings.load(Ordering::SeqCst), 0);
@@ -81,7 +81,7 @@ async fn bulk_write_timeout_answers_unknown_not_failed() {
             ns: mock_namespace(),
             run,
             outcome: Ok(BulkOutcome::Unknown { cancelled: false }),
-            undo: None,
+            undo: crate::bulk::UndoStatus::NotRequested,
         }
     );
     no_more_events(&mut h).await;
@@ -134,7 +134,7 @@ async fn a_rejected_write_is_reported_as_rejected_with_its_reason() {
             ns: mock_namespace(),
             run,
             outcome: Ok(rejected),
-            undo: None,
+            undo: crate::bulk::UndoStatus::NotRequested,
         }
     );
     assert!(store.cancels.lock().unwrap().is_empty());
@@ -191,7 +191,7 @@ async fn an_unconfirmed_write_is_passed_through_with_its_counts() {
             ns: mock_namespace(),
             run,
             outcome: Ok(unconfirmed),
-            undo: None,
+            undo: crate::bulk::UndoStatus::NotRequested,
         }
     );
     assert!(store.cancels.lock().unwrap().is_empty());

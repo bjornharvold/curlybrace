@@ -7,7 +7,7 @@ use tempfile::tempdir;
 
 use super::bulk_support::*;
 use super::*;
-use crate::bulk::{BulkOutcome, BulkRunId, UndoOffer, UndoPolicy};
+use crate::bulk::{BulkOutcome, BulkRunId, UndoOffer, UndoPolicy, UndoStatus};
 use crate::error::CoreError;
 use crate::snapshot::{
     SnapshotHeader, SnapshotKind, SnapshotReader, SnapshotWriter, UndoReport, snapshot_path,
@@ -32,11 +32,18 @@ fn delete(session: SessionId, run: BulkRunId, undo: UndoPolicy) -> Command {
     }
 }
 
-async fn finished(h: &mut RuntimeHandle) -> (Result<BulkOutcome>, Option<UndoOffer>) {
+async fn finished(h: &mut RuntimeHandle) -> (Result<BulkOutcome>, UndoStatus) {
     match next(h).await {
         Event::BulkFinished { outcome, undo, .. } => (outcome, undo),
         other => panic!("expected BulkFinished, got {other:?}"),
     }
+}
+
+fn offered(documents: u64) -> UndoStatus {
+    UndoStatus::Offered(UndoOffer {
+        documents,
+        uncovered: 0,
+    })
 }
 
 fn file_count(dir: &std::path::Path) -> usize {
@@ -56,7 +63,7 @@ async fn the_snapshot_is_taken_before_the_write_and_undo_is_offered() {
     let (outcome, undo) = finished(&mut h).await;
 
     assert_eq!(outcome, Ok(applied()));
-    assert_eq!(undo, Some(UndoOffer { documents: 2 }));
+    assert_eq!(undo, offered(2));
     assert_eq!(*store.order.lock().unwrap(), ["snapshot", "write"]);
     let saved: Vec<Document> = SnapshotReader::open(&snapshot_path(dir.path(), run))
         .unwrap()
@@ -80,7 +87,7 @@ async fn a_snapshot_that_cannot_be_taken_stops_the_write() {
         let (outcome, undo) = finished(&mut h).await;
 
         assert_eq!(outcome, Err(error));
-        assert_eq!(undo, None);
+        assert_eq!(undo, UndoStatus::NotRequested);
         assert_eq!(
             *store.order.lock().unwrap(),
             ["snapshot"],
@@ -100,7 +107,7 @@ async fn without_a_snapshot_directory_a_snapshot_write_is_refused() {
     let (outcome, undo) = finished(&mut h).await;
 
     assert_eq!(outcome, Err(CoreError::SnapshotWriteFailed));
-    assert_eq!(undo, None);
+    assert_eq!(undo, UndoStatus::NotRequested);
     assert!(
         store.order.lock().unwrap().is_empty(),
         "nothing reached the store"
@@ -119,7 +126,7 @@ async fn choosing_no_undo_runs_the_write_without_a_snapshot() {
     let (outcome, undo) = finished(&mut h).await;
 
     assert_eq!(outcome, Ok(applied()));
-    assert_eq!(undo, None);
+    assert_eq!(undo, UndoStatus::NotRequested);
     assert_eq!(*store.order.lock().unwrap(), ["write"]);
     assert_eq!(file_count(dir.path()), 0);
 }
@@ -151,7 +158,7 @@ async fn undo_is_offered_after_outcomes_that_may_have_changed_documents() {
         let (got, undo) = finished(&mut h).await;
 
         assert_eq!(got, Ok(outcome.clone()));
-        assert_eq!(undo, Some(UndoOffer { documents: 2 }), "{outcome:?}");
+        assert_eq!(undo, offered(2), "{outcome:?}");
     }
 }
 
@@ -166,7 +173,7 @@ async fn a_run_that_touched_nothing_leaves_no_snapshot() {
 
     let (_, undo) = finished(&mut h).await;
 
-    assert_eq!(undo, None);
+    assert_eq!(undo, UndoStatus::NothingToUndo);
     assert_eq!(file_count(dir.path()), 0);
 }
 
@@ -182,7 +189,7 @@ async fn a_write_that_never_ran_leaves_no_snapshot() {
     let (outcome, undo) = finished(&mut h).await;
 
     assert_eq!(outcome, Err(CoreError::BulkInvalidUpdate));
-    assert_eq!(undo, None);
+    assert_eq!(undo, UndoStatus::NothingToUndo);
     assert_eq!(file_count(dir.path()), 0);
 }
 
@@ -329,4 +336,108 @@ async fn a_read_only_connection_never_creates_a_snapshot() {
         other => panic!("unexpected {other:?}"),
     }
     assert_eq!(file_count(dir.path()), 0);
+}
+
+fn update(session: SessionId, run: BulkRunId) -> Command {
+    Command::BulkUpdate {
+        session,
+        ns: mock_namespace(),
+        request: update_request(),
+        run,
+        undo: UndoPolicy::Snapshot,
+    }
+}
+
+#[tokio::test]
+async fn documents_that_matched_only_after_the_snapshot_are_reported_as_uncovered() {
+    let dir = tempdir().unwrap();
+    // The snapshot holds 2 documents, the write deleted 5.
+    let wrote_five = BulkOutcome::Applied {
+        matched: 5,
+        modified: 0,
+        upserted: vec![],
+        deleted: 5,
+    };
+    let store = store_with_originals(Write::Answer(Ok(wrote_five)));
+    let (mut h, session) =
+        connected_with(&store, false, runtime_config_with_snapshots(dir.path())).await;
+    h.tx.send(delete(session, run_id(), UndoPolicy::Snapshot))
+        .unwrap();
+
+    let (_, undo) = finished(&mut h).await;
+
+    assert_eq!(
+        undo,
+        UndoStatus::Offered(UndoOffer {
+            documents: 2,
+            uncovered: 3
+        })
+    );
+}
+
+#[tokio::test]
+async fn an_update_whose_after_state_does_not_fit_reports_undo_as_lost() {
+    let dir = tempdir().unwrap();
+    // The originals fit their half of the cap; the saved state of the updated documents (much
+    // bigger) does not fit what is left.
+    let big = |id: i32| doc! { "_id": id, "blob": "x".repeat(4000) };
+    let store = store_with_originals(Write::Answer(Ok(applied())))
+        .with(|s| s.current = vec![big(1), big(2)]);
+    let config = RuntimeConfig {
+        snapshot_max_bytes: 1400,
+        ..runtime_config_with_snapshots(dir.path())
+    };
+    let (mut h, session) = connected_with(&store, false, config).await;
+    h.tx.send(update(session, run_id())).unwrap();
+
+    let (outcome, undo) = finished(&mut h).await;
+
+    assert_eq!(outcome, Ok(applied()), "the write itself ran");
+    assert_eq!(undo, UndoStatus::Lost);
+    assert_eq!(file_count(dir.path()), 0, "no half-usable snapshot is kept");
+}
+
+#[tokio::test]
+async fn a_cancel_before_the_write_stops_it_and_leaves_no_snapshot() {
+    let dir = tempdir().unwrap();
+    let store = store_with_originals(Write::Answer(Ok(applied())));
+    let (mut h, session) =
+        connected_with(&store, false, runtime_config_with_snapshots(dir.path())).await;
+    let run = run_id();
+    h.tx.send(Command::BulkCancel { session, run }).unwrap();
+    assert!(matches!(next(&mut h).await, Event::BulkCancelResult { .. }));
+
+    h.tx.send(delete(session, run, UndoPolicy::Snapshot))
+        .unwrap();
+    let (outcome, undo) = finished(&mut h).await;
+
+    assert_eq!(outcome, Err(CoreError::BulkCancelled));
+    assert_eq!(undo, UndoStatus::NotRequested);
+    assert!(
+        !store.order.lock().unwrap().contains(&"write"),
+        "the write never ran"
+    );
+    assert_eq!(file_count(dir.path()), 0);
+}
+
+#[tokio::test]
+async fn a_lost_connection_during_undo_is_an_unknown_outcome_not_a_pile_of_errors() {
+    let dir = tempdir().unwrap();
+    let store = store_with_originals(Write::Answer(Ok(applied())))
+        .with(|s| s.undo_error = Some(CoreError::ConnectionInterrupted("x".into())));
+    let (mut h, session) =
+        connected_with(&store, false, runtime_config_with_snapshots(dir.path())).await;
+    let run = run_id();
+    h.tx.send(delete(session, run, UndoPolicy::Snapshot))
+        .unwrap();
+    let _ = finished(&mut h).await;
+
+    h.tx.send(Command::BulkUndo { session, run }).unwrap();
+
+    match next(&mut h).await {
+        Event::BulkUndoFinished { outcome, .. } => {
+            assert_eq!(outcome, Err(CoreError::WriteOutcomeUnknown));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
 }

@@ -182,7 +182,7 @@ pub(super) fn finish(id: Uuid, run: BulkRunId, outcome: Result<BulkOutcome, Core
         ns: ns(),
         run,
         outcome,
-        undo: None,
+        undo: curlybrace_core::bulk::UndoStatus::NotRequested,
     }
 }
 

@@ -243,10 +243,11 @@ impl DocumentStore for ReadOnlyStore {
         &self,
         ns: &Namespace,
         filter: &Document,
+        run: BulkRunId,
         out: &mut crate::snapshot::SnapshotWriter,
     ) -> Result<u64> {
         self.guard()?;
-        self.inner.snapshot_matching(ns, filter, out).await
+        self.inner.snapshot_matching(ns, filter, run, out).await
     }
 
     async fn find_by_ids(&self, ns: &Namespace, ids: &[Bson]) -> Result<Vec<Document>> {
