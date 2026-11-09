@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use bson::{Bson, Document, doc};
 
 use crate::bulk::{
-    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope, PreviewDoc,
-    UpdatePreview, UpdateSpec,
+    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, MatchScope,
+    PreviewDoc, UpdatePreview, UpdateSpec,
 };
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
@@ -289,7 +289,7 @@ impl DocumentStore for RecordingStore {
             deleted: 9,
         })
     }
-    async fn cancel_bulk(&self, _run: BulkRunId) -> Result<()> {
+    async fn cancel_bulk(&self, _run: BulkRunId) -> Result<CancelEffect> {
         self.hit("cancel_bulk");
         Err(CoreError::Unsupported("inner cancel".into()))
     }

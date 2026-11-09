@@ -11,8 +11,8 @@ use tokio::sync::Notify;
 
 use super::*;
 use crate::bulk::{
-    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope, UpdatePreview,
-    UpdateSpec,
+    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, MatchScope,
+    UpdatePreview, UpdateSpec,
 };
 use crate::store::Page;
 use crate::test_support::mock_objects::{mock_doc_with_id, mock_namespace};
@@ -50,6 +50,8 @@ pub(super) struct FakeStore {
     pub(super) queries: Mutex<Vec<Query>>,
     /// The runs `cancel_bulk` was called for.
     pub(super) cancels: Mutex<Vec<BulkRunId>>,
+    /// What `cancel_bulk` answers.
+    pub(super) cancel_effect: CancelEffect,
 }
 
 impl FakeStore {
@@ -71,6 +73,7 @@ impl FakeStore {
             held: Notify::new(),
             queries: Mutex::new(vec![]),
             cancels: Mutex::new(vec![]),
+            cancel_effect: CancelEffect::Stopped,
         })
     }
 
@@ -175,11 +178,11 @@ impl DocumentStore for FakeStore {
     ) -> Result<BulkOutcome> {
         self.write().await
     }
-    async fn cancel_bulk(&self, run: BulkRunId) -> Result<()> {
+    async fn cancel_bulk(&self, run: BulkRunId) -> Result<CancelEffect> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.cancels.lock().unwrap().push(run);
         self.cancelled.notify_one();
-        Ok(())
+        Ok(self.cancel_effect)
     }
 }
 

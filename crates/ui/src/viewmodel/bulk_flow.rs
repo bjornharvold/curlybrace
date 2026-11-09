@@ -66,8 +66,24 @@ pub struct BulkFlow {
     pub run: Option<BulkRunId>,
     /// The answer of the run, once it came: the outcome, or why it failed.
     pub report: Option<Result<BulkOutcome, CoreError>>,
-    /// The runtime could not cancel the run; it carries on and its report still comes.
-    pub cancel_unavailable: bool,
+    /// What the last cancel request of the run came to. The run carries on whatever it was and
+    /// its report still comes.
+    pub cancel_note: CancelNote,
+}
+
+/// The answer to the person's last "Stop the write", shown while the run is still going.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CancelNote {
+    /// Stop was not pressed, or has not been answered yet.
+    #[default]
+    None,
+    /// The runtime could not cancel (no permission, or the server was unreachable).
+    Unavailable,
+    /// The server has no operation of the run registered: it may not have started yet, so the
+    /// person can try again.
+    NothingToStop,
+    /// A kill was sent; the write's report is awaited.
+    Requested,
 }
 
 impl BulkFlow {
@@ -86,7 +102,7 @@ impl BulkFlow {
             production,
             run: None,
             report: None,
-            cancel_unavailable: false,
+            cancel_note: CancelNote::None,
         }
     }
 
@@ -222,13 +238,14 @@ impl BulkFlow {
         }
     }
 
-    /// Records that cancelling was not possible; only a running flow has something to cancel.
-    pub fn with_cancel_unavailable(self) -> Self {
+    /// Records what the last cancel request came to; only a running flow has something to
+    /// cancel, and the latest answer replaces the earlier one.
+    pub fn with_cancel_note(self, cancel_note: CancelNote) -> Self {
         if self.step != BulkStep::Running {
             return self;
         }
         Self {
-            cancel_unavailable: true,
+            cancel_note,
             ..self
         }
     }

@@ -34,7 +34,8 @@ pub mod verdict;
 
 pub use bulk_entry::BulkEntry;
 pub use bulk_flow::{
-    BULK_UPDATE_TYPED_CONFIRM_THRESHOLD, BulkFlow, BulkKind, BulkStep, CountState, PreviewState,
+    BULK_UPDATE_TYPED_CONFIRM_THRESHOLD, BulkFlow, BulkKind, BulkStep, CancelNote, CountState,
+    PreviewState,
 };
 pub use cell::cell_text;
 pub use connection_form::{

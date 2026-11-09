@@ -535,7 +535,7 @@ pub enum Event {
     BulkCancelResult {
         session: SessionId,
         run: crate::bulk::BulkRunId,
-        outcome: std::result::Result<(), CoreError>,
+        outcome: std::result::Result<crate::bulk::CancelEffect, CoreError>,
     },
     /// SPONTANEOUS (no command behind it): the session's sampler started, resumed or paused. See
     /// the module docs for how this differs from "exactly one event per command".

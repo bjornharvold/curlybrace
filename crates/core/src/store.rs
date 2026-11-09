@@ -5,7 +5,9 @@ use bson::{Bson, Document};
 
 use std::time::Duration;
 
-use crate::bulk::{BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdatePreview};
+use crate::bulk::{
+    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, UpdatePreview,
+};
 use crate::compare::diff::PathSegment;
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
@@ -482,9 +484,11 @@ pub trait DocumentStore: Send + Sync {
         Err(CoreError::Unsupported("bulk writes".into()))
     }
 
-    /// Best-effort cancel of the bulk run `run`. Not a write: it only kills the caller's own
-    /// operation, so it is allowed on a read-only connection.
-    async fn cancel_bulk(&self, _run: BulkRunId) -> Result<()> {
+    /// Best-effort cancel of the bulk run `run`: [`CancelEffect::Stopped`] when an operation of
+    /// the run was found and killed, [`CancelEffect::NothingToStop`] when none is registered (yet
+    /// or any more). Not a write: it only kills the caller's own operation, so it is allowed on
+    /// a read-only connection.
+    async fn cancel_bulk(&self, _run: BulkRunId) -> Result<CancelEffect> {
         Err(CoreError::Unsupported("bulk writes".into()))
     }
 }

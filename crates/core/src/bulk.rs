@@ -50,6 +50,17 @@ pub struct BulkDeleteRequest {
     pub scope: MatchScope,
 }
 
+/// What a cancel request did on the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelEffect {
+    /// An operation of the run was found and a kill was sent for it. The write's own finish
+    /// still comes (as `Unknown { cancelled: true }` when the kill landed).
+    Stopped,
+    /// No operation of the run is registered on the server: it already finished, or it has not
+    /// started yet (it may still be waiting for a connection or in flight). Nothing was killed.
+    NothingToStop,
+}
+
 /// Identifies one bulk run, so a cancel or a late result can be matched to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BulkRunId(pub uuid::Uuid);

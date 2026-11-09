@@ -10,11 +10,13 @@ use super::bulk_state::BulkState;
 use super::reducer::{Out, failure, mutated};
 use super::state::{AppState, Banner};
 use super::write_guard::{Guard, WriteKind};
-use crate::viewmodel::{BulkEntry, BulkFlow, BulkKind, BulkStep, CountState, PreviewState};
+use crate::viewmodel::{
+    BulkEntry, BulkFlow, BulkKind, BulkStep, CancelNote, CountState, PreviewState,
+};
 use bson::Document;
 use curlybrace_core::bulk::{
-    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope, UpdatePreview,
-    parse_update,
+    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, MatchScope,
+    UpdatePreview, parse_update,
 };
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Command;
@@ -439,20 +441,21 @@ pub(super) fn finished(
     mutated(with_bulk(state, bulk.with_flow(reported)), ns)
 }
 
-/// A cancel that was not possible is told on the flow; the run carries on and its finish comes.
+/// What a cancel request came to is told on the flow; the run carries on whatever it was and its
+/// finish comes. Nothing found to stop leaves Stop usable, so the person can try again.
 pub(super) fn cancel_answered(
     state: AppState,
     run: BulkRunId,
-    outcome: Result<(), CoreError>,
+    outcome: Result<CancelEffect, CoreError>,
 ) -> AppState {
-    if outcome.is_ok() {
-        return state;
-    }
+    let note = match outcome {
+        Ok(CancelEffect::Stopped) => CancelNote::Requested,
+        Ok(CancelEffect::NothingToStop) => CancelNote::NothingToStop,
+        Err(_) => CancelNote::Unavailable,
+    };
     updated(state, None, |b| {
-        (b.flow.run == Some(run)).then(|| {
-            b.clone()
-                .with_flow(b.flow.clone().with_cancel_unavailable())
-        })
+        (b.flow.run == Some(run))
+            .then(|| b.clone().with_flow(b.flow.clone().with_cancel_note(note)))
     })
 }
 

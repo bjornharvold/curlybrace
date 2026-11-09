@@ -9,7 +9,7 @@ use bson::doc;
 
 use super::bulk_support::*;
 use super::*;
-use crate::bulk::{BulkOutcome, BulkRunId};
+use crate::bulk::{BulkOutcome, BulkRunId, CancelEffect};
 use crate::test_support::mock_objects::mock_namespace;
 
 /// The old store's thread is held inside its read-only check, between the runtime reading the
@@ -141,7 +141,7 @@ async fn cancel_reaches_a_bulk_write_that_is_still_in_flight() {
     assert!(events.contains(&Event::BulkCancelResult {
         session,
         run,
-        outcome: Ok(())
+        outcome: Ok(CancelEffect::Stopped)
     }));
     assert!(events.contains(&Event::BulkFinished {
         session,
@@ -149,4 +149,45 @@ async fn cancel_reaches_a_bulk_write_that_is_still_in_flight() {
         run,
         outcome: Ok(BulkOutcome::Unknown { cancelled: true })
     }));
+}
+
+#[tokio::test]
+async fn a_cancel_that_found_nothing_to_stop_says_so_and_the_write_carries_on() {
+    let store = FakeStore::new(Write::UntilReleased).with(|s| {
+        s.cancel_effect = CancelEffect::NothingToStop;
+    });
+    let config = RuntimeConfig {
+        bulk_write_timeout: Duration::from_secs(60),
+        ..runtime_config()
+    };
+    let (mut h, session) = connected_with(&store, false, config).await;
+    let run = run_id();
+    h.tx.send(Command::BulkUpdate {
+        session,
+        ns: mock_namespace(),
+        request: update_request(),
+        run,
+    })
+    .unwrap();
+    tokio::time::timeout(WAIT, store.entered.notified())
+        .await
+        .expect("the write started");
+    h.tx.send(Command::BulkCancel { session, run }).unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::BulkCancelResult {
+            session,
+            run,
+            outcome: Ok(CancelEffect::NothingToStop)
+        }
+    );
+    // Nothing was stopped: the write is still running and finishes on its own.
+    store.release.notify_one();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::BulkFinished {
+            outcome: Ok(BulkOutcome::Applied { .. }),
+            ..
+        }
+    ));
 }

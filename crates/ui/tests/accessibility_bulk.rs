@@ -10,8 +10,8 @@ use curlybrace_core::store::Namespace;
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::BulkAction;
 use curlybrace_ui::viewmodel::{
-    BulkEntry, BulkFlow, BulkKind, BulkStep, ConnectionBadge, CountState, PreviewState, TreeState,
-    ViewMode,
+    BulkEntry, BulkFlow, BulkKind, BulkStep, CancelNote, ConnectionBadge, CountState, PreviewState,
+    TreeState, ViewMode,
 };
 use curlybrace_ui::views::bulk_dialog::show_bulk_dialog;
 use curlybrace_ui::views::documents::{DocTarget, show_documents};
@@ -474,12 +474,32 @@ fn running_step_explains_what_stop_does() {
 }
 
 #[test]
-fn an_unavailable_cancel_is_stated() {
-    let h = open(BulkFlow {
-        cancel_unavailable: true,
-        ..with_step(confirm_step(base(BulkKind::Update)), BulkStep::Running)
-    });
-    assert!(has(&h, &t("bulk.cancel_unavailable")));
+fn each_cancel_note_is_stated_and_stop_stays_usable() {
+    for (note, key) in [
+        (CancelNote::Unavailable, "bulk.cancel_unavailable"),
+        (CancelNote::NothingToStop, "bulk.cancel_nothing_to_stop"),
+        (CancelNote::Requested, "bulk.cancel_requested"),
+    ] {
+        let h = open(BulkFlow {
+            cancel_note: note,
+            ..with_step(confirm_step(base(BulkKind::Update)), BulkStep::Running)
+        });
+        assert!(has(&h, &t(key)), "{key}");
+        let label = t("bulk.stop");
+        assert!(!button(&h, &label).accesskit_node().is_disabled(), "{key}");
+        assert_all_named(&h, key);
+    }
+    let h = running();
+    for key in ["bulk.cancel_nothing_to_stop", "bulk.cancel_requested"] {
+        assert!(!has(&h, &t(key)), "no note without a cancel: {key}");
+    }
+}
+
+#[test]
+fn the_nothing_to_stop_text_says_to_try_again() {
+    let text = t("bulk.cancel_nothing_to_stop").to_lowercase();
+    assert!(text.contains("nothing to stop"), "{text}");
+    assert!(text.contains("try again"), "{text}");
 }
 
 fn reported(kind: BulkKind, report: Result<BulkOutcome, CoreError>) -> Harness<'static, Frame> {

@@ -5,7 +5,7 @@ use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
 use crate::I18n;
 use crate::app::BulkAction;
 use crate::theme::{FieldOptions, Tone, outlined_field_opts};
-use crate::viewmodel::{BulkFlow, BulkKind, CountState, PreviewState};
+use crate::viewmodel::{BulkFlow, BulkKind, CancelNote, CountState, PreviewState};
 use bson::{Bson, Document};
 use curlybrace_core::bulk::{
     BulkOutcome, PreviewDoc, PreviewGap, UpdatePreview, parse_update, validate_update,
@@ -275,8 +275,14 @@ fn typed_field(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) -> Option<BulkAc
 
 pub(super) fn running_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
     ui.label(i18n.t("bulk.running"));
-    if flow.cancel_unavailable {
-        tone_notice(ui, Tone::Warning, &i18n.t("bulk.cancel_unavailable"), false);
+    let note = match flow.cancel_note {
+        CancelNote::None => None,
+        CancelNote::Unavailable => Some("bulk.cancel_unavailable"),
+        CancelNote::NothingToStop => Some("bulk.cancel_nothing_to_stop"),
+        CancelNote::Requested => Some("bulk.cancel_requested"),
+    };
+    if let Some(key) = note {
+        tone_notice(ui, Tone::Warning, &i18n.t(key), false);
     }
 }
 

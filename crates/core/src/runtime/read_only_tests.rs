@@ -93,8 +93,8 @@ impl DocumentStore for CountingStore {
     ) -> Result<Option<u64>> {
         Ok(Some(2))
     }
-    async fn cancel_bulk(&self, _run: crate::bulk::BulkRunId) -> Result<()> {
-        Ok(())
+    async fn cancel_bulk(&self, _run: crate::bulk::BulkRunId) -> Result<crate::bulk::CancelEffect> {
+        Ok(crate::bulk::CancelEffect::Stopped)
     }
 }
 

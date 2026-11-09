@@ -4,10 +4,12 @@ pub(super) use super::bulk_actions::BulkAction;
 pub(super) use super::bulk_state::BulkState;
 pub(super) use super::reducer::{Input, update};
 pub(super) use super::state::{AppState, Banner, ConnStatus, Pending};
-pub(super) use crate::viewmodel::{BulkFlow, BulkKind, BulkStep, CountState, PreviewState};
+pub(super) use crate::viewmodel::{
+    BulkFlow, BulkKind, BulkStep, CancelNote, CountState, PreviewState,
+};
 pub(super) use bson::doc;
 pub(super) use curlybrace_core::bulk::{
-    BulkOutcome, BulkRunId, MatchScope, PreviewDoc, UpdatePreview,
+    BulkOutcome, BulkRunId, CancelEffect, MatchScope, PreviewDoc, UpdatePreview,
 };
 pub(super) use curlybrace_core::connection::ConnectionConfig;
 pub(super) use curlybrace_core::error::CoreError;

@@ -486,12 +486,21 @@ fn every_updater_returns_a_new_value_and_leaves_the_original() {
 }
 
 #[test]
-fn cancel_unavailable_is_recorded_only_while_running() {
+fn a_cancel_note_is_recorded_only_while_running_and_the_latest_wins() {
     let confirm = confirm(delete_flow().with_typed("orders".into()));
-    assert!(!confirm.clone().with_cancel_unavailable().cancel_unavailable);
+    assert_eq!(confirm.cancel_note, CancelNote::None);
+    let ignored = confirm.clone().with_cancel_note(CancelNote::Unavailable);
+    assert_eq!(ignored.cancel_note, CancelNote::None);
     let running = confirm.with_typed("orders".into()).running(run_id());
     assert_eq!(running.step, BulkStep::Running);
-    assert!(running.with_cancel_unavailable().cancel_unavailable);
+    assert_eq!(running.cancel_note, CancelNote::None);
+    let nothing = running.clone().with_cancel_note(CancelNote::NothingToStop);
+    assert_eq!(nothing.cancel_note, CancelNote::NothingToStop);
+    let requested = nothing.clone().with_cancel_note(CancelNote::Requested);
+    assert_eq!(requested.cancel_note, CancelNote::Requested);
+    // Immutable: the earlier values did not change.
+    assert_eq!(nothing.cancel_note, CancelNote::NothingToStop);
+    assert_eq!(running.cancel_note, CancelNote::None);
 }
 
 #[test]

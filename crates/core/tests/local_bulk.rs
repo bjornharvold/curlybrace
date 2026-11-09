@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use bson::{Bson, Document, doc};
 use curlybrace_core::bulk::{
-    BulkDeleteRequest, BulkFailureReason, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope,
-    PreviewGap, UpdateSpec,
+    BulkDeleteRequest, BulkFailureReason, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect,
+    MatchScope, PreviewGap, UpdateSpec,
 };
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{DocumentStore, Namespace, Query};
@@ -721,7 +721,7 @@ async fn cancel_stops_a_slow_update_and_reports_unknown_cancelled() {
     let left = ops_for_run(&client, run).await;
 
     seen.unwrap();
-    cancelled.unwrap();
+    assert_eq!(cancelled.unwrap(), CancelEffect::Stopped);
     let outcome = outcome.expect("the killed update must return").unwrap();
     assert_eq!(outcome.unwrap(), BulkOutcome::Unknown { cancelled: true });
     assert_eq!(left.unwrap(), Vec::<i64>::new());
@@ -740,15 +740,22 @@ async fn cancel_after_completion_returns_the_real_counts() {
     let req = set_update(doc! { "group": "a" }, MatchScope::Filtered, false);
     let got = store.update_many(&ns, &req, run).await.unwrap();
     assert_eq!(got, applied(3, 3, 0));
-    store.cancel_bulk(run).await.unwrap();
+    // The op is gone: there is nothing left to stop, and the cancel says so.
+    assert_eq!(
+        store.cancel_bulk(run).await.unwrap(),
+        CancelEffect::NothingToStop
+    );
 }
 
 #[tokio::test]
 #[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
-async fn cancel_of_an_unknown_run_is_ok() {
-    if !local_enabled("cancel_of_an_unknown_run_is_ok") {
+async fn cancel_of_an_unknown_run_finds_nothing_to_stop() {
+    if !local_enabled("cancel_of_an_unknown_run_finds_nothing_to_stop") {
         return;
     }
     let (_dbs, _client, store) = local_mongo().await;
-    store.cancel_bulk(run_id()).await.unwrap();
+    assert_eq!(
+        store.cancel_bulk(run_id()).await.unwrap(),
+        CancelEffect::NothingToStop
+    );
 }

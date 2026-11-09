@@ -61,6 +61,8 @@
   "bulk": {
     "back": "Back",
     "busy_reason": "Another write is in progress or waiting for your answer, so a bulk write cannot start now.",
+    "cancel_nothing_to_stop": "There was nothing to stop yet. The write may not have started. Try again.",
+    "cancel_requested": "Stop requested. Waiting for the server to answer.",
     "cancel_unavailable": "Cancelling is not possible right now. The write keeps running and its result will appear here.",
     "cannot_undo": "Warning: this cannot be undone.",
     "confirm": {

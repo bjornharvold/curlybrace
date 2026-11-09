@@ -8,7 +8,7 @@ use futures::TryStreamExt;
 use mongodb::Client;
 use mongodb::options::{ReadPreference, SelectionCriteria};
 
-use crate::bulk::BulkRunId;
+use crate::bulk::{BulkRunId, CancelEffect};
 use crate::driver_error::{classify_driver_error, server_error_code};
 use crate::error::{CoreError, Result};
 
@@ -17,11 +17,15 @@ use crate::error::{CoreError, Result};
 /// kill operations here.
 const NOT_PERMITTED_CODES: [i32; 5] = [13, 59, 115, 40324, 8000];
 
-/// Kills the operation tagged with `run`. Nothing running under that id (finished, or never
-/// started) is `Ok`. Without the privilege or support to do it, `Unsupported`.
-pub(crate) async fn cancel_bulk(client: &Client, run: BulkRunId) -> Result<()> {
+/// Kills the operation tagged with `run`: `Stopped` when one was found, `NothingToStop` when no
+/// operation carries that id (it finished, or the server has not registered it yet: the command
+/// may still wait for a connection). Without the privilege or support to do it, `Unsupported`.
+pub(crate) async fn cancel_bulk(client: &Client, run: BulkRunId) -> Result<CancelEffect> {
     let admin = client.database("admin");
     let ops = find_ops(&admin, run).await.map_err(fail)?;
+    if ops.is_empty() {
+        return Ok(CancelEffect::NothingToStop);
+    }
     for opid in ops {
         // The op may finish between the lookup and the kill; the kill is then a no-op.
         admin
@@ -29,7 +33,7 @@ pub(crate) async fn cancel_bulk(client: &Client, run: BulkRunId) -> Result<()> {
             .await
             .map_err(fail)?;
     }
-    Ok(())
+    Ok(CancelEffect::Stopped)
 }
 
 /// The `opid` of every operation of this connection's user whose `command.comment` is `run`.

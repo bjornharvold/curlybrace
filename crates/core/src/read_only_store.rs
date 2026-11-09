@@ -11,7 +11,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bson::{Bson, Document};
 
-use crate::bulk::{BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdatePreview};
+use crate::bulk::{
+    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, UpdatePreview,
+};
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
@@ -233,7 +235,7 @@ impl DocumentStore for ReadOnlyStore {
         self.inner.delete_many(ns, req, run).await
     }
 
-    async fn cancel_bulk(&self, run: BulkRunId) -> Result<()> {
+    async fn cancel_bulk(&self, run: BulkRunId) -> Result<CancelEffect> {
         self.inner.cancel_bulk(run).await
     }
 }

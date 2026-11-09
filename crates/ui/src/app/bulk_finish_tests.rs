@@ -129,43 +129,57 @@ fn closing_drops_the_outstanding_preview_id() {
     assert!(s.bulk.is_none());
 }
 
+fn cancel_result(id: Uuid, run: BulkRunId, outcome: Result<CancelEffect, CoreError>) -> Event {
+    Event::BulkCancelResult {
+        session: id,
+        run,
+        outcome,
+    }
+}
+
 #[test]
-fn cancel_unavailable_is_recorded_and_run_continues() {
+fn each_cancel_answer_is_noted_on_the_flow_and_the_run_continues() {
+    for (outcome, note) in [
+        (Ok(CancelEffect::Stopped), CancelNote::Requested),
+        (Ok(CancelEffect::NothingToStop), CancelNote::NothingToStop),
+        (Err(CoreError::Unreachable), CancelNote::Unavailable),
+    ] {
+        let (s, id, run) = running_delete();
+        let (s, cmds) = ev(s, cancel_result(id, run, outcome.clone()));
+        assert_eq!(flow(&s).cancel_note, note, "{outcome:?}");
+        assert_eq!(flow(&s).step, BulkStep::Running);
+        assert!(cmds.is_empty());
+        assert!(s.pending.is_some(), "the write is still in flight");
+    }
+}
+
+#[test]
+fn stop_stays_usable_after_nothing_to_stop_and_a_second_try_replaces_the_note() {
     let (s, id, run) = running_delete();
-    let (s, cmds) = ev(
-        s,
-        Event::BulkCancelResult {
-            session: id,
-            run,
-            outcome: Ok(()),
-        },
-    );
-    assert!(!flow(&s).cancel_unavailable && cmds.is_empty());
-    let (s, cmds) = ev(
-        s,
-        Event::BulkCancelResult {
-            session: id,
-            run,
-            outcome: Err(CoreError::Unreachable),
-        },
-    );
-    assert!(flow(&s).cancel_unavailable);
-    assert_eq!(flow(&s).step, BulkStep::Running);
-    assert!(cmds.is_empty());
+    let (s, _) = ev(s, cancel_result(id, run, Ok(CancelEffect::NothingToStop)));
+    let (s, cmds) = act(s, BulkAction::Cancel);
+    assert!(matches!(&cmds[..], [Command::BulkCancel { run: r, .. }] if *r == run));
+    let (s, _) = ev(s, cancel_result(id, run, Ok(CancelEffect::Stopped)));
+    assert_eq!(flow(&s).cancel_note, CancelNote::Requested);
 }
 
 #[test]
 fn a_cancel_result_for_another_run_is_ignored() {
-    let (s, id, _) = running_delete();
-    let (s, _) = ev(
-        s,
-        Event::BulkCancelResult {
-            session: id,
-            run: BulkRunId(Uuid::new_v4()),
-            outcome: Err(CoreError::Unreachable),
-        },
-    );
-    assert!(!flow(&s).cancel_unavailable);
+    let other = BulkRunId(Uuid::new_v4());
+    for outcome in [Ok(CancelEffect::NothingToStop), Err(CoreError::Unreachable)] {
+        let (s, id, _) = running_delete();
+        let (s, _) = ev(s, cancel_result(id, other, outcome));
+        assert_eq!(flow(&s).cancel_note, CancelNote::None);
+    }
+}
+
+#[test]
+fn a_cancel_answer_after_the_report_changes_nothing() {
+    let (s, id, run) = running_delete();
+    let (s, _) = ev(s, finish(id, run, Ok(applied())));
+    let before = s.bulk.clone();
+    let (s, _) = ev(s, cancel_result(id, run, Ok(CancelEffect::NothingToStop)));
+    assert_eq!(s.bulk, before);
 }
 
 #[test]

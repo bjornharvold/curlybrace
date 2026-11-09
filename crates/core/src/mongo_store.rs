@@ -8,7 +8,9 @@ use futures::TryStreamExt;
 use mongodb::Client;
 use mongodb::action::Action;
 
-use crate::bulk::{BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdatePreview};
+use crate::bulk::{
+    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, UpdatePreview,
+};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
@@ -277,7 +279,7 @@ impl DocumentStore for MongoStore {
         crate::mongo_bulk::delete_many(&db, &ns.collection, req, run).await
     }
 
-    async fn cancel_bulk(&self, run: BulkRunId) -> Result<()> {
+    async fn cancel_bulk(&self, run: BulkRunId) -> Result<CancelEffect> {
         crate::mongo_bulk_cancel::cancel_bulk(&self.client, run).await
     }
 
