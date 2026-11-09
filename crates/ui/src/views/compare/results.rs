@@ -1,10 +1,9 @@
 //! Category tabs with counts, the key table of the current page and the pager.
 use super::detail::{forget_cache, show_detail};
 use super::select::{header_checkbox, row_checkbox, show_selection_bar};
-use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{Tone, chip, tabs, tonal_button};
+use crate::theme::{Tone, chip, gate, tabs, tonal_button};
 use crate::viewmodel::compare::{
     CompareState, FieldBar, ResultsView, SelectionBar, category_key, key_label, page_ticked,
     visible_ticks,
@@ -124,13 +123,13 @@ fn show_tabs(ui: &mut egui::Ui, results: &ResultsView, i18n: &I18n) -> Option<Co
 fn show_pager(ui: &mut egui::Ui, results: &ResultsView, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let prev = gated(ui, results.has_prev(), |ui| {
+        let prev = gate(ui, results.has_prev(), |ui| {
             tonal_button(ui, i18n.t("compare.results.prev"))
         });
         if prev.clicked() {
             action = Some(CompareAction::Page(-1));
         }
-        let next = gated(ui, results.has_next(), |ui| {
+        let next = gate(ui, results.has_next(), |ui| {
             tonal_button(ui, i18n.t("compare.results.next"))
         });
         if next.clicked() {

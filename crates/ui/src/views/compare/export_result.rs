@@ -3,11 +3,10 @@
 //! way to close the modal while the dialog is open or a job runs, and the dialog itself is never
 //! driven from here: the app layer reacts to the `Choosing` state.
 use super::export::title_key;
-use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::theme::typography::dialog_title;
-use crate::theme::{filled_button, text_button};
+use crate::theme::{filled_button, gate, text_button};
 use crate::viewmodel::compare::{ExportKind, ExportUi, RedactedPath};
 use curlybrace_core::compare::protocol::ExportOutcome;
 use eframe::egui;
@@ -71,7 +70,7 @@ fn show_running(
         ui.label(progress_text(done, total, i18n));
     });
     ui.horizontal(|ui| {
-        let cancel = gated(ui, !cancel_requested, |ui| {
+        let cancel = gate(ui, !cancel_requested, |ui| {
             text_button(ui, i18n.t("compare.export.running.cancel"))
         });
         let clicked = cancel.clicked();

@@ -1,7 +1,7 @@
 //! Fixed-height, fixed-width cells for the long lists (pair table, preflight rows, run overview),
 //! so `ScrollArea::show_rows` can draw only the visible ones.
 use crate::I18n;
-use crate::theme::{CONTROL_HEIGHT, Tone, card, chip, current_ui, gate, shape};
+use crate::theme::{CONTROL_HEIGHT, Tone, card, chip, current_ui, shape};
 use crate::viewmodel::compare::{EntryStatus, StatusIcon};
 use eframe::egui;
 
@@ -112,18 +112,6 @@ pub fn entry_status_chip(ui: &mut egui::Ui, status: &EntryStatus, i18n: &I18n) -
         tone_of(status.icon()),
         &entry_status_label(status, i18n),
     )
-}
-
-/// `add` in the widget state `enabled` says: a disabled theme button draws Material's disabled
-/// look and reports itself disabled. It opens no child `Ui` (see [`gate`]), so a button in
-/// a wrapping row keeps its width. The response of a disabled button is still "enabled" to egui:
-/// attach its reason with `on_hover_text`, not `on_disabled_hover_text`.
-pub fn gated(
-    ui: &mut egui::Ui,
-    enabled: bool,
-    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
-) -> egui::Response {
-    gate(ui, enabled, add)
 }
 
 /// Column header line; `widths` are those of the rows below it. A blank title leaves its column

@@ -4,11 +4,11 @@
 use super::duplicates::show_duplicates;
 use super::memo::memo;
 use super::table::{
-    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, gated, header, panel, status_chip, truncated, widths,
+    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, header, panel, status_chip, truncated, widths,
 };
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{compact_text_button, tonal_button};
+use crate::theme::{compact_text_button, gate, tonal_button};
 use crate::viewmodel::compare::{
     CompareState, ExportKind, OverviewRow, RowCounts, RowDetail, RunOverview, Totals,
 };
@@ -60,7 +60,7 @@ fn show_title(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Co
         if !state.is_running() {
             return;
         }
-        let cancel = gated(ui, state.can_cancel(), |ui| {
+        let cancel = gate(ui, state.can_cancel(), |ui| {
             tonal_button(ui, i18n.t("compare.overview.cancel"))
         });
         if cancel.clicked() {
@@ -160,7 +160,7 @@ fn counts_text(counts: &RowCounts, i18n: &I18n) -> String {
 fn row_buttons(ui: &mut egui::Ui, row: &OverviewRow, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     let mut button = |ui: &mut egui::Ui, key: &str, on: bool, make: CompareAction| {
-        let pressed = gated(ui, on, |ui| compact_text_button(ui, i18n.t(key)));
+        let pressed = gate(ui, on, |ui| compact_text_button(ui, i18n.t(key)));
         if pressed.clicked() {
             action = Some(make);
         }

@@ -2,10 +2,10 @@
 //! outcome counts, per-pair rows, the failed documents (keys are data, the error text comes from
 //! the typed error) and the note to run the pairs again.
 use super::pending::pair_text;
-use super::table::{gated, panel, status_chip};
+use super::table::{panel, status_chip};
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{filled_button, tonal_button};
+use crate::theme::{filled_button, gate, tonal_button};
 use crate::viewmodel::compare::{
     ApplyRow, ApplySummary, ApplyUi, CompareState, StatusIcon, key_label,
 };
@@ -81,7 +81,7 @@ fn show_running_body(
     }
     let mut action = None;
     ui.horizontal(|ui| {
-        let cancel = gated(ui, state.apply.can_cancel(), |ui| {
+        let cancel = gate(ui, state.apply.can_cancel(), |ui| {
             tonal_button(ui, i18n.t("compare.apply.running.cancel"))
         });
         if cancel.clicked() {

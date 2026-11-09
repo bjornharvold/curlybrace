@@ -1,10 +1,9 @@
 //! Selecting rows of a results tab and queueing writes for them: the checkbox helpers, the
 //! selection bar and the action buttons shared with the detail pane. Every decision (what is
 //! enabled, why not) comes from `viewmodel::compare::select_bar`.
-use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{text_button, tonal_button};
+use crate::theme::{gate, text_button, tonal_button};
 use crate::viewmodel::compare::read_only::READ_ONLY_DESTINATION_KEY;
 use crate::viewmodel::compare::{ActionBlock, ActionButton, RowAction, SelectionBar};
 use eframe::egui;
@@ -62,7 +61,7 @@ fn guarded_button(
     reasons: &[&str],
     i18n: &I18n,
 ) -> bool {
-    let response = gated(ui, enabled, |ui| match emphasis {
+    let response = gate(ui, enabled, |ui| match emphasis {
         Emphasis::Tonal => tonal_button(ui, text),
         Emphasis::Text => text_button(ui, text),
     });

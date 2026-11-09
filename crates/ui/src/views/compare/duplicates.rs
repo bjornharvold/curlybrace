@@ -1,9 +1,9 @@
 //! Find duplicate keys: the panel under the run overview with what the lookup found (Find itself
 //! is on the pair's overview row, Try again in this panel).
-use super::table::{gated, panel};
+use super::table::panel;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::tonal_button;
+use crate::theme::{gate, tonal_button};
 use crate::viewmodel::compare::{CompareState, DuplicatesView, EntryId};
 use curlybrace_core::compare::protocol::DuplicateReport;
 use eframe::egui;
@@ -47,7 +47,7 @@ fn retry_button(
         return None;
     }
     let enabled = state.can_find_duplicates_for(entry);
-    let retry = gated(ui, enabled, |ui| {
+    let retry = gate(ui, enabled, |ui| {
         tonal_button(ui, i18n.t("compare.duplicates.retry"))
     });
     let clicked = retry.clicked();

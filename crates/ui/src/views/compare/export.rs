@@ -5,12 +5,11 @@
 //! from here, and nothing here starts a write.
 use super::export_result;
 use super::pending::pair_text;
-use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::theme::typography::dialog_title;
 use crate::theme::{
-    FieldOptions, filled_button, modal_frame, outlined_field_opts, segmented, text_button,
+    FieldOptions, filled_button, gate, modal_frame, outlined_field_opts, segmented, text_button,
     tonal_button,
 };
 use crate::viewmodel::compare::{
@@ -35,7 +34,7 @@ pub fn show_entry(
         ExportKind::Report => "compare.export.open_report",
     };
     ui.horizontal(|ui| {
-        let response = gated(ui, block.is_none(), |ui| tonal_button(ui, i18n.t(key)));
+        let response = gate(ui, block.is_none(), |ui| tonal_button(ui, i18n.t(key)));
         let response = hover_reason(response, block, i18n);
         let clicked = response.clicked();
         if let Some(reason) = block {
@@ -257,7 +256,7 @@ fn show_buttons(
     let copy = state.copy_block(draft);
     let mut action = None;
     ui.horizontal(|ui| {
-        let choose = gated(ui, file.is_none(), |ui| {
+        let choose = gate(ui, file.is_none(), |ui| {
             filled_button(ui, i18n.t("compare.export.choose_file"))
         });
         let choose = hover_reason(choose, file, i18n);
@@ -265,7 +264,7 @@ fn show_buttons(
             action = Some(CompareAction::ChooseExportFile);
         }
         if draft.kind == ExportKind::Report {
-            let button = gated(ui, copy.is_none(), |ui| {
+            let button = gate(ui, copy.is_none(), |ui| {
                 tonal_button(ui, i18n.t("compare.export.copy"))
             });
             let button = hover_reason(button, copy, i18n);

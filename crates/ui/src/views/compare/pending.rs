@@ -3,10 +3,10 @@
 //! the destinations, why Review is closed) comes from `viewmodel::compare::pending_view`; a line
 //! that writes to a read-only connection carries the read-only badge (`viewmodel::compare::read_only`).
 use super::select::reasons_text;
-use super::table::{gated, panel};
+use super::table::panel;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{filled_button, text_button};
+use crate::theme::{filled_button, gate, text_button};
 use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::compare::read_only::ReviewReason;
 use crate::viewmodel::compare::{
@@ -164,7 +164,7 @@ fn show_line(
             );
         }
         ui.label(&text);
-        let remove = gated(ui, !busy, |ui| {
+        let remove = gate(ui, !busy, |ui| {
             text_button(ui, i18n.t("compare.apply.pending.remove"))
         });
         let named = i18n.t_with("compare.apply.pending.remove_named", &[("line", &text)]);
@@ -200,7 +200,7 @@ fn show_buttons(
         .map(|r| r.i18n_key())
         .collect();
     ui.horizontal(|ui| {
-        let review = gated(ui, reasons.is_empty(), |ui| {
+        let review = gate(ui, reasons.is_empty(), |ui| {
             filled_button(ui, i18n.t("compare.apply.pending.review"))
         });
         if !shown.is_empty() {
@@ -210,7 +210,7 @@ fn show_buttons(
                 word: i18n.t(CONFIRM_WORD_KEY),
             });
         }
-        let clear = gated(ui, !busy, |ui| {
+        let clear = gate(ui, !busy, |ui| {
             text_button(ui, i18n.t("compare.apply.pending.clear"))
         });
         if clear.clicked() {

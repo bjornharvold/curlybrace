@@ -1,10 +1,9 @@
 //! The setup panel: the database and collection pickers (they only feed Add pair), and the
 //! defaults every pair follows unless it overrides them: key, the two filters and the rules.
 use super::rules::show_rules;
-use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{outlined_field, text_button, tonal_button};
+use crate::theme::{gate, outlined_field, text_button, tonal_button};
 use crate::viewmodel::compare::{CompareState, Pick, SideForm};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::store::CollectionKind;
@@ -16,7 +15,7 @@ pub fn show_setup(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Optio
         let shown = show_side(ui, side, state.setup.side(side), i18n);
         action = shown.or(action);
     }
-    let add = gated(ui, state.can_add_pair(), |ui| {
+    let add = gate(ui, state.can_add_pair(), |ui| {
         tonal_button(ui, i18n.t("compare.pairs.add_pair"))
     });
     if add.clicked() {

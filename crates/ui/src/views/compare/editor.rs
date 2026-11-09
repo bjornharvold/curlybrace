@@ -2,10 +2,9 @@
 //! defaults until the user types, with Use default to follow them again.
 use super::rules::show_rules;
 use super::setup::text_field_sized;
-use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{text_button, tonal_button};
+use crate::theme::{gate, text_button, tonal_button};
 use crate::viewmodel::compare::rows::namespace_label;
 use crate::viewmodel::compare::{CompareState, EntryId, PairEntry, PairOverrides, RulesForm};
 use curlybrace_core::compare::protocol::Side;
@@ -126,7 +125,7 @@ fn rules_override(
 }
 
 fn use_default_button(ui: &mut egui::Ui, overridden: bool, i18n: &I18n) -> bool {
-    gated(ui, overridden, |ui| {
+    gate(ui, overridden, |ui| {
         text_button(ui, i18n.t("compare.pairs.use_default"))
     })
     .clicked()

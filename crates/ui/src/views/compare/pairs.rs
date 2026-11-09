@@ -3,12 +3,12 @@
 //! collections that have no counterpart. Rows are drawn with `show_rows` (only the visible
 //! ones); every row's content comes from `CompareState::pair_row`.
 use super::table::{
-    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_chip, gated, header, status_chip,
-    truncated, widths,
+    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_chip, header, status_chip, truncated,
+    widths,
 };
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{FieldOptions, compact_text_button, outlined_field_opts, tonal_button};
+use crate::theme::{FieldOptions, compact_text_button, gate, outlined_field_opts, tonal_button};
 use crate::viewmodel::compare::preflight::side_key;
 use crate::viewmodel::compare::{
     CompareState, ListView, PairRow, StatusIcon, Unmatched, can_pair_with,
@@ -130,7 +130,7 @@ fn row_buttons(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareA
     if compact_text_button(ui, i18n.t("compare.pairs.edit_settings")).clicked() {
         action = Some(CompareAction::EditPair(Some(row.entry)));
     }
-    let remove = gated(ui, row.can_remove, |ui| {
+    let remove = gate(ui, row.can_remove, |ui| {
         compact_text_button(ui, i18n.t("compare.pairs.remove"))
     });
     if remove.clicked() {
@@ -148,7 +148,7 @@ fn show_helpers(
 ) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let add_all = gated(ui, list.can_add_all(), |ui| {
+        let add_all = gate(ui, list.can_add_all(), |ui| {
             tonal_button(ui, i18n.t("compare.pairs.add_all_same_named"))
         });
         if add_all.clicked() {
@@ -214,7 +214,7 @@ fn show_unmatched_row(ui: &mut egui::Ui, item: &Unmatched, i18n: &I18n) -> Optio
         ui.allocate_ui(egui::vec2(UNMATCHED_NAME_W, ROW_HEIGHT), |ui| {
             outlined_field_opts(ui, &label, &mut typed, &hint, options);
         });
-        let pair = gated(ui, can_pair_with(&typed), |ui| {
+        let pair = gate(ui, can_pair_with(&typed), |ui| {
             compact_text_button(ui, i18n.t("compare.pairs.pair_with_name"))
         });
         if pair.clicked() {

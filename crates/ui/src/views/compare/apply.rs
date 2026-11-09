@@ -2,11 +2,10 @@
 //! the typed confirmation. It only reports actions; whether Apply may fire is decided by the
 //! same check the reducer repeats (`Review::confirmation_passes`).
 use super::pending::{destination_text, pair_text, read_only_reason_key};
-use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::theme::typography::dialog_title;
-use crate::theme::{filled_button, modal_frame, outlined_field, segmented, text_button};
+use crate::theme::{filled_button, gate, modal_frame, outlined_field, segmented, text_button};
 use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::compare::{CompareState, Review, ReviewPair};
 use crate::views::connection_badge::show_badge;
@@ -273,14 +272,14 @@ fn show_buttons(
         let apply_label = i18n.t("compare.apply.review.apply");
         let cancel_label = i18n.t("compare.apply.review.cancel");
         if !production {
-            let confirm = gated(ui, may_apply, |ui| filled_button(ui, apply_label))
+            let confirm = gate(ui, may_apply, |ui| filled_button(ui, apply_label))
                 .clicked()
                 .then_some(CompareAction::ConfirmApply);
             let cancel = text_button(ui, cancel_label);
             return confirm.or(cancel.clicked().then_some(CompareAction::CancelReview));
         }
         let cancel = text_button(ui, cancel_label);
-        let apply = gated(ui, may_apply, |ui| filled_button(ui, apply_label));
+        let apply = gate(ui, may_apply, |ui| filled_button(ui, apply_label));
         if !typing {
             focus_cancel_unless_focused(&cancel, &apply);
         }

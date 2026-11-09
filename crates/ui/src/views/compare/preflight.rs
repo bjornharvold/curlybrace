@@ -1,12 +1,10 @@
 //! The preflight strip: Check (the queue over the included pairs), Run and Run passing, and one
 //! verdict row per included pair. What is enabled is `CompareState::gates`; what a verdict says
 //! is `PairRow::status`.
-use super::table::{
-    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_chip, gated, truncated, widths,
-};
+use super::table::{Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_chip, truncated, widths};
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::{filled_button, tonal_button};
+use crate::theme::{filled_button, gate, tonal_button};
 use crate::viewmodel::compare::{CompareState, EntrySizes, Gates, ListView, PairRow};
 use eframe::egui;
 
@@ -40,21 +38,21 @@ fn show_buttons(
         } else {
             "compare.preflight.check"
         };
-        let check = gated(ui, gates.check, |ui| tonal_button(ui, i18n.t(label)));
+        let check = gate(ui, gates.check, |ui| tonal_button(ui, i18n.t(label)));
         if check.clicked() {
             action = Some(CompareAction::RunCheck);
         }
         if state.check_in_flight() {
             ui.spinner();
         }
-        let run = gated(ui, gates.start, |ui| {
+        let run = gate(ui, gates.start, |ui| {
             filled_button(ui, i18n.t("compare.preflight.run"))
         });
         if run.clicked() {
             action = Some(CompareAction::Start);
         }
         if gates.some_not_passing {
-            let passing = gated(ui, gates.start_passing, |ui| {
+            let passing = gate(ui, gates.start_passing, |ui| {
                 tonal_button(ui, i18n.t("compare.preflight.run_passing"))
             });
             if passing.clicked() {

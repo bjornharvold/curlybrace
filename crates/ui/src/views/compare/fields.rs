@@ -2,10 +2,9 @@
 //! the bar above it with the two queue buttons, the count of ticked fields and Clear. Every
 //! decision (which checkbox or button is open, why not) comes from `viewmodel::compare::field_bar`.
 use super::select::reasons_text;
-use super::table::gated;
 use crate::I18n;
 use crate::app::compare::CompareAction;
-use crate::theme::tonal_button;
+use crate::theme::{gate, tonal_button};
 use crate::viewmodel::compare::read_only::READ_ONLY_DESTINATION_KEY;
 use crate::viewmodel::compare::{ChangeLine, FieldBar, FieldBlock, FieldRow, RowAction};
 use eframe::egui;
@@ -163,7 +162,7 @@ fn queue_reasons(bar: &FieldBar, action: RowAction) -> Vec<&'static str> {
 
 /// A button that says why it is disabled on hover (every reason); true when clicked.
 fn guarded_button(ui: &mut egui::Ui, text: String, reasons: &[&str], i18n: &I18n) -> bool {
-    let response = gated(ui, reasons.is_empty(), |ui| tonal_button(ui, text));
+    let response = gate(ui, reasons.is_empty(), |ui| tonal_button(ui, text));
     if reasons.is_empty() {
         return response.clicked();
     }
