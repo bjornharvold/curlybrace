@@ -148,6 +148,9 @@ pub enum CoreError {
     /// Nothing was changed.
     #[error("bulk: cancelled before it started")]
     BulkCancelled,
+    /// An undo copy could not be deleted. No path or system text is carried.
+    #[error("snapshot: the files could not be deleted")]
+    SnapshotDeleteFailed,
     /// The snapshot was taken on another connection; restoring it here could write into the
     /// wrong server. Nothing was sent.
     #[error("snapshot: it belongs to another connection")]
@@ -237,6 +240,7 @@ impl CoreError {
             Self::SnapshotUnreadable => "errors.snapshot_unreadable",
             Self::SnapshotOtherConnection => "errors.snapshot_other_connection",
             Self::BulkCancelled => "errors.bulk_cancelled",
+            Self::SnapshotDeleteFailed => "errors.snapshot_delete_failed",
         }
     }
 }
@@ -299,6 +303,7 @@ mod tests {
             CoreError::SnapshotUnreadable,
             CoreError::SnapshotOtherConnection,
             CoreError::BulkCancelled,
+            CoreError::SnapshotDeleteFailed,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.

@@ -54,6 +54,7 @@ pub(crate) fn variant_of(error: &CoreError) -> &'static str {
         CoreError::SnapshotUnreadable => "SnapshotUnreadable",
         CoreError::SnapshotOtherConnection => "SnapshotOtherConnection",
         CoreError::BulkCancelled => "BulkCancelled",
+        CoreError::SnapshotDeleteFailed => "SnapshotDeleteFailed",
     }
 }
 

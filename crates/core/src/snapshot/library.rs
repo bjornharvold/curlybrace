@@ -77,14 +77,16 @@ fn is_snapshot_name(path: &Path) -> bool {
         .is_some_and(|stem| stem.parse::<uuid::Uuid>().is_ok())
 }
 
-/// Removes a run's snapshot and after-state files. A run with no files is already deleted.
+/// Removes a run's snapshot and after-state files. A run with no files is already deleted. The
+/// after-state goes first, so a failure leaves the readable snapshot in place: it stays listed,
+/// and whoever asked for the deletion can tell from the listing that it did not happen.
 pub fn delete(dir: &Path, run: BulkRunId) -> Result<()> {
     let path = snapshot_path(dir, run);
-    for file in [path.clone(), companion(&path)] {
+    for file in [companion(&path), path.clone()] {
         match std::fs::remove_file(&file) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(CoreError::SnapshotWriteFailed),
+            Err(_) => return Err(CoreError::SnapshotDeleteFailed),
         }
     }
     Ok(())
