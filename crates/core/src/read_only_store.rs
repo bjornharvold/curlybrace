@@ -6,9 +6,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use bson::{Bson, Document};
 
+use crate::bulk::{BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdatePreview};
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
@@ -190,5 +193,47 @@ impl DocumentStore for ReadOnlyStore {
     async fn set_profiling_level(&self, db: &str, level: i32) -> Result<ProfilingState> {
         self.guard()?;
         self.inner.set_profiling_level(db, level).await
+    }
+
+    async fn count_matching(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        max_time: Duration,
+    ) -> Result<Option<u64>> {
+        self.inner.count_matching(ns, filter, max_time).await
+    }
+
+    async fn preview_update(
+        &self,
+        ns: &Namespace,
+        req: &BulkUpdateRequest,
+    ) -> Result<UpdatePreview> {
+        self.guard()?;
+        self.inner.preview_update(ns, req).await
+    }
+
+    async fn update_many(
+        &self,
+        ns: &Namespace,
+        req: &BulkUpdateRequest,
+        run: BulkRunId,
+    ) -> Result<BulkOutcome> {
+        self.guard()?;
+        self.inner.update_many(ns, req, run).await
+    }
+
+    async fn delete_many(
+        &self,
+        ns: &Namespace,
+        req: &BulkDeleteRequest,
+        run: BulkRunId,
+    ) -> Result<BulkOutcome> {
+        self.guard()?;
+        self.inner.delete_many(ns, req, run).await
+    }
+
+    async fn cancel_bulk(&self, run: BulkRunId) -> Result<()> {
+        self.inner.cancel_bulk(run).await
     }
 }

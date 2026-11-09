@@ -3,6 +3,9 @@
 use async_trait::async_trait;
 use bson::{Bson, Document};
 
+use std::time::Duration;
+
+use crate::bulk::{BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdatePreview};
 use crate::compare::diff::PathSegment;
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
@@ -223,8 +226,9 @@ pub trait DocumentStore: Send + Sync {
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page>;
 
     // WRITE METHODS (`insert`, `replace`, `delete`, `bulk_write`, `create_index`, `drop_index`,
-    // `set_index_hidden`, `set_index_ttl`, `create_collection`): `ReadOnlyStore` must refuse each of them. Adding a write method to this trait? Update `ReadOnlyStore` and the
-    // `WRITES` list and `every_write_method_is_covered` in `read_only_store_tests.rs`.
+    // `set_index_hidden`, `set_index_ttl`, `create_collection`, `set_profiling_level`, `preview_update`,
+    // `update_many`, `delete_many`): `ReadOnlyStore` must refuse each of them. Adding a write method
+    // to this trait? Update `ReadOnlyStore` and the `WRITES` list and `every_write_method_is_covered` in `read_only_store_tests.rs`.
     /// Inserts `doc`, returning its `_id` (generated when absent).
     async fn insert(&self, ns: &Namespace, doc: Document) -> Result<Bson>;
     /// Replaces the document with `_id == id`; `NotFound` if none matches.
@@ -435,6 +439,53 @@ pub trait DocumentStore: Send + Sync {
         Err(CoreError::Unsupported(
             "this store cannot set the profiler".into(),
         ))
+    }
+
+    /// Counts the documents matching `filter`, giving up after `max_time`: `None` means the
+    /// count timed out. A read.
+    async fn count_matching(
+        &self,
+        _ns: &Namespace,
+        _filter: &Document,
+        _max_time: Duration,
+    ) -> Result<Option<u64>> {
+        Err(CoreError::Unsupported("bulk writes".into()))
+    }
+
+    /// Shows what `req` would do to the first few matching documents, changing nothing.
+    /// Classified as a write because the preview may run inside a transaction.
+    async fn preview_update(
+        &self,
+        _ns: &Namespace,
+        _req: &BulkUpdateRequest,
+    ) -> Result<UpdatePreview> {
+        Err(CoreError::Unsupported("bulk writes".into()))
+    }
+
+    /// Applies `req` to every matching document as the run `run`.
+    async fn update_many(
+        &self,
+        _ns: &Namespace,
+        _req: &BulkUpdateRequest,
+        _run: BulkRunId,
+    ) -> Result<BulkOutcome> {
+        Err(CoreError::Unsupported("bulk writes".into()))
+    }
+
+    /// Deletes every document matching `req` as the run `run`.
+    async fn delete_many(
+        &self,
+        _ns: &Namespace,
+        _req: &BulkDeleteRequest,
+        _run: BulkRunId,
+    ) -> Result<BulkOutcome> {
+        Err(CoreError::Unsupported("bulk writes".into()))
+    }
+
+    /// Best-effort cancel of the bulk run `run`. Not a write: it only kills the caller's own
+    /// operation, so it is allowed on a read-only connection.
+    async fn cancel_bulk(&self, _run: BulkRunId) -> Result<()> {
+        Err(CoreError::Unsupported("bulk writes".into()))
     }
 }
 

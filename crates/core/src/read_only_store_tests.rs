@@ -4,10 +4,15 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bson::{Bson, Document, doc};
 
+use crate::bulk::{
+    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope, PreviewDoc,
+    UpdatePreview, UpdateSpec,
+};
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::indexes::IndexSpec;
@@ -41,7 +46,7 @@ impl RecordingStore {
 
 /// Every write method of `DocumentStore`. Adding a write to the trait? Name it here, give
 /// `RecordingStore` a counter for it, refuse it in `ReadOnlyStore`, and cover it below.
-const WRITES: [&str; 10] = [
+const WRITES: [&str; 13] = [
     "insert",
     "replace",
     "delete",
@@ -52,6 +57,9 @@ const WRITES: [&str; 10] = [
     "set_index_ttl",
     "create_collection",
     "set_profiling_level",
+    "preview_update",
+    "update_many",
+    "delete_many",
 ];
 
 fn ns() -> Namespace {
@@ -230,6 +238,61 @@ impl DocumentStore for RecordingStore {
         self.hit("create_collection");
         Ok(())
     }
+    async fn count_matching(
+        &self,
+        _ns: &Namespace,
+        _filter: &Document,
+        _max_time: Duration,
+    ) -> Result<Option<u64>> {
+        self.hit("count_matching");
+        Ok(Some(77))
+    }
+    async fn preview_update(
+        &self,
+        _ns: &Namespace,
+        _req: &BulkUpdateRequest,
+    ) -> Result<UpdatePreview> {
+        self.hit("preview_update");
+        Ok(UpdatePreview {
+            docs: vec![PreviewDoc {
+                before: doc! {"via": "preview_update"},
+                after: None,
+            }],
+            gap: None,
+        })
+    }
+    async fn update_many(
+        &self,
+        _ns: &Namespace,
+        _req: &BulkUpdateRequest,
+        _run: BulkRunId,
+    ) -> Result<BulkOutcome> {
+        self.hit("update_many");
+        Ok(BulkOutcome::Applied {
+            matched: 5,
+            modified: 4,
+            upserted: Vec::new(),
+            deleted: 0,
+        })
+    }
+    async fn delete_many(
+        &self,
+        _ns: &Namespace,
+        _req: &BulkDeleteRequest,
+        _run: BulkRunId,
+    ) -> Result<BulkOutcome> {
+        self.hit("delete_many");
+        Ok(BulkOutcome::Applied {
+            matched: 0,
+            modified: 0,
+            upserted: Vec::new(),
+            deleted: 9,
+        })
+    }
+    async fn cancel_bulk(&self, _run: BulkRunId) -> Result<()> {
+        self.hit("cancel_bulk");
+        Err(CoreError::Unsupported("inner cancel".into()))
+    }
 }
 
 /// Options no trait default would ever produce.
@@ -245,6 +308,26 @@ fn wrapped(locked: bool) -> (Arc<RecordingStore>, Arc<AtomicBool>, Arc<dyn Docum
     let flag = Arc::new(AtomicBool::new(locked));
     let store = ReadOnlyStore::wrap(inner.clone(), flag.clone());
     (inner, flag, store)
+}
+
+fn update_req() -> BulkUpdateRequest {
+    BulkUpdateRequest {
+        filter: doc! {"a": 1},
+        update: UpdateSpec::Operators(doc! {"$set": {"b": 2}}),
+        upsert: false,
+        scope: MatchScope::Filtered,
+    }
+}
+
+fn delete_req() -> BulkDeleteRequest {
+    BulkDeleteRequest {
+        filter: doc! {"a": 1},
+        scope: MatchScope::Filtered,
+    }
+}
+
+fn run() -> BulkRunId {
+    BulkRunId(uuid::Uuid::nil())
 }
 
 /// Runs every write; true per write when it came back `ReadOnly`.
@@ -272,6 +355,9 @@ async fn refused_writes(store: &dyn DocumentStore) -> [bool; WRITES.len()] {
                 .err(),
         ),
         is_ro(store.set_profiling_level("db", 1).await.err()),
+        is_ro(store.preview_update(&ns(), &update_req()).await.err()),
+        is_ro(store.update_many(&ns(), &update_req(), run()).await.err()),
+        is_ro(store.delete_many(&ns(), &delete_req(), run()).await.err()),
     ]
 }
 
@@ -523,4 +609,58 @@ async fn locked_store_refuses_an_invalid_level_with_read_only_first() {
         Err(CoreError::ReadOnly)
     );
     assert_eq!(inner.count("set_profiling_level"), 0);
+}
+
+#[tokio::test]
+async fn locked_store_refuses_bulk_writes_without_calling_inner() {
+    let (inner, _flag, store) = wrapped(true);
+    assert_eq!(
+        store.preview_update(&ns(), &update_req()).await,
+        Err(CoreError::ReadOnly)
+    );
+    assert_eq!(
+        store.update_many(&ns(), &update_req(), run()).await,
+        Err(CoreError::ReadOnly)
+    );
+    assert_eq!(
+        store.delete_many(&ns(), &delete_req(), run()).await,
+        Err(CoreError::ReadOnly)
+    );
+    for m in ["preview_update", "update_many", "delete_many"] {
+        assert_eq!(inner.count(m), 0, "{m}");
+    }
+}
+
+#[tokio::test]
+async fn unlocked_store_forwards_bulk_methods() {
+    let (inner, _flag, store) = wrapped(false);
+    let preview = store.preview_update(&ns(), &update_req()).await.unwrap();
+    assert_eq!(preview.docs[0].before, doc! {"via": "preview_update"});
+    assert!(matches!(
+        store.update_many(&ns(), &update_req(), run()).await,
+        Ok(BulkOutcome::Applied { matched: 5, .. })
+    ));
+    assert!(matches!(
+        store.delete_many(&ns(), &delete_req(), run()).await,
+        Ok(BulkOutcome::Applied { deleted: 9, .. })
+    ));
+    for m in ["preview_update", "update_many", "delete_many"] {
+        assert_eq!(inner.count(m), 1, "{m}");
+    }
+}
+
+#[tokio::test]
+async fn count_matching_and_cancel_are_forwarded_when_locked() {
+    // Locked on purpose: counting is a read and cancelling kills your own operation.
+    let (inner, _flag, store) = wrapped(true);
+    let counted = store
+        .count_matching(&ns(), &doc! {"a": 1}, Duration::from_secs(1))
+        .await;
+    assert_eq!(counted, Ok(Some(77)));
+    assert_eq!(
+        store.cancel_bulk(run()).await,
+        Err(CoreError::Unsupported("inner cancel".into()))
+    );
+    assert_eq!(inner.count("count_matching"), 1);
+    assert_eq!(inner.count("cancel_bulk"), 1);
 }
