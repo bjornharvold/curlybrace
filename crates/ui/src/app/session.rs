@@ -346,6 +346,8 @@ impl AppState {
 
     /// Forgets a session and its parked view; dropping the active one leaves no active view.
     pub fn session_dropped(self, id: Uuid) -> AppState {
+        // The session is closed: there is no view left to report on, and a flow kept for it would
+        // stay Running (and block every other bulk flow) forever, so even a running one goes.
         let mut next = self
             .write_warning_dropped_for(id)
             .bulk_dropped_for(id, false);

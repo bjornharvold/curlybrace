@@ -27,11 +27,14 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
         read_only: cfg.read_only,
         ..SessionView::default()
     };
+    // A reconnect keeps a still-running bulk write's flow: its finish is still coming and the
+    // report of a write whose result is not known must not be lost. Any other flow was aimed at
+    // the opening that is gone, so it is dropped.
     let next = AppState {
         epoch_counter: epoch,
         forget_confirm: None,
         workspace: Workspace::Browse,
-        ..cleared_for_connect(state.bulk_dropped_for(id, false), id).opened_with(id, view)
+        ..cleared_for_connect(state.bulk_dropped_for(id, true), id).opened_with(id, view)
     };
     (next, vec![Command::Connect(cfg)])
 }

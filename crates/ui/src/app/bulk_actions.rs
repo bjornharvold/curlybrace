@@ -53,6 +53,7 @@ fn in_flow(state: AppState, action: BulkAction) -> Out {
     let Some(session) = state.bulk.as_ref().map(|b| b.session) else {
         return unchanged(state);
     };
+    // The session was closed: nothing is left to report on, so even a running flow goes.
     if !state.is_open(session) {
         return unchanged(state.bulk_dropped_for(session, false));
     }
@@ -510,9 +511,12 @@ fn preview_failed(state: AppState, error: CoreError) -> AppState {
 }
 
 impl AppState {
-    /// Closes the bulk flow of `session` (closed, lost or reopened). A running flow stays when
-    /// `keep_running`: the runtime delivers its finish whatever happened to the connection, and
-    /// the report of a write whose result is not known must not be lost.
+    /// Closes the bulk flow of `session`. A running flow stays when `keep_running`: the runtime
+    /// delivers its finish whatever happened to the connection, and the report of a write whose
+    /// result is not known must not be lost. Callers: a lost connection (`failed`) and a reconnect
+    /// (`connect`) keep it, because the session lives on; closing the session
+    /// (`session_dropped`) and a flow whose session is no longer open do not, because the report
+    /// would have no session view to land on and the flow would block every later bulk flow.
     pub fn bulk_dropped_for(self, session: Uuid, keep_running: bool) -> AppState {
         let drops = self.bulk.as_ref().is_some_and(|b| {
             b.session == session && !(keep_running && b.flow.step == BulkStep::Running)
