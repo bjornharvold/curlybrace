@@ -18,6 +18,7 @@ mod error_name;
 pub mod explain;
 pub mod history;
 pub mod indexes;
+mod mongo_bulk;
 mod mongo_collection_options;
 mod mongo_explain;
 mod mongo_indexes;

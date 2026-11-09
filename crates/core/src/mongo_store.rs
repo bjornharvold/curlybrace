@@ -8,6 +8,7 @@ use futures::TryStreamExt;
 use mongodb::Client;
 use mongodb::action::Action;
 
+use crate::bulk::{BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
@@ -237,6 +238,35 @@ impl DocumentStore for MongoStore {
     async fn bulk_write(&self, ns: &Namespace, ops: Vec<WriteOp>) -> Result<Vec<WriteOutcome>> {
         let db = self.client.database(&ns.db);
         crate::mongo_write::bulk_write(&db, &ns.collection, ops, db_err).await
+    }
+
+    async fn count_matching(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        max_time: Duration,
+    ) -> Result<Option<u64>> {
+        crate::mongo_bulk::count_matching(&self.collection(ns), filter, max_time, db_err).await
+    }
+
+    async fn update_many(
+        &self,
+        ns: &Namespace,
+        req: &BulkUpdateRequest,
+        run: BulkRunId,
+    ) -> Result<BulkOutcome> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_bulk::update_many(&db, &ns.collection, req, run).await
+    }
+
+    async fn delete_many(
+        &self,
+        ns: &Namespace,
+        req: &BulkDeleteRequest,
+        run: BulkRunId,
+    ) -> Result<BulkOutcome> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_bulk::delete_many(&db, &ns.collection, req, run).await
     }
 
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
