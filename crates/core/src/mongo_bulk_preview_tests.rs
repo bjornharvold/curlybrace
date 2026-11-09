@@ -45,10 +45,55 @@ fn a_write_conflict_or_transient_label_is_a_conflict() {
 }
 
 #[test]
-fn any_other_failure_is_not_a_gap() {
-    // 14 TypeMismatch: `$inc` on a string.
-    assert_eq!(classify_failure(Some(14), false, false), Failure::Other);
-    assert_eq!(classify_failure(None, false, false), Failure::Other);
+fn data_errors_of_the_update_are_an_invalid_update() {
+    for code in [2, 14, 16, 28, 40, 66, 121, 11000] {
+        assert_eq!(
+            classify_failure(Some(code), false, false),
+            Failure::InvalidUpdate,
+            "code {code}"
+        );
+    }
+}
+
+#[test]
+fn every_other_failure_degrades_instead_of_failing() {
+    let unavailable = gap(PreviewGap::TransactionsUnavailable);
+    // 24 LockTimeout, 251 NoSuchTransaction, an unknown code, no code at all.
+    for code in [Some(24), Some(251), Some(9999), None] {
+        assert_eq!(
+            classify_failure(code, false, false),
+            unavailable,
+            "{code:?}"
+        );
+    }
+}
+
+#[test]
+fn a_transient_label_wins_over_a_data_error_code() {
+    assert_eq!(
+        classify_failure(Some(14), true, false),
+        gap(PreviewGap::Conflict)
+    );
+}
+
+#[test]
+fn a_reply_label_is_read() {
+    let labelled = doc! { "ok": 1, "errorLabels": ["TransientTransactionError"] };
+    assert!(reply_is_transient(&labelled));
+    assert!(!reply_is_transient(&doc! { "ok": 1 }));
+    assert!(!reply_is_transient(&doc! { "errorLabels": ["Other"] }));
+}
+
+#[test]
+fn a_malformed_first_batch_is_none_not_empty() {
+    let good = doc! { "cursor": { "firstBatch": [{ "_id": 1 }] } };
+    assert_eq!(first_batch(&good), Some(vec![doc! { "_id": 1 }]));
+    assert_eq!(first_batch(&doc! { "ok": 1 }), None);
+    assert_eq!(first_batch(&doc! { "cursor": { "firstBatch": 5 } }), None);
+    assert_eq!(
+        first_batch(&doc! { "cursor": { "firstBatch": [1, 2] } }),
+        None
+    );
 }
 
 #[test]

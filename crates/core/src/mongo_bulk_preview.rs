@@ -33,17 +33,25 @@ const UNAVAILABLE_CODES: [i32; 4] = [
     CODE_TRANSACTIONS_NOT_SUPPORTED,
 ];
 
+/// Server codes for an update that is wrong for the data it meets (not for the deployment):
+/// 2 BadValue, 14 TypeMismatch, 16 (bad operand), 28 PathNotViable, 40 ConflictingUpdateOperators,
+/// 66 ImmutableField, 121 DocumentValidationFailure, 11000 DuplicateKey. Only these are reported
+/// as an invalid update; 14, 28 and 66 are exercised against a real server in `local_bulk.rs`.
+const DATA_ERROR_CODES: [i32; 8] = [2, 14, 16, 28, 40, 66, 121, 11000];
+
 /// How a failed step inside the preview transaction is handled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Failure {
     /// Show the gap and keep the "before" documents.
     Gap(PreviewGap),
-    /// Any other failure: the update itself is wrong for these documents, or the driver failed.
-    Other,
+    /// The user's update fails on these documents: the real run would fail too.
+    InvalidUpdate,
 }
 
 /// Pure: maps the facts of a failure (server code, `TransientTransactionError` label, driver
-/// "transactions are not supported" kind) to its handling.
+/// "transactions are not supported" kind) to its handling. Everything that is not a data error
+/// of the user's update degrades to a gap, because a preview failure is "preview unavailable",
+/// never a failed update.
 pub(crate) fn classify_failure(
     code: Option<i32>,
     transient: bool,
@@ -56,7 +64,8 @@ pub(crate) fn classify_failure(
             Failure::Gap(PreviewGap::TransactionsUnavailable)
         }
         _ if transient => Failure::Gap(PreviewGap::Conflict),
-        _ => Failure::Other,
+        Some(c) if DATA_ERROR_CODES.contains(&c) => Failure::InvalidUpdate,
+        _ => Failure::Gap(PreviewGap::TransactionsUnavailable),
     }
 }
 
@@ -67,6 +76,15 @@ fn classify_driver(e: &mongodb::error::Error) -> Failure {
     };
     let no_txn = matches!(e.kind.as_ref(), ErrorKind::Transaction { .. });
     classify_failure(code, e.contains_label(TRANSIENT_TRANSACTION_ERROR), no_txn)
+}
+
+/// Whether a command reply carries the `TransientTransactionError` label.
+pub(crate) fn reply_is_transient(reply: &Document) -> bool {
+    reply.get_array("errorLabels").is_ok_and(|labels| {
+        labels
+            .iter()
+            .any(|l| l.as_str() == Some(TRANSIENT_TRANSACTION_ERROR))
+    })
 }
 
 /// The code of the first entry of a reply's `writeErrors`, if there is one.
@@ -89,7 +107,7 @@ enum Attempt {
     /// The documents re-read after the update, in no particular order.
     Afters(Vec<Document>),
     Gap(PreviewGap),
-    Failed(CoreError),
+    Invalid,
 }
 
 pub(crate) async fn preview_update(
@@ -109,23 +127,28 @@ pub(crate) async fn preview_update(
             gap: Some(PreviewGap::NoMatch),
         });
     }
-    let mut session = client.start_session().await.map_err(db_err)?;
+    let Ok(mut session) = client.start_session().await else {
+        return Ok(before_only(befores, PreviewGap::TransactionsUnavailable));
+    };
     if let Err(e) = session.start_transaction().await {
-        return match classify_driver(&e) {
-            Failure::Gap(gap) => Ok(before_only(befores, gap)),
-            Failure::Other => Err(db_err(e)),
+        let gap = match classify_driver(&e) {
+            Failure::Gap(gap) => gap,
+            Failure::InvalidUpdate => PreviewGap::TransactionsUnavailable,
         };
+        return Ok(before_only(befores, gap));
     }
-    let attempt = in_transaction(&db, &ns.collection, &mut session, req, &befores, db_err).await;
+    let attempt = in_transaction(&db, &ns.collection, &mut session, req, &befores).await;
     abort(&mut session).await?;
     match attempt {
         Attempt::Afters(afters) => Ok(pair_up(befores, afters)),
         Attempt::Gap(gap) => Ok(before_only(befores, gap)),
-        Attempt::Failed(e) => Err(e),
+        Attempt::Invalid => Err(CoreError::BulkInvalidUpdate),
     }
 }
 
-/// Aborts the transaction. A failed abort leaves it to time out on the server: loud, not silent.
+/// Aborts the transaction. The driver (mongodb 3.6) swallows a server-side `abortTransaction`
+/// failure and returns `Ok`, so this errors only on a driver state error (no transaction in
+/// progress, already aborted/committed): loud, not silent.
 async fn abort(session: &mut ClientSession) -> Result<()> {
     session.abort_transaction().await.map_err(|_| {
         log::error!("bulk update preview: aborting the preview transaction failed");
@@ -192,7 +215,6 @@ async fn in_transaction(
     session: &mut ClientSession,
     req: &BulkUpdateRequest,
     befores: &[Document],
-    db_err: fn(mongodb::error::Error) -> CoreError,
 ) -> Attempt {
     let filter = if befores.is_empty() {
         req.filter.clone()
@@ -206,31 +228,33 @@ async fn in_transaction(
     };
     let reply = match db.run_command(command).session(&mut *session).await {
         Ok(reply) => reply,
-        Err(e) => return failed(&e, db_err),
+        Err(e) => return failed(&e),
     };
     if let Some(code) = write_error_code(&reply) {
-        return match classify_failure(code, false, false) {
-            Failure::Gap(gap) => Attempt::Gap(gap),
-            Failure::Other => Attempt::Failed(CoreError::BulkInvalidUpdate),
-        };
+        return from_failure(classify_failure(code, reply_is_transient(&reply), false));
     }
     if reply_is_clean(&reply).is_none() {
-        return Attempt::Failed(CoreError::BulkPreviewUnavailable);
+        return Attempt::Gap(PreviewGap::TransactionsUnavailable);
     }
-    let ids = match read_back_ids(&reply, befores) {
-        Some(ids) => ids,
-        None => return Attempt::Gap(PreviewGap::Conflict),
+    let Some(ids) = read_back_ids(&reply, befores) else {
+        return Attempt::Gap(PreviewGap::Conflict);
     };
     match read_in(db, coll, session, ids).await {
-        Ok(afters) => Attempt::Afters(afters),
-        Err(e) => failed(&e, db_err),
+        Ok(Some(afters)) if !afters.is_empty() => Attempt::Afters(afters),
+        // An empty or unreadable re-read is never shown as a clean preview.
+        Ok(_) => Attempt::Gap(PreviewGap::TransactionsUnavailable),
+        Err(e) => failed(&e),
     }
 }
 
-fn failed(e: &mongodb::error::Error, db_err: fn(mongodb::error::Error) -> CoreError) -> Attempt {
-    match classify_driver(e) {
+fn failed(e: &mongodb::error::Error) -> Attempt {
+    from_failure(classify_driver(e))
+}
+
+fn from_failure(failure: Failure) -> Attempt {
+    match failure {
         Failure::Gap(gap) => Attempt::Gap(gap),
-        Failure::Other => Attempt::Failed(db_err(e.clone())),
+        Failure::InvalidUpdate => Attempt::Invalid,
     }
 }
 
@@ -244,25 +268,31 @@ fn read_back_ids(reply: &Document, befores: &[Document]) -> Option<Vec<Bson>> {
     (!ids.is_empty()).then_some(ids)
 }
 
-/// A `find` on `_id` inside the session's transaction; the reply's first batch (at most
-/// [`BULK_PREVIEW_DOCS`] documents) is the result.
+/// A `find` on `_id` inside the session's transaction. `Ok(None)` when the reply has no readable
+/// `firstBatch` of documents (at most [`BULK_PREVIEW_DOCS`] are asked for).
 async fn read_in(
     db: &Database,
     coll: &str,
     session: &mut ClientSession,
     ids: Vec<Bson>,
-) -> mongodb::error::Result<Vec<Document>> {
+) -> mongodb::error::Result<Option<Vec<Document>>> {
     let command = doc! {
         "find": coll,
         "filter": { "_id": { "$in": ids } },
         "limit": BULK_PREVIEW_DOCS as i64,
     };
     let reply = db.run_command(command).session(session).await?;
+    Ok(first_batch(&reply))
+}
+
+/// The documents of a `find` reply's `firstBatch`; `None` when it is absent or has a non-document.
+pub(crate) fn first_batch(reply: &Document) -> Option<Vec<Document>> {
     let batch = reply
         .get_document("cursor")
-        .and_then(|c| c.get_array("firstBatch"))
-        .map(|b| b.iter().filter_map(|d| d.as_document().cloned()).collect());
-    Ok(batch.unwrap_or_default())
+        .ok()?
+        .get_array("firstBatch")
+        .ok()?;
+    batch.iter().map(|d| d.as_document().cloned()).collect()
 }
 
 #[cfg(test)]

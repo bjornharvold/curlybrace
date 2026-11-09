@@ -423,3 +423,74 @@ async fn preview_on_capped_collection_degrades() {
     assert!(preview.docs.iter().all(|d| d.after.is_none()));
     assert_eq!(all_docs(&store, &ns).await, before);
 }
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn preview_reports_data_errors_of_the_update_as_invalid() {
+    if !local_enabled("preview_reports_data_errors_of_the_update_as_invalid") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("c");
+    seed(&client, &ns).await;
+    let before = all_docs(&store, &ns).await;
+    let updates = [
+        doc! { "$set": { "n.x": 1 } },   // 28 PathNotViable: `n` is a number
+        doc! { "$set": { "_id": 42 } },  // 66 ImmutableField
+        doc! { "$inc": { "group": 1 } }, // 14 TypeMismatch
+    ];
+    for update in updates {
+        let req = update_req(doc! { "group": "a" }, UpdateSpec::Operators(update), false);
+        let err = store.preview_update(&ns, &req).await.unwrap_err();
+        assert_eq!(err, CoreError::BulkInvalidUpdate);
+    }
+    assert_eq!(all_docs(&store, &ns).await, before);
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn preview_rejects_an_invalid_update_spec_before_touching_anything() {
+    if !local_enabled("preview_rejects_an_invalid_update_spec_before_touching_anything") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("c");
+    seed(&client, &ns).await;
+    let before = all_docs(&store, &ns).await;
+    let req = update_req(
+        doc! { "group": "a" },
+        UpdateSpec::Operators(doc! { "replaced": 1 }),
+        false,
+    );
+    let err = store.preview_update(&ns, &req).await.unwrap_err();
+    assert_eq!(err, CoreError::BulkInvalidUpdate);
+    assert_eq!(all_docs(&store, &ns).await, before);
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn preview_during_a_write_conflict_reports_conflict() {
+    if !local_enabled("preview_during_a_write_conflict_reports_conflict") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("c");
+    seed(&client, &ns).await;
+    let before = all_docs(&store, &ns).await;
+    // A second session holds an uncommitted transaction write on _id 0.
+    let mut holder = client.start_session().await.unwrap();
+    holder.start_transaction().await.unwrap();
+    client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection)
+        .update_one(doc! { "_id": 0 }, doc! { "$set": { "held": true } })
+        .session(&mut holder)
+        .await
+        .unwrap();
+    let req = set_update(doc! { "group": "a" }, MatchScope::Filtered, false);
+    let preview = store.preview_update(&ns, &req).await.unwrap();
+    holder.abort_transaction().await.unwrap();
+    assert_eq!(preview.gap, Some(PreviewGap::Conflict));
+    assert!(preview.docs.iter().all(|d| d.after.is_none()));
+    assert_eq!(all_docs(&store, &ns).await, before);
+}
