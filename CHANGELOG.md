@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/bjornharvold/curlybrace/compare/v0.7.0...v0.8.0) (2026-11-09)
+
+
+### Features
+
+* **ui:** restyle the whole app with a Material 3 look (light and dark, green accent) ([#132](https://github.com/bjornharvold/curlybrace/issues/132)) ([4e19994](https://github.com/bjornharvold/curlybrace/commit/4e19994b56afeefa6ff069ba705ebbfde59f9996))
+
 ## [0.7.0](https://github.com/bjornharvold/curlybrace/compare/v0.6.0...v0.7.0) (2026-11-08)
 
 
