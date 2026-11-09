@@ -83,8 +83,7 @@
       "immutable_field": "the update tried to change a field that cannot be changed.",
       "other": "the server reported an error for one of the documents.",
       "type_mismatch": "the update does not fit the type of a field in one of the documents.",
-      "validation_failed": "a changed document would break the collection's validation rules.",
-      "write_concern": "the write was applied but the server could not confirm it as requested."
+      "validation_failed": "a changed document would break the collection's validation rules."
     },
     "filter_heading": "Filter",
     "filter_scope": "Applies to every document matching the filter, not just this page.",
@@ -113,6 +112,7 @@
     },
     "report_failed": "The bulk write failed.",
     "report_rejected": "The server rejected the write: {reason} Some documents may already have been changed. Check the data before you try again.",
+    "report_unconfirmed": "The write was applied, but the server could not confirm that it reached the requested durability (write concern). Check that the change is durable before you rely on it.",
     "report_unknown": "The result is not known. The write may or may not have been applied. Check the data before you try again.",
     "report_unknown_cancelled": "The write was cancelled before it finished. It may have been applied to some, all or none of the documents. Check the data before you try again.",
     "run_blocked": "To continue, complete the confirmation above.",

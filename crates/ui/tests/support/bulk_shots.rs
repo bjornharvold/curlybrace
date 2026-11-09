@@ -174,3 +174,13 @@ pub fn report_rejected(state: &mut AppState) {
     let reason = BulkFailureReason::DuplicateKey;
     reported(BulkOutcome::Rejected { reason })(state);
 }
+
+pub fn report_unconfirmed(state: &mut AppState) {
+    let outcome = BulkOutcome::Unconfirmed {
+        matched: 42,
+        modified: 40,
+        upserted: vec![],
+        deleted: 0,
+    };
+    reported(outcome)(state);
+}

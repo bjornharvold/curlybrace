@@ -64,6 +64,15 @@ pub enum BulkOutcome {
     },
     /// The result is not known: the run was cut short or the connection was lost.
     Unknown { cancelled: bool },
+    /// The write was applied and its counts are known, but the server reported a write concern
+    /// error: it could not confirm the write reached the requested durability (for example a
+    /// majority acknowledgement timed out). Carries the same counts as `Applied`.
+    Unconfirmed {
+        matched: u64,
+        modified: u64,
+        upserted: Vec<Bson>,
+        deleted: u64,
+    },
     /// The server answered with an error for the write. The reply's counts do not cover the
     /// documents changed before the failure (observed: `n` and `nModified` read 0 after several
     /// documents were written), so none are reported: some documents MAY already be changed.
@@ -78,8 +87,6 @@ pub enum BulkFailureReason {
     ValidationFailed,
     ImmutableField,
     TypeMismatch,
-    /// The write concern could not be satisfied; the write itself was applied.
-    WriteConcern,
     Other,
 }
 
@@ -103,7 +110,6 @@ impl BulkFailureReason {
             Self::ValidationFailed => "bulk.failure.validation_failed",
             Self::ImmutableField => "bulk.failure.immutable_field",
             Self::TypeMismatch => "bulk.failure.type_mismatch",
-            Self::WriteConcern => "bulk.failure.write_concern",
             Self::Other => "bulk.failure.other",
         }
     }
@@ -214,7 +220,6 @@ mod tests {
             ValidationFailed,
             ImmutableField,
             TypeMismatch,
-            WriteConcern,
             Other,
         ];
         let mut keys: Vec<_> = all.iter().map(|r| r.i18n_key()).collect();

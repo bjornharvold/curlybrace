@@ -287,18 +287,27 @@ pub(super) fn report_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
             modified,
             upserted,
             deleted,
+        })) => count_labels(
+            ui,
+            flow.kind,
+            i18n,
+            [*matched, *modified, upserted.len() as u64, *deleted],
+        ),
+        // Applied, but not confirmed durable: a warning (not the red of a rejection) over the
+        // counts, which are known.
+        Some(Ok(BulkOutcome::Unconfirmed {
+            matched,
+            modified,
+            upserted,
+            deleted,
         })) => {
-            let counts = match flow.kind {
-                BulkKind::Update => vec![
-                    ("bulk.report.matched", *matched),
-                    ("bulk.report.modified", *modified),
-                    ("bulk.report.upserted", upserted.len() as u64),
-                ],
-                BulkKind::Delete => vec![("bulk.report.deleted", *deleted)],
-            };
-            for (key, n) in counts {
-                ui.label(i18n.t_with(key, &[("n", &n.to_string())]));
-            }
+            tone_notice(ui, Tone::Warning, &i18n.t("bulk.report_unconfirmed"), true);
+            count_labels(
+                ui,
+                flow.kind,
+                i18n,
+                [*matched, *modified, upserted.len() as u64, *deleted],
+            );
         }
         Some(Ok(BulkOutcome::Unknown { cancelled })) => {
             let key = match cancelled {
@@ -317,5 +326,22 @@ pub(super) fn report_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
             ui.label(i18n.t(error.i18n_key()));
         }
         None => {}
+    }
+}
+
+/// The counts of a write that went through: matched, modified and inserted for an update, deleted
+/// for a delete. `counts` is `[matched, modified, upserted, deleted]`.
+fn count_labels(ui: &mut egui::Ui, kind: BulkKind, i18n: &I18n, counts: [u64; 4]) {
+    let [matched, modified, upserted, deleted] = counts;
+    let lines = match kind {
+        BulkKind::Update => vec![
+            ("bulk.report.matched", matched),
+            ("bulk.report.modified", modified),
+            ("bulk.report.upserted", upserted),
+        ],
+        BulkKind::Delete => vec![("bulk.report.deleted", deleted)],
+    };
+    for (key, n) in lines {
+        ui.label(i18n.t_with(key, &[("n", &n.to_string())]));
     }
 }

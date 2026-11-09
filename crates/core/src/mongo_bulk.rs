@@ -5,9 +5,10 @@
 //! itself carries no time limit. Server text (`errmsg`) is never copied into a result: it can
 //! quote document values. Anything that makes the result untrustworthy (driver error,
 //! unreadable counts, a lost connection) is `BulkOutcome::Unknown`, because the write may have
-//! happened. A reply that carries `writeErrors` or a `writeConcernError` is
-//! `BulkOutcome::Rejected` with a reason keyed by the error code: the server says why, but its
-//! counts do not cover the documents written before the failure, so none are reported.
+//! happened. A reply that carries `writeErrors` is `BulkOutcome::Rejected` with a reason keyed
+//! by the error code: the server says why, but its counts do not cover the documents written
+//! before the failure, so none are reported. A reply with only a `writeConcernError` means the
+//! write was applied but not confirmed durable: `BulkOutcome::Unconfirmed`, with the counts.
 
 use std::time::Duration;
 
@@ -48,7 +49,7 @@ pub(crate) async fn update_many(
 ) -> Result<BulkOutcome> {
     check_scope(&req.filter, req.scope)?;
     validate_update(&req.update)?;
-    Ok(send(db, update_command(coll_name, req, run), parse_update_reply).await)
+    Ok(send(db, update_command(coll_name, req, run), update_counts).await)
 }
 
 pub(crate) async fn delete_many(
@@ -58,20 +59,57 @@ pub(crate) async fn delete_many(
     run: BulkRunId,
 ) -> Result<BulkOutcome> {
     check_scope(&req.filter, req.scope)?;
-    Ok(send(db, delete_command(coll_name, req, run), parse_delete_reply).await)
+    Ok(send(db, delete_command(coll_name, req, run), delete_counts).await)
 }
 
-/// Runs `command`; a driver error or a reply `parse` rejects is an unknown outcome.
+/// Runs `command`; a driver error or a reply that cannot be read is an unknown outcome.
 async fn send(
     db: &Database,
     command: Document,
-    parse: fn(&Document) -> Option<BulkOutcome>,
+    counts: fn(&Document) -> Option<BulkOutcome>,
 ) -> BulkOutcome {
     match db.run_command(command).await {
-        Ok(reply) => parse(&reply)
-            .or_else(|| rejection(&reply))
-            .unwrap_or(UNKNOWN),
+        Ok(reply) => interpret(&reply, counts),
         Err(e) => outcome_for_error_code(server_error_code(&e)),
+    }
+}
+
+/// What a command's reply means. An `ok: 1` reply with `writeErrors` is `Rejected` (its counts
+/// do not cover what was written before the failure). Without them, readable `counts` make it
+/// `Applied`, or `Unconfirmed` when the server also reports a `writeConcernError` (the write was
+/// applied, the durability it asked for was not confirmed). Anything unreadable is `Unknown`.
+pub(crate) fn interpret(
+    reply: &Document,
+    counts: fn(&Document) -> Option<BulkOutcome>,
+) -> BulkOutcome {
+    if !reply_ok(reply) {
+        return UNKNOWN;
+    }
+    if let Some(rejected) = rejection(reply) {
+        return rejected;
+    }
+    match (counts(reply), reply.contains_key("writeConcernError")) {
+        (Some(applied), false) => applied,
+        (Some(applied), true) => unconfirmed(applied),
+        (None, _) => UNKNOWN,
+    }
+}
+
+/// The same counts as `applied`, flagged as not confirmed durable.
+fn unconfirmed(applied: BulkOutcome) -> BulkOutcome {
+    match applied {
+        BulkOutcome::Applied {
+            matched,
+            modified,
+            upserted,
+            deleted,
+        } => BulkOutcome::Unconfirmed {
+            matched,
+            modified,
+            upserted,
+            deleted,
+        },
+        other => other,
     }
 }
 
@@ -87,16 +125,14 @@ pub(crate) fn outcome_for_error_code(code: Option<i32>) -> BulkOutcome {
     }
 }
 
-/// `Rejected` when an `ok: 1` reply reports `writeErrors` (the reason is its first error's code)
-/// or a `writeConcernError`; `None` otherwise.
+/// `Rejected` when an `ok: 1` reply reports `writeErrors` (the reason is its first error's code);
+/// `None` otherwise.
 pub(crate) fn rejection(reply: &Document) -> Option<BulkOutcome> {
     reply_ok(reply).then_some(())?;
-    let reason = match write_error_code(reply) {
-        Some(code) => BulkFailureReason::from_code(code),
-        None if reply.contains_key("writeConcernError") => BulkFailureReason::WriteConcern,
-        None => return None,
-    };
-    Some(BulkOutcome::Rejected { reason })
+    let code = write_error_code(reply)?;
+    Some(BulkOutcome::Rejected {
+        reason: BulkFailureReason::from_code(code),
+    })
 }
 
 const UNKNOWN: BulkOutcome = BulkOutcome::Unknown { cancelled: false };
@@ -132,9 +168,8 @@ fn delete_command(coll_name: &str, req: &BulkDeleteRequest, run: BulkRunId) -> D
     }
 }
 
-/// Counts from an `update` reply; `None` when it reports any error or cannot be read.
-fn parse_update_reply(reply: &Document) -> Option<BulkOutcome> {
-    reply_is_clean(reply)?;
+/// Counts from an `update` reply; `None` when they cannot be read. Errors are not looked at.
+fn update_counts(reply: &Document) -> Option<BulkOutcome> {
     let upserted = upserted_ids(reply)?;
     // The server's `n` counts upserted documents too; `matched` is the pre-existing ones.
     let matched = count_of(reply, "n")?.saturating_sub(upserted.len() as u64);
@@ -148,8 +183,7 @@ fn parse_update_reply(reply: &Document) -> Option<BulkOutcome> {
 
 /// Counts from a `delete` reply. `matched` and `deleted` are both `n`; nothing is modified or
 /// upserted.
-fn parse_delete_reply(reply: &Document) -> Option<BulkOutcome> {
-    reply_is_clean(reply)?;
+fn delete_counts(reply: &Document) -> Option<BulkOutcome> {
     let n = count_of(reply, "n")?;
     Some(BulkOutcome::Applied {
         matched: n,

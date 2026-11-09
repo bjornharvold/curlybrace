@@ -29,6 +29,22 @@ fn finished_rejected_keeps_the_reason_in_the_report_and_requeries() {
 }
 
 #[test]
+fn finished_unconfirmed_keeps_the_counts_in_the_report_and_requeries() {
+    let (s, id, run) = running_delete();
+    let unconfirmed = BulkOutcome::Unconfirmed {
+        matched: 5,
+        modified: 0,
+        upserted: Vec::new(),
+        deleted: 5,
+    };
+    let (s, cmds) = ev(s, finish(id, run, Ok(unconfirmed.clone())));
+    assert_eq!(flow(&s).step, BulkStep::Report);
+    assert_eq!(flow(&s).report, Some(Ok(unconfirmed)));
+    assert!(s.pending.is_none());
+    assert!(cmds.iter().any(is_find));
+}
+
+#[test]
 fn finished_error_is_reported_and_requeries() {
     let (s, id, run) = running_delete();
     let (s, cmds) = ev(s, finish(id, run, Err(CoreError::BulkEmptyFilter)));

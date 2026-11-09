@@ -154,3 +154,33 @@ async fn a_lost_connection_answers_unknown_without_a_ping() {
     no_more_events(&mut h).await;
     assert_eq!(store.pings.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn an_unconfirmed_write_is_passed_through_with_its_counts() {
+    let unconfirmed = BulkOutcome::Unconfirmed {
+        matched: 5000,
+        modified: 0,
+        upserted: vec![],
+        deleted: 5000,
+    };
+    let store = FakeStore::new(Write::Answer(Ok(unconfirmed.clone())));
+    let (mut h, session) = connected(&store, false).await;
+    let run = run_id();
+    h.tx.send(Command::BulkDelete {
+        session,
+        ns: mock_namespace(),
+        request: delete_request(),
+        run,
+    })
+    .unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::BulkFinished {
+            session,
+            ns: mock_namespace(),
+            run,
+            outcome: Ok(unconfirmed)
+        }
+    );
+    assert!(store.cancels.lock().unwrap().is_empty());
+}

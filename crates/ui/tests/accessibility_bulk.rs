@@ -531,7 +531,6 @@ fn a_rejected_report_names_the_reason_and_never_claims_nothing_was_written() {
         BulkFailureReason::ValidationFailed,
         BulkFailureReason::ImmutableField,
         BulkFailureReason::TypeMismatch,
-        BulkFailureReason::WriteConcern,
         BulkFailureReason::Other,
     ] {
         let h = reported(BulkKind::Update, Ok(BulkOutcome::Rejected { reason }));
@@ -540,6 +539,31 @@ fn a_rejected_report_names_the_reason_and_never_claims_nothing_was_written() {
         assert!(text.contains("may already have been changed"), "{text}");
         assert!(!has(&h, &t("bulk.report_failed")));
     }
+}
+
+#[test]
+fn an_unconfirmed_report_says_it_was_applied_but_not_confirmed_and_keeps_the_counts() {
+    let unconfirmed = |deleted: u64| BulkOutcome::Unconfirmed {
+        matched: 7,
+        modified: 5,
+        upserted: vec![],
+        deleted,
+    };
+    let notice = t("bulk.report_unconfirmed");
+    assert!(
+        notice.contains("applied") && notice.contains("durab"),
+        "{notice}"
+    );
+    assert!(!notice.contains("rejected"), "{notice}");
+    let h = reported(BulkKind::Update, Ok(unconfirmed(0)));
+    assert!(has(&h, &notice));
+    assert!(has(&h, &tw("bulk.report.matched", &[("n", "7")])));
+    assert!(has(&h, &tw("bulk.report.modified", &[("n", "5")])));
+    let h = reported(BulkKind::Delete, Ok(unconfirmed(9)));
+    assert!(has(&h, &notice));
+    assert!(has(&h, &tw("bulk.report.deleted", &[("n", "9")])));
+    // It is not the rejected report, which says nothing is known to have been applied.
+    assert!(!has(&h, &t("bulk.report_failed")));
 }
 
 #[test]

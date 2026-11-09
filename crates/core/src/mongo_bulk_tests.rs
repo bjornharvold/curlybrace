@@ -1,6 +1,18 @@
 use super::*;
 use crate::bulk::MatchScope;
 
+/// Counts from a clean `update` reply; `None` when it reports any error or cannot be read.
+fn parse_update_reply(reply: &Document) -> Option<BulkOutcome> {
+    reply_is_clean(reply)?;
+    update_counts(reply)
+}
+
+/// Counts from a clean `delete` reply.
+fn parse_delete_reply(reply: &Document) -> Option<BulkOutcome> {
+    reply_is_clean(reply)?;
+    delete_counts(reply)
+}
+
 fn run() -> BulkRunId {
     BulkRunId(uuid::Uuid::new_v4())
 }
@@ -159,14 +171,65 @@ fn a_reply_with_write_errors_is_rejected_with_a_code_keyed_reason_and_no_counts(
 }
 
 #[test]
-fn a_write_concern_error_is_rejected_as_write_concern() {
-    let reply =
-        doc! { "ok": 1.0, "n": 5, "writeConcernError": { "code": 100, "errmsg": "SECRET" } };
+fn write_concern_error_reply_with_counts_is_unconfirmed_not_rejected() {
+    let update = doc! { "ok": 1.0, "n": 5, "nModified": 4,
+    "upserted": [{ "index": 0, "_id": 9 }],
+    "writeConcernError": { "code": 64, "errmsg": "SECRET" } };
     assert_eq!(
-        rejection(&reply),
-        Some(BulkOutcome::Rejected {
-            reason: BulkFailureReason::WriteConcern
-        })
+        interpret(&update, update_counts),
+        BulkOutcome::Unconfirmed {
+            matched: 4,
+            modified: 4,
+            upserted: vec![Bson::Int32(9)],
+            deleted: 0
+        }
+    );
+    let delete = doc! { "ok": 1.0, "n": 5000,
+    "writeConcernError": { "code": 64, "errmsg": "SECRET" } };
+    assert_eq!(
+        interpret(&delete, delete_counts),
+        BulkOutcome::Unconfirmed {
+            matched: 5000,
+            modified: 0,
+            upserted: vec![],
+            deleted: 5000
+        }
+    );
+}
+
+#[test]
+fn write_errors_and_a_write_concern_error_together_stay_rejected() {
+    let reply = doc! { "ok": 1.0, "n": 0, "nModified": 0,
+    "writeErrors": [{ "index": 0, "code": 121 }],
+    "writeConcernError": { "code": 64 } };
+    assert_eq!(
+        interpret(&reply, update_counts),
+        BulkOutcome::Rejected {
+            reason: BulkFailureReason::ValidationFailed
+        }
+    );
+}
+
+#[test]
+fn a_write_concern_error_with_unreadable_counts_is_unknown() {
+    let reply = doc! { "ok": 1.0, "writeConcernError": { "code": 64 } };
+    assert_eq!(interpret(&reply, update_counts), UNKNOWN);
+    assert_eq!(interpret(&reply, delete_counts), UNKNOWN);
+    let not_ok = doc! { "ok": 0.0, "n": 5, "writeConcernError": { "code": 64 } };
+    assert_eq!(interpret(&not_ok, delete_counts), UNKNOWN);
+}
+
+#[test]
+fn a_clean_reply_is_applied() {
+    let reply = doc! { "ok": 1.0, "n": 2 };
+    assert_eq!(
+        interpret(&reply, delete_counts),
+        BulkOutcome::Applied {
+            matched: 2,
+            modified: 0,
+            upserted: vec![],
+            deleted: 2
+        }
     );
 }
 
@@ -239,5 +302,27 @@ fn counts_and_ok_of_any_numeric_type_are_read_alike() {
     assert_eq!(
         parse_update_reply(&doc! { "ok": 1, "n": -1, "nModified": 2 }),
         None
+    );
+}
+
+#[test]
+fn the_reply_shape_a_real_server_gives_for_an_unsatisfiable_write_concern_is_unconfirmed() {
+    // Observed on a mongod 9.0 replica set with `writeConcern: { w: "nosuchtag" }`: the write
+    // was applied (the documents were gone/changed afterwards) and the reply is `ok: 1` with
+    // the counts plus a `writeConcernError` (code 79) and the usual metadata.
+    let reply = doc! { "n": 3, "electionId": bson::oid::ObjectId::new(),
+    "opTime": { "ts": bson::Timestamp { time: 1, increment: 5 }, "t": 1_i64 },
+    "nModified": 3,
+    "writeConcernError": { "code": 79, "codeName": "UnknownReplWriteConcern",
+        "errmsg": "SECRET", "errInfo": { "writeConcern": { "w": "nosuchtag" } } },
+    "ok": 1.0 };
+    assert_eq!(
+        interpret(&reply, update_counts),
+        BulkOutcome::Unconfirmed {
+            matched: 3,
+            modified: 3,
+            upserted: vec![],
+            deleted: 0
+        }
     );
 }
