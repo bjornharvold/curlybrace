@@ -43,6 +43,7 @@ pub fn harness_runtime_config(dir: &Path, prompt: Arc<InteractivePrompt>) -> Run
     runtime_config(
         Some(dir.join("known_hosts")),
         Some(dir.join("history.sqlite")),
+        Some(dir.join("snapshots")),
         prompt,
     )
 }

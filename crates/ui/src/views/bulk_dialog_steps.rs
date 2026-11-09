@@ -1,5 +1,6 @@
 //! The bodies of the bulk dialog's steps. Each draws the flow it is given; the ones with
 //! inputs report the edit as a [`BulkAction`].
+use super::bulk_undo_steps::{report_undo_status, undo_notice};
 use super::tone_notice::tone_notice;
 use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
 use crate::I18n;
@@ -87,10 +88,6 @@ fn count_line(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
     ui.label(egui::RichText::new(text).strong());
 }
 
-fn cannot_undo(ui: &mut egui::Ui, i18n: &I18n) {
-    tone_notice(ui, Tone::Bad, &i18n.t("bulk.cannot_undo"), true);
-}
-
 pub(super) fn preview_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
     count_line(ui, flow, i18n);
     match &flow.preview {
@@ -101,7 +98,7 @@ pub(super) fn preview_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
         PreviewState::Update(preview) => update_preview(ui, flow, preview, i18n),
         PreviewState::Sample(_) => sample_preview(ui, flow, i18n),
     }
-    cannot_undo(ui, i18n);
+    undo_notice(ui, flow, i18n);
 }
 
 /// A preview that errored: the update proved invalid on the matching documents (no run is
@@ -212,7 +209,7 @@ pub(super) fn confirm_body(
     if flow.needs_typed() {
         action = typed_field(ui, flow, i18n).or(action);
     }
-    cannot_undo(ui, i18n);
+    undo_notice(ui, flow, i18n);
     if !flow.can_run() {
         ui.label(i18n.t("bulk.run_blocked"));
     }
@@ -303,6 +300,7 @@ pub(super) fn report_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
         }
         None => {}
     }
+    report_undo_status(ui, flow, i18n);
 }
 
 /// The counts of a write that went through: matched, modified and inserted for an update, deleted

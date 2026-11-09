@@ -310,6 +310,26 @@ bulk_shot!(
     support::bulk_shots::report_rejected
 );
 bulk_shot!(
+    bulk_report_undo_offered,
+    bulk_report_undo_offered_dark,
+    support::bulk_shots::report_undo_offered
+);
+bulk_shot!(
+    bulk_report_snapshot_refused,
+    bulk_report_snapshot_refused_dark,
+    support::bulk_shots::report_snapshot_refused
+);
+bulk_shot!(
+    bulk_undo_confirm,
+    bulk_undo_confirm_dark,
+    support::bulk_shots::undo_confirm
+);
+bulk_shot!(
+    bulk_undo_report,
+    bulk_undo_report_dark,
+    support::bulk_shots::undo_report
+);
+bulk_shot!(
     bulk_report_unconfirmed,
     bulk_report_unconfirmed_dark,
     support::bulk_shots::report_unconfirmed

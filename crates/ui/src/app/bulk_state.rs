@@ -17,6 +17,8 @@ pub struct BulkState {
     /// The id of the preview (or sample) request still awaited; dropped by Back so the answer of
     /// a preview of an older definition can never be applied.
     pub preview_request: Option<u64>,
+    /// The id of the undo preview still awaited.
+    pub undo_request: Option<u64>,
 }
 
 impl BulkState {

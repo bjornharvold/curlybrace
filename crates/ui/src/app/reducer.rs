@@ -177,8 +177,16 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // The runtime delivers the finish of a bulk write whatever happened to the connection
         // meanwhile, so it is taken ahead of the connected check below.
         Event::BulkFinished {
-            ns, run, outcome, ..
-        } => bulk_actions::finished(state, ns, run, outcome),
+            ns,
+            run,
+            outcome,
+            undo,
+            ..
+        } => bulk_actions::finished(state, ns, run, outcome, undo),
+        // Like a finished write, an undo reports whatever happened to the connection meanwhile.
+        Event::BulkUndoFinished { run, outcome, .. } => {
+            bulk_actions::undo_finished(state, run, outcome)
+        }
         // Anything else is a late answer from a session that is not connected.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases { names, .. } => {
@@ -399,8 +407,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             bulk_actions::cancel_answered(state, run, outcome),
             Vec::new(),
         ),
-        // Undo answers: nothing in the UI asks for them yet.
-        Event::BulkUndoPreview { .. } | Event::BulkUndoFinished { .. } => (state, Vec::new()),
+        Event::BulkUndoPreview {
+            run,
+            request_id,
+            outcome,
+            ..
+        } => (
+            bulk_actions::undo_preview_arrived(state, run, request_id, outcome),
+            Vec::new(),
+        ),
         // Routed before; these have no session.
         Event::Compare(_)
         | Event::Copy(_)
@@ -427,6 +442,7 @@ fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
             | "set_index_ttl"
             | "bulk_update"
             | "bulk_delete"
+            | "bulk_undo"
     );
     match (&error, write, state.ssh_endpoint.is_some()) {
         (CoreError::Unreachable, false, false) => error,

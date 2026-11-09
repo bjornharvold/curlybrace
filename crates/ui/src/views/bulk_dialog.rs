@@ -6,12 +6,13 @@
 use super::bulk_dialog_steps::{
     confirm_body, define_body, preview_body, report_body, running_body,
 };
+use super::bulk_undo_steps::{report_footer, undo_body, undo_footer};
 use super::connection_badge::show_badge;
 use super::index_dialogs::focus_once;
 use crate::I18n;
 use crate::app::BulkAction;
 use crate::theme::{filled_button, gate, modal_frame, text_button, typography};
-use crate::viewmodel::{BulkFlow, BulkKind, BulkStep, ConnectionBadge};
+use crate::viewmodel::{BulkFlow, BulkKind, BulkStep, ConnectionBadge, UndoStep};
 use eframe::egui;
 
 const MODAL_WIDTH: f32 = 640.0;
@@ -35,21 +36,27 @@ pub fn show_bulk_dialog(
             let navigation = footer(ui, flow, i18n);
             action = navigation.or(edit);
         });
-    // A running write is only ever stopped by its Cancel button.
-    let dismissed = modal.should_close() && flow.step != BulkStep::Running;
+    // A running write is only ever stopped by its Cancel button, and a running undo not at all.
+    let undo_running = flow
+        .undo_flow
+        .as_ref()
+        .is_some_and(|u| u.step == UndoStep::Running);
+    let dismissed = modal.should_close() && flow.step != BulkStep::Running && !undo_running;
     action.or(dismissed.then_some(BulkAction::Close))
 }
 
 fn heading(ui: &mut egui::Ui, flow: &BulkFlow, badge: &ConnectionBadge, i18n: &I18n) {
-    let title = match flow.kind {
-        BulkKind::Update => "bulk.title_update",
-        BulkKind::Delete => "bulk.title_delete",
+    let title = match (&flow.undo_flow, flow.kind) {
+        (Some(_), _) => "bulk.undo.title",
+        (None, BulkKind::Update) => "bulk.title_update",
+        (None, BulkKind::Delete) => "bulk.title_delete",
     };
     ui.horizontal(|ui| {
         show_badge(ui, badge, i18n);
         ui.label(typography::dialog_title(ui, i18n.t(title)));
     });
-    if let Some(step) = step_key(flow.step) {
+    let step = step_key(flow.step).filter(|_| flow.undo_flow.is_none());
+    if let Some(step) = step {
         ui.weak(i18n.t(step));
     }
 }
@@ -64,6 +71,9 @@ fn step_key(step: BulkStep) -> Option<&'static str> {
 }
 
 fn body(ui: &mut egui::Ui, flow: &BulkFlow, connection: &str, i18n: &I18n) -> Option<BulkAction> {
+    if let Some(undo) = &flow.undo_flow {
+        return undo_body(ui, flow, undo, connection, i18n);
+    }
     match flow.step {
         BulkStep::Define => define_body(ui, flow, i18n),
         BulkStep::Preview => {
@@ -83,6 +93,9 @@ fn body(ui: &mut egui::Ui, flow: &BulkFlow, connection: &str, i18n: &I18n) -> Op
 }
 
 fn footer(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) -> Option<BulkAction> {
+    if let Some(undo) = &flow.undo_flow {
+        return ui.horizontal(|ui| undo_footer(ui, undo, i18n)).inner;
+    }
     if flow.step == BulkStep::Running {
         return running_footer(ui, i18n);
     }
@@ -90,9 +103,8 @@ fn footer(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) -> Option<BulkAction>
         BulkStep::Define => wizard_footer(ui, flow, i18n, false),
         BulkStep::Preview => wizard_footer(ui, flow, i18n, true),
         BulkStep::Confirm => confirm_footer(ui, flow, i18n),
-        BulkStep::Running | BulkStep::Report => {
-            single_footer(ui, flow, i18n, "common.close", BulkAction::Close)
-        }
+        BulkStep::Running => single_footer(ui, flow, i18n, "common.close", BulkAction::Close),
+        BulkStep::Report => report_footer(ui, flow, i18n),
     })
     .inner
 }

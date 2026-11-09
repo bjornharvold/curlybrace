@@ -131,6 +131,40 @@
     "type_collection_name": "Type the collection name {name} to confirm",
     "type_field": "Collection name",
     "type_instruction": "Type the collection name exactly:",
+    "undo": {
+      "available": "You can undo this: {n} documents can be restored from the copy saved before the write.",
+      "back": "Back",
+      "copy_notice": "Before the write runs, a copy of the documents it will change is saved on this computer so you can undo it. The copy is plain text that anyone who can read your files can read. It is saved in {folder} and kept for 14 days unless you delete it.",
+      "discard_copy": "Close and delete the undo copy",
+      "failed": "The undo did not finish. Some documents may already be restored. Try again: documents already restored are left as they are.",
+      "folder_unknown": "the Curlybrace settings folder",
+      "gone": "Not there now",
+      "intro": "{n} documents will be restored to how they were before the write. A document that someone else changed since the write is left as it is.",
+      "keep_copy": "Close and keep the undo copy",
+      "lost": "The write ran, but its undo copy could not be completed, so it cannot be undone.",
+      "now": "Now",
+      "open": "Undo...",
+      "preview_failed": "The undo copy could not be read, so it cannot be restored.",
+      "preview_heading": "The first documents",
+      "preview_pending": "Reading the undo copy...",
+      "report": {
+        "errors": "Could not be restored: {n}",
+        "restored": "Restored: {n}",
+        "skipped_changed": "Left alone, changed since the write: {n}",
+        "skipped_present": "Left alone, already there: {n}",
+        "unchanged": "Not changed by the write: {n}"
+      },
+      "restore_to": "Restored to",
+      "retry": "Try again",
+      "run": "Restore documents",
+      "run_without": "Run without undo...",
+      "running": "Restoring the documents...",
+      "running_note": "Documents already restored stay restored.",
+      "snapshot_refused": "Nothing was changed. If you go on without an undo copy, the write cannot be undone.",
+      "title": "Undo the bulk write",
+      "uncovered": "{n} more documents were changed than the copy holds, because they matched only after it was saved. Undo cannot bring those back.",
+      "uncovered_only": "The write changed {n} documents that matched only after the undo copy was saved. There is nothing to restore them from."
+    },
     "update_matching": "Update matching..."
   },
   "cell": {
@@ -1239,6 +1273,7 @@
   "write_warning": {
     "confirm": "Yes, write to production",
     "message_bulk_delete": "This is your production server, {connection}. Are you sure you want to delete every document the filter matches? This cannot be undone.",
+    "message_bulk_undo": "This is your production server, {connection}. Are you sure you want to restore the documents from the undo copy?",
     "message_bulk_update": "This is your production server, {connection}. Are you sure you want to update every document the filter matches? This cannot be undone.",
     "message_clone": "This is your production server, {connection}. Are you sure you want to clone this document into it?",
     "message_create_index": "This is your production server, {connection}. Are you sure you want to create this index on it?",

@@ -2,6 +2,7 @@
 pub mod bulk_entry;
 pub mod bulk_flow;
 pub mod bulk_text;
+pub mod bulk_undo;
 pub mod cell;
 pub mod compare;
 pub mod connection_form;
@@ -39,6 +40,7 @@ pub use bulk_flow::{
     PreviewState,
 };
 pub use bulk_text::{DocText, UpdateCheck};
+pub use bulk_undo::{UndoDocText, UndoFlow, UndoPreviewState, UndoStep};
 pub use cell::cell_text;
 pub use connection_form::{
     ConnectionForm, SecretEdit, StoredSecrets, auth_label_key, auth_options, save_connection,
