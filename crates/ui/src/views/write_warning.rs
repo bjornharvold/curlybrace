@@ -4,6 +4,8 @@
 use super::connection_badge::show_badge;
 use crate::I18n;
 use crate::app::write_guard::{ParkedWrite, WriteKind, WriteWarningAction};
+use crate::theme::typography::dialog_title;
+use crate::theme::{filled_button, modal_frame, text_button};
 use crate::viewmodel::ConnectionBadge;
 use eframe::egui;
 
@@ -45,25 +47,27 @@ pub fn show_write_warning(
     i18n: &I18n,
 ) -> Option<WriteWarningAction> {
     let mut answer = None;
-    let modal = egui::Modal::new(egui::Id::new("write_warning")).show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            show_badge(ui, badge, i18n);
-            ui.heading(i18n.t("write_warning.title"));
+    let modal = egui::Modal::new(egui::Id::new("write_warning"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                show_badge(ui, badge, i18n);
+                ui.label(dialog_title(ui, i18n.t("write_warning.title")));
+            });
+            ui.label(warning_text(parked.kind, connection, i18n));
+            ui.horizontal(|ui| {
+                // Cancel is first and focused, so a stray Enter can never confirm.
+                let cancel = text_button(ui, i18n.t("common.cancel"));
+                let confirm = filled_button(ui, i18n.t("write_warning.confirm"));
+                focus_cancel_unless_focused(&cancel, &confirm);
+                if cancel.clicked() {
+                    answer = Some(WriteWarningAction::Cancel);
+                }
+                if confirm.clicked() {
+                    answer = Some(WriteWarningAction::Confirm);
+                }
+            });
         });
-        ui.label(warning_text(parked.kind, connection, i18n));
-        ui.horizontal(|ui| {
-            // Cancel is first and focused, so a stray Enter can never confirm.
-            let cancel = ui.button(i18n.t("common.cancel"));
-            let confirm = ui.button(i18n.t("write_warning.confirm"));
-            focus_cancel_unless_focused(&cancel, &confirm);
-            if cancel.clicked() {
-                answer = Some(WriteWarningAction::Cancel);
-            }
-            if confirm.clicked() {
-                answer = Some(WriteWarningAction::Confirm);
-            }
-        });
-    });
     answer.or_else(|| modal.should_close().then_some(WriteWarningAction::Cancel))
 }
 

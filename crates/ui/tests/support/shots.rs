@@ -11,6 +11,7 @@ use curlybrace_ui::app::CurlybraceApp;
 use curlybrace_ui::app::file_picker::FilePicker;
 use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::state::{AppState, ConnStatus};
+use curlybrace_ui::theme::{self, Mode};
 use curlybrace_ui::viewmodel::{SidebarState, ViewMode, page_key};
 use eframe::egui;
 use egui_kittest::Harness;
@@ -123,17 +124,45 @@ impl Shot {
             app = app.with_file_picker(picker, Arc::new(|| {}));
         }
         setup(app.state_mut());
+        let mut installed = false;
         let harness = Harness::builder()
             .with_size(egui::vec2(size.0, size.1))
             .with_pixels_per_point(1.0)
             .wgpu()
-            .build_state(|ctx, app: &mut CurlybraceApp| app.run_frame(ctx), app);
+            .with_theme(egui::Theme::Light)
+            .build_state(
+                // `build_state` renders the first frame itself, so the theme goes in here, on
+                // that first frame, rather than after construction (Light, the default mode).
+                move |ctx, app: &mut CurlybraceApp| {
+                    if !installed {
+                        theme::install(ctx);
+                        ctx.set_theme(egui::Theme::Light);
+                        installed = true;
+                    }
+                    app.run_frame(ctx)
+                },
+                app,
+            );
         drop(_enter);
         Self {
             harness,
             _rt: rt,
             _dir: dir,
         }
+    }
+
+    /// Renders in `mode` instead of the default Light. The first frame already ran (in Light)
+    /// inside `build`, so this switches the egui theme and runs a frame to apply it; the
+    /// snapshot that follows settles on the new mode.
+    pub fn mode(mut self, mode: Mode) -> Self {
+        let theme = match mode {
+            Mode::Light => egui::Theme::Light,
+            Mode::Dark => egui::Theme::Dark,
+        };
+        theme::install(&self.harness.ctx);
+        self.harness.ctx.set_theme(theme);
+        self.harness.run();
+        self
     }
 
     /// Settles animations, then compares with `tests/snapshots/<name>.png`.

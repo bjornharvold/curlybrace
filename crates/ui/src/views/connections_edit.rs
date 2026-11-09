@@ -1,8 +1,9 @@
 //! The connection edit form: fields, secrets and the TLS and SSH sections.
 use super::connections::ConnectionsState;
 use crate::I18n;
+use crate::theme::{FieldOptions, outlined_field_opts, segmented};
 use crate::viewmodel::{ConnectionForm, auth_label_key, auth_options, color_tag};
-use curlybrace_core::connection::{ConnectionColor, SavedColor};
+use curlybrace_core::connection::{AuthMechanism, ConnectionColor, SavedColor};
 use eframe::egui;
 
 /// The form body below the name and folder rows: connection string, authentication, secrets,
@@ -10,7 +11,7 @@ use eframe::egui;
 pub(super) fn show_fields(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
     let form = &mut state.form;
     text_row(ui, &i18n.t("connections.uri"), &mut form.uri, false);
-    auth_combo(ui, form, i18n);
+    auth_choice(ui, form, i18n);
     text_row(
         ui,
         &i18n.t("connections.username"),
@@ -65,37 +66,25 @@ fn secret_row(ui: &mut egui::Ui, field: SecretField<'_>, i18n: &I18n) {
 }
 
 pub(super) fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) {
-    ui.horizontal(|ui| {
-        let caption = ui.label(label);
-        // Expose the caption as the box's accessible name (screen readers and UI tests).
-        ui.add(egui::TextEdit::singleline(value).password(password))
-            .labelled_by(caption.id);
-    });
+    let options = FieldOptions {
+        password,
+        ..FieldOptions::default()
+    };
+    // The label floats on the field's border and is its accessible name.
+    outlined_field_opts(ui, label, value, "", options);
 }
 
-fn auth_combo(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
-    ui.horizontal(|ui| {
-        let caption = ui.label(i18n.t("connections.auth"));
-        let selected = i18n.t(auth_label_key(form.auth));
-        let combo = egui::ComboBox::from_id_salt("connection_auth")
-            .selected_text(selected.clone())
-            .show_ui(ui, |ui| {
-                for option in auth_options() {
-                    let label = i18n.t(auth_label_key(option));
-                    ui.selectable_value(&mut form.auth, option, label);
-                }
-            });
-        // A combo's accessible name is its selected text; name it by its caption instead, and
-        // keep the selected value as the widget's value.
-        let name = i18n.t("connections.auth");
-        combo.response.widget_info(|| {
-            let mut info =
-                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone());
-            info.current_text_value = Some(selected.clone());
-            info
-        });
-        combo.response.labelled_by(caption.id);
-    });
+/// The authentication mechanisms as a segmented control under a caption, so every choice is
+/// visible at once and the current one is marked.
+fn auth_choice(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
+    ui.label(i18n.t("connections.auth"));
+    let items: Vec<(AuthMechanism, String)> = auth_options()
+        .into_iter()
+        .map(|option| (option, i18n.t(auth_label_key(option))))
+        .collect();
+    if let Some(picked) = segmented(ui, &items, form.auth) {
+        form.auth = picked;
+    }
 }
 
 /// Text of a colour option: its glyph and translated name, so colour is never the only signal.
@@ -112,11 +101,11 @@ fn color_text(color: Option<ConnectionColor>, i18n: &I18n) -> String {
 /// Colour tag picker, production flag and read-only flag.
 fn tag_section(ui: &mut egui::Ui, form: &mut ConnectionForm, i18n: &I18n) {
     color_combo(ui, form, i18n);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut form.production, i18n.t("connections.production"));
         ui.label(i18n.t("connections.production_hint"));
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut form.read_only, i18n.t("connections.read_only"));
         ui.label(i18n.t("connections.read_only_hint"));
     });

@@ -37,7 +37,7 @@ fn badge_for_each_kind_has_distinct_title_and_tone() {
     let kinds = [
         (VerdictKind::IndexUsed, Tone::Good),
         (VerdictKind::CoveredByIndex, Tone::Good),
-        (VerdictKind::CollectionScan, Tone::Warn),
+        (VerdictKind::CollectionScan, Tone::Bad),
         (VerdictKind::SortNotCovered, Tone::Warn),
         (VerdictKind::InefficientIndex, Tone::Warn),
         (VerdictKind::NoFilter, Tone::Neutral),

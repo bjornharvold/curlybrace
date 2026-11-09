@@ -3,6 +3,7 @@ use super::context_menu::row_context_menu;
 use super::doc_select::{checkbox_width, pick_id, row_checkbox};
 use super::metrics::{fixed_row, row_height};
 use crate::I18n;
+use crate::theme::icons;
 use crate::viewmodel::copy_clipboard::MENU_COPY_DOCUMENT;
 use crate::viewmodel::{
     CopyEntry, DocAction, MenuItem, PageKey, PageRow, TreeRow, TreeState, menu_items,
@@ -10,10 +11,6 @@ use crate::viewmodel::{
 };
 use curlybrace_core::store::Page;
 use eframe::egui;
-
-const ARROW_OPEN: &str = "▾";
-const ARROW_CLOSED: &str = "▸";
-const ARROW_NONE: &str = " ";
 
 /// What happened on one row this frame.
 #[derive(Default)]
@@ -150,16 +147,94 @@ fn field_cells(ui: &mut egui::Ui, row: &TreeRow, open: bool, i18n: &I18n) {
         ui.weak(row_value_text(row, i18n));
         return;
     }
-    ui.label(arrow(row, open));
+    arrow(ui, row, open);
     ui.label(egui::RichText::new(&row.key).strong());
     ui.weak(i18n.t(&type_label_key(row.type_name)));
     ui.add(egui::Label::new(row_value_text(row, i18n)).truncate());
 }
 
-fn arrow(row: &TreeRow, open: bool) -> &'static str {
-    match (row.is_expandable(), open) {
-        (false, _) => ARROW_NONE,
-        (true, true) => ARROW_OPEN,
-        (true, false) => ARROW_CLOSED,
+/// The disclosure chevron of an expandable row. Every row reserves the same slot (the wider of
+/// the two chevrons), so keys line up whether or not a row can be expanded or is open.
+fn arrow(ui: &mut egui::Ui, row: &TreeRow, open: bool) {
+    let (rect, _) = ui.allocate_exact_size(chevron_slot(ui), egui::Sense::hover());
+    if row.is_expandable() && ui.is_rect_visible(rect) {
+        let color = ui.visuals().text_color();
+        ui.painter()
+            .galley(rect.min, chevron_galley(ui, open), color);
+    }
+}
+
+/// The size of the chevron slot (the wider of the two chevrons). It depends only on the fonts, so
+/// it is measured once per pass and shared by every row of that pass, not laid out per row.
+fn chevron_slot(ui: &egui::Ui) -> egui::Vec2 {
+    let id = egui::Id::new("tree_chevron_slot");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let cached = ui.data(|d| d.get_temp::<(u64, egui::Vec2)>(id));
+    if let Some((_, slot)) = cached.filter(|(cached, _)| *cached == pass) {
+        return slot;
+    }
+    let slot = [false, true]
+        .map(|state| chevron_galley(ui, state).size())
+        .into_iter()
+        .fold(egui::Vec2::ZERO, |widest, size| widest.max(size));
+    ui.data_mut(|d| d.insert_temp(id, (pass, slot)));
+    slot
+}
+
+fn chevron_galley(ui: &egui::Ui, open: bool) -> std::sync::Arc<egui::Galley> {
+    egui::WidgetText::from(icons::inline_icon(ui, icons::chevron(open))).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Body,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme;
+    use crate::viewmodel::page_key;
+    use bson::doc;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    struct Pane {
+        page: Page,
+        state: TreeState,
+    }
+
+    fn open() -> Harness<'static, Pane> {
+        let page = Page {
+            docs: vec![doc! { "name": "Ada", "address": { "city": "London" } }],
+            skip: 0,
+            has_more: false,
+        };
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(600.0, 300.0))
+            .build_ui_state(
+                |ui, pane: &mut Pane| {
+                    let key = page_key(&pane.page);
+                    show_tree(ui, &pane.page, &key, &mut pane.state, &I18n::english());
+                },
+                Pane {
+                    page,
+                    state: TreeState::default(),
+                },
+            );
+        theme::install(&harness.ctx);
+        harness.run_steps(4);
+        harness
+    }
+
+    #[test]
+    fn keys_line_up_between_leaf_rows_and_expandable_rows() {
+        let harness = open();
+        let leaf = harness.get_by_label("name").rect().min.x;
+        let expandable = harness.get_by_label("address").rect().min.x;
+        assert!(
+            (leaf - expandable).abs() < 0.01,
+            "leaf key at {leaf}, expandable key at {expandable}"
+        );
     }
 }

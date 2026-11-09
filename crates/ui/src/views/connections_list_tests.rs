@@ -310,3 +310,20 @@ fn the_folder_combo_shows_the_current_folder_or_no_folder() {
     assert_eq!(count_of(&texts, "Work"), 1, "only the group header");
     assert_eq!(count_of(&texts, "No folder"), 1, "{texts:?}");
 }
+
+#[test]
+fn a_sorted_header_keeps_the_plain_name_and_exposes_the_direction() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(300.0, 100.0))
+        .build_ui(|ui| {
+            crate::theme::install(ui.ctx());
+            super::connections_list::sort_button(ui, "Name", Some(true));
+        });
+    harness.run();
+    let node = harness.get_by_role_and_label(egui::accesskit::Role::Button, "Name");
+    assert_eq!(
+        node.accesskit_node().data().sort_direction(),
+        Some(egui::accesskit::SortDirection::Descending)
+    );
+}

@@ -1,17 +1,20 @@
 //! The shapes of the Queries view, one block each: verdict as icon plus words (never colour
 //! alone), where it was seen, how often it ran and missed, how slow it was, the shape text and,
 //! for a miss, the suggested index. The shape and the suggestion each have a copy button.
+use super::verdict_badge::chip_tone;
 use crate::I18n;
+use crate::theme::{card, chip, compact_text_button};
 use crate::viewmodel::QueryRow;
 use crate::viewmodel::queries_status::{misses_key, row_title, runs_key};
-use curlybrace_core::history::{ShapeSource, is_miss};
+use crate::viewmodel::verdict::kind_tone;
+use curlybrace_core::history::ShapeSource;
 use eframe::egui;
 
 /// Draws `rows` in order (the caller sorted them, misses first).
 pub fn show_rows(ui: &mut egui::Ui, rows: &[QueryRow], i18n: &I18n) {
     let total = rows.len();
     for (index, row) in rows.iter().enumerate() {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
+        card(ui, |ui| {
             ui.set_width(ui.available_width());
             show_row(ui, row, (index + 1, total), i18n);
         });
@@ -23,13 +26,8 @@ pub fn show_rows(ui: &mut egui::Ui, rows: &[QueryRow], i18n: &I18n) {
 fn show_row(ui: &mut egui::Ui, row: &QueryRow, place: (usize, usize), i18n: &I18n) {
     ui.horizontal_wrapped(|ui| {
         let (icon, title_key) = row_title(row.latest);
-        let title = egui::RichText::new(format!("{icon} {}", i18n.t(title_key))).strong();
-        let title = if is_miss(row.latest) {
-            title.color(ui.visuals().warn_fg_color)
-        } else {
-            title
-        };
-        ui.label(title);
+        let verdict = format!("{icon} {}", i18n.t(title_key));
+        chip(ui, chip_tone(kind_tone(row.latest)), &verdict);
         ui.weak(i18n.t(source_key(row.source)));
         ui.label(count(runs_key(row.executions), row.executions, i18n));
         ui.label(count(misses_key(row.misses), row.misses, i18n));
@@ -61,7 +59,7 @@ fn show_row(ui: &mut egui::Ui, row: &QueryRow, place: (usize, usize), i18n: &I18
 pub(super) fn copyable(ui: &mut egui::Ui, text: &str, copy_label: &str) {
     ui.horizontal_wrapped(|ui| {
         ui.label(egui::RichText::new(text).monospace());
-        if ui.button(copy_label).clicked() {
+        if compact_text_button(ui, copy_label).clicked() {
             ui.ctx().copy_text(text.to_string());
         }
     });

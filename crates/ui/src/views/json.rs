@@ -5,8 +5,10 @@
 //! their natural width inside a two-axis scroll area so long values stay readable.
 use super::context_menu::row_context_menu;
 use super::doc_select::{apply_toggle, checkbox_width, doc_checkbox, resolve_choice};
+use super::json_highlight::highlight;
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
+use crate::theme::{current_ui, json_colors};
 use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState, menu_items};
 use curlybrace_core::store::Page;
 use eframe::egui;
@@ -39,6 +41,7 @@ pub(crate) fn render_json(
         egui::TextStyle::Monospace.resolve(ui.style()),
         ui.visuals().text_color(),
     );
+    let syntax = json_colors(current_ui(ui));
     let (mut chosen, mut toggled): (Chosen, Option<usize>) = (None, None);
     let check_width = checkbox_width(ui);
     let output = egui::ScrollArea::both()
@@ -52,7 +55,11 @@ pub(crate) fn render_json(
                 let Some(doc) = page.docs.get(line.doc_index) else {
                     continue;
                 };
-                let width = line_width(ui, &line.text, &font, color, check_width);
+                // One galley serves both the width and the label: the job is laid out (and
+                // hashed) once, not once for the width and again inside the label.
+                let job = highlight(&line.text, &font, color, &syntax);
+                let galley = ui.fonts(|f| f.layout_job(job));
+                let width = line_width(ui, galley.size().x, check_width);
                 let (_, (response, tick)) = fixed_row_sized(ui, height, width, |ui| {
                     // The checkbox sits on the first line of each document only.
                     let tick = match first_of_doc {
@@ -62,7 +69,7 @@ pub(crate) fn render_json(
                             false
                         }
                     };
-                    (ui.add(line_label(&line.text)), tick)
+                    (ui.add(line_label(galley)), tick)
                 });
                 if tick {
                     toggled = Some(line.doc_index);
@@ -78,26 +85,16 @@ pub(crate) fn render_json(
     (output, chosen)
 }
 
-fn line_label(text: &str) -> egui::Label {
-    egui::Label::new(egui::RichText::new(text).monospace())
+fn line_label(galley: std::sync::Arc<egui::Galley>) -> egui::Label {
+    egui::Label::new(egui::WidgetText::Galley(galley))
         .wrap_mode(egui::TextWrapMode::Extend)
         .selectable(true)
         .sense(egui::Sense::click())
 }
 
-/// The width of a line with the checkbox column in front of it, at least the viewport's.
-fn line_width(
-    ui: &egui::Ui,
-    text: &str,
-    font: &egui::FontId,
-    color: egui::Color32,
-    check_width: f32,
-) -> f32 {
-    let text_width = ui.fonts(|f| {
-        f.layout_no_wrap(text.to_string(), font.clone(), color)
-            .size()
-            .x
-    });
+/// The width of a highlighted line with the checkbox column in front of it, at least the
+/// viewport's.
+fn line_width(ui: &egui::Ui, text_width: f32, check_width: f32) -> f32 {
     (text_width + check_width).max(ui.available_width())
 }
 

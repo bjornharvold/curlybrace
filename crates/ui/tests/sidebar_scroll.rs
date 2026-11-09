@@ -5,7 +5,6 @@ mod support;
 
 use curlybrace_ui::app::CurlybraceApp;
 use curlybrace_ui::viewmodel::SidebarState;
-use curlybrace_ui::views::sidebar::db_row_label;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use support::shots::build_app;
@@ -36,7 +35,7 @@ fn browser_with_many_databases() -> (
 #[test]
 fn the_helper_scrolls_to_a_row_far_below_the_viewport_and_clicks_it() {
     let (mut harness, _rt, _dir) = browser_with_many_databases();
-    let row = db_row_label(TARGET, false);
+    let row = TARGET.to_owned();
     harness.run();
     assert!(
         harness.query_all_by_label(&row).next().is_none(),
@@ -64,5 +63,5 @@ fn the_helper_scrolls_to_a_row_far_below_the_viewport_and_clicks_it() {
 #[should_panic(expected = "never appeared in the sidebar")]
 fn a_row_that_does_not_exist_fails_clearly_instead_of_hanging() {
     let (mut harness, _rt, _dir) = browser_with_many_databases();
-    scroll_sidebar_until_shown(&mut harness, &db_row_label("no_such_database", false));
+    scroll_sidebar_until_shown(&mut harness, "no_such_database");
 }

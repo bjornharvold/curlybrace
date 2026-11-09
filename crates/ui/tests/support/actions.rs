@@ -4,7 +4,6 @@ use super::screen::{H, dump};
 use super::sidebar::{click_sidebar_row, scroll_sidebar_until_shown};
 use super::wait::{SHORT, settle, wait_until};
 use curlybrace_ui::app::state::ConnStatus;
-use curlybrace_ui::views::sidebar::db_row_label;
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT, Queryable};
 use std::time::Duration;
@@ -74,7 +73,7 @@ pub fn connect(f: &mut Fixture) {
             && !h.state().state().sidebar.databases.is_empty()
             && h.query_all_by_label(&empty).next().is_none()
     });
-    let row = db_row_label(&f.db.name, false);
+    let row = f.db.name.clone();
     scroll_sidebar_until_shown(&mut f.harness, &row);
     assert_eq!(f.harness.state().state().status, ConnStatus::Connected);
 }
@@ -82,7 +81,7 @@ pub fn connect(f: &mut Fixture) {
 /// Expands the test database and opens `collection`; waits for the first document.
 #[track_caller]
 pub fn open_collection(f: &mut Fixture, collection: &str) {
-    click_sidebar_row(&mut f.harness, &db_row_label(&f.db.name, false));
+    click_sidebar_row(&mut f.harness, f.db.name.as_str());
     let loaded = f.db.name.clone();
     wait_until(&mut f.harness, "the collection list", SHORT, |h| {
         h.state()

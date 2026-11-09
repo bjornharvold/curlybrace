@@ -9,6 +9,7 @@ use curlybrace_core::store::Namespace;
 pub enum Tone {
     Good,
     Warn,
+    Bad,
     Neutral,
     Unavailable,
     Checking,
@@ -84,11 +85,16 @@ pub fn kind_presentation(kind: VerdictKind) -> (&'static str, &'static str) {
     (icon, title_key)
 }
 
+/// The tone of a verdict kind (theme-free; the view maps it to colors).
+pub fn kind_tone(kind: VerdictKind) -> Tone {
+    presentation(kind).0
+}
+
 fn presentation(kind: VerdictKind) -> (Tone, &'static str, &'static str) {
     match kind {
         VerdictKind::IndexUsed => (Tone::Good, ICON_GOOD, "query.verdict.title_index_used"),
         VerdictKind::CoveredByIndex => (Tone::Good, ICON_GOOD, "query.verdict.title_covered"),
-        VerdictKind::CollectionScan => (Tone::Warn, ICON_WARN, "query.verdict.title_collscan"),
+        VerdictKind::CollectionScan => (Tone::Bad, ICON_WARN, "query.verdict.title_collscan"),
         VerdictKind::SortNotCovered => (Tone::Warn, ICON_WARN, "query.verdict.title_sort"),
         VerdictKind::InefficientIndex => (Tone::Warn, ICON_WARN, "query.verdict.title_inefficient"),
         VerdictKind::NoFilter => (Tone::Neutral, ICON_INFO, "query.verdict.title_no_filter"),

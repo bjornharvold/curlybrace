@@ -271,9 +271,9 @@ mod compare_export {
     fn the_label_box_is_named_for_screen_readers() {
         let h = harness(plan_modal());
         let caption = t("compare.export.label.caption");
-        h.get_by_label(&caption);
-        let input = h.get_by_role(Role::TextInput);
-        assert!(input.accesskit_node().labelled_by().next().is_some());
+        // The outlined field carries its floating label as its own accessible name (it used to
+        // be a separate caption the box was `labelled_by`).
+        h.get_by_role_and_label(Role::TextInput, &caption);
     }
 
     #[test]

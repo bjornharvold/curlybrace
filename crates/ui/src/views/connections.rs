@@ -1,6 +1,7 @@
 //! Connection manager view: saved connections list plus an editable form.
 use crate::I18n;
 use crate::app::tools_state::ToolsState;
+use crate::theme::{filled_button, modal_frame, text_button};
 use crate::viewmodel::{ConnectionForm, Sort, StoredSecrets};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
@@ -409,13 +410,16 @@ fn show_delete_confirm(
         .map(|c| c.name.clone())
         .unwrap_or_default();
     let (mut confirmed, mut cancelled) = (false, false);
-    let modal = egui::Modal::new(egui::Id::new("connection_delete_confirm")).show(ctx, |ui| {
-        ui.label(i18n.t_with("connections.confirm_delete", &[("name", &name)]));
-        ui.horizontal(|ui| {
-            cancelled = ui.button(i18n.t("common.cancel")).clicked();
-            confirmed = ui.button(i18n.t("common.delete")).clicked();
+    let frame = modal_frame(ctx);
+    let modal = egui::Modal::new(egui::Id::new("connection_delete_confirm"))
+        .frame(frame)
+        .show(ctx, |ui| {
+            ui.label(i18n.t_with("connections.confirm_delete", &[("name", &name)]));
+            ui.horizontal(|ui| {
+                cancelled = text_button(ui, i18n.t("common.cancel")).clicked();
+                confirmed = filled_button(ui, i18n.t("common.delete")).clicked();
+            });
         });
-    });
     if confirmed {
         return state.delete_confirmed();
     }

@@ -2,9 +2,10 @@
 //! outcome counts, per-pair rows, the failed documents (keys are data, the error text comes from
 //! the typed error) and the note to run the pairs again.
 use super::pending::pair_text;
-use super::table::status_text;
+use super::table::{panel, status_chip};
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{filled_button, gate, tonal_button};
 use crate::viewmodel::compare::{
     ApplyRow, ApplySummary, ApplyUi, CompareState, StatusIcon, key_label,
 };
@@ -46,6 +47,18 @@ fn show_running(
     cancel_requested: bool,
     i18n: &I18n,
 ) -> Option<CompareAction> {
+    panel(ui, |ui| {
+        show_running_body(ui, state, rows, cancel_requested, i18n)
+    })
+}
+
+fn show_running_body(
+    ui: &mut egui::Ui,
+    state: &CompareState,
+    rows: &[ApplyRow],
+    cancel_requested: bool,
+    i18n: &I18n,
+) -> Option<CompareAction> {
     ui.horizontal(|ui| {
         ui.strong(i18n.t("compare.apply.running.title"));
         ui.spinner();
@@ -68,8 +81,10 @@ fn show_running(
     }
     let mut action = None;
     ui.horizontal(|ui| {
-        let cancel = egui::Button::new(i18n.t("compare.apply.running.cancel"));
-        if ui.add_enabled(state.apply.can_cancel(), cancel).clicked() {
+        let cancel = gate(ui, state.apply.can_cancel(), |ui| {
+            tonal_button(ui, i18n.t("compare.apply.running.cancel"))
+        });
+        if cancel.clicked() {
             action = Some(CompareAction::CancelApply);
         }
         if cancel_requested {
@@ -81,6 +96,18 @@ fn show_running(
 }
 
 fn show_finished(
+    ui: &mut egui::Ui,
+    state: &CompareState,
+    reports: &[(PairId, ApplyReport)],
+    (cancelled, requested): (bool, u64),
+    i18n: &I18n,
+) -> Option<CompareAction> {
+    panel(ui, |ui| {
+        show_finished_body(ui, state, reports, (cancelled, requested), i18n)
+    })
+}
+
+fn show_finished_body(
     ui: &mut egui::Ui,
     state: &CompareState,
     reports: &[(PairId, ApplyReport)],
@@ -103,7 +130,7 @@ fn show_finished(
     }
     show_failures(ui, state, reports, i18n);
     show_rerun_note(ui, i18n);
-    let dismiss = ui.button(i18n.t("compare.apply.finished.dismiss"));
+    let dismiss = filled_button(ui, i18n.t("compare.apply.finished.dismiss"));
     dismiss
         .clicked()
         .then_some(CompareAction::DismissApplyResult)
@@ -141,7 +168,7 @@ fn show_summary(ui: &mut egui::Ui, summary: &ApplySummary, i18n: &I18n) {
     ui.horizontal_wrapped(|ui| {
         for (icon, key, count) in outcomes {
             let label = i18n.t_with(key, &[("count", &count.to_string())]);
-            ui.label(status_text(icon, &label));
+            status_chip(ui, icon, &label);
         }
     });
 }
@@ -224,7 +251,6 @@ fn show_rerun_note(ui: &mut egui::Ui, i18n: &I18n) {
     let color = ui.visuals().warn_fg_color;
     let note = egui::RichText::new(i18n.t("compare.apply.finished.rerun_note"))
         .strong()
-        .size(16.0)
         .color(color);
     ui.label(note);
 }

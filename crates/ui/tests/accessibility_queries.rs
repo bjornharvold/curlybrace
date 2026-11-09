@@ -17,7 +17,7 @@ use curlybrace_ui::views::indexes::show_indexes;
 use curlybrace_ui::views::queries::show_queries;
 use eframe::egui;
 use eframe::egui::OutputCommand;
-use eframe::egui::accesskit::Role;
+use eframe::egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
@@ -473,6 +473,36 @@ fn read_only_disables_the_button_and_says_why() {
     }
 }
 
+/// Every status button (Enable profiler, Turn off, Record all operations) is reported disabled
+/// and inert on a read-only connection, whichever level the profiler is at.
+#[test]
+fn read_only_status_buttons_are_disabled_and_emit_nothing() {
+    let cases = [
+        (0, vec!["indexes.queries.enable"]),
+        (
+            1,
+            vec!["indexes.queries.turn_off", "indexes.queries.record_all"],
+        ),
+        (2, vec!["indexes.queries.turn_off"]),
+    ];
+    for (level, keys) in cases {
+        let mut harness = open(known(level), true);
+        for key in keys {
+            let label = t(key);
+            assert!(
+                button(&harness, &label).accesskit_node().is_disabled(),
+                "level {level}: {key} is not disabled"
+            );
+            click(&mut harness, &label);
+            assert!(
+                harness.state().seen.is_empty(),
+                "level {level}: clicking {key} emitted {:?}",
+                harness.state().seen
+            );
+        }
+    }
+}
+
 #[test]
 fn busy_disables_the_button() {
     let harness = open(known(0).write_sent("shop"), false);
@@ -487,7 +517,11 @@ fn busy_disables_the_button() {
 #[test]
 fn range_and_refresh_report_their_actions() {
     let mut harness = open(known(2), false);
-    click(&mut harness, &t("indexes.range_week"));
+    // The range switch is a segmented control (radio buttons), like the Indexes toolbar's.
+    harness
+        .get_by_role_and_label(Role::RadioButton, &t("indexes.range_week"))
+        .click();
+    harness.run_steps(3);
     click(&mut harness, &t("indexes.refresh"));
     assert_eq!(
         harness.state().seen,
@@ -662,8 +696,21 @@ fn the_toggle_switches_views_and_opens_the_queries() {
             ),
         );
     harness.run_steps(3);
+    let selected = |h: &Harness<'_, _>, key: &str| {
+        h.get_by_role_and_label(Role::RadioButton, &t(key))
+            .accesskit_node()
+            .toggled()
+    };
+    assert_eq!(
+        selected(&harness, "indexes.queries.view_indexes"),
+        Some(Toggled::True)
+    );
+    assert_eq!(
+        selected(&harness, "indexes.queries.view_queries"),
+        Some(Toggled::False)
+    );
     harness
-        .get_by_role_and_label(Role::Button, &t("indexes.queries.view_queries"))
+        .get_by_role_and_label(Role::RadioButton, &t("indexes.queries.view_queries"))
         .click();
     harness.run_steps(3);
     assert_eq!(
@@ -674,8 +721,12 @@ fn the_toggle_switches_views_and_opens_the_queries() {
     harness.state_mut().0.view = IndexesView::Queries;
     harness.run_steps(3);
     harness.get_by_label(&t("indexes.queries.profiler_checking"));
+    assert_eq!(
+        selected(&harness, "indexes.queries.view_queries"),
+        Some(Toggled::True)
+    );
     harness
-        .get_by_role_and_label(Role::Button, &t("indexes.queries.view_indexes"))
+        .get_by_role_and_label(Role::RadioButton, &t("indexes.queries.view_indexes"))
         .click();
     harness.run_steps(3);
     assert_eq!(

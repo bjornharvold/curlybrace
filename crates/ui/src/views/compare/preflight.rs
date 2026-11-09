@@ -1,9 +1,10 @@
 //! The preflight strip: Check (the queue over the included pairs), Run and Run passing, and one
 //! verdict row per included pair. What is enabled is `CompareState::gates`; what a verdict says
 //! is `PairRow::status`.
-use super::table::{Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_label, truncated, widths};
+use super::table::{Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_chip, truncated, widths};
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{filled_button, gate, tonal_button};
 use crate::viewmodel::compare::{CompareState, EntrySizes, Gates, ListView, PairRow};
 use eframe::egui;
 
@@ -37,20 +38,24 @@ fn show_buttons(
         } else {
             "compare.preflight.check"
         };
-        let check = egui::Button::new(i18n.t(label));
-        if ui.add_enabled(gates.check, check).clicked() {
+        let check = gate(ui, gates.check, |ui| tonal_button(ui, i18n.t(label)));
+        if check.clicked() {
             action = Some(CompareAction::RunCheck);
         }
         if state.check_in_flight() {
             ui.spinner();
         }
-        let run = egui::Button::new(i18n.t("compare.preflight.run"));
-        if ui.add_enabled(gates.start, run).clicked() {
+        let run = gate(ui, gates.start, |ui| {
+            filled_button(ui, i18n.t("compare.preflight.run"))
+        });
+        if run.clicked() {
             action = Some(CompareAction::Start);
         }
         if gates.some_not_passing {
-            let passing = egui::Button::new(i18n.t("compare.preflight.run_passing"));
-            if ui.add_enabled(gates.start_passing, passing).clicked() {
+            let passing = gate(ui, gates.start_passing, |ui| {
+                tonal_button(ui, i18n.t("compare.preflight.run_passing"))
+            });
+            if passing.clicked() {
                 action = Some(CompareAction::StartPassing);
             }
         }
@@ -84,7 +89,7 @@ fn show_verdict(ui: &mut egui::Ui, w: &[f32], row: &PairRow, i18n: &I18n) {
     ui.horizontal(|ui| {
         cell(ui, w[0], |ui| truncated(ui, &pair));
         cell(ui, w[1], |ui| {
-            truncated(ui, &entry_status_label(&row.status, i18n));
+            entry_status_chip(ui, &row.status, i18n);
         });
         cell(ui, w[2], |ui| show_finding(ui, row, i18n));
     });

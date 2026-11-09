@@ -4,7 +4,9 @@
 //! while a change is in flight or the connection is read-only, with the reason in plain text.
 use super::index_dialogs::focus_once;
 use super::queries_rows::copyable;
+use super::tone_notice::tone_notice;
 use crate::I18n;
+use crate::theme::{Tone, filled_button, gate, modal_frame, text_button, typography};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{PROFILER_LEVEL_ON, ProfilerConsent, QueriesAction};
 use eframe::egui;
@@ -23,39 +25,42 @@ pub fn show_profiler_consent(
 ) -> Option<QueriesAction> {
     let turning_on = consent.level == PROFILER_LEVEL_ON;
     let mut action = None;
-    let modal = egui::Modal::new(egui::Id::new("profiler_consent")).show(ctx, |ui| {
-        ui.set_width(MODAL_WIDTH);
-        let (title, message) = match (turning_on, already_on) {
-            (true, true) => (
-                "indexes.queries.consent.title_record_all",
-                "indexes.queries.consent.message_on",
-            ),
-            (true, false) => (
-                "indexes.queries.consent.title_on",
-                "indexes.queries.consent.message_on",
-            ),
-            (false, _) => (
-                "indexes.queries.consent.title_off",
-                "indexes.queries.consent.message_off",
-            ),
-        };
-        ui.heading(i18n.t(title));
-        ui.label(i18n.t_with(message, &[("db", &consent.db)]));
-        if production {
-            ui.label(
-                egui::RichText::new(i18n.t("write_warning.production_line"))
-                    .strong()
-                    .color(ui.visuals().error_fg_color),
-            );
-        }
-        show_command(ui, &consent.command_text(), i18n);
-        if read_only {
-            ui.label(i18n.t(READ_ONLY_REASON_KEY));
-        } else if busy {
-            ui.label(i18n.t("indexes.queries.busy"));
-        }
-        action = buttons(ui, consent, turning_on, busy || read_only, busy, i18n);
-    });
+    let modal = egui::Modal::new(egui::Id::new("profiler_consent"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(MODAL_WIDTH);
+            let (title, message) = match (turning_on, already_on) {
+                (true, true) => (
+                    "indexes.queries.consent.title_record_all",
+                    "indexes.queries.consent.message_on",
+                ),
+                (true, false) => (
+                    "indexes.queries.consent.title_on",
+                    "indexes.queries.consent.message_on",
+                ),
+                (false, _) => (
+                    "indexes.queries.consent.title_off",
+                    "indexes.queries.consent.message_off",
+                ),
+            };
+            ui.label(typography::dialog_title(ui, i18n.t(title)));
+            ui.label(i18n.t_with(message, &[("db", &consent.db)]));
+            if production {
+                tone_notice(
+                    ui,
+                    Tone::Bad,
+                    &i18n.t("write_warning.production_line"),
+                    true,
+                );
+            }
+            show_command(ui, &consent.command_text(), i18n);
+            if read_only {
+                ui.label(i18n.t(READ_ONLY_REASON_KEY));
+            } else if busy {
+                ui.label(i18n.t("indexes.queries.busy"));
+            }
+            action = buttons(ui, consent, turning_on, busy || read_only, busy, i18n);
+        });
     let dismissed = modal.should_close() && !busy;
     action.or(dismissed.then_some(QueriesAction::CancelEnable))
 }
@@ -75,7 +80,7 @@ fn buttons(
 ) -> Option<QueriesAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let cancel = ui.add_enabled(!busy, egui::Button::new(i18n.t("common.cancel")));
+        let cancel = gate(ui, !busy, |ui| text_button(ui, i18n.t("common.cancel")));
         // Cancel owns the first focus, so a stray Enter changes nothing.
         focus_once(ui, &cancel, ("profiler_consent_focus", &consent.db));
         let (label, confirmed) = match turning_on {
@@ -88,7 +93,7 @@ fn buttons(
                 QueriesAction::ConfirmDisable,
             ),
         };
-        let confirm = ui.add_enabled(!confirm_off, egui::Button::new(i18n.t(label)));
+        let confirm = gate(ui, !confirm_off, |ui| filled_button(ui, i18n.t(label)));
         if cancel.clicked() {
             action = Some(QueriesAction::CancelEnable);
         }

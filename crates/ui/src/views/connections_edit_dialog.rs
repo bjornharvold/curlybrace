@@ -5,11 +5,26 @@ use super::connections_edit::{show_fields, text_row};
 use super::error_label::show_error;
 use crate::I18n;
 use crate::app::tools_state::ToolsState;
+use crate::theme::widgets::CONTROL_HEIGHT;
+use crate::theme::{
+    FieldOptions, Tone, chip, filled_button, modal_frame, outlined_field_opts, shape, text_button,
+    tonal_button, typography,
+};
 use curlybrace_core::runtime::TestReport;
 use eframe::egui;
 
-const DIALOG_WIDTH: f32 = 520.0;
+const DIALOG_WIDTH: f32 = 720.0;
 const BODY_MAX_HEIGHT: f32 = 460.0;
+/// What the dialog needs besides the scrolling body (title, result lines, footer, padding), so
+/// the body shrinks on a short window and the footer stays on screen.
+const CHROME_HEIGHT: f32 = 320.0;
+const BODY_MIN_HEIGHT: f32 = 160.0;
+/// Room the folder drop-down keeps beside the folder field.
+const FOLDER_COMBO_WIDTH: f32 = 160.0;
+/// Room a Copy button keeps beside the built string.
+const COPY_BUTTON_WIDTH: f32 = 96.0;
+/// Height of a row holding an outlined field: the control plus its floating label's overhang.
+const CONTROL_ROW_HEIGHT: f32 = CONTROL_HEIGHT + shape::SPACE_2;
 
 /// Draws the dialog while `state.editing`. Cancel and Escape close it (and reset the tools); a
 /// click outside does NOT, so a stray click never discards a typed form. Save returns the
@@ -30,34 +45,39 @@ pub(super) fn show_edit_dialog(
     let mut action = None;
     let mut tool_action = None;
     let mut cancelled = false;
-    let modal = egui::Modal::new(egui::Id::new("connection_edit")).show(ctx, |ui| {
-        ui.set_width(DIALOG_WIDTH);
-        ui.heading(i18n.t(state.edit_mode.title_key()));
-        egui::ScrollArea::vertical()
-            .max_height(BODY_MAX_HEIGHT)
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                (action, tool_action) = show_body(ui, state, tools, i18n);
+    let modal = egui::Modal::new(egui::Id::new("connection_edit"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.set_width(DIALOG_WIDTH);
+            ui.label(typography::dialog_title(
+                ui,
+                i18n.t(state.edit_mode.title_key()),
+            ));
+            egui::ScrollArea::vertical()
+                .max_height(body_height(ctx))
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    (action, tool_action) = show_body(ui, state, tools, i18n);
+                });
+            // Outside the clipped scroll area, so a long result or error is always fully visible.
+            show_test_result(ui, state, i18n);
+            if let Some(error) = &state.error {
+                show_error(ui, error, i18n);
+            }
+            if let Some((headline, details)) = state.dialog_banner.split_first() {
+                ui.colored_label(ui.visuals().error_fg_color, headline);
+                for detail in details {
+                    ui.weak(detail);
+                }
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                cancelled = text_button(ui, i18n.t("common.cancel")).clicked();
+                if filled_button(ui, i18n.t("common.save")).clicked() {
+                    action = save_action(state);
+                }
             });
-        // Outside the clipped scroll area, so a long result or error is always fully visible.
-        show_test_result(ui, state, i18n);
-        if let Some(error) = &state.error {
-            show_error(ui, error, i18n);
-        }
-        if let Some((headline, details)) = state.dialog_banner.split_first() {
-            ui.colored_label(ui.visuals().error_fg_color, headline);
-            for detail in details {
-                ui.weak(detail);
-            }
-        }
-        ui.separator();
-        ui.horizontal(|ui| {
-            cancelled = ui.button(i18n.t("common.cancel")).clicked();
-            if ui.button(i18n.t("common.save")).clicked() {
-                action = save_action(state);
-            }
         });
-    });
     let closing = cancelled || closed_by_escape(&modal);
     if closing {
         state.close_edit();
@@ -67,6 +87,11 @@ pub(super) fn show_edit_dialog(
         actions.extend(action);
     }
     actions
+}
+
+/// The body's height: [`BODY_MAX_HEIGHT`], less on a window too short for it.
+fn body_height(ctx: &egui::Context) -> f32 {
+    (ctx.screen_rect().height() - CHROME_HEIGHT).clamp(BODY_MIN_HEIGHT, BODY_MAX_HEIGHT)
 }
 
 /// `Modal::should_close` also fires on a backdrop click; only Escape (with no popup open, and
@@ -114,10 +139,28 @@ fn save_action(state: &mut ConnectionsState) -> Option<ConnectionAction> {
 /// Free text for the folder plus a drop-down of the folders already in use that fills it.
 fn show_folder_row(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
     let names = state.folder_names();
+    let label = i18n.t("connections.folder");
     ui.horizontal(|ui| {
-        let caption = ui.label(i18n.t("connections.folder"));
-        ui.add(egui::TextEdit::singleline(&mut state.form.folder))
-            .labelled_by(caption.id);
+        let reserved = if names.is_empty() {
+            0.0
+        } else {
+            FOLDER_COMBO_WIDTH
+        };
+        let width = (ui.available_width() - reserved - ui.spacing().item_spacing.x).max(120.0);
+        let height = CONTROL_ROW_HEIGHT;
+        ui.allocate_ui_with_layout(
+            egui::vec2(width, height),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                outlined_field_opts(
+                    ui,
+                    &label,
+                    &mut state.form.folder,
+                    "",
+                    FieldOptions::default(),
+                )
+            },
+        );
         if names.is_empty() {
             return;
         }
@@ -138,16 +181,14 @@ fn show_folder_row(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n)
                     }
                 }
             });
-        // egui names a label-less combo ""; give it the caption text (and the relation), and
-        // the shown folder as its value (egui reads only `current_text_value` into AccessKit).
-        let name = i18n.t("connections.folder");
+        // egui names a label-less combo ""; give it the field's label, and the shown folder as
+        // its value (egui reads only `current_text_value` into AccessKit).
         combo.response.widget_info(|| {
             let mut info =
-                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name.clone());
+                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, label.clone());
             info.current_text_value = Some(selected.clone());
             info
         });
-        combo.response.labelled_by(caption.id);
     });
 }
 
@@ -156,7 +197,7 @@ fn show_test(
     state: &mut ConnectionsState,
     i18n: &I18n,
 ) -> Option<ConnectionAction> {
-    let clicked = ui.button(i18n.t("connections.test")).clicked();
+    let clicked = tonal_button(ui, i18n.t("connections.test")).clicked();
     clicked.then(|| ConnectionAction::Test(Box::new(state.form.clone())))
 }
 
@@ -165,7 +206,7 @@ fn show_test_result(ui: &mut egui::Ui, state: &ConnectionsState, i18n: &I18n) {
     match &state.test {
         TestState::Idle => {}
         TestState::Running { .. } => {
-            ui.label(i18n.t("connections.test_running"));
+            chip(ui, Tone::Neutral, &i18n.t("connections.test_running"));
         }
         TestState::Done {
             outcome: Ok(report),
@@ -184,7 +225,7 @@ fn show_report(ui: &mut egui::Ui, report: &TestReport, i18n: &I18n) {
         Some(version) => i18n.t_with("connections.test_ok", &[("version", version)]),
         None => i18n.t("connections.test_ok_no_version"),
     };
-    ui.label(text);
+    chip(ui, Tone::Good, &text);
     if report.tls {
         ui.label(i18n.t("connections.test_configured_tls"));
     }
@@ -204,10 +245,10 @@ fn show_to_uri(
             form: Box::new(state.form.clone()),
             include_password,
         };
-        if ui.button(i18n.t("connections.to_uri")).clicked() {
+        if text_button(ui, i18n.t("connections.to_uri")).clicked() {
             action = Some(build(false));
         }
-        if ui.button(i18n.t("connections.include_password")).clicked() {
+        if text_button(ui, i18n.t("connections.include_password")).clicked() {
             action = Some(build(true));
         }
     });
@@ -222,12 +263,16 @@ fn show_built_uri(ui: &mut egui::Ui, state: &ConnectionsState, i18n: &I18n) {
         return;
     };
     ui.horizontal(|ui| {
-        let caption = ui.label(i18n.t("connections.built_uri"));
+        let width = (ui.available_width() - COPY_BUTTON_WIDTH).max(120.0);
         // A `&str` buffer is read-only but still selectable.
         let mut shown: &str = built.expose();
-        ui.add(egui::TextEdit::singleline(&mut shown))
-            .labelled_by(caption.id);
-        if ui.button(i18n.t("connections.copy")).clicked() {
+        let label = i18n.t("connections.built_uri");
+        ui.allocate_ui_with_layout(
+            egui::vec2(width, CONTROL_ROW_HEIGHT),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| outlined_field_opts(ui, &label, &mut shown, "", FieldOptions::default()),
+        );
+        if text_button(ui, i18n.t("connections.copy")).clicked() {
             ui.ctx().copy_text(built.expose().to_owned());
         }
     });

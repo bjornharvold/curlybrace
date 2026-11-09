@@ -1,6 +1,7 @@
 //! Draws a connection's colour glyph and production badge. The glyph carries the colour's
 //! translated name as its accessible label, and production is text, so colour is never alone.
 use crate::I18n;
+use crate::theme::{Tone, chip};
 use crate::viewmodel::connection_tag::{PRODUCTION_BADGE_KEY, READ_ONLY_BADGE_KEY};
 use crate::viewmodel::{ColorTag, ConnectionBadge};
 use eframe::egui;
@@ -12,16 +13,10 @@ pub fn show_badge(ui: &mut egui::Ui, badge: &ConnectionBadge, i18n: &I18n) {
         show_glyph(ui, tag, i18n);
     }
     if badge.production {
-        let text = egui::RichText::new(i18n.t(PRODUCTION_BADGE_KEY))
-            .strong()
-            .color(ui.visuals().error_fg_color);
-        ui.label(text);
+        chip(ui, Tone::Bad, &i18n.t(PRODUCTION_BADGE_KEY));
     }
     if badge.read_only {
-        let text = egui::RichText::new(i18n.t(READ_ONLY_BADGE_KEY))
-            .strong()
-            .color(ui.visuals().warn_fg_color);
-        ui.label(text);
+        chip(ui, Tone::Warning, &i18n.t(READ_ONLY_BADGE_KEY));
     }
 }
 

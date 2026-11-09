@@ -1,5 +1,6 @@
 //! Sidebar view: database tree with lazily loaded collections.
 use crate::I18n;
+use crate::theme::{CONTROL_HEIGHT, PILL_HEIGHT, compact_text_button};
 use crate::viewmodel::{
     DbNode, PasteTarget, SidebarState, collection_click_action, compare_database_to_action,
     compare_to_action, db_click_action,
@@ -31,7 +32,7 @@ enum Row<'a> {
 
 /// Height of every rendered row; the single source of truth for `show_rows` and the rows.
 fn row_height(ui: &egui::Ui) -> f32 {
-    ui.spacing().interact_size.y
+    PILL_HEIGHT.max(ui.spacing().interact_size.y)
 }
 
 /// Rows a database occupies: its header plus children or one placeholder when expanded.
@@ -94,26 +95,20 @@ fn push_node_rows<'a>(
     }
 }
 
-/// The text of a database row: an expand/collapse arrow and the name (one place, shared with the
-/// UI tests so they do not hardcode the glyphs).
-pub fn db_row_label(name: &str, expanded: bool) -> String {
-    let arrow = if expanded { "▾" } else { "▸" };
-    format!("{arrow} {name}")
-}
-
 /// Height that fits the heading line and up to `max_rows` rows of `state`'s tree, so a root's
 /// tree can sit in a bounded area (the rows themselves stay virtualised).
 pub fn preferred_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize) -> f32 {
     let heading = ui
         .text_style_height(&egui::TextStyle::Heading)
-        .max(ui.spacing().interact_size.y);
+        .max(ui.spacing().interact_size.y)
+        .max(CONTROL_HEIGHT);
     tree_height(ui, state, max_rows, heading)
 }
 
 /// Like [`preferred_height`] for [`show_sidebar_body`]: a compact Refresh row instead of the
 /// heading line.
 pub fn preferred_body_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize) -> f32 {
-    tree_height(ui, state, max_rows, ui.spacing().interact_size.y)
+    tree_height(ui, state, max_rows, CONTROL_HEIGHT)
 }
 
 fn tree_height(ui: &egui::Ui, state: &SidebarState, max_rows: usize, top_row: f32) -> f32 {
@@ -127,7 +122,7 @@ pub fn show_sidebar(ui: &mut egui::Ui, state: &SidebarState, i18n: &I18n) -> Opt
     let mut action = None;
     ui.horizontal(|ui| {
         ui.heading(i18n.t("sidebar.title"));
-        if ui.button(i18n.t("sidebar.refresh")).clicked() {
+        if compact_text_button(ui, i18n.t("sidebar.refresh")).clicked() {
             action = Some(SidebarAction::Refresh);
         }
     });
@@ -142,12 +137,12 @@ pub fn show_sidebar_body(
     i18n: &I18n,
 ) -> Option<SidebarAction> {
     // A right-aligned layout would claim the whole remaining height: give the row its own.
-    let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+    let row = egui::vec2(ui.available_width(), CONTROL_HEIGHT);
     let refresh = ui
         .allocate_ui_with_layout(
             row,
             egui::Layout::right_to_left(egui::Align::Center),
-            |ui| ui.small_button(i18n.t("sidebar.refresh")).clicked(),
+            |ui| compact_text_button(ui, i18n.t("sidebar.refresh")).clicked(),
         )
         .inner;
     let action = show_tree_rows(ui, state, ctx, i18n);
@@ -208,8 +203,7 @@ fn show_row(
         Row::Db(node) => {
             let node_ref = database_node(ctx, &node.name);
             let selected = is_selected(ctx, &node_ref);
-            let label = db_row_label(&node.name, node.expanded);
-            let response = row_button(ui, ctx, selected, label);
+            let response = row_button(ui, ctx, selected, Some(node.expanded), node.name.as_str());
             start_drag(&response, ctx, &node_ref);
             let target = database_target(ctx, &node.name);
             let dropped = target.and_then(|t| drop_target(&response, ctx, t, i18n));
@@ -225,7 +219,7 @@ fn show_row(
                 .as_ref()
                 .is_some_and(|ns| ns.db == db && ns.collection == name);
             ui.add_space(ui.spacing().indent);
-            let response = row_button(ui, ctx, opened || is_selected(ctx, &node_ref), name);
+            let response = row_button(ui, ctx, opened || is_selected(ctx, &node_ref), None, name);
             start_drag(&response, ctx, &node_ref);
             let target = collection_target(ctx, db, name);
             let dropped = target.and_then(|t| drop_target(&response, ctx, t, i18n));

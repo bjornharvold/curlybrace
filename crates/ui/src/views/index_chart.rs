@@ -1,7 +1,9 @@
 //! Draws the usage chart of one index: bars of uses per bucket, a line where the server
 //! restarted and a shaded band where nothing was recorded. The numbers behind it are also
 //! written as a text line, because a drawn chart is not read by screen readers.
+use super::chart_legend::index_legend;
 use crate::I18n;
+use crate::theme::{chart_colors, current_ui};
 use crate::viewmodel::index_chart::{chart_model, chart_summary, observed_uses};
 use crate::viewmodel::index_detail::range_key;
 use curlybrace_core::history::ChartRange;
@@ -32,7 +34,8 @@ pub fn show_chart(
         .iter()
         .map(|p| Bar::new(p[0], p[1]).width(bar_width))
         .collect();
-    let visuals = ui.visuals().clone();
+    let colors = chart_colors(current_ui(ui));
+    let legend = index_legend(i18n, &colors);
     let steps = grid_steps(range);
     let plot = Plot::new(("index_usage", &series.index_name, &series.host))
         .height(CHART_HEIGHT)
@@ -59,25 +62,21 @@ pub fn show_chart(
         .label_formatter(|name, point| format!("{name}: {}", whole_number(point.y)));
     let tooltip_i18n = i18n.clone();
     let lower_bounds = model.lower_bounds.clone();
-    let band = visuals.widgets.noninteractive.bg_stroke.color;
+    let band = colors.no_data;
     plot.show(ui, |plot_ui| {
-        let name = i18n.t("indexes.no_data");
+        let [uses, restart, no_data] = legend;
+        let name = no_data.name;
         for (from, to) in &model.gaps {
-            plot_ui.polygon(gap_band(
-                &name,
-                (*from, *to),
-                top,
-                band.gamma_multiply(GAP_SHADE),
-            ));
+            plot_ui.polygon(gap_band(&name, (*from, *to), top, (band, GAP_SHADE)));
         }
         // Only part of the bucket is unobserved: a lighter band, its bar is still drawn.
         for (from, to) in &model.partial_gaps {
-            let shade = band.gamma_multiply(PARTIAL_GAP_SHADE);
+            let shade = (band, PARTIAL_GAP_SHADE);
             plot_ui.polygon(gap_band(&name, (*from, *to), top, shade));
         }
         plot_ui.bar_chart(
-            BarChart::new(i18n.t("indexes.uses_series"), bars)
-                .color(visuals.selection.bg_fill)
+            BarChart::new(uses.name, bars)
+                .color(uses.color)
                 .element_formatter(Box::new(move |bar, _| {
                     let lower = lower_bounds.contains(&bar.argument);
                     bar_tooltip(&tooltip_i18n, bar.value.round() as i64, lower)
@@ -85,8 +84,8 @@ pub fn show_chart(
         );
         for x in &model.restarts {
             plot_ui.vline(
-                VLine::new(i18n.t("indexes.restart"), *x)
-                    .color(visuals.warn_fg_color)
+                VLine::new(restart.name.clone(), *x)
+                    .color(restart.color)
                     .width(1.5),
             );
         }
@@ -94,17 +93,18 @@ pub fn show_chart(
     ui.label(summary_line(series, range, now_secs, i18n));
 }
 
-/// A translucent rectangle over `(from, to)`, as tall as the chart.
+/// A translucent rectangle over `(from, to)`, as tall as the chart, `shade` of `color`.
 pub(super) fn gap_band(
     name: &str,
     (from, to): (f64, f64),
     top: f64,
-    fill: egui::Color32,
+    (color, shade): (egui::Color32, f32),
 ) -> Polygon<'static> {
     let corners = vec![[from, 0.0], [to, 0.0], [to, top], [from, top]];
     Polygon::new(name, PlotPoints::from(corners))
-        .fill_color(fill)
-        .stroke(egui::Stroke::NONE)
+        .fill_color(color.gamma_multiply(shade))
+        // No outline is drawn (zero width); the color is what the legend swatch shows.
+        .stroke(egui::Stroke::new(0.0, color))
 }
 
 /// What hovering a bar says; a bucket with unobserved time says its count may be too low.

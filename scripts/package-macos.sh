@@ -39,6 +39,8 @@ mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 cp "$BINARY" "${APP}/Contents/MacOS/curlybrace"
 chmod 755 "${APP}/Contents/MacOS/curlybrace"
 cp LICENSE-MIT LICENSE-APACHE "${APP}/Contents/Resources/"
+# The bundled fonts travel with their licences (OFL-1.1 and Apache-2.0 require the notice).
+cp crates/ui/assets/fonts/LICENSE-Roboto.txt crates/ui/assets/fonts/LICENSE-MaterialSymbols.txt "${APP}/Contents/Resources/"
 cp assets/icon/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
 
 cat > "${APP}/Contents/Info.plist" <<PLIST

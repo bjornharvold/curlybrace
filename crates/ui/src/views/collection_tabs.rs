@@ -1,5 +1,7 @@
-//! The switch between the tabs of a collection (Documents | Indexes).
+//! The switch between the tabs of a collection (Documents | Indexes), drawn as Material primary
+//! tabs.
 use crate::I18n;
+use crate::theme::tabs;
 use crate::viewmodel::CollectionTab;
 use eframe::egui;
 
@@ -11,18 +13,9 @@ pub fn show_collection_tabs(
     current: CollectionTab,
     i18n: &I18n,
 ) -> Option<CollectionTab> {
-    let mut picked = None;
-    ui.horizontal(|ui| {
-        for tab in TABS {
-            let selected = tab == current;
-            if ui
-                .selectable_label(selected, i18n.t(tab.label_key()))
-                .clicked()
-                && !selected
-            {
-                picked = Some(tab);
-            }
-        }
-    });
-    picked
+    let items: Vec<(CollectionTab, String)> = TABS
+        .into_iter()
+        .map(|tab| (tab, i18n.t(tab.label_key())))
+        .collect();
+    tabs(ui, &items, current)
 }

@@ -12,7 +12,7 @@ use curlybrace_ui::viewmodel::index_detail::anchored_now;
 use curlybrace_ui::viewmodel::{IndexWrite, IndexesAction, IndexesState};
 use curlybrace_ui::views::indexes::show_indexes;
 use eframe::egui;
-use eframe::egui::accesskit::Role;
+use eframe::egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
@@ -222,14 +222,23 @@ fn a_paused_sampler_shows_its_reason_and_the_list_still_renders() {
 fn every_control_has_an_accessible_label() {
     let (_, _, state) = two_indexes();
     let harness = open(state, false);
+    for key in ["indexes.refresh", "indexes.copy_json"] {
+        harness.get_by_role_and_label(Role::Button, &t(key));
+    }
+    // The range switch is a segmented control: radio buttons, the current range marked.
     for key in [
-        "indexes.refresh",
-        "indexes.copy_json",
         "indexes.range_day",
         "indexes.range_week",
         "indexes.range_month",
     ] {
-        harness.get_by_role_and_label(Role::Button, &t(key));
+        let label = t(key);
+        let node = harness.get_by_role_and_label(Role::RadioButton, &label);
+        let expected = if key == "indexes.range_day" {
+            Toggled::True
+        } else {
+            Toggled::False
+        };
+        assert_eq!(node.accesskit_node().toggled(), Some(expected), "{key}");
     }
     // The chart is drawn, not read: its numbers are also in a text line.
     harness.get_by_label(&I18n::english().t_with(
@@ -252,7 +261,7 @@ fn the_buttons_report_their_actions() {
         .click();
     harness.run_steps(2);
     harness
-        .get_by_role_and_label(Role::Button, &t("indexes.range_week"))
+        .get_by_role_and_label(Role::RadioButton, &t("indexes.range_week"))
         .click();
     harness.run_steps(2);
     harness

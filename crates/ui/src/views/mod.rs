@@ -1,4 +1,5 @@
 //! egui views. Logic lives in `viewmodel`; these only render and collect input.
+pub mod chart_legend;
 pub mod collection_tabs;
 pub mod compare;
 pub mod connection_badge;
@@ -29,6 +30,7 @@ pub mod index_dialogs;
 pub mod index_sampling;
 pub mod indexes;
 pub mod json;
+mod json_highlight;
 pub mod metrics;
 pub mod queries;
 pub mod queries_chart;
@@ -39,8 +41,10 @@ pub mod sidebar_copy;
 pub mod sidebar_drag;
 pub mod sidebar_roots;
 pub mod table;
+pub mod tone_notice;
 pub mod tool_row;
 pub mod tools_settings;
 pub mod tree;
+pub mod typed_confirmation;
 pub mod verdict_badge;
 pub mod write_warning;

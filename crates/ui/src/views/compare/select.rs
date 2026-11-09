@@ -3,6 +3,7 @@
 //! enabled, why not) comes from `viewmodel::compare::select_bar`.
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{gate, text_button, tonal_button};
 use crate::viewmodel::compare::read_only::READ_ONLY_DESTINATION_KEY;
 use crate::viewmodel::compare::{ActionBlock, ActionButton, RowAction, SelectionBar};
 use eframe::egui;
@@ -44,21 +45,31 @@ pub fn reasons_text(keys: &[&str], i18n: &I18n) -> String {
         .join("\n")
 }
 
+/// How loud a guarded button is: the actions are tonal, the selection helpers are plain text.
+#[derive(Clone, Copy)]
+enum Emphasis {
+    Tonal,
+    Text,
+}
+
 /// A button that says why it is disabled on hover (every reason, when there are any); true when
 /// clicked.
 fn guarded_button(
     ui: &mut egui::Ui,
-    text: String,
+    (text, emphasis): (String, Emphasis),
     enabled: bool,
     reasons: &[&str],
     i18n: &I18n,
 ) -> bool {
-    let response = ui.add_enabled(enabled, egui::Button::new(text));
+    let response = gate(ui, enabled, |ui| match emphasis {
+        Emphasis::Tonal => tonal_button(ui, text),
+        Emphasis::Text => text_button(ui, text),
+    });
     if enabled {
         return response.clicked();
     }
     if !reasons.is_empty() {
-        response.on_disabled_hover_text(reasons_text(reasons, i18n));
+        response.on_hover_text(reasons_text(reasons, i18n));
     }
     false
 }
@@ -79,7 +90,14 @@ pub fn action_buttons(
     let mut clicked = None;
     for button in buttons {
         let text = i18n.t(button.action.i18n_key());
-        if guarded_button(ui, text, button.is_enabled(), &button_reasons(button), i18n) {
+        let shown = (text, Emphasis::Tonal);
+        if guarded_button(
+            ui,
+            shown,
+            button.is_enabled(),
+            &button_reasons(button),
+            i18n,
+        ) {
             clicked = Some(button.action);
         }
     }
@@ -100,7 +118,7 @@ pub fn show_selection_bar(
         let select_all = i18n.t_with("compare.results.select_all", &[("count", &total)]);
         if guarded_button(
             ui,
-            select_all,
+            (select_all, Emphasis::Text),
             bar.can_select_all(),
             &bar.tick_block
                 .map(ActionBlock::i18n_key)
@@ -115,7 +133,7 @@ pub fn show_selection_bar(
             .tick_block
             .unwrap_or(ActionBlock::NothingSelected)
             .i18n_key()];
-        if guarded_button(ui, clear, bar.can_clear(), &why_not, i18n) {
+        if guarded_button(ui, (clear, Emphasis::Text), bar.can_clear(), &why_not, i18n) {
             action = Some(CompareAction::ClearSelection);
         }
         ui.separator();

@@ -22,6 +22,11 @@
     "import_too_many_entries": "The file you chose has too many connections to import. Nothing was imported.",
     "import_unreadable": "The file you chose could not be read. Nothing was imported.",
     "in_connection": "In {name}:",
+    "level": {
+      "error": "Error",
+      "info": "Information",
+      "warning": "Warning"
+    },
     "not_connected": "Not connected. Connect to a server first.",
     "projection_read_only": "These documents are shown with a projection, so they cannot be edited or cloned. Clear the projection to edit them.",
     "read_only": "This connection is read-only, so nothing was changed. To write, untick Read-only in the connection settings and reconnect.",
@@ -337,6 +342,8 @@
         "target": "Target"
       },
       "counterpart_name_hint": "Name on the other side",
+      "counterpart_name_label": "Counterpart name",
+      "counterpart_name_named": "Counterpart name for {name}",
       "customised": "Customised",
       "defaults_title": "Defaults for all pairs",
       "edit_settings": "Edit settings",
@@ -496,6 +503,8 @@
     "filter": "Filter",
     "filter_count": "{shown} of {total}",
     "folder": "Folder",
+    "folder_collapse": "Collapse folder",
+    "folder_expand": "Expand folder",
     "folder_move_title": "Move to folder (leave empty for no folder)",
     "folder_rename_title": "Rename folder",
     "from_uri": "Fill from string",
@@ -553,6 +562,8 @@
     "dialog": {
       "blocked_names": "Fix the names above before copying.",
       "blocked_typed": "Type the text above to enable Copy.",
+      "confirm_field": "Confirmation",
+      "confirm_instruction": "To confirm, type this text exactly:",
       "confirm_prompt": "To confirm, type this text exactly: {text}",
       "copy": "Copy",
       "counting_note": "Counting documents… You can copy now, but the counts will then be incomplete.",
@@ -877,7 +888,9 @@
       "confirm": "Drop index",
       "message": "Drop the index {name} from {collection} on {connection}? Queries that relied on it get slower. This cannot be undone.",
       "title": "Drop index",
-      "type_name": "Type the index name to confirm: {name}"
+      "type_name": "Type the index name to confirm: {name}",
+      "type_name_field": "Index name",
+      "type_name_instruction": "Type the index name to confirm:"
     },
     "drop_old": {
       "drop": "Drop old",

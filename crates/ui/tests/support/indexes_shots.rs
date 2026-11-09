@@ -2,15 +2,20 @@
 //! selected with a day of usage that holds a server restart and a stretch without data.
 use super::shots::{SHOT_NOW, browsing};
 use curlybrace_core::connection::{ConnectionColor, SavedColor};
-use curlybrace_core::history::{Bucket, ChartRange, Sample};
+use curlybrace_core::explain::VerdictKind;
+use curlybrace_core::history::{
+    Bucket, ChartRange, Sample, ShapeBucket, ShapeSource, ShapeSummary,
+};
 use curlybrace_core::indexes::{IndexSpec, KeyKind};
-use curlybrace_core::runtime::{IndexSeries, SamplerStatus};
-use curlybrace_core::store::CollectionIndex;
+use curlybrace_core::runtime::{IndexSeries, ProfilerStatus, SamplerStatus};
+use curlybrace_core::shape::from_query;
+use curlybrace_core::store::{CollectionIndex, ProfilingState, Query};
 use curlybrace_core::test_support::mock_objects::{mock_index_spec, mock_index_spec_named};
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::index_detail::anchored_now;
 use curlybrace_ui::viewmodel::{
-    CollectionTab, DropConfirm, IndexBuilderState, IndexesState, ViewMode,
+    CollectionTab, DropConfirm, IndexBuilderState, IndexesState, IndexesView, ProfilingView,
+    QueriesState, ViewMode,
 };
 
 const BUCKETS: i64 = 144;
@@ -107,4 +112,63 @@ pub fn index_drop_confirm(state: &mut AppState) {
     let typed = name.chars().take(14).collect::<String>();
     let confirm = DropConfirm::new(name).with_typed(typed);
     state.indexes = state.indexes.clone().with_drop_confirm(Some(confirm));
+}
+
+/// One recorded query shape on `field` with `verdict`: a day of 10 minute buckets in which the
+/// misses follow `miss_every` (none for a shape that never misses).
+fn shape_summary(field: &str, verdict: VerdictKind, miss_every: Option<i64>) -> ShapeSummary {
+    let end = anchored_now(ChartRange::Day, SHOT_NOW);
+    let buckets: Vec<ShapeBucket> = (0..BUCKETS)
+        .map(|i| {
+            let executions = (i * 5) % 13 + 2;
+            let misses = miss_every
+                .filter(|every| i % every == 0)
+                .map_or(0, |_| executions / 2 + 1);
+            ShapeBucket {
+                start_secs: end - (BUCKETS - i) * WIDTH,
+                width_secs: WIDTH,
+                executions: executions as u64,
+                misses: misses as u64,
+                gap_secs: 0,
+            }
+        })
+        .collect();
+    ShapeSummary {
+        hash: format!("hash-{field}"),
+        shape_json: from_query(&Query {
+            filter: bson::doc! { field: 1 },
+            ..Query::default()
+        })
+        .json(),
+        source: ShapeSource::App,
+        executions: buckets.iter().map(|b| b.executions).sum(),
+        misses: buckets.iter().map(|b| b.misses).sum(),
+        total_millis: 52_000,
+        max_millis: 840,
+        worst: verdict,
+        latest: verdict,
+        buckets,
+    }
+}
+
+/// The Queries view of `crm.customers`: the profiler on and read, and shapes with a bad, a
+/// warning and a good verdict, so the chips of every tone and the miss trend show.
+pub fn queries_view(state: &mut AppState) {
+    indexes_tab(state);
+    let queries = QueriesState::default()
+        .with_profiling(ProfilingView::Known(ProfilingState {
+            level: 2,
+            slow_ms: 100,
+        }))
+        .with_status(ProfilerStatus::Reading { databases: 1 })
+        .with_shapes(vec![
+            shape_summary("email", VerdictKind::CollectionScan, Some(3)),
+            shape_summary("createdAt", VerdictKind::SortNotCovered, Some(9)),
+            shape_summary("customerId", VerdictKind::IndexUsed, None),
+        ]);
+    state.indexes = state
+        .indexes
+        .clone()
+        .with_view(IndexesView::Queries)
+        .with_queries(queries);
 }

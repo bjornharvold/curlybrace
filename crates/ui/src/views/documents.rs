@@ -4,6 +4,7 @@ use super::doc_select::show_selection_bar;
 use super::write_warning::focus_cancel_unless_focused;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
+use crate::theme::{filled_button, gate, modal_frame, segmented, text_button, tonal_button};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{
     ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview, page_key,
@@ -11,18 +12,15 @@ use crate::viewmodel::{
 use curlybrace_core::store::Page;
 use eframe::egui;
 
-/// Radio-style mode switcher; returns the (possibly changed) mode.
+/// Segmented mode switcher; returns the (possibly changed) mode.
 pub fn show_mode_switcher(ui: &mut egui::Ui, mode: ViewMode, i18n: &I18n) -> ViewMode {
-    let mut next = mode;
-    ui.horizontal(|ui| {
-        for candidate in ViewMode::ALL {
-            let label = i18n.t(candidate.label_key());
-            if ui.selectable_label(mode == candidate, label).clicked() {
-                next = candidate;
-            }
-        }
-    });
-    next
+    let items: Vec<(ViewMode, String)> = ViewMode::ALL
+        .into_iter()
+        .map(|candidate| (candidate, i18n.t(candidate.label_key())))
+        .collect();
+    ui.horizontal(|ui| segmented(ui, &items, mode))
+        .inner
+        .unwrap_or(mode)
 }
 
 /// Renders the page in `mode`.
@@ -83,9 +81,9 @@ pub fn show_documents_keyed(
 /// The Insert button. On a read-only connection it is disabled and the reason is both its hover
 /// text and a visible note, so the state is never colour or hover alone.
 fn show_insert(ui: &mut egui::Ui, read_only: bool, i18n: &I18n) -> Option<DocAction> {
-    let insert = ui.add_enabled(!read_only, egui::Button::new(i18n.t("doc.insert")));
+    let insert = gate(ui, !read_only, |ui| tonal_button(ui, i18n.t("doc.insert")));
     if read_only {
-        insert.on_disabled_hover_text(i18n.t(READ_ONLY_REASON_KEY));
+        insert.on_hover_text(i18n.t(READ_ONLY_REASON_KEY));
         ui.label(i18n.t(READ_ONLY_REASON_KEY));
         return None;
     }
@@ -120,30 +118,32 @@ fn show_delete_confirm(
     );
     let mut confirmed = false;
     let mut cancelled = false;
-    let modal = egui::Modal::new(egui::Id::new("delete_confirm")).show(ctx, |ui| {
-        ui.label(message);
-        if target.production {
-            // The notice rides in this one dialog: delete never opens a second warning.
-            ui.label(
-                egui::RichText::new(i18n.t("write_warning.production_line"))
-                    .strong()
-                    .color(ui.visuals().error_fg_color),
-            );
-        }
-        ui.horizontal(|ui| {
+    let modal = egui::Modal::new(egui::Id::new("delete_confirm"))
+        .frame(modal_frame(ctx))
+        .show(ctx, |ui| {
+            ui.label(message);
             if target.production {
-                // Cancel first and focused: a stray Enter can never delete on production.
-                let cancel = ui.button(i18n.t("common.cancel"));
-                let delete = ui.button(i18n.t("doc.delete"));
-                focus_cancel_unless_focused(&cancel, &delete);
-                cancelled = cancel.clicked();
-                confirmed = delete.clicked();
-            } else {
-                confirmed = ui.button(i18n.t("doc.delete")).clicked();
-                cancelled = ui.button(i18n.t("common.cancel")).clicked();
+                // The notice rides in this one dialog: delete never opens a second warning.
+                ui.label(
+                    egui::RichText::new(i18n.t("write_warning.production_line"))
+                        .strong()
+                        .color(ui.visuals().error_fg_color),
+                );
             }
+            ui.horizontal(|ui| {
+                if target.production {
+                    // Cancel first and focused: a stray Enter can never delete on production.
+                    let cancel = text_button(ui, i18n.t("common.cancel"));
+                    let delete = filled_button(ui, i18n.t("doc.delete"));
+                    focus_cancel_unless_focused(&cancel, &delete);
+                    cancelled = cancel.clicked();
+                    confirmed = delete.clicked();
+                } else {
+                    confirmed = filled_button(ui, i18n.t("doc.delete")).clicked();
+                    cancelled = text_button(ui, i18n.t("common.cancel")).clicked();
+                }
+            });
         });
-    });
     if confirmed {
         let (next, action) = std::mem::take(state).delete_confirmed(key);
         *state = next;

@@ -3,6 +3,7 @@ use super::detail::{forget_cache, show_detail};
 use super::select::{header_checkbox, row_checkbox, show_selection_bar};
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{Tone, chip, gate, tabs, tonal_button};
 use crate::viewmodel::compare::{
     CompareState, FieldBar, ResultsView, SelectionBar, category_key, key_label, page_ticked,
     visible_ticks,
@@ -54,10 +55,7 @@ pub fn show_pair_results(
 fn show_heading(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        if ui
-            .button(i18n.t("compare.results.back_to_overview"))
-            .clicked()
-        {
+        if tonal_button(ui, i18n.t("compare.results.back_to_overview")).clicked() {
             action = Some(CompareAction::BackToOverview);
         }
         if let Some((source, target)) = state.open_pair_labels() {
@@ -81,7 +79,8 @@ fn show_pair_status(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) {
     let queued = state.open_pair.map_or(0, |p| state.pending_documents(p));
     if queued > 0 {
         let count = queued.to_string();
-        ui.label(i18n.t_with("compare.apply.pending_badge", &[("count", &count)]));
+        let text = i18n.t_with("compare.apply.pending_badge", &[("count", &count)]);
+        chip(ui, Tone::Neutral, &text);
     }
 }
 
@@ -94,9 +93,10 @@ pub fn show_results(
 ) -> Option<CompareAction> {
     let tabs = show_tabs(ui, results, i18n);
     let identical = results.counts.identical.to_string();
-    ui.label(i18n.t_with("compare.results.identical_count", &[("count", &identical)]));
+    let identical = i18n.t_with("compare.results.identical_count", &[("count", &identical)]);
+    chip(ui, Tone::Neutral, &identical);
     if results.is_clean() {
-        ui.label(i18n.t("compare.results.identical"));
+        chip(ui, Tone::Good, &i18n.t("compare.results.identical"));
         return tabs;
     }
     if results.total() == 0 {
@@ -111,33 +111,28 @@ pub fn show_results(
 }
 
 fn show_tabs(ui: &mut egui::Ui, results: &ResultsView, i18n: &I18n) -> Option<CompareAction> {
-    let mut action = None;
-    ui.horizontal(|ui| {
-        for category in TAB_ORDER {
-            let name = i18n.t(category_key(category));
-            let count = results.counts.of(category).to_string();
-            let title = i18n.t_with("compare.results.tab", &[("name", &name), ("count", &count)]);
-            let current = category == results.category;
-            let tab = ui.push_id(category_key(category), |ui| {
-                ui.selectable_label(current, title)
-            });
-            if tab.inner.clicked() {
-                action = Some(CompareAction::SelectCategory(category));
-            }
-        }
+    let items = TAB_ORDER.map(|category| {
+        let name = i18n.t(category_key(category));
+        let count = results.counts.of(category).to_string();
+        let title = i18n.t_with("compare.results.tab", &[("name", &name), ("count", &count)]);
+        (category, title)
     });
-    action
+    tabs(ui, &items, results.category).map(CompareAction::SelectCategory)
 }
 
 fn show_pager(ui: &mut egui::Ui, results: &ResultsView, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let prev = egui::Button::new(i18n.t("compare.results.prev"));
-        if ui.add_enabled(results.has_prev(), prev).clicked() {
+        let prev = gate(ui, results.has_prev(), |ui| {
+            tonal_button(ui, i18n.t("compare.results.prev"))
+        });
+        if prev.clicked() {
             action = Some(CompareAction::Page(-1));
         }
-        let next = egui::Button::new(i18n.t("compare.results.next"));
-        if ui.add_enabled(results.has_next(), next).clicked() {
+        let next = gate(ui, results.has_next(), |ui| {
+            tonal_button(ui, i18n.t("compare.results.next"))
+        });
+        if next.clicked() {
             action = Some(CompareAction::Page(1));
         }
         let (first, last) = results.shown_range();
@@ -220,7 +215,7 @@ fn show_load_failed(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
     ui.horizontal(|ui| {
         let color = ui.visuals().error_fg_color;
         ui.colored_label(color, i18n.t("compare.results.load_failed"));
-        let retry = ui.button(i18n.t("compare.results.retry"));
+        let retry = tonal_button(ui, i18n.t("compare.results.retry"));
         retry.clicked().then_some(CompareAction::RetryRows)
     })
     .inner

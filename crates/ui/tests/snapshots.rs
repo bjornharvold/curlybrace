@@ -14,6 +14,7 @@ use curlybrace_testkit::snapshots_enabled;
 use curlybrace_ui::app::host_key::HostKeyRequest;
 use curlybrace_ui::app::session::SessionView;
 use curlybrace_ui::app::state::{AppState, Banner, ConnStatus, HostEndpoint};
+use curlybrace_ui::theme::Mode;
 use curlybrace_ui::viewmodel::{
     EditorIntent, EditorState, MenuItem, SidebarState, ViewMode, page_key, resolve_editor,
 };
@@ -72,6 +73,18 @@ shot!(
 
 shot!(connection_manager_list, mock_connections(), |_| {});
 
+// The connection list again with the system in dark mode.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn connection_manager_list_dark() {
+    if !snapshots_enabled("connection_manager_list_dark") {
+        return;
+    }
+    Shot::new(mock_connections(), |_| {})
+        .mode(Mode::Dark)
+        .snapshot("connection_manager_list_dark");
+}
+
 shot!(connection_manager_filtered, mock_connections(), |state| {
     state.conn.filter = "prod".into();
 });
@@ -101,6 +114,36 @@ shot!(connection_edit_dialog, mock_connections(), |state| {
 shot!(browser_tree_view, vec![], browsing(ViewMode::Tree));
 shot!(browser_table_view, vec![], browsing(ViewMode::Table));
 shot!(browser_json_view, vec![], browsing(ViewMode::Json));
+
+// The table view again with the system in dark mode.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn browser_table_view_dark() {
+    if !snapshots_enabled("browser_table_view_dark") {
+        return;
+    }
+    Shot::new(vec![], browsing(ViewMode::Table))
+        .mode(Mode::Dark)
+        .snapshot("browser_table_view_dark");
+}
+
+// The browser with the "bad" verdict chip (a collection scan), in both modes.
+shot!(
+    browser_verdict_light,
+    vec![],
+    support::verdict_shots::collection_scan
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn browser_verdict_dark() {
+    if !snapshots_enabled("browser_verdict_dark") {
+        return;
+    }
+    Shot::new(vec![], support::verdict_shots::collection_scan)
+        .mode(Mode::Dark)
+        .snapshot("browser_verdict_dark");
+}
 
 /// Parks a root for a connection named `name` in the given status.
 fn parked_root(state: &mut AppState, name: &str, status: ConnStatus, failure: Option<CoreError>) {
@@ -148,6 +191,35 @@ shot!(sessions_tree_two_connected, vec![], |state| {
 });
 
 shot!(indexes_tab, vec![], support::indexes_shots::indexes_tab);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn indexes_tab_dark() {
+    if !snapshots_enabled("indexes_tab_dark") {
+        return;
+    }
+    Shot::new(vec![], support::indexes_shots::indexes_tab)
+        .mode(Mode::Dark)
+        .snapshot("indexes_tab_dark");
+}
+
+// The Queries view with a bad, a warning and a good verdict chip and the miss trend.
+shot!(
+    queries_view_light,
+    vec![],
+    support::indexes_shots::queries_view
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn queries_view_dark() {
+    if !snapshots_enabled("queries_view_dark") {
+        return;
+    }
+    Shot::new(vec![], support::indexes_shots::queries_view)
+        .mode(Mode::Dark)
+        .snapshot("queries_view_dark");
+}
 
 shot!(
     index_drop_confirm,
@@ -203,6 +275,17 @@ fn copy_dialog_overwrite_production() {
 }
 #[test]
 #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn copy_dialog_overwrite_production_dark() {
+    if !snapshots_enabled("copy_dialog_overwrite_production_dark") {
+        return;
+    }
+    let setup = copy_shots_fixtures::dialog_overwrite_production;
+    Shot::sized((1000.0, 1100.0), vec![], setup)
+        .mode(Mode::Dark)
+        .snapshot("copy_dialog_overwrite_production_dark");
+}
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
 fn copy_progress() {
     if !snapshots_enabled("copy_progress") {
         return;
@@ -225,6 +308,20 @@ shot!(editor_modal, vec![], |state| {
     browsing(ViewMode::Tree)(state);
     state.editor = Some(EditorState::for_edit(&sample_people()[0]));
 });
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn editor_modal_dark() {
+    if !snapshots_enabled("editor_modal_dark") {
+        return;
+    }
+    Shot::new(vec![], |state| {
+        browsing(ViewMode::Tree)(state);
+        state.editor = Some(EditorState::for_edit(&sample_people()[0]));
+    })
+    .mode(Mode::Dark)
+    .snapshot("editor_modal_dark");
+}
 
 shot!(editor_modal_with_validation_error, vec![], |state| {
     browsing(ViewMode::Tree)(state);
@@ -332,6 +429,22 @@ fn compare_overview_mixed() {
         overview_mixed,
     );
     shot.snapshot("compare_overview_mixed");
+}
+
+// The run overview again with the system in dark mode.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn compare_overview_mixed_dark() {
+    if !snapshots_enabled("compare_overview_mixed_dark") {
+        return;
+    }
+    let mut shot = Shot::sized(
+        (1000.0, 1200.0),
+        vec![production(), staging()],
+        overview_mixed,
+    )
+    .mode(Mode::Dark);
+    shot.snapshot("compare_overview_mixed_dark");
 }
 
 /// An apply-flow screen in a window tall enough for the form, the lists and the panels.

@@ -4,7 +4,6 @@ use crate::viewmodel::connection_tag::PRODUCTION_BADGE_KEY;
 use crate::viewmodel::{
     CopyClipboard, NodeRef, PasteTarget, SelectMode, SidebarSelection, SidebarState,
 };
-use crate::views::sidebar::db_row_label;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
@@ -12,8 +11,8 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use uuid::Uuid;
 
-/// `egui::SidePanel`'s default width.
-const DEFAULT_SIDEBAR_WIDTH: f32 = 200.0;
+/// The width the app's sidebar opens at.
+const DEFAULT_SIDEBAR_WIDTH: f32 = SIDEBAR_DEFAULT_WIDTH;
 
 fn names(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
@@ -102,6 +101,7 @@ fn panel_harness(state: AppState) -> Harness<'static, f32> {
             move |ctx, width: &mut f32| {
                 let panel = egui::SidePanel::left("sidebar")
                     .resizable(true)
+                    .default_width(DEFAULT_SIDEBAR_WIDTH)
                     .show(ctx, |ui| {
                         egui::ScrollArea::vertical()
                             .auto_shrink([false; 2])
@@ -394,17 +394,31 @@ fn a_right_click_selects_an_unselected_row_alone() {
 fn a_row_menu_lists_copy_and_paste_disabled_when_there_is_nothing_to_do() {
     let i18n = I18n::english();
     let mut harness = harness(fixture().state);
-    harness
-        .get_by_label(&db_row_label("shop", true))
-        .click_secondary();
+    harness.get_by_label("shop").click_secondary();
     harness.run();
     harness.state_mut().1.take();
     // Nothing is selected and nothing was copied: both entries are listed, and clicking does
-    // nothing.
-    harness.get_by_label(&i18n.t("copy.menu.copy")).click();
-    harness.get_by_label(&i18n.t("copy.paste")).click();
-    harness.run();
-    assert!(harness.state_mut().1.take().is_none());
+    // nothing. Each is clicked on its own with a frame in between (a click on a disabled entry
+    // closes the menu, so the menu is opened again for the next one). The Paste entry sits over
+    // the second root's Disconnect button, which the click must not reach.
+    let paste = harness.get_by_label(&i18n.t("copy.paste")).rect();
+    let disconnects: Vec<_> = harness
+        .get_all_by_label_contains("Disconnect")
+        .map(|n| n.rect())
+        .collect();
+    assert!(
+        disconnects.iter().any(|d| d.intersects(paste)),
+        "precondition: the menu overlaps a Disconnect button"
+    );
+    for key in ["copy.paste", "copy.menu.copy"] {
+        harness.get_by_label(&i18n.t(key)).click();
+        harness.run();
+        let got = harness.state_mut().1.take();
+        assert!(got.is_none(), "{key}: {got:?}");
+        harness.get_by_label("shop").click_secondary();
+        harness.run();
+        harness.state_mut().1.take();
+    }
 }
 
 #[test]
@@ -418,9 +432,7 @@ fn a_row_menu_names_the_count_and_copies_the_selection() {
     };
     f.state.selection = SidebarSelection::default().single(node);
     let mut harness = harness(f.state);
-    harness
-        .get_by_label(&db_row_label("shop", true))
-        .click_secondary();
+    harness.get_by_label("shop").click_secondary();
     harness.run();
     harness.state_mut().1.take();
     let label = i18n.t_with("copy.menu.copy_collection", &[("count", "1")]);
@@ -437,9 +449,7 @@ fn a_row_menu_pastes_onto_the_row_when_the_rules_allow_it() {
     let a = f.active;
     f.state.clipboard = CopyClipboard::collections(a, "shop", vec!["orders".into()]).ok();
     let mut harness = harness(f.state);
-    harness
-        .get_by_label(&db_row_label("shop", true))
-        .click_secondary();
+    harness.get_by_label("shop").click_secondary();
     harness.run();
     harness.state_mut().1.take();
     harness.get_by_label(&i18n.t("copy.paste")).click();
@@ -547,10 +557,54 @@ fn shift_arrow_still_extends_the_selection() {
     harness.run();
     harness.state_mut().1.take();
     harness.input_mut().modifiers = egui::Modifiers::SHIFT;
-    harness.get_by_label(&db_row_label("shop", true)).focus();
+    harness.get_by_label("shop").focus();
     harness.run();
     match selection_action(harness.state_mut().1.take()).1 {
         SidebarAction::Select { mode, .. } => assert_eq!(mode, SelectMode::Extend),
         other => panic!("unexpected {other:?}"),
     }
+}
+
+/// "Production" is the name the sidebar's default width is sized for: it must be laid out whole
+/// beside the toggle and Disconnect, not elided to "Producti...".
+#[test]
+fn production_fits_beside_the_toggle_and_disconnect_at_the_default_width() {
+    let mut f = fixture();
+    f.state.conn.connections[0].name = "Production".into();
+    let shown = f.state;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(800.0, 900.0))
+        .build_state(
+            move |ctx, _: &mut ()| {
+                egui::SidePanel::left("sidebar")
+                    .resizable(true)
+                    .default_width(DEFAULT_SIDEBAR_WIDTH)
+                    .show(ctx, |ui| {
+                        show_roots(ui, &shown, &I18n::english());
+                    });
+            },
+            (),
+        );
+    // The real fonts, as the app and the screenshots draw them.
+    crate::theme::install(&harness.ctx);
+    harness.run();
+    let ctx = &harness.ctx;
+    let size = egui::TextStyle::Body.resolve(&ctx.style()).size;
+    let font = egui::FontId::new(
+        size,
+        egui::FontFamily::Name(crate::theme::MEDIUM_FAMILY.into()),
+    );
+    let text_width = ctx.fonts(|f| {
+        f.layout_no_wrap("Production".into(), font, egui::Color32::WHITE)
+            .size()
+            .x
+    });
+    // The active root's name is a selected (Medium) pill, as wide as the room it was given.
+    let pill = harness.get_by_label("Production").rect();
+    let needed = text_width + 2.0 * crate::theme::shape::SPACE_4;
+    assert!(
+        pill.width() >= needed,
+        "the name pill is {} wide but \"Production\" needs {needed}",
+        pill.width()
+    );
 }

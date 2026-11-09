@@ -21,7 +21,13 @@ serde_json = "1.0.154"
 uuid = "1.26.1"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 
+[features]
+# Preview-only hooks (forcing a widget's hover / pressed / focus look) for the theme gallery.
+# Enabled for this crate's own tests by the self dev-dependency below; never in a release build.
+test-support = []
+
 [dev-dependencies]
+curlybrace-ui = { path = ".", features = ["test-support"] }
 async-trait = "0.1.92"
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = ["full"] }

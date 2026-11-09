@@ -3,6 +3,7 @@
 //! its undo history, which outlive `uri_input.clear()`) is wiped once the text is not needed.
 use super::connections::ConnectionsState;
 use crate::I18n;
+use crate::theme::{FieldOptions, outlined_field_opts, text_button, tonal_button};
 use eframe::egui;
 use eframe::egui::widgets::text_edit::TextEditState;
 
@@ -20,23 +21,24 @@ pub fn wipe_if_pending(ctx: &egui::Context, state: &mut ConnectionsState) {
 }
 
 pub(super) fn show_from_uri(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n) {
+    // The hint is the field's floating label and its accessible name.
+    let options = FieldOptions {
+        password: !state.uri_visible,
+        id: Some(uri_input_id()),
+        ..FieldOptions::default()
+    };
+    let label = i18n.t("connections.from_uri_hint");
+    outlined_field_opts(ui, &label, &mut state.uri_input, "", options);
     ui.horizontal(|ui| {
-        let caption = ui.label(i18n.t("connections.from_uri_hint"));
-        ui.add(
-            egui::TextEdit::singleline(&mut state.uri_input)
-                .id(uri_input_id())
-                .password(!state.uri_visible),
-        )
-        .labelled_by(caption.id);
         let toggle = if state.uri_visible {
             "connections.from_uri_hide"
         } else {
             "connections.from_uri_show"
         };
-        if ui.button(i18n.t(toggle)).clicked() {
+        if text_button(ui, i18n.t(toggle)).clicked() {
             state.uri_visible = !state.uri_visible;
         }
-        if ui.button(i18n.t("connections.from_uri")).clicked() {
+        if tonal_button(ui, i18n.t("connections.from_uri")).clicked() {
             state.apply_uri_input();
         }
     });

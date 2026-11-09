@@ -3,11 +3,12 @@
 //! collections that have no counterpart. Rows are drawn with `show_rows` (only the visible
 //! ones); every row's content comes from `CompareState::pair_row`.
 use super::table::{
-    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_label, header, status_text, truncated,
+    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, entry_status_chip, header, status_chip, truncated,
     widths,
 };
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{FieldOptions, compact_text_button, gate, outlined_field_opts, tonal_button};
 use crate::viewmodel::compare::preflight::side_key;
 use crate::viewmodel::compare::{
     CompareState, ListView, PairRow, StatusIcon, Unmatched, can_pair_with,
@@ -23,7 +24,7 @@ const COLUMNS: [Col; 6] = [
     Col::Fixed(80.0),
     Col::Fixed(100.0),
     Col::Flex(2.6),
-    Col::Fixed(190.0),
+    Col::Fixed(210.0),
 ];
 const UNMATCHED_NAME_W: f32 = 200.0;
 
@@ -93,7 +94,7 @@ fn show_row(ui: &mut egui::Ui, w: &[f32], row: &PairRow, i18n: &I18n) -> Option<
         cell(ui, w[3], |ui| {
             if row.customised {
                 let text = i18n.t("compare.pairs.customised");
-                ui.label(status_text(StatusIcon::Customised, &text));
+                status_chip(ui, StatusIcon::Customised, &text);
             }
         });
         cell(ui, w[4], |ui| status_cell(ui, row, i18n));
@@ -118,21 +119,21 @@ fn include_box(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareA
 }
 
 fn status_cell(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) {
-    let text = entry_status_label(&row.status, i18n);
-    let label = ui.add(egui::Label::new(text.as_str()).truncate());
-    match row.status.hover_key() {
-        Some(key) => label.on_hover_text(i18n.t(key)),
-        None => label.on_hover_text(text),
-    };
+    let chip = entry_status_chip(ui, &row.status, i18n);
+    if let Some(key) = row.status.hover_key() {
+        chip.on_hover_text(i18n.t(key));
+    }
 }
 
 fn row_buttons(ui: &mut egui::Ui, row: &PairRow, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
-    if ui.button(i18n.t("compare.pairs.edit_settings")).clicked() {
+    if compact_text_button(ui, i18n.t("compare.pairs.edit_settings")).clicked() {
         action = Some(CompareAction::EditPair(Some(row.entry)));
     }
-    let remove = egui::Button::new(i18n.t("compare.pairs.remove"));
-    if ui.add_enabled(row.can_remove, remove).clicked() {
+    let remove = gate(ui, row.can_remove, |ui| {
+        compact_text_button(ui, i18n.t("compare.pairs.remove"))
+    });
+    if remove.clicked() {
         action = Some(CompareAction::RemovePair(row.entry));
     }
     action
@@ -147,8 +148,10 @@ fn show_helpers(
 ) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let add_all = egui::Button::new(i18n.t("compare.pairs.add_all_same_named"));
-        if ui.add_enabled(list.can_add_all(), add_all).clicked() {
+        let add_all = gate(ui, list.can_add_all(), |ui| {
+            tonal_button(ui, i18n.t("compare.pairs.add_all_same_named"))
+        });
+        if add_all.clicked() {
             action = Some(CompareAction::AddAllSameNamed);
         }
         let mut system = state.pairing.include_system;
@@ -199,10 +202,22 @@ fn show_unmatched_row(ui: &mut egui::Ui, item: &Unmatched, i18n: &I18n) -> Optio
         let name_w = (ui.available_width() - UNMATCHED_NAME_W - 140.0).max(120.0);
         cell(ui, name_w, |ui| truncated(ui, &text));
         let hint = i18n.t("compare.pairs.counterpart_name_hint");
-        let edit = egui::TextEdit::singleline(&mut typed).hint_text(hint);
-        ui.add(edit.desired_width(UNMATCHED_NAME_W));
-        let pair = egui::Button::new(i18n.t("compare.pairs.pair_with_name"));
-        if ui.add_enabled(can_pair_with(&typed), pair).clicked() {
+        let label = i18n.t("compare.pairs.counterpart_name_label");
+        let named = i18n.t_with(
+            "compare.pairs.counterpart_name_named",
+            &[("name", &item.name)],
+        );
+        let options = FieldOptions {
+            accessible_name: Some(&named),
+            ..FieldOptions::default()
+        };
+        ui.allocate_ui(egui::vec2(UNMATCHED_NAME_W, ROW_HEIGHT), |ui| {
+            outlined_field_opts(ui, &label, &mut typed, &hint, options);
+        });
+        let pair = gate(ui, can_pair_with(&typed), |ui| {
+            compact_text_button(ui, i18n.t("compare.pairs.pair_with_name"))
+        });
+        if pair.clicked() {
             action = Some(CompareAction::AddUnmatched {
                 side: item.side,
                 name: item.name.clone(),

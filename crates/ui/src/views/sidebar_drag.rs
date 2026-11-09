@@ -3,6 +3,8 @@
 //! which decide everything; this only reads egui's drag state and draws. Menus and keys stay the
 //! primary way: nothing here is needed to Copy and Paste.
 use crate::I18n;
+use crate::theme::pill_row;
+use crate::theme::shape::{self, radius};
 use crate::viewmodel::{
     CopyClipboard, DropVerdict, DropVerdictCache, NodeRef, PasteTarget, SidebarAction,
 };
@@ -10,19 +12,21 @@ use crate::views::sidebar_copy::TreeCtx;
 use eframe::egui;
 use std::sync::Arc;
 
-/// A selectable row that can also be dragged. Without a `ctx` (no selection model) it is a
-/// plain selectable label.
-pub fn row_button<'a>(
+/// A sidebar row (a pill, with an optional leading icon) that can also be dragged. Without a
+/// `ctx` (no selection model) it can only be clicked.
+pub fn row_button(
     ui: &mut egui::Ui,
     ctx: Option<&TreeCtx>,
     selected: bool,
-    text: impl egui::IntoAtoms<'a>,
+    expanded: Option<bool>,
+    text: &str,
 ) -> egui::Response {
-    if ctx.is_none() {
-        return ui.selectable_label(selected, text);
-    }
-    let button = egui::Button::selectable(selected, text).sense(egui::Sense::click_and_drag());
-    ui.add(button)
+    let sense = if ctx.is_none() {
+        egui::Sense::click()
+    } else {
+        egui::Sense::click_and_drag()
+    };
+    pill_row(ui, selected, expanded, text, sense)
 }
 
 /// Starts a drag from `response`: it carries what the Copy menu would copy if `node` were
@@ -114,7 +118,12 @@ fn outline(response: &egui::Response, strong: bool) {
         egui::Stroke::new(1.0, visuals.weak_text_color())
     };
     let painter = response.ctx.layer_painter(response.layer_id);
-    painter.rect_stroke(response.rect, 2.0, stroke, egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        response.rect,
+        radius(shape::FULL),
+        stroke,
+        egui::StrokeKind::Inside,
+    );
     if strong {
         response.ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     }

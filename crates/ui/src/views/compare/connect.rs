@@ -1,6 +1,7 @@
 //! Which saved connections the two sides read from, and opening/closing the session.
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{filled_button, gate, tonal_button};
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::connection_tag::READ_ONLY_BADGE_KEY;
 use crate::views::connections::ConnectionsState;
@@ -90,15 +91,19 @@ fn session_buttons(
 ) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
-        let open = egui::Button::new(i18n.t("compare.session.open"));
-        if ui.add_enabled(state.can_open(picks), open).clicked() {
+        let open = gate(ui, state.can_open(picks), |ui| {
+            filled_button(ui, i18n.t("compare.session.open"))
+        });
+        if open.clicked() {
             action = picks
                 .0
                 .zip(picks.1)
                 .map(|(source, target)| CompareAction::Open { source, target });
         }
-        let close = egui::Button::new(i18n.t("compare.session.close"));
-        if ui.add_enabled(state.can_close(), close).clicked() {
+        let close = gate(ui, state.can_close(), |ui| {
+            tonal_button(ui, i18n.t("compare.session.close"))
+        });
+        if close.clicked() {
             action = Some(CompareAction::CloseSession);
         }
     });

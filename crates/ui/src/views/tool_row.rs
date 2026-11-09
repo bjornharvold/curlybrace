@@ -4,12 +4,21 @@
 //! did. The typed path is the only thing it keeps (in egui's memory).
 use crate::I18n;
 use crate::app::tools_state::{ProbeScope, ToolsAction};
+use crate::theme::widgets::CONTROL_HEIGHT;
+use crate::theme::{
+    FieldOptions, Tone as ChipTone, chip, gate, outlined_field_opts, shape, text_button,
+    tonal_button,
+};
 use crate::viewmodel::tool_rows::{Tone, ToolRow, ToolStatus, status_line};
 use curlybrace_core::tools::{ServerVersion, ToolChoice, ToolKind};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
 const PATH_FIELD_WIDTH: f32 = 280.0;
+/// Height of the path field's row: the control plus its floating label's overhang.
+const PATH_ROW_HEIGHT: f32 = CONTROL_HEIGHT + shape::SPACE_2;
+/// Room kept beside the status chip for the Check again button.
+const CHECK_AGAIN_WIDTH: f32 = 132.0;
 
 /// What a row is drawn for.
 pub struct RowContext<'a> {
@@ -73,17 +82,23 @@ pub fn show_tool_row(
         action = choice_rows(ui, row, context, &name, i18n).or(action.take());
     });
     let line = status_line(&row.status, context.server, i18n);
-    let color = match line.tone {
-        Tone::Neutral => ui.visuals().weak_text_color(),
-        Tone::Warning => ui.visuals().warn_fg_color,
-        Tone::Error => ui.visuals().error_fg_color,
+    let tone = match (line.tone, &row.status) {
+        (Tone::Warning, _) => ChipTone::Warning,
+        (Tone::Error, _) => ChipTone::Bad,
+        (Tone::Neutral, ToolStatus::Found { .. }) => ChipTone::Good,
+        (Tone::Neutral, _) => ChipTone::Neutral,
     };
     ui.horizontal(|ui| {
-        ui.colored_label(color, line.text);
+        // The chip elides what does not fit, so the button beside it always stays in view.
+        let room = (ui.available_width() - CHECK_AGAIN_WIDTH).max(PATH_FIELD_WIDTH / 2.0);
+        ui.scope(|ui| {
+            ui.set_max_width(room);
+            chip(ui, tone, &line.text);
+        });
         // One check at a time per tool: another click while it runs would only start another
         // program whose answer is thrown away.
         let idle = !matches!(row.status, ToolStatus::Checking);
-        let again = ui.add_enabled(idle, egui::Button::new(i18n.t("tools.check_again")));
+        let again = gate(ui, idle, |ui| text_button(ui, i18n.t("tools.check_again")));
         let named = i18n.t_with("tools.check_again_named", &[("tool", &name)]);
         again.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, idle, named.clone())
@@ -138,7 +153,7 @@ fn choice_rows(
             ui.memory_mut(|memory| memory.request_focus(path_box_id(scope, kind)));
         }
         action = path_box(ui, row, scope, name, i18n).or(action.take());
-        let browse = ui.button(i18n.t("tools.choose_file"));
+        let browse = tonal_button(ui, i18n.t("tools.choose_file"));
         let named = i18n.t_with("tools.choose_file_named", &[("tool", name)]);
         browse.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, named.clone())
@@ -171,18 +186,17 @@ fn path_box(
         draft = saved.clone();
     }
     let label = i18n.t_with("tools.path_field", &[("tool", name)]);
+    let options = FieldOptions {
+        id: Some(path_box_id(scope, row.kind)),
+        ..FieldOptions::default()
+    };
     let response = ui
-        .add(
-            egui::TextEdit::singleline(&mut draft)
-                .id(path_box_id(scope, row.kind))
-                .desired_width(PATH_FIELD_WIDTH),
+        .allocate_ui_with_layout(
+            egui::vec2(PATH_FIELD_WIDTH, PATH_ROW_HEIGHT),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| outlined_field_opts(ui, &label, &mut draft, "", options),
         )
-        .on_hover_text(&label);
-    response.widget_info(|| {
-        let mut info = egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, label.clone());
-        info.current_text_value = Some(draft.clone());
-        info
-    });
+        .inner;
     // Escape also takes the focus away: that is backing out, so the draft goes back to what is
     // saved instead of being applied. Enter and clicking elsewhere apply it.
     let backed_out = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape));
@@ -214,7 +228,7 @@ fn suggestion(
 ) -> Option<ToolsAction> {
     let shown = path.to_string_lossy();
     let label = i18n.t_with("tools.suggestion", &[("path", &shown)]);
-    ui.small_button(label)
+    text_button(ui, label)
         .clicked()
         .then(|| choose(scope, kind, ToolChoice::Executable(path.to_path_buf())))
 }

@@ -1,8 +1,10 @@
 //! The miss trend of the Queries view: bars of misses per bucket (summed over all shapes) and a
 //! shaded band where nothing was observed. The total is also written as a text line, because a
 //! drawn chart is not read by screen readers.
+use super::chart_legend::queries_legend;
 use super::index_chart::{axis_label, gap_band, grid_steps, whole_number};
 use crate::I18n;
+use crate::theme::{chart_colors, current_ui};
 use crate::viewmodel::index_detail::range_key;
 use crate::viewmodel::queries_chart::miss_chart_model;
 use curlybrace_core::history::{ChartRange, ShapeSummary};
@@ -31,9 +33,10 @@ pub fn show_miss_chart(
         .iter()
         .map(|b| Bar::new(b[0], b[1]).width(bar_width))
         .collect();
-    let visuals = ui.visuals().clone();
+    let colors = chart_colors(current_ui(ui));
+    let [misses, no_data] = queries_legend(i18n, &colors);
     let steps = grid_steps(range);
-    let band = visuals.widgets.noninteractive.bg_stroke.color;
+    let band = colors.no_data;
     let lower_bounds = model.lower_bounds.clone();
     let tooltip_i18n = i18n.clone();
     Plot::new("queries_misses")
@@ -59,22 +62,17 @@ pub fn show_miss_chart(
         })
         .label_formatter(|name, point| format!("{name}: {}", whole_number(point.y)))
         .show(ui, |plot_ui| {
-            let name = i18n.t("indexes.no_data");
+            let name = no_data.name;
             for (from, to) in &model.gaps {
-                plot_ui.polygon(gap_band(
-                    &name,
-                    (*from, *to),
-                    top,
-                    band.gamma_multiply(GAP_SHADE),
-                ));
+                plot_ui.polygon(gap_band(&name, (*from, *to), top, (band, GAP_SHADE)));
             }
             for (from, to) in &model.partial_gaps {
-                let shade = band.gamma_multiply(PARTIAL_GAP_SHADE);
+                let shade = (band, PARTIAL_GAP_SHADE);
                 plot_ui.polygon(gap_band(&name, (*from, *to), top, shade));
             }
             plot_ui.bar_chart(
-                BarChart::new(i18n.t("indexes.queries.misses_series"), bars)
-                    .color(visuals.warn_fg_color)
+                BarChart::new(misses.name, bars)
+                    .color(misses.color)
                     .element_formatter(Box::new(move |bar, _| {
                         let key = if lower_bounds.contains(&bar.argument) {
                             "indexes.queries.lower_bound_tooltip"

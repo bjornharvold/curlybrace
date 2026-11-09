@@ -37,6 +37,9 @@ fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
     }
 }
 
+/// Tall enough for every panel of the restyled screens (40 dp buttons, cards, outlined fields).
+const SCREEN_HEIGHT: f32 = 2200.0;
+
 /// Everything drawn for `state` after the layout settled, and the action of the last frame.
 pub(super) fn render(state: &AppState) -> (Vec<String>, Option<CompareAction>) {
     render_on(&egui::Context::default(), state)
@@ -51,7 +54,7 @@ fn render_on(ctx: &egui::Context, state: &AppState) -> (Vec<String>, Option<Comp
     let input = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
             egui::Pos2::ZERO,
-            egui::vec2(1100.0, 900.0),
+            egui::vec2(1100.0, SCREEN_HEIGHT),
         )),
         ..Default::default()
     };

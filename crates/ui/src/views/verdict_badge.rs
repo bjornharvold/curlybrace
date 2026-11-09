@@ -1,8 +1,9 @@
-//! The index verdict as one fixed-height row above the documents: icon and title as one text,
+//! The index verdict as one fixed-height row above the documents: icon and title as one text in a tonal chip,
 //! plus a "Why" button that opens the reasons, the suggested index (with a copy button) and the
 //! estimate note in a popup under the row. The row is reserved even when there is no verdict
 //! and the popup floats, so the documents never move.
 use crate::I18n;
+use crate::theme::{self, chip, compact_text_button};
 use crate::viewmodel::verdict::{BadgeModel, Tone, reason_text_key};
 use eframe::egui;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -18,7 +19,13 @@ pub fn show_verdict_row(
     model: Option<&BadgeModel>,
     i18n: &I18n,
 ) -> Option<VerdictAction> {
-    let height = ui.spacing().interact_size.y;
+    // Tall enough for the chip and the Why button, so the documents below never move when a verdict appears.
+    let height = ui
+        .spacing()
+        .interact_size
+        .y
+        .max(theme::CHIP_HEIGHT)
+        .max(theme::CONTROL_HEIGHT);
     let mut action = None;
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), height), layout, |ui| {
@@ -30,15 +37,11 @@ pub fn show_verdict_row(
 
 fn show_row(ui: &mut egui::Ui, model: &BadgeModel, i18n: &I18n) -> Option<VerdictAction> {
     let title = format!("{} {}", model.icon, i18n.t(model.title_key));
-    ui.label(
-        egui::RichText::new(title)
-            .strong()
-            .color(tone_color(ui, model.tone)),
-    );
+    chip(ui, chip_tone(model.tone), &title);
     if !has_details(model) {
         return None;
     }
-    let toggle = ui.button(i18n.t("query.verdict.why"));
+    let toggle = compact_text_button(ui, i18n.t("query.verdict.why"));
     // Per verdict, so one verdict's open state does not carry over to an unrelated one.
     let open_id = ui.id().with(("verdict_why", salt(model)));
     let was_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
@@ -72,10 +75,14 @@ fn salt(model: &BadgeModel) -> u64 {
     hasher.finish()
 }
 
-fn tone_color(ui: &egui::Ui, tone: Tone) -> egui::Color32 {
+/// The theme tone a badge tone is drawn in. A check that is running or could not run says
+/// nothing about the query, so it reads as neutral.
+pub(super) fn chip_tone(tone: Tone) -> theme::Tone {
     match tone {
-        Tone::Warn => ui.visuals().warn_fg_color,
-        _ => ui.visuals().text_color(),
+        Tone::Good => theme::Tone::Good,
+        Tone::Warn => theme::Tone::Warning,
+        Tone::Bad => theme::Tone::Bad,
+        Tone::Neutral | Tone::Unavailable | Tone::Checking => theme::Tone::Neutral,
     }
 }
 
@@ -108,7 +115,11 @@ fn reason_line(key: &str, params: &[(&'static str, String)], i18n: &I18n) -> Str
 fn show_suggestion(ui: &mut egui::Ui, command: &str, i18n: &I18n) -> Option<VerdictAction> {
     ui.label(i18n.t("query.verdict.suggestion"));
     ui.label(egui::RichText::new(command).monospace());
-    ui.button(i18n.t("query.verdict.copy"))
+    compact_text_button(ui, i18n.t("query.verdict.copy"))
         .clicked()
         .then(|| VerdictAction::CopySuggestion(command.to_string()))
 }
+
+#[cfg(test)]
+#[path = "verdict_badge_tests.rs"]
+mod tests;

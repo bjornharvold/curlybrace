@@ -1,8 +1,10 @@
 //! The detail pane: field-level change lines and the two documents as JSON.
 use super::fields::show_changes;
 use super::select::action_buttons;
+use super::table::panel;
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::text_button;
 use crate::viewmodel::compare::{ActionButton, DetailView, FieldBar, canonical_json, key_label};
 use bson::Document;
 use curlybrace_core::compare::key::KeyTuple;
@@ -34,11 +36,21 @@ pub fn show_detail(
     fields: &FieldBar,
     i18n: &I18n,
 ) -> Option<CompareAction> {
+    panel(ui, |ui| show_detail_body(ui, detail, buttons, fields, i18n))
+}
+
+fn show_detail_body(
+    ui: &mut egui::Ui,
+    detail: &DetailView,
+    buttons: &[ActionButton],
+    fields: &FieldBar,
+    i18n: &I18n,
+) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal_wrapped(|ui| {
         let key = key_label(&detail.key);
         ui.strong(i18n.t_with("compare.detail.title", &[("key", &key)]));
-        if ui.button(i18n.t("compare.detail.close")).clicked() {
+        if text_button(ui, i18n.t("compare.detail.close")).clicked() {
             action = Some(CompareAction::Back);
         }
         if let Some(row_action) = action_buttons(ui, buttons, i18n) {

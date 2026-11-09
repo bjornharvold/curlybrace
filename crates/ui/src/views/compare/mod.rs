@@ -24,6 +24,7 @@ mod table;
 
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::text_button;
 use crate::viewmodel::compare::{CompareState, ListInputs, ListView, SessionPhase};
 use crate::views::connections::ConnectionsState;
 use eframe::egui;
@@ -84,7 +85,7 @@ fn show_header(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     ui.horizontal(|ui| {
         ui.heading(i18n.t("compare.title"));
-        if ui.button(i18n.t("compare.back")).clicked() {
+        if text_button(ui, i18n.t("compare.back")).clicked() {
             action = Some(CompareAction::Hide);
         }
     });
@@ -146,3 +147,6 @@ fn list_view(ui: &egui::Ui, state: &CompareState) -> std::sync::Arc<ListView> {
         || (ListInputs::of(state), ListView::of(state)),
     )
 }
+
+#[cfg(test)]
+mod select_tests;

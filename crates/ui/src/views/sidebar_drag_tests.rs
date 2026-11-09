@@ -3,7 +3,6 @@ use crate::app::reducer::Input;
 use crate::app::session::SessionView;
 use crate::app::state::{AppState, ConnStatus};
 use crate::viewmodel::{PasteBlock, SidebarSelection, SidebarState, paste_block_key};
-use crate::views::sidebar::db_row_label;
 use crate::views::sidebar_roots::show_roots;
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::store::Namespace;
@@ -132,8 +131,8 @@ fn dragging_an_unselected_row_onto_a_database_drops_that_row_alone() {
     state.selection = SidebarSelection::default().single(collection(a, "users"));
     let mut harness = harness(state);
     harness.state_mut().1 = None;
-    let crm = db_row_label("crm", true);
-    let end = drag_over(&mut harness, "orders", &crm);
+    let crm = "crm";
+    let end = drag_over(&mut harness, "orders", crm);
     release(&mut harness, end);
     let (_, action) = dropped(harness.state_mut().1.take());
     match action {
@@ -161,8 +160,8 @@ fn dragging_a_selected_row_drops_the_whole_selection() {
         .single(collection(a, "orders"))
         .toggled(collection(a, "users"));
     let mut harness = harness(state);
-    let crm = db_row_label("crm", true);
-    let end = drag_over(&mut harness, "users", &crm);
+    let crm = "crm";
+    let end = drag_over(&mut harness, "users", crm);
     // Pressing the row must not have narrowed the selection (a focus move would).
     assert!(harness.state().1.is_none());
     release(&mut harness, end);
@@ -182,8 +181,8 @@ fn a_database_dropped_on_a_connection_name_is_a_drop_onto_that_connection() {
     let f = fixture();
     let (a, b) = (f.a, f.b);
     let mut harness = harness(f.state);
-    let shop = db_row_label("shop", true);
-    let end = drag_over(&mut harness, &shop, "Beta");
+    let shop = "shop";
+    let end = drag_over(&mut harness, shop, "Beta");
     release(&mut harness, end);
     match dropped(harness.state_mut().1.take()).1 {
         SidebarAction::Drop { clipboard, target } => {
@@ -207,8 +206,8 @@ fn a_target_that_refuses_the_drag_shows_why_and_a_release_does_nothing() {
 #[test]
 fn a_target_that_takes_the_drag_shows_no_refusal() {
     let mut harness = harness(fixture().state);
-    let crm = db_row_label("crm", true);
-    drag_over(&mut harness, "orders", &crm);
+    let crm = "crm";
+    drag_over(&mut harness, "orders", crm);
     for key in [
         PasteBlock::CollectionsOntoCollection,
         PasteBlock::ReadOnlyTarget,
@@ -235,7 +234,7 @@ fn draggable_rows_keep_their_label_and_role() {
     let harness = harness(fixture().state);
     let role = egui::accesskit::Role::Button;
     harness.get_by_role_and_label(role, "orders");
-    harness.get_by_role_and_label(role, &db_row_label("shop", true));
+    harness.get_by_role_and_label(role, "shop");
 }
 
 #[test]
@@ -245,7 +244,7 @@ fn paste_by_keyboard_and_menu_is_unaffected_by_dragging() {
     let mut state = f.state;
     state.clipboard = CopyClipboard::collections(f.a, "shop", names(&["orders"])).ok();
     let mut harness = harness(state);
-    harness.get_by_label(&db_row_label("crm", true)).focus();
+    harness.get_by_label("crm").focus();
     harness.run();
     harness.state_mut().1 = None;
     harness
@@ -258,9 +257,7 @@ fn paste_by_keyboard_and_menu_is_unaffected_by_dragging() {
         action,
         SidebarAction::Paste(PasteTarget::Database { .. })
     ));
-    harness
-        .get_by_label(&db_row_label("crm", true))
-        .click_secondary();
+    harness.get_by_label("crm").click_secondary();
     harness.run();
     harness.state_mut().1 = None;
     harness.get_by_label(&i18n.t("copy.paste")).click();

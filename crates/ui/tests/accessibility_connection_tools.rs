@@ -85,6 +85,10 @@ fn use_global_label(kind: ToolKind) -> String {
 }
 
 fn open_section(harness: &mut Harness<'static, Run>) {
+    // The outlined fields make the form taller, so the section starts below the body's fold:
+    // scroll it into view first, as a person would.
+    harness.get_by_label(&t("tools.heading")).scroll_to_me();
+    harness.run();
     harness.get_by_label(&t("tools.heading")).click();
     harness.run();
 }

@@ -1,18 +1,19 @@
 //! The progress of a copy (a bar per collection, Cancel at all times) and, once it ended, its
 //! report: exactly what was written per collection, why it stopped, and the documents that were
 //! refused by `_id` (bounded, never values). Every reason is a message key.
+use super::tone_notice::tone_notice;
 use crate::I18n;
 use crate::app::copy::CopyInput;
 use crate::app::copy_state::{CopyRow, CopyRun, RunOutcome};
+use crate::theme::{Tone, card, filled_button, gate, modal_frame, tonal_button, typography};
 use eframe::egui;
 
 const MODAL_WIDTH: f32 = 620.0;
-const BAR_WIDTH: f32 = 360.0;
 const FAILURES_HEIGHT: f32 = 220.0;
 
 /// The progress while the copy runs, the report after it ended.
 pub fn show_progress(ctx: &egui::Context, run: &CopyRun, i18n: &I18n) -> Option<CopyInput> {
-    let modal = egui::Modal::new(egui::Id::new("copy_progress"));
+    let modal = egui::Modal::new(egui::Id::new("copy_progress")).frame(modal_frame(ctx));
     let response = modal.show(ctx, |ui| {
         ui.set_width(MODAL_WIDTH);
         match &run.outcome {
@@ -33,17 +34,19 @@ pub fn show_progress(ctx: &egui::Context, run: &CopyRun, i18n: &I18n) -> Option<
 
 fn show_running(ui: &mut egui::Ui, run: &CopyRun, i18n: &I18n) -> Option<CopyInput> {
     ui.horizontal(|ui| {
-        ui.heading(i18n.t("copy.progress.title"));
+        ui.label(typography::dialog_title(ui, i18n.t("copy.progress.title")));
         ui.spinner();
     });
-    for row in &run.rows {
-        show_row(ui, row, i18n);
-    }
+    card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        for row in &run.rows {
+            show_row(ui, row, i18n);
+        }
+    });
     ui.separator();
-    let cancel = ui.add_enabled(
-        run.can_cancel(),
-        egui::Button::new(i18n.t("copy.progress.cancel")),
-    );
+    let cancel = gate(ui, run.can_cancel(), |ui| {
+        tonal_button(ui, i18n.t("copy.progress.cancel"))
+    });
     if run.cancel_requested {
         ui.label(i18n.t("copy.progress.cancelling"));
     }
@@ -78,7 +81,7 @@ fn show_row(ui: &mut egui::Ui, row: &CopyRow, i18n: &I18n) {
     let text = i18n.t_with(key, &params);
     ui.add(
         egui::ProgressBar::new(fraction.clamp(0.0, 1.0))
-            .desired_width(BAR_WIDTH)
+            .desired_width(ui.available_width())
             .text(text),
     );
 }
@@ -94,10 +97,13 @@ fn show_report(
         RunOutcome::Cancelled => "copy.report.title_cancelled",
         RunOutcome::Failed(_) => "copy.report.title_failed",
     };
-    ui.heading(i18n.t(title));
+    ui.label(typography::dialog_title(ui, i18n.t(title)));
     show_reason(ui, run, outcome, i18n);
-    show_written(ui, run, i18n);
-    show_structure(ui, run, i18n);
+    card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        show_written(ui, run, i18n);
+        show_structure(ui, run, i18n);
+    });
     if !matches!(outcome, RunOutcome::Completed) {
         ui.label(i18n.t("copy.report.nothing_else"));
     }
@@ -106,7 +112,7 @@ fn show_report(
     }
     show_failures(ui, run, i18n);
     ui.separator();
-    let close = ui.button(i18n.t("copy.report.close"));
+    let close = filled_button(ui, i18n.t("copy.report.close"));
     if !close.has_focus() {
         close.request_focus();
     }
@@ -122,7 +128,7 @@ fn show_reason(ui: &mut egui::Ui, run: &CopyRun, outcome: &RunOutcome, i18n: &I1
         true => i18n.t("copy.report.session_lost"),
         false => i18n.t_with("copy.report.error", &[("reason", &i18n.error(error))]),
     };
-    ui.colored_label(ui.visuals().error_fg_color, reason);
+    tone_notice(ui, Tone::Bad, &reason, false);
 }
 
 /// Exactly what was written, per collection.
@@ -175,7 +181,7 @@ fn show_structure(ui: &mut egui::Ui, run: &CopyRun, i18n: &I18n) {
             ("reason", reason.as_str()),
         ];
         let text = i18n.t_with("copy.report.index_failed", &params);
-        ui.colored_label(ui.visuals().warn_fg_color, text);
+        tone_notice(ui, Tone::Warning, &text, false);
     }
     if run.indexes_skipped() {
         ui.label(i18n.t("copy.report.indexes_not_built"));

@@ -3,7 +3,9 @@ use super::persistence::Recovery;
 use super::session::session_display_name;
 use super::state::{AppState, Banner};
 use crate::I18n;
+use crate::theme::{Scheme, icons};
 use crate::viewmodel::paste_block_key;
+use eframe::egui::Color32;
 
 /// `(headline, detail)` for a banner; every string comes from the locale.
 pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
@@ -54,6 +56,66 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
         | Recovery::Sampling { .. }
         | Recovery::Explain { .. }
         | Recovery::Tools { .. } => i18n.t(key),
+    }
+}
+
+/// How a banner reads: something failed, something was refused or skipped, or just a note.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BannerLevel {
+    Error,
+    Warning,
+    Info,
+}
+
+/// The level of `banner`: failures are errors, a refused or partial action a warning, and
+/// confirmations a note.
+pub fn banner_level(banner: &Banner) -> BannerLevel {
+    match banner {
+        Banner::Failure { .. }
+        | Banner::Persist(_)
+        | Banner::ToolsPersist(_)
+        | Banner::ImportFailed(_)
+        | Banner::ExportFailed(_) => BannerLevel::Error,
+        Banner::HostForgotten | Banner::FieldsCovered => BannerLevel::Info,
+        Banner::Recovery(_)
+        | Banner::NotConnected
+        | Banner::PasteBlocked(_)
+        | Banner::CopyUnavailable
+        | Banner::ProjectionReadOnly
+        | Banner::ReadOnly
+        | Banner::CompareApplyReadOnly
+        | Banner::CompareApplyReadOnlySource
+        | Banner::FieldsConflict
+        | Banner::WriteNotSentConnectionChanged
+        | Banner::WriteNotSentBusy => BannerLevel::Warning,
+    }
+}
+
+/// The icon of a banner level.
+pub fn banner_icon(level: BannerLevel) -> char {
+    match level {
+        BannerLevel::Error => icons::ERROR,
+        BannerLevel::Warning => icons::WARNING,
+        BannerLevel::Info => icons::INFO,
+    }
+}
+
+/// The i18n key naming a banner level, the accessible name of its icon.
+pub fn banner_level_key(level: BannerLevel) -> &'static str {
+    match level {
+        BannerLevel::Error => "banner.level.error",
+        BannerLevel::Warning => "banner.level.warning",
+        BannerLevel::Info => "banner.level.info",
+    }
+}
+
+/// (container, content) of a banner level: `error_container`, `warning_container` or
+/// `secondary_container` with the matching `on_` role.
+pub fn banner_colors(scheme: &Scheme, level: BannerLevel) -> (Color32, Color32) {
+    match level {
+        BannerLevel::Error => (scheme.error_container, scheme.on_error_container),
+        BannerLevel::Warning => (scheme.warning_container, scheme.on_warning_container),
+        BannerLevel::Info => (scheme.secondary_container, scheme.on_secondary_container),
     }
 }
 
@@ -246,6 +308,49 @@ mod tests {
             assert!(head.contains('7') && head.contains("not loaded"), "{head}");
             assert!(head.contains('4') && head.contains("adjusted"), "{head}");
             assert!(!head.contains('{'), "{head}");
+        }
+    }
+
+    #[test]
+    fn levels_pick_the_container_roles() {
+        use crate::theme::{Mode, scheme};
+        let light = scheme(Mode::Light);
+        let failure = Banner::Failure {
+            context: "find",
+            error: CoreError::AuthFailed,
+        };
+        assert_eq!(banner_level(&failure), BannerLevel::Error);
+        assert_eq!(banner_level(&Banner::ReadOnly), BannerLevel::Warning);
+        assert_eq!(banner_level(&Banner::HostForgotten), BannerLevel::Info);
+        assert_eq!(
+            banner_colors(light, BannerLevel::Error),
+            (light.error_container, light.on_error_container)
+        );
+        assert_eq!(
+            banner_colors(light, BannerLevel::Warning),
+            (light.warning_container, light.on_warning_container)
+        );
+        assert_eq!(
+            banner_colors(light, BannerLevel::Info),
+            (light.secondary_container, light.on_secondary_container)
+        );
+    }
+
+    /// The banner's text and its text buttons (drawn in `primary`) are readable on every level.
+    #[test]
+    fn banner_text_and_buttons_meet_aa_in_both_modes() {
+        use crate::theme::contrast::ratio;
+        use crate::theme::{Mode, scheme};
+        for mode in [Mode::Light, Mode::Dark] {
+            let s = scheme(mode);
+            for level in [BannerLevel::Error, BannerLevel::Warning, BannerLevel::Info] {
+                let (container, content) = banner_colors(s, level);
+                assert!(ratio(content, container) >= 4.5, "{mode:?} {level:?} text");
+                assert!(
+                    ratio(s.primary, container) >= 4.5,
+                    "{mode:?} {level:?} button"
+                );
+            }
         }
     }
 }

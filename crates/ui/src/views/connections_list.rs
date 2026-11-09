@@ -2,15 +2,20 @@
 use super::connection_badge::show_badge;
 use super::connections::{ConnectionAction, ConnectionsState, Notice};
 use crate::I18n;
+use crate::theme::widgets::CONTROL_HEIGHT;
+use crate::theme::{
+    FieldOptions, Tone, chip, current_ui, gate, icons, outlined_field_opts, pill, shape,
+    text_button, text_button_with_icon, tonal_button,
+};
 use crate::viewmodel::{
     ConnectionBadge, SortColumn, auth_label_key, format_utc, grouped, security, server_hosts,
     visible,
 };
 use curlybrace_core::connection::{AuthMechanism, ConnectionConfig};
 use eframe::egui;
+use eframe::egui::accesskit::SortDirection;
+use eframe::egui::collapsing_header::CollapsingState;
 
-const SORT_ASC: &str = "\u{23F6}";
-const SORT_DESC: &str = "\u{23F7}";
 /// Share of the table width per column, in `COLUMNS` order.
 const SHARES: [f32; 5] = [0.25, 0.22, 0.15, 0.19, 0.19];
 const COLUMNS: [(SortColumn, &str); 5] = [
@@ -22,6 +27,9 @@ const COLUMNS: [(SortColumn, &str); 5] = [
 ];
 const CONNECT_BUTTON_WIDTH: f32 = 90.0;
 const TABLE_MAX_HEIGHT: f32 = 320.0;
+const FILTER_WIDTH: f32 = 240.0;
+/// The filter field's height: the control plus its floating label's overhang.
+const FILTER_ROW_HEIGHT: f32 = CONTROL_HEIGHT + shape::SPACE_2;
 
 pub(super) fn show_list(
     ui: &mut egui::Ui,
@@ -39,7 +47,7 @@ pub(super) fn show_list(
         super::error_label::show_error(ui, error, i18n);
     }
     if let Some(notice) = &state.notice {
-        ui.label(notice_text(notice, i18n));
+        chip(ui, Tone::Neutral, &notice_text(notice, i18n));
     }
     if let Some(row_action) = show_table(ui, state, i18n, &rows) {
         action = Some(row_action);
@@ -79,8 +87,7 @@ fn show_toolbar(
         .cloned();
     ui.horizontal_wrapped(|ui| {
         let tool = |ui: &mut egui::Ui, enabled: bool, key: &str| {
-            ui.add_enabled(enabled, egui::Button::new(i18n.t(key)))
-                .clicked()
+            gate(ui, enabled, |ui| tonal_button(ui, i18n.t(key))).clicked()
         };
         let current = selected.as_ref();
         if tool(ui, true, "connections.new") {
@@ -122,11 +129,17 @@ fn show_filter<'a>(
     rows: &mut Vec<&'a ConnectionConfig>,
 ) {
     ui.horizontal(|ui| {
-        // The caption is the box's accessible name (a hint is not exposed to screen readers).
-        let caption = ui.label(i18n.t("connections.filter"));
+        // The label floats on the field's border and is its accessible name.
+        let label = i18n.t("connections.filter");
         let response = ui
-            .add(egui::TextEdit::singleline(&mut state.filter).desired_width(240.0))
-            .labelled_by(caption.id);
+            .allocate_ui_with_layout(
+                egui::vec2(FILTER_WIDTH, FILTER_ROW_HEIGHT),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    outlined_field_opts(ui, &label, &mut state.filter, "", FieldOptions::default())
+                },
+            )
+            .inner;
         if response.changed() {
             state.filter_edited();
             *rows = visible(list, &state.filter, state.sort);
@@ -188,23 +201,35 @@ fn column_widths(ui: &egui::Ui) -> [f32; 5] {
     SHARES.map(|share| usable * share)
 }
 
+/// A column header button. The sorted column leads with an arrow from the icon font (down when
+/// `descending`), so a narrow column elides the label, not the arrow. Its accessible name and
+/// tooltip stay the plain `label` and the direction is exposed as the node's sort direction,
+/// since the arrow is a private-use codepoint.
+pub(super) fn sort_button(ui: &mut egui::Ui, label: &str, active: Option<bool>) -> egui::Response {
+    let button = match active {
+        Some(true) => text_button_with_icon(ui, icons::ARROW_DOWN, label),
+        Some(false) => text_button_with_icon(ui, icons::ARROW_UP, label),
+        None => text_button(ui, label),
+    };
+    if let Some(descending) = active {
+        let direction = if descending {
+            SortDirection::Descending
+        } else {
+            SortDirection::Ascending
+        };
+        ui.ctx()
+            .accesskit_node_builder(button.id, |node| node.set_sort_direction(direction));
+    }
+    button
+}
+
 fn show_header(ui: &mut egui::Ui, state: &mut ConnectionsState, i18n: &I18n, widths: &[f32; 5]) {
     ui.horizontal(|ui| {
         for ((column, key), width) in COLUMNS.into_iter().zip(widths) {
-            let mut label = i18n.t(key);
-            if state.sort.column == column {
-                label.push(' ');
-                label.push_str(if state.sort.descending {
-                    SORT_DESC
-                } else {
-                    SORT_ASC
-                });
-            }
+            let label = i18n.t(key);
+            let active = (state.sort.column == column).then_some(state.sort.descending);
             cell(ui, *width, |ui| {
-                if ui
-                    .add(egui::Button::new(label).frame(false).truncate())
-                    .clicked()
-                {
+                if sort_button(ui, &label, active).clicked() {
                     state.sort = state.sort.toggled(column);
                 }
             });
@@ -222,27 +247,46 @@ fn show_folder(
 ) -> Option<ConnectionAction> {
     let mut action = None;
     let id = ui.make_persistent_id(("connection_folder", folder));
-    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-        .show_header(ui, |ui| {
-            ui.label(folder);
-            if ui
-                .small_button(i18n.t("connections.rename_folder"))
-                .clicked()
-            {
-                state.open_rename_prompt(folder);
-            }
-            if ui
-                .small_button(i18n.t("connections.delete_folder"))
-                .clicked()
-            {
-                action = Some(ConnectionAction::DeleteFolder(folder.to_owned()));
-            }
-        })
-        .body_unindented(|ui| {
-            if let Some(row_action) = show_rows(ui, state, i18n, rows, layout) {
-                action = Some(row_action);
-            }
+    let mut disclosure = CollapsingState::load_with_default_open(ui.ctx(), id, true);
+    ui.horizontal(|ui| {
+        // As tall as the buttons before the toggle is placed, so it centres on the same line.
+        ui.set_min_height(CONTROL_HEIGHT);
+        let key = match disclosure.is_open() {
+            true => "connections.folder_collapse",
+            false => "connections.folder_expand",
+        };
+        let label = i18n.t(key);
+        let open = disclosure.is_open();
+        let toggle = disclosure.show_toggle_button(ui, move |ui, _, icon| {
+            let color = current_ui(ui).on_surface_variant;
+            let glyph =
+                egui::WidgetText::from(icons::inline_icon(ui, icons::chevron(open)).color(color))
+                    .into_galley(
+                        ui,
+                        Some(egui::TextWrapMode::Extend),
+                        f32::INFINITY,
+                        egui::TextStyle::Body,
+                    );
+            let pos = icon.rect.center() - glyph.size() / 2.0;
+            ui.painter().galley(pos, glyph, color);
         });
+        toggle.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
+        });
+        ui.label(folder);
+        if text_button(ui, i18n.t("connections.rename_folder")).clicked() {
+            state.open_rename_prompt(folder);
+        }
+        if text_button(ui, i18n.t("connections.delete_folder")).clicked() {
+            action = Some(ConnectionAction::DeleteFolder(folder.to_owned()));
+        }
+    });
+    disclosure.show_body_unindented(ui, |ui| {
+        if let Some(row_action) = show_rows(ui, state, i18n, rows, layout) {
+            action = Some(row_action);
+        }
+    });
+    disclosure.store(ui.ctx());
     action
 }
 
@@ -265,7 +309,7 @@ fn show_rows(
                         // never colour alone) is always inside the cell.
                         show_badge(ui, &ConnectionBadge::default().with_read_only(true), i18n);
                     }
-                    let name = ui.add(egui::Button::selectable(selected, &cfg.name).truncate());
+                    let name = pill(ui, selected, &cfg.name);
                     if name.double_clicked() {
                         action = Some(ConnectionAction::Connect(cfg.id));
                     } else if name.clicked() {
@@ -283,7 +327,7 @@ fn show_rows(
                         ui.add(egui::Label::new(text).truncate());
                     });
                 }
-                let connect = ui.button(i18n.t("connections.connect"));
+                let connect = text_button(ui, i18n.t("connections.connect"));
                 // The visible text is the same on every row; the accessible name says which.
                 // Built inside the closure: egui calls it only on interaction or while AccessKit is on.
                 connect.widget_info(|| {
@@ -301,7 +345,7 @@ fn show_rows(
 
 /// A fixed-width table cell so columns line up across folder groups.
 fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
-    let size = egui::vec2(width, ui.spacing().interact_size.y);
+    let size = egui::vec2(width, ui.spacing().interact_size.y.max(CONTROL_HEIGHT));
     ui.allocate_ui_with_layout(
         size,
         egui::Layout::left_to_right(egui::Align::Center),

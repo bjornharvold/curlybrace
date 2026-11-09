@@ -1,13 +1,15 @@
 //! Find bar view: filter/sort/projection/skip/limit inputs and paging controls.
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
 use crate::I18n;
+use crate::theme::{filled_button, gate, outlined_field, text_button, tonal_button};
 use crate::viewmodel::{FindBarState, FindIntent, pick_intent, resolve_find_intent};
 use curlybrace_core::query::QueryText;
-use eframe::egui;
+use eframe::egui::{self, vec2};
 
 pub use crate::viewmodel::FindAction;
 
-const NUMBER_FIELD_WIDTH: f32 = 70.0;
+/// Width of the Skip and Limit fields: room for the floating label and a few digits.
+const NUMBER_FIELD_WIDTH: f32 = 96.0;
 
 const KEY_FILTER: (&str, &str) = ("findbar.filter", "findbar.filter_hint");
 const KEY_SORT: (&str, &str) = ("findbar.sort", "findbar.sort_hint");
@@ -50,31 +52,30 @@ pub fn show_automatic_verdict(
         .then_some(FindAction::SetAutomaticVerdict(checked))
 }
 
-/// A labelled single-line box; true when Enter was pressed in it.
+/// An outlined single-line box whose label floats on the border (and is its accessible name);
+/// true when Enter was pressed in it.
 fn text_row(ui: &mut egui::Ui, keys: (&str, &str), value: &mut String, i18n: &I18n) -> bool {
-    ui.horizontal(|ui| {
-        let caption = ui.label(i18n.t(keys.0));
-        let edit = egui::TextEdit::singleline(value)
-            .hint_text(i18n.t(keys.1))
-            .desired_width(f32::INFINITY);
-        // The caption is the box's accessible name (screen readers and UI tests).
-        let response = ui.add(edit).labelled_by(caption.id);
-        response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
-    })
-    .inner
+    let response = outlined_field(ui, &i18n.t(keys.0), value, &i18n.t(keys.1));
+    pressed_enter(ui, &response)
+}
+
+fn pressed_enter(ui: &egui::Ui, response: &egui::Response) -> bool {
+    response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
 fn number_row(ui: &mut egui::Ui, text: &mut QueryText, i18n: &I18n) -> bool {
-    ui.horizontal(|ui| {
+    ui.horizontal_top(|ui| {
         let mut enter = false;
         for (key, value) in [
             ("findbar.skip", &mut text.skip),
             ("findbar.limit", &mut text.limit),
         ] {
-            let caption = ui.label(i18n.t(key));
-            let edit = egui::TextEdit::singleline(value).desired_width(NUMBER_FIELD_WIDTH);
-            let response = ui.add(edit).labelled_by(caption.id);
-            enter |= response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let response = ui
+                .allocate_ui(vec2(NUMBER_FIELD_WIDTH, 0.0), |ui| {
+                    outlined_field(ui, &i18n.t(key), value, "")
+                })
+                .inner;
+            enter |= pressed_enter(ui, &response);
         }
         enter
     })
@@ -84,17 +85,17 @@ fn number_row(ui: &mut egui::Ui, text: &mut QueryText, i18n: &I18n) -> bool {
 fn buttons(ui: &mut egui::Ui, has_prev: bool, has_next: bool, i18n: &I18n) -> Option<FindIntent> {
     ui.horizontal(|ui| {
         let mut intent = None;
-        if ui.button(i18n.t("findbar.run")).clicked() {
+        if filled_button(ui, i18n.t("findbar.run")).clicked() {
             intent = Some(FindIntent::RunButton);
         }
-        if ui.button(i18n.t("findbar.clear")).clicked() {
+        if tonal_button(ui, i18n.t("findbar.clear")).clicked() {
             intent = Some(FindIntent::ClearButton);
         }
-        let prev = ui.add_enabled(has_prev, egui::Button::new(i18n.t("findbar.prev")));
+        let prev = gate(ui, has_prev, |ui| text_button(ui, i18n.t("findbar.prev")));
         if prev.clicked() {
             intent = Some(FindIntent::PrevButton);
         }
-        let next = ui.add_enabled(has_next, egui::Button::new(i18n.t("findbar.next")));
+        let next = gate(ui, has_next, |ui| text_button(ui, i18n.t("findbar.next")));
         if next.clicked() {
             intent = Some(FindIntent::NextButton);
         }

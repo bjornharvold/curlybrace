@@ -4,10 +4,11 @@
 use super::duplicates::show_duplicates;
 use super::memo::memo;
 use super::table::{
-    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, header, status_text, truncated, widths,
+    Col, MAX_ROWS_HEIGHT, ROW_HEIGHT, cell, header, panel, status_chip, truncated, widths,
 };
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{compact_text_button, gate, tonal_button};
 use crate::viewmodel::compare::{
     CompareState, ExportKind, OverviewRow, RowCounts, RowDetail, RunOverview, Totals,
 };
@@ -18,7 +19,7 @@ const COLUMNS: [Col; 4] = [
     Col::Flex(3.0),
     Col::Fixed(120.0),
     Col::Flex(3.5),
-    Col::Fixed(300.0),
+    Col::Fixed(360.0),
 ];
 
 pub fn show_overview(
@@ -30,12 +31,15 @@ pub fn show_overview(
         return None;
     }
     ui.separator();
-    let cancel = show_title(ui, state, i18n);
-    let widths = widths(ui, &COLUMNS);
-    header(ui, &widths, &titles(i18n));
-    let rows = show_rows(ui, state, &widths, i18n);
-    show_totals(ui, &state.overview, &widths, i18n);
-    let export = super::export::show_entry(ui, state, ExportKind::Report, i18n);
+    let (cancel, rows, export) = panel(ui, |ui| {
+        let cancel = show_title(ui, state, i18n);
+        let widths = widths(ui, &COLUMNS);
+        header(ui, &widths, &titles(i18n));
+        let rows = show_rows(ui, state, &widths, i18n);
+        show_totals(ui, &state.overview, &widths, i18n);
+        let export = super::export::show_entry(ui, state, ExportKind::Report, i18n);
+        (cancel, rows, export)
+    });
     let duplicates = show_duplicates(ui, state, i18n);
     cancel.or(rows).or(export).or(duplicates)
 }
@@ -56,8 +60,10 @@ fn show_title(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<Co
         if !state.is_running() {
             return;
         }
-        let cancel = egui::Button::new(i18n.t("compare.overview.cancel"));
-        if ui.add_enabled(state.can_cancel(), cancel).clicked() {
+        let cancel = gate(ui, state.can_cancel(), |ui| {
+            tonal_button(ui, i18n.t("compare.overview.cancel"))
+        });
+        if cancel.clicked() {
             action = Some(CompareAction::Cancel);
         }
         if state.cancel_requested() {
@@ -103,8 +109,7 @@ fn show_row(ui: &mut egui::Ui, w: &[f32], row: &OverviewRow, i18n: &I18n) -> Opt
     ui.horizontal(|ui| {
         cell(ui, w[0], |ui| truncated(ui, &pair));
         cell(ui, w[1], |ui| {
-            let label = i18n.t(row.status_key);
-            truncated(ui, &status_text(row.icon, &label));
+            status_chip(ui, row.icon, &i18n.t(row.status_key));
         });
         cell(ui, w[2], |ui| show_detail(ui, &row.detail, i18n));
         cell(ui, w[3], |ui| row_buttons(ui, row, i18n))
@@ -155,7 +160,8 @@ fn counts_text(counts: &RowCounts, i18n: &I18n) -> String {
 fn row_buttons(ui: &mut egui::Ui, row: &OverviewRow, i18n: &I18n) -> Option<CompareAction> {
     let mut action = None;
     let mut button = |ui: &mut egui::Ui, key: &str, on: bool, make: CompareAction| {
-        if ui.add_enabled(on, egui::Button::new(i18n.t(key))).clicked() {
+        let pressed = gate(ui, on, |ui| compact_text_button(ui, i18n.t(key)));
+        if pressed.clicked() {
             action = Some(make);
         }
     };

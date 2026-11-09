@@ -4,6 +4,7 @@
 use super::select::reasons_text;
 use crate::I18n;
 use crate::app::compare::CompareAction;
+use crate::theme::{gate, tonal_button};
 use crate::viewmodel::compare::read_only::READ_ONLY_DESTINATION_KEY;
 use crate::viewmodel::compare::{ChangeLine, FieldBar, FieldBlock, FieldRow, RowAction};
 use eframe::egui;
@@ -161,10 +162,10 @@ fn queue_reasons(bar: &FieldBar, action: RowAction) -> Vec<&'static str> {
 
 /// A button that says why it is disabled on hover (every reason); true when clicked.
 fn guarded_button(ui: &mut egui::Ui, text: String, reasons: &[&str], i18n: &I18n) -> bool {
-    let response = ui.add_enabled(reasons.is_empty(), egui::Button::new(text));
+    let response = gate(ui, reasons.is_empty(), |ui| tonal_button(ui, text));
     if reasons.is_empty() {
         return response.clicked();
     }
-    response.on_disabled_hover_text(reasons_text(reasons, i18n));
+    response.on_hover_text(reasons_text(reasons, i18n));
     false
 }
