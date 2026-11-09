@@ -177,7 +177,7 @@ fn release_focus_once(ui: &egui::Ui, target: &egui::Response) {
     let id = egui::Id::new("bulk_running_release");
     let frame = ui.ctx().cumulative_frame_nr();
     let last = ui.data_mut(|d| d.get_temp::<u64>(id));
-    if !last.is_some_and(|l| frame.saturating_sub(l) <= 1) && target.has_focus() {
+    if last.is_none_or(|l| frame.saturating_sub(l) > 1) && target.has_focus() {
         target.surrender_focus();
     }
     ui.data_mut(|d| d.insert_temp(id, frame));
