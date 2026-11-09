@@ -201,3 +201,43 @@ fn an_unreadable_write_error_is_rejected_as_other() {
         })
     );
 }
+
+#[test]
+fn a_write_error_code_of_any_numeric_type_gives_the_same_reason() {
+    for code in [
+        bson::Bson::Int32(11000),
+        bson::Bson::Int64(11000),
+        bson::Bson::Double(11000.0),
+    ] {
+        let reply = doc! { "ok": 1.0, "writeErrors": [{ "index": 0, "code": code.clone() }] };
+        assert_eq!(
+            rejection(&reply),
+            Some(BulkOutcome::Rejected {
+                reason: BulkFailureReason::DuplicateKey
+            }),
+            "{code:?}"
+        );
+    }
+}
+
+#[test]
+fn counts_and_ok_of_any_numeric_type_are_read_alike() {
+    let reply = doc! { "ok": 1_i64, "n": 4.0, "nModified": 2_i64 };
+    assert_eq!(
+        parse_update_reply(&reply),
+        Some(BulkOutcome::Applied {
+            matched: 4,
+            modified: 2,
+            upserted: Vec::new(),
+            deleted: 0
+        })
+    );
+    assert_eq!(
+        parse_update_reply(&doc! { "ok": 1, "n": 4.5, "nModified": 2 }),
+        None
+    );
+    assert_eq!(
+        parse_update_reply(&doc! { "ok": 1, "n": -1, "nModified": 2 }),
+        None
+    );
+}

@@ -17,6 +17,7 @@ use crate::bulk::{
 use crate::driver_error::server_error_code;
 use crate::error::{CoreError, Result};
 use crate::mongo_bulk::{reply_is_clean, update_entry, upserted_ids};
+use crate::mongo_write::write_error_code;
 use crate::store::Namespace;
 
 const CODE_WRITE_CONFLICT: i32 = 112;
@@ -85,12 +86,6 @@ pub(crate) fn reply_is_transient(reply: &Document) -> bool {
             .iter()
             .any(|l| l.as_str() == Some(TRANSIENT_TRANSACTION_ERROR))
     })
-}
-
-/// The code of the first entry of a reply's `writeErrors`, if there is one.
-pub(crate) fn write_error_code(reply: &Document) -> Option<Option<i32>> {
-    let first = reply.get_array("writeErrors").ok()?.first()?;
-    Some(first.as_document().and_then(|d| d.get_i32("code").ok()))
 }
 
 /// `{ $and: [ { _id: { $in: ids } }, filter ] }`: the filter narrowed to the previewed ids.

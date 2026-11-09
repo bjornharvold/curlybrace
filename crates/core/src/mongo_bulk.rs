@@ -20,7 +20,7 @@ use crate::bulk::{
 };
 use crate::driver_error::{is_time_limit_expiry, server_error_code};
 use crate::error::{CoreError, Result};
-use crate::mongo_bulk_preview::write_error_code;
+use crate::mongo_write::{count_of, reply_ok, write_error_code};
 
 /// The count, or `None` when the server gave up after `max_time`.
 pub(crate) async fn count_matching(
@@ -137,10 +137,10 @@ fn parse_update_reply(reply: &Document) -> Option<BulkOutcome> {
     reply_is_clean(reply)?;
     let upserted = upserted_ids(reply)?;
     // The server's `n` counts upserted documents too; `matched` is the pre-existing ones.
-    let matched = count_field(reply, "n")?.saturating_sub(upserted.len() as u64);
+    let matched = count_of(reply, "n")?.saturating_sub(upserted.len() as u64);
     Some(BulkOutcome::Applied {
         matched,
-        modified: count_field(reply, "nModified")?,
+        modified: count_of(reply, "nModified")?,
         upserted,
         deleted: 0,
     })
@@ -150,7 +150,7 @@ fn parse_update_reply(reply: &Document) -> Option<BulkOutcome> {
 /// upserted.
 fn parse_delete_reply(reply: &Document) -> Option<BulkOutcome> {
     reply_is_clean(reply)?;
-    let n = count_field(reply, "n")?;
+    let n = count_of(reply, "n")?;
     Some(BulkOutcome::Applied {
         matched: n,
         modified: 0,
@@ -165,23 +165,6 @@ pub(crate) fn reply_is_clean(reply: &Document) -> Option<()> {
         && !reply.contains_key("writeErrors")
         && !reply.contains_key("writeConcernError");
     clean.then_some(())
-}
-
-fn reply_ok(reply: &Document) -> bool {
-    match reply.get("ok") {
-        Some(Bson::Double(v)) => *v == 1.0,
-        Some(Bson::Int32(v)) => *v == 1,
-        Some(Bson::Int64(v)) => *v == 1,
-        _ => false,
-    }
-}
-
-fn count_field(reply: &Document, key: &str) -> Option<u64> {
-    match reply.get(key)? {
-        Bson::Int32(n) => u64::try_from(*n).ok(),
-        Bson::Int64(n) => u64::try_from(*n).ok(),
-        _ => None,
-    }
 }
 
 /// The `_id` of every upserted document; an absent `upserted` is empty, a malformed one is `None`.

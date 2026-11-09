@@ -1,4 +1,5 @@
 use super::*;
+use crate::mongo_write::write_error_code;
 
 fn gap(g: PreviewGap) -> Failure {
     Failure::Gap(g)
@@ -172,4 +173,24 @@ fn the_preview_command_narrows_the_filter_to_the_previewed_ids() {
         &restricted_filter(&req.filter, vec![Bson::Int32(7)])
     );
     assert_eq!(cmd.get_bool("ordered"), Ok(true));
+}
+
+#[test]
+fn a_write_error_code_of_any_numeric_type_is_classified_alike() {
+    // A proxy or another server may send the code as Int64 or Double; a data error (121
+    // DocumentValidationFailure) must still be an invalid update, not a transaction gap.
+    for code in [
+        bson::Bson::Int32(121),
+        bson::Bson::Int64(121),
+        bson::Bson::Double(121.0),
+    ] {
+        let reply = doc! { "ok": 1, "writeErrors": [{ "index": 0, "code": code.clone() }] };
+        let parsed = write_error_code(&reply).expect("a write error");
+        assert_eq!(parsed, Some(121), "{code:?}");
+        assert_eq!(
+            classify_failure(parsed, false, false),
+            Failure::InvalidUpdate,
+            "{code:?}"
+        );
+    }
 }
