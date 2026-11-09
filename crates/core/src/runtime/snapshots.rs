@@ -32,9 +32,8 @@ pub(super) fn spawn_listing(
     tokio::spawn(async move {
         let snapshots = tokio::task::spawn_blocking(move || {
             let dir = dir?;
-            if let Some(run) = delete
-                && snapshot::delete(&dir, run).is_err()
-            {
+            let failed = delete.is_some_and(|run| snapshot::delete(&dir, run).is_err());
+            if failed {
                 log::warn!("a snapshot could not be deleted");
             }
             Some(snapshot::list(&dir))
