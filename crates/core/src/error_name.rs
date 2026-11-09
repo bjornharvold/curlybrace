@@ -49,6 +49,10 @@ pub(crate) fn variant_of(error: &CoreError) -> &'static str {
         CoreError::BulkScopeMismatch => "BulkScopeMismatch",
         CoreError::BulkInvalidUpdate => "BulkInvalidUpdate",
         CoreError::BulkPreviewUnavailable => "BulkPreviewUnavailable",
+        CoreError::SnapshotWriteFailed => "SnapshotWriteFailed",
+        CoreError::SnapshotTooLarge => "SnapshotTooLarge",
+        CoreError::SnapshotUnreadable => "SnapshotUnreadable",
+        CoreError::SnapshotOtherConnection => "SnapshotOtherConnection",
     }
 }
 

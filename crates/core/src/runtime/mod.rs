@@ -27,6 +27,9 @@ mod bulk_cancel_tests;
 mod bulk_read_tests;
 #[cfg(test)]
 mod bulk_support;
+mod bulk_undo;
+#[cfg(test)]
+mod bulk_undo_tests;
 #[cfg(test)]
 mod bulk_write_tests;
 mod command;
@@ -79,6 +82,7 @@ mod sampler_tests;
 mod session;
 #[cfg(test)]
 mod session_tests;
+mod snapshots;
 #[cfg(test)]
 mod test_connection_tests;
 #[cfg(test)]
@@ -112,7 +116,7 @@ use session::Session;
 
 pub use config::{
     BULK_COUNT_MAX_TIME, BULK_WRITE_TIMEOUT, COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT,
-    INDEX_BUILD_TIMEOUT, PING_TIMEOUT, RuntimeConfig, default_history_path,
+    INDEX_BUILD_TIMEOUT, PING_TIMEOUT, RuntimeConfig, default_history_path, default_snapshot_dir,
 };
 pub use handlers::COMMAND_TIMEOUT_MESSAGE;
 pub use indexes::IndexSeries;
@@ -360,6 +364,7 @@ pub enum Command {
         ns: Namespace,
         request: crate::bulk::BulkUpdateRequest,
         run: crate::bulk::BulkRunId,
+        undo: crate::bulk::UndoPolicy,
     },
     /// Deletes every matching document; answered with [`Event::BulkFinished`].
     BulkDelete {
@@ -367,6 +372,30 @@ pub enum Command {
         ns: Namespace,
         request: crate::bulk::BulkDeleteRequest,
         run: crate::bulk::BulkRunId,
+        undo: crate::bulk::UndoPolicy,
+    },
+    /// What undoing the run `run` would touch: its size and first documents beside their current
+    /// state. Classified as a write (undo is one); answered with [`Event::BulkUndoPreview`].
+    BulkUndoPreview {
+        session: SessionId,
+        run: crate::bulk::BulkRunId,
+        request_id: u64,
+    },
+    /// Restores the documents of the run `run` from its snapshot; answered with
+    /// [`Event::BulkUndoFinished`]. The snapshot is kept so an undo can be retried.
+    BulkUndo {
+        session: SessionId,
+        run: crate::bulk::BulkRunId,
+    },
+    /// Lists the saved snapshots; no session. Answered with [`Event::Snapshots`].
+    SnapshotList {
+        request: u64,
+    },
+    /// Deletes a run's snapshot files; no session. Answered with [`Event::Snapshots`] (the
+    /// listing after the deletion).
+    SnapshotDelete {
+        run: crate::bulk::BulkRunId,
+        request: u64,
     },
     /// Best-effort cancel of a running bulk write, answered with [`Event::BulkCancelResult`]. Not
     /// a write. Every command runs in its own task, so it is handled while the write is in flight.
@@ -530,6 +559,28 @@ pub enum Event {
         ns: Namespace,
         run: crate::bulk::BulkRunId,
         outcome: std::result::Result<crate::bulk::BulkOutcome, CoreError>,
+        /// Present when the run left a snapshot the person can undo it with.
+        undo: Option<crate::bulk::UndoOffer>,
+    },
+    /// The answer to `BulkUndoPreview`. A failure is an `Err` outcome shown inline.
+    BulkUndoPreview {
+        session: SessionId,
+        run: crate::bulk::BulkRunId,
+        request_id: u64,
+        outcome: std::result::Result<crate::bulk::UndoPreview, CoreError>,
+    },
+    /// The answer to `BulkUndo`. Like `BulkFinished` it outlives a replaced session, because it
+    /// may report documents the server changed. A lost connection is
+    /// `Err(WriteOutcomeUnknown)`: some documents may already be restored.
+    BulkUndoFinished {
+        session: SessionId,
+        run: crate::bulk::BulkRunId,
+        outcome: std::result::Result<crate::snapshot::UndoReport, CoreError>,
+    },
+    /// The answer to `SnapshotList` and `SnapshotDelete`; `request` echoes the command's.
+    Snapshots {
+        request: u64,
+        snapshots: Vec<crate::snapshot::SnapshotInfo>,
     },
     /// The answer to `BulkCancel`.
     BulkCancelResult {
@@ -667,6 +718,7 @@ pub fn spawn_runtime_with_connector(
     let (tx, mut commands) = unbounded_channel::<Command>();
     let (events, rx) = unbounded_channel::<Event>();
     let history = indexes::open_history(config.history_path.as_deref());
+    snapshots::spawn_expiry(config.snapshot_dir.clone());
     let (sampler_config, _) = watch::channel(
         SamplerConfig {
             command_timeout: config.command_timeout,

@@ -399,8 +399,13 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             bulk_actions::cancel_answered(state, run, outcome),
             Vec::new(),
         ),
+        // Undo answers: nothing in the UI asks for them yet.
+        Event::BulkUndoPreview { .. } | Event::BulkUndoFinished { .. } => (state, Vec::new()),
         // Routed before; these have no session.
-        Event::Compare(_) | Event::Copy(_) | Event::TestConnection { .. } => (state, Vec::new()),
+        Event::Compare(_)
+        | Event::Copy(_)
+        | Event::TestConnection { .. }
+        | Event::Snapshots { .. } => (state, Vec::new()),
     }
 }
 

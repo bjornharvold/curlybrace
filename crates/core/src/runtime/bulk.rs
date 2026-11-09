@@ -5,12 +5,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::bulk_undo;
 use super::handlers::{bounded, gate};
 use super::session::Session;
 use super::{BULK_COUNT_MAX_TIME, Command, Event, SessionId, Shared};
-use crate::bulk::{BULK_PREVIEW_DOCS, BulkOutcome};
+use crate::bulk::{BULK_PREVIEW_DOCS, BulkOutcome, UndoPolicy};
 use crate::bulk::{BulkDeleteRequest, BulkRunId, BulkUpdateRequest};
 use crate::error::{CoreError, Result};
+use crate::snapshot::SnapshotKind;
 use crate::store::Namespace;
 use crate::store::{DocumentStore, Query};
 use bson::Document;
@@ -40,6 +42,10 @@ pub(super) enum ReadBulk {
     Cancel {
         run: BulkRunId,
     },
+    UndoPreview {
+        run: BulkRunId,
+        request_id: u64,
+    },
 }
 
 pub(super) enum WriteBulk {
@@ -47,10 +53,15 @@ pub(super) enum WriteBulk {
         ns: Namespace,
         request: BulkUpdateRequest,
         run: BulkRunId,
+        undo: UndoPolicy,
     },
     Delete {
         ns: Namespace,
         request: BulkDeleteRequest,
+        run: BulkRunId,
+        undo: UndoPolicy,
+    },
+    Undo {
         run: BulkRunId,
     },
 }
@@ -92,11 +103,33 @@ impl Bulk {
             }),
             Command::BulkCancel { run, .. } => Self::Read(ReadBulk::Cancel { run }),
             Command::BulkUpdate {
-                ns, request, run, ..
-            } => Self::Write(WriteBulk::Update { ns, request, run }),
+                ns,
+                request,
+                run,
+                undo,
+                ..
+            } => Self::Write(WriteBulk::Update {
+                ns,
+                request,
+                run,
+                undo,
+            }),
             Command::BulkDelete {
-                ns, request, run, ..
-            } => Self::Write(WriteBulk::Delete { ns, request, run }),
+                ns,
+                request,
+                run,
+                undo,
+                ..
+            } => Self::Write(WriteBulk::Delete {
+                ns,
+                request,
+                run,
+                undo,
+            }),
+            Command::BulkUndoPreview {
+                run, request_id, ..
+            } => Self::Read(ReadBulk::UndoPreview { run, request_id }),
+            Command::BulkUndo { run, .. } => Self::Write(WriteBulk::Undo { run }),
             other => return Err(other),
         })
     }
@@ -162,6 +195,12 @@ async fn run_read(
             ns,
             request_id,
         }),
+        ReadBulk::UndoPreview { run, request_id } => Ok(Event::BulkUndoPreview {
+            session,
+            run,
+            request_id,
+            outcome: bulk_undo::preview(shared, store, session, run).await,
+        }),
         ReadBulk::Cancel { run } => Ok(Event::BulkCancelResult {
             session,
             run,
@@ -218,23 +257,78 @@ async fn run_write(
     store: &Arc<dyn DocumentStore>,
     write: WriteBulk,
 ) -> Event {
-    let (ns, run, outcome) = match write {
-        WriteBulk::Update { ns, request, run } => {
-            let write = store.update_many(&ns, &request, run);
-            let outcome = write_outcome(shared, store, run, write).await;
-            (ns, run, outcome)
+    match write {
+        WriteBulk::Update {
+            ns,
+            request,
+            run,
+            undo,
+        } => {
+            let kind = SnapshotKind::Update {
+                filter: request.filter.clone(),
+                update: request.update.clone(),
+                upsert: request.upsert,
+            };
+            let apply = || store.update_many(&ns, &request, run);
+            finish(shared, session, store, ns.clone(), kind, run, undo, apply).await
         }
-        WriteBulk::Delete { ns, request, run } => {
-            let write = store.delete_many(&ns, &request, run);
-            let outcome = write_outcome(shared, store, run, write).await;
-            (ns, run, outcome)
+        WriteBulk::Delete {
+            ns,
+            request,
+            run,
+            undo,
+        } => {
+            let kind = SnapshotKind::Delete {
+                filter: request.filter.clone(),
+            };
+            let apply = || store.delete_many(&ns, &request, run);
+            finish(shared, session, store, ns.clone(), kind, run, undo, apply).await
+        }
+        WriteBulk::Undo { run } => Event::BulkUndoFinished {
+            session,
+            run,
+            outcome: bulk_undo::restore(shared, store, session, run).await,
+        },
+    }
+}
+
+/// Snapshots (when asked), writes, then seals the snapshot. A snapshot that cannot be taken ends
+/// the run before anything is sent to the server.
+#[allow(clippy::too_many_arguments)]
+async fn finish<F, Fut>(
+    shared: &Shared,
+    session: SessionId,
+    store: &Arc<dyn DocumentStore>,
+    ns: Namespace,
+    kind: SnapshotKind,
+    run: BulkRunId,
+    policy: UndoPolicy,
+    apply: F,
+) -> Event
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<BulkOutcome>>,
+{
+    let taken = match bulk_undo::take(shared, store, session, &ns, kind, run, policy).await {
+        Ok(taken) => taken,
+        Err(error) => {
+            return Event::BulkFinished {
+                session,
+                ns,
+                run,
+                outcome: Err(error),
+                undo: None,
+            };
         }
     };
+    let outcome = write_outcome(shared, store, run, apply()).await;
+    let undo = bulk_undo::seal(shared, store, taken, &outcome).await;
     Event::BulkFinished {
         session,
         ns,
         run,
         outcome,
+        undo,
     }
 }
 

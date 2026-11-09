@@ -234,6 +234,7 @@ fn bulk_write_commands(session: SessionId) -> Vec<Command> {
                 scope: MatchScope::AllDocuments,
             },
             run,
+            undo: crate::bulk::UndoPolicy::None,
         },
         Command::BulkDelete {
             session,
@@ -243,7 +244,14 @@ fn bulk_write_commands(session: SessionId) -> Vec<Command> {
                 scope: MatchScope::AllDocuments,
             },
             run,
+            undo: crate::bulk::UndoPolicy::None,
         },
+        Command::BulkUndoPreview {
+            session,
+            run,
+            request_id: 1,
+        },
+        Command::BulkUndo { session, run },
     ]
 }
 
@@ -452,7 +460,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 32;
+const COMMAND_VARIANTS: usize = 36;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -467,7 +475,9 @@ fn classify(command: &Command) -> Class {
         | Command::SetProfilingLevel { .. }
         | Command::BulkPreview { .. }
         | Command::BulkUpdate { .. }
-        | Command::BulkDelete { .. } => Class::Write,
+        | Command::BulkDelete { .. }
+        | Command::BulkUndoPreview { .. }
+        | Command::BulkUndo { .. } => Class::Write,
         Command::ListDatabases { .. }
         | Command::ListCollections { .. }
         | Command::Find { .. }
@@ -487,7 +497,9 @@ fn classify(command: &Command) -> Class {
         | Command::TestConnection { .. }
         | Command::LockReadOnly { .. }
         | Command::SetSamplingExcluded { .. }
-        | Command::PurgeHistory { .. } => Class::Other,
+        | Command::PurgeHistory { .. }
+        | Command::SnapshotList { .. }
+        | Command::SnapshotDelete { .. } => Class::Other,
     }
 }
 
@@ -543,6 +555,11 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
         },
         Command::PurgeHistory { connection: cfg.id },
         Command::Copy(crate::copy::CopyCommand::Cancel { run: 1 }),
+        Command::SnapshotList { request: 1 },
+        Command::SnapshotDelete {
+            run: crate::bulk::BulkRunId(Uuid::new_v4()),
+            request: 2,
+        },
     ];
     assert!(
         others

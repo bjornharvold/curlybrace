@@ -18,6 +18,7 @@ async fn bulk_update_answers_finished_with_the_store_outcome() {
         ns: mock_namespace(),
         request: update_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     assert_eq!(
@@ -26,7 +27,8 @@ async fn bulk_update_answers_finished_with_the_store_outcome() {
             session,
             ns: mock_namespace(),
             run,
-            outcome: Ok(applied())
+            outcome: Ok(applied()),
+            undo: None,
         }
     );
     no_more_events(&mut h).await;
@@ -43,6 +45,7 @@ async fn bulk_delete_and_store_errors_are_outcomes_of_finished() {
         ns: mock_namespace(),
         request: delete_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     assert_eq!(
@@ -51,7 +54,8 @@ async fn bulk_delete_and_store_errors_are_outcomes_of_finished() {
             session,
             ns: mock_namespace(),
             run,
-            outcome: Err(error)
+            outcome: Err(error),
+            undo: None,
         }
     );
     assert_eq!(store.pings.load(Ordering::SeqCst), 0);
@@ -67,6 +71,7 @@ async fn bulk_write_timeout_answers_unknown_not_failed() {
         ns: mock_namespace(),
         request: update_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     assert_eq!(
@@ -75,7 +80,8 @@ async fn bulk_write_timeout_answers_unknown_not_failed() {
             session,
             ns: mock_namespace(),
             run,
-            outcome: Ok(BulkOutcome::Unknown { cancelled: false })
+            outcome: Ok(BulkOutcome::Unknown { cancelled: false }),
+            undo: None,
         }
     );
     no_more_events(&mut h).await;
@@ -92,6 +98,7 @@ async fn a_write_that_outruns_its_bound_is_cancelled_on_the_server_before_the_an
         ns: mock_namespace(),
         request: delete_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     assert!(matches!(
@@ -117,6 +124,7 @@ async fn a_rejected_write_is_reported_as_rejected_with_its_reason() {
         ns: mock_namespace(),
         request: update_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     assert_eq!(
@@ -125,7 +133,8 @@ async fn a_rejected_write_is_reported_as_rejected_with_its_reason() {
             session,
             ns: mock_namespace(),
             run,
-            outcome: Ok(rejected)
+            outcome: Ok(rejected),
+            undo: None,
         }
     );
     assert!(store.cancels.lock().unwrap().is_empty());
@@ -142,6 +151,7 @@ async fn a_lost_connection_answers_unknown_without_a_ping() {
         ns: mock_namespace(),
         request: delete_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     assert!(matches!(
@@ -171,6 +181,7 @@ async fn an_unconfirmed_write_is_passed_through_with_its_counts() {
         ns: mock_namespace(),
         request: delete_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     assert_eq!(
@@ -179,7 +190,8 @@ async fn an_unconfirmed_write_is_passed_through_with_its_counts() {
             session,
             ns: mock_namespace(),
             run,
-            outcome: Ok(unconfirmed)
+            outcome: Ok(unconfirmed),
+            undo: None,
         }
     );
     assert!(store.cancels.lock().unwrap().is_empty());

@@ -61,6 +61,38 @@ pub enum CancelEffect {
     NothingToStop,
 }
 
+/// Whether a bulk write saves the originals of its documents first, so it can be undone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndoPolicy {
+    /// Save a snapshot before the write; if that fails or is too large, the write does not run.
+    Snapshot,
+    /// Run without a snapshot. The person chose this knowing it cannot be undone.
+    None,
+}
+
+/// What a finished run can be undone with. Carried by the finish event of a run that left a
+/// snapshot behind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UndoOffer {
+    /// Documents the snapshot holds (the run's matches), not counting upserted ones.
+    pub documents: u64,
+}
+
+/// A document the undo would restore: what it was, and what it is now.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UndoPreviewDoc {
+    pub original: Document,
+    /// `None` when the document does not exist now.
+    pub current: Option<Document>,
+}
+
+/// What an undo would touch: the size of the snapshot and its first documents.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UndoPreview {
+    pub documents: u64,
+    pub docs: Vec<UndoPreviewDoc>,
+}
+
 /// Identifies one bulk run, so a cancel or a late result can be matched to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BulkRunId(pub uuid::Uuid);

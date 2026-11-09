@@ -18,7 +18,9 @@ impl Command {
             | Self::SetProfilingLevel { .. }
             | Self::BulkPreview { .. }
             | Self::BulkUpdate { .. }
-            | Self::BulkDelete { .. } => true,
+            | Self::BulkDelete { .. }
+            | Self::BulkUndoPreview { .. }
+            | Self::BulkUndo { .. } => true,
             Self::Connect(_)
             | Self::Disconnect { .. }
             | Self::ListDatabases { .. }
@@ -38,7 +40,9 @@ impl Command {
             | Self::PurgeHistory { .. }
             | Self::BulkCount { .. }
             | Self::BulkSample { .. }
-            | Self::BulkCancel { .. } => false,
+            | Self::BulkCancel { .. }
+            | Self::SnapshotList { .. }
+            | Self::SnapshotDelete { .. } => false,
         }
     }
 
@@ -49,7 +53,9 @@ impl Command {
             | Self::IndexHistory { request, .. }
             | Self::QueryShapes { request, .. }
             | Self::BulkCount { request, .. }
-            | Self::BulkSample { request, .. } => Some(*request),
+            | Self::BulkSample { request, .. }
+            | Self::SnapshotList { request }
+            | Self::SnapshotDelete { request, .. } => Some(*request),
             _ => None,
         }
     }
@@ -89,6 +95,10 @@ impl Command {
             Self::BulkUpdate { .. } => "bulk_update",
             Self::BulkDelete { .. } => "bulk_delete",
             Self::BulkCancel { .. } => "bulk_cancel",
+            Self::BulkUndoPreview { .. } => "bulk_undo_preview",
+            Self::BulkUndo { .. } => "bulk_undo",
+            Self::SnapshotList { .. } => "snapshot_list",
+            Self::SnapshotDelete { .. } => "snapshot_delete",
         }
     }
 
@@ -121,13 +131,17 @@ impl Command {
             | Self::BulkPreview { session, .. }
             | Self::BulkUpdate { session, .. }
             | Self::BulkDelete { session, .. }
-            | Self::BulkCancel { session, .. } => Some(*session),
+            | Self::BulkCancel { session, .. }
+            | Self::BulkUndoPreview { session, .. }
+            | Self::BulkUndo { session, .. } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
             | Self::LockReadOnly { .. }
             | Self::SetSamplingExcluded { .. }
-            | Self::PurgeHistory { .. } => None,
+            | Self::PurgeHistory { .. }
+            | Self::SnapshotList { .. }
+            | Self::SnapshotDelete { .. } => None,
         }
     }
 }
@@ -157,9 +171,14 @@ impl Event {
             | Self::BulkPreview { session, .. }
             | Self::BulkFinished { session, .. }
             | Self::BulkCancelResult { session, .. }
+            | Self::BulkUndoPreview { session, .. }
+            | Self::BulkUndoFinished { session, .. }
             | Self::Failed { session, .. }
             | Self::RequestFailed { session, .. } => Some(*session),
-            Self::Compare(_) | Self::Copy(_) | Self::TestConnection { .. } => None,
+            Self::Compare(_)
+            | Self::Copy(_)
+            | Self::TestConnection { .. }
+            | Self::Snapshots { .. } => None,
         }
     }
 }

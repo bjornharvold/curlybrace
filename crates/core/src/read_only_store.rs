@@ -238,4 +238,27 @@ impl DocumentStore for ReadOnlyStore {
     async fn cancel_bulk(&self, run: BulkRunId) -> Result<CancelEffect> {
         self.inner.cancel_bulk(run).await
     }
+
+    async fn snapshot_matching(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        out: &mut crate::snapshot::SnapshotWriter,
+    ) -> Result<u64> {
+        self.guard()?;
+        self.inner.snapshot_matching(ns, filter, out).await
+    }
+
+    async fn find_by_ids(&self, ns: &Namespace, ids: &[Bson]) -> Result<Vec<Document>> {
+        self.inner.find_by_ids(ns, ids).await
+    }
+
+    async fn apply_undo(
+        &self,
+        ns: &Namespace,
+        items: &[crate::snapshot::UndoItem],
+    ) -> Result<Vec<crate::snapshot::ItemResult>> {
+        self.guard()?;
+        self.inner.apply_undo(ns, items).await
+    }
 }

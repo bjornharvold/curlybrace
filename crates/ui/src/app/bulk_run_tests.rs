@@ -28,6 +28,7 @@ fn run_with_confirmation_sends_bulk_delete_once() {
             ns: n,
             request,
             run,
+            undo: _,
         },
     ] = &cmds[..]
     else {

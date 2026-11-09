@@ -8,7 +8,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::session::Session;
 use super::{
     Command, CoreError, Event, Repaint, SessionId, Shared, compare, copy, handlers, indexes,
-    profiler_handlers, profiler_start,
+    profiler_handlers, profiler_start, snapshots,
 };
 
 /// Runs one command in its own task. The work runs in an inner task so a
@@ -47,6 +47,14 @@ pub(super) fn dispatch(
         shared
             .sampler_config
             .send_modify(|cfg| cfg.excluded_dbs = databases);
+        return;
+    }
+    if let Command::SnapshotList { request } = command {
+        snapshots::spawn_listing(&shared, events, repaint, request, None);
+        return;
+    }
+    if let Command::SnapshotDelete { run, request } = command {
+        snapshots::spawn_listing(&shared, events, repaint, request, Some(run));
         return;
     }
     if let Command::PurgeHistory { connection } = command {
