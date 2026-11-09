@@ -130,9 +130,17 @@ pub(super) async fn seal(
         }
         _ => Vec::new(),
     };
+    let uncovered = outcome
+        .as_ref()
+        .ok()
+        .and_then(|o| touched(o, taken.is_update))
+        .map_or(0, |n| n.saturating_sub(taken.documents));
     if outcome.is_err() || (taken.documents == 0 && upserted.is_empty()) {
         discard(shared, &taken);
-        return UndoStatus::NothingToUndo;
+        return match uncovered {
+            0 => UndoStatus::NothingToUndo,
+            n => UndoStatus::Uncovered(n),
+        };
     }
     if taken.is_update && capture(shared, store, &taken, &upserted).await.is_err() {
         // Without the after-state an update cannot be undone safely.
@@ -140,11 +148,6 @@ pub(super) async fn seal(
         discard(shared, &taken);
         return UndoStatus::Lost;
     }
-    let uncovered = outcome
-        .as_ref()
-        .ok()
-        .and_then(|o| touched(o, taken.is_update))
-        .map_or(0, |n| n.saturating_sub(taken.documents));
     UndoStatus::Offered(UndoOffer {
         documents: taken.documents,
         uncovered,

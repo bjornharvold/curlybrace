@@ -95,16 +95,22 @@ pub fn delete(dir: &Path, run: BulkRunId) -> Result<()> {
 /// an after-state whose snapshot is gone) is never listed, so it expires by its modification
 /// time instead: it holds the person's documents all the same.
 pub fn purge_older_than(dir: &Path, now_unix: i64, max_age_secs: i64) -> usize {
-    let snapshots = list(dir)
+    let (old, kept): (Vec<_>, Vec<_>) = list(dir)
         .into_iter()
-        .filter(|s| now_unix.saturating_sub(s.created_unix) > max_age_secs)
-        .filter(|s| delete(dir, s.run).is_ok())
-        .count();
-    snapshots + purge_stray_files(dir, now_unix, max_age_secs)
+        .partition(|s| now_unix.saturating_sub(s.created_unix) > max_age_secs);
+    let snapshots = old.iter().filter(|s| delete(dir, s.run).is_ok()).count();
+    // A readable snapshot lives by its header's date, never by its file time.
+    let readable: std::collections::HashSet<uuid::Uuid> = kept.iter().map(|s| s.run.0).collect();
+    snapshots + purge_stray_files(dir, now_unix, max_age_secs, &readable)
 }
 
 /// Our files (`<uuid>.jsonl`, `<uuid>.after.jsonl`) older than the limit by modification time.
-fn purge_stray_files(dir: &Path, now_unix: i64, max_age_secs: i64) -> usize {
+fn purge_stray_files(
+    dir: &Path,
+    now_unix: i64,
+    max_age_secs: i64,
+    readable: &std::collections::HashSet<uuid::Uuid>,
+) -> usize {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
     };
@@ -112,19 +118,23 @@ fn purge_stray_files(dir: &Path, now_unix: i64, max_age_secs: i64) -> usize {
         .flatten()
         .map(|e| e.path())
         .filter(|p| is_our_file(p))
+        .filter(|p| !stem_uuid(p).is_some_and(|run| readable.contains(&run)))
         .filter(|p| age_secs(p, now_unix).is_some_and(|age| age > max_age_secs))
         .filter(|p| std::fs::remove_file(p).is_ok())
         .count()
 }
 
+/// The run id in `<uuid>.jsonl` or `<uuid>.after.jsonl`.
+fn stem_uuid(path: &Path) -> Option<uuid::Uuid> {
+    let name = path.file_name()?.to_str()?;
+    name.strip_suffix(".after.jsonl")
+        .or_else(|| name.strip_suffix(".jsonl"))?
+        .parse()
+        .ok()
+}
+
 fn is_our_file(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-        return false;
-    };
-    let stem = name
-        .strip_suffix(".after.jsonl")
-        .or_else(|| name.strip_suffix(".jsonl"));
-    stem.is_some_and(|stem| stem.parse::<uuid::Uuid>().is_ok())
+    stem_uuid(path).is_some()
 }
 
 fn age_secs(path: &Path, now_unix: i64) -> Option<i64> {

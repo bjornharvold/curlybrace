@@ -137,3 +137,18 @@ fn purge_keeps_recent_orphans_and_foreign_files() {
     assert_eq!(purge_older_than(dir.path(), now(), 1_000), 0);
     assert!(recent.exists() && foreign.exists());
 }
+
+#[test]
+fn purge_never_expires_a_readable_snapshot_by_file_time() {
+    let dir = tempdir().unwrap();
+    // Created just now (by its header) but its file times are old, e.g. after a copy or restore.
+    let run = write(dir.path(), now(), "kept");
+    age_file(&snapshot_path(dir.path(), run), 999_999);
+    age_file(
+        &snapshot_path(dir.path(), run).with_extension("after.jsonl"),
+        999_999,
+    );
+
+    assert_eq!(purge_older_than(dir.path(), now(), 1_000), 0);
+    assert_eq!(list(dir.path()).len(), 1);
+}

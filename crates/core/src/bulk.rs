@@ -91,6 +91,9 @@ pub enum UndoStatus {
     /// The write ran but the snapshot could not be completed (for example the saved state of an
     /// update did not fit the size cap): it can NOT be undone, although undo was asked for.
     Lost,
+    /// The snapshot is empty but the write changed this many documents anyway (they matched only
+    /// after it was taken): there is nothing to restore them from.
+    Uncovered(u64),
     Offered(UndoOffer),
 }
 

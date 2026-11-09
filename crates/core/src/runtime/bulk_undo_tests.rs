@@ -441,3 +441,25 @@ async fn a_lost_connection_during_undo_is_an_unknown_outcome_not_a_pile_of_error
         other => panic!("unexpected {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn documents_that_matched_only_after_an_empty_snapshot_are_still_reported() {
+    let dir = tempdir().unwrap();
+    // Nothing matched when the snapshot was taken; the write then deleted 5.
+    let wrote_five = BulkOutcome::Applied {
+        matched: 5,
+        modified: 0,
+        upserted: vec![],
+        deleted: 5,
+    };
+    let store = FakeStore::new(Write::Answer(Ok(wrote_five)));
+    let (mut h, session) =
+        connected_with(&store, false, runtime_config_with_snapshots(dir.path())).await;
+    h.tx.send(delete(session, run_id(), UndoPolicy::Snapshot))
+        .unwrap();
+
+    let (_, undo) = finished(&mut h).await;
+
+    assert_eq!(undo, UndoStatus::Uncovered(5));
+    assert_eq!(file_count(dir.path()), 0, "an empty snapshot is not kept");
+}
