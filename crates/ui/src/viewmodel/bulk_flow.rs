@@ -1,13 +1,14 @@
 //! View-model of the bulk update / delete flow: the steps from defining the write to its
 //! report, and the rules for when a typed confirmation and the all-documents tick are
 //! required. Pure and egui-free; the updaters return new values.
+use super::bulk_text::{DocText, UpdateCheck};
 use super::typed_confirmation::typed_text_matches;
 use bson::Document;
-use curlybrace_core::bulk::{
-    BulkOutcome, BulkRunId, MatchScope, PreviewGap, UpdatePreview, parse_update, validate_update,
-};
+use curlybrace_core::bulk::{BulkOutcome, BulkRunId, MatchScope, PreviewGap, UpdatePreview};
+use curlybrace_core::ejson::doc_to_view_json;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
+use std::borrow::Cow;
 
 /// An update of more documents than this asks for the typed confirmation; the number itself
 /// does not.
@@ -56,10 +57,19 @@ pub struct BulkFlow {
     pub ns: Namespace,
     pub filter: Document,
     pub update_text: String,
+    /// The verdict on `update_text`, worked out once when the text is set (see
+    /// [`update_check`](Self::update_check)).
+    pub update_check: UpdateCheck,
+    /// The filter as it is shown, serialized once when the flow opens: the filter never changes
+    /// afterwards.
+    pub filter_text: String,
     pub upsert: bool,
     pub all_documents_ticked: bool,
     pub count: CountState,
     pub preview: PreviewState,
+    /// The preview documents as shown, cut once when the preview is stored (see
+    /// [`preview_docs`](Self::preview_docs)).
+    pub preview_text: Vec<DocText>,
     pub typed: String,
     pub step: BulkStep,
     pub production: bool,
@@ -91,12 +101,15 @@ impl BulkFlow {
         Self {
             kind,
             ns,
+            filter_text: doc_to_view_json(&filter),
             filter,
             update_text: String::new(),
+            update_check: UpdateCheck::of(""),
             upsert: false,
             all_documents_ticked: false,
             count: CountState::Pending,
             preview: PreviewState::Pending,
+            preview_text: Vec::new(),
             typed: String::new(),
             step: BulkStep::Define,
             production,
@@ -113,6 +126,7 @@ impl BulkFlow {
             return self;
         }
         Self {
+            update_check: UpdateCheck::of(&update_text),
             update_text,
             ..self
         }
@@ -156,6 +170,7 @@ impl BulkFlow {
             return self;
         }
         Self {
+            preview_text: preview_texts(&preview),
             preview,
             typed: String::new(),
             ..self
@@ -182,6 +197,7 @@ impl BulkFlow {
             BulkStep::Preview => Self {
                 step: BulkStep::Define,
                 preview: PreviewState::Pending,
+                preview_text: Vec::new(),
                 typed: String::new(),
                 ..self
             },
@@ -300,10 +316,32 @@ impl BulkFlow {
 
     /// A delete has no update; an update needs text that parses and validates.
     fn update_ok(&self) -> bool {
-        self.kind == BulkKind::Delete
-            || parse_update(&self.update_text)
-                .and_then(|spec| validate_update(&spec))
-                .is_ok()
+        self.kind == BulkKind::Delete || self.update_check().is_valid()
+    }
+
+    /// The verdict on the update text: the stored one, which `open` and `with_update_text`
+    /// keep in step with the text. A flow built field by field with another text (only tests do
+    /// that) has a stored verdict that is not for its text, and gets a fresh one instead, so the
+    /// answer is always about the text that would run.
+    pub fn update_check(&self) -> Cow<'_, UpdateCheck> {
+        match self.update_check.is_for(&self.update_text) {
+            true => Cow::Borrowed(&self.update_check),
+            false => Cow::Owned(UpdateCheck::of(&self.update_text)),
+        }
+    }
+
+    /// The i18n key of what is wrong with the update text; none for blank or valid text.
+    pub fn update_problem(&self) -> Option<&'static str> {
+        self.update_check().problem()
+    }
+
+    /// The preview documents as shown: the ones cut when the preview was stored, or, for a flow
+    /// whose `preview` was set field by field (only tests do that), cut now.
+    pub fn preview_docs(&self) -> Cow<'_, [DocText]> {
+        match preview_len(&self.preview) == self.preview_text.len() {
+            true => Cow::Borrowed(&self.preview_text),
+            false => Cow::Owned(preview_texts(&self.preview)),
+        }
     }
 
     fn count_needs_typed(&self) -> bool {
@@ -329,6 +367,24 @@ impl BulkFlow {
 
     fn preview_ready(&self) -> bool {
         self.preview != PreviewState::Pending
+    }
+}
+
+/// The documents of a preview as shown, each cut once.
+fn preview_texts(preview: &PreviewState) -> Vec<DocText> {
+    match preview {
+        PreviewState::Update(p) => p.docs.iter().map(DocText::of_preview).collect(),
+        PreviewState::Sample(docs) => docs.iter().map(DocText::of_sample).collect(),
+        PreviewState::Pending | PreviewState::Failed(_) => Vec::new(),
+    }
+}
+
+/// How many documents `preview` shows, without cutting them.
+fn preview_len(preview: &PreviewState) -> usize {
+    match preview {
+        PreviewState::Update(p) => p.docs.len(),
+        PreviewState::Sample(docs) => docs.len(),
+        PreviewState::Pending | PreviewState::Failed(_) => 0,
     }
 }
 

@@ -569,3 +569,102 @@ fn only_the_invalid_update_error_marks_the_preview_as_proved_invalid() {
     let other = update_flow().with_preview(PreviewState::Failed(CoreError::Unreachable));
     assert!(!other.preview_proved_invalid());
 }
+
+#[test]
+fn the_stored_update_check_follows_the_text() {
+    let open = BulkFlow::open(BulkKind::Update, ns(), filtered(), false);
+    assert!(open.update_check.is_for("") && !open.update_check().is_valid());
+    assert_eq!(open.update_problem(), None, "blank text has no message");
+    let good = open.clone().with_update_text(GOOD_UPDATE.into());
+    assert!(
+        good.update_check.is_for(GOOD_UPDATE),
+        "stored, not worked out later"
+    );
+    assert!(good.update_check().is_valid() && good.update_problem().is_none());
+    assert!(good.clone().advanced().step == BulkStep::Preview);
+    let bad = good.clone().with_update_text(r#"{"a": 1}"#.into());
+    assert!(bad.update_check.is_for(r#"{"a": 1}"#));
+    assert_eq!(
+        bad.update_problem(),
+        Some(CoreError::BulkInvalidUpdate.i18n_key())
+    );
+    assert!(!bad.can_advance());
+    // Immutable: the earlier flow still has its own verdict.
+    assert!(good.update_check().is_valid());
+}
+
+#[test]
+fn an_update_text_that_cannot_be_edited_keeps_its_verdict() {
+    let preview = update_flow().advanced();
+    let same = preview.clone().with_update_text("{".into());
+    assert_eq!(same, preview, "text is only editable in Define");
+    assert!(same.update_check().is_valid());
+}
+
+#[test]
+fn a_flow_whose_text_was_set_field_by_field_never_uses_a_stale_verdict() {
+    let bad = BulkFlow {
+        update_text: "nope".into(),
+        ..confirm(update_flow())
+    };
+    assert!(
+        !bad.update_check.is_for("nope"),
+        "the stored verdict is stale"
+    );
+    assert!(!bad.update_check().is_valid());
+    assert!(!bad.can_run());
+}
+
+#[test]
+fn the_filter_is_shown_from_text_serialized_when_the_flow_opens() {
+    let flow = BulkFlow::open(BulkKind::Delete, ns(), filtered(), false);
+    assert_eq!(
+        flow.filter_text,
+        curlybrace_core::ejson::doc_to_view_json(&filtered())
+    );
+}
+
+#[test]
+fn preview_text_is_cut_once_when_the_preview_is_stored() {
+    let flow = update_flow();
+    let docs = flow.preview_docs();
+    assert!(!docs.is_empty());
+    assert_eq!(
+        flow.preview_text.len(),
+        docs.len(),
+        "stored, not recomputed"
+    );
+    assert!(matches!(docs, std::borrow::Cow::Borrowed(_)));
+    let sample = flow
+        .clone()
+        .with_preview(PreviewState::Sample(vec![doc! { "a": 1 }, doc! { "a": 2 }]));
+    assert_eq!(sample.preview_text.len(), 2);
+    assert_eq!(sample.preview_docs()[1].after, None);
+    // The earlier flow kept its own text; back drops it with the preview.
+    assert_eq!(flow.preview_text.len(), docs.len());
+    let back = flow.clone().advanced().back();
+    assert!(back.preview_text.is_empty());
+    assert!(
+        flow.with_preview(PreviewState::Failed(CoreError::BulkInvalidUpdate))
+            .preview_text
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_huge_preview_document_is_cut_when_stored() {
+    let huge = doc! { "_id": 1, "blob": "z".repeat(5 * 1024 * 1024) };
+    let flow = update_flow().with_preview(PreviewState::Sample(vec![huge]));
+    let shown = &flow.preview_text[0].before;
+    assert_eq!(shown.chars().count(), 401);
+}
+
+#[test]
+fn a_preview_set_field_by_field_is_still_shown() {
+    let literal = BulkFlow {
+        preview: PreviewState::Sample(vec![doc! { "a": 1 }]),
+        ..BulkFlow::open(BulkKind::Delete, ns(), filtered(), false)
+    };
+    assert!(literal.preview_text.is_empty());
+    assert_eq!(literal.preview_docs().len(), 1);
+}

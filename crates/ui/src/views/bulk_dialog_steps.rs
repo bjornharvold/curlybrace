@@ -5,17 +5,11 @@ use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
 use crate::I18n;
 use crate::app::BulkAction;
 use crate::theme::{FieldOptions, Tone, outlined_field_opts};
-use crate::viewmodel::{BulkFlow, BulkKind, CancelNote, CountState, PreviewState};
-use bson::{Bson, Document};
-use curlybrace_core::bulk::{
-    BulkOutcome, PreviewDoc, PreviewGap, UpdatePreview, parse_update, validate_update,
-};
-use curlybrace_core::ejson::doc_to_view_json;
+use crate::viewmodel::{BulkFlow, BulkKind, CancelNote, CountState, DocText, PreviewState};
+use curlybrace_core::bulk::{BulkOutcome, PreviewDoc, PreviewGap, UpdatePreview};
 use curlybrace_core::error::CoreError;
 use eframe::egui;
 
-/// Documents longer than this are cut in the preview, with an ellipsis.
-const SHOWN_CHARS: usize = 400;
 const UPDATE_ROWS: usize = 6;
 const FILTER_MAX_HEIGHT: f32 = 120.0;
 const SAMPLES_MAX_HEIGHT: f32 = 320.0;
@@ -38,22 +32,10 @@ pub(super) fn define_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) -> Op
     action
 }
 
-/// The i18n key of what is wrong with the update text; none for blank text (the field's hint
-/// shows what to write) and for a valid update.
-fn update_problem(text: &str) -> Option<&'static str> {
-    if text.trim().is_empty() {
-        return None;
-    }
-    parse_update(text)
-        .and_then(|spec| validate_update(&spec))
-        .err()
-        .map(|e| e.i18n_key())
-}
-
 fn update_inputs(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) -> Option<BulkAction> {
     let mut action = None;
     let mut text = flow.update_text.clone();
-    let message = update_problem(&text).map(|key| i18n.t(key));
+    let message = flow.update_problem().map(|key| i18n.t(key));
     let options = FieldOptions {
         error: message.as_deref(),
         multiline_rows: Some(UPDATE_ROWS),
@@ -87,27 +69,13 @@ fn filter_block(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
         .id_salt("bulk_filter")
         .max_height(FILTER_MAX_HEIGHT)
         .auto_shrink([false, true])
-        .show(ui, |ui| mono(ui, doc_to_view_json(&flow.filter)));
+        .show(ui, |ui| mono(ui, &flow.filter_text));
     ui.label(i18n.t("bulk.filter_scope"));
 }
 
-fn mono(ui: &mut egui::Ui, text: String) {
+fn mono(ui: &mut egui::Ui, text: &str) {
     let text = egui::RichText::new(text).monospace();
     ui.add(egui::Label::new(text).wrap().selectable(true));
-}
-
-/// One line of compact extended JSON, cut when long.
-fn compact(doc: &Document) -> String {
-    let text = Bson::Document(doc.clone())
-        .into_relaxed_extjson()
-        .to_string();
-    if text.chars().count() <= SHOWN_CHARS {
-        return text;
-    }
-    text.chars()
-        .take(SHOWN_CHARS)
-        .chain(std::iter::once('\u{2026}'))
-        .collect()
 }
 
 fn count_line(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
@@ -131,7 +99,7 @@ pub(super) fn preview_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
         }
         PreviewState::Failed(error) => failed_preview(ui, error, i18n),
         PreviewState::Update(preview) => update_preview(ui, flow, preview, i18n),
-        PreviewState::Sample(docs) => sample_preview(ui, docs, i18n),
+        PreviewState::Sample(_) => sample_preview(ui, flow, i18n),
     }
     cannot_undo(ui, i18n);
 }
@@ -161,9 +129,10 @@ fn update_preview(ui: &mut egui::Ui, flow: &BulkFlow, preview: &UpdatePreview, i
     if let Some(gap) = preview.gap {
         tone_notice(ui, Tone::Warning, &i18n.t(gap_key(gap)), false);
     }
+    let texts = flow.preview_docs();
     samples_area(ui, |ui| {
-        for doc in &preview.docs {
-            preview_doc(ui, doc, flow.upsert, i18n);
+        for (doc, text) in preview.docs.iter().zip(texts.iter()) {
+            preview_doc(ui, doc, text, flow.upsert, i18n);
         }
     });
 }
@@ -178,19 +147,19 @@ fn samples_area(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 
 /// One sampled document: what it is now and what the update makes of it, stacked. A document
 /// that is not there yet (an upsert) says so instead of showing an empty "before".
-fn preview_doc(ui: &mut egui::Ui, doc: &PreviewDoc, upsert: bool, i18n: &I18n) {
+fn preview_doc(ui: &mut egui::Ui, doc: &PreviewDoc, text: &DocText, upsert: bool, i18n: &I18n) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
         if doc.before.is_empty() && upsert {
             ui.label(i18n.t("bulk.preview.upserted_hint"));
         } else {
             caption(ui, i18n.t("bulk.preview.before"));
-            mono(ui, compact(&doc.before));
+            mono(ui, &text.before);
         }
-        match &doc.after {
+        match &text.after {
             Some(after) => {
                 caption(ui, i18n.t("bulk.preview.after"));
-                mono(ui, compact(after));
+                mono(ui, after);
             }
             None => {
                 ui.label(i18n.t("bulk.no_after_state"));
@@ -203,17 +172,18 @@ fn caption(ui: &mut egui::Ui, text: String) {
     ui.label(egui::RichText::new(text).strong());
 }
 
-fn sample_preview(ui: &mut egui::Ui, docs: &[Document], i18n: &I18n) {
+fn sample_preview(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
     caption(ui, i18n.t("bulk.preview.removed_heading"));
-    if docs.is_empty() {
+    let texts = flow.preview_docs();
+    if texts.is_empty() {
         ui.label(i18n.t("bulk.no_samples"));
         return;
     }
     samples_area(ui, |ui| {
-        for doc in docs {
+        for text in texts.iter() {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                mono(ui, compact(doc));
+                mono(ui, &text.before);
             });
         }
     });
