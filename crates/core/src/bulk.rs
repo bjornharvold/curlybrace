@@ -1,0 +1,282 @@
+//! Request types, validation and outcomes for bulk update and delete.
+//!
+//! Pure data and checks: nothing here touches a store. Errors carry no document
+//! values; they expose fixed i18n keys only.
+
+use bson::{Bson, Document};
+use serde_json::Value;
+
+use crate::ejson::editor_json_to_doc;
+use crate::error::{CoreError, Result};
+
+/// How many documents the update preview shows.
+pub const BULK_PREVIEW_DOCS: usize = 3;
+
+/// Pipeline stages the server accepts in an update pipeline.
+const PIPELINE_STAGES: [&str; 6] = [
+    "$set",
+    "$addFields",
+    "$unset",
+    "$project",
+    "$replaceRoot",
+    "$replaceWith",
+];
+
+/// Whether a request is meant to hit the documents a filter selects, or the whole collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchScope {
+    Filtered,
+    AllDocuments,
+}
+
+/// The update to apply: an operator document or an aggregation-style pipeline.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateSpec {
+    Operators(Document),
+    Pipeline(Vec<Document>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BulkUpdateRequest {
+    pub filter: Document,
+    pub update: UpdateSpec,
+    pub upsert: bool,
+    pub scope: MatchScope,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BulkDeleteRequest {
+    pub filter: Document,
+    pub scope: MatchScope,
+}
+
+/// Identifies one bulk run, so a cancel or a late result can be matched to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BulkRunId(pub uuid::Uuid);
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BulkOutcome {
+    Applied {
+        matched: u64,
+        modified: u64,
+        upserted: Vec<Bson>,
+        deleted: u64,
+    },
+    /// The result is not known: the run was cut short or the connection was lost.
+    Unknown { cancelled: bool },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewDoc {
+    pub before: Document,
+    pub after: Option<Document>,
+}
+
+/// Why a preview shows fewer documents than expected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewGap {
+    TransactionsUnavailable,
+    Conflict,
+    NoMatch,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdatePreview {
+    pub docs: Vec<PreviewDoc>,
+    pub gap: Option<PreviewGap>,
+}
+
+/// An empty filter needs `AllDocuments`, and `AllDocuments` needs an empty filter, so the
+/// flag always means what it says. The parsed document is checked, never the text; any key
+/// at all (even `$expr: true`) is an explicit filter.
+pub fn check_scope(filter: &Document, scope: MatchScope) -> Result<()> {
+    match (filter.is_empty(), scope) {
+        (true, MatchScope::Filtered) => Err(CoreError::BulkEmptyFilter),
+        (false, MatchScope::AllDocuments) => Err(CoreError::BulkScopeMismatch),
+        _ => Ok(()),
+    }
+}
+
+/// Parses editor JSON into an update: an array is a pipeline, anything else is read as an
+/// operator document. The result still goes through [`validate_update`].
+pub fn parse_update(text: &str) -> Result<UpdateSpec> {
+    let value: Value =
+        serde_json::from_str(text).map_err(|e| CoreError::InvalidJson(e.to_string()))?;
+    match value {
+        Value::Array(items) => items
+            .into_iter()
+            .map(stage_to_doc)
+            .collect::<Result<Vec<_>>>()
+            .map(UpdateSpec::Pipeline),
+        other => editor_json_to_doc(&other.to_string()).map(UpdateSpec::Operators),
+    }
+}
+
+fn stage_to_doc(value: Value) -> Result<Document> {
+    if !value.is_object() {
+        return Err(CoreError::InvalidDocument(
+            "expected a JSON object for a pipeline stage".into(),
+        ));
+    }
+    editor_json_to_doc(&value.to_string())
+}
+
+/// Checks the update has the shape the server accepts. Never echoes a key or a value.
+pub fn validate_update(spec: &UpdateSpec) -> Result<()> {
+    let valid = match spec {
+        UpdateSpec::Operators(doc) => !doc.is_empty() && doc.keys().all(|key| key.starts_with('$')),
+        UpdateSpec::Pipeline(stages) => !stages.is_empty() && stages.iter().all(is_allowed_stage),
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(CoreError::BulkInvalidUpdate)
+    }
+}
+
+fn is_allowed_stage(stage: &Document) -> bool {
+    let mut keys = stage.keys();
+    matches!(
+        (keys.next(), keys.next()),
+        (Some(name), None) if PIPELINE_STAGES.contains(&name.as_str())
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bson::doc;
+
+    #[test]
+    fn empty_filter_without_flag_is_rejected() {
+        assert_eq!(
+            check_scope(&doc! {}, MatchScope::Filtered),
+            Err(CoreError::BulkEmptyFilter)
+        );
+    }
+
+    #[test]
+    fn all_documents_with_empty_filter_passes() {
+        assert_eq!(check_scope(&doc! {}, MatchScope::AllDocuments), Ok(()));
+    }
+
+    #[test]
+    fn all_documents_with_nonempty_filter_is_rejected() {
+        assert_eq!(
+            check_scope(&doc! { "a": 1 }, MatchScope::AllDocuments),
+            Err(CoreError::BulkScopeMismatch)
+        );
+    }
+
+    #[test]
+    fn expr_true_filter_counts_as_explicit() {
+        assert_eq!(
+            check_scope(&doc! { "$expr": true }, MatchScope::Filtered),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn operators_update_requires_every_key_to_be_an_operator() {
+        let check = |d| validate_update(&UpdateSpec::Operators(d));
+        assert_eq!(check(doc! { "a": 1 }), Err(CoreError::BulkInvalidUpdate));
+        assert_eq!(check(doc! { "$set": { "a": 1 } }), Ok(()));
+        assert_eq!(
+            check(doc! { "$set": { "a": 1 }, "b": 2 }),
+            Err(CoreError::BulkInvalidUpdate)
+        );
+    }
+
+    #[test]
+    fn empty_operator_document_is_rejected() {
+        assert_eq!(
+            validate_update(&UpdateSpec::Operators(doc! {})),
+            Err(CoreError::BulkInvalidUpdate)
+        );
+    }
+
+    #[test]
+    fn pipeline_allows_set_unset_project_replace_stages_only() {
+        let stage = |name: &str| {
+            let mut d = Document::new();
+            d.insert(name, doc! {});
+            validate_update(&UpdateSpec::Pipeline(vec![d]))
+        };
+        for ok in [
+            "$set",
+            "$addFields",
+            "$unset",
+            "$project",
+            "$replaceRoot",
+            "$replaceWith",
+        ] {
+            assert_eq!(stage(ok), Ok(()), "{ok}");
+        }
+        for bad in ["$lookup", "$out", "$merge", "$match"] {
+            assert_eq!(stage(bad), Err(CoreError::BulkInvalidUpdate), "{bad}");
+        }
+    }
+
+    #[test]
+    fn pipeline_stage_must_have_exactly_one_key() {
+        let two = doc! { "$set": { "a": 1 }, "$unset": "b" };
+        assert_eq!(
+            validate_update(&UpdateSpec::Pipeline(vec![two])),
+            Err(CoreError::BulkInvalidUpdate)
+        );
+        assert_eq!(
+            validate_update(&UpdateSpec::Pipeline(vec![doc! {}])),
+            Err(CoreError::BulkInvalidUpdate)
+        );
+    }
+
+    #[test]
+    fn empty_pipeline_is_rejected() {
+        assert_eq!(
+            validate_update(&UpdateSpec::Pipeline(vec![])),
+            Err(CoreError::BulkInvalidUpdate)
+        );
+    }
+
+    #[test]
+    fn parse_update_reads_object_and_array() {
+        assert_eq!(
+            parse_update(r#"{ "$set": { "a": 1 } }"#),
+            Ok(UpdateSpec::Operators(doc! { "$set": { "a": 1 } }))
+        );
+        assert_eq!(
+            parse_update(r#"[ { "$set": { "a": 1 } } ]"#),
+            Ok(UpdateSpec::Pipeline(vec![doc! { "$set": { "a": 1 } }]))
+        );
+    }
+
+    #[test]
+    fn parse_update_rejects_other_json() {
+        assert!(matches!(
+            parse_update("nope"),
+            Err(CoreError::InvalidJson(_))
+        ));
+        assert!(matches!(
+            parse_update("3"),
+            Err(CoreError::InvalidDocument(_))
+        ));
+        assert!(matches!(
+            parse_update("[1]"),
+            Err(CoreError::InvalidDocument(_))
+        ));
+    }
+
+    #[test]
+    fn errors_never_echo_values() {
+        let spec = parse_update(r#"{ "$set": { "secret": "hunter2" }, "plain": "hunter2" }"#)
+            .expect("parses");
+        let err = validate_update(&spec).expect_err("rejected");
+        assert!(!err.to_string().contains("hunter2"));
+        let err = parse_update(r#"[ { "$lookup": "hunter2" } ]"#)
+            .and_then(|s| validate_update(&s))
+            .expect_err("rejected");
+        assert!(!err.to_string().contains("hunter2"));
+        let err = parse_update(r#"[ "hunter2" ]"#).expect_err("rejected");
+        assert!(!err.to_string().contains("hunter2"));
+    }
+}
