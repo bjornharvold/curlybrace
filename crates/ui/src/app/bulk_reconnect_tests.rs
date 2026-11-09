@@ -11,7 +11,11 @@ fn reconnected_running() -> (AppState, Uuid, BulkRunId) {
     let (s, id, run) = running_delete();
     let (s, _) = ev(s, lost_find(id));
     assert_eq!(s.status, ConnStatus::Failed);
-    assert_eq!(flow(&s).step, BulkStep::Running, "failed() keeps a running flow");
+    assert_eq!(
+        flow(&s).step,
+        BulkStep::Running,
+        "failed() keeps a running flow"
+    );
     let (s, cmds) = update(s, Input::Connect(id));
     assert!(matches!(&cmds[..], [Command::Connect(_)]));
     (s, id, run)

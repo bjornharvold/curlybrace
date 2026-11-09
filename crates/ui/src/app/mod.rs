@@ -872,6 +872,9 @@ mod bulk_finish_tests;
 mod bulk_open_tests;
 
 #[cfg(test)]
+mod bulk_preview_lock_tests;
+
+#[cfg(test)]
 mod bulk_reconnect_tests;
 
 #[cfg(test)]

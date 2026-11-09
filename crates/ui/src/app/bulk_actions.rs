@@ -194,6 +194,11 @@ fn next(state: AppState, bulk: BulkState) -> Out {
     if bulk.flow.step != BulkStep::Define {
         return unchanged(with_bulk(state, bulk.with_flow(advanced)));
     }
+    // The connection was locked since the flow opened: the preview executes the user's update
+    // code, so the core would refuse it. Say so now instead of waiting for the refusal.
+    if state.active_is_read_only() {
+        return unchanged(preview_refused(state));
+    }
     let (request, state) = numbered(state);
     let Some(command) = preview_command(&state, &bulk.flow, request) else {
         return unchanged(state);
@@ -456,7 +461,11 @@ pub(super) fn cancel_answered(
 /// its flow closes and the failure is told in the failure banner.
 pub(super) fn command_failed(state: AppState, context: &'static str, error: CoreError) -> AppState {
     if error == CoreError::ReadOnly {
-        return write_failed(state, Banner::ReadOnly);
+        return match context {
+            // A preview has no write in flight: only the flow waiting for it is over.
+            "bulk_preview" => preview_read_only(state),
+            _ => write_failed(state, Banner::ReadOnly),
+        };
     }
     let banner = Banner::Failure {
         context,
@@ -500,6 +509,26 @@ fn write_refused(state: AppState, banner: Banner) -> AppState {
         ..state
     };
     with_banner(state, banner)
+}
+
+/// The preview was refused for a read-only connection: the flow ends with the read-only banner.
+/// Only the flow that awaits a preview ends; a late refusal of an older preview changes nothing.
+fn preview_read_only(state: AppState) -> AppState {
+    let waiting = flow_of(&state, None).is_some_and(|b| b.preview_request.is_some());
+    match waiting {
+        true => preview_refused(state),
+        false => state,
+    }
+}
+
+/// Closes the flow whose preview could not run, with the read-only banner. A write of another
+/// kind that is in flight (`pending`) is not this flow's and stays.
+fn preview_refused(state: AppState) -> AppState {
+    let state = AppState {
+        bulk: None,
+        ..state
+    };
+    with_banner(state, Banner::ReadOnly)
 }
 
 fn preview_failed(state: AppState, error: CoreError) -> AppState {
