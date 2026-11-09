@@ -86,34 +86,87 @@ impl BulkFlow {
         }
     }
 
+    /// The update text only changes while the write is being defined; later steps describe
+    /// what was previewed.
     pub fn with_update_text(self, update_text: String) -> Self {
+        if self.step != BulkStep::Define {
+            return self;
+        }
         Self {
             update_text,
             ..self
         }
     }
 
+    /// Like the update text, the upsert flag is only editable in Define.
     pub fn with_upsert(self, upsert: bool) -> Self {
+        if self.step != BulkStep::Define {
+            return self;
+        }
         Self { upsert, ..self }
     }
 
+    /// Ticks or clears the all-documents box; a change drops the typed text.
     pub fn with_all_documents(self, all_documents_ticked: bool) -> Self {
+        if self.locked() || self.all_documents_ticked == all_documents_ticked {
+            return self;
+        }
         Self {
             all_documents_ticked,
+            typed: String::new(),
             ..self
         }
     }
 
+    /// A different count is a different risk: the typed text must be given again.
     pub fn with_count(self, count: CountState) -> Self {
-        Self { count, ..self }
+        if self.locked() || self.count == count {
+            return self;
+        }
+        Self {
+            count,
+            typed: String::new(),
+            ..self
+        }
     }
 
+    /// A different preview is a different risk: the typed text must be given again.
     pub fn with_preview(self, preview: PreviewState) -> Self {
-        Self { preview, ..self }
+        if self.locked() || self.preview == preview {
+            return self;
+        }
+        Self {
+            preview,
+            typed: String::new(),
+            ..self
+        }
     }
 
+    /// The confirmation can only be typed in the Confirm step.
     pub fn with_typed(self, typed: String) -> Self {
+        if self.step != BulkStep::Confirm {
+            return self;
+        }
         Self { typed, ..self }
+    }
+
+    /// One step back. Confirm keeps the preview; Preview drops it, since the definition may
+    /// change. Either way the typed text goes.
+    pub fn back(self) -> Self {
+        match self.step {
+            BulkStep::Confirm => Self {
+                step: BulkStep::Preview,
+                typed: String::new(),
+                ..self
+            },
+            BulkStep::Preview => Self {
+                step: BulkStep::Define,
+                preview: PreviewState::Pending,
+                typed: String::new(),
+                ..self
+            },
+            _ => self,
+        }
     }
 
     /// The next step (Define to Preview to Confirm), or the same flow when what the current
@@ -129,7 +182,11 @@ impl BulkFlow {
         Self { step, ..self }
     }
 
+    /// Starts the run: only from Confirm and only when everything it needs is in place.
     pub fn running(self, run: BulkRunId) -> Self {
+        if !self.can_run() {
+            return self;
+        }
         Self {
             step: BulkStep::Running,
             run: Some(run),
@@ -137,7 +194,11 @@ impl BulkFlow {
         }
     }
 
+    /// Records the answer of the run; only a running flow takes it.
     pub fn reported(self, report: Result<BulkOutcome, CoreError>) -> Self {
+        if self.step != BulkStep::Running {
+            return self;
+        }
         Self {
             step: BulkStep::Report,
             report: Some(report),
@@ -164,6 +225,9 @@ impl BulkFlow {
     }
 
     pub fn can_run(&self) -> bool {
+        if self.step != BulkStep::Confirm || !self.preview_ready() {
+            return false;
+        }
         let ticked = !self.needs_all_documents_step() || self.all_documents_ticked;
         let typed = !self.needs_typed() || typed_text_matches(&self.ns.collection, &self.typed);
         ticked && typed && self.count != CountState::Pending && self.update_ok()
@@ -176,6 +240,11 @@ impl BulkFlow {
         } else {
             MatchScope::Filtered
         }
+    }
+
+    /// Running and finished flows no longer take edits.
+    fn locked(&self) -> bool {
+        matches!(self.step, BulkStep::Running | BulkStep::Report)
     }
 
     /// A delete has no update; an update needs text that parses and validates.
