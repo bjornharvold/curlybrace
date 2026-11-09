@@ -123,7 +123,9 @@ pub(super) fn finalize(
     context: &'static str,
     event: Event,
 ) -> Event {
-    if session.is_current(generation) {
+    // A finished bulk write is the one answer that outlives its session: it may report changes
+    // the server applied, so it is never replaced by `Superseded`.
+    if session.is_current(generation) || matches!(event, Event::BulkFinished { .. }) {
         event
     } else {
         Event::Failed {
@@ -207,9 +209,10 @@ async fn run(
     }
     // Bulk commands settle their own outcomes: a lost write is `Unknown`, never a ping-settled
     // failure.
-    if super::bulk::is_bulk(&command) {
-        return super::bulk::run(shared, session, id, store, generation, command).await;
-    }
+    let command = match super::bulk::Bulk::from_command(command) {
+        Ok(bulk) => return super::bulk::run(shared, session, id, store, generation, bulk).await,
+        Err(command) => command,
+    };
     // A command issued for a connection that was replaced meanwhile must not run against the
     // new one (the store installed now may be the new connection's).
     if is_profiler && !session.is_current(generation) {

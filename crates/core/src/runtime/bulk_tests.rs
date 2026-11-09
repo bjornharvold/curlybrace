@@ -29,6 +29,8 @@ enum Write {
     Hang,
     /// Answers `Unknown { cancelled: true }` once `cancel_bulk` is called.
     UntilCancelled,
+    /// Answers `Applied` once the test notifies `release`.
+    UntilReleased,
 }
 
 /// A store that counts its calls and behaves as told.
@@ -40,6 +42,12 @@ struct FakeStore {
     pings: AtomicUsize,
     entered: Notify,
     cancelled: Notify,
+    release: Notify,
+    /// Makes `count_matching` never answer.
+    count_hangs: bool,
+    /// While set, `is_read_only` blocks the calling thread until it receives.
+    hold: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    held: Notify,
     queries: Mutex<Vec<Query>>,
 }
 
@@ -56,6 +64,10 @@ impl FakeStore {
             pings: AtomicUsize::new(0),
             entered: Notify::new(),
             cancelled: Notify::new(),
+            release: Notify::new(),
+            count_hangs: false,
+            hold: Mutex::new(None),
+            held: Notify::new(),
             queries: Mutex::new(vec![]),
         })
     }
@@ -73,6 +85,10 @@ impl FakeStore {
             Write::Answer(result) => result.clone(),
             Write::Hang => {
                 tokio::time::sleep(Duration::from_secs(60)).await;
+                Ok(applied())
+            }
+            Write::UntilReleased => {
+                self.release.notified().await;
                 Ok(applied())
             }
             Write::UntilCancelled => {
@@ -109,6 +125,14 @@ impl DocumentStore for FakeStore {
     async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
         Err(CoreError::Unsupported("delete".into()))
     }
+    fn is_read_only(&self) -> bool {
+        let gate = self.hold.lock().unwrap().take();
+        if let Some(gate) = gate {
+            self.held.notify_one();
+            let _ = gate.recv();
+        }
+        false
+    }
     async fn ping(&self) -> Result<()> {
         self.pings.fetch_add(1, Ordering::SeqCst);
         Ok(())
@@ -120,6 +144,9 @@ impl DocumentStore for FakeStore {
         _max_time: Duration,
     ) -> Result<Option<u64>> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.count_hangs {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
         self.count.clone()
     }
     async fn preview_update(
@@ -221,12 +248,20 @@ async fn next(h: &mut RuntimeHandle) -> Event {
 
 /// A runtime connected (through a connector) to `store`.
 async fn connected(store: &Arc<FakeStore>, read_only: bool) -> (RuntimeHandle, SessionId) {
+    connected_with(store, read_only, runtime_config()).await
+}
+
+async fn connected_with(
+    store: &Arc<FakeStore>,
+    read_only: bool,
+    runtime: RuntimeConfig,
+) -> (RuntimeHandle, SessionId) {
     let mut h = spawn_runtime_with_connector(
         None,
         None,
         Arc::new(FakeConnector(store.clone())),
         Arc::new(|| {}),
-        runtime_config(),
+        runtime,
     );
     let cfg = config(read_only);
     h.tx.send(Command::Connect(cfg.clone())).unwrap();
@@ -552,41 +587,141 @@ async fn preview_failures_are_inline_outcomes() {
     }
 }
 
-#[tokio::test]
+/// The old store's thread is held inside its read-only check, between the runtime reading the
+/// store and the currentness guard, while a newer `Connect` installs the new store.
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn superseded_epoch_does_not_run_a_bulk_write() {
-    let store = FakeStore::new(Write::Answer(Ok(applied())));
-    let (mut h, session) = connected(&store, false).await;
-    // Both are dispatched before the bulk task first runs, so it holds the old epoch while the
-    // session already belongs to the newer connect.
+    let old = FakeStore::new(Write::Answer(Ok(applied())));
+    let new = FakeStore::new(Write::Answer(Ok(applied())));
+    let (release, gate) = std::sync::mpsc::channel();
+    *old.hold.lock().unwrap() = Some(gate);
+    let old_store: Arc<dyn DocumentStore> = old.clone();
+    let mut h = spawn_runtime_with_connector(
+        None,
+        Some(old_store),
+        Arc::new(FakeConnector(new.clone())),
+        Arc::new(|| {}),
+        runtime_config(),
+    );
     h.tx.send(Command::BulkUpdate {
-        session,
+        session: EMBEDDED_SESSION,
         ns: mock_namespace(),
         request: update_request(),
         run: run_id(),
     })
     .unwrap();
+    tokio::time::timeout(WAIT, old.held.notified())
+        .await
+        .expect("the command reached the old store");
     h.tx.send(Command::Connect(ConnectionConfig {
-        id: session,
+        id: EMBEDDED_SESSION,
         ..config(false)
     }))
     .unwrap();
-    let mut events = [next(&mut h).await, next(&mut h).await];
-    events.sort_by_key(|e| matches!(e, Event::Connected { .. }));
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    release.send(()).unwrap();
     assert!(matches!(
-        events[0],
+        next(&mut h).await,
         Event::Failed {
             context: "bulk_update",
             error: CoreError::Superseded,
             ..
         }
     ));
-    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(old.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(new.calls.load(Ordering::SeqCst), 0);
+}
+
+/// A write that completes after its session was replaced is still reported.
+async fn finished_after_reconnect(command: impl FnOnce(SessionId, BulkRunId) -> Command) {
+    let store = FakeStore::new(Write::UntilReleased);
+    let config = RuntimeConfig {
+        bulk_write_timeout: Duration::from_secs(60),
+        ..runtime_config()
+    };
+    let (mut h, session) = connected_with(&store, false, config).await;
+    let run = run_id();
+    h.tx.send(command(session, run)).unwrap();
+    tokio::time::timeout(WAIT, store.entered.notified())
+        .await
+        .expect("the write started");
+    h.tx.send(Command::Connect(ConnectionConfig {
+        id: session,
+        ..config_for(session)
+    }))
+    .unwrap();
+    assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+    store.release.notify_one();
+    assert_eq!(
+        next(&mut h).await,
+        Event::BulkFinished {
+            session,
+            ns: mock_namespace(),
+            run,
+            outcome: Ok(applied())
+        }
+    );
+}
+
+fn config_for(session: SessionId) -> ConnectionConfig {
+    ConnectionConfig {
+        id: session,
+        ..config(false)
+    }
+}
+
+#[tokio::test]
+async fn a_bulk_update_finishing_after_a_reconnect_is_still_reported() {
+    finished_after_reconnect(|session, run| Command::BulkUpdate {
+        session,
+        ns: mock_namespace(),
+        request: update_request(),
+        run,
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_bulk_delete_finishing_after_a_reconnect_is_still_reported() {
+    finished_after_reconnect(|session, run| Command::BulkDelete {
+        session,
+        ns: mock_namespace(),
+        request: delete_request(),
+        run,
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_hung_count_arrives_as_a_request_failed_timeout() {
+    let store = FakeStore::new(Write::Hang).with(|s| s.count_hangs = true);
+    let (mut h, session) = connected(&store, false).await;
+    h.tx.send(Command::BulkCount {
+        session,
+        ns: mock_namespace(),
+        filter: doc! {},
+        request: 9,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::RequestFailed {
+            context: "bulk_count",
+            request: 9,
+            error: CoreError::Database(_),
+            ..
+        }
+    ));
 }
 
 #[tokio::test]
 async fn cancel_reaches_a_bulk_write_that_is_still_in_flight() {
     let store = FakeStore::new(Write::UntilCancelled);
-    let (mut h, session) = connected(&store, false).await;
+    let config = RuntimeConfig {
+        bulk_write_timeout: Duration::from_secs(60),
+        ..runtime_config()
+    };
+    let (mut h, session) = connected_with(&store, false, config).await;
     let run = run_id();
     h.tx.send(Command::BulkUpdate {
         session,

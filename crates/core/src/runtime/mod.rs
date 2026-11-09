@@ -321,7 +321,9 @@ pub enum Command {
         connection: uuid::Uuid,
     },
     /// Counts the documents matching `filter` (bounded by `BULK_COUNT_MAX_TIME`); a read answered
-    /// with [`Event::BulkCount`], which echoes `request`.
+    /// with [`Event::BulkCount`], which echoes `request`. A count that outruns the client-side
+    /// bound arrives as `Event::RequestFailed { context: "bulk_count", request }`; the UI must
+    /// treat that as "count unavailable".
     BulkCount {
         session: SessionId,
         ns: Namespace,
@@ -490,7 +492,9 @@ pub enum Event {
     },
     /// The answer to a successful index write; the UI re-lists the indexes.
     IndexChanged { session: SessionId, ns: Namespace },
-    /// The answer to `BulkCount`; `count` is `None` when the count timed out.
+    /// The answer to `BulkCount`; `count` is `None` when the server-side count timed out. A
+    /// client-side timeout is an `Event::RequestFailed { context: "bulk_count", request }` instead
+    /// (treat both as "count unavailable").
     BulkCount {
         session: SessionId,
         ns: Namespace,
