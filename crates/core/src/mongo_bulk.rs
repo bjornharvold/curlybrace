@@ -73,18 +73,24 @@ async fn send(
 const UNKNOWN: BulkOutcome = BulkOutcome::Unknown { cancelled: false };
 
 fn update_command(coll_name: &str, req: &BulkUpdateRequest, run: BulkRunId) -> Document {
+    doc! {
+        "update": coll_name,
+        "updates": [update_entry(req, req.filter.clone())],
+        "ordered": true,
+        "comment": run.0.to_string(),
+    }
+}
+
+/// The one `updates` entry for `req`, matching `filter` instead of `req.filter` (the preview
+/// narrows it to a few ids).
+pub(crate) fn update_entry(req: &BulkUpdateRequest, filter: Document) -> Document {
     let update = match &req.update {
         UpdateSpec::Operators(ops) => Bson::Document(ops.clone()),
         UpdateSpec::Pipeline(stages) => {
             Bson::Array(stages.iter().cloned().map(Bson::Document).collect())
         }
     };
-    doc! {
-        "update": coll_name,
-        "updates": [{ "q": req.filter.clone(), "u": update, "multi": true, "upsert": req.upsert }],
-        "ordered": true,
-        "comment": run.0.to_string(),
-    }
+    doc! { "q": filter, "u": update, "multi": true, "upsert": req.upsert }
 }
 
 fn delete_command(coll_name: &str, req: &BulkDeleteRequest, run: BulkRunId) -> Document {
@@ -124,7 +130,7 @@ fn parse_delete_reply(reply: &Document) -> Option<BulkOutcome> {
 }
 
 /// `Some(())` when the command succeeded (`ok: 1`) with no write or write concern errors.
-fn reply_is_clean(reply: &Document) -> Option<()> {
+pub(crate) fn reply_is_clean(reply: &Document) -> Option<()> {
     let ok = match reply.get("ok") {
         Some(Bson::Double(v)) => *v == 1.0,
         Some(Bson::Int32(v)) => *v == 1,
@@ -145,7 +151,7 @@ fn count_field(reply: &Document, key: &str) -> Option<u64> {
 }
 
 /// The `_id` of every upserted document; an absent `upserted` is empty, a malformed one is `None`.
-fn upserted_ids(reply: &Document) -> Option<Vec<Bson>> {
+pub(crate) fn upserted_ids(reply: &Document) -> Option<Vec<Bson>> {
     let Some(entries) = reply.get("upserted") else {
         return Some(Vec::new());
     };

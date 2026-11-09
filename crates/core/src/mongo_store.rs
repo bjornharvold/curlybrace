@@ -8,7 +8,7 @@ use futures::TryStreamExt;
 use mongodb::Client;
 use mongodb::action::Action;
 
-use crate::bulk::{BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest};
+use crate::bulk::{BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdatePreview};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
@@ -247,6 +247,14 @@ impl DocumentStore for MongoStore {
         max_time: Duration,
     ) -> Result<Option<u64>> {
         crate::mongo_bulk::count_matching(&self.collection(ns), filter, max_time, db_err).await
+    }
+
+    async fn preview_update(
+        &self,
+        ns: &Namespace,
+        req: &BulkUpdateRequest,
+    ) -> Result<UpdatePreview> {
+        crate::mongo_bulk_preview::preview_update(&self.client, ns, req, db_err).await
     }
 
     async fn update_many(
