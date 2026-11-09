@@ -20,6 +20,9 @@
 //! runtime. Commands run concurrently, so a UI that needs ordering (e.g.
 //! `Connect` before `Find`) must wait for the corresponding event first.
 
+mod bulk;
+#[cfg(test)]
+mod bulk_tests;
 mod command;
 mod compare;
 mod config;
@@ -101,8 +104,8 @@ use crate::store::{
 use session::Session;
 
 pub use config::{
-    COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT, INDEX_BUILD_TIMEOUT, PING_TIMEOUT,
-    RuntimeConfig, default_history_path,
+    BULK_COUNT_MAX_TIME, BULK_WRITE_TIMEOUT, COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT,
+    INDEX_BUILD_TIMEOUT, PING_TIMEOUT, RuntimeConfig, default_history_path,
 };
 pub use handlers::COMMAND_TIMEOUT_MESSAGE;
 pub use indexes::IndexSeries;
@@ -317,6 +320,51 @@ pub enum Command {
     PurgeHistory {
         connection: uuid::Uuid,
     },
+    /// Counts the documents matching `filter` (bounded by `BULK_COUNT_MAX_TIME`); a read answered
+    /// with [`Event::BulkCount`], which echoes `request`.
+    BulkCount {
+        session: SessionId,
+        ns: Namespace,
+        filter: Document,
+        request: u64,
+    },
+    /// Reads the first `BULK_PREVIEW_DOCS` documents matching `filter` ALONE (no sort, skip or
+    /// projection) and records no query history. A read, allowed on a read-only connection;
+    /// answered with [`Event::BulkSample`], which echoes `request`.
+    BulkSample {
+        session: SessionId,
+        ns: Namespace,
+        filter: Document,
+        request: u64,
+    },
+    /// Previews an update's exact result; classified as a write because the preview may run in a
+    /// transaction. Answered with [`Event::BulkPreview`], failures included.
+    BulkPreview {
+        session: SessionId,
+        ns: Namespace,
+        request: crate::bulk::BulkUpdateRequest,
+        request_id: u64,
+    },
+    /// Applies an update to every matching document; answered with [`Event::BulkFinished`].
+    BulkUpdate {
+        session: SessionId,
+        ns: Namespace,
+        request: crate::bulk::BulkUpdateRequest,
+        run: crate::bulk::BulkRunId,
+    },
+    /// Deletes every matching document; answered with [`Event::BulkFinished`].
+    BulkDelete {
+        session: SessionId,
+        ns: Namespace,
+        request: crate::bulk::BulkDeleteRequest,
+        run: crate::bulk::BulkRunId,
+    },
+    /// Best-effort cancel of a running bulk write, answered with [`Event::BulkCancelResult`]. Not
+    /// a write. Every command runs in its own task, so it is handled while the write is in flight.
+    BulkCancel {
+        session: SessionId,
+        run: crate::bulk::BulkRunId,
+    },
 }
 
 // Events are moved through a channel once; boxing `Query` would only add noise
@@ -442,6 +490,42 @@ pub enum Event {
     },
     /// The answer to a successful index write; the UI re-lists the indexes.
     IndexChanged { session: SessionId, ns: Namespace },
+    /// The answer to `BulkCount`; `count` is `None` when the count timed out.
+    BulkCount {
+        session: SessionId,
+        ns: Namespace,
+        request: u64,
+        count: Option<u64>,
+    },
+    /// The answer to `BulkSample`.
+    BulkSample {
+        session: SessionId,
+        ns: Namespace,
+        request: u64,
+        docs: Vec<Document>,
+    },
+    /// The answer to `BulkPreview`. A failure is an `Err` outcome shown inline, never an
+    /// [`Event::Failed`] and never a write-unknown error.
+    BulkPreview {
+        session: SessionId,
+        ns: Namespace,
+        request_id: u64,
+        outcome: std::result::Result<crate::bulk::UpdatePreview, CoreError>,
+    },
+    /// The answer to `BulkUpdate` and `BulkDelete`. A timeout or a lost connection is
+    /// `Ok(BulkOutcome::Unknown { cancelled: false })`; an `Err` means the write never ran.
+    BulkFinished {
+        session: SessionId,
+        ns: Namespace,
+        run: crate::bulk::BulkRunId,
+        outcome: std::result::Result<crate::bulk::BulkOutcome, CoreError>,
+    },
+    /// The answer to `BulkCancel`.
+    BulkCancelResult {
+        session: SessionId,
+        run: crate::bulk::BulkRunId,
+        outcome: std::result::Result<(), CoreError>,
+    },
     /// SPONTANEOUS (no command behind it): the session's sampler started, resumed or paused. See
     /// the module docs for how this differs from "exactly one event per command".
     Sampler {

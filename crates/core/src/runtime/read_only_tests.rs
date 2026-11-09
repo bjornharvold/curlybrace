@@ -85,6 +85,17 @@ impl DocumentStore for CountingStore {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.set_index_ttl(ns, name, seconds).await
     }
+    async fn count_matching(
+        &self,
+        _ns: &Namespace,
+        _filter: &Document,
+        _max_time: Duration,
+    ) -> Result<Option<u64>> {
+        Ok(Some(2))
+    }
+    async fn cancel_bulk(&self, _run: crate::bulk::BulkRunId) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Hands out a fresh counting store per connect, all sharing one write counter.
@@ -192,6 +203,48 @@ fn write_commands(session: SessionId) -> Vec<Command> {
             seconds: 60,
         },
     ]
+    .into_iter()
+    .chain(bulk_write_commands(session))
+    .collect()
+}
+
+fn bulk_write_commands(session: SessionId) -> Vec<Command> {
+    use crate::bulk::{BulkDeleteRequest, BulkRunId, BulkUpdateRequest, MatchScope, UpdateSpec};
+    let ns = mock_namespace();
+    let run = BulkRunId(Uuid::new_v4());
+    vec![
+        Command::BulkPreview {
+            session,
+            ns: ns.clone(),
+            request: BulkUpdateRequest {
+                filter: Document::new(),
+                update: UpdateSpec::Operators(Document::new()),
+                upsert: false,
+                scope: MatchScope::AllDocuments,
+            },
+            request_id: 1,
+        },
+        Command::BulkUpdate {
+            session,
+            ns: ns.clone(),
+            request: BulkUpdateRequest {
+                filter: Document::new(),
+                update: UpdateSpec::Operators(Document::new()),
+                upsert: false,
+                scope: MatchScope::AllDocuments,
+            },
+            run,
+        },
+        Command::BulkDelete {
+            session,
+            ns,
+            request: BulkDeleteRequest {
+                filter: Document::new(),
+                scope: MatchScope::AllDocuments,
+            },
+            run,
+        },
+    ]
 }
 
 fn read_commands(session: SessionId) -> Vec<Command> {
@@ -235,6 +288,22 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             ns: mock_namespace(),
             range: crate::history::ChartRange::Day,
             request: 0,
+        },
+        Command::BulkCount {
+            session,
+            ns: mock_namespace(),
+            filter: Document::new(),
+            request: 0,
+        },
+        Command::BulkSample {
+            session,
+            ns: mock_namespace(),
+            filter: Document::new(),
+            request: 0,
+        },
+        Command::BulkCancel {
+            session,
+            run: crate::bulk::BulkRunId(Uuid::new_v4()),
         },
     ]
 }
@@ -291,6 +360,9 @@ async fn reads_still_work_on_a_read_only_session() {
                     | Event::IndexHistory { .. }
                     | Event::EstimatedCount { .. }
                     | Event::QueryShapes { .. }
+                    | Event::BulkCount { .. }
+                    | Event::BulkSample { .. }
+                    | Event::BulkCancelResult { .. }
             ) || matches!(event, Event::ProfilingState { outcome: Ok(_), .. }),
             "{event:?}"
         );
@@ -380,7 +452,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 26;
+const COMMAND_VARIANTS: usize = 32;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -392,7 +464,10 @@ fn classify(command: &Command) -> Class {
         | Command::DropIndex { .. }
         | Command::SetIndexHidden { .. }
         | Command::SetIndexTtl { .. }
-        | Command::SetProfilingLevel { .. } => Class::Write,
+        | Command::SetProfilingLevel { .. }
+        | Command::BulkPreview { .. }
+        | Command::BulkUpdate { .. }
+        | Command::BulkDelete { .. } => Class::Write,
         Command::ListDatabases { .. }
         | Command::ListCollections { .. }
         | Command::Find { .. }
@@ -401,7 +476,10 @@ fn classify(command: &Command) -> Class {
         | Command::IndexHistory { .. }
         | Command::EstimatedCount { .. }
         | Command::ProfilingState { .. }
-        | Command::QueryShapes { .. } => Class::Read,
+        | Command::QueryShapes { .. }
+        | Command::BulkCount { .. }
+        | Command::BulkSample { .. }
+        | Command::BulkCancel { .. } => Class::Read,
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)

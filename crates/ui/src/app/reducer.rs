@@ -343,7 +343,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             Vec::new(),
         ),
         // Routed before; these have no session.
-        Event::Compare(_) | Event::Copy(_) | Event::TestConnection { .. } => (state, Vec::new()),
+        // The bulk answers are wired in by the bulk UI task.
+        Event::Compare(_)
+        | Event::Copy(_)
+        | Event::TestConnection { .. }
+        | Event::BulkCount { .. }
+        | Event::BulkSample { .. }
+        | Event::BulkPreview { .. }
+        | Event::BulkFinished { .. }
+        | Event::BulkCancelResult { .. } => (state, Vec::new()),
     }
 }
 

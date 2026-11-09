@@ -15,7 +15,10 @@ impl Command {
             | Self::DropIndex { .. }
             | Self::SetIndexHidden { .. }
             | Self::SetIndexTtl { .. }
-            | Self::SetProfilingLevel { .. } => true,
+            | Self::SetProfilingLevel { .. }
+            | Self::BulkPreview { .. }
+            | Self::BulkUpdate { .. }
+            | Self::BulkDelete { .. } => true,
             Self::Connect(_)
             | Self::Disconnect { .. }
             | Self::ListDatabases { .. }
@@ -32,7 +35,10 @@ impl Command {
             | Self::ProfilingState { .. }
             | Self::QueryShapes { .. }
             | Self::SetSamplingExcluded { .. }
-            | Self::PurgeHistory { .. } => false,
+            | Self::PurgeHistory { .. }
+            | Self::BulkCount { .. }
+            | Self::BulkSample { .. }
+            | Self::BulkCancel { .. } => false,
         }
     }
 
@@ -41,7 +47,9 @@ impl Command {
         match self {
             Self::ListIndexes { request, .. }
             | Self::IndexHistory { request, .. }
-            | Self::QueryShapes { request, .. } => Some(*request),
+            | Self::QueryShapes { request, .. }
+            | Self::BulkCount { request, .. }
+            | Self::BulkSample { request, .. } => Some(*request),
             _ => None,
         }
     }
@@ -75,6 +83,12 @@ impl Command {
             Self::SetIndexTtl { .. } => "set_index_ttl",
             Self::SetSamplingExcluded { .. } => "set_sampling_excluded",
             Self::PurgeHistory { .. } => "purge_history",
+            Self::BulkCount { .. } => "bulk_count",
+            Self::BulkSample { .. } => "bulk_sample",
+            Self::BulkPreview { .. } => "bulk_preview",
+            Self::BulkUpdate { .. } => "bulk_update",
+            Self::BulkDelete { .. } => "bulk_delete",
+            Self::BulkCancel { .. } => "bulk_cancel",
         }
     }
 
@@ -101,7 +115,13 @@ impl Command {
             | Self::CreateIndex { session, .. }
             | Self::DropIndex { session, .. }
             | Self::SetIndexHidden { session, .. }
-            | Self::SetIndexTtl { session, .. } => Some(*session),
+            | Self::SetIndexTtl { session, .. }
+            | Self::BulkCount { session, .. }
+            | Self::BulkSample { session, .. }
+            | Self::BulkPreview { session, .. }
+            | Self::BulkUpdate { session, .. }
+            | Self::BulkDelete { session, .. }
+            | Self::BulkCancel { session, .. } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
@@ -132,6 +152,11 @@ impl Event {
             | Self::IndexChanged { session, .. }
             | Self::Sampler { session, .. }
             | Self::Profiler { session, .. }
+            | Self::BulkCount { session, .. }
+            | Self::BulkSample { session, .. }
+            | Self::BulkPreview { session, .. }
+            | Self::BulkFinished { session, .. }
+            | Self::BulkCancelResult { session, .. }
             | Self::Failed { session, .. }
             | Self::RequestFailed { session, .. } => Some(*session),
             Self::Compare(_) | Self::Copy(_) | Self::TestConnection { .. } => None,
