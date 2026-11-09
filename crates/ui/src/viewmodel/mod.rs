@@ -1,4 +1,5 @@
 //! Pure, egui-free view-model helpers.
+pub mod bulk_flow;
 pub mod cell;
 pub mod compare;
 pub mod connection_form;
@@ -30,6 +31,9 @@ pub mod tree_state;
 pub mod typed_confirmation;
 pub mod verdict;
 
+pub use bulk_flow::{
+    BULK_UPDATE_TYPED_CONFIRM_THRESHOLD, BulkFlow, BulkKind, BulkStep, CountState, PreviewState,
+};
 pub use cell::cell_text;
 pub use connection_form::{
     ConnectionForm, SecretEdit, StoredSecrets, auth_label_key, auth_options, save_connection,
