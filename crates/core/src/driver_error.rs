@@ -63,6 +63,7 @@ pub fn server_error_code(e: &mongodb::error::Error) -> Option<i32> {
     server_code(&e.kind)
 }
 
+/// The server code of a command failure or a write error, if the kind carries one.
 fn server_code(kind: &ErrorKind) -> Option<i32> {
     match kind {
         ErrorKind::Command(c) => Some(c.code),

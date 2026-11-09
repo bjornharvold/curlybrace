@@ -12,8 +12,8 @@ use tokio::sync::Notify;
 
 use super::*;
 use crate::bulk::{
-    BULK_PREVIEW_DOCS, BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope,
-    UpdatePreview, UpdateSpec,
+    BULK_PREVIEW_DOCS, BulkDeleteRequest, BulkFailureReason, BulkOutcome, BulkRunId,
+    BulkUpdateRequest, MatchScope, UpdatePreview, UpdateSpec,
 };
 use crate::store::Page;
 use crate::test_support::mock_objects::{mock_doc_with_id, mock_namespace};
@@ -49,6 +49,8 @@ struct FakeStore {
     hold: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     held: Notify,
     queries: Mutex<Vec<Query>>,
+    /// The runs `cancel_bulk` was called for.
+    cancels: Mutex<Vec<BulkRunId>>,
 }
 
 impl FakeStore {
@@ -69,6 +71,7 @@ impl FakeStore {
             hold: Mutex::new(None),
             held: Notify::new(),
             queries: Mutex::new(vec![]),
+            cancels: Mutex::new(vec![]),
         })
     }
 
@@ -173,8 +176,9 @@ impl DocumentStore for FakeStore {
     ) -> Result<BulkOutcome> {
         self.write().await
     }
-    async fn cancel_bulk(&self, _run: BulkRunId) -> Result<()> {
+    async fn cancel_bulk(&self, run: BulkRunId) -> Result<()> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.cancels.lock().unwrap().push(run);
         self.cancelled.notify_one();
         Ok(())
     }
@@ -533,6 +537,55 @@ async fn bulk_write_timeout_answers_unknown_not_failed() {
     );
     no_more_events(&mut h).await;
     assert_eq!(store.pings.load(Ordering::SeqCst), 0, "no settle by ping");
+}
+
+#[tokio::test]
+async fn a_write_that_outruns_its_bound_is_cancelled_on_the_server_before_the_answer() {
+    let store = FakeStore::new(Write::Hang);
+    let (mut h, session) = connected(&store, false).await;
+    let run = run_id();
+    h.tx.send(Command::BulkDelete {
+        session,
+        ns: mock_namespace(),
+        request: delete_request(),
+        run,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::BulkFinished {
+            outcome: Ok(BulkOutcome::Unknown { cancelled: false }),
+            ..
+        }
+    ));
+    assert_eq!(*store.cancels.lock().unwrap(), vec![run]);
+}
+
+#[tokio::test]
+async fn a_rejected_write_is_reported_as_rejected_with_its_reason() {
+    let rejected = BulkOutcome::Rejected {
+        reason: BulkFailureReason::DuplicateKey,
+    };
+    let store = FakeStore::new(Write::Answer(Ok(rejected.clone())));
+    let (mut h, session) = connected(&store, false).await;
+    let run = run_id();
+    h.tx.send(Command::BulkUpdate {
+        session,
+        ns: mock_namespace(),
+        request: update_request(),
+        run,
+    })
+    .unwrap();
+    assert_eq!(
+        next(&mut h).await,
+        Event::BulkFinished {
+            session,
+            ns: mock_namespace(),
+            run,
+            outcome: Ok(rejected)
+        }
+    );
+    assert!(store.cancels.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

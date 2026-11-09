@@ -14,6 +14,7 @@ use crate::bulk::{
     BULK_PREVIEW_DOCS, BulkUpdateRequest, PreviewDoc, PreviewGap, UpdatePreview, check_scope,
     validate_update,
 };
+use crate::driver_error::server_error_code;
 use crate::error::{CoreError, Result};
 use crate::mongo_bulk::{reply_is_clean, update_entry, upserted_ids};
 use crate::store::Namespace;
@@ -33,11 +34,13 @@ const UNAVAILABLE_CODES: [i32; 4] = [
     CODE_TRANSACTIONS_NOT_SUPPORTED,
 ];
 
-/// Server codes for an update that is wrong for the data it meets (not for the deployment):
-/// 2 BadValue, 14 TypeMismatch, 16 (bad operand), 28 PathNotViable, 40 ConflictingUpdateOperators,
-/// 66 ImmutableField, 121 DocumentValidationFailure, 11000 DuplicateKey. Only these are reported
-/// as an invalid update; 14, 28 and 66 are exercised against a real server in `local_bulk.rs`.
-const DATA_ERROR_CODES: [i32; 8] = [2, 14, 16, 28, 40, 66, 121, 11000];
+/// Server codes for an update that is wrong for the data it meets or is itself malformed (not a
+/// problem of the deployment): 2 BadValue, 9 FailedToParse (an unknown operator such as `$sett`),
+/// 14 TypeMismatch, 15 Overflow, 28 PathNotViable, 40 ConflictingUpdateOperators,
+/// 52 DollarPrefixedFieldName, 66 ImmutableField, 121 DocumentValidationFailure, 11000
+/// DuplicateKey. Only these are reported as an invalid update; 9, 14, 28 and 66 are exercised
+/// against a real server in `local_bulk.rs`. (16 InvalidLength is not a data error of an update.)
+const DATA_ERROR_CODES: [i32; 10] = [2, 9, 14, 15, 28, 40, 52, 66, 121, 11000];
 
 /// How a failed step inside the preview transaction is handled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,10 +73,7 @@ pub(crate) fn classify_failure(
 }
 
 fn classify_driver(e: &mongodb::error::Error) -> Failure {
-    let code = match e.kind.as_ref() {
-        ErrorKind::Command(c) => Some(c.code),
-        _ => None,
-    };
+    let code = server_error_code(e);
     let no_txn = matches!(e.kind.as_ref(), ErrorKind::Transaction { .. });
     classify_failure(code, e.contains_label(TRANSIENT_TRANSACTION_ERROR), no_txn)
 }
@@ -209,6 +209,25 @@ fn pair_up(befores: Vec<Document>, afters: Vec<Document>) -> UpdatePreview {
     UpdatePreview { docs, gap: None }
 }
 
+/// The `update` command the preview runs: the filter narrowed to the previewed ids and applied
+/// to all of them, or, when nothing matches (an upsert), the user's filter run once.
+pub(crate) fn preview_command(
+    coll: &str,
+    req: &BulkUpdateRequest,
+    befores: &[Document],
+) -> Document {
+    let (filter, multi) = if befores.is_empty() {
+        (req.filter.clone(), false)
+    } else {
+        (restricted_filter(&req.filter, ids_of(befores)), true)
+    };
+    doc! {
+        "update": coll,
+        "updates": [update_entry(req, filter, multi)],
+        "ordered": true,
+    }
+}
+
 async fn in_transaction(
     db: &Database,
     coll: &str,
@@ -216,16 +235,7 @@ async fn in_transaction(
     req: &BulkUpdateRequest,
     befores: &[Document],
 ) -> Attempt {
-    let filter = if befores.is_empty() {
-        req.filter.clone()
-    } else {
-        restricted_filter(&req.filter, ids_of(befores))
-    };
-    let command = doc! {
-        "update": coll,
-        "updates": [update_entry(req, filter)],
-        "ordered": true,
-    };
+    let command = preview_command(coll, req, befores);
     let reply = match db.run_command(command).session(&mut *session).await {
         Ok(reply) => reply,
         Err(e) => return failed(&e),

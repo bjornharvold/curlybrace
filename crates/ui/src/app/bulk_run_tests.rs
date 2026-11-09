@@ -162,3 +162,41 @@ fn a_flow_closed_with_its_session_gets_no_report_and_no_crash() {
     assert!(s.bulk.is_none());
     assert!(cmds.is_empty());
 }
+
+/// A delete flow on an empty filter, in Confirm with nothing typed or ticked.
+fn confirming_everything() -> AppState {
+    let (mut s, id) = browsing(config(false, false));
+    s.page_query.filter = doc! {};
+    let (s, cmds) = act(s, BulkAction::Open(BulkKind::Delete));
+    let (s, _) = ev(s, count_answer(id, count_id(&cmds), Some(5)));
+    let (s, cmds) = act(s, BulkAction::Next);
+    let (s, _) = ev(s, preview_answer(id, BulkKind::Delete, preview_id(&cmds)));
+    let (s, _) = act(s, BulkAction::Next);
+    assert_eq!(flow(&s).step, BulkStep::Confirm);
+    s
+}
+
+#[test]
+fn run_with_an_empty_filter_and_no_all_documents_tick_sends_nothing() {
+    let (s, _) = act(
+        confirming_everything(),
+        BulkAction::SetTyped("orders".into()),
+    );
+    let (s, cmds) = act(s, BulkAction::Run);
+    assert!(cmds.is_empty());
+    assert_eq!(flow(&s).step, BulkStep::Confirm);
+    assert!(s.pending.is_none());
+}
+
+#[test]
+fn run_with_an_empty_filter_and_the_tick_sends_scope_all_documents() {
+    let (s, _) = act(confirming_everything(), BulkAction::SetAllDocuments(true));
+    let (s, _) = act(s, BulkAction::SetTyped("orders".into()));
+    let (s, cmds) = act(s, BulkAction::Run);
+    let [Command::BulkDelete { request, .. }] = &cmds[..] else {
+        panic!("expected one BulkDelete, got {cmds:?}");
+    };
+    assert_eq!(request.filter, doc! {});
+    assert_eq!(request.scope, MatchScope::AllDocuments);
+    assert_eq!(flow(&s).step, BulkStep::Running);
+}

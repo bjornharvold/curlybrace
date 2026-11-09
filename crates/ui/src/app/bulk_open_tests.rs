@@ -213,7 +213,49 @@ fn a_failed_preview_outcome_becomes_the_failed_state() {
             outcome: Err(CoreError::BulkPreviewUnavailable),
         },
     );
-    assert_eq!(flow(&s).preview, PreviewState::Failed);
+    assert_eq!(
+        flow(&s).preview,
+        PreviewState::Failed(CoreError::BulkPreviewUnavailable)
+    );
+}
+
+#[test]
+fn a_preview_error_of_the_update_is_carried_into_the_flow() {
+    for error in [
+        CoreError::BulkInvalidUpdate,
+        CoreError::BulkPreviewUnavailable,
+    ] {
+        let (s, id) = defining(BulkKind::Update, config(false, false));
+        let (s, cmds) = act(s, BulkAction::Next);
+        let (s, _) = ev(
+            s,
+            Event::BulkPreview {
+                session: id,
+                ns: ns(),
+                request_id: preview_id(&cmds),
+                outcome: Err(error.clone()),
+            },
+        );
+        assert_eq!(flow(&s).preview, PreviewState::Failed(error));
+    }
+}
+
+#[test]
+fn next_from_a_preview_that_proved_the_update_invalid_stays_in_preview() {
+    let (s, id) = defining(BulkKind::Update, config(false, false));
+    let (s, cmds) = act(s, BulkAction::Next);
+    let invalid = Event::BulkPreview {
+        session: id,
+        ns: ns(),
+        request_id: preview_id(&cmds),
+        outcome: Err(CoreError::BulkInvalidUpdate),
+    };
+    let (s, _) = ev(s, invalid);
+    let (s, cmds) = act(s, BulkAction::Next);
+    assert!(cmds.is_empty());
+    assert_eq!(flow(&s).step, BulkStep::Preview);
+    let (s, _) = act(s, BulkAction::Back);
+    assert_eq!(flow(&s).step, BulkStep::Define);
 }
 
 #[test]

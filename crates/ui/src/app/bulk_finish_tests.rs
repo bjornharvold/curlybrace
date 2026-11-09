@@ -16,6 +16,19 @@ fn finished_unknown_shows_unknown_report_and_requeries() {
 }
 
 #[test]
+fn finished_rejected_keeps_the_reason_in_the_report_and_requeries() {
+    let (s, id, run) = running_delete();
+    let rejected = BulkOutcome::Rejected {
+        reason: curlybrace_core::bulk::BulkFailureReason::ValidationFailed,
+    };
+    let (s, cmds) = ev(s, finish(id, run, Ok(rejected.clone())));
+    assert_eq!(flow(&s).step, BulkStep::Report);
+    assert_eq!(flow(&s).report, Some(Ok(rejected)));
+    assert!(s.pending.is_none());
+    assert!(cmds.iter().any(is_find));
+}
+
+#[test]
 fn finished_error_is_reported_and_requeries() {
     let (s, id, run) = running_delete();
     let (s, cmds) = ev(s, finish(id, run, Err(CoreError::BulkEmptyFilter)));
@@ -173,8 +186,36 @@ fn a_failed_preview_command_marks_the_preview_failed_and_keeps_the_flow() {
         s,
         failed(id, "bulk_preview", CoreError::Database("x".into())),
     );
-    assert_eq!(flow(&s).preview, PreviewState::Failed);
+    assert_eq!(
+        flow(&s).preview,
+        PreviewState::Failed(CoreError::Database("x".into()))
+    );
     assert!(s.banner.is_none());
+}
+
+#[test]
+fn a_late_refused_write_does_not_close_a_flow_that_is_not_running() {
+    // A flow in Confirm (nothing in flight): a `Failed` of an older write is not about it.
+    for (context, error) in [
+        ("bulk_delete", CoreError::BulkScopeMismatch),
+        ("bulk_update", CoreError::ReadOnly),
+    ] {
+        let (s, id) = confirming(BulkKind::Delete, config(false, false));
+        let before = s.bulk.clone();
+        let (after, _) = ev(s, failed(id, context, error));
+        assert_eq!(after.bulk, before);
+        assert!(after.banner.is_none());
+    }
+}
+
+#[test]
+fn a_refused_write_with_no_write_in_flight_leaves_the_flow_alone() {
+    let (mut s, id, _) = running_delete();
+    s.pending = None;
+    let before = s.bulk.clone();
+    let (after, _) = ev(s, failed(id, "bulk_delete", CoreError::BulkScopeMismatch));
+    assert_eq!(after.bulk, before);
+    assert!(after.banner.is_none());
 }
 
 #[test]

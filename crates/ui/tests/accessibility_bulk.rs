@@ -2,7 +2,9 @@
 //! the destructive button is off until the write is confirmed, Cancel owns the first focus,
 //! Enter never confirms and a running write cannot be dismissed. Fast, offline, no GPU.
 use bson::doc;
-use curlybrace_core::bulk::{BulkOutcome, PreviewDoc, PreviewGap, UpdatePreview};
+use curlybrace_core::bulk::{
+    BulkFailureReason, BulkOutcome, PreviewDoc, PreviewGap, UpdatePreview,
+};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
 use curlybrace_ui::I18n;
@@ -299,11 +301,41 @@ fn preview_waits_for_the_count_and_the_preview() {
 
     let unavailable = open(BulkFlow {
         count: CountState::Unavailable,
-        ..preview_step(base(BulkKind::Update), PreviewState::Failed)
+        ..preview_step(
+            base(BulkKind::Update),
+            PreviewState::Failed(CoreError::BulkPreviewUnavailable),
+        )
     });
     assert!(has(&unavailable, &t("bulk.count_unavailable")));
     assert!(has(&unavailable, &t("bulk.preview_failed")));
     assert!(!disabled(&unavailable, &t("bulk.next")));
+}
+
+#[test]
+fn a_preview_that_proved_the_update_invalid_says_so_and_blocks_next_but_not_back() {
+    let h = open(preview_step(
+        base(BulkKind::Update),
+        PreviewState::Failed(CoreError::BulkInvalidUpdate),
+    ));
+    assert!(has(&h, &t("bulk.preview_update_invalid")));
+    assert!(has(&h, &t("errors.bulk_invalid_update")));
+    assert!(!has(&h, &t("bulk.preview_failed")));
+    assert!(disabled(&h, &t("bulk.next")));
+    assert!(!disabled(&h, &t("bulk.back")));
+    assert_all_named(&h, "invalid preview");
+}
+
+#[test]
+fn an_unavailable_preview_shows_its_own_error_text_and_keeps_next() {
+    let h = open(preview_step(
+        base(BulkKind::Update),
+        PreviewState::Failed(CoreError::InvalidJson("secret detail".into())),
+    ));
+    assert!(has(&h, &t("bulk.preview_failed")));
+    assert!(has(&h, &t("errors.invalid_json")));
+    assert!(!has(&h, "secret detail"));
+    assert!(!has(&h, &t("bulk.preview_update_invalid")));
+    assert!(!disabled(&h, &t("bulk.next")));
 }
 
 #[test]
@@ -489,6 +521,24 @@ fn an_unknown_outcome_says_to_check_the_data() {
     ] {
         let h = reported(BulkKind::Update, Ok(BulkOutcome::Unknown { cancelled }));
         assert!(has(&h, &t(key)), "{key}");
+    }
+}
+
+#[test]
+fn a_rejected_report_names_the_reason_and_never_claims_nothing_was_written() {
+    for reason in [
+        BulkFailureReason::DuplicateKey,
+        BulkFailureReason::ValidationFailed,
+        BulkFailureReason::ImmutableField,
+        BulkFailureReason::TypeMismatch,
+        BulkFailureReason::WriteConcern,
+        BulkFailureReason::Other,
+    ] {
+        let h = reported(BulkKind::Update, Ok(BulkOutcome::Rejected { reason }));
+        let text = tw("bulk.report_rejected", &[("reason", &t(reason.i18n_key()))]);
+        assert!(has(&h, &text), "{reason:?}");
+        assert!(text.contains("may already have been changed"), "{text}");
+        assert!(!has(&h, &t("bulk.report_failed")));
     }
 }
 

@@ -104,7 +104,11 @@ fn a_failed_sample_request_marks_the_preview_failed_without_a_banner() {
     let (s, id) = defining(BulkKind::Delete, config(false, false));
     let (s, cmds) = act(s, BulkAction::Next);
     let (s, out) = ev(s, read_failed(id, "bulk_sample", preview_id(&cmds)));
-    assert_eq!(flow(&s).preview, PreviewState::Failed);
+    // The error of the failed read is carried, not replaced by a generic one.
+    assert_eq!(
+        flow(&s).preview,
+        PreviewState::Failed(CoreError::Database("failed".into()))
+    );
     assert_eq!(s.bulk.as_ref().unwrap().preview_request, None);
     assert!(s.banner.is_none() && out.is_empty());
 }

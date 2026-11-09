@@ -45,8 +45,9 @@ pub enum PreviewState {
     Update(UpdatePreview),
     /// The first documents a delete would remove.
     Sample(Vec<Document>),
-    /// The preview errored.
-    Failed,
+    /// The preview errored: `BulkInvalidUpdate` means it proved the update fails on the matching
+    /// documents; any other error means the preview is unavailable.
+    Failed(CoreError),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -188,7 +189,11 @@ impl BulkFlow {
     pub fn can_advance(&self) -> bool {
         match self.step {
             BulkStep::Define => self.update_ok(),
-            BulkStep::Preview => self.count != CountState::Pending && self.preview_ready(),
+            BulkStep::Preview => {
+                self.count != CountState::Pending
+                    && self.preview_ready()
+                    && !self.preview_proved_invalid()
+            }
             _ => false,
         }
     }
@@ -246,8 +251,15 @@ impl BulkFlow {
         }
     }
 
+    /// Whether the preview ran the update on the matching documents and it failed there: the
+    /// real run would fail (and may partly apply), so neither Next nor Run is offered.
+    pub fn preview_proved_invalid(&self) -> bool {
+        self.preview == PreviewState::Failed(CoreError::BulkInvalidUpdate)
+    }
+
     pub fn can_run(&self) -> bool {
-        if self.step != BulkStep::Confirm || !self.preview_ready() {
+        if self.step != BulkStep::Confirm || !self.preview_ready() || self.preview_proved_invalid()
+        {
             return false;
         }
         let ticked = !self.needs_all_documents_step() || self.all_documents_ticked;
@@ -287,7 +299,7 @@ impl BulkFlow {
 
     fn preview_needs_typed(&self) -> bool {
         match &self.preview {
-            PreviewState::Failed => true,
+            PreviewState::Failed(_) => true,
             PreviewState::Update(p) => {
                 matches!(
                     p.gap,

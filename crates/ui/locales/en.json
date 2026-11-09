@@ -78,11 +78,19 @@
       "upsert": "If no document matches, insert one (upsert)"
     },
     "delete_matching": "Delete matching...",
+    "failure": {
+      "duplicate_key": "a document would get a value that must be unique but already exists.",
+      "immutable_field": "the update tried to change a field that cannot be changed.",
+      "other": "the server reported an error for one of the documents.",
+      "type_mismatch": "the update does not fit the type of a field in one of the documents.",
+      "validation_failed": "a changed document would break the collection's validation rules.",
+      "write_concern": "the write was applied but the server could not confirm it as requested."
+    },
     "filter_heading": "Filter",
     "filter_scope": "Applies to every document matching the filter, not just this page.",
     "gap_conflict": "A concurrent change got in the way of the preview, so the result of the update is not shown. The update itself can still run.",
     "gap_no_match": "No document matches the filter right now, so there is nothing to preview.",
-    "gap_transactions": "This server does not support transactions, so the result of the update cannot be shown. The update itself can still run.",
+    "gap_transactions": "The result of the update could not be previewed on this server or collection. The update itself can still run.",
     "next": "Next",
     "no_after_state": "The result for this document is not available.",
     "no_samples": "There are no sample documents to show.",
@@ -94,6 +102,7 @@
     },
     "preview_failed": "The preview could not be produced. Check the filter and the update before you go on.",
     "preview_pending": "Preparing the preview...",
+    "preview_update_invalid": "The preview shows this update fails on the matching documents. Go back and change it.",
     "production_notice": "This is your production server, {connection}.",
     "projected_reason": "These documents are shown with a projection, so a bulk write cannot start from this page. Clear the projection first.",
     "report": {
@@ -103,6 +112,7 @@
       "upserted": "Inserted by upsert: {n}"
     },
     "report_failed": "The bulk write failed.",
+    "report_rejected": "The server rejected the write: {reason} Some documents may already have been changed. Check the data before you try again.",
     "report_unknown": "The result is not known. The write may or may not have been applied. Check the data before you try again.",
     "report_unknown_cancelled": "The write was cancelled before it finished. It may have been applied to some, all or none of the documents. Check the data before you try again.",
     "run_blocked": "To continue, complete the confirmation above.",
@@ -766,7 +776,7 @@
     "apply_write_rejected": "The server refused the write.",
     "auth_failed": "Authentication failed. The server requires valid credentials; check the user name, password and authentication database.",
     "bulk_empty_filter": "The filter is empty, so this would change every document. Write a filter, or choose to apply it to all documents.",
-    "bulk_invalid_update": "The update is not valid. Use an update document whose keys are all operators such as $set, or a pipeline made only of $set, $unset, $project and $replaceWith stages.",
+    "bulk_invalid_update": "The update is invalid or cannot be applied to the matching documents.",
     "bulk_preview_unavailable": "The preview could not be produced. You can still run the update.",
     "bulk_scope_mismatch": "All documents was chosen, but the filter is not empty. Clear the filter, or choose to apply it to the matching documents only.",
     "compare_cap_exceeded": "There are more differences than can be kept in memory, so the comparison stopped. Results kept for other pairs count against the same limit: discard some of them to free room. You can also narrow the comparison with a filter, or compare fewer fields.",

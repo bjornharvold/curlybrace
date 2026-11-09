@@ -11,6 +11,7 @@ use curlybrace_core::bulk::{
     BulkOutcome, PreviewDoc, PreviewGap, UpdatePreview, parse_update, validate_update,
 };
 use curlybrace_core::ejson::doc_to_view_json;
+use curlybrace_core::error::CoreError;
 use eframe::egui;
 
 /// Documents longer than this are cut in the preview, with an ellipsis.
@@ -128,13 +129,24 @@ pub(super) fn preview_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
         PreviewState::Pending => {
             ui.label(i18n.t("bulk.preview_pending"));
         }
-        PreviewState::Failed => {
-            tone_notice(ui, Tone::Warning, &i18n.t("bulk.preview_failed"), false)
-        }
+        PreviewState::Failed(error) => failed_preview(ui, error, i18n),
         PreviewState::Update(preview) => update_preview(ui, flow, preview, i18n),
         PreviewState::Sample(docs) => sample_preview(ui, docs, i18n),
     }
     cannot_undo(ui, i18n);
+}
+
+/// A preview that errored: the update proved invalid on the matching documents (no run is
+/// offered), or the preview is unavailable (the typed-confirmed run still is). The error is told
+/// by its i18n key only, never by server text.
+fn failed_preview(ui: &mut egui::Ui, error: &CoreError, i18n: &I18n) {
+    if *error == CoreError::BulkInvalidUpdate {
+        let text = i18n.t("bulk.preview_update_invalid");
+        tone_notice(ui, Tone::Bad, &text, true);
+    } else {
+        tone_notice(ui, Tone::Warning, &i18n.t("bulk.preview_failed"), false);
+    }
+    ui.label(i18n.t(error.i18n_key()));
 }
 
 fn gap_key(gap: PreviewGap) -> &'static str {
@@ -294,6 +306,11 @@ pub(super) fn report_body(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
                 false => "bulk.report_unknown",
             };
             tone_notice(ui, Tone::Warning, &i18n.t(key), true);
+        }
+        Some(Ok(BulkOutcome::Rejected { reason })) => {
+            let reason = i18n.t(reason.i18n_key());
+            let text = i18n.t_with("bulk.report_rejected", &[("reason", &reason)]);
+            tone_notice(ui, Tone::Bad, &text, true);
         }
         Some(Err(error)) => {
             tone_notice(ui, Tone::Bad, &i18n.t("bulk.report_failed"), true);

@@ -2,7 +2,9 @@
 //! browser on `crm.customers`.
 use super::production_shots::production_root;
 use bson::{Document, doc};
-use curlybrace_core::bulk::{BulkOutcome, BulkRunId, PreviewDoc, PreviewGap, UpdatePreview};
+use curlybrace_core::bulk::{
+    BulkFailureReason, BulkOutcome, BulkRunId, PreviewDoc, PreviewGap, UpdatePreview,
+};
 use curlybrace_core::store::Namespace;
 use curlybrace_ui::app::bulk_state::BulkState;
 use curlybrace_ui::app::state::AppState;
@@ -166,4 +168,9 @@ pub fn report_applied(state: &mut AppState) {
 
 pub fn report_unknown(state: &mut AppState) {
     reported(BulkOutcome::Unknown { cancelled: true })(state);
+}
+
+pub fn report_rejected(state: &mut AppState) {
+    let reason = BulkFailureReason::DuplicateKey;
+    reported(BulkOutcome::Rejected { reason })(state);
 }

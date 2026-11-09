@@ -376,10 +376,15 @@ pub(super) fn count_arrived(
 /// client-side bound) is unavailable, which asks for the typed confirmation; a sample that failed
 /// leaves the preview failed. A failure of an older request, or of a context that is no numbered
 /// read of the flow, changes nothing.
-pub(super) fn read_failed(state: AppState, context: &str, request: u64) -> AppState {
+pub(super) fn read_failed(
+    state: AppState,
+    context: &str,
+    request: u64,
+    error: CoreError,
+) -> AppState {
     match context {
         "bulk_count" => count_settled(state, None, request, CountState::Unavailable),
-        "bulk_sample" => preview_settled(state, None, request, PreviewState::Failed),
+        "bulk_sample" => preview_settled(state, None, request, PreviewState::Failed(error)),
         _ => state,
     }
 }
@@ -399,7 +404,7 @@ pub(super) fn preview_arrived(
     request: u64,
     outcome: Result<UpdatePreview, CoreError>,
 ) -> AppState {
-    let preview = outcome.map_or(PreviewState::Failed, PreviewState::Update);
+    let preview = outcome.map_or_else(PreviewState::Failed, PreviewState::Update);
     preview_settled(state, Some(&ns), request, preview)
 }
 
@@ -450,15 +455,18 @@ pub(super) fn cancel_answered(
 /// its flow closes and the failure is told in the failure banner.
 pub(super) fn command_failed(state: AppState, context: &'static str, error: CoreError) -> AppState {
     if error == CoreError::ReadOnly {
-        return write_refused(state, Banner::ReadOnly);
+        return write_failed(state, Banner::ReadOnly);
     }
-    let banner = Banner::Failure { context, error };
+    let banner = Banner::Failure {
+        context,
+        error: error.clone(),
+    };
     match context {
         // The runtime sends the command-level failure of a preview (it has no request id).
         // Counts and samples fail as `RequestFailed`, see `read_failed`.
-        "bulk_preview" => preview_failed(state),
+        "bulk_preview" => preview_failed(state, error),
         "bulk_cancel" => with_banner(state, banner),
-        _ => write_refused(state, banner),
+        _ => write_failed(state, banner),
     }
 }
 
@@ -472,6 +480,17 @@ fn with_banner(state: AppState, banner: Banner) -> AppState {
     }
 }
 
+/// A write command failed. Only the open flow's own write in flight can be refused: a late
+/// `Failed` of an older write (the flow is closed, reopened or not running) changes nothing.
+fn write_failed(state: AppState, banner: Banner) -> AppState {
+    let in_flight = state.pending.is_some()
+        && flow_of(&state, None).is_some_and(|b| b.flow.step == BulkStep::Running);
+    match in_flight {
+        true => write_refused(state, banner),
+        false => state,
+    }
+}
+
 /// The write never ran: nothing is in flight and the flow is over.
 fn write_refused(state: AppState, banner: Banner) -> AppState {
     let state = AppState {
@@ -482,10 +501,10 @@ fn write_refused(state: AppState, banner: Banner) -> AppState {
     with_banner(state, banner)
 }
 
-fn preview_failed(state: AppState) -> AppState {
+fn preview_failed(state: AppState, error: CoreError) -> AppState {
     let request = flow_of(&state, None).and_then(|b| b.preview_request);
     match request {
-        Some(request) => preview_settled(state, None, request, PreviewState::Failed),
+        Some(request) => preview_settled(state, None, request, PreviewState::Failed(error)),
         None => state,
     }
 }

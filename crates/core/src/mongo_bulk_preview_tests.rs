@@ -46,7 +46,9 @@ fn a_write_conflict_or_transient_label_is_a_conflict() {
 
 #[test]
 fn data_errors_of_the_update_are_an_invalid_update() {
-    for code in [2, 14, 16, 28, 40, 66, 121, 11000] {
+    // 9 FailedToParse (an unknown operator such as `$sett`), 52 DollarPrefixedFieldName,
+    // 15 Overflow, plus the codes the server reports for data the update cannot be applied to.
+    for code in [2, 9, 14, 15, 28, 40, 52, 66, 121, 11000] {
         assert_eq!(
             classify_failure(Some(code), false, false),
             Failure::InvalidUpdate,
@@ -133,4 +135,41 @@ fn before_only_keeps_every_before_and_no_after() {
     let got = before_only(vec![doc! { "_id": 1 }], PreviewGap::Conflict);
     assert_eq!(got.gap, Some(PreviewGap::Conflict));
     assert_eq!(got.docs[0].after, None);
+}
+
+#[test]
+fn an_upsert_with_no_match_runs_the_upsert_once_and_a_preview_of_matches_is_multi() {
+    let req = BulkUpdateRequest {
+        filter: doc! { "a": 1 },
+        update: crate::bulk::UpdateSpec::Operators(doc! { "$set": { "x": 1 } }),
+        upsert: true,
+        scope: crate::bulk::MatchScope::Filtered,
+    };
+    let multi = |befores: &[Document]| {
+        let cmd = preview_command("c", &req, befores);
+        let entry = cmd.get_array("updates").unwrap()[0]
+            .as_document()
+            .unwrap()
+            .clone();
+        entry.get_bool("multi").unwrap()
+    };
+    assert!(!multi(&[]), "no before: the upsert runs once");
+    assert!(multi(&[doc! { "_id": 1 }]));
+}
+
+#[test]
+fn the_preview_command_narrows_the_filter_to_the_previewed_ids() {
+    let req = BulkUpdateRequest {
+        filter: doc! { "a": 1 },
+        update: crate::bulk::UpdateSpec::Operators(doc! { "$set": { "x": 1 } }),
+        upsert: false,
+        scope: crate::bulk::MatchScope::Filtered,
+    };
+    let cmd = preview_command("c", &req, &[doc! { "_id": 7 }]);
+    let entry = cmd.get_array("updates").unwrap()[0].as_document().unwrap();
+    assert_eq!(
+        entry.get_document("q").unwrap(),
+        &restricted_filter(&req.filter, vec![Bson::Int32(7)])
+    );
+    assert_eq!(cmd.get_bool("ordered"), Ok(true));
 }

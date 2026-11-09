@@ -4,8 +4,10 @@
 //! `delete` command whose `comment` is the run id, so a cancel can find the operation. The write
 //! itself carries no time limit. Server text (`errmsg`) is never copied into a result: it can
 //! quote document values. Anything that makes the result untrustworthy (driver error,
-//! `writeErrors`, write concern error, unreadable counts) is `BulkOutcome::Unknown`, because the
-//! write may have happened.
+//! unreadable counts, a lost connection) is `BulkOutcome::Unknown`, because the write may have
+//! happened. A reply that carries `writeErrors` or a `writeConcernError` is
+//! `BulkOutcome::Rejected` with a reason keyed by the error code: the server says why, but its
+//! counts do not cover the documents written before the failure, so none are reported.
 
 use std::time::Duration;
 
@@ -13,11 +15,12 @@ use bson::{Bson, Document, doc};
 use mongodb::{Collection, Database};
 
 use crate::bulk::{
-    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdateSpec, check_scope,
-    validate_update,
+    BulkDeleteRequest, BulkFailureReason, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdateSpec,
+    check_scope, validate_update,
 };
 use crate::driver_error::{is_time_limit_expiry, server_error_code};
 use crate::error::{CoreError, Result};
+use crate::mongo_bulk_preview::write_error_code;
 
 /// The count, or `None` when the server gave up after `max_time`.
 pub(crate) async fn count_matching(
@@ -65,7 +68,9 @@ async fn send(
     parse: fn(&Document) -> Option<BulkOutcome>,
 ) -> BulkOutcome {
     match db.run_command(command).await {
-        Ok(reply) => parse(&reply).unwrap_or(UNKNOWN),
+        Ok(reply) => parse(&reply)
+            .or_else(|| rejection(&reply))
+            .unwrap_or(UNKNOWN),
         Err(e) => outcome_for_error_code(server_error_code(&e)),
     }
 }
@@ -82,27 +87,40 @@ pub(crate) fn outcome_for_error_code(code: Option<i32>) -> BulkOutcome {
     }
 }
 
+/// `Rejected` when an `ok: 1` reply reports `writeErrors` (the reason is its first error's code)
+/// or a `writeConcernError`; `None` otherwise.
+pub(crate) fn rejection(reply: &Document) -> Option<BulkOutcome> {
+    reply_ok(reply).then_some(())?;
+    let reason = match write_error_code(reply) {
+        Some(code) => BulkFailureReason::from_code(code),
+        None if reply.contains_key("writeConcernError") => BulkFailureReason::WriteConcern,
+        None => return None,
+    };
+    Some(BulkOutcome::Rejected { reason })
+}
+
 const UNKNOWN: BulkOutcome = BulkOutcome::Unknown { cancelled: false };
 
 fn update_command(coll_name: &str, req: &BulkUpdateRequest, run: BulkRunId) -> Document {
     doc! {
         "update": coll_name,
-        "updates": [update_entry(req, req.filter.clone())],
+        "updates": [update_entry(req, req.filter.clone(), true)],
         "ordered": true,
         "comment": run.0.to_string(),
     }
 }
 
 /// The one `updates` entry for `req`, matching `filter` instead of `req.filter` (the preview
-/// narrows it to a few ids).
-pub(crate) fn update_entry(req: &BulkUpdateRequest, filter: Document) -> Document {
+/// narrows it to a few ids). `multi` is false only for the preview of an upsert that matches
+/// nothing, which runs the upsert once.
+pub(crate) fn update_entry(req: &BulkUpdateRequest, filter: Document, multi: bool) -> Document {
     let update = match &req.update {
         UpdateSpec::Operators(ops) => Bson::Document(ops.clone()),
         UpdateSpec::Pipeline(stages) => {
             Bson::Array(stages.iter().cloned().map(Bson::Document).collect())
         }
     };
-    doc! { "q": filter, "u": update, "multi": true, "upsert": req.upsert }
+    doc! { "q": filter, "u": update, "multi": multi, "upsert": req.upsert }
 }
 
 fn delete_command(coll_name: &str, req: &BulkDeleteRequest, run: BulkRunId) -> Document {
@@ -143,15 +161,19 @@ fn parse_delete_reply(reply: &Document) -> Option<BulkOutcome> {
 
 /// `Some(())` when the command succeeded (`ok: 1`) with no write or write concern errors.
 pub(crate) fn reply_is_clean(reply: &Document) -> Option<()> {
-    let ok = match reply.get("ok") {
+    let clean = reply_ok(reply)
+        && !reply.contains_key("writeErrors")
+        && !reply.contains_key("writeConcernError");
+    clean.then_some(())
+}
+
+fn reply_ok(reply: &Document) -> bool {
+    match reply.get("ok") {
         Some(Bson::Double(v)) => *v == 1.0,
         Some(Bson::Int32(v)) => *v == 1,
         Some(Bson::Int64(v)) => *v == 1,
         _ => false,
-    };
-    let clean =
-        ok && !reply.contains_key("writeErrors") && !reply.contains_key("writeConcernError");
-    clean.then_some(())
+    }
 }
 
 fn count_field(reply: &Document, key: &str) -> Option<u64> {

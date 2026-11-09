@@ -106,7 +106,7 @@ fn update_needs_typed_when_preview_has_no_after() {
 fn needs_typed_for_update_when_preview_failed() {
     assert!(
         update_flow()
-            .with_preview(PreviewState::Failed)
+            .with_preview(PreviewState::Failed(CoreError::BulkPreviewUnavailable))
             .needs_typed()
     );
 }
@@ -409,7 +409,7 @@ fn same_count_keeps_typed() {
 fn with_preview_change_clears_typed() {
     assert!(
         typed_confirm()
-            .with_preview(PreviewState::Failed)
+            .with_preview(PreviewState::Failed(CoreError::BulkPreviewUnavailable))
             .typed
             .is_empty()
     );
@@ -455,7 +455,11 @@ fn updaters_are_inert_while_running_and_after_report() {
         assert_eq!(f.clone().with_upsert(true), f);
         assert_eq!(f.clone().with_all_documents(true), f);
         assert_eq!(f.clone().with_count(CountState::Unavailable), f);
-        assert_eq!(f.clone().with_preview(PreviewState::Failed), f);
+        assert_eq!(
+            f.clone()
+                .with_preview(PreviewState::Failed(CoreError::BulkPreviewUnavailable)),
+            f
+        );
         assert_eq!(f.clone().with_typed("x".into()), f);
     }
 }
@@ -468,7 +472,9 @@ fn every_updater_returns_a_new_value_and_leaves_the_original() {
     let _ = orig.clone().with_upsert(true);
     let _ = orig.clone().with_all_documents(true);
     let _ = orig.clone().with_count(CountState::Unavailable);
-    let _ = orig.clone().with_preview(PreviewState::Failed);
+    let _ = orig
+        .clone()
+        .with_preview(PreviewState::Failed(CoreError::BulkPreviewUnavailable));
     let _ = orig.clone().with_typed("t".into());
     let _ = orig.clone().advanced();
     let _ = orig.clone().back();
@@ -507,4 +513,50 @@ fn can_advance_agrees_with_advanced_in_every_step() {
     }
     assert!(!pending.can_advance(), "empty update");
     assert!(update_flow().can_advance());
+}
+
+fn invalid_preview() -> PreviewState {
+    PreviewState::Failed(CoreError::BulkInvalidUpdate)
+}
+
+#[test]
+fn a_preview_that_proved_the_update_invalid_blocks_run_even_when_typed() {
+    let at_confirm = confirm(update_flow()).with_preview(invalid_preview());
+    let typed = at_confirm.with_typed("orders".into());
+    assert!(typed.needs_typed());
+    assert!(!typed.can_run());
+    assert_eq!(typed.clone().running(run_id()), typed);
+}
+
+#[test]
+fn another_failed_preview_still_runs_once_the_name_is_typed() {
+    let unavailable = PreviewState::Failed(CoreError::BulkPreviewUnavailable);
+    let f = confirm(update_flow()).with_preview(unavailable);
+    assert!(f.needs_typed());
+    assert!(!f.can_run());
+    assert!(f.with_typed("orders".into()).can_run());
+}
+
+#[test]
+fn next_from_preview_is_blocked_when_the_update_was_proved_invalid_and_back_stays() {
+    let at_preview = update_flow().advanced();
+    let invalid = at_preview.clone().with_preview(invalid_preview());
+    assert!(!invalid.can_advance());
+    assert_eq!(invalid.clone().advanced().step, BulkStep::Preview);
+    assert_eq!(invalid.back().step, BulkStep::Define);
+    let unavailable =
+        at_preview.with_preview(PreviewState::Failed(CoreError::BulkPreviewUnavailable));
+    assert!(unavailable.can_advance());
+}
+
+#[test]
+fn only_the_invalid_update_error_marks_the_preview_as_proved_invalid() {
+    assert!(
+        update_flow()
+            .with_preview(invalid_preview())
+            .preview_proved_invalid()
+    );
+    assert!(!update_flow().preview_proved_invalid());
+    let other = update_flow().with_preview(PreviewState::Failed(CoreError::Unreachable));
+    assert!(!other.preview_proved_invalid());
 }

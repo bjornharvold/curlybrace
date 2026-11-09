@@ -64,6 +64,49 @@ pub enum BulkOutcome {
     },
     /// The result is not known: the run was cut short or the connection was lost.
     Unknown { cancelled: bool },
+    /// The server answered with an error for the write. The reply's counts do not cover the
+    /// documents changed before the failure (observed: `n` and `nModified` read 0 after several
+    /// documents were written), so none are reported: some documents MAY already be changed.
+    Rejected { reason: BulkFailureReason },
+}
+
+/// Why the server rejected a bulk write, from its error code only (never its text, which can
+/// quote document values).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BulkFailureReason {
+    DuplicateKey,
+    ValidationFailed,
+    ImmutableField,
+    TypeMismatch,
+    /// The write concern could not be satisfied; the write itself was applied.
+    WriteConcern,
+    Other,
+}
+
+impl BulkFailureReason {
+    /// Maps a server write error code: 11000 DuplicateKey, 121 DocumentValidationFailure,
+    /// 66 ImmutableField, 14 TypeMismatch.
+    pub fn from_code(code: Option<i32>) -> Self {
+        match code {
+            Some(11000) => Self::DuplicateKey,
+            Some(121) => Self::ValidationFailed,
+            Some(66) => Self::ImmutableField,
+            Some(14) => Self::TypeMismatch,
+            _ => Self::Other,
+        }
+    }
+
+    /// Key into the UI's `en.json`.
+    pub fn i18n_key(self) -> &'static str {
+        match self {
+            Self::DuplicateKey => "bulk.failure.duplicate_key",
+            Self::ValidationFailed => "bulk.failure.validation_failed",
+            Self::ImmutableField => "bulk.failure.immutable_field",
+            Self::TypeMismatch => "bulk.failure.type_mismatch",
+            Self::WriteConcern => "bulk.failure.write_concern",
+            Self::Other => "bulk.failure.other",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +189,40 @@ fn is_allowed_stage(stage: &Document) -> bool {
 mod tests {
     use super::*;
     use bson::doc;
+
+    #[test]
+    fn failure_reasons_come_from_the_server_code_only() {
+        use BulkFailureReason::*;
+        let cases = [
+            (Some(11000), DuplicateKey),
+            (Some(121), ValidationFailed),
+            (Some(66), ImmutableField),
+            (Some(14), TypeMismatch),
+            (Some(2), Other),
+            (None, Other),
+        ];
+        for (code, want) in cases {
+            assert_eq!(BulkFailureReason::from_code(code), want, "{code:?}");
+        }
+    }
+
+    #[test]
+    fn every_failure_reason_has_a_distinct_bulk_failure_key() {
+        use BulkFailureReason::*;
+        let all = [
+            DuplicateKey,
+            ValidationFailed,
+            ImmutableField,
+            TypeMismatch,
+            WriteConcern,
+            Other,
+        ];
+        let mut keys: Vec<_> = all.iter().map(|r| r.i18n_key()).collect();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), all.len());
+        assert!(keys.iter().all(|k| k.starts_with("bulk.failure.")));
+    }
 
     #[test]
     fn empty_filter_without_flag_is_rejected() {

@@ -136,3 +136,68 @@ fn the_current_op_lookup_is_pinned_to_the_primary() {
         SelectionCriteria::ReadPreference(mongodb::options::ReadPreference::Primary)
     ));
 }
+
+#[test]
+fn a_reply_with_write_errors_is_rejected_with_a_code_keyed_reason_and_no_counts() {
+    // Observed on mongod 9.0.4: n and nModified read 0 although earlier documents were written.
+    let reply = |code: i32| {
+        doc! { "ok": 1.0, "n": 0, "nModified": 0,
+        "writeErrors": [{ "index": 0, "code": code, "errmsg": "SECRET" }] }
+    };
+    for (code, reason) in [
+        (11000, BulkFailureReason::DuplicateKey),
+        (121, BulkFailureReason::ValidationFailed),
+        (66, BulkFailureReason::ImmutableField),
+        (14, BulkFailureReason::TypeMismatch),
+        (28, BulkFailureReason::Other),
+    ] {
+        assert_eq!(
+            rejection(&reply(code)),
+            Some(BulkOutcome::Rejected { reason })
+        );
+    }
+}
+
+#[test]
+fn a_write_concern_error_is_rejected_as_write_concern() {
+    let reply =
+        doc! { "ok": 1.0, "n": 5, "writeConcernError": { "code": 100, "errmsg": "SECRET" } };
+    assert_eq!(
+        rejection(&reply),
+        Some(BulkOutcome::Rejected {
+            reason: BulkFailureReason::WriteConcern
+        })
+    );
+}
+
+#[test]
+fn write_errors_win_over_a_write_concern_error() {
+    let reply = doc! { "ok": 1.0, "writeErrors": [{ "index": 0, "code": 11000 }],
+    "writeConcernError": { "code": 100 } };
+    assert_eq!(
+        rejection(&reply),
+        Some(BulkOutcome::Rejected {
+            reason: BulkFailureReason::DuplicateKey
+        })
+    );
+}
+
+#[test]
+fn a_clean_or_unreadable_reply_is_not_a_rejection() {
+    assert_eq!(rejection(&doc! { "ok": 1.0, "n": 1, "nModified": 1 }), None);
+    assert_eq!(
+        rejection(&doc! { "ok": 0.0, "writeErrors": [{ "code": 11000 }] }),
+        None
+    );
+}
+
+#[test]
+fn an_unreadable_write_error_is_rejected_as_other() {
+    let reply = doc! { "ok": 1.0, "writeErrors": ["junk"] };
+    assert_eq!(
+        rejection(&reply),
+        Some(BulkOutcome::Rejected {
+            reason: BulkFailureReason::Other
+        })
+    );
+}

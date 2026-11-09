@@ -3,6 +3,7 @@
 //! loses its connection is an unknown outcome, not a failure, and is never settled by a ping.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::handlers::{bounded, gate};
 use super::session::Session;
@@ -118,7 +119,7 @@ pub(super) async fn run(
     match bulk {
         // A write that was started always reports its outcome, even when the session was
         // replaced while it ran: the answer is the only report of changes the server may have
-        // applied, and `send_answer` lets `BulkFinished` through for the same reason.
+        // applied, and `finalize` lets `BulkFinished` through for the same reason.
         Bulk::Write(write) => Ok(run_write(shared, id, &store, write).await),
         Bulk::Read(read) => {
             let event = run_read(shared, id, &store, read)
@@ -140,55 +141,74 @@ async fn run_read(
     read: ReadBulk,
 ) -> Result<Event> {
     let limit = shared.config.command_timeout;
-    Ok(match read {
+    match read {
         ReadBulk::Count {
             ns,
             filter,
             request,
-        } => {
-            let max = BULK_COUNT_MAX_TIME;
-            let count = bounded(limit, store.count_matching(&ns, &filter, max)).await?;
-            Event::BulkCount {
-                session,
-                ns,
-                request,
-                count,
-            }
-        }
+        } => count(limit, session, store, ns, filter, request).await,
         ReadBulk::Sample {
             ns,
             filter,
             request,
-        } => {
-            // Straight to the store: the page's own find path records query history.
-            let query = Query {
-                filter,
-                limit: BULK_PREVIEW_DOCS as u64,
-                ..Query::default()
-            };
-            let page = bounded(limit, store.find(&ns, &query)).await?;
-            Event::BulkSample {
-                session,
-                ns,
-                request,
-                docs: page.docs,
-            }
-        }
+        } => sample(limit, session, store, ns, filter, request).await,
         ReadBulk::Preview {
             ns,
             request,
             request_id,
-        } => Event::BulkPreview {
+        } => Ok(Event::BulkPreview {
             session,
             outcome: bounded(limit, store.preview_update(&ns, &request)).await,
             ns,
             request_id,
-        },
-        ReadBulk::Cancel { run } => Event::BulkCancelResult {
+        }),
+        ReadBulk::Cancel { run } => Ok(Event::BulkCancelResult {
             session,
             run,
             outcome: bounded(limit, store.cancel_bulk(run)).await,
-        },
+        }),
+    }
+}
+
+async fn count(
+    limit: Duration,
+    session: SessionId,
+    store: &Arc<dyn DocumentStore>,
+    ns: Namespace,
+    filter: Document,
+    request: u64,
+) -> Result<Event> {
+    let max = BULK_COUNT_MAX_TIME;
+    let count = bounded(limit, store.count_matching(&ns, &filter, max)).await?;
+    Ok(Event::BulkCount {
+        session,
+        ns,
+        request,
+        count,
+    })
+}
+
+/// The first documents the filter matches. Straight to the store: the page's own find path
+/// records query history.
+async fn sample(
+    limit: Duration,
+    session: SessionId,
+    store: &Arc<dyn DocumentStore>,
+    ns: Namespace,
+    filter: Document,
+    request: u64,
+) -> Result<Event> {
+    let query = Query {
+        filter,
+        limit: BULK_PREVIEW_DOCS as u64,
+        ..Query::default()
+    };
+    let page = bounded(limit, store.find(&ns, &query)).await?;
+    Ok(Event::BulkSample {
+        session,
+        ns,
+        request,
+        docs: page.docs,
     })
 }
 
@@ -200,11 +220,13 @@ async fn run_write(
 ) -> Event {
     let (ns, run, outcome) = match write {
         WriteBulk::Update { ns, request, run } => {
-            let outcome = write_outcome(shared, store.update_many(&ns, &request, run)).await;
+            let write = store.update_many(&ns, &request, run);
+            let outcome = write_outcome(shared, store, run, write).await;
             (ns, run, outcome)
         }
         WriteBulk::Delete { ns, request, run } => {
-            let outcome = write_outcome(shared, store.delete_many(&ns, &request, run)).await;
+            let write = store.delete_many(&ns, &request, run);
+            let outcome = write_outcome(shared, store, run, write).await;
             (ns, run, outcome)
         }
     };
@@ -217,13 +239,24 @@ async fn run_write(
 }
 
 /// A write's outcome: outrunning the bound or losing the connection leaves the result unknown.
+/// When the bound expires the future is dropped but the server keeps writing, so the run is
+/// cancelled there first (best effort: a failure is logged without values and the unknown
+/// outcome stands).
 async fn write_outcome(
     shared: &Shared,
+    store: &Arc<dyn DocumentStore>,
+    run: BulkRunId,
     write: impl std::future::Future<Output = Result<BulkOutcome>>,
 ) -> Result<BulkOutcome> {
     let unknown = || Ok(BulkOutcome::Unknown { cancelled: false });
     match tokio::time::timeout(shared.config.bulk_write_timeout, write).await {
-        Err(_) => unknown(),
+        Err(_) => {
+            let limit = shared.config.command_timeout;
+            if bounded(limit, store.cancel_bulk(run)).await.is_err() {
+                log::warn!("bulk write: cancelling the write that outran its bound failed");
+            }
+            unknown()
+        }
         Ok(Err(CoreError::ConnectionInterrupted(_))) => unknown(),
         Ok(other) => other,
     }

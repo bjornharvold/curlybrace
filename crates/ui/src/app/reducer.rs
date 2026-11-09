@@ -268,9 +268,12 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // settles by its own id and never reaches the index panel's arm below, whose counter is
         // unrelated.
         Event::RequestFailed {
-            context, request, ..
+            context,
+            request,
+            error,
+            ..
         } if context.starts_with("bulk_") => (
-            bulk_actions::read_failed(state, context, request),
+            bulk_actions::read_failed(state, context, request, error),
             Vec::new(),
         ),
         // A failed numbered read settles only the request still awaited: a late failure of an

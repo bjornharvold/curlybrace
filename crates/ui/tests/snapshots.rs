@@ -304,6 +304,11 @@ bulk_shot!(
     bulk_report_unknown_dark,
     support::bulk_shots::report_unknown
 );
+bulk_shot!(
+    bulk_report_rejected,
+    bulk_report_rejected_dark,
+    support::bulk_shots::report_rejected
+);
 
 shot!(
     sessions_tree_production_root,
