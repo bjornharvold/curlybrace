@@ -152,3 +152,24 @@ fn purge_never_expires_a_readable_snapshot_by_file_time() {
     assert_eq!(purge_older_than(dir.path(), now(), 1_000), 0);
     assert_eq!(list(dir.path()).len(), 1);
 }
+
+#[test]
+fn a_failed_delete_leaves_the_readable_snapshot_listed_and_says_so() {
+    let dir = tempdir().unwrap();
+    let run = write(dir.path(), now(), "kept");
+    // The after-state "file" cannot be removed (it is a non-empty directory).
+    let after = snapshot_path(dir.path(), run).with_extension("after.jsonl");
+    std::fs::remove_file(&after).unwrap();
+    std::fs::create_dir(&after).unwrap();
+    std::fs::write(after.join("x"), b"x").unwrap();
+
+    assert_eq!(
+        delete(dir.path(), run),
+        Err(crate::error::CoreError::SnapshotDeleteFailed)
+    );
+    assert_eq!(
+        list(dir.path()).iter().map(|s| s.run).collect::<Vec<_>>(),
+        [run],
+        "still listed, so whoever asked can tell it was not deleted"
+    );
+}
