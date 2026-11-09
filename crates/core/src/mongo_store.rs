@@ -277,6 +277,10 @@ impl DocumentStore for MongoStore {
         crate::mongo_bulk::delete_many(&db, &ns.collection, req, run).await
     }
 
+    async fn cancel_bulk(&self, run: BulkRunId) -> Result<()> {
+        crate::mongo_bulk_cancel::cancel_bulk(&self.client, run).await
+    }
+
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
         self.collection(ns)
             .estimated_document_count()

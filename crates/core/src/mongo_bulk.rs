@@ -16,7 +16,7 @@ use crate::bulk::{
     BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, UpdateSpec, check_scope,
     validate_update,
 };
-use crate::driver_error::is_time_limit_expiry;
+use crate::driver_error::{is_time_limit_expiry, server_error_code};
 use crate::error::{CoreError, Result};
 
 /// The count, or `None` when the server gave up after `max_time`.
@@ -66,7 +66,18 @@ async fn send(
 ) -> BulkOutcome {
     match db.run_command(command).await {
         Ok(reply) => parse(&reply).unwrap_or(UNKNOWN),
-        Err(_) => UNKNOWN,
+        Err(e) => outcome_for_error_code(server_error_code(&e)),
+    }
+}
+
+/// Server error code `Interrupted`: what `killOp` makes the killed write fail with (observed on
+/// mongod 9.0.4 for both `update` and `delete`).
+const CODE_INTERRUPTED: i32 = 11601;
+
+/// A failed write is unknown; it is `cancelled` only when the server says it was killed.
+pub(crate) fn outcome_for_error_code(code: Option<i32>) -> BulkOutcome {
+    BulkOutcome::Unknown {
+        cancelled: code == Some(CODE_INTERRUPTED),
     }
 }
 

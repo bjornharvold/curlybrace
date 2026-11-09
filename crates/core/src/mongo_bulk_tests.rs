@@ -99,3 +99,31 @@ fn replies_that_cannot_be_trusted_are_rejected_without_server_text() {
     }
     assert_eq!(UNKNOWN, BulkOutcome::Unknown { cancelled: false });
 }
+
+#[test]
+fn only_the_kill_code_makes_a_failed_write_cancelled() {
+    assert_eq!(
+        outcome_for_error_code(Some(11601)),
+        BulkOutcome::Unknown { cancelled: true }
+    );
+    for code in [None, Some(0), Some(11600), Some(13), Some(50), Some(2)] {
+        assert_eq!(
+            outcome_for_error_code(code),
+            BulkOutcome::Unknown { cancelled: false },
+            "{code:?}"
+        );
+    }
+}
+
+#[test]
+fn a_cancel_that_is_not_permitted_or_supported_is_unsupported() {
+    use crate::mongo_bulk_cancel::cancel_failure;
+    for code in [13, 59, 115, 40324, 8000] {
+        assert!(matches!(
+            cancel_failure(Some(code)),
+            CoreError::Unsupported(_)
+        ));
+    }
+    assert!(matches!(cancel_failure(Some(2)), CoreError::Database(_)));
+    assert!(matches!(cancel_failure(None), CoreError::Database(_)));
+}

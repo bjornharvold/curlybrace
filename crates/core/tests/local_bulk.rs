@@ -494,3 +494,122 @@ async fn preview_during_a_write_conflict_reports_conflict() {
     assert!(preview.docs.iter().all(|d| d.after.is_none()));
     assert_eq!(all_docs(&store, &ns).await, before);
 }
+
+/// Opids of the operations whose `command.comment` is the run id (the path a cancel matches).
+async fn ops_for_run(client: &mongodb::Client, run: BulkRunId) -> Vec<i64> {
+    use futures::TryStreamExt;
+    let pipeline = vec![
+        doc! { "$currentOp": {} },
+        doc! { "$match": { "command.comment": run.0.to_string() } },
+    ];
+    let cursor = client
+        .database("admin")
+        .aggregate(pipeline)
+        .await
+        .expect("$currentOp on admin must be allowed on the local test server");
+    let ops: Vec<Document> = cursor.try_collect().await.unwrap();
+    ops.iter()
+        .filter_map(|op| op.get("opid"))
+        .filter_map(|id| match id {
+            Bson::Int32(n) => Some(i64::from(*n)),
+            Bson::Int64(n) => Some(*n),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Waits (bounded) until the run's operation shows in `currentOp`, or fails saying why not.
+async fn wait_for_op(
+    client: &mongodb::Client,
+    run: BulkRunId,
+    task: &tokio::task::JoinHandle<Result<BulkOutcome, CoreError>>,
+) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while tokio::time::Instant::now() < deadline {
+        if !ops_for_run(client, run).await.is_empty() {
+            return;
+        }
+        assert!(
+            !task.is_finished(),
+            "the bulk write ended before currentOp showed it: the server rejected the `comment` \
+             or the write was not slow enough"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!(
+        "currentOp never showed an operation with command.comment == the run id: the comment \
+         path is wrong or the server did not accept the comment"
+    );
+}
+
+/// 300 documents; an update filtered by `$where` sleeping 20 ms per document runs for ~6 s.
+async fn seed_slow(client: &mongodb::Client, ns: &Namespace) {
+    let docs: Vec<Document> = (0..300).map(|n| doc! { "_id": n, "n": n }).collect();
+    client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection)
+        .insert_many(docs)
+        .await
+        .unwrap();
+}
+
+fn slow_update() -> BulkUpdateRequest {
+    BulkUpdateRequest {
+        filter: doc! { "$where": "sleep(20); true" },
+        update: UpdateSpec::Operators(doc! { "$set": { "flag": true } }),
+        upsert: false,
+        scope: MatchScope::Filtered,
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn cancel_stops_a_slow_update_and_reports_unknown_cancelled() {
+    if !local_enabled("cancel_stops_a_slow_update_and_reports_unknown_cancelled") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("c");
+    seed_slow(&client, &ns).await;
+    let store = std::sync::Arc::new(store);
+    let run = run_id();
+    let task = {
+        let (store, ns) = (store.clone(), ns.clone());
+        tokio::spawn(async move { store.update_many(&ns, &slow_update(), run).await })
+    };
+    wait_for_op(&client, run, &task).await;
+    let cancelled = store.cancel_bulk(run).await;
+    // Whatever happens, never leave the slow operation behind.
+    let outcome = tokio::time::timeout(Duration::from_secs(20), task).await;
+    let _ = store.cancel_bulk(run).await;
+    cancelled.unwrap();
+    let outcome = outcome.expect("the killed update must return").unwrap();
+    assert_eq!(outcome.unwrap(), BulkOutcome::Unknown { cancelled: true });
+    assert!(ops_for_run(&client, run).await.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn cancel_after_completion_returns_the_real_counts() {
+    if !local_enabled("cancel_after_completion_returns_the_real_counts") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("c");
+    seed(&client, &ns).await;
+    let run = run_id();
+    let req = set_update(doc! { "group": "a" }, MatchScope::Filtered, false);
+    let got = store.update_many(&ns, &req, run).await.unwrap();
+    assert_eq!(got, applied(3, 3, 0));
+    store.cancel_bulk(run).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn cancel_of_an_unknown_run_is_ok() {
+    if !local_enabled("cancel_of_an_unknown_run_is_ok") {
+        return;
+    }
+    let (_dbs, _client, store) = local_mongo().await;
+    store.cancel_bulk(run_id()).await.unwrap();
+}

@@ -59,6 +59,10 @@ pub fn classify_parts(
 }
 
 /// The server error code carried by a driver error, if any.
+pub fn server_error_code(e: &mongodb::error::Error) -> Option<i32> {
+    server_code(&e.kind)
+}
+
 fn server_code(kind: &ErrorKind) -> Option<i32> {
     match kind {
         ErrorKind::Command(c) => Some(c.code),
