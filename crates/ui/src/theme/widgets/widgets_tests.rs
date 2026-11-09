@@ -2,7 +2,7 @@ use super::{card, chip, filled_button, outlined_field, pill, segmented, with_alp
 use crate::theme::{Mode, Tone, install, scheme};
 use eframe::egui::{self, Rect, Shape, accesskit::Role};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 /// A harness of `width` x 200 with the theme installed and the light mode active.
 pub(super) fn themed<S>(
@@ -385,4 +385,92 @@ fn the_accessible_name_can_differ_from_the_floating_label() {
     });
     harness.get_by_role_and_label(Role::TextInput, "Type this to confirm: abc");
     assert_eq!(harness.query_all_by_label("Confirmation").count(), 0);
+}
+
+fn has_private_use(text: &str) -> bool {
+    text.chars().any(|c| ('\u{e000}'..='\u{f8ff}').contains(&c))
+}
+
+const SORT_LABEL: &str = "Connection name that is far too long";
+
+#[derive(Default)]
+struct IconButton {
+    events: Vec<egui::output::OutputEvent>,
+}
+
+fn icon_button_harness(width: f32) -> Harness<'static, IconButton> {
+    themed(
+        width,
+        IconButton::default(),
+        |ui, state: &mut IconButton| {
+            super::text_button_with_icon(ui, crate::theme::icons::ARROW_DOWN, SORT_LABEL);
+            let events = ui.ctx().output(|o| o.events.clone());
+            state.events.extend(events);
+        },
+    )
+}
+
+#[test]
+fn an_icon_button_is_named_and_tooltipped_by_its_plain_label() {
+    let mut harness = icon_button_harness(120.0);
+    harness
+        .get_by_role_and_label(Role::Button, SORT_LABEL)
+        .hover();
+    harness.run_steps(12);
+    // The tooltip is the label, with no private-use glyph the text fonts cannot draw.
+    harness.get_by_role_and_label(Role::Label, SORT_LABEL);
+    for node in harness.get_all_by_role(Role::Label) {
+        assert!(!has_private_use(
+            node.accesskit_node().label().as_deref().unwrap_or("")
+        ));
+    }
+}
+
+#[test]
+fn an_icon_button_emits_widget_info_with_the_plain_label() {
+    let mut harness = icon_button_harness(400.0);
+    harness
+        .get_by_role_and_label(Role::Button, SORT_LABEL)
+        .click();
+    harness.run_steps(4);
+    let infos: Vec<String> = harness
+        .state()
+        .events
+        .iter()
+        .map(|e| format!("{e:?}"))
+        .collect();
+    assert!(!infos.is_empty(), "a click reports an output event");
+    for info in &infos {
+        assert!(info.contains(SORT_LABEL), "{info}");
+        assert!(!has_private_use(info), "{info}");
+    }
+}
+
+#[test]
+fn a_narrow_icon_button_elides_the_label_and_keeps_the_icon() {
+    let mut harness = icon_button_harness(120.0);
+    harness.run();
+    let drawn: Vec<String> = harness
+        .output()
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Text(t) => Some(t.galley.rows.iter().map(|r| r.text()).collect::<String>()),
+            _ => None,
+        })
+        .collect();
+    let icon = crate::theme::icons::ARROW_DOWN;
+    let galley = drawn
+        .iter()
+        .find(|t| t.contains(icon))
+        .unwrap_or_else(|| panic!("the arrow was elided from {drawn:?}"));
+    assert!(galley.starts_with(icon));
+    assert!(
+        galley.ends_with('…'),
+        "the label should be elided: {galley}"
+    );
+    assert!(
+        !galley.contains(SORT_LABEL),
+        "the label should be cut: {galley}"
+    );
 }

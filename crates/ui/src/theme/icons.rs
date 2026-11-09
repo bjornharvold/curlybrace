@@ -49,17 +49,18 @@ pub fn inline_icon(ui: &Ui, c: char) -> RichText {
     }
 }
 
-/// `text` in the button font (Roboto Medium), a space and `icon`, as one text for a theme button:
-/// a trailing marker such as a sort arrow. The button's accessible name should be set to the
-/// plain `text`, since the icon is a private-use codepoint.
-pub fn text_then_icon(ui: &Ui, text: &str, icon: char) -> WidgetText {
+/// `icon`, a space and `text` in the button font (Roboto Medium), as one text for a theme button:
+/// a leading marker such as a sort arrow. The icon leads so that a button too narrow for both
+/// elides the text, not the icon. The button's accessible name should be the plain `text`, since
+/// the icon is a private-use codepoint.
+pub fn icon_then_text(ui: &Ui, icon: char, text: &str) -> WidgetText {
     let size = TextStyle::Button.resolve(ui.style()).size;
     let style = ui.style();
     let mut job = LayoutJob::default();
     let parts = [
-        RichText::new(text).font(medium_font(ui, size)),
-        RichText::new(" "),
         inline_icon(ui, icon),
+        RichText::new(" "),
+        RichText::new(text).font(medium_font(ui, size)),
     ];
     for part in parts {
         part.append_to(&mut job, style, FontSelection::Default, Align::Center);

@@ -4,6 +4,7 @@ use super::{
     CONTROL_HEIGHT, Look, Ring, disabled_container, disabled_content, focus_ring, medium_font,
     painter,
 };
+use crate::theme::icons;
 use crate::theme::shape::{self, radius};
 use crate::theme::{Scheme, current_ui};
 use eframe::egui::{
@@ -42,23 +43,32 @@ impl Kind {
 
 /// The filled button: `primary` container, `on_primary` label. For the main action.
 pub fn filled_button(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
-    button(ui, text.into(), Kind::Filled)
+    labeled(ui, text.into(), None, Kind::Filled)
 }
 
 /// The tonal button: `secondary_container` container. For secondary actions.
 pub fn tonal_button(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
-    button(ui, text.into(), Kind::Tonal)
+    labeled(ui, text.into(), None, Kind::Tonal)
 }
 
 /// The text button: no container, `primary` label. For the least prominent actions.
 pub fn text_button(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
-    button(ui, text.into(), Kind::Text)
+    labeled(ui, text.into(), None, Kind::Text)
 }
 
 /// A [`text_button`] with 8 dp instead of 12 dp of side padding, for a crowded row such as a
 /// sidebar header.
 pub fn compact_text_button(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
-    button(ui, text.into(), Kind::TextCompact)
+    labeled(ui, text.into(), None, Kind::TextCompact)
+}
+
+/// A [`text_button`] that leads with the icon-font glyph `icon` before the plain `label`, e.g. a
+/// sort arrow. The icon comes first so a narrow button elides the label, never the icon. The
+/// accessible name and the elision tooltip are the plain `label`: the glyph is a private-use
+/// codepoint that screen readers cannot speak and the text fonts cannot draw.
+pub fn text_button_with_icon(ui: &mut Ui, icon: char, label: &str) -> Response {
+    let shown = icons::icon_then_text(ui, icon, label);
+    labeled(ui, shown, Some(label), Kind::Text)
 }
 
 /// Marks the theme buttons drawn by [`gate`] as off.
@@ -82,7 +92,9 @@ pub fn gate(ui: &mut Ui, enabled: bool, add: impl FnOnce(&mut Ui) -> Response) -
     response
 }
 
-fn button(ui: &mut Ui, text: WidgetText, kind: Kind) -> Response {
+/// `text` as a button of `kind`; `plain` is its accessible name and tooltip when that differs
+/// from the drawn text (it defaults to the drawn text).
+fn labeled(ui: &mut Ui, text: WidgetText, plain: Option<&str>, kind: Kind) -> Response {
     let off = ui
         .data(|d| d.get_temp::<bool>(Id::new(GATE)))
         .unwrap_or(false);
@@ -92,7 +104,7 @@ fn button(ui: &mut Ui, text: WidgetText, kind: Kind) -> Response {
     let size = TextStyle::Button.resolve(ui.style()).size;
     let font = FontSelection::FontId(medium_font(ui, size));
     let max_text = ui.available_width() - 2.0 * padding;
-    let label = text.text().to_owned();
+    let label = plain.map_or_else(|| text.text().to_owned(), str::to_owned);
     let galley = text.into_galley(ui, Some(TextWrapMode::Truncate), max_text, font);
     let desired = Vec2::new(galley.size().x + 2.0 * padding, CONTROL_HEIGHT);
     let (rect, mut response) = ui.allocate_exact_size(

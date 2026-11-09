@@ -5,7 +5,7 @@ use crate::I18n;
 use crate::theme::widgets::CONTROL_HEIGHT;
 use crate::theme::{
     FieldOptions, Tone, chip, current_ui, gate, icons, outlined_field_opts, pill, shape,
-    text_button, tonal_button,
+    text_button, text_button_with_icon, tonal_button,
 };
 use crate::viewmodel::{
     ConnectionBadge, SortColumn, auth_label_key, format_utc, grouped, security, server_hosts,
@@ -201,17 +201,16 @@ fn column_widths(ui: &egui::Ui) -> [f32; 5] {
     SHARES.map(|share| usable * share)
 }
 
-/// A column header button. The sorted column shows an arrow from the icon font (down when
-/// `descending`); its accessible name stays the plain `label` and the direction is exposed as the
-/// node's sort direction, since the arrow is a private-use codepoint.
-fn sort_button(ui: &mut egui::Ui, label: &str, active: Option<bool>) -> egui::Response {
-    let shown: egui::WidgetText = match active {
-        Some(true) => icons::text_then_icon(ui, label, icons::ARROW_DOWN),
-        Some(false) => icons::text_then_icon(ui, label, icons::ARROW_UP),
-        None => label.into(),
+/// A column header button. The sorted column leads with an arrow from the icon font (down when
+/// `descending`), so a narrow column elides the label, not the arrow. Its accessible name and
+/// tooltip stay the plain `label` and the direction is exposed as the node's sort direction,
+/// since the arrow is a private-use codepoint.
+pub(super) fn sort_button(ui: &mut egui::Ui, label: &str, active: Option<bool>) -> egui::Response {
+    let button = match active {
+        Some(true) => text_button_with_icon(ui, icons::ARROW_DOWN, label),
+        Some(false) => text_button_with_icon(ui, icons::ARROW_UP, label),
+        None => text_button(ui, label),
     };
-    let button = text_button(ui, shown);
-    button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     if let Some(descending) = active {
         let direction = if descending {
             SortDirection::Descending
