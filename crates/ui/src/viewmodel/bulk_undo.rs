@@ -6,6 +6,7 @@ use super::bulk_text::compact;
 use super::typed_confirmation::typed_text_matches;
 use curlybrace_core::bulk::{BulkRunId, UndoPreview};
 use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::snapshot::UndoReport;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,8 +150,9 @@ impl UndoFlow {
     }
 }
 
-/// Errors a second try can get past: the connection or the server was not there, or the answer
-/// was lost. Everything else (a copy that is missing, damaged or from another connection, a
+/// Errors a second try can get past: the connection or the server was not there, the answer was
+/// lost, or the server took too long. Another database error (not authorized, a failed command)
+/// says nothing about whether it would work again, so it is not offered a retry. Everything else (a copy that is missing, damaged or from another connection, a
 /// connection that is read-only) fails the same way again.
 fn transient(error: &CoreError) -> bool {
     matches!(
@@ -163,9 +165,8 @@ fn transient(error: &CoreError) -> bool {
             | CoreError::ConnectionInterrupted(_)
             | CoreError::TlsHandshake
             | CoreError::TlsHandshakeSsh
-            | CoreError::Database(_)
             | CoreError::Superseded
-    )
+    ) || matches!(error, CoreError::Database(text) if text == COMMAND_TIMEOUT_MESSAGE)
 }
 
 fn texts_of(preview: &UndoPreviewState) -> Vec<UndoDocText> {

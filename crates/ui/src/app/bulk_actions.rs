@@ -843,7 +843,7 @@ pub(super) fn copy_discarded(
         ..state
     };
     match snapshots.iter().any(|s| s.run == run) {
-        true => failure(state, "snapshot_delete", CoreError::SnapshotWriteFailed),
+        true => failure(state, "snapshot_delete", CoreError::SnapshotDeleteFailed),
         false => state,
     }
 }

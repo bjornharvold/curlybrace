@@ -125,6 +125,10 @@ fn only_a_failure_that_can_clear_is_offered_a_retry() {
         UndoFlow::open(run(), "orders".into()).with_preview(UndoPreviewState::Failed(error))
     };
     assert!(failed(CoreError::Database("timeout".into())).can_retry());
+    assert!(
+        !failed(CoreError::Database("not authorized".into())).can_retry(),
+        "another database error fails the same way again"
+    );
     assert!(failed(CoreError::Unreachable).can_retry());
     assert!(!failed(CoreError::SnapshotUnreadable).can_retry());
     assert!(!failed(CoreError::SnapshotOtherConnection).can_retry());
