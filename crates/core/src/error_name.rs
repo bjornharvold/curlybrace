@@ -45,6 +45,10 @@ pub(crate) fn variant_of(error: &CoreError) -> &'static str {
         CoreError::ExportFileNotRemoved => "ExportFileNotRemoved",
         CoreError::ReadOnly => "ReadOnly",
         CoreError::CopyRefused(..) => "CopyRefused",
+        CoreError::BulkEmptyFilter => "BulkEmptyFilter",
+        CoreError::BulkScopeMismatch => "BulkScopeMismatch",
+        CoreError::BulkInvalidUpdate => "BulkInvalidUpdate",
+        CoreError::BulkPreviewUnavailable => "BulkPreviewUnavailable",
     }
 }
 

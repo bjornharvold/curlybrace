@@ -125,6 +125,23 @@ pub async fn local_mongo() -> (LocalDbs, Client, MongoStore) {
     (dbs, client, store)
 }
 
+/// Whether the server is a replica set member. Transactions (the bulk update preview) need one;
+/// when it is not, prints why `test` is skipped and returns false, like `local_enabled` does.
+pub async fn replica_set_or_skip(client: &Client, test: &str) -> bool {
+    let hello = client
+        .database("admin")
+        .run_command(bson::doc! { "hello": 1 })
+        .await;
+    let is_replica_set = hello.is_ok_and(|reply| reply.contains_key("setName"));
+    if !is_replica_set {
+        eprintln!(
+            "skipping {test}: the server is not a replica set, so it has no transactions \
+             (start one with `mongod --replSet rs0` and run `rs.initiate()` once)"
+        );
+    }
+    is_replica_set
+}
+
 /// Waits up to `limit` for the next runtime event; panics with context on timeout.
 pub async fn next_event(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<curlybrace_core::runtime::Event>,

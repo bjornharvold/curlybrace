@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 pub mod actions;
+pub mod bulk_shots;
 pub mod compare;
 pub mod compare_apply_states;
 pub mod compare_export_shots;

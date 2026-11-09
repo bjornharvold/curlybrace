@@ -20,6 +20,15 @@
 //! runtime. Commands run concurrently, so a UI that needs ordering (e.g.
 //! `Connect` before `Find`) must wait for the corresponding event first.
 
+mod bulk;
+#[cfg(test)]
+mod bulk_cancel_tests;
+#[cfg(test)]
+mod bulk_read_tests;
+#[cfg(test)]
+mod bulk_support;
+#[cfg(test)]
+mod bulk_write_tests;
 mod command;
 mod compare;
 mod config;
@@ -30,6 +39,7 @@ mod copy_failure_tests;
 mod copy_support;
 #[cfg(test)]
 mod copy_tests;
+mod dispatch;
 #[cfg(test)]
 mod epoch_tests;
 #[cfg(test)]
@@ -101,8 +111,8 @@ use crate::store::{
 use session::Session;
 
 pub use config::{
-    COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT, INDEX_BUILD_TIMEOUT, PING_TIMEOUT,
-    RuntimeConfig, default_history_path,
+    BULK_COUNT_MAX_TIME, BULK_WRITE_TIMEOUT, COMMAND_TIMEOUT, CONNECT_TIMEOUT, DUPLICATE_TIMEOUT,
+    INDEX_BUILD_TIMEOUT, PING_TIMEOUT, RuntimeConfig, default_history_path,
 };
 pub use handlers::COMMAND_TIMEOUT_MESSAGE;
 pub use indexes::IndexSeries;
@@ -317,6 +327,53 @@ pub enum Command {
     PurgeHistory {
         connection: uuid::Uuid,
     },
+    /// Counts the documents matching `filter` (bounded by `BULK_COUNT_MAX_TIME`); a read answered
+    /// with [`Event::BulkCount`], which echoes `request`. A count that outruns the client-side
+    /// bound arrives as `Event::RequestFailed { context: "bulk_count", request }`; the UI must
+    /// treat that as "count unavailable".
+    BulkCount {
+        session: SessionId,
+        ns: Namespace,
+        filter: Document,
+        request: u64,
+    },
+    /// Reads the first `BULK_PREVIEW_DOCS` documents matching `filter` ALONE (no sort, skip or
+    /// projection) and records no query history. A read, allowed on a read-only connection;
+    /// answered with [`Event::BulkSample`], which echoes `request`.
+    BulkSample {
+        session: SessionId,
+        ns: Namespace,
+        filter: Document,
+        request: u64,
+    },
+    /// Previews an update's exact result; classified as a write because the preview may run in a
+    /// transaction. Answered with [`Event::BulkPreview`], failures included.
+    BulkPreview {
+        session: SessionId,
+        ns: Namespace,
+        request: crate::bulk::BulkUpdateRequest,
+        request_id: u64,
+    },
+    /// Applies an update to every matching document; answered with [`Event::BulkFinished`].
+    BulkUpdate {
+        session: SessionId,
+        ns: Namespace,
+        request: crate::bulk::BulkUpdateRequest,
+        run: crate::bulk::BulkRunId,
+    },
+    /// Deletes every matching document; answered with [`Event::BulkFinished`].
+    BulkDelete {
+        session: SessionId,
+        ns: Namespace,
+        request: crate::bulk::BulkDeleteRequest,
+        run: crate::bulk::BulkRunId,
+    },
+    /// Best-effort cancel of a running bulk write, answered with [`Event::BulkCancelResult`]. Not
+    /// a write. Every command runs in its own task, so it is handled while the write is in flight.
+    BulkCancel {
+        session: SessionId,
+        run: crate::bulk::BulkRunId,
+    },
 }
 
 // Events are moved through a channel once; boxing `Query` would only add noise
@@ -442,6 +499,44 @@ pub enum Event {
     },
     /// The answer to a successful index write; the UI re-lists the indexes.
     IndexChanged { session: SessionId, ns: Namespace },
+    /// The answer to `BulkCount`; `count` is `None` when the server-side count timed out. A
+    /// client-side timeout is an `Event::RequestFailed { context: "bulk_count", request }` instead
+    /// (treat both as "count unavailable").
+    BulkCount {
+        session: SessionId,
+        ns: Namespace,
+        request: u64,
+        count: Option<u64>,
+    },
+    /// The answer to `BulkSample`.
+    BulkSample {
+        session: SessionId,
+        ns: Namespace,
+        request: u64,
+        docs: Vec<Document>,
+    },
+    /// The answer to `BulkPreview`. A failure is an `Err` outcome shown inline, never an
+    /// [`Event::Failed`] and never a write-unknown error.
+    BulkPreview {
+        session: SessionId,
+        ns: Namespace,
+        request_id: u64,
+        outcome: std::result::Result<crate::bulk::UpdatePreview, CoreError>,
+    },
+    /// The answer to `BulkUpdate` and `BulkDelete`. A timeout or a lost connection is
+    /// `Ok(BulkOutcome::Unknown { cancelled: false })`; an `Err` means the write never ran.
+    BulkFinished {
+        session: SessionId,
+        ns: Namespace,
+        run: crate::bulk::BulkRunId,
+        outcome: std::result::Result<crate::bulk::BulkOutcome, CoreError>,
+    },
+    /// The answer to `BulkCancel`.
+    BulkCancelResult {
+        session: SessionId,
+        run: crate::bulk::BulkRunId,
+        outcome: std::result::Result<crate::bulk::CancelEffect, CoreError>,
+    },
     /// SPONTANEOUS (no command behind it): the session's sampler started, resumed or paused. See
     /// the module docs for how this differs from "exactly one event per command".
     Sampler {
@@ -599,159 +694,8 @@ pub fn spawn_runtime_with_connector(
     });
     tokio::runtime::Handle::current().spawn(async move {
         while let Some(command) = commands.recv().await {
-            dispatch(shared.clone(), events.clone(), repaint.clone(), command);
+            dispatch::dispatch(shared.clone(), events.clone(), repaint.clone(), command);
         }
     });
     RuntimeHandle { tx, rx }
-}
-
-/// Runs one command in its own task. The work runs in an inner task so a
-/// panic surfaces as a `JoinError` here and still produces one `Failed` event.
-fn dispatch(
-    shared: Arc<Shared>,
-    events: UnboundedSender<Event>,
-    repaint: Repaint,
-    command: Command,
-) {
-    if let Command::Compare(c) = command {
-        compare::dispatch(shared, events, repaint, c);
-        return;
-    }
-    if let Command::Copy(c) = command {
-        copy::dispatch(shared, events, repaint, c);
-        return;
-    }
-    // Like Compare: independent of the connection epoch (no begin_epoch, no generation read).
-    if let Command::TestConnection {
-        request_id,
-        cfg,
-        secrets,
-    } = command
-    {
-        handlers::spawn_test(shared, events, repaint, request_id, cfg, secrets);
-        return;
-    }
-    // Synchronous, so a write sent after the lock is already refused. No session, no epoch, no
-    // answer: the caller learns of it from the next refused write.
-    if let Command::LockReadOnly { connection } = command {
-        shared.read_only.lock(connection);
-        return;
-    }
-    if let Command::SetSamplingExcluded { databases } = command {
-        shared
-            .sampler_config
-            .send_modify(|cfg| cfg.excluded_dbs = databases);
-        return;
-    }
-    if let Command::PurgeHistory { connection } = command {
-        indexes::spawn_purge(&shared, connection);
-        return;
-    }
-    // Synchronous, so request order decides: ending the session bumps its epoch before any later
-    // command is dispatched. The session is gone afterwards, so the answer needs no `Session`.
-    if let Command::Disconnect { session: id } = command {
-        let epoch = shared.end_session(id);
-        if events
-            .send(Event::Disconnected { session: id, epoch })
-            .is_ok()
-        {
-            repaint();
-        }
-        return;
-    }
-    let context = command.context();
-    let request = command.request();
-    // Synchronous, so request order decides which connection wins.
-    let (target, work) = match command {
-        Command::Connect(cfg) => {
-            let (session, generation) = shared.begin_session_epoch(cfg.id);
-            // Synchronous like the epoch, so a LockReadOnly sent after this Connect reaches the
-            // store it installs even while the connect is still in flight. A connect that fails
-            // or is superseded just drops the flag.
-            let read_only = shared.read_only.attach(cfg.id, cfg.read_only);
-            let target = Target::new(cfg.id, session, generation, false);
-            (
-                target,
-                handlers::Work::Connect {
-                    cfg: Box::new(cfg),
-                    read_only,
-                },
-            )
-        }
-        data => {
-            let id = data.session().expect("a data command names its session");
-            let Some(session) = shared.session(id) else {
-                let error = CoreError::Unsupported("not connected".into());
-                let unknown = match profiler_handlers::profiler_db(&data) {
-                    Some(db) => profiler_handlers::profiler_failure(id, db.to_owned(), error),
-                    None => handlers::failure_event(id, context, request, 0, error),
-                };
-                if events.send(unknown).is_ok() {
-                    repaint();
-                }
-                return;
-            };
-            let generation = session.generation();
-            let target = Target::new(id, session, generation, true);
-            (target, handlers::Work::Data(Box::new(data)))
-        }
-    };
-    tokio::spawn(async move {
-        let Target {
-            id,
-            session,
-            generation,
-            is_data,
-        } = target;
-        let work = handlers::execute(shared.clone(), session.clone(), id, work, generation);
-        let event = match tokio::spawn(work).await {
-            Ok(event) => event,
-            Err(_) => handlers::failure_event(
-                id,
-                context,
-                request,
-                generation,
-                handlers::gate(
-                    &session,
-                    generation,
-                    CoreError::Database("internal error".into()),
-                ),
-            ),
-        };
-        let connected = matches!(event, Event::Connected { .. });
-        if handlers::send_answer(&session, id, generation, is_data, context, event, &events) {
-            repaint();
-        }
-        // After `Connected` is queued, so the sampler's first status can never overtake it.
-        if connected {
-            indexes::start_sampler(
-                &shared,
-                &session,
-                id,
-                generation,
-                events.clone(),
-                repaint.clone(),
-            );
-            profiler_start::start_profiler(&shared, &session, id, generation, events, repaint);
-        }
-    });
-}
-
-/// The session a dispatched command runs against, with the epoch it was dispatched in.
-struct Target {
-    id: SessionId,
-    session: Arc<Session>,
-    generation: u64,
-    is_data: bool,
-}
-
-impl Target {
-    fn new(id: SessionId, session: Arc<Session>, generation: u64, is_data: bool) -> Self {
-        Self {
-            id,
-            session,
-            generation,
-            is_data,
-        }
-    }
 }

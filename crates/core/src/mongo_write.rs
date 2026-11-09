@@ -286,13 +286,33 @@ fn check_write_concern(reply: &Document) -> Result<()> {
     Ok(())
 }
 
-/// The reply's `n` (matched / deleted count).
+/// The reply's `n` (matched / deleted count); 0 when it cannot be read.
 pub(crate) fn matched_count(reply: &Document) -> usize {
-    match reply.get("n") {
-        Some(Bson::Int32(n)) => usize::try_from(*n).unwrap_or(0),
-        Some(Bson::Int64(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    }
+    count_of(reply, "n")
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(0)
+}
+
+/// A non-negative whole count under `key`, of any numeric BSON type; `None` when it is absent,
+/// not a number, fractional or negative.
+pub(crate) fn count_of(reply: &Document, key: &str) -> Option<u64> {
+    u64::try_from(whole_number(reply.get(key)?)?).ok()
+}
+
+/// Whether the command succeeded (`ok` is 1 in any numeric type).
+pub(crate) fn reply_ok(reply: &Document) -> bool {
+    reply.get("ok").and_then(whole_number) == Some(1)
+}
+
+/// The code of the first entry of a reply's `writeErrors`: `None` without one, `Some(None)` when
+/// the entry or its code cannot be read. Only the number is kept, never the server's text.
+pub(crate) fn write_error_code(reply: &Document) -> Option<Option<i32>> {
+    let first = reply.get_array("writeErrors").ok()?.first()?;
+    let code = first.as_document().and_then(|d| d.get("code"));
+    Some(
+        code.and_then(whole_number)
+            .and_then(|c| i32::try_from(c).ok()),
+    )
 }
 
 /// `writeErrors` of a reply as failures: `position_of` maps the command-local index back to the
@@ -321,13 +341,18 @@ pub(crate) fn map_write_errors(
         .collect()
 }
 
-fn error_number(value: &Bson) -> i64 {
+/// An integer from an Int32, Int64 or whole, finite Double; `None` for anything else.
+fn whole_number(value: &Bson) -> Option<i64> {
     match value {
-        Bson::Int32(n) => i64::from(*n),
-        Bson::Int64(n) => *n,
-        Bson::Double(n) => *n as i64,
-        _ => -1,
+        Bson::Int32(n) => Some(i64::from(*n)),
+        Bson::Int64(n) => Some(*n),
+        Bson::Double(n) if n.is_finite() && n.fract() == 0.0 => Some(*n as i64),
+        _ => None,
     }
+}
+
+fn error_number(value: &Bson) -> i64 {
+    whole_number(value).unwrap_or(-1)
 }
 
 fn failure_for_code(code: i32) -> WriteFailure {

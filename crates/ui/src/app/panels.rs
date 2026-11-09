@@ -15,6 +15,7 @@ use crate::theme::{
 };
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, IndexesAction, ProfilingView, copy_blocked};
+use crate::views::bulk_dialog::show_bulk_dialog;
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections_with_tools};
@@ -237,6 +238,7 @@ fn show_collection(
     show_verdict(ui, state, i18n);
     state.view_mode = show_mode_switcher(ui, state.view_mode, i18n);
     ui.separator();
+    let bulk = state.bulk_entry();
     let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
         let empty = if state.loading_page {
             "browser.loading"
@@ -258,6 +260,7 @@ fn show_collection(
             connection: &connection,
             production: badge.production,
             read_only: badge.read_only,
+            bulk,
         },
         i18n,
     );
@@ -331,6 +334,7 @@ pub fn show_modals(
     });
     out.extend(built.map(|a| UiEvent::Input(Input::Indexes(a))));
     show_index_dialogs(ctx, state, &connection, i18n, out);
+    show_bulk(ctx, state, i18n, out);
     let decided = prompt.current().and_then(|(host, fingerprint)| {
         let asking = state.connecting_name_for_host(host, i18n);
         show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)
@@ -351,6 +355,20 @@ pub fn show_modals(
         );
         show_forget_confirm(ctx, &message, i18n, out);
     }
+}
+
+/// The bulk update / delete dialog while a flow is open. It names the connection the flow was
+/// opened on (which may no longer be the active one) and carries that connection's badge.
+fn show_bulk(ctx: &egui::Context, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    let Some(bulk) = &state.bulk else {
+        return;
+    };
+    let name = state
+        .open_label(bulk.session, i18n)
+        .unwrap_or_else(|| i18n.t("doc.connection_unknown"));
+    let badge = state.session_badge(bulk.session);
+    let action = show_bulk_dialog(ctx, &bulk.flow, &name, &badge, i18n);
+    out.extend(action.map(|a| UiEvent::Input(Input::Bulk(a))));
 }
 
 /// The small modals of the index writes (drop confirmation, "drop the old index?", TTL input),

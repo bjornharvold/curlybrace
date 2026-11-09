@@ -4,7 +4,8 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const PREFIXES: [&str; 8] = [
+const PREFIXES: [&str; 9] = [
+    "bulk.",
     "compare.",
     "connection.",
     "connections.",
@@ -99,6 +100,7 @@ fn referenced() -> BTreeSet<String> {
     );
     // Core returns i18n keys for the UI (as string literals) from these production files.
     files.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/src/compare/apply_fields.rs"));
+    files.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/src/bulk.rs"));
     // Test code is either in `*_tests.rs` files (skipped above) or in an inline `#[cfg(test)]`
     // module, which `production_text` cuts off, so what is left is production code.
     files

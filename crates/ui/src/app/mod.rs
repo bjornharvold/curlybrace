@@ -5,6 +5,9 @@
 //! * `panels`: the thin egui layer
 mod actions;
 mod banner;
+mod bulk_actions;
+pub use bulk_actions::BulkAction;
+pub mod bulk_state;
 pub mod compare;
 mod compare_apply;
 mod compare_checks;
@@ -860,6 +863,27 @@ mod read_only_snapshot_tests;
 mod connection_lock_tests;
 
 #[cfg(test)]
+mod bulk_answer_tests;
+
+#[cfg(test)]
+mod bulk_finish_tests;
+
+#[cfg(test)]
+mod bulk_open_tests;
+
+#[cfg(test)]
+mod bulk_preview_lock_tests;
+
+#[cfg(test)]
+mod bulk_reconnect_tests;
+
+#[cfg(test)]
+mod bulk_run_tests;
+
+#[cfg(test)]
+mod bulk_test_support;
+
+#[cfg(test)]
 mod copy_documents_tests;
 
 #[cfg(test)]
@@ -879,3 +903,6 @@ mod copy_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod bulk_entry_tests;

@@ -322,7 +322,11 @@ impl AppState {
     /// The active session's view after its connect failed: everything cleared except what
     /// identifies the attempt (its epoch and endpoint), plus the error.
     pub fn failed(self, error: CoreError) -> AppState {
-        let mut next = self.write_warning_dropped_for_active();
+        let session = self.session_id();
+        // A running bulk write keeps its flow: its finish is still coming and is reported.
+        let mut next = self
+            .write_warning_dropped_for_active()
+            .bulk_dropped_for(session, true);
         let old = next.take_view();
         next.restore_view(SessionView {
             status: ConnStatus::Failed,
@@ -342,7 +346,11 @@ impl AppState {
 
     /// Forgets a session and its parked view; dropping the active one leaves no active view.
     pub fn session_dropped(self, id: Uuid) -> AppState {
-        let mut next = self.write_warning_dropped_for(id);
+        // The session is closed: there is no view left to report on, and a flow kept for it would
+        // stay Running (and block every other bulk flow) forever, so even a running one goes.
+        let mut next = self
+            .write_warning_dropped_for(id)
+            .bulk_dropped_for(id, false);
         next.open.retain(|open| *open != id);
         next.parked.remove(&id);
         next.selection = std::mem::take(&mut next.selection).without_session(id);

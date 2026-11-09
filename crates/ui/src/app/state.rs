@@ -103,7 +103,13 @@ impl Banner {
                     | "create_index"
                     | "drop_index"
                     | "set_index_hidden"
-                    | "set_index_ttl",
+                    | "set_index_ttl"
+                    // `bulk_cancel` is deliberately absent: its failure raises a banner while
+                    // the flow stays open, and a later connect must not withdraw it.
+                    | "bulk_count"
+                    | "bulk_sample"
+                    | "bulk_update"
+                    | "bulk_delete",
                 ..
             }
         )
@@ -234,6 +240,12 @@ pub struct AppState {
     /// A write to a production connection waiting for the user's confirmation. Not part of a
     /// session view: the parked command names its session and is re-validated on confirm.
     pub write_warning: Option<super::write_guard::ParkedWrite>,
+    /// The open bulk update / delete flow. Not part of a session view either: it names its
+    /// session and is closed when that session is closed or reopened.
+    pub bulk: Option<super::bulk_state::BulkState>,
+    /// Bulk count, preview and sample requests numbered so far. One counter for every flow, so
+    /// the answer of a closed flow never matches a later one.
+    pub bulk_requests: u64,
     pub persist: PersistGuard,
     pub banner: Option<Banner>,
     /// A startup notice waiting for the single banner slot: it is shown, once, as soon as the
@@ -343,6 +355,7 @@ impl AppState {
             editor: None,
             pending: None,
             write_warning: None,
+            bulk: None,
             forget_confirm: None,
             open: Vec::new(),
             active: None,

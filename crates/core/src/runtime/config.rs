@@ -16,6 +16,13 @@ pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 /// app reports an unknown outcome.
 pub const INDEX_BUILD_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
+/// Upper bound for a bulk update or delete. It can touch a whole collection, so it runs as long
+/// as an index build; cutting it off answers an unknown outcome, never a failure.
+pub const BULK_WRITE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
+
+/// Server-side time limit of the match count shown before a bulk write.
+pub const BULK_COUNT_MAX_TIME: Duration = Duration::from_secs(10);
+
 /// Upper bound for the reachability ping that follows a suspect failure of a data command.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -41,6 +48,8 @@ pub struct RuntimeConfig {
     pub command_timeout: Duration,
     /// Bound for an index build; every other data command keeps `command_timeout`.
     pub index_build_timeout: Duration,
+    /// Bound for a bulk update or delete; their previews, counts and cancels keep `command_timeout`.
+    pub bulk_write_timeout: Duration,
     /// Bound for the ping that settles a lost connection or a timed-out command.
     pub ping_timeout: Duration,
     /// Bound for a Connect, including an SSH host-key prompt waiting for the user.
@@ -74,6 +83,7 @@ impl Default for RuntimeConfig {
         Self {
             command_timeout: COMMAND_TIMEOUT,
             index_build_timeout: INDEX_BUILD_TIMEOUT,
+            bulk_write_timeout: BULK_WRITE_TIMEOUT,
             ping_timeout: PING_TIMEOUT,
             connect_timeout: CONNECT_TIMEOUT,
             duplicate_timeout: DUPLICATE_TIMEOUT,

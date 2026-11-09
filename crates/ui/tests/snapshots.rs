@@ -238,6 +238,83 @@ fn index_builder() {
     Shot::sized((1000.0, 1000.0), vec![], setup).snapshot("index_builder");
 }
 
+/// A bulk dialog step in light and dark: `name` and `name_dark`. The dialog is taller than the
+/// standard window.
+macro_rules! bulk_shot {
+    ($name:ident, $dark:ident, $setup:path) => {
+        #[test]
+        #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+        fn $name() {
+            if !snapshots_enabled(stringify!($name)) {
+                return;
+            }
+            Shot::sized((1000.0, 900.0), vec![], $setup).snapshot(stringify!($name));
+        }
+
+        #[test]
+        #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+        fn $dark() {
+            if !snapshots_enabled(stringify!($dark)) {
+                return;
+            }
+            Shot::sized((1000.0, 900.0), vec![], $setup)
+                .mode(Mode::Dark)
+                .snapshot(stringify!($dark));
+        }
+    };
+}
+
+bulk_shot!(
+    bulk_define_update,
+    bulk_define_update_dark,
+    support::bulk_shots::define_update
+);
+bulk_shot!(
+    bulk_preview_update,
+    bulk_preview_update_dark,
+    support::bulk_shots::preview_update
+);
+bulk_shot!(
+    bulk_preview_update_degraded,
+    bulk_preview_update_degraded_dark,
+    support::bulk_shots::preview_update_degraded
+);
+bulk_shot!(
+    bulk_preview_delete,
+    bulk_preview_delete_dark,
+    support::bulk_shots::preview_delete
+);
+bulk_shot!(
+    bulk_confirm_all_documents,
+    bulk_confirm_all_documents_dark,
+    support::bulk_shots::confirm_all_documents
+);
+bulk_shot!(
+    bulk_running,
+    bulk_running_dark,
+    support::bulk_shots::running
+);
+bulk_shot!(
+    bulk_report_applied,
+    bulk_report_applied_dark,
+    support::bulk_shots::report_applied
+);
+bulk_shot!(
+    bulk_report_unknown,
+    bulk_report_unknown_dark,
+    support::bulk_shots::report_unknown
+);
+bulk_shot!(
+    bulk_report_rejected,
+    bulk_report_rejected_dark,
+    support::bulk_shots::report_rejected
+);
+bulk_shot!(
+    bulk_report_unconfirmed,
+    bulk_report_unconfirmed_dark,
+    support::bulk_shots::report_unconfirmed
+);
+
 shot!(
     sessions_tree_production_root,
     vec![],

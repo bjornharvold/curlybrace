@@ -1,3 +1,4 @@
+pub mod bulk;
 pub mod client;
 #[cfg(test)]
 mod client_app_name_tests;
@@ -17,6 +18,9 @@ mod error_name;
 pub mod explain;
 pub mod history;
 pub mod indexes;
+mod mongo_bulk;
+mod mongo_bulk_cancel;
+mod mongo_bulk_preview;
 mod mongo_collection_options;
 mod mongo_explain;
 mod mongo_indexes;

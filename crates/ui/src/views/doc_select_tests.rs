@@ -1,7 +1,7 @@
 //! Picking documents in the three views and the selection bar, through the accesskit tree.
 use super::documents::{DocTarget, show_documents};
 use crate::I18n;
-use crate::viewmodel::{DocAction, DocCopy, TreeState, ViewMode};
+use crate::viewmodel::{BulkEntry, DocAction, DocCopy, TreeState, ViewMode};
 use bson::{Bson, doc};
 use curlybrace_core::store::Page;
 use egui_kittest::Harness;
@@ -40,6 +40,7 @@ fn pane(mode: ViewMode, state: TreeState, read_only: bool) -> Harness<'static, P
                 connection: "test",
                 production: false,
                 read_only: pane.read_only,
+                bulk: BulkEntry::Available,
             };
             let got = show_documents(ui, mode, &page(), &mut pane.state, target, &I18n::english());
             pane.actions.extend(got);

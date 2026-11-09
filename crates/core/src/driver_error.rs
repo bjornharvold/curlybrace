@@ -31,6 +31,11 @@ pub enum Reach {
     Suspect,
 }
 
+/// Whether the driver error is the server giving up on a `maxTimeMS` limit.
+pub fn is_time_limit_expiry(e: &mongodb::error::Error) -> bool {
+    server_code(&e.kind) == Some(CODE_MAX_TIME_MS_EXPIRED)
+}
+
 /// Pure classification from the facts extracted from a driver error: the server error code
 /// (when it has one), whether the driver itself reported an authentication failure, what the
 /// kind says about reaching the server, and the driver's text for the generic case.
@@ -54,6 +59,11 @@ pub fn classify_parts(
 }
 
 /// The server error code carried by a driver error, if any.
+pub fn server_error_code(e: &mongodb::error::Error) -> Option<i32> {
+    server_code(&e.kind)
+}
+
+/// The server code of a command failure or a write error, if the kind carries one.
 fn server_code(kind: &ErrorKind) -> Option<i32> {
     match kind {
         ErrorKind::Command(c) => Some(c.code),
@@ -208,6 +218,12 @@ mod tests {
             classify_driver_error(&command_error(50)),
             CoreError::Database("timeout".into())
         );
+    }
+
+    #[test]
+    fn only_a_max_time_error_is_a_time_limit_expiry() {
+        assert!(is_time_limit_expiry(&command_error(50)));
+        assert!(!is_time_limit_expiry(&command_error(13)));
     }
 
     #[test]

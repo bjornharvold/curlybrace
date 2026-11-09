@@ -17,6 +17,8 @@ pub enum DocAction {
     Insert,
     /// Copy documents of the shown collection to the copy clipboard (nothing is written).
     Copy(DocCopy),
+    /// Start a bulk update or delete of the documents the shown filter matches.
+    Bulk(super::BulkKind),
 }
 
 /// An entry of the row context menu. Only Copy leaves the connection untouched.

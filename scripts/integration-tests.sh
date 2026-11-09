@@ -76,6 +76,9 @@ run() { # run <label> <command...>: keep going so every target runs, then report
 }
 run "core local_mongo_crud" \
   cargo test -p curlybrace-core --test local_mongo_crud --locked -- --include-ignored --nocapture "$@"
+# local_bulk: the preview tests need a replica set and skip (with a message) on a standalone server.
+run "core local_bulk" \
+  cargo test -p curlybrace-core --test local_bulk --locked -- --include-ignored --nocapture "$@"
 run "core local_compare_store" \
   cargo test -p curlybrace-core --test local_compare_store --locked -- --include-ignored --nocapture "$@"
 run "core local_duplicate_keys" \

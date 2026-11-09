@@ -123,7 +123,9 @@ pub(super) fn finalize(
     context: &'static str,
     event: Event,
 ) -> Event {
-    if session.is_current(generation) {
+    // A finished bulk write is the one answer that outlives its session: it may report changes
+    // the server applied, so it is never replaced by `Superseded`.
+    if session.is_current(generation) || matches!(event, Event::BulkFinished { .. }) {
         event
     } else {
         Event::Failed {
@@ -205,6 +207,12 @@ async fn run(
     if is_write && !is_profiler && store.is_read_only() {
         return Err(gate(session, generation, CoreError::ReadOnly));
     }
+    // Bulk commands settle their own outcomes: a lost write is `Unknown`, never a ping-settled
+    // failure.
+    let command = match super::bulk::Bulk::from_command(command) {
+        Ok(bulk) => return super::bulk::run(shared, session, id, store, generation, bulk).await,
+        Err(command) => command,
+    };
     // A command issued for a connection that was replaced meanwhile must not run against the
     // new one (the store installed now may be the new connection's).
     if is_profiler && !session.is_current(generation) {
@@ -409,14 +417,22 @@ async fn data_command(
         | Command::TestConnection { .. }
         | Command::LockReadOnly { .. }
         | Command::SetSamplingExcluded { .. }
-        | Command::PurgeHistory { .. } => {
-            unreachable!("connection, compare and copy commands are handled before data dispatch")
+        | Command::PurgeHistory { .. }
+        | Command::BulkCount { .. }
+        | Command::BulkSample { .. }
+        | Command::BulkPreview { .. }
+        | Command::BulkUpdate { .. }
+        | Command::BulkDelete { .. }
+        | Command::BulkCancel { .. } => {
+            unreachable!(
+                "connection, compare, copy and bulk commands are handled before data dispatch"
+            )
         }
     })
 }
 
 /// Applies the timeout; an elapsed deadline becomes `Database("timeout")`.
-async fn bounded<T>(
+pub(super) async fn bounded<T>(
     limit: std::time::Duration,
     work: impl Future<Output = Result<T>>,
 ) -> Result<T> {

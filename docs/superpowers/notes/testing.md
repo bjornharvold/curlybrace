@@ -57,6 +57,9 @@ Targets (select one with `cargo test --test <name>`, with `CURLYBRACE_IT=1` and
 
 - `curlybrace-core` `local_mongo_crud` - listing, paging (50/page, 100/101/120 docs),
   sort/projection/filter, replace/delete for every `_id` kind, `DocumentService`, exotic BSON.
+- `curlybrace-core` `local_bulk` - bulk count / update / delete / cancel. Its transaction-based preview tests
+  need a replica set: on a standalone server they detect it (`hello.setName`) and skip with a printed message.
+  Start one with `mongod --replSet rs0 --dbpath <dir>` and run `rs.initiate()` once.
 - `curlybrace-core` `local_compare_session` and `local_compare_apply` - a runtime compare of two real databases, and the apply
   path: `MongoStore::bulk_write` plus end-to-end apply flows (`_id` and business-key convergence, stale documents,
   `IdPolicy::Generate`, a unique-index violation, a view destination, cancelling 5,000 inserts). They WRITE to

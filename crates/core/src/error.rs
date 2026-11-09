@@ -122,6 +122,18 @@ pub enum CoreError {
     /// no name or value is carried.
     #[error("copy refused: {0}")]
     CopyRefused(CopyRefusal),
+    /// A bulk write has an empty filter and was not marked as meant for every document.
+    #[error("bulk: the filter is empty")]
+    BulkEmptyFilter,
+    /// A bulk write was marked as meant for every document but has a filter.
+    #[error("bulk: the filter does not match the all-documents choice")]
+    BulkScopeMismatch,
+    /// The update is not an operator document or an allowed pipeline. No value is carried.
+    #[error("bulk: the update is not valid")]
+    BulkInvalidUpdate,
+    /// The update preview could not be produced. No server text is carried.
+    #[error("bulk: the preview is unavailable")]
+    BulkPreviewUnavailable,
 }
 
 /// Why a copy request was refused. Fixed variants only: a name is data and is never echoed.
@@ -198,6 +210,10 @@ impl CoreError {
             Self::ExportFileNotRemoved => "errors.export_file_not_removed",
             Self::ReadOnly => "errors.read_only",
             Self::CopyRefused(reason) => reason.i18n_key(),
+            Self::BulkEmptyFilter => "errors.bulk_empty_filter",
+            Self::BulkScopeMismatch => "errors.bulk_scope_mismatch",
+            Self::BulkInvalidUpdate => "errors.bulk_invalid_update",
+            Self::BulkPreviewUnavailable => "errors.bulk_preview_unavailable",
         }
     }
 }
@@ -251,6 +267,10 @@ mod tests {
             CoreError::CopyRefused(CopyRefusal::InvalidTargetName),
             CoreError::CopyRefused(CopyRefusal::ServerOwned),
             CoreError::CopyRefused(CopyRefusal::OntoItself),
+            CoreError::BulkEmptyFilter,
+            CoreError::BulkScopeMismatch,
+            CoreError::BulkInvalidUpdate,
+            CoreError::BulkPreviewUnavailable,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.
