@@ -7,7 +7,6 @@ use super::typed_confirmation::typed_text_matches;
 use curlybrace_core::bulk::{BulkRunId, UndoPreview};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::snapshot::UndoReport;
-use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UndoStep {
@@ -118,9 +117,55 @@ impl UndoFlow {
     }
 
     /// The preview documents as shown (cut once when the preview was stored).
-    pub fn preview_docs(&self) -> Cow<'_, [UndoDocText]> {
-        Cow::Borrowed(&self.preview_text)
+    pub fn preview_docs(&self) -> &[UndoDocText] {
+        &self.preview_text
     }
+
+    /// Whether a second try can get anywhere: the preview or the undo failed for a reason that
+    /// can clear (the connection, a timeout), or some documents could not be restored. A copy
+    /// that is gone, damaged or from another connection fails the same way every time.
+    pub fn can_retry(&self) -> bool {
+        match (&self.step, &self.preview, &self.report) {
+            (UndoStep::Confirm, UndoPreviewState::Failed(error), _) => transient(error),
+            (UndoStep::Report, _, Some(Err(error))) => transient(error),
+            (UndoStep::Report, _, Some(Ok(report))) => report.errors > 0,
+            _ => false,
+        }
+    }
+
+    /// A failed preview, to be read again; the typed name stays empty.
+    pub fn retry_preview(self) -> Self {
+        let retry = self.step == UndoStep::Confirm
+            && matches!(&self.preview, UndoPreviewState::Failed(e) if transient(e));
+        match retry {
+            true => Self {
+                preview: UndoPreviewState::Pending,
+                preview_text: Vec::new(),
+                typed: String::new(),
+                ..self
+            },
+            false => self,
+        }
+    }
+}
+
+/// Errors a second try can get past: the connection or the server was not there, or the answer
+/// was lost. Everything else (a copy that is missing, damaged or from another connection, a
+/// connection that is read-only) fails the same way again.
+fn transient(error: &CoreError) -> bool {
+    matches!(
+        error,
+        CoreError::WriteOutcomeUnknown
+            | CoreError::Unreachable
+            | CoreError::UnreachableSsh
+            | CoreError::UnreachableWrite
+            | CoreError::UnreachableWriteSsh
+            | CoreError::ConnectionInterrupted(_)
+            | CoreError::TlsHandshake
+            | CoreError::TlsHandshakeSsh
+            | CoreError::Database(_)
+            | CoreError::Superseded
+    )
 }
 
 fn texts_of(preview: &UndoPreviewState) -> Vec<UndoDocText> {

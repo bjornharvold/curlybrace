@@ -115,6 +115,11 @@ fn on_event(state: AppState, ev: Event) -> Out {
     match (ev, session) {
         (Event::Compare(e), _) => compare::on_event(state, e),
         (Event::Copy(e), _) => copy::on_event(state, e),
+        // Has no session: the listing after the deletion of an undo copy.
+        (Event::Snapshots { request, snapshots }, _) => (
+            bulk_actions::copy_discarded(state, request, &snapshots),
+            Vec::new(),
+        ),
         (
             Event::TestConnection {
                 request_id,

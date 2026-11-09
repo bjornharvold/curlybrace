@@ -10,10 +10,11 @@ use crate::app::BulkAction;
 use crate::theme::{Tone, filled_button, gate, text_button};
 use crate::viewmodel::{BulkFlow, UndoDocText, UndoFlow, UndoPreviewState, UndoStep};
 use curlybrace_core::bulk::{UndoPolicy, UndoStatus};
-use curlybrace_core::snapshot::UndoReport;
+use curlybrace_core::snapshot::{RETENTION_SECS, UndoReport};
 use eframe::egui;
 
 const SAMPLES_MAX_HEIGHT: f32 = 360.0;
+const SECS_PER_DAY: i64 = 24 * 60 * 60;
 
 /// Where the undo copy is kept, as said to the person; a fallback wording when the OS gives no
 /// settings folder.
@@ -30,7 +31,9 @@ pub(super) fn undo_notice(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) {
         UndoPolicy::None => tone_notice(ui, Tone::Bad, &i18n.t("bulk.cannot_undo"), true),
         UndoPolicy::Snapshot => {
             let folder = snapshot_folder(flow, i18n);
-            let text = i18n.t_with("bulk.undo.copy_notice", &[("folder", &folder)]);
+            let days = (RETENTION_SECS / SECS_PER_DAY).to_string();
+            let params = [("folder", folder.as_str()), ("days", days.as_str())];
+            let text = i18n.t_with("bulk.undo.copy_notice", &params);
             tone_notice(ui, Tone::Neutral, &text, false);
         }
     }
@@ -51,15 +54,25 @@ pub(super) fn report_undo_status(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n
         UndoStatus::NotRequested | UndoStatus::NothingToUndo => {}
         UndoStatus::Lost => tone_notice(ui, Tone::Bad, &i18n.t("bulk.undo.lost"), true),
         UndoStatus::Uncovered(n) => {
-            let text = i18n.t_with("bulk.undo.uncovered_only", &[("n", &n.to_string())]);
+            let key = match n {
+                1 => "bulk.undo.uncovered_only_one",
+                _ => "bulk.undo.uncovered_only",
+            };
+            let text = i18n.t_with(key, &[("n", &n.to_string())]);
             tone_notice(ui, Tone::Warning, &text, true);
         }
         UndoStatus::Offered(offer) => {
-            let n = offer.documents.to_string();
-            ui.label(i18n.t_with("bulk.undo.available", &[("n", &n)]));
+            let key = match offer.documents {
+                1 => "bulk.undo.available_one",
+                _ => "bulk.undo.available",
+            };
+            ui.label(i18n.t_with(key, &[("n", &offer.documents.to_string())]));
             if offer.uncovered > 0 {
-                let more = offer.uncovered.to_string();
-                let text = i18n.t_with("bulk.undo.uncovered", &[("n", &more)]);
+                let key = match offer.uncovered {
+                    1 => "bulk.undo.uncovered_one",
+                    _ => "bulk.undo.uncovered",
+                };
+                let text = i18n.t_with(key, &[("n", &offer.uncovered.to_string())]);
                 tone_notice(ui, Tone::Warning, &text, false);
             }
         }
@@ -139,8 +152,11 @@ fn confirm_body(
             None
         }
         UndoPreviewState::Ready(preview) => {
-            let n = preview.documents.to_string();
-            ui.label(i18n.t_with("bulk.undo.intro", &[("n", &n)]));
+            let key = match preview.documents {
+                1 => "bulk.undo.intro_one",
+                _ => "bulk.undo.intro",
+            };
+            ui.label(i18n.t_with(key, &[("n", &preview.documents.to_string())]));
             ui.label(egui::RichText::new(i18n.t("bulk.undo.preview_heading")).strong());
             samples(ui, undo, i18n);
             typed_field(ui, undo, i18n)
@@ -154,7 +170,7 @@ fn samples(ui: &mut egui::Ui, undo: &UndoFlow, i18n: &I18n) {
         .max_height(SAMPLES_MAX_HEIGHT)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            for doc in undo.preview_docs().iter() {
+            for doc in undo.preview_docs() {
                 sample(ui, doc, i18n);
             }
         });
@@ -228,15 +244,6 @@ fn counts(ui: &mut egui::Ui, report: &UndoReport, i18n: &I18n) {
     }
 }
 
-/// Whether the report is one worth retrying: the undo did not finish, or some documents failed.
-fn retryable(undo: &UndoFlow) -> bool {
-    match &undo.report {
-        Some(Err(_)) => true,
-        Some(Ok(report)) => report.errors > 0,
-        None => false,
-    }
-}
-
 pub(super) fn undo_footer(ui: &mut egui::Ui, undo: &UndoFlow, i18n: &I18n) -> Option<BulkAction> {
     match undo.step {
         UndoStep::Confirm => {
@@ -252,6 +259,10 @@ pub(super) fn undo_footer(ui: &mut egui::Ui, undo: &UndoFlow, i18n: &I18n) -> Op
             if run.clicked() {
                 action = Some(BulkAction::RunUndo);
             }
+            // A preview that failed for a reason that can clear is read again from here.
+            if undo.can_retry() && filled_button(ui, i18n.t("bulk.undo.retry")).clicked() {
+                action = Some(BulkAction::RetryUndo);
+            }
             action
         }
         // The undo is not stopped halfway: documents already restored stay restored.
@@ -264,7 +275,12 @@ pub(super) fn undo_footer(ui: &mut egui::Ui, undo: &UndoFlow, i18n: &I18n) -> Op
             if close.clicked() {
                 action = Some(BulkAction::Close);
             }
-            if retryable(undo) && filled_button(ui, i18n.t("bulk.undo.retry")).clicked() {
+            // Everything restored: the copy is no longer needed, and it is plain text on disk.
+            let restored = matches!(&undo.report, Some(Ok(r)) if r.errors == 0);
+            if restored && text_button(ui, i18n.t("bulk.undo.discard_after")).clicked() {
+                action = Some(BulkAction::DiscardCopy);
+            }
+            if undo.can_retry() && filled_button(ui, i18n.t("bulk.undo.retry")).clicked() {
                 action = Some(BulkAction::RetryUndo);
             }
             action

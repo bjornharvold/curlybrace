@@ -175,9 +175,10 @@ fn the_undo_report_lands_and_the_page_is_read_again() {
 fn a_refused_undo_is_told_in_its_report_where_it_can_be_retried() {
     let (s, id, _) = undo_ready();
     let (s, _) = act(s, BulkAction::RunUndo);
-    let (s, _) = ev(s, failed(id, "bulk_undo", CoreError::ReadOnly));
+    let timeout = CoreError::Database("timeout".into());
+    let (s, _) = ev(s, failed(id, "bulk_undo", timeout.clone()));
     assert_eq!(undo_of(&s).step, UndoStep::Report);
-    assert_eq!(undo_of(&s).report, Some(Err(CoreError::ReadOnly)));
+    assert_eq!(undo_of(&s).report, Some(Err(timeout)));
     assert!(s.pending.is_none());
     let (s, cmds) = act(s, BulkAction::RetryUndo);
     assert!(matches!(&cmds[..], [Command::BulkUndoPreview { .. }]));
@@ -265,10 +266,148 @@ fn running_without_undo_is_only_possible_after_a_refused_copy() {
 }
 
 #[test]
-fn opening_a_flow_records_where_the_undo_copy_will_be_kept() {
+fn without_a_snapshot_folder_the_write_is_the_old_one_that_cannot_be_undone() {
+    let (mut s, id) = browsing(config(false, false));
+    s.snapshot_dir = None;
+    let (s, cmds) = act(s, BulkAction::Open(BulkKind::Delete));
+    let (s, _) = ev(s, count_answer(id, count_id(&cmds), Some(5)));
+    assert_eq!(flow(&s).undo_policy, UndoPolicy::None);
+    assert_eq!(flow(&s).undo_folder, None);
+    let (s, cmds) = act(s, BulkAction::Next);
+    let (s, _) = ev(s, preview_answer(id, BulkKind::Delete, preview_id(&cmds)));
+    let (s, _) = act(s, BulkAction::Next);
+    let (s, _) = act(s, BulkAction::SetTyped("orders".into()));
+    let (_, cmds) = act(s, BulkAction::Run);
+    assert!(matches!(
+        &cmds[..],
+        [Command::BulkDelete {
+            undo: UndoPolicy::None,
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn the_dialog_names_the_folder_the_runtime_was_given() {
     let (s, _) = plain();
     let (s, _) = act(s, BulkAction::Open(BulkKind::Delete));
-    let want =
-        curlybrace_core::runtime::default_snapshot_dir().map(|dir| dir.display().to_string());
-    assert_eq!(flow(&s).undo_folder, want);
+    assert_eq!(flow(&s).undo_folder.as_deref(), Some("/snapshots"));
+}
+
+#[test]
+fn a_running_undo_survives_a_lost_connection_and_a_reconnect() {
+    let (s, id, _) = undo_ready();
+    let (s, _) = act(s, BulkAction::RunUndo);
+    assert_eq!(undo_of(&s).step, UndoStep::Running);
+    // `keep_running` is what a lost connection and a reconnect pass.
+    let kept = s.bulk_dropped_for(id, true);
+    assert!(
+        kept.bulk.is_some(),
+        "its report must still have a place to land"
+    );
+    // Closing the session drops it.
+    assert!(kept.bulk_dropped_for(id, false).bulk.is_none());
+}
+
+#[test]
+fn an_undo_that_is_not_running_is_dropped_with_a_lost_connection() {
+    let (s, id, _) = undo_ready();
+    assert!(s.bulk_dropped_for(id, true).bulk.is_none());
+}
+
+#[test]
+fn leaving_the_undo_forgets_the_preview_it_awaited() {
+    let (s, id, run) = reported_with_copy();
+    let (s, cmds) = act(s, BulkAction::OpenUndo);
+    let awaited = undo_request(&cmds);
+    let (s, _) = act(s, BulkAction::CloseUndo);
+    assert_eq!(s.bulk.as_ref().unwrap().undo_request, None);
+    // The late answer of the abandoned preview is not taken for anything.
+    let (s, _) = ev(s, undo_preview_event(id, run, awaited));
+    assert!(flow(&s).undo_flow.is_none());
+    let timeout = CoreError::Database("timeout".into());
+    let (s, _) = ev(s, failed(id, "bulk_undo_preview", timeout));
+    assert!(flow(&s).undo_flow.is_none());
+}
+
+#[test]
+fn a_copy_that_is_still_there_after_deleting_it_is_told() {
+    let (s, _, run) = reported_with_copy();
+    let (s, cmds) = act(s, BulkAction::DiscardCopy);
+    let request = match &cmds[..] {
+        [Command::SnapshotDelete { request, .. }] => *request,
+        other => panic!("expected SnapshotDelete, got {other:?}"),
+    };
+    let still_listed = curlybrace_core::snapshot::SnapshotInfo {
+        run,
+        ns: ns(),
+        op: curlybrace_core::snapshot::SnapshotOp::Delete,
+        created_unix: 0,
+        bytes: 10,
+    };
+    let (s, _) = ev(
+        s,
+        Event::Snapshots {
+            request,
+            snapshots: vec![still_listed],
+        },
+    );
+    assert!(matches!(
+        s.banner,
+        Some(Banner::Failure {
+            context: "snapshot_delete",
+            ..
+        })
+    ));
+    assert!(s.discarding_copy.is_none());
+}
+
+#[test]
+fn a_deleted_copy_raises_no_banner_and_another_listing_is_ignored() {
+    let (s, _, _) = reported_with_copy();
+    let (s, cmds) = act(s, BulkAction::DiscardCopy);
+    let request = match &cmds[..] {
+        [Command::SnapshotDelete { request, .. }] => *request,
+        other => panic!("expected SnapshotDelete, got {other:?}"),
+    };
+    let (s, _) = ev(
+        s,
+        Event::Snapshots {
+            request: request + 1,
+            snapshots: vec![],
+        },
+    );
+    assert!(s.discarding_copy.is_some(), "not the answer awaited");
+    let (s, _) = ev(
+        s,
+        Event::Snapshots {
+            request,
+            snapshots: vec![],
+        },
+    );
+    assert!(s.banner.is_none());
+    assert!(s.discarding_copy.is_none());
+}
+
+#[test]
+fn a_failed_preview_that_can_clear_is_read_again_from_the_confirm_step() {
+    let (s, id, _) = reported_with_copy();
+    let (s, _) = act(s, BulkAction::OpenUndo);
+    let timeout = CoreError::Database("timeout".into());
+    let (s, _) = ev(s, failed(id, "bulk_undo_preview", timeout));
+    let (s, cmds) = act(s, BulkAction::RetryUndo);
+    assert!(matches!(&cmds[..], [Command::BulkUndoPreview { .. }]));
+    assert_eq!(undo_of(&s).preview, UndoPreviewState::Pending);
+}
+
+#[test]
+fn a_failed_preview_that_cannot_clear_is_not_retried() {
+    let (s, id, _) = reported_with_copy();
+    let (s, _) = act(s, BulkAction::OpenUndo);
+    let (s, _) = ev(
+        s,
+        failed(id, "bulk_undo_preview", CoreError::SnapshotUnreadable),
+    );
+    let (_, cmds) = act(s, BulkAction::RetryUndo);
+    assert!(cmds.is_empty());
 }

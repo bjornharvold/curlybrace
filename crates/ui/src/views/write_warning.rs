@@ -23,7 +23,6 @@ pub fn message_key(kind: WriteKind) -> &'static str {
         WriteKind::SetProfilingLevel => "write_warning.message_set_profiling_level",
         WriteKind::BulkUpdate => "write_warning.message_bulk_update",
         WriteKind::BulkDelete => "write_warning.message_bulk_delete",
-        WriteKind::BulkUndo => "write_warning.message_bulk_undo",
     }
 }
 
@@ -86,7 +85,7 @@ mod tests {
     use egui_kittest::kittest::{NodeT, Queryable};
     use uuid::Uuid;
 
-    const KINDS: [WriteKind; 12] = [
+    const KINDS: [WriteKind; 11] = [
         WriteKind::Insert,
         WriteKind::Replace,
         WriteKind::Clone,
@@ -98,7 +97,6 @@ mod tests {
         WriteKind::SetProfilingLevel,
         WriteKind::BulkUpdate,
         WriteKind::BulkDelete,
-        WriteKind::BulkUndo,
     ];
 
     fn parked(kind: WriteKind) -> ParkedWrite {

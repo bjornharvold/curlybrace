@@ -22,8 +22,6 @@ pub enum WriteKind {
     BulkUpdate,
     /// A delete of every document the filter matches.
     BulkDelete,
-    /// Restoring the documents a bulk write changed from its undo copy.
-    BulkUndo,
 }
 
 /// Whether a mutation must wait for the user's confirmation when it targets a production

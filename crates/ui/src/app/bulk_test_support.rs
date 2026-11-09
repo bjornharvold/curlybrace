@@ -55,6 +55,8 @@ pub(super) fn browsing(cfg: ConnectionConfig) -> (AppState, Uuid) {
         skip: 20,
         has_more: true,
     });
+    // Undo is on: the runtime was given a folder for the copies.
+    s.snapshot_dir = Some(std::path::PathBuf::from("/snapshots"));
     s.page_query = Query {
         filter: doc! { "status": "old" },
         sort: Some(doc! { "_id": -1 }),

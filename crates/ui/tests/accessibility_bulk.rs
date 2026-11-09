@@ -126,9 +126,10 @@ fn button<'a>(h: &'a Harness<'static, Frame>, label: &'a str) -> egui_kittest::N
 /// The note before the write that an undo copy is saved. These flows were not opened by the
 /// reducer, so they name no folder and the dialog says so in words.
 fn copy_notice() -> String {
+    let days = (curlybrace_core::snapshot::RETENTION_SECS / 86_400).to_string();
     tw(
         "bulk.undo.copy_notice",
-        &[("folder", &t("bulk.undo.folder_unknown"))],
+        &[("folder", &t("bulk.undo.folder_unknown")), ("days", &days)],
     )
 }
 
@@ -905,4 +906,63 @@ fn the_undo_report_counts_each_kind_and_retries_only_a_failure() {
     button(&h, &t("bulk.undo.retry")).click();
     h.run_steps(3);
     assert!(h.state().seen.contains(&BulkAction::RetryUndo));
+}
+
+#[test]
+fn one_document_reads_in_the_singular() {
+    let one = UndoStatus::Offered(UndoOffer {
+        documents: 1,
+        uncovered: 1,
+    });
+    let h = open(report_step(Ok(applied_outcome()), one));
+    assert!(has(&h, &t("bulk.undo.available_one")));
+    assert!(has(&h, &t("bulk.undo.uncovered_one")));
+    let h = open(report_step(Ok(applied_outcome()), UndoStatus::Uncovered(1)));
+    assert!(has(&h, &t("bulk.undo.uncovered_only_one")));
+    let single = UndoPreview {
+        documents: 1,
+        docs: vec![],
+    };
+    let flow = UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into())
+        .with_preview(UndoPreviewState::Ready(single));
+    let h = open(undoing(flow));
+    assert!(has(&h, &t("bulk.undo.intro_one")));
+}
+
+#[test]
+fn a_clean_undo_offers_to_delete_its_copy_and_a_failed_one_only_what_can_clear() {
+    let clean = undo_ready()
+        .with_typed("orders".into())
+        .running()
+        .reported(Ok(UndoReport {
+            restored: 5,
+            ..UndoReport::default()
+        }));
+    let mut h = open(undoing(clean));
+    assert!(h.query_by_label(&t("bulk.undo.retry")).is_none());
+    button(&h, &t("bulk.undo.discard_after")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::DiscardCopy));
+
+    let permanent = undo_ready()
+        .with_typed("orders".into())
+        .running()
+        .reported(Err(CoreError::SnapshotUnreadable));
+    let h = open(undoing(permanent));
+    assert!(h.query_by_label(&t("bulk.undo.retry")).is_none());
+    assert!(h.query_by_label(&t("bulk.undo.discard_after")).is_none());
+}
+
+#[test]
+fn a_preview_that_failed_for_a_reason_that_can_clear_offers_a_retry() {
+    let transient = UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into())
+        .with_preview(UndoPreviewState::Failed(CoreError::Unreachable));
+    let mut h = open(undoing(transient));
+    button(&h, &t("bulk.undo.retry")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::RetryUndo));
+    let permanent = UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into())
+        .with_preview(UndoPreviewState::Failed(CoreError::SnapshotUnreadable));
+    let h = open(undoing(permanent));
+    assert!(h.query_by_label(&t("bulk.undo.retry")).is_none());
 }

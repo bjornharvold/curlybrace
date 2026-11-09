@@ -236,11 +236,13 @@ impl CurlybraceApp {
             default_snapshot_dir(),
             prompt,
         );
+        let snapshot_dir = config.snapshot_dir.clone();
         let handle =
             spawn_runtime_with_config(Some(secrets.clone()), None, repaint.clone(), config);
         Self::new(handle, i18n, connections, secrets)
             .with_config_path(config_path)
             .with_known_hosts_path(known_hosts)
+            .with_snapshot_dir(snapshot_dir)
             .with_host_key_requests(requests)
             .with_file_picker(Arc::new(file_picker::NativeFilePicker), repaint)
             .with_persist_guard(guard)
@@ -253,6 +255,18 @@ impl CurlybraceApp {
     pub fn with_config_path(self, config_path: ConfigPath) -> Self {
         Self {
             config_path,
+            ..self
+        }
+    }
+
+    /// Tells the app where the runtime keeps undo copies, so the bulk dialog names that folder
+    /// and offers undo only when there is one.
+    pub fn with_snapshot_dir(self, snapshot_dir: Option<PathBuf>) -> Self {
+        Self {
+            state: AppState {
+                snapshot_dir,
+                ..self.state
+            },
             ..self
         }
     }

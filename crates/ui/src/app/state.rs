@@ -246,6 +246,12 @@ pub struct AppState {
     /// Bulk count, preview and sample requests numbered so far. One counter for every flow, so
     /// the answer of a closed flow never matches a later one.
     pub bulk_requests: u64,
+    /// Where the runtime keeps undo copies of bulk writes; `None` when undo is off. Set from the
+    /// runtime's own configuration at launch, never read from the environment later.
+    pub snapshot_dir: Option<std::path::PathBuf>,
+    /// The deletion of an undo copy that was asked for and not yet answered: the request id and
+    /// the run, so a copy that is still there afterwards can be told.
+    pub discarding_copy: Option<(u64, curlybrace_core::bulk::BulkRunId)>,
     pub persist: PersistGuard,
     pub banner: Option<Banner>,
     /// A startup notice waiting for the single banner slot: it is shown, once, as soon as the
