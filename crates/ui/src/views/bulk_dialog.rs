@@ -83,12 +83,16 @@ fn body(ui: &mut egui::Ui, flow: &BulkFlow, connection: &str, i18n: &I18n) -> Op
 }
 
 fn footer(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) -> Option<BulkAction> {
+    if flow.step == BulkStep::Running {
+        return running_footer(ui, i18n);
+    }
     ui.horizontal(|ui| match flow.step {
         BulkStep::Define => wizard_footer(ui, flow, i18n, false),
         BulkStep::Preview => wizard_footer(ui, flow, i18n, true),
         BulkStep::Confirm => confirm_footer(ui, flow, i18n),
-        BulkStep::Running => single_footer(ui, flow, i18n, "common.cancel", BulkAction::Cancel),
-        BulkStep::Report => single_footer(ui, flow, i18n, "common.close", BulkAction::Close),
+        BulkStep::Running | BulkStep::Report => {
+            single_footer(ui, flow, i18n, "common.close", BulkAction::Close)
+        }
     })
     .inner
 }
@@ -115,7 +119,7 @@ fn wizard_footer(
     if with_back && text_button(ui, i18n.t("bulk.back")).clicked() {
         action = Some(BulkAction::Back);
     }
-    let can_next = flow.clone().advanced().step != flow.step;
+    let can_next = flow.can_advance();
     let next = gate(ui, can_next, |ui| filled_button(ui, i18n.t("bulk.next")));
     if next.clicked() {
         action = Some(BulkAction::Next);
@@ -143,6 +147,40 @@ fn confirm_footer(ui: &mut egui::Ui, flow: &BulkFlow, i18n: &I18n) -> Option<Bul
         action = Some(BulkAction::Run);
     }
     action
+}
+
+/// The Stop button of a running write, worded as what it does (it asks the server to stop a
+/// write that may already be partly applied) and NOT focused first: a stray Enter or Space must
+/// not stop the write. It stays reachable with Tab. Any focus it inherited from the previous
+/// step (a widget at the same place) is given up when the step opens.
+fn running_footer(ui: &mut egui::Ui, i18n: &I18n) -> Option<BulkAction> {
+    let note = i18n.t("bulk.running_cancel_note");
+    ui.vertical(|ui| {
+        let stop = text_button(ui, i18n.t("bulk.stop"));
+        describe(ui, &stop, &note);
+        release_focus_once(ui, &stop);
+        ui.label(&note);
+        stop.clicked().then_some(BulkAction::Cancel)
+    })
+    .inner
+}
+
+/// Sets the accessible description of `response`.
+pub(super) fn describe(ui: &egui::Ui, response: &egui::Response, text: &str) {
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_description(text));
+}
+
+/// Takes the focus off `target` the first frame the Running step is drawn after it opened (the
+/// same open detection as `focus_once`), so no button holds the focus then.
+fn release_focus_once(ui: &egui::Ui, target: &egui::Response) {
+    let id = egui::Id::new("bulk_running_release");
+    let frame = ui.ctx().cumulative_frame_nr();
+    let last = ui.data_mut(|d| d.get_temp::<u64>(id));
+    if !last.is_some_and(|l| frame.saturating_sub(l) <= 1) && target.has_focus() {
+        target.surrender_focus();
+    }
+    ui.data_mut(|d| d.insert_temp(id, frame));
 }
 
 fn single_footer(

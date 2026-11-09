@@ -192,6 +192,8 @@ fn define_delete_has_no_editor_and_names_what_goes() {
     assert_all_named(&h, "define delete");
 }
 
+/// Cancel owns the first focus of Define, Preview and Confirm. The Running step is the one
+/// exception (see `running_step_stop_button_is_labelled_distinctly_and_not_default_focused`).
 #[test]
 fn cancel_owns_the_first_focus_and_enter_never_advances() {
     let mut h = open(BulkFlow {
@@ -395,10 +397,48 @@ fn a_running_write_can_only_be_cancelled_never_dismissed() {
     h.key_press(egui::Key::Escape);
     h.run_steps(4);
     assert!(h.state().seen.is_empty(), "{:?}", h.state().seen);
-    button(&h, &t("common.cancel")).click();
+    button(&h, &t("bulk.stop")).click();
     h.run_steps(3);
     assert_eq!(h.state().seen, vec![BulkAction::Cancel]);
     assert_all_named(&h, "running");
+}
+
+fn running() -> Harness<'static, Frame> {
+    open(BulkFlow {
+        run: Some(curlybrace_core::bulk::BulkRunId(uuid::Uuid::nil())),
+        ..with_step(confirm_step(base(BulkKind::Update)), BulkStep::Running)
+    })
+}
+
+#[test]
+fn running_step_stop_button_is_labelled_distinctly_and_not_default_focused() {
+    let mut h = running();
+    let stop = t("bulk.stop");
+    assert_ne!(stop, t("common.cancel"));
+    assert!(
+        h.query_by_label(&t("common.cancel")).is_none(),
+        "no generic Cancel"
+    );
+    assert!(!button(&h, &stop).accesskit_node().is_focused());
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    h.key_press(egui::Key::Space);
+    h.run_steps(4);
+    assert!(h.state().seen.is_empty(), "{:?}", h.state().seen);
+    // Still keyboard-reachable: Tab lands on Stop.
+    h.key_press(egui::Key::Tab);
+    h.run_steps(4);
+    assert!(button(&h, &stop).accesskit_node().is_focused());
+}
+
+#[test]
+fn running_step_explains_what_stop_does() {
+    let h = running();
+    let note = t("bulk.running_cancel_note");
+    h.get_by_label(&note);
+    let label = t("bulk.stop");
+    let stop = button(&h, &label);
+    assert_eq!(stop.accesskit_node().description(), Some(note));
 }
 
 #[test]
@@ -518,6 +558,12 @@ fn entry_buttons_are_disabled_with_a_reason_when_read_only_or_projected() {
         for label in &labels {
             let b = h.get_by_role_and_label(Role::Button, label);
             assert!(b.accesskit_node().is_disabled(), "{entry:?} {label}");
+            let described = b.accesskit_node().description();
+            assert_eq!(
+                described.as_deref(),
+                Some(reason.as_str()),
+                "{entry:?} {label}"
+            );
         }
         h.get_by_label(&reason);
     }

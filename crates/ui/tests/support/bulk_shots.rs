@@ -1,13 +1,12 @@
 //! Fixed states for the bulk update / delete dialog screenshots: each step of the flow over the
 //! browser on `crm.customers`.
 use super::production_shots::production_root;
-use super::shots::browsing;
 use bson::{Document, doc};
 use curlybrace_core::bulk::{BulkOutcome, BulkRunId, PreviewDoc, PreviewGap, UpdatePreview};
 use curlybrace_core::store::Namespace;
 use curlybrace_ui::app::bulk_state::BulkState;
 use curlybrace_ui::app::state::AppState;
-use curlybrace_ui::viewmodel::{BulkFlow, BulkKind, BulkStep, CountState, PreviewState, ViewMode};
+use curlybrace_ui::viewmodel::{BulkFlow, BulkKind, BulkStep, CountState, PreviewState};
 
 const UPDATE: &str = "{\n  \"$set\": { \"status\": \"archived\" }\n}";
 
@@ -69,7 +68,7 @@ fn open(state: &mut AppState, flow: BulkFlow) {
 fn flow(kind: BulkKind, step: BulkStep) -> BulkFlow {
     BulkFlow {
         step,
-        ..BulkFlow::open(kind, ns(), filter(), false)
+        ..BulkFlow::open(kind, ns(), filter(), true)
     }
 }
 
@@ -81,12 +80,12 @@ fn update_flow(step: BulkStep) -> BulkFlow {
 }
 
 pub fn define_update(state: &mut AppState) {
-    browsing(ViewMode::Tree)(state);
+    production_root(state);
     open(state, update_flow(BulkStep::Define));
 }
 
 pub fn preview_update(state: &mut AppState) {
-    browsing(ViewMode::Tree)(state);
+    production_root(state);
     let f = BulkFlow {
         count: CountState::Known(42),
         preview: with_after(),
@@ -96,7 +95,7 @@ pub fn preview_update(state: &mut AppState) {
 }
 
 pub fn preview_update_degraded(state: &mut AppState) {
-    browsing(ViewMode::Tree)(state);
+    production_root(state);
     let f = BulkFlow {
         count: CountState::Known(42),
         preview: without_after(),
@@ -106,7 +105,7 @@ pub fn preview_update_degraded(state: &mut AppState) {
 }
 
 pub fn preview_delete(state: &mut AppState) {
-    browsing(ViewMode::Tree)(state);
+    production_root(state);
     let f = BulkFlow {
         count: CountState::Known(42),
         preview: sample(),
@@ -131,7 +130,7 @@ pub fn confirm_all_documents(state: &mut AppState) {
 }
 
 pub fn running(state: &mut AppState) {
-    browsing(ViewMode::Tree)(state);
+    production_root(state);
     let f = BulkFlow {
         count: CountState::Known(42),
         preview: with_after(),
@@ -144,7 +143,7 @@ pub fn running(state: &mut AppState) {
 
 fn reported(report: BulkOutcome) -> impl FnOnce(&mut AppState) {
     move |state| {
-        browsing(ViewMode::Tree)(state);
+        production_root(state);
         let f = BulkFlow {
             count: CountState::Known(42),
             preview: with_after(),

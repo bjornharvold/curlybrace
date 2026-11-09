@@ -487,3 +487,24 @@ fn cancel_unavailable_is_recorded_only_while_running() {
     assert_eq!(running.step, BulkStep::Running);
     assert!(running.with_cancel_unavailable().cancel_unavailable);
 }
+
+#[test]
+fn can_advance_agrees_with_advanced_in_every_step() {
+    let pending = BulkFlow::open(BulkKind::Update, ns(), filtered(), false);
+    let invalid = pending.clone().with_update_text("{".into());
+    let mut flows = vec![pending.clone(), invalid, update_flow(), delete_flow()];
+    for flow in [update_flow(), delete_flow()] {
+        let preview = flow.clone().advanced();
+        flows.push(preview.clone().with_count(CountState::Pending));
+        flows.push(preview.clone().with_preview(PreviewState::Pending));
+        flows.push(preview.clone());
+        flows.push(preview.advanced());
+        flows.push(confirm(flow));
+    }
+    for flow in flows {
+        let moved = flow.clone().advanced().step != flow.step;
+        assert_eq!(flow.can_advance(), moved, "{:?}", flow.step);
+    }
+    assert!(!pending.can_advance(), "empty update");
+    assert!(update_flow().can_advance());
+}

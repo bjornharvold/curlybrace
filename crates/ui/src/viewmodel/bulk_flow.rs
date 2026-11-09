@@ -176,13 +176,21 @@ impl BulkFlow {
     /// step needs is not there yet.
     pub fn advanced(self) -> Self {
         let step = match self.step {
-            BulkStep::Define if self.update_ok() => BulkStep::Preview,
-            BulkStep::Preview if self.count != CountState::Pending && self.preview_ready() => {
-                BulkStep::Confirm
-            }
+            BulkStep::Define if self.can_advance() => BulkStep::Preview,
+            BulkStep::Preview if self.can_advance() => BulkStep::Confirm,
             other => other,
         };
         Self { step, ..self }
+    }
+
+    /// Whether [`advanced`](Self::advanced) would move to the next step: Define needs an update
+    /// that is valid, Preview needs the count and the preview.
+    pub fn can_advance(&self) -> bool {
+        match self.step {
+            BulkStep::Define => self.update_ok(),
+            BulkStep::Preview => self.count != CountState::Pending && self.preview_ready(),
+            _ => false,
+        }
     }
 
     /// Starts the run: only from Confirm and only when everything it needs is in place.

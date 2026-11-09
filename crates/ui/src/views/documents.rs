@@ -127,7 +127,9 @@ fn bulk_buttons(ui: &mut egui::Ui, entry: BulkEntry, i18n: &I18n) -> Option<Bulk
         });
         match entry.reason_key() {
             Some(reason) => {
-                button.on_hover_text(i18n.t(reason));
+                let reason = i18n.t(reason);
+                super::bulk_dialog::describe(ui, &button, &reason);
+                button.on_hover_text(reason);
             }
             None if button.clicked() => chosen = Some(kind),
             None => {}
