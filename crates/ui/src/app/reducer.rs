@@ -1,5 +1,6 @@
 //! The pure reducer: `update(state, input) -> (state, commands)`. No I/O, no egui.
 use super::actions;
+use super::bulk_actions::{self, BulkAction};
 use super::compare::{self, CompareAction};
 use super::connection_test;
 use super::copy::{self, CopyInput};
@@ -49,6 +50,8 @@ pub enum Input {
     Copy(CopyInput),
     /// A choice of tool path, or the answer of a version check.
     Tools(ToolsAction),
+    /// The bulk update / delete dialog.
+    Bulk(BulkAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -73,6 +76,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Compare(a) => compare::on_action(state, a),
         Input::Copy(a) => copy::on_input(state, a),
         Input::Tools(a) => tools_actions::on_action(state, a),
+        Input::Bulk(a) => bulk_actions::on_action(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
@@ -91,7 +95,7 @@ pub fn apply_event(state: AppState, ev: Event) -> AppState {
     on_event(state, ev).0
 }
 
-fn failure(state: AppState, context: &'static str, error: CoreError) -> AppState {
+pub(super) fn failure(state: AppState, context: &'static str, error: CoreError) -> AppState {
     let banner_session = state.active;
     AppState {
         banner: Some(Banner::Failure { context, error }),
@@ -170,6 +174,11 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             context: "disconnect",
             ..
         } => (state, Vec::new()),
+        // The runtime delivers the finish of a bulk write whatever happened to the connection
+        // meanwhile, so it is taken ahead of the connected check below.
+        Event::BulkFinished {
+            ns, run, outcome, ..
+        } => bulk_actions::finished(state, ns, run, outcome),
         // Anything else is a late answer from a session that is not connected.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases { names, .. } => {
@@ -220,6 +229,17 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             error,
             ..
         } => queries_actions::command_failed(state, context, error),
+        // A bulk command refused or failed: the bulk flow settles it. A lost server still takes
+        // the connection-lost path below.
+        Event::Failed { context, error, .. }
+            if context.starts_with("bulk_")
+                && !matches!(error, CoreError::Unreachable | CoreError::TlsHandshake) =>
+        {
+            (
+                bulk_actions::command_failed(state, context, error),
+                Vec::new(),
+            )
+        }
         // The server of an open session cannot be reached any more: the root fails like a failed
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever
@@ -244,6 +264,12 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
+        // A count that outran the client-side bound: the count is unavailable.
+        Event::RequestFailed {
+            context: "bulk_count",
+            request,
+            ..
+        } => (bulk_actions::count_failed(state, request), Vec::new()),
         // A failed numbered read settles only the request still awaited: a late failure of an
         // older one must not end the wait for the newer or put a banner over its data. The
         // current one fails like any other command. A lost connection of an older request counts
@@ -342,16 +368,33 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             queries_actions::profiler_reported(state, status),
             Vec::new(),
         ),
+        Event::BulkCount {
+            ns, request, count, ..
+        } => (
+            bulk_actions::count_arrived(state, ns, request, count),
+            Vec::new(),
+        ),
+        Event::BulkSample {
+            ns, request, docs, ..
+        } => (
+            bulk_actions::sample_arrived(state, ns, request, docs),
+            Vec::new(),
+        ),
+        Event::BulkPreview {
+            ns,
+            request_id,
+            outcome,
+            ..
+        } => (
+            bulk_actions::preview_arrived(state, ns, request_id, outcome),
+            Vec::new(),
+        ),
+        Event::BulkCancelResult { run, outcome, .. } => (
+            bulk_actions::cancel_answered(state, run, outcome),
+            Vec::new(),
+        ),
         // Routed before; these have no session.
-        // The bulk answers are wired in by the bulk UI task.
-        Event::Compare(_)
-        | Event::Copy(_)
-        | Event::TestConnection { .. }
-        | Event::BulkCount { .. }
-        | Event::BulkSample { .. }
-        | Event::BulkPreview { .. }
-        | Event::BulkFinished { .. }
-        | Event::BulkCancelResult { .. } => (state, Vec::new()),
+        Event::Compare(_) | Event::Copy(_) | Event::TestConnection { .. } => (state, Vec::new()),
     }
 }
 
@@ -371,6 +414,8 @@ fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
             | "drop_index"
             | "set_index_hidden"
             | "set_index_ttl"
+            | "bulk_update"
+            | "bulk_delete"
     );
     match (&error, write, state.ssh_endpoint.is_some()) {
         (CoreError::Unreachable, false, false) => error,
@@ -455,7 +500,7 @@ fn results_replaced(
 
 /// A mutation finished. Only the one in flight (same namespace) is resolved; the editor it came
 /// from is closed, and the page is re-fetched with the query that produced it.
-fn mutated(state: AppState, ns: curlybrace_core::store::Namespace) -> Out {
+pub(super) fn mutated(state: AppState, ns: curlybrace_core::store::Namespace) -> Out {
     let matches_pending = state.pending.as_ref().is_some_and(|p| p.ns == ns);
     let editor_done = matches_pending && editor_matches(&state, state.pending.as_ref());
     let state = AppState {

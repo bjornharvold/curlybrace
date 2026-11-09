@@ -478,3 +478,12 @@ fn every_updater_returns_a_new_value_and_leaves_the_original() {
     assert!(orig.clone().with_upsert(true).upsert);
     assert!(!orig.upsert);
 }
+
+#[test]
+fn cancel_unavailable_is_recorded_only_while_running() {
+    let confirm = confirm(delete_flow().with_typed("orders".into()));
+    assert!(!confirm.clone().with_cancel_unavailable().cancel_unavailable);
+    let running = confirm.with_typed("orders".into()).running(run_id());
+    assert_eq!(running.step, BulkStep::Running);
+    assert!(running.with_cancel_unavailable().cancel_unavailable);
+}

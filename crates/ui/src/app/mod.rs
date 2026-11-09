@@ -5,6 +5,9 @@
 //! * `panels`: the thin egui layer
 mod actions;
 mod banner;
+mod bulk_actions;
+pub use bulk_actions::BulkAction;
+pub mod bulk_state;
 pub mod compare;
 mod compare_apply;
 mod compare_checks;

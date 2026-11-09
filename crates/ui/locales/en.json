@@ -757,6 +757,12 @@
     "write_outcome_unknown": "The connection was interrupted while saving. The change may or may not have been applied; check the data before saving again."
   },
   "failures": {
+    "bulk_cancel": "Could not cancel the bulk write",
+    "bulk_count": "Could not count the matching documents",
+    "bulk_delete": "Could not delete the matching documents",
+    "bulk_preview": "Could not preview the update",
+    "bulk_sample": "Could not load the documents that would be deleted",
+    "bulk_update": "Could not update the matching documents",
     "clone": "Could not clone the document",
     "compare_apply": "Applying the changes failed.",
     "compare_check": "Could not check the collections before comparing",
@@ -1152,6 +1158,8 @@
   },
   "write_warning": {
     "confirm": "Yes, write to production",
+    "message_bulk_delete": "This is your production server, {connection}. Are you sure you want to delete every document the filter matches? This cannot be undone.",
+    "message_bulk_update": "This is your production server, {connection}. Are you sure you want to update every document the filter matches? This cannot be undone.",
     "message_clone": "This is your production server, {connection}. Are you sure you want to clone this document into it?",
     "message_create_index": "This is your production server, {connection}. Are you sure you want to create this index on it?",
     "message_delete": "This is your production server, {connection}. Are you sure you want to delete this document?",

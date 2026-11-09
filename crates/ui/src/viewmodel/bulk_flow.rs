@@ -65,6 +65,8 @@ pub struct BulkFlow {
     pub run: Option<BulkRunId>,
     /// The answer of the run, once it came: the outcome, or why it failed.
     pub report: Option<Result<BulkOutcome, CoreError>>,
+    /// The runtime could not cancel the run; it carries on and its report still comes.
+    pub cancel_unavailable: bool,
 }
 
 impl BulkFlow {
@@ -83,6 +85,7 @@ impl BulkFlow {
             production,
             run: None,
             report: None,
+            cancel_unavailable: false,
         }
     }
 
@@ -202,6 +205,17 @@ impl BulkFlow {
         Self {
             step: BulkStep::Report,
             report: Some(report),
+            ..self
+        }
+    }
+
+    /// Records that cancelling was not possible; only a running flow has something to cancel.
+    pub fn with_cancel_unavailable(self) -> Self {
+        if self.step != BulkStep::Running {
+            return self;
+        }
+        Self {
+            cancel_unavailable: true,
             ..self
         }
     }

@@ -18,6 +18,10 @@ pub enum WriteKind {
     SetIndexTtl,
     /// Switching the profiler of a database on or off.
     SetProfilingLevel,
+    /// An update of every document the filter matches.
+    BulkUpdate,
+    /// A delete of every document the filter matches.
+    BulkDelete,
 }
 
 /// Whether a mutation must wait for the user's confirmation when it targets a production

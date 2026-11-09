@@ -31,7 +31,7 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
         epoch_counter: epoch,
         forget_confirm: None,
         workspace: Workspace::Browse,
-        ..cleared_for_connect(state, id).opened_with(id, view)
+        ..cleared_for_connect(state.bulk_dropped_for(id, false), id).opened_with(id, view)
     };
     (next, vec![Command::Connect(cfg)])
 }

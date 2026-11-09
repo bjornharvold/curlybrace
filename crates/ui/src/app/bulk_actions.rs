@@ -1,0 +1,482 @@
+//! Reducer arms of the bulk update / delete flow: opening it on the displayed filter, stepping
+//! through it, the write through the guard, and the answers of the runtime.
+//!
+//! Every count, preview and sample request carries an id from the state's counter, and an answer
+//! is applied only when it carries the id still awaited, for the flow's own session and
+//! collection. A Back, a Close or a new definition therefore leaves no answer that could describe
+//! something other than what will run.
+use super::actions::{gated, issue_find, mutation};
+use super::bulk_state::BulkState;
+use super::reducer::{Out, failure, mutated};
+use super::state::{AppState, Banner};
+use super::write_guard::{Guard, WriteKind};
+use crate::viewmodel::{BulkFlow, BulkKind, BulkStep, CountState, PreviewState};
+use bson::Document;
+use curlybrace_core::bulk::{
+    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope, UpdatePreview,
+    parse_update,
+};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::Command;
+use curlybrace_core::store::Namespace;
+use uuid::Uuid;
+
+/// What the person does in the bulk dialog.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BulkAction {
+    Open(BulkKind),
+    SetUpdateText(String),
+    SetUpsert(bool),
+    SetAllDocuments(bool),
+    SetTyped(String),
+    Next,
+    Back,
+    Run,
+    Cancel,
+    Close,
+}
+
+fn unchanged(state: AppState) -> Out {
+    (state, Vec::new())
+}
+
+pub(super) fn on_action(state: AppState, action: BulkAction) -> Out {
+    match action {
+        BulkAction::Open(kind) => open(state, kind),
+        other => in_flow(state, other),
+    }
+}
+
+/// Runs `action` on the open flow, as its own session: the dialog may outlive a switch of the
+/// focused session, and the commands must name the session the flow was opened on.
+fn in_flow(state: AppState, action: BulkAction) -> Out {
+    let Some(session) = state.bulk.as_ref().map(|b| b.session) else {
+        return unchanged(state);
+    };
+    if !state.is_open(session) {
+        return unchanged(state.bulk_dropped_for(session, false));
+    }
+    state.with_session(session, |s| apply(s, action))
+}
+
+fn apply(state: AppState, action: BulkAction) -> Out {
+    let Some(bulk) = state.bulk.clone() else {
+        return unchanged(state);
+    };
+    let running = bulk.flow.step == BulkStep::Running;
+    // A reconnect since the flow opened: it was aimed at an opening that is gone.
+    if bulk.epoch != state.latest_requested_epoch && !running {
+        return unchanged(state.bulk_dropped_for(bulk.session, false));
+    }
+    match action {
+        BulkAction::Open(_) => unchanged(state),
+        BulkAction::SetUpdateText(text) => edited(state, |f| f.with_update_text(text)),
+        BulkAction::SetUpsert(on) => edited(state, |f| f.with_upsert(on)),
+        BulkAction::SetAllDocuments(on) => edited(state, |f| f.with_all_documents(on)),
+        BulkAction::SetTyped(text) => edited(state, |f| f.with_typed(text)),
+        BulkAction::Next => next(state, bulk),
+        BulkAction::Back => back(state, bulk),
+        BulkAction::Run => run(state, bulk),
+        BulkAction::Cancel if running => cancel_run(state, &bulk),
+        BulkAction::Cancel | BulkAction::Close if !running => closed(state),
+        BulkAction::Close | BulkAction::Cancel => unchanged(state),
+    }
+}
+
+fn with_bulk(state: AppState, bulk: BulkState) -> AppState {
+    AppState {
+        bulk: Some(bulk),
+        ..state
+    }
+}
+
+fn edited(state: AppState, edit: impl FnOnce(BulkFlow) -> BulkFlow) -> Out {
+    let next = state.bulk.clone().map(|b| {
+        let flow = edit(b.flow.clone());
+        b.with_flow(flow)
+    });
+    match next {
+        Some(bulk) => (with_bulk(state, bulk), Vec::new()),
+        None => unchanged(state),
+    }
+}
+
+fn closed(state: AppState) -> Out {
+    unchanged(AppState {
+        bulk: None,
+        ..state
+    })
+}
+
+/// Opens the flow on the displayed page's filter ALONE (sort, paging and projection belong to the
+/// view, not to the write) and counts what it matches.
+fn open(state: AppState, kind: BulkKind) -> Out {
+    gated(state, |s| {
+        if s.active_is_read_only() {
+            let banner = Some(Banner::ReadOnly);
+            return unchanged(AppState { banner, ..s });
+        }
+        let Some(ns) = s.selected_ns().cloned() else {
+            return unchanged(s);
+        };
+        let busy = s.bulk.is_some() || s.pending.is_some() || s.write_warning.is_some();
+        if busy || s.page_is_projected() {
+            return unchanged(s);
+        }
+        let filter = s.page_query.filter.clone();
+        let flow = BulkFlow::open(kind, ns.clone(), filter.clone(), s.active_is_production());
+        let (request, s) = numbered(s);
+        let command = Command::BulkCount {
+            session: s.session_id(),
+            ns,
+            filter,
+            request,
+        };
+        let bulk = BulkState {
+            flow,
+            session: s.session_id(),
+            epoch: s.latest_requested_epoch,
+            count_request: Some(request),
+            preview_request: None,
+        };
+        (with_bulk(s, bulk), vec![command])
+    })
+}
+
+/// The next request id, and the state that counted it.
+fn numbered(state: AppState) -> (u64, AppState) {
+    let request = state.bulk_requests + 1;
+    (
+        request,
+        AppState {
+            bulk_requests: request,
+            ..state
+        },
+    )
+}
+
+/// A preview reads only: an empty filter previews over the whole collection without the tick,
+/// which the run itself still needs.
+fn preview_scope(filter: &Document) -> MatchScope {
+    match filter.is_empty() {
+        true => MatchScope::AllDocuments,
+        false => MatchScope::Filtered,
+    }
+}
+
+fn next(state: AppState, bulk: BulkState) -> Out {
+    let advanced = bulk.flow.clone().advanced();
+    if advanced.step == bulk.flow.step {
+        return unchanged(state);
+    }
+    if bulk.flow.step != BulkStep::Define {
+        return unchanged(with_bulk(state, bulk.with_flow(advanced)));
+    }
+    let (request, state) = numbered(state);
+    let Some(command) = preview_command(&state, &bulk.flow, request) else {
+        return unchanged(state);
+    };
+    let bulk = BulkState {
+        preview_request: Some(request),
+        ..bulk.with_flow(advanced)
+    };
+    (with_bulk(state, bulk), vec![command])
+}
+
+/// The request that previews what the flow defines: the update's result, or the documents a
+/// delete would remove.
+fn preview_command(state: &AppState, flow: &BulkFlow, request: u64) -> Option<Command> {
+    let (session, ns) = (state.session_id(), flow.ns.clone());
+    match flow.kind {
+        BulkKind::Delete => Some(Command::BulkSample {
+            session,
+            ns,
+            filter: flow.filter.clone(),
+            request,
+        }),
+        BulkKind::Update => Some(Command::BulkPreview {
+            session,
+            ns,
+            request: BulkUpdateRequest {
+                filter: flow.filter.clone(),
+                update: parse_update(&flow.update_text).ok()?,
+                upsert: flow.upsert,
+                scope: preview_scope(&flow.filter),
+            },
+            request_id: request,
+        }),
+    }
+}
+
+fn back(state: AppState, bulk: BulkState) -> Out {
+    let leaves_preview = bulk.flow.step == BulkStep::Preview;
+    let flow = bulk.flow.clone().back();
+    let preview_request = match leaves_preview {
+        true => None,
+        false => bulk.preview_request,
+    };
+    let bulk = BulkState {
+        preview_request,
+        ..bulk.with_flow(flow)
+    };
+    unchanged(with_bulk(state, bulk))
+}
+
+/// Sends the write through the guard. The dialog's typed confirmation is the acknowledgement, so
+/// a production connection is not asked a second time.
+fn run(state: AppState, bulk: BulkState) -> Out {
+    let flow = &bulk.flow;
+    if !flow.can_run() || state.selected_ns() != Some(&flow.ns) {
+        return unchanged(state);
+    }
+    let run = BulkRunId(Uuid::new_v4());
+    let Some((kind, build)) = write_of(flow, run) else {
+        return unchanged(state);
+    };
+    let (next, commands) = mutation(state, None, kind, Guard::Confirmed, build);
+    if commands.is_empty() {
+        return (next, commands);
+    }
+    let running = bulk.flow.clone().running(run);
+    (with_bulk(next, bulk.with_flow(running)), commands)
+}
+
+type Build = Box<dyn FnOnce(curlybrace_core::runtime::SessionId, Namespace) -> Command>;
+
+fn write_of(flow: &BulkFlow, run: BulkRunId) -> Option<(WriteKind, Build)> {
+    let filter = flow.filter.clone();
+    let scope = flow.scope();
+    match flow.kind {
+        BulkKind::Delete => {
+            let request = BulkDeleteRequest { filter, scope };
+            let build: Build = Box::new(move |session, ns| Command::BulkDelete {
+                session,
+                ns,
+                request,
+                run,
+            });
+            Some((WriteKind::BulkDelete, build))
+        }
+        BulkKind::Update => {
+            let request = BulkUpdateRequest {
+                filter,
+                update: parse_update(&flow.update_text).ok()?,
+                upsert: flow.upsert,
+                scope,
+            };
+            let build: Build = Box::new(move |session, ns| Command::BulkUpdate {
+                session,
+                ns,
+                request,
+                run,
+            });
+            Some((WriteKind::BulkUpdate, build))
+        }
+    }
+}
+
+fn cancel_run(state: AppState, bulk: &BulkState) -> Out {
+    let Some(run) = bulk.flow.run else {
+        return unchanged(state);
+    };
+    let session = state.session_id();
+    (state, vec![Command::BulkCancel { session, run }])
+}
+
+// ------------------------------------------------------------------ answers
+
+/// The flow when it belongs to the session being handled and to `ns`.
+fn flow_of<'a>(state: &'a AppState, ns: Option<&Namespace>) -> Option<&'a BulkState> {
+    state
+        .bulk
+        .as_ref()
+        .filter(|b| b.session == state.session_id() && ns.is_none_or(|n| b.flow.ns == *n))
+}
+
+/// Replaces the flow with what `take` makes of it; `None` leaves the state as it is.
+fn updated(
+    state: AppState,
+    ns: Option<&Namespace>,
+    take: impl FnOnce(&BulkState) -> Option<BulkState>,
+) -> AppState {
+    match flow_of(&state, ns).and_then(take) {
+        Some(bulk) => with_bulk(state, bulk),
+        None => state,
+    }
+}
+
+fn count_settled(
+    state: AppState,
+    ns: Option<&Namespace>,
+    request: u64,
+    count: CountState,
+) -> AppState {
+    updated(state, ns, |b| {
+        (b.count_request == Some(request)).then(|| BulkState {
+            count_request: None,
+            ..b.clone().with_flow(b.flow.clone().with_count(count))
+        })
+    })
+}
+
+fn preview_settled(
+    state: AppState,
+    ns: Option<&Namespace>,
+    request: u64,
+    preview: PreviewState,
+) -> AppState {
+    updated(state, ns, |b| {
+        (b.preview_request == Some(request)).then(|| BulkState {
+            preview_request: None,
+            ..b.clone().with_flow(b.flow.clone().with_preview(preview))
+        })
+    })
+}
+
+pub(super) fn count_arrived(
+    state: AppState,
+    ns: Namespace,
+    request: u64,
+    count: Option<u64>,
+) -> AppState {
+    let count = count.map_or(CountState::Unavailable, CountState::Known);
+    count_settled(state, Some(&ns), request, count)
+}
+
+/// The count outran the client-side bound: it is unavailable, which asks for the typed
+/// confirmation. An answer to an older request changes nothing.
+pub(super) fn count_failed(state: AppState, request: u64) -> AppState {
+    count_settled(state, None, request, CountState::Unavailable)
+}
+
+pub(super) fn sample_arrived(
+    state: AppState,
+    ns: Namespace,
+    request: u64,
+    docs: Vec<Document>,
+) -> AppState {
+    preview_settled(state, Some(&ns), request, PreviewState::Sample(docs))
+}
+
+pub(super) fn preview_arrived(
+    state: AppState,
+    ns: Namespace,
+    request: u64,
+    outcome: Result<UpdatePreview, CoreError>,
+) -> AppState {
+    let preview = outcome.map_or(PreviewState::Failed, PreviewState::Update);
+    preview_settled(state, Some(&ns), request, preview)
+}
+
+/// The run finished. The flow of that run reports it and the page is read again, like after any
+/// write; a finish that belongs to no open flow (it was closed with its session, or it is an
+/// older run) changes no flow and clears no write in flight, but the page is still read again.
+pub(super) fn finished(
+    state: AppState,
+    ns: Namespace,
+    run: BulkRunId,
+    outcome: Result<BulkOutcome, CoreError>,
+) -> Out {
+    let ours = flow_of(&state, Some(&ns))
+        .filter(|b| b.flow.run == Some(run))
+        .cloned();
+    let Some(bulk) = ours else {
+        return match state.selected_ns() == Some(&ns) {
+            true => {
+                let query = state.page_query.clone();
+                issue_find(state, query)
+            }
+            false => unchanged(state),
+        };
+    };
+    let reported = bulk.flow.clone().reported(outcome);
+    mutated(with_bulk(state, bulk.with_flow(reported)), ns)
+}
+
+/// A cancel that was not possible is told on the flow; the run carries on and its finish comes.
+pub(super) fn cancel_answered(
+    state: AppState,
+    run: BulkRunId,
+    outcome: Result<(), CoreError>,
+) -> AppState {
+    if outcome.is_ok() {
+        return state;
+    }
+    updated(state, None, |b| {
+        (b.flow.run == Some(run)).then(|| {
+            b.clone()
+                .with_flow(b.flow.clone().with_cancel_unavailable())
+        })
+    })
+}
+
+/// A bulk command failed as a command (a refusal, not a lost server). A read-only refusal closes
+/// the flow with the read-only banner; the reads degrade inline; a refused write never ran, so
+/// its flow closes and the failure is told in the failure banner.
+pub(super) fn command_failed(state: AppState, context: &'static str, error: CoreError) -> AppState {
+    if error == CoreError::ReadOnly {
+        return write_refused(state, Banner::ReadOnly);
+    }
+    let banner = Banner::Failure { context, error };
+    match context {
+        "bulk_count" => unavailable_count(state),
+        "bulk_sample" | "bulk_preview" => preview_failed(state),
+        "bulk_cancel" => with_banner(state, banner),
+        _ => write_refused(state, banner),
+    }
+}
+
+fn with_banner(state: AppState, banner: Banner) -> AppState {
+    match banner {
+        Banner::Failure { context, error } => failure(state, context, error),
+        other => AppState {
+            banner: Some(other),
+            ..state
+        },
+    }
+}
+
+/// The write never ran: nothing is in flight and the flow is over.
+fn write_refused(state: AppState, banner: Banner) -> AppState {
+    let state = AppState {
+        bulk: None,
+        pending: None,
+        ..state
+    };
+    with_banner(state, banner)
+}
+
+fn unavailable_count(state: AppState) -> AppState {
+    let request = flow_of(&state, None).and_then(|b| b.count_request);
+    match request {
+        Some(request) => count_settled(state, None, request, CountState::Unavailable),
+        None => state,
+    }
+}
+
+fn preview_failed(state: AppState) -> AppState {
+    let request = flow_of(&state, None).and_then(|b| b.preview_request);
+    match request {
+        Some(request) => preview_settled(state, None, request, PreviewState::Failed),
+        None => state,
+    }
+}
+
+impl AppState {
+    /// Closes the bulk flow of `session` (closed, lost or reopened). A running flow stays when
+    /// `keep_running`: the runtime delivers its finish whatever happened to the connection, and
+    /// the report of a write whose result is not known must not be lost.
+    pub fn bulk_dropped_for(self, session: Uuid, keep_running: bool) -> AppState {
+        let drops = self.bulk.as_ref().is_some_and(|b| {
+            b.session == session && !(keep_running && b.flow.step == BulkStep::Running)
+        });
+        match drops {
+            true => AppState { bulk: None, ..self },
+            false => self,
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "bulk_tests.rs"]
+mod tests;
