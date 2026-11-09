@@ -10,6 +10,7 @@ use curlybrace_core::store::Page;
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::compare::CompareAction;
 use curlybrace_ui::app::state::AppState;
+use curlybrace_ui::viewmodel::BulkEntry;
 use curlybrace_ui::viewmodel::compare::CompareState;
 use curlybrace_ui::viewmodel::compare::RowAction;
 use curlybrace_ui::viewmodel::{ConnectionBadge, TreeState, ViewMode};
@@ -83,6 +84,7 @@ fn write_actions_are_disabled_with_a_stated_reason() {
                     connection: "Vault",
                     production: false,
                     read_only: true,
+                    bulk: BulkEntry::ReadOnly,
                 };
                 show_documents(
                     ui,
@@ -258,6 +260,7 @@ fn row_menu_entries_say_why_they_are_disabled_on_hover() {
                     connection: "Vault",
                     production: false,
                     read_only: true,
+                    bulk: BulkEntry::ReadOnly,
                 };
                 let page = Page {
                     docs: vec![doc! { "_id": 1_i32, "name": "x" }],

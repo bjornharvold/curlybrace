@@ -10,7 +10,7 @@ use super::bulk_state::BulkState;
 use super::reducer::{Out, failure, mutated};
 use super::state::{AppState, Banner};
 use super::write_guard::{Guard, WriteKind};
-use crate::viewmodel::{BulkFlow, BulkKind, BulkStep, CountState, PreviewState};
+use crate::viewmodel::{BulkEntry, BulkFlow, BulkKind, BulkStep, CountState, PreviewState};
 use bson::Document;
 use curlybrace_core::bulk::{
     BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope, UpdatePreview,
@@ -112,17 +112,17 @@ fn closed(state: AppState) -> Out {
 /// view, not to the write) and counts what it matches.
 fn open(state: AppState, kind: BulkKind) -> Out {
     gated(state, |s| {
-        if s.active_is_read_only() {
-            let banner = Some(Banner::ReadOnly);
-            return unchanged(AppState { banner, ..s });
+        match s.bulk_entry() {
+            BulkEntry::ReadOnly => {
+                let banner = Some(Banner::ReadOnly);
+                return unchanged(AppState { banner, ..s });
+            }
+            BulkEntry::Available => {}
+            BulkEntry::Projected | BulkEntry::Busy => return unchanged(s),
         }
         let Some(ns) = s.selected_ns().cloned() else {
             return unchanged(s);
         };
-        let busy = s.bulk.is_some() || s.pending.is_some() || s.write_warning.is_some();
-        if busy || s.page_is_projected() {
-            return unchanged(s);
-        }
         let filter = s.page_query.filter.clone();
         let flow = BulkFlow::open(kind, ns.clone(), filter.clone(), s.active_is_production());
         let (request, s) = numbered(s);
@@ -141,6 +141,23 @@ fn open(state: AppState, kind: BulkKind) -> Out {
         };
         (with_bulk(s, bulk), vec![command])
     })
+}
+
+impl AppState {
+    /// Whether a bulk flow may be opened now, and if not, why. `Open` and the documents toolbar
+    /// both go through here: read-only first, then a projected page, then a flow or a write
+    /// already in the way.
+    pub fn bulk_entry(&self) -> BulkEntry {
+        if self.active_is_read_only() {
+            BulkEntry::ReadOnly
+        } else if self.page_is_projected() {
+            BulkEntry::Projected
+        } else if self.bulk.is_some() || self.pending.is_some() || self.write_warning.is_some() {
+            BulkEntry::Busy
+        } else {
+            BulkEntry::Available
+        }
+    }
 }
 
 /// The next request id, and the state that counted it.

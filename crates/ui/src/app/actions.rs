@@ -214,6 +214,9 @@ pub(super) fn doc(state: AppState, action: DocAction) -> Out {
     }
     match action {
         DocAction::Copy(what) => super::copy_documents::copy(state, what),
+        DocAction::Bulk(kind) => {
+            super::bulk_actions::on_action(state, super::BulkAction::Open(kind))
+        }
         DocAction::Edit(d) => with_editor(state, EditorState::for_edit(&d)),
         DocAction::Insert => with_editor(state, EditorState::for_new()),
         DocAction::Clone(source) => {

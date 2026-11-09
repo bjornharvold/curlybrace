@@ -7,7 +7,8 @@ use crate::I18n;
 use crate::theme::{filled_button, gate, modal_frame, segmented, text_button, tonal_button};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{
-    ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview, page_key,
+    BulkEntry, BulkKind, ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview,
+    page_key,
 };
 use curlybrace_core::store::Page;
 use eframe::egui;
@@ -50,6 +51,8 @@ pub struct DocTarget<'a> {
     pub production: bool,
     /// Writes are off: Insert is disabled with a stated reason and row actions are listed disabled.
     pub read_only: bool,
+    /// Whether the bulk update / delete buttons may start a flow, and if not, why.
+    pub bulk: BulkEntry,
 }
 
 /// Like [`show_documents`] with the page key supplied by the caller, which memoises it once
@@ -67,7 +70,7 @@ pub fn show_documents_keyed(
     let key = *key;
     state.synced_to(&key);
     state.read_only = target.read_only;
-    let action = show_insert(ui, target.read_only, i18n);
+    let action = show_toolbar(ui, target, i18n);
     let copy = show_selection_bar(ui, state, i18n);
     let from_view = match mode {
         ViewMode::Tree => show_tree(ui, page, &key, state, i18n),
@@ -78,16 +81,59 @@ pub fn show_documents_keyed(
     action.or(copy).or(from_view).or(from_dialog)
 }
 
-/// The Insert button. On a read-only connection it is disabled and the reason is both its hover
-/// text and a visible note, so the state is never colour or hover alone.
-fn show_insert(ui: &mut egui::Ui, read_only: bool, i18n: &I18n) -> Option<DocAction> {
-    let insert = gate(ui, !read_only, |ui| tonal_button(ui, i18n.t("doc.insert")));
-    if read_only {
-        insert.on_hover_text(i18n.t(READ_ONLY_REASON_KEY));
-        ui.label(i18n.t(READ_ONLY_REASON_KEY));
-        return None;
+/// The document actions in one wrapping row: Insert, then "Update matching" and "Delete
+/// matching". When any of them is off, the reason is a visible line under the row (and the
+/// buttons' hover text), so the state is never colour or hover alone. A read-only connection
+/// shows its reason once for all three.
+fn show_toolbar(ui: &mut egui::Ui, target: DocTarget<'_>, i18n: &I18n) -> Option<DocAction> {
+    let mut action = None;
+    ui.horizontal_wrapped(|ui| {
+        let insert = gate(ui, !target.read_only, |ui| {
+            tonal_button(ui, i18n.t("doc.insert"))
+        });
+        if target.read_only {
+            insert.on_hover_text(i18n.t(READ_ONLY_REASON_KEY));
+        } else if insert.clicked() {
+            action = Some(DocAction::Insert);
+        }
+        let bulk = bulk_buttons(ui, target.bulk, i18n);
+        action = action.take().or(bulk.map(DocAction::Bulk));
+    });
+    if let Some(key) = reason_key(target) {
+        ui.label(i18n.t(key));
     }
-    insert.clicked().then_some(DocAction::Insert)
+    action
+}
+
+/// The reason line under the toolbar: the read-only reason when the connection is read-only
+/// (whatever the bulk state says), else the bulk reason.
+fn reason_key(target: DocTarget<'_>) -> Option<&'static str> {
+    if target.read_only {
+        return Some(READ_ONLY_REASON_KEY);
+    }
+    target.bulk.reason_key()
+}
+
+/// "Update matching" and "Delete matching": disabled with the reason as hover text unless the
+/// bulk flow may be opened.
+fn bulk_buttons(ui: &mut egui::Ui, entry: BulkEntry, i18n: &I18n) -> Option<BulkKind> {
+    let mut chosen = None;
+    for (kind, label) in [
+        (BulkKind::Update, "bulk.update_matching"),
+        (BulkKind::Delete, "bulk.delete_matching"),
+    ] {
+        let button = gate(ui, entry.is_available(), |ui| {
+            tonal_button(ui, i18n.t(label))
+        });
+        match entry.reason_key() {
+            Some(reason) => {
+                button.on_hover_text(i18n.t(reason));
+            }
+            None if button.clicked() => chosen = Some(kind),
+            None => {}
+        }
+    }
+    chosen
 }
 
 /// The one-line header naming the connection whose collection is shown.
@@ -167,6 +213,7 @@ mod tests {
             connection: "test",
             production: false,
             read_only: false,
+            bulk: BulkEntry::Available,
         }
     }
 
@@ -310,6 +357,7 @@ mod tests {
                         connection: "prod",
                         production,
                         read_only: false,
+                        bulk: BulkEntry::Available,
                     };
                     show_documents(ui, ViewMode::Tree, &page, state, target, &i18n);
                 },
@@ -338,6 +386,7 @@ mod tests {
                     connection: "prod",
                     production,
                     read_only: false,
+                    bulk: BulkEntry::Available,
                 };
                 show_documents(
                     ui,

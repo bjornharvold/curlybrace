@@ -58,6 +58,67 @@
     "string": "string",
     "timestamp": "timestamp"
   },
+  "bulk": {
+    "back": "Back",
+    "busy_reason": "Another write is in progress or waiting for your answer, so a bulk write cannot start now.",
+    "cancel_unavailable": "Cancelling is not possible right now. The write keeps running and its result will appear here.",
+    "cannot_undo": "Warning: this cannot be undone.",
+    "confirm": {
+      "all_documents_tick": "I understand this applies to every document in {collection}.",
+      "all_documents_warning": "Warning: the filter is empty, so this applies to EVERY document in {collection}."
+    },
+    "count_known": "Documents matching the filter: {n}",
+    "count_pending": "Counting the matching documents...",
+    "count_unavailable": "The number of matching documents is not available.",
+    "define": {
+      "delete_statement": "Every document in {collection} that matches the filter will be deleted.",
+      "update_field": "Update document or pipeline",
+      "update_hint": "{ \"$set\": { \"field\": \"value\" } }",
+      "update_intro": "Describe the change to apply to every matching document in {collection}: an update document such as $set, or a pipeline of $set, $unset, $project and $replaceWith stages.",
+      "upsert": "If no document matches, insert one (upsert)"
+    },
+    "delete_matching": "Delete matching...",
+    "filter_heading": "Filter",
+    "filter_scope": "Applies to every document matching the filter, not just this page.",
+    "gap_conflict": "A concurrent change got in the way of the preview, so the result of the update is not shown. The update itself can still run.",
+    "gap_no_match": "No document matches the filter right now, so there is nothing to preview.",
+    "gap_transactions": "This server does not support transactions, so the result of the update cannot be shown. The update itself can still run.",
+    "next": "Next",
+    "no_after_state": "The result for this document is not available.",
+    "no_samples": "There are no sample documents to show.",
+    "preview": {
+      "after": "After",
+      "before": "Before",
+      "removed_heading": "Documents that would be deleted (first matches)",
+      "upserted_hint": "No document matches, so this update would insert a new document."
+    },
+    "preview_failed": "The preview could not be produced. Check the filter and the update before you go on.",
+    "preview_pending": "Preparing the preview...",
+    "production_notice": "This is your production server, {connection}.",
+    "projected_reason": "These documents are shown with a projection, so a bulk write cannot start from this page. Clear the projection first.",
+    "report": {
+      "deleted": "Deleted: {n}",
+      "matched": "Matched: {n}",
+      "modified": "Modified: {n}",
+      "upserted": "Inserted by upsert: {n}"
+    },
+    "report_failed": "The bulk write failed.",
+    "report_unknown": "The result is not known. The write may or may not have been applied. Check the data before you try again.",
+    "report_unknown_cancelled": "The write was cancelled before it finished. It may have been applied to some, all or none of the documents. Check the data before you try again.",
+    "run_blocked": "To continue, complete the confirmation above.",
+    "run_delete": "Delete documents",
+    "run_update": "Update documents",
+    "running": "Working on it. The write is being applied to the matching documents.",
+    "step_confirm": "Step 3 of 3: Confirm",
+    "step_define": "Step 1 of 3: Define",
+    "step_preview": "Step 2 of 3: Preview",
+    "title_delete": "Delete matching documents",
+    "title_update": "Update matching documents",
+    "type_collection_name": "Type the collection name {name} to confirm",
+    "type_field": "Collection name",
+    "type_instruction": "Type the collection name exactly:",
+    "update_matching": "Update matching..."
+  },
   "cell": {
     "array": "{n} items",
     "binary": "Binary ({n} bytes)",

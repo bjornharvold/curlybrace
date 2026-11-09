@@ -1,4 +1,5 @@
 //! Pure, egui-free view-model helpers.
+pub mod bulk_entry;
 pub mod bulk_flow;
 pub mod cell;
 pub mod compare;
@@ -31,6 +32,7 @@ pub mod tree_state;
 pub mod typed_confirmation;
 pub mod verdict;
 
+pub use bulk_entry::BulkEntry;
 pub use bulk_flow::{
     BULK_UPDATE_TYPED_CONFIRM_THRESHOLD, BulkFlow, BulkKind, BulkStep, CountState, PreviewState,
 };
