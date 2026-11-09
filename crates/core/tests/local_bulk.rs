@@ -2,10 +2,10 @@
 //! (`CURLYBRACE_IT_MONGODB_URI`, default `mongodb://127.0.0.1:27017`). Writes only to throwaway
 //! `cbit_*` databases. Run with `scripts/integration-tests.sh local_bulk`.
 //!
-//! The `preview_*` tests run in a transaction and need a replica set (a standalone `mongod` has
-//! no transactions). Start one with `mongod --replSet rs0 --dbpath <dir>` and run
-//! `rs.initiate()` once. On a standalone server those tests fail at their gap assertion, which
-//! says so: the degradation path itself is covered by `docker_bulk_preview.rs`.
+//! The preview tests that run the update in a transaction need a replica set (a standalone
+//! `mongod` has no transactions). Start one with `mongod --replSet rs0 --dbpath <dir>` and run
+//! `rs.initiate()` once. On a standalone server those tests detect it (`hello.setName`) and skip
+//! with a printed message; the degradation path itself is covered by `docker_bulk_preview.rs`.
 
 mod support;
 
@@ -13,12 +13,12 @@ use std::time::Duration;
 
 use bson::{Bson, Document, doc};
 use curlybrace_core::bulk::{
-    BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope, PreviewGap,
-    UpdateSpec,
+    BulkDeleteRequest, BulkFailureReason, BulkOutcome, BulkRunId, BulkUpdateRequest, MatchScope,
+    PreviewGap, UpdateSpec,
 };
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{DocumentStore, Namespace, Query};
-use support::{local_enabled, local_mongo};
+use support::{local_enabled, local_mongo, replica_set_or_skip};
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -189,6 +189,94 @@ async fn update_many_with_empty_filter_and_filtered_scope_touches_nothing() {
     assert_eq!(all_docs(&store, &ns).await, before);
 }
 
+/// A unique index on `u` over the five seeded documents (`u` = `n`).
+async fn seed_unique(client: &mongodb::Client, ns: &Namespace) {
+    seed(client, ns).await;
+    let coll = client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection);
+    coll.update_many(doc! {}, vec![doc! { "$set": { "u": "$n" } }])
+        .await
+        .unwrap();
+    let index = mongodb::IndexModel::builder()
+        .keys(doc! { "u": 1 })
+        .options(
+            mongodb::options::IndexOptions::builder()
+                .unique(true)
+                .build(),
+        )
+        .build();
+    coll.create_index(index).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn update_many_that_collides_midway_is_rejected_and_may_be_partial() {
+    if !local_enabled("update_many_that_collides_midway_is_rejected_and_may_be_partial") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("c");
+    seed_unique(&client, &ns).await;
+    // Every document gets u = 99: the first one succeeds, the second collides with it.
+    let req = BulkUpdateRequest {
+        update: UpdateSpec::Operators(doc! { "$set": { "u": 99 } }),
+        ..set_update(doc! {}, MatchScope::AllDocuments, false)
+    };
+    let got = store.update_many(&ns, &req, run_id()).await.unwrap();
+    assert_eq!(
+        got,
+        BulkOutcome::Rejected {
+            reason: BulkFailureReason::DuplicateKey
+        }
+    );
+    // The reply's counts read 0, yet the documents written before the failure stay written.
+    let changed = all_docs(&store, &ns)
+        .await
+        .iter()
+        .filter(|d| d.get_i32("u") == Ok(99))
+        .count();
+    assert_eq!(changed, 1);
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn update_many_failing_validation_midway_is_rejected_as_validation_failed() {
+    if !local_enabled("update_many_failing_validation_midway_is_rejected_as_validation_failed") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("c");
+    let db = client.database(&ns.db);
+    db.create_collection(&ns.collection)
+        .validator(doc! { "n": { "$lt": 3 } })
+        .await
+        .unwrap();
+    seed_below(&client, &ns).await;
+    let req = BulkUpdateRequest {
+        update: UpdateSpec::Pipeline(vec![doc! { "$set": { "n": "$_id" } }]),
+        ..set_update(doc! {}, MatchScope::AllDocuments, false)
+    };
+    let got = store.update_many(&ns, &req, run_id()).await.unwrap();
+    assert_eq!(
+        got,
+        BulkOutcome::Rejected {
+            reason: BulkFailureReason::ValidationFailed
+        }
+    );
+}
+
+/// Five documents with `n` = 0 that satisfy the validator `n < 3`.
+async fn seed_below(client: &mongodb::Client, ns: &Namespace) {
+    let docs: Vec<Document> = (0..5).map(|id| doc! { "_id": id, "n": 0 }).collect();
+    client
+        .database(&ns.db)
+        .collection::<Document>(&ns.collection)
+        .insert_many(docs)
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 #[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
 async fn update_many_all_documents_updates_all() {
@@ -289,6 +377,14 @@ async fn preview_after_matches_what_update_many_then_produces() {
         return;
     }
     let (dbs, client, store) = local_mongo().await;
+    if !replica_set_or_skip(
+        &client,
+        "preview_after_matches_what_update_many_then_produces",
+    )
+    .await
+    {
+        return;
+    }
     let updates = [
         UpdateSpec::Operators(doc! { "$set": { "flag": true } }),
         UpdateSpec::Operators(doc! { "$inc": { "n": 5 } }),
@@ -320,6 +416,9 @@ async fn preview_leaves_the_collection_unchanged() {
         return;
     }
     let (dbs, client, store) = local_mongo().await;
+    if !replica_set_or_skip(&client, "preview_leaves_the_collection_unchanged").await {
+        return;
+    }
     let ns = dbs.ns("c");
     seed(&client, &ns).await;
     let before = all_docs(&store, &ns).await;
@@ -369,6 +468,14 @@ async fn upsert_with_no_match_previews_the_inserted_document_and_inserts_nothing
         return;
     }
     let (dbs, client, store) = local_mongo().await;
+    if !replica_set_or_skip(
+        &client,
+        "upsert_with_no_match_previews_the_inserted_document_and_inserts_nothing",
+    )
+    .await
+    {
+        return;
+    }
     let ns = dbs.ns("c");
     seed(&client, &ns).await;
     let before = all_docs(&store, &ns).await;
@@ -431,6 +538,14 @@ async fn preview_reports_data_errors_of_the_update_as_invalid() {
         return;
     }
     let (dbs, client, store) = local_mongo().await;
+    if !replica_set_or_skip(
+        &client,
+        "preview_reports_data_errors_of_the_update_as_invalid",
+    )
+    .await
+    {
+        return;
+    }
     let ns = dbs.ns("c");
     seed(&client, &ns).await;
     let before = all_docs(&store, &ns).await;
@@ -438,6 +553,7 @@ async fn preview_reports_data_errors_of_the_update_as_invalid() {
         doc! { "$set": { "n.x": 1 } },   // 28 PathNotViable: `n` is a number
         doc! { "$set": { "_id": 42 } },  // 66 ImmutableField
         doc! { "$inc": { "group": 1 } }, // 14 TypeMismatch
+        doc! { "$sett": { "a": 1 } },    // 9 FailedToParse: an unknown operator, not a gap
     ];
     for update in updates {
         let req = update_req(doc! { "group": "a" }, UpdateSpec::Operators(update), false);
@@ -474,6 +590,9 @@ async fn preview_during_a_write_conflict_reports_conflict() {
         return;
     }
     let (dbs, client, store) = local_mongo().await;
+    if !replica_set_or_skip(&client, "preview_during_a_write_conflict_reports_conflict").await {
+        return;
+    }
     let ns = dbs.ns("c");
     seed(&client, &ns).await;
     let before = all_docs(&store, &ns).await;
