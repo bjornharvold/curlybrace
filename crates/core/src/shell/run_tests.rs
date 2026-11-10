@@ -312,6 +312,7 @@ fn output_over_the_cap_cancels_with_cap_reached() {
     let limits = RunLimits {
         max_output_bytes: 64 * 1024,
         chunk_bytes: 4 * 1024,
+        ..RunLimits::default()
     };
     let run = start_with(&fake.exe, invocation("flood"), limits);
     assert_eq!(run.wait(), Outcome::CapReached);
@@ -357,6 +358,7 @@ fn long_line_without_newline_is_chunked() {
     let limits = RunLimits {
         max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
         chunk_bytes: 1024,
+        ..RunLimits::default()
     };
     let run = start_with(&fake.exe, invocation("long 20000"), limits);
     assert_eq!(run.wait(), Outcome::Exited(0));
@@ -377,4 +379,115 @@ fn missing_executable_reports_start_failed() {
     assert_eq!(run.wait(), Outcome::StartFailed);
     assert!(run.chunks(Stream::Stdout).is_empty());
     run.handle().cancel();
+}
+
+#[test]
+fn printed_uncaught_text_is_output_not_an_error() {
+    let fake = repl();
+    let run = start(&fake, "Uncaught x");
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    assert_eq!(run.text(Stream::Stdout), "Uncaught x\n");
+    assert_eq!(run.text(Stream::Stderr), "");
+}
+
+#[test]
+fn a_syntax_error_block_goes_to_stderr_and_gives_script_errors() {
+    let fake = repl();
+    let run = start(&fake, "syntax\nafter");
+    assert_eq!(run.wait(), Outcome::ScriptErrors);
+    assert_eq!(
+        run.text(Stream::Stderr),
+        "Uncaught:\nSyntaxError: Unexpected token (1:4)\n\n> 1 | var = = 3\n\n"
+    );
+    assert_eq!(run.text(Stream::Stdout), "after\n");
+}
+
+#[test]
+fn a_shell_that_exits_before_the_sentinel_is_a_connect_failure_with_its_output() {
+    let fake = FakeMongosh::new(Behaviour::ExitsBeforeReady);
+    let run = start(&fake, "never");
+    assert_eq!(run.wait(), Outcome::ConnectFailed);
+    assert_eq!(run.text(Stream::Stderr), "Error: cannot start\n");
+    assert_eq!(run.text(Stream::Stdout), "");
+}
+
+#[test]
+fn no_sentinel_within_the_handshake_timeout_is_a_connect_failure() {
+    let fake = FakeMongosh::new(Behaviour::HangsBeforeReady);
+    let limits = RunLimits {
+        handshake_timeout: Duration::from_millis(500),
+        ..RunLimits::default()
+    };
+    let started = Instant::now();
+    let run = start_with(&fake.exe, invocation("never"), limits);
+    assert_eq!(run.wait(), Outcome::ConnectFailed);
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(run.text(Stream::Stderr), "junk 1\njunk 2\n");
+    assert_eq!(run.text(Stream::Stdout), "");
+}
+
+#[test]
+fn a_cap_cut_inside_the_password_shows_no_part_of_it() {
+    let fake = repl();
+    // Raw stdout before the echoed line: the default prompt, the sentinel with its blank line
+    // and the fixed prompt.
+    let before = "> __CB_READY__\n\n".len() + crate::shell::invocation::PROMPT.len();
+    let limits = RunLimits {
+        max_output_bytes: before + "ZZZZ".len() + 3,
+        ..RunLimits::default()
+    };
+    let run = start_with(&fake.exe, invocation(&format!("ZZZZ{SECRET}")), limits);
+    assert_eq!(run.wait(), Outcome::CapReached);
+    assert_eq!(run.text(Stream::Stdout), "ZZZZ");
+}
+
+#[test]
+fn a_child_left_holding_the_pipes_does_not_delay_the_end() {
+    let fake = repl();
+    let pid_file = fake.path("bg.pid");
+    let started = Instant::now();
+    let run = start(&fake, &format!("spawn {}", pid_file.display()));
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "{:?}",
+        started.elapsed()
+    );
+    let pid = read_pid(&pid_file);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !is_gone(pid) {
+        assert!(
+            Instant::now() < deadline,
+            "the background child was left running"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn a_panicking_on_output_stops_the_run_and_still_reports_once() {
+    let fake = repl();
+    let pid_file = fake.path("bg.pid");
+    let script = format!("spawn {}\nboom\nhang", pid_file.display());
+    let (tx, done) = mpsc::channel();
+    let handle = spawn_shell(
+        &fake.exe,
+        invocation(&script),
+        Vec::new(),
+        Some(OsStr::new(FAKE_PATH)),
+        RunLimits::default(),
+        |_, _| std::panic::resume_unwind(Box::new("on_output failed on purpose")),
+        move |outcome| {
+            let _ = tx.send(outcome);
+        },
+    );
+    let _guard = Guard(handle);
+    assert_eq!(done.recv_timeout(LONG), Ok(Outcome::Cancelled));
+    assert!(done.try_recv().is_err(), "on_done ran twice");
+    let pid = read_pid(&pid_file);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !is_gone(pid) {
+        assert!(Instant::now() < deadline, "the group survived the panic");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }

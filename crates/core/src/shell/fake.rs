@@ -2,12 +2,14 @@
 //! `mongosh --nodb --quiet` reading piped stdin. No real `mongosh` or network is needed.
 //!
 //! It prints `> ` before reading the first line (the preamble), answers it with
-//! `__CB_READY__` plus the blank line `print` leaves, then prompts `test> ` before each later line
-//! and exits 0 on EOF. Script lines it understands:
+//! `__CB_READY__` plus the blank line `print` leaves, then prompts with the fixed prompt the
+//! preamble sets (`\x01CBP> `) before each later line and exits 0 on EOF. Script lines it
+//! understands:
 //!
 //! | line | effect |
 //! | --- | --- |
 //! | `throw <msg>` | `Uncaught \rError: <msg>` on stdout, as `mongosh` does |
+//! | `syntax` | a syntax error block (`Uncaught:\n\rSyntaxError: ...` with a code frame) |
 //! | `stderr <text>` | `<text>` on stderr |
 //! | `exit <n>` | exits with status `n` |
 //! | `dump` | `arg:<a>` per argument, then `env` |
@@ -41,6 +43,10 @@ pub(crate) enum Behaviour {
     ChecksEarlyInput,
     /// Never reads stdin: prints the sentinel and `ignored`, waits 0.3 s and exits 0.
     IgnoresStdin,
+    /// Reads the preamble, prints `Error: cannot start` and exits 3 without a sentinel.
+    ExitsBeforeReady,
+    /// Reads the preamble, prints two junk lines and hangs (`sleep 30`) without a sentinel.
+    HangsBeforeReady,
 }
 
 /// The fake executable; the temp dir (and the script) is removed on drop.
@@ -58,6 +64,8 @@ impl FakeMongosh {
             Behaviour::ConnectFails(message) => ("fail", message.as_str()),
             Behaviour::ChecksEarlyInput => ("early", ""),
             Behaviour::IgnoresStdin => ("ignore", ""),
+            Behaviour::ExitsBeforeReady => ("exit", ""),
+            Behaviour::HangsBeforeReady => ("hang", ""),
         };
         assert!(!message.contains('\''), "the fake cannot quote '");
         let script = SCRIPT
@@ -99,15 +107,18 @@ if [ "$MODE" = fail ]; then
   while IFS= read -r line; do printf '%s\n' "$line" >> '@LOG@'; done
   exit 0
 fi
+if [ "$MODE" = exit ]; then printf 'Error: cannot start\n'; exit 3; fi
+if [ "$MODE" = hang ]; then printf 'junk 1\njunk 2\n'; sleep 30; exit 0; fi
 early=''
 if [ "$MODE" = early ] && IFS= read -r -t 1 line; then early=yes; fi
 printf '__CB_READY__\n\n'
 [ -n "$early" ] && echo EARLY
 while true; do
-  printf 'test> '
+  printf '\001CBP> '
   IFS= read -r line || exit 0
   case "$line" in
     'throw '*) printf 'Uncaught \rError: %s\n' "${line#throw }" ;;
+    syntax) printf 'Uncaught:\n\rSyntaxError: Unexpected token (1:4)\n\n> 1 | var = = 3\n\n' ;;
     'stderr '*) printf '%s\n' "${line#stderr }" >&2 ;;
     'exit '*) exit "${line#exit }" ;;
     dump) for a in "$@"; do printf 'arg:%s\n' "$a"; done; env ;;

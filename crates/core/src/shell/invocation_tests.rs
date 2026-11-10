@@ -87,9 +87,21 @@ fn uri_options_with_quotes_and_backslashes_stay_inside_the_string_literal() {
 #[test]
 fn preamble_has_the_sentinels() {
     let text = preamble_text(&build(&cfg("mongodb://h/admin"), None, None));
-    assert!(text.starts_with("try { db = connect(\"mongodb://h/admin\"); "));
+    assert!(text.contains("try { db = connect(\"mongodb://h/admin\"); "));
     assert!(text.contains("print(\"__CB_READY__\")"));
     assert!(text.contains("print(\"__CB_FAILED__ \" + e.message)"));
+}
+
+#[test]
+fn preamble_fixes_the_prompt_before_connecting() {
+    let text = preamble_text(&build(&cfg("mongodb://h/admin"), None, None));
+    assert!(
+        text.starts_with("prompt = () => \"\\u0001CBP> \"; try { db = connect("),
+        "{text}"
+    );
+    // The JS escape and the token the classifier strips are the same text.
+    assert_eq!(PROMPT, "\u{1}CBP> ");
+    assert_eq!(text.matches('\n').count(), 1);
 }
 
 #[test]

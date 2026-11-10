@@ -14,14 +14,22 @@ use std::path::Path;
 const SRV_SCHEME: &str = "mongodb+srv://";
 const PLAIN_SCHEME: &str = "mongodb://";
 
+/// The prompt the session uses from the preamble on. Fixed, so output never carries the default
+/// prompt (`rs0 [primary] admin> `, `[mongos] admin> `, ...) and the classifier strips exactly
+/// this token. U+0001 does not occur in normal output.
+pub(crate) const PROMPT: &str = "\u{1}CBP> ";
+/// [`PROMPT`] as a `mongosh` statement (verified on piped stdin with mongosh 2.14.1: every later
+/// prompt, also after `use <db>`, is exactly this token).
+const PROMPT_JS: &str = "prompt = () => \"\\u0001CBP> \"; ";
+
 /// What to spawn and what to write to its stdin.
 ///
 /// `Debug` is written by hand: the preamble holds the password, so it never prints bytes.
 pub struct Invocation {
     /// Always `["--nodb", "--quiet"]`.
     pub args: Vec<OsString>,
-    /// One line (ends in a single `\n`) that connects and prints `__CB_READY__`, or
-    /// `__CB_FAILED__ <message>`. Holds the password; written first.
+    /// One line (ends in a single `\n`) that fixes the prompt ([`PROMPT`]), connects and prints
+    /// `__CB_READY__`, or `__CB_FAILED__ <message>`. Holds the password; written first.
     pub preamble: Vec<u8>,
     /// The user's script plus one trailing newline; written after the ready sentinel.
     pub script: Vec<u8>,
@@ -80,7 +88,7 @@ pub fn build_invocation(
     }
     let uri = connect_uri(cfg, password, tunnel)?;
     let preamble = format!(
-        "try {{ db = connect({}); print(\"__CB_READY__\") }} catch (e) {{ print(\"__CB_FAILED__ \" + e.message) }}\n",
+        "{PROMPT_JS}try {{ db = connect({}); print(\"__CB_READY__\") }} catch (e) {{ print(\"__CB_FAILED__ \" + e.message) }}\n",
         js_string(&uri)
     );
     Ok(Invocation {

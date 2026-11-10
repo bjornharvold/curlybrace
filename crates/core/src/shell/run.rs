@@ -4,29 +4,31 @@
 //! entries only) and `HOME`, a neutral working directory, and its own process group so a stop
 //! kills the child and everything it started.
 //!
-//! Threads per run:
+//! Threads per run (see `pipe.rs`):
 //! - a writer: writes the preamble, waits for the stdout reader to see `__CB_READY__`, writes
-//!   the script and closes stdin (EOF ends `mongosh`). On `__CB_FAILED__` the script is never
-//!   written. A broken pipe just ends it.
+//!   the script and closes stdin (EOF ends `mongosh`). Without READY the script is never written.
 //! - one reader per output stream: raw bytes are counted against the cap, decoded (UTF-8, a
 //!   character split across reads kept whole), scrubbed, then (stdout) classified.
 //! - a supervisor: the only thread that calls `on_output`, then `on_done` exactly once after the
-//!   child is reaped and both readers have finished (or were given up on, see [`DRAIN`]).
-use super::classify::{Classifier, Piece};
+//!   child has exited and both readers have finished (or were given up on, see [`DRAIN`]). It
+//!   reaps the child last, so every kill before that targets a group that is still ours.
+use super::control::{Control, Stop};
 use super::decode::Utf8Decoder;
+use super::pipe::{Lane, Reader, write_input};
 use super::{Invocation, Scrubber};
 use crate::tools::{absolute_entries, kill_group};
 use std::ffi::OsStr;
-use std::io::{ErrorKind, Read, Write};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
-use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 pub const DEFAULT_CHUNK_BYTES: usize = 8 * 1024;
+/// A little over the driver's 30 s server selection timeout.
+pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(35);
 /// How often the supervisor checks whether the child has exited.
 const POLL: Duration = Duration::from_millis(10);
 /// Grace period for the readers after the child has exited. Something it started may still hold
@@ -46,10 +48,12 @@ pub enum Outcome {
     Exited(i32),
     /// The shell exited 0 but the script raised at least one `Uncaught` error.
     ScriptErrors,
-    /// The preamble could not connect; the script was never sent.
+    /// The preamble did not connect (it failed, the shell ended before answering, or no answer
+    /// came within [`RunLimits::handshake_timeout`]); the script was never sent.
     ConnectFailed,
     /// The shell was killed by a signal we did not send.
     Signalled,
+    /// [`ShellHandle::cancel`] stopped the run, or `on_output` panicked (the run is then stopped).
     Cancelled,
     /// Output exceeded [`RunLimits::max_output_bytes`]; the run was stopped.
     CapReached,
@@ -63,6 +67,8 @@ pub struct RunLimits {
     pub max_output_bytes: usize,
     /// Read size, so the largest piece of text one `on_output` call carries (roughly).
     pub chunk_bytes: usize,
+    /// How long the preamble may take to answer before the run stops with `ConnectFailed`.
+    pub handshake_timeout: Duration,
 }
 
 impl Default for RunLimits {
@@ -70,6 +76,7 @@ impl Default for RunLimits {
         Self {
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
             chunk_bytes: DEFAULT_CHUNK_BYTES,
+            handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
         }
     }
 }
@@ -82,7 +89,7 @@ pub struct ShellHandle {
 
 impl ShellHandle {
     /// Kills the shell and everything it started; the run then ends with `Cancelled`. A no-op once
-    /// the shell has exited, and when called again.
+    /// the shell has been reaped, and when called again.
     pub fn cancel(&self) {
         if let Some(control) = &self.control {
             control.stop(Stop::Cancelled);
@@ -93,7 +100,8 @@ impl ShellHandle {
 /// Runs `exe` with `inv` and streams its output to `on_output`; `on_done` follows exactly once,
 /// after the last `on_output`. Both are called from a background thread. `secrets` are masked
 /// in all output. A failed spawn is reported as `on_done(Outcome::StartFailed)` before this
-/// returns.
+/// returns. If `on_output` panics, the run is stopped, later output is dropped and `on_done`
+/// still comes, with `Outcome::Cancelled`.
 pub fn spawn_shell(
     exe: &Path,
     inv: Invocation,
@@ -144,261 +152,89 @@ pub fn spawn_shell(
     let (output_tx, output_rx) = mpsc::channel();
     let (ready_tx, ready_rx) = mpsc::channel();
     std::thread::spawn(move || write_input(stdin, preamble, script, &ready_rx));
-    let readers = [
-        (
-            Box::new(stdout) as Box<dyn Read + Send>,
-            Lane::Stdout {
-                classifier: Classifier::default(),
-                ready: Some(ready_tx),
-            },
-        ),
-        (Box::new(stderr), Lane::Stderr),
-    ];
-    for (source, lane) in readers {
-        let reader = Reader {
-            control: Arc::clone(&control),
-            output: output_tx.clone(),
-            scrubber: Scrubber::new(&secrets),
-            decoder: Utf8Decoder::default(),
-            lane,
-        };
-        std::thread::spawn(move || reader.run(source, chunk_bytes));
-    }
+    let reader = |lane| Reader {
+        control: Arc::clone(&control),
+        output: output_tx.clone(),
+        scrubber: Scrubber::new(&secrets),
+        decoder: Utf8Decoder::default(),
+        lane,
+    };
+    let (out_reader, err_reader) = (reader(Lane::stdout(ready_tx)), reader(Lane::Stderr));
+    std::thread::spawn(move || out_reader.run(stdout, chunk_bytes));
+    std::thread::spawn(move || err_reader.run(stderr, chunk_bytes));
     drop(output_tx);
-    let supervised = Arc::clone(&control);
-    std::thread::spawn(move || supervise(child, &supervised, &output_rx, on_output, on_done));
+    let supervisor = Supervisor {
+        control: Arc::clone(&control),
+        output: output_rx,
+        on_output,
+        panicked: false,
+    };
+    let timeout = limits.handshake_timeout;
+    std::thread::spawn(move || supervisor.run(child, timeout, on_done));
     ShellHandle {
         control: Some(control),
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Stop {
-    Cancelled,
-    CapReached,
-    ConnectFailed,
-}
-
-#[derive(Debug, Default)]
-struct State {
-    /// The child has been waited for: its pid may be reused, so it is never signalled again.
-    reaped: bool,
-    /// Why we stopped the run; the first reason wins.
-    stop: Option<Stop>,
-}
-
-/// Shared by the handle and the run's threads.
-#[derive(Debug)]
-struct Control {
-    pid: u32,
-    state: Mutex<State>,
-    max_output_bytes: usize,
-    output_bytes: AtomicUsize,
-    saw_uncaught: AtomicBool,
-}
-
-impl Control {
-    fn new(pid: u32, max_output_bytes: usize) -> Self {
-        Self {
-            pid,
-            state: Mutex::new(State::default()),
-            max_output_bytes,
-            output_bytes: AtomicUsize::new(0),
-            saw_uncaught: AtomicBool::new(false),
-        }
-    }
-
-    fn state(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Records why the run stops and kills the group while the child is unreaped. A cancel after
-    /// the child exited changes nothing; a cap or connect failure is still the outcome.
-    fn stop(&self, why: Stop) {
-        let mut state = self.state();
-        if state.reaped && why == Stop::Cancelled {
-            return;
-        }
-        state.stop.get_or_insert(why);
-        if !state.reaped {
-            kill_group(self.pid);
-        }
-    }
-
-    /// `Some(status)` once the child has exited. Reaps under the lock, so [`Control::stop`]
-    /// never signals a pid that was reaped (and possibly reused).
-    fn try_reap(&self, child: &mut Child) -> Option<Option<ExitStatus>> {
-        let mut state = self.state();
-        let status = match child.try_wait() {
-            Ok(None) => return None,
-            Ok(Some(status)) => Some(status),
-            Err(_) => {
-                kill_group(self.pid);
-                let _ = child.kill();
-                child.wait().ok()
-            }
-        };
-        state.reaped = true;
-        Some(status)
-    }
-
-    /// Counts `n` more raw output bytes; returns how many fit under the cap and stops the run
-    /// when they do not all fit.
-    fn admit(&self, n: usize) -> usize {
-        let before = self.output_bytes.fetch_add(n, Ordering::SeqCst);
-        let allowed = self.max_output_bytes.saturating_sub(before).min(n);
-        if allowed < n {
-            self.stop(Stop::CapReached);
-        }
-        allowed
-    }
-
-    fn outcome(&self, status: Option<ExitStatus>) -> Outcome {
-        match self.state().stop {
-            Some(Stop::Cancelled) => return Outcome::Cancelled,
-            Some(Stop::CapReached) => return Outcome::CapReached,
-            Some(Stop::ConnectFailed) => return Outcome::ConnectFailed,
-            None => {}
-        }
-        match status.and_then(|status| status.code()) {
-            Some(0) if self.saw_uncaught.load(Ordering::SeqCst) => Outcome::ScriptErrors,
-            Some(code) => Outcome::Exited(code),
-            None => Outcome::Signalled,
-        }
-    }
-}
-
-/// Writes the preamble, then the script once `ready` says the shell connected, then closes
-/// stdin. Any write error (the child exited or never reads) just ends it.
-fn write_input(mut stdin: ChildStdin, preamble: Vec<u8>, script: Vec<u8>, ready: &Receiver<()>) {
-    let sent = stdin.write_all(&preamble).and_then(|()| stdin.flush());
-    // The password's only copy outside the scrubbers: do not keep it for the whole run.
-    drop(preamble);
-    if sent.is_ok() && ready.recv().is_ok() {
-        let _ = stdin.write_all(&script);
-    }
-}
-
-/// What a reader does with scrubbed text.
-enum Lane {
-    Stdout {
-        classifier: Classifier,
-        /// Tells the writer the shell connected; dropped unsent when it did not.
-        ready: Option<Sender<()>>,
-    },
-    Stderr,
-}
-
-struct Reader {
+struct Supervisor<F> {
     control: Arc<Control>,
-    output: Sender<(Stream, String)>,
-    scrubber: Scrubber,
-    decoder: Utf8Decoder,
-    lane: Lane,
+    output: Receiver<(Stream, String)>,
+    on_output: F,
+    /// `on_output` panicked: the run was stopped and later output is dropped.
+    panicked: bool,
 }
 
-impl Reader {
-    fn run(mut self, mut source: Box<dyn Read + Send>, chunk_bytes: usize) {
-        let mut buf = vec![0; chunk_bytes];
+impl<F: Fn(Stream, String)> Supervisor<F> {
+    /// Forwards output until the child has exited and the readers are done, then reports.
+    fn run(mut self, mut child: Child, handshake_timeout: Duration, on_done: impl FnOnce(Outcome)) {
+        let handshake_deadline = Instant::now() + handshake_timeout;
+        let mut timed_out = false;
+        let mut readers_done = false;
         loop {
-            let n = match source.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-                Err(_) => break,
-            };
-            let allowed = self.control.admit(n);
-            let text = self.scrubber.push(&self.decoder.push(&buf[..allowed]));
-            if !self.pass(&text, false) || allowed < n {
+            if readers_done {
+                std::thread::sleep(POLL);
+            } else {
+                readers_done = self.forward(Instant::now() + POLL);
+            }
+            if !timed_out && !self.control.handshake_done() && Instant::now() >= handshake_deadline
+            {
+                timed_out = true;
+                self.control.stop(Stop::ConnectFailed);
+            }
+            if self.control.exited(&mut child) {
                 break;
             }
         }
-        let mut text = self.scrubber.push(&self.decoder.finish());
-        text.push_str(&self.scrubber.finish());
-        self.pass(&text, true);
+        if !readers_done && !self.forward(Instant::now() + DRAIN) {
+            // Something the shell started still holds its output open. The child is not reaped
+            // yet, so its group id is still ours: stop the group, which closes the pipes. One
+            // that left the group is out of reach; its reader is abandoned.
+            self.control.kill();
+            self.forward(Instant::now() + DRAIN);
+        }
+        let status = self.control.reap(&mut child);
+        on_done(self.control.outcome(status));
     }
 
-    /// Sends what `text` shows; false once nothing more should be read.
-    fn pass(&mut self, text: &str, at_end: bool) -> bool {
-        match &mut self.lane {
-            Lane::Stderr => {
-                let text = text.replace('\r', "");
-                text.is_empty() || self.output.send((Stream::Stderr, text)).is_ok()
-            }
-            Lane::Stdout { classifier, ready } => {
-                let mut pieces = classifier.push(text);
-                if at_end {
-                    pieces.extend(classifier.finish());
-                }
-                if classifier.saw_uncaught() {
-                    self.control.saw_uncaught.store(true, Ordering::SeqCst);
-                }
-                for piece in pieces {
-                    match piece {
-                        Piece::Out(stream, text) => {
-                            if self.output.send((stream, text)).is_err() {
-                                return false;
-                            }
-                        }
-                        Piece::Ready => {
-                            if let Some(ready) = ready.take() {
-                                let _ = ready.send(());
-                            }
-                        }
-                        Piece::Failed(message) => {
-                            ready.take();
-                            let _ = self.output.send((Stream::Stderr, format!("{message}\n")));
-                            self.control.stop(Stop::ConnectFailed);
-                            return false;
-                        }
-                    }
-                }
-                true
+    /// Passes output on until both readers have finished (true) or `deadline` passes (false).
+    fn forward(&mut self, deadline: Instant) -> bool {
+        loop {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            match self.output.recv_timeout(wait) {
+                Ok((stream, text)) => self.deliver(stream, text),
+                Err(RecvTimeoutError::Timeout) => return false,
+                Err(RecvTimeoutError::Disconnected) => return true,
             }
         }
     }
-}
 
-/// Forwards output until the child is reaped and the readers are done, then reports the outcome.
-fn supervise(
-    mut child: Child,
-    control: &Control,
-    output: &Receiver<(Stream, String)>,
-    on_output: impl Fn(Stream, String),
-    on_done: impl FnOnce(Outcome),
-) {
-    let mut readers_done = false;
-    let status = loop {
-        if readers_done {
-            std::thread::sleep(POLL);
-        } else {
-            readers_done = forward(output, &on_output, Instant::now() + POLL);
+    fn deliver(&mut self, stream: Stream, text: String) {
+        if self.panicked {
+            return;
         }
-        if let Some(status) = control.try_reap(&mut child) {
-            break status;
-        }
-    };
-    if !readers_done && !forward(output, &on_output, Instant::now() + DRAIN) {
-        // Something the shell started still holds its output open: stop its group, which
-        // closes the pipes. One that left the group is out of reach; its reader is abandoned.
-        kill_group(control.pid);
-        forward(output, &on_output, Instant::now() + DRAIN);
-    }
-    on_done(control.outcome(status));
-}
-
-/// Passes output on until both readers have finished (true) or `deadline` passes (false).
-fn forward(
-    output: &Receiver<(Stream, String)>,
-    on_output: &impl Fn(Stream, String),
-    deadline: Instant,
-) -> bool {
-    loop {
-        let wait = deadline.saturating_duration_since(Instant::now());
-        match output.recv_timeout(wait) {
-            Ok((stream, text)) => on_output(stream, text),
-            Err(RecvTimeoutError::Timeout) => return false,
-            Err(RecvTimeoutError::Disconnected) => return true,
+        if catch_unwind(AssertUnwindSafe(|| (self.on_output)(stream, text))).is_err() {
+            self.panicked = true;
+            self.control.stop(Stop::CallbackPanicked);
         }
     }
 }
