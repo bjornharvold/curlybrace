@@ -198,6 +198,33 @@ async fn a_thrown_error_is_a_script_error_on_stderr() {
     assert_no_prompt_leak(&text(&events, Stream::Stdout));
 }
 
+/// Unblocked, `passwordPrompt()` on piped stdin prints "Enter password", reads the rest of the
+/// script as the password and exits 0, so nothing after it runs and the run looks successful.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn password_prompt_is_a_script_error() {
+    let test = "password_prompt_is_a_script_error";
+    if !local_enabled(test) {
+        return;
+    }
+    let Some(exe) = mongosh(test) else {
+        return;
+    };
+    let (mut h, id) = local_session().await;
+
+    let script = "print(\"before-cbit\")\nconst pw = passwordPrompt()\nprint(\"after-cbit\")";
+    let events = run_script(&mut h, id, exe, script).await;
+    assert_eq!(outcome(&events), Outcome::ScriptErrors, "{events:?}");
+    let err = text(&events, Stream::Stderr);
+    assert!(
+        err.contains("passwordPrompt() is not available in the shell tab"),
+        "{err:?}"
+    );
+    let out = text(&events, Stream::Stdout);
+    assert!(!out.contains("Enter password"), "{out:?}");
+    assert_no_prompt_leak(&out);
+}
+
 /// The wrong password for a user the server does not know (the server needs no `--auth`: an
 /// unknown user fails to authenticate either way). The runtime connects through [`AcceptAll`], so
 /// only `mongosh` meets the server. Lighter than a second `--auth` server.

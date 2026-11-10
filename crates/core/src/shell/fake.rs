@@ -25,6 +25,7 @@
 //! | `bytes <fmt>` | `printf <fmt>` (raw bytes, octal escapes; no spaces in `fmt`) |
 //! | `split <a> <b>` | `printf <a>`, a 0.2 s pause, `printf <b>`: two separate reads |
 //! | `long <n>` | `n` times `x` without a newline |
+//! | `passwordPrompt()` | with the preamble's override: its `Uncaught \rError: <message>`; without: `Enter password`, then reads all of stdin as the password and exits 0, as `mongosh` does |
 //! | anything else | echoed back |
 //!
 //! The child gets an empty environment, so it needs a `PATH` with `/usr/bin:/bin`
@@ -116,6 +117,10 @@ if [ "$MODE" = exit ]; then printf 'Error: cannot start\n'; exit 3; fi
 if [ "$MODE" = hang ]; then printf 'junk 1\njunk 2\n'; sleep 30; exit 0; fi
 early=''
 if [ "$MODE" = early ] && IFS= read -r -t 1 line; then early=yes; fi
+# The message the preamble's `passwordPrompt` override throws, if it has one.
+pw_re='passwordPrompt = \(\) => \{ throw new Error\("([^"]*)"\) \}'
+pw_blocked=''
+if [[ "$preamble" =~ $pw_re ]]; then pw_blocked="${BASH_REMATCH[1]}"; fi
 printf '__CB_READY__\n\n'
 [ -n "$early" ] && echo EARLY
 # Open minus closed brackets in $1.
@@ -137,6 +142,9 @@ run_line() {
     'bytes '*) printf "${1#bytes }" ;;
     'split '*) read -r _ first second <<< "$1"; printf "$first"; sleep 0.2; printf "$second" ;;
     'long '*) head -c "${1#long }" /dev/zero | tr '\0' x ;;
+    'passwordPrompt()')
+      if [ -n "$pw_blocked" ]; then printf 'Uncaught \rError: %s\n' "$pw_blocked"; return 1; fi
+      printf 'Enter password\n'; cat > /dev/null; exit 0 ;;
     *) printf '%s\n' "$1" ;;
   esac
 }

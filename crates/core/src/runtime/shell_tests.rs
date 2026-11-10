@@ -260,6 +260,28 @@ async fn run_streams_output_then_finishes() {
     ));
 }
 
+/// The preamble's `passwordPrompt` override reaches the shell: the call is a script error with
+/// its message, instead of a prompt that silently reads the rest of the script.
+#[tokio::test]
+async fn password_prompt_is_a_script_error_not_a_silent_end() {
+    let mut f = Fixture::plain().await;
+    f.run(1, "before\npasswordPrompt()\nafter");
+    let events = f.until_done().await;
+    let err = output_text(&events, Stream::Stderr);
+    assert_eq!(
+        err,
+        "Uncaught Error: passwordPrompt() is not available in the shell tab\n"
+    );
+    assert!(output_text(&events, Stream::Stdout).starts_with("before\n"));
+    assert!(matches!(
+        events.last(),
+        Some(Event::ShellFinished {
+            outcome: Outcome::ScriptErrors,
+            ..
+        })
+    ));
+}
+
 #[tokio::test]
 async fn read_only_connection_is_refused_before_anything_starts() {
     let mut cfg = ConnectionConfig::new("ro", "mongodb://localhost:27017/app");

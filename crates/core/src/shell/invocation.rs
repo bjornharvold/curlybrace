@@ -21,6 +21,9 @@ pub(crate) const PROMPT: &str = "\u{1}CBP> ";
 /// [`PROMPT`] as a `mongosh` statement (verified on piped stdin with mongosh 2.14.1: every later
 /// prompt, also after `use <db>`, is exactly this token).
 const PROMPT_JS: &str = "prompt = () => \"\\u0001CBP> \"; ";
+/// On piped stdin `passwordPrompt()` would read the rest of the script as the password (nothing
+/// after it runs, and the run looks successful), so it throws instead. Shown as mongosh output.
+const PASSWORD_PROMPT_JS: &str = "passwordPrompt = () => { throw new Error(\"passwordPrompt() is not available in the shell tab\") }; ";
 
 /// What to spawn and what to write to its stdin.
 ///
@@ -28,8 +31,9 @@ const PROMPT_JS: &str = "prompt = () => \"\\u0001CBP> \"; ";
 pub struct Invocation {
     /// Always `["--nodb", "--quiet"]`.
     pub args: Vec<OsString>,
-    /// One line (ends in a single `\n`) that fixes the prompt ([`PROMPT`]), connects and prints
-    /// `__CB_READY__`, or `__CB_FAILED__ <message>`. Holds the password; written first.
+    /// One line (ends in a single `\n`) that fixes the prompt ([`PROMPT`]), makes
+    /// `passwordPrompt()` throw, connects and prints `__CB_READY__`, or `__CB_FAILED__ <message>`.
+    /// Holds the password; written first.
     pub preamble: Vec<u8>,
     /// The user's script plus one trailing newline; written after the ready sentinel.
     pub script: Vec<u8>,
@@ -88,7 +92,7 @@ pub fn build_invocation(
     }
     let uri = connect_uri(cfg, password, tunnel)?;
     let preamble = format!(
-        "{PROMPT_JS}try {{ db = connect({}); print(\"__CB_READY__\") }} catch (e) {{ print(\"__CB_FAILED__ \" + e.message) }}\n",
+        "{PROMPT_JS}{PASSWORD_PROMPT_JS}try {{ db = connect({}); print(\"__CB_READY__\") }} catch (e) {{ print(\"__CB_FAILED__ \" + e.message) }}\n",
         js_string(&uri)
     );
     Ok(Invocation {

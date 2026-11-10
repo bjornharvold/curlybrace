@@ -96,12 +96,27 @@ fn preamble_has_the_sentinels() {
 fn preamble_fixes_the_prompt_before_connecting() {
     let text = preamble_text(&build(&cfg("mongodb://h/admin"), None, None));
     assert!(
-        text.starts_with("prompt = () => \"\\u0001CBP> \"; try { db = connect("),
+        text.starts_with("prompt = () => \"\\u0001CBP> \"; "),
+        "{text}"
+    );
+    let prompt_at = text.find("prompt = ").unwrap();
+    assert!(
+        prompt_at < text.find("try { db = connect(").unwrap(),
         "{text}"
     );
     // The JS escape and the token the classifier strips are the same text.
     assert_eq!(PROMPT, "\u{1}CBP> ");
     assert_eq!(text.matches('\n').count(), 1);
+}
+
+#[test]
+fn preamble_makes_password_prompt_throw_before_the_script_runs() {
+    // Unblocked, `passwordPrompt()` reads the rest of the piped script as the "password".
+    let text = preamble_text(&build(&cfg("mongodb://h/admin"), Some("pw"), None));
+    let blocked = "passwordPrompt = () => { throw new Error(\"passwordPrompt() is not available in the shell tab\") }; ";
+    let at = text.find(blocked).expect("the passwordPrompt override");
+    assert!(at < text.find("try { db = connect(").unwrap(), "{text}");
+    assert_eq!(text.matches('\n').count(), 1, "still one line");
 }
 
 #[test]
