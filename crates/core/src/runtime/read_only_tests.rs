@@ -498,12 +498,14 @@ enum Class {
     Write,
     /// A data command that only reads.
     Read,
+    /// A write the shell runner refuses with `Event::ShellRefused` instead of `Event::Failed`.
+    ShellWrite,
     /// Not a data command (session lifecycle, compare, connection test, the lock itself).
     Other,
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 43;
+const COMMAND_VARIANTS: usize = 45;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -549,7 +551,9 @@ fn classify(command: &Command) -> Class {
         | Command::SetSamplingExcluded { .. }
         | Command::PurgeHistory { .. }
         | Command::SnapshotList { .. }
-        | Command::SnapshotDelete { .. } => Class::Other,
+        | Command::SnapshotDelete { .. }
+        | Command::ShellCancel { .. } => Class::Other,
+        Command::ShellRun { .. } => Class::ShellWrite,
     }
 }
 
@@ -610,7 +614,19 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
             run: crate::bulk::BulkRunId(Uuid::new_v4()),
             request: 2,
         },
+        Command::ShellCancel {
+            session: cfg.id,
+            run_id: 1,
+        },
     ];
+    let shell_run = Command::ShellRun {
+        session: cfg.id,
+        run_id: 1,
+        exe: "mongosh".into(),
+        script: "1".into(),
+    };
+    assert_eq!(classify(&shell_run), Class::ShellWrite);
+    assert!(shell_run.is_write());
     assert!(
         others
             .iter()
@@ -618,7 +634,7 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
     );
     let samples: Vec<Command> = write_commands(cfg.id)
         .into_iter()
-        .chain([profiler])
+        .chain([profiler, shell_run])
         .chain(read_commands(cfg.id))
         .chain(others.iter().cloned())
         .collect();

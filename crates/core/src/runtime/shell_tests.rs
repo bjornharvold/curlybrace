@@ -1,0 +1,480 @@
+//! `ShellRun` / `ShellCancel` through the runtime, with the fake `mongosh` of `shell::fake`
+//! (no real `mongosh` or server).
+
+use std::net::SocketAddr;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use async_trait::async_trait;
+use uuid::Uuid;
+
+use super::tunneling::{TunnelHandle, TunnelOpener, TunnelRequest};
+use super::*;
+use crate::connection::{SshAuth, SshConfig};
+use crate::secrets::{MemorySecretStore, SecretKind, secret_key};
+use crate::shell::fake::{Behaviour, FakeMongosh};
+use crate::shell::{MASK, Outcome, ShellError, Stream, percent_encode_component};
+use crate::test_support::InMemoryStore;
+
+const WAIT: Duration = Duration::from_secs(10);
+const QUIET: Duration = Duration::from_millis(400);
+const PASSWORD: &str = "p@ss:w/rd";
+const TUNNEL: &str = "127.0.0.1:50999";
+
+struct StoreConnector;
+
+#[async_trait]
+impl Connector for StoreConnector {
+    async fn connect(
+        &self,
+        _cfg: &ConnectionConfig,
+        _password: Option<&str>,
+        _tunnel: Option<SocketAddr>,
+    ) -> Result<Arc<dyn DocumentStore>> {
+        Ok(Arc::new(InMemoryStore::new()))
+    }
+}
+
+struct LoopbackTunnel;
+
+impl TunnelHandle for LoopbackTunnel {
+    fn local_addr(&self) -> SocketAddr {
+        TUNNEL.parse().unwrap()
+    }
+}
+
+struct LoopbackOpener;
+
+#[async_trait]
+impl TunnelOpener for LoopbackOpener {
+    async fn open(&self, _request: TunnelRequest<'_>) -> Result<Box<dyn TunnelHandle>> {
+        Ok(Box::new(LoopbackTunnel))
+    }
+}
+
+struct Fixture {
+    h: RuntimeHandle,
+    id: SessionId,
+    fake: FakeMongosh,
+}
+
+impl Fixture {
+    /// A runtime with `cfg` connected (the password stored for it, if any).
+    async fn connected(cfg: ConnectionConfig, password: Option<&str>) -> Self {
+        let secrets = Arc::new(MemorySecretStore::new());
+        if let Some(password) = password {
+            secrets
+                .set(&secret_key(cfg.id, SecretKind::Password), password)
+                .unwrap();
+        }
+        let config = RuntimeConfig {
+            tunnel_opener: Arc::new(LoopbackOpener),
+            ..RuntimeConfig::default()
+        };
+        let repaint: Repaint = Arc::new(|| {});
+        let mut h = spawn_runtime_with_connector(
+            Some(secrets),
+            None,
+            Arc::new(StoreConnector),
+            repaint,
+            config,
+        );
+        let id = cfg.id;
+        h.tx.send(Command::Connect(cfg)).unwrap();
+        assert!(matches!(next(&mut h).await, Event::Connected { .. }));
+        Self {
+            h,
+            id,
+            fake: FakeMongosh::new(Behaviour::Repl),
+        }
+    }
+
+    async fn plain() -> Self {
+        Self::connected(
+            ConnectionConfig::new("t", "mongodb://localhost:27017/app"),
+            None,
+        )
+        .await
+    }
+
+    fn run(&self, run_id: u64, script: &str) {
+        self.run_with(run_id, self.fake.exe.clone(), script);
+    }
+
+    fn run_with(&self, run_id: u64, exe: PathBuf, script: &str) {
+        self.h
+            .tx
+            .send(Command::ShellRun {
+                session: self.id,
+                run_id,
+                exe,
+                script: script.into(),
+            })
+            .unwrap();
+    }
+
+    fn cancel(&self, run_id: u64) {
+        let session = self.id;
+        self.h
+            .tx
+            .send(Command::ShellCancel { session, run_id })
+            .unwrap();
+    }
+
+    /// Events up to and including the first `ShellFinished` or `ShellRefused`.
+    async fn until_done(&mut self) -> Vec<Event> {
+        let mut seen = Vec::new();
+        loop {
+            let event = next(&mut self.h).await;
+            let last = matches!(
+                event,
+                Event::ShellFinished { .. } | Event::ShellRefused { .. }
+            );
+            seen.push(event);
+            if last {
+                return seen;
+            }
+        }
+    }
+
+    async fn outcome(&mut self) -> Outcome {
+        match self.until_done().await.pop() {
+            Some(Event::ShellFinished { outcome, .. }) => outcome,
+            other => panic!("expected ShellFinished, got {other:?}"),
+        }
+    }
+
+    async fn refusal(&mut self) -> ShellRefusal {
+        match self.until_done().await.pop() {
+            Some(Event::ShellRefused { reason, .. }) => reason,
+            other => panic!("expected ShellRefused, got {other:?}"),
+        }
+    }
+
+    /// Nothing arrives for a while.
+    async fn assert_quiet(&mut self) {
+        if let Ok(event) = tokio::time::timeout(QUIET, self.h.rx.recv()).await {
+            panic!("unexpected event {event:?}");
+        }
+    }
+}
+
+async fn next(h: &mut RuntimeHandle) -> Event {
+    tokio::time::timeout(WAIT, h.rx.recv())
+        .await
+        .expect("event in time")
+        .expect("channel open")
+}
+
+fn output_text(events: &[Event], wanted: Stream) -> String {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::ShellOutput { stream, text, .. } if *stream == wanted => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+async fn wait_for_file(path: &Path) -> String {
+    let start = Instant::now();
+    while start.elapsed() < WAIT {
+        if let Ok(text) = std::fs::read_to_string(path)
+            && !text.trim().is_empty()
+        {
+            return text;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("{} never appeared", path.display());
+}
+
+fn alive(pid: &str) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", pid.trim()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+async fn wait_dead(pid: &str) {
+    let start = Instant::now();
+    while alive(pid) {
+        assert!(start.elapsed() < WAIT, "process {pid} is still alive");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+// ---- commands ----
+
+#[test]
+fn exhaustive_matches_cover_new_commands() {
+    let session = Uuid::new_v4();
+    let run = Command::ShellRun {
+        session,
+        run_id: 7,
+        exe: "mongosh".into(),
+        script: "x".into(),
+    };
+    let cancel = Command::ShellCancel { session, run_id: 7 };
+    assert!(run.is_write());
+    assert!(!cancel.is_write());
+    assert_eq!(run.context(), "shell_run");
+    assert_eq!(cancel.context(), "shell_cancel");
+    assert_eq!(run.session(), Some(session));
+    assert_eq!(cancel.session(), Some(session));
+    let refused = Event::ShellRefused {
+        session,
+        run_id: 7,
+        reason: ShellRefusal::ReadOnly,
+    };
+    assert_eq!(refused.session(), Some(session));
+}
+
+// ---- runs ----
+
+#[tokio::test]
+async fn run_streams_output_then_finishes() {
+    let mut f = Fixture::plain().await;
+    f.run(1, "hello shell");
+    let events = f.until_done().await;
+    assert!(output_text(&events, Stream::Stdout).contains("hello shell"));
+    assert!(events.iter().all(|e| e.session() == Some(f.id)));
+    assert!(events.iter().all(|e| match e {
+        Event::ShellOutput { run_id, .. } | Event::ShellFinished { run_id, .. } => *run_id == 1,
+        _ => false,
+    }));
+    assert!(matches!(
+        events.last(),
+        Some(Event::ShellFinished {
+            outcome: Outcome::Exited(0),
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn read_only_connection_is_refused_before_anything_starts() {
+    let mut cfg = ConnectionConfig::new("ro", "mongodb://localhost:27017/app");
+    cfg.read_only = true;
+    let mut f = Fixture::connected(cfg, None).await;
+    let pidfile = f.fake.path("ro.pid");
+    f.run(1, &format!("spawn {}", pidfile.display()));
+    assert_eq!(f.refusal().await, ShellRefusal::ReadOnly);
+    f.assert_quiet().await;
+    assert!(!pidfile.exists(), "nothing may be spawned");
+}
+
+#[tokio::test]
+async fn a_lock_sent_after_the_connect_refuses_too() {
+    let mut f = Fixture::plain().await;
+    let connection = f.id;
+    f.h.tx.send(Command::LockReadOnly { connection }).unwrap();
+    f.run(1, "hello");
+    assert_eq!(f.refusal().await, ShellRefusal::ReadOnly);
+}
+
+#[tokio::test]
+async fn second_run_while_running_is_refused() {
+    let mut f = Fixture::plain().await;
+    let pidfile = f.fake.path("second.pid");
+    f.run(1, &format!("spawn {}\nhang", pidfile.display()));
+    f.run(2, "hello");
+    assert_eq!(f.refusal().await, ShellRefusal::AlreadyRunning);
+    // The first run is untouched and still ours to stop.
+    wait_for_file(&pidfile).await;
+    f.cancel(1);
+    assert_eq!(f.outcome().await, Outcome::Cancelled);
+    f.run(3, "again");
+    assert_eq!(f.outcome().await, Outcome::Exited(0));
+}
+
+#[tokio::test]
+async fn run_on_disconnected_session_is_refused() {
+    let mut f = Fixture::plain().await;
+    let stranger = Uuid::new_v4();
+    f.h.tx
+        .send(Command::ShellRun {
+            session: stranger,
+            run_id: 1,
+            exe: f.fake.exe.clone(),
+            script: "hello".into(),
+        })
+        .unwrap();
+    match next(&mut f.h).await {
+        Event::ShellRefused {
+            session,
+            run_id: 1,
+            reason: ShellRefusal::NotConnected,
+        } => assert_eq!(session, stranger),
+        other => panic!("{other:?}"),
+    }
+    let session = f.id;
+    f.h.tx.send(Command::Disconnect { session }).unwrap();
+    assert!(matches!(next(&mut f.h).await, Event::Disconnected { .. }));
+    f.run(2, "hello");
+    assert_eq!(f.refusal().await, ShellRefusal::NotConnected);
+}
+
+#[tokio::test]
+async fn an_invalid_script_is_refused_with_the_reason() {
+    let mut f = Fixture::plain().await;
+    f.run(1, "   ");
+    assert_eq!(
+        f.refusal().await,
+        ShellRefusal::Invalid(ShellError::EmptyScript)
+    );
+    // The refusal freed the slot.
+    f.run(2, "hello");
+    assert_eq!(f.outcome().await, Outcome::Exited(0));
+}
+
+#[tokio::test]
+async fn disconnect_kills_the_running_shell() {
+    let mut f = Fixture::plain().await;
+    let pidfile = f.fake.path("kill.pid");
+    f.run(1, &format!("spawn {}\nhang", pidfile.display()));
+    let pid = wait_for_file(&pidfile).await;
+    assert!(alive(&pid));
+    let session = f.id;
+    f.h.tx.send(Command::Disconnect { session }).unwrap();
+    let mut finished = None;
+    let mut disconnected = false;
+    while finished.is_none() || !disconnected {
+        match next(&mut f.h).await {
+            Event::ShellFinished { outcome, .. } => finished = Some(outcome),
+            Event::Disconnected { .. } => disconnected = true,
+            Event::ShellOutput { .. } => {}
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(finished, Some(Outcome::Cancelled));
+    wait_dead(&pid).await;
+}
+
+#[tokio::test]
+async fn a_new_connect_kills_the_running_shell() {
+    let cfg = ConnectionConfig::new("t", "mongodb://localhost:27017/app");
+    let mut f = Fixture::connected(cfg.clone(), None).await;
+    let pidfile = f.fake.path("reconnect.pid");
+    f.run(1, &format!("spawn {}\nhang", pidfile.display()));
+    let pid = wait_for_file(&pidfile).await;
+    f.h.tx.send(Command::Connect(cfg)).unwrap();
+    let (mut finished, mut connected) = (None, false);
+    while finished.is_none() || !connected {
+        match next(&mut f.h).await {
+            Event::ShellFinished { outcome, .. } => finished = Some(outcome),
+            Event::Connected { .. } => connected = true,
+            Event::ShellOutput { .. } | Event::Sampler { .. } | Event::Profiler { .. } => {}
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(finished, Some(Outcome::Cancelled));
+    wait_dead(&pid).await;
+    f.run(2, "hello");
+    assert_eq!(f.outcome().await, Outcome::Exited(0));
+}
+
+#[tokio::test]
+async fn cancel_of_a_stale_run_id_is_ignored() {
+    let mut f = Fixture::plain().await;
+    f.cancel(1); // nothing runs yet
+    let pidfile = f.fake.path("stale.pid");
+    f.run(5, &format!("spawn {}\nhang", pidfile.display()));
+    let pid = wait_for_file(&pidfile).await;
+    f.cancel(4);
+    f.cancel(6);
+    f.assert_quiet().await;
+    assert!(
+        alive(&pid),
+        "a cancel of another run must not stop this one"
+    );
+    f.cancel(5);
+    assert_eq!(f.outcome().await, Outcome::Cancelled);
+    wait_dead(&pid).await;
+}
+
+#[tokio::test]
+async fn start_failed_frees_the_slot() {
+    let mut f = Fixture::plain().await;
+    f.run_with(1, f.fake.path("no-such-mongosh"), "hello");
+    // on_done fires on the caller's thread, before spawn_shell returns.
+    assert_eq!(f.outcome().await, Outcome::StartFailed);
+    f.run(2, "hello");
+    assert_eq!(f.outcome().await, Outcome::Exited(0));
+}
+
+// ---- connection details ----
+
+/// A `mongosh` that records the preamble (which holds the connection string) and exits.
+fn capturing_exe(dir: &Path, log: &Path) -> PathBuf {
+    let exe = dir.join("capture-mongosh");
+    let script = format!(
+        "#!/bin/bash\nprintf '> '\nIFS= read -r preamble\nprintf '%s\\n' \"$preamble\" > '{}'\nprintf '__CB_READY__\\n\\n'\nexit 0\n",
+        log.display()
+    );
+    std::fs::write(&exe, script).unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    exe
+}
+
+#[tokio::test]
+async fn tunnel_address_is_used_when_the_session_has_one() {
+    let mut cfg = ConnectionConfig::new("t", "mongodb://db.internal:27018/app");
+    cfg.auth = crate::connection::AuthMechanism::ScramSha256;
+    cfg.username = Some("alice".into());
+    cfg.ssh = Some(SshConfig {
+        host: "bastion".into(),
+        port: 22,
+        username: "u".into(),
+        auth: SshAuth::Password,
+    });
+    let mut f = Fixture::connected(cfg, Some(PASSWORD)).await;
+    let log = f.fake.path("preamble.log");
+    let exe = capturing_exe(f.fake.dir(), &log);
+    f.run_with(1, exe, "hello");
+    assert_eq!(f.outcome().await, Outcome::Exited(0));
+    let preamble = wait_for_file(&log).await;
+    assert!(preamble.contains(TUNNEL), "{preamble}");
+    assert!(!preamble.contains("db.internal"), "{preamble}");
+    assert!(preamble.contains(&percent_encode_component(PASSWORD)));
+}
+
+#[tokio::test]
+async fn without_a_tunnel_the_uri_host_is_used() {
+    let mut f = Fixture::plain().await;
+    let log = f.fake.path("plain.log");
+    let exe = capturing_exe(f.fake.dir(), &log);
+    f.run_with(1, exe, "hello");
+    assert_eq!(f.outcome().await, Outcome::Exited(0));
+    assert!(wait_for_file(&log).await.contains("localhost:27017"));
+}
+
+#[tokio::test]
+async fn password_never_appears_in_any_event_or_debug_output() {
+    let mut cfg = ConnectionConfig::new("t", "mongodb://localhost:27017/app");
+    cfg.auth = crate::connection::AuthMechanism::ScramSha256;
+    cfg.username = Some("alice".into());
+    let mut f = Fixture::connected(cfg, Some(PASSWORD)).await;
+    let encoded = percent_encode_component(PASSWORD);
+    f.run(1, &format!("{PASSWORD}\n{encoded}\nstderr {PASSWORD}"));
+    let events = f.until_done().await;
+    let debug = events
+        .iter()
+        .map(|e| format!("{e:?}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!debug.contains(PASSWORD), "{debug}");
+    assert!(!debug.contains(&encoded), "{debug}");
+    assert!(
+        output_text(&events, Stream::Stdout).contains(MASK),
+        "{debug}"
+    );
+    assert!(
+        output_text(&events, Stream::Stderr).contains(MASK),
+        "{debug}"
+    );
+}

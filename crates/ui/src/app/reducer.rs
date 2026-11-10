@@ -444,6 +444,10 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::Copy(_)
         | Event::TestConnection { .. }
         | Event::Snapshots { .. } => (state, Vec::new()),
+        // handled in Task 8
+        Event::ShellOutput { .. } | Event::ShellFinished { .. } | Event::ShellRefused { .. } => {
+            (state, Vec::new())
+        }
     }
 }
 

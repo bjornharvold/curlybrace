@@ -477,7 +477,9 @@ async fn data_command(
         | Command::BulkUndoPreview { .. }
         | Command::BulkUndo { .. }
         | Command::SnapshotList { .. }
-        | Command::SnapshotDelete { .. } => {
+        | Command::SnapshotDelete { .. }
+        | Command::ShellRun { .. }
+        | Command::ShellCancel { .. } => {
             unreachable!(
                 "connection, compare, copy and bulk commands are handled before data dispatch"
             )
@@ -511,6 +513,7 @@ async fn connect_store(
     // The tunnel lives in this scope until installed; a failure, timeout or
     // cancellation anywhere below drops it, which closes it.
     let attempt = JobFlag::new();
+    let kept = cfg.clone();
     let (store, tunnel, topology) = bounded(limit, async {
         // Ends the attempt however this block ends (success, error, timeout, cancellation): a
         // host-key answer arriving later is then rejected, not remembered.
@@ -537,7 +540,7 @@ async fn connect_store(
         Ok((store, tunnel, topology))
     })
     .await?;
-    if session.install_if_current(generation, store, tunnel) {
+    if session.install_with_config(generation, store, tunnel, Some(kept)) {
         Ok(Event::Connected {
             session: cfg.id,
             epoch: generation,

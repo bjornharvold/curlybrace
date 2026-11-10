@@ -25,7 +25,8 @@ impl Command {
             | Self::BulkUpdate { .. }
             | Self::BulkDelete { .. }
             | Self::BulkUndoPreview { .. }
-            | Self::BulkUndo { .. } => true,
+            | Self::BulkUndo { .. }
+            | Self::ShellRun { .. } => true,
             Self::Connect(_)
             | Self::Disconnect { .. }
             | Self::ListDatabases { .. }
@@ -49,7 +50,8 @@ impl Command {
             | Self::BulkSample { .. }
             | Self::BulkCancel { .. }
             | Self::SnapshotList { .. }
-            | Self::SnapshotDelete { .. } => false,
+            | Self::SnapshotDelete { .. }
+            | Self::ShellCancel { .. } => false,
         }
     }
 
@@ -115,6 +117,8 @@ impl Command {
             Self::BulkUndo { .. } => "bulk_undo",
             Self::SnapshotList { .. } => "snapshot_list",
             Self::SnapshotDelete { .. } => "snapshot_delete",
+            Self::ShellRun { .. } => "shell_run",
+            Self::ShellCancel { .. } => "shell_cancel",
         }
     }
 
@@ -156,7 +160,9 @@ impl Command {
             | Self::BulkDelete { session, .. }
             | Self::BulkCancel { session, .. }
             | Self::BulkUndoPreview { session, .. }
-            | Self::BulkUndo { session, .. } => Some(*session),
+            | Self::BulkUndo { session, .. }
+            | Self::ShellRun { session, .. }
+            | Self::ShellCancel { session, .. } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
@@ -200,7 +206,10 @@ impl Event {
             | Self::BulkUndoPreview { session, .. }
             | Self::BulkUndoFinished { session, .. }
             | Self::Failed { session, .. }
-            | Self::RequestFailed { session, .. } => Some(*session),
+            | Self::RequestFailed { session, .. }
+            | Self::ShellOutput { session, .. }
+            | Self::ShellFinished { session, .. }
+            | Self::ShellRefused { session, .. } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
