@@ -72,7 +72,8 @@ pub(super) fn on_event(state: AppState, session: Uuid, event: Event) -> Out {
 }
 
 /// The user confirmed a parked run on a production connection. It is sent only if the opening it
-/// was aimed at is still the connected active session and the shell is still idle.
+/// was aimed at is still the connected active session and the shell is still idle; the script
+/// sent is the one parked when Run was clicked.
 pub(super) fn confirmed(state: AppState, parked: ParkedWrite) -> Out {
     let unchanged_connection = super::write_guard::connection_unchanged(&state, &parked);
     let Command::ShellRun {
@@ -88,20 +89,19 @@ pub(super) fn confirmed(state: AppState, parked: ParkedWrite) -> Out {
         let banner = Some(super::state::Banner::WriteNotSentConnectionChanged);
         return unchanged(AppState { banner, ..state });
     }
-    let (shell, request) = state.shell_or_new(session).run_requested();
-    match request {
-        Some(request) => (
-            state.with_shell(session, shell),
-            vec![Command::ShellRun {
-                session,
-                run_id: request.run_id,
-                exe,
-                script,
-            }],
-        ),
-        // Running already, or the script was emptied meanwhile: the view-model says which.
-        None => unchanged(state.with_shell(session, shell)),
+    let shell = state.shell_or_new(session);
+    if shell.is_running() {
+        return unchanged(state);
     }
+    // The script as it was when Run was clicked runs, whatever the editor holds now.
+    let (shell, request) = shell.started(&script);
+    let command = Command::ShellRun {
+        session,
+        run_id: request.run_id,
+        exe,
+        script: request.script,
+    };
+    (state.with_shell(session, shell), vec![command])
 }
 
 fn open(state: AppState, id: Uuid) -> Out {
@@ -143,7 +143,8 @@ fn run(state: AppState, id: Uuid) -> Out {
         script: request.script,
     };
     if state.session_production(id) {
-        // The run id is handed out on confirmation; nothing is marked running before then.
+        // The run id in the parked command is provisional: `confirmed` hands out the real one.
+        // Nothing is marked running before then.
         let write_warning = Some(ParkedWrite {
             command,
             pending: None,
@@ -159,15 +160,20 @@ fn run(state: AppState, id: Uuid) -> Out {
 }
 
 fn cancel(state: AppState, id: Uuid) -> Out {
+    let commands = cancel_running(&state, id).into_iter().collect();
+    (state, commands)
+}
+
+/// The cancel of the run the shell of `id` shows as running, if any. Sent by the user's Cancel
+/// and, under one rule, wherever a running shell is reset or dropped (connection lost, reconnect,
+/// close), so a `mongosh` the tab no longer tracks is never left running.
+pub(super) fn cancel_running(state: &AppState, id: Uuid) -> Option<Command> {
     match state.shell.get(id).map(|s| s.status) {
-        Some(ShellStatus::Running { run_id }) => (
-            state,
-            vec![Command::ShellCancel {
-                session: id,
-                run_id,
-            }],
-        ),
-        _ => unchanged(state),
+        Some(ShellStatus::Running { run_id }) => Some(Command::ShellCancel {
+            session: id,
+            run_id,
+        }),
+        _ => None,
     }
 }
 

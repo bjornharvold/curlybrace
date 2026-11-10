@@ -134,12 +134,15 @@ fn output(id: Uuid, run_id: u64, text: &str) -> Event {
 
 /// The active session's connection was lost (its root fails, like a failed connect).
 fn lost(s: AppState, id: Uuid) -> AppState {
-    let ev = Event::Failed {
+    event(s, lost_event(id)).0
+}
+
+fn lost_event(id: Uuid) -> Event {
+    Event::Failed {
         session: id,
         context: "find",
         error: CoreError::Unreachable,
-    };
-    event(s, ev).0
+    }
 }
 
 /// Reconnects the failed session `id` and answers the connect.
@@ -602,4 +605,115 @@ fn edit_and_format_update_the_active_sessions_shell() {
     assert_eq!(shell_of(&s, id).script, "{\n  a: 1\n}");
     let (none, _) = shell(AppState::default(), ShellAction::Format);
     assert!(none.shell.get(Uuid::nil()).is_none());
+}
+
+#[test]
+fn a_lost_connection_mid_run_cancels_the_run_and_goes_idle() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = fake_mongosh(dir.path());
+    let (s, id) = ready(plain(), &exe);
+    let (s, _) = shell(s, ShellAction::Run);
+
+    let (s, commands) = event(s, lost_event(id));
+
+    assert_eq!(sent(&commands), vec![Sent::Cancel(id, 1)]);
+    let sh = shell_of(&s, id);
+    assert_eq!(sh.status, ShellStatus::Idle);
+    assert_eq!(sh.script, SCRIPT);
+    assert_eq!(sh.next_run_id, 2);
+
+    let (s, _) = event(s, output(id, 1, "late\n"));
+    let (s, _) = event(s, finished(id, 1, Outcome::Cancelled));
+    assert_eq!(shell_of(&s, id).notice, None, "the old run's end is stale");
+    assert_eq!(shell_of(&s, id).line_count(), 0);
+    let s = reconnected(s, id);
+    let (s, commands) = shell(s, ShellAction::Run);
+    assert_eq!(sent(&commands), vec![expected_run(id, 2, &exe)]);
+    assert_eq!(shell_of(&s, id).status, ShellStatus::Running { run_id: 2 });
+}
+
+#[test]
+fn a_lost_connection_with_an_idle_shell_sends_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, id) = ready(plain(), &fake_mongosh(dir.path()));
+    let (s, _) = shell(s, ShellAction::Run);
+    let (s, _) = event(s, finished(id, 1, Outcome::Exited(0)));
+
+    let (s, commands) = event(s, lost_event(id));
+
+    assert!(commands.is_empty());
+    assert_eq!(shell_of(&s, id).status, ShellStatus::Idle);
+}
+
+#[test]
+fn a_lost_background_session_cancels_its_own_run_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = fake_mongosh(dir.path());
+    let a_cfg = plain();
+    let b_cfg = ConnectionConfig {
+        name: "other".into(),
+        ..mock_connection()
+    };
+    let (a, b) = (a_cfg.id, b_cfg.id);
+    let s = AppState::new(vec![a_cfg, b_cfg]);
+    let s = connect_and_answer(connect_and_answer(s, a), b);
+    let s = with_override(with_override(s, a, exe.clone()), b, exe);
+    let (s, _) = update(s, Input::Activate(a));
+    let (s, _) = shell(edit(s, SCRIPT), ShellAction::Run);
+    let (s, _) = update(s, Input::Activate(b));
+    let (s, _) = shell(edit(s, SCRIPT), ShellAction::Run);
+
+    let (s, commands) = event(s, lost_event(a));
+
+    assert_eq!(sent(&commands), vec![Sent::Cancel(a, 1)]);
+    assert_eq!(shell_of(&s, a).status, ShellStatus::Idle);
+    assert_eq!(shell_of(&s, b).status, ShellStatus::Running { run_id: 1 });
+}
+
+#[test]
+fn closing_a_running_session_cancels_its_run_before_disconnecting() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, id) = ready(plain(), &fake_mongosh(dir.path()));
+    let (s, _) = shell(s, ShellAction::Run);
+
+    let (s, commands) = update(s, Input::Disconnect(id));
+
+    assert_eq!(sent(&commands), vec![Sent::Cancel(id, 1), Sent::Other]);
+    assert!(matches!(commands[1], Command::Disconnect { .. }));
+    assert!(s.shell.get(id).is_none());
+}
+
+#[test]
+fn a_confirmed_run_sends_the_script_as_it_was_when_run_was_clicked() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = fake_mongosh(dir.path());
+    let (s, id) = ready(with_flags(true, false), &exe);
+    let (s, _) = shell(s, ShellAction::Run);
+    let s = edit(s, "");
+
+    let (s, commands) = update(s, Input::WriteWarning(WriteWarningAction::Confirm));
+
+    assert_eq!(sent(&commands), vec![expected_run(id, 1, &exe)]);
+    assert_eq!(shell_of(&s, id).status, ShellStatus::Running { run_id: 1 });
+    assert_eq!(shell_of(&s, id).notice, None);
+    let (_, again) = update(s, Input::WriteWarning(WriteWarningAction::Confirm));
+    assert!(again.is_empty());
+}
+
+#[test]
+fn a_second_run_click_while_the_warning_is_up_parks_nothing_more() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, id) = ready(with_flags(true, false), &fake_mongosh(dir.path()));
+    let (s, _) = shell(s, ShellAction::Run);
+    let s = edit(s, "db.other.find()");
+
+    let (s, commands) = shell(s, ShellAction::Run);
+
+    assert!(commands.is_empty());
+    let parked = s.write_warning.as_ref().expect("the first warning");
+    assert!(
+        matches!(&parked.command, Command::ShellRun { script, .. } if script == SCRIPT),
+        "the first parked run is kept, not replaced"
+    );
+    assert_eq!(shell_of(&s, id).status, ShellStatus::Idle);
 }

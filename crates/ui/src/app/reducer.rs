@@ -190,7 +190,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::Disconnected { .. } => (state, Vec::new()),
         Event::ConnectFailed { epoch, error, .. } => at_epoch(state, epoch, |s| {
             let error = specific(&s, "connect", error);
-            (connection_lost(s, "connect", error, background), Vec::new())
+            lost_with_shell_cancelled(s, "connect", error, background)
         }),
         // The root was dropped when Disconnect was sent and the runtime always answers
         // `Disconnected`; a failure that still arrives must not fail a root opened since.
@@ -293,10 +293,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         } => {
             let error = specific(&state, context, error);
             match state.editor.is_none() && !state.indexes.has_prompt() {
-                true => (
-                    connection_lost(state, context, error, background),
-                    Vec::new(),
-                ),
+                true => lost_with_shell_cancelled(state, context, error, background),
                 false => (
                     data_failed_keeping_banner(state, context, error, background),
                     Vec::new(),
@@ -545,6 +542,22 @@ fn connection_lost(
         forget_target,
         ..state.failed(error)
     }
+}
+
+/// `connection_lost`, plus a cancel of the session's running shell: `mongosh` holds its own
+/// connection and may outlive the blip, and once the shell is reset to idle nothing else could
+/// stop it. Read while the failing session is the active one.
+fn lost_with_shell_cancelled(
+    state: AppState,
+    context: &'static str,
+    error: CoreError,
+    background: bool,
+) -> Out {
+    let cancel = shell_actions::cancel_running(&state, state.session_id());
+    (
+        connection_lost(state, context, error, background),
+        cancel.into_iter().collect(),
+    )
 }
 
 /// Stores a fresh page, memoising its content key once (not per frame).

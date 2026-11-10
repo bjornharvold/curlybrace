@@ -285,3 +285,20 @@ fn a_selection_off_a_char_boundary_does_not_panic() {
     let selection = formatted.selection.expect("selection");
     assert_eq!(&formatted.script[selection], "éé");
 }
+
+#[test]
+fn started_runs_the_given_text_whatever_the_editor_holds() {
+    let (state, _) = running("first");
+    let state = state
+        .finished(1, Outcome::Exited(0))
+        .edited(String::new(), None);
+
+    let (state, request) = state.started("db.a.find()");
+
+    assert_eq!(request.script, "db.a.find()");
+    assert_eq!(request.run_id, 2);
+    assert_eq!(state.status, ShellStatus::Running { run_id: 2 });
+    assert_eq!(state.next_run_id, 3);
+    assert_eq!(state.notice, None);
+    assert_eq!(state.line_count(), 0);
+}

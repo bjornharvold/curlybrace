@@ -113,10 +113,18 @@ impl ShellState {
             };
             return (next, None);
         }
+        let (next, request) = self.started(text);
+        (next, Some(request))
+    }
+
+    /// Starts a run of exactly `script_to_run` (whatever the editor holds now): the next run id,
+    /// output and notice cleared. The caller has checked that nothing is running and that the
+    /// text is worth running (a confirmed run sends the text as it was when Run was clicked).
+    pub fn started(&self, script_to_run: &str) -> (Self, RunRequest) {
         let run_id = self.next_run_id;
         let request = RunRequest {
             run_id,
-            script: text.to_string(),
+            script: script_to_run.to_string(),
         };
         let next = Self {
             output: OutputLog::default(),
@@ -126,7 +134,7 @@ impl ShellState {
             notice: None,
             ..self.clone()
         };
-        (next, Some(request))
+        (next, request)
     }
 
     pub fn output_arrived(&self, run_id: u64, stream: Stream, text: &str) -> Self {
