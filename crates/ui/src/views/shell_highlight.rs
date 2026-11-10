@@ -83,16 +83,18 @@ pub fn highlight_js(text: &str, font: FontId, colors: &JsColors) -> LayoutJob {
 }
 
 /// [`highlight_js`] laid out for `wrap_width`, kept in egui memory: the editor's layouter runs
-/// every frame, and only a change of text, font, colors or width lexes again.
+/// every frame, and only a change of text, font, colors or width lexes again. `slot` is the
+/// memory slot (one per editor), which holds the last job only.
 pub fn cached_highlight(
     ctx: &egui::Context,
+    slot: egui::Id,
     text: &str,
     font: &FontId,
     colors: &JsColors,
     wrap_width: f32,
 ) -> Arc<LayoutJob> {
     let key = egui::util::hash((text, font, colors, wrap_width.to_bits()));
-    let id = egui::Id::new(CACHE_ID);
+    let id = slot;
     let hit = ctx
         .data(|d| d.get_temp::<CachedJob>(id))
         .filter(|cached| cached.key == key);
@@ -109,8 +111,6 @@ pub fn cached_highlight(
     ctx.data_mut(|d| d.insert_temp(id, cached));
     job
 }
-
-const CACHE_ID: &str = "shell_highlight_cache";
 
 #[derive(Clone)]
 struct CachedJob {

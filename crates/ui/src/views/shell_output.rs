@@ -1,6 +1,8 @@
 //! The Shell tab's output pane: a named region of virtualised, selectable monospace lines.
-//! Stderr is drawn in the error color AND marked in words (a visible marker, and an accessible
-//! name that says it is error output), so color is never the only signal. While a run is going
+//! Stderr is drawn in the error color AND marked in words, so color is never the only signal:
+//! sighted readers see a painted marker in front of the line, and a screen reader hears the
+//! line's name, which says it is error output (the painted marker is not a node, so the cue is
+//! spoken once). While a run is going
 //! the pane follows the newest line unless the user scrolled away from the bottom.
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
@@ -27,7 +29,11 @@ pub(crate) fn show_output(ui: &mut egui::Ui, state: &ShellState, i18n: &I18n) {
             ui.strong(i18n.t("shell.output.title"));
             if state.dropped_lines > 0 {
                 let count = state.dropped_lines.to_string();
-                ui.label(i18n.t_with("shell.output.dropped", &[("count", &count)]));
+                let key = match state.dropped_lines {
+                    1 => "shell.output.dropped_one",
+                    _ => "shell.output.dropped_other",
+                };
+                ui.label(i18n.t_with(key, &[("count", &count)]));
             }
             if state.line_count() == 0 {
                 ui.label(i18n.t(empty_key(state)));
@@ -85,8 +91,7 @@ fn show_lines(ui: &mut egui::Ui, state: &ShellState, i18n: &I18n) {
                 let width = (galley.size().x + mark_width).max(ui.available_width());
                 fixed_row_sized(ui, height, width, |ui| {
                     if let Some(mark) = mark {
-                        // The marker is part of the line's accessible name below.
-                        ui.add(egui::Label::new(egui::WidgetText::Galley(mark)).selectable(false));
+                        paint_marker(ui, mark, error);
                     }
                     line_label(ui, galley, name);
                 });
@@ -94,10 +99,22 @@ fn show_lines(ui: &mut egui::Ui, state: &ShellState, i18n: &I18n) {
         });
 }
 
-/// The line as drawn: an over-long line ends with the "cut" marker.
+/// Paints the stderr marker and leaves room for it, without a widget: the line's accessible
+/// name already says "error", so the marker must not be announced a second time.
+fn paint_marker(ui: &mut egui::Ui, mark: Arc<egui::Galley>, color: egui::Color32) {
+    let room = ui.available_rect_before_wrap();
+    let top = room.center().y - mark.size().y / 2.0;
+    let width = mark.size().x;
+    ui.painter()
+        .galley(egui::pos2(room.min.x, top), mark, color);
+    ui.add_space(width);
+}
+
+/// The line as drawn: an over-long line ends with the "cut" marker, one space after the text
+/// (the space is not part of the translation, so it cannot be lost there).
 fn shown_text(line: &OutputLine, truncated: &str) -> String {
     match line.truncated {
-        true => format!("{}{truncated}", line.text),
+        true => format!("{} {truncated}", line.text),
         false => line.text.clone(),
     }
 }

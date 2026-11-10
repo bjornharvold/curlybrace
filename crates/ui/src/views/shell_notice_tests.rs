@@ -105,10 +105,18 @@ fn success_cancel_and_failure_differ_in_severity() {
 }
 
 #[test]
-fn only_tool_problems_and_a_failed_start_offer_the_tool_paths() {
+fn only_a_missing_or_too_old_mongosh_offers_the_tool_paths() {
     let offering: Vec<_> = all_notices()
         .into_iter()
         .filter(offers_tool_paths)
         .collect();
-    assert_eq!(offering.len(), 3, "{offering:?}");
+    assert_eq!(offering.len(), 2, "{offering:?}");
+    assert!(
+        offering
+            .iter()
+            .all(|n| matches!(n, ShellNotice::ToolProblem(_)))
+    );
+    assert!(!offers_tool_paths(&ShellNotice::Finished(
+        Outcome::StartFailed
+    )));
 }

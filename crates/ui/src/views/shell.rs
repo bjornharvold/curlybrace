@@ -5,7 +5,7 @@
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.
 use super::documents::show_connection_header;
-use super::shell_editor::show_editor;
+use super::shell_editor::{editor_id, show_editor};
 use super::shell_notice::{notice_text, offers_tool_paths};
 use super::shell_output::show_output;
 use super::tone_notice::tone_notice;
@@ -15,6 +15,7 @@ use crate::theme::{Tone, filled_button, gate, text_button, tonal_button};
 use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::shell::{ShellNotice, ShellState};
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
+use uuid::Uuid;
 
 /// Runs the selection, or the whole script.
 pub const RUN_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Enter);
@@ -30,6 +31,8 @@ const EDITOR_MIN_HEIGHT: f32 = 120.0;
 /// What the tab needs to know about the session it belongs to.
 #[derive(Clone, Copy, Debug)]
 pub struct ShellViewContext<'a> {
+    /// The session the tab belongs to; each session has its own editor state.
+    pub session: Uuid,
     /// The connection's display name.
     pub connection: &'a str,
     /// Its color, production and read-only flags.
@@ -39,7 +42,7 @@ pub struct ShellViewContext<'a> {
 }
 
 /// What the user asked for: a shell action, or the Tool paths dialog (offered when `mongosh`
-/// is missing, too old or could not be started).
+/// is missing or too old).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShellViewEvent {
     Action(ShellAction),
@@ -55,32 +58,42 @@ struct Gates {
 }
 
 impl Gates {
-    fn of(state: &ShellState, ctx: &ShellViewContext<'_>) -> Self {
+    /// The gates for `script`, which is the script as edited in this frame (a shortcut pressed
+    /// right after typing judges the typed text).
+    fn of(state: &ShellState, script: &str, ctx: &ShellViewContext<'_>) -> Self {
+        let has_text = !script.trim().is_empty();
         Self {
-            run: ctx.connected && !ctx.badge.read_only && state.can_run(),
+            run: ctx.connected && !ctx.badge.read_only && !state.is_running() && has_text,
             // A running shell can always be stopped.
             cancel: state.is_running(),
             // Formatting edits the draft only, so it works offline and on read-only connections.
-            format: !state.script.trim().is_empty(),
+            format: has_text,
         }
     }
 }
 
-/// Draws the tab. At most one event per frame: a shortcut wins over an edit made in the same
-/// frame (both in one frame takes two key events within a few milliseconds).
+/// The shortcuts pressed in this frame (before their gates are checked).
+#[derive(Clone, Copy, Default)]
+struct Pressed {
+    run: bool,
+    format: bool,
+}
+
+/// Draws the tab and returns every event of the frame in the order the reducer must apply them:
+/// the editor's `Edit` first, so a Run or Format in the same frame acts on the text as typed,
+/// then the shortcut or button, then the Tool paths request.
 pub fn show_shell(
     ui: &mut egui::Ui,
     state: &ShellState,
     ctx: ShellViewContext<'_>,
     i18n: &I18n,
-) -> Option<ShellViewEvent> {
-    let gates = Gates::of(state, &ctx);
-    let shortcut = shortcuts(ui, gates);
+) -> Vec<ShellViewEvent> {
+    let pressed = shortcuts(ui, ctx.session);
     show_connection_header(ui, ctx.connection, &ctx.badge, i18n);
     show_conditions(ui, &ctx, i18n);
-    let clicked = toolbar(ui, state, &ctx, gates, i18n);
+    let clicked = toolbar(ui, state, &ctx, Gates::of(state, &state.script, &ctx), i18n);
     let height = (ui.available_height() * EDITOR_SHARE).max(EDITOR_MIN_HEIGHT);
-    let edited = show_editor(ui, state, height, i18n);
+    let edited = show_editor(ui, state, ctx.session, height, i18n);
     ui.label(egui::RichText::new(i18n.t("shell.editor_hint")).small());
     let notice = state
         .notice
@@ -88,26 +101,42 @@ pub fn show_shell(
         .and_then(|notice| show_notice(ui, notice, i18n));
     ui.separator();
     show_output(ui, state, i18n);
-    shortcut
-        .or(clicked)
+    let script = match &edited {
+        Some(ShellAction::Edit { script, .. }) => script.as_str(),
+        _ => state.script.as_str(),
+    };
+    let shortcut = gated(pressed, Gates::of(state, script, &ctx));
+    edited
+        .into_iter()
+        .chain(shortcut.or(clicked))
         .map(ShellViewEvent::Action)
-        .or(notice)
-        .or(edited.map(ShellViewEvent::Action))
+        .chain(notice)
+        .collect()
 }
 
 /// The keyboard shortcuts, read before the editor so `Enter` and `F` are not typed into it.
-/// They are consumed even when their button is disabled, and ignored under a modal dialog.
-fn shortcuts(ui: &mut egui::Ui, gates: Gates) -> Option<ShellAction> {
-    if ui.ctx().memory(|m| m.top_modal_layer().is_some()) {
-        return None;
-    }
-    let (run, format) = ui.input_mut(|i| {
-        (
-            i.consume_shortcut(&RUN_SHORTCUT),
-            i.consume_shortcut(&FORMAT_SHORTCUT),
-        )
+///
+/// Rule: they belong to the Shell tab only while the keyboard is in its editor, or nowhere at
+/// all (nothing focused). With focus on any other widget (a sidebar row, a text field, a button)
+/// the keys are left alone for that widget, so one key press never does two things. Under a
+/// modal dialog they are ignored too. Inside the rule they are consumed even when their button
+/// is disabled, so the keys are never typed into the script.
+fn shortcuts(ui: &mut egui::Ui, session: Uuid) -> Pressed {
+    let editor = editor_id(session);
+    let ours = ui.ctx().memory(|m| {
+        m.top_modal_layer().is_none() && (m.has_focus(editor) || m.focused().is_none())
     });
-    match (run && gates.run, format && gates.format) {
+    if !ours {
+        return Pressed::default();
+    }
+    ui.input_mut(|i| Pressed {
+        run: i.consume_shortcut(&RUN_SHORTCUT),
+        format: i.consume_shortcut(&FORMAT_SHORTCUT),
+    })
+}
+
+fn gated(pressed: Pressed, gates: Gates) -> Option<ShellAction> {
+    match (pressed.run && gates.run, pressed.format && gates.format) {
         (true, _) => Some(ShellAction::Run),
         (false, true) => Some(ShellAction::Format),
         _ => None,
@@ -181,7 +210,8 @@ fn run_hint(state: &ShellState, ctx: &ShellViewContext<'_>, shortcut: &str, i18n
     i18n.t(key)
 }
 
-/// The notice of the last run or refusal; a `mongosh` problem offers the Tool paths dialog.
+/// The notice of the last run or refusal; a missing or too old `mongosh` offers the Tool paths
+/// dialog.
 fn show_notice(ui: &mut egui::Ui, notice: &ShellNotice, i18n: &I18n) -> Option<ShellViewEvent> {
     let (severity, text) = notice_text(notice, i18n);
     tone_notice(ui, severity.tone(), &text, false);

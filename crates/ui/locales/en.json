@@ -1304,13 +1304,14 @@
     },
     "open_tool_paths": "Open Tool paths",
     "output": {
-      "dropped": "{count} earlier lines were dropped to keep the output short.",
+      "dropped_one": "{count} earlier line was dropped to keep the output short.",
+      "dropped_other": "{count} earlier lines were dropped to keep the output short.",
       "empty": "Run a script to see its output here.",
       "region": "Shell output",
       "stderr_line": "Error output: {text}",
       "stderr_marker": "error:",
       "title": "Output",
-      "truncated": " … (rest of the line not kept)",
+      "truncated": "… (rest of the line not kept)",
       "waiting": "Running. No output yet."
     },
     "production_note": "Production connection: every run asks you to confirm first.",

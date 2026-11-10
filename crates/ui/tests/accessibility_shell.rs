@@ -15,6 +15,9 @@ use eframe::egui::accesskit::Role;
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
+use uuid::Uuid;
+
+const SESSION: Uuid = Uuid::from_u128(7);
 
 fn t(key: &str) -> String {
     I18n::english().t(key)
@@ -24,11 +27,19 @@ fn tw(key: &str, params: &[(&str, &str)]) -> String {
     I18n::english().t_with(key, params)
 }
 
+/// A focusable row and a text field outside the tab, standing in for the sidebar.
+const ROW: &str = "Sidebar row";
+const FIELD: &str = "Sidebar filter";
+
 struct Frame {
     shell: ShellState,
     connected: bool,
     badge: ConnectionBadge,
+    /// Every event, in order.
     events: Vec<ShellViewEvent>,
+    /// The events of each frame that had any.
+    frames: Vec<Vec<ShellViewEvent>>,
+    field: String,
 }
 
 impl Frame {
@@ -38,6 +49,8 @@ impl Frame {
             connected: true,
             badge: ConnectionBadge::default(),
             events: Vec::new(),
+            frames: Vec::new(),
+            field: String::new(),
         }
     }
 
@@ -59,18 +72,29 @@ fn harness(frame: Frame) -> Harness<'static, Frame> {
         .with_size(egui::vec2(900.0, 700.0))
         .build_ui_state(
             move |ui, frame: &mut Frame| {
+                ui.horizontal(|ui| {
+                    let _ = ui.button(ROW);
+                    ui.add(egui::TextEdit::singleline(&mut frame.field).hint_text(FIELD))
+                        .widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, FIELD)
+                        });
+                });
                 let ctx = ShellViewContext {
+                    session: SESSION,
                     connection: "local",
                     badge: frame.badge,
                     connected: frame.connected,
                 };
-                let Some(event) = show_shell(ui, &frame.shell, ctx, &i18n) else {
-                    return;
-                };
-                if let ShellViewEvent::Action(ShellAction::Edit { script, selection }) = &event {
-                    frame.shell = frame.shell.edited(script.clone(), selection.clone());
+                let events = show_shell(ui, &frame.shell, ctx, &i18n);
+                for event in &events {
+                    if let ShellViewEvent::Action(ShellAction::Edit { script, selection }) = event {
+                        frame.shell = frame.shell.edited(script.clone(), selection.clone());
+                    }
                 }
-                frame.events.push(event);
+                if !events.is_empty() {
+                    frame.frames.push(events.clone());
+                }
+                frame.events.extend(events);
             },
             frame,
         );
@@ -172,16 +196,26 @@ fn stderr_lines_are_announced_as_errors_in_words() {
     let h = harness(Frame::new(shell));
     h.get_by_label("all good");
     h.get_by_label(&tw("shell.output.stderr_line", &[("text", "boom")]));
+    // The painted marker is not a second node: "error" is spoken once.
+    assert!(
+        h.query_by_label_contains(&t("shell.output.stderr_marker"))
+            .is_none()
+    );
 }
 
 #[test]
-fn dropped_lines_are_counted_in_words() {
-    let shell = ShellState {
-        dropped_lines: 42,
-        ..running("print(1)").output_arrived(1, Stream::Stdout, "last\n")
-    };
-    let h = harness(Frame::new(shell));
-    h.get_by_label(&tw("shell.output.dropped", &[("count", "42")]));
+fn dropped_lines_are_counted_in_words_with_the_right_plural() {
+    for (count, key) in [
+        (42, "shell.output.dropped_other"),
+        (1, "shell.output.dropped_one"),
+    ] {
+        let shell = ShellState {
+            dropped_lines: count,
+            ..running("print(1)").output_arrived(1, Stream::Stdout, "last\n")
+        };
+        let h = harness(Frame::new(shell));
+        h.get_by_label(&tw(key, &[("count", &count.to_string())]));
+    }
 }
 
 fn with_notice(notice: ShellNotice) -> Harness<'static, Frame> {
@@ -252,20 +286,57 @@ fn a_tool_problem_is_stated_and_opens_the_tool_paths_dialog() {
     h.get_by_role_and_label(Role::Button, &t("shell.open_tool_paths"));
 }
 
+const RUN: (Modifiers, Key) = (Modifiers::COMMAND, Key::Enter);
+const FORMAT: (Modifiers, Key) = (Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::F);
+
+fn focus(h: &mut Harness<'static, Frame>, role: Role, label: &str) {
+    h.get_by_role_and_label(role, label).focus();
+    h.run_steps(2);
+}
+
+fn focus_editor(h: &mut Harness<'static, Frame>) {
+    focus(h, Role::MultilineTextInput, &t("shell.editor_label"));
+}
+
+fn press(h: &mut Harness<'static, Frame>, (modifiers, key): (Modifiers, Key)) {
+    h.key_press_modifiers(modifiers, key);
+    h.run_steps(2);
+}
+
+/// Text typed and a shortcut pressed within ONE frame (the harness otherwise steps per event).
+fn type_and_press(h: &mut Harness<'static, Frame>, text: &str, keys: Option<(Modifiers, Key)>) {
+    let input = h.input_mut();
+    input.events.push(egui::Event::Text(text.into()));
+    if let Some((modifiers, key)) = keys {
+        input.modifiers = modifiers;
+        input.events.push(egui::Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            repeat: false,
+            physical_key: None,
+        });
+    }
+    h.step();
+    h.input_mut().modifiers = Modifiers::default();
+    h.run_steps(2);
+}
+
+fn ran(h: &Harness<'static, Frame>, action: &ShellAction) -> bool {
+    h.state().actions().contains(action)
+}
+
 #[test]
 fn run_works_from_the_keyboard() {
     let mut h = harness(Frame::new(ShellState::default()));
     let editor = t("shell.editor_label");
-    h.get_by_role_and_label(Role::MultilineTextInput, &editor)
-        .focus();
-    h.run_steps(2);
+    focus_editor(&mut h);
     h.get_by_role_and_label(Role::MultilineTextInput, &editor)
         .type_text("db.users.find({})");
     h.run_steps(2);
     assert_eq!(h.state().shell.script, "db.users.find({})");
-    h.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
-    h.run_steps(2);
-    assert!(h.state().actions().contains(&ShellAction::Run));
+    press(&mut h, RUN);
+    assert!(ran(&h, &ShellAction::Run));
     // The shortcut is not typed into the script.
     assert_eq!(h.state().shell.script, "db.users.find({})");
 }
@@ -273,9 +344,78 @@ fn run_works_from_the_keyboard() {
 #[test]
 fn format_works_from_the_keyboard() {
     let mut h = harness(Frame::new(script("if (a) {\nb()\n}")));
-    h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::F);
-    h.run_steps(2);
-    assert!(h.state().actions().contains(&ShellAction::Format));
+    focus_editor(&mut h);
+    press(&mut h, FORMAT);
+    assert!(ran(&h, &ShellAction::Format));
+}
+
+#[test]
+fn the_shortcuts_work_with_nothing_focused() {
+    for (keys, action) in [(RUN, ShellAction::Run), (FORMAT, ShellAction::Format)] {
+        let mut h = harness(Frame::new(script("db.users.find({})")));
+        press(&mut h, keys);
+        assert!(ran(&h, &action), "{action:?}");
+    }
+}
+
+#[test]
+fn the_shortcuts_leave_a_focused_sidebar_row_or_field_alone() {
+    for (role, label) in [(Role::Button, ROW), (Role::TextInput, FIELD)] {
+        for keys in [RUN, FORMAT] {
+            let mut h = harness(Frame::new(script("db.users.find({})")));
+            focus(&mut h, role, label);
+            press(&mut h, keys);
+            assert!(
+                h.state().actions().is_empty(),
+                "{label}: {:?}",
+                h.state().events
+            );
+        }
+    }
+}
+
+#[test]
+fn text_typed_in_the_frame_of_a_shortcut_is_kept_and_comes_first() {
+    for (keys, action) in [(RUN, ShellAction::Run), (FORMAT, ShellAction::Format)] {
+        let mut h = harness(Frame::new(script("db.a.find()")));
+        focus_editor(&mut h);
+        type_and_press(&mut h, ";", Some(keys));
+        let edit = ShellViewEvent::Action(ShellAction::Edit {
+            script: "db.a.find();".into(),
+            selection: None,
+        });
+        let last = h.state().frames.last().cloned();
+        assert_eq!(last, Some(vec![edit, ShellViewEvent::Action(action)]));
+    }
+}
+
+#[test]
+fn text_typed_in_the_frame_of_a_run_click_is_kept_and_comes_first() {
+    let mut h = harness(Frame::new(script("db.a.find()")));
+    focus_editor(&mut h);
+    // An assistive-technology click on Run and a typed character arrive in the same frame.
+    h.get_by_role_and_label(Role::Button, &t("shell.run"))
+        .click_accesskit();
+    type_and_press(&mut h, ";", None);
+    let edit = ShellViewEvent::Action(ShellAction::Edit {
+        script: "db.a.find();".into(),
+        selection: None,
+    });
+    let run = ShellViewEvent::Action(ShellAction::Run);
+    assert!(
+        h.state().frames.contains(&vec![edit, run]),
+        "{:?}",
+        h.state().frames
+    );
+}
+
+#[test]
+fn a_run_shortcut_right_after_typing_into_an_empty_editor_runs_the_typed_text() {
+    let mut h = harness(Frame::new(ShellState::default()));
+    focus_editor(&mut h);
+    type_and_press(&mut h, "it", Some(RUN));
+    assert!(ran(&h, &ShellAction::Run));
+    assert_eq!(h.state().shell.script, "it");
 }
 
 #[test]

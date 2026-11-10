@@ -166,17 +166,18 @@ fn each_kind_gets_its_color() {
 #[test]
 fn the_cache_returns_the_same_job_for_the_same_key_and_a_new_one_otherwise() {
     let ctx = Context::default();
+    let slot = eframe::egui::Id::new("test_highlight_slot");
     let font = FontId::monospace(12.0);
     let c = colors();
-    let first = cached_highlight(&ctx, "db.a.find()", &font, &c, 300.0);
-    let again = cached_highlight(&ctx, "db.a.find()", &font, &c, 300.0);
+    let first = cached_highlight(&ctx, slot, "db.a.find()", &font, &c, 300.0);
+    let again = cached_highlight(&ctx, slot, "db.a.find()", &font, &c, 300.0);
     assert!(Arc::ptr_eq(&first, &again));
     assert_eq!(first.wrap.max_width, 300.0);
-    let wider = cached_highlight(&ctx, "db.a.find()", &font, &c, 400.0);
+    let wider = cached_highlight(&ctx, slot, "db.a.find()", &font, &c, 400.0);
     assert!(!Arc::ptr_eq(&first, &wider));
-    let edited = cached_highlight(&ctx, "db.b.find()", &font, &c, 400.0);
+    let edited = cached_highlight(&ctx, slot, "db.b.find()", &font, &c, 400.0);
     assert!(!Arc::ptr_eq(&wider, &edited));
     let dark = js_colors(scheme(Mode::Dark));
-    let themed = cached_highlight(&ctx, "db.b.find()", &font, &dark, 400.0);
+    let themed = cached_highlight(&ctx, slot, "db.b.find()", &font, &dark, 400.0);
     assert!(!Arc::ptr_eq(&edited, &themed));
 }

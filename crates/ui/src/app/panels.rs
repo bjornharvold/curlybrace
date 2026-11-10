@@ -239,23 +239,29 @@ pub fn show_workspace(
 
 /// The Shell tab of the active session; drawn connected or not (a lost connection keeps the
 /// draft on screen with Run disabled). A session that never used its shell shows an empty one.
+/// The events are pushed in the order the view gives them (an edit before the Run of the same
+/// frame), and the reducer applies them in that order.
 fn show_shell_tab(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    // `shows_manager` draws no Shell tab without an active session.
+    let Some(session) = state.active else {
+        return;
+    };
     let empty = ShellState::default();
-    let shell = state
-        .active
-        .and_then(|id| state.shell.get(id))
-        .unwrap_or(&empty);
+    let shell = state.shell.get(session).unwrap_or(&empty);
     let connection = state.active_connection_label(i18n);
     let context = ShellViewContext {
+        session,
         connection: &connection,
         badge: state.active_badge(),
         connected: state.status == ConnStatus::Connected,
     };
-    let event = show_shell(ui, shell, context, i18n).map(|event| match event {
-        ShellViewEvent::Action(action) => UiEvent::Input(Input::Shell(action)),
-        ShellViewEvent::OpenToolPaths => UiEvent::OpenToolSettings,
-    });
-    out.extend(event);
+    let events = show_shell(ui, shell, context, i18n)
+        .into_iter()
+        .map(|event| match event {
+            ShellViewEvent::Action(action) => UiEvent::Input(Input::Shell(action)),
+            ShellViewEvent::OpenToolPaths => UiEvent::OpenToolSettings,
+        });
+    out.extend(events);
 }
 
 fn show_collection(

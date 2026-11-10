@@ -38,12 +38,11 @@ pub fn notice_text(notice: &ShellNotice, i18n: &I18n) -> (Severity, String) {
     }
 }
 
-/// Whether the notice is about `mongosh` itself, so the Tool paths dialog is the way out.
+/// Whether the notice is about the `mongosh` file itself (missing or too old), so the Tool
+/// paths dialog is the way out. A failed start is not offered it: the cause may as well be the
+/// saved password, which the dialog cannot fix.
 pub fn offers_tool_paths(notice: &ShellNotice) -> bool {
-    matches!(
-        notice,
-        ShellNotice::ToolProblem(_) | ShellNotice::Finished(Outcome::StartFailed)
-    )
+    matches!(notice, ShellNotice::ToolProblem(_))
 }
 
 fn outcome_text(outcome: Outcome, i18n: &I18n) -> (Severity, String) {
