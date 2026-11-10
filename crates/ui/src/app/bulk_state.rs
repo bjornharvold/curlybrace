@@ -17,9 +17,17 @@ pub struct BulkState {
     /// The id of the preview (or sample) request still awaited; dropped by Back so the answer of
     /// a preview of an older definition can never be applied.
     pub preview_request: Option<u64>,
+    /// The id of the undo preview still awaited.
+    pub undo_request: Option<u64>,
 }
 
 impl BulkState {
+    /// The same state with the undo of its flow replaced (`None` closes it).
+    pub fn with_undo(self, undo: Option<crate::viewmodel::UndoFlow>) -> Self {
+        let flow = self.flow.clone().with_undo_flow(undo);
+        self.with_flow(flow)
+    }
+
     /// The same state with `flow` in place of its own.
     pub fn with_flow(self, flow: BulkFlow) -> Self {
         Self { flow, ..self }

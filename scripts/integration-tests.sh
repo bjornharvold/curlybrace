@@ -97,6 +97,8 @@ run "ui local_e2e_flows" \
   cargo test -p curlybrace-ui --test local_e2e_flows --locked -- --include-ignored --nocapture "$@"
 run "ui local_compare_flows" \
   cargo test -p curlybrace-ui --test local_compare_flows --locked -- --include-ignored --nocapture "$@"
+run "ui local_undo_flows" \
+  cargo test -p curlybrace-ui --test local_undo_flows --locked -- --include-ignored --nocapture "$@"
 
 if [ "${#failed[@]}" -ne 0 ]; then
   echo >&2

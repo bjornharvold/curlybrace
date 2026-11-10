@@ -2,9 +2,12 @@
 //! report, and the rules for when a typed confirmation and the all-documents tick are
 //! required. Pure and egui-free; the updaters return new values.
 use super::bulk_text::{DocText, UpdateCheck};
+use super::bulk_undo::UndoFlow;
 use super::typed_confirmation::typed_text_matches;
 use bson::Document;
-use curlybrace_core::bulk::{BulkOutcome, BulkRunId, MatchScope, PreviewGap, UpdatePreview};
+use curlybrace_core::bulk::{
+    BulkOutcome, BulkRunId, MatchScope, PreviewGap, UndoPolicy, UndoStatus, UpdatePreview,
+};
 use curlybrace_core::ejson::doc_to_view_json;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::Namespace;
@@ -79,6 +82,16 @@ pub struct BulkFlow {
     /// What the last cancel request of the run came to. The run carries on whatever it was and
     /// its report still comes.
     pub cancel_note: CancelNote,
+    /// Whether the write saves an undo copy first. Always `Snapshot` until the person, told that
+    /// the copy could not be saved, chooses to run without undo.
+    pub undo_policy: UndoPolicy,
+    /// Whether the finished run can be undone (recorded with the report).
+    pub undo: UndoStatus,
+    /// The undo of this run, once the person started it from the report.
+    pub undo_flow: Option<UndoFlow>,
+    /// Where the undo copy is kept, as said to the person; `None` when the system gives no
+    /// settings folder. Set by whoever opens the flow, so the view reads no environment.
+    pub undo_folder: Option<String>,
 }
 
 /// The answer to the person's last "Stop the write", shown while the run is still going.
@@ -116,6 +129,18 @@ impl BulkFlow {
             run: None,
             report: None,
             cancel_note: CancelNote::None,
+            undo_policy: UndoPolicy::Snapshot,
+            undo: UndoStatus::NotRequested,
+            undo_flow: None,
+            undo_folder: None,
+        }
+    }
+
+    /// Records where the undo copy will be kept.
+    pub fn with_undo_folder(self, undo_folder: Option<String>) -> Self {
+        Self {
+            undo_folder,
+            ..self
         }
     }
 
@@ -254,6 +279,69 @@ impl BulkFlow {
         }
     }
 
+    /// Records whether the finished run can be undone; only a report takes it.
+    pub fn with_undo(self, undo: UndoStatus) -> Self {
+        if self.step != BulkStep::Report {
+            return self;
+        }
+        Self { undo, ..self }
+    }
+
+    /// Whether the run ended because its undo copy could not be saved (too large, or the disk
+    /// refused it). Nothing was changed; the person may run without undo.
+    pub fn snapshot_refused(&self) -> bool {
+        self.step == BulkStep::Report
+            && matches!(
+                self.report,
+                Some(Err(
+                    CoreError::SnapshotTooLarge | CoreError::SnapshotWriteFailed
+                ))
+            )
+    }
+
+    /// Back to the confirm step with undo given up, after the snapshot was refused. The typed
+    /// name is asked for again, whatever the size: this is the one case where a write cannot be
+    /// taken back.
+    pub fn without_undo(self) -> Self {
+        if !self.snapshot_refused() {
+            return self;
+        }
+        Self {
+            step: BulkStep::Confirm,
+            undo_policy: UndoPolicy::None,
+            undo: UndoStatus::NotRequested,
+            report: None,
+            run: None,
+            typed: String::new(),
+            cancel_note: CancelNote::None,
+            ..self
+        }
+    }
+
+    /// Starts the undo of this run; only a report that offers it has one.
+    pub fn open_undo(self) -> Self {
+        let (BulkStep::Report, UndoStatus::Offered(_), Some(run), None) =
+            (self.step, self.undo, self.run, &self.undo_flow)
+        else {
+            return self;
+        };
+        let undo_flow = Some(UndoFlow::open(run, self.ns.collection.clone()));
+        Self { undo_flow, ..self }
+    }
+
+    /// Stores the state of the undo flow (`None` closes it).
+    pub fn with_undo_flow(self, undo_flow: Option<UndoFlow>) -> Self {
+        Self { undo_flow, ..self }
+    }
+
+    /// Leaves the undo; the report of the run is shown again.
+    pub fn close_undo(self) -> Self {
+        Self {
+            undo_flow: None,
+            ..self
+        }
+    }
+
     /// Records what the last cancel request came to; only a running flow has something to
     /// cancel, and the latest answer replaces the earlier one.
     pub fn with_cancel_note(self, cancel_note: CancelNote) -> Self {
@@ -277,6 +365,7 @@ impl BulkFlow {
             BulkKind::Delete => true,
             BulkKind::Update => {
                 self.production
+                    || self.undo_policy == UndoPolicy::None
                     || self.needs_all_documents_step()
                     || self.count_needs_typed()
                     || self.preview_needs_typed()

@@ -131,6 +131,45 @@
     "type_collection_name": "Type the collection name {name} to confirm",
     "type_field": "Collection name",
     "type_instruction": "Type the collection name exactly:",
+    "undo": {
+      "available": "You can undo this: {n} documents can be restored from the copy saved before the write.",
+      "available_one": "You can undo this: 1 document can be restored from the copy saved before the write.",
+      "back": "Back",
+      "copy_notice": "Before the write runs, a copy of the documents it will change is saved on this computer so you can undo it. The copy is plain text that anyone who can read your files can read. It is saved in {folder} and kept for {days} days unless you delete it.",
+      "discard_after": "Delete the undo copy and close",
+      "discard_copy": "Close and delete the undo copy",
+      "failed": "The undo did not finish. Some documents may already be restored. Try again: documents already restored are left as they are.",
+      "folder_unknown": "the Curlybrace settings folder",
+      "gone": "Not there now",
+      "intro": "{n} documents will be restored to how they were before the write. A document that someone else changed since the write is left as it is.",
+      "intro_one": "1 document will be restored to how it was before the write. A document that someone else changed since the write is left as it is.",
+      "keep_copy": "Close and keep the undo copy",
+      "lost": "The write ran, but its undo copy could not be completed, so it cannot be undone.",
+      "now": "Now",
+      "open": "Undo...",
+      "preview_failed": "The undo copy could not be read, so it cannot be restored.",
+      "preview_heading": "The first documents",
+      "preview_pending": "Reading the undo copy...",
+      "report": {
+        "errors": "Could not be restored: {n}",
+        "restored": "Restored: {n}",
+        "skipped_changed": "Left alone, changed since the write: {n}",
+        "skipped_present": "Left alone, already there: {n}",
+        "unchanged": "Not changed by the write: {n}"
+      },
+      "restore_to": "Restored to",
+      "retry": "Try again",
+      "run": "Restore documents",
+      "run_without": "Run without undo...",
+      "running": "Restoring the documents...",
+      "running_note": "Documents already restored stay restored.",
+      "snapshot_refused": "Nothing was changed. If you go on without an undo copy, the write cannot be undone.",
+      "title": "Undo the bulk write",
+      "uncovered": "{n} more documents were changed than the copy holds, because they matched only after it was saved. Undo cannot bring those back.",
+      "uncovered_one": "1 more document was changed than the copy holds, because it matched only after the copy was saved. Undo cannot bring it back.",
+      "uncovered_only": "The write changed {n} documents that matched only after the undo copy was saved. There is nothing to restore them from.",
+      "uncovered_only_one": "The write changed 1 document that matched only after the undo copy was saved. There is nothing to restore it from."
+    },
     "update_matching": "Update matching..."
   },
   "cell": {
@@ -630,6 +669,21 @@
     "uri_password_warning": "This string contains your password. Do not share it.",
     "username": "Username"
   },
+  "copies": {
+    "button": "Undo copies",
+    "confirm": "Delete this copy? The write it belongs to can then no longer be undone.",
+    "confirm_delete": "Delete the copy",
+    "delete": "Delete",
+    "delete_named": "Delete the undo copy of {ns} from {when}",
+    "empty": "There are no saved undo copies.",
+    "intro": "Before a bulk write runs, the documents it will change are saved here so the write can be undone. A copy is plain text that anyone who can read your files can read. Copies are kept for {days} days and then removed. Folder: {folder}",
+    "keep": "Keep it",
+    "loading": "Reading the saved copies...",
+    "op_delete": "delete",
+    "op_update": "update",
+    "row": "{ns} · {op} · {when} · {size}",
+    "title": "Saved undo copies"
+  },
   "copy": {
     "banner": {
       "paste_blocked": "Cannot paste here"
@@ -818,6 +872,7 @@
     "not_found": "The item could not be found. It may have been removed.",
     "read_only": "This connection is read-only, so nothing was changed.",
     "secret_store": "Could not access the system keychain for saved credentials.",
+    "snapshot_delete_failed": "The undo copy could not be deleted. It is still on this computer; delete the files in the undo folder yourself if you do not want to keep them.",
     "snapshot_other_connection": "This undo copy was saved on a different connection, so it cannot be restored here. Nothing was changed.",
     "snapshot_too_large": "The documents to change are too large to save an undo copy of. Nothing was changed. You can run it without undo, or narrow the filter.",
     "snapshot_unreadable": "The undo copy is missing or damaged, so it cannot be restored. Nothing was changed.",
@@ -842,6 +897,8 @@
     "bulk_delete": "Could not delete the matching documents",
     "bulk_preview": "Could not preview the update",
     "bulk_sample": "Could not load the documents that would be deleted",
+    "bulk_undo": "Could not undo the bulk write",
+    "bulk_undo_preview": "Could not read the undo copy",
     "bulk_update": "Could not update the matching documents",
     "clone": "Could not clone the document",
     "compare_apply": "Applying the changes failed.",
@@ -873,7 +930,8 @@
     "save_connection": "Could not save the connection",
     "secrets": "Could not access saved credentials",
     "set_index_hidden": "Could not change whether the index is hidden",
-    "set_index_ttl": "Could not change when the index expires"
+    "set_index_ttl": "Could not change when the index expires",
+    "snapshot_delete": "Could not delete the undo copy. It is still on this computer."
   },
   "findbar": {
     "clear": "Clear",

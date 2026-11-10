@@ -91,6 +91,7 @@ impl Harness {
         config: RuntimeConfig,
     ) -> Self {
         let store: Arc<dyn SecretStore> = secrets.clone();
+        let snapshot_dir = config.snapshot_dir.clone();
         let handle = spawn_runtime_with_connector(
             Some(store.clone()),
             None,
@@ -99,7 +100,8 @@ impl Harness {
             config,
         );
         let app = CurlybraceApp::new(handle, I18n::english(), connections, store)
-            .with_config_path(Ok(dir.path().join("connections.json")));
+            .with_config_path(Ok(dir.path().join("connections.json")))
+            .with_snapshot_dir(snapshot_dir);
         Self {
             app,
             secrets,

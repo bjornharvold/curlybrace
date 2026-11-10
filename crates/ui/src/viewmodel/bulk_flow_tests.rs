@@ -668,3 +668,122 @@ fn a_preview_set_field_by_field_is_still_shown() {
     assert!(literal.preview_text.is_empty());
     assert_eq!(literal.preview_docs().len(), 1);
 }
+
+// ------------------------------------------------------------------ undo
+
+use curlybrace_core::bulk::{UndoOffer, UndoPolicy, UndoStatus};
+
+fn offered(documents: u64) -> UndoStatus {
+    UndoStatus::Offered(UndoOffer {
+        documents,
+        uncovered: 0,
+    })
+}
+
+fn typed_ready(flow: BulkFlow) -> BulkFlow {
+    let f = confirm(flow);
+    let name = f.ns.collection.clone();
+    f.with_typed(name)
+}
+
+fn reported_ok(flow: BulkFlow, undo: UndoStatus) -> BulkFlow {
+    typed_ready(flow)
+        .running(BulkRunId(uuid::Uuid::new_v4()))
+        .reported(Ok(BulkOutcome::Unknown { cancelled: false }))
+        .with_undo(undo)
+}
+
+#[test]
+fn a_flow_asks_for_an_undo_copy_unless_the_person_declined_it() {
+    assert_eq!(update_flow().undo_policy, UndoPolicy::Snapshot);
+    assert_eq!(update_flow().undo, UndoStatus::NotRequested);
+}
+
+#[test]
+fn the_undo_status_is_only_recorded_in_the_report() {
+    let flow = typed_ready(update_flow());
+    assert_eq!(
+        flow.clone().with_undo(offered(3)).undo,
+        UndoStatus::NotRequested
+    );
+    assert_eq!(reported_ok(update_flow(), offered(3)).undo, offered(3));
+}
+
+#[test]
+fn undo_can_be_opened_only_from_a_report_that_offers_it() {
+    for status in [
+        UndoStatus::NotRequested,
+        UndoStatus::NothingToUndo,
+        UndoStatus::Lost,
+        UndoStatus::Uncovered(2),
+    ] {
+        let flow = reported_ok(update_flow(), status).open_undo();
+        assert!(flow.undo_flow.is_none(), "{status:?}");
+    }
+    let flow = reported_ok(update_flow(), offered(3)).open_undo();
+    let undo = flow.undo_flow.expect("offered");
+    assert_eq!(undo.collection, "orders");
+    assert_eq!(Some(undo.run), flow.run);
+}
+
+#[test]
+fn closing_the_undo_returns_to_the_report() {
+    let flow = reported_ok(update_flow(), offered(3)).open_undo();
+    let closed = flow.close_undo();
+    assert!(closed.undo_flow.is_none());
+    assert_eq!(closed.step, BulkStep::Report);
+}
+
+#[test]
+fn a_refused_snapshot_can_be_overridden_by_running_without_undo() {
+    for error in [CoreError::SnapshotTooLarge, CoreError::SnapshotWriteFailed] {
+        let failed = typed_ready(update_flow())
+            .running(BulkRunId(uuid::Uuid::new_v4()))
+            .reported(Err(error.clone()));
+        assert!(failed.snapshot_refused(), "{error:?}");
+        let again = failed.without_undo();
+        assert_eq!(again.step, BulkStep::Confirm);
+        assert_eq!(again.undo_policy, UndoPolicy::None);
+        assert_eq!(again.report, None);
+        assert_eq!(again.run, None);
+        assert_eq!(again.typed, "", "the confirmation is given again");
+        assert!(!again.can_run());
+    }
+}
+
+#[test]
+fn only_a_refused_snapshot_offers_running_without_undo() {
+    let other = typed_ready(update_flow())
+        .running(BulkRunId(uuid::Uuid::new_v4()))
+        .reported(Err(CoreError::ReadOnly));
+    assert!(!other.snapshot_refused());
+    assert_eq!(other.clone().without_undo(), other, "unchanged");
+    assert!(!reported_ok(update_flow(), offered(1)).snapshot_refused());
+}
+
+#[test]
+fn running_without_undo_always_asks_for_the_typed_name() {
+    // A small, unprotected update normally needs no typed name; giving up undo does.
+    let small = update_flow();
+    assert!(!small.needs_typed());
+    let declined = typed_ready(small)
+        .running(BulkRunId(uuid::Uuid::new_v4()))
+        .reported(Err(CoreError::SnapshotTooLarge))
+        .without_undo();
+    assert!(declined.needs_typed());
+}
+
+#[test]
+fn a_cancelled_run_is_not_a_snapshot_refusal() {
+    let cancelled = typed_ready(delete_flow())
+        .running(BulkRunId(uuid::Uuid::new_v4()))
+        .reported(Err(CoreError::BulkCancelled));
+    assert!(!cancelled.snapshot_refused());
+}
+
+#[test]
+fn the_folder_of_the_undo_copy_is_recorded_for_the_view() {
+    assert_eq!(update_flow().undo_folder, None);
+    let flow = update_flow().with_undo_folder(Some("/data/snapshots".into()));
+    assert_eq!(flow.undo_folder.as_deref(), Some("/data/snapshots"));
+}

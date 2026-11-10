@@ -6,6 +6,7 @@
 mod actions;
 mod banner;
 mod bulk_actions;
+pub mod saved_copies;
 pub use bulk_actions::BulkAction;
 pub mod bulk_state;
 pub mod compare;
@@ -68,7 +69,8 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{
     COMMAND_TIMEOUT, Command, Event, Repaint, RuntimeConfig, RuntimeHandle, TryRecvError,
-    default_history_path, default_known_hosts_path, spawn_runtime_with_config,
+    default_history_path, default_known_hosts_path, default_snapshot_dir,
+    spawn_runtime_with_config,
 };
 use curlybrace_core::secrets::SecretStore;
 use eframe::egui;
@@ -97,10 +99,12 @@ const CONNECT_SLACK: Duration = Duration::from_secs(30);
 /// it, and the normal short bound for data commands. `history_path` is where index usage is
 /// recorded (`None` turns history off): the shipped app passes `default_history_path()`, anything
 /// else that spawns a runtime passes a throwaway location so it never writes to the user's real
-/// config directory.
+/// config directory. `snapshot_dir` is where the undo copies of bulk writes are kept (`None`
+/// turns undo off): the shipped app passes `default_snapshot_dir()`, with the same rule.
 pub fn runtime_config(
     known_hosts_path: Option<PathBuf>,
     history_path: Option<PathBuf>,
+    snapshot_dir: Option<PathBuf>,
     prompt: Arc<InteractivePrompt>,
 ) -> RuntimeConfig {
     RuntimeConfig {
@@ -109,6 +113,7 @@ pub fn runtime_config(
         known_hosts_path,
         host_key_prompt: prompt,
         history_path,
+        snapshot_dir,
         ..RuntimeConfig::default()
     }
 }
@@ -226,12 +231,19 @@ impl CurlybraceApp {
         let known_hosts = default_known_hosts_path();
         let (prompt, requests) =
             InteractivePrompt::channel(repaint.clone(), HOST_KEY_PROMPT_TIMEOUT);
-        let config = runtime_config(known_hosts.clone(), default_history_path(), prompt);
+        let config = runtime_config(
+            known_hosts.clone(),
+            default_history_path(),
+            default_snapshot_dir(),
+            prompt,
+        );
+        let snapshot_dir = config.snapshot_dir.clone();
         let handle =
             spawn_runtime_with_config(Some(secrets.clone()), None, repaint.clone(), config);
         Self::new(handle, i18n, connections, secrets)
             .with_config_path(config_path)
             .with_known_hosts_path(known_hosts)
+            .with_snapshot_dir(snapshot_dir)
             .with_host_key_requests(requests)
             .with_file_picker(Arc::new(file_picker::NativeFilePicker), repaint)
             .with_persist_guard(guard)
@@ -244,6 +256,18 @@ impl CurlybraceApp {
     pub fn with_config_path(self, config_path: ConfigPath) -> Self {
         Self {
             config_path,
+            ..self
+        }
+    }
+
+    /// Tells the app where the runtime keeps undo copies, so the bulk dialog names that folder
+    /// and offers undo only when there is one.
+    pub fn with_snapshot_dir(self, snapshot_dir: Option<PathBuf>) -> Self {
+        Self {
+            state: AppState {
+                snapshot_dir,
+                ..self.state
+            },
             ..self
         }
     }
@@ -879,6 +903,9 @@ mod bulk_reconnect_tests;
 
 #[cfg(test)]
 mod bulk_run_tests;
+
+#[cfg(test)]
+mod bulk_undo_tests;
 
 #[cfg(test)]
 mod bulk_test_support;

@@ -43,6 +43,7 @@ pub fn harness_runtime_config(dir: &Path, prompt: Arc<InteractivePrompt>) -> Run
     runtime_config(
         Some(dir.join("known_hosts")),
         Some(dir.join("history.sqlite")),
+        Some(dir.join("snapshots")),
         prompt,
     )
 }
@@ -61,11 +62,13 @@ fn launch(
     let known_hosts = dir.path().join("known_hosts");
     let (prompt, requests) = InteractivePrompt::channel(Arc::new(|| {}), Duration::from_secs(5));
     let config = harness_runtime_config(dir.path(), prompt);
+    let snapshot_dir = config.snapshot_dir.clone();
     let store: Arc<dyn SecretStore> = secrets;
     let handle = spawn_runtime_with_config(Some(store.clone()), None, Arc::new(|| {}), config);
     let app = CurlybraceApp::new(handle, curlybrace_ui::I18n::english(), saved, store)
         .with_config_path(Ok(config_path.clone()))
         .with_known_hosts_path(Some(known_hosts))
+        .with_snapshot_dir(snapshot_dir)
         .with_host_key_requests(requests);
     let app = match picker {
         Some(picker) => app.with_file_picker(picker, Arc::new(|| {})),

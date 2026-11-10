@@ -66,7 +66,12 @@ pub fn wait_gone(f: &mut Fixture, text: &str) {
 /// the developer's server may hold many databases).
 #[track_caller]
 pub fn connect(f: &mut Fixture) {
-    click_key(f, "connections.connect");
+    // The visible text is the same on every row; the accessible name says which connection.
+    let name = f.harness.state().state().conn.connections[0].name.clone();
+    let connect = f
+        .labels
+        .t_with("connections.connect_named", &[("name", &name)]);
+    f.click_text(&connect);
     let empty = f.labels.t("sidebar.empty");
     wait_until(&mut f.harness, "the database list", SHORT, |h| {
         h.state().state().status == ConnStatus::Connected

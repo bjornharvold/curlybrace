@@ -12,14 +12,16 @@ use super::state::{AppState, Banner};
 use super::write_guard::{Guard, WriteKind};
 use crate::viewmodel::{
     BulkEntry, BulkFlow, BulkKind, BulkStep, CancelNote, CountState, PreviewState,
+    UndoPreviewState, UndoStep,
 };
 use bson::Document;
 use curlybrace_core::bulk::{
     BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, MatchScope,
-    UpdatePreview, parse_update,
+    UndoPolicy, UndoPreview, UndoStatus, UpdatePreview, parse_update,
 };
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::Command;
+use curlybrace_core::snapshot::UndoReport;
 use curlybrace_core::store::Namespace;
 use uuid::Uuid;
 
@@ -36,6 +38,19 @@ pub enum BulkAction {
     Run,
     Cancel,
     Close,
+    /// After the undo copy could not be saved: go back to the confirm step and run the write
+    /// without undo.
+    RunWithoutUndo,
+    /// Start undoing the finished run (shows what would be restored).
+    OpenUndo,
+    SetUndoTyped(String),
+    RunUndo,
+    /// After an undo failed or was partial: read the preview again and try once more.
+    RetryUndo,
+    /// Leave the undo and return to the report of the run.
+    CloseUndo,
+    /// Close the dialog and delete the run's undo copy ("keep nothing").
+    DiscardCopy,
 }
 
 fn unchanged(state: AppState) -> Out {
@@ -66,7 +81,9 @@ fn apply(state: AppState, action: BulkAction) -> Out {
     let Some(bulk) = state.bulk.clone() else {
         return unchanged(state);
     };
-    let running = bulk.flow.step == BulkStep::Running;
+    let write_running = bulk.flow.step == BulkStep::Running;
+    let undo_running = undo_step(&bulk) == Some(UndoStep::Running);
+    let running = write_running || undo_running;
     // A reconnect since the flow opened: it was aimed at an opening that is gone.
     if bulk.epoch != state.latest_requested_epoch && !running {
         return unchanged(state.bulk_dropped_for(bulk.session, false));
@@ -80,10 +97,38 @@ fn apply(state: AppState, action: BulkAction) -> Out {
         BulkAction::Next => next(state, bulk),
         BulkAction::Back => back(state, bulk),
         BulkAction::Run => run(state, bulk),
-        BulkAction::Cancel if running => cancel_run(state, &bulk),
+        BulkAction::RunWithoutUndo => edited(state, BulkFlow::without_undo),
+        BulkAction::OpenUndo => open_undo(state, bulk),
+        BulkAction::SetUndoTyped(text) => edited_undo(state, |u| u.with_typed(text)),
+        BulkAction::RunUndo => run_undo(state, bulk),
+        BulkAction::RetryUndo => retry_undo(state, bulk),
+        BulkAction::CloseUndo if !undo_running => close_undo(state),
+        BulkAction::DiscardCopy if !running => discard_copy(state, &bulk),
+        BulkAction::Cancel if write_running => cancel_run(state, &bulk),
         BulkAction::Cancel | BulkAction::Close if !running => closed(state),
-        BulkAction::Close | BulkAction::Cancel => unchanged(state),
+        BulkAction::Close
+        | BulkAction::Cancel
+        | BulkAction::CloseUndo
+        | BulkAction::DiscardCopy => unchanged(state),
     }
+}
+
+fn undo_step(bulk: &BulkState) -> Option<UndoStep> {
+    bulk.flow.undo_flow.as_ref().map(|u| u.step)
+}
+
+/// Edits the undo flow of the open bulk flow; nothing happens when none is open.
+fn edited_undo(
+    state: AppState,
+    edit: impl FnOnce(crate::viewmodel::UndoFlow) -> crate::viewmodel::UndoFlow,
+) -> Out {
+    edited(state, |flow| {
+        let undo = flow.undo_flow.clone().map(edit);
+        match undo {
+            Some(undo) => flow.with_undo_flow(Some(undo)),
+            None => flow,
+        }
+    })
 }
 
 fn with_bulk(state: AppState, bulk: BulkState) -> AppState {
@@ -127,7 +172,18 @@ fn open(state: AppState, kind: BulkKind) -> Out {
             return unchanged(s);
         };
         let filter = s.page_query.filter.clone();
-        let flow = BulkFlow::open(kind, ns.clone(), filter.clone(), s.active_is_production());
+        // Undo is on only when the runtime was given a folder for the copies; without one the
+        // write is the old one that cannot be undone, and says so.
+        let folder = s.snapshot_dir.as_ref().map(|dir| dir.display().to_string());
+        let undo_policy = match folder {
+            Some(_) => UndoPolicy::Snapshot,
+            None => UndoPolicy::None,
+        };
+        let flow = BulkFlow {
+            undo_policy,
+            ..BulkFlow::open(kind, ns.clone(), filter.clone(), s.active_is_production())
+                .with_undo_folder(folder)
+        };
         let (request, s) = numbered(s);
         let command = Command::BulkCount {
             session: s.session_id(),
@@ -141,6 +197,7 @@ fn open(state: AppState, kind: BulkKind) -> Out {
             epoch: s.latest_requested_epoch,
             count_request: Some(request),
             preview_request: None,
+            undo_request: None,
         };
         (with_bulk(s, bulk), vec![command])
     })
@@ -164,7 +221,7 @@ impl AppState {
 }
 
 /// The next request id, and the state that counted it.
-fn numbered(state: AppState) -> (u64, AppState) {
+pub(super) fn numbered(state: AppState) -> (u64, AppState) {
     let request = state.bulk_requests + 1;
     (
         request,
@@ -283,6 +340,7 @@ type Build = Box<dyn FnOnce(curlybrace_core::runtime::SessionId, Namespace) -> C
 fn write_of(flow: &BulkFlow, run: BulkRunId) -> Option<(WriteKind, Build)> {
     let filter = flow.filter.clone();
     let scope = flow.scope();
+    let undo = flow.undo_policy;
     match flow.kind {
         BulkKind::Delete => {
             let request = BulkDeleteRequest { filter, scope };
@@ -291,8 +349,7 @@ fn write_of(flow: &BulkFlow, run: BulkRunId) -> Option<(WriteKind, Build)> {
                 ns,
                 request,
                 run,
-                // The UI does not offer undo yet: keep the "cannot be undone" flow.
-                undo: curlybrace_core::bulk::UndoPolicy::None,
+                undo,
             });
             Some((WriteKind::BulkDelete, build))
         }
@@ -308,7 +365,7 @@ fn write_of(flow: &BulkFlow, run: BulkRunId) -> Option<(WriteKind, Build)> {
                 ns,
                 request,
                 run,
-                undo: curlybrace_core::bulk::UndoPolicy::None,
+                undo,
             });
             Some((WriteKind::BulkUpdate, build))
         }
@@ -427,6 +484,7 @@ pub(super) fn finished(
     ns: Namespace,
     run: BulkRunId,
     outcome: Result<BulkOutcome, CoreError>,
+    undo: UndoStatus,
 ) -> Out {
     let ours = flow_of(&state, Some(&ns))
         .filter(|b| b.flow.run == Some(run))
@@ -440,7 +498,7 @@ pub(super) fn finished(
             false => unchanged(state),
         };
     };
-    let reported = bulk.flow.clone().reported(outcome);
+    let reported = bulk.flow.clone().reported(outcome).with_undo(undo);
     mutated(with_bulk(state, bulk.with_flow(reported)), ns)
 }
 
@@ -466,6 +524,13 @@ pub(super) fn cancel_answered(
 /// the flow with the read-only banner; the reads degrade inline; a refused write never ran, so
 /// its flow closes and the failure is told in the failure banner.
 pub(super) fn command_failed(state: AppState, context: &'static str, error: CoreError) -> AppState {
+    match context {
+        "bulk_undo_preview" => {
+            return undo_preview_settled(state, None, UndoPreviewState::Failed(error));
+        }
+        "bulk_undo" => return undo_refused(state, error),
+        _ => {}
+    }
     if error == CoreError::ReadOnly {
         return match context {
             // A preview has no write in flight: only the flow waiting for it is over.
@@ -554,11 +619,231 @@ impl AppState {
     /// would have no session view to land on and the flow would block every later bulk flow.
     pub fn bulk_dropped_for(self, session: Uuid, keep_running: bool) -> AppState {
         let drops = self.bulk.as_ref().is_some_and(|b| {
-            b.session == session && !(keep_running && b.flow.step == BulkStep::Running)
+            let running =
+                b.flow.step == BulkStep::Running || undo_step(b) == Some(UndoStep::Running);
+            b.session == session && !(keep_running && running)
         });
         match drops {
             true => AppState { bulk: None, ..self },
             false => self,
         }
+    }
+}
+
+// ------------------------------------------------------------------ undo
+
+/// Opens the undo of the finished run and asks what it would restore.
+fn open_undo(state: AppState, bulk: BulkState) -> Out {
+    let flow = bulk.flow.clone().open_undo();
+    start_undo_preview(state, bulk, flow)
+}
+
+/// After a failed or partial undo: the same undo again, with a fresh preview and confirmation.
+fn retry_undo(state: AppState, bulk: BulkState) -> Out {
+    let Some(undo) = bulk.flow.undo_flow.clone().filter(|u| u.can_retry()) else {
+        return unchanged(state);
+    };
+    // A failed preview is read again as it is; a finished undo starts over from its preview.
+    let again = match undo.step {
+        UndoStep::Report => undo.retried(),
+        _ => undo.retry_preview(),
+    };
+    let flow = bulk.flow.clone().with_undo_flow(Some(again));
+    start_undo_preview(state, bulk, flow)
+}
+
+fn start_undo_preview(state: AppState, bulk: BulkState, flow: BulkFlow) -> Out {
+    let Some(undo) = flow
+        .undo_flow
+        .as_ref()
+        .filter(|u| u.step == UndoStep::Confirm)
+    else {
+        return unchanged(state);
+    };
+    let run = undo.run;
+    // Undo is a write: a connection locked since the flow opened is refused here, not later.
+    if state.active_is_read_only() {
+        return unchanged(preview_refused(state));
+    }
+    let (request, state) = numbered(state);
+    let command = Command::BulkUndoPreview {
+        session: state.session_id(),
+        run,
+        request_id: request,
+    };
+    let bulk = BulkState {
+        undo_request: Some(request),
+        ..bulk.with_flow(flow)
+    };
+    (with_bulk(state, bulk), vec![command])
+}
+
+/// Sends the undo through the guard. Its own typed confirmation is the acknowledgement, so a
+/// production connection is not asked a second time.
+fn run_undo(state: AppState, bulk: BulkState) -> Out {
+    let Some(undo) = bulk.flow.undo_flow.clone().filter(|u| u.can_run()) else {
+        return unchanged(state);
+    };
+    if state.active_is_read_only() {
+        return unchanged(write_refused(state, Banner::ReadOnly));
+    }
+    // The person moved to another collection: what was previewed is not what would be restored.
+    if state.selected_ns() != Some(&bulk.flow.ns) {
+        return closed(state);
+    }
+    let run = undo.run;
+    let (next, commands) = mutation(
+        state,
+        None,
+        // The kind only words the production warning, which a confirmed write never shows.
+        WriteKind::BulkUpdate,
+        Guard::Confirmed,
+        move |session, _| Command::BulkUndo { session, run },
+    );
+    if commands.is_empty() {
+        return (next, commands);
+    }
+    let flow = bulk.flow.clone().with_undo_flow(Some(undo.running()));
+    let bulk = BulkState {
+        undo_request: None,
+        ..bulk.with_flow(flow)
+    };
+    (with_bulk(next, bulk), commands)
+}
+
+/// "Keep nothing": the dialog closes and the run's undo copy is deleted from disk.
+fn discard_copy(state: AppState, bulk: &BulkState) -> Out {
+    let Some(run) = bulk.flow.run.filter(|_| bulk.flow.step == BulkStep::Report) else {
+        return unchanged(state);
+    };
+    let (request, state) = numbered(state);
+    let command = Command::SnapshotDelete { run, request };
+    (
+        AppState {
+            bulk: None,
+            discarding_copy: Some((request, run)),
+            ..state
+        },
+        vec![command],
+    )
+}
+
+fn undo_preview_settled(
+    state: AppState,
+    request: Option<u64>,
+    preview: UndoPreviewState,
+) -> AppState {
+    updated(state, None, |b| {
+        let awaited = b.undo_request?;
+        let matches = request.is_none_or(|r| r == awaited);
+        let undo = b
+            .flow
+            .undo_flow
+            .clone()
+            .filter(|u| u.step == UndoStep::Confirm)?;
+        matches.then(|| BulkState {
+            undo_request: None,
+            ..b.clone().with_flow(
+                b.flow
+                    .clone()
+                    .with_undo_flow(Some(undo.with_preview(preview))),
+            )
+        })
+    })
+}
+
+pub(super) fn undo_preview_arrived(
+    state: AppState,
+    run: BulkRunId,
+    request: u64,
+    outcome: Result<UndoPreview, CoreError>,
+) -> AppState {
+    let ours = flow_of(&state, None)
+        .and_then(|b| b.flow.undo_flow.as_ref())
+        .is_some_and(|u| u.run == run);
+    if !ours {
+        return state;
+    }
+    let preview = outcome.map_or_else(UndoPreviewState::Failed, UndoPreviewState::Ready);
+    undo_preview_settled(state, Some(request), preview)
+}
+
+/// The undo finished. The flow of that run reports it and the page is read again, like after any
+/// write; an answer that belongs to no open flow still clears the write in flight.
+pub(super) fn undo_finished(
+    state: AppState,
+    run: BulkRunId,
+    outcome: Result<UndoReport, CoreError>,
+) -> Out {
+    let ours = flow_of(&state, None)
+        .filter(|b| b.flow.undo_flow.as_ref().is_some_and(|u| u.run == run))
+        .cloned();
+    let state = match ours {
+        Some(bulk) => {
+            let undo = bulk.flow.undo_flow.clone().map(|u| u.reported(outcome));
+            with_bulk(state, bulk.with_undo(undo))
+        }
+        None => state,
+    };
+    match state.pending.as_ref().map(|p| p.ns.clone()) {
+        Some(ns) => mutated(state, ns),
+        None => unchanged(state),
+    }
+}
+
+/// The undo command was refused before it ran (a lost server aside): it is told in the undo's own
+/// report, where it can be retried, and nothing is in flight any more.
+fn undo_refused(state: AppState, error: CoreError) -> AppState {
+    let in_flight = state.pending.is_some()
+        && flow_of(&state, None).is_some_and(|b| undo_step(b) == Some(UndoStep::Running));
+    if !in_flight {
+        return state;
+    }
+    let state = AppState {
+        pending: None,
+        ..state
+    };
+    updated(state, None, |b| {
+        let undo = b.flow.undo_flow.clone()?.reported(Err(error));
+        Some(
+            b.clone()
+                .with_flow(b.flow.clone().with_undo_flow(Some(undo))),
+        )
+    })
+}
+
+/// Leaves the undo. The preview it still awaited is forgotten, so a late answer or failure of it
+/// can never be taken for the preview of an undo opened afterwards.
+fn close_undo(state: AppState) -> Out {
+    let next = state.bulk.clone().map(|b| BulkState {
+        undo_request: None,
+        ..b.clone().with_flow(b.flow.clone().close_undo())
+    });
+    match next {
+        Some(bulk) => (with_bulk(state, bulk), Vec::new()),
+        None => unchanged(state),
+    }
+}
+
+/// The listing after a deletion of an undo copy. A copy that is still listed was not deleted: the
+/// plain-text copy of the documents is still on disk, which the person must be told.
+pub(super) fn copy_discarded(
+    state: AppState,
+    request: u64,
+    snapshots: &[curlybrace_core::snapshot::SnapshotInfo],
+) -> AppState {
+    let Some((awaited, run)) = state.discarding_copy else {
+        return state;
+    };
+    if awaited != request {
+        return state;
+    }
+    let state = AppState {
+        discarding_copy: None,
+        ..state
+    };
+    match snapshots.iter().any(|s| s.run == run) {
+        true => failure(state, "snapshot_delete", CoreError::SnapshotDeleteFailed),
+        false => state,
     }
 }

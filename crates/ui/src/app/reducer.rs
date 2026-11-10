@@ -8,6 +8,7 @@ use super::index_actions;
 use super::index_write_actions;
 use super::persistence::PersistError;
 use super::queries_actions;
+use super::saved_copies;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use super::tools_actions;
@@ -52,6 +53,8 @@ pub enum Input {
     Tools(ToolsAction),
     /// The bulk update / delete dialog.
     Bulk(BulkAction),
+    /// The list of saved undo copies.
+    Copies(super::saved_copies::CopiesAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -77,6 +80,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Copy(a) => copy::on_input(state, a),
         Input::Tools(a) => tools_actions::on_action(state, a),
         Input::Bulk(a) => bulk_actions::on_action(state, a),
+        Input::Copies(a) => saved_copies::on_action(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
@@ -115,6 +119,14 @@ fn on_event(state: AppState, ev: Event) -> Out {
     match (ev, session) {
         (Event::Compare(e), _) => compare::on_event(state, e),
         (Event::Copy(e), _) => copy::on_event(state, e),
+        // Has no session: the listing after the deletion of an undo copy.
+        (Event::Snapshots { request, snapshots }, _) => {
+            let state = bulk_actions::copy_discarded(state, request, &snapshots);
+            (
+                saved_copies::on_listing(state, request, &snapshots),
+                Vec::new(),
+            )
+        }
         (
             Event::TestConnection {
                 request_id,
@@ -177,8 +189,16 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         // The runtime delivers the finish of a bulk write whatever happened to the connection
         // meanwhile, so it is taken ahead of the connected check below.
         Event::BulkFinished {
-            ns, run, outcome, ..
-        } => bulk_actions::finished(state, ns, run, outcome),
+            ns,
+            run,
+            outcome,
+            undo,
+            ..
+        } => bulk_actions::finished(state, ns, run, outcome, undo),
+        // Like a finished write, an undo reports whatever happened to the connection meanwhile.
+        Event::BulkUndoFinished { run, outcome, .. } => {
+            bulk_actions::undo_finished(state, run, outcome)
+        }
         // Anything else is a late answer from a session that is not connected.
         _ if state.status != ConnStatus::Connected => (state, Vec::new()),
         Event::Databases { names, .. } => {
@@ -399,8 +419,15 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             bulk_actions::cancel_answered(state, run, outcome),
             Vec::new(),
         ),
-        // Undo answers: nothing in the UI asks for them yet.
-        Event::BulkUndoPreview { .. } | Event::BulkUndoFinished { .. } => (state, Vec::new()),
+        Event::BulkUndoPreview {
+            run,
+            request_id,
+            outcome,
+            ..
+        } => (
+            bulk_actions::undo_preview_arrived(state, run, request_id, outcome),
+            Vec::new(),
+        ),
         // Routed before; these have no session.
         Event::Compare(_)
         | Event::Copy(_)
@@ -427,6 +454,7 @@ fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
             | "set_index_ttl"
             | "bulk_update"
             | "bulk_delete"
+            | "bulk_undo"
     );
     match (&error, write, state.ssh_endpoint.is_some()) {
         (CoreError::Unreachable, false, false) => error,

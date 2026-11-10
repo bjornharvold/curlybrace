@@ -3,15 +3,17 @@
 //! Enter never confirms and a running write cannot be dismissed. Fast, offline, no GPU.
 use bson::doc;
 use curlybrace_core::bulk::{
-    BulkFailureReason, BulkOutcome, PreviewDoc, PreviewGap, UpdatePreview,
+    BulkFailureReason, BulkOutcome, BulkRunId, PreviewDoc, PreviewGap, UndoOffer, UndoPolicy,
+    UndoPreview, UndoPreviewDoc, UndoStatus, UpdatePreview,
 };
 use curlybrace_core::error::CoreError;
+use curlybrace_core::snapshot::UndoReport;
 use curlybrace_core::store::Namespace;
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::BulkAction;
 use curlybrace_ui::viewmodel::{
     BulkEntry, BulkFlow, BulkKind, BulkStep, CancelNote, ConnectionBadge, CountState, PreviewState,
-    TreeState, ViewMode,
+    TreeState, UndoFlow, UndoPreviewState, ViewMode,
 };
 use curlybrace_ui::views::bulk_dialog::show_bulk_dialog;
 use curlybrace_ui::views::documents::{DocTarget, show_documents};
@@ -108,12 +110,27 @@ fn applied(flow: BulkFlow, action: &BulkAction) -> BulkFlow {
         BulkAction::SetUpsert(on) => flow.with_upsert(*on),
         BulkAction::SetAllDocuments(on) => flow.with_all_documents(*on),
         BulkAction::SetTyped(s) => flow.with_typed(s.clone()),
+        BulkAction::SetUndoTyped(s) => {
+            let undo = flow.undo_flow.clone().map(|u| u.with_typed(s.clone()));
+            flow.with_undo_flow(undo)
+        }
+        BulkAction::CloseUndo => flow.close_undo(),
         _ => flow,
     }
 }
 
 fn button<'a>(h: &'a Harness<'static, Frame>, label: &'a str) -> egui_kittest::Node<'a> {
     h.get_by_role_and_label(Role::Button, label)
+}
+
+/// The note before the write that an undo copy is saved. These flows were not opened by the
+/// reducer, so they name no folder and the dialog says so in words.
+fn copy_notice() -> String {
+    let days = (curlybrace_core::snapshot::RETENTION_SECS / 86_400).to_string();
+    tw(
+        "bulk.undo.copy_notice",
+        &[("folder", &t("bulk.undo.folder_unknown")), ("days", &days)],
+    )
 }
 
 fn has(h: &Harness<'static, Frame>, label: &str) -> bool {
@@ -238,7 +255,8 @@ fn preview_shows_count_before_after_and_the_warning() {
         update_preview(None, true),
     ));
     h.get_by_label(&tw("bulk.count_known", &[("n", "5")]));
-    assert!(has(&h, &t("bulk.cannot_undo")));
+    assert!(has(&h, &copy_notice()));
+    assert!(!has(&h, &t("bulk.cannot_undo")));
     assert!(has(&h, &t("bulk.preview.before")));
     assert!(has(&h, &t("bulk.preview.after")));
     assert!(!disabled(&h, &t("bulk.next")));
@@ -346,7 +364,8 @@ fn delete_preview_lists_the_documents_that_would_go() {
         ..with_step(base(BulkKind::Delete), BulkStep::Preview)
     });
     assert!(has(&h, &t("bulk.preview.removed_heading")));
-    assert!(has(&h, &t("bulk.cannot_undo")));
+    assert!(has(&h, &copy_notice()));
+    assert!(!has(&h, &t("bulk.cannot_undo")));
     assert_all_named(&h, "delete preview");
 }
 
@@ -360,7 +379,8 @@ fn run_is_disabled_until_the_collection_name_is_typed() {
     let run = t("bulk.run_update");
     assert!(disabled(&h, &run));
     assert!(has(&h, &t("bulk.run_blocked")));
-    assert!(has(&h, &t("bulk.cannot_undo")));
+    assert!(has(&h, &copy_notice()));
+    assert!(!has(&h, &t("bulk.cannot_undo")));
     let field = tw("bulk.type_collection_name", &[("name", "orders")]);
     h.get_by_role_and_label(Role::TextInput, &field).click();
     h.get_by_role_and_label(Role::TextInput, &field)
@@ -666,4 +686,283 @@ fn entry_buttons_are_disabled_with_a_reason_when_read_only_or_projected() {
         let b = h.get_by_role_and_label(Role::Button, label);
         assert!(!b.accesskit_node().is_disabled(), "{label}");
     }
+}
+
+// ------------------------------------------------------------------ undo
+
+fn applied_outcome() -> BulkOutcome {
+    BulkOutcome::Applied {
+        matched: 5,
+        modified: 5,
+        upserted: vec![],
+        deleted: 0,
+    }
+}
+
+fn offered(uncovered: u64) -> UndoStatus {
+    UndoStatus::Offered(UndoOffer {
+        documents: 5,
+        uncovered,
+    })
+}
+
+fn report_step(report: Result<BulkOutcome, CoreError>, undo: UndoStatus) -> BulkFlow {
+    BulkFlow {
+        report: Some(report),
+        undo,
+        run: Some(BulkRunId(uuid::Uuid::nil())),
+        ..confirm_step(base(BulkKind::Update))
+    }
+    .with_step_report()
+}
+
+trait ReportStep {
+    fn with_step_report(self) -> Self;
+}
+
+impl ReportStep for BulkFlow {
+    fn with_step_report(self) -> Self {
+        BulkFlow {
+            step: BulkStep::Report,
+            ..self
+        }
+    }
+}
+
+#[test]
+fn an_undo_copy_is_announced_before_the_write_and_a_declined_one_warns() {
+    let h = open(confirm_step(base(BulkKind::Update)));
+    assert!(has(&h, &copy_notice()));
+    assert!(!has(&h, &t("bulk.cannot_undo")));
+    let declined = BulkFlow {
+        undo_policy: UndoPolicy::None,
+        ..confirm_step(base(BulkKind::Update))
+    };
+    let h = open(declined);
+    assert!(has(&h, &t("bulk.cannot_undo")));
+    assert!(!has(&h, &copy_notice()));
+}
+
+#[test]
+fn a_report_that_offers_undo_names_every_way_out() {
+    let mut h = open(report_step(Ok(applied_outcome()), offered(2)));
+    assert!(has(&h, &tw("bulk.undo.available", &[("n", "5")])));
+    assert!(has(&h, &tw("bulk.undo.uncovered", &[("n", "2")])));
+    for label in [
+        "bulk.undo.keep_copy",
+        "bulk.undo.discard_copy",
+        "bulk.undo.open",
+    ] {
+        button(&h, &t(label));
+    }
+    assert_all_named(&h, "report with undo");
+    button(&h, &t("bulk.undo.open")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::OpenUndo));
+}
+
+#[test]
+fn closing_a_report_can_keep_or_delete_the_undo_copy() {
+    let mut h = open(report_step(Ok(applied_outcome()), offered(0)));
+    button(&h, &t("bulk.undo.discard_copy")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::DiscardCopy));
+    let mut h = open(report_step(Ok(applied_outcome()), offered(0)));
+    button(&h, &t("bulk.undo.keep_copy")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::Close));
+}
+
+#[test]
+fn a_report_without_an_offer_has_no_undo_button_and_says_why() {
+    let h = open(report_step(Ok(applied_outcome()), UndoStatus::Lost));
+    assert!(has(&h, &t("bulk.undo.lost")));
+    assert!(h.query_by_label(&t("bulk.undo.open")).is_none());
+    let h = open(report_step(Ok(applied_outcome()), UndoStatus::Uncovered(4)));
+    assert!(has(&h, &tw("bulk.undo.uncovered_only", &[("n", "4")])));
+    assert!(h.query_by_label(&t("bulk.undo.open")).is_none());
+    let h = open(report_step(Ok(applied_outcome()), UndoStatus::NotRequested));
+    assert!(h.query_by_label(&t("bulk.undo.open")).is_none());
+}
+
+#[test]
+fn a_refused_undo_copy_offers_running_without_undo() {
+    let mut h = open(report_step(
+        Err(CoreError::SnapshotTooLarge),
+        UndoStatus::NotRequested,
+    ));
+    assert!(has(&h, &t("bulk.undo.snapshot_refused")));
+    assert!(has(&h, &t(CoreError::SnapshotTooLarge.i18n_key())));
+    button(&h, &t("bulk.undo.run_without")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::RunWithoutUndo));
+    assert_all_named(&h, "snapshot refused");
+}
+
+fn undo_preview() -> UndoPreview {
+    UndoPreview {
+        documents: 5,
+        docs: vec![
+            UndoPreviewDoc {
+                original: doc! { "_id": 1, "status": "old" },
+                current: Some(doc! { "_id": 1, "status": "new" }),
+            },
+            UndoPreviewDoc {
+                original: doc! { "_id": 2 },
+                current: None,
+            },
+        ],
+    }
+}
+
+fn undoing(undo: UndoFlow) -> BulkFlow {
+    BulkFlow {
+        undo_flow: Some(undo),
+        ..report_step(Ok(applied_outcome()), offered(0))
+    }
+}
+
+fn undo_ready() -> UndoFlow {
+    UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into())
+        .with_preview(UndoPreviewState::Ready(undo_preview()))
+}
+
+#[test]
+fn the_undo_waits_for_the_preview_and_the_typed_collection_name() {
+    let pending = UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into());
+    let h = open(undoing(pending));
+    h.get_by_label(&t("bulk.undo.title"));
+    assert!(has(&h, &t("bulk.undo.preview_pending")));
+    assert!(disabled(&h, &t("bulk.undo.run")));
+
+    let mut h = open(undoing(undo_ready()));
+    assert!(has(&h, &tw("bulk.undo.intro", &[("n", "5")])));
+    assert!(has(&h, &t("bulk.undo.gone")), "a document that is gone now");
+    assert!(disabled(&h, &t("bulk.undo.run")));
+    assert!(has(&h, &t("bulk.run_blocked")));
+    let field = tw("bulk.type_collection_name", &[("name", "orders")]);
+    h.get_by_role_and_label(Role::TextInput, &field).click();
+    h.get_by_role_and_label(Role::TextInput, &field)
+        .type_text("orders");
+    h.run_steps(5);
+    assert!(!disabled(&h, &t("bulk.undo.run")));
+    button(&h, &t("bulk.undo.run")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::RunUndo));
+    assert_all_named(&h, "undo confirm");
+}
+
+#[test]
+fn a_failed_undo_preview_offers_no_run() {
+    let failed = UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into())
+        .with_preview(UndoPreviewState::Failed(CoreError::SnapshotUnreadable));
+    let h = open(undoing(failed));
+    assert!(has(&h, &t("bulk.undo.preview_failed")));
+    assert!(has(&h, &t(CoreError::SnapshotUnreadable.i18n_key())));
+    assert!(disabled(&h, &t("bulk.undo.run")));
+}
+
+#[test]
+fn going_back_from_the_undo_returns_to_the_report() {
+    let mut h = open(undoing(undo_ready()));
+    button(&h, &t("bulk.undo.back")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::CloseUndo));
+    assert!(has(&h, &t("bulk.undo.open")), "the report is shown again");
+}
+
+#[test]
+fn a_running_undo_has_no_buttons_to_leave_by() {
+    let running = undo_ready().with_typed("orders".into()).running();
+    let h = open(undoing(running));
+    assert!(has(&h, &t("bulk.undo.running")));
+    assert!(h.query_all_by_role(Role::Button).next().is_none());
+}
+
+#[test]
+fn the_undo_report_counts_each_kind_and_retries_only_a_failure() {
+    let done = undo_ready()
+        .with_typed("orders".into())
+        .running()
+        .reported(Ok(UndoReport {
+            restored: 3,
+            skipped_changed: 1,
+            ..UndoReport::default()
+        }));
+    let h = open(undoing(done));
+    assert!(has(&h, &tw("bulk.undo.report.restored", &[("n", "3")])));
+    assert!(has(
+        &h,
+        &tw("bulk.undo.report.skipped_changed", &[("n", "1")])
+    ));
+    assert!(h.query_by_label(&t("bulk.undo.retry")).is_none());
+
+    let failed = undo_ready()
+        .with_typed("orders".into())
+        .running()
+        .reported(Err(CoreError::WriteOutcomeUnknown));
+    let mut h = open(undoing(failed));
+    assert!(has(&h, &t("bulk.undo.failed")));
+    button(&h, &t("bulk.undo.retry")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::RetryUndo));
+}
+
+#[test]
+fn one_document_reads_in_the_singular() {
+    let one = UndoStatus::Offered(UndoOffer {
+        documents: 1,
+        uncovered: 1,
+    });
+    let h = open(report_step(Ok(applied_outcome()), one));
+    assert!(has(&h, &t("bulk.undo.available_one")));
+    assert!(has(&h, &t("bulk.undo.uncovered_one")));
+    let h = open(report_step(Ok(applied_outcome()), UndoStatus::Uncovered(1)));
+    assert!(has(&h, &t("bulk.undo.uncovered_only_one")));
+    let single = UndoPreview {
+        documents: 1,
+        docs: vec![],
+    };
+    let flow = UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into())
+        .with_preview(UndoPreviewState::Ready(single));
+    let h = open(undoing(flow));
+    assert!(has(&h, &t("bulk.undo.intro_one")));
+}
+
+#[test]
+fn a_clean_undo_offers_to_delete_its_copy_and_a_failed_one_only_what_can_clear() {
+    let clean = undo_ready()
+        .with_typed("orders".into())
+        .running()
+        .reported(Ok(UndoReport {
+            restored: 5,
+            ..UndoReport::default()
+        }));
+    let mut h = open(undoing(clean));
+    assert!(h.query_by_label(&t("bulk.undo.retry")).is_none());
+    button(&h, &t("bulk.undo.discard_after")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::DiscardCopy));
+
+    let permanent = undo_ready()
+        .with_typed("orders".into())
+        .running()
+        .reported(Err(CoreError::SnapshotUnreadable));
+    let h = open(undoing(permanent));
+    assert!(h.query_by_label(&t("bulk.undo.retry")).is_none());
+    assert!(h.query_by_label(&t("bulk.undo.discard_after")).is_none());
+}
+
+#[test]
+fn a_preview_that_failed_for_a_reason_that_can_clear_offers_a_retry() {
+    let transient = UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into())
+        .with_preview(UndoPreviewState::Failed(CoreError::Unreachable));
+    let mut h = open(undoing(transient));
+    button(&h, &t("bulk.undo.retry")).click();
+    h.run_steps(3);
+    assert!(h.state().seen.contains(&BulkAction::RetryUndo));
+    let permanent = UndoFlow::open(BulkRunId(uuid::Uuid::nil()), "orders".into())
+        .with_preview(UndoPreviewState::Failed(CoreError::SnapshotUnreadable));
+    let h = open(undoing(permanent));
+    assert!(h.query_by_label(&t("bulk.undo.retry")).is_none());
 }

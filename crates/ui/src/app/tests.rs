@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn data_commands_keep_the_short_timeout_and_connect_outlasts_the_host_key_prompt() {
     let (prompt, _rx) = InteractivePrompt::channel(Arc::new(|| {}), HOST_KEY_PROMPT_TIMEOUT);
-    let config = runtime_config(Some(PathBuf::from("/kh")), None, prompt);
+    let config = runtime_config(Some(PathBuf::from("/kh")), None, None, prompt);
     assert_eq!(config.command_timeout, COMMAND_TIMEOUT);
     assert!(config.connect_timeout > HOST_KEY_PROMPT_TIMEOUT);
     assert_eq!(config.known_hosts_path, Some(PathBuf::from("/kh")));
@@ -138,8 +138,13 @@ fn a_stopped_runtime_does_not_leave_a_test_running_forever() {
 #[test]
 fn the_shipped_runtime_config_records_index_history() {
     let (prompt, _rx) = InteractivePrompt::channel(Arc::new(|| {}), HOST_KEY_PROMPT_TIMEOUT);
-    let config = runtime_config(None, default_history_path(), prompt);
+    let config = runtime_config(None, default_history_path(), default_snapshot_dir(), prompt);
     assert_eq!(config.history_path, default_history_path());
+    // Undo copies of bulk writes are kept at the default location too.
+    assert_eq!(config.snapshot_dir, default_snapshot_dir());
+    if dirs::config_dir().is_some() {
+        assert!(config.snapshot_dir.is_some());
+    }
     // Not vacuous: wherever the OS config directory is known, history really is on.
     if dirs::config_dir().is_some() {
         assert!(config.history_path.is_some());
