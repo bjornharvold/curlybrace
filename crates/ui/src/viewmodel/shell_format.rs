@@ -266,7 +266,7 @@ fn leading_closers(line: &[u8]) -> usize {
 
 /// Whether a `/` at `i` starts a regex literal rather than a division: nothing, or an operator
 /// or opening punctuation, comes before it on the line.
-fn starts_regex(line: &[u8], i: usize) -> bool {
+pub(crate) fn starts_regex(line: &[u8], i: usize) -> bool {
     match line[..i].iter().rev().find(|&&b| b != b' ' && b != b'\t') {
         None => true,
         Some(b) => b"(,=:[{!&|?;+".contains(b),
@@ -274,7 +274,7 @@ fn starts_regex(line: &[u8], i: usize) -> bool {
 }
 
 /// The index of the `/` that closes the regex literal opened at `i`, on the same line.
-fn regex_end(line: &[u8], i: usize) -> Option<usize> {
+pub(crate) fn regex_end(line: &[u8], i: usize) -> Option<usize> {
     let mut class = false;
     let mut j = i + 1;
     while j < line.len() {

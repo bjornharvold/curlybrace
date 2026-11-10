@@ -1,9 +1,10 @@
 //! Syntax colors for the Shell tab's editor: a small, forgiving JavaScript lexer that never
 //! fails and never loses text. It marks keywords, strings, template literals (their `${}`
 //! placeholders are code again), comments, numbers and the mongosh words (`db`, `sh`, `rs`,
-//! `use`, `show`, `it`); everything else is plain. Regular expression literals are not told
-//! apart (a rare `/` inside one may start a comment in the colors, never in the text).
+//! `use`, `show`, `it`); everything else is plain. A regular expression literal is told from a
+//! division the way the formatter tells it (`shell_format::starts_regex`) and colored as a string.
 use crate::theme::JsColors;
+use crate::viewmodel::shell_format::{regex_end, starts_regex};
 use eframe::egui::{self, FontId, text::LayoutJob, text::TextFormat};
 use std::ops::Range;
 use std::sync::Arc;
@@ -174,6 +175,7 @@ impl Lexer<'_> {
             match c {
                 '/' if self.rest().starts_with("//") => self.line_comment(),
                 '/' if self.rest().starts_with("/*") => self.block_comment(),
+                '/' if self.regex() => {}
                 '"' | '\'' => self.string(c),
                 '`' => self.template(depth + 1),
                 '}' if depth > 0 && braces == 0 => return,
@@ -190,6 +192,27 @@ impl Lexer<'_> {
                 }
             }
         }
+    }
+
+    /// A regex literal at the `/` here, by the formatter's rule (on one line, opened where an
+    /// operator or nothing comes before it), colored as a string; false when there is none.
+    fn regex(&mut self) -> bool {
+        let start = self.pos;
+        let line_start = self.text[..start].rfind('\n').map_or(0, |at| at + 1);
+        let line_end = self.text[start..]
+            .find('\n')
+            .map_or(self.text.len(), |at| start + at);
+        let line = &self.text.as_bytes()[line_start..line_end];
+        let at = start - line_start;
+        let Some(end) = starts_regex(line, at)
+            .then(|| regex_end(line, at))
+            .flatten()
+        else {
+            return false;
+        };
+        self.pos = line_start + end + 1;
+        self.emit(Kind::String, start..self.pos);
+        true
     }
 
     fn line_comment(&mut self) {

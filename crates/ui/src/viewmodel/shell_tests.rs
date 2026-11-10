@@ -290,8 +290,13 @@ fn a_selection_off_a_char_boundary_does_not_panic() {
 fn started_runs_the_given_text_whatever_the_editor_holds() {
     let (state, _) = running("first");
     let state = state
-        .finished(1, Outcome::Exited(0))
+        .output_arrived(1, Stream::Stdout, "old output\n")
+        .output_arrived(1, Stream::Stderr, "old error\n")
+        .finished(1, Outcome::ScriptErrors)
         .edited(String::new(), None);
+    // What the new run must clear.
+    assert_eq!(state.line_count(), 2);
+    assert!(state.notice.is_some());
 
     let (state, request) = state.started("db.a.find()");
 

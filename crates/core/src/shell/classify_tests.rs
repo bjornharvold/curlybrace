@@ -55,6 +55,12 @@ fn a_failed_message_containing_a_gt_is_kept_whole() {
 }
 
 #[test]
+fn a_failed_sentinel_before_a_ready_one_on_the_same_line_is_a_failure() {
+    let (pieces, _) = feed(&["> __CB_FAILED__ x> __CB_READY__\n"]);
+    assert_eq!(pieces, [Piece::Failed("x> __CB_READY__".into())]);
+}
+
+#[test]
 fn a_failed_sentinel_without_a_newline_is_seen_at_the_end() {
     let (pieces, _) = feed(&["> __CB_FAILED__ gone"]);
     assert_eq!(pieces, [Piece::Failed("gone".into())]);

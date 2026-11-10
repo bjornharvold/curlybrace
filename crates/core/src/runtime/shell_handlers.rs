@@ -214,6 +214,9 @@ pub(super) async fn start(
         }
         send(&events, &repaint, finished(id, run_id, outcome));
     };
+    // Set before the spawn: from here on the runner's `on_done` reports, so `supervised` must
+    // not report a panic as well. A panic inside `spawn_shell` itself (before it could call
+    // `on_done`) therefore leaves the slot held until the session reconnects, which frees it.
     spawned.store(true, Ordering::SeqCst);
     let handle = spawn_shell(
         &run.exe,

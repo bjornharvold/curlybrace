@@ -11,12 +11,21 @@ use crate::viewmodel::shell::{OutputLine, ShellState};
 use curlybrace_core::shell::Stream;
 use eframe::egui::{self, accesskit};
 use std::sync::Arc;
+use uuid::Uuid;
 
 const REGION_ID: &str = "shell_output_region";
+/// The prefix of every output pane's scroll id; [`scroll_salt`] adds the session.
+const SCROLL_ID: &str = "shell_output";
+
+/// The scroll id salt of `session`'s output, so each session keeps its own scroll position (like
+/// the editor keeps its own state).
+fn scroll_salt(session: Uuid) -> (&'static str, Uuid) {
+    (SCROLL_ID, session)
+}
 
 /// The output heading, the dropped-lines note and the lines (or what to expect when there are
-/// none yet), all inside one region named for assistive technology.
-pub(crate) fn show_output(ui: &mut egui::Ui, state: &ShellState, i18n: &I18n) {
+/// none yet) of `session`, all inside one region named for assistive technology.
+pub(crate) fn show_output(ui: &mut egui::Ui, state: &ShellState, session: Uuid, i18n: &I18n) {
     let ctx = ui.ctx().clone();
     let region = egui::Id::new(REGION_ID);
     let name = i18n.t("shell.output.region");
@@ -38,7 +47,7 @@ pub(crate) fn show_output(ui: &mut egui::Ui, state: &ShellState, i18n: &I18n) {
             if state.line_count() == 0 {
                 ui.label(i18n.t(empty_key(state)));
             } else {
-                show_lines(ui, state, i18n);
+                show_lines(ui, state, session, i18n);
             }
         })
         .response
@@ -61,7 +70,7 @@ fn empty_key(state: &ShellState) -> &'static str {
     }
 }
 
-fn show_lines(ui: &mut egui::Ui, state: &ShellState, i18n: &I18n) {
+fn show_lines(ui: &mut egui::Ui, state: &ShellState, session: Uuid, i18n: &I18n) {
     let height = row_height(ui);
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let normal = ui.visuals().text_color();
@@ -69,7 +78,7 @@ fn show_lines(ui: &mut egui::Ui, state: &ShellState, i18n: &I18n) {
     let marker = i18n.t("shell.output.stderr_marker");
     let truncated = i18n.t("shell.output.truncated");
     egui::ScrollArea::both()
-        .id_salt("shell_output")
+        .id_salt(scroll_salt(session))
         .auto_shrink([false; 2])
         .stick_to_bottom(state.is_running())
         .show_rows(ui, height, state.line_count(), |ui, range| {
@@ -129,3 +138,7 @@ fn line_label(ui: &mut egui::Ui, galley: Arc<egui::Galley>, name: Option<String>
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &name));
     }
 }
+
+#[cfg(test)]
+#[path = "shell_output_tests.rs"]
+mod tests;

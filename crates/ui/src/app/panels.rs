@@ -201,7 +201,8 @@ pub fn show_sessions_panel(
                 show_settings_button(ui, i18n, out);
                 show_copies_button(ui, state, i18n, out);
             });
-            if let Some(input) = show_workspace_switcher(ui, state.workspace, i18n) {
+            let connected = state.status == ConnStatus::Connected;
+            if let Some(input) = show_workspace_switcher(ui, state.workspace, connected, i18n) {
                 out.push(UiEvent::Input(input));
             }
             egui::ScrollArea::vertical()

@@ -15,6 +15,17 @@ fn colors() -> JsColors {
 }
 
 #[test]
+fn a_regex_literal_is_one_token_and_its_slash_star_starts_no_comment() {
+    // The formatter's rule: a `/` after an operator or at a line start opens a regex.
+    assert_eq!(
+        kinds("x = /a\\/*b/\ny = 2"),
+        [(Kind::String, "/a\\/*b/"), (Kind::Number, "2")]
+    );
+    // A division stays plain.
+    assert_eq!(kinds("a / b / c"), []);
+}
+
+#[test]
 fn a_find_call_marks_db_as_a_shell_word_and_leaves_the_rest_plain() {
     assert_eq!(
         kinds("db.users.find({})"),

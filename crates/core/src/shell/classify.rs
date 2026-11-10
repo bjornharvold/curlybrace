@@ -300,11 +300,13 @@ impl Classifier {
 
 /// The text after `token` when everything before it in `line` is default prompts
 /// (`> `, `admin> `, `rs0 [primary] admin> `, `[mongos] admin> `, `Atlas ... [primary] admin> `).
+/// A prefix holding another sentinel is not a prompt: `__CB_FAILED__ x> __CB_READY__` failed.
 fn after_prompts<'a>(line: &'a str, token: &str) -> Option<&'a str> {
     let at = line.find(token)?;
     let prefix = &line[..at];
     let is_prompts = prefix.is_empty()
         || (prefix.ends_with("> ")
+            && !prefix.contains("__CB_")
             && prefix
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b"_.-[]: >".contains(&b)));

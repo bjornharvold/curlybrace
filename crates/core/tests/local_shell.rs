@@ -18,7 +18,7 @@ use curlybrace_core::secrets::{MemorySecretStore, SecretKind, SecretStore, secre
 use curlybrace_core::shell::{Outcome, Stream, percent_encode_component};
 use curlybrace_core::store::DocumentStore;
 use curlybrace_core::test_support::InMemoryStore;
-use curlybrace_core::tools::{ToolChoice, ToolKind, resolve};
+use curlybrace_core::tools::{ToolChoice, ToolError, ToolKind, resolve};
 use support::{local_enabled, next_event, no_repaint};
 
 /// A shell run on this machine can take a while (mongosh starts slowly, a failing connect waits
@@ -43,17 +43,22 @@ impl Connector for AcceptAll {
     }
 }
 
-/// The `mongosh` on PATH. A missing optional tool is a skip (printed), not a failure.
+/// The `mongosh` on PATH. A missing optional tool is a skip (printed), not a failure; one that is
+/// there but cannot be used (not executable, ...) fails the test.
 fn mongosh(test: &str) -> Option<std::path::PathBuf> {
     let found = resolve(
         ToolKind::Mongosh,
         &ToolChoice::Path,
         std::env::var_os("PATH").as_deref(),
     );
-    if found.is_err() {
-        eprintln!("SKIPPED {test}: mongosh not found on PATH");
+    match found {
+        Ok(exe) => Some(exe),
+        Err(ToolError::NotOnPath | ToolError::Missing) => {
+            eprintln!("SKIPPED {test}: mongosh not found on PATH");
+            None
+        }
+        Err(error) => panic!("{test}: the mongosh on PATH cannot be used: {error:?}"),
     }
-    found.ok()
 }
 
 async fn connected(mut h: RuntimeHandle, cfg: ConnectionConfig) -> (RuntimeHandle, SessionId) {

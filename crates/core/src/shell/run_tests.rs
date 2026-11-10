@@ -71,9 +71,9 @@ impl Run {
         &self.guard.0
     }
 
-    /// The outcome already reported, checking nothing more arrived since.
+    /// The outcome already reported, checking no output arrived since (`on_done` is `FnOnce`, so
+    /// it cannot come twice).
     fn wait_again_is_quiet(&self) -> Outcome {
-        assert!(self.done.try_recv().is_err(), "on_done ran twice");
         match self.events.lock().unwrap().last() {
             Some(Event::Done(outcome)) => *outcome,
             other => panic!("output after on_done: {other:?}"),
@@ -138,6 +138,15 @@ fn is_gone(pid: i32) -> bool {
         .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned())
         .unwrap_or_default();
     state.is_empty() || state.starts_with('Z')
+}
+
+/// Waits (up to 5 s) until `pid` no longer runs; `what` says what survived when it does not.
+fn wait_until_gone(pid: i32, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !is_gone(pid) {
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn read_pid(path: &Path) -> i32 {
@@ -325,11 +334,7 @@ fn cancel_kills_the_whole_group() {
     let pid = read_pid(&pid_file);
     run.handle().cancel();
     assert_eq!(run.wait(), Outcome::Cancelled);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !is_gone(pid) {
-        assert!(Instant::now() < deadline, "the background child survived");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    wait_until_gone(pid, "the background child survived");
 }
 
 #[test]
@@ -472,6 +477,25 @@ fn a_shell_that_exits_before_the_sentinel_is_a_connect_failure_with_its_last_lin
     assert_eq!(run.text(Stream::Stdout), "");
 }
 
+#[test]
+fn a_cancel_during_the_handshake_shows_none_of_the_hidden_startup_lines() {
+    let fake = FakeMongosh::new(Behaviour::HangsBeforeReady);
+    let run = start(&fake, "never");
+    let deadline = Instant::now() + LONG;
+    // The lines are in the pipe once the file exists; they are read whatever the timing.
+    while !fake.stdin_log().exists() {
+        assert!(
+            Instant::now() < deadline,
+            "the fake never printed its lines"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    run.handle().cancel();
+    assert_eq!(run.wait(), Outcome::Cancelled);
+    assert_eq!(run.text(Stream::Stderr), "");
+    assert_eq!(run.text(Stream::Stdout), "");
+}
+
 /// Only the outcome and the time: what the hanging fake printed before the timeout may not have
 /// been read yet on a slow machine (the shown lines are covered by the test above).
 #[test]
@@ -516,14 +540,7 @@ fn a_child_left_holding_the_pipes_does_not_delay_the_end() {
         started.elapsed()
     );
     let pid = read_pid(&pid_file);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !is_gone(pid) {
-        assert!(
-            Instant::now() < deadline,
-            "the background child was left running"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    wait_until_gone(pid, "the background child was left running");
 }
 
 #[test]
@@ -545,11 +562,6 @@ fn a_panicking_on_output_stops_the_run_and_still_reports_once() {
     );
     let _guard = Guard(handle);
     assert_eq!(done.recv_timeout(LONG), Ok(Outcome::Cancelled));
-    assert!(done.try_recv().is_err(), "on_done ran twice");
     let pid = read_pid(&pid_file);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !is_gone(pid) {
-        assert!(Instant::now() < deadline, "the group survived the panic");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    wait_until_gone(pid, "the group survived the panic");
 }

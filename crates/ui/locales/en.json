@@ -1405,7 +1405,9 @@
     "compare": "Compare",
     "compare_hint": "Compare two collections",
     "shell": "Shell",
-    "shell_hint": "Run mongosh scripts on the connection"
+    "shell_hint": "Run mongosh scripts on the connection",
+    "shell_hint_not_connected": "Run mongosh scripts on the connection (connect first)",
+    "switcher_hint_line": "{name}: {hint}"
   },
   "write_warning": {
     "confirm": "Yes, write to production",

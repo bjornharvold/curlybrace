@@ -73,6 +73,14 @@ impl Control {
         self.state().stop.is_some()
     }
 
+    /// Whether the run was cancelled (or stopped as cancelled after a callback panic).
+    pub(super) fn cancelled(&self) -> bool {
+        matches!(
+            self.state().stop,
+            Some(Stop::Cancelled | Stop::CallbackPanicked)
+        )
+    }
+
     /// Kills the group without recording a reason, while the child is unreaped.
     pub(super) fn kill(&self) {
         if !self.state().reaped {

@@ -87,7 +87,7 @@ impl OutputLog {
     }
 
     fn add_piece(&mut self, stream: Stream, body: &str, closed: bool) {
-        let continues = self.open && self.last_mut().is_some_and(|l| l.stream == stream);
+        let continues = self.open && self.last().is_some_and(|l| l.stream == stream);
         if !continues {
             self.push_line(OutputLine {
                 stream,
@@ -95,19 +95,37 @@ impl OutputLog {
                 truncated: false,
             });
         }
+        self.open = !closed;
+        let Some(last) = self.last() else {
+            return;
+        };
+        let room = MAX_LINE_BYTES.saturating_sub(last.text.len());
+        let mut cut = body.len().min(room);
+        while !body.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let kept = &body[..cut];
+        let newly_truncated = cut < body.len() && !last.truncated;
+        let ends_in_cr = match kept.is_empty() {
+            true => last.text.ends_with('\r'),
+            false => kept.ends_with('\r'),
+        };
+        let pop_cr = closed && ends_in_cr;
+        // Only a line that really changes is copied out of the shared state.
+        if kept.is_empty() && !newly_truncated && !pop_cr {
+            return;
+        }
         if let Some(line) = self.last_mut() {
-            let room = MAX_LINE_BYTES.saturating_sub(line.text.len());
-            let mut cut = body.len().min(room);
-            while !body.is_char_boundary(cut) {
-                cut -= 1;
-            }
-            line.text.push_str(&body[..cut]);
-            line.truncated |= cut < body.len();
-            if closed && line.text.ends_with('\r') {
+            line.text.push_str(kept);
+            line.truncated |= newly_truncated;
+            if pop_cr {
                 line.text.pop();
             }
         }
-        self.open = !closed;
+    }
+
+    fn last(&self) -> Option<&OutputLine> {
+        self.segments.back()?.last().map(|line| &**line)
     }
 
     fn last_mut(&mut self) -> Option<&mut OutputLine> {
@@ -143,6 +161,22 @@ impl OutputLog {
         self.skip = total % SEGMENT_LINES;
         self.len -= excess;
         excess as u64
+    }
+
+    /// Whether the line at `index` is the same allocation in both logs.
+    #[cfg(test)]
+    pub(crate) fn line_shared_with(&self, other: &Self, index: usize) -> bool {
+        let line = |log: &Self| {
+            let at = log.skip + index;
+            log.segments
+                .get(at / SEGMENT_LINES)
+                .and_then(|seg| seg.get(at % SEGMENT_LINES))
+                .cloned()
+        };
+        match (line(self), line(other)) {
+            (Some(a), Some(b)) => Arc::ptr_eq(&a, &b),
+            _ => false,
+        }
     }
 
     #[cfg(test)]

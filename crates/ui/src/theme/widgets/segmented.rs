@@ -7,8 +7,8 @@ use super::{
 use crate::theme::shape::{self, radius};
 use crate::theme::{Scheme, current_ui};
 use eframe::egui::{
-    Color32, CornerRadius, FontId, Galley, Painter, Rect, Sense, Stroke, StrokeKind, TextStyle, Ui,
-    WidgetInfo, WidgetType, pos2, vec2,
+    Color32, CornerRadius, FontId, Galley, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind,
+    TextStyle, Ui, UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
 };
 use std::sync::Arc;
 
@@ -19,6 +19,17 @@ pub fn segmented<T: PartialEq + Copy>(
     ui: &mut Ui,
     items: &[(T, String)],
     selected: T,
+) -> Option<T> {
+    segmented_where(ui, items, selected, |_| true)
+}
+
+/// [`segmented`] where an option for which `enabled` is false is drawn and announced disabled
+/// and cannot be picked.
+pub fn segmented_where<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    items: &[(T, String)],
+    selected: T,
+    enabled: impl Fn(&T) -> bool,
 ) -> Option<T> {
     if items.is_empty() {
         return None;
@@ -46,9 +57,14 @@ pub fn segmented<T: PartialEq + Copy>(
             vec2(item_width, CONTROL_HEIGHT),
         );
         let is_selected = *value == selected;
-        let response = ui.interact(item_rect, base_id.with(i), Sense::click());
+        let response = item_response(ui, item_rect, base_id.with(i), enabled(value));
         response.widget_info(|| {
-            WidgetInfo::selected(WidgetType::RadioButton, ui.is_enabled(), is_selected, label)
+            WidgetInfo::selected(
+                WidgetType::RadioButton,
+                response.enabled(),
+                is_selected,
+                label,
+            )
         });
         let galley = one_row(ui, label, font.clone(), item_width - 2.0 * padding);
         let response = if galley.elided {
@@ -72,6 +88,17 @@ pub fn segmented<T: PartialEq + Copy>(
         focus_ring(&painter, item_rect, corners, look, s.primary, placement);
     }
     picked
+}
+
+/// The click response of one option; a disabled one comes from a disabled child, so it is
+/// reported (and painted) disabled and never clicked.
+fn item_response(ui: &mut Ui, rect: Rect, id: Id, enabled: bool) -> Response {
+    if enabled {
+        return ui.interact(rect, id, Sense::click());
+    }
+    let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
+    child.disable();
+    child.interact(rect, id, Sense::click())
 }
 
 /// The widest label plus padding, shrunk so all options fit the available width.

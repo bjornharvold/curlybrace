@@ -101,7 +101,7 @@ pub fn show_shell(
         .as_ref()
         .and_then(|notice| show_notice(ui, notice, i18n));
     ui.separator();
-    show_output(ui, state, i18n);
+    show_output(ui, state, ctx.session, i18n);
     let script = match &edited {
         Some(ShellAction::Edit { script, .. }) => script.as_str(),
         _ => state.script.as_str(),

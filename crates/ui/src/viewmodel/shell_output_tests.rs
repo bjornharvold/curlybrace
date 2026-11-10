@@ -9,6 +9,25 @@ fn texts(log: &OutputLog) -> Vec<String> {
 }
 
 #[test]
+fn a_full_line_or_another_stream_leaves_the_last_line_shared() {
+    // Nothing changes in the last line, so the new state must not copy it.
+    let full = push(
+        &OutputLog::default(),
+        Stream::Stdout,
+        &"x".repeat(MAX_LINE_BYTES + 1),
+    );
+    assert_eq!(full.get(0).map(|l| l.truncated), Some(true));
+    let more = push(&full, Stream::Stdout, "y");
+    assert!(more.line_shared_with(&full, 0), "a full line was copied");
+    let other = push(&full, Stream::Stderr, "e");
+    assert!(
+        other.line_shared_with(&full, 0),
+        "the other stream's line was copied"
+    );
+    assert_eq!(texts(&other).len(), 2);
+}
+
+#[test]
 fn empty_chunk_changes_nothing() {
     let log = push(&OutputLog::default(), Stream::Stdout, "a");
     assert_eq!(push(&log, Stream::Stdout, ""), log);

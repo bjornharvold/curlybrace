@@ -55,7 +55,8 @@ pub(crate) enum Behaviour {
     /// Reads the preamble, prints `junk 1`, `> junk 2` and `Error: cannot start` and exits 3
     /// without a sentinel.
     ExitsBeforeReady,
-    /// Reads the preamble, prints two junk lines and hangs (`sleep 30`) without a sentinel.
+    /// Reads the preamble, prints two junk lines, creates [`FakeMongosh::stdin_log`] (so a test
+    /// knows the lines are out) and hangs (`sleep 30`) without a sentinel.
     HangsBeforeReady,
 }
 
@@ -118,7 +119,7 @@ if [ "$MODE" = fail ]; then
   exit 0
 fi
 if [ "$MODE" = exit ]; then printf 'junk 1\n> junk 2\nError: cannot start\n'; exit 3; fi
-if [ "$MODE" = hang ]; then printf 'junk 1\njunk 2\n'; sleep 30; exit 0; fi
+if [ "$MODE" = hang ]; then printf 'junk 1\njunk 2\n'; : > '@LOG@'; sleep 30; exit 0; fi
 early=''
 if [ "$MODE" = early ] && IFS= read -r -t 1 line; then early=yes; fi
 # The message the preamble's `passwordPrompt` override throws, if it has one.

@@ -127,18 +127,39 @@ fn the_tool_paths_button_opens_the_tool_paths_dialog() {
     assert!(opened);
 }
 
+fn switcher(current: Workspace, connected: bool) -> Harness<'static, Option<Input>> {
+    let mut h = Harness::new_ui_state(
+        move |ui, out: &mut Option<Input>| {
+            let i18n = I18n::english();
+            if let Some(input) = show_workspace_switcher(ui, current, connected, &i18n) {
+                *out = Some(input);
+            }
+        },
+        None,
+    );
+    h.run_steps(2);
+    h
+}
+
+#[test]
+fn the_shell_entry_is_disabled_while_not_connected() {
+    let (shell, compare) = (t("workspace.shell"), t("workspace.compare"));
+    let mut h = switcher(Workspace::Browse, false);
+    let entry = h.get_by_role_and_label(Role::RadioButton, &shell);
+    assert!(entry.accesskit_node().is_disabled());
+    entry.click();
+    h.run_steps(2);
+    let picked = h.state_mut().take();
+    assert!(picked.is_none(), "{picked:?}");
+    // The other entries still work.
+    let other = h.get_by_role_and_label(Role::RadioButton, &compare);
+    assert!(!other.accesskit_node().is_disabled());
+}
+
 #[test]
 fn the_switcher_opens_the_shell_and_goes_back_to_browse() {
     let picked = |current: Workspace, label: &str| {
-        let mut h = Harness::new_ui_state(
-            move |ui, out: &mut Option<Input>| {
-                if let Some(input) = show_workspace_switcher(ui, current, &I18n::english()) {
-                    *out = Some(input);
-                }
-            },
-            None,
-        );
-        h.run_steps(2);
+        let mut h = switcher(current, true);
         h.get_by_role_and_label(Role::RadioButton, label).click();
         h.run_steps(2);
         h.state_mut().take()

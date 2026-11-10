@@ -169,7 +169,8 @@ impl StdoutLane {
             }
             Piece::NoSentinel(lines) => {
                 self.pace.take();
-                if !lines.is_empty() {
+                // They explain a shell that never connected; after a cancel they are noise.
+                if !lines.is_empty() && !sink.control.cancelled() {
                     let _ = sink
                         .output
                         .send((Stream::Stderr, sink.scrubber.mask(&lines)));
