@@ -8,6 +8,8 @@
 //!   (printed after the default prompt, `> `), plus the blank line `print` leaves after it; when
 //!   the output ends without either, it reports the last lines it hid ([`Piece::NoSentinel`]);
 //! - strips every [`PROMPT`], wherever it appears, and every `\r`;
+//! - strips the continuation prompts (`| `, one per continuation line) that directly follow a
+//!   [`PROMPT`], so an error after them still starts its line;
 //! - routes a block that starts (at a line start) with the error marker to stderr until the next
 //!   prompt. The marker includes the `\r`, so printed text such as `Uncaught x` stays output.
 //!
@@ -18,6 +20,9 @@ use std::collections::VecDeque;
 
 const READY: &str = "__CB_READY__";
 const FAILED: &str = "__CB_FAILED__";
+/// What `mongosh` prints (no newline) before it reads each continuation line of a statement
+/// that is not complete yet, so a multi-line statement's output starts with one per line.
+const CONTINUATION: &str = "| ";
 /// How `mongosh` starts an error block (runtime error, syntax error).
 const ERROR_MARKERS: [&str; 2] = ["Uncaught \r", "Uncaught:\n\r"];
 /// Lines of pre-sentinel output kept to explain a run that never connected.
@@ -52,6 +57,8 @@ pub(crate) struct Classifier {
     unready: VecDeque<String>,
     /// False while the next text starts a line.
     mid_line: bool,
+    /// Only prompts and continuation prompts since the last [`PROMPT`].
+    after_prompt: bool,
     in_error: bool,
     /// Drop one `\n` right after the READY line (the empty result `print` leaves).
     skip_blank: bool,
@@ -144,12 +151,24 @@ impl Classifier {
             if let Some(after) = rest.strip_prefix(PROMPT) {
                 self.in_error = false;
                 self.mid_line = false;
+                self.after_prompt = true;
                 rest = after;
                 continue;
             }
             if !at_end && PROMPT.starts_with(rest) {
                 self.held = rest.to_owned();
                 return;
+            }
+            if self.after_prompt {
+                if let Some(after) = rest.strip_prefix(CONTINUATION) {
+                    rest = after;
+                    continue;
+                }
+                if !at_end && CONTINUATION.starts_with(rest) {
+                    self.held = rest.to_owned();
+                    return;
+                }
+                self.after_prompt = false;
             }
             if !self.mid_line {
                 if ERROR_MARKERS.iter().any(|m| rest.starts_with(m)) {

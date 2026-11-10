@@ -3,8 +3,14 @@
 //!
 //! It prints `> ` before reading the first line (the preamble), answers it with
 //! `__CB_READY__` plus the blank line `print` leaves, then prompts with the fixed prompt the
-//! preamble sets (`\x01CBP> `) before each later line and exits 0 on EOF. Script lines it
-//! understands:
+//! preamble sets (`\x01CBP> `) before each later statement and exits 0 on EOF.
+//!
+//! Statements: like `mongosh`, a line that leaves a bracket (`{([`) open, or ends in `+`, makes
+//! the next lines continuation lines until the brackets close; before reading each one it prints
+//! `| ` (no newline). A multi-line statement then runs its lines in order (lines ending in `{` and
+//! lone `}` are syntax and skipped), and a throw skips the rest of it. A statement whose first
+//! line starts with `function <name>` prints `[Function: <name>]`; one whose first line ends in
+//! `+` prints `NaN`. Script lines it understands:
 //!
 //! | line | effect |
 //! | --- | --- |
@@ -19,7 +25,6 @@
 //! | `bytes <fmt>` | `printf <fmt>` (raw bytes, octal escapes; no spaces in `fmt`) |
 //! | `split <a> <b>` | `printf <a>`, a 0.2 s pause, `printf <b>`: two separate reads |
 //! | `long <n>` | `n` times `x` without a newline |
-//! | ends in `+` | an unfinished block: reads more lines until one does not end in `+` |
 //! | anything else | echoed back |
 //!
 //! The child gets an empty environment, so it needs a `PATH` with `/usr/bin:/bin`
@@ -113,23 +118,55 @@ early=''
 if [ "$MODE" = early ] && IFS= read -r -t 1 line; then early=yes; fi
 printf '__CB_READY__\n\n'
 [ -n "$early" ] && echo EARLY
+# Open minus closed brackets in $1.
+depth_of() {
+  local opens="${1//[^\{\(\[]/}" closes="${1//[^\}\)\]]/}"
+  echo $(( ${#opens} - ${#closes} ))
+}
+# One command; returns 1 when it throws, which skips the rest of its statement.
+run_line() {
+  case "$1" in
+    'throw '*) printf 'Uncaught \rError: %s\n' "${1#throw }"; return 1 ;;
+    syntax) printf 'Uncaught:\n\rSyntaxError: Unexpected token (1:4)\n\n> 1 | var = = 3\n\n'; return 1 ;;
+    'stderr '*) printf '%s\n' "${1#stderr }" >&2 ;;
+    'exit '*) exit "${1#exit }" ;;
+    dump) for a in "${ARGS[@]}"; do printf 'arg:%s\n' "$a"; done; env ;;
+    'spawn '*) sleep 30 & echo $! > "${1#spawn }" ;;
+    hang) sleep 30 ;;
+    flood) yes flood ;;
+    'bytes '*) printf "${1#bytes }" ;;
+    'split '*) read -r _ first second <<< "$1"; printf "$first"; sleep 0.2; printf "$second" ;;
+    'long '*) head -c "${1#long }" /dev/zero | tr '\0' x ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+# Evaluates one statement (its lines as arguments).
+evaluate() {
+  local re='^function ([A-Za-z_]+)'
+  if [[ "$1" =~ $re ]]; then printf '[Function: %s]\n' "${BASH_REMATCH[1]}"; return; fi
+  if [[ "$1" == *+ ]]; then echo NaN; return; fi
+  if [ $# -eq 1 ]; then run_line "$1"; return; fi
+  local line
+  for line in "$@"; do
+    case "$line" in *'{'|'}') continue ;; esac
+    run_line "$line" || return
+  done
+}
+ARGS=("$@")
 while true; do
   printf '\001CBP> '
   IFS= read -r line || exit 0
-  case "$line" in
-    'throw '*) printf 'Uncaught \rError: %s\n' "${line#throw }" ;;
-    syntax) printf 'Uncaught:\n\rSyntaxError: Unexpected token (1:4)\n\n> 1 | var = = 3\n\n' ;;
-    'stderr '*) printf '%s\n' "${line#stderr }" >&2 ;;
-    'exit '*) exit "${line#exit }" ;;
-    dump) for a in "$@"; do printf 'arg:%s\n' "$a"; done; env ;;
-    'spawn '*) sleep 30 & echo $! > "${line#spawn }" ;;
-    hang) sleep 30 ;;
-    flood) yes flood ;;
-    'bytes '*) printf "${line#bytes }" ;;
-    'split '*) read -r _ first second <<< "$line"; printf "$first"; sleep 0.2; printf "$second" ;;
-    'long '*) head -c "${line#long }" /dev/zero | tr '\0' x ;;
-    *+) while [[ "$line" == *+ ]]; do IFS= read -r line || exit 0; done; echo NaN ;;
-    *) printf '%s\n' "$line" ;;
-  esac
+  lines=("$line")
+  last="$line"
+  depth=$(depth_of "$line")
+  # Like mongosh: an unfinished statement reads continuation lines, each after a `| `.
+  while [ "$depth" -gt 0 ] || [[ "$last" == *+ ]]; do
+    printf '| '
+    IFS= read -r line || exit 0
+    lines+=("$line")
+    last="$line"
+    depth=$((depth + $(depth_of "$line")))
+  done
+  evaluate "${lines[@]}"
 done
 "#;

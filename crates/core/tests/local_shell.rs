@@ -109,10 +109,41 @@ fn outcome(events: &[Event]) -> Outcome {
     }
 }
 
+/// No prompt, sentinel or continuation prompt (`| `) in `out`. Not for syntax errors: their code
+/// frame has `| ` of its own.
 fn assert_no_prompt_leak(out: &str) {
     assert!(!out.contains("CBP"), "prompt marker leaked: {out:?}");
     assert!(!out.contains('\u{1}'), "control byte leaked: {out:?}");
     assert!(!out.contains("__CB_"), "sentinel leaked: {out:?}");
+    assert!(!out.contains("| "), "continuation prompt leaked: {out:?}");
+}
+
+/// A runtime on the local server without auth, connected.
+async fn local_session() -> (RuntimeHandle, SessionId) {
+    let cfg = ConnectionConfig::new("local", &curlybrace_testkit::local_uri());
+    let rt = spawn_runtime(Arc::new(MemorySecretStore::new()), no_repaint());
+    connected(rt, cfg).await
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn an_error_inside_a_multi_line_statement_is_a_script_error() {
+    let test = "an_error_inside_a_multi_line_statement_is_a_script_error";
+    if !local_enabled(test) {
+        return;
+    }
+    let Some(exe) = mongosh(test) else {
+        return;
+    };
+    let (mut h, id) = local_session().await;
+
+    let script = "var x = 1\nif (x) {\n  throw new Error(\"multi-cbit\")\n}";
+    let events = run_script(&mut h, id, exe, script).await;
+    assert_eq!(outcome(&events), Outcome::ScriptErrors, "{events:?}");
+    let err = text(&events, Stream::Stderr);
+    assert!(err.starts_with("Uncaught Error: multi-cbit"), "{err:?}");
+    assert_no_prompt_leak(&err);
+    assert_no_prompt_leak(&text(&events, Stream::Stdout));
 }
 
 #[tokio::test]

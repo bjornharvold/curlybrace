@@ -212,3 +212,39 @@ fn a_line_start_is_held_only_while_it_could_be_a_prompt_or_an_error() {
     assert!(classifier.push("\u{1}CB").is_empty());
     assert_eq!(classifier.finish(), [Piece::Out(Stdout, "\u{1}CB".into())]);
 }
+
+// Real `mongosh` 2.14.1 bytes (`--nodb --quiet`, piped stdin) for `if (x) {` / ` throw new
+// Error("b")` / `}`: a `| ` continuation prompt per continuation line, then the error.
+const MULTI_LINE_THROW: &str = "\u{1}CBP> | | Uncaught \rError: b\n\u{1}CBP> ";
+// The same for `function f() {` / ` return 1` / `}`, then for `[1,2,` / `3]`.
+const MULTI_LINE_VALUES: &str = "\u{1}CBP> | | [Function: f]\n\u{1}CBP> | [ 1, 2, 3 ]\n\u{1}CBP> ";
+
+#[test]
+fn an_error_after_continuation_prompts_is_an_error() {
+    let (pieces, uncaught) = after_ready(MULTI_LINE_THROW);
+    assert!(uncaught);
+    assert_eq!(shown(&pieces, Stderr), "Uncaught Error: b\n");
+    assert_eq!(shown(&pieces, Stdout), "");
+}
+
+#[test]
+fn continuation_prompts_are_stripped_from_output() {
+    let (pieces, uncaught) = after_ready(MULTI_LINE_VALUES);
+    assert!(!uncaught);
+    assert_eq!(shown(&pieces, Stdout), "[Function: f]\n[ 1, 2, 3 ]\n");
+}
+
+#[test]
+fn continuation_prompts_split_across_pushes_are_stripped() {
+    let chunks = [READY, "\u{1}CBP> |", " |", " ", "Unc", "aught \rError: b\n"];
+    let (pieces, uncaught) = feed(&chunks);
+    assert!(uncaught);
+    assert_eq!(shown(&pieces, Stderr), "Uncaught Error: b\n");
+    assert_eq!(shown(&pieces, Stdout), "");
+}
+
+#[test]
+fn a_bar_later_in_the_output_is_kept() {
+    let (pieces, _) = after_ready(&format!("{P}a | b\n| c\n|d\n{P}|x\n{P}"));
+    assert_eq!(shown(&pieces, Stdout), "a | b\n| c\n|d\n|x\n");
+}

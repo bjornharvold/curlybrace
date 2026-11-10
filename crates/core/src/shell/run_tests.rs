@@ -218,6 +218,33 @@ fn uncaught_blocks_go_to_stderr_and_give_script_errors() {
     assert_eq!(run.text(Stream::Stderr), "Uncaught Error: boom\n");
 }
 
+/// Neither stream shows a continuation prompt.
+fn assert_no_continuation_prompt(run: &Run) {
+    for stream in [Stream::Stdout, Stream::Stderr] {
+        let text = run.text(stream);
+        assert!(!text.contains("| "), "{stream:?} shows `| `: {text:?}");
+    }
+}
+
+#[test]
+fn an_error_inside_a_multi_line_statement_is_a_script_error() {
+    let fake = repl();
+    let run = start(&fake, "if (x) {\nthrow b\n}");
+    assert_eq!(run.wait(), Outcome::ScriptErrors);
+    assert_eq!(run.text(Stream::Stderr), "Uncaught Error: b\n");
+    assert_eq!(run.text(Stream::Stdout), "");
+    assert_no_continuation_prompt(&run);
+}
+
+#[test]
+fn a_multi_line_value_is_printed_without_continuation_prompts() {
+    let fake = repl();
+    let run = start(&fake, "function f() {\nreturn 1\n}");
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    assert_eq!(run.text(Stream::Stdout), "[Function: f]\n");
+    assert_no_continuation_prompt(&run);
+}
+
 #[test]
 fn connect_failure_shows_a_scrubbed_message_kills_the_child_and_never_writes_the_script() {
     let fake = FakeMongosh::new(Behaviour::ConnectFails(format!(
