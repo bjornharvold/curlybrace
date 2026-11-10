@@ -149,3 +149,23 @@ until deleted. Not selected.
   unreliable (only meaningful when the process dies).
 - Strip the `\r` that follows `Uncaught `.
 - No `--json`. Output is human-formatted text.
+
+## Final method
+
+What shipped (Tasks 3 and 4), after the spike above:
+
+- **Stdin, REPL.** `mongosh --nodb --quiet` with piped stdin; the secret is never in argv or the
+  environment. `--json` cannot be used with stdin (finding 4), so output is the human-formatted text
+  and slice D (table/tree results) needs another mechanism.
+- **Fixed-prompt preamble.** The first stdin line sets `prompt = () => "\u0001CBP> "` (the prompt
+  is then the same whatever the database is, and ends every command), then runs `try { db =
+  connect(...) ... }` with sentinels (`__CB_READY__`, or `__CB_FAILED__ <message>`) so that success and
+  failure of the connect are told apart without parsing a prompt. The prompt marker and the
+  sentinels are removed from the streamed output.
+- **Handshake.** The script is sent only after the ready sentinel arrived. A failed connect, an
+  early exit or no answer within the handshake timeout ends the run as `ConnectFailed`, and the
+  script is never sent.
+- **Errors come on stdout with exit 0** (finding 3). The runner classifies them by the `Uncaught`
+  marker: such a run ends `ScriptErrors` and the error text is shown on the stderr stream. A run
+  without them ends `Exited(0)`. The exit status alone says nothing in this mode.
+- Checked against a real `mongosh` by the gated test `crates/core/tests/local_shell.rs`.

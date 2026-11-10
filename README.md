@@ -95,6 +95,13 @@ an account, a trial, or a license fee.
   connections. The design is in
   [docs/superpowers/specs](docs/superpowers/specs/2026-11-07-tool-paths-design.md).
 
+**Shell**
+- A **Shell** tab runs `mongosh` against the open connection. Write a script, run the selection or
+  all of it (Cmd/Ctrl+Enter), Cancel a running one, and read the output as it streams. Format tidies
+  the script. It uses the `mongosh` chosen under Tool paths. A read-only connection refuses it, a
+  production connection asks before every run, and the password never reaches `mongosh` through its
+  command line or environment (see [SECURITY.md](SECURITY.md)).
+
 **Indexes** ([#68](https://github.com/bjornharvold/curlybrace/issues/68))
 - An **Indexes** tab on each collection: the indexes on the left, the selected one on the right with
   its size and how often it was used over the last 24 hours, 7 days or 30 days. Server restarts
