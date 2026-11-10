@@ -8,6 +8,7 @@ use futures::TryStreamExt;
 use mongodb::Client;
 use mongodb::action::Action;
 
+use crate::admin::{CollectionStats, DatabaseStats};
 use crate::bulk::{
     BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, UpdatePreview,
 };
@@ -459,6 +460,65 @@ impl DocumentStore for MongoStore {
     async fn create_collection(&self, ns: &Namespace, options: &CollectionOptions) -> Result<()> {
         let db = self.client.database(&ns.db);
         crate::mongo_collection_options::create_collection(&db, ns, options, db_err).await
+    }
+
+    async fn drop_collection(&self, ns: &Namespace) -> Result<()> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_admin::drop_collection(&db, ns, db_err).await
+    }
+
+    async fn drop_database(&self, name: &str) -> Result<()> {
+        let db = self.client.database(name);
+        crate::mongo_admin::drop_database(&db, name, db_err).await
+    }
+
+    async fn rename_collection(
+        &self,
+        ns: &Namespace,
+        new_name: &str,
+        drop_target: bool,
+    ) -> Result<()> {
+        let admin = self.client.database("admin");
+        crate::mongo_admin::rename_collection(&admin, ns, new_name, drop_target, db_err).await
+    }
+
+    async fn create_view(&self, ns: &Namespace, source: &str, pipeline: &[Document]) -> Result<()> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_admin::create_view(&db, ns, source, pipeline, db_err).await
+    }
+
+    async fn duplicate_collection(&self, ns: &Namespace, target: &str) -> Result<()> {
+        crate::admin::validate_collection_name(target)?;
+        let kinds = self.list_collection_kinds(&ns.db).await?;
+        match kinds.iter().find(|(name, _)| *name == ns.collection) {
+            None => return Err(CoreError::NotFound),
+            Some((_, CollectionKind::Collection)) => {}
+            Some(_) => {
+                return Err(CoreError::Unsupported(
+                    "only plain collections can be duplicated".into(),
+                ));
+            }
+        }
+        if kinds.iter().any(|(name, _)| name == target) {
+            return Err(CoreError::NamespaceExists);
+        }
+        let options = self
+            .collection_options(ns)
+            .await?
+            .ok_or(CoreError::NotFound)?;
+        let indexes = self.list_index_specs(ns).await?;
+        let db = self.client.database(&ns.db);
+        crate::mongo_admin::copy_collection(&db, ns, target, &options, &indexes, db_err).await
+    }
+
+    async fn collection_stats(&self, ns: &Namespace) -> Result<CollectionStats> {
+        let db = self.client.database(&ns.db);
+        crate::mongo_admin::collection_stats(&db, ns, db_err).await
+    }
+
+    async fn database_stats(&self, name: &str) -> Result<DatabaseStats> {
+        let db = self.client.database(name);
+        crate::mongo_admin::database_stats(&db, db_err).await
     }
 
     async fn collection_options(&self, ns: &Namespace) -> Result<Option<CollectionOptions>> {

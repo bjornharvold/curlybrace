@@ -11,6 +11,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bson::{Bson, Document};
 
+use crate::admin::{CollectionStats, DatabaseStats};
 use crate::bulk::{
     BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, UpdatePreview,
 };
@@ -173,6 +174,46 @@ impl DocumentStore for ReadOnlyStore {
     async fn set_index_ttl(&self, ns: &Namespace, name: &str, seconds: i64) -> Result<()> {
         self.guard()?;
         self.inner.set_index_ttl(ns, name, seconds).await
+    }
+
+    async fn drop_collection(&self, ns: &Namespace) -> Result<()> {
+        self.guard()?;
+        self.inner.drop_collection(ns).await
+    }
+
+    async fn drop_database(&self, db: &str) -> Result<()> {
+        self.guard()?;
+        self.inner.drop_database(db).await
+    }
+
+    async fn rename_collection(
+        &self,
+        ns: &Namespace,
+        new_name: &str,
+        drop_target: bool,
+    ) -> Result<()> {
+        self.guard()?;
+        self.inner
+            .rename_collection(ns, new_name, drop_target)
+            .await
+    }
+
+    async fn create_view(&self, ns: &Namespace, source: &str, pipeline: &[Document]) -> Result<()> {
+        self.guard()?;
+        self.inner.create_view(ns, source, pipeline).await
+    }
+
+    async fn duplicate_collection(&self, ns: &Namespace, target: &str) -> Result<()> {
+        self.guard()?;
+        self.inner.duplicate_collection(ns, target).await
+    }
+
+    async fn collection_stats(&self, ns: &Namespace) -> Result<CollectionStats> {
+        self.inner.collection_stats(ns).await
+    }
+
+    async fn database_stats(&self, db: &str) -> Result<DatabaseStats> {
+        self.inner.database_stats(db).await
     }
 
     async fn create_collection(&self, ns: &Namespace, options: &CollectionOptions) -> Result<()> {

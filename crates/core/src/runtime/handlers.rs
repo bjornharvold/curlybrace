@@ -415,6 +415,55 @@ async fn data_command(
             store.set_index_ttl(&ns, &name, seconds).await?;
             Event::IndexChanged { session, ns }
         }
+        Command::DropCollection { ns, .. } => {
+            store.drop_collection(&ns).await?;
+            Event::AdminChanged { session, db: ns.db }
+        }
+        Command::DropDatabase { db, .. } => {
+            store.drop_database(&db).await?;
+            Event::AdminChanged { session, db }
+        }
+        Command::RenameCollection {
+            ns,
+            new_name,
+            drop_target,
+            ..
+        } => {
+            store.rename_collection(&ns, &new_name, drop_target).await?;
+            Event::AdminChanged { session, db: ns.db }
+        }
+        Command::CreateView {
+            ns,
+            source,
+            pipeline_json,
+            ..
+        } => {
+            let pipeline = crate::admin::parse_pipeline(&pipeline_json)?;
+            store.create_view(&ns, &source, &pipeline).await?;
+            Event::AdminChanged { session, db: ns.db }
+        }
+        Command::DuplicateCollection { ns, target, .. } => {
+            store.duplicate_collection(&ns, &target).await?;
+            Event::AdminChanged { session, db: ns.db }
+        }
+        Command::CollectionStats { ns, request, .. } => {
+            let stats = store.collection_stats(&ns).await?;
+            Event::CollectionStats {
+                session,
+                ns,
+                stats,
+                request,
+            }
+        }
+        Command::DatabaseStats { db, request, .. } => {
+            let stats = store.database_stats(&db).await?;
+            Event::DatabaseStats {
+                session,
+                db,
+                stats,
+                request,
+            }
+        }
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)

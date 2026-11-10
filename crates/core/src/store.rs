@@ -5,6 +5,7 @@ use bson::{Bson, Document};
 
 use std::time::Duration;
 
+use crate::admin::{CollectionStats, DatabaseStats};
 use crate::bulk::{
     BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, UpdatePreview,
 };
@@ -269,6 +270,61 @@ pub trait DocumentStore: Send + Sync {
     async fn create_collection(&self, _ns: &Namespace, _options: &CollectionOptions) -> Result<()> {
         Err(CoreError::Unsupported(
             "this store cannot create collections".into(),
+        ))
+    }
+    /// Drops the collection or view `ns`. Dropping one that is already gone succeeds (current
+    /// servers do; older ones answered `NamespaceNotFound`, which the MongoDB store treats the same).
+    async fn drop_collection(&self, _ns: &Namespace) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot drop collections".into(),
+        ))
+    }
+    /// Drops the whole database `db` (a server-owned database is `CoreError::ReservedDatabase`).
+    async fn drop_database(&self, _db: &str) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot drop databases".into(),
+        ))
+    }
+    /// Renames `ns` to `new_name` in the same database. With `drop_target` an existing target is
+    /// replaced; without it an existing target makes the rename fail.
+    async fn rename_collection(
+        &self,
+        _ns: &Namespace,
+        _new_name: &str,
+        _drop_target: bool,
+    ) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot rename collections".into(),
+        ))
+    }
+    /// Creates the read-only view `ns` over the collection `source` of the same database.
+    async fn create_view(
+        &self,
+        _ns: &Namespace,
+        _source: &str,
+        _pipeline: &[Document],
+    ) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot create views".into(),
+        ))
+    }
+    /// Copies the documents and indexes of `ns` into the new collection `target` of the same
+    /// database. An existing target fails the copy.
+    async fn duplicate_collection(&self, _ns: &Namespace, _target: &str) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot duplicate collections".into(),
+        ))
+    }
+    /// Counts and sizes of `ns`.
+    async fn collection_stats(&self, _ns: &Namespace) -> Result<CollectionStats> {
+        Err(CoreError::Unsupported(
+            "this store cannot report collection statistics".into(),
+        ))
+    }
+    /// Counts and sizes of `db`.
+    async fn database_stats(&self, _db: &str) -> Result<DatabaseStats> {
+        Err(CoreError::Unsupported(
+            "this store cannot report database statistics".into(),
         ))
     }
     /// The options `ns` was created with; `None` when the collection does not exist.

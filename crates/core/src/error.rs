@@ -13,6 +13,15 @@ pub enum CoreError {
     /// A folder name is too long or holds forbidden characters (never echoed).
     #[error("invalid folder name")]
     InvalidFolderName,
+    /// A database, collection or view name the server would refuse (never echoed).
+    #[error("invalid database or collection name")]
+    InvalidNamespace,
+    /// The target of a rename or duplicate already exists (never echoed).
+    #[error("a collection with that name already exists")]
+    NamespaceExists,
+    /// The database is owned by the server (`admin`, `local`, `config`) and is not administered here.
+    #[error("server-owned database")]
+    ReservedDatabase,
     #[error("invalid json: {0}")]
     InvalidJson(String),
     #[error("invalid document: {0}")]
@@ -195,6 +204,9 @@ impl CoreError {
             Self::InvalidUri(problem) => problem.i18n_key(),
             Self::InvalidName => "errors.invalid_name",
             Self::InvalidFolderName => "errors.invalid_folder_name",
+            Self::InvalidNamespace => "errors.invalid_namespace",
+            Self::ReservedDatabase => "errors.reserved_database",
+            Self::NamespaceExists => "errors.namespace_exists",
             Self::InvalidJson(_) => "errors.invalid_json",
             Self::InvalidDocument(_) => "errors.invalid_document",
             Self::Secret(_) => "errors.secret_store",
@@ -255,6 +267,9 @@ mod tests {
             CoreError::InvalidUri(UriProblem::Other),
             CoreError::InvalidName,
             CoreError::InvalidFolderName,
+            CoreError::InvalidNamespace,
+            CoreError::ReservedDatabase,
+            CoreError::NamespaceExists,
             CoreError::InvalidJson("x".into()),
             CoreError::InvalidDocument("x".into()),
             CoreError::Secret("x".into()),

@@ -15,6 +15,11 @@ impl Command {
             | Self::DropIndex { .. }
             | Self::SetIndexHidden { .. }
             | Self::SetIndexTtl { .. }
+            | Self::DropCollection { .. }
+            | Self::DropDatabase { .. }
+            | Self::RenameCollection { .. }
+            | Self::CreateView { .. }
+            | Self::DuplicateCollection { .. }
             | Self::SetProfilingLevel { .. }
             | Self::BulkPreview { .. }
             | Self::BulkUpdate { .. }
@@ -34,6 +39,8 @@ impl Command {
             | Self::ListIndexes { .. }
             | Self::IndexHistory { .. }
             | Self::EstimatedCount { .. }
+            | Self::CollectionStats { .. }
+            | Self::DatabaseStats { .. }
             | Self::ProfilingState { .. }
             | Self::QueryShapes { .. }
             | Self::SetSamplingExcluded { .. }
@@ -51,6 +58,8 @@ impl Command {
         match self {
             Self::ListIndexes { request, .. }
             | Self::IndexHistory { request, .. }
+            | Self::CollectionStats { request, .. }
+            | Self::DatabaseStats { request, .. }
             | Self::QueryShapes { request, .. }
             | Self::BulkCount { request, .. }
             | Self::BulkSample { request, .. }
@@ -87,6 +96,13 @@ impl Command {
             Self::DropIndex { .. } => "drop_index",
             Self::SetIndexHidden { .. } => "set_index_hidden",
             Self::SetIndexTtl { .. } => "set_index_ttl",
+            Self::DropCollection { .. } => "drop_collection",
+            Self::DropDatabase { .. } => "drop_database",
+            Self::RenameCollection { .. } => "rename_collection",
+            Self::CreateView { .. } => "create_view",
+            Self::DuplicateCollection { .. } => "duplicate_collection",
+            Self::CollectionStats { .. } => "collection_stats",
+            Self::DatabaseStats { .. } => "database_stats",
             Self::SetSamplingExcluded { .. } => "set_sampling_excluded",
             Self::PurgeHistory { .. } => "purge_history",
             Self::BulkCount { .. } => "bulk_count",
@@ -126,6 +142,13 @@ impl Command {
             | Self::DropIndex { session, .. }
             | Self::SetIndexHidden { session, .. }
             | Self::SetIndexTtl { session, .. }
+            | Self::DropCollection { session, .. }
+            | Self::DropDatabase { session, .. }
+            | Self::RenameCollection { session, .. }
+            | Self::CreateView { session, .. }
+            | Self::DuplicateCollection { session, .. }
+            | Self::CollectionStats { session, .. }
+            | Self::DatabaseStats { session, .. }
             | Self::BulkCount { session, .. }
             | Self::BulkSample { session, .. }
             | Self::BulkPreview { session, .. }
@@ -164,6 +187,9 @@ impl Event {
             | Self::ProfilingState { session, .. }
             | Self::QueryShapes { session, .. }
             | Self::IndexChanged { session, .. }
+            | Self::AdminChanged { session, .. }
+            | Self::CollectionStats { session, .. }
+            | Self::DatabaseStats { session, .. }
             | Self::Sampler { session, .. }
             | Self::Profiler { session, .. }
             | Self::BulkCount { session, .. }

@@ -1,3 +1,6 @@
+pub mod admin;
+#[cfg(test)]
+mod admin_tests;
 pub mod bulk;
 pub mod client;
 #[cfg(test)]
@@ -18,6 +21,9 @@ mod error_name;
 pub mod explain;
 pub mod history;
 pub mod indexes;
+mod mongo_admin;
+#[cfg(test)]
+mod mongo_admin_tests;
 mod mongo_bulk;
 mod mongo_bulk_cancel;
 mod mongo_bulk_preview;

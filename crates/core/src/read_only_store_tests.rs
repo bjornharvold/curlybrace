@@ -9,6 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bson::{Bson, Document, doc};
 
+use crate::admin::{CollectionStats, DatabaseStats};
 use crate::bulk::{
     BulkDeleteRequest, BulkOutcome, BulkRunId, BulkUpdateRequest, CancelEffect, MatchScope,
     PreviewDoc, UpdatePreview, UpdateSpec,
@@ -46,7 +47,7 @@ impl RecordingStore {
 
 /// Every write method of `DocumentStore`. Adding a write to the trait? Name it here, give
 /// `RecordingStore` a counter for it, refuse it in `ReadOnlyStore`, and cover it below.
-const WRITES: [&str; 13] = [
+const WRITES: [&str; 18] = [
     "insert",
     "replace",
     "delete",
@@ -56,6 +57,11 @@ const WRITES: [&str; 13] = [
     "set_index_hidden",
     "set_index_ttl",
     "create_collection",
+    "drop_collection",
+    "drop_database",
+    "rename_collection",
+    "create_view",
+    "duplicate_collection",
     "set_profiling_level",
     "preview_update",
     "update_many",
@@ -238,6 +244,40 @@ impl DocumentStore for RecordingStore {
         self.hit("create_collection");
         Ok(())
     }
+    async fn drop_collection(&self, _ns: &Namespace) -> Result<()> {
+        self.hit("drop_collection");
+        Ok(())
+    }
+    async fn drop_database(&self, _db: &str) -> Result<()> {
+        self.hit("drop_database");
+        Ok(())
+    }
+    async fn rename_collection(&self, _ns: &Namespace, _to: &str, _drop: bool) -> Result<()> {
+        self.hit("rename_collection");
+        Ok(())
+    }
+    async fn create_view(&self, _ns: &Namespace, _source: &str, _p: &[Document]) -> Result<()> {
+        self.hit("create_view");
+        Ok(())
+    }
+    async fn duplicate_collection(&self, _ns: &Namespace, _target: &str) -> Result<()> {
+        self.hit("duplicate_collection");
+        Ok(())
+    }
+    async fn collection_stats(&self, _ns: &Namespace) -> Result<CollectionStats> {
+        self.hit("collection_stats");
+        Ok(CollectionStats {
+            document_count: 5,
+            ..CollectionStats::default()
+        })
+    }
+    async fn database_stats(&self, _db: &str) -> Result<DatabaseStats> {
+        self.hit("database_stats");
+        Ok(DatabaseStats {
+            collections: 3,
+            ..DatabaseStats::default()
+        })
+    }
     async fn count_matching(
         &self,
         _ns: &Namespace,
@@ -354,6 +394,11 @@ async fn refused_writes(store: &dyn DocumentStore) -> [bool; WRITES.len()] {
                 .await
                 .err(),
         ),
+        is_ro(store.drop_collection(&ns()).await.err()),
+        is_ro(store.drop_database("db").await.err()),
+        is_ro(store.rename_collection(&ns(), "d", false).await.err()),
+        is_ro(store.create_view(&ns(), "src", &[]).await.err()),
+        is_ro(store.duplicate_collection(&ns(), "d").await.err()),
         is_ro(store.set_profiling_level("db", 1).await.err()),
         is_ro(store.preview_update(&ns(), &update_req()).await.err()),
         is_ro(store.update_many(&ns(), &update_req(), run()).await.err()),
@@ -663,4 +708,16 @@ async fn count_matching_and_cancel_are_forwarded_when_locked() {
     );
     assert_eq!(inner.count("count_matching"), 1);
     assert_eq!(inner.count("cancel_bulk"), 1);
+}
+
+#[tokio::test]
+async fn statistics_are_forwarded_when_locked() {
+    let (inner, _flag, store) = wrapped(true);
+    assert_eq!(
+        store.collection_stats(&ns()).await.unwrap().document_count,
+        5
+    );
+    assert_eq!(store.database_stats("db").await.unwrap().collections, 3);
+    assert_eq!(inner.count("collection_stats"), 1);
+    assert_eq!(inner.count("database_stats"), 1);
 }

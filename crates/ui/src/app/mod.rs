@@ -35,6 +35,7 @@ pub mod copy_structure_report;
 mod dialog_banner;
 mod explain_actions;
 pub use explain_actions::VerdictState;
+mod admin_actions;
 mod explain_settings;
 pub mod file_picker;
 pub mod host_key;
@@ -837,6 +838,9 @@ mod tools_wiring_tests;
 mod explain_settings_tests;
 #[cfg(test)]
 mod explain_tests;
+
+#[cfg(test)]
+mod admin_tests;
 
 #[cfg(test)]
 mod index_tests;

@@ -364,6 +364,9 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             Vec::new(),
         ),
         Event::IndexChanged { ns, .. } => index_actions::changed(state, ns),
+        Event::AdminChanged { db, .. } => super::admin_actions::changed(state, db),
+        // No view shows statistics yet; the answer is consumed.
+        Event::CollectionStats { .. } | Event::DatabaseStats { .. } => (state, Vec::new()),
         Event::Explain {
             ns, query, outcome, ..
         } => (
