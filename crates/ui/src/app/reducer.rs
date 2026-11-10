@@ -260,6 +260,14 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
                 Vec::new(),
             )
         }
+        // An administration write failed or has an unknown outcome: its dialog shows it. A lost
+        // server still takes the connection-lost path below, which closes the dialog.
+        Event::Failed { context, error, .. }
+            if super::admin_dialog_actions::is_admin_context(context)
+                && !matches!(error, CoreError::Unreachable | CoreError::TlsHandshake) =>
+        {
+            super::admin_dialog_actions::failed_out(state, context, error)
+        }
         // The server of an open session cannot be reached any more: the root fails like a failed
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever

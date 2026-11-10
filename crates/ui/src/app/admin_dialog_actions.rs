@@ -28,6 +28,33 @@ pub fn busy(state: &AppState) -> bool {
     state.pending.is_some() || state.write_warning.is_some()
 }
 
+/// The failure contexts of the five administration writes.
+pub(super) fn is_admin_context(context: &str) -> bool {
+    matches!(
+        context,
+        "drop_collection"
+            | "drop_database"
+            | "rename_collection"
+            | "create_view"
+            | "duplicate_collection"
+    )
+}
+
+/// An administration write failed for a reason other than a lost server. As [`failed`], and when
+/// the outcome is unknown (a timeout, or a write that may or may not have been applied) the
+/// listings are read again: the sidebar would otherwise keep showing what the write may have
+/// removed or renamed, and a retry would answer `NotFound` or "already exists".
+pub(super) fn failed_out(state: AppState, context: &'static str, error: CoreError) -> Out {
+    let unknown =
+        error == CoreError::WriteOutcomeUnknown || error == CoreError::Database("timeout".into());
+    let db = state.admin.as_ref().map(|d| d.db.clone());
+    let state = failed(state, context, error);
+    match (unknown, db) {
+        (true, Some(db)) => super::admin_actions::changed(state, db),
+        _ => (state, Vec::new()),
+    }
+}
+
 /// The open dialog belongs to the session whose view `state` currently is (an answer is handled
 /// inside the view of the session it came from).
 fn owns_dialog(state: &AppState) -> bool {

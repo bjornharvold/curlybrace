@@ -336,3 +336,61 @@ fn a_refusal_is_not_attached_to_the_dialog_of_another_session() {
     );
     assert!(failed.admin.unwrap().error.is_none());
 }
+
+fn failed_with(s: AppState, context: &'static str, error: CoreError) -> (AppState, Vec<Command>) {
+    update(
+        s,
+        Input::Event(Event::Failed {
+            session: EMBEDDED_SESSION,
+            context,
+            error,
+        }),
+    )
+}
+
+fn sent_rename() -> AppState {
+    let (s, _) = update(connected(), request(AdminKind::Rename, Some("orders")));
+    let (s, _) = act(s, AdminAction::NameEdited("orders2".into()));
+    act(s, AdminAction::Confirmed).0
+}
+
+#[test]
+fn an_unknown_outcome_shows_the_error_and_refreshes_what_may_have_changed() {
+    for error in [
+        CoreError::WriteOutcomeUnknown,
+        CoreError::Database("timeout".into()),
+    ] {
+        let (s, commands) = failed_with(sent_rename(), "rename_collection", error.clone());
+        assert_eq!(s.admin.as_ref().unwrap().error, Some(error));
+        assert!(s.pending.is_none());
+        assert!(
+            commands
+                .iter()
+                .any(|c| matches!(c, Command::ListDatabases { .. })),
+            "the write may have applied, so the listings are read again"
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|c| matches!(c, Command::ListCollections { db, .. } if db == "shop"))
+        );
+    }
+}
+
+#[test]
+fn a_plain_refusal_refreshes_nothing() {
+    let (_, commands) = failed_with(
+        sent_rename(),
+        "rename_collection",
+        CoreError::NamespaceExists,
+    );
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn a_lost_connection_closes_the_dialog_and_raises_the_banner() {
+    let (s, _) = failed_with(sent_rename(), "rename_collection", CoreError::Unreachable);
+    assert!(s.admin.is_none(), "nothing is left to resend into");
+    assert!(s.pending.is_none());
+    assert!(s.banner.is_some());
+}
