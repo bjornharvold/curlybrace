@@ -102,7 +102,7 @@ pub fn status_line(status: &ToolStatus, server: Option<ServerVersion>, i18n: &I1
     StatusLine { text, tone }
 }
 
-fn version_text(version: ToolVersion) -> String {
+pub(crate) fn version_text(version: ToolVersion) -> String {
     format!("{}.{}.{}", version.major, version.minor, version.patch)
 }
 

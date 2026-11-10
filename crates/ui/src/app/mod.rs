@@ -870,6 +870,9 @@ mod queries_tests;
 mod shell_tests;
 
 #[cfg(test)]
+mod shell_view_tests;
+
+#[cfg(test)]
 mod connection_import_tests;
 
 #[cfg(test)]

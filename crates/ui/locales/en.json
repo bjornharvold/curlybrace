@@ -1274,6 +1274,55 @@
       "why": "Why"
     }
   },
+  "shell": {
+    "cancel": "Cancel",
+    "cancel_tooltip": "Stop the script that is running",
+    "editor_hint": "Tab indents. Press Esc, then Tab, to leave the editor.",
+    "editor_label": "Shell script",
+    "editor_placeholder": "Write a mongosh script, for example db.users.find({})",
+    "format": "Format",
+    "format_tooltip": "Re-indent the selection, or the whole script when nothing is selected ({shortcut})",
+    "not_connected_note": "Not connected. You can edit the script; connect to run it.",
+    "notice": {
+      "empty_script": "There is nothing to run. Type a script, or select the part to run.",
+      "finished_cancelled": "The run was cancelled.",
+      "finished_cap_reached": "The run was stopped because it printed too much output.",
+      "finished_connect_failed": "mongosh could not connect to the server, so the script did not run. The output may say why.",
+      "finished_exit_code": "mongosh ended with exit code {code}. The output may say why.",
+      "finished_script_errors": "The script ran, but raised errors. See the output.",
+      "finished_signalled": "mongosh was stopped by the system before it finished.",
+      "finished_start_failed": "mongosh could not be started (or the saved password could not be read).",
+      "finished_success": "The script finished.",
+      "refused_already_running": "A script is already running on this connection. Cancel it or wait for it to finish.",
+      "refused_not_connected": "Not connected. Connect to run the script.",
+      "refused_read_only": "This connection is read-only, so the shell cannot run scripts on it.",
+      "refused_srv_with_tunnel": "The shell cannot reach a mongodb+srv:// connection through an SSH tunnel. Use a mongodb:// connection string with the host names instead.",
+      "refused_unverifiable_tls": "The shell cannot check the server's TLS certificate through the SSH tunnel. Allow invalid certificates in the connection's TLS settings, or connect without the tunnel.",
+      "refused_uri": "The shell cannot use this connection string. {reason}",
+      "tool_missing": "mongosh cannot be used. {reason}",
+      "tool_too_old": "mongosh {tool} is older than this MongoDB {server} server needs. Choose a newer mongosh in Tool paths."
+    },
+    "open_tool_paths": "Open Tool paths",
+    "output": {
+      "dropped": "{count} earlier lines were dropped to keep the output short.",
+      "empty": "Run a script to see its output here.",
+      "region": "Shell output",
+      "stderr_line": "Error output: {text}",
+      "stderr_marker": "error:",
+      "title": "Output",
+      "truncated": " … (rest of the line not kept)",
+      "waiting": "Running. No output yet."
+    },
+    "production_note": "Production connection: every run asks you to confirm first.",
+    "read_only_note": "This connection is read-only. The shell cannot run scripts on it, because it cannot tell a read from a write.",
+    "run": "Run",
+    "run_disabled_empty": "Type a script to run.",
+    "run_disabled_not_connected": "Connect to run the script.",
+    "run_disabled_read_only": "Scripts cannot run on a read-only connection.",
+    "run_disabled_running": "A script is running. Cancel it or wait for it to finish.",
+    "run_tooltip": "Run the selection, or the whole script when nothing is selected ({shortcut})",
+    "status_running": "Running…"
+  },
   "sidebar": {
     "admin": {
       "create_view": "Create view...",
@@ -1351,7 +1400,9 @@
     "browse": "Browse",
     "browse_hint": "Browse and edit documents",
     "compare": "Compare",
-    "compare_hint": "Compare two collections"
+    "compare_hint": "Compare two collections",
+    "shell": "Shell",
+    "shell_hint": "Run mongosh scripts on the connection"
   },
   "write_warning": {
     "confirm": "Yes, write to production",

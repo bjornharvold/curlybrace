@@ -1,5 +1,5 @@
 use super::contrast::ratio;
-use super::{Mode, chart_colors, json_colors, scheme};
+use super::{Mode, chart_colors, js_colors, json_colors, scheme};
 
 const MODES: [Mode; 2] = [Mode::Light, Mode::Dark];
 
@@ -56,6 +56,51 @@ fn json_colors_reach_aa_on_the_surface() {
             ] {
                 let r = ratio(color, bg);
                 assert!(r >= 4.5, "{mode:?} {name} on {bg_name}: {r:.2}");
+            }
+        }
+    }
+}
+
+#[test]
+fn js_colors_reach_aa_on_the_surface() {
+    for mode in MODES {
+        let s = scheme(mode);
+        let j = js_colors(s);
+        let tokens = [
+            ("plain", j.plain),
+            ("keyword", j.keyword),
+            ("string", j.string),
+            ("number", j.number),
+            ("comment", j.comment),
+            ("shell_word", j.shell_word),
+        ];
+        for (name, color) in tokens {
+            for (bg_name, bg) in [
+                ("surface_container_low", s.surface_container_low),
+                ("surface", s.surface),
+            ] {
+                let r = ratio(color, bg);
+                assert!(r >= 4.5, "{mode:?} {name} on {bg_name}: {r:.2}");
+            }
+        }
+    }
+}
+
+#[test]
+fn js_token_kinds_are_told_apart() {
+    for mode in MODES {
+        let j = js_colors(scheme(mode));
+        let kinds = [
+            j.plain,
+            j.keyword,
+            j.string,
+            j.number,
+            j.comment,
+            j.shell_word,
+        ];
+        for (i, a) in kinds.iter().enumerate() {
+            for b in &kinds[i + 1..] {
+                assert_ne!(a, b, "{mode:?}");
             }
         }
     }

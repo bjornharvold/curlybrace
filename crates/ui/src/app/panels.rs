@@ -14,6 +14,7 @@ use crate::I18n;
 use crate::theme::{
     current, filled_button, icons, modal_frame, shape, text_button, tonal_button, typography,
 };
+use crate::viewmodel::shell::ShellState;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, IndexesAction, ProfilingView, copy_blocked};
 use crate::views::bulk_dialog::show_bulk_dialog;
@@ -32,6 +33,7 @@ use crate::views::index_dialogs::{
 use crate::views::indexes::show_indexes;
 use crate::views::queries_consent::show_profiler_consent;
 use crate::views::saved_copies::show_saved_copies;
+use crate::views::shell::{ShellViewContext, ShellViewEvent, show_shell};
 use crate::views::sidebar_roots::{SIDEBAR_DEFAULT_WIDTH, show_roots};
 use crate::views::tools_settings::show_tools_settings;
 use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
@@ -147,9 +149,15 @@ fn dialog_banner_lines(state: &AppState, i18n: &I18n) -> Vec<String> {
 }
 
 /// Whether the central area shows the connection manager: no session is connected in the
-/// foreground, or the user asked for it from the tree.
+/// foreground, or the user asked for it from the tree. The Shell tab stays up while its
+/// session is open but not connected, so the draft is not lost from view; it says why it
+/// cannot run.
 pub fn shows_manager(state: &AppState) -> bool {
-    state.workspace == Workspace::Connections || state.status != ConnStatus::Connected
+    match state.workspace {
+        Workspace::Connections => true,
+        Workspace::Shell => state.active.is_none(),
+        _ => state.status != ConnStatus::Connected,
+    }
 }
 
 pub fn show_connections_screen(
@@ -193,8 +201,8 @@ pub fn show_sessions_panel(
                 show_settings_button(ui, i18n, out);
                 show_copies_button(ui, state, i18n, out);
             });
-            if let Some(action) = show_workspace_switcher(ui, state.workspace, i18n) {
-                out.push(UiEvent::Input(Input::Compare(action)));
+            if let Some(input) = show_workspace_switcher(ui, state.workspace, i18n) {
+                out.push(UiEvent::Input(input));
             }
             egui::ScrollArea::vertical()
                 .id_salt("sidebar_roots")
@@ -217,8 +225,7 @@ pub fn show_workspace(
     now_secs: i64,
 ) {
     egui::CentralPanel::default().show(ctx, |ui| match state.workspace {
-        // The Shell tab is drawn from Task 9 on; until then its session's collection shows.
-        Workspace::Browse | Workspace::Connections | Workspace::Shell => {
+        Workspace::Browse | Workspace::Connections => {
             show_collection(ui, state, i18n, out, now_secs)
         }
         Workspace::Compare => {
@@ -226,7 +233,29 @@ pub fn show_workspace(
                 out.push(UiEvent::Input(Input::Compare(action)));
             }
         }
+        Workspace::Shell => show_shell_tab(ui, state, i18n, out),
     });
+}
+
+/// The Shell tab of the active session; drawn connected or not (a lost connection keeps the
+/// draft on screen with Run disabled). A session that never used its shell shows an empty one.
+fn show_shell_tab(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    let empty = ShellState::default();
+    let shell = state
+        .active
+        .and_then(|id| state.shell.get(id))
+        .unwrap_or(&empty);
+    let connection = state.active_connection_label(i18n);
+    let context = ShellViewContext {
+        connection: &connection,
+        badge: state.active_badge(),
+        connected: state.status == ConnStatus::Connected,
+    };
+    let event = show_shell(ui, shell, context, i18n).map(|event| match event {
+        ShellViewEvent::Action(action) => UiEvent::Input(Input::Shell(action)),
+        ShellViewEvent::OpenToolPaths => UiEvent::OpenToolSettings,
+    });
+    out.extend(event);
 }
 
 fn show_collection(
