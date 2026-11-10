@@ -1,13 +1,11 @@
 //! View-model of the Shell tab: the script, its selection, the captured output and the run state.
 //! Pure and egui-free; every updater returns a new value and never mutates. No user-facing strings.
 use super::shell_format::format_script;
+pub use super::shell_output::{MAX_LINE_BYTES, MAX_OUTPUT_LINES, OutputLine, OutputLog};
 use curlybrace_core::runtime::ShellRefusal;
 use curlybrace_core::shell::{Outcome, Stream};
 use curlybrace_core::tools::{ServerVersion, ToolError, ToolVersion};
 use std::ops::Range;
-
-/// The most output lines kept; older lines are dropped first.
-pub const MAX_OUTPUT_LINES: usize = 10_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShellStatus {
@@ -16,15 +14,6 @@ pub enum ShellStatus {
     Running {
         run_id: u64,
     },
-}
-
-/// One line of output. `open` is true while the line has not yet seen its newline, so the next
-/// chunk of the same stream continues it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OutputLine {
-    pub stream: Stream,
-    pub text: String,
-    pub open: bool,
 }
 
 /// Why the shell tool cannot be used for a run.
@@ -56,7 +45,9 @@ pub struct RunRequest {
 pub struct ShellState {
     pub script: String,
     pub selection: Option<Range<usize>>,
-    pub output: Vec<OutputLine>,
+    pub output: OutputLog,
+    /// Lines the `MAX_OUTPUT_LINES` window discarded since the run started.
+    pub dropped_lines: u64,
     pub status: ShellStatus,
     pub next_run_id: u64,
     pub notice: Option<ShellNotice>,
@@ -67,7 +58,8 @@ impl Default for ShellState {
         Self {
             script: String::new(),
             selection: None,
-            output: Vec::new(),
+            output: OutputLog::default(),
+            dropped_lines: 0,
             status: ShellStatus::Idle,
             next_run_id: 1,
             notice: None,
@@ -127,7 +119,8 @@ impl ShellState {
             script: text.to_string(),
         };
         let next = Self {
-            output: Vec::new(),
+            output: OutputLog::default(),
+            dropped_lines: 0,
             status: ShellStatus::Running { run_id },
             next_run_id: run_id + 1,
             notice: None,
@@ -140,29 +133,26 @@ impl ShellState {
         if !self.is_current(run_id) || text.is_empty() {
             return self.clone();
         }
-        let mut output = self.output.clone();
-        for piece in text.split_inclusive('\n') {
-            let closed = piece.ends_with('\n');
-            let body = piece.strip_suffix('\n').unwrap_or(piece);
-            match output.last_mut() {
-                Some(last) if last.open && last.stream == stream => {
-                    last.text.push_str(body);
-                    last.open = !closed;
-                }
-                _ => output.push(OutputLine {
-                    stream,
-                    text: body.to_string(),
-                    open: !closed,
-                }),
-            }
-        }
-        if output.len() > MAX_OUTPUT_LINES {
-            output.drain(..output.len() - MAX_OUTPUT_LINES);
-        }
+        let (output, dropped) = self.output.appended(stream, text);
         Self {
             output,
+            dropped_lines: self.dropped_lines + dropped,
             ..self.clone()
         }
+    }
+
+    /// Number of retained output lines.
+    pub fn line_count(&self) -> usize {
+        self.output.len()
+    }
+
+    /// The retained output line at `index`, 0 being the oldest.
+    pub fn line(&self, index: usize) -> Option<&OutputLine> {
+        self.output.get(index)
+    }
+
+    pub fn iter_lines(&self) -> impl Iterator<Item = &OutputLine> {
+        self.output.iter()
     }
 
     pub fn finished(&self, run_id: u64, outcome: Outcome) -> Self {
@@ -185,6 +175,7 @@ impl ShellState {
             return self.clone();
         }
         Self {
+            output: self.output.closed(),
             status: ShellStatus::Idle,
             notice: Some(notice),
             ..self.clone()

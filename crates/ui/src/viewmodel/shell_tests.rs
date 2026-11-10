@@ -82,8 +82,9 @@ fn output_of_an_old_run_is_ignored() {
 #[test]
 fn output_appends_without_mutating_the_old_state() {
     let (state, id) = running("x");
+    let before = state.clone();
     let next = state.output_arrived(id, Stream::Stdout, "a\nb\n");
-    assert!(state.output.is_empty());
+    assert_eq!(state, before);
     assert_eq!(
         texts(&next),
         vec![(Stream::Stdout, "a"), (Stream::Stdout, "b")]
@@ -104,8 +105,8 @@ fn a_line_printed_in_pieces_stays_one_line() {
     let state = state
         .output_arrived(id, Stream::Stdout, "!\n")
         .output_arrived(id, Stream::Stdout, "z");
-    assert_eq!(state.output[1].text, "next!");
-    assert_eq!(state.output[2].text, "z");
+    assert_eq!(state.line(1).unwrap().text, "next!");
+    assert_eq!(state.line(2).unwrap().text, "z");
 }
 
 #[test]
@@ -191,12 +192,85 @@ fn output_is_bounded() {
         .map(|i| format!("l{i}\n"))
         .collect();
     let state = state.output_arrived(id, Stream::Stdout, &big);
-    assert_eq!(state.output.len(), MAX_OUTPUT_LINES);
-    assert_eq!(state.output[0].text, "l5");
+    assert_eq!(state.line_count(), MAX_OUTPUT_LINES);
+    assert_eq!(state.line(0).unwrap().text, "l5");
     assert_eq!(
-        state.output.last().unwrap().text,
+        state.line(MAX_OUTPUT_LINES - 1).unwrap().text,
         format!("l{}", MAX_OUTPUT_LINES + 4)
     );
+    assert_eq!(state.line(MAX_OUTPUT_LINES), None);
+}
+
+#[test]
+fn dropped_lines_are_counted_across_chunks_and_reset_by_a_new_run() {
+    let (state, id) = running("x");
+    let mut state = state;
+    for chunk in 0..5 {
+        let text: String = (0..(MAX_OUTPUT_LINES + 25) / 5)
+            .map(|i| format!("l{}\n", chunk * ((MAX_OUTPUT_LINES + 25) / 5) + i))
+            .collect();
+        state = state.output_arrived(id, Stream::Stdout, &text);
+    }
+    assert_eq!(state.line_count(), MAX_OUTPUT_LINES);
+    assert_eq!(state.dropped_lines, 25);
+    assert_eq!(state.line(0).unwrap().text, "l25");
+    let (next, request) = state.finished(id, Outcome::Exited(0)).run_requested();
+    assert!(request.is_some());
+    assert_eq!(next.dropped_lines, 0);
+    assert_eq!(next.line_count(), 0);
+}
+
+#[test]
+fn a_chunk_of_a_stale_run_does_not_touch_the_counters() {
+    let (state, id) = running("x");
+    let state = state.output_arrived(id, Stream::Stdout, "a\n");
+    let same = state.output_arrived(id + 1, Stream::Stdout, "b\n");
+    assert_eq!(same, state);
+    assert!(same.output.first_segment_shared_with(&state.output));
+}
+
+#[test]
+fn output_arrived_shares_the_old_lines_with_the_new_state() {
+    let (state, id) = running("x");
+    // More than one segment, so the first is not the one being appended to.
+    let lines: String = (0..600).map(|i| format!("{i}\n")).collect();
+    let before = state.output_arrived(id, Stream::Stdout, &lines);
+    let snapshot = before.clone();
+    let after = before.output_arrived(id, Stream::Stdout, "c\n");
+    assert_eq!(before, snapshot);
+    assert_eq!(before.line_count(), 600);
+    assert_eq!(after.line_count(), 601);
+    assert_eq!(before.line(599).unwrap().text, "599");
+    assert!(before.output.first_segment_shared_with(&after.output));
+}
+
+#[test]
+fn many_short_chunks_keep_the_window_and_share_the_head() {
+    let (state, id) = running("x");
+    let lines: String = (0..600).map(|i| format!("first{i}\n")).collect();
+    let start = state.output_arrived(id, Stream::Stdout, &lines);
+    let mut state = start.clone();
+    for i in 0..50_000 {
+        state = state.output_arrived(id, Stream::Stdout, &format!("{i}\n"));
+        if i == 1000 {
+            assert!(start.output.first_segment_shared_with(&state.output));
+        }
+    }
+    assert_eq!(state.line_count(), MAX_OUTPUT_LINES);
+    assert_eq!(state.dropped_lines, 50_600 - MAX_OUTPUT_LINES as u64);
+    assert_eq!(state.line(MAX_OUTPUT_LINES - 1).unwrap().text, "49999");
+}
+
+#[test]
+fn finishing_closes_the_partial_line() {
+    let (state, id) = running("x");
+    let state = state.output_arrived(id, Stream::Stdout, "part");
+    let done = state.finished(id, Outcome::Cancelled);
+    assert_eq!(texts(&done), vec![(Stream::Stdout, "part")]);
+    // A later run restarts the log; a closed tail is never continued.
+    assert_eq!(done.output, state.output.closed());
+    let refused = state.refused(id, ShellRefusal::ReadOnly);
+    assert_eq!(refused.output, state.output.closed());
 }
 
 #[test]
@@ -206,5 +280,8 @@ fn a_selection_off_a_char_boundary_does_not_panic() {
     assert_eq!(request.expect("request").script, "é");
     let (_, request) = with_script("éé", Some(1..3)).run_requested();
     assert_eq!(request.expect("request").script, "éé");
-    let _ = with_script("éé", Some(1..3)).formatted();
+    let formatted = with_script("éé", Some(1..3)).formatted();
+    assert_eq!(formatted.script, "éé");
+    let selection = formatted.selection.expect("selection");
+    assert_eq!(&formatted.script[selection], "éé");
 }

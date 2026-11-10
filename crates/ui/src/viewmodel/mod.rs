@@ -28,6 +28,7 @@ pub mod queries_chart;
 pub mod queries_status;
 pub mod shell;
 pub mod shell_format;
+pub mod shell_output;
 pub mod sidebar;
 pub mod sidebar_selection;
 pub mod table;
