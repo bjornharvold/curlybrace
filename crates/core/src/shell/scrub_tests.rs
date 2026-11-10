@@ -85,3 +85,34 @@ fn non_ascii_secret_and_text_stay_on_char_boundaries() {
     );
     assert_eq!(run(&["ö"], &["aöb"]), format!("a{MASK}b"));
 }
+
+#[test]
+fn finish_masks_a_complete_secret_that_was_held_as_a_prefix_of_a_longer_one() {
+    let mut scrubber = Scrubber::new(&["pass", "password"]);
+    let shown = scrubber.push("a pass");
+    assert_eq!(format!("{shown}{}", scrubber.finish()), format!("a {MASK}"));
+
+    let mut scrubber = Scrubber::new(&["a%", "a%25"]);
+    let shown = scrubber.push("x a%");
+    assert_eq!(format!("{shown}{}", scrubber.finish()), format!("x {MASK}"));
+}
+
+#[test]
+fn overlapping_occurrences_are_masked_consistently_whole_and_chunked() {
+    let whole = run(&["aa"], &["aaa"]);
+    let chars: Vec<String> = "aaa".chars().map(String::from).collect();
+    let chunks: Vec<&str> = chars.iter().map(String::as_str).collect();
+    assert_eq!(whole, format!("{MASK}a"));
+    assert_eq!(run(&["aa"], &chunks), whole);
+}
+
+#[test]
+fn carry_stays_bounded_over_a_long_partial_match_stream() {
+    let mut scrubber = Scrubber::new(&["abcd"]);
+    for _ in 0..200 {
+        for ch in ["a", "b", "c"] {
+            scrubber.push(ch);
+            assert!(scrubber.carry.len() < "abcd".len());
+        }
+    }
+}

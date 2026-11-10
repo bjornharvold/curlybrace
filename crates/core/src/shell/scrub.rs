@@ -30,12 +30,22 @@ impl Scrubber {
 
     /// Text that is safe to show now. Holds back a tail only while it could still become a secret.
     pub fn push(&mut self, chunk: &str) -> String {
+        self.scan(chunk, false)
+    }
+
+    /// Releases the held tail, masking a complete secret in it; call once when the stream ends.
+    pub fn finish(&mut self) -> String {
+        self.scan("", true)
+    }
+
+    /// Scans carry + chunk. Unless `at_end`, holds back a tail that could still become a secret.
+    fn scan(&mut self, chunk: &str, at_end: bool) -> String {
         let text = std::mem::take(&mut self.carry) + chunk;
         let mut out = String::with_capacity(text.len());
         let mut i = 0;
         while i < text.len() {
             let rest = &text[i..];
-            if self.could_become_secret(rest) {
+            if !at_end && self.could_become_secret(rest) {
                 self.carry = rest.to_owned();
                 return out;
             }
@@ -52,11 +62,6 @@ impl Scrubber {
             }
         }
         out
-    }
-
-    /// Releases the held tail; call once when the stream ends.
-    pub fn finish(&mut self) -> String {
-        std::mem::take(&mut self.carry)
     }
 
     /// True when `rest` is a strict prefix of some secret, so more input may complete it.
