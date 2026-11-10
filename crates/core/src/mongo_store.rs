@@ -509,7 +509,15 @@ impl DocumentStore for MongoStore {
             .ok_or(CoreError::NotFound)?;
         let indexes = self.list_index_specs(ns).await?;
         let db = self.client.database(&ns.db);
-        crate::mongo_admin::copy_collection(&db, ns, target, &options, &indexes, db_err).await
+        // The copy and its rollback run as their own task: the runtime's time limit (or a
+        // superseding command) drops this future, and a dropped copy would skip the rollback and
+        // leave a half-made target behind. The task finishes either way.
+        let (ns, target) = (ns.clone(), target.to_owned());
+        tokio::spawn(async move {
+            crate::mongo_admin::copy_collection(&db, &ns, &target, &options, &indexes, db_err).await
+        })
+        .await
+        .map_err(|e| CoreError::Database(format!("the duplicate task failed: {e}")))?
     }
 
     async fn collection_stats(&self, ns: &Namespace) -> Result<CollectionStats> {

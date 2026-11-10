@@ -87,9 +87,7 @@ fn server_codes_map_to_typed_errors() {
 }
 
 #[test]
-fn a_view_has_no_statistics_and_says_so() {
-    assert!(matches!(
-        map_admin_code(Some(166)),
-        Some(CoreError::Unsupported(_))
-    ));
+fn the_view_code_is_not_a_general_admin_meaning() {
+    // Only the statistics read gives 166 the "no statistics for a view" meaning.
+    assert_eq!(map_admin_code(Some(166)), None);
 }

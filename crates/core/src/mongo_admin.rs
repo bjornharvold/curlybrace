@@ -24,9 +24,6 @@ pub(crate) fn map_admin_code(code: Option<i32>) -> Option<CoreError> {
     match code? {
         CODE_NAMESPACE_NOT_FOUND => Some(CoreError::NotFound),
         CODE_NAMESPACE_EXISTS => Some(CoreError::NamespaceExists),
-        CODE_COMMAND_NOT_SUPPORTED_ON_VIEW => Some(CoreError::Unsupported(
-            "statistics are not available for a view".into(),
-        )),
         _ => None,
     }
 }
@@ -161,7 +158,14 @@ pub(crate) async fn collection_stats(
     let reply = db
         .run_command(doc! { "collStats": &ns.collection })
         .await
-        .map_err(admin_err(db_err))?;
+        .map_err(|e| {
+            // A view has no storage of its own, so the server refuses its statistics.
+            if has_code(&e, &[CODE_COMMAND_NOT_SUPPORTED_ON_VIEW]) {
+                CoreError::Unsupported("statistics are not available for a view".into())
+            } else {
+                admin_err(db_err)(e)
+            }
+        })?;
     Ok(collection_stats_from(&reply))
 }
 
