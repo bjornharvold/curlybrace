@@ -669,6 +669,21 @@
     "uri_password_warning": "This string contains your password. Do not share it.",
     "username": "Username"
   },
+  "copies": {
+    "button": "Undo copies",
+    "confirm": "Delete this copy? The write it belongs to can then no longer be undone.",
+    "confirm_delete": "Delete the copy",
+    "delete": "Delete",
+    "delete_named": "Delete the undo copy of {ns} from {when}",
+    "empty": "There are no saved undo copies.",
+    "intro": "Before a bulk write runs, the documents it will change are saved here so the write can be undone. A copy is plain text that anyone who can read your files can read. Copies are kept for {days} days and then removed. Folder: {folder}",
+    "keep": "Keep it",
+    "loading": "Reading the saved copies...",
+    "op_delete": "delete",
+    "op_update": "update",
+    "row": "{ns} · {op} · {when} · {size}",
+    "title": "Saved undo copies"
+  },
   "copy": {
     "banner": {
       "paste_blocked": "Cannot paste here"

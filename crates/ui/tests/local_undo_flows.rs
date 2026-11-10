@@ -10,6 +10,7 @@ use egui_kittest::kittest::Queryable;
 use support::actions::*;
 use support::db::people;
 use support::fixture::Fixture;
+use support::wait::{SHORT, wait_until};
 
 const PEOPLE: &str = "people";
 
@@ -151,4 +152,60 @@ fn a_document_changed_since_the_write_is_left_alone_by_undo() {
     let kept = f.db.find_one(PEOPLE, doc! {"_id": 2_i32}).expect("kept");
     assert_eq!(kept.get_str("name").unwrap(), "Somebody Else");
     assert_eq!(f.db.count(PEOPLE), 3);
+}
+
+#[test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+fn a_kept_undo_copy_is_listed_and_deleted_from_the_list() {
+    let Some(mut f) = Fixture::local(test_name!()) else {
+        return;
+    };
+    f.db.insert(PEOPLE, people());
+    browse(&mut f, PEOPLE);
+    to_the_confirm_step(&mut f);
+    let tick = f
+        .labels
+        .t_with("bulk.confirm.all_documents_tick", &[("collection", PEOPLE)]);
+    f.click_text(&tick);
+    type_collection_name(&mut f);
+    click_key(&mut f, "bulk.run_delete");
+    let offered = f.labels.t_with("bulk.undo.available", &[("n", "3")]);
+    wait_shows(&mut f, &offered);
+    // Keep the copy, leave the dialog.
+    click_key(&mut f, "bulk.undo.keep_copy");
+    wait_gone(&mut f, &offered);
+
+    let dir = f
+        .harness
+        .state()
+        .state()
+        .snapshot_dir
+        .clone()
+        .expect("undo is on");
+    let files = |dir: &std::path::Path| std::fs::read_dir(dir).map_or(0, Iterator::count);
+    assert!(files(&dir) > 0, "the copy is on disk");
+
+    // The list shows it, named for its collection.
+    click_key(&mut f, "copies.button");
+    let ns = format!("{}.{PEOPLE}", f.db.name);
+    let name = f
+        .labels
+        .t_with("copies.delete_named", &[("ns", &ns), ("when", "")]);
+    let prefix = name.trim_end().to_string();
+    wait_until(&mut f.harness, "the copy in the list", SHORT, |h| {
+        h.query_all_by_label_contains(&prefix).next().is_some()
+    });
+
+    // Delete asks first; keeping it changes nothing; deleting removes the files.
+    let delete = f.harness.get_by_label_contains(&prefix);
+    delete.click();
+    support::wait::settle(&mut f.harness);
+    click_key(&mut f, "copies.keep");
+    assert!(files(&dir) > 0, "keeping it deletes nothing");
+    f.harness.get_by_label_contains(&prefix).click();
+    support::wait::settle(&mut f.harness);
+    click_key(&mut f, "copies.confirm_delete");
+    let empty = f.labels.t("copies.empty");
+    wait_shows(&mut f, &empty);
+    assert_eq!(files(&dir), 0, "both files are gone from disk");
 }

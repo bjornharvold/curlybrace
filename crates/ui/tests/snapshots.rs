@@ -334,6 +334,11 @@ bulk_shot!(
     bulk_report_unconfirmed_dark,
     support::bulk_shots::report_unconfirmed
 );
+bulk_shot!(
+    saved_copies,
+    saved_copies_dark,
+    support::bulk_shots::saved_copies_list
+);
 
 shot!(
     sessions_tree_production_root,

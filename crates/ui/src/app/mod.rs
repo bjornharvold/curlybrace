@@ -6,6 +6,7 @@
 mod actions;
 mod banner;
 mod bulk_actions;
+pub mod saved_copies;
 pub use bulk_actions::BulkAction;
 pub mod bulk_state;
 pub mod compare;

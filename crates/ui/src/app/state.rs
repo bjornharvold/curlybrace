@@ -252,6 +252,8 @@ pub struct AppState {
     /// The deletion of an undo copy that was asked for and not yet answered: the request id and
     /// the run, so a copy that is still there afterwards can be told.
     pub discarding_copy: Option<(u64, curlybrace_core::bulk::BulkRunId)>,
+    /// The list of saved undo copies, while it is open.
+    pub copies: Option<super::saved_copies::SavedCopies>,
     pub persist: PersistGuard,
     pub banner: Option<Banner>,
     /// A startup notice waiting for the single banner slot: it is shown, once, as soon as the

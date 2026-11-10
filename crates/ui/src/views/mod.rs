@@ -39,6 +39,7 @@ pub mod queries;
 pub mod queries_chart;
 pub mod queries_consent;
 pub mod queries_rows;
+pub mod saved_copies;
 pub mod sidebar;
 pub mod sidebar_copy;
 pub mod sidebar_drag;

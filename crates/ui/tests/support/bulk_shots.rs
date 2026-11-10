@@ -293,3 +293,28 @@ pub fn undo_report(state: &mut AppState) {
         .reported(Ok(report));
     undoing(flow)(state);
 }
+
+/// The list of saved undo copies, with one of them being asked about.
+pub fn saved_copies_list(state: &mut AppState) {
+    use curlybrace_core::snapshot::{SnapshotInfo, SnapshotOp};
+    use curlybrace_ui::app::saved_copies::SavedCopies;
+    production_root(state);
+    let copy = |n: u128, collection: &str, op, bytes| SnapshotInfo {
+        run: BulkRunId(uuid::Uuid::from_u128(n)),
+        ns: Namespace::new("crm", collection),
+        op,
+        created_unix: 1_700_000_000 + n as i64 * 3_600,
+        bytes,
+    };
+    let list = vec![
+        copy(1, "customers", SnapshotOp::Update, 48_213),
+        copy(2, "invoices", SnapshotOp::Delete, 2_411_007),
+        copy(3, "customers", SnapshotOp::Delete, 912),
+    ];
+    state.snapshot_dir = Some(std::path::PathBuf::from("/snapshots"));
+    state.copies = Some(SavedCopies {
+        list: Some(list),
+        awaiting: None,
+        asking: Some(BulkRunId(uuid::Uuid::from_u128(2))),
+    });
+}

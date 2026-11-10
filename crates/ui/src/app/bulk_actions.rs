@@ -221,7 +221,7 @@ impl AppState {
 }
 
 /// The next request id, and the state that counted it.
-fn numbered(state: AppState) -> (u64, AppState) {
+pub(super) fn numbered(state: AppState) -> (u64, AppState) {
     let request = state.bulk_requests + 1;
     (
         request,

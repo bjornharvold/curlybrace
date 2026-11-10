@@ -8,6 +8,7 @@ use super::banner::{
 use super::copy::CopyInput;
 use super::host_key::{HostKeyAnswer, PromptState, dialog_id};
 use super::reducer::Input;
+use super::saved_copies::CopiesAction;
 use super::state::{AppState, ConnStatus, Workspace};
 use crate::I18n;
 use crate::theme::{
@@ -30,6 +31,7 @@ use crate::views::index_dialogs::{
 };
 use crate::views::indexes::show_indexes;
 use crate::views::queries_consent::show_profiler_consent;
+use crate::views::saved_copies::show_saved_copies;
 use crate::views::sidebar_roots::{SIDEBAR_DEFAULT_WIDTH, show_roots};
 use crate::views::tools_settings::show_tools_settings;
 use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
@@ -60,6 +62,19 @@ pub fn show_settings_button(ui: &mut egui::Ui, i18n: &I18n, out: &mut Vec<UiEven
     button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone()));
     if button.clicked() {
         out.push(UiEvent::OpenToolSettings);
+    }
+}
+
+/// "Undo copies": opens the list of saved undo copies. Offered only when undo is on, that is
+/// when the runtime was given a folder for the copies.
+pub fn show_copies_button(
+    ui: &mut egui::Ui,
+    state: &AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    if state.snapshot_dir.is_some() && text_button(ui, i18n.t("copies.button")).clicked() {
+        out.push(UiEvent::Input(Input::Copies(CopiesAction::Open)));
     }
 }
 
@@ -151,7 +166,10 @@ pub fn show_connections_screen(
         .iter()
         .any(|root| root.status == ConnStatus::Connecting);
     egui::CentralPanel::default().show(ctx, |ui| {
-        show_settings_button(ui, i18n, out);
+        ui.horizontal(|ui| {
+            show_settings_button(ui, i18n, out);
+            show_copies_button(ui, state, i18n, out);
+        });
         if opening {
             ui.label(i18n.t("connections.connecting"));
         }
@@ -171,7 +189,10 @@ pub fn show_sessions_panel(
         .resizable(true)
         .default_width(SIDEBAR_DEFAULT_WIDTH)
         .show(ctx, |ui| {
-            show_settings_button(ui, i18n, out);
+            ui.horizontal(|ui| {
+                show_settings_button(ui, i18n, out);
+                show_copies_button(ui, state, i18n, out);
+            });
             if let Some(action) = show_workspace_switcher(ui, state.workspace, i18n) {
                 out.push(UiEvent::Input(Input::Compare(action)));
             }
@@ -347,6 +368,11 @@ pub fn show_modals(
             .into_iter()
             .map(|a| UiEvent::Input(Input::Tools(a))),
     );
+    if let Some(copies) = &state.copies {
+        let folder = state.snapshot_dir.as_deref();
+        let action = show_saved_copies(ctx, copies, folder, i18n);
+        out.extend(action.map(|a| UiEvent::Input(Input::Copies(a))));
+    }
     if let Some(endpoint) = &state.forget_confirm {
         let port = endpoint.port.to_string();
         let message = i18n.t_with(

@@ -8,6 +8,7 @@ use super::index_actions;
 use super::index_write_actions;
 use super::persistence::PersistError;
 use super::queries_actions;
+use super::saved_copies;
 use super::session_actions;
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use super::tools_actions;
@@ -52,6 +53,8 @@ pub enum Input {
     Tools(ToolsAction),
     /// The bulk update / delete dialog.
     Bulk(BulkAction),
+    /// The list of saved undo copies.
+    Copies(super::saved_copies::CopiesAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -77,6 +80,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Copy(a) => copy::on_input(state, a),
         Input::Tools(a) => tools_actions::on_action(state, a),
         Input::Bulk(a) => bulk_actions::on_action(state, a),
+        Input::Copies(a) => saved_copies::on_action(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
@@ -116,10 +120,13 @@ fn on_event(state: AppState, ev: Event) -> Out {
         (Event::Compare(e), _) => compare::on_event(state, e),
         (Event::Copy(e), _) => copy::on_event(state, e),
         // Has no session: the listing after the deletion of an undo copy.
-        (Event::Snapshots { request, snapshots }, _) => (
-            bulk_actions::copy_discarded(state, request, &snapshots),
-            Vec::new(),
-        ),
+        (Event::Snapshots { request, snapshots }, _) => {
+            let state = bulk_actions::copy_discarded(state, request, &snapshots);
+            (
+                saved_copies::on_listing(state, request, &snapshots),
+                Vec::new(),
+            )
+        }
         (
             Event::TestConnection {
                 request_id,
