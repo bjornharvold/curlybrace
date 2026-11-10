@@ -15,6 +15,8 @@ const SRV_SCHEME: &str = "mongodb+srv://";
 const PLAIN_SCHEME: &str = "mongodb://";
 
 /// What to spawn and what to write to its stdin.
+///
+/// `Debug` is written by hand: the preamble holds the password, so it never prints bytes.
 pub struct Invocation {
     /// Always `["--nodb", "--quiet"]`.
     pub args: Vec<OsString>,
@@ -23,6 +25,17 @@ pub struct Invocation {
     pub preamble: Vec<u8>,
     /// The user's script plus one trailing newline; written after the ready sentinel.
     pub script: Vec<u8>,
+}
+
+impl std::fmt::Debug for Invocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Invocation")
+            .field("args", &self.args)
+            .field("preamble", &format_args!("<redacted>"))
+            .field("preamble_len", &self.preamble.len())
+            .field("script_len", &self.script.len())
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -55,10 +68,13 @@ pub fn build_invocation(
     if script.trim().is_empty() {
         return Err(ShellError::EmptyScript);
     }
-    cfg.validate().map_err(|e| match e {
-        CoreError::InvalidUri(problem) => ShellError::Uri(problem),
-        _ => ShellError::Uri(UriProblem::Other),
-    })?;
+    // Only what a shell needs: name, folder and ssh settings do not matter here.
+    cfg.validate_uri()
+        .and_then(|()| cfg.validate_x509())
+        .map_err(|e| match e {
+            CoreError::InvalidUri(problem) => ShellError::Uri(problem),
+            _ => ShellError::Uri(UriProblem::Other),
+        })?;
     if uri_has_secret_query_param(&cfg.uri) {
         return Err(ShellError::Uri(UriProblem::SecretInUri));
     }

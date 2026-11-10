@@ -210,3 +210,55 @@ fn args_are_exactly_nodb_and_quiet() {
         vec![OsString::from("--nodb"), OsString::from("--quiet")]
     );
 }
+
+#[test]
+fn name_and_folder_do_not_block_the_shell() {
+    let mut c = cfg("mongodb://h/admin");
+    c.name = String::new();
+    c.folder = Some(" odd\u{7} ".into());
+    assert!(build_invocation(&c, None, None, "1").is_ok());
+}
+
+#[test]
+fn bad_uri_and_x509_without_cert_keep_their_problems() {
+    let err = build_invocation(&cfg("mongodb://"), None, None, "1").err();
+    assert_eq!(err, Some(ShellError::Uri(UriProblem::MissingHost)));
+    let mut x = cfg("mongodb://h");
+    x.auth = AuthMechanism::X509;
+    let err = build_invocation(&x, None, None, "1").err();
+    assert_eq!(err, Some(ShellError::Uri(UriProblem::X509Needs)));
+}
+
+#[test]
+fn debug_output_never_shows_the_password_or_the_uri() {
+    let pw = "s3cr3t-Pa55:@/";
+    let inv = build(&scram("mongodb://db.example:27017/admin"), Some(pw), None);
+    for text in [format!("{inv:?}"), format!("{inv:#?}")] {
+        assert!(!text.contains("s3cr3t"));
+        assert!(!text.contains(&percent_encode_component(pw)));
+        assert!(!text.contains("db.example"));
+        assert!(!text.contains("mongodb://"));
+        assert!(text.contains("<redacted>"));
+        assert!(text.contains("--nodb"));
+    }
+}
+
+#[test]
+fn line_separators_and_template_openers_keep_the_preamble_one_line() {
+    let c = cfg("mongodb://h/admin?appName=x\u{2028}y\u{2029}${z}");
+    let mut s = c.clone();
+    s.auth = AuthMechanism::ScramSha256;
+    s.username = Some("bob".into());
+    for (cfg, pw) in [(c, None), (s, Some("a\u{2028}b\u{2029}c${d}`"))] {
+        let text = preamble_text(&build(&cfg, pw, None));
+        assert_eq!(text.matches('\n').count(), 1);
+        assert!(!text.contains('\u{2028}') && !text.contains('\u{2029}'));
+    }
+}
+
+#[test]
+fn ipv6_tunnel_address_is_bracketed() {
+    let v6: SocketAddr = "[::1]:50000".parse().unwrap();
+    let text = preamble_text(&build(&cfg("mongodb://h/admin"), None, Some(v6)));
+    assert!(text.contains("mongodb://[::1]:50000/admin?"));
+}
