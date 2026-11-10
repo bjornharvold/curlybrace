@@ -9,6 +9,7 @@ use super::state::AppState;
 /// of `db` when the sidebar holds them (an expanded node that is not loaded is left alone, it
 /// fetches on its own expansion).
 pub(super) fn changed(state: AppState, db: String) -> Out {
+    let state = super::admin_dialog_actions::answered(state, &db);
     let session = state.session_id();
     let mut commands = vec![Command::ListDatabases { session }];
     let loaded = state

@@ -1,4 +1,47 @@
 {
+  "admin": {
+    "confirm": {
+      "create_view": "Create view",
+      "drop_collection": "Drop collection",
+      "drop_database": "Drop database",
+      "duplicate": "Duplicate",
+      "rename": "Rename"
+    },
+    "field": {
+      "copy_name": "Name of the copy",
+      "new_name": "New name",
+      "replace_existing": "Replace a collection that already has this name",
+      "view_name": "Name of the view",
+      "view_pipeline": "Pipeline (a JSON array of stages)",
+      "view_source": "Collection the view reads from"
+    },
+    "message": {
+      "create_view": "Create a read-only view in {db} on {connection}. A view runs its pipeline each time it is read; it stores no documents.",
+      "drop_collection": "Drop the collection {collection} from {db} on {connection}. Its documents and indexes are deleted. This cannot be undone.",
+      "drop_database": "Drop the database {db} from {connection}. Every collection in it and all of their documents are deleted. This cannot be undone.",
+      "duplicate": "Copy the collection {collection} in {db} on {connection} into a new collection: its documents, options and indexes.",
+      "rename": "Rename the collection {collection} in {db} on {connection}."
+    },
+    "problem": {
+      "confirm_mismatch": "Type the name exactly as shown.",
+      "invalid_name": "This name is not allowed: it cannot be empty, contain $ or a null character, or start with system.",
+      "pipeline": "The pipeline must be a JSON array of stage documents, such as [{\"$match\": {}}].",
+      "required": "This is required.",
+      "same_name": "Choose a name different from the current one."
+    },
+    "title": {
+      "create_view": "Create a view",
+      "drop_collection": "Drop collection",
+      "drop_database": "Drop database",
+      "duplicate": "Duplicate collection",
+      "rename": "Rename collection"
+    },
+    "typed": {
+      "accessible": "Type {name} to confirm",
+      "field": "Name",
+      "instruction": "Type this name exactly to confirm:"
+    }
+  },
   "app": {
     "title": "Curlybrace"
   },
@@ -917,10 +960,14 @@
     "compare_start": "Could not run the comparison",
     "connect": "Could not connect",
     "create_index": "Could not create the index",
+    "create_view": "Could not create the view",
     "delete": "Could not delete the document",
     "delete_secrets": "Could not remove the saved credentials, so the connection was kept. Try again",
     "disconnect": "Could not disconnect",
+    "drop_collection": "Could not drop the collection",
+    "drop_database": "Could not drop the database",
     "drop_index": "Could not drop the index",
+    "duplicate_collection": "Could not duplicate the collection",
     "duplicate_secrets": "Could not copy the saved secrets for the duplicate. Nothing was created.",
     "find": "Could not load documents",
     "index_history": "Could not load the index usage history",
@@ -928,6 +975,7 @@
     "list_collections": "Could not load collections",
     "list_databases": "Could not load databases",
     "list_indexes": "Could not load indexes",
+    "rename_collection": "Could not rename the collection",
     "replace": "Could not save the document",
     "runtime": "The background worker stopped. Restart Curlybrace",
     "save_connection": "Could not save the connection",
@@ -1227,6 +1275,14 @@
     }
   },
   "sidebar": {
+    "admin": {
+      "create_view": "Create view...",
+      "create_view_from": "Create view from this collection...",
+      "drop_collection": "Drop collection...",
+      "drop_database": "Drop database...",
+      "duplicate": "Duplicate collection...",
+      "rename": "Rename collection..."
+    },
     "compare_database_to": "Compare database to...",
     "compare_to": "Compare to...",
     "connections": "Connections",
@@ -1303,10 +1359,15 @@
     "message_bulk_update": "This is your production server, {connection}. Are you sure you want to update every document the filter matches? This cannot be undone.",
     "message_clone": "This is your production server, {connection}. Are you sure you want to clone this document into it?",
     "message_create_index": "This is your production server, {connection}. Are you sure you want to create this index on it?",
+    "message_create_view": "This is your production server, {connection}. Are you sure you want to create this view on it?",
     "message_delete": "This is your production server, {connection}. Are you sure you want to delete this document?",
+    "message_drop_collection": "This is your production server, {connection}. Are you sure you want to drop this collection? Its documents and indexes will be deleted. This cannot be undone.",
+    "message_drop_database": "This is your production server, {connection}. Are you sure you want to drop this database? Every collection in it will be deleted. This cannot be undone.",
     "message_drop_index": "This is your production server, {connection}. Are you sure you want to drop this index?",
+    "message_duplicate_collection": "This is your production server, {connection}. Are you sure you want to copy this collection into a new one on it?",
     "message_hide_index": "This is your production server, {connection}. Are you sure you want to hide or unhide this index? The query planner will change how it uses it.",
     "message_insert": "This is your production server, {connection}. Are you sure you want to insert this document?",
+    "message_rename_collection": "This is your production server, {connection}. Are you sure you want to rename this collection? Anything that uses the old name will stop finding it.",
     "message_replace": "This is your production server, {connection}. Are you sure you want to edit this document?",
     "message_set_index_ttl": "This is your production server, {connection}. Are you sure you want to change when this index expires documents?",
     "message_set_profiling_level": "This is your production server, {connection}. Are you sure you want to change the profiler of this database? A profiler that records operations adds load to the server.",

@@ -655,6 +655,11 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
         "create_index" | "drop_index" | "set_index_hidden" | "set_index_ttl" => {
             failure(index_write_actions::write_failed(state), context, error)
         }
+        "drop_collection"
+        | "drop_database"
+        | "rename_collection"
+        | "create_view"
+        | "duplicate_collection" => super::admin_dialog_actions::failed(state, context, error),
         // The count only decides whether a warning shows: a missing one is not worth a banner.
         "estimated_count" => state,
         "list_indexes" | "index_history" => failure(

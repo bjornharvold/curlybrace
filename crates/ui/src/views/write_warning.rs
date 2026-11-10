@@ -23,6 +23,11 @@ pub fn message_key(kind: WriteKind) -> &'static str {
         WriteKind::SetProfilingLevel => "write_warning.message_set_profiling_level",
         WriteKind::BulkUpdate => "write_warning.message_bulk_update",
         WriteKind::BulkDelete => "write_warning.message_bulk_delete",
+        WriteKind::DropCollection => "write_warning.message_drop_collection",
+        WriteKind::DropDatabase => "write_warning.message_drop_database",
+        WriteKind::RenameCollection => "write_warning.message_rename_collection",
+        WriteKind::DuplicateCollection => "write_warning.message_duplicate_collection",
+        WriteKind::CreateView => "write_warning.message_create_view",
     }
 }
 
@@ -85,7 +90,7 @@ mod tests {
     use egui_kittest::kittest::{NodeT, Queryable};
     use uuid::Uuid;
 
-    const KINDS: [WriteKind; 11] = [
+    const KINDS: [WriteKind; 16] = [
         WriteKind::Insert,
         WriteKind::Replace,
         WriteKind::Clone,
@@ -97,6 +102,11 @@ mod tests {
         WriteKind::SetProfilingLevel,
         WriteKind::BulkUpdate,
         WriteKind::BulkDelete,
+        WriteKind::DropCollection,
+        WriteKind::DropDatabase,
+        WriteKind::RenameCollection,
+        WriteKind::DuplicateCollection,
+        WriteKind::CreateView,
     ];
 
     fn parked(kind: WriteKind) -> ParkedWrite {

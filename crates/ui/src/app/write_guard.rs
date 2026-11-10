@@ -22,6 +22,11 @@ pub enum WriteKind {
     BulkUpdate,
     /// A delete of every document the filter matches.
     BulkDelete,
+    DropCollection,
+    DropDatabase,
+    RenameCollection,
+    DuplicateCollection,
+    CreateView,
 }
 
 /// Whether a mutation must wait for the user's confirmation when it targets a production

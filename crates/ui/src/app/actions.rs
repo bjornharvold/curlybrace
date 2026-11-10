@@ -34,6 +34,8 @@ pub(super) fn sidebar(state: AppState, action: SidebarAction) -> Out {
         SidebarAction::CompareDatabaseTo(db) => {
             gated(state, |s| super::compare::compare_database_to(s, db))
         }
+        SidebarAction::AdminDialog(action) => super::admin_dialog_actions::on_action(state, action),
+        SidebarAction::Admin(request) => super::admin_dialog_actions::requested(state, request),
         SidebarAction::Select { node, mode } => super::copy_actions::select(state, node, mode),
         SidebarAction::Copy => super::copy_actions::copy(state),
         SidebarAction::Paste(target) => super::copy_actions::paste(state, target),
