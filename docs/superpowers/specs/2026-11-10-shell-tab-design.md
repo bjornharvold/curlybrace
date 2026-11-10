@@ -139,7 +139,7 @@ reached, cancelled by the user.
 2. **B, first usable tab:** the Shell tab with editor and highlighting, Run (selection or all),
    Cancel, output pane, **Format**, and the missing / too-old `mongosh` message.
 3. **C, history:** per-connection history, persistence and purge.
-4. **D, table/tree output** using `mongosh --json`.
+4. **D, table/tree output.** The spike showed `--json` cannot be combined with stdin, so the mechanism (for example parsing `EJSON.stringify` output the script opts into) is decided in that slice's own plan.
 5. **E, completion** of collection names and common operators.
 
 ## Open for the builder
