@@ -33,9 +33,20 @@ impl Scrubber {
         self.scan(chunk, false)
     }
 
-    /// Releases the held tail, masking a complete secret in it; call once when the stream ends.
+    /// Releases the held tail, masking a complete secret in it; call when the stream ends (the
+    /// scrubber can then go on with a new stream).
     pub fn finish(&mut self) -> String {
         self.scan("", true)
+    }
+
+    /// `text` with every secret in it masked, as a whole: nothing is held back, and the tail this
+    /// scrubber holds is neither used nor changed.
+    pub fn mask(&self, text: &str) -> String {
+        let mut whole = Self {
+            secrets: self.secrets.clone(),
+            carry: String::new(),
+        };
+        whole.scan(text, true)
     }
 
     /// Scans carry + chunk. Unless `at_end`, holds back a tail that could still become a secret.

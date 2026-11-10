@@ -1,6 +1,7 @@
 use super::*;
 use crate::shell::MASK;
 use crate::shell::fake::{Behaviour, FAKE_PATH, FakeMongosh};
+use crate::shell::invocation::script_block;
 use std::ffi::OsString;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -85,7 +86,7 @@ fn invocation(script: &str) -> Invocation {
         args: vec![OsString::from("--nodb"), OsString::from("--quiet")],
         preamble: format!("try {{ db = connect(\"mongodb://u:{SECRET_ENCODED}@h/admin\") }}\n")
             .into_bytes(),
-        script: format!("{script}\n").into_bytes(),
+        script: script_block(script),
     }
 }
 
@@ -210,12 +211,48 @@ fn prompts_are_stripped_from_output() {
 }
 
 #[test]
-fn uncaught_blocks_go_to_stderr_and_give_script_errors() {
+fn an_uncaught_error_goes_to_stderr_ends_the_script_and_gives_script_errors() {
     let fake = repl();
     let run = start(&fake, "before\nthrow boom\nafter");
     assert_eq!(run.wait(), Outcome::ScriptErrors);
-    assert_eq!(run.text(Stream::Stdout), "before\nafter\n");
+    assert_eq!(run.text(Stream::Stdout), "before\n");
     assert_eq!(run.text(Stream::Stderr), "Uncaught Error: boom\n");
+}
+
+#[test]
+fn a_brace_that_closes_the_script_early_is_incomplete_and_the_rest_never_runs() {
+    let fake = repl();
+    let run = start(&fake, "a\n}\nb");
+    assert_eq!(run.wait(), Outcome::Incomplete);
+    assert_eq!(run.text(Stream::Stdout), "a\n");
+    assert_eq!(run.text(Stream::Stderr), "");
+}
+
+#[test]
+fn an_unfinished_statement_at_the_end_is_incomplete_and_does_not_hang() {
+    let fake = repl();
+    let started = Instant::now();
+    let run = start(&fake, "a\nfoo(");
+    assert_eq!(run.wait(), Outcome::Incomplete);
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(run.text(Stream::Stdout), "");
+    assert_eq!(run.text(Stream::Stderr), "");
+}
+
+#[test]
+fn a_password_that_starts_like_a_continuation_prompt_does_not_stall_the_script() {
+    // The masker holds back text that may be the start of a secret; the continuation prompts
+    // that pace the script must not wait behind it.
+    let fake = repl();
+    let secrets = vec!["| pw".to_owned(), " pw".to_owned()];
+    let run = start_full(
+        &fake.exe,
+        invocation("a\nb\nc"),
+        secrets,
+        RunLimits::default(),
+    );
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    assert_eq!(run.text(Stream::Stdout), "a\nb\nc\n");
 }
 
 /// Neither stream shows a continuation prompt.
@@ -270,15 +307,6 @@ fn script_is_written_only_after_the_ready_sentinel() {
     let run = start(&fake, "late");
     assert_eq!(run.wait(), Outcome::Exited(0));
     assert_eq!(run.text(Stream::Stdout), "late\n");
-}
-
-#[test]
-fn incomplete_block_at_eof_ends_the_run_and_does_not_hang() {
-    let fake = repl();
-    let started = Instant::now();
-    let run = start(&fake, "1+");
-    assert_eq!(run.wait(), Outcome::Exited(0));
-    assert!(started.elapsed() < Duration::from_secs(5));
 }
 
 #[test]
@@ -418,15 +446,17 @@ fn printed_uncaught_text_is_output_not_an_error() {
 }
 
 #[test]
-fn a_syntax_error_block_goes_to_stderr_and_gives_script_errors() {
+fn a_syntax_error_goes_to_stderr_and_none_of_the_script_runs() {
+    // mongosh evaluates what it read as soon as it cannot parse: the lines after the error must
+    // never reach it, or they would run one by one.
     let fake = repl();
-    let run = start(&fake, "syntax\nafter");
+    let run = start(&fake, "before\nsyntax\nafter");
     assert_eq!(run.wait(), Outcome::ScriptErrors);
     assert_eq!(
         run.text(Stream::Stderr),
         "Uncaught:\nSyntaxError: Unexpected token (1:4)\n\n> 1 | var = = 3\n\n"
     );
-    assert_eq!(run.text(Stream::Stdout), "after\n");
+    assert_eq!(run.text(Stream::Stdout), "");
 }
 
 #[test]
@@ -456,9 +486,9 @@ fn no_sentinel_within_the_handshake_timeout_is_a_connect_failure() {
 #[test]
 fn a_cap_cut_inside_the_password_shows_no_part_of_it() {
     let fake = repl();
-    // Raw stdout before the echoed line: the default prompt, the sentinel with its blank line
-    // and the fixed prompt.
-    let before = "> __CB_READY__\n\n".len() + crate::shell::invocation::PROMPT.len();
+    // Raw stdout before the echoed line: the default prompt, the sentinel with its blank line,
+    // the fixed prompt and the continuation prompt for the block's closing line.
+    let before = "> __CB_READY__\n\n".len() + crate::shell::invocation::PROMPT.len() + "| ".len();
     let limits = RunLimits {
         max_output_bytes: before + "ZZZZ".len() + 3,
         ..RunLimits::default()

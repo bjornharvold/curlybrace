@@ -5,10 +5,13 @@
 //! kills the child and everything it started.
 //!
 //! Threads per run (see `pipe.rs`):
-//! - a writer: writes the preamble, waits for the stdout reader to see `__CB_READY__`, writes
-//!   the script and closes stdin (EOF ends `mongosh`). Without READY the script is never written.
+//! - a writer: writes the preamble, waits for the stdout reader to see `__CB_READY__`, then writes
+//!   the script (one block statement) a line at a time, each line only when `mongosh` asks for it,
+//!   and closes stdin (EOF ends `mongosh`) after the last line or as soon as `mongosh` evaluated
+//!   what it read. Without READY the script is never written.
 //! - one reader per output stream: raw bytes are counted against the cap, decoded (UTF-8, a
-//!   character split across reads kept whole), scrubbed, then (stdout) classified.
+//!   character split across reads kept whole), then scrubbed; stdout is classified before it is
+//!   scrubbed (the classifier also paces the writer).
 //! - a supervisor: the only thread that calls `on_output`, then `on_done` exactly once after the
 //!   child has exited and both readers have finished (or were given up on, see [`DRAIN`]). It
 //!   reaps the child last, so every kill before that targets a group that is still ours.
@@ -48,6 +51,10 @@ pub enum Outcome {
     Exited(i32),
     /// The shell exited 0 but the script raised at least one `Uncaught` error.
     ScriptErrors,
+    /// The shell exited 0 without an `Uncaught` error, but stopped reading the script before its
+    /// end: a bracket, string or comment was left open (nothing ran), or a `}` closed the script
+    /// early (what came after it never ran).
+    Incomplete,
     /// The preamble did not connect (it failed, the shell ended before answering, or no answer
     /// came within [`RunLimits::handshake_timeout`]); the script was never sent.
     ConnectFailed,
@@ -150,8 +157,9 @@ pub fn spawn_shell(
     let chunk_bytes = limits.chunk_bytes.max(1);
     let secrets: Vec<&str> = secrets.iter().map(String::as_str).collect();
     let (output_tx, output_rx) = mpsc::channel();
-    let (ready_tx, ready_rx) = mpsc::channel();
-    std::thread::spawn(move || write_input(stdin, preamble, script, &ready_rx));
+    let (pace_tx, pace_rx) = mpsc::channel();
+    let lines = script.split_inclusive(|&b| b == b'\n').count();
+    std::thread::spawn(move || write_input(stdin, preamble, script, &pace_rx));
     let reader = |lane| Reader {
         control: Arc::clone(&control),
         output: output_tx.clone(),
@@ -159,7 +167,8 @@ pub fn spawn_shell(
         decoder: Utf8Decoder::default(),
         lane,
     };
-    let (out_reader, err_reader) = (reader(Lane::stdout(ready_tx)), reader(Lane::Stderr));
+    let stdout_lane = Lane::stdout(pace_tx, lines.saturating_sub(1));
+    let (out_reader, err_reader) = (reader(stdout_lane), reader(Lane::Stderr));
     std::thread::spawn(move || out_reader.run(stdout, chunk_bytes));
     std::thread::spawn(move || err_reader.run(stderr, chunk_bytes));
     drop(output_tx);

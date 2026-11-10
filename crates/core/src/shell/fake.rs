@@ -7,10 +7,13 @@
 //!
 //! Statements: like `mongosh`, a line that leaves a bracket (`{([`) open, or ends in `+`, makes
 //! the next lines continuation lines until the brackets close; before reading each one it prints
-//! `| ` (no newline). A multi-line statement then runs its lines in order (lines ending in `{` and
-//! lone `}` are syntax and skipped), and a throw skips the rest of it. A statement whose first
-//! line starts with `function <name>` prints `[Function: <name>]`; one whose first line ends in
-//! `+` prints `NaN`. Script lines it understands:
+//! `| ` (no newline). So the script, sent as one block (`{` + script + `}`), is one statement. A
+//! multi-line statement then runs its lines in order (the block's opening `{` dropped; lines
+//! ending in `{` and lone `}` are syntax and skipped), and a throw skips the rest of it. A
+//! `syntax` line ends the statement at once with a syntax error and none of it runs, like a parse
+//! error part way through a block: the lines after it, if sent, are new statements. A statement
+//! whose first line starts with `function <name>` prints `[Function: <name>]`; one whose first
+//! line ends in `+` prints `NaN`. Script lines it understands:
 //!
 //! | line | effect |
 //! | --- | --- |
@@ -148,8 +151,9 @@ run_line() {
     *) printf '%s\n' "$1" ;;
   esac
 }
-# Evaluates one statement (its lines as arguments).
+# Evaluates one statement (its lines as arguments; a block's opening `{` is dropped).
 evaluate() {
+  set -- "${1#\{}" "${@:2}"
   local re='^function ([A-Za-z_]+)'
   if [[ "$1" =~ $re ]]; then printf '[Function: %s]\n' "${BASH_REMATCH[1]}"; return; fi
   if [[ "$1" == *+ ]]; then echo NaN; return; fi
@@ -164,17 +168,18 @@ ARGS=("$@")
 while true; do
   printf '\001CBP> '
   IFS= read -r line || exit 0
-  lines=("$line")
-  last="$line"
-  depth=$(depth_of "$line")
-  # Like mongosh: an unfinished statement reads continuation lines, each after a `| `.
-  while [ "$depth" -gt 0 ] || [[ "$last" == *+ ]]; do
+  lines=()
+  depth=0
+  # Like mongosh: an unfinished statement reads continuation lines, each after a `| `; a
+  # syntax error ends the statement at once (nothing of it runs).
+  while true; do
+    if [ "${line#\{}" = syntax ]; then run_line syntax; lines=(); break; fi
+    lines+=("$line")
+    depth=$((depth + $(depth_of "$line")))
+    if [ "$depth" -le 0 ] && [[ "$line" != *+ ]]; then break; fi
     printf '| '
     IFS= read -r line || exit 0
-    lines+=("$line")
-    last="$line"
-    depth=$((depth + $(depth_of "$line")))
   done
-  evaluate "${lines[@]}"
+  if [ ${#lines[@]} -gt 0 ]; then evaluate "${lines[@]}"; fi
 done
 "#;

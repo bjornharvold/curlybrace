@@ -101,6 +101,15 @@ an account, a trial, or a license fee.
   the script. It uses the `mongosh` chosen under Tool paths. A read-only connection refuses it, a
   production connection asks before every run, and the password never reaches `mongosh` through its
   command line or environment (see [SECURITY.md](SECURITY.md)).
+- The script runs as **one block**, not line by line: an `else` on its own line stays with its
+  `if`, a `.map(...)` on the next line continues the expression, and a syntax error anywhere means
+  none of it runs. Only the last value is shown, so print the rest with `print()` or
+  `printjson()`. The shell commands `use`, `show` and `it` do not work in a block (they are a
+  syntax error): write `db.getSiblingDB("name")` and `db.adminCommand({ listDatabases: 1 })`.
+  A function declared in the script cannot use a `let` or `const` from the script (mongosh moves
+  the function out of the block); declare it with `const f = () => ...` or use `var`.
+  `passwordPrompt()` is not available. Long scripts start slowly: mongosh re-reads the block for
+  every line (about 1 s for 200 lines, 5 s for 1000).
 
 **Indexes** ([#68](https://github.com/bjornharvold/curlybrace/issues/68))
 - An **Indexes** tab on each collection: the indexes on the left, the selected one on the right with

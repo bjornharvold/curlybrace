@@ -36,7 +36,10 @@ fn after_ready(body: &str) -> (Vec<Piece>, bool) {
 fn nothing_before_the_ready_sentinel_is_shown() {
     let (pieces, _) = feed(&["noise\n> __CB_", "READY__\n\n\u{1}CBP> 2\n\u{1}CBP> "]);
     assert_eq!(pieces[0], Piece::Ready);
-    assert_eq!(pieces[1..], [Piece::Out(Stdout, "2\n".into())]);
+    assert_eq!(
+        pieces[1..],
+        [Piece::Out(Stdout, "2\n".into()), Piece::Evaluated]
+    );
 }
 
 #[test]
@@ -241,6 +244,73 @@ fn continuation_prompts_split_across_pushes_are_stripped() {
     assert!(uncaught);
     assert_eq!(shown(&pieces, Stderr), "Uncaught Error: b\n");
     assert_eq!(shown(&pieces, Stdout), "");
+}
+
+/// Like [`feed`], for a script block with `continuations` lines after its first.
+fn feed_block(continuations: usize, chunks: &[&str]) -> (Vec<Piece>, Classifier) {
+    let mut classifier = Classifier::expecting(continuations);
+    let mut pieces = Vec::new();
+    for chunk in chunks {
+        pieces.extend(classifier.push(chunk));
+    }
+    pieces.extend(classifier.finish());
+    (pieces, classifier)
+}
+
+fn count(pieces: &[Piece], wanted: &Piece) -> usize {
+    pieces.iter().filter(|p| *p == wanted).count()
+}
+
+#[test]
+fn each_continuation_prompt_asks_for_the_next_line_and_the_next_prompt_ends_the_script() {
+    // Real bytes for a three-line block (`{if (c) {` / `print("then")` / `}` + the closing `}`).
+    let raw = format!("{P}| | | then\n\n{P}");
+    let (pieces, classifier) = feed_block(3, &[READY, &raw]);
+    assert_eq!(count(&pieces, &Piece::Continue), 3);
+    assert_eq!(pieces.last(), Some(&Piece::Evaluated));
+    assert_eq!(shown(&pieces, Stdout), "then\n\n");
+    assert!(!classifier.saw_uncaught() && !classifier.incomplete());
+}
+
+#[test]
+fn output_starting_with_a_bar_after_the_expected_prompts_is_kept() {
+    let (pieces, classifier) = feed_block(1, &[READY, P, "| ", "| first\n\n", P]);
+    assert_eq!(count(&pieces, &Piece::Continue), 1);
+    assert_eq!(shown(&pieces, Stdout), "| first\n\n");
+    assert!(!classifier.incomplete());
+}
+
+#[test]
+fn a_continuation_prompt_past_the_scripts_end_then_the_end_is_incomplete() {
+    // Real bytes for `{print("first")` / `foo(` / `}`... cut short: mongosh asked for a line
+    // after the last one (a bracket is still open), got EOF and exited without a word.
+    let (pieces, classifier) = feed_block(1, &[READY, P, "| ", "| "]);
+    assert_eq!(count(&pieces, &Piece::Continue), 1);
+    assert_eq!(shown(&pieces, Stdout), "");
+    assert!(classifier.incomplete());
+    assert!(!classifier.saw_uncaught());
+}
+
+#[test]
+fn a_prompt_before_the_last_line_was_asked_for_is_incomplete() {
+    // `{print(1) }` / `print("ESCAPED")` / `}`: the first line closed the block early.
+    let (pieces, classifier) = feed_block(2, &[READY, P, "1\n\n", P]);
+    assert_eq!(count(&pieces, &Piece::Continue), 0);
+    assert_eq!(pieces.last(), Some(&Piece::Evaluated));
+    assert!(classifier.incomplete());
+}
+
+#[test]
+fn a_syntax_error_part_way_is_an_error_that_ends_the_script() {
+    // Real bytes for `{print("first")` / `var = = 3` / `print("AFTER-SYNTAX")` / `}`.
+    let raw = format!(
+        "{P}| Uncaught:\n\rSyntaxError: Unexpected token (2:4)\n\n  1 | {{print(\"first\")\n> 2 | var = = 3\n    |     ^\n  3 |\n\n{P}"
+    );
+    let (pieces, classifier) = feed_block(3, &[READY, &raw]);
+    assert_eq!(count(&pieces, &Piece::Continue), 1);
+    assert_eq!(pieces.last(), Some(&Piece::Evaluated));
+    assert!(shown(&pieces, Stderr).starts_with("Uncaught:\nSyntaxError: Unexpected token (2:4)\n"));
+    assert!(classifier.saw_uncaught());
 }
 
 #[test]

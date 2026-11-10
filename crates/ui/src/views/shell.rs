@@ -95,6 +95,7 @@ pub fn show_shell(
     let height = (ui.available_height() * EDITOR_SHARE).max(EDITOR_MIN_HEIGHT);
     let edited = show_editor(ui, state, ctx.session, height, i18n);
     ui.label(egui::RichText::new(i18n.t("shell.editor_hint")).small());
+    ui.label(egui::RichText::new(i18n.t("shell.script_hint")).small());
     let notice = state
         .notice
         .as_ref()

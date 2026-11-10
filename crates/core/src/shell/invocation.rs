@@ -35,7 +35,8 @@ pub struct Invocation {
     /// `passwordPrompt()` throw, connects and prints `__CB_READY__`, or `__CB_FAILED__ <message>`.
     /// Holds the password; written first.
     pub preamble: Vec<u8>,
-    /// The user's script plus one trailing newline; written after the ready sentinel.
+    /// The user's script as one block ([`script_block`]); written after the ready sentinel, a
+    /// line at a time.
     pub script: Vec<u8>,
 }
 
@@ -98,8 +99,24 @@ pub fn build_invocation(
     Ok(Invocation {
         args: vec![OsString::from("--nodb"), OsString::from("--quiet")],
         preamble: preamble.into_bytes(),
-        script: format!("{script}\n").into_bytes(),
+        script: script_block(script),
     })
+}
+
+/// The script as `mongosh` gets it: one block statement, `{` + the script + a `}` line, with
+/// every line break `mongosh`'s line reader ends a line at (`\r\n`, `\r`, U+2028, U+2029) as
+/// `\n`, so the lines the runner writes are the lines `mongosh` reads.
+///
+/// `mongosh` reads piped stdin as REPL input, a line at a time, and evaluates each statement as
+/// soon as it is complete: line by line, an `else` on its own line after `}` would run on its
+/// own (unconditionally), and a `.map(...)` on the next line would fail. As one block the whole
+/// script is one statement, evaluated as one unit. The `{` shares the first line, so the line
+/// numbers in `mongosh`'s syntax errors are the editor's.
+pub(crate) fn script_block(script: &str) -> Vec<u8> {
+    let lines = script
+        .replace("\r\n", "\n")
+        .replace(['\r', '\u{2028}', '\u{2029}'], "\n");
+    format!("{{{lines}\n}}\n").into_bytes()
 }
 
 /// The stored URI split into the parts we rewrite.

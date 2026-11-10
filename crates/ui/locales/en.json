@@ -1289,6 +1289,7 @@
       "finished_cap_reached": "The run was stopped because it printed too much output.",
       "finished_connect_failed": "mongosh could not connect to the server, so the script did not run. The output may say why.",
       "finished_exit_code": "mongosh ended with exit code {code}. The output may say why.",
+      "finished_incomplete": "mongosh did not read the whole script: a bracket, quote or comment is not closed, or a closing brace has no opening one. The rest of the script did not run.",
       "finished_script_errors": "The script ran, but raised errors. See the output.",
       "finished_signalled": "mongosh was stopped by the system before it finished.",
       "finished_start_failed": "mongosh could not be started (or the saved password could not be read).",
@@ -1322,6 +1323,7 @@
     "run_disabled_read_only": "Scripts cannot run on a read-only connection.",
     "run_disabled_running": "A script is running. Cancel it or wait for it to finish.",
     "run_tooltip": "Run the selection, or the whole script when nothing is selected ({shortcut})",
+    "script_hint": "The script runs as one block: only its last value is shown (use print or printjson for more), and the shell commands use, show and it do not work. Write db.getSiblingDB(\"name\") or db.adminCommand({ listDatabases: 1 }) instead.",
     "status_running": "Running…"
   },
   "sidebar": {

@@ -123,6 +123,12 @@ fn the_editor_has_an_accessible_name() {
 }
 
 #[test]
+fn the_tab_says_how_a_script_runs() {
+    let h = harness(Frame::new(script("db.users.find({})")));
+    h.get_by_label(&t("shell.script_hint"));
+}
+
+#[test]
 fn run_cancel_and_format_are_named_buttons() {
     let h = harness(Frame::new(script("db.users.find({})")));
     for key in ["shell.run", "shell.cancel", "shell.format"] {
@@ -248,6 +254,10 @@ fn every_notice_kind_is_shown_as_text() {
         (
             ShellNotice::Finished(Outcome::ScriptErrors),
             t("shell.notice.finished_script_errors"),
+        ),
+        (
+            ShellNotice::Finished(Outcome::Incomplete),
+            t("shell.notice.finished_incomplete"),
         ),
         (
             ShellNotice::Finished(Outcome::ConnectFailed),

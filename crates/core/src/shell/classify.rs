@@ -1,19 +1,31 @@
-//! Turns `mongosh` stdout (already decoded and scrubbed) into what the Shell tab shows.
+//! Turns `mongosh` stdout (decoded, not masked yet: see `pipe.rs`) into what the Shell tab shows,
+//! and tells the stdin writer when `mongosh` wants the next script line.
 //!
 //! `mongosh --nodb --quiet` reading piped stdin behaves like its REPL (see
-//! `docs/superpowers/notes/shell-stdin-spike.md`): it prints a prompt before each line it reads,
+//! `docs/superpowers/notes/shell-stdin-spike.md`): it prints the prompt before each statement it
+//! reads, `| ` (no newline) before each continuation line of a statement that is not complete yet,
 //! and errors on stdout as `Uncaught \r<Error>` or `Uncaught:\n\r<SyntaxError>`. The preamble sets
-//! a fixed prompt ([`PROMPT`]) before it connects, so the classifier
+//! a fixed prompt ([`PROMPT`]) before it connects, and the script goes in as one block statement
+//! (`invocation::script_block`), so the classifier
 //! - hides everything up to the preamble's `__CB_READY__` / `__CB_FAILED__ <message>` line
 //!   (printed after the default prompt, `> `), plus the blank line `print` leaves after it; when
 //!   the output ends without either, it reports the last lines it hid ([`Piece::NoSentinel`]);
 //! - strips every [`PROMPT`], wherever it appears, and every `\r`;
-//! - strips the continuation prompts (`| `, one per continuation line) that directly follow a
-//!   [`PROMPT`], so an error after them still starts its line;
+//! - strips the continuation prompts that directly follow a [`PROMPT`] (an error after them still
+//!   starts its line) and reports each ([`Piece::Continue`]: send the next line). Made with the
+//!   number of lines to come ([`Classifier::expecting`]) it strips no more than that, so output
+//!   that starts with `| ` stays output;
+//! - reports the second [`PROMPT`] ([`Piece::Evaluated`]): the first asked for the script, so
+//!   `mongosh` has evaluated what it read. If that happens before the last line was asked for, the
+//!   script ended early (a syntax error, or a `}` that closed the block); and a continuation
+//!   prompt past the last line followed by the end of the output means a bracket, string or
+//!   comment was left open. Both are [`Classifier::incomplete`];
 //! - routes a block that starts (at a line start) with the error marker to stderr until the next
 //!   prompt. The marker includes the `\r`, so printed text such as `Uncaught x` stays output.
 //!
-//! Limitation: a script that redefines `prompt` gets its own prompt shown as output.
+//! Limitation: once a script redefines `prompt`, its own prompt is shown as output and the end of
+//! the script is no longer seen, so from then on the routing to stderr and the outcome are
+//! unreliable (an error after it may show as output, and the run may end `Exited(0)`).
 use super::Stream;
 use super::invocation::PROMPT;
 use std::collections::VecDeque;
@@ -31,6 +43,10 @@ const UNREADY_LINES: usize = 20;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Piece {
     Out(Stream, String),
+    /// A continuation prompt: `mongosh` is still reading the statement and wants the next line.
+    Continue,
+    /// The prompt came back after the script: `mongosh` evaluated what it read.
+    Evaluated,
     /// The preamble connected; the script may be written.
     Ready,
     /// The preamble failed with this message; nothing after it is shown.
@@ -47,11 +63,20 @@ enum Phase {
     Done,
 }
 
+/// What text at a line start after a prompt is.
+enum Bar<'a> {
+    /// A continuation prompt, stripped; the rest.
+    Stripped(&'a str),
+    /// Could still become one: wait for more.
+    Hold,
+    Output,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Classifier {
     phase: Phase,
     /// Text not classified yet: an unfinished handshake line, or text that could still become
-    /// a prompt or an error marker.
+    /// a prompt, a continuation prompt or an error marker.
     held: String,
     /// The last hidden pre-sentinel lines.
     unready: VecDeque<String>,
@@ -63,9 +88,23 @@ pub(crate) struct Classifier {
     /// Drop one `\n` right after the READY line (the empty result `print` leaves).
     skip_blank: bool,
     saw_uncaught: bool,
+    /// Continuation prompts still to come (the script lines not asked for yet); `None` when not
+    /// known, then every run of them after a prompt is stripped.
+    continuations: Option<usize>,
+    /// Fixed prompts seen since READY.
+    prompts: usize,
+    incomplete: bool,
 }
 
 impl Classifier {
+    /// For a script of `continuations + 1` lines, written a line at a time.
+    pub(crate) fn expecting(continuations: usize) -> Self {
+        Self {
+            continuations: Some(continuations),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn push(&mut self, text: &str) -> Vec<Piece> {
         self.feed(text, false)
     }
@@ -78,6 +117,12 @@ impl Classifier {
     /// Whether any error block was seen.
     pub(crate) fn saw_uncaught(&self) -> bool {
         self.saw_uncaught
+    }
+
+    /// Whether `mongosh` stopped reading the script before its end (when an error was also seen,
+    /// that error is why).
+    pub(crate) fn incomplete(&self) -> bool {
+        self.incomplete
     }
 
     fn feed(&mut self, text: &str, at_end: bool) -> Vec<Piece> {
@@ -149,9 +194,7 @@ impl Classifier {
         }
         while !rest.is_empty() {
             if let Some(after) = rest.strip_prefix(PROMPT) {
-                self.in_error = false;
-                self.mid_line = false;
-                self.after_prompt = true;
+                self.prompt(out);
                 rest = after;
                 continue;
             }
@@ -160,15 +203,17 @@ impl Classifier {
                 return;
             }
             if self.after_prompt {
-                if let Some(after) = rest.strip_prefix(CONTINUATION) {
-                    rest = after;
-                    continue;
+                match self.continuation(rest, at_end, out) {
+                    Bar::Stripped(after) => {
+                        rest = after;
+                        continue;
+                    }
+                    Bar::Hold => {
+                        self.held = rest.to_owned();
+                        return;
+                    }
+                    Bar::Output => self.after_prompt = false,
                 }
-                if !at_end && CONTINUATION.starts_with(rest) {
-                    self.held = rest.to_owned();
-                    return;
-                }
-                self.after_prompt = false;
             }
             if !self.mid_line {
                 if ERROR_MARKERS.iter().any(|m| rest.starts_with(m)) {
@@ -181,6 +226,47 @@ impl Classifier {
                 self.mid_line = true;
             }
             rest = self.emit_segment(rest, out);
+        }
+    }
+
+    fn prompt(&mut self, out: &mut Vec<Piece>) {
+        self.in_error = false;
+        self.mid_line = false;
+        self.after_prompt = true;
+        self.prompts += 1;
+        if self.prompts == 2 {
+            if self.continuations.is_some_and(|left| left > 0) {
+                self.incomplete = true;
+            }
+            out.push(Piece::Evaluated);
+        }
+    }
+
+    /// `rest` starts a line right after a prompt (and maybe continuation prompts).
+    fn continuation<'a>(&mut self, rest: &'a str, at_end: bool, out: &mut Vec<Piece>) -> Bar<'a> {
+        let partial = CONTINUATION.starts_with(rest);
+        if self.continuations == Some(0) {
+            // Every line was asked for. One more continuation prompt asks for a line after the
+            // script's end, and only the end of the output follows it; anything else is output.
+            return match (partial, at_end) {
+                (true, true) => {
+                    self.incomplete = true;
+                    Bar::Stripped("")
+                }
+                (true, false) => Bar::Hold,
+                (false, _) => Bar::Output,
+            };
+        }
+        if let Some(after) = rest.strip_prefix(CONTINUATION) {
+            if let Some(left) = &mut self.continuations {
+                *left -= 1;
+            }
+            out.push(Piece::Continue);
+            return Bar::Stripped(after);
+        }
+        match partial && !at_end {
+            true => Bar::Hold,
+            false => Bar::Output,
         }
     }
 

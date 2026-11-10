@@ -54,6 +54,7 @@ fn outcome_text(outcome: Outcome, i18n: &I18n) -> (Severity, String) {
             return (Severity::Error, text);
         }
         Outcome::ScriptErrors => (Severity::Error, "shell.notice.finished_script_errors"),
+        Outcome::Incomplete => (Severity::Error, "shell.notice.finished_incomplete"),
         Outcome::ConnectFailed => (Severity::Error, "shell.notice.finished_connect_failed"),
         Outcome::Signalled => (Severity::Error, "shell.notice.finished_signalled"),
         Outcome::Cancelled => (Severity::Info, "shell.notice.finished_cancelled"),

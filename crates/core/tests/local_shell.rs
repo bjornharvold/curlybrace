@@ -159,16 +159,18 @@ async fn ping_and_bare_expressions_stream_clean_output() {
     let rt = spawn_runtime(Arc::new(MemorySecretStore::new()), no_repaint());
     let (mut h, id) = connected(rt, cfg).await;
 
+    // One block: only the last value is echoed, so the ping is printed.
     let events = run_script(
         &mut h,
         id,
         exe,
-        "db.runCommand({ping:1})\n1+1\n\"hello-cbit\"",
+        "printjson(db.runCommand({ping:1}))\n1+1\n\"hello-cbit\"",
     )
     .await;
     let out = text(&events, Stream::Stdout);
     assert!(out.contains("ok: 1"), "{out:?}");
     assert!(out.contains("hello-cbit"), "{out:?}");
+    assert!(!out.contains('2'), "an earlier value was echoed: {out:?}");
     assert_no_prompt_leak(&out);
     assert!(
         !text(&events, Stream::Stderr).contains("Uncaught"),
@@ -196,6 +198,125 @@ async fn a_thrown_error_is_a_script_error_on_stderr() {
     assert!(err.contains("boom-cbit"), "{err:?}");
     assert_no_prompt_leak(&err);
     assert_no_prompt_leak(&text(&events, Stream::Stdout));
+}
+
+/// Runs `script` on a fresh session and returns its events.
+async fn run_on_local(test: &str, script: &str) -> Option<Vec<Event>> {
+    if !local_enabled(test) {
+        return None;
+    }
+    let exe = mongosh(test)?;
+    let (mut h, id) = local_session().await;
+    Some(run_script(&mut h, id, exe, script).await)
+}
+
+/// Line by line, `else {` on its own line after `}` was a statement of its own: a syntax error,
+/// and then its body ran unconditionally.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn an_else_on_its_own_line_stays_with_its_if() {
+    let script =
+        "const c = true\nif (c) {\n  print(\"then-cbit\")\n}\nelse {\n  print(\"else-cbit\")\n}";
+    let Some(events) = run_on_local("an_else_on_its_own_line_stays_with_its_if", script).await
+    else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::Exited(0), "{events:?}");
+    let out = text(&events, Stream::Stdout);
+    assert!(out.contains("then-cbit"), "{out:?}");
+    assert!(!out.contains("else-cbit"), "the else body ran: {out:?}");
+    assert_no_prompt_leak(&out);
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn a_chained_call_on_the_next_line_continues_the_expression() {
+    let script = "[3, 1, 2]\n  .map(v => v * 2)\n  .sort()";
+    let test = "a_chained_call_on_the_next_line_continues_the_expression";
+    let Some(events) = run_on_local(test, script).await else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::Exited(0), "{events:?}");
+    let out = text(&events, Stream::Stdout);
+    assert_eq!(out, "[ 2, 4, 6 ]\n");
+}
+
+/// `mongosh` evaluates a block as soon as it cannot parse it: what was read so far fails, and
+/// the lines after the error must never reach it (they would run one by one).
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn a_syntax_error_part_way_runs_none_of_the_script() {
+    let script = "print(\"before-cbit\")\nvar = = 3\nprint(\"after-cbit\")";
+    let test = "a_syntax_error_part_way_runs_none_of_the_script";
+    let Some(events) = run_on_local(test, script).await else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::ScriptErrors, "{events:?}");
+    let err = text(&events, Stream::Stderr);
+    assert!(err.starts_with("Uncaught:\nSyntaxError"), "{err:?}");
+    assert!(
+        err.contains("> 2 | var = = 3"),
+        "editor line numbers: {err:?}"
+    );
+    let out = text(&events, Stream::Stdout);
+    assert!(
+        !out.contains("before-cbit"),
+        "part of the script ran: {out:?}"
+    );
+    assert!(
+        !out.contains("after-cbit"),
+        "a line after the error ran: {out:?}"
+    );
+    assert_no_prompt_leak(&out);
+}
+
+/// A `}` with no `{` closes the block early: what came before it ran, the rest is never sent.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn a_stray_closing_brace_ends_the_script_as_incomplete() {
+    let script = "print(\"one-cbit\") }\nprint(\"escaped-cbit\")";
+    let test = "a_stray_closing_brace_ends_the_script_as_incomplete";
+    let Some(events) = run_on_local(test, script).await else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::Incomplete, "{events:?}");
+    let out = text(&events, Stream::Stdout);
+    assert!(out.contains("one-cbit"), "{out:?}");
+    assert!(!out.contains("escaped-cbit"), "the rest ran: {out:?}");
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn an_unclosed_template_literal_is_incomplete() {
+    let script = "print(\"never-cbit\")\nconst t = `open";
+    let test = "an_unclosed_template_literal_is_incomplete";
+    let Some(events) = run_on_local(test, script).await else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::Incomplete, "{events:?}");
+    let out = text(&events, Stream::Stdout);
+    assert!(!out.contains("never-cbit"), "{out:?}");
+    assert_no_prompt_leak(&out);
+}
+
+/// Shell helpers are REPL commands, not JavaScript: inside the block `use` is a syntax error,
+/// and nothing runs. `db.getSiblingDB` is the way.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn shell_helpers_are_syntax_errors_and_their_javascript_forms_work() {
+    let test = "shell_helpers_are_syntax_errors_and_their_javascript_forms_work";
+    let Some(events) = run_on_local(test, "use cbit_other\nprint(\"ran-cbit\")").await else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::ScriptErrors, "{events:?}");
+    assert!(!text(&events, Stream::Stdout).contains("ran-cbit"));
+
+    let script = "const other = db.getSiblingDB(\"cbit_other\")\nother.getName()";
+    let Some(events) = run_on_local(test, script).await else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::Exited(0), "{events:?}");
+    assert_eq!(text(&events, Stream::Stdout), "cbit_other\n");
 }
 
 /// Unblocked, `passwordPrompt()` on piped stdin prints "Enter password", reads the rest of the

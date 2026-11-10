@@ -32,6 +32,8 @@ pub(super) struct Control {
     max_output_bytes: usize,
     output_bytes: AtomicUsize,
     saw_uncaught: AtomicBool,
+    /// `mongosh` stopped reading the script before its end.
+    incomplete: AtomicBool,
     /// The stdout reader saw `__CB_READY__` or `__CB_FAILED__`.
     handshake_done: AtomicBool,
 }
@@ -44,6 +46,7 @@ impl Control {
             max_output_bytes,
             output_bytes: AtomicUsize::new(0),
             saw_uncaught: AtomicBool::new(false),
+            incomplete: AtomicBool::new(false),
             handshake_done: AtomicBool::new(false),
         }
     }
@@ -90,6 +93,10 @@ impl Control {
 
     pub(super) fn mark_uncaught(&self) {
         self.saw_uncaught.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) fn mark_incomplete(&self) {
+        self.incomplete.store(true, Ordering::SeqCst);
     }
 
     pub(super) fn mark_handshake_done(&self) {
@@ -146,6 +153,7 @@ impl Control {
         }
         match status.and_then(|status| status.code()) {
             Some(0) if self.saw_uncaught.load(Ordering::SeqCst) => Outcome::ScriptErrors,
+            Some(0) if self.incomplete.load(Ordering::SeqCst) => Outcome::Incomplete,
             Some(code) => Outcome::Exited(code),
             None => Outcome::Signalled,
         }

@@ -223,10 +223,21 @@ fn empty_or_whitespace_script_is_rejected() {
 }
 
 #[test]
-fn script_is_passed_through_unchanged_with_a_trailing_newline() {
+fn the_script_is_sent_as_one_block_with_the_brace_on_its_first_line() {
     let script = "  db.a.find({x: 'é'})\nprint(1)  ";
     let inv = build_invocation(&cfg("mongodb://h"), None, None, script).unwrap();
-    assert_eq!(inv.script, format!("{script}\n").into_bytes());
+    assert_eq!(
+        inv.script,
+        "{  db.a.find({x: 'é'})\nprint(1)  \n}\n".as_bytes()
+    );
+}
+
+#[test]
+fn every_line_break_mongosh_splits_on_becomes_a_newline() {
+    // mongosh's line reader also ends a line at `\r` and at U+2028/U+2029; as `\n` the lines the
+    // runner writes are exactly the lines mongosh reads.
+    let block = script_block("a\r\nb\rc\u{2028}d\u{2029}e");
+    assert_eq!(block, "{a\nb\nc\nd\ne\n}\n".as_bytes());
 }
 
 #[test]

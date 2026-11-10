@@ -8,6 +8,7 @@ fn all_notices() -> Vec<ShellNotice> {
         Outcome::Exited(0),
         Outcome::Exited(2),
         Outcome::ScriptErrors,
+        Outcome::Incomplete,
         Outcome::ConnectFailed,
         Outcome::Signalled,
         Outcome::Cancelled,
@@ -101,6 +102,7 @@ fn success_cancel_and_failure_differ_in_severity() {
     let of = |o| notice_text(&ShellNotice::Finished(o), &i18n).0;
     assert_eq!(of(Outcome::Exited(0)), Severity::Success);
     assert_eq!(of(Outcome::Cancelled), Severity::Info);
+    assert_eq!(of(Outcome::Incomplete), Severity::Error);
     assert_eq!(of(Outcome::ConnectFailed), Severity::Error);
 }
 

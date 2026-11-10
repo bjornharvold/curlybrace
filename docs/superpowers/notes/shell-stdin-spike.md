@@ -171,3 +171,48 @@ What shipped (Tasks 3 and 4), after the spike above:
   marker: such a run ends `ScriptErrors` and the error text is shown on the stderr stream. A run
   without them ends `Exited(0)`. The exit status alone says nothing in this mode.
 - Checked against a real `mongosh` by the gated test `crates/core/tests/local_shell.rs`.
+
+## Script delivery: one block, paced (final review wave)
+
+Same `mongosh` 2.14.1, `--nodb --quiet`, piped stdin; bytes below with the fixed prompt as `P>`.
+
+- **Continuation prompts.** Before each continuation line of a statement that is not complete
+  yet, `mongosh` prints `| ` (no newline). `if (x) {` / ` throw new Error("b")` / `}` gives
+  `P> | | Uncaught \rError: b\n` (exit 0), so an error in a multi-line statement does not start its
+  line. The classifier strips the `| ` that directly follow the prompt.
+- **Line by line is not one script.** Each statement runs as soon as it is complete. `}` then
+  `else {` on separate lines: `else {` is a syntax error on its own and the else body then runs
+  unconditionally (`P> | | then\n\nP> Uncaught:\n\rSyntaxError: Unexpected token (1:0)...` then
+  `P> ELSE-RAN`). A line starting with `.` (`  .map(...)`) is read as a REPL command:
+  `Invalid REPL keyword`.
+- **`.editor` does not exist** on piped stdin: `.editor` prints `Invalid REPL keyword` and the
+  lines after it run one by one.
+- **U+2028 as a line joiner does not work**: the line reader splits on it too, and `mongosh`
+  reports internal errors (`MongoshInternalError: [COMMON-90001] mongosh not initialized yet`).
+- **One block works.** `{` + the script + `\n}` is one statement: the if/else runs correctly
+  (`P> | | | | | | | | | | then\n[ 2, 4, 6 ]\nP> ` for a 10-line block with a chained call), a
+  throw stops the rest (`P> | | | | one\nUncaught \rError: mid\nP> `), and only the block's last
+  value is echoed (`1+1` / `2+2` / `"last"` prints `last`). Async shell calls are still awaited in
+  order (`insertOne` twice, then `countDocuments()` gives `2`). With the `{` on the first script
+  line, syntax error line numbers match the editor.
+- **But a syntax error part way evaluates the block early**: `{print("first")` / `var = = 3` /
+  `print("AFTER-SYNTAX")` / `}` gives `P> | Uncaught:\n\rSyntaxError: Unexpected token (2:4)...`
+  and then `P> AFTER-SYNTAX` (the remaining lines ran one by one), then a second syntax error for
+  the `}`. A stray `}` in the script closes the block early the same way. The fixed prompt function
+  is called once per line read (`P0> | | | a\nb\nc\n\nP4> ` with a counter), so it cannot tell when
+  an evaluation happened.
+- **Pacing fixes that.** `mongosh` prints exactly one `| ` before reading each continuation line,
+  and the prompt again once it has evaluated. So the runner writes one line, waits for the `| `
+  before writing the next, and closes stdin as soon as the prompt comes back: nothing after an early
+  evaluation is ever sent. A block whose brackets, string or comment stay open makes `mongosh` ask
+  for a line after the last one (`| `), then end silently on EOF (exit 0): reported as `Incomplete`,
+  as is a prompt before the last line was asked for without an error.
+- **Costs.** Inside a block `use`, `show dbs` are syntax errors (`Missing semicolon. (2:3)`) and
+  `it` is a plain function value; write `db.getSiblingDB("x")`, `db.adminCommand({listDatabases:
+  1})`. A `function` declared in the block cannot see a `let`/`const` of the block (`mongosh` hoists
+  it out: `ReferenceError: k is not defined`); `var`, or `const g = () => ...`, works. `mongosh`
+  re-parses the whole buffer for every line it reads, so long blocks are slow: 200 lines took
+  1.3 s, 1000 lines 5.5 s, 3000 lines 30 s (start-up alone 0.5 s), all written at once.
+- **`passwordPrompt()`** prints `Enter password` and reads the rest of stdin as the password: the
+  lines after it never run and the process exits 0 (with a connected shell in the runtime it did
+  not even exit within 60 s). The preamble redefines it to throw.
