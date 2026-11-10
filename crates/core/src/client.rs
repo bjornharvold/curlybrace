@@ -117,15 +117,20 @@ fn reject_embedded_secrets(uri: &str, options: &ClientOptions) -> Result<()> {
         .credential
         .as_ref()
         .is_some_and(|c| c.password.is_some());
-    let query = uri.split_once('?').map_or("", |(_, q)| q).to_lowercase();
-    let has_query_secret = query
-        .split('&')
-        .filter_map(|kv| kv.split('=').next())
-        .any(|k| SECRET_QUERY_PARAMS.contains(&k));
-    if has_password || has_query_secret {
+    if has_password || uri_has_secret_query_param(uri) {
         return Err(CoreError::InvalidUri(UriProblem::SecretInUri));
     }
     Ok(())
+}
+
+/// Whether the URI's query string carries one of [`SECRET_QUERY_PARAMS`] (matched
+/// case-insensitively). Shared with the shell tab, which builds its own connect URI.
+pub(crate) fn uri_has_secret_query_param(uri: &str) -> bool {
+    let query = uri.split_once('?').map_or("", |(_, q)| q).to_lowercase();
+    query
+        .split('&')
+        .filter_map(|kv| kv.split('=').next())
+        .any(|k| SECRET_QUERY_PARAMS.contains(&k))
 }
 
 fn driver_mechanism(auth: AuthMechanism) -> Result<Option<DriverMechanism>> {
@@ -146,6 +151,20 @@ fn driver_mechanism(auth: AuthMechanism) -> Result<Option<DriverMechanism>> {
     }))
 }
 
+/// The auth source the config asks for: its own, or `$external` for the mechanisms that
+/// authenticate outside the database (X509, PLAIN, GSSAPI).
+pub(crate) fn effective_auth_source(cfg: &ConnectionConfig) -> Option<String> {
+    let external = matches!(
+        cfg.auth,
+        AuthMechanism::X509 | AuthMechanism::Plain | AuthMechanism::Gssapi
+    );
+    match (&cfg.auth_source, external) {
+        (Some(s), _) => Some(s.clone()),
+        (None, true) => Some("$external".to_string()),
+        (None, false) => None,
+    }
+}
+
 fn apply_credential(
     options: &mut ClientOptions,
     cfg: &ConnectionConfig,
@@ -154,15 +173,7 @@ fn apply_credential(
     let Some(mechanism) = driver_mechanism(cfg.auth)? else {
         return Ok(());
     };
-    let external = matches!(
-        cfg.auth,
-        AuthMechanism::X509 | AuthMechanism::Plain | AuthMechanism::Gssapi
-    );
-    let source = match (&cfg.auth_source, external) {
-        (Some(s), _) => Some(s.clone()),
-        (None, true) => Some("$external".to_string()),
-        (None, false) => None,
-    };
+    let source = effective_auth_source(cfg);
     let mut credential = options.credential.take().unwrap_or_default();
     credential.mechanism = Some(mechanism);
     credential.username = cfg.username.clone().or(credential.username);
@@ -180,11 +191,16 @@ fn apply_credential(
 /// failure; the user may enable "allow invalid certificates" to proceed.
 fn reject_unverifiable_tls(options: &ClientOptions) -> Result<()> {
     match &options.tls {
-        Some(Tls::Enabled(tls)) if tls.allow_invalid_certificates != Some(true) => {
+        Some(Tls::Enabled(tls)) if tls_blocks_tunnel(tls.allow_invalid_certificates) => {
             Err(CoreError::TlsThroughTunnel)
         }
         _ => Ok(()),
     }
+}
+
+/// With TLS on, a tunnel only works when invalid certificates are allowed (see above).
+pub(crate) fn tls_blocks_tunnel(allow_invalid_certificates: Option<bool>) -> bool {
+    allow_invalid_certificates != Some(true)
 }
 
 fn apply_tls(options: &mut ClientOptions, cfg: &ConnectionConfig) {
