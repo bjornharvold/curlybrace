@@ -5,6 +5,7 @@ mod resolve;
 mod settings;
 mod suggest;
 mod version;
+pub(crate) use probe::{absolute_entries, kill_group};
 pub use probe::{probe_version, probe_version_with_path};
 pub use resolve::{ToolChoice, ToolError, resolve};
 pub use settings::ToolSettings;

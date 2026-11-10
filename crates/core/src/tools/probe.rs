@@ -94,7 +94,7 @@ pub fn probe_version_with_path(
 }
 
 /// `path` without its relative and empty entries; `None` when nothing is left.
-fn absolute_entries(path: &OsStr) -> Option<OsString> {
+pub(crate) fn absolute_entries(path: &OsStr) -> Option<OsString> {
     let kept: Vec<_> = std::env::split_paths(path)
         .filter(|entry| entry.is_absolute())
         .collect();
@@ -113,7 +113,7 @@ fn stop(child: &mut std::process::Child) {
 
 /// SIGKILL to the process group the tool leads (see `process_group(0)`): the processes it
 /// started, and never anything of ours. A no-op where there are no process groups.
-fn kill_group(pid: u32) {
+pub(crate) fn kill_group(pid: u32) {
     #[cfg(unix)]
     if let Ok(pid) = i32::try_from(pid) {
         unsafe { libc::kill(-pid, libc::SIGKILL) };
