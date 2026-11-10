@@ -285,3 +285,54 @@ fn a_success_with_no_dialog_of_ours_changes_nothing_but_the_listings() {
     assert_eq!(s.selected_ns(), Some(&orders()));
     assert!(!commands.is_empty());
 }
+
+#[test]
+fn closing_a_session_drops_its_dialog() {
+    let (s, _) = update(connected(), request(AdminKind::Rename, Some("orders")));
+    assert!(s.admin.is_some());
+    let s = s.session_dropped(EMBEDDED_SESSION);
+    assert!(
+        s.admin.is_none(),
+        "no dialog is left that nothing can cancel"
+    );
+}
+
+#[test]
+fn a_dialog_left_on_another_session_does_not_block_a_new_request() {
+    let (mut s, _) = update(connected(), request(AdminKind::Rename, Some("orders")));
+    let mut stale = *s.admin.take().unwrap();
+    stale.session = uuid::Uuid::from_u128(9);
+    s.admin = Some(Box::new(stale));
+    let (s, _) = update(s, request(AdminKind::Duplicate, Some("orders")));
+    let dialog = s.admin.expect("the new dialog is open");
+    assert_eq!(dialog.kind, AdminKind::Duplicate);
+    assert_eq!(dialog.session, EMBEDDED_SESSION);
+}
+
+/// A drop in flight whose dialog belongs to some other session.
+fn in_flight_for_another_session() -> AppState {
+    let (mut s, _) = act(ready_to_drop(connected()), AdminAction::Confirmed);
+    let mut other = *s.admin.take().unwrap();
+    other.session = uuid::Uuid::from_u128(9);
+    s.admin = Some(Box::new(other));
+    s
+}
+
+#[test]
+fn a_success_does_not_close_the_dialog_of_another_session() {
+    let (done, _) = update(in_flight_for_another_session(), changed("shop"));
+    assert!(done.admin.is_some());
+}
+
+#[test]
+fn a_refusal_is_not_attached_to_the_dialog_of_another_session() {
+    let (failed, _) = update(
+        in_flight_for_another_session(),
+        Input::Event(Event::Failed {
+            session: EMBEDDED_SESSION,
+            context: "drop_collection",
+            error: CoreError::NotFound,
+        }),
+    );
+    assert!(failed.admin.unwrap().error.is_none());
+}

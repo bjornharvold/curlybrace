@@ -241,7 +241,7 @@ impl AdminDialog {
             AdminKind::CreateView => Command::CreateView {
                 session,
                 ns,
-                source: self.source.clone(),
+                source: self.source.trim().to_owned(),
                 pipeline_json: self.pipeline.clone(),
             },
         })

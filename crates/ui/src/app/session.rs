@@ -326,6 +326,7 @@ impl AppState {
         // A running bulk write keeps its flow: its finish is still coming and is reported.
         let mut next = self
             .write_warning_dropped_for_active()
+            .admin_dropped_for(session)
             .bulk_dropped_for(session, true);
         let old = next.take_view();
         next.restore_view(SessionView {
@@ -350,6 +351,7 @@ impl AppState {
         // stay Running (and block every other bulk flow) forever, so even a running one goes.
         let mut next = self
             .write_warning_dropped_for(id)
+            .admin_dropped_for(id)
             .bulk_dropped_for(id, false);
         next.open.retain(|open| *open != id);
         next.parked.remove(&id);

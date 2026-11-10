@@ -165,3 +165,14 @@ fn the_pending_namespace_is_the_one_the_write_acts_on() {
         Namespace::new("shop", "v")
     );
 }
+
+#[test]
+fn the_view_source_is_sent_without_surrounding_spaces() {
+    let view = open(AdminKind::CreateView, "shop", None)
+        .with_name("v".into())
+        .with_source("  orders ".into());
+    assert!(matches!(
+        view.command(Uuid::nil()),
+        Some(Command::CreateView { source, .. }) if source == "orders"
+    ));
+}

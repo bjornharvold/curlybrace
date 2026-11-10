@@ -28,6 +28,29 @@ pub fn busy(state: &AppState) -> bool {
     state.pending.is_some() || state.write_warning.is_some()
 }
 
+/// The open dialog belongs to the session whose view `state` currently is (an answer is handled
+/// inside the view of the session it came from).
+fn owns_dialog(state: &AppState) -> bool {
+    state
+        .admin
+        .as_ref()
+        .is_some_and(|d| d.session == state.session_id())
+}
+
+impl AppState {
+    /// Forgets the dialog of `session`, which is closed or replaced: nothing could cancel it.
+    pub fn admin_dropped_for(self, session: uuid::Uuid) -> AppState {
+        let belongs = self.admin.as_ref().is_some_and(|d| d.session == session);
+        match belongs {
+            true => AppState {
+                admin: None,
+                ..self
+            },
+            false => self,
+        }
+    }
+}
+
 fn unchanged(state: AppState) -> Out {
     (state, Vec::new())
 }
@@ -40,7 +63,13 @@ pub(super) fn requested(state: AppState, request: AdminRequest) -> Out {
             let banner = Some(Banner::ReadOnly);
             return (AppState { banner, ..s }, Vec::new());
         }
-        if s.admin.is_some() {
+        // One dialog at a time, but a dialog nothing can reach any more (its session is not the
+        // active one) must not block every later request.
+        let reachable = s
+            .admin
+            .as_ref()
+            .is_some_and(|d| d.session == s.session_id());
+        if reachable {
             return unchanged(s);
         }
         let dialog = AdminDialog::open(request).with_session(s.session_id());
@@ -127,7 +156,7 @@ fn confirmed(state: AppState, dialog: AdminDialog) -> Out {
 /// An administration write succeeded: its dialog closes, and what the write removed or renamed
 /// is no longer shown (a later Find or Refresh on it would only answer `NotFound`).
 pub(super) fn answered(state: AppState, db: &str) -> AppState {
-    let ours = state.pending.as_ref().is_some_and(|p| p.ns.db == db) && state.admin.is_some();
+    let ours = state.pending.as_ref().is_some_and(|p| p.ns.db == db) && owns_dialog(&state);
     if !ours {
         return state;
     }
@@ -183,7 +212,12 @@ pub(super) fn failed(state: AppState, context: &'static str, error: CoreError) -
         pending: None,
         ..state
     };
-    match state.admin.clone().map(|d| *d) {
+    match state
+        .admin
+        .clone()
+        .map(|d| *d)
+        .filter(|_| owns_dialog(&state))
+    {
         Some(dialog) => AppState {
             admin: Some(Box::new(dialog.with_error(Some(error)))),
             ..state
