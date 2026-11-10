@@ -291,6 +291,8 @@ fn write_of(flow: &BulkFlow, run: BulkRunId) -> Option<(WriteKind, Build)> {
                 ns,
                 request,
                 run,
+                // The UI does not offer undo yet: keep the "cannot be undone" flow.
+                undo: curlybrace_core::bulk::UndoPolicy::None,
             });
             Some((WriteKind::BulkDelete, build))
         }
@@ -306,6 +308,7 @@ fn write_of(flow: &BulkFlow, run: BulkRunId) -> Option<(WriteKind, Build)> {
                 ns,
                 request,
                 run,
+                undo: curlybrace_core::bulk::UndoPolicy::None,
             });
             Some((WriteKind::BulkUpdate, build))
         }

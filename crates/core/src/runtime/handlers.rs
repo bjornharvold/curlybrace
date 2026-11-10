@@ -125,7 +125,12 @@ pub(super) fn finalize(
 ) -> Event {
     // A finished bulk write is the one answer that outlives its session: it may report changes
     // the server applied, so it is never replaced by `Superseded`.
-    if session.is_current(generation) || matches!(event, Event::BulkFinished { .. }) {
+    if session.is_current(generation)
+        || matches!(
+            event,
+            Event::BulkFinished { .. } | Event::BulkUndoFinished { .. }
+        )
+    {
         event
     } else {
         Event::Failed {
@@ -423,7 +428,11 @@ async fn data_command(
         | Command::BulkPreview { .. }
         | Command::BulkUpdate { .. }
         | Command::BulkDelete { .. }
-        | Command::BulkCancel { .. } => {
+        | Command::BulkCancel { .. }
+        | Command::BulkUndoPreview { .. }
+        | Command::BulkUndo { .. }
+        | Command::SnapshotList { .. }
+        | Command::SnapshotDelete { .. } => {
             unreachable!(
                 "connection, compare, copy and bulk commands are handled before data dispatch"
             )

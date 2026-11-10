@@ -52,6 +52,18 @@ pub(super) struct FakeStore {
     pub(super) cancels: Mutex<Vec<BulkRunId>>,
     /// What `cancel_bulk` answers.
     pub(super) cancel_effect: CancelEffect,
+    /// The originals `snapshot_matching` streams out.
+    pub(super) snapshot_docs: Vec<Document>,
+    /// Makes `snapshot_matching` fail with this error.
+    pub(super) snapshot_error: Option<CoreError>,
+    /// What `find_by_ids` finds.
+    pub(super) current: Vec<Document>,
+    /// The order the store's steps were called in: "snapshot", "write", "find_by_ids", "undo".
+    pub(super) order: Mutex<Vec<&'static str>>,
+    /// Makes `apply_undo` fail with this error.
+    pub(super) undo_error: Option<CoreError>,
+    /// The items `apply_undo` was given.
+    pub(super) undone: Mutex<Vec<crate::snapshot::UndoItem>>,
 }
 
 impl FakeStore {
@@ -74,6 +86,12 @@ impl FakeStore {
             queries: Mutex::new(vec![]),
             cancels: Mutex::new(vec![]),
             cancel_effect: CancelEffect::Stopped,
+            snapshot_docs: vec![],
+            snapshot_error: None,
+            current: vec![],
+            order: Mutex::new(vec![]),
+            undone: Mutex::new(vec![]),
+            undo_error: None,
         })
     }
 
@@ -85,6 +103,7 @@ impl FakeStore {
 
     pub(super) async fn write(&self) -> Result<BulkOutcome> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.order.lock().unwrap().push("write");
         self.entered.notify_one();
         match &self.write {
             Write::Answer(result) => result.clone(),
@@ -178,6 +197,46 @@ impl DocumentStore for FakeStore {
     ) -> Result<BulkOutcome> {
         self.write().await
     }
+    async fn snapshot_matching(
+        &self,
+        _ns: &Namespace,
+        _filter: &Document,
+        _run: BulkRunId,
+        out: &mut crate::snapshot::SnapshotWriter,
+    ) -> Result<u64> {
+        self.order.lock().unwrap().push("snapshot");
+        if let Some(error) = &self.snapshot_error {
+            return Err(error.clone());
+        }
+        for doc in &self.snapshot_docs {
+            out.push(doc)?;
+        }
+        Ok(self.snapshot_docs.len() as u64)
+    }
+    async fn find_by_ids(&self, _ns: &Namespace, ids: &[Bson]) -> Result<Vec<Document>> {
+        self.order.lock().unwrap().push("find_by_ids");
+        Ok(self
+            .current
+            .iter()
+            .filter(|d| d.get("_id").is_some_and(|id| ids.contains(id)))
+            .cloned()
+            .collect())
+    }
+    async fn apply_undo(
+        &self,
+        _ns: &Namespace,
+        items: &[crate::snapshot::UndoItem],
+    ) -> Result<Vec<crate::snapshot::ItemResult>> {
+        self.order.lock().unwrap().push("undo");
+        if let Some(error) = &self.undo_error {
+            return Err(error.clone());
+        }
+        self.undone.lock().unwrap().extend(items.iter().cloned());
+        Ok(items
+            .iter()
+            .map(|_| crate::snapshot::ItemResult::Done)
+            .collect())
+    }
     async fn cancel_bulk(&self, run: BulkRunId) -> Result<CancelEffect> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.cancels.lock().unwrap().push(run);
@@ -242,6 +301,13 @@ pub(super) fn runtime_config() -> RuntimeConfig {
         bulk_write_timeout: SHORT,
         ping_timeout: SHORT,
         ..RuntimeConfig::default()
+    }
+}
+
+pub(super) fn runtime_config_with_snapshots(dir: &std::path::Path) -> RuntimeConfig {
+    RuntimeConfig {
+        snapshot_dir: Some(dir.to_path_buf()),
+        ..runtime_config()
     }
 }
 
@@ -313,12 +379,14 @@ pub(super) fn all_bulk_commands(session: SessionId) -> Vec<Command> {
             ns: ns.clone(),
             request: update_request(),
             run: run_id(),
+            undo: crate::bulk::UndoPolicy::None,
         },
         Command::BulkDelete {
             session,
             ns,
             request: delete_request(),
             run: run_id(),
+            undo: crate::bulk::UndoPolicy::None,
         },
         Command::BulkCancel {
             session,

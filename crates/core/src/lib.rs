@@ -25,6 +25,7 @@ mod mongo_collection_options;
 mod mongo_explain;
 mod mongo_indexes;
 mod mongo_profile;
+mod mongo_snapshot;
 pub mod mongo_store;
 mod mongo_write;
 mod mongo_write_fields;
@@ -36,6 +37,7 @@ mod read_only_store_tests;
 pub mod runtime;
 pub mod secrets;
 pub mod shape;
+pub mod snapshot;
 pub mod store;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

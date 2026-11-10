@@ -20,6 +20,9 @@ pub const INDEX_BUILD_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 /// as an index build; cutting it off answers an unknown outcome, never a failure.
 pub const BULK_WRITE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
+/// Most bytes one undo snapshot (originals plus after-state) may take.
+pub const SNAPSHOT_MAX_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Server-side time limit of the match count shown before a bulk write.
 pub const BULK_COUNT_MAX_TIME: Duration = Duration::from_secs(10);
 
@@ -68,6 +71,12 @@ pub struct RuntimeConfig {
     /// fails, or the file had to be set aside as corrupt, a warning is logged and history stays off
     /// (the app keeps working; a later task can surface it, see `Shared::history`).
     pub history_path: Option<PathBuf>,
+    /// Where undo snapshots of bulk writes are kept. `None` (the default) turns undo off: a
+    /// bulk write asking for a snapshot is refused instead of running without one. The app
+    /// passes [`default_snapshot_dir`].
+    pub snapshot_dir: Option<PathBuf>,
+    /// Size cap of one run's snapshot files together.
+    pub snapshot_max_bytes: u64,
     /// The first sampler tunables; `SetSamplingExcluded` changes the excluded databases later.
     /// The interval is raised to [`MIN_INTERVAL`].
     pub sampler: SamplerConfig,
@@ -76,6 +85,11 @@ pub struct RuntimeConfig {
 /// `curlybrace/history.sqlite` in the OS config directory; `None` when that is unknown.
 pub fn default_history_path() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join("curlybrace").join("history.sqlite"))
+}
+
+/// `curlybrace/snapshots` in the OS config directory; `None` when that is unknown.
+pub fn default_snapshot_dir() -> Option<PathBuf> {
+    dirs::config_dir().map(|dir| dir.join("curlybrace").join("snapshots"))
 }
 
 impl Default for RuntimeConfig {
@@ -93,6 +107,9 @@ impl Default for RuntimeConfig {
             compare_limits: Default::default(),
             // Off unless asked for: tests and embedders must not write into the user's config.
             history_path: None,
+            // Off unless asked for, for the same reason.
+            snapshot_dir: None,
+            snapshot_max_bytes: SNAPSHOT_MAX_BYTES,
             sampler: SamplerConfig::default(),
         }
     }

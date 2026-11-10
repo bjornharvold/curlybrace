@@ -283,6 +283,35 @@ impl DocumentStore for MongoStore {
         crate::mongo_bulk_cancel::cancel_bulk(&self.client, run).await
     }
 
+    async fn snapshot_matching(
+        &self,
+        ns: &Namespace,
+        filter: &Document,
+        run: BulkRunId,
+        out: &mut crate::snapshot::SnapshotWriter,
+    ) -> Result<u64> {
+        crate::mongo_snapshot::snapshot_matching(&self.collection(ns), filter, run, out, db_err)
+            .await
+    }
+
+    async fn find_by_ids(&self, ns: &Namespace, ids: &[Bson]) -> Result<Vec<Document>> {
+        crate::mongo_snapshot::find_by_ids(&self.collection(ns), ids, db_err).await
+    }
+
+    async fn apply_undo(
+        &self,
+        ns: &Namespace,
+        items: &[crate::snapshot::UndoItem],
+    ) -> Result<Vec<crate::snapshot::ItemResult>> {
+        crate::mongo_snapshot::apply_undo(
+            &self.client.database(&ns.db),
+            &ns.collection,
+            items,
+            db_err,
+        )
+        .await
+    }
+
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
         self.collection(ns)
             .estimated_document_count()

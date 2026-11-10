@@ -61,6 +61,57 @@ pub enum CancelEffect {
     NothingToStop,
 }
 
+/// Whether a bulk write saves the originals of its documents first, so it can be undone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndoPolicy {
+    /// Save a snapshot before the write; if that fails or is too large, the write does not run.
+    Snapshot,
+    /// Run without a snapshot. The person chose this knowing it cannot be undone.
+    None,
+}
+
+/// What a finished run can be undone with. Carried by the finish event of a run that left a
+/// snapshot behind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UndoOffer {
+    /// Documents the snapshot holds (the run's matches), not counting upserted ones.
+    pub documents: u64,
+    /// Documents the write changed that the snapshot does not hold: they matched the filter
+    /// only after the snapshot was taken, so undo cannot bring them back. Usually 0.
+    pub uncovered: u64,
+}
+
+/// What a finished run can be undone with, and why not when it cannot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndoStatus {
+    /// The run asked for no snapshot (or never got as far as one).
+    NotRequested,
+    /// A snapshot was asked for but the run touched nothing (or never wrote): nothing to undo.
+    NothingToUndo,
+    /// The write ran but the snapshot could not be completed (for example the saved state of an
+    /// update did not fit the size cap): it can NOT be undone, although undo was asked for.
+    Lost,
+    /// The snapshot is empty but the write changed this many documents anyway (they matched only
+    /// after it was taken): there is nothing to restore them from.
+    Uncovered(u64),
+    Offered(UndoOffer),
+}
+
+/// A document the undo would restore: what it was, and what it is now.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UndoPreviewDoc {
+    pub original: Document,
+    /// `None` when the document does not exist now.
+    pub current: Option<Document>,
+}
+
+/// What an undo would touch: the size of the snapshot and its first documents.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UndoPreview {
+    pub documents: u64,
+    pub docs: Vec<UndoPreviewDoc>,
+}
+
 /// Identifies one bulk run, so a cancel or a late result can be matched to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BulkRunId(pub uuid::Uuid);

@@ -33,6 +33,7 @@ async fn superseded_epoch_does_not_run_a_bulk_write() {
         ns: mock_namespace(),
         request: update_request(),
         run: run_id(),
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     tokio::time::timeout(WAIT, old.held.notified())
@@ -83,7 +84,8 @@ async fn finished_after_reconnect(command: impl FnOnce(SessionId, BulkRunId) -> 
             session,
             ns: mock_namespace(),
             run,
-            outcome: Ok(applied())
+            outcome: Ok(applied()),
+            undo: crate::bulk::UndoStatus::NotRequested,
         }
     );
 }
@@ -102,6 +104,7 @@ async fn a_bulk_update_finishing_after_a_reconnect_is_still_reported() {
         ns: mock_namespace(),
         request: update_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .await;
 }
@@ -113,6 +116,7 @@ async fn a_bulk_delete_finishing_after_a_reconnect_is_still_reported() {
         ns: mock_namespace(),
         request: delete_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .await;
 }
@@ -131,6 +135,7 @@ async fn cancel_reaches_a_bulk_write_that_is_still_in_flight() {
         ns: mock_namespace(),
         request: update_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     tokio::time::timeout(WAIT, store.entered.notified())
@@ -147,7 +152,8 @@ async fn cancel_reaches_a_bulk_write_that_is_still_in_flight() {
         session,
         ns: mock_namespace(),
         run,
-        outcome: Ok(BulkOutcome::Unknown { cancelled: true })
+        outcome: Ok(BulkOutcome::Unknown { cancelled: true }),
+        undo: crate::bulk::UndoStatus::NotRequested,
     }));
 }
 
@@ -167,6 +173,7 @@ async fn a_cancel_that_found_nothing_to_stop_says_so_and_the_write_carries_on() 
         ns: mock_namespace(),
         request: update_request(),
         run,
+        undo: crate::bulk::UndoPolicy::None,
     })
     .unwrap();
     tokio::time::timeout(WAIT, store.entered.notified())

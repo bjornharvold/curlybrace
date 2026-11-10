@@ -491,6 +491,34 @@ pub trait DocumentStore: Send + Sync {
     async fn cancel_bulk(&self, _run: BulkRunId) -> Result<CancelEffect> {
         Err(CoreError::Unsupported("bulk writes".into()))
     }
+
+    /// Streams every document matching `filter` into `out`, one at a time, and returns how many
+    /// were written. The read is tagged with `run` so a cancel can find it. Classified as a write: it exists only to undo one, so a read-only
+    /// connection never creates a snapshot.
+    async fn snapshot_matching(
+        &self,
+        _ns: &Namespace,
+        _filter: &Document,
+        _run: BulkRunId,
+        _out: &mut crate::snapshot::SnapshotWriter,
+    ) -> Result<u64> {
+        Err(CoreError::Unsupported("undo snapshots".into()))
+    }
+
+    /// The current documents whose `_id` is in `ids` (a missing id is simply absent). A read.
+    async fn find_by_ids(&self, _ns: &Namespace, _ids: &[Bson]) -> Result<Vec<Document>> {
+        Err(CoreError::Unsupported("undo snapshots".into()))
+    }
+
+    /// Applies undo items, one result per item in the same order. Each item is a single
+    /// compare-and-swap on the server, so a concurrent edit is never overwritten.
+    async fn apply_undo(
+        &self,
+        _ns: &Namespace,
+        _items: &[crate::snapshot::UndoItem],
+    ) -> Result<Vec<crate::snapshot::ItemResult>> {
+        Err(CoreError::Unsupported("undo snapshots".into()))
+    }
 }
 
 #[cfg(test)]

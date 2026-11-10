@@ -134,6 +134,27 @@ pub enum CoreError {
     /// The update preview could not be produced. No server text is carried.
     #[error("bulk: the preview is unavailable")]
     BulkPreviewUnavailable,
+    /// The undo snapshot could not be written (directory, permissions, disk). No path or system
+    /// text is carried.
+    #[error("snapshot: the file could not be written")]
+    SnapshotWriteFailed,
+    /// The matching documents exceed the snapshot size cap. Nothing was sent to the server.
+    #[error("snapshot: the documents exceed the size cap")]
+    SnapshotTooLarge,
+    /// A snapshot is missing, unreadable or not a snapshot file. No path is carried.
+    #[error("snapshot: the file is missing or unreadable")]
+    SnapshotUnreadable,
+    /// A bulk write was cancelled before it started (while it waited or saved its snapshot).
+    /// Nothing was changed.
+    #[error("bulk: cancelled before it started")]
+    BulkCancelled,
+    /// An undo copy could not be deleted. No path or system text is carried.
+    #[error("snapshot: the files could not be deleted")]
+    SnapshotDeleteFailed,
+    /// The snapshot was taken on another connection; restoring it here could write into the
+    /// wrong server. Nothing was sent.
+    #[error("snapshot: it belongs to another connection")]
+    SnapshotOtherConnection,
 }
 
 /// Why a copy request was refused. Fixed variants only: a name is data and is never echoed.
@@ -214,6 +235,12 @@ impl CoreError {
             Self::BulkScopeMismatch => "errors.bulk_scope_mismatch",
             Self::BulkInvalidUpdate => "errors.bulk_invalid_update",
             Self::BulkPreviewUnavailable => "errors.bulk_preview_unavailable",
+            Self::SnapshotWriteFailed => "errors.snapshot_write_failed",
+            Self::SnapshotTooLarge => "errors.snapshot_too_large",
+            Self::SnapshotUnreadable => "errors.snapshot_unreadable",
+            Self::SnapshotOtherConnection => "errors.snapshot_other_connection",
+            Self::BulkCancelled => "errors.bulk_cancelled",
+            Self::SnapshotDeleteFailed => "errors.snapshot_delete_failed",
         }
     }
 }
@@ -271,6 +298,12 @@ mod tests {
             CoreError::BulkScopeMismatch,
             CoreError::BulkInvalidUpdate,
             CoreError::BulkPreviewUnavailable,
+            CoreError::SnapshotWriteFailed,
+            CoreError::SnapshotTooLarge,
+            CoreError::SnapshotUnreadable,
+            CoreError::SnapshotOtherConnection,
+            CoreError::BulkCancelled,
+            CoreError::SnapshotDeleteFailed,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.
