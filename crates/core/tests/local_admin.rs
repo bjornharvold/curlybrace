@@ -214,3 +214,81 @@ async fn a_read_only_connection_refuses_every_admin_write_and_changes_nothing() 
         2
     );
 }
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn a_failed_duplicate_leaves_no_half_made_copy_so_a_retry_can_run() {
+    if !local_enabled("a_failed_duplicate_leaves_no_half_made_copy_so_a_retry_can_run") {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    let ns = dbs.ns("src");
+    seed(&client, &ns, 3).await;
+    // Documents inserted before the validator existed: the copy's merge is checked against it.
+    client
+        .database(&dbs.db)
+        .run_command(doc! {
+            "collMod": "src",
+            "validator": { "n": { "$gt": 100 } },
+            "validationAction": "error",
+            "validationLevel": "strict",
+        })
+        .await
+        .unwrap();
+    let failed = store.duplicate_collection(&ns, "copy").await;
+    assert!(
+        failed.is_err(),
+        "the merge must be refused by the validator"
+    );
+    assert!(
+        !collections(&store, &dbs.db).await.contains(&"copy".into()),
+        "the half-made target must be dropped"
+    );
+    // Removing the cause lets the same duplicate run: it is not stuck on NamespaceExists.
+    client
+        .database(&dbs.db)
+        .run_command(doc! { "collMod": "src", "validator": {}, "validationLevel": "off" })
+        .await
+        .unwrap();
+    store.duplicate_collection(&ns, "copy").await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn collection_level_writes_are_refused_in_server_owned_databases() {
+    if !local_enabled("collection_level_writes_are_refused_in_server_owned_databases") {
+        return;
+    }
+    let (_dbs, _client, store) = local_mongo().await;
+    for db in ["admin", "local", "config"] {
+        let ns = Namespace::new(db, "anything");
+        let refused = Err(CoreError::ReservedDatabase);
+        assert_eq!(store.drop_collection(&ns).await, refused);
+        assert_eq!(store.rename_collection(&ns, "x", false).await, refused);
+        assert_eq!(store.create_view(&ns, "src", &[]).await, refused);
+        assert_eq!(store.duplicate_collection(&ns, "x").await, refused);
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB: set CURLYBRACE_IT=1"]
+async fn a_legacy_named_collection_and_database_can_be_dropped_and_a_view_has_no_statistics() {
+    if !local_enabled(
+        "a_legacy_named_collection_and_database_can_be_dropped_and_a_view_has_no_statistics",
+    ) {
+        return;
+    }
+    let (dbs, client, store) = local_mongo().await;
+    // `system.js` is legal and existing; creation rules would have locked it out of a drop.
+    seed(&client, &dbs.ns("system.js"), 1).await;
+    store.drop_collection(&dbs.ns("system.js")).await.unwrap();
+    seed(&client, &dbs.ns("src"), 2).await;
+    store.create_view(&dbs.ns("v"), "src", &[]).await.unwrap();
+    assert!(matches!(
+        store.collection_stats(&dbs.ns("v")).await,
+        Err(CoreError::Unsupported(_))
+    ));
+    // A database that is already gone is done, like a collection.
+    store.drop_database(&dbs.db).await.unwrap();
+    assert_eq!(store.drop_database(&dbs.db).await, Ok(()));
+}

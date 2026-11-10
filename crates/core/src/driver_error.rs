@@ -16,6 +16,18 @@ const CODE_UNAUTHORIZED: i32 = 13;
 /// Server error code `MaxTimeMSExpired`: an operation hit its server-side time limit.
 const CODE_MAX_TIME_MS_EXPIRED: i32 = 50;
 
+/// Server code `NamespaceNotFound`: the collection or database does not exist.
+pub(crate) const CODE_NAMESPACE_NOT_FOUND: i32 = 26;
+/// Server code `NamespaceExists`: the target of a create or rename is taken.
+pub(crate) const CODE_NAMESPACE_EXISTS: i32 = 48;
+/// Server code `CommandNotSupportedOnView`: `listIndexes`, `collStats` and the like on a view.
+pub(crate) const CODE_COMMAND_NOT_SUPPORTED_ON_VIEW: i32 = 166;
+
+/// Whether the driver error is a server command error with one of `codes`.
+pub(crate) fn has_code(e: &mongodb::error::Error, codes: &[i32]) -> bool {
+    matches!(e.kind.as_ref(), ErrorKind::Command(c) if codes.contains(&c.code))
+}
+
 /// What the driver's error kind says about reaching the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reach {

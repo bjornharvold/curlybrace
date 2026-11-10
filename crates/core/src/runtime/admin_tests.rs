@@ -7,6 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bson::Document;
 
+use super::handlers::command_time_limit;
 use super::*;
 use crate::admin::{CollectionStats, DatabaseStats};
 use crate::store::{DocumentStore, Page, Query};
@@ -266,4 +267,18 @@ async fn a_locked_connection_refuses_each_admin_write() {
         assert_eq!(error, CoreError::ReadOnly);
     }
     assert!(store.calls().is_empty());
+}
+
+#[test]
+fn a_duplicate_runs_under_the_long_bound_and_other_admin_writes_do_not() {
+    let config = RuntimeConfig {
+        command_timeout: Duration::from_secs(1),
+        index_build_timeout: Duration::from_secs(9),
+        ..RuntimeConfig::default()
+    };
+    let all = writes();
+    assert_eq!(command_time_limit(&config, &all[4]), Duration::from_secs(9));
+    for other in &all[..4] {
+        assert_eq!(command_time_limit(&config, other), Duration::from_secs(1));
+    }
 }

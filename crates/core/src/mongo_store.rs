@@ -488,6 +488,7 @@ impl DocumentStore for MongoStore {
     }
 
     async fn duplicate_collection(&self, ns: &Namespace, target: &str) -> Result<()> {
+        crate::admin::ensure_user_database(&ns.db)?;
         crate::admin::validate_collection_name(target)?;
         let kinds = self.list_collection_kinds(&ns.db).await?;
         match kinds.iter().find(|(name, _)| *name == ns.collection) {

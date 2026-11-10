@@ -85,3 +85,11 @@ fn server_codes_map_to_typed_errors() {
     assert_eq!(map_admin_code(Some(11)), None);
     assert_eq!(map_admin_code(None), None);
 }
+
+#[test]
+fn a_view_has_no_statistics_and_says_so() {
+    assert!(matches!(
+        map_admin_code(Some(166)),
+        Some(CoreError::Unsupported(_))
+    ));
+}

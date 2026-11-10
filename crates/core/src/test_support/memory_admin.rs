@@ -3,14 +3,16 @@
 
 use super::memory_store::{InMemoryStore, poisoned};
 use crate::admin::{
-    CollectionStats, DatabaseStats, validate_collection_name, validate_database_name,
+    CollectionStats, DatabaseStats, ensure_user_database, validate_collection_name,
+    validate_existing_collection_name, validate_existing_database_name,
 };
 use crate::error::{CoreError, Result};
 use crate::store::Namespace;
 
 impl InMemoryStore {
     pub(super) fn admin_drop_collection(&self, ns: &Namespace) -> Result<()> {
-        validate_collection_name(&ns.collection)?;
+        ensure_user_database(&ns.db)?;
+        validate_existing_collection_name(&ns.collection)?;
         let key = (ns.db.clone(), ns.collection.clone());
         self.data.lock().map_err(|_| poisoned())?.remove(&key);
         self.options.lock().map_err(|_| poisoned())?.remove(&key);
@@ -19,7 +21,7 @@ impl InMemoryStore {
     }
 
     pub(super) fn admin_drop_database(&self, db: &str) -> Result<()> {
-        validate_database_name(db)?;
+        validate_existing_database_name(db)?;
         self.data
             .lock()
             .map_err(|_| poisoned())?
@@ -36,7 +38,8 @@ impl InMemoryStore {
     }
 
     pub(super) fn admin_rename(&self, ns: &Namespace, to: &str, drop_target: bool) -> Result<()> {
-        validate_collection_name(&ns.collection)?;
+        ensure_user_database(&ns.db)?;
+        validate_existing_collection_name(&ns.collection)?;
         validate_collection_name(to)?;
         let (from, target) = (
             (ns.db.clone(), ns.collection.clone()),
@@ -51,11 +54,14 @@ impl InMemoryStore {
         }
         let docs = data.remove(&from).unwrap_or_default();
         data.insert(target.clone(), docs);
+        // The target now is the source: whatever the replaced target had must not survive.
         let mut options = self.options.lock().map_err(|_| poisoned())?;
+        options.remove(&target);
         if let Some(o) = options.remove(&from) {
             options.insert(target.clone(), o);
         }
         let mut indexes = self.indexes.lock().map_err(|_| poisoned())?;
+        indexes.remove(&target);
         if let Some(i) = indexes.remove(&from) {
             indexes.insert(target, i);
         }
@@ -63,6 +69,7 @@ impl InMemoryStore {
     }
 
     pub(super) fn admin_duplicate(&self, ns: &Namespace, target: &str) -> Result<()> {
+        ensure_user_database(&ns.db)?;
         validate_collection_name(target)?;
         let (from, to) = (
             (ns.db.clone(), ns.collection.clone()),

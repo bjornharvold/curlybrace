@@ -193,11 +193,7 @@ async fn run(
         .current_store()
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
         .map_err(|e| gate(session, generation, e))?;
-    // An index build can run for a long time; every other command keeps the short bound.
-    let limit = match command {
-        Command::CreateIndex { .. } => shared.config.index_build_timeout,
-        _ => shared.config.command_timeout,
-    };
+    let limit = command_time_limit(&shared.config, &command);
     let is_write = command.is_write();
     // An explain that outruns the bound is a missing verdict, not a failure: kept to answer it.
     let explain_target = match &command {
@@ -644,4 +640,19 @@ async fn test_connection(
         })
     })
     .await
+}
+
+/// The bound a command runs under. An index build and a collection duplicate (a full copy, then
+/// its index builds) can run for a long time and must not be cut off half-way; every other
+/// command keeps the short bound.
+pub(super) fn command_time_limit(
+    config: &super::RuntimeConfig,
+    command: &Command,
+) -> std::time::Duration {
+    match command {
+        Command::CreateIndex { .. } | Command::DuplicateCollection { .. } => {
+            config.index_build_timeout
+        }
+        _ => config.command_timeout,
+    }
 }

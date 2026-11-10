@@ -8,21 +8,13 @@ use futures::TryStreamExt;
 use mongodb::Database;
 use mongodb::error::ErrorKind;
 
+use crate::driver_error::{CODE_COMMAND_NOT_SUPPORTED_ON_VIEW, CODE_NAMESPACE_NOT_FOUND, has_code};
 use crate::error::{CoreError, Result};
 use crate::indexes::{IndexSpec, number};
 use crate::store::{CollectionIndex, IndexUsage, Namespace};
 
-/// Server error code `NamespaceNotFound`: the collection does not exist.
-const CODE_NAMESPACE_NOT_FOUND: i32 = 26;
-/// Server error code `CommandNotSupportedOnView`: `listIndexes` / `$indexStats` on a view.
-const CODE_COMMAND_NOT_SUPPORTED_ON_VIEW: i32 = 166;
 /// Server error code `IndexNotFound`: no index has that name.
 const CODE_INDEX_NOT_FOUND: i32 = 27;
-
-/// Whether the driver error is a server command error with one of `codes`.
-fn has_code(e: &mongodb::error::Error, codes: &[i32]) -> bool {
-    matches!(e.kind.as_ref(), ErrorKind::Command(c) if codes.contains(&c.code))
-}
 
 /// Whether a server refusal with `code` means "nothing to list": the collection does not exist,
 /// or it is a view, which has no indexes of its own.

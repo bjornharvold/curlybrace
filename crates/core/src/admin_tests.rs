@@ -1,6 +1,9 @@
 //! Name rules for databases, collections and views, and the typed refusals they produce.
 
-use crate::admin::{parse_pipeline, validate_collection_name, validate_database_name};
+use crate::admin::{
+    ensure_user_database, parse_pipeline, validate_collection_name, validate_database_name,
+    validate_existing_collection_name, validate_existing_database_name,
+};
 use crate::error::CoreError;
 
 #[test]
@@ -98,4 +101,58 @@ fn a_malformed_pipeline_is_refused_with_a_typed_error() {
         parse_pipeline("[1, 2]"),
         Err(CoreError::InvalidDocument(_))
     ));
+}
+
+#[test]
+fn existing_legacy_database_names_can_still_be_addressed() {
+    for name in ["a:b", "x*y", "q|r", &"d".repeat(64)] {
+        assert_eq!(validate_existing_database_name(name), Ok(()), "{name}");
+        // The same names are refused for a new database.
+        assert_eq!(
+            validate_database_name(name),
+            Err(CoreError::InvalidNamespace),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn an_existing_database_name_still_needs_to_be_a_name_and_not_server_owned() {
+    assert_eq!(
+        validate_existing_database_name(""),
+        Err(CoreError::InvalidNamespace)
+    );
+    assert_eq!(
+        validate_existing_database_name("a\0b"),
+        Err(CoreError::InvalidNamespace)
+    );
+    assert_eq!(
+        validate_existing_database_name("config"),
+        Err(CoreError::ReservedDatabase)
+    );
+}
+
+#[test]
+fn existing_system_collections_can_be_addressed_but_new_ones_cannot_be_made() {
+    assert_eq!(validate_existing_collection_name("system.profile"), Ok(()));
+    assert_eq!(
+        validate_collection_name("system.profile"),
+        Err(CoreError::InvalidNamespace)
+    );
+    assert_eq!(
+        validate_existing_collection_name(" "),
+        Err(CoreError::InvalidNamespace)
+    );
+    assert_eq!(
+        validate_existing_collection_name("a\0b"),
+        Err(CoreError::InvalidNamespace)
+    );
+}
+
+#[test]
+fn collection_level_work_is_refused_in_the_server_owned_databases() {
+    for db in ["admin", "local", "config"] {
+        assert_eq!(ensure_user_database(db), Err(CoreError::ReservedDatabase));
+    }
+    assert_eq!(ensure_user_database("shop"), Ok(()));
 }

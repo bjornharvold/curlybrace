@@ -7,7 +7,11 @@ use futures::TryStreamExt;
 use mongodb::Database;
 
 use crate::admin::{
-    CollectionStats, DatabaseStats, validate_collection_name, validate_database_name,
+    CollectionStats, DatabaseStats, ensure_user_database, validate_collection_name,
+    validate_existing_collection_name, validate_existing_database_name,
+};
+use crate::driver_error::{
+    CODE_COMMAND_NOT_SUPPORTED_ON_VIEW, CODE_NAMESPACE_EXISTS, CODE_NAMESPACE_NOT_FOUND, has_code,
 };
 use crate::error::{CoreError, Result};
 use crate::indexes::{IndexSpec, number};
@@ -15,16 +19,14 @@ use crate::store::{CollectionOptions, Namespace};
 
 type DbErr = fn(mongodb::error::Error) -> CoreError;
 
-/// Server code `NamespaceNotFound`.
-const CODE_NAMESPACE_NOT_FOUND: i32 = 26;
-/// Server code `NamespaceExists`.
-const CODE_NAMESPACE_EXISTS: i32 = 48;
-
 /// The typed error a server code stands for in this module, if it has one.
 pub(crate) fn map_admin_code(code: Option<i32>) -> Option<CoreError> {
     match code? {
         CODE_NAMESPACE_NOT_FOUND => Some(CoreError::NotFound),
         CODE_NAMESPACE_EXISTS => Some(CoreError::NamespaceExists),
+        CODE_COMMAND_NOT_SUPPORTED_ON_VIEW => Some(CoreError::Unsupported(
+            "statistics are not available for a view".into(),
+        )),
         _ => None,
     }
 }
@@ -94,23 +96,27 @@ pub(crate) fn database_stats_from(reply: &Document) -> DatabaseStats {
 }
 
 pub(crate) async fn drop_collection(db: &Database, ns: &Namespace, db_err: DbErr) -> Result<()> {
-    validate_collection_name(&ns.collection)?;
+    ensure_user_database(&ns.db)?;
+    validate_existing_collection_name(&ns.collection)?;
     match db
         .run_command(drop_collection_command(&ns.collection))
         .await
     {
         Ok(_) => Ok(()),
         // Older servers refuse to drop what is not there; the user's goal is already met.
-        Err(e) if crate::driver_error::server_error_code(&e) == Some(CODE_NAMESPACE_NOT_FOUND) => {
-            Ok(())
-        }
+        Err(e) if has_code(&e, &[CODE_NAMESPACE_NOT_FOUND]) => Ok(()),
         Err(e) => Err(db_err(e)),
     }
 }
 
 pub(crate) async fn drop_database(db: &Database, name: &str, db_err: DbErr) -> Result<()> {
-    validate_database_name(name)?;
-    db.drop().await.map_err(admin_err(db_err))
+    validate_existing_database_name(name)?;
+    match db.drop().await {
+        Ok(()) => Ok(()),
+        // Same as a collection: what is not there is already gone.
+        Err(e) if has_code(&e, &[CODE_NAMESPACE_NOT_FOUND]) => Ok(()),
+        Err(e) => Err(db_err(e)),
+    }
 }
 
 /// `renameCollection` runs against `admin` (`admin_db`) and names both namespaces in full.
@@ -121,7 +127,8 @@ pub(crate) async fn rename_collection(
     drop_target: bool,
     db_err: DbErr,
 ) -> Result<()> {
-    validate_collection_name(&ns.collection)?;
+    ensure_user_database(&ns.db)?;
+    validate_existing_collection_name(&ns.collection)?;
     validate_collection_name(new_name)?;
     admin_db
         .run_command(rename_command(ns, new_name, drop_target))
@@ -137,8 +144,9 @@ pub(crate) async fn create_view(
     pipeline: &[Document],
     db_err: DbErr,
 ) -> Result<()> {
+    ensure_user_database(&ns.db)?;
     validate_collection_name(&ns.collection)?;
-    validate_collection_name(source)?;
+    validate_existing_collection_name(source)?;
     db.run_command(view_command(&ns.collection, source, pipeline))
         .await
         .map(|_| ())
@@ -168,6 +176,10 @@ pub(crate) async fn database_stats(db: &Database, db_err: DbErr) -> Result<Datab
 /// Copies `source` into the new collection `target`: creates it with `options`, merges every
 /// document in (a duplicate `_id` fails rather than overwriting), then rebuilds `indexes` (the
 /// implicit `_id_` index is skipped). The caller has already checked that `target` is absent.
+///
+/// Once the create has succeeded the target is ours, so a later failure drops it again: left
+/// behind, a half-copied target would make every retry answer `NamespaceExists`. A failed create
+/// is not rolled back, since then the target may be someone else's.
 pub(crate) async fn copy_collection(
     db: &Database,
     source: &Namespace,
@@ -176,11 +188,36 @@ pub(crate) async fn copy_collection(
     indexes: &[IndexSpec],
     db_err: DbErr,
 ) -> Result<()> {
+    ensure_user_database(&source.db)?;
     validate_collection_name(target)?;
     let target_ns = Namespace::new(&source.db, target);
-    crate::mongo_collection_options::create_collection(db, &target_ns, options, db_err).await?;
-    let merge =
-        doc! { "$merge": { "into": target, "whenMatched": "fail", "whenNotMatched": "insert" } };
+    crate::mongo_collection_options::create_collection(db, &target_ns, options, admin_err(db_err))
+        .await?;
+    let Err(error) = fill_copy(db, source, &target_ns, indexes, db_err).await else {
+        return Ok(());
+    };
+    if let Err(rollback) = drop_collection(db, &target_ns, db_err).await {
+        log::error!(
+            "duplicate of {}.{} failed and the half-made copy {} could not be dropped: {rollback}",
+            source.db,
+            source.collection,
+            target_ns.collection
+        );
+    }
+    Err(error)
+}
+
+/// The documents and indexes of a copy whose target collection exists.
+async fn fill_copy(
+    db: &Database,
+    source: &Namespace,
+    target_ns: &Namespace,
+    indexes: &[IndexSpec],
+    db_err: DbErr,
+) -> Result<()> {
+    let merge = doc! { "$merge": {
+        "into": &target_ns.collection, "whenMatched": "fail", "whenNotMatched": "insert"
+    } };
     let mut cursor = db
         .collection::<Document>(&source.collection)
         .aggregate(vec![merge])
@@ -188,7 +225,7 @@ pub(crate) async fn copy_collection(
         .map_err(db_err)?;
     while cursor.try_next().await.map_err(db_err)?.is_some() {}
     for spec in indexes.iter().filter(|s| s.name != "_id_") {
-        crate::mongo_indexes::create_index(db, &target_ns, spec, db_err).await?;
+        crate::mongo_indexes::create_index(db, target_ns, spec, db_err).await?;
     }
     Ok(())
 }

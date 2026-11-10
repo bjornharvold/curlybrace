@@ -15,7 +15,8 @@ const FORBIDDEN_DB_CHARS: [char; 10] = ['/', '\\', '.', '"', '$', '*', '<', '>',
 /// A database name must be shorter than this many bytes.
 const MAX_DB_NAME_BYTES: usize = 64;
 
-/// Checks a collection or view name: not blank, no `$` or NUL, not a `system.` collection.
+/// Checks the name of a collection or view about to be created (a new, rename-target, view or
+/// duplicate name): not blank, no `$` or NUL, not a `system.` collection.
 pub fn validate_collection_name(name: &str) -> Result<()> {
     let bad = name.trim().is_empty() || name.contains(['$', '\0']) || name.starts_with("system.");
     if bad {
@@ -25,7 +26,39 @@ pub fn validate_collection_name(name: &str) -> Result<()> {
     }
 }
 
-/// Checks a database name, and refuses the server-owned databases.
+/// Checks the name of a collection that already exists, for dropping, renaming from, or
+/// reading. Only what could never be a name is refused: older servers allowed `system.*`
+/// collections and `$` is checked at creation, so the creation rules would lock real
+/// collections out of being dropped.
+pub fn validate_existing_collection_name(name: &str) -> Result<()> {
+    if name.trim().is_empty() || name.contains('\0') {
+        Err(CoreError::InvalidNamespace)
+    } else {
+        Ok(())
+    }
+}
+
+/// Checks the name of a database that already exists (to drop it): a name at all, and not a
+/// server-owned database. Legal legacy names such as `a:b` or one of exactly 64 bytes pass;
+/// only [`validate_database_name`] applies the rules for new names.
+pub fn validate_existing_database_name(name: &str) -> Result<()> {
+    if name.is_empty() || name.contains('\0') {
+        return Err(CoreError::InvalidNamespace);
+    }
+    ensure_user_database(name)
+}
+
+/// Refuses work inside a server-owned database (`admin`, `local`, `config`): dropping or
+/// renaming `config.chunks` through a mongos corrupts the cluster, and these hold no user data.
+pub fn ensure_user_database(db: &str) -> Result<()> {
+    if RESERVED_DATABASES.contains(&db) {
+        Err(CoreError::ReservedDatabase)
+    } else {
+        Ok(())
+    }
+}
+
+/// Checks the name of a database about to be created, and refuses the server-owned databases.
 pub fn validate_database_name(name: &str) -> Result<()> {
     let bad = name.is_empty()
         || name.len() >= MAX_DB_NAME_BYTES
@@ -36,10 +69,7 @@ pub fn validate_database_name(name: &str) -> Result<()> {
     if bad {
         return Err(CoreError::InvalidNamespace);
     }
-    if RESERVED_DATABASES.contains(&name) {
-        return Err(CoreError::ReservedDatabase);
-    }
-    Ok(())
+    ensure_user_database(name)
 }
 
 /// Size and count figures of one collection, as the server reports them.
