@@ -151,6 +151,92 @@ fn multibyte_text_in_strings_and_comments_is_kept() {
     assert_eq!(fmt(src), want);
 }
 
+#[test]
+fn a_line_that_closes_and_reopens_sits_at_its_openers_level() {
+    let cases = [
+        (
+            "db.c.updateMany({\n a: 1\n}, {\n $set: {b:2}\n})\n",
+            "db.c.updateMany({\n  a: 1\n}, {\n  $set: {b:2}\n})\n",
+        ),
+        (
+            "foo(function () {\nbar();\n}, 100)\n",
+            "foo(function () {\n  bar();\n}, 100)\n",
+        ),
+        (
+            "updateOne(filter, {\n$set: 1\n}, { upsert: true })\n",
+            "updateOne(filter, {\n  $set: 1\n}, { upsert: true })\n",
+        ),
+        (
+            "p.then(function () {\nx();\n}).then(function () {\ny();\n})\n",
+            "p.then(function () {\n  x();\n}).then(function () {\n  y();\n})\n",
+        ),
+        (
+            "if (a) {\nb();\n} else {\nc();\n}\n",
+            "if (a) {\n  b();\n} else {\n  c();\n}\n",
+        ),
+        ("f([{\na: 1\n}])\n", "f([{\n  a: 1\n}])\n"),
+        (
+            "xs.map((x) => {\nreturn x;\n})\n",
+            "xs.map((x) => {\n  return x;\n})\n",
+        ),
+        (
+            "db.a.aggregate([\n{ $match: {\nx: 1\n} },\n{ $group: {\n_id: 1,\nn: { $sum: 1 }\n} }\n])\n",
+            "db.a.aggregate([\n  { $match: {\n    x: 1\n  } },\n  { $group: {\n    _id: 1,\n    n: { $sum: 1 }\n  } }\n])\n",
+        ),
+        // Already-formatted text stays put, wherever the first bracket opened.
+        (
+            "if (a) {\n  f(function () {\n    g();\n  }, 1);\n} else {\n  h();\n}\n",
+            "if (a) {\n  f(function () {\n    g();\n  }, 1);\n} else {\n  h();\n}\n",
+        ),
+    ];
+    for (src, want) in cases {
+        assert_eq!(fmt(src), want, "source: {src:?}");
+    }
+}
+
+#[test]
+fn regex_literals_are_skipped_so_their_quotes_and_brackets_do_not_count() {
+    let cases = [
+        ("a = /[(]/.test(s)\n  b\n", "a = /[(]/.test(s)\nb\n"),
+        ("a = /[\"']/\n  b({\nc\n})\n", "a = /[\"']/\nb({\n  c\n})\n"),
+        (
+            "a = /\\/\\//; f({\n  b\n})\n",
+            "a = /\\/\\//; f({\n  b\n})\n",
+        ),
+        ("a = /\\/*x/; f({\nb\n})\n", "a = /\\/*x/; f({\n  b\n})\n"),
+        (
+            "x = /[{]/.test(s)\ny\nz({\nw\n})\n",
+            "x = /[{]/.test(s)\ny\nz({\n  w\n})\n",
+        ),
+        // Division is not a regex, even with a quote or bracket between the slashes.
+        (
+            "a = b / c / d;\n  f({\nx\n})\n",
+            "a = b / c / d;\nf({\n  x\n})\n",
+        ),
+        (
+            "a = b / '(' / d;\n  f({\nx\n})\n",
+            "a = b / '(' / d;\nf({\n  x\n})\n",
+        ),
+        // No closing slash on the line: a division.
+        ("a = (b / c\n  d)\n", "a = (b / c\n  d)\n"),
+    ];
+    for (src, want) in cases {
+        assert_eq!(fmt(src), want, "source: {src:?}");
+    }
+}
+
+#[test]
+fn a_cursor_on_the_first_character_stays_on_it_when_the_indent_grows() {
+    let src = "f({\na\n})\n";
+    let at = src.find('a').unwrap();
+    let got = fmt_sel(src, at..at + 1);
+    assert_eq!(got.text, "f({\n  a\n})\n");
+    let sel = got.selection.unwrap();
+    assert_eq!(&got.text[sel.clone()], "a");
+    let got = fmt_sel(src, at..at);
+    assert_eq!(got.selection, Some(6..6));
+}
+
 const CORPUS: &[&str] = &[
     "",
     "\n",
@@ -165,11 +251,15 @@ const CORPUS: &[&str] = &[
     "  é😀 {\n  日本 }\n",
     "\\\n\\\r\n'\\",
     "$ { } ${ ${ } }\n",
+    "x = `a   \n   b  \n\t${ 1 }  \n   c`  \n  y  \n",
+    "/* a  \n   b  \n\t*/ z  \n  w\n",
+    "s = 'a\\\n   b  \\\r\n  c'\n  t\n",
+    "x = /[(]/.test(s)\n  y = 1\n/\"/ + `\n  q  \n`\n",
 ];
 
 const TOKENS: &[&str] = &[
     "{", "}", "(", ")", "[", "]", "'", "\"", "`", "//", "/*", "*/", "\n", "\n", "\r\n", " ", "  ",
-    "\t", "a", "b1", "${", "}", "\\", "é", "😀", ",", ";", "/",
+    "\t", "a", "b1", "${", "}", "\\", "é", "😀", ",", ";", "/", "=", "(/", "/[(]/", "/\\//",
 ];
 
 /// Tiny seeded LCG so a failing case reproduces from its printed seed and index.
@@ -189,6 +279,152 @@ fn non_ws(text: &str) -> String {
     text.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
+/// An independent oracle (a plain char loop, nothing shared with the production scanner): for
+/// each `\n`-separated line, whether it begins inside a string continuation, a template literal
+/// or a block comment. Such a line is literal text and must come out byte-identical.
+fn literal_line_starts(text: &str) -> Vec<bool> {
+    #[derive(PartialEq)]
+    enum S {
+        Code,
+        Sq,
+        Dq,
+        Tpl,
+        Line,
+        Block,
+    }
+    let cs: Vec<char> = text.chars().collect();
+    let at = |i: usize| cs.get(i).copied();
+    let eol = |i: usize| at(i) == Some('\n') || (at(i) == Some('\r') && at(i + 1) == Some('\n'));
+    let mut starts = vec![false];
+    let mut st = S::Code;
+    // Per open `${`: how many plain `{` are open inside it.
+    let mut subst: Vec<usize> = Vec::new();
+    let mut i = 0;
+    while i < cs.len() {
+        let c = cs[i];
+        if c == '\n' {
+            if matches!(st, S::Line | S::Sq | S::Dq) {
+                st = S::Code;
+            }
+            starts.push(st != S::Code);
+            i += 1;
+            continue;
+        }
+        match st {
+            S::Code => match c {
+                '\'' => st = S::Sq,
+                '"' => st = S::Dq,
+                '`' => st = S::Tpl,
+                '/' if at(i + 1) == Some('/') => {
+                    st = S::Line;
+                    i += 1;
+                }
+                '/' if at(i + 1) == Some('*') => {
+                    st = S::Block;
+                    i += 1;
+                }
+                '/' => {
+                    let mut k = i;
+                    let prev = loop {
+                        if k == 0 || cs[k - 1] == '\n' {
+                            break None;
+                        }
+                        k -= 1;
+                        if cs[k] != ' ' && cs[k] != '\t' {
+                            break Some(cs[k]);
+                        }
+                    };
+                    if prev.is_none_or(|p| "(,=:[{!&|?;+".contains(p)) {
+                        let (mut j, mut class) = (i + 1, false);
+                        while j < cs.len() && !eol(j) {
+                            match cs[j] {
+                                '\\' if eol(j + 1) => break,
+                                '\\' => j += 1,
+                                '[' => class = true,
+                                ']' => class = false,
+                                '/' if !class => {
+                                    i = j;
+                                    break;
+                                }
+                                _ => {}
+                            }
+                            j += 1;
+                        }
+                    }
+                }
+                '{' => {
+                    if let Some(n) = subst.last_mut() {
+                        *n += 1;
+                    }
+                }
+                '}' => match subst.last_mut() {
+                    Some(0) => {
+                        subst.pop();
+                        st = S::Tpl;
+                    }
+                    Some(n) => *n -= 1,
+                    None => {}
+                },
+                _ => {}
+            },
+            S::Sq | S::Dq | S::Tpl => {
+                let quote = match st {
+                    S::Sq => '\'',
+                    S::Dq => '"',
+                    _ => '`',
+                };
+                if c == '\\' && !eol(i + 1) {
+                    i += 1;
+                } else if c == '\\' {
+                    // A backslash at the end of a line continues the literal onto the next one.
+                    i += if at(i + 1) == Some('\r') { 2 } else { 1 };
+                    starts.push(true);
+                } else if c == quote {
+                    st = S::Code;
+                } else if st == S::Tpl && c == '$' && at(i + 1) == Some('{') {
+                    subst.push(0);
+                    st = S::Code;
+                    i += 1;
+                }
+            }
+            S::Line => {}
+            S::Block => {
+                if c == '*' && at(i + 1) == Some('/') {
+                    st = S::Code;
+                    i += 1;
+                }
+            }
+        }
+        i += 1;
+    }
+    starts
+}
+
+/// Every line that begins inside a literal is byte-identical in the output.
+fn assert_literal_lines_kept(label: &str, src: &str, out: &str) {
+    let (src_lines, out_lines): (Vec<_>, Vec<_>) =
+        (src.split('\n').collect(), out.split('\n').collect());
+    assert_eq!(
+        src_lines.len(),
+        out_lines.len(),
+        "line count: {label}: {src:?}"
+    );
+    let starts = literal_line_starts(src);
+    assert_eq!(
+        starts.len(),
+        src_lines.len(),
+        "oracle lines: {label}: {src:?}"
+    );
+    for (n, literal) in starts.iter().enumerate() {
+        if *literal {
+            assert_eq!(
+                src_lines[n], out_lines[n],
+                "literal line {n} changed: {label}: {src:?}"
+            );
+        }
+    }
+}
+
 fn check_script(label: &str, src: &str) {
     let once = format_script(src, None).text;
     let twice = format_script(&once, None).text;
@@ -198,7 +434,8 @@ fn check_script(label: &str, src: &str) {
         non_ws(&once),
         "non-whitespace changed: {label}: {src:?}"
     );
-    // Formatting any char-aligned slice of lines must not panic either.
+    assert_literal_lines_kept(label, src, &once);
+    // Formatting arbitrary ranges (deliberately not aligned to chars or lines) must not panic.
     let len = src.len();
     for (a, b) in [
         (0, len),
@@ -214,6 +451,7 @@ fn check_script(label: &str, src: &str) {
             "{label}: {src:?}"
         );
         assert_eq!(non_ws(src), non_ws(&got.text), "{label}: {src:?}");
+        assert_literal_lines_kept(label, src, &got.text);
     }
 }
 

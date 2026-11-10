@@ -4,13 +4,20 @@
 //! One left-to-right pass tracks the lexical state (code, `'`/`"` strings, template literals with
 //! `${ ... }` nesting, line and block comments) and the open `{ [ (`. A line is indented by two
 //! spaces per level, where a level is a line that left a bracket open (so `f({` opens one level,
-//! not two); a line that starts with closing brackets is indented as if they were already closed.
-//! Trailing whitespace is trimmed and blank lines stay blank. Lines that start inside a string,
-//! template literal or block comment are text of that literal, so they are left exactly as they
-//! are. Line endings (LF or CRLF) are never touched and long lines are not reflowed.
+//! not two). A bracket's body sits one level below the line that opened it; a line that starts
+//! with closing brackets sits at the level of the line that opened the first of them (so
+//! `}, {` re-opens at the level of its opener). Trailing whitespace is trimmed and blank lines
+//! stay blank. Lines that start inside a string, template literal or block comment are text of
+//! that literal, so they are left exactly as they are. Line endings (LF or CRLF) are never
+//! touched and long lines are not reflowed.
 //!
-//! Known limitation: regex literals are plain code to the scanner, so a quote or bracket inside
-//! one (`/["{]/`) is read as a real quote or bracket and can skew the depth or the literal state.
+//! Only brackets drive the indent: leading-`.` chains and braceless continuations (`if (x)`
+//! followed by a bare statement) are flattened to the bracket level.
+//!
+//! A `/` that follows nothing, or one of `( , = : [ { ! & | ? ;  +` on its line, and has a closing
+//! `/` on the same line, is read as a regex literal and skipped. Anything else (including
+//! `return /re/` and `) /re/`) is read as division, so a quote or bracket in such a regex can
+//! still skew the depth or the literal state.
 use std::ops::Range;
 
 /// Spaces per nesting level.
@@ -149,7 +156,10 @@ fn map_offset(edits: &[Edit], p: usize) -> usize {
     let col = p - e.old_start;
     if p >= e.old_content_end {
         e.new_content_end + (p - e.old_content_end)
-    } else if col <= e.old_lead {
+    } else if col == e.old_lead {
+        // The first character of the text stays the first character of the text.
+        e.new_start + e.new_lead
+    } else if col < e.old_lead {
         e.new_start + col.min(e.new_lead)
     } else {
         (e.new_start + e.new_lead + (col - e.old_lead)).min(e.new_content_end)
@@ -159,29 +169,33 @@ fn map_offset(edits: &[Edit], p: usize) -> usize {
 /// The scanner's running state across lines.
 struct Scanner {
     state: Lex,
-    /// Open brackets as (line it opened on, indent levels up to and including it).
-    open: Vec<(usize, usize)>,
+    /// Open brackets, each as the indent level of its body: one more than the level of the line
+    /// that opened it.
+    open: Vec<usize>,
     /// `open.len()` where each unfinished `${` was entered; its closing `}` resumes the template.
     subst: Vec<usize>,
+    /// Indent level of the line being scanned.
+    level: usize,
 }
 
 impl Scanner {
-    /// Levels of the first `n` open brackets: one per distinct line that opened them.
-    fn levels(&self, n: usize) -> usize {
-        n.checked_sub(1).map_or(0, |i| self.open[i].1)
-    }
-
-    fn push(&mut self, line: usize) {
-        let level = match self.open.last() {
-            Some(&(l, lv)) if l == line => lv,
-            Some(&(_, lv)) => lv + 1,
-            None => 1,
-        };
-        self.open.push((line, level));
+    fn push(&mut self) {
+        self.open.push(self.level + 1);
     }
 
     fn pop(&mut self) {
         self.open.pop();
+    }
+
+    /// Level of a line that starts with `closers` closing brackets: the level of the line that
+    /// opened the first of them, or the body level of the innermost open bracket.
+    fn level_at_line_start(&self, closers: usize) -> usize {
+        let body = self.open.last().copied().unwrap_or(0);
+        if closers > 0 {
+            body.saturating_sub(1)
+        } else {
+            body
+        }
     }
 }
 
@@ -197,6 +211,7 @@ fn scan(text: &str) -> Vec<Line> {
         state: Lex::Code,
         open: Vec::new(),
         subst: Vec::new(),
+        level: 0,
     };
     let mut start = 0;
     loop {
@@ -214,12 +229,10 @@ fn scan(text: &str) -> Vec<Line> {
         };
         let content = &bytes[start..content_end];
         let in_code = sc.state == Lex::Code;
-        let level = if in_code {
-            sc.levels(sc.open.len() - leading_closers(content, sc.open.len()))
-        } else {
-            0
-        };
-        let escaped = scan_line(content, lines.len(), &mut sc);
+        let closers = if in_code { leading_closers(content) } else { 0 };
+        sc.level = sc.level_at_line_start(closers);
+        let level = sc.level;
+        let escaped = scan_line(content, &mut sc);
         let trim = matches!(sc.state, Lex::Code | Lex::LineComment);
         lines.push(Line {
             start,
@@ -243,18 +256,42 @@ fn scan(text: &str) -> Vec<Line> {
     lines
 }
 
-/// How many of the brackets open at the line's start it closes before anything else.
-fn leading_closers(line: &[u8], open: usize) -> usize {
-    let n = line
-        .iter()
+/// How many closing brackets the line starts with (blanks between them allowed).
+fn leading_closers(line: &[u8]) -> usize {
+    line.iter()
         .filter(|&&b| b != b' ' && b != b'\t')
         .take_while(|&&b| is_closer(b))
-        .count();
-    n.min(open)
+        .count()
+}
+
+/// Whether a `/` at `i` starts a regex literal rather than a division: nothing, or an operator
+/// or opening punctuation, comes before it on the line.
+fn starts_regex(line: &[u8], i: usize) -> bool {
+    match line[..i].iter().rev().find(|&&b| b != b' ' && b != b'\t') {
+        None => true,
+        Some(b) => b"(,=:[{!&|?;+".contains(b),
+    }
+}
+
+/// The index of the `/` that closes the regex literal opened at `i`, on the same line.
+fn regex_end(line: &[u8], i: usize) -> Option<usize> {
+    let mut class = false;
+    let mut j = i + 1;
+    while j < line.len() {
+        match line[j] {
+            b'\\' => j += 1,
+            b'[' => class = true,
+            b']' => class = false,
+            b'/' if !class => return Some(j),
+            _ => {}
+        }
+        j += 1;
+    }
+    None
 }
 
 /// Advances the lexical state over one line; true when it ends in a dangling `\`.
-fn scan_line(line: &[u8], line_no: usize, sc: &mut Scanner) -> bool {
+fn scan_line(line: &[u8], sc: &mut Scanner) -> bool {
     let mut i = 0;
     while i < line.len() {
         let b = line[i];
@@ -272,7 +309,12 @@ fn scan_line(line: &[u8], line_no: usize, sc: &mut Scanner) -> bool {
                     sc.state = Lex::BlockComment;
                     i += 1;
                 }
-                b'{' | b'[' | b'(' => sc.push(line_no),
+                b'/' if starts_regex(line, i) => {
+                    if let Some(end) = regex_end(line, i) {
+                        i = end;
+                    }
+                }
+                b'{' | b'[' | b'(' => sc.push(),
                 b'}' | b']' | b')' => {
                     sc.pop();
                     if b == b'}' && sc.subst.last() == Some(&sc.open.len()) {
@@ -297,7 +339,7 @@ fn scan_line(line: &[u8], line_no: usize, sc: &mut Scanner) -> bool {
                     sc.state = Lex::Code;
                 } else if sc.state == Lex::Template && b == b'$' && next == Some(b'{') {
                     sc.subst.push(sc.open.len());
-                    sc.push(line_no);
+                    sc.push();
                     sc.state = Lex::Code;
                     i += 1;
                 }
