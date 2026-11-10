@@ -240,6 +240,9 @@ pub struct AppState {
     /// A write to a production connection waiting for the user's confirmation. Not part of a
     /// session view: the parked command names its session and is re-validated on confirm.
     pub write_warning: Option<super::write_guard::ParkedWrite>,
+    /// The open administration dialog (drop, rename, duplicate, create view). Not part of a
+    /// session view: it names its session and only sends there.
+    pub admin: Option<Box<crate::viewmodel::AdminDialog>>,
     /// The open bulk update / delete flow. Not part of a session view either: it names its
     /// session and is closed when that session is closed or reopened.
     pub bulk: Option<super::bulk_state::BulkState>,
@@ -363,6 +366,7 @@ impl AppState {
             editor: None,
             pending: None,
             write_warning: None,
+            admin: None,
             bulk: None,
             forget_confirm: None,
             open: Vec::new(),

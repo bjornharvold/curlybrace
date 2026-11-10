@@ -57,6 +57,11 @@ pub enum SidebarAction {
         mode: SelectMode,
     },
     Copy,
+    /// Open an administration dialog (drop, rename, duplicate, create view).
+    Admin(crate::viewmodel::AdminRequest),
+    /// What the person did in the open administration dialog. It rides on the sidebar input so the
+    /// reducer's main match stays small.
+    AdminDialog(crate::viewmodel::AdminAction),
     Paste(PasteTarget),
     Drop {
         clipboard: Box<CopyClipboard>,

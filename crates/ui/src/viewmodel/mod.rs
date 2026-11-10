@@ -1,4 +1,5 @@
 //! Pure, egui-free view-model helpers.
+pub mod admin_dialog;
 pub mod bulk_entry;
 pub mod bulk_flow;
 pub mod bulk_text;
@@ -34,6 +35,7 @@ pub mod tree_state;
 pub mod typed_confirmation;
 pub mod verdict;
 
+pub use admin_dialog::{AdminAction, AdminDialog, AdminKind, AdminProblem, AdminRequest};
 pub use bulk_entry::BulkEntry;
 pub use bulk_flow::{
     BULK_UPDATE_TYPED_CONFIRM_THRESHOLD, BulkFlow, BulkKind, BulkStep, CancelNote, CountState,

@@ -193,11 +193,7 @@ async fn run(
         .current_store()
         .ok_or_else(|| CoreError::Unsupported("not connected".into()))
         .map_err(|e| gate(session, generation, e))?;
-    // An index build can run for a long time; every other command keeps the short bound.
-    let limit = match command {
-        Command::CreateIndex { .. } => shared.config.index_build_timeout,
-        _ => shared.config.command_timeout,
-    };
+    let limit = command_time_limit(&shared.config, &command);
     let is_write = command.is_write();
     // An explain that outruns the bound is a missing verdict, not a failure: kept to answer it.
     let explain_target = match &command {
@@ -415,6 +411,55 @@ async fn data_command(
             store.set_index_ttl(&ns, &name, seconds).await?;
             Event::IndexChanged { session, ns }
         }
+        Command::DropCollection { ns, .. } => {
+            store.drop_collection(&ns).await?;
+            Event::AdminChanged { session, db: ns.db }
+        }
+        Command::DropDatabase { db, .. } => {
+            store.drop_database(&db).await?;
+            Event::AdminChanged { session, db }
+        }
+        Command::RenameCollection {
+            ns,
+            new_name,
+            drop_target,
+            ..
+        } => {
+            store.rename_collection(&ns, &new_name, drop_target).await?;
+            Event::AdminChanged { session, db: ns.db }
+        }
+        Command::CreateView {
+            ns,
+            source,
+            pipeline_json,
+            ..
+        } => {
+            let pipeline = crate::admin::parse_pipeline(&pipeline_json)?;
+            store.create_view(&ns, &source, &pipeline).await?;
+            Event::AdminChanged { session, db: ns.db }
+        }
+        Command::DuplicateCollection { ns, target, .. } => {
+            store.duplicate_collection(&ns, &target).await?;
+            Event::AdminChanged { session, db: ns.db }
+        }
+        Command::CollectionStats { ns, request, .. } => {
+            let stats = store.collection_stats(&ns).await?;
+            Event::CollectionStats {
+                session,
+                ns,
+                stats,
+                request,
+            }
+        }
+        Command::DatabaseStats { db, request, .. } => {
+            let stats = store.database_stats(&db).await?;
+            Event::DatabaseStats {
+                session,
+                db,
+                stats,
+                request,
+            }
+        }
         Command::Connect(_)
         | Command::Disconnect { .. }
         | Command::Compare(_)
@@ -595,4 +640,19 @@ async fn test_connection(
         })
     })
     .await
+}
+
+/// The bound a command runs under. An index build and a collection duplicate (a full copy, then
+/// its index builds) can run for a long time and must not be cut off half-way; every other
+/// command keeps the short bound.
+pub(super) fn command_time_limit(
+    config: &super::RuntimeConfig,
+    command: &Command,
+) -> std::time::Duration {
+    match command {
+        Command::CreateIndex { .. } | Command::DuplicateCollection { .. } => {
+            config.index_build_timeout
+        }
+        _ => config.command_timeout,
+    }
 }

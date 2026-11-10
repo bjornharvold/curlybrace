@@ -38,7 +38,7 @@ pub(crate) async fn create_collection(
     db: &Database,
     ns: &Namespace,
     options: &CollectionOptions,
-    db_err: fn(mongodb::error::Error) -> CoreError,
+    db_err: impl Fn(mongodb::error::Error) -> CoreError,
 ) -> Result<()> {
     db.run_command(create_command(&ns.collection, options))
         .await

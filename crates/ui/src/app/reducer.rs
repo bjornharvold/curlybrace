@@ -260,6 +260,14 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
                 Vec::new(),
             )
         }
+        // An administration write failed or has an unknown outcome: its dialog shows it. A lost
+        // server still takes the connection-lost path below, which closes the dialog.
+        Event::Failed { context, error, .. }
+            if super::admin_dialog_actions::is_admin_context(context)
+                && !matches!(error, CoreError::Unreachable | CoreError::TlsHandshake) =>
+        {
+            super::admin_dialog_actions::failed_out(state, context, error)
+        }
         // The server of an open session cannot be reached any more: the root fails like a failed
         // connect would, and Reconnect is the way back. Except while an editor is open: one
         // transient network error must not discard the text the person is typing, so whichever
@@ -364,6 +372,9 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             Vec::new(),
         ),
         Event::IndexChanged { ns, .. } => index_actions::changed(state, ns),
+        Event::AdminChanged { db, .. } => super::admin_actions::changed(state, db),
+        // No view shows statistics yet; the answer is consumed.
+        Event::CollectionStats { .. } | Event::DatabaseStats { .. } => (state, Vec::new()),
         Event::Explain {
             ns, query, outcome, ..
         } => (
@@ -652,6 +663,11 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
         "create_index" | "drop_index" | "set_index_hidden" | "set_index_ttl" => {
             failure(index_write_actions::write_failed(state), context, error)
         }
+        "drop_collection"
+        | "drop_database"
+        | "rename_collection"
+        | "create_view"
+        | "duplicate_collection" => super::admin_dialog_actions::failed(state, context, error),
         // The count only decides whether a warning shows: a missing one is not worth a banner.
         "estimated_count" => state,
         "list_indexes" | "index_history" => failure(

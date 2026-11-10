@@ -361,6 +361,7 @@ pub fn show_modals(
         show_host_key_prompt(ctx, host, fingerprint, asking.as_deref(), i18n)
     });
     out.extend(decided.map(UiEvent::HostKey));
+    show_admin_modal(ctx, state, &connection, i18n, out);
     show_write_warning_modal(ctx, state, i18n, out);
     show_copy(ctx, state, i18n, out);
     out.extend(
@@ -445,6 +446,37 @@ fn show_index_dialogs(
         show_profiler_consent(ctx, consent, flags, already_on, i18n)
     });
     out.extend(consent.map(|a| UiEvent::Input(Input::Indexes(IndexesAction::Queries(a)))));
+}
+
+/// The administration dialog of the active session. It is drawn before the production warning, so
+/// that warning (which a confirm may park) lands on top of it.
+fn show_admin_modal(
+    ctx: &egui::Context,
+    state: &AppState,
+    connection: &str,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    let Some(dialog) = state
+        .admin
+        .as_ref()
+        .filter(|d| d.session == state.session_id())
+    else {
+        return;
+    };
+    let badge = state.active_badge();
+    let context = crate::views::admin_dialogs::AdminContext {
+        connection,
+        badge: &badge,
+        busy: super::admin_dialog_actions::busy(state),
+    };
+    if let Some(action) =
+        crate::views::admin_dialogs::show_admin_dialog(ctx, dialog, &context, i18n)
+    {
+        out.push(UiEvent::Input(Input::Sidebar(
+            crate::viewmodel::SidebarAction::AdminDialog(action),
+        )));
+    }
 }
 
 /// Draws the production write warning whenever a write is parked, whichever session is active:

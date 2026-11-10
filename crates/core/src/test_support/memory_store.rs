@@ -15,6 +15,7 @@ use super::memory_indexes::{self as idx, IndexMap, UsageMap};
 use super::memory_options::{self as opts, OptionsMap};
 use super::memory_profile::{self as prof, ProfileMap};
 use super::query_eval::{check_filter, compare, matches, parse_sort, project};
+use crate::admin::{CollectionStats, DatabaseStats};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
 use crate::indexes::{IndexOptions, IndexSpec};
@@ -24,14 +25,14 @@ use crate::store::{
     WriteOp, WriteOutcome,
 };
 
-type Collections = BTreeMap<(String, String), Vec<Document>>;
+pub(super) type Collections = BTreeMap<(String, String), Vec<Document>>;
 
 #[derive(Default)]
 pub struct InMemoryStore {
-    data: Mutex<Collections>,
+    pub(super) data: Mutex<Collections>,
     pub(super) indexes: Mutex<IndexMap>,
     pub(super) usage: Mutex<UsageMap>,
-    options: Mutex<OptionsMap>,
+    pub(super) options: Mutex<OptionsMap>,
     explains: Mutex<BTreeMap<(String, String), Document>>,
     pub(super) profiles: Mutex<ProfileMap>,
 }
@@ -70,7 +71,7 @@ impl InMemoryStore {
     }
 }
 
-fn poisoned() -> CoreError {
+pub(super) fn poisoned() -> CoreError {
     CoreError::Database("in-memory store lock poisoned".into())
 }
 
@@ -367,6 +368,30 @@ impl DocumentStore for InMemoryStore {
         opts::create(&mut stored, key(ns), data.contains_key(&key(ns)), options)?;
         data.insert(key(ns), Vec::new());
         Ok(())
+    }
+
+    async fn drop_collection(&self, ns: &Namespace) -> Result<()> {
+        self.admin_drop_collection(ns)
+    }
+
+    async fn drop_database(&self, db: &str) -> Result<()> {
+        self.admin_drop_database(db)
+    }
+
+    async fn rename_collection(&self, ns: &Namespace, to: &str, drop_target: bool) -> Result<()> {
+        self.admin_rename(ns, to, drop_target)
+    }
+
+    async fn duplicate_collection(&self, ns: &Namespace, target: &str) -> Result<()> {
+        self.admin_duplicate(ns, target)
+    }
+
+    async fn collection_stats(&self, ns: &Namespace) -> Result<CollectionStats> {
+        self.admin_collection_stats(ns)
+    }
+
+    async fn database_stats(&self, db: &str) -> Result<DatabaseStats> {
+        self.admin_database_stats(db)
     }
 
     async fn collection_options(&self, ns: &Namespace) -> Result<Option<CollectionOptions>> {

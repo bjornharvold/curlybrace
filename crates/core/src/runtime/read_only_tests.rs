@@ -55,6 +55,12 @@ impl DocumentStore for CountingStore {
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
         self.inner.estimated_count(ns).await
     }
+    async fn collection_stats(&self, ns: &Namespace) -> Result<crate::admin::CollectionStats> {
+        self.inner.collection_stats(ns).await
+    }
+    async fn database_stats(&self, db: &str) -> Result<crate::admin::DatabaseStats> {
+        self.inner.database_stats(db).await
+    }
     async fn profiling_level(&self, db: &str) -> Result<crate::store::ProfilingState> {
         self.inner.profiling_level(db).await
     }
@@ -198,9 +204,34 @@ fn write_commands(session: SessionId) -> Vec<Command> {
         },
         Command::SetIndexTtl {
             session,
-            ns,
+            ns: ns.clone(),
             name: "a_1".into(),
             seconds: 60,
+        },
+        Command::DropCollection {
+            session,
+            ns: ns.clone(),
+        },
+        Command::DropDatabase {
+            session,
+            db: ns.db.clone(),
+        },
+        Command::RenameCollection {
+            session,
+            ns: ns.clone(),
+            new_name: "renamed".into(),
+            drop_target: false,
+        },
+        Command::CreateView {
+            session,
+            ns: ns.clone(),
+            source: "src".into(),
+            pipeline_json: "[]".into(),
+        },
+        Command::DuplicateCollection {
+            session,
+            ns,
+            target: "copy".into(),
         },
     ]
     .into_iter()
@@ -287,6 +318,16 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             session,
             ns: mock_namespace(),
         },
+        Command::CollectionStats {
+            session,
+            ns: mock_namespace(),
+            request: 0,
+        },
+        Command::DatabaseStats {
+            session,
+            db: "testdb".into(),
+            request: 0,
+        },
         Command::ProfilingState {
             session,
             db: "testdb".into(),
@@ -367,6 +408,8 @@ async fn reads_still_work_on_a_read_only_session() {
                     | Event::Indexes { .. }
                     | Event::IndexHistory { .. }
                     | Event::EstimatedCount { .. }
+                    | Event::CollectionStats { .. }
+                    | Event::DatabaseStats { .. }
                     | Event::QueryShapes { .. }
                     | Event::BulkCount { .. }
                     | Event::BulkSample { .. }
@@ -460,7 +503,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 36;
+const COMMAND_VARIANTS: usize = 43;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -472,6 +515,11 @@ fn classify(command: &Command) -> Class {
         | Command::DropIndex { .. }
         | Command::SetIndexHidden { .. }
         | Command::SetIndexTtl { .. }
+        | Command::DropCollection { .. }
+        | Command::DropDatabase { .. }
+        | Command::RenameCollection { .. }
+        | Command::CreateView { .. }
+        | Command::DuplicateCollection { .. }
         | Command::SetProfilingLevel { .. }
         | Command::BulkPreview { .. }
         | Command::BulkUpdate { .. }
@@ -485,6 +533,8 @@ fn classify(command: &Command) -> Class {
         | Command::ListIndexes { .. }
         | Command::IndexHistory { .. }
         | Command::EstimatedCount { .. }
+        | Command::CollectionStats { .. }
+        | Command::DatabaseStats { .. }
         | Command::ProfilingState { .. }
         | Command::QueryShapes { .. }
         | Command::BulkCount { .. }

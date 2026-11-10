@@ -1,4 +1,5 @@
 //! egui views. Logic lives in `viewmodel`; these only render and collect input.
+pub mod admin_dialogs;
 pub mod bulk_dialog;
 mod bulk_dialog_steps;
 mod bulk_undo_steps;
@@ -41,6 +42,7 @@ pub mod queries_consent;
 pub mod queries_rows;
 pub mod saved_copies;
 pub mod sidebar;
+pub mod sidebar_admin;
 pub mod sidebar_copy;
 pub mod sidebar_drag;
 pub mod sidebar_roots;

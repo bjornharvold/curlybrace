@@ -20,6 +20,8 @@
 //! runtime. Commands run concurrently, so a UI that needs ordering (e.g.
 //! `Connect` before `Find`) must wait for the corresponding event first.
 
+#[cfg(test)]
+mod admin_tests;
 mod bulk;
 #[cfg(test)]
 mod bulk_cancel_tests;
@@ -321,6 +323,48 @@ pub enum Command {
         name: String,
         seconds: i64,
     },
+    /// The five administration writes below are answered with [`Event::AdminChanged`]; the UI
+    /// re-lists the databases and collections. A drop of something already gone succeeds.
+    DropCollection {
+        session: SessionId,
+        ns: Namespace,
+    },
+    DropDatabase {
+        session: SessionId,
+        db: String,
+    },
+    RenameCollection {
+        session: SessionId,
+        ns: Namespace,
+        new_name: String,
+        /// Replace an existing target; without it an existing target fails the rename.
+        drop_target: bool,
+    },
+    /// Creates a read-only view; `pipeline_json` is a JSON array of stages (extended JSON).
+    CreateView {
+        session: SessionId,
+        ns: Namespace,
+        source: String,
+        pipeline_json: String,
+    },
+    DuplicateCollection {
+        session: SessionId,
+        ns: Namespace,
+        target: String,
+    },
+    /// Counts and sizes of a collection; answered with [`Event::CollectionStats`], which echoes
+    /// `request` like [`Command::ListIndexes`]'s.
+    CollectionStats {
+        session: SessionId,
+        ns: Namespace,
+        request: u64,
+    },
+    /// Counts and sizes of a database; answered with [`Event::DatabaseStats`].
+    DatabaseStats {
+        session: SessionId,
+        db: String,
+        request: u64,
+    },
     /// Sets the databases every running (and later started) sampler skips, on top of the system
     /// databases. No session, no epoch, no answer event; samplers see it at their next pass.
     SetSamplingExcluded {
@@ -528,6 +572,25 @@ pub enum Event {
     },
     /// The answer to a successful index write; the UI re-lists the indexes.
     IndexChanged { session: SessionId, ns: Namespace },
+    /// The answer to an administration write: `db` is the database whose collections (or whose
+    /// existence) changed.
+    AdminChanged { session: SessionId, db: String },
+    /// The answer to `CollectionStats`.
+    CollectionStats {
+        session: SessionId,
+        ns: Namespace,
+        stats: crate::admin::CollectionStats,
+        /// The `request` of the command this answers.
+        request: u64,
+    },
+    /// The answer to `DatabaseStats`.
+    DatabaseStats {
+        session: SessionId,
+        db: String,
+        stats: crate::admin::DatabaseStats,
+        /// The `request` of the command this answers.
+        request: u64,
+    },
     /// The answer to `BulkCount`; `count` is `None` when the server-side count timed out. A
     /// client-side timeout is an `Event::RequestFailed { context: "bulk_count", request }` instead
     /// (treat both as "count unavailable").

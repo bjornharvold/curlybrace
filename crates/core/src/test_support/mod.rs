@@ -2,6 +2,9 @@
 //! `test-support` feature is enabled.
 
 mod bson_order;
+mod memory_admin;
+#[cfg(test)]
+mod memory_admin_tests;
 #[cfg(test)]
 mod memory_bulk_tests;
 mod memory_fields;
