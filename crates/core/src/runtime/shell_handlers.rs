@@ -8,7 +8,10 @@
 //! Locks: the session's shell slot is taken only to check, insert or clear, never around
 //! `spawn_shell`, whose `on_done` may run before it returns and clears the slot itself.
 
+use std::future::Future;
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 
 use tokio::sync::mpsc::UnboundedSender;
@@ -20,7 +23,7 @@ use super::session::Session;
 use super::{Command, Event, Repaint, SessionId, Shared, ShellRefusal, handlers};
 
 /// What a run needs once its slot is held.
-struct Run {
+pub(super) struct Run {
     session: Arc<Session>,
     id: SessionId,
     run_id: u64,
@@ -49,7 +52,17 @@ pub(super) fn dispatch(
             script,
         } => match claim(&shared, id, run_id, exe, script) {
             Ok(run) => {
-                tokio::spawn(start(shared, events, repaint, run));
+                let (session, spawned) = (run.session.clone(), Arc::new(AtomicBool::new(false)));
+                let work = start(
+                    shared,
+                    events.clone(),
+                    repaint.clone(),
+                    run,
+                    spawned.clone(),
+                );
+                tokio::spawn(supervised(
+                    session, id, run_id, events, repaint, spawned, work,
+                ));
             }
             Err(reason) => send(&events, &repaint, refused(id, run_id, reason)),
         },
@@ -58,7 +71,7 @@ pub(super) fn dispatch(
 }
 
 /// The synchronous checks, in order; on success the session's slot is held for `run_id`.
-fn claim(
+pub(super) fn claim(
     shared: &Shared,
     id: SessionId,
     run_id: u64,
@@ -88,7 +101,51 @@ fn claim(
     })
 }
 
-async fn start(shared: Arc<Shared>, events: UnboundedSender<Event>, repaint: Repaint, run: Run) {
+/// Runs `work` in an inner task, like `dispatch` does for every command, so a panic cannot leave
+/// the slot reserved: if it happens before the process was spawned, the slot is freed and the run
+/// ends with `StartFailed` (the only failing outcome a run has). After the spawn the runner's own
+/// `on_done` reports, so nothing is sent twice.
+pub(super) async fn supervised(
+    session: Arc<Session>,
+    id: SessionId,
+    run_id: u64,
+    events: UnboundedSender<Event>,
+    repaint: Repaint,
+    spawned: Arc<AtomicBool>,
+    work: impl Future<Output = ()> + Send + 'static,
+) {
+    if tokio::spawn(work).await.is_ok() || spawned.load(Ordering::SeqCst) {
+        return;
+    }
+    log::error!("shell run {run_id}: the start panicked");
+    session.shell.release(run_id);
+    send(
+        &events,
+        &repaint,
+        finished(id, run_id, Outcome::StartFailed),
+    );
+}
+
+/// The tunnel address to connect through. A connection configured with an SSH tunnel whose tunnel
+/// is gone (its epoch ended meanwhile) is not connected: building an invocation without the
+/// address would reach the real host directly.
+fn tunnel_for(
+    cfg: &ConnectionConfig,
+    addr: Option<SocketAddr>,
+) -> Result<Option<SocketAddr>, ShellRefusal> {
+    match (cfg.ssh.is_some(), addr) {
+        (true, None) => Err(ShellRefusal::NotConnected),
+        (_, addr) => Ok(addr),
+    }
+}
+
+pub(super) async fn start(
+    shared: Arc<Shared>,
+    events: UnboundedSender<Event>,
+    repaint: Repaint,
+    run: Run,
+    spawned: Arc<AtomicBool>,
+) {
     let (id, run_id) = (run.id, run.run_id);
     let password = match handlers::read_password(&shared, &run.cfg).await {
         Ok(password) => password,
@@ -110,12 +167,21 @@ async fn start(shared: Arc<Shared>, events: UnboundedSender<Event>, repaint: Rep
         );
         return;
     }
-    let invocation = build_invocation(
-        &run.cfg,
-        password.as_deref(),
-        run.session.tunnel_addr(),
-        &run.script,
-    );
+    // A cancel that came while the password was read must not start anything.
+    if run.session.shell.cancel_requested(run_id) {
+        run.session.shell.release(run_id);
+        send(&events, &repaint, finished(id, run_id, Outcome::Cancelled));
+        return;
+    }
+    let tunnel = match tunnel_for(&run.cfg, run.session.tunnel_addr()) {
+        Ok(tunnel) => tunnel,
+        Err(reason) => {
+            run.session.shell.release(run_id);
+            send(&events, &repaint, refused(id, run_id, reason));
+            return;
+        }
+    };
+    let invocation = build_invocation(&run.cfg, password.as_deref(), tunnel, &run.script);
     let invocation = match invocation {
         Ok(invocation) => invocation,
         Err(error) => {
@@ -148,6 +214,7 @@ async fn start(shared: Arc<Shared>, events: UnboundedSender<Event>, repaint: Rep
         }
         send(&events, &repaint, finished(id, run_id, outcome));
     };
+    spawned.store(true, Ordering::SeqCst);
     let handle = spawn_shell(
         &run.exe,
         invocation,

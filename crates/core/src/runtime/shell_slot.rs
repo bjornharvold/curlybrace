@@ -57,6 +57,13 @@ impl ShellRuns {
         stop.cancel();
     }
 
+    /// Whether a cancel for `run_id` arrived before its handle was attached.
+    pub(super) fn cancel_requested(&self, run_id: u64) -> bool {
+        let slot = self.lock();
+        slot.as_ref()
+            .is_some_and(|a| a.run_id == run_id && a.cancel_requested)
+    }
+
     /// Frees the slot if `run_id` still holds it.
     pub(super) fn release(&self, run_id: u64) {
         let mut slot = self.lock();

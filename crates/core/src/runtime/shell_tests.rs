@@ -13,7 +13,7 @@ use uuid::Uuid;
 use super::tunneling::{TunnelHandle, TunnelOpener, TunnelRequest};
 use super::*;
 use crate::connection::{SshAuth, SshConfig};
-use crate::secrets::{MemorySecretStore, SecretKind, secret_key};
+use crate::secrets::{MemorySecretStore, SecretKind, SecretStore, secret_key};
 use crate::shell::fake::{Behaviour, FakeMongosh};
 use crate::shell::{MASK, Outcome, ShellError, Stream, percent_encode_component};
 use crate::test_support::InMemoryStore;
@@ -69,6 +69,10 @@ impl Fixture {
                 .set(&secret_key(cfg.id, SecretKind::Password), password)
                 .unwrap();
         }
+        Self::connected_with(cfg, secrets).await
+    }
+
+    async fn connected_with(cfg: ConnectionConfig, secrets: Arc<dyn SecretStore>) -> Self {
         let config = RuntimeConfig {
             tunnel_opener: Arc::new(LoopbackOpener),
             ..RuntimeConfig::default()
@@ -477,4 +481,225 @@ async fn password_never_appears_in_any_event_or_debug_output() {
         output_text(&events, Stream::Stderr).contains(MASK),
         "{debug}"
     );
+}
+
+// ---- races ----
+
+/// A secret store whose next lookup, once armed, waits for the test: the window between the slot
+/// being taken and the invocation being built, held open.
+struct GatedSecrets {
+    inner: MemorySecretStore,
+    gate: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+}
+
+impl GatedSecrets {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            inner: MemorySecretStore::new(),
+            gate: Default::default(),
+        })
+    }
+
+    /// The next `get` blocks until the returned sender sends (or is dropped).
+    fn arm(&self) -> std::sync::mpsc::Sender<()> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        *self.gate.lock().unwrap() = Some(rx);
+        tx
+    }
+}
+
+impl SecretStore for GatedSecrets {
+    fn get(&self, key: &str) -> Result<Option<String>> {
+        let gate = self.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            let _ = gate.recv();
+        }
+        self.inner.get(key)
+    }
+    fn set(&self, key: &str, value: &str) -> Result<()> {
+        self.inner.set(key, value)
+    }
+    fn delete(&self, key: &str) -> Result<()> {
+        self.inner.delete(key)
+    }
+}
+
+/// Lets the dispatcher handle the commands already sent (the gated task is parked meanwhile).
+async fn settle() {
+    tokio::time::sleep(Duration::from_millis(200)).await;
+}
+
+async fn gated_fixture() -> (Fixture, Arc<GatedSecrets>) {
+    let secrets = GatedSecrets::new();
+    let cfg = ConnectionConfig::new("t", "mongodb://localhost:27017/app");
+    let f = Fixture::connected_with(cfg, secrets.clone()).await;
+    (f, secrets)
+}
+
+#[tokio::test]
+async fn dropping_the_runtime_kills_a_running_shell() {
+    let f = Fixture::plain().await;
+    let pidfile = f.fake.path("drop.pid");
+    f.run(1, &format!("spawn {}\nhang", pidfile.display()));
+    let pid = wait_for_file(&pidfile).await;
+    assert!(alive(&pid));
+    // No more commands: the dispatcher ends and the sessions are dropped with it.
+    drop(f.h);
+    wait_dead(&pid).await;
+}
+
+#[tokio::test]
+async fn disconnect_during_the_password_read_refuses_and_frees_the_slot() {
+    let (mut f, secrets) = gated_fixture().await;
+    let pidfile = f.fake.path("late.pid");
+    let release = secrets.arm();
+    f.run(1, &format!("spawn {}", pidfile.display()));
+    let session = f.id;
+    f.h.tx.send(Command::Disconnect { session }).unwrap();
+    settle().await;
+    release.send(()).unwrap();
+    let (mut refusal, mut disconnected) = (None, false);
+    while refusal.is_none() || !disconnected {
+        match next(&mut f.h).await {
+            Event::ShellRefused { reason, .. } => refusal = Some(reason),
+            Event::Disconnected { .. } => disconnected = true,
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(refusal, Some(ShellRefusal::NotConnected));
+    f.assert_quiet().await;
+    assert!(!pidfile.exists(), "nothing may be spawned");
+}
+
+#[tokio::test]
+async fn a_new_connect_during_the_password_read_refuses_and_frees_the_slot() {
+    let secrets = GatedSecrets::new();
+    let cfg = ConnectionConfig::new("t", "mongodb://localhost:27017/app");
+    let mut f = Fixture::connected_with(cfg.clone(), secrets.clone()).await;
+    let release = secrets.arm();
+    f.run(1, "hello");
+    settle().await;
+    // The new connect reads the password too (the gate is spent), so it is not held up.
+    f.h.tx.send(Command::Connect(cfg)).unwrap();
+    settle().await;
+    release.send(()).unwrap();
+    let (mut refusal, mut connected) = (None, false);
+    while refusal.is_none() || !connected {
+        match next(&mut f.h).await {
+            Event::ShellRefused { reason, .. } => refusal = Some(reason),
+            Event::Connected { .. } => connected = true,
+            Event::Sampler { .. } | Event::Profiler { .. } => {}
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(refusal, Some(ShellRefusal::NotConnected));
+    f.run(2, "hello");
+    assert_eq!(f.outcome().await, Outcome::Exited(0));
+}
+
+#[tokio::test]
+async fn cancel_during_the_password_read_never_spawns() {
+    let (mut f, secrets) = gated_fixture().await;
+    let pidfile = f.fake.path("cancelled.pid");
+    let release = secrets.arm();
+    f.run(1, &format!("spawn {}\nhang", pidfile.display()));
+    f.cancel(1);
+    settle().await;
+    release.send(()).unwrap();
+    assert_eq!(f.outcome().await, Outcome::Cancelled);
+    f.assert_quiet().await;
+    assert!(!pidfile.exists(), "nothing may be spawned");
+    f.run(2, "hello");
+    assert_eq!(f.outcome().await, Outcome::Exited(0));
+}
+
+fn bare_shared() -> Arc<Shared> {
+    Arc::new(Shared {
+        sessions: std::sync::RwLock::new(Default::default()),
+        next_epoch: std::sync::atomic::AtomicU64::new(0),
+        secrets: None,
+        connector: Arc::new(StoreConnector),
+        config: RuntimeConfig::default(),
+        compare: Default::default(),
+        copy: Default::default(),
+        latest_test: Default::default(),
+        read_only: Default::default(),
+        cancelled: Default::default(),
+        history: None,
+        sampler_config: tokio::sync::watch::channel(SamplerConfig::default().clamped()).0,
+    })
+}
+
+#[tokio::test]
+async fn a_configured_tunnel_that_is_gone_refuses_without_spawning() {
+    let shared = bare_shared();
+    let mut cfg = ConnectionConfig::new("t", "mongodb://db.internal:27018/app");
+    cfg.ssh = Some(SshConfig {
+        host: "bastion".into(),
+        port: 22,
+        username: "u".into(),
+        auth: SshAuth::Password,
+    });
+    let id = cfg.id;
+    let (session, generation) = shared.begin_session_epoch(id);
+    // Installed with its config but without the tunnel, as after an epoch change.
+    assert!(session.install_with_config(
+        generation,
+        Arc::new(InMemoryStore::new()),
+        None,
+        Some(cfg)
+    ));
+    let fake = FakeMongosh::new(Behaviour::Repl);
+    let pidfile = fake.path("tunnel.pid");
+    let script = format!("spawn {}", pidfile.display());
+    let run = super::shell_handlers::claim(&shared, id, 1, fake.exe.clone(), script).unwrap();
+    let (events, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let repaint: Repaint = Arc::new(|| {});
+    let spawned = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    super::shell_handlers::start(shared, events, repaint, run, spawned).await;
+    assert_eq!(
+        rx.try_recv(),
+        Ok(Event::ShellRefused {
+            session: id,
+            run_id: 1,
+            reason: ShellRefusal::NotConnected,
+        })
+    );
+    assert!(rx.try_recv().is_err());
+    assert!(!pidfile.exists(), "nothing may be spawned");
+    assert!(session.shell.reserve(2), "the slot is free");
+}
+
+async fn panicking_start(spawned: bool) -> (Option<Event>, bool) {
+    let shared = bare_shared();
+    let id = Uuid::new_v4();
+    let (session, _) = shared.begin_session_epoch(id);
+    assert!(session.shell.reserve(1));
+    let (events, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let repaint: Repaint = Arc::new(|| {});
+    let flag = Arc::new(std::sync::atomic::AtomicBool::new(spawned));
+    let work = async { panic!("injected start panic") };
+    super::shell_handlers::supervised(session.clone(), id, 1, events, repaint, flag, work).await;
+    (rx.try_recv().ok(), session.shell.reserve(2))
+}
+
+#[tokio::test]
+async fn a_panic_before_the_spawn_frees_the_slot_and_ends_the_run() {
+    let (event, free) = panicking_start(false).await;
+    assert!(matches!(
+        event,
+        Some(Event::ShellFinished {
+            run_id: 1,
+            outcome: Outcome::StartFailed,
+            ..
+        })
+    ));
+    assert!(free);
+}
+
+#[tokio::test]
+async fn a_panic_after_the_spawn_leaves_the_report_to_the_runner() {
+    let (event, free) = panicking_start(true).await;
+    assert_eq!(event, None);
+    assert!(!free, "the runner's on_done frees the slot");
 }

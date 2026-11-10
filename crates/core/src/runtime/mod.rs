@@ -87,6 +87,8 @@ mod session_tests;
 mod shell_handlers;
 mod shell_slot;
 #[cfg(test)]
+mod shell_slot_tests;
+#[cfg(test)]
 mod shell_tests;
 mod snapshots;
 #[cfg(test)]
@@ -706,7 +708,9 @@ pub enum Event {
         run_id: u64,
         outcome: crate::shell::Outcome,
     },
-    /// The `ShellRun` `run_id` was refused; nothing was started.
+    /// The `ShellRun` `run_id` was refused. Nothing was spawned in any refusal. It can arrive
+    /// late: after the password lookup (a disconnect or reconnect landed meanwhile, or the
+    /// tunnel was gone), not only straight after the command.
     ShellRefused {
         session: SessionId,
         run_id: u64,
