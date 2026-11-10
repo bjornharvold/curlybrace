@@ -5,6 +5,7 @@ use super::explain_settings::ExplainSettings;
 use super::persistence::{PersistError, PersistGuard, Recovery};
 use super::sampling_settings::SamplingSettings;
 use super::session::SessionView;
+use super::shell_state::ShellTabs;
 use super::tools_state::ToolsState;
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{
@@ -18,6 +19,7 @@ use curlybrace_core::copy::protocol::CopyRequest;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::store::{Namespace, Page, Query, Topology};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -38,6 +40,8 @@ pub enum Workspace {
     Compare,
     /// The connection manager, shown while sessions stay open in the tree.
     Connections,
+    /// The Shell tab of the active session (Browse stays one switch away).
+    Shell,
 }
 
 /// A dismissible message. Holds keys and typed errors, never English text.
@@ -234,6 +238,13 @@ pub struct AppState {
     pub explain: ExplainSettings,
     /// The tool paths (global and per connection) and their version checks. Global too.
     pub tools: ToolsState,
+    /// The `PATH` a `PATH` tool choice is searched in: the process's own plus the usual install
+    /// folders in the app; `None` (no search at all) by default, so tests never find a program of
+    /// the machine they run on.
+    pub tool_search_path: Option<OsString>,
+    /// The Shell tabs of the open sessions (see [`ShellTabs`]). Boxed: `AppState` is moved by
+    /// value through every reducer step, so it is kept from growing.
+    pub shell: Box<ShellTabs>,
     pub editor: Option<EditorState>,
     /// The mutating command in flight; further mutations are ignored until it resolves.
     pub pending: Option<Pending>,
@@ -368,6 +379,7 @@ impl AppState {
             write_warning: None,
             admin: None,
             bulk: None,
+            shell: Box::default(),
             forget_confirm: None,
             open: Vec::new(),
             active: None,

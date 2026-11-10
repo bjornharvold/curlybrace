@@ -339,7 +339,7 @@ pub(super) fn mutation(
         if guard == Guard::Warn && s.active_is_production() {
             let write_warning = Some(ParkedWrite {
                 command,
-                pending,
+                pending: Some(pending),
                 kind,
                 epoch: s.latest_requested_epoch,
             });

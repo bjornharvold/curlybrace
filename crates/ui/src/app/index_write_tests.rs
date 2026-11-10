@@ -283,7 +283,7 @@ fn creating_on_a_production_connection_parks_for_the_production_warning() {
     assert_eq!(parked.kind, WriteKind::CreateIndex);
     assert!(parked.command.is_write());
     assert_eq!(parked.command.session(), Some(id));
-    assert_eq!(parked.pending.ns, ns());
+    assert_eq!(parked.pending.as_ref().map(|p| &p.ns), Some(&ns()));
     assert!(s.indexes.builder.is_some());
 
     let (s, commands) = update(s, Input::WriteWarning(WriteWarningAction::Confirm));

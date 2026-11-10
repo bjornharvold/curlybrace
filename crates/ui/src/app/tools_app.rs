@@ -35,11 +35,9 @@ impl CurlybraceApp {
 
     /// The `PATH` that `PATH` choices are searched in. Tests pass `None` or a temp folder so
     /// that no program of the developer's machine is ever run.
-    pub fn with_tool_path_var(self, path: Option<std::ffi::OsString>) -> Self {
-        Self {
-            tool_path_var: path,
-            ..self
-        }
+    pub fn with_tool_path_var(mut self, path: Option<std::ffi::OsString>) -> Self {
+        self.state.tool_search_path = path;
+        self
     }
 
     /// After any step: writes the tool paths if they changed, starts the version checks the
@@ -61,7 +59,7 @@ impl CurlybraceApp {
                 request,
                 self.probe_sender.clone(),
                 self.repaint.clone(),
-                self.tool_path_var.clone(),
+                self.state.tool_search_path.clone(),
             );
         }
         self.open_tool_dialog_if_wanted();

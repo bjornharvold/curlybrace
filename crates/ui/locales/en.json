@@ -1371,6 +1371,7 @@
     "message_replace": "This is your production server, {connection}. Are you sure you want to edit this document?",
     "message_set_index_ttl": "This is your production server, {connection}. Are you sure you want to change when this index expires documents?",
     "message_set_profiling_level": "This is your production server, {connection}. Are you sure you want to change the profiler of this database? A profiler that records operations adds load to the server.",
+    "message_shell_run": "This is your production server, {connection}. Are you sure you want to run this script on it? The shell cannot tell a read from a write.",
     "production_line": "Warning: this is a production connection.",
     "title": "Confirm write to production"
   }

@@ -327,7 +327,8 @@ impl AppState {
         let mut next = self
             .write_warning_dropped_for_active()
             .admin_dropped_for(session)
-            .bulk_dropped_for(session, true);
+            .bulk_dropped_for(session, true)
+            .shell_reset_for(session);
         let old = next.take_view();
         next.restore_view(SessionView {
             status: ConnStatus::Failed,
@@ -352,7 +353,8 @@ impl AppState {
         let mut next = self
             .write_warning_dropped_for(id)
             .admin_dropped_for(id)
-            .bulk_dropped_for(id, false);
+            .bulk_dropped_for(id, false)
+            .shell_dropped_for(id);
         next.open.retain(|open| *open != id);
         next.parked.remove(&id);
         next.selection = std::mem::take(&mut next.selection).without_session(id);

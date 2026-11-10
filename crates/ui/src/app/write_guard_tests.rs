@@ -100,7 +100,7 @@ fn insert_replace_clone_on_production_park_instead_of_sending() {
         assert_eq!(kind_of(&s), Some(kind));
         let parked = s.write_warning.as_ref().unwrap();
         assert!(parked.command.is_write());
-        assert_eq!(parked.pending.ns, users());
+        assert_eq!(parked.pending.as_ref().map(|p| &p.ns), Some(&users()));
     }
 }
 

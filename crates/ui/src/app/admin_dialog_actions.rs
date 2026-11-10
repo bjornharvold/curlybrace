@@ -165,7 +165,7 @@ fn confirmed(state: AppState, dialog: AdminDialog) -> Out {
         if s.active_is_production() {
             let write_warning = Some(ParkedWrite {
                 command,
-                pending,
+                pending: Some(pending),
                 kind: write_kind(dialog.kind),
                 epoch: s.latest_requested_epoch,
             });

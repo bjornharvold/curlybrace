@@ -217,7 +217,8 @@ pub fn show_workspace(
     now_secs: i64,
 ) {
     egui::CentralPanel::default().show(ctx, |ui| match state.workspace {
-        Workspace::Browse | Workspace::Connections => {
+        // The Shell tab is drawn from Task 9 on; until then its session's collection shows.
+        Workspace::Browse | Workspace::Connections | Workspace::Shell => {
             show_collection(ui, state, i18n, out, now_secs)
         }
         Workspace::Compare => {
