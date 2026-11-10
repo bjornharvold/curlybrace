@@ -460,14 +460,20 @@ fn a_syntax_error_goes_to_stderr_and_none_of_the_script_runs() {
 }
 
 #[test]
-fn a_shell_that_exits_before_the_sentinel_is_a_connect_failure_with_its_output() {
+fn a_shell_that_exits_before_the_sentinel_is_a_connect_failure_with_its_last_lines() {
     let fake = FakeMongosh::new(Behaviour::ExitsBeforeReady);
     let run = start(&fake, "never");
     assert_eq!(run.wait(), Outcome::ConnectFailed);
-    assert_eq!(run.text(Stream::Stderr), "Error: cannot start\n");
+    // The default prompt in front of a line is not shown.
+    assert_eq!(
+        run.text(Stream::Stderr),
+        "junk 1\njunk 2\nError: cannot start\n"
+    );
     assert_eq!(run.text(Stream::Stdout), "");
 }
 
+/// Only the outcome and the time: what the hanging fake printed before the timeout may not have
+/// been read yet on a slow machine (the shown lines are covered by the test above).
 #[test]
 fn no_sentinel_within_the_handshake_timeout_is_a_connect_failure() {
     let fake = FakeMongosh::new(Behaviour::HangsBeforeReady);
@@ -479,7 +485,6 @@ fn no_sentinel_within_the_handshake_timeout_is_a_connect_failure() {
     let run = start_with(&fake.exe, invocation("never"), limits);
     assert_eq!(run.wait(), Outcome::ConnectFailed);
     assert!(started.elapsed() < Duration::from_secs(5));
-    assert_eq!(run.text(Stream::Stderr), "junk 1\njunk 2\n");
     assert_eq!(run.text(Stream::Stdout), "");
 }
 

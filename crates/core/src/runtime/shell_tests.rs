@@ -511,7 +511,20 @@ async fn password_never_appears_in_any_event_or_debug_output() {
 /// being taken and the invocation being built, held open.
 struct GatedSecrets {
     inner: MemorySecretStore,
-    gate: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    gate: std::sync::Mutex<Option<ArmedGate>>,
+}
+
+/// The store's side of [`Gate`].
+struct ArmedGate {
+    release: std::sync::mpsc::Receiver<()>,
+    taken: tokio::sync::oneshot::Sender<()>,
+}
+
+/// The test's side: `taken` resolves once the next lookup has started (and is parked), which
+/// then waits until `release` sends (or is dropped).
+struct Gate {
+    release: std::sync::mpsc::Sender<()>,
+    taken: tokio::sync::oneshot::Receiver<()>,
 }
 
 impl GatedSecrets {
@@ -522,11 +535,14 @@ impl GatedSecrets {
         })
     }
 
-    /// The next `get` blocks until the returned sender sends (or is dropped).
-    fn arm(&self) -> std::sync::mpsc::Sender<()> {
-        let (tx, rx) = std::sync::mpsc::channel();
-        *self.gate.lock().unwrap() = Some(rx);
-        tx
+    fn arm(&self) -> Gate {
+        let (release_tx, release) = std::sync::mpsc::channel();
+        let (taken, taken_rx) = tokio::sync::oneshot::channel();
+        *self.gate.lock().unwrap() = Some(ArmedGate { release, taken });
+        Gate {
+            release: release_tx,
+            taken: taken_rx,
+        }
     }
 }
 
@@ -534,7 +550,8 @@ impl SecretStore for GatedSecrets {
     fn get(&self, key: &str) -> Result<Option<String>> {
         let gate = self.gate.lock().unwrap().take();
         if let Some(gate) = gate {
-            let _ = gate.recv();
+            let _ = gate.taken.send(());
+            let _ = gate.release.recv();
         }
         self.inner.get(key)
     }
@@ -546,9 +563,14 @@ impl SecretStore for GatedSecrets {
     }
 }
 
-/// Lets the dispatcher handle the commands already sent (the gated task is parked meanwhile).
-async fn settle() {
-    tokio::time::sleep(Duration::from_millis(200)).await;
+/// The next event that is not background sampling or profiling.
+async fn next_relevant(h: &mut RuntimeHandle) -> Event {
+    loop {
+        match next(h).await {
+            Event::Sampler { .. } | Event::Profiler { .. } => {}
+            event => return event,
+        }
+    }
 }
 
 async fn gated_fixture() -> (Fixture, Arc<GatedSecrets>) {
@@ -574,21 +596,19 @@ async fn dropping_the_runtime_kills_a_running_shell() {
 async fn disconnect_during_the_password_read_refuses_and_frees_the_slot() {
     let (mut f, secrets) = gated_fixture().await;
     let pidfile = f.fake.path("late.pid");
-    let release = secrets.arm();
+    let gate = secrets.arm();
     f.run(1, &format!("spawn {}", pidfile.display()));
+    gate.taken.await.unwrap();
     let session = f.id;
     f.h.tx.send(Command::Disconnect { session }).unwrap();
-    settle().await;
-    release.send(()).unwrap();
-    let (mut refusal, mut disconnected) = (None, false);
-    while refusal.is_none() || !disconnected {
-        match next(&mut f.h).await {
-            Event::ShellRefused { reason, .. } => refusal = Some(reason),
-            Event::Disconnected { .. } => disconnected = true,
-            other => panic!("{other:?}"),
-        }
+    // Sent after the session ended: the run sees the disconnect when its lookup returns.
+    let event = next_relevant(&mut f.h).await;
+    assert!(matches!(event, Event::Disconnected { .. }), "{event:?}");
+    gate.release.send(()).unwrap();
+    match next_relevant(&mut f.h).await {
+        Event::ShellRefused { reason, .. } => assert_eq!(reason, ShellRefusal::NotConnected),
+        other => panic!("{other:?}"),
     }
-    assert_eq!(refusal, Some(ShellRefusal::NotConnected));
     f.assert_quiet().await;
     assert!(!pidfile.exists(), "nothing may be spawned");
 }
@@ -598,23 +618,18 @@ async fn a_new_connect_during_the_password_read_refuses_and_frees_the_slot() {
     let secrets = GatedSecrets::new();
     let cfg = ConnectionConfig::new("t", "mongodb://localhost:27017/app");
     let mut f = Fixture::connected_with(cfg.clone(), secrets.clone()).await;
-    let release = secrets.arm();
+    let gate = secrets.arm();
     f.run(1, "hello");
-    settle().await;
-    // The new connect reads the password too (the gate is spent), so it is not held up.
+    // The run's lookup holds the gate, so the new connect's own lookup is not held up.
+    gate.taken.await.unwrap();
     f.h.tx.send(Command::Connect(cfg)).unwrap();
-    settle().await;
-    release.send(()).unwrap();
-    let (mut refusal, mut connected) = (None, false);
-    while refusal.is_none() || !connected {
-        match next(&mut f.h).await {
-            Event::ShellRefused { reason, .. } => refusal = Some(reason),
-            Event::Connected { .. } => connected = true,
-            Event::Sampler { .. } | Event::Profiler { .. } => {}
-            other => panic!("{other:?}"),
-        }
+    let event = next_relevant(&mut f.h).await;
+    assert!(matches!(event, Event::Connected { .. }), "{event:?}");
+    gate.release.send(()).unwrap();
+    match next_relevant(&mut f.h).await {
+        Event::ShellRefused { reason, .. } => assert_eq!(reason, ShellRefusal::NotConnected),
+        other => panic!("{other:?}"),
     }
-    assert_eq!(refusal, Some(ShellRefusal::NotConnected));
     f.run(2, "hello");
     assert_eq!(f.outcome().await, Outcome::Exited(0));
 }
@@ -622,16 +637,21 @@ async fn a_new_connect_during_the_password_read_refuses_and_frees_the_slot() {
 #[tokio::test]
 async fn cancel_during_the_password_read_never_spawns() {
     let (mut f, secrets) = gated_fixture().await;
-    let pidfile = f.fake.path("cancelled.pid");
-    let release = secrets.arm();
-    f.run(1, &format!("spawn {}\nhang", pidfile.display()));
+    // A spawn is seen: this executable does not exist, so a spawned run ends `StartFailed` (a run
+    // that was spawned and then cancelled when its handle came would not be told apart).
+    let missing = f.fake.dir().join("no-such-mongosh");
+    let gate = secrets.arm();
+    f.run_with(1, missing, "hello");
+    gate.taken.await.unwrap();
     f.cancel(1);
-    settle().await;
-    release.send(()).unwrap();
+    // Commands are handled in order and a refusal is decided synchronously: this one proves the
+    // cancel was handled while the password lookup is still parked.
+    f.run(2, "hello");
+    assert_eq!(f.refusal().await, ShellRefusal::AlreadyRunning);
+    gate.release.send(()).unwrap();
     assert_eq!(f.outcome().await, Outcome::Cancelled);
     f.assert_quiet().await;
-    assert!(!pidfile.exists(), "nothing may be spawned");
-    f.run(2, "hello");
+    f.run(3, "hello");
     assert_eq!(f.outcome().await, Outcome::Exited(0));
 }
 

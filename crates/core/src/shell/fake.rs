@@ -52,7 +52,8 @@ pub(crate) enum Behaviour {
     ChecksEarlyInput,
     /// Never reads stdin: prints the sentinel and `ignored`, waits 0.3 s and exits 0.
     IgnoresStdin,
-    /// Reads the preamble, prints `Error: cannot start` and exits 3 without a sentinel.
+    /// Reads the preamble, prints `junk 1`, `> junk 2` and `Error: cannot start` and exits 3
+    /// without a sentinel.
     ExitsBeforeReady,
     /// Reads the preamble, prints two junk lines and hangs (`sleep 30`) without a sentinel.
     HangsBeforeReady,
@@ -116,7 +117,7 @@ if [ "$MODE" = fail ]; then
   while IFS= read -r line; do printf '%s\n' "$line" >> '@LOG@'; done
   exit 0
 fi
-if [ "$MODE" = exit ]; then printf 'Error: cannot start\n'; exit 3; fi
+if [ "$MODE" = exit ]; then printf 'junk 1\n> junk 2\nError: cannot start\n'; exit 3; fi
 if [ "$MODE" = hang ]; then printf 'junk 1\njunk 2\n'; sleep 30; exit 0; fi
 early=''
 if [ "$MODE" = early ] && IFS= read -r -t 1 line; then early=yes; fi
