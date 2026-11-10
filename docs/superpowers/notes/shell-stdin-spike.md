@@ -140,6 +140,8 @@ until deleted. Not selected.
 
 ## Implications for Task 3
 
+Superseded by "Final method" below: the prompt regex and "exit status unreliable" were replaced by the fixed prompt, the handshake and `Uncaught` classification.
+
 - Spawn `mongosh --nodb --quiet` with piped stdin/stdout/stderr, a minimal environment (do not
   forward secrets) and `kill_on_drop`.
 - First write the connect line (URL-encode user and password), then stream the user's input.

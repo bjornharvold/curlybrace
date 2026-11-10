@@ -34,8 +34,8 @@ password reaches it, and where it does not:
   percent-encoded credentials. It is never in the command line (the arguments are only `--nodb` and
   `--quiet`), never in the environment, and never in a log or in the app's history.
 - The output pane masks the exact password and its percent-encoded form. This is a best-effort
-  courtesy, **not a security boundary**: a script can transform or print the connection string (for
-  example `db.getMongo()`), and then the secret is in the output in a form the app cannot recognise.
+  courtesy, **not a security boundary**: a script can read and transform the value it was started with,
+  and anything it prints appears in the output, in a form the app cannot recognise.
 - `mongosh` itself writes the lines you run later to its own log, `~/.mongodb/mongosh/*_log`, as
   "Evaluating input". It does not log the connect line. This was checked on macOS with `mongosh`
   2.14.1; it has not been checked on Linux or Windows. On Linux the process environment

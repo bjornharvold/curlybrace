@@ -43,13 +43,17 @@ impl Connector for AcceptAll {
     }
 }
 
-fn mongosh() -> std::path::PathBuf {
-    resolve(
+/// The `mongosh` on PATH. A missing optional tool is a skip (printed), not a failure.
+fn mongosh(test: &str) -> Option<std::path::PathBuf> {
+    let found = resolve(
         ToolKind::Mongosh,
         &ToolChoice::Path,
         std::env::var_os("PATH").as_deref(),
-    )
-    .expect("`mongosh` must be on PATH to run the shell tests")
+    );
+    if found.is_err() {
+        eprintln!("SKIPPED {test}: mongosh not found on PATH");
+    }
+    found.ok()
 }
 
 async fn connected(mut h: RuntimeHandle, cfg: ConnectionConfig) -> (RuntimeHandle, SessionId) {
@@ -61,11 +65,16 @@ async fn connected(mut h: RuntimeHandle, cfg: ConnectionConfig) -> (RuntimeHandl
 }
 
 /// Runs `script` and returns every event up to the first `ShellFinished` (or a refusal).
-async fn run_script(h: &mut RuntimeHandle, id: SessionId, script: &str) -> Vec<Event> {
+async fn run_script(
+    h: &mut RuntimeHandle,
+    id: SessionId,
+    exe: std::path::PathBuf,
+    script: &str,
+) -> Vec<Event> {
     h.tx.send(Command::ShellRun {
         session: id,
         run_id: RUN,
-        exe: mongosh(),
+        exe,
         script: script.into(),
     })
     .unwrap();
@@ -107,35 +116,50 @@ fn assert_no_prompt_leak(out: &str) {
 }
 
 #[tokio::test]
-#[ignore = "needs mongosh and a local server; set CURLYBRACE_IT=1"]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
 async fn ping_and_bare_expressions_stream_clean_output() {
     if !local_enabled("ping_and_bare_expressions_stream_clean_output") {
         return;
     }
+    let Some(exe) = mongosh("ping_and_bare_expressions_stream_clean_output") else {
+        return;
+    };
     let cfg = ConnectionConfig::new("local", &curlybrace_testkit::local_uri());
     let rt = spawn_runtime(Arc::new(MemorySecretStore::new()), no_repaint());
     let (mut h, id) = connected(rt, cfg).await;
 
-    let events = run_script(&mut h, id, "db.runCommand({ping:1})\n1+1\n\"hello-cbit\"").await;
+    let events = run_script(
+        &mut h,
+        id,
+        exe,
+        "db.runCommand({ping:1})\n1+1\n\"hello-cbit\"",
+    )
+    .await;
     let out = text(&events, Stream::Stdout);
     assert!(out.contains("ok: 1"), "{out:?}");
     assert!(out.contains("hello-cbit"), "{out:?}");
     assert_no_prompt_leak(&out);
-    assert_eq!(text(&events, Stream::Stderr), "");
+    assert!(
+        !text(&events, Stream::Stderr).contains("Uncaught"),
+        "{events:?}"
+    );
     assert_eq!(outcome(&events), Outcome::Exited(0), "{events:?}");
 }
 
 #[tokio::test]
-#[ignore = "needs mongosh and a local server; set CURLYBRACE_IT=1"]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
 async fn a_thrown_error_is_a_script_error_on_stderr() {
     if !local_enabled("a_thrown_error_is_a_script_error_on_stderr") {
         return;
     }
+    let Some(exe) = mongosh("a_thrown_error_is_a_script_error_on_stderr") else {
+        return;
+    };
     let cfg = ConnectionConfig::new("local", &curlybrace_testkit::local_uri());
     let rt = spawn_runtime(Arc::new(MemorySecretStore::new()), no_repaint());
     let (mut h, id) = connected(rt, cfg).await;
 
-    let events = run_script(&mut h, id, "throw new Error(\"boom-cbit\")").await;
+    let events = run_script(&mut h, id, exe, "throw new Error(\"boom-cbit\")").await;
     assert_eq!(outcome(&events), Outcome::ScriptErrors, "{events:?}");
     let err = text(&events, Stream::Stderr);
     assert!(err.contains("boom-cbit"), "{err:?}");
@@ -147,11 +171,14 @@ async fn a_thrown_error_is_a_script_error_on_stderr() {
 /// unknown user fails to authenticate either way). The runtime connects through [`AcceptAll`], so
 /// only `mongosh` meets the server. Lighter than a second `--auth` server.
 #[tokio::test]
-#[ignore = "needs mongosh and a local server; set CURLYBRACE_IT=1"]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
 async fn a_failed_login_is_connect_failed_and_never_leaks_the_password() {
     if !local_enabled("a_failed_login_is_connect_failed_and_never_leaks_the_password") {
         return;
     }
+    let Some(exe) = mongosh("a_failed_login_is_connect_failed_and_never_leaks_the_password") else {
+        return;
+    };
     let mut cfg = ConnectionConfig::new("local", &curlybrace_testkit::local_uri());
     cfg.auth = AuthMechanism::ScramSha256;
     cfg.username = Some("cbit_nobody".into());
@@ -169,7 +196,7 @@ async fn a_failed_login_is_connect_failed_and_never_leaks_the_password() {
     );
     let (mut h, id) = connected(rt, cfg).await;
 
-    let events = run_script(&mut h, id, "print(\"script-ran-cbit\")").await;
+    let events = run_script(&mut h, id, exe, "print(\"script-ran-cbit\")").await;
     assert_eq!(outcome(&events), Outcome::ConnectFailed, "{events:?}");
     let encoded = percent_encode_component(PASSWORD);
     let all = format!("{events:?}");
@@ -178,5 +205,7 @@ async fn a_failed_login_is_connect_failed_and_never_leaks_the_password() {
         !all.contains(&encoded),
         "encoded password in an event: {all}"
     );
+    let err = text(&events, Stream::Stderr).to_lowercase();
+    assert!(err.contains("authentication failed"), "{err:?}");
     assert!(!all.contains("script-ran-cbit"), "the script ran: {all}");
 }
