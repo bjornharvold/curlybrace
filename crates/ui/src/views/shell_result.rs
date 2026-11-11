@@ -7,7 +7,6 @@ use super::shell_result_tree::{show_result_tree, show_tree_bar};
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
 use crate::theme::{segmented_hinted_compact, text_button};
-use crate::viewmodel::index_detail::size_parts;
 use crate::viewmodel::shell::ShellState;
 use crate::viewmodel::shell_result::{Availability, OutputMode, Reason, ShellResult};
 use curlybrace_core::shell::DocKind;
@@ -104,10 +103,9 @@ pub(crate) fn reason_text(reason: Reason, i18n: &I18n) -> String {
         Reason::NotDocuments => "shell.result.unavailable.not_documents",
         Reason::Unsupported => "shell.result.unavailable.unsupported",
         Reason::RunFailed => "shell.result.unavailable.run_failed",
-        Reason::TooBig(bytes) => {
-            let (unit, n) = size_parts(Some(bytes));
-            let size = i18n.t_with(unit, &[("n", &n)]);
-            return i18n.t_with("shell.result.unavailable.too_big", &[("size", &size)]);
+        Reason::TooBig(chars) => {
+            let count = chars.to_string();
+            return i18n.t_with("shell.result.unavailable.too_big", &[("count", &count)]);
         }
     };
     i18n.t(key)

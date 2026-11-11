@@ -37,8 +37,11 @@ pub enum ShellResult {
         more: bool,
         total: u64,
     },
+    /// The value's EJSON was over the emitter's cap. `chars` is its length as the emitter
+    /// counts it: JavaScript string length, UTF-16 units (about characters, not bytes). On the
+    /// wire the field is still called `bytes`.
     TooBig {
-        bytes: u64,
+        chars: u64,
     },
     Unsupported {
         type_name: Option<String>,
@@ -80,7 +83,7 @@ impl std::fmt::Debug for ShellResult {
                 .field("more", more)
                 .field("total", total)
                 .finish(),
-            Self::TooBig { bytes } => f.debug_struct("TooBig").field("bytes", bytes).finish(),
+            Self::TooBig { chars } => f.debug_struct("TooBig").field("chars", chars).finish(),
             Self::Unsupported { type_name } => f
                 .debug_struct("Unsupported")
                 .field("type_name", type_name)
@@ -106,7 +109,7 @@ pub fn parse_result(payload: &str) -> Option<ShellResult> {
         "object" => object(envelope),
         "scalar" => scalar(envelope),
         "too_big" => Some(ShellResult::TooBig {
-            bytes: whole_number(envelope.get("bytes")?)?,
+            chars: whole_number(envelope.get("bytes")?)?,
         }),
         "unsupported" => Some(ShellResult::Unsupported {
             type_name: optional_string(envelope.get("t")?)?,

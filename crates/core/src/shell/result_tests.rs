@@ -212,11 +212,11 @@ fn a_scalar_undefined_is_flagged() {
 fn too_big_and_unsupported_are_parsed() {
     assert_eq!(
         parsed(r#"{"k":"too_big","bytes":{"$numberInt":"6291964"}}"#),
-        ShellResult::TooBig { bytes: 6291964 }
+        ShellResult::TooBig { chars: 6291964 }
     );
     assert_eq!(
         parsed(r#"{"k":"too_big","bytes":4194305}"#),
-        ShellResult::TooBig { bytes: 4194305 }
+        ShellResult::TooBig { chars: 4194305 }
     );
     assert_eq!(
         parsed(r#"{"k":"unsupported","t":"Database"}"#),

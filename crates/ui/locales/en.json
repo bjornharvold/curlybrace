@@ -1372,7 +1372,7 @@
         "not_documents": "The result is not a list of documents.",
         "pending": "Waiting for the run to finish.",
         "run_failed": "The run did not finish cleanly, so it has no value to show.",
-        "too_big": "The result is too large for the table view ({size}).",
+        "too_big": "The result is too large for the table view (about {count} characters).",
         "unsupported": "This kind of value cannot be shown as a table or a tree."
       },
       "values_title": "Values"

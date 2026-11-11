@@ -263,10 +263,12 @@ fn table_shows_the_reason_when_the_result_is_not_documents() {
 
 #[test]
 fn every_reason_is_said_in_words() {
-    let too_big = with_result(ShellResult::TooBig { bytes: 5 << 20 }, OutputMode::Table);
+    // The emitter counts characters (UTF-16 units), not bytes: said as a character count.
+    let too_big = with_result(ShellResult::TooBig { chars: 5 << 20 }, OutputMode::Table);
     let h = harness(too_big);
-    let size = tw("indexes.size_mib", &[("n", "5.0")]);
-    h.get_by_label(&tw("shell.result.unavailable.too_big", &[("size", &size)]));
+    let said = tw("shell.result.unavailable.too_big", &[("count", "5242880")]);
+    assert!(said.contains("5242880 characters"), "{said}");
+    h.get_by_label(&said);
 
     let unsupported = ShellResult::Unsupported { type_name: None };
     let h = harness(with_result(unsupported, OutputMode::Tree));

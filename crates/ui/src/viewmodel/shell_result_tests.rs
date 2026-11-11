@@ -176,7 +176,7 @@ fn tree_is_available_for_values_too() {
 
 #[test]
 fn every_unavailable_reason_is_reported() {
-    let too_big = ShellResult::TooBig { bytes: 5_000_000 };
+    let too_big = ShellResult::TooBig { chars: 5_000_000 };
     let unsupported = ShellResult::Unsupported {
         type_name: Some("Map".into()),
     };
@@ -230,7 +230,7 @@ fn the_availability_table() {
             ],
         ),
         (
-            ShellResult::TooBig { bytes: 9 },
+            ShellResult::TooBig { chars: 9 },
             [
                 A,
                 unavailable(Reason::TooBig(9)),
@@ -375,7 +375,7 @@ fn an_object_is_one_row() {
 
 #[test]
 fn no_table_rows_where_the_table_is_unavailable() {
-    for result in [values(), scalar(false), ShellResult::TooBig { bytes: 1 }] {
+    for result in [values(), scalar(false), ShellResult::TooBig { chars: 1 }] {
         let state = ready(result);
         assert!(state.table_docs().is_empty());
         assert!(state.result_columns().shown.is_empty());

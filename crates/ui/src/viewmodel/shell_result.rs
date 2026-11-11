@@ -65,7 +65,7 @@ pub enum Reason {
     NoValue,
     /// The value is not documents: a scalar, or (for the Table) an array of non-documents.
     NotDocuments,
-    /// The value was over the payload cap; this many bytes.
+    /// The value was over the payload cap; this many characters (UTF-16 units).
     TooBig(u64),
     /// A value of a kind that cannot be lifted out.
     Unsupported,
@@ -168,7 +168,7 @@ fn availability_of(result: &ShellResult, mode: OutputMode) -> Availability {
             undefined: true, ..
         } => unavailable(Reason::NoValue),
         ShellResult::Scalar { .. } => unavailable(Reason::NotDocuments),
-        ShellResult::TooBig { bytes } => unavailable(Reason::TooBig(*bytes)),
+        ShellResult::TooBig { chars } => unavailable(Reason::TooBig(*chars)),
         ShellResult::Unsupported { .. } => unavailable(Reason::Unsupported),
     }
 }
