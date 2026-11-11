@@ -185,10 +185,9 @@ fn output_text(events: &[Event], wanted: Stream) -> String {
 async fn wait_for_file(path: &Path) -> String {
     let start = Instant::now();
     while start.elapsed() < WAIT {
-        if let Ok(text) = std::fs::read_to_string(path)
-            && !text.trim().is_empty()
-        {
-            return text;
+        match std::fs::read_to_string(path) {
+            Ok(text) if !text.trim().is_empty() => return text,
+            _ => {}
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
