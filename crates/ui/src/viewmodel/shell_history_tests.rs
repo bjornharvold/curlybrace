@@ -153,22 +153,29 @@ fn first_line_handles_crlf_line_ends() {
     assert_eq!(first_line("abc\r\ndef", 3), "abc");
 }
 
-/// A pending confirmation never outlives the list it was asked about: any new list (an empty one
-/// after a clear elsewhere included) and "unavailable" end it, so it cannot come back stale when
-/// runs appear again.
+/// A pending confirmation ends when there is nothing left to clear: an empty list (a clear
+/// elsewhere) or "unavailable". It cannot come back stale when runs appear again.
 #[test]
-fn a_new_list_or_unavailable_ends_a_pending_confirmation() {
+fn an_empty_list_or_unavailable_ends_a_pending_confirmation() {
     let asked = loaded().history_toggled().clear_requested();
     assert!(!asked.history_loaded(vec![]).history.confirm_clear);
-    assert!(
-        !asked
-            .history_loaded(vec![entry(3, "x")])
-            .history
-            .confirm_clear
-    );
     assert!(!asked.history_unavailable().history.confirm_clear);
-    let (_, sends) = asked.history_loaded(vec![entry(4, "y")]).clear_confirmed();
+    let (_, sends) = asked
+        .history_loaded(vec![])
+        .history_loaded(vec![entry(4, "y")])
+        .clear_confirmed();
     assert!(!sends, "no stale confirm sends a clear");
+}
+
+/// A refresh that still has runs (a run finished while the question was open) keeps it: the
+/// person asked to clear the connection's history, which still has something to clear.
+#[test]
+fn a_non_empty_refresh_keeps_a_pending_confirmation() {
+    let asked = loaded().history_toggled().clear_requested();
+    let refreshed = asked.history_loaded(vec![entry(3, "x"), entry(2, "db.b.find()")]);
+    assert!(refreshed.history.confirm_clear);
+    let (_, sends) = refreshed.clear_confirmed();
+    assert!(sends);
 }
 
 // ---- A failed read ----

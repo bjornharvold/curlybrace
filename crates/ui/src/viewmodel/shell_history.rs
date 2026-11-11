@@ -37,13 +37,15 @@ impl ShellState {
         }
     }
 
-    /// The core's list. A pending confirmation ends with it: it was asked about the list before.
+    /// The core's list. A pending confirmation ends only when the list is empty (nothing is left
+    /// to clear); a refresh that still has runs keeps the question open.
     pub fn history_loaded(&self, entries: Vec<ShellHistoryEntry>) -> Self {
+        let confirm_clear = self.history.confirm_clear && !entries.is_empty();
         self.with_history(HistoryView {
             loaded: true,
             available: true,
             entries: Arc::new(entries),
-            confirm_clear: false,
+            confirm_clear,
             clear_failed: false,
             refresh_failed: false,
             ..self.history.clone()

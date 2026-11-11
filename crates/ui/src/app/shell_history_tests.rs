@@ -269,6 +269,24 @@ fn confirmed_clear_sends_the_command_once() {
     assert!(shell_of(&s, id).history.entries.is_empty());
 }
 
+/// A run finishing while "Clear history?" is open refreshes the list; the question stays, and
+/// "Yes" still clears, once.
+#[test]
+fn a_refresh_during_a_pending_clear_keeps_the_question() {
+    let (s, id) = with_history();
+    let (s, _) = shell(s, ShellAction::ToggleHistory);
+    let (s, _) = shell(s, ShellAction::ClearHistory);
+    let (s, commands) = event(s, changed_event(id, true));
+    assert_eq!(reads(&commands, id), 1);
+    let refreshed = vec![entry(3, "db.c.find()"), entry(2, "db.b.find()")];
+    let (s, _) = event(s, history(id, refreshed));
+    assert!(shell_of(&s, id).history.confirm_clear, "still asked");
+    let (s, confirmed) = shell(s, ShellAction::ConfirmClear);
+    assert_eq!(clears(&confirmed, id), 1);
+    let (_, again) = shell(s, ShellAction::ConfirmClear);
+    assert_eq!(clears(&again, id), 0);
+}
+
 #[test]
 fn a_cancelled_clear_sends_nothing() {
     let (s, id) = with_history();
