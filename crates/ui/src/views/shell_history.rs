@@ -1,9 +1,11 @@
-//! The Shell tab's History panel: a toggle that shows or hides it, then (when open) the loading,
-//! unavailable or empty line, or the remembered runs of the connection, newest first. Each run is
-//! ONE keyboard-activatable button named by its status, when it ran and its first line; clicking
-//! it puts the script back in the editor. Below the list: what is stored, and "Clear history"
-//! with its inline confirm step. It only draws and reports; every decision is the reducer's, and
-//! an action comes from a click (or a key press on a focused button), never from a frame.
+//! The Shell tab's History panel: a toggle that shows or hides it (with "Clear history" beside it
+//! while the open panel has runs), then (when open) the loading, unavailable or empty line, or
+//! the remembered runs of the connection, newest first. Each run is ONE keyboard-activatable
+//! button named by its status, when it ran and its first line; clicking it puts the script back
+//! in the editor. Below the list: what is stored, and the inline confirm step of a clear. The
+//! list is at most as tall as the tab's layout allows (see `shell_layout`). It only draws and
+//! reports; every decision is the reducer's, and an action comes from a click (or a key press on
+//! a focused button), never from a frame.
 use super::tone_notice::tone_notice;
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
@@ -28,8 +30,6 @@ const ROW_ID: &str = "shell_history_row";
 const FIRST_LINE_CHARS: usize = 80;
 /// A row's height (points): one line of text with the status badge.
 const ROW_HEIGHT: f32 = 32.0;
-/// The list scrolls once it is taller than this (points), about five rows.
-const LIST_MAX_HEIGHT: f32 = 180.0;
 /// The column the time takes in a row, so the badges line up.
 const TIME_WIDTH: f32 = 88.0;
 /// The widest a status badge's text may be.
@@ -42,23 +42,63 @@ fn row_id(session: Uuid, entry_id: i64) -> egui::Id {
     egui::Id::new((ROW_ID, session, entry_id))
 }
 
-/// Draws the panel of `session` and returns what was clicked in this frame, if anything.
+/// What the panel did in one frame.
+pub(crate) struct HistoryShown {
+    /// What was clicked, if anything.
+    pub action: Option<ShellAction>,
+    /// The height the list of runs took (points); 0 without a list.
+    pub list_height: f32,
+}
+
+/// Draws the panel of `session`, its list at most `list_max` points tall (it scrolls past that).
 pub(crate) fn show_history(
     ui: &mut egui::Ui,
     history: &HistoryView,
     session: Uuid,
     now_secs: i64,
+    list_max: f32,
     i18n: &I18n,
-) -> Option<ShellAction> {
+) -> HistoryShown {
     ui.push_id((SALT, session), |ui| {
-        let toggled = toggle(ui, history.open, i18n);
-        let inside = match history.open {
-            true => body(ui, history, session, now_secs, i18n),
-            false => None,
+        // "Clear history" shares the toggle's row, so the open panel costs one row less.
+        let toggled = ui
+            .horizontal(|ui| {
+                let toggled = toggle(ui, history.open, i18n);
+                let clear = match offers_clear(history) {
+                    true => text_button(ui, i18n.t("shell.history.clear"))
+                        .clicked()
+                        .then_some(ShellAction::ClearHistory),
+                    false => None,
+                };
+                toggled.or(clear)
+            })
+            .inner;
+        let place = Place {
+            session,
+            now_secs,
+            list_max,
         };
-        toggled.or(inside)
+        let inside = match history.open {
+            true => body(ui, history, place, i18n),
+            false => HistoryShown {
+                action: None,
+                list_height: 0.0,
+            },
+        };
+        HistoryShown {
+            action: toggled.or(inside.action),
+            ..inside
+        }
     })
     .inner
+}
+
+/// Where the panel is drawn: its session, the frame's time and the room for the list.
+#[derive(Clone, Copy)]
+struct Place {
+    session: Uuid,
+    now_secs: i64,
+    list_max: f32,
 }
 
 /// The header button. It shows the title; its accessible name and tooltip say what pressing it
@@ -78,70 +118,71 @@ fn toggle(ui: &mut egui::Ui, open: bool, i18n: &I18n) -> Option<ShellAction> {
 }
 
 /// The open panel: loading, unavailable, or the list with its note and clear controls.
-fn body(
-    ui: &mut egui::Ui,
-    history: &HistoryView,
-    session: Uuid,
-    now_secs: i64,
-    i18n: &I18n,
-) -> Option<ShellAction> {
+fn body(ui: &mut egui::Ui, history: &HistoryView, place: Place, i18n: &I18n) -> HistoryShown {
+    let line = |ui: &mut egui::Ui, key: &str| {
+        ui.label(i18n.t(key));
+        HistoryShown {
+            action: None,
+            list_height: 0.0,
+        }
+    };
     match (history.loaded, history.available) {
-        (false, _) => {
-            ui.label(i18n.t("shell.history.loading"));
-            None
-        }
-        (true, false) => {
-            ui.label(i18n.t("shell.history.unavailable"));
-            None
-        }
-        (true, true) => list_section(ui, history, session, now_secs, i18n),
+        (false, _) => line(ui, "shell.history.loading"),
+        (true, false) => line(ui, "shell.history.unavailable"),
+        (true, true) => list_section(ui, history, place, i18n),
     }
 }
 
 fn list_section(
     ui: &mut egui::Ui,
     history: &HistoryView,
-    session: Uuid,
-    now_secs: i64,
+    place: Place,
     i18n: &I18n,
-) -> Option<ShellAction> {
+) -> HistoryShown {
     let entries = &history.entries;
-    let recalled = match entries.is_empty() {
+    let (recalled, list_height) = match entries.is_empty() {
         true => {
             ui.label(i18n.t("shell.history.empty"));
-            None
+            (None, 0.0)
         }
-        false => rows(ui, entries, session, now_secs, i18n),
+        false => rows(ui, entries, place, i18n),
     };
     ui.label(egui::RichText::new(i18n.t("shell.history.plaintext_note")).small());
-    let cleared = match entries.is_empty() {
-        true => None,
-        false => clear_controls(ui, history.confirm_clear, i18n),
+    let cleared = match !entries.is_empty() && history.confirm_clear {
+        true => confirm_controls(ui, i18n),
+        false => None,
     };
-    recalled.or(cleared)
+    HistoryShown {
+        action: recalled.or(cleared),
+        list_height,
+    }
 }
 
 /// The virtualised list: only the rows in view are laid out, so 200 entries cost a few rows.
+/// Returns the recalled entry, if any, and the height the list took.
 fn rows(
     ui: &mut egui::Ui,
     entries: &[ShellHistoryEntry],
-    session: Uuid,
-    now_secs: i64,
+    place: Place,
     i18n: &I18n,
-) -> Option<ShellAction> {
-    egui::ScrollArea::vertical()
-        .id_salt((SALT, session))
-        .max_height(LIST_MAX_HEIGHT)
+) -> (Option<ShellAction>, f32) {
+    let top = ui.cursor().min.y;
+    let recalled = egui::ScrollArea::vertical()
+        .id_salt((SALT, place.session))
+        .max_height(place.list_max)
+        // egui's own floor (64 points) would override a smaller room.
+        .min_scrolled_height(place.list_max)
         .auto_shrink([false, true])
         .show_rows(ui, ROW_HEIGHT, entries.len(), |ui, range| {
             entries
                 .get(range)
                 .unwrap_or_default()
                 .iter()
-                .map(|entry| row(ui, entry, session, now_secs, i18n))
+                .map(|entry| row(ui, entry, place.session, place.now_secs, i18n))
                 .fold(None, Option::or)
         })
-        .inner
+        .inner;
+    (recalled, ui.cursor().min.y - top)
 }
 
 /// One run as one button: time, status badge and first line, read out in one name.
@@ -237,12 +278,18 @@ fn centred(left: f32, row: Rect, galley: &Arc<Galley>) -> Pos2 {
     Pos2::new(left, row.center().y - galley.size().y / 2.0)
 }
 
-/// "Clear history", or, once it was pressed, the question with its Yes and Keep buttons.
-fn clear_controls(ui: &mut egui::Ui, confirming: bool, i18n: &I18n) -> Option<ShellAction> {
-    if !confirming {
-        let clicked = text_button(ui, i18n.t("shell.history.clear")).clicked();
-        return clicked.then_some(ShellAction::ClearHistory);
-    }
+/// Whether the header offers "Clear history": the panel is open on a non-empty list and no clear
+/// is waiting for its confirmation.
+fn offers_clear(history: &HistoryView) -> bool {
+    history.open
+        && history.loaded
+        && history.available
+        && !history.entries.is_empty()
+        && !history.confirm_clear
+}
+
+/// Once "Clear history" was pressed: the question with its Yes and Keep buttons.
+fn confirm_controls(ui: &mut egui::Ui, i18n: &I18n) -> Option<ShellAction> {
     tone_notice(
         ui,
         Tone::Warning,

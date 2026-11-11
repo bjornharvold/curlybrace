@@ -512,9 +512,12 @@ fn has_button(h: &Harness<'static, Frame>, label: &str) -> bool {
     h.query_by_role_and_label(Role::Button, label).is_some()
 }
 
+/// Clicks the button and lets the layout settle: a change of what the panel shows is measured in
+/// one frame and laid out in the next (see `shell_layout`), so the following click aims at where
+/// the buttons now are.
 fn click(h: &mut Harness<'static, Frame>, label: &str) {
     h.get_by_role_and_label(Role::Button, label).click();
-    h.run_steps(2);
+    h.run_steps(3);
 }
 
 #[test]
@@ -592,7 +595,11 @@ fn clear_history_asks_before_it_clears() {
     assert!(!has_button(&h, &t("shell.history.clear")));
 
     click(&mut h, &t("shell.history.clear_cancel"));
-    assert!(h.state().actions().ends_with(&[ShellAction::CancelClear]));
+    assert!(
+        h.state().actions().ends_with(&[ShellAction::CancelClear]),
+        "{:?}",
+        h.state().actions()
+    );
     assert!(
         h.query_by_label(&t("shell.history.clear_confirm"))
             .is_none()

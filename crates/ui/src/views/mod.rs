@@ -45,6 +45,7 @@ pub mod shell;
 mod shell_editor;
 pub mod shell_highlight;
 mod shell_history;
+mod shell_layout;
 pub mod shell_notice;
 mod shell_output;
 pub mod sidebar;
