@@ -44,8 +44,11 @@ password reaches it, and where it does not:
   (`/proc/<pid>/environ`) was not checked either. Do not put secrets in the scripts you type.
 - The Shell history stores each script that ran **in plain text** in `history.sqlite` (owner-only,
   `0600`), exactly as written: anything you typed into a script, such as a password, is kept, up to
-  the last 200 scripts per connection. Output is never stored. Deleting the connection or **Clear
-  history** removes it; duplicating a connection copies it.
+  the last 200 scripts per connection. Output is never stored. Duplicating a connection copies it.
+  Deleting the connection or **Clear history** removes it from the app's database, but SQLite can
+  keep the old bytes in the file's free space and write-ahead log until it reuses them, and backups
+  (such as Time Machine) keep their own copies. A password typed into a script may stay on disk for
+  a while: do not type secrets into scripts.
 - A read-only connection is refused in the core, not only in the UI. A production connection asks
   for confirmation on every run.
 - A script runs with your own credentials and can do anything you can do on that server, including
