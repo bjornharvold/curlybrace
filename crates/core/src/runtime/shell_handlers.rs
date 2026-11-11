@@ -279,7 +279,14 @@ pub(super) async fn start(
 pub(super) fn result_to_send(outcome: Outcome, parsed: Option<ShellResult>) -> Option<ShellResult> {
     match outcome {
         Outcome::Exited(0) => parsed,
-        _ => None,
+        Outcome::Exited(_)
+        | Outcome::ScriptErrors
+        | Outcome::Incomplete
+        | Outcome::ConnectFailed
+        | Outcome::Signalled
+        | Outcome::Cancelled
+        | Outcome::CapReached
+        | Outcome::StartFailed => None,
     }
 }
 
