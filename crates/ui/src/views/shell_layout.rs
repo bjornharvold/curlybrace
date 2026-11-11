@@ -20,6 +20,10 @@ const EDITOR_MIN_HEIGHT: f32 = 120.0;
 pub(crate) const EDITOR_MIN_OPEN_HEIGHT: f32 = 64.0;
 /// The output pane keeps this much while the window leaves room for it (points).
 pub(crate) const OUTPUT_MIN_HEIGHT: f32 = 120.0;
+/// With the panel open the output pane is planned this share of the tab's height (at least
+/// [`OUTPUT_MIN_HEIGHT`]): a table needs its heading, notes, header and a few rows, so the
+/// editor and the list give way first.
+pub(crate) const OUTPUT_OPEN_SHARE: f32 = 0.45;
 /// The open list takes at most this share of the tab's height.
 const LIST_SHARE: f32 = 0.25;
 /// ... and never more than this (points), about five rows.
@@ -48,7 +52,8 @@ pub(crate) fn heights(available: f32, open: bool, chrome: f32) -> Heights {
         return Heights { editor, list: 0.0 };
     }
     let list = LIST_MAX_HEIGHT.min(available * LIST_SHARE);
-    let room = (available - chrome - SPACING_SLACK - OUTPUT_MIN_HEIGHT).max(0.0);
+    let output = (available * OUTPUT_OPEN_SHARE).max(OUTPUT_MIN_HEIGHT);
+    let room = (available - chrome - SPACING_SLACK - output).max(0.0);
     if editor + list <= room {
         return Heights { editor, list };
     }

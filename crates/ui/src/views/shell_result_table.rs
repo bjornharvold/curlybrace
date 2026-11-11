@@ -3,7 +3,7 @@
 //! Documents tab's look (card, tonal header band, zebra rows) without its selection or menus.
 //! The rows come from the per-session cache, so a repaint lays out only the visible cells.
 use super::metrics::row_height;
-use super::shell_result::show_notes;
+use super::shell_result::{note_text, show_notes};
 use super::shell_result_cache::{ShownText, TableCells, table_cells};
 use super::table::paint_header_cell;
 use crate::I18n;
@@ -19,23 +19,46 @@ pub(super) fn show_result_table(ui: &mut egui::Ui, state: &ShellState, session: 
     let Some(cells) = table_cells(ui.ctx(), session, state, i18n) else {
         return;
     };
-    if let Some(result) = state.result.result.as_deref() {
-        show_notes(ui, result, i18n);
-    }
     if cells.rows.is_empty() {
         ui.label(i18n.t("shell.result.empty"));
         return;
     }
-    let count = cells.rows.len().to_string();
-    ui.label(i18n.t_with("shell.result.row_count", &[("count", &count)]));
-    let hidden = cells.columns.hidden_columns;
-    if hidden > 0 {
-        let count = hidden.to_string();
-        ui.label(i18n.t_with("shell.result.more_columns", &[("count", &count)]));
-    }
     if !cells.columns.shown.is_empty() {
         show_cells(ui, &cells, session);
     }
+}
+
+/// The Table's part of the output heading row: its notes as one label, on that row so they take
+/// no height of their own.
+pub(super) fn show_table_bar(ui: &mut egui::Ui, state: &ShellState, session: Uuid, i18n: &I18n) {
+    let Some(cells) = table_cells(ui.ctx(), session, state, i18n) else {
+        return;
+    };
+    let left_out = state
+        .result
+        .result
+        .as_deref()
+        .and_then(|result| note_text(result, i18n));
+    let parts = match cells.rows.is_empty() {
+        true => Vec::from_iter(left_out),
+        false => notes(&cells, left_out, i18n),
+    };
+    show_notes(ui, &parts, i18n);
+}
+
+/// "Rows: N", then what the value leaves out, then the columns not shown.
+fn notes(cells: &TableCells, left_out: Option<String>, i18n: &I18n) -> Vec<String> {
+    let count = cells.rows.len().to_string();
+    let rows = i18n.t_with("shell.result.row_count", &[("count", &count)]);
+    let hidden = cells.columns.hidden_columns;
+    let columns = (hidden > 0).then(|| {
+        let count = hidden.to_string();
+        i18n.t_with("shell.result.more_columns", &[("count", &count)])
+    });
+    std::iter::once(rows)
+        .chain(left_out)
+        .chain(columns)
+        .collect()
 }
 
 fn show_cells(ui: &mut egui::Ui, cells: &TableCells, session: Uuid) {

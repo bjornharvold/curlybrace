@@ -288,9 +288,10 @@ fn every_reason_is_said_in_words() {
 #[test]
 fn the_more_in_cursor_note_is_announced() {
     let h = harness(with_result(cursor(numbered(20), true), OutputMode::Table));
-    h.get_by_label(&tw("shell.result.more_in_cursor", &[("count", "20")]));
+    let note = tw("shell.result.more_in_cursor", &[("count", "20")]);
+    h.get_by_label_contains(&note);
     let h = harness(with_result(cursor(numbered(20), true), OutputMode::Tree));
-    h.get_by_label(&tw("shell.result.more_in_cursor", &[("count", "20")]));
+    h.get_by_label_contains(&note);
 }
 
 #[test]
@@ -306,7 +307,10 @@ fn showing_of_note_for_a_long_array() {
         "shell.result.showing_of",
         &[("shown", "200"), ("total", "1000")],
     );
-    h.get_by_label(&note);
+    // The notes are one label: "Rows: 200 · Showing 200 of 1000."
+    let rows = tw("shell.result.row_count", &[("count", "200")]);
+    let joined = [rows, note].join(&t("shell.result.note_separator"));
+    h.get_by_label(&joined);
 }
 
 fn wide(columns: usize) -> Document {
@@ -321,7 +325,7 @@ fn more_columns_note_for_a_wide_table() {
         cursor(vec![wide(60)], false),
         OutputMode::Table,
     ));
-    h.get_by_label(&tw("shell.result.more_columns", &[("count", "10")]));
+    h.get_by_label_contains(&tw("shell.result.more_columns", &[("count", "10")]));
     let h = harness(with_result(
         cursor(vec![wide(40)], false),
         OutputMode::Table,
@@ -455,7 +459,7 @@ fn a_wide_long_table_at_a_narrow_window_keeps_its_notes_inside() {
         "shell.result.showing_of",
         &[("shown", "200"), ("total", "5000")],
     );
-    let rect = h.get_by_label(&note).rect();
+    let rect = h.get_by_label_contains(&note).rect();
     assert!(rect.right() <= SMALL.x, "the note is clipped: {rect:?}");
     h.get_by_label("field_0");
 }

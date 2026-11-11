@@ -5,8 +5,8 @@
 //! expanded, and its accesskit node carries the expanded state. Rows are virtualised and come
 //! from the per-session cache, so a repaint does not flatten the documents again.
 use super::metrics::{fixed_row, row_height};
-use super::shell_result::show_notes;
-use super::shell_result_cache::{ShownText, TreeLine, tree_lines};
+use super::shell_result::{note_text, show_notes};
+use super::shell_result_cache::{ShownText, TreeLine, TreeLines, tree_lines};
 use super::tree::arrow;
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
@@ -20,6 +20,49 @@ use uuid::Uuid;
 /// The most of a row's remaining width a key takes.
 const KEY_SHARE: f32 = 0.4;
 
+/// What the empty tree says instead of rows, if it is empty.
+fn empty_key(lines: &TreeLines, result: &ShellResult) -> Option<&'static str> {
+    match result {
+        _ if lines.lines.is_empty() => Some("shell.result.empty"),
+        ShellResult::Values { values, .. } if values.is_empty() => {
+            Some("shell.result.empty_values")
+        }
+        _ => None,
+    }
+}
+
+/// The Tree's part of the output heading row: Expand all / Collapse all and the notes (what the
+/// value leaves out, fields left closed), on that row so they take no height of their own.
+pub(super) fn show_tree_bar(
+    ui: &mut egui::Ui,
+    state: &ShellState,
+    session: Uuid,
+    i18n: &I18n,
+) -> Option<ShellAction> {
+    let lines = tree_lines(ui.ctx(), session, state, i18n)?;
+    let result = state.result.result.as_deref()?;
+    let left_out = note_text(result, i18n);
+    if empty_key(&lines, result).is_some() {
+        show_notes(ui, &Vec::from_iter(left_out), i18n);
+        return None;
+    }
+    let capped = state
+        .result
+        .tree
+        .capped
+        .then(|| i18n.t("shell.result.expand_capped"));
+    let notes: Vec<String> = left_out.into_iter().chain(capped).collect();
+    let expand = text_button(ui, i18n.t("shell.result.expand_all")).clicked();
+    let collapse = text_button(ui, i18n.t("shell.result.collapse_all")).clicked();
+    show_notes(ui, &notes, i18n);
+    match (expand, collapse) {
+        (true, _) => Some(ShellAction::TreeExpandAll),
+        (_, true) => Some(ShellAction::TreeCollapseAll),
+        _ => None,
+    }
+}
+
+/// The Tree's rows (or what the empty tree says), below the heading row.
 pub(super) fn show_result_tree(
     ui: &mut egui::Ui,
     state: &ShellState,
@@ -28,18 +71,9 @@ pub(super) fn show_result_tree(
 ) -> Option<ShellAction> {
     let lines = tree_lines(ui.ctx(), session, state, i18n)?;
     let result = state.result.result.as_deref()?;
-    show_notes(ui, result, i18n);
-    if lines.lines.is_empty() {
-        ui.label(i18n.t("shell.result.empty"));
+    if let Some(key) = empty_key(&lines, result) {
+        ui.label(i18n.t(key));
         return None;
-    }
-    if matches!(result, ShellResult::Values { values, .. } if values.is_empty()) {
-        ui.label(i18n.t("shell.result.empty_values"));
-        return None;
-    }
-    let all = expand_buttons(ui, i18n);
-    if state.result.tree.capped {
-        ui.label(i18n.t("shell.result.expand_capped"));
     }
     let height = row_height(ui);
     let mut toggled = None;
@@ -56,20 +90,7 @@ pub(super) fn show_result_tree(
                 }
             }
         });
-    all.or(toggled)
-}
-
-fn expand_buttons(ui: &mut egui::Ui, i18n: &I18n) -> Option<ShellAction> {
-    ui.horizontal_wrapped(|ui| {
-        let expand = text_button(ui, i18n.t("shell.result.expand_all")).clicked();
-        let collapse = text_button(ui, i18n.t("shell.result.collapse_all")).clicked();
-        match (expand, collapse) {
-            (true, _) => Some(ShellAction::TreeExpandAll),
-            (_, true) => Some(ShellAction::TreeCollapseAll),
-            _ => None,
-        }
-    })
-    .inner
+    toggled
 }
 
 fn show_line(

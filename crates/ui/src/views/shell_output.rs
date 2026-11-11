@@ -7,7 +7,7 @@
 //! spoken once). While a run is going
 //! the pane follows the newest line unless the user scrolled away from the bottom.
 use super::metrics::{fixed_row_sized, row_height};
-use super::shell_result::{show_mode_switch, show_result};
+use super::shell_result::{show_mode_switch, show_result, show_result_bar};
 use super::shell_result_cache::drop_stale;
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
@@ -31,8 +31,9 @@ fn scroll_salt(session: Uuid) -> (&'static str, Uuid) {
 
 /// The output heading with the mode switch, then in Text mode the dropped-lines note and the
 /// lines (or what to expect when there are none yet) of `session`, else the Table or Tree; all
-/// inside one region named for assistive technology. The switch shares the heading's row, so it
-/// adds no height to the tab's chrome.
+/// inside one region named for assistive technology. The compact switch and the mode's own bar
+/// (the Table's notes, the Tree's Expand all / Collapse all and notes) share the heading's row,
+/// so a short pane (800x500 with History open) still shows rows.
 pub(crate) fn show_output(
     ui: &mut egui::Ui,
     state: &ShellState,
@@ -55,7 +56,10 @@ pub(crate) fn show_output(
                 .horizontal_wrapped(|ui| {
                     ui.strong(i18n.t("shell.output.title"));
                     ui.add_space(ui.spacing().item_spacing.x * 2.0);
-                    show_mode_switch(ui, state, i18n)
+                    let switched = show_mode_switch(ui, state, i18n);
+                    ui.add_space(ui.spacing().item_spacing.x * 2.0);
+                    let bar = show_result_bar(ui, state, session, i18n);
+                    switched.or(bar)
                 })
                 .inner;
             let shown = match state.mode {

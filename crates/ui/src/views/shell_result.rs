@@ -2,11 +2,11 @@
 //! the view or, when that mode cannot show the run's value, the reason in words with a one-click
 //! way back to Text. The notes that say what is not shown (more in the cursor, part of a long
 //! array) are plain labels, so they are announced. Only draws and reports actions.
-use super::shell_result_table::show_result_table;
-use super::shell_result_tree::show_result_tree;
+use super::shell_result_table::{show_result_table, show_table_bar};
+use super::shell_result_tree::{show_result_tree, show_tree_bar};
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
-use crate::theme::{segmented_hinted, text_button};
+use crate::theme::{segmented_hinted_compact, text_button};
 use crate::viewmodel::index_detail::size_parts;
 use crate::viewmodel::shell::ShellState;
 use crate::viewmodel::shell_result::{Availability, OutputMode, Reason, ShellResult};
@@ -48,9 +48,27 @@ pub(crate) fn show_mode_switch(
         node.set_label(name);
     });
     ctx.with_accessibility_parent(group, || {
-        segmented_hinted(ui, &items, state.mode, available, hint)
+        segmented_hinted_compact(ui, &items, state.mode, available, hint)
     })
     .map(ShellAction::SetOutputMode)
+}
+
+/// What the mode adds to the output heading row: the Table's notes, the Tree's Expand all /
+/// Collapse all and notes. Nothing for Text, or when the mode cannot show the value.
+pub(crate) fn show_result_bar(
+    ui: &mut egui::Ui,
+    state: &ShellState,
+    session: Uuid,
+    i18n: &I18n,
+) -> Option<ShellAction> {
+    match (state.mode, state.availability(state.mode)) {
+        (OutputMode::Table, Availability::Available) => {
+            show_table_bar(ui, state, session, i18n);
+            None
+        }
+        (OutputMode::Tree, Availability::Available) => show_tree_bar(ui, state, session, i18n),
+        _ => None,
+    }
 }
 
 /// The Table or Tree of the run's value, or why there is none. Text mode draws nothing here.
@@ -95,14 +113,17 @@ pub(crate) fn reason_text(reason: Reason, i18n: &I18n) -> String {
     i18n.t(key)
 }
 
-/// What the value leaves out: the rest of a cursor, or the rest of a long array.
-pub(super) fn show_notes(ui: &mut egui::Ui, result: &ShellResult, i18n: &I18n) {
-    if let Some(note) = note_text(result, i18n) {
-        ui.label(note);
+/// The notes above a Table or Tree as ONE wrapped label (a line each would push the rows out of
+/// a short pane): `parts` in order, joined by the translated separator.
+pub(super) fn show_notes(ui: &mut egui::Ui, parts: &[String], i18n: &I18n) {
+    if parts.is_empty() {
+        return;
     }
+    ui.label(parts.join(&i18n.t("shell.result.note_separator")));
 }
 
-fn note_text(result: &ShellResult, i18n: &I18n) -> Option<String> {
+/// What the value leaves out: the rest of a cursor, or the rest of a long array.
+pub(super) fn note_text(result: &ShellResult, i18n: &I18n) -> Option<String> {
     let showing_of = |shown: usize, total: u64| {
         let (shown, total) = (shown.to_string(), total.to_string());
         let params = [("shown", shown.as_str()), ("total", total.as_str())];

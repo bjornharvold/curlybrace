@@ -1282,6 +1282,7 @@
     "editor_placeholder": "Write a mongosh script, for example db.users.find({})",
     "format": "Format",
     "format_tooltip": "Re-indent the selection, or the whole script when nothing is selected ({shortcut})",
+    "hints": "{editor} {script}",
     "history": {
       "clear": "Clear history",
       "clear_cancel": "Keep history",
@@ -1361,6 +1362,7 @@
       "mode_label": "Show as",
       "more_columns": "Columns not shown, to keep the table readable: {count}.",
       "more_in_cursor": "The first documents of the cursor are shown ({count}); it has more.",
+      "note_separator": " · ",
       "row_count": "Rows: {count}",
       "row_toggle": "{key}, {state}",
       "show_text": "Show text",

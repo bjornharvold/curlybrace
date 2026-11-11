@@ -20,15 +20,33 @@ fn closed_keeps_the_usual_editor_share_whatever_the_chrome() {
 
 #[test]
 fn open_with_room_to_spare_changes_nothing_for_the_editor() {
-    let h = heights(1200.0, true, 200.0);
-    assert_eq!(h.editor, 1200.0 * 0.45);
+    // Room for the editor's share, the longest list and the output's share.
+    let h = heights(4000.0, true, 200.0);
+    assert_eq!(h.editor, 4000.0 * 0.45);
     assert_eq!(h.list, LIST_MAX_HEIGHT);
 }
 
 #[test]
 fn the_open_list_is_capped_to_a_share_of_the_height() {
-    let h = heights(600.0, true, 0.0);
-    assert_eq!(h.list, 150.0);
+    for available in [300.0, 600.0, 700.0] {
+        let h = heights(available, true, 0.0);
+        assert!(h.list <= available * 0.25, "{available}: {h:?}");
+    }
+}
+
+#[test]
+fn open_the_output_is_planned_its_share_when_the_floors_allow() {
+    // 1280x800 and 800x500 windows (the tab gets about 700 and 400 points) with their chrome.
+    for (available, chrome) in [(702.0, 120.0), (402.0, 110.0)] {
+        let h = heights(available, true, chrome);
+        let output = available - chrome - SPACING_SLACK - h.editor - h.list;
+        let at_floors = h.editor == EDITOR_MIN_OPEN_HEIGHT && h.list == LIST_MIN_HEIGHT;
+        assert!(
+            output >= available * OUTPUT_OPEN_SHARE - 0.01 || at_floors,
+            "{available}: {h:?} {output}"
+        );
+        assert!(output >= OUTPUT_MIN_HEIGHT, "{available}: {h:?} {output}");
+    }
 }
 
 #[test]

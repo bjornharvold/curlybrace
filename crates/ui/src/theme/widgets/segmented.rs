@@ -1,8 +1,8 @@
 //! Material 3 segmented buttons: a connected row of mutually exclusive options with pill ends,
 //! an `outline` border and dividers, and the selected option on `secondary_container`.
 use super::{
-    CONTROL_HEIGHT, Look, Ring, disabled_container, disabled_content, focus_ring, medium_font,
-    one_row,
+    COMPACT_CONTROL_HEIGHT, CONTROL_HEIGHT, Look, Ring, disabled_container, disabled_content,
+    focus_ring, medium_font, one_row,
 };
 use crate::theme::shape::{self, radius};
 use crate::theme::{Scheme, current_ui};
@@ -43,6 +43,29 @@ pub fn segmented_hinted<T: PartialEq + Copy>(
     enabled: impl Fn(&T) -> bool,
     hint: impl Fn(&T) -> Option<String>,
 ) -> Option<T> {
+    segmented_sized(ui, items, selected, enabled, hint, CONTROL_HEIGHT)
+}
+
+/// [`segmented_hinted`] at [`COMPACT_CONTROL_HEIGHT`], for a heading row where height is
+/// scarce.
+pub fn segmented_hinted_compact<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    items: &[(T, String)],
+    selected: T,
+    enabled: impl Fn(&T) -> bool,
+    hint: impl Fn(&T) -> Option<String>,
+) -> Option<T> {
+    segmented_sized(ui, items, selected, enabled, hint, COMPACT_CONTROL_HEIGHT)
+}
+
+fn segmented_sized<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    items: &[(T, String)],
+    selected: T,
+    enabled: impl Fn(&T) -> bool,
+    hint: impl Fn(&T) -> Option<String>,
+    height: f32,
+) -> Option<T> {
     if items.is_empty() {
         return None;
     }
@@ -58,15 +81,14 @@ pub fn segmented_hinted<T: PartialEq + Copy>(
         Ring::Outside
     };
     let base_id = ui.next_auto_id();
-    let (rect, _) =
-        ui.allocate_exact_size(vec2(item_width * count, CONTROL_HEIGHT), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(item_width * count, height), Sense::hover());
     let painter = super::painter(ui);
     let mut picked = None;
     let mut ring = None;
     for (i, (value, label)) in items.iter().enumerate() {
         let item_rect = Rect::from_min_size(
             pos2(rect.left() + item_width * i as f32, rect.top()),
-            vec2(item_width, CONTROL_HEIGHT),
+            vec2(item_width, height),
         );
         let is_selected = *value == selected;
         let response = item_response(ui, item_rect, base_id.with(i), enabled(value));

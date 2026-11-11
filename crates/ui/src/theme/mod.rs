@@ -27,6 +27,6 @@ pub(crate) use widgets::CONTROL_HEIGHT;
 pub use widgets::{
     CHIP_HEIGHT, FieldOptions, PILL_HEIGHT, card, chip, compact_text_button, filled_button, gate,
     modal_frame, outlined_field, outlined_field_opts, outlined_field_with, pill, pill_row,
-    segmented, segmented_hinted, segmented_where, tabs, text_button, text_button_with_icon,
-    tonal_button,
+    segmented, segmented_hinted, segmented_hinted_compact, segmented_where, tabs, text_button,
+    text_button_with_icon, tonal_button,
 };
