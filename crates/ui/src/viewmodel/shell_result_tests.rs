@@ -1,6 +1,6 @@
 use super::*;
 use crate::I18n;
-use crate::viewmodel::shell::{ShellNotice, ShellStatus};
+use crate::viewmodel::shell::ShellNotice;
 use crate::viewmodel::shell_result_table::{MAX_TABLE_COLUMNS, capped_columns, table_cell_text};
 use crate::viewmodel::shell_result_tree::{MAX_EXPAND_ALL_ROWS, MAX_EXPANDED_PATHS};
 use crate::viewmodel::tree_state::PageRow;
@@ -297,51 +297,40 @@ fn a_refused_run_has_no_result() {
 }
 
 #[test]
-fn a_refusal_before_a_run_clears_the_shown_result() {
-    let state = ready(people())
-        .mode_set(OutputMode::Table)
-        .run_refused(ShellNotice::Refused(ShellRefusal::ReadOnly));
-    assert_eq!(state.result.result, None);
-    assert_eq!(state.result.state, ResultState::NoResult);
-    assert_eq!(state.status, ShellStatus::Idle);
-    assert_eq!(state.mode, OutputMode::Table);
-    assert_eq!(
-        state.notice,
-        Some(ShellNotice::Refused(ShellRefusal::ReadOnly))
-    );
+fn an_empty_script_refusal_keeps_the_previous_result() {
+    let state = ready(people()).mode_set(OutputMode::Table);
+    let (state, request) = state.edited("   ".into(), None).run_requested();
+    assert_eq!(request, None);
+    assert_eq!(state.notice, Some(ShellNotice::EmptyScript));
+    assert_eq!(state.result.state, ResultState::Ready);
     assert_eq!(
         state.availability(OutputMode::Table),
-        unavailable(Reason::RunFailed)
+        Availability::Available
     );
 }
 
 #[test]
-fn clearing_the_result_keeps_the_mode() {
-    let state = ready(people()).mode_set(OutputMode::Tree).result_cleared();
-    assert_eq!(state.result.result, None);
-    assert_eq!(state.result.state, ResultState::NoResult);
-    assert_eq!(state.mode, OutputMode::Tree);
+fn an_interrupted_run_has_failed_and_an_idle_shell_keeps_its_value() {
+    let idle = ready(people()).mode_set(OutputMode::Tree);
+    assert_eq!(idle.result_interrupted(), idle, "nothing was running");
     assert_eq!(
-        state.availability(OutputMode::Tree),
-        unavailable(Reason::RunFailed)
+        ShellState::default().result_interrupted(),
+        ShellState::default()
     );
-}
 
-#[test]
-fn clearing_a_shell_without_a_value_keeps_its_reason() {
-    let never_ran = ShellState::default().result_cleared();
-    assert_eq!(
-        never_ran.availability(OutputMode::Table),
-        unavailable(Reason::NoValue)
-    );
-    let (state, id) = running();
-    let no_value = state.finished(id, Outcome::Exited(0));
-    assert_eq!(no_value.result_cleared(), no_value);
     let (in_flight, _) = running();
+    let cut = in_flight.mode_set(OutputMode::Tree).result_interrupted();
+    assert_eq!(cut.result.state, ResultState::NoResult);
+    assert_eq!(cut.mode, OutputMode::Tree);
     assert_eq!(
-        in_flight.result_cleared().availability(OutputMode::Tree),
+        cut.availability(OutputMode::Tree),
         unavailable(Reason::RunFailed)
     );
+
+    // The value came (it is sent right before the run's end), then the connection went.
+    let (arrived, id) = running();
+    let arrived = arrived.result_arrived(id, people());
+    assert_eq!(arrived.result_interrupted().result, arrived.result);
 }
 
 #[test]

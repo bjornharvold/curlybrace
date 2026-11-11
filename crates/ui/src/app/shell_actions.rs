@@ -305,10 +305,13 @@ fn too_old(state: &AppState, id: Uuid) -> Option<ToolProblem> {
     }
 }
 
-/// A Run refused before it started: the notice says why, and the previous run's value goes (it
-/// would otherwise read as this Run's answer).
+/// A Run refused before it started: only the notice changes. Nothing ran, so the previous run's
+/// output and value stay, as for an empty script.
 fn notice(state: AppState, id: Uuid, notice: ShellNotice) -> Out {
-    let shell = state.shell_or_new(id).run_refused(notice);
+    let shell = ShellState {
+        notice: Some(notice),
+        ..state.shell_or_new(id)
+    };
     unchanged(state.with_shell(id, shell))
 }
 
@@ -348,7 +351,8 @@ impl AppState {
     }
 }
 
-// Declared here, not in `app/mod.rs` (kept from growing): run with `cargo test shell_result_tests`.
+// Declared here, not in `app/mod.rs` (kept from growing), so its path is
+// `app::shell_actions::shell_result_app_tests`: run with `cargo test shell_result`.
 #[cfg(test)]
-#[path = "shell_result_tests.rs"]
-mod shell_result_tests;
+#[path = "shell_result_app_tests.rs"]
+mod shell_result_app_tests;

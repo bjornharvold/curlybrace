@@ -124,7 +124,7 @@ fn indexed(values: &[Bson]) -> Document {
         .collect()
 }
 
-/// A container waiting to be opened: its document, its path and its value.
+/// A non-empty container waiting to be opened: its document, its path and its value.
 type Pending<'a> = (usize, Vec<String>, &'a Bson);
 
 /// Every non-empty document or array that `flatten_doc` would show, breadth first across all
@@ -139,9 +139,6 @@ fn every_expandable(docs: &[Document]) -> TreeExpansion {
     let (mut paths, mut rows) = (0usize, 0usize);
     while let Some((doc_index, path, value)) = queue.pop_front() {
         let children = shown_children(value);
-        if children.is_empty() {
-            continue;
-        }
         if paths == MAX_EXPANDED_PATHS || rows + children.len() > MAX_EXPAND_ALL_ROWS {
             return TreeExpansion {
                 open: Arc::new(open),
@@ -159,6 +156,8 @@ fn every_expandable(docs: &[Document]) -> TreeExpansion {
     }
 }
 
+/// The entries that can be opened (non-empty documents and arrays), as queue items; scalars are
+/// never queued.
 fn children_of<'a>(
     doc_index: usize,
     parent: &[String],
@@ -166,11 +165,21 @@ fn children_of<'a>(
 ) -> Vec<Pending<'a>> {
     entries
         .into_iter()
+        .filter(|(_, value)| is_openable(value))
         .map(|(key, value)| {
             let path = parent.iter().cloned().chain([key]).collect();
             (doc_index, path, value)
         })
         .collect()
+}
+
+/// A non-empty document or array (what `TreeRow::is_expandable` accepts).
+fn is_openable(value: &Bson) -> bool {
+    match value {
+        Bson::Document(d) => !d.is_empty(),
+        Bson::Array(a) => !a.is_empty(),
+        _ => false,
+    }
 }
 
 /// The fields of `doc` that `flatten_doc` lists (at most `MAX_ROWS_PER_LEVEL`).

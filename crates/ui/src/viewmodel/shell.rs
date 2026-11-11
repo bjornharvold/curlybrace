@@ -129,8 +129,9 @@ impl ShellState {
     }
 
     /// Starts a run of exactly `script_to_run` (whatever the editor holds now): the next run id,
-    /// output, notice and the previous run's value cleared (the output mode stays). The caller has checked that nothing is running and that the
-    /// text is worth running (a confirmed run sends the text as it was when Run was clicked).
+    /// output, notice and the previous run's value cleared (the output mode stays). The caller
+    /// has checked that nothing is running and that the text is worth running (a confirmed run
+    /// sends the text as it was when Run was clicked).
     pub fn started(&self, script_to_run: &str) -> (Self, RunRequest) {
         let run_id = self.next_run_id;
         let request = RunRequest {

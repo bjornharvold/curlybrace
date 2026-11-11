@@ -57,8 +57,8 @@ impl ShellTabs {
     /// The connection of `session` was lost or is being reopened: its shell goes back to idle
     /// and what was known of its server is forgotten. The script and the run counter stay (a
     /// restarted counter would let a late event of the old run match a new one); the output
-    /// stays until the next run clears it. The run's value goes (the Table and Tree say the run
-    /// failed); the chosen output mode stays.
+    /// stays until the next run clears it, and so does the run's value (a run cut short here
+    /// has none: the Table and Tree say it failed). The chosen output mode stays.
     pub fn reset(self, session: Uuid) -> Self {
         let mut server_versions = self.server_versions;
         server_versions.remove(&session);
@@ -73,7 +73,7 @@ impl ShellTabs {
             status: ShellStatus::Idle,
             output: shell.output.closed(),
             notice: None,
-            ..shell.result_cleared()
+            ..shell.result_interrupted()
         };
         next.with(session, idle)
     }

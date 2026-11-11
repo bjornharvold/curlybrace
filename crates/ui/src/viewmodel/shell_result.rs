@@ -5,7 +5,7 @@
 //!
 //! The mode lives on `ShellState` (it outlives runs); everything about one run's value lives in
 //! [`ResultView`] (it is replaced by every new run).
-use super::shell::{ShellNotice, ShellState};
+use super::shell::ShellState;
 use super::shell_result_tree::TreeExpansion;
 pub use curlybrace_core::shell::ShellResult;
 use std::sync::Arc;
@@ -94,16 +94,6 @@ impl ResultView {
             ResultState::Ready | ResultState::NoResult => self.clone(),
         }
     }
-
-    /// No value any more, and not the script's doing.
-    fn cleared(&self) -> Self {
-        Self {
-            run_id: self.run_id,
-            state: ResultState::NoResult,
-            run_failed: true,
-            ..Self::default()
-        }
-    }
 }
 
 impl ShellState {
@@ -132,25 +122,16 @@ impl ShellState {
         }
     }
 
-    /// The connection was lost or reopened: a value shown or awaited goes, and the Table and
-    /// Tree say the run failed. A shell that had no value keeps its reason. The mode stays.
-    pub fn result_cleared(&self) -> Self {
-        match self.result.state {
-            ResultState::NoResult => self.clone(),
-            ResultState::Pending | ResultState::Ready => Self {
-                result: self.result.cleared(),
+    /// The connection was lost or reopened. A run in flight ends unclean, as if it failed (its
+    /// value, if it already arrived, stays); an idle shell keeps its value, as its text output
+    /// stays too. The mode stays.
+    pub fn result_interrupted(&self) -> Self {
+        match self.is_running() {
+            true => Self {
+                result: self.result.ended(false),
                 ..self.clone()
             },
-        }
-    }
-
-    /// A Run the app refused before starting it: the notice says why, and the previous run's
-    /// value goes with it (it would otherwise read as the answer to this Run).
-    pub fn run_refused(&self, notice: ShellNotice) -> Self {
-        Self {
-            notice: Some(notice),
-            result: self.result.cleared(),
-            ..self.clone()
+            false => self.clone(),
         }
     }
 

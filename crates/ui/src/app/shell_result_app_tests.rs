@@ -187,25 +187,44 @@ fn tree_actions_reach_the_active_shell() {
     assert!(shell_of(&s, id).result.tree.is_expanded(0, &addr));
 }
 
+fn lost(id: Uuid) -> Event {
+    Event::Failed {
+        session: id,
+        context: "find",
+        error: CoreError::Unreachable,
+    }
+}
+
 #[test]
 fn a_refused_run_leaves_no_result() {
     let dir = tempfile::tempdir().unwrap();
-    let (s, id) = running(dir.path());
+    let (s, id) = with_result(dir.path());
+    let (s, _) = shell(s, ShellAction::Run);
+    assert_eq!(shell_of(&s, id).result.state, ResultState::Pending);
     let refused = Event::ShellRefused {
         session: id,
-        run_id: 1,
+        run_id: 2,
         reason: ShellRefusal::AlreadyRunning,
     };
     let s = event(s, refused);
     let sh = shell_of(&s, id);
+    assert_eq!(
+        sh.result.result, None,
+        "the started run cleared run 1's value"
+    );
     assert_eq!(sh.result.state, ResultState::NoResult);
     assert_eq!(
         sh.availability(OutputMode::Table),
         Availability::Unavailable(Reason::RunFailed)
     );
+}
 
-    // Refused by the app before it starts: the previous run's table goes too.
+/// Refused by the app before it starts: nothing ran, so the previous run's text and value stay.
+#[test]
+fn a_run_refused_before_it_starts_keeps_the_previous_result() {
+    let dir = tempfile::tempdir().unwrap();
     let (s, id) = with_result(dir.path());
+    let before = shell_of(&s, id).clone();
     let s = AppState {
         read_only: true,
         ..s
@@ -217,43 +236,52 @@ fn a_refused_run_leaves_no_result() {
         sh.notice,
         Some(ShellNotice::Refused(ShellRefusal::ReadOnly))
     );
-    assert_eq!(sh.result.result, None);
-    assert_eq!(sh.result.state, ResultState::NoResult);
+    assert_eq!(sh.output, before.output);
+    assert_eq!(sh.result, before.result);
+    for mode in [OutputMode::Table, OutputMode::Tree] {
+        assert_eq!(sh.availability(mode), Availability::Available);
+    }
 }
 
+/// An idle shell keeps its value over a lost connection, as it keeps its text output.
 #[test]
-fn a_connection_reset_clears_the_result() {
+fn an_idle_connection_reset_keeps_the_result() {
     let dir = tempfile::tempdir().unwrap();
     let (s, id) = with_result(dir.path());
     let (s, _) = shell(s, ShellAction::SetOutputMode(OutputMode::Tree));
-    let lost = Event::Failed {
-        session: id,
-        context: "find",
-        error: CoreError::Unreachable,
-    };
+    let before = shell_of(&s, id).result.clone();
 
-    let s = event(s, lost);
+    let s = event(s, lost(id));
 
     let sh = shell_of(&s, id);
-    assert_eq!(sh.result.result, None);
-    assert_eq!(sh.result.state, ResultState::NoResult);
+    assert_eq!(sh.result, before);
     assert_eq!(sh.mode, OutputMode::Tree);
+    assert_eq!(sh.availability(OutputMode::Tree), Availability::Available);
+}
+
+/// A run cut short by a lost connection ends unclean, and its late value is ignored.
+#[test]
+fn a_connection_reset_mid_run_fails_it_and_ignores_its_late_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, id) = running(dir.path());
+    let s = event(s, lost(id));
     assert_eq!(
-        sh.availability(OutputMode::Tree),
+        shell_of(&s, id).availability(OutputMode::Table),
         Availability::Unavailable(Reason::RunFailed)
     );
+    let s = event(s, result(id, 1));
+    assert_eq!(shell_of(&s, id).result.result, None);
 }
 
 #[test]
-fn a_reset_mid_run_ignores_the_old_runs_late_result() {
+fn a_late_result_of_an_older_run_is_ignored() {
     let dir = tempfile::tempdir().unwrap();
-    let (s, id) = running(dir.path());
-    let lost = Event::Failed {
-        session: id,
-        context: "find",
-        error: CoreError::Unreachable,
-    };
-    let s = event(s, lost);
+    let (s, id) = with_result(dir.path());
+    let (s, _) = shell(s, ShellAction::Run);
+    let pending = shell_of(&s, id).result.clone();
+    assert_eq!((pending.run_id, pending.state), (2, ResultState::Pending));
+
     let s = event(s, result(id, 1));
-    assert_eq!(shell_of(&s, id).result.result, None);
+
+    assert_eq!(shell_of(&s, id).result, pending);
 }
