@@ -20,15 +20,10 @@ use uuid::Uuid;
 /// The most of a row's remaining width a key takes.
 const KEY_SHARE: f32 = 0.4;
 
-/// What the empty tree says instead of rows, if it is empty.
-fn empty_key(lines: &TreeLines, result: &ShellResult) -> Option<&'static str> {
-    match result {
-        _ if lines.lines.is_empty() => Some("shell.result.empty"),
-        ShellResult::Values { values, .. } if values.is_empty() => {
-            Some("shell.result.empty_values")
-        }
-        _ => None,
-    }
+/// What the empty tree says instead of rows, if it is empty. An empty array always parses as
+/// documents (none), so it says this too.
+fn empty_key(lines: &TreeLines) -> Option<&'static str> {
+    lines.lines.is_empty().then_some("shell.result.empty")
 }
 
 /// The Tree's part of the output heading row: Expand all / Collapse all and the notes (what the
@@ -42,7 +37,7 @@ pub(super) fn show_tree_bar(
     let lines = tree_lines(ui.ctx(), session, state, i18n)?;
     let result = state.result.result.as_deref()?;
     let left_out = note_text(result, i18n);
-    if empty_key(&lines, result).is_some() {
+    if empty_key(&lines).is_some() {
         show_notes(ui, &Vec::from_iter(left_out), i18n);
         return None;
     }
@@ -71,7 +66,7 @@ pub(super) fn show_result_tree(
 ) -> Option<ShellAction> {
     let lines = tree_lines(ui.ctx(), session, state, i18n)?;
     let result = state.result.result.as_deref()?;
-    if let Some(key) = empty_key(&lines, result) {
+    if let Some(key) = empty_key(&lines) {
         ui.label(i18n.t(key));
         return None;
     }

@@ -540,15 +540,13 @@ fn a_disabled_mode_describes_its_reason_to_assistive_technology() {
     assert_eq!(node.accesskit_node().description(), None);
 }
 
+/// An empty array always parses as documents (none): the Tree says the usual empty line.
 #[test]
-fn an_empty_array_of_values_says_so() {
-    let values = ShellResult::Values {
-        values: Vec::new(),
-        more: false,
-        total: 0,
-    };
-    let h = harness(with_result(values, OutputMode::Tree));
-    h.get_by_label(&t("shell.result.empty_values"));
+fn an_empty_array_says_there_are_no_documents() {
+    let payload = r#"{"k":"array","n":0,"more":false,"v":[]}"#;
+    let result = curlybrace_core::shell::parse_result(payload).expect("parses");
+    let h = harness(with_result(result, OutputMode::Tree));
+    h.get_by_label(&t("shell.result.empty"));
     assert!(h.query_by_label(&t("shell.result.values_title")).is_none());
 }
 

@@ -1351,7 +1351,6 @@
       "cut_hover": "… (the rest of the value is not shown)",
       "empty": "No documents.",
       "empty_object": "The object has no fields.",
-      "empty_values": "The array is empty.",
       "expand_all": "Expand all",
       "expand_capped": "Some fields stay closed: there were too many to open at once.",
       "expanded": "expanded",
