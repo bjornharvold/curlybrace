@@ -32,6 +32,7 @@
 //! | `result <payload>` | the epilogue's answer: `\x01CBJ-<token> <payload>`, then the blank line `print` leaves |
 //! | `result-twice <payload>` | the same answer, twice |
 //! | `result-huge <n>` | the answer is `n` times `x` |
+//! | `result-wide <n>` | the answer is `n` times `中` (3 UTF-8 bytes, one UTF-16 unit each) |
 //! | `result-slow` | the epilogue prints `epilogue-received` and hangs (`sleep 30`) |
 //! | `spoof <token>` | prints a marker line now: `\x01CBJ-<token> {"k":"spoof"}` |
 //! | `result-late <n>` | the answer `{"k":"late"}`, then `n` times `x` and a newline (late output in the answer window) |
@@ -180,6 +181,7 @@ run_line() {
     'result '*) answer_mode=payload; answer="${1#result }" ;;
     'result-twice '*) answer_mode=twice; answer="${1#result-twice }" ;;
     'result-huge '*) answer_mode=huge; answer="${1#result-huge }" ;;
+    'result-wide '*) answer_mode=wide; answer="${1#result-wide }" ;;
     result-slow) answer_mode=slow ;;
     'spoof '*) printf '\001CBJ-%s {"k":"spoof"}\n' "${1#spoof }" ;;
     'result-late '*) answer_mode=late; answer="${1#result-late }" ;;
@@ -211,6 +213,7 @@ answer_epilogue() {
     payload) printf '\001CBJ-%s %s\n\n' "$1" "$answer" ;;
     twice) printf '\001CBJ-%s %s\n\n' "$1" "$answer" "$1" "$answer" ;;
     huge) printf '\001CBJ-%s ' "$1"; head -c "$answer" /dev/zero | tr '\0' x; printf '\n\n' ;;
+    wide) printf '\001CBJ-%s ' "$1"; yes '中' | head -n "$answer" | tr -d '\n'; printf '\n\n' ;;
     slow) printf 'epilogue-received\n'; sleep 30 ;;
     late) printf '\001CBJ-%s {"k":"late"}\n\n' "$1"; head -c "$answer" /dev/zero | tr '\0' x; printf '\n' ;;
     *) ;;

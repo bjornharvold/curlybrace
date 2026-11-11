@@ -1,7 +1,7 @@
 //! The structured-result side channel, end to end through the fake `mongosh`.
 use super::*;
 use crate::connection::{AuthMechanism, ConnectionConfig};
-use crate::shell::invocation::epilogue;
+use crate::shell::invocation::{RESULT_MAX_CHARS, epilogue};
 use crate::shell::{build_invocation, secret_forms};
 
 const PAYLOAD: &str = r#"{"k":"scalar","v":{"$numberInt":"42"},"u":false}"#;
@@ -233,6 +233,42 @@ fn an_oversize_payload_is_dropped_and_the_run_ends_normally() {
     let run = start_with(&fake.exe, invocation("a\nresult-huge 5000"), limits);
     assert_eq!(run.wait(), Outcome::Exited(0));
     assert!(run.results().is_empty());
+    assert_eq!(run.text(Stream::Stdout), "a\n");
+}
+
+#[test]
+fn an_answer_over_the_window_budget_is_dropped_and_the_run_still_ends_cleanly() {
+    // Larger than `max_result_bytes` plus the window's slack: the answer is dropped, the run is
+    // never stopped (no `CapReached`, the text is whole).
+    let fake = repl();
+    let limits = RunLimits {
+        max_result_bytes: 100,
+        ..RunLimits::default()
+    };
+    let run = start_with(&fake.exe, invocation("a\nresult-huge 300000"), limits);
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    assert!(run.results().is_empty());
+    assert_eq!(run.text(Stream::Stdout), "a\n");
+}
+
+#[test]
+fn the_result_budget_holds_the_emitter_cap_in_utf8() {
+    // The emitter counts UTF-16 units; one is at most 3 UTF-8 bytes.
+    assert!(DEFAULT_MAX_RESULT_BYTES >= 3 * RESULT_MAX_CHARS);
+    assert_eq!(RESULT_MAX_CHARS, 4 * 1024 * 1024);
+    assert!(epilogue(TOKEN).ends_with(", 200, 4194304)"));
+}
+
+#[test]
+fn an_answer_of_the_emitter_cap_in_wide_characters_is_delivered_intact() {
+    // 4 Mi CJK characters: within the emitter's cap (UTF-16 units), 12 MiB of UTF-8.
+    let fake = repl();
+    let run = start(&fake, &format!("a\nresult-wide {RESULT_MAX_CHARS}"));
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    let results = run.results();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].len(), 3 * RESULT_MAX_CHARS);
+    assert!(results[0].chars().all(|c| c == '中'));
     assert_eq!(run.text(Stream::Stdout), "a\n");
 }
 

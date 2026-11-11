@@ -33,8 +33,10 @@ const PASSWORD_PROMPT_JS: &str = "passwordPrompt = () => { throw new Error(\"pas
 const EMITTER_FN_JS: &str = r#"((P, E, SYM) => (v, T, MAXN, MAXB) => { const out = o => P(T + E.stringify(o, null, 0, {relaxed: false})); try { const t = v !== null && typeof v === "object" ? v[SYM] : undefined; const r = t !== undefined && v._currentIterationResult; let o; if (r && Array.isArray(r.documents)) { o = {k: "cursor", t: String(t), more: !!r.cursorHasMore, v: r.documents.slice(0, MAXN)} } else if (Array.isArray(v)) { o = {k: "array", n: v.length, more: v.length > MAXN, v: v.slice(0, MAXN)} } else if (v !== null && typeof v === "object") { o = {k: "object", t: t === undefined ? null : String(t), v: v} } else { o = {k: "scalar", v: v === undefined ? null : v, u: v === undefined} } const s = E.stringify(o, null, 0, {relaxed: false}); if (s.length > MAXB) { out({k: "too_big", bytes: s.length}) } else { P(T + s) } } catch (e) { out({k: "unsupported", t: v && v.constructor ? String(v.constructor.name) : null}) } })(print, EJSON, Symbol.for("@@mongosh.shellApiType"))"#;
 /// Most array elements a result carries.
 const RESULT_MAX_ELEMENTS: usize = 200;
-/// Most EJSON characters a result carries; above it the emitter answers `too_big`.
-const RESULT_MAX_CHARS: usize = 4 * 1024 * 1024;
+/// Most EJSON characters (JS string length: UTF-16 units) a result carries; above it the
+/// emitter answers `too_big`. The runner's byte budget for the answer is derived from it
+/// (`run::DEFAULT_MAX_RESULT_BYTES`).
+pub(crate) const RESULT_MAX_CHARS: usize = 4 * 1024 * 1024;
 /// Hex characters in a result token.
 const TOKEN_LEN: usize = 16;
 

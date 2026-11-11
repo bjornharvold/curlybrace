@@ -269,9 +269,14 @@ impl StdoutLane {
     }
 
     /// Hands the first answer on, masked as a whole (the classifier kept the line whole, so a
-    /// secret split across reads is masked too); a later one, or one after a stop, is dropped.
+    /// secret split across reads is masked too); a later one, one after a stop, or one read
+    /// while the answer window went over its budget, is dropped.
     fn result(&mut self, payload: &str, sink: &mut Sink<'_>) -> bool {
         if self.result_sent || sink.control.stopped() {
+            return true;
+        }
+        if sink.control.window_overflowed() {
+            log::warn!("shell: the answer window was over its budget; the result was dropped");
             return true;
         }
         self.result_sent = true;

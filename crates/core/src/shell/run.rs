@@ -22,7 +22,7 @@
 //!   every kill before that targets a group that is still ours.
 use super::control::{Control, Stop};
 use super::decode::Utf8Decoder;
-use super::invocation::epilogue;
+use super::invocation::{RESULT_MAX_CHARS, epilogue};
 use super::pipe::{Delivery, Expect, Lane, Reader, write_input};
 use super::{Invocation, Scrubber};
 use crate::tools::{absolute_entries, kill_group};
@@ -36,8 +36,13 @@ use std::time::{Duration, Instant};
 
 pub const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 pub const DEFAULT_CHUNK_BYTES: usize = 8 * 1024;
-/// Twice the emitter's own 4 MiB cap, so a result it lets through is never cut here.
-pub const DEFAULT_MAX_RESULT_BYTES: usize = 8 * 1024 * 1024;
+/// Most UTF-8 bytes one UTF-16 unit takes (a surrogate pair: 2 units, 4 bytes).
+const MAX_UTF8_BYTES_PER_UTF16_UNIT: usize = 3;
+/// The emitter caps its payload at [`RESULT_MAX_CHARS`] UTF-16 units, so in UTF-8 it is at most
+/// three times that; plus a little slack. A result the emitter lets through therefore always
+/// fits; one over this (a lower limit set in [`RunLimits`]) is dropped, and never stops the run.
+pub const DEFAULT_MAX_RESULT_BYTES: usize =
+    MAX_UTF8_BYTES_PER_UTF16_UNIT * RESULT_MAX_CHARS + 64 * 1024;
 /// A little over the driver's 30 s server selection timeout.
 pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(35);
 /// How often the supervisor checks whether the child has exited.
@@ -84,8 +89,9 @@ pub struct RunLimits {
     pub chunk_bytes: usize,
     /// How long the preamble may take to answer before the run stops with `ConnectFailed`.
     pub handshake_timeout: Duration,
-    /// Longest structured result kept (the payload line, in bytes); a longer one is dropped. It
-    /// does not count against `max_output_bytes`.
+    /// Longest structured result kept (the payload line, in bytes); a longer one is dropped and
+    /// the run goes on (it never ends in `CapReached` for it). It does not count against
+    /// `max_output_bytes`.
     pub max_result_bytes: usize,
 }
 

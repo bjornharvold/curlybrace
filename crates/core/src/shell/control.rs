@@ -37,6 +37,8 @@ pub(super) struct Control {
     /// The budget of the epilogue's answer window, counted apart from the text's.
     max_window_bytes: usize,
     window_bytes: AtomicUsize,
+    /// `window_bytes` went over `max_window_bytes`.
+    window_overflowed: AtomicBool,
     saw_uncaught: AtomicBool,
     /// `mongosh` stopped reading the script before its end.
     incomplete: AtomicBool,
@@ -46,7 +48,7 @@ pub(super) struct Control {
 
 impl Control {
     /// The answer window may take `max_result_bytes` plus [`WINDOW_SLACK`] (its marker, line
-    /// ends, prompt and any late output in it).
+    /// ends, prompt and any late output in it) before its answer is dropped.
     pub(super) fn new(pid: u32, max_output_bytes: usize, max_result_bytes: usize) -> Self {
         Self {
             pid,
@@ -55,6 +57,7 @@ impl Control {
             output_bytes: AtomicUsize::new(0),
             max_window_bytes: max_result_bytes.saturating_add(WINDOW_SLACK),
             window_bytes: AtomicUsize::new(0),
+            window_overflowed: AtomicBool::new(false),
             saw_uncaught: AtomicBool::new(false),
             incomplete: AtomicBool::new(false),
             handshake_done: AtomicBool::new(false),
@@ -99,24 +102,32 @@ impl Control {
     }
 
     /// Counts `n` more raw output bytes; returns how many fit under the cap and stops the run
-    /// when they do not all fit.
+    /// when they do not all fit. The only budget that stops a run.
     pub(super) fn admit(&self, n: usize) -> usize {
-        self.admit_to(&self.output_bytes, self.max_output_bytes, n)
-    }
-
-    /// Like [`Control::admit`], for bytes read in the epilogue's answer window: they count
-    /// against the window's own budget, so a large answer does not eat the text's.
-    pub(super) fn admit_window(&self, n: usize) -> usize {
-        self.admit_to(&self.window_bytes, self.max_window_bytes, n)
-    }
-
-    fn admit_to(&self, counter: &AtomicUsize, max: usize, n: usize) -> usize {
-        let before = counter.fetch_add(n, Ordering::SeqCst);
-        let allowed = max.saturating_sub(before).min(n);
+        let before = self.output_bytes.fetch_add(n, Ordering::SeqCst);
+        let allowed = self.max_output_bytes.saturating_sub(before).min(n);
         if allowed < n {
             self.stop(Stop::CapReached);
         }
         allowed
+    }
+
+    /// Counts `n` bytes read in the epilogue's answer window against the window's own budget, so
+    /// a large answer does not eat the text's. They are always all admitted and the run is never
+    /// stopped here: the text in the window is still charged against the text cap (see
+    /// `pipe::within_text_cap`), and the classifier holds at most `max_result_bytes` of the
+    /// answer. Going over the budget only drops the answer ([`Control::window_overflowed`]).
+    pub(super) fn admit_window(&self, n: usize) -> usize {
+        let before = self.window_bytes.fetch_add(n, Ordering::SeqCst);
+        if before.saturating_add(n) > self.max_window_bytes {
+            self.window_overflowed.store(true, Ordering::SeqCst);
+        }
+        n
+    }
+
+    /// More was read in the answer window than its budget: the answer is dropped.
+    pub(super) fn window_overflowed(&self) -> bool {
+        self.window_overflowed.load(Ordering::SeqCst)
     }
 
     pub(super) fn mark_uncaught(&self) {
