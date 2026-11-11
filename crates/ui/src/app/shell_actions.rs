@@ -28,6 +28,14 @@ pub enum ShellAction {
     Format,
     /// Show the Shell tab of the active session (only while it is connected).
     Open,
+    /// Open or close the history panel; either way a pending clear is dropped.
+    ToggleHistory,
+    /// Put the script of the history entry with this id in the editor. Never runs it.
+    RecallEntry(i64),
+    /// Ask to clear the connection's history (the first step: confirmation is pending).
+    ClearHistory,
+    ConfirmClear,
+    CancelClear,
 }
 
 pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
@@ -46,7 +54,67 @@ pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
         ShellAction::Open => open(state, id),
         ShellAction::Run => run(state, id),
         ShellAction::Cancel => cancel(state, id),
+        ShellAction::ToggleHistory => toggle_history(state, id),
+        // Only the buffer changes, also mid-run: nothing is sent.
+        ShellAction::RecallEntry(entry) => {
+            updated(state, id, |shell| shell.history_entry_recalled(entry))
+        }
+        ShellAction::ClearHistory => updated(state, id, ShellState::clear_requested),
+        ShellAction::CancelClear => updated(state, id, ShellState::clear_cancelled),
+        ShellAction::ConfirmClear => confirm_clear(state, id),
     }
+}
+
+/// The shell of `id` changed by `change`; nothing is sent.
+fn updated(state: AppState, id: Uuid, change: impl FnOnce(&ShellState) -> ShellState) -> Out {
+    let shell = change(&state.shell_or_new(id));
+    unchanged(state.with_shell(id, shell))
+}
+
+/// Opens or closes the panel; opening it reads the history fresh (nothing is read while it is
+/// closed, so what it showed before may be stale).
+fn toggle_history(state: AppState, id: Uuid) -> Out {
+    let (shell, commands) = read_if_open(&state.shell_or_new(id).history_toggled(), id);
+    (state.with_shell(id, shell), commands)
+}
+
+/// The history read, only while `shell`'s panel is open (a closed panel never reads), with the
+/// shell that sent it.
+fn read_if_open(shell: &ShellState, id: Uuid) -> (ShellState, Vec<Command>) {
+    match shell.history.open {
+        true => (
+            shell.history_read_requested(),
+            vec![Command::ShellHistory { session: id }],
+        ),
+        false => (shell.clone(), Vec::new()),
+    }
+}
+
+/// Sends the clear only when one was pending. The list stays until the core answers with the
+/// (now empty) history.
+fn confirm_clear(state: AppState, id: Uuid) -> Out {
+    let (shell, send) = state.shell_or_new(id).clear_confirmed();
+    let commands = match send {
+        true => vec![Command::ClearShellHistory { session: id }],
+        false => Vec::new(),
+    };
+    (state.with_shell(id, shell), commands)
+}
+
+/// A failed read (`shell_history`) or clear (`clear_shell_history`) of the history of
+/// `session`. A failed first read means history is unavailable; a failed refresh of a list
+/// already shown keeps it and the panel says it could not be refreshed; a failed clear keeps the
+/// list (it can still be read) and the panel says the clear did not happen. No banner in any
+/// case: history is optional, and its store failing says nothing about the connection.
+pub(super) fn history_failed(state: AppState, session: Uuid, context: &str) -> Out {
+    let Some(shell) = state.shell.get(session) else {
+        return unchanged(state);
+    };
+    let next = match context {
+        "clear_shell_history" => shell.history_clear_failed(),
+        _ => shell.history_read_failed(),
+    };
+    unchanged(state.with_shell(session, next))
 }
 
 /// A shell event of the open session `session`; the view-model ignores the ones of a run it no
@@ -65,7 +133,15 @@ pub(super) fn on_event(state: AppState, session: Uuid, event: Event) -> Out {
         Event::ShellFinished {
             run_id, outcome, ..
         } => shell.finished(run_id, outcome),
+        // The record of a run is written after its `ShellFinished`; the read is queued behind it.
+        // Only an open panel reads; a closed one reads when it is opened, but still notes a
+        // script that was too long to remember.
+        Event::ShellHistoryChanged { stored, .. } => {
+            let (next, commands) = read_if_open(&shell.history_changed(stored), session);
+            return (state.with_shell(session, next), commands);
+        }
         Event::ShellRefused { run_id, reason, .. } => shell.refused(run_id, reason),
+        Event::ShellHistory { entries, .. } => shell.history_loaded(entries),
         _ => return unchanged(state),
     };
     unchanged(state.with_shell(session, next))
@@ -108,12 +184,14 @@ fn open(state: AppState, id: Uuid) -> Out {
     if state.status != ConnStatus::Connected {
         return unchanged(state);
     }
-    let shell = state.shell_or_new(id);
+    // Every time the tab is shown with its panel open (this is the only way into it): the
+    // stored list may have changed since it was last read, a copied history included.
+    let (shell, commands) = read_if_open(&state.shell_or_new(id), id);
     let next = AppState {
         workspace: Workspace::Shell,
         ..state.with_shell(id, shell)
     };
-    unchanged(next)
+    (next, commands)
 }
 
 fn run(state: AppState, id: Uuid) -> Out {

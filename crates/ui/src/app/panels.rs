@@ -234,7 +234,7 @@ pub fn show_workspace(
                 out.push(UiEvent::Input(Input::Compare(action)));
             }
         }
-        Workspace::Shell => show_shell_tab(ui, state, i18n, out),
+        Workspace::Shell => show_shell_tab(ui, state, i18n, out, now_secs),
     });
 }
 
@@ -242,7 +242,13 @@ pub fn show_workspace(
 /// draft on screen with Run disabled). A session that never used its shell shows an empty one.
 /// The events are pushed in the order the view gives them (an edit before the Run of the same
 /// frame), and the reducer applies them in that order.
-fn show_shell_tab(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+fn show_shell_tab(
+    ui: &mut egui::Ui,
+    state: &AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+    now_secs: i64,
+) {
     // `shows_manager` draws no Shell tab without an active session.
     let Some(session) = state.active else {
         return;
@@ -255,6 +261,7 @@ fn show_shell_tab(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Ve
         connection: &connection,
         badge: state.active_badge(),
         connected: state.status == ConnStatus::Connected,
+        now_secs,
     };
     let events = show_shell(ui, shell, context, i18n)
         .into_iter()

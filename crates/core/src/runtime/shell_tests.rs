@@ -668,6 +668,7 @@ fn bare_shared() -> Arc<Shared> {
         cancelled: Default::default(),
         history: None,
         sampler_config: tokio::sync::watch::channel(SamplerConfig::default().clamped()).0,
+        shell_history: super::shell_history_queue::ShellHistoryQueue::detached(),
     })
 }
 

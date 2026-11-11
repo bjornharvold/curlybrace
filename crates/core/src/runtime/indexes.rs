@@ -108,7 +108,7 @@ pub(super) async fn series_for(
 }
 
 /// Runs a history read on the blocking pool; a panic in it is an internal error.
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> Result<T> {
     tokio::task::spawn_blocking(work)

@@ -20,6 +20,7 @@ use crate::connection::ConnectionConfig;
 use crate::shell::{Outcome, RunLimits, build_invocation, percent_encode_component, spawn_shell};
 
 use super::session::Session;
+use super::shell_history_queue::Job;
 use super::{Command, Event, Repaint, SessionId, Shared, ShellRefusal, handlers};
 
 /// What a run needs once its slot is held.
@@ -207,12 +208,27 @@ pub(super) async fn start(
         };
         send(&out_events, &out_repaint, event);
     };
+    // Only kept when there is a history to record in.
+    let record = shared
+        .history
+        .as_ref()
+        .map(|_| (shared.shell_history.clone(), run.script.clone()));
+    let connection = run.cfg.id;
     let on_done = move |outcome| {
         // Free the slot before the event, so a run sent on seeing `ShellFinished` is not refused.
         if let Some(session) = weak.upgrade() {
             session.shell.release(run_id);
         }
         send(&events, &repaint, finished(id, run_id, outcome));
+        // After the event and without waiting: the history file never holds up the run's end.
+        // The queue answers with `ShellHistoryChanged` once the record is written.
+        if let Some((queue, script)) = record {
+            queue.push(Job::Record {
+                connection,
+                script,
+                outcome,
+            });
+        }
     };
     // Set before the spawn: from here on the runner's `on_done` reports, so `supervised` must
     // not report a panic as well. A panic inside `spawn_shell` itself (before it could call
@@ -258,4 +274,17 @@ fn send(events: &UnboundedSender<Event>, repaint: &Repaint, event: Event) {
     if events.send(event).is_ok() {
         repaint();
     }
+}
+
+/// `ShellHistory`, `ClearShellHistory` and `CopyShellHistory`: queued behind every earlier
+/// history job (a finished run's record included), so they run in send order. The history is
+/// keyed by the connection id, which is the session id.
+pub(super) fn dispatch_history(shared: &Shared, command: Command) {
+    let job = match command {
+        Command::ShellHistory { session } => Job::read(session),
+        Command::ClearShellHistory { session } => Job::clear(session),
+        Command::CopyShellHistory { from, to } => Job::Copy { from, to },
+        _ => unreachable!("only shell history commands are routed here"),
+    };
+    shared.shell_history.push(job);
 }

@@ -479,7 +479,10 @@ async fn data_command(
         | Command::SnapshotList { .. }
         | Command::SnapshotDelete { .. }
         | Command::ShellRun { .. }
-        | Command::ShellCancel { .. } => {
+        | Command::ShellCancel { .. }
+        | Command::ShellHistory { .. }
+        | Command::ClearShellHistory { .. }
+        | Command::CopyShellHistory { .. } => {
             unreachable!(
                 "connection, compare, copy and bulk commands are handled before data dispatch"
             )

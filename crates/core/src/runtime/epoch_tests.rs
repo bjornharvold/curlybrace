@@ -39,6 +39,7 @@ fn shared() -> Arc<Shared> {
         cancelled: Default::default(),
         history: None,
         sampler_config: tokio::sync::watch::channel(Default::default()).0,
+        shell_history: super::shell_history_queue::ShellHistoryQueue::detached(),
     })
 }
 

@@ -1,0 +1,179 @@
+//! History panel state of the Shell tab: the remembered runs of the connection, and the panel's
+//! open, confirm-clear, clear-failed, refresh-failed and not-saved flags. Pure and egui-free; every updater returns a new value.
+//! No user-facing strings.
+use super::shell::ShellState;
+pub use curlybrace_core::history::ShellHistoryEntry;
+use std::sync::Arc;
+
+/// The history list of one shell tab. `loaded` and `available` give three states:
+/// - not loaded (`loaded == false`): no answer from the core yet, the view shows "loading";
+/// - unavailable (`loaded && !available`): history is off or its store cannot be used;
+/// - available (`loaded && available`): `entries` (newest first, possibly empty) is the list.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HistoryView {
+    /// The core has answered at least once (with a list or with "unavailable").
+    pub loaded: bool,
+    pub available: bool,
+    pub open: bool,
+    pub entries: Arc<Vec<ShellHistoryEntry>>,
+    /// The "clear history" button was pressed and awaits confirmation.
+    pub confirm_clear: bool,
+    /// The last confirmed clear failed; the list shown is still the stored one. Cleared by the
+    /// next list from the core, by opening or closing the panel and by a new "clear history".
+    pub clear_failed: bool,
+    /// The last read failed while a list was shown; the list shown is the one read before.
+    /// Cleared by the next list from the core, by opening or closing the panel and by a new read.
+    pub refresh_failed: bool,
+    /// The newest run's script was too long to remember. Kept while the panel is closed, so
+    /// opening it says so; cleared by the next stored run, by closing the panel and by a clear.
+    pub last_not_saved: bool,
+}
+
+impl ShellState {
+    fn with_history(&self, history: HistoryView) -> Self {
+        Self {
+            history,
+            ..self.clone()
+        }
+    }
+
+    /// The core's list. A pending confirmation ends only when the list is empty (nothing is left
+    /// to clear); a refresh that still has runs keeps the question open.
+    pub fn history_loaded(&self, entries: Vec<ShellHistoryEntry>) -> Self {
+        let confirm_clear = self.history.confirm_clear && !entries.is_empty();
+        self.with_history(HistoryView {
+            loaded: true,
+            available: true,
+            entries: Arc::new(entries),
+            confirm_clear,
+            clear_failed: false,
+            refresh_failed: false,
+            ..self.history.clone()
+        })
+    }
+
+    /// A confirmed clear failed: the list and its availability stay (the history can still be
+    /// read), the confirm step is over, and the panel says the clear did not happen.
+    pub fn history_clear_failed(&self) -> Self {
+        self.with_history(HistoryView {
+            confirm_clear: false,
+            clear_failed: true,
+            ..self.history.clone()
+        })
+    }
+
+    /// A read failed. A list already shown stays (it was read before) and the panel says it
+    /// could not be refreshed; without one, the history is unavailable.
+    pub fn history_read_failed(&self) -> Self {
+        match self.history.loaded && self.history.available {
+            true => self.with_history(HistoryView {
+                refresh_failed: true,
+                ..self.history.clone()
+            }),
+            false => self.history_unavailable(),
+        }
+    }
+
+    /// The core recorded a run: `stored`, or its script was too long to remember. Also while
+    /// the panel is closed, so opening it says so.
+    pub fn history_changed(&self, stored: bool) -> Self {
+        self.with_history(HistoryView {
+            last_not_saved: !stored,
+            ..self.history.clone()
+        })
+    }
+
+    /// A new read was sent: a failed refresh's line goes until it answers. The list stays.
+    pub fn history_read_requested(&self) -> Self {
+        self.with_history(HistoryView {
+            refresh_failed: false,
+            ..self.history.clone()
+        })
+    }
+
+    pub fn history_unavailable(&self) -> Self {
+        self.with_history(HistoryView {
+            loaded: true,
+            available: false,
+            entries: Arc::default(),
+            confirm_clear: false,
+            clear_failed: false,
+            refresh_failed: false,
+            ..self.history.clone()
+        })
+    }
+
+    /// Opens or closes the panel. A pending clear is dropped either way, so a panel shown again
+    /// never offers to confirm a step the person started before closing it. A script too long to
+    /// remember is said once the panel opens, so only closing it ends that line.
+    pub fn history_toggled(&self) -> Self {
+        let open = !self.history.open;
+        self.with_history(HistoryView {
+            open,
+            confirm_clear: false,
+            clear_failed: false,
+            refresh_failed: false,
+            last_not_saved: self.history.last_not_saved && open,
+            ..self.history.clone()
+        })
+    }
+
+    /// Puts the entry's script in the editor (as `edited` does: no selection), also mid-run.
+    /// An unknown id changes nothing.
+    pub fn history_entry_recalled(&self, id: i64) -> Self {
+        match self.history.entries.iter().find(|e| e.id == id) {
+            Some(entry) => self.edited(entry.script.clone(), None),
+            None => self.clone(),
+        }
+    }
+
+    /// Asks for the confirmation; a failed clear's line goes, as this is the next try.
+    pub fn clear_requested(&self) -> Self {
+        self.with_history(HistoryView {
+            confirm_clear: true,
+            clear_failed: false,
+            ..self.history.clone()
+        })
+    }
+
+    pub fn clear_cancelled(&self) -> Self {
+        self.with_confirm_clear(false)
+    }
+
+    /// Resets the confirm step; the flag is true only if a clear was pending, i.e. the caller
+    /// should send the command. The list empties when the core's answer arrives; a sent clear
+    /// ends the "too long to remember" line.
+    pub fn clear_confirmed(&self) -> (Self, bool) {
+        let sends = self.history.confirm_clear;
+        let next = self.with_history(HistoryView {
+            confirm_clear: false,
+            last_not_saved: self.history.last_not_saved && !sends,
+            ..self.history.clone()
+        });
+        (next, sends)
+    }
+
+    fn with_confirm_clear(&self, confirm_clear: bool) -> Self {
+        self.with_history(HistoryView {
+            confirm_clear,
+            ..self.history.clone()
+        })
+    }
+}
+
+/// The first non-blank line of `script`, trimmed, cut to `max_chars` characters with `…` appended.
+pub fn first_line(script: &str, max_chars: usize) -> String {
+    let line = script
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    match line.char_indices().nth(max_chars) {
+        Some((cut, _)) => format!("{}…", &line[..cut]),
+        None => line.to_string(),
+    }
+}
+
+#[cfg(test)]
+#[path = "shell_history_tests.rs"]
+mod tests;

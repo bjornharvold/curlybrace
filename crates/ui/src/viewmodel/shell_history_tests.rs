@@ -1,0 +1,269 @@
+use super::*;
+use crate::viewmodel::shell::{ShellNotice, ShellState, ShellStatus};
+use curlybrace_core::history::ShellRunStatus;
+use curlybrace_core::shell::{Outcome, Stream};
+
+fn entry(id: i64, script: &str) -> ShellHistoryEntry {
+    ShellHistoryEntry {
+        id,
+        ran_at_secs: 1_700_000_000 + id,
+        script: script.to_string(),
+        status: ShellRunStatus::Succeeded,
+    }
+}
+
+fn loaded() -> ShellState {
+    ShellState::default().history_loaded(vec![entry(2, "db.b.find()"), entry(1, "db.a.find()")])
+}
+
+#[test]
+fn defaults_are_not_loaded_and_not_available() {
+    let h = ShellState::default().history;
+    assert!(!h.loaded && !h.available && !h.open && !h.confirm_clear);
+    assert!(h.entries.is_empty());
+}
+
+#[test]
+fn loading_replaces_the_list_and_marks_available() {
+    let state = loaded();
+    assert!(state.history.loaded && state.history.available);
+    assert_eq!(state.history.entries.len(), 2);
+    let again = state.history_loaded(vec![entry(3, "x")]);
+    assert_eq!(again.history.entries.len(), 1);
+    assert_eq!(again.history.entries[0].id, 3);
+    let empty = again.history_loaded(vec![]);
+    assert!(empty.history.available && empty.history.entries.is_empty());
+}
+
+#[test]
+fn unavailable_empties_the_list_and_marks_loaded() {
+    let state = loaded().history_unavailable();
+    assert!(state.history.loaded);
+    assert!(!state.history.available);
+    assert!(state.history.entries.is_empty());
+}
+
+#[test]
+fn toggling_flips_open() {
+    let state = loaded().history_toggled();
+    assert!(state.history.open);
+    assert!(!state.history_toggled().history.open);
+}
+
+#[test]
+fn recalling_replaces_the_script_and_clears_the_selection() {
+    let state = loaded().edited("old".to_string(), Some(0..2));
+    let state = state.history_entry_recalled(1);
+    assert_eq!(state.script, "db.a.find()");
+    assert_eq!(state.selection, None);
+    assert_eq!(state.history.entries.len(), 2);
+}
+
+#[test]
+fn recalling_while_running_only_edits_the_buffer() {
+    let (running, request) = ShellState::default()
+        .edited("db.x.find()".to_string(), None)
+        .run_requested();
+    let run_id = request.expect("request").run_id;
+    let running = running
+        .history_loaded(vec![entry(1, "db.a.find()")])
+        .output_arrived(run_id, Stream::Stdout, "hi");
+    let after = running.history_entry_recalled(1);
+    assert_eq!(after.script, "db.a.find()");
+    assert_eq!(after.status, ShellStatus::Running { run_id });
+    assert_eq!(after.output, running.output);
+    assert_eq!(after.notice, running.notice);
+}
+
+#[test]
+fn recalling_keeps_the_notice_of_a_finished_run() {
+    let (running, request) = ShellState::default()
+        .edited("x".to_string(), None)
+        .run_requested();
+    let finished = running
+        .finished(request.expect("request").run_id, Outcome::Exited(0))
+        .history_loaded(vec![entry(1, "y")]);
+    let after = finished.history_entry_recalled(1);
+    assert!(matches!(after.notice, Some(ShellNotice::Finished(_))));
+}
+
+#[test]
+fn an_unknown_id_changes_nothing() {
+    let state = loaded().edited("keep".to_string(), Some(1..2));
+    assert_eq!(state.history_entry_recalled(99), state);
+}
+
+#[test]
+fn clear_needs_a_confirm_step() {
+    let state = loaded();
+    let (untouched, send) = state.clear_confirmed();
+    assert!(!send);
+    assert_eq!(untouched, state);
+
+    let asked = state.clear_requested();
+    assert!(asked.history.confirm_clear);
+    assert_eq!(asked.history.entries.len(), 2);
+    let (confirmed, send) = asked.clear_confirmed();
+    assert!(send);
+    assert!(!confirmed.history.confirm_clear);
+    assert_eq!(confirmed.history.entries.len(), 2);
+}
+
+#[test]
+fn cancelling_the_clear_keeps_the_entries() {
+    let cancelled = loaded().clear_requested().clear_cancelled();
+    assert!(!cancelled.history.confirm_clear);
+    assert_eq!(cancelled.history.entries.len(), 2);
+    assert!(!cancelled.clear_confirmed().1);
+}
+
+#[test]
+fn first_line_skips_blank_lines_and_cuts_on_a_char_boundary() {
+    assert_eq!(first_line("\n  \n  db.a.find()  \nnext", 40), "db.a.find()");
+    assert_eq!(first_line("", 5), "");
+    assert_eq!(first_line(" \n\t\n", 5), "");
+    assert_eq!(first_line("abcde", 5), "abcde");
+    assert_eq!(first_line("abcdef", 5), "abcde…");
+    assert_eq!(first_line("héllo wörld ✓✓", 8), "héllo wö…");
+    assert_eq!(first_line("日本語日本語", 3), "日本語…");
+}
+
+#[test]
+fn toggling_the_panel_drops_a_pending_clear() {
+    let asked = loaded().clear_requested();
+    let closed = asked.history_toggled();
+    assert!(!closed.history.confirm_clear);
+    assert!(!closed.history_toggled().history.confirm_clear);
+    assert!(!closed.clear_confirmed().1, "nothing left to confirm");
+}
+
+#[test]
+fn first_line_with_no_room_is_an_ellipsis_unless_blank() {
+    assert_eq!(first_line("db.a.find()", 0), "…");
+    assert_eq!(first_line("", 0), "");
+    assert_eq!(first_line(" \n\t", 0), "");
+}
+
+#[test]
+fn first_line_handles_crlf_line_ends() {
+    assert_eq!(
+        first_line("\r\n  \r\ndb.a.find()\r\nnext", 40),
+        "db.a.find()"
+    );
+    assert_eq!(first_line("abc\r\ndef", 3), "abc");
+}
+
+/// A pending confirmation ends when there is nothing left to clear: an empty list (a clear
+/// elsewhere) or "unavailable". It cannot come back stale when runs appear again.
+#[test]
+fn an_empty_list_or_unavailable_ends_a_pending_confirmation() {
+    let asked = loaded().history_toggled().clear_requested();
+    assert!(!asked.history_loaded(vec![]).history.confirm_clear);
+    assert!(!asked.history_unavailable().history.confirm_clear);
+    let (_, sends) = asked
+        .history_loaded(vec![])
+        .history_loaded(vec![entry(4, "y")])
+        .clear_confirmed();
+    assert!(!sends, "no stale confirm sends a clear");
+}
+
+/// A refresh that still has runs (a run finished while the question was open) keeps it: the
+/// person asked to clear the connection's history, which still has something to clear.
+#[test]
+fn a_non_empty_refresh_keeps_a_pending_confirmation() {
+    let asked = loaded().history_toggled().clear_requested();
+    let refreshed = asked.history_loaded(vec![entry(3, "x"), entry(2, "db.b.find()")]);
+    assert!(refreshed.history.confirm_clear);
+    let (_, sends) = refreshed.clear_confirmed();
+    assert!(sends);
+}
+
+// ---- A failed read ----
+
+#[test]
+fn a_failed_refresh_keeps_a_loaded_list_and_says_so() {
+    let failed = loaded().history_toggled().history_read_failed();
+    let h = &failed.history;
+    assert!(h.loaded && h.available && h.open, "{h:?}");
+    assert_eq!(h.entries.len(), 2, "the list shown before stays");
+    assert!(h.refresh_failed);
+}
+
+#[test]
+fn a_failed_first_read_means_unavailable() {
+    let never_loaded = ShellState::default().history_read_failed();
+    assert!(never_loaded.history.loaded && !never_loaded.history.available);
+    assert!(!never_loaded.history.refresh_failed);
+    let unavailable = loaded().history_unavailable().history_read_failed();
+    assert!(unavailable.history.loaded && !unavailable.history.available);
+    assert!(!unavailable.history.refresh_failed);
+}
+
+#[test]
+fn the_failed_refresh_line_goes_with_a_list_a_toggle_or_a_new_read() {
+    let failed = loaded().history_read_failed();
+    assert!(!failed.history_loaded(vec![]).history.refresh_failed);
+    assert!(!failed.history_toggled().history.refresh_failed);
+    assert!(!failed.history_read_requested().history.refresh_failed);
+    assert_eq!(
+        failed.history_read_requested().history.entries.len(),
+        2,
+        "a new read keeps the list until it answers"
+    );
+}
+
+// ---- A script too long to remember ----
+
+#[test]
+fn a_change_not_stored_is_kept_until_a_stored_one() {
+    let not_saved = loaded().history_changed(false);
+    assert!(not_saved.history.last_not_saved);
+    assert_eq!(not_saved.history.entries.len(), 2, "the list is untouched");
+    assert!(!not_saved.history_changed(true).history.last_not_saved);
+    assert!(
+        loaded().history_changed(true) == loaded(),
+        "a stored change changes nothing"
+    );
+}
+
+/// The panel shows the line when it is opened (the flag outlives a closed panel); closing the
+/// panel, or a clear, ends it.
+#[test]
+fn the_not_saved_line_survives_opening_and_goes_with_closing_or_a_clear() {
+    let not_saved = loaded().history_changed(false);
+    let opened = not_saved.history_toggled();
+    assert!(opened.history.open && opened.history.last_not_saved);
+    assert!(!opened.history_toggled().history.last_not_saved);
+    let (cleared, sends) = opened.clear_requested().clear_confirmed();
+    assert!(sends);
+    assert!(!cleared.history.last_not_saved);
+    let (_, unsent) = opened.clear_confirmed();
+    assert!(!unsent);
+    assert!(
+        opened.clear_confirmed().0.history.last_not_saved,
+        "no clear, no change"
+    );
+}
+
+// ---- A failed clear ----
+
+#[test]
+fn a_failed_clear_keeps_the_list_and_says_so() {
+    let asked = loaded().history_toggled().clear_requested();
+    let failed = asked.history_clear_failed();
+    let h = &failed.history;
+    assert!(h.loaded && h.available && h.open, "{h:?}");
+    assert_eq!(h.entries.len(), 2, "the runs are still there");
+    assert!(!h.confirm_clear);
+    assert!(h.clear_failed);
+}
+
+#[test]
+fn the_failed_clear_line_goes_with_a_list_a_toggle_or_a_new_clear() {
+    let failed = loaded().clear_requested().history_clear_failed();
+    assert!(!failed.history_loaded(vec![]).history.clear_failed);
+    assert!(!failed.history_toggled().history.clear_failed);
+    assert!(!failed.clear_requested().history.clear_failed);
+    // Cancelling a confirmation that is not pending does not hide it.
+    assert!(failed.clear_cancelled().history.clear_failed);
+}

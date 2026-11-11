@@ -87,6 +87,18 @@ pub(super) fn purge_removed(before: &[Uuid], state: &AppState) -> Vec<Command> {
         .collect()
 }
 
+/// One `CopyShellHistory` from `source` to every saved connection that is not in `before`: the
+/// copies a duplicate added. A duplicate that was not saved added none, so nothing is copied.
+/// Nothing reads the new connection's history here: the copy is unordered with a following read,
+/// and its Shell tab reads it when it is opened.
+pub(super) fn copy_history_to_new(source: Uuid, before: &[Uuid], state: &AppState) -> Vec<Command> {
+    saved_ids(state)
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .map(|to| Command::CopyShellHistory { from: source, to })
+        .collect()
+}
+
 /// Deletes the connection; deleting the one the dialog is editing closes the dialog.
 #[cfg(test)]
 pub(super) fn delete_and_close(

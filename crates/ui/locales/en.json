@@ -1282,6 +1282,32 @@
     "editor_placeholder": "Write a mongosh script, for example db.users.find({})",
     "format": "Format",
     "format_tooltip": "Re-indent the selection, or the whole script when nothing is selected ({shortcut})",
+    "history": {
+      "clear": "Clear history",
+      "clear_cancel": "Keep history",
+      "clear_confirm": "Clear every remembered script of this connection? This cannot be undone.",
+      "clear_confirm_yes": "Yes, clear history",
+      "clear_failed": "Could not clear the history. Try again.",
+      "empty": "No scripts have run on this connection yet.",
+      "loading": "Loading history…",
+      "not_saved": "The last script was too long to remember.",
+      "plaintext_note": "Scripts are stored on this computer exactly as written, including anything typed or pasted into them, such as a password. Their output is never stored.",
+      "recall_hint": "Put this script in the editor",
+      "refresh_failed": "Could not refresh the history.",
+      "row_label": "{status}, {time}: {script}",
+      "status": {
+        "cancelled": "Cancelled",
+        "cap_reached": "Too much output",
+        "failed": "Failed",
+        "incomplete": "Incomplete",
+        "script_errors": "Script errors",
+        "succeeded": "Succeeded"
+      },
+      "title": "History",
+      "toggle_close": "Hide history",
+      "toggle_open": "Show history",
+      "unavailable": "History is not available, so runs are not remembered."
+    },
     "not_connected_note": "Not connected. You can edit the script; connect to run it.",
     "notice": {
       "empty_script": "There is nothing to run. Type a script, or select the part to run.",

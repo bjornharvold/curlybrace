@@ -42,7 +42,7 @@ fn v1_file_migrates_to_v2_without_touching_v1_rows() {
     drop(db);
     let conn = Connection::open(&path).unwrap();
     assert_eq!(user_version(&conn), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 2);
+    assert_eq!(SCHEMA_VERSION, 3);
     for table in ["shape", "shape_bucket", "shape_gap"] {
         assert!(tables(&conn).contains(&table.to_owned()), "{table}");
     }
@@ -73,22 +73,22 @@ fn preparing_a_v2_file_again_changes_nothing() {
     let before = tables(&conn);
     prepare(&mut conn).unwrap();
     assert_eq!(before, tables(&conn));
-    assert_eq!(user_version(&conn), 2);
+    assert_eq!(user_version(&conn), 3);
 }
 
 #[test]
-fn newer_than_v2_is_refused_as_before() {
+fn newer_than_the_current_version_is_refused_as_before() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("history.sqlite");
     drop(HistoryDb::open(&path).unwrap());
     {
         let conn = Connection::open(&path).unwrap();
-        conn.pragma_update(None, "user_version", 3).unwrap();
+        conn.pragma_update(None, "user_version", 4).unwrap();
     }
     assert!(HistoryDb::open(&path).is_err());
     assert!(path.exists());
     assert!(!dir.path().join("history.sqlite.corrupt").exists());
-    assert_eq!(user_version(&Connection::open(&path).unwrap()), 3);
+    assert_eq!(user_version(&Connection::open(&path).unwrap()), 4);
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn a_wal_mode_v1_file_with_data_migrates() {
     assert!(recovery.is_none());
     drop(db);
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 2);
+    assert_eq!(user_version(&conn), 3);
     let samples: i64 = conn
         .query_row("SELECT COUNT(*) FROM samples", [], |r| r.get(0))
         .unwrap();
