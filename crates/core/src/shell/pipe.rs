@@ -33,16 +33,16 @@ pub(super) enum Delivery {
 /// connect, or its output ended. So the lines after an early evaluation are never sent; sent,
 /// `mongosh` would run them one by one.
 ///
-/// After the last line, without an `epilogue` it returns at once. With one it waits for the
-/// stdout lane's verdict, which comes when the prompt is back after the block
-/// (`Pace::Epilogue`: write it, then return), or as the channel closing: the block was not
-/// clean, `mongosh` may be waiting for another line, or the output ended (a cancel, the
-/// process exited). Anything else ends it too: it never guesses.
+/// After the last line it waits for the stdout lane's verdict on the `epilogue`, which comes when
+/// the prompt is back after the block (`Pace::Epilogue`: write it, then return), or as the
+/// channel closing: the block was not clean, `mongosh` may be waiting for another line, or the
+/// output ended (a cancel, the process exited). Anything else ends it too: it never guesses.
+/// The prompt is locked by the preamble, so a script cannot keep it from coming back.
 pub(super) fn write_input(
     mut stdin: ChildStdin,
     preamble: Vec<u8>,
     script: Vec<u8>,
-    epilogue: Option<Vec<u8>>,
+    epilogue: Vec<u8>,
     pace: &Receiver<Pace>,
 ) {
     let sent = stdin.write_all(&preamble).and_then(|()| stdin.flush());
@@ -56,9 +56,6 @@ pub(super) fn write_input(
             return;
         }
     }
-    let Some(epilogue) = epilogue else {
-        return;
-    };
     if pace.recv() == Ok(Pace::Epilogue) {
         // A failed write means the shell is gone: there is no answer, and nothing to report.
         let _ = stdin.write_all(&epilogue);
@@ -79,18 +76,15 @@ pub(super) struct Expect<'a> {
 }
 
 impl Lane {
-    /// The stdout lane of a script whose lines after the first are `continuations`; with
-    /// `result`, the writer sends an epilogue when this lane says so.
-    pub(super) fn stdout(pace: Sender<Pace>, continuations: usize, result: Option<Expect>) -> Self {
-        let classifier = match result {
-            Some(Expect {
-                token,
-                max_result_bytes,
-            }) => Classifier::with_result(continuations, token, max_result_bytes),
-            None => Classifier::expecting(continuations),
-        };
+    /// The stdout lane of a script whose lines after the first are `continuations`; the writer
+    /// sends the epilogue when this lane says so, and its answer is looked for as `result` says.
+    pub(super) fn stdout(pace: Sender<Pace>, continuations: usize, result: Expect) -> Self {
         Lane::Stdout(Box::new(StdoutLane {
-            classifier,
+            classifier: Classifier::with_result(
+                continuations,
+                result.token,
+                result.max_result_bytes,
+            ),
             pace: Some(pace),
             held_stream: Stream::Stdout,
             result_sent: false,
@@ -146,9 +140,10 @@ impl Reader {
     }
 
     /// Counts `n` bytes just read against the budget they belong to: the epilogue's answer window
-    /// has its own, so the answer does not count against the text cap. The window opens while the
-    /// read that holds the prompt after the block is classified, and the epilogue is written only
-    /// then, so its answer always comes in a later read.
+    /// has its own, so the answer does not count against the text cap (the text shown from that
+    /// window does, see [`within_text_cap`]). The window opens while the read that holds the
+    /// prompt after the block is classified, and the epilogue is written only then, so its answer
+    /// always comes in a later read.
     fn admit(&self, n: usize) -> usize {
         match &self.lane {
             Lane::Stdout(lane) if lane.classifier.in_result_window() => {
@@ -175,6 +170,9 @@ impl Reader {
                         .is_ok()
             }
             Lane::Stdout(lane) => {
+                // Read in the answer window (so admitted against its budget): the text in it
+                // still counts against the text cap.
+                let charge_text = lane.classifier.in_result_window();
                 let mut pieces = lane.classifier.push(text);
                 if at_end {
                     pieces.extend(lane.classifier.finish());
@@ -189,6 +187,7 @@ impl Reader {
                     scrubber: &mut self.scrubber,
                     control: &self.control,
                     output: &self.output,
+                    charge_text,
                 };
                 let more = pieces.into_iter().all(|piece| lane.piece(piece, &mut sink));
                 if release {
@@ -205,6 +204,8 @@ struct Sink<'a> {
     scrubber: &'a mut Scrubber,
     control: &'a Control,
     output: &'a Sender<Delivery>,
+    /// The text was read in the answer window: count it against the text cap here.
+    charge_text: bool,
 }
 
 impl Sink<'_> {
@@ -289,6 +290,10 @@ impl StdoutLane {
     /// Masks and sends `text`. The held tail belongs to the stream it came from, so it is released
     /// there when the stream changes: that happens only at a line start, which no secret spans.
     fn out(&mut self, stream: Stream, text: &str, sink: &mut Sink<'_>) -> bool {
+        let (text, cut) = match sink.charge_text {
+            true => within_text_cap(text, sink.control),
+            false => (text, false),
+        };
         if stream != self.held_stream {
             let tail = sink.scrubber.finish();
             if !tail.is_empty() && !sink.text(self.held_stream, tail) {
@@ -297,7 +302,8 @@ impl StdoutLane {
             self.held_stream = stream;
         }
         let shown = sink.scrubber.push(text);
-        shown.is_empty() || sink.text(stream, shown)
+        let sent = shown.is_empty() || sink.text(stream, shown);
+        sent && !cut
     }
 
     /// Releases the held tail at the end of a run that was not stopped.
@@ -307,4 +313,18 @@ impl StdoutLane {
             let _ = sink.text(self.held_stream, tail);
         }
     }
+}
+
+/// Counts `text` against the text cap; returns the part that fits (cut at a character boundary)
+/// and whether it was cut (the run is then stopped with `CapReached`).
+fn within_text_cap<'a>(text: &'a str, control: &Control) -> (&'a str, bool) {
+    let allowed = control.admit(text.len());
+    if allowed >= text.len() {
+        return (text, false);
+    }
+    let mut end = allowed;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (&text[..end], true)
 }

@@ -93,16 +93,15 @@ fn preamble_has_the_sentinels() {
 }
 
 #[test]
-fn preamble_fixes_the_prompt_before_connecting() {
+fn preamble_locks_the_prompt_before_connecting() {
     let text = preamble_text(&build(&cfg("mongodb://h/admin"), None, None));
     assert!(
-        text.starts_with("prompt = () => \"\\u0001CBP> \"; "),
+        text.starts_with(&locked("prompt", "() => \"\\u0001CBP> \"")),
         "{text}"
     );
-    let prompt_at = text.find("prompt = ").unwrap();
     assert!(
-        prompt_at < text.find("try { db = connect(").unwrap(),
-        "{text}"
+        !text.contains("prompt = () =>"),
+        "not a plain assignment: {text}"
     );
     // The JS escape and the token the classifier strips are the same text.
     assert_eq!(PROMPT, "\u{1}CBP> ");
@@ -301,19 +300,31 @@ fn ipv6_tunnel_address_is_bracketed() {
     assert!(text.contains("mongodb://[::1]:50000/admin?"));
 }
 
-/// The emitter from the spike note (`docs/superpowers/notes/shell-structured-output-spike.md`).
-const SPIKE_EMITTER: &str = r#"__cbEmit = ((P, E, SYM) => (v, T, MAXN, MAXB) => { const out = o => P(T + E.stringify(o, null, 0, {relaxed: false})); try { const t = v !== null && typeof v === "object" ? v[SYM] : undefined; const r = t !== undefined && v._currentIterationResult; let o; if (r && Array.isArray(r.documents)) { o = {k: "cursor", t: String(t), more: !!r.cursorHasMore, v: r.documents.slice(0, MAXN)} } else if (Array.isArray(v)) { o = {k: "array", n: v.length, more: v.length > MAXN, v: v.slice(0, MAXN)} } else if (v !== null && typeof v === "object") { o = {k: "object", t: t === undefined ? null : String(t), v: v} } else { o = {k: "scalar", v: v === undefined ? null : v, u: v === undefined} } const s = E.stringify(o, null, 0, {relaxed: false}); if (s.length > MAXB) { out({k: "too_big", bytes: s.length}) } else { P(T + s) } } catch (e) { out({k: "unsupported", t: v && v.constructor ? String(v.constructor.name) : null}) } })(print, EJSON, Symbol.for("@@mongosh.shellApiType"));"#;
+/// The emitter from the spike note (`docs/superpowers/notes/shell-structured-output-spike.md`):
+/// the right-hand side of its `__cbEmit = ...;` statement.
+const SPIKE_EMITTER: &str = r#"((P, E, SYM) => (v, T, MAXN, MAXB) => { const out = o => P(T + E.stringify(o, null, 0, {relaxed: false})); try { const t = v !== null && typeof v === "object" ? v[SYM] : undefined; const r = t !== undefined && v._currentIterationResult; let o; if (r && Array.isArray(r.documents)) { o = {k: "cursor", t: String(t), more: !!r.cursorHasMore, v: r.documents.slice(0, MAXN)} } else if (Array.isArray(v)) { o = {k: "array", n: v.length, more: v.length > MAXN, v: v.slice(0, MAXN)} } else if (v !== null && typeof v === "object") { o = {k: "object", t: t === undefined ? null : String(t), v: v} } else { o = {k: "scalar", v: v === undefined ? null : v, u: v === undefined} } const s = E.stringify(o, null, 0, {relaxed: false}); if (s.length > MAXB) { out({k: "too_big", bytes: s.length}) } else { P(T + s) } } catch (e) { out({k: "unsupported", t: v && v.constructor ? String(v.constructor.name) : null}) } })(print, EJSON, Symbol.for("@@mongosh.shellApiType"))"#;
+
+/// How the preamble locks a global (see `locked_global_js`).
+fn locked(name: &str, value: &str) -> String {
+    format!(
+        "Object.defineProperty(globalThis, \"{name}\", {{value: {value}, writable: false, configurable: false, enumerable: false}}); "
+    )
+}
 
 #[test]
-fn the_preamble_defines_the_emitter_before_connecting() {
+fn the_preamble_defines_the_emitter_locked_before_connecting() {
     let inv = build(&scram("mongodb://h/admin"), Some("pw"), None);
     let text = preamble_text(&inv);
     let at = text
-        .find(SPIKE_EMITTER)
-        .expect("the emitter, as in the spike");
+        .find(&locked("__cbEmit", SPIKE_EMITTER))
+        .expect("the spike's emitter, locked");
     assert!(at < text.find("try { db = connect(").unwrap(), "{text}");
     assert!(text.find("passwordPrompt = ").unwrap() < at, "{text}");
     assert_eq!(text.matches('\n').count(), 1, "still one line");
+    assert!(
+        !text.contains("__cbEmit = "),
+        "not a plain assignment: {text}"
+    );
 }
 
 #[test]
@@ -352,31 +363,4 @@ fn the_epilogue_is_the_spike_line_with_the_token() {
         result_marker("0123456789abcdef"),
         "\u{1}CBJ-0123456789abcdef "
     );
-}
-
-#[test]
-fn a_script_that_mentions_prompt_or_the_emitter_blocks_the_epilogue() {
-    for script in [
-        "prompt = () => 'x> '",
-        "globalThis.prompt = 'x'",
-        "this[\"prompt\"] = 1",
-        "var prompt",
-        "{prompt}",
-        "__cbEmit = null",
-        "delete globalThis.__cbEmit",
-    ] {
-        assert!(blocks_the_epilogue(script.as_bytes()), "{script}");
-    }
-    for script in [
-        "db.prompts.find()",
-        "passwordPrompt()",
-        "db.a.find()",
-        "prompted",
-        "x_prompt",
-        "$prompt",
-        "__cbEmitter",
-        "my__cbEmit",
-    ] {
-        assert!(!blocks_the_epilogue(script.as_bytes()), "{script}");
-    }
 }

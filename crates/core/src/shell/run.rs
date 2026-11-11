@@ -16,12 +16,13 @@
 //!   scrubbed (the classifier also paces the writer, gives the verdict on the epilogue and lifts
 //!   its answer out of the text, see `classify_result.rs`).
 //! - a supervisor: the only thread that calls `on_output` and `on_result`, in the order the
-//!   readers produced them, then `on_done` exactly once after the child has exited and both
+//!   readers handed them over (text keeps its own order; text the scrubber held back may still
+//!   come after the result), then `on_done` exactly once after the child has exited and both
 //!   readers have finished (or were given up on, see [`DRAIN`]). It reaps the child last, so
 //!   every kill before that targets a group that is still ours.
 use super::control::{Control, Stop};
 use super::decode::Utf8Decoder;
-use super::invocation::{blocks_the_epilogue, epilogue};
+use super::invocation::epilogue;
 use super::pipe::{Delivery, Expect, Lane, Reader, write_input};
 use super::{Invocation, Scrubber};
 use crate::tools::{absolute_entries, kill_group};
@@ -118,9 +119,10 @@ impl ShellHandle {
 /// Runs `exe` with `inv` and streams its output to `on_output`; `on_done` follows exactly once,
 /// after the last `on_output`. `on_result` gets the structured result (the payload JSON text of
 /// the epilogue's answer, masked) at most once, and only before `on_done`; there is none when
-/// the script failed, ended early, assigned `_` or mentions `prompt` or `__cbEmit`
-/// (`invocation::blocks_the_epilogue`), when the shell did not
-/// answer, or when the answer was over [`RunLimits::max_result_bytes`]. All three are called
+/// the script failed, ended early or assigned `_`, when the end of the block was never seen,
+/// when the shell did not answer, or when the answer was over [`RunLimits::max_result_bytes`]
+/// (the preamble locks `prompt` and `__cbEmit`, so a script cannot hide the end of the block or
+/// replace the emitter: see `invocation::locked_global_js`). All three are called
 /// from one background thread. `secrets` are masked in all output. A failed spawn is reported
 /// as `on_done(Outcome::StartFailed)` before this returns. If `on_output` or `on_result`
 /// panics, the run is stopped, later output is dropped and `on_done` still comes, with
@@ -182,10 +184,7 @@ pub fn spawn_shell(
     let (output_tx, output_rx) = mpsc::channel();
     let (pace_tx, pace_rx) = mpsc::channel();
     let lines = script.split_inclusive(|&b| b == b'\n').count();
-    // A script that may replace `prompt` or the emitter gets no epilogue: stdin then closes
-    // after the last line, as it always did.
-    let wants_result = !blocks_the_epilogue(&script);
-    let epilogue_line = wants_result.then(|| format!("{}\n", epilogue(&result_token)).into_bytes());
+    let epilogue_line = format!("{}\n", epilogue(&result_token)).into_bytes();
     std::thread::spawn(move || write_input(stdin, preamble, script, epilogue_line, &pace_rx));
     let reader = |lane| Reader {
         control: Arc::clone(&control),
@@ -194,10 +193,10 @@ pub fn spawn_shell(
         decoder: Utf8Decoder::default(),
         lane,
     };
-    let expect = wants_result.then_some(Expect {
+    let expect = Expect {
         token: &result_token,
         max_result_bytes: limits.max_result_bytes,
-    });
+    };
     let stdout_lane = Lane::stdout(pace_tx, lines.saturating_sub(1), expect);
     let (out_reader, err_reader) = (reader(stdout_lane), reader(Lane::Stderr));
     std::thread::spawn(move || out_reader.run(stdout, chunk_bytes));

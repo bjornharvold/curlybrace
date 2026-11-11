@@ -34,7 +34,9 @@
 //! | `result-huge <n>` | the answer is `n` times `x` |
 //! | `result-slow` | the epilogue prints `epilogue-received` and hangs (`sleep 30`) |
 //! | `spoof <token>` | prints a marker line now: `\x01CBJ-<token> {"k":"spoof"}` |
-//! | `prompt <text>` | later prompts are `<text>` instead of the fixed one (a redefined `prompt`) |
+//! | `result-late <n>` | the answer `{"k":"late"}`, then `n` times `x` and a newline (late output in the answer window) |
+//! | `redefine-prompt` | what `mongosh` does for `Object.defineProperty(globalThis, "prompt", ...)` against the preamble's lock: `Uncaught \rTypeError: Cannot redefine property: prompt` |
+//! | `prompt-exit <text>` | the next prompt is `<text>`, not the fixed one, and the fake exits 0 right after printing it (the fixed prompt never comes back) |
 //! | anything else | echoed back |
 //!
 //! The epilogue (`__cbEmit(_, "\u0001CBJ-<token> ", 200, 4194304)`, one complete statement, so
@@ -179,7 +181,9 @@ run_line() {
     'result-huge '*) answer_mode=huge; answer="${1#result-huge }" ;;
     result-slow) answer_mode=slow ;;
     'spoof '*) printf '\001CBJ-%s {"k":"spoof"}\n' "${1#spoof }" ;;
-    'prompt '*) PROMPT_TEXT="${1#prompt }" ;;
+    'result-late '*) answer_mode=late; answer="${1#result-late }" ;;
+    redefine-prompt) printf 'Uncaught \rTypeError: Cannot redefine property: prompt\n'; return 1 ;;
+    'prompt-exit '*) PROMPT_TEXT="${1#prompt-exit }"; exit_after_prompt=yes ;;
     'passwordPrompt()')
       if [ -n "$pw_blocked" ]; then printf 'Uncaught \rError: %s\n' "$pw_blocked"; return 1; fi
       printf 'Enter password\n'; cat > /dev/null; exit 0 ;;
@@ -206,6 +210,7 @@ answer_epilogue() {
     twice) printf '\001CBJ-%s %s\n\n' "$1" "$answer" "$1" "$answer" ;;
     huge) printf '\001CBJ-%s ' "$1"; head -c "$answer" /dev/zero | tr '\0' x; printf '\n\n' ;;
     slow) printf 'epilogue-received\n'; sleep 30 ;;
+    late) printf '\001CBJ-%s {"k":"late"}\n\n' "$1"; head -c "$answer" /dev/zero | tr '\0' x; printf '\n' ;;
     *) ;;
   esac
 }
@@ -213,9 +218,11 @@ emit_re='^__cbEmit\(_, "\\u0001CBJ-([0-9a-f]+) ", 200, 4194304\)$'
 answer_mode=''
 answer=''
 PROMPT_TEXT=$'\001CBP> '
+exit_after_prompt=''
 ARGS=("$@")
 while true; do
   printf '%s' "$PROMPT_TEXT"
+  [ -n "$exit_after_prompt" ] && exit 0
   read_line || exit 0
   if [[ "$line" =~ $emit_re ]]; then answer_epilogue "${BASH_REMATCH[1]}"; continue; fi
   lines=()

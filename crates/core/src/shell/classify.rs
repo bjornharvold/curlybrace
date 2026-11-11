@@ -26,10 +26,10 @@
 //!   with [`Piece::Evaluated`] and then lifts the epilogue's answer out of the text (see
 //!   `classify_result.rs`).
 //!
-//! Limitation: once a script redefines `prompt`, its own prompt is shown as output and the end of
-//! the script is no longer seen, so from then on the routing to stderr and the outcome are
-//! unreliable (an error after it may show as output, and the run may end `Exited(0)`). Such a
-//! script gets no epilogue (`invocation::blocks_the_epilogue`).
+//! The preamble locks `prompt` (`invocation::locked_global_js`), so a script cannot redefine
+//! it: an attempt is ignored or is an `Uncaught` error, and the fixed prompt always comes back.
+//! Were it ever not seen again, the routing to stderr and the outcome would be unreliable from
+//! then on, no epilogue would be sent, and the run would end with the process.
 use super::Stream;
 use super::invocation::{PROMPT, result_marker};
 use result::{PayloadLine, Start};

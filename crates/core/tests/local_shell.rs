@@ -324,6 +324,51 @@ async fn shell_helpers_are_syntax_errors_and_their_javascript_forms_work() {
     assert_eq!(text(&events, Stream::Stdout), "cbit_other\n");
 }
 
+/// The preamble locks `prompt` and `__cbEmit`: a script that tries to redefine them is ignored
+/// or gets an `Uncaught` error, the fixed prompt keeps coming back (no leaked user prompt), and
+/// the run ends (a lost prompt would leave the runner waiting for the end of the block).
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn prompt_and_emitter_redefinitions_are_locked_out_and_the_run_ends() {
+    let test = "prompt_and_emitter_redefinitions_are_locked_out_and_the_run_ends";
+    let ignored = [
+        "prompt = () => \"x> \"",
+        "globalThis.prompt = () => \"x> \"",
+        "globalThis[\"pro\" + \"mpt\"] = () => \"x> \"",
+        "var prompt = () => \"x> \"",
+        "__cbEmit = null",
+        "db.prompt.find({prompt: 1, k: \"prompt\"})",
+    ];
+    for attempt in ignored {
+        let script = format!("{attempt}\nprint(\"after-cbit\")");
+        let Some(events) = run_on_local(test, &script).await else {
+            return;
+        };
+        assert_eq!(
+            outcome(&events),
+            Outcome::Exited(0),
+            "{attempt}: {events:?}"
+        );
+        let out = text(&events, Stream::Stdout);
+        assert!(out.contains("after-cbit"), "{attempt}: {out:?}");
+        assert!(!out.contains("x> "), "{attempt}: {out:?}");
+        assert_no_prompt_leak(&out);
+    }
+    let script = "Object.defineProperty(globalThis, \"prompt\", {value: () => \"x> \"})\nprint(\"after-cbit\")";
+    let Some(events) = run_on_local(test, script).await else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::ScriptErrors, "{events:?}");
+    let err = text(&events, Stream::Stderr);
+    assert!(err.contains("Cannot redefine property: prompt"), "{err:?}");
+    let out = text(&events, Stream::Stdout);
+    assert!(
+        !out.contains("after-cbit") && !out.contains("x> "),
+        "{out:?}"
+    );
+    assert_no_prompt_leak(&out);
+}
+
 /// Unblocked, `passwordPrompt()` on piped stdin prints "Enter password", reads the rest of the
 /// script as the password and exits 0, so nothing after it runs and the run looks successful.
 #[tokio::test]

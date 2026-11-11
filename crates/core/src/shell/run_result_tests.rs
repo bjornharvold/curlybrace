@@ -74,24 +74,63 @@ fn no_epilogue_when_the_underscore_assignment_text_appeared() {
 }
 
 #[test]
-fn no_epilogue_when_the_prompt_was_redefined() {
-    // The fixed prompt never comes back (Evaluated is never seen): the run must still end, and
-    // as today, by closing stdin after the last line.
+fn no_epilogue_when_a_prompt_redefinition_attempt_errors() {
+    // Against the preamble's lock, `Object.defineProperty(globalThis, "prompt", ...)` is an
+    // `Uncaught` error (what real mongosh 2.14.1 prints, see `invocation::locked_global_js`).
     let fake = repl();
-    let run = start(&fake, &format!("result {PAYLOAD}\nprompt mine> "));
-    assert_eq!(run.wait(), Outcome::Exited(0));
+    let run = start(&fake, &format!("result {PAYLOAD}\nredefine-prompt"));
+    assert_eq!(run.wait(), Outcome::ScriptErrors);
     assert!(run.results().is_empty());
     assert!(!epilogue_was_sent(&fake));
-    assert_eq!(run.text(Stream::Stdout), "mine> ");
+    assert_eq!(
+        run.text(Stream::Stderr),
+        "Uncaught TypeError: Cannot redefine property: prompt\n"
+    );
 }
 
 #[test]
-fn no_epilogue_when_the_script_mentions_the_emitter() {
+fn when_the_fixed_prompt_never_comes_back_the_process_exit_ends_the_run() {
+    // Evaluated is never seen: the writer waits for a verdict that never comes, and the end of
+    // the output (the process exited) ends it; no epilogue, no result, no hang.
     let fake = repl();
-    let run = start(&fake, &format!("result {PAYLOAD}\n__cbEmit"));
+    let run = start(&fake, &format!("a\nresult {PAYLOAD}\nprompt-exit mine> "));
     assert_eq!(run.wait(), Outcome::Exited(0));
     assert!(run.results().is_empty());
     assert!(!epilogue_was_sent(&fake));
+    assert_eq!(run.text(Stream::Stdout), "a\nmine> ");
+}
+
+#[test]
+fn scripts_that_mention_prompt_or_the_emitter_still_get_the_epilogue() {
+    for line in [
+        "db.prompt.find()",
+        "{prompt: 1}",
+        "{k: \"prompt\"}",
+        "doc.prompt // prompt",
+        "typeof __cbEmit",
+    ] {
+        let fake = repl();
+        let run = start(&fake, &format!("{line}\nresult {PAYLOAD}"));
+        assert_eq!(run.wait(), Outcome::Exited(0), "{line}");
+        assert_eq!(run.results(), [PAYLOAD], "{line}");
+        assert!(epilogue_was_sent(&fake), "{line}");
+        assert_eq!(run.text(Stream::Stdout), format!("{line}\n"), "{line}");
+    }
+}
+
+#[test]
+fn late_output_in_the_answer_window_counts_against_the_text_cap() {
+    let fake = repl();
+    let limits = RunLimits {
+        max_output_bytes: 1024,
+        ..RunLimits::default()
+    };
+    let run = start_with(&fake.exe, invocation("a\nresult-late 50000"), limits);
+    assert_eq!(run.wait(), Outcome::CapReached);
+    assert_eq!(run.results(), [r#"{"k":"late"}"#]);
+    let shown = run.text(Stream::Stdout).len() + run.text(Stream::Stderr).len();
+    assert!(shown <= limits.max_output_bytes, "{shown}");
+    assert!(run.text(Stream::Stdout).starts_with("a\nxxx"));
 }
 
 #[test]
@@ -221,7 +260,7 @@ fn the_token_is_not_in_the_preamble_argv_or_env() {
     assert!(seen.lines().any(|l| l.starts_with("env:PATH=")));
     assert!(
         seen.lines()
-            .any(|l| l.starts_with("in:") && l.contains("__cbEmit = "))
+            .any(|l| l.starts_with("in:") && l.contains("globalThis, \"__cbEmit\""))
     );
 }
 
