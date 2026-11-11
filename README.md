@@ -110,6 +110,15 @@ an account, a trial, or a license fee.
   the function out of the block); declare it with `const f = () => ...` or use `var`.
   `passwordPrompt()` is not available. Long scripts start slowly: mongosh re-reads the block for
   every line (about 1 s for 200 lines, 5 s for 1000).
+- The result can be read as a **Table** or a **Tree** (a switch above the output; **Text** stays the
+  default, and the choice is remembered per session). It shows the script's **last returned value**:
+  a `find()` or `aggregate()` cursor shows the same first batch the text shows (up to 20 by default,
+  with a note when more exist), `toArray()` or an array of documents shows up to 200 documents, and
+  `findOne()` or any object shows as one row or tree. There is no table for a scalar, for anything
+  printed with `print()` or `printjson()` (only the last returned value counts), for `db` or a
+  collection, after an error, for a result over 4 MiB, or when the script assigns `_`. A script that
+  silences or replaces `process.stdout.write` (or otherwise stops `mongosh` printing) is only ended by
+  Cancel. A script can no longer set its own `prompt`.
 - The tab keeps a **History** per connection: the last 200 scripts that actually ran (the
   selection, or the whole script), each with its time and how it ended (succeeded, script errors,
   incomplete, cancelled, output cap, failed). Pick an entry to put it back in the editor; it is never
