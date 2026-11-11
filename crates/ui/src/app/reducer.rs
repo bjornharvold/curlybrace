@@ -466,6 +466,8 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::TestConnection { .. }
         | Event::Snapshots { .. }
         | Event::ShellOutput { .. }
+        // Task 5 routes the structured result to the session's shell; until then it is ignored.
+        | Event::ShellResult { .. }
         | Event::ShellFinished { .. }
         | Event::ShellRefused { .. }
         | Event::ShellHistory { .. }

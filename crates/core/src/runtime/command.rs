@@ -217,6 +217,7 @@ impl Event {
             | Self::Failed { session, .. }
             | Self::RequestFailed { session, .. }
             | Self::ShellOutput { session, .. }
+            | Self::ShellResult { session, .. }
             | Self::ShellFinished { session, .. }
             | Self::ShellRefused { session, .. }
             | Self::ShellHistory { session, .. }

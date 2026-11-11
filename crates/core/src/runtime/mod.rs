@@ -91,6 +91,8 @@ mod shell_handlers;
 mod shell_history_queue;
 #[cfg(test)]
 mod shell_history_tests;
+#[cfg(test)]
+mod shell_result_tests;
 mod shell_slot;
 #[cfg(test)]
 mod shell_slot_tests;
@@ -725,6 +727,14 @@ pub enum Event {
         run_id: u64,
         stream: crate::shell::Stream,
         text: String,
+    },
+    /// The last value of the run `run_id`, lifted out as structured data (already scrubbed of the
+    /// password). Sent at most once per run, only when the run exited 0 and its payload parsed,
+    /// and always right before that run's `ShellFinished`. Its `Debug` leaves the contents out.
+    ShellResult {
+        session: SessionId,
+        run_id: u64,
+        result: crate::shell::ShellResult,
     },
     /// The run `run_id` ended; follows its last `ShellOutput`. Also sent for a run killed by a
     /// disconnect (`Cancelled`) and for one that could not start (`StartFailed`).
