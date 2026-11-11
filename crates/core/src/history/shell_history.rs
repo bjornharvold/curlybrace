@@ -17,8 +17,10 @@ use uuid::Uuid;
 /// Runs kept per connection; older ones are deleted as new ones arrive.
 pub const SHELL_HISTORY_LIMIT: usize = 200;
 
-/// Longest script (in bytes) that is stored. A longer one is run but not remembered.
-pub const MAX_STORED_SCRIPT_BYTES: usize = 256 * 1024;
+/// Longest script (in bytes) that is stored. A longer one is run but not remembered. Kept small
+/// because shell history counts toward the history file's size cap, which can trim usage and
+/// shape rows but not this table: 200 large scripts could otherwise push unrelated history out.
+pub const MAX_STORED_SCRIPT_BYTES: usize = 32 * 1024;
 
 pub(super) const V3: &str = "
 CREATE TABLE shell_history (

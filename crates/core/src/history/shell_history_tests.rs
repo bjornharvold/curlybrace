@@ -285,3 +285,34 @@ fn debug_output_never_shows_the_script() {
     assert!(shown.contains('7'));
     assert_eq!(entry.clone(), entry);
 }
+
+#[test]
+fn a_nul_and_multibyte_script_is_deduplicated_like_any_other() {
+    let (_dir, db) = open();
+    let c = conn(1);
+    let script = "print('a\0b') // héllo 日本語 \u{1F600}";
+    db.record_shell_run(c, script, ShellRunStatus::Failed, NOW)
+        .unwrap();
+    db.record_shell_run(c, script, ShellRunStatus::Succeeded, NOW + 1)
+        .unwrap();
+    let rows = db.shell_history(c).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].script, script);
+    assert_eq!(rows[0].status, ShellRunStatus::Succeeded);
+}
+
+#[test]
+fn an_oversize_script_leaves_the_preceding_row_untouched() {
+    let (_dir, db) = open();
+    let c = conn(1);
+    let same_prefix_over = "y".repeat(MAX_STORED_SCRIPT_BYTES + 1);
+    db.record_shell_run(c, "keep me", ShellRunStatus::Failed, NOW)
+        .unwrap();
+    db.record_shell_run(c, &same_prefix_over, ShellRunStatus::Succeeded, NOW + 1)
+        .unwrap();
+    let rows = db.shell_history(c).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].script, "keep me");
+    assert_eq!(rows[0].status, ShellRunStatus::Failed);
+    assert_eq!(rows[0].ran_at_secs, NOW);
+}

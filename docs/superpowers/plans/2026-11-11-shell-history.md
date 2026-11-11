@@ -23,7 +23,7 @@
 
 ## Review Focus
 
-- A script of 5 MB (or one containing NUL / invalid UTF-8-safe text) must not break the table or the UI list: scripts over `MAX_STORED_SCRIPT_BYTES` (256 KiB) are not stored (the run still happens).
+- A script of 5 MB (or one containing NUL / invalid UTF-8-safe text) must not break the table or the UI list: scripts over `MAX_STORED_SCRIPT_BYTES` (32 KiB) are not stored (the run still happens).
 - Running the same script twice in a row must not fill the list with duplicates: the newest row replaces an identical *directly preceding* one.
 - A purged (deleted) connection must not get a history row back from a run that finishes after the delete (`purged` set in `HistoryDb`).
 - A file written by this build (version 3) opened by an older build is left alone (`TooNew`); a version 1/2 file migrates to 3 without losing series or shapes.
@@ -47,7 +47,7 @@
 
 **Interfaces:**
 - Produces:
-  - `pub const SHELL_HISTORY_LIMIT: usize = 200;` and `pub const MAX_STORED_SCRIPT_BYTES: usize = 256 * 1024;`
+  - `pub const SHELL_HISTORY_LIMIT: usize = 200;` and `pub const MAX_STORED_SCRIPT_BYTES: usize = 32 * 1024;`
   - `pub enum ShellRunStatus { Succeeded, ScriptErrors, Incomplete, Cancelled, CapReached, Failed }` (`Clone, Copy, Debug, PartialEq, Eq`), with `fn as_str(self) -> &'static str` / `fn parse(&str) -> Option<Self>` and `pub fn from_outcome(&Outcome) -> Option<Self>` (`None` for `ConnectFailed`, `StartFailed`; `Exited(0)` → `Succeeded`; other exit codes and `Signalled` → `Failed`).
   - `pub struct ShellHistoryEntry { pub id: i64, pub ran_at_secs: i64, pub script: String, pub status: ShellRunStatus }`
   - On `HistoryDb`: `record_shell_run(&self, connection: Uuid, script: &str, status: ShellRunStatus, now_secs: i64) -> Result<()>`, `shell_history(&self, connection: Uuid) -> Result<Vec<ShellHistoryEntry>>` (newest first, at most 200), `clear_shell_history(&self, connection: Uuid) -> Result<()>`, `copy_shell_history(&self, from: Uuid, to: Uuid) -> Result<()>`.
@@ -131,6 +131,6 @@
 - Records in core when the run ends, not from the UI: the UI never holds a write path to the history file, and a run that outlives its tab is still recorded.
 - Identical directly preceding scripts are collapsed into one row (newest timestamp and status).
 - A run that was cancelled, hit the output cap or had script errors is recorded, with its status; runs that never executed are not.
-- Scripts over 256 KiB are not stored.
+- Scripts over 32 KiB are not stored.
 - Clear history has a confirm step; recall has none because it only edits the buffer.
 - Search, pinning, per-entry delete and export are out of scope for this slice.

@@ -360,7 +360,7 @@ impl HistoryDb {
             .contains(&connection)
     }
 
-    /// Remembers one shell run of `connection`; see [`shell_history::record`]. Ignored for a
+    /// Remembers one shell run of `connection`; see `shell_history::record`. Ignored for a
     /// purged connection, checked under the connection lock like [`Self::record_many`].
     pub fn record_shell_run(
         &self,
@@ -377,18 +377,21 @@ impl HistoryDb {
     }
 
     /// The remembered shell runs of a connection, newest first, at most
-    /// [`shell_history::SHELL_HISTORY_LIMIT`].
+    /// `SHELL_HISTORY_LIMIT`.
     pub fn shell_history(&self, connection: Uuid) -> Result<Vec<ShellHistoryEntry>> {
         shell_history::read(&self.lock(), connection)
     }
 
     /// Forgets every shell run of a connection. Not a purge: it can record again right away.
     pub fn clear_shell_history(&self, connection: Uuid) -> Result<()> {
-        shell_history::clear(&self.lock(), connection)
+        let conn = self.lock();
+        shell_history::clear(&conn, connection)?;
+        thin::release_free_pages(&conn)
     }
 
     /// Gives `to` its own copy of the newest shell runs of `from` (a duplicated connection).
-    /// Ignored for a purged `to`.
+    /// It appends to whatever `to` already holds, so it is meant for a freshly duplicated
+    /// connection. Ignored for a purged `to`.
     pub fn copy_shell_history(&self, from: Uuid, to: Uuid) -> Result<()> {
         let mut conn = self.lock();
         if self.is_purged(to) {
