@@ -5,6 +5,7 @@
 use super::metrics::row_height;
 use super::shell_result::{note_text, show_notes};
 use super::shell_result_cache::{ShownText, TableCells, table_cells};
+use super::shell_result_store::{Scroll, first_draw_of_run};
 use super::table::paint_header_cell;
 use crate::I18n;
 use crate::theme::{StateLayer, card, current_ui, state_layer};
@@ -24,7 +25,11 @@ pub(super) fn show_result_table(ui: &mut egui::Ui, state: &ShellState, session: 
         Some(key) => {
             ui.label(i18n.t(key));
         }
-        None => show_cells(ui, &cells, session),
+        None => {
+            let run_id = state.result.run_id;
+            let reset = first_draw_of_run(ui.ctx(), Scroll::Table, session, run_id);
+            show_cells(ui, &cells, session, reset);
+        }
     }
 }
 
@@ -76,54 +81,61 @@ fn notes(cells: &TableCells, left_out: Option<String>, i18n: &I18n) -> Vec<Strin
         .collect()
 }
 
-fn show_cells(ui: &mut egui::Ui, cells: &TableCells, session: Uuid) {
+/// `reset`: a new run's value, so both scroll offsets go back to the start (the ids stay, so the
+/// column widths do too).
+fn show_cells(ui: &mut egui::Ui, cells: &TableCells, session: Uuid, reset: bool) {
     let height = row_height(ui);
     card(ui, |ui| {
         let s = current_ui(ui);
         // As in the Documents table: a hovered row gets the hover layer over the card's surface.
         ui.visuals_mut().widgets.hovered.bg_fill =
             state_layer(s.surface_container_low, s.on_surface, StateLayer::Hover);
-        egui::ScrollArea::horizontal()
+        let mut horizontal = egui::ScrollArea::horizontal()
             .id_salt(("shell_result_table_h", session))
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                let viewport = ui.available_rect_before_wrap().intersect(ui.clip_rect());
-                let columns = &cells.columns.shown;
-                TableBuilder::new(ui)
-                    .id_salt(("shell_result_table", session))
-                    .striped(true)
-                    .resizable(true)
-                    .vscroll(true)
-                    .auto_shrink([false, false])
-                    // Fill the pane, however tall (the default stops at 800 points), and give way
-                    // in a short one rather than push the rows below the window.
-                    .min_scrolled_height(0.0)
-                    .max_scroll_height(f32::INFINITY)
-                    .columns(
-                        Column::initial(COLUMN_INITIAL_WIDTH).clip(true),
-                        columns.len(),
-                    )
-                    .header(height, |mut header| {
-                        for name in columns {
-                            header.col(|ui| {
-                                paint_header_cell(ui, s, viewport);
-                                ui.add(
-                                    egui::Label::new(egui::RichText::new(name).strong()).truncate(),
-                                );
-                            });
-                        }
-                    })
-                    .body(|body| {
-                        body.rows(height, cells.rows.len(), |mut row| {
-                            let Some(values) = cells.rows.get(row.index()) else {
-                                return;
-                            };
-                            for value in values {
-                                row.col(|ui| show_cell(ui, value.as_ref()));
-                            }
+            .auto_shrink([false, true]);
+        if reset {
+            horizontal = horizontal.horizontal_scroll_offset(0.0);
+        }
+        horizontal.show(ui, |ui| {
+            let viewport = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+            let columns = &cells.columns.shown;
+            let mut table = TableBuilder::new(ui);
+            if reset {
+                table = table.vertical_scroll_offset(0.0);
+            }
+            table
+                .id_salt(("shell_result_table", session))
+                .striped(true)
+                .resizable(true)
+                .vscroll(true)
+                .auto_shrink([false, false])
+                // Fill the pane, however tall (the default stops at 800 points), and give way
+                // in a short one rather than push the rows below the window.
+                .min_scrolled_height(0.0)
+                .max_scroll_height(f32::INFINITY)
+                .columns(
+                    Column::initial(COLUMN_INITIAL_WIDTH).clip(true),
+                    columns.len(),
+                )
+                .header(height, |mut header| {
+                    for name in columns {
+                        header.col(|ui| {
+                            paint_header_cell(ui, s, viewport);
+                            ui.add(egui::Label::new(egui::RichText::new(name).strong()).truncate());
                         });
+                    }
+                })
+                .body(|body| {
+                    body.rows(height, cells.rows.len(), |mut row| {
+                        let Some(values) = cells.rows.get(row.index()) else {
+                            return;
+                        };
+                        for value in values {
+                            row.col(|ui| show_cell(ui, value.as_ref()));
+                        }
                     });
-            });
+                });
+        });
     });
 }
 

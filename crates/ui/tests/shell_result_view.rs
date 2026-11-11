@@ -540,6 +540,47 @@ fn a_disabled_mode_describes_its_reason_to_assistive_technology() {
     assert_eq!(node.accesskit_node().description(), None);
 }
 
+/// Wheels the pane under `label` far down, as a person scrolling to the end would.
+fn scroll_down_over(h: &mut Harness<'static, Frame>, label: &str) {
+    h.get_by_label(label).hover();
+    h.run_steps(2);
+    h.input_mut().events.push(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -20_000.0),
+        modifiers: egui::Modifiers::NONE,
+    });
+    // The wheel scrolls smoothly: give the animation frames to finish.
+    h.run_steps(30);
+}
+
+/// The same shell after a second run that returned `result`.
+fn rerun(shell: &ShellState, result: ShellResult) -> ShellState {
+    let (running, _) = shell.edited("db.a.find()".into(), None).run_requested();
+    let run_id = running.result.run_id;
+    assert_eq!(run_id, shell.result.run_id + 1);
+    running
+        .result_arrived(run_id, result)
+        .finished(run_id, Outcome::Exited(0))
+}
+
+/// A new run's value starts at the top: the previous run's scroll offset does not carry over.
+#[test]
+fn a_new_run_starts_the_table_and_the_tree_at_the_top() {
+    for (mode, first) in [
+        (OutputMode::Table, "doc 0".to_owned()),
+        (OutputMode::Tree, tw("doc.header", &[("n", "1")])),
+    ] {
+        let mut h = harness(with_result(cursor(numbered(200), false), mode));
+        h.get_by_label(&first);
+        scroll_down_over(&mut h, &first);
+        assert!(h.query_by_label(&first).is_none(), "{mode:?}: not scrolled");
+        let next = rerun(&h.state().shell, cursor(numbered(200), false));
+        h.state_mut().shell = next;
+        h.run_steps(4);
+        h.get_by_label(&first);
+    }
+}
+
 /// An empty array always parses as documents (none): the Tree says the usual empty line.
 #[test]
 fn an_empty_array_says_there_are_no_documents() {

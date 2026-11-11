@@ -7,6 +7,7 @@
 use super::metrics::{fixed_row, row_height};
 use super::shell_result::{note_text, show_notes};
 use super::shell_result_cache::{ShownText, TreeLine, TreeLines, tree_lines};
+use super::shell_result_store::{Scroll, first_draw_of_run};
 use super::tree::arrow;
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
@@ -72,19 +73,23 @@ pub(super) fn show_result_tree(
     }
     let height = row_height(ui);
     let mut toggled = None;
-    egui::ScrollArea::vertical()
+    let mut area = egui::ScrollArea::vertical()
         .id_salt(("shell_result_tree", session))
-        .auto_shrink([false; 2])
-        .show_rows(ui, height, lines.lines.len(), |ui, range| {
-            for index in range {
-                let Some(line) = lines.lines.get(index) else {
-                    continue;
-                };
-                if let Some(action) = show_line(ui, line, state, result, height, i18n) {
-                    toggled = Some(action);
-                }
+        .auto_shrink([false; 2]);
+    // A new run's value starts at the top (expanding or collapsing keeps the offset).
+    if first_draw_of_run(ui.ctx(), Scroll::Tree, session, state.result.run_id) {
+        area = area.vertical_scroll_offset(0.0);
+    }
+    area.show_rows(ui, height, lines.lines.len(), |ui, range| {
+        for index in range {
+            let Some(line) = lines.lines.get(index) else {
+                continue;
+            };
+            if let Some(action) = show_line(ui, line, state, result, height, i18n) {
+                toggled = Some(action);
             }
-        });
+        }
+    });
     toggled
 }
 

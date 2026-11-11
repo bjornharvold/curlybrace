@@ -123,11 +123,39 @@ pub(crate) fn evict_stale<A: Stored, B: Stored>(
     evict_one::<B>(ctx, session, state);
 }
 
-/// Drops both entries of `session`.
+/// The scroll areas whose offset belongs to one run's value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Scroll {
+    Table,
+    Tree,
+}
+
+fn scroll_run_id(scroll: Scroll, session: Uuid) -> egui::Id {
+    egui::Id::new(("shell_result_scroll_run", scroll, session))
+}
+
+/// Whether `scroll` of `session` is drawn for run `run_id` for the first time (it last showed
+/// another run's value, or none): its offset is then reset, so a new value starts at the top.
+/// The scroll areas keep their ids (the table keeps its column widths across runs).
+pub(crate) fn first_draw_of_run(
+    ctx: &egui::Context,
+    scroll: Scroll,
+    session: Uuid,
+    run_id: u64,
+) -> bool {
+    let id = scroll_run_id(scroll, session);
+    let last = ctx.data(|d| d.get_temp::<u64>(id));
+    ctx.data_mut(|d| d.insert_temp(id, run_id));
+    last != Some(run_id)
+}
+
+/// Drops both entries of `session`, and which run its scroll areas last showed.
 pub(crate) fn forget_both<A: Stored, B: Stored>(ctx: &egui::Context, session: Uuid) {
     ctx.data_mut(|d| {
         d.remove::<Entry<A>>(A::id(session));
         d.remove::<Entry<B>>(B::id(session));
+        d.remove::<u64>(scroll_run_id(Scroll::Table, session));
+        d.remove::<u64>(scroll_run_id(Scroll::Tree, session));
     });
     let sessions = known(ctx);
     if sessions.contains(&session) {
