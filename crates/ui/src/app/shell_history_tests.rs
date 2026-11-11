@@ -74,15 +74,65 @@ fn fake_mongosh(dir: &Path) -> PathBuf {
     path
 }
 
+/// The history is read only while its panel is open: opening the tab with the panel closed reads
+/// nothing, opening it with the panel open reads it (every time, not only the first).
 #[test]
-fn opening_the_shell_tab_requests_the_history() {
+fn opening_the_shell_tab_reads_the_history_only_with_the_panel_open() {
     let (s, id) = browsing(with_flags(false, false));
     let (s, commands) = shell(s, ShellAction::Open);
-    assert!(asks_history(&commands, id), "{commands:?}");
+    assert!(commands.is_empty(), "the panel is closed: {commands:?}");
+    let (s, _) = shell(s, ShellAction::ToggleHistory);
+    let (s, again) = shell(s, ShellAction::Open);
+    assert_eq!(reads(&again, id), 1, "{again:?}");
+    let (_, third) = shell(s, ShellAction::Open);
+    assert_eq!(reads(&third, id), 1, "{third:?}");
+}
+
+#[test]
+fn opening_the_panel_reads_the_history_and_closing_it_reads_nothing() {
+    let (s, id) = browsing(with_flags(false, false));
+    let (s, _) = shell(s, ShellAction::Open);
+    let (s, opened) = shell(s, ShellAction::ToggleHistory);
+    assert_eq!(reads(&opened, id), 1, "{opened:?}");
     assert!(!shell_of(&s, id).history.loaded, "nothing answered yet");
-    // Every time it is shown again, not only the first.
-    let (_, again) = shell(s, ShellAction::Open);
-    assert!(asks_history(&again, id), "{again:?}");
+    let (s, closed) = shell(s, ShellAction::ToggleHistory);
+    assert!(closed.is_empty(), "{closed:?}");
+    // Opened again: read fresh, whatever was loaded before.
+    let (s, _) = event(s, history(id, vec![entry(1, "db.a.find()")]));
+    let (_, reopened) = shell(s, ShellAction::ToggleHistory);
+    assert_eq!(reads(&reopened, id), 1, "{reopened:?}");
+}
+
+#[test]
+fn nothing_is_read_while_the_panel_is_closed() {
+    let (s, id) = with_history();
+    assert!(!shell_of(&s, id).history.open);
+    let (s, finished) = event(s, finished_event(id));
+    assert!(finished.is_empty(), "{finished:?}");
+    let (_, changed) = event(s, changed_event(id, true));
+    assert!(changed.is_empty(), "{changed:?}");
+}
+
+fn reads(commands: &[Command], id: Uuid) -> usize {
+    commands
+        .iter()
+        .filter(|c| matches!(c, Command::ShellHistory { session } if *session == id))
+        .count()
+}
+
+fn finished_event(id: Uuid) -> Event {
+    Event::ShellFinished {
+        session: id,
+        run_id: 1,
+        outcome: Outcome::Exited(0),
+    }
+}
+
+fn changed_event(id: Uuid, stored: bool) -> Event {
+    Event::ShellHistoryChanged {
+        session: id,
+        stored,
+    }
 }
 
 #[test]
@@ -94,10 +144,11 @@ fn an_open_refused_for_a_session_that_is_not_connected_asks_nothing() {
 }
 
 #[test]
-fn a_recorded_run_requests_the_history_again() {
+fn a_recorded_run_reads_the_history_again_while_the_panel_is_open() {
     let dir = tempfile::tempdir().unwrap();
     let exe = fake_mongosh(dir.path());
     let (s, id) = with_history();
+    let (s, _) = shell(s, ShellAction::ToggleHistory);
     let tools = s
         .tools
         .choose_override(id, ToolKind::Mongosh, ToolChoice::Executable(exe.clone()));
@@ -109,20 +160,14 @@ fn a_recorded_run_requests_the_history_again() {
     let (s, _) = shell(s, edit);
     let (s, run) = shell(s, ShellAction::Run);
     assert!(!asks_history(&run, id), "the run itself asks nothing");
-    let finished = Event::ShellFinished {
-        session: id,
-        run_id: 1,
-        outcome: Outcome::Exited(0),
-    };
     // The record is written after the run ends: the read waits for it.
-    let (s, commands) = event(s, finished);
-    assert!(!asks_history(&commands, id), "{commands:?}");
-    let changed = Event::ShellHistoryChanged {
-        session: id,
-        stored: true,
-    };
-    let (_, commands) = event(s, changed);
-    assert!(asks_history(&commands, id), "{commands:?}");
+    let (s, commands) = event(s, finished_event(id));
+    assert!(commands.is_empty(), "{commands:?}");
+    let (s, commands) = event(s, changed_event(id, true));
+    assert_eq!(reads(&commands, id), 1, "{commands:?}");
+    // Any change reads once, a record too long to store included.
+    let (_, commands) = event(s, changed_event(id, false));
+    assert_eq!(reads(&commands, id), 1, "{commands:?}");
 }
 
 #[test]
@@ -223,7 +268,7 @@ fn a_cancelled_clear_sends_nothing() {
 fn toggling_the_panel_resets_a_pending_clear_confirmation() {
     let (s, id) = with_history();
     let (s, toggled) = shell(s, ShellAction::ToggleHistory);
-    assert!(toggled.is_empty());
+    assert_eq!(reads(&toggled, id), 1, "opening reads: {toggled:?}");
     assert!(shell_of(&s, id).history.open);
     let (s, _) = shell(s, ShellAction::ClearHistory);
     let (s, _) = shell(s, ShellAction::ToggleHistory);
@@ -319,8 +364,12 @@ fn a_reconnect_keeps_the_history_list() {
         2,
         "the connection's runs are still its runs"
     );
+    let (s, _) = shell(s, ShellAction::ToggleHistory);
     let (_, reopened) = shell(s, ShellAction::Open);
-    assert!(asks_history(&reopened, id), "and it is read again on open");
+    assert!(
+        asks_history(&reopened, id),
+        "and it is read again on open, with the panel open"
+    );
 }
 
 fn lost_event(id: Uuid) -> Event {

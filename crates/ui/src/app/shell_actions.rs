@@ -54,7 +54,7 @@ pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
         ShellAction::Open => open(state, id),
         ShellAction::Run => run(state, id),
         ShellAction::Cancel => cancel(state, id),
-        ShellAction::ToggleHistory => updated(state, id, ShellState::history_toggled),
+        ShellAction::ToggleHistory => toggle_history(state, id),
         // Only the buffer changes, also mid-run: nothing is sent.
         ShellAction::RecallEntry(entry) => {
             updated(state, id, |shell| shell.history_entry_recalled(entry))
@@ -69,6 +69,22 @@ pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
 fn updated(state: AppState, id: Uuid, change: impl FnOnce(&ShellState) -> ShellState) -> Out {
     let shell = change(&state.shell_or_new(id));
     unchanged(state.with_shell(id, shell))
+}
+
+/// Opens or closes the panel; opening it reads the history fresh (nothing is read while it is
+/// closed, so what it showed before may be stale).
+fn toggle_history(state: AppState, id: Uuid) -> Out {
+    let shell = state.shell_or_new(id).history_toggled();
+    let commands = read_if_open(&shell, id);
+    (state.with_shell(id, shell), commands)
+}
+
+/// The history read, only while `shell`'s panel is open: a closed panel never reads.
+fn read_if_open(shell: &ShellState, id: Uuid) -> Vec<Command> {
+    match shell.history.open {
+        true => vec![Command::ShellHistory { session: id }],
+        false => Vec::new(),
+    }
 }
 
 /// Sends the clear only when one was pending. The list stays until the core answers with the
@@ -114,9 +130,10 @@ pub(super) fn on_event(state: AppState, session: Uuid, event: Event) -> Out {
             run_id, outcome, ..
         } => shell.finished(run_id, outcome),
         // The record of a run is written after its `ShellFinished`; the read is queued behind it.
+        // Only an open panel reads; a closed one reads when it is opened.
         Event::ShellHistoryChanged { .. } => {
-            let read = Command::ShellHistory { session };
-            return (state, vec![read]);
+            let commands = read_if_open(shell, session);
+            return (state, commands);
         }
         Event::ShellRefused { run_id, reason, .. } => shell.refused(run_id, reason),
         Event::ShellHistory { entries, .. } => shell.history_loaded(entries),
@@ -163,13 +180,14 @@ fn open(state: AppState, id: Uuid) -> Out {
         return unchanged(state);
     }
     let shell = state.shell_or_new(id);
+    // Every time the tab is shown with its panel open (this is the only way into it): the
+    // stored list may have changed since it was last read, a copied history included.
+    let commands = read_if_open(&shell, id);
     let next = AppState {
         workspace: Workspace::Shell,
         ..state.with_shell(id, shell)
     };
-    // Every time the tab is shown (this is the only way into it): the stored list may have
-    // changed since it was last read, a history copied into a duplicated connection included.
-    (next, vec![Command::ShellHistory { session: id }])
+    (next, commands)
 }
 
 fn run(state: AppState, id: Uuid) -> Out {
