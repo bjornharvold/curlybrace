@@ -254,7 +254,8 @@ fn an_answer_over_the_window_budget_is_dropped_and_the_run_still_ends_cleanly() 
 #[test]
 fn the_result_budget_holds_the_emitter_cap_in_utf8() {
     // The emitter counts UTF-16 units; one is at most 3 UTF-8 bytes.
-    assert!(DEFAULT_MAX_RESULT_BYTES >= 3 * RESULT_MAX_CHARS);
+    let (budget, cap) = (DEFAULT_MAX_RESULT_BYTES, RESULT_MAX_CHARS);
+    assert!(budget >= 3 * cap, "{budget} < 3 * {cap}");
     assert_eq!(RESULT_MAX_CHARS, 4 * 1024 * 1024);
     assert!(epilogue(TOKEN).ends_with(", 200, 4194304)"));
 }

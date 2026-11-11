@@ -43,6 +43,7 @@ const MAX_UTF8_BYTES_PER_UTF16_UNIT: usize = 3;
 /// fits; one over this (a lower limit set in [`RunLimits`]) is dropped, and never stops the run.
 pub const DEFAULT_MAX_RESULT_BYTES: usize =
     MAX_UTF8_BYTES_PER_UTF16_UNIT * RESULT_MAX_CHARS + 64 * 1024;
+const _: () = assert!(DEFAULT_MAX_RESULT_BYTES >= MAX_UTF8_BYTES_PER_UTF16_UNIT * RESULT_MAX_CHARS);
 /// A little over the driver's 30 s server selection timeout.
 pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(35);
 /// How often the supervisor checks whether the child has exited.
