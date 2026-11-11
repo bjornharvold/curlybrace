@@ -8,6 +8,7 @@
 //! the pane follows the newest line unless the user scrolled away from the bottom.
 use super::metrics::{fixed_row_sized, row_height};
 use super::shell_result::{show_mode_switch, show_result};
+use super::shell_result_cache::drop_stale;
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
 use crate::theme::current_ui;
@@ -39,6 +40,9 @@ pub(crate) fn show_output(
     i18n: &I18n,
 ) -> Option<ShellAction> {
     let ctx = ui.ctx().clone();
+    // Rows built for a value no longer shown (an earlier run, a cleared value) are dropped at
+    // once, in both modes, whichever one is on screen.
+    drop_stale(&ctx, session, state);
     let region = egui::Id::new(REGION_ID);
     let name = i18n.t("shell.output.region");
     ctx.accesskit_node_builder(region, |node| {

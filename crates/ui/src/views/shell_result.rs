@@ -11,7 +11,7 @@ use crate::viewmodel::index_detail::size_parts;
 use crate::viewmodel::shell::ShellState;
 use crate::viewmodel::shell_result::{Availability, OutputMode, Reason, ShellResult};
 use curlybrace_core::shell::DocKind;
-use eframe::egui;
+use eframe::egui::{self, accesskit};
 use uuid::Uuid;
 
 fn mode_key(mode: OutputMode) -> &'static str {
@@ -38,8 +38,19 @@ pub(crate) fn show_mode_switch(
         Availability::Available => None,
         Availability::Unavailable(reason) => Some(reason_text(reason, i18n)),
     };
-    ui.label(i18n.t("shell.result.mode_label"));
-    segmented_hinted(ui, &items, state.mode, available, hint).map(ShellAction::SetOutputMode)
+    let name = i18n.t("shell.result.mode_label");
+    ui.label(name.as_str());
+    // The three options sit in a radio group named like the visible label.
+    let ctx = ui.ctx().clone();
+    let group = egui::Id::new("shell_output_mode_group");
+    ctx.accesskit_node_builder(group, |node| {
+        node.set_role(accesskit::Role::RadioGroup);
+        node.set_label(name);
+    });
+    ctx.with_accessibility_parent(group, || {
+        segmented_hinted(ui, &items, state.mode, available, hint)
+    })
+    .map(ShellAction::SetOutputMode)
 }
 
 /// The Table or Tree of the run's value, or why there is none. Text mode draws nothing here.

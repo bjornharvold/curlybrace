@@ -84,10 +84,17 @@ pub fn segmented_hinted<T: PartialEq + Copy>(
         } else {
             response
         };
+        // The hint is also the option's accessible description, so a screen reader hears why an
+        // option is off without hovering it.
         let response = match hint(value) {
-            Some(text) => response
-                .on_hover_text(text.as_str())
-                .on_disabled_hover_text(text),
+            Some(text) => {
+                let described = text.clone();
+                ui.ctx()
+                    .accesskit_node_builder(response.id, |node| node.set_description(described));
+                response
+                    .on_hover_text(text.as_str())
+                    .on_disabled_hover_text(text)
+            }
             None => response,
         };
         let corners = item_corners(i, items.len());

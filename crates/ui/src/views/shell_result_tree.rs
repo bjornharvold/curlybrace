@@ -17,6 +17,9 @@ use crate::viewmodel::{PageRow, TreeRow, type_label_key};
 use eframe::egui;
 use uuid::Uuid;
 
+/// The most of a row's remaining width a key takes.
+const KEY_SHARE: f32 = 0.4;
+
 pub(super) fn show_result_tree(
     ui: &mut egui::Ui,
     state: &ShellState,
@@ -28,6 +31,10 @@ pub(super) fn show_result_tree(
     show_notes(ui, result, i18n);
     if lines.lines.is_empty() {
         ui.label(i18n.t("shell.result.empty"));
+        return None;
+    }
+    if matches!(result, ShellResult::Values { values, .. } if values.is_empty()) {
+        ui.label(i18n.t("shell.result.empty_values"));
         return None;
     }
     let all = expand_buttons(ui, i18n);
@@ -147,7 +154,16 @@ fn field_cells(
         return;
     }
     arrow(ui, row, open);
-    ui.add(egui::Label::new(egui::RichText::new(&row.key).strong()).selectable(false));
+    // A long key is cut (in the cache) and never takes more than its share of the row, so the
+    // type and the value stay in view.
+    let key_width = ui.available_width() * KEY_SHARE;
+    ui.scope(|ui| {
+        ui.set_max_width(key_width);
+        let key = egui::Label::new(egui::RichText::new(&row.key).strong())
+            .truncate()
+            .selectable(false);
+        ui.add(key);
+    });
     ui.add(
         egui::Label::new(egui::RichText::new(i18n.t(&type_label_key(row.type_name))).weak())
             .selectable(false),

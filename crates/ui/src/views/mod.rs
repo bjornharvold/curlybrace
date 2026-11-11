@@ -50,6 +50,7 @@ pub mod shell_notice;
 mod shell_output;
 mod shell_result;
 pub mod shell_result_cache;
+mod shell_result_store;
 mod shell_result_table;
 mod shell_result_tree;
 pub mod sidebar;

@@ -6,15 +6,13 @@
 //! Every text is cut to a few dozen characters BEFORE any layout: a 1 MiB string is never
 //! formatted or laid out per frame. The full value (itself capped) is the hover text.
 //!
-//! The table is keyed by the session, the run id and the identity of the result (`Arc`); the
-//! tree also by the identity of its expansion (a new value on every toggle, see
-//! `TreeExpansion::is_same`). An entry holds clones of those `Arc`s, so an address cannot be
-//! reused by another value while it is cached.
+//! How the entries are keyed and when they are dropped: see `shell_result_store`.
+use super::shell_result_store::{
+    Stored, cached, evict_stale, forget_both, known, stored, table_id, tree_id,
+};
 use crate::I18n;
 use crate::viewmodel::shell::ShellState;
-use crate::viewmodel::shell_result::ShellResult;
 use crate::viewmodel::shell_result_table::ResultColumns;
-use crate::viewmodel::shell_result_tree::TreeExpansion;
 use crate::viewmodel::{PageRow, RowDetail, TreeRow, cell_text, row_value_text};
 use bson::Bson;
 use eframe::egui;
@@ -23,6 +21,8 @@ use uuid::Uuid;
 
 /// Most characters a table cell or a tree value shows; the rest is cut.
 pub const CELL_MAX_CHARS: usize = 80;
+/// Most characters a tree key shows; the rest is cut.
+pub const KEY_MAX_CHARS: usize = 40;
 /// Most characters of a cut value its hover text shows.
 pub const HOVER_MAX_CHARS: usize = 2_000;
 
@@ -54,31 +54,16 @@ pub struct TreeLines {
     pub lines: Vec<TreeLine>,
 }
 
-#[derive(Clone)]
-struct Entry<T> {
-    run_id: u64,
-    result: Arc<ShellResult>,
-    tree: Option<TreeExpansion>,
-    data: Arc<T>,
-}
-
-impl<T> Entry<T> {
-    fn fits(&self, run_id: u64, result: &Arc<ShellResult>, tree: Option<&TreeExpansion>) -> bool {
-        let same_tree = match (&self.tree, tree) {
-            (Some(cached), Some(wanted)) => cached.is_same(wanted),
-            (None, None) => true,
-            _ => false,
-        };
-        self.run_id == run_id && Arc::ptr_eq(&self.result, result) && same_tree
+impl Stored for TableCells {
+    fn id(session: Uuid) -> egui::Id {
+        table_id(session)
     }
 }
 
-fn table_id(session: Uuid) -> egui::Id {
-    egui::Id::new(("shell_result_table_cache", session))
-}
-
-fn tree_id(session: Uuid) -> egui::Id {
-    egui::Id::new(("shell_result_tree_cache", session))
+impl Stored for TreeLines {
+    fn id(session: Uuid) -> egui::Id {
+        tree_id(session)
+    }
 }
 
 /// The Table of `state`'s value, from the cache when it fits; `None` without a value.
@@ -88,9 +73,7 @@ pub(crate) fn table_cells(
     state: &ShellState,
     i18n: &I18n,
 ) -> Option<Arc<TableCells>> {
-    cached(ctx, table_id(session), state, None, || {
-        table_of(state, i18n)
-    })
+    cached(ctx, session, state, None, || table_of(state, i18n))
 }
 
 /// The Tree rows of `state`'s value, from the cache when it fits; `None` without a value.
@@ -101,45 +84,40 @@ pub(crate) fn tree_lines(
     i18n: &I18n,
 ) -> Option<Arc<TreeLines>> {
     let tree = Some(&state.result.tree);
-    cached(ctx, tree_id(session), state, tree, || tree_of(state, i18n))
+    cached(ctx, session, state, tree, || tree_of(state, i18n))
 }
 
-fn cached<T: Clone + Send + Sync + 'static>(
-    ctx: &egui::Context,
-    id: egui::Id,
-    state: &ShellState,
-    tree: Option<&TreeExpansion>,
-    build: impl FnOnce() -> T,
-) -> Option<Arc<T>> {
-    let result = state.result.result.clone()?;
-    let run_id = state.result.run_id;
-    let hit = ctx
-        .data(|d| d.get_temp::<Entry<T>>(id))
-        .filter(|entry| entry.fits(run_id, &result, tree));
-    if let Some(entry) = hit {
-        return Some(entry.data);
+/// Drops `session`'s Table and Tree rows that no longer belong to the value `state` shows; the
+/// output pane calls it every frame, whichever mode is on screen.
+pub(crate) fn drop_stale(ctx: &egui::Context, session: Uuid, state: &ShellState) {
+    evict_stale::<TableCells, TreeLines>(ctx, session, state);
+}
+
+/// Forgets everything cached for `session`.
+pub fn forget(ctx: &egui::Context, session: Uuid) {
+    forget_both::<TableCells, TreeLines>(ctx, session);
+}
+
+/// Forgets every session that is not in `open` (a closed session's rows never linger).
+pub fn retain_sessions(ctx: &egui::Context, open: &[Uuid]) {
+    let closed: Vec<Uuid> = known(ctx)
+        .iter()
+        .copied()
+        .filter(|session| !open.contains(session))
+        .collect();
+    for session in closed {
+        forget(ctx, session);
     }
-    let data = Arc::new(build());
-    let entry = Entry {
-        run_id,
-        result,
-        tree: tree.cloned(),
-        data: Arc::clone(&data),
-    };
-    ctx.data_mut(|d| d.insert_temp(id, entry));
-    Some(data)
 }
 
 /// The cached Table of `session`, as the last frame left it. For tests and diagnostics.
 pub fn cached_table(ctx: &egui::Context, session: Uuid) -> Option<Arc<TableCells>> {
-    ctx.data(|d| d.get_temp::<Entry<TableCells>>(table_id(session)))
-        .map(|entry| entry.data)
+    stored(ctx, session)
 }
 
 /// The cached Tree rows of `session`, as the last frame left them. For tests and diagnostics.
 pub fn cached_tree(ctx: &egui::Context, session: Uuid) -> Option<Arc<TreeLines>> {
-    ctx.data(|d| d.get_temp::<Entry<TreeLines>>(tree_id(session)))
-        .map(|entry| entry.data)
+    stored(ctx, session)
 }
 
 fn table_of(state: &ShellState, i18n: &I18n) -> TableCells {
@@ -176,7 +154,9 @@ fn field_line(doc_index: usize, row: TreeRow, i18n: &I18n) -> TreeLine {
         RowDetail::Scalar => shown_text(&row.value, i18n),
         _ => shown_text(&row_value_text(&row, i18n), i18n),
     };
+    let key = shown_key(&row.key, i18n);
     let row = TreeRow {
+        key,
         value: String::new(),
         ..row
     };
@@ -196,16 +176,9 @@ fn value_text(value: &Bson, i18n: &I18n) -> ShownText {
 
 /// `text` on one line and at most [`CELL_MAX_CHARS`] long, with the cut marked.
 pub fn shown_text(text: &str, i18n: &I18n) -> ShownText {
-    let head = prefix(text, CELL_MAX_CHARS);
-    let one_line: String = head
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    if head.len() == text.len() {
-        return ShownText {
-            shown: one_line,
-            hover: None,
-        };
+    let (shown, cut) = one_line(text, CELL_MAX_CHARS, i18n);
+    if !cut {
+        return ShownText { shown, hover: None };
     }
     let long = prefix(text, HOVER_MAX_CHARS);
     let hover = match long.len() == text.len() {
@@ -213,8 +186,27 @@ pub fn shown_text(text: &str, i18n: &I18n) -> ShownText {
         false => format!("{long}{}", i18n.t("shell.result.cut_hover")),
     };
     ShownText {
-        shown: format!("{one_line}{}", i18n.t("shell.result.cut")),
+        shown,
         hover: Some(hover),
+    }
+}
+
+/// A key on one line and at most [`KEY_MAX_CHARS`] long, with the cut marked.
+fn shown_key(key: &str, i18n: &I18n) -> String {
+    one_line(key, KEY_MAX_CHARS, i18n).0
+}
+
+/// The first `max` characters of `text` with control characters as spaces, the cut marked;
+/// and whether it was cut.
+fn one_line(text: &str, max: usize, i18n: &I18n) -> (String, bool) {
+    let head = prefix(text, max);
+    let line: String = head
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    match head.len() == text.len() {
+        true => (line, false),
+        false => (format!("{line}{}", i18n.t("shell.result.cut")), true),
     }
 }
 
@@ -227,33 +219,5 @@ fn prefix(text: &str, max: usize) -> &str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_short_text_is_kept_whole_on_one_line() {
-        let i18n = I18n::english();
-        let shown = shown_text("a\nb\tc", &i18n);
-        assert_eq!(shown.shown, "a b c");
-        assert_eq!(shown.hover, None);
-    }
-
-    #[test]
-    fn a_long_text_is_cut_by_characters_and_hovered_capped() {
-        let i18n = I18n::english();
-        let text = "é".repeat(1 << 20);
-        let shown = shown_text(&text, &i18n);
-        let cut = i18n.t("shell.result.cut");
-        assert_eq!(shown.shown, format!("{}{cut}", "é".repeat(CELL_MAX_CHARS)));
-        let hover = shown.hover.expect("a hover text");
-        assert!(hover.starts_with(&"é".repeat(HOVER_MAX_CHARS)));
-        assert!(hover.chars().count() < HOVER_MAX_CHARS + 60);
-    }
-
-    #[test]
-    fn a_text_between_the_caps_hovers_whole() {
-        let i18n = I18n::english();
-        let text = "y".repeat(CELL_MAX_CHARS + 1);
-        assert_eq!(shown_text(&text, &i18n).hover, Some(text));
-    }
-}
+#[path = "shell_result_cache_tests.rs"]
+mod tests;

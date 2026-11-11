@@ -135,7 +135,16 @@ fn row_toggle(key: &str, state: &str) -> String {
 #[test]
 fn the_mode_switch_has_three_labelled_buttons() {
     let h = harness(with_result(cursor(people(), false), OutputMode::Text));
-    h.get_by_label(&t("shell.result.mode_label"));
+    let name = t("shell.result.mode_label");
+    h.get_by_role_and_label(Role::Label, &name);
+    let group = h.get_by_role_and_label(Role::RadioGroup, &name);
+    for key in [
+        "shell.result.mode.text",
+        "shell.result.mode.table",
+        "shell.result.mode.tree",
+    ] {
+        group.get_by_role_and_label(Role::RadioButton, &t(key));
+    }
     assert_eq!(radio(&h, "shell.result.mode.text"), (false, true));
     assert_eq!(radio(&h, "shell.result.mode.table"), (false, false));
     assert_eq!(radio(&h, "shell.result.mode.tree"), (false, false));
@@ -449,4 +458,72 @@ fn a_wide_long_table_at_a_narrow_window_keeps_its_notes_inside() {
     let rect = h.get_by_label(&note).rect();
     assert!(rect.right() <= SMALL.x, "the note is clipped: {rect:?}");
     h.get_by_label("field_0");
+}
+
+#[test]
+fn a_disabled_mode_describes_its_reason_to_assistive_technology() {
+    let h = harness(ShellState::default());
+    let reason = t("shell.result.unavailable.no_value");
+    for key in ["shell.result.mode.table", "shell.result.mode.tree"] {
+        let label = t(key);
+        let node = h.get_by_role_and_label(Role::RadioButton, &label);
+        assert_eq!(node.accesskit_node().description(), Some(reason.clone()));
+    }
+    let text = t("shell.result.mode.text");
+    let node = h.get_by_role_and_label(Role::RadioButton, &text);
+    assert_eq!(node.accesskit_node().description(), None);
+}
+
+#[test]
+fn an_empty_array_of_values_says_so() {
+    let values = ShellResult::Values {
+        values: Vec::new(),
+        more: false,
+        total: 0,
+    };
+    let h = harness(with_result(values, OutputMode::Tree));
+    h.get_by_label(&t("shell.result.empty_values"));
+    assert!(h.query_by_label(&t("shell.result.values_title")).is_none());
+}
+
+#[test]
+fn a_long_key_leaves_the_value_in_view() {
+    let key = "k".repeat(1_000);
+    let docs = vec![doc! { key.as_str(): "v1" }];
+    let h = harness_sized(
+        with_result(cursor(docs, false), OutputMode::Tree),
+        SMALL,
+        false,
+    );
+    let value = h.get_by_label("v1").rect();
+    assert!(
+        value.right() <= SMALL.x,
+        "the value is pushed out: {value:?}"
+    );
+    let first = h.get_by_label("v1").rect().center().y;
+    let shown_key = h.get_by_label_contains("kkkk").rect();
+    assert!(
+        (shown_key.center().y - first).abs() < 1.0,
+        "the row wrapped"
+    );
+}
+
+#[test]
+fn a_new_run_viewed_as_text_drops_the_old_rows() {
+    let mut h = harness(with_result(cursor(people(), false), OutputMode::Table));
+    h.state_mut().shell = h.state().shell.mode_set(OutputMode::Tree);
+    h.run_steps(3);
+    assert!(cached_table(&h.ctx, SESSION).is_some());
+    assert!(cached_tree(&h.ctx, SESSION).is_some());
+    let (next, request) = h.state().shell.mode_set(OutputMode::Text).run_requested();
+    let run_id = request.expect("a second run").run_id;
+    h.state_mut().shell = next
+        .result_arrived(run_id, cursor(numbered(3), false))
+        .finished(run_id, Outcome::Exited(0));
+    h.run_steps(3);
+    assert!(
+        cached_table(&h.ctx, SESSION).is_none(),
+        "the table was kept"
+    );
+    assert!(cached_tree(&h.ctx, SESSION).is_none(), "the tree was kept");
 }
