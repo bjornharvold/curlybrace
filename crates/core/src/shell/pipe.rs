@@ -23,6 +23,10 @@ pub(super) enum Pace {
     MaybeWaiting,
     /// That was output after all: wait for the verdict as usual.
     NotWaiting,
+    /// Nothing more will be asked for: return (closing stdin). Sent when the stdout lane stops
+    /// pacing or ends, and by the supervisor once the run is over: a reader it gave up on (a
+    /// process outside the group holds stdout open) never ends, so it never sends this itself.
+    Close,
 }
 
 /// What the readers hand the supervisor, in order.
@@ -35,7 +39,8 @@ pub(super) enum Delivery {
 /// Writes the preamble, then the script a line at a time, each when `pace` asks for it: the first
 /// once the shell connected, every other when `mongosh` printed a continuation prompt (it is still
 /// reading the same statement). Returning closes stdin, and EOF ends `mongosh`. It returns on a
-/// write error (the child exited or never reads), and when `pace` closes: the shell evaluated
+/// write error (the child exited or never reads), and on `Pace::Close` (or the channel closing):
+/// the run is over, or the shell evaluated
 /// what it read before the end (a syntax error, or a `}` that closed the block early), did not
 /// connect, or its output ended. So the lines after an early evaluation are never sent; sent,
 /// `mongosh` would run them one by one.
@@ -49,7 +54,7 @@ pub(super) enum Delivery {
 /// guesses. The prompt is locked by the preamble, so a script cannot replace it; but a script
 /// that silences or replaces `process.stdout.write` (or otherwise stops `mongosh` printing)
 /// leaves no prompt after the block, and this wait then never resolves: the run is ended only
-/// by Cancel (which kills the group, so the stdout reader ends and the pace channel closes).
+/// by Cancel (which kills the group, so the stdout reader ends and sends `Pace::Close`).
 pub(super) fn write_input(mut stdin: ChildStdin, input: Input, pace: &Receiver<Pace>) {
     let Input {
         preamble,
@@ -92,7 +97,7 @@ fn await_verdict(pace: &Receiver<Pace>, grace: Duration) -> bool {
             Some(Pace::Epilogue) => return true,
             Some(Pace::MaybeWaiting) => deadline = Some(Instant::now() + grace),
             Some(Pace::NotWaiting) => deadline = None,
-            Some(Pace::Next) | None => return false,
+            Some(Pace::Next | Pace::Close) | None => return false,
         }
     }
 }
@@ -279,7 +284,7 @@ impl StdoutLane {
                     self.send_pace(Pace::Epilogue);
                 }
                 // No more lines, and no epilogue unless just asked for.
-                self.pace.take();
+                self.close_pace();
                 true
             }
             Piece::MaybeContinuation => {
@@ -297,14 +302,14 @@ impl StdoutLane {
             }
             Piece::Failed(message) => {
                 sink.control.mark_handshake_done();
-                self.pace.take();
+                self.close_pace();
                 let shown = sink.scrubber.mask(&format!("{message}\n"));
                 let _ = sink.text(Stream::Stderr, shown);
                 sink.control.stop(Stop::ConnectFailed);
                 false
             }
             Piece::NoSentinel(lines) => {
-                self.pace.take();
+                self.close_pace();
                 // They explain a shell that never connected; after a cancel they are noise.
                 if !lines.is_empty() && !sink.control.cancelled() {
                     let _ = sink.text(Stream::Stderr, sink.scrubber.mask(&lines));
@@ -335,6 +340,13 @@ impl StdoutLane {
 
     fn next_line(&self) {
         self.send_pace(Pace::Next);
+    }
+
+    /// Tells the writer no more will be asked for, and stops pacing.
+    fn close_pace(&mut self) {
+        if let Some(sender) = self.pace.take() {
+            let _ = sender.send(Pace::Close);
+        }
     }
 
     fn send_pace(&self, pace: Pace) {
@@ -369,6 +381,14 @@ impl StdoutLane {
         if !tail.is_empty() {
             let _ = sink.text(self.held_stream, tail);
         }
+    }
+}
+
+/// The lane ends with its reader (output over, or a panic): the writer must not wait on it. The
+/// supervisor holds a sender too, so the channel closing alone would not tell it.
+impl Drop for StdoutLane {
+    fn drop(&mut self) {
+        self.close_pace();
     }
 }
 

@@ -23,6 +23,7 @@
 //! | `exit <n>` | exits with status `n` |
 //! | `dump` | `arg:<a>` per argument, then `env` |
 //! | `spawn <pidfile>` | starts a background `sleep 30` and writes its pid to `<pidfile>` |
+//! | `detach <pidfile>` | like `spawn`, but the `sleep 30` runs in its own session (out of the group's reach) and keeps stdout open |
 //! | `hang` | `sleep 30` in the foreground |
 //! | `flood` | endless output (`yes flood`) |
 //! | `bytes <fmt>` | `printf <fmt>` (raw bytes, octal escapes; no spaces in `fmt`) |
@@ -174,6 +175,7 @@ run_line() {
     'exit '*) exit "${1#exit }" ;;
     dump) for a in "${ARGS[@]}"; do printf 'arg:%s\n' "$a"; done; env ;;
     'spawn '*) sleep 30 & echo $! > "${1#spawn }" ;;
+    'detach '*) perl -e 'use POSIX; POSIX::setsid(); exec @ARGV' sleep 30 & echo $! > "${1#detach }" ;;
     hang) sleep 30 ;;
     flood) yes flood ;;
     'bytes '*) printf "${1#bytes }" ;;

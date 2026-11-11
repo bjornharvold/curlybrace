@@ -403,6 +403,33 @@ fn cancel_kills_the_whole_group() {
     wait_until_gone(pid, "the background child survived");
 }
 
+/// Kills a process the group kill cannot reach (it is in its own session).
+struct KillOnDrop(i32);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        // SAFETY: a plain signal to a pid this test started.
+        unsafe { libc::kill(self.0, libc::SIGKILL) };
+    }
+}
+
+#[test]
+fn the_writer_ends_when_a_detached_process_keeps_stdout_open() {
+    // The shell exits after the last line without a verdict; something it started in its own
+    // session (out of the group kill's reach) keeps stdout open, so the stdout reader never ends
+    // and its pace sender is never dropped. The run still ends, and so does the writer.
+    let fake = repl();
+    let pid_file = fake.path("detached.pid");
+    let run = start(&fake, &format!("detach {}\nexit 0", pid_file.display()));
+    let _detached = KillOnDrop(read_pid(&pid_file));
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    let control = run.handle().control.as_ref().expect("a started run");
+    assert!(
+        control.wait_writer_done(LONG),
+        "the writer is still waiting"
+    );
+}
+
 #[test]
 fn second_cancel_and_cancel_after_exit_are_harmless() {
     let fake = repl();

@@ -5,7 +5,7 @@ use super::run::Outcome;
 use crate::tools::kill_group;
 use std::process::{Child, ExitStatus};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
 /// Bytes the answer window may hold beyond the answer itself.
 const WINDOW_SLACK: usize = 64 * 1024;
@@ -44,6 +44,9 @@ pub(super) struct Control {
     incomplete: AtomicBool,
     /// The stdout reader saw `__CB_READY__` or `__CB_FAILED__`.
     handshake_done: AtomicBool,
+    /// The stdin writer returned (stdin is closed); tests wait on it.
+    writer_done: Mutex<bool>,
+    writer_done_changed: Condvar,
 }
 
 impl Control {
@@ -61,7 +64,32 @@ impl Control {
             saw_uncaught: AtomicBool::new(false),
             incomplete: AtomicBool::new(false),
             handshake_done: AtomicBool::new(false),
+            writer_done: Mutex::new(false),
+            writer_done_changed: Condvar::new(),
         }
+    }
+
+    /// The stdin writer returned.
+    pub(super) fn mark_writer_done(&self) {
+        *self
+            .writer_done
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = true;
+        self.writer_done_changed.notify_all();
+    }
+
+    /// Waits up to `timeout` for the stdin writer to return; whether it did.
+    #[cfg(test)]
+    pub(super) fn wait_writer_done(&self, timeout: std::time::Duration) -> bool {
+        let done = self
+            .writer_done
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let (done, _) = self
+            .writer_done_changed
+            .wait_timeout_while(done, timeout, |done| !*done)
+            .unwrap_or_else(PoisonError::into_inner);
+        *done
     }
 
     fn state(&self) -> MutexGuard<'_, State> {

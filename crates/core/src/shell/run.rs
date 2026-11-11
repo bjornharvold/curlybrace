@@ -23,7 +23,7 @@
 use super::control::{Control, Stop};
 use super::decode::Utf8Decoder;
 use super::invocation::{RESULT_MAX_CHARS, epilogue};
-use super::pipe::{Delivery, Expect, Input, Lane, Reader, write_input};
+use super::pipe::{Delivery, Expect, Input, Lane, Pace, Reader, write_input};
 use super::{Invocation, Scrubber};
 use crate::tools::{absolute_entries, kill_group};
 use std::ffi::OsStr;
@@ -31,7 +31,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
@@ -127,7 +127,7 @@ impl ShellHandle {
     /// the shell has been reaped, and when called again. This is also the only way to end a run
     /// whose script silenced or replaced `process.stdout.write` (or otherwise stopped `mongosh`
     /// printing): no prompt comes after the block, so the writer waits for a verdict that never
-    /// comes; the kill ends the stdout reader, which closes the pace channel and ends the writer.
+    /// comes; the kill ends the stdout reader, which tells the writer to stop (`Pace::Close`).
     pub fn cancel(&self) {
         if let Some(control) = &self.control {
             control.stop(Stop::Cancelled);
@@ -213,7 +213,11 @@ pub fn spawn_shell(
         epilogue: format!("{}\n", epilogue(&result_token)).into_bytes(),
         grace: limits.continuation_grace,
     };
-    std::thread::spawn(move || write_input(stdin, input, &pace_rx));
+    let writer_control = Arc::clone(&control);
+    std::thread::spawn(move || {
+        write_input(stdin, input, &pace_rx);
+        writer_control.mark_writer_done();
+    });
     let reader = |lane| Reader {
         control: Arc::clone(&control),
         output: output_tx.clone(),
@@ -225,6 +229,7 @@ pub fn spawn_shell(
         token: &result_token,
         max_result_bytes: limits.max_result_bytes,
     };
+    let close_writer = pace_tx.clone();
     let stdout_lane = Lane::stdout(pace_tx, lines.saturating_sub(1), expect);
     let (out_reader, err_reader) = (reader(stdout_lane), reader(Lane::Stderr));
     std::thread::spawn(move || out_reader.run(stdout, chunk_bytes));
@@ -237,6 +242,7 @@ pub fn spawn_shell(
         on_result,
         result_delivered: false,
         panicked: false,
+        pace: Some(close_writer),
     };
     let timeout = limits.handshake_timeout;
     std::thread::spawn(move || supervisor.run(child, timeout, on_done));
@@ -254,6 +260,8 @@ struct Supervisor<F, R> {
     result_delivered: bool,
     /// A callback panicked: the run was stopped and later output is dropped.
     panicked: bool,
+    /// To tell the writer the run is over (see [`Pace::Close`]).
+    pace: Option<Sender<Pace>>,
 }
 
 impl<F: Fn(Stream, String), R: FnMut(String, bool)> Supervisor<F, R> {
@@ -286,6 +294,11 @@ impl<F: Fn(Stream, String), R: FnMut(String, bool)> Supervisor<F, R> {
             // that left the group is out of reach; its reader is abandoned.
             self.control.kill();
             self.forward(Instant::now() + DRAIN);
+        }
+        // The child has exited: nothing more is written. A reader given up on never ends, so
+        // the writer is told here (it may still be waiting for the verdict).
+        if let Some(pace) = self.pace.take() {
+            let _ = pace.send(Pace::Close);
         }
         let status = self.control.reap(&mut child);
         on_done(self.control.outcome(status));
