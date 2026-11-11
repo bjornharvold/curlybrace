@@ -478,3 +478,15 @@ fn the_tree_resets_for_a_new_result() {
     assert!(!state.result.tree.capped);
     assert_eq!(field_keys(&state.tree_rows()).len(), 6);
 }
+
+#[test]
+fn an_expansion_is_the_same_until_it_changes() {
+    let state = ready(people());
+    let clone = state.clone();
+    assert!(state.result.tree.is_same(&clone.result.tree));
+    let toggled = state.tree_toggled(1, path(&["addr"]));
+    assert!(!state.result.tree.is_same(&toggled.result.tree));
+    let back = toggled.tree_toggled(1, path(&["addr"]));
+    assert!(back.result.tree.is_empty(), "the same paths open");
+    assert!(!back.result.tree.is_same(&state.result.tree), "a new value");
+}

@@ -3,11 +3,12 @@
 //! window. Measured from the accesskit bounds of the editor and the output region. Fast, offline,
 //! no GPU.
 use curlybrace_core::history::{ShellHistoryEntry, ShellRunStatus};
-use curlybrace_core::shell::Stream;
+use curlybrace_core::shell::{DocKind, ShellResult, Stream};
 use curlybrace_ui::I18n;
 use curlybrace_ui::theme;
 use curlybrace_ui::viewmodel::ConnectionBadge;
 use curlybrace_ui::viewmodel::shell::ShellState;
+use curlybrace_ui::viewmodel::shell_result::OutputMode;
 use curlybrace_ui::views::shell::{ShellViewContext, show_shell};
 use eframe::egui;
 use eframe::egui::accesskit::Role;
@@ -92,7 +93,11 @@ struct Layout {
 }
 
 fn measured(size: egui::Vec2, open: bool) -> Layout {
-    let h = harness(size, shell(open));
+    measured_shell(size, shell(open))
+}
+
+fn measured_shell(size: egui::Vec2, shell: ShellState) -> Layout {
+    let h = harness(size, shell);
     let editor_label = t("shell.editor_label");
     let (editor_top, editor) = span(&h, Role::MultilineTextInput, &editor_label, size.y);
     let (_, output) = span(&h, Role::Region, &t("shell.output.region"), size.y);
@@ -133,3 +138,33 @@ fn with_the_panel_closed_the_editor_takes_its_usual_share() {
 
 /// The harness's bottom margin (points).
 const PANEL_MARGIN: f32 = 8.0;
+
+/// The run of [`shell`] returned a full table (200 documents of 40 fields), shown in `mode`. It is
+/// still running, as in [`shell`], so no notice adds to the chrome.
+fn with_table(open: bool, mode: OutputMode) -> ShellState {
+    let docs = (0..200)
+        .map(|i| {
+            (0..40)
+                .map(|f| (format!("field_{f}"), bson::Bson::Int32(i * f)))
+                .collect()
+        })
+        .collect();
+    let result = ShellResult::Documents {
+        kind: DocKind::Array,
+        docs,
+        more: true,
+        total: Some(1000),
+    };
+    shell(open).result_arrived(1, result).mode_set(mode)
+}
+
+#[test]
+fn the_output_pane_keeps_its_minimum_height_with_the_history_panel_open_and_the_mode_switch() {
+    for mode in [OutputMode::Text, OutputMode::Table, OutputMode::Tree] {
+        for size in [SMALL, COMMON] {
+            let l = measured_shell(size, with_table(true, mode));
+            assert!(l.output >= OUTPUT_MIN, "{mode:?} {size:?}: {l:?}");
+            assert!(l.editor >= EDITOR_USABLE, "{mode:?} {size:?}: {l:?}");
+        }
+    }
+}

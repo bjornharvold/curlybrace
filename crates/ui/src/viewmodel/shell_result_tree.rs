@@ -46,6 +46,12 @@ impl TreeExpansion {
         self.len() == 0
     }
 
+    /// The same expansion value (not just equal paths): every change makes a new one, so a view
+    /// cache keyed on it holds one clone and compares in O(1).
+    pub fn is_same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.open, &other.open) && self.capped == other.capped
+    }
+
     fn toggled(&self, doc_index: usize, path: Vec<String>) -> Self {
         let mut open = (*self.open).clone();
         let paths = open.entry(doc_index).or_default();

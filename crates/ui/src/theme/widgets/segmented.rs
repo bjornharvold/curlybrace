@@ -31,6 +31,18 @@ pub fn segmented_where<T: PartialEq + Copy>(
     selected: T,
     enabled: impl Fn(&T) -> bool,
 ) -> Option<T> {
+    segmented_hinted(ui, items, selected, enabled, |_| None)
+}
+
+/// [`segmented_where`] where an option may carry a hover text (`hint`), shown whether the option
+/// is enabled or not: a disabled option can say why it is off.
+pub fn segmented_hinted<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    items: &[(T, String)],
+    selected: T,
+    enabled: impl Fn(&T) -> bool,
+    hint: impl Fn(&T) -> Option<String>,
+) -> Option<T> {
     if items.is_empty() {
         return None;
     }
@@ -71,6 +83,12 @@ pub fn segmented_where<T: PartialEq + Copy>(
             response.on_hover_text(label)
         } else {
             response
+        };
+        let response = match hint(value) {
+            Some(text) => response
+                .on_hover_text(text.as_str())
+                .on_disabled_hover_text(text),
+            None => response,
         };
         let corners = item_corners(i, items.len());
         let look = Look::of(ui, &response);

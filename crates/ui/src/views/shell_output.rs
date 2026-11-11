@@ -1,13 +1,18 @@
-//! The Shell tab's output pane: a named region of virtualised, selectable monospace lines.
+//! The Shell tab's output pane: a named region with the `Text | Table | Tree` switch on its
+//! heading row, then the run's text as virtualised, selectable monospace lines (or its value as a
+//! table or a tree, see `shell_result`).
 //! Stderr is drawn in the error color AND marked in words, so color is never the only signal:
 //! sighted readers see a painted marker in front of the line, and a screen reader hears the
 //! line's name, which says it is error output (the painted marker is not a node, so the cue is
 //! spoken once). While a run is going
 //! the pane follows the newest line unless the user scrolled away from the bottom.
 use super::metrics::{fixed_row_sized, row_height};
+use super::shell_result::{show_mode_switch, show_result};
 use crate::I18n;
+use crate::app::shell_actions::ShellAction;
 use crate::theme::current_ui;
 use crate::viewmodel::shell::{OutputLine, ShellState};
+use crate::viewmodel::shell_result::OutputMode;
 use curlybrace_core::shell::Stream;
 use eframe::egui::{self, accesskit};
 use std::sync::Arc;
@@ -23,9 +28,16 @@ fn scroll_salt(session: Uuid) -> (&'static str, Uuid) {
     (SCROLL_ID, session)
 }
 
-/// The output heading, the dropped-lines note and the lines (or what to expect when there are
-/// none yet) of `session`, all inside one region named for assistive technology.
-pub(crate) fn show_output(ui: &mut egui::Ui, state: &ShellState, session: Uuid, i18n: &I18n) {
+/// The output heading with the mode switch, then in Text mode the dropped-lines note and the
+/// lines (or what to expect when there are none yet) of `session`, else the Table or Tree; all
+/// inside one region named for assistive technology. The switch shares the heading's row, so it
+/// adds no height to the tab's chrome.
+pub(crate) fn show_output(
+    ui: &mut egui::Ui,
+    state: &ShellState,
+    session: Uuid,
+    i18n: &I18n,
+) -> Option<ShellAction> {
     let ctx = ui.ctx().clone();
     let region = egui::Id::new(REGION_ID);
     let name = i18n.t("shell.output.region");
@@ -33,25 +45,25 @@ pub(crate) fn show_output(ui: &mut egui::Ui, state: &ShellState, session: Uuid, 
         node.set_role(accesskit::Role::Region);
         node.set_label(name);
     });
-    let rect = ctx.with_accessibility_parent(region, || {
-        ui.scope(|ui| {
-            ui.strong(i18n.t("shell.output.title"));
-            if state.dropped_lines > 0 {
-                let count = state.dropped_lines.to_string();
-                let key = match state.dropped_lines {
-                    1 => "shell.output.dropped_one",
-                    _ => "shell.output.dropped_other",
-                };
-                ui.label(i18n.t_with(key, &[("count", &count)]));
-            }
-            if state.line_count() == 0 {
-                ui.label(i18n.t(empty_key(state)));
-            } else {
-                show_lines(ui, state, session, i18n);
-            }
-        })
-        .response
-        .rect
+    let (rect, action) = ctx.with_accessibility_parent(region, || {
+        let scope = ui.scope(|ui| {
+            let switched = ui
+                .horizontal_wrapped(|ui| {
+                    ui.strong(i18n.t("shell.output.title"));
+                    ui.add_space(ui.spacing().item_spacing.x * 2.0);
+                    show_mode_switch(ui, state, i18n)
+                })
+                .inner;
+            let shown = match state.mode {
+                OutputMode::Text => {
+                    show_text(ui, state, session, i18n);
+                    None
+                }
+                OutputMode::Table | OutputMode::Tree => show_result(ui, state, session, i18n),
+            };
+            switched.or(shown)
+        });
+        (scope.response.rect, scope.inner)
     });
     ctx.accesskit_node_builder(region, |node| {
         node.set_bounds(accesskit::Rect {
@@ -61,6 +73,24 @@ pub(crate) fn show_output(ui: &mut egui::Ui, state: &ShellState, session: Uuid, 
             y1: rect.max.y.into(),
         });
     });
+    action
+}
+
+/// The Text mode: the dropped-lines note and the lines, or what to expect when there are none.
+fn show_text(ui: &mut egui::Ui, state: &ShellState, session: Uuid, i18n: &I18n) {
+    if state.dropped_lines > 0 {
+        let count = state.dropped_lines.to_string();
+        let key = match state.dropped_lines {
+            1 => "shell.output.dropped_one",
+            _ => "shell.output.dropped_other",
+        };
+        ui.label(i18n.t_with(key, &[("count", &count)]));
+    }
+    if state.line_count() == 0 {
+        ui.label(i18n.t(empty_key(state)));
+    } else {
+        show_lines(ui, state, session, i18n);
+    }
 }
 
 fn empty_key(state: &ShellState) -> &'static str {

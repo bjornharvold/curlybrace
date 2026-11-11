@@ -1,6 +1,7 @@
 //! The Shell tab: the connection it runs on and why it may not run, the Run / Cancel / Format
 //! toolbar (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`), the script editor, the notice of the
-//! last run, the History panel and the output pane. It only draws and reports; every decision is the reducer's.
+//! last run, the History panel and the output pane (with its `Text | Table | Tree` switch). It
+//! only draws and reports; every decision is the reducer's.
 //!
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.
@@ -117,7 +118,7 @@ pub fn show_shell(
         remember_chrome(ui, ctx.session, used - editor_used - panel.list_height);
     }
     let history = panel.action;
-    show_output(ui, state, ctx.session, i18n);
+    let output = show_output(ui, state, ctx.session, i18n);
     let script = match &edited {
         Some(ShellAction::Edit { script, .. }) => script.as_str(),
         _ => state.script.as_str(),
@@ -127,6 +128,7 @@ pub fn show_shell(
         .into_iter()
         .chain(shortcut.or(clicked))
         .chain(history)
+        .chain(output)
         .map(ShellViewEvent::Action)
         .chain(notice)
         .collect()

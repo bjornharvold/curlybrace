@@ -1343,6 +1343,37 @@
     },
     "production_note": "Production connection: every run asks you to confirm first.",
     "read_only_note": "This connection is read-only. The shell cannot run scripts on it, because it cannot tell a read from a write.",
+    "result": {
+      "collapse_all": "Collapse all",
+      "collapsed": "collapsed",
+      "cut": "…",
+      "cut_hover": "… (the rest of the value is not shown)",
+      "empty": "No documents.",
+      "expand_all": "Expand all",
+      "expand_capped": "Some fields stay closed: there were too many to open at once.",
+      "expanded": "expanded",
+      "mode": {
+        "table": "Table",
+        "text": "Text",
+        "tree": "Tree"
+      },
+      "mode_label": "Show as",
+      "more_columns": "Columns not shown, to keep the table readable: {count}.",
+      "more_in_cursor": "The first documents of the cursor are shown ({count}); it has more.",
+      "row_count": "Rows: {count}",
+      "row_toggle": "{key}, {state}",
+      "show_text": "Show text",
+      "showing_of": "Showing {shown} of {total}.",
+      "unavailable": {
+        "no_value": "There is no value to show: the last run returned none.",
+        "not_documents": "The result is not a list of documents.",
+        "pending": "Waiting for the run to finish.",
+        "run_failed": "The run did not finish cleanly, so it has no value to show.",
+        "too_big": "The result is too large for the table view ({size}).",
+        "unsupported": "This kind of value cannot be shown as a table or a tree."
+      },
+      "values_title": "Values"
+    },
     "run": "Run",
     "run_disabled_empty": "Type a script to run.",
     "run_disabled_not_connected": "Connect to run the script.",
