@@ -2,13 +2,16 @@
 //! and Format are buttons whose enabled state follows the run, stderr is announced in words,
 //! every notice is text, a tool problem offers the Tool paths dialog, and Run and Format work
 //! from the keyboard alone. Fast, offline, no GPU.
+use curlybrace_core::history::{ShellHistoryEntry, ShellRunStatus};
 use curlybrace_core::runtime::ShellRefusal;
 use curlybrace_core::shell::{Outcome, ShellError, Stream};
 use curlybrace_core::tools::{ServerVersion, ToolError, ToolVersion};
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::shell_actions::ShellAction;
 use curlybrace_ui::viewmodel::ConnectionBadge;
+use curlybrace_ui::viewmodel::index_detail::Age;
 use curlybrace_ui::viewmodel::shell::{ShellNotice, ShellState, ToolProblem};
+use curlybrace_ui::viewmodel::shell_history::first_line;
 use curlybrace_ui::views::shell::{ShellViewContext, ShellViewEvent, show_shell};
 use eframe::egui;
 use eframe::egui::accesskit::Role;
@@ -18,6 +21,8 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use uuid::Uuid;
 
 const SESSION: Uuid = Uuid::from_u128(7);
+/// The frame's wall-clock time (Unix seconds).
+const NOW: i64 = 1_700_000_000;
 
 fn t(key: &str) -> String {
     I18n::english().t(key)
@@ -84,11 +89,12 @@ fn harness(frame: Frame) -> Harness<'static, Frame> {
                     connection: "local",
                     badge: frame.badge,
                     connected: frame.connected,
+                    now_secs: NOW,
                 };
                 let events = show_shell(ui, &frame.shell, ctx, &i18n);
                 for event in &events {
-                    if let ShellViewEvent::Action(ShellAction::Edit { script, selection }) = event {
-                        frame.shell = frame.shell.edited(script.clone(), selection.clone());
+                    if let ShellViewEvent::Action(action) = event {
+                        frame.shell = applied(&frame.shell, action);
                     }
                 }
                 if !events.is_empty() {
@@ -100,6 +106,20 @@ fn harness(frame: Frame) -> Harness<'static, Frame> {
         );
     harness.run_steps(3);
     harness
+}
+
+/// What the reducer does to the shell for the actions that change only the shell itself (a run
+/// or a clear also sends a command, which this harness has no runtime for).
+fn applied(shell: &ShellState, action: &ShellAction) -> ShellState {
+    match action {
+        ShellAction::Edit { script, selection } => shell.edited(script.clone(), selection.clone()),
+        ShellAction::ToggleHistory => shell.history_toggled(),
+        ShellAction::RecallEntry(id) => shell.history_entry_recalled(*id),
+        ShellAction::ClearHistory => shell.clear_requested(),
+        ShellAction::CancelClear => shell.clear_cancelled(),
+        ShellAction::ConfirmClear => shell.clear_confirmed().0,
+        _ => shell.clone(),
+    }
 }
 
 fn script(text: &str) -> ShellState {
@@ -436,4 +456,185 @@ fn the_run_shortcut_does_nothing_while_run_is_disabled() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
     h.run_steps(2);
     assert!(!h.state().actions().contains(&ShellAction::Run));
+}
+
+// --- The History panel ---
+
+fn entry(id: i64, ago_secs: i64, script: &str, status: ShellRunStatus) -> ShellHistoryEntry {
+    ShellHistoryEntry {
+        id,
+        ran_at_secs: NOW - ago_secs,
+        script: script.to_string(),
+        status,
+    }
+}
+
+/// A shell whose history answered with `entries`, with its panel open.
+fn open_history(entries: Vec<ShellHistoryEntry>) -> ShellState {
+    script("db.a.find()")
+        .history_loaded(entries)
+        .history_toggled()
+}
+
+fn status_key(status: ShellRunStatus) -> &'static str {
+    match status {
+        ShellRunStatus::Succeeded => "shell.history.status.succeeded",
+        ShellRunStatus::ScriptErrors => "shell.history.status.script_errors",
+        ShellRunStatus::Incomplete => "shell.history.status.incomplete",
+        ShellRunStatus::Cancelled => "shell.history.status.cancelled",
+        ShellRunStatus::CapReached => "shell.history.status.cap_reached",
+        ShellRunStatus::Failed => "shell.history.status.failed",
+    }
+}
+
+/// The accessible name of `entry`'s row: its status, when it ran and its first line.
+fn row_label(entry: &ShellHistoryEntry) -> String {
+    let age = Age::of(NOW - entry.ran_at_secs);
+    let time = tw(age.key(), &[("n", &age.count().to_string())]);
+    tw(
+        "shell.history.row_label",
+        &[
+            ("status", &t(status_key(entry.status))),
+            ("time", &time),
+            ("script", &first_line(&entry.script, 80)),
+        ],
+    )
+}
+
+fn expanded(h: &Harness<'static, Frame>, label: &str) -> Option<bool> {
+    h.get_by_role_and_label(Role::Button, label)
+        .accesskit_node()
+        .data()
+        .is_expanded()
+}
+
+fn has_button(h: &Harness<'static, Frame>, label: &str) -> bool {
+    h.query_by_role_and_label(Role::Button, label).is_some()
+}
+
+fn click(h: &mut Harness<'static, Frame>, label: &str) {
+    h.get_by_role_and_label(Role::Button, label).click();
+    h.run_steps(2);
+}
+
+#[test]
+fn the_history_toggle_is_a_labelled_button() {
+    let mut h = harness(Frame::new(script("db.a.find()").history_loaded(Vec::new())));
+    assert_eq!(expanded(&h, &t("shell.history.toggle_open")), Some(false));
+    assert!(h.query_by_label(&t("shell.history.empty")).is_none());
+    // Drawing frames alone emits nothing.
+    assert!(h.state().actions().is_empty(), "{:?}", h.state().events);
+
+    click(&mut h, &t("shell.history.toggle_open"));
+    assert_eq!(h.state().actions(), vec![ShellAction::ToggleHistory]);
+    assert_eq!(expanded(&h, &t("shell.history.toggle_close")), Some(true));
+    h.get_by_label(&t("shell.history.empty"));
+}
+
+#[test]
+fn each_history_row_is_a_labelled_button_with_its_status() {
+    let statuses = [
+        ShellRunStatus::Succeeded,
+        ShellRunStatus::ScriptErrors,
+        ShellRunStatus::Incomplete,
+        ShellRunStatus::Cancelled,
+        ShellRunStatus::CapReached,
+        ShellRunStatus::Failed,
+    ];
+    // The list is virtualised, so each status gets a list of its own next to an older run.
+    for (i, status) in (0_i64..).zip(statuses) {
+        let run = entry(10 + i, 30 + i * 4_000, &format!("db.c{i}.find()"), status);
+        let older = entry(1, 90_000, "db.old.find()", ShellRunStatus::Succeeded);
+        let h = harness(Frame::new(open_history(vec![run.clone(), older.clone()])));
+        for row in [&run, &older] {
+            let label = row_label(row);
+            let node = h.get_by_role_and_label(Role::Button, &label);
+            let name = node.accesskit_node().label().unwrap_or_default();
+            assert!(name.contains(&t(status_key(row.status))), "{name}");
+        }
+        h.get_by_label(&t("shell.history.plaintext_note"));
+        assert!(h.state().actions().is_empty(), "{:?}", h.state().events);
+    }
+}
+
+#[test]
+fn the_unavailable_and_empty_states_are_announced() {
+    let cases = [
+        (
+            ShellState::default().history_toggled(),
+            "shell.history.loading",
+        ),
+        (
+            ShellState::default()
+                .history_unavailable()
+                .history_toggled(),
+            "shell.history.unavailable",
+        ),
+        (open_history(Vec::new()), "shell.history.empty"),
+    ];
+    for (shell, key) in cases {
+        let h = harness(Frame::new(shell));
+        h.get_by_label(&t(key));
+        assert!(!has_button(&h, &t("shell.history.clear")), "{key}");
+    }
+}
+
+#[test]
+fn clear_history_asks_before_it_clears() {
+    let first = entry(1, 120, "db.a.find()", ShellRunStatus::Succeeded);
+    let mut h = harness(Frame::new(open_history(vec![first.clone()])));
+    click(&mut h, &t("shell.history.clear"));
+    assert_eq!(h.state().actions(), vec![ShellAction::ClearHistory]);
+    h.get_by_label(&t("shell.history.clear_confirm"));
+    h.get_by_role_and_label(Role::Button, &t("shell.history.clear_confirm_yes"));
+    // Nothing is cleared yet.
+    h.get_by_role_and_label(Role::Button, &row_label(&first));
+    assert!(!has_button(&h, &t("shell.history.clear")));
+
+    click(&mut h, &t("shell.history.clear_cancel"));
+    assert!(h.state().actions().ends_with(&[ShellAction::CancelClear]));
+    assert!(
+        h.query_by_label(&t("shell.history.clear_confirm"))
+            .is_none()
+    );
+    assert!(!h.state().actions().contains(&ShellAction::ConfirmClear));
+
+    click(&mut h, &t("shell.history.clear"));
+    click(&mut h, &t("shell.history.clear_confirm_yes"));
+    assert!(h.state().actions().ends_with(&[ShellAction::ConfirmClear]));
+}
+
+#[test]
+fn clicking_a_row_emits_recall() {
+    let older = entry(3, 7_200, "db.old.find()", ShellRunStatus::Failed);
+    let newer = entry(4, 10, "db.new.find()", ShellRunStatus::Succeeded);
+    let mut h = harness(Frame::new(open_history(vec![newer, older.clone()])));
+    click(&mut h, &row_label(&older));
+    assert_eq!(h.state().actions(), vec![ShellAction::RecallEntry(3)]);
+    assert_eq!(h.state().shell.script, "db.old.find()");
+}
+
+#[test]
+fn a_history_row_is_recalled_from_the_keyboard() {
+    let only = entry(5, 10, "db.k.find()", ShellRunStatus::Cancelled);
+    let mut h = harness(Frame::new(open_history(vec![only.clone()])));
+    focus(&mut h, Role::Button, &row_label(&only));
+    press(&mut h, (Modifiers::NONE, Key::Enter));
+    assert_eq!(h.state().actions(), vec![ShellAction::RecallEntry(5)]);
+}
+
+#[test]
+fn a_huge_multi_line_script_is_one_bounded_row() {
+    let huge = format!("{}\n{}", "x".repeat(20_000), "db.more()\n".repeat(2_000));
+    let big = entry(8, 60, &huge, ShellRunStatus::CapReached);
+    let small = entry(7, 90, "db.s.find()", ShellRunStatus::Succeeded);
+    let h = harness(Frame::new(open_history(vec![big.clone(), small.clone()])));
+    let label = row_label(&big);
+    assert!(label.chars().count() < 200, "{label}");
+    let big_rect = h.get_by_role_and_label(Role::Button, &label).rect();
+    let small_rect = h
+        .get_by_role_and_label(Role::Button, &row_label(&small))
+        .rect();
+    assert_eq!(big_rect.height(), small_rect.height());
+    assert!(big_rect.width() <= 900.0, "{big_rect:?}");
 }

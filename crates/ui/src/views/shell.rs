@@ -1,11 +1,12 @@
 //! The Shell tab: the connection it runs on and why it may not run, the Run / Cancel / Format
 //! toolbar (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`), the script editor, the notice of the
-//! last run and the output pane. It only draws and reports; every decision is the reducer's.
+//! last run, the History panel and the output pane. It only draws and reports; every decision is the reducer's.
 //!
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.
 use super::documents::show_connection_header;
 use super::shell_editor::{editor_id, show_editor};
+use super::shell_history::show_history;
 use super::shell_notice::{notice_text, offers_tool_paths};
 use super::shell_output::show_output;
 use super::tone_notice::tone_notice;
@@ -39,6 +40,9 @@ pub struct ShellViewContext<'a> {
     pub badge: ConnectionBadge,
     /// Whether the session is connected right now.
     pub connected: bool,
+    /// The frame's wall-clock time (Unix seconds), read once by the caller; history rows say
+    /// how long ago they ran against it.
+    pub now_secs: i64,
 }
 
 /// What the user asked for: a shell action, or the Tool paths dialog (offered when `mongosh`
@@ -100,6 +104,7 @@ pub fn show_shell(
         .notice
         .as_ref()
         .and_then(|notice| show_notice(ui, notice, i18n));
+    let history = show_history(ui, &state.history, ctx.session, ctx.now_secs, i18n);
     ui.separator();
     show_output(ui, state, ctx.session, i18n);
     let script = match &edited {
@@ -110,6 +115,7 @@ pub fn show_shell(
     edited
         .into_iter()
         .chain(shortcut.or(clicked))
+        .chain(history)
         .map(ShellViewEvent::Action)
         .chain(notice)
         .collect()
