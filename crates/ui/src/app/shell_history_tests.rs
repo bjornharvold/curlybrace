@@ -228,20 +228,53 @@ fn toggling_the_panel_resets_a_pending_clear_confirmation() {
 }
 
 #[test]
-fn a_failed_history_read_or_clear_marks_it_unavailable_without_a_banner() {
-    for context in ["shell_history", "clear_shell_history"] {
-        let (s, id) = with_history();
-        let failed = Event::Failed {
-            session: id,
-            context,
-            error: CoreError::Unsupported("history".into()),
-        };
-        let (s, commands) = event(s, failed);
-        assert!(commands.is_empty(), "{context}");
-        assert!(s.banner.is_none(), "{context}: {:?}", s.banner);
-        let h = &shell_of(&s, id).history;
-        assert!(h.loaded && !h.available, "{context}");
-        assert!(h.entries.is_empty(), "{context}");
+fn a_failed_history_read_marks_it_unavailable_without_a_banner() {
+    let (s, id) = with_history();
+    let failed = Event::Failed {
+        session: id,
+        context: "shell_history",
+        error: CoreError::Unsupported("history".into()),
+    };
+    let (s, commands) = event(s, failed);
+    assert!(commands.is_empty());
+    assert!(s.banner.is_none(), "{:?}", s.banner);
+    let h = &shell_of(&s, id).history;
+    assert!(h.loaded && !h.available);
+    assert!(h.entries.is_empty());
+    assert!(!h.clear_failed);
+}
+
+/// A clear that failed says nothing about whether the history can be read: the list and its
+/// availability stay, the confirm step is over, and the panel says the clear failed.
+#[test]
+fn a_failed_clear_keeps_the_list_and_says_so_without_a_banner() {
+    let (s, id) = with_history();
+    let (s, _) = shell(s, ShellAction::ClearHistory);
+    let (s, confirmed) = shell(s, ShellAction::ConfirmClear);
+    assert_eq!(clears(&confirmed, id), 1);
+    let (s, commands) = event(s, clear_failed(id));
+    assert!(commands.is_empty(), "{commands:?}");
+    assert!(s.banner.is_none(), "{:?}", s.banner);
+    let h = &shell_of(&s, id).history;
+    assert!(h.loaded && h.available);
+    assert_eq!(h.entries.len(), 2);
+    assert!(!h.confirm_clear && h.clear_failed);
+
+    // Trying again hides the line; so does a list that arrives.
+    let (s, _) = shell(s, ShellAction::ClearHistory);
+    assert!(!shell_of(&s, id).history.clear_failed);
+    let (s, _) = shell(s, ShellAction::ConfirmClear);
+    let (s, _) = event(s, clear_failed(id));
+    assert!(shell_of(&s, id).history.clear_failed);
+    let (s, _) = event(s, history(id, vec![entry(1, "db.a.find()")]));
+    assert!(!shell_of(&s, id).history.clear_failed);
+}
+
+fn clear_failed(id: Uuid) -> Event {
+    Event::Failed {
+        session: id,
+        context: "clear_shell_history",
+        error: CoreError::Database("disk I/O error".into()),
     }
 }
 

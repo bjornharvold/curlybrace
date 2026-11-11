@@ -148,6 +148,10 @@ fn list_section(
         false => rows(ui, entries, place, i18n),
     };
     ui.label(egui::RichText::new(i18n.t("shell.history.plaintext_note")).small());
+    if history.clear_failed {
+        let text = i18n.t("shell.history.clear_failed");
+        tone_notice(ui, Tone::Bad, &text, false);
+    }
     let cleared = match !entries.is_empty() && history.confirm_clear {
         true => confirm_controls(ui, i18n),
         false => None,

@@ -158,11 +158,11 @@ fn on_event(state: AppState, ev: Event) -> Out {
         // and whether the session is connected does not matter.
         (
             Event::Failed {
-                context: "shell_history" | "clear_shell_history",
+                context: context @ ("shell_history" | "clear_shell_history"),
                 ..
             },
             Some(session),
-        ) => shell_actions::history_failed(state, session),
+        ) => shell_actions::history_failed(state, session, context),
         (ev, Some(session)) => {
             // Inside `with_session` the active session is the event's own, so whether the person
             // is looking at it must be read before.

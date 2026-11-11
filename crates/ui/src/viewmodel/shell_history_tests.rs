@@ -152,3 +152,26 @@ fn first_line_handles_crlf_line_ends() {
     );
     assert_eq!(first_line("abc\r\ndef", 3), "abc");
 }
+
+// ---- A failed clear ----
+
+#[test]
+fn a_failed_clear_keeps_the_list_and_says_so() {
+    let asked = loaded().history_toggled().clear_requested();
+    let failed = asked.history_clear_failed();
+    let h = &failed.history;
+    assert!(h.loaded && h.available && h.open, "{h:?}");
+    assert_eq!(h.entries.len(), 2, "the runs are still there");
+    assert!(!h.confirm_clear);
+    assert!(h.clear_failed);
+}
+
+#[test]
+fn the_failed_clear_line_goes_with_a_list_a_toggle_or_a_new_clear() {
+    let failed = loaded().clear_requested().history_clear_failed();
+    assert!(!failed.history_loaded(vec![]).history.clear_failed);
+    assert!(!failed.history_toggled().history.clear_failed);
+    assert!(!failed.clear_requested().history.clear_failed);
+    // Cancelling a confirmation that is not pending does not hide it.
+    assert!(failed.clear_cancelled().history.clear_failed);
+}

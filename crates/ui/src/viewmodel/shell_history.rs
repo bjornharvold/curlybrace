@@ -1,5 +1,5 @@
 //! History panel state of the Shell tab: the remembered runs of the connection, and the panel's
-//! open and confirm-clear flags. Pure and egui-free; every updater returns a new value.
+//! open, confirm-clear and clear-failed flags. Pure and egui-free; every updater returns a new value.
 //! No user-facing strings.
 use super::shell::ShellState;
 pub use curlybrace_core::history::ShellHistoryEntry;
@@ -18,6 +18,9 @@ pub struct HistoryView {
     pub entries: Arc<Vec<ShellHistoryEntry>>,
     /// The "clear history" button was pressed and awaits confirmation.
     pub confirm_clear: bool,
+    /// The last confirmed clear failed; the list shown is still the stored one. Cleared by the
+    /// next list from the core, by opening or closing the panel and by a new "clear history".
+    pub clear_failed: bool,
 }
 
 impl ShellState {
@@ -33,6 +36,17 @@ impl ShellState {
             loaded: true,
             available: true,
             entries: Arc::new(entries),
+            clear_failed: false,
+            ..self.history.clone()
+        })
+    }
+
+    /// A confirmed clear failed: the list and its availability stay (the history can still be
+    /// read), the confirm step is over, and the panel says the clear did not happen.
+    pub fn history_clear_failed(&self) -> Self {
+        self.with_history(HistoryView {
+            confirm_clear: false,
+            clear_failed: true,
             ..self.history.clone()
         })
     }
@@ -52,6 +66,7 @@ impl ShellState {
         self.with_history(HistoryView {
             open: !self.history.open,
             confirm_clear: false,
+            clear_failed: false,
             ..self.history.clone()
         })
     }
@@ -65,8 +80,13 @@ impl ShellState {
         }
     }
 
+    /// Asks for the confirmation; a failed clear's line goes, as this is the next try.
     pub fn clear_requested(&self) -> Self {
-        self.with_confirm_clear(true)
+        self.with_history(HistoryView {
+            confirm_clear: true,
+            clear_failed: false,
+            ..self.history.clone()
+        })
     }
 
     pub fn clear_cancelled(&self) -> Self {

@@ -82,16 +82,19 @@ fn confirm_clear(state: AppState, id: Uuid) -> Out {
     (state.with_shell(id, shell), commands)
 }
 
-/// A failed read or clear of the history of `session`: the panel says history is unavailable.
-/// No banner: history is optional, and its store failing says nothing about the connection.
-pub(super) fn history_failed(state: AppState, session: Uuid) -> Out {
-    match state.shell.get(session) {
-        Some(shell) => {
-            let next = shell.history_unavailable();
-            unchanged(state.with_shell(session, next))
-        }
-        None => unchanged(state),
-    }
+/// A failed read (`shell_history`) or clear (`clear_shell_history`) of the history of
+/// `session`. A failed read means history is unavailable; a failed clear keeps the list (it can
+/// still be read) and the panel says the clear did not happen. No banner either way: history is
+/// optional, and its store failing says nothing about the connection.
+pub(super) fn history_failed(state: AppState, session: Uuid, context: &str) -> Out {
+    let Some(shell) = state.shell.get(session) else {
+        return unchanged(state);
+    };
+    let next = match context {
+        "clear_shell_history" => shell.history_clear_failed(),
+        _ => shell.history_unavailable(),
+    };
+    unchanged(state.with_shell(session, next))
 }
 
 /// A shell event of the open session `session`; the view-model ignores the ones of a run it no

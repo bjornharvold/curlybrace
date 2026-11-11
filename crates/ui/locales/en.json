@@ -1287,6 +1287,7 @@
       "clear_cancel": "Keep history",
       "clear_confirm": "Clear every remembered script of this connection? This cannot be undone.",
       "clear_confirm_yes": "Yes, clear history",
+      "clear_failed": "Could not clear the history. Try again.",
       "empty": "No scripts have run on this connection yet.",
       "loading": "Loading history…",
       "plaintext_note": "Scripts are stored on this computer exactly as written, including anything typed or pasted into them, such as a password. Their output is never stored.",
