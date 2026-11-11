@@ -372,3 +372,157 @@ async fn a_script_that_silences_stdout_is_ended_only_by_cancel() {
         }
     }
 }
+
+/// Every event of each script, run one after another on one local session.
+async fn runs_on_local(test: &str, scripts: &[String]) -> Option<Vec<Vec<Event>>> {
+    if !local_enabled(test) {
+        return None;
+    }
+    let exe = mongosh(test)?;
+    let (mut h, id) = local_session().await;
+    let mut all = Vec::new();
+    for script in scripts {
+        all.push(run_script(&mut h, id, exe.clone(), script).await);
+    }
+    Some(all)
+}
+
+fn is_two(result: Option<&ShellResult>) -> bool {
+    matches!(
+        result,
+        Some(ShellResult::Scalar {
+            value: Bson::Int32(2),
+            ..
+        })
+    )
+}
+
+/// The preamble locks `prompt` and `__cbEmit`: a plain, `globalThis.`, bracketed or `var`
+/// assignment is ignored (the run ends cleanly and still gets its result); a redefinition through
+/// `Object.defineProperty`, `Object.assign` or a function declaration is an `Uncaught` error
+/// (no result), and the run still ends by itself.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn prompt_and_the_emitter_are_locked() {
+    let test = "prompt_and_the_emitter_are_locked";
+    let ignored = |name: &str| {
+        let bracketed = format!("{}\" + \"{}", &name[..3], &name[3..]);
+        [
+            format!("{name} = () => \"x> \""),
+            format!("globalThis.{name} = () => \"x> \""),
+            format!("globalThis[\"{bracketed}\"] = () => \"x> \""),
+            format!("var {name} = 1"),
+        ]
+    };
+    let refused = |name: &str| {
+        [
+            format!("Object.defineProperty(globalThis, \"{name}\", {{value: () => \"x> \"}})"),
+            format!("Object.assign(globalThis, {{{name}: () => \"x> \"}})"),
+            format!("function {name}() {{ return \"x> \" }}"),
+        ]
+    };
+    let names = ["prompt", "__cbEmit"];
+    let quiet: Vec<String> = names.iter().flat_map(|n| ignored(n)).collect();
+    let loud: Vec<String> = names.iter().flat_map(|n| refused(n)).collect();
+    let scripts: Vec<String> = quiet
+        .iter()
+        .chain(&loud)
+        .map(|line| format!("{line}\n1 + 1"))
+        .collect();
+    let Some(runs) = runs_on_local(test, &scripts).await else {
+        return;
+    };
+    for (line, events) in quiet.iter().zip(&runs) {
+        assert_eq!(outcome(events), Outcome::Exited(0), "{line}: {events:?}");
+        assert!(is_two(result_of(events)), "{line}: {events:?}");
+        assert_no_prompt_leak(&text(events, Stream::Stdout));
+    }
+    for (line, events) in loud.iter().zip(&runs[quiet.len()..]) {
+        assert_eq!(outcome(events), Outcome::ScriptErrors, "{line}: {events:?}");
+        assert!(result_of(events).is_none(), "{line}: {events:?}");
+        let err = text(events, Stream::Stderr);
+        assert!(err.contains("Uncaught"), "{line}: {err:?}");
+    }
+}
+
+/// The emitter captured `print` and `EJSON` when the preamble ran: a script that replaces both
+/// still gets its result.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn print_and_ejson_overrides_still_get_a_result() {
+    let test = "print_and_ejson_overrides_still_get_a_result";
+    let script =
+        "print = () => {}\nEJSON = {stringify: () => \"broken\"}\nconst v = {a: 1, b: \"x\"}\nv";
+    let Some(events) = run_on_local(test, script).await else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::Exited(0), "{events:?}");
+    let Some(ShellResult::Object { doc, .. }) = result_of(&events) else {
+        panic!("no object result in {events:?}");
+    };
+    assert_eq!(doc.get_i32("a").ok(), Some(1), "{doc:?}");
+    assert_eq!(doc.get_str("b").ok(), Some("x"), "{doc:?}");
+}
+
+/// A script that ends the shell itself after some output: the run ends by itself (bounded by
+/// `run_script`'s wait), with the shell's own exit status, and has no result.
+async fn ends_by_itself(test: &str, exit: &str, code: i32) {
+    let script = format!("print(\"before-cbit\")\n{exit}\nprint(\"after-cbit\")");
+    let Some(events) = run_on_local(test, &script).await else {
+        return;
+    };
+    let out = text(&events, Stream::Stdout);
+    eprintln!("{test}: {:?} {out:?}", outcome(&events));
+    assert_eq!(outcome(&events), Outcome::Exited(code), "{events:?}");
+    assert!(out.contains("before-cbit"), "{out:?}");
+    assert!(!out.contains("after-cbit"), "{out:?}");
+    assert!(result_of(&events).is_none(), "{events:?}");
+    assert_no_prompt_leak(&out);
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn quit_ends_the_run_cleanly() {
+    ends_by_itself("quit_ends_the_run_cleanly", "quit()", 0).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn process_exit_ends_the_run_cleanly() {
+    ends_by_itself("process_exit_ends_the_run_cleanly", "process.exit(0)", 0).await;
+    ends_by_itself("process_exit_ends_the_run_cleanly", "process.exit(3)", 3).await;
+}
+
+/// A password with a line break (the runtime masks the session's stored password): neither the
+/// text, where it spans two lines, nor the parsed result shows any form of it.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn a_password_with_a_newline_is_masked() {
+    let test = "a_password_with_a_newline_is_masked";
+    let password = "line1-cbit\nline2-cbit";
+    let literal = serde_json::to_string(password).unwrap();
+    let Some(events) = in_scratch_db(test, Some(password), |n| {
+        format!(
+            "const t = db.getSiblingDB(\"{n}\").secrets\n\
+             t.insertOne({{_id: 1, pw: {literal}}})\n\
+             print({literal})\n\
+             printjson({{pw: {literal}}})\n\
+             t.find()"
+        )
+    })
+    .await
+    else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::Exited(0), "{events:?}");
+    let shown = all_text(&events);
+    let Some(ShellResult::Documents { docs, .. }) = result_of(&events) else {
+        panic!("no result in {events:?}");
+    };
+    assert_eq!(docs[0].get_str("pw").ok(), Some(MASK), "{docs:?}");
+    let parsed = format!("{docs:?}");
+    for form in secret_forms(password) {
+        assert!(!shown.contains(&form), "{form:?} in the text: {shown:?}");
+        assert!(!parsed.contains(&form), "{form:?} in the result: {parsed}");
+    }
+}
