@@ -16,6 +16,7 @@ pub mod copy_flow;
 pub mod export_flow;
 pub mod mongosh;
 pub mod profiler;
+pub mod shell;
 
 pub use curlybrace_testkit::{
     Container, SSH_PASSWORD, SSH_USER, SshStack, docker_enabled, local_enabled,
