@@ -1,6 +1,7 @@
 //! View-model of the Shell tab: the script, its selection, the captured output and the run state.
 //! Pure and egui-free; every updater returns a new value and never mutates. No user-facing strings.
 use super::shell_format::format_script;
+use super::shell_history::HistoryView;
 pub use super::shell_output::{MAX_LINE_BYTES, MAX_OUTPUT_LINES, OutputLine, OutputLog};
 use curlybrace_core::runtime::ShellRefusal;
 use curlybrace_core::shell::{Outcome, Stream};
@@ -51,6 +52,8 @@ pub struct ShellState {
     pub status: ShellStatus,
     pub next_run_id: u64,
     pub notice: Option<ShellNotice>,
+    /// The remembered runs of this connection and the history panel's flags.
+    pub history: HistoryView,
 }
 
 impl Default for ShellState {
@@ -63,6 +66,7 @@ impl Default for ShellState {
             status: ShellStatus::Idle,
             next_run_id: 1,
             notice: None,
+            history: HistoryView::default(),
         }
     }
 }
