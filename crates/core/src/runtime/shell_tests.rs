@@ -504,6 +504,35 @@ async fn password_never_appears_in_any_event_or_debug_output() {
     );
 }
 
+#[tokio::test]
+async fn a_backslash_password_is_masked_in_its_doubled_and_json_forms_too() {
+    const BACKSLASH_PASSWORD: &str = r#"pa\ss"w"#;
+    let mut cfg = ConnectionConfig::new("t", "mongodb://localhost:27017/app");
+    cfg.auth = crate::connection::AuthMechanism::ScramSha256;
+    cfg.username = Some("alice".into());
+    let mut f = Fixture::connected(cfg, Some(BACKSLASH_PASSWORD)).await;
+    let doubled = r#"pa\\ss"w"#;
+    let json = r#"pa\\ss\"w"#;
+    f.run(1, &format!("{doubled}\n{json}\nstderr {doubled}"));
+    let events = f.until_done().await;
+    let debug = events
+        .iter()
+        .map(|e| format!("{e:?}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for text in [
+        output_text(&events, Stream::Stdout),
+        output_text(&events, Stream::Stderr),
+    ] {
+        assert!(!text.contains("pa\\\\ss"), "{debug}");
+        assert!(!text.contains("pa\\ss"), "{debug}");
+    }
+    assert!(
+        output_text(&events, Stream::Stdout).contains(MASK),
+        "{debug}"
+    );
+}
+
 // ---- races ----
 
 /// A secret store whose next lookup, once armed, waits for the test: the window between the slot

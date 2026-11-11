@@ -11,4 +11,4 @@ mod run;
 mod scrub;
 pub use invocation::{Invocation, ShellError, build_invocation, percent_encode_component};
 pub use run::{Outcome, RunLimits, ShellHandle, Stream, spawn_shell};
-pub use scrub::{MASK, Scrubber};
+pub use scrub::{MASK, Scrubber, secret_forms};

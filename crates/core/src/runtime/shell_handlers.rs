@@ -17,7 +17,7 @@ use std::sync::{Arc, Weak};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::connection::ConnectionConfig;
-use crate::shell::{Outcome, RunLimits, build_invocation, percent_encode_component, spawn_shell};
+use crate::shell::{Outcome, RunLimits, build_invocation, secret_forms, spawn_shell};
 
 use super::session::Session;
 use super::shell_history_queue::Job;
@@ -246,12 +246,10 @@ pub(super) async fn start(
     run.session.shell.attach(run_id, handle);
 }
 
-/// The password and its percent-encoded form (as it appears inside a connection string).
+/// The password in every form it can be echoed in (raw, percent-encoded, JSON- and
+/// inspect-escaped).
 fn secrets_of(password: Option<String>) -> Vec<String> {
-    match password.filter(|p| !p.is_empty()) {
-        Some(password) => vec![password.clone(), percent_encode_component(&password)],
-        None => Vec::new(),
-    }
+    password.as_deref().map(secret_forms).unwrap_or_default()
 }
 
 fn refused(session: SessionId, run_id: u64, reason: ShellRefusal) -> Event {
