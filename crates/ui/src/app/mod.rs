@@ -557,6 +557,11 @@ impl CurlybraceApp {
                 self.state =
                     connection_ops::duplicate(state, id, name, now, secrets, &self.config_path);
                 self.copy_tools_to_new(id, &before);
+                self.send(connection_ops::copy_history_to_new(
+                    id,
+                    &before,
+                    &self.state,
+                ));
             }
             ConnectionAction::MoveToFolder { id, folder } => {
                 self.state =
@@ -868,6 +873,9 @@ mod queries_tests;
 
 #[cfg(test)]
 mod shell_tests;
+
+#[cfg(test)]
+mod shell_history_tests;
 
 #[cfg(test)]
 mod shell_view_tests;

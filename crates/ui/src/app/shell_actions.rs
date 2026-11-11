@@ -28,6 +28,14 @@ pub enum ShellAction {
     Format,
     /// Show the Shell tab of the active session (only while it is connected).
     Open,
+    /// Open or close the history panel; either way a pending clear is dropped.
+    ToggleHistory,
+    /// Put the script of the history entry with this id in the editor. Never runs it.
+    RecallEntry(i64),
+    /// Ask to clear the connection's history (the first step: confirmation is pending).
+    ClearHistory,
+    ConfirmClear,
+    CancelClear,
 }
 
 pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
@@ -46,6 +54,43 @@ pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
         ShellAction::Open => open(state, id),
         ShellAction::Run => run(state, id),
         ShellAction::Cancel => cancel(state, id),
+        ShellAction::ToggleHistory => updated(state, id, ShellState::history_toggled),
+        // Only the buffer changes, also mid-run: nothing is sent.
+        ShellAction::RecallEntry(entry) => {
+            updated(state, id, |shell| shell.history_entry_recalled(entry))
+        }
+        ShellAction::ClearHistory => updated(state, id, ShellState::clear_requested),
+        ShellAction::CancelClear => updated(state, id, ShellState::clear_cancelled),
+        ShellAction::ConfirmClear => confirm_clear(state, id),
+    }
+}
+
+/// The shell of `id` changed by `change`; nothing is sent.
+fn updated(state: AppState, id: Uuid, change: impl FnOnce(&ShellState) -> ShellState) -> Out {
+    let shell = change(&state.shell_or_new(id));
+    unchanged(state.with_shell(id, shell))
+}
+
+/// Sends the clear only when one was pending. The list stays until the core answers with the
+/// (now empty) history.
+fn confirm_clear(state: AppState, id: Uuid) -> Out {
+    let (shell, send) = state.shell_or_new(id).clear_confirmed();
+    let commands = match send {
+        true => vec![Command::ClearShellHistory { session: id }],
+        false => Vec::new(),
+    };
+    (state.with_shell(id, shell), commands)
+}
+
+/// A failed read or clear of the history of `session`: the panel says history is unavailable.
+/// No banner: history is optional, and its store failing says nothing about the connection.
+pub(super) fn history_failed(state: AppState, session: Uuid) -> Out {
+    match state.shell.get(session) {
+        Some(shell) => {
+            let next = shell.history_unavailable();
+            unchanged(state.with_shell(session, next))
+        }
+        None => unchanged(state),
     }
 }
 
@@ -62,10 +107,16 @@ pub(super) fn on_event(state: AppState, session: Uuid, event: Event) -> Out {
             text,
             ..
         } => shell.output_arrived(run_id, stream, &text),
+        // The core recorded the run before sending this, so the history read sees it.
         Event::ShellFinished {
             run_id, outcome, ..
-        } => shell.finished(run_id, outcome),
+        } => {
+            let next = shell.finished(run_id, outcome);
+            let read = Command::ShellHistory { session };
+            return (state.with_shell(session, next), vec![read]);
+        }
         Event::ShellRefused { run_id, reason, .. } => shell.refused(run_id, reason),
+        Event::ShellHistory { entries, .. } => shell.history_loaded(entries),
         _ => return unchanged(state),
     };
     unchanged(state.with_shell(session, next))
@@ -113,7 +164,9 @@ fn open(state: AppState, id: Uuid) -> Out {
         workspace: Workspace::Shell,
         ..state.with_shell(id, shell)
     };
-    unchanged(next)
+    // Every time the tab is shown (this is the only way into it): the stored list may have
+    // changed since it was last read, a history copied into a duplicated connection included.
+    (next, vec![Command::ShellHistory { session: id }])
 }
 
 fn run(state: AppState, id: Uuid) -> Out {

@@ -46,9 +46,12 @@ impl ShellState {
         })
     }
 
+    /// Opens or closes the panel. A pending clear is dropped either way, so a panel shown again
+    /// never offers to confirm a step the person started before closing it.
     pub fn history_toggled(&self) -> Self {
         self.with_history(HistoryView {
             open: !self.history.open,
+            confirm_clear: false,
             ..self.history.clone()
         })
     }

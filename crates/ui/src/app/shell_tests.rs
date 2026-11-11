@@ -580,7 +580,8 @@ fn open_requires_a_connected_session() {
     let (s, id) = ready(plain(), &fake_mongosh(dir.path()));
 
     let (s, commands) = shell(s, ShellAction::Open);
-    assert!(commands.is_empty());
+    // Opening only reads the history (see `shell_history_tests`).
+    assert!(sent(&commands).iter().all(|c| *c == Sent::Other));
     assert_eq!(s.workspace, Workspace::Shell);
 
     let (s, _) = update(s, Input::Activate(id));

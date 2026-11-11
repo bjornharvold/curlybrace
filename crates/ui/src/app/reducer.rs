@@ -146,12 +146,23 @@ fn on_event(state: AppState, ev: Event) -> Out {
         (_, Some(session)) if !state.is_open(session) => (state, Vec::new()),
         // A shell run is tagged with its session and run id, not an epoch: it goes straight to
         // that session's shell, which ignores a run it no longer shows.
+        // The history answer goes there too: it needs no live connection.
         (
             ev @ (Event::ShellOutput { .. }
             | Event::ShellFinished { .. }
-            | Event::ShellRefused { .. }),
+            | Event::ShellRefused { .. }
+            | Event::ShellHistory { .. }),
             Some(session),
         ) => shell_actions::on_event(state, session, ev),
+        // A failed read or clear of the shell history is shown in the panel, never as a banner,
+        // and whether the session is connected does not matter.
+        (
+            Event::Failed {
+                context: "shell_history" | "clear_shell_history",
+                ..
+            },
+            Some(session),
+        ) => shell_actions::history_failed(state, session),
         (ev, Some(session)) => {
             // Inside `with_session` the active session is the event's own, so whether the person
             // is looking at it must be read before.
@@ -456,7 +467,6 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::ShellOutput { .. }
         | Event::ShellFinished { .. }
         | Event::ShellRefused { .. }
-        // Wired by the shell history tab work; nothing asks for it yet.
         | Event::ShellHistory { .. } => (state, Vec::new()),
     }
 }

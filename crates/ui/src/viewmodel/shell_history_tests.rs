@@ -127,3 +127,28 @@ fn first_line_skips_blank_lines_and_cuts_on_a_char_boundary() {
     assert_eq!(first_line("héllo wörld ✓✓", 8), "héllo wö…");
     assert_eq!(first_line("日本語日本語", 3), "日本語…");
 }
+
+#[test]
+fn toggling_the_panel_drops_a_pending_clear() {
+    let asked = loaded().clear_requested();
+    let closed = asked.history_toggled();
+    assert!(!closed.history.confirm_clear);
+    assert!(!closed.history_toggled().history.confirm_clear);
+    assert!(!closed.clear_confirmed().1, "nothing left to confirm");
+}
+
+#[test]
+fn first_line_with_no_room_is_an_ellipsis_unless_blank() {
+    assert_eq!(first_line("db.a.find()", 0), "…");
+    assert_eq!(first_line("", 0), "");
+    assert_eq!(first_line(" \n\t", 0), "");
+}
+
+#[test]
+fn first_line_handles_crlf_line_ends() {
+    assert_eq!(
+        first_line("\r\n  \r\ndb.a.find()\r\nnext", 40),
+        "db.a.find()"
+    );
+    assert_eq!(first_line("abc\r\ndef", 3), "abc");
+}
