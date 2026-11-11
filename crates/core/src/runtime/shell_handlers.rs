@@ -10,22 +10,17 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 
 use tokio::sync::mpsc::UnboundedSender;
-use uuid::Uuid;
 
-use crate::clock;
 use crate::connection::ConnectionConfig;
-use crate::error::CoreError;
-use crate::history::{HistoryDb, ShellRunStatus};
 use crate::shell::{Outcome, RunLimits, build_invocation, percent_encode_component, spawn_shell};
 
-use super::indexes::blocking;
 use super::session::Session;
+use super::shell_history_queue::Job;
 use super::{Command, Event, Repaint, SessionId, Shared, ShellRefusal, handlers};
 
 /// What a run needs once its slot is held.
@@ -213,19 +208,27 @@ pub(super) async fn start(
         };
         send(&out_events, &out_repaint, event);
     };
-    let (history, connection) = (shared.history.clone(), run.cfg.id);
     // Only kept when there is a history to record in.
-    let script = history.as_ref().map(|_| run.script.clone());
+    let record = shared
+        .history
+        .as_ref()
+        .map(|_| (shared.shell_history.clone(), run.script.clone()));
+    let connection = run.cfg.id;
     let on_done = move |outcome| {
-        // Before the slot is freed and the event sent: whoever sees `ShellFinished` finds the run.
-        if let Some(script) = &script {
-            record_run(history.as_deref(), connection, script, &outcome);
-        }
         // Free the slot before the event, so a run sent on seeing `ShellFinished` is not refused.
         if let Some(session) = weak.upgrade() {
             session.shell.release(run_id);
         }
         send(&events, &repaint, finished(id, run_id, outcome));
+        // After the event and without waiting: the history file never holds up the run's end.
+        // The queue answers with `ShellHistoryChanged` once the record is written.
+        if let Some((queue, script)) = record {
+            queue.push(Job::Record {
+                connection,
+                script,
+                outcome,
+            });
+        }
     };
     // Set before the spawn: from here on the runner's `on_done` reports, so `supervised` must
     // not report a panic as well. A panic inside `spawn_shell` itself (before it could call
@@ -273,88 +276,15 @@ fn send(events: &UnboundedSender<Event>, repaint: &Repaint, event: Event) {
     }
 }
 
-/// Remembers a finished run in the history, if there is one and the script actually executed.
-/// Runs on the runner's thread, before the slot is released and `ShellFinished` is sent, so a
-/// reader that has seen the event finds the entry. A failure (or a panic) is logged and changes
-/// nothing: the log names the connection only, because neither the script nor an error that may
-/// quote it belongs in a log.
-fn record_run(history: Option<&HistoryDb>, connection: Uuid, script: &str, outcome: &Outcome) {
-    let (Some(history), Some(status)) = (history, ShellRunStatus::from_outcome(outcome)) else {
-        return;
-    };
-    let now = clock::now_secs();
-    let recorded = catch_unwind(AssertUnwindSafe(|| {
-        history.record_shell_run(connection, script, status, now)
-    }));
-    match recorded {
-        Ok(Ok(())) => {}
-        Ok(Err(_)) => log::warn!("recording a shell run of {connection} in the history failed"),
-        Err(_) => log::warn!("recording a shell run of {connection} in the history panicked"),
-    }
-}
-
-/// `ShellHistory`, `ClearShellHistory` and `CopyShellHistory`: reads and writes of the history
-/// file on the blocking pool. The history is keyed by the connection id, which is the session id.
-pub(super) fn dispatch_history(
-    shared: Arc<Shared>,
-    events: UnboundedSender<Event>,
-    repaint: Repaint,
-    command: Command,
-) {
-    let history = shared.history.clone();
-    match command {
-        Command::ShellHistory { session } => {
-            answer_history(history, session, false, "shell_history", events, repaint);
-        }
-        Command::ClearShellHistory { session } => {
-            answer_history(
-                history,
-                session,
-                true,
-                "clear_shell_history",
-                events,
-                repaint,
-            );
-        }
-        Command::CopyShellHistory { from, to } => {
-            let Some(history) = history else {
-                return;
-            };
-            tokio::spawn(async move {
-                let copied = blocking(move || history.copy_shell_history(from, to)).await;
-                // Ids only, like `record_run`: the error text is not logged.
-                if copied.is_err() {
-                    log::warn!("copying the shell history of {from} to {to} failed");
-                }
-            });
-        }
+/// `ShellHistory`, `ClearShellHistory` and `CopyShellHistory`: queued behind every earlier
+/// history job (a finished run's record included), so they run in send order. The history is
+/// keyed by the connection id, which is the session id.
+pub(super) fn dispatch_history(shared: &Shared, command: Command) {
+    let job = match command {
+        Command::ShellHistory { session } => Job::Read { session },
+        Command::ClearShellHistory { session } => Job::Clear { session },
+        Command::CopyShellHistory { from, to } => Job::Copy { from, to },
         _ => unreachable!("only shell history commands are routed here"),
-    }
-}
-
-/// Answers with the connection's entries, or with none after `clear`. Without history, and on a
-/// failed read or clear, the answer is a `Failed` event with the command's context (never an
-/// empty list, which would read as "no scripts yet"); the error carries no path or system text.
-fn answer_history(
-    history: Option<Arc<HistoryDb>>,
-    session: SessionId,
-    clear: bool,
-    context: &'static str,
-    events: UnboundedSender<Event>,
-    repaint: Repaint,
-) {
-    tokio::spawn(async move {
-        let entries = match history {
-            None => Err(CoreError::NotFound),
-            Some(history) if clear => {
-                blocking(move || history.clear_shell_history(session).map(|()| Vec::new())).await
-            }
-            Some(history) => blocking(move || history.shell_history(session)).await,
-        };
-        let event = match entries {
-            Ok(entries) => Event::ShellHistory { session, entries },
-            Err(error) => handlers::failure_event(session, context, None, 0, error),
-        };
-        send(&events, &repaint, event);
-    });
+    };
+    shared.shell_history.push(job);
 }

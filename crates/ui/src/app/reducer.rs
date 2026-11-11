@@ -151,7 +151,8 @@ fn on_event(state: AppState, ev: Event) -> Out {
             ev @ (Event::ShellOutput { .. }
             | Event::ShellFinished { .. }
             | Event::ShellRefused { .. }
-            | Event::ShellHistory { .. }),
+            | Event::ShellHistory { .. }
+            | Event::ShellHistoryChanged { .. }),
             Some(session),
         ) => shell_actions::on_event(state, session, ev),
         // A failed read or clear of the shell history is shown in the panel, never as a banner,
@@ -467,7 +468,8 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::ShellOutput { .. }
         | Event::ShellFinished { .. }
         | Event::ShellRefused { .. }
-        | Event::ShellHistory { .. } => (state, Vec::new()),
+        | Event::ShellHistory { .. }
+        | Event::ShellHistoryChanged { .. } => (state, Vec::new()),
     }
 }
 

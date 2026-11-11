@@ -1,6 +1,6 @@
-//! Shell run history through the runtime: recording in the run's completion, and the
-//! `ShellHistory` / `ClearShellHistory` / `CopyShellHistory` commands. A real history file and
-//! the fake `mongosh`; every wait is on an event, never on time.
+//! Shell run history through the runtime: recording after the run's completion, and the
+//! `ShellHistory` / `ClearShellHistory` / `CopyShellHistory` commands, all on one ordered queue. A
+//! real history file and the fake `mongosh`; every wait is on an event, never on time.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -17,6 +17,9 @@ use crate::shell::fake::{Behaviour, FakeMongosh};
 use crate::test_support::InMemoryStore;
 
 const WAIT: Duration = Duration::from_secs(10);
+/// Shorter than the history file's busy timeout (5 s): an event that had to wait for a lock the
+/// test holds arrives later than this.
+const BEFORE_BUSY_TIMEOUT: Duration = Duration::from_secs(4);
 
 struct StoreConnector;
 
@@ -119,6 +122,24 @@ impl Fixture {
         }
     }
 
+    /// Whether the run's record was stored, from its `ShellHistoryChanged` (the next event).
+    async fn changed(&mut self) -> bool {
+        match next(&mut self.h).await {
+            Event::ShellHistoryChanged { session, stored } => {
+                assert_eq!(session, self.id);
+                stored
+            }
+            other => panic!("expected ShellHistoryChanged, got {other:?}"),
+        }
+    }
+
+    /// The number of stored runs, read with a plain connection that waits for no lock.
+    fn stored_count(&self) -> i64 {
+        let conn = rusqlite::Connection::open(self.path()).unwrap();
+        conn.query_row("SELECT COUNT(*) FROM shell_history", [], |r| r.get(0))
+            .unwrap()
+    }
+
     async fn history_of(&mut self, session: SessionId) -> Vec<ShellHistoryEntry> {
         self.h.tx.send(Command::ShellHistory { session }).unwrap();
         self.answer(session).await
@@ -188,18 +209,44 @@ fn the_history_commands_are_classified() {
         entries: Vec::new(),
     };
     assert_eq!(answer.session(), Some(session));
+    let changed = Event::ShellHistoryChanged {
+        session,
+        stored: true,
+    };
+    assert_eq!(changed.session(), Some(session));
 }
 
+/// The record waits for the history file; the run's end does not. Another connection holds the
+/// file's write lock while the run finishes: `ShellFinished` still arrives at once, and the
+/// record follows once the lock is released.
 #[tokio::test]
-async fn a_finished_run_is_recorded_before_shell_finished_is_sent() {
+async fn shell_finished_is_not_delayed_by_the_record() {
     let mut f = Fixture::with_history().await;
+    let holder = rusqlite::Connection::open(f.path()).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     f.run(1, "hello shell");
-    assert_eq!(f.finished().await, Outcome::Exited(0));
-    // Read the instant `ShellFinished` was seen: the entry must already be there.
+    let outcome = tokio::time::timeout(BEFORE_BUSY_TIMEOUT, f.finished())
+        .await
+        .expect("ShellFinished while the history file is locked");
+    assert_eq!(outcome, Outcome::Exited(0));
+    assert_eq!(f.stored_count(), 0, "the record still waits for the lock");
+    holder.execute_batch("COMMIT").unwrap();
+    assert!(f.changed().await, "recorded once the lock is free");
     let entries = f.stored(f.id);
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].script, "hello shell");
     assert_eq!(entries[0].status, ShellRunStatus::Succeeded);
+}
+
+#[tokio::test]
+async fn a_read_sent_after_shell_history_changed_sees_the_row() {
+    let mut f = Fixture::with_history().await;
+    f.run(1, "hello shell");
+    assert_eq!(f.finished().await, Outcome::Exited(0));
+    assert!(f.changed().await);
+    let entries = f.history_of(f.id).await;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].script, "hello shell");
 }
 
 #[tokio::test]
@@ -221,6 +268,7 @@ async fn a_cancelled_run_is_recorded_as_cancelled() {
     f.until_running().await;
     f.cancel(1);
     assert_eq!(f.finished().await, Outcome::Cancelled);
+    assert!(f.changed().await);
     let entries = f.stored(f.id);
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].status, ShellRunStatus::Cancelled);
@@ -253,8 +301,10 @@ async fn shell_history_command_answers_with_the_connections_entries() {
     let mut f = Fixture::with_history().await;
     f.run(1, "first");
     f.finished().await;
+    assert!(f.changed().await);
     f.run(2, "throw boom");
     assert_eq!(f.finished().await, Outcome::ScriptErrors);
+    assert!(f.changed().await);
     let entries = f.history_of(f.id).await;
     let seen: Vec<(&str, ShellRunStatus)> = entries
         .iter()
@@ -276,6 +326,7 @@ async fn clear_shell_history_answers_with_an_empty_list() {
     let mut f = Fixture::with_history().await;
     f.run(1, "first");
     f.finished().await;
+    assert!(f.changed().await);
     assert_eq!(f.history_of(f.id).await.len(), 1);
     f.h.tx
         .send(Command::ClearShellHistory { session: f.id })
@@ -289,20 +340,13 @@ async fn copy_shell_history_copies_between_connection_ids() {
     let mut f = Fixture::with_history().await;
     f.run(1, "first");
     f.finished().await;
+    assert!(f.changed().await);
     let to = Uuid::new_v4();
     f.h.tx
         .send(Command::CopyShellHistory { from: f.id, to })
         .unwrap();
-    // The copy has no answer and runs in the background: ask until it shows. Each ask is a
-    // round trip on an event, not a sleep, and the loop is bounded.
-    let mut copied = Vec::new();
-    for _ in 0..10_000 {
-        copied = f.history_of(to).await;
-        if !copied.is_empty() {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
+    // The copy has no answer, but it is queued before the read, which therefore sees it.
+    let copied = f.history_of(to).await;
     assert_eq!(copied.len(), 1);
     assert_eq!(copied[0].script, "first");
     assert_eq!(f.stored(f.id).len(), 1, "the source keeps its entries");
@@ -314,6 +358,7 @@ async fn a_run_finishing_after_its_connection_was_purged_is_not_recorded() {
     // An earlier run leaves a row, so the purge's completion can be seen: the row is gone.
     f.run(1, "earlier");
     f.finished().await;
+    assert!(f.changed().await);
     assert_eq!(f.stored(f.id).len(), 1);
     f.run(2, "started\nhang");
     f.until_running().await;
@@ -332,6 +377,9 @@ async fn a_run_finishing_after_its_connection_was_purged_is_not_recorded() {
     f.cancel(2);
     // The run did end (a live connection would have recorded it as cancelled).
     assert_eq!(f.finished().await, Outcome::Cancelled);
+    // Until the store says what it skipped, its answer is the same as for a stored record.
+    f.changed().await;
+    assert!(f.history_of(f.id).await.is_empty());
     assert!(f.stored(f.id).is_empty());
 }
 

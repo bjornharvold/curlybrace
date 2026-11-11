@@ -10,7 +10,10 @@
 //! command is documented in the `compare` module. And `Event::Sampler`: the index usage sampler
 //! of a connected session reports its status (running, or paused and why) on its own, whenever
 //! it changes, with no command behind it. The session-less `SetSamplingExcluded` and
-//! `PurgeHistory` have no answer, like `LockReadOnly`, and neither has `CopyShellHistory`.
+//! `PurgeHistory` have no answer, like `LockReadOnly`, and neither has `CopyShellHistory`. And
+//! `Event::ShellHistoryChanged` follows a run's `ShellFinished` once its record is written.
+//! The shell-history commands and records run on one ordered queue, in send order (see the
+//! `shell_history_queue` module).
 //!
 //! Every connection is its own session (`Connect(cfg)` opens session `cfg.id`); data commands and
 //! session events carry the session they belong to, and all epochs come from one counter.
@@ -85,6 +88,7 @@ mod session;
 #[cfg(test)]
 mod session_tests;
 mod shell_handlers;
+mod shell_history_queue;
 #[cfg(test)]
 mod shell_history_tests;
 mod shell_slot;
@@ -472,8 +476,9 @@ pub enum Command {
         run_id: u64,
     },
     /// Reads the remembered shell runs of the session's connection, answered with
-    /// [`Event::ShellHistory`] (an empty list when history is off). Needs no live connection:
-    /// the history is keyed by the connection id, which is the session id.
+    /// [`Event::ShellHistory`] (`Failed { context: "shell_history" }` when history is off).
+    /// Needs no live connection: the history is keyed by the connection id, which is the session
+    /// id. Runs after every shell-history command and record queued before it.
     ShellHistory {
         session: SessionId,
     },
@@ -483,9 +488,8 @@ pub enum Command {
         session: SessionId,
     },
     /// Gives the connection `to` a copy of the shell runs of `from` (a duplicated connection).
-    /// No session, no epoch, no answer event; a failure is logged. UNORDERED with a following
-    /// `ShellHistory` or `ClearShellHistory` (each runs in its own task), so a reader must not
-    /// assume the copy is visible yet.
+    /// No session, no epoch, no answer event; a failure is logged. Ordered with the other
+    /// shell-history commands: a `ShellHistory` sent after it sees the copy.
     CopyShellHistory {
         from: uuid::Uuid,
         to: uuid::Uuid,
@@ -743,6 +747,9 @@ pub enum Event {
         session: SessionId,
         entries: Vec<crate::history::ShellHistoryEntry>,
     },
+    /// SPONTANEOUS, after a `ShellFinished`: the run's record was written (`stored`), or the
+    /// script was too long to remember (`!stored`). Not sent when nothing was recorded.
+    ShellHistoryChanged { session: SessionId, stored: bool },
 }
 
 /// A config whose session is [`EMBEDDED_SESSION`], so a test that connects and then sends data
@@ -791,6 +798,8 @@ pub(crate) struct Shared {
     pub(crate) history: Option<Arc<HistoryDb>>,
     /// The sampler tunables shared by every sampler; each holds a receiver.
     pub(crate) sampler_config: watch::Sender<SamplerConfig>,
+    /// The one ordered queue every shell-history read and write goes through.
+    pub(crate) shell_history: shell_history_queue::ShellHistoryQueue,
 }
 
 impl Shared {
@@ -878,6 +887,11 @@ pub fn spawn_runtime_with_connector(
         .map(|store| (EMBEDDED_SESSION, Arc::new(Session::new(0, Some(store)))))
         .into_iter()
         .collect();
+    let shell_history = shell_history_queue::ShellHistoryQueue::spawn(
+        history.clone(),
+        events.clone(),
+        repaint.clone(),
+    );
     let shared = Arc::new(Shared {
         sessions: RwLock::new(sessions),
         next_epoch: AtomicU64::new(0),
@@ -891,6 +905,7 @@ pub fn spawn_runtime_with_connector(
         cancelled: Default::default(),
         history,
         sampler_config,
+        shell_history,
     });
     tokio::runtime::Handle::current().spawn(async move {
         while let Some(command) = commands.recv().await {

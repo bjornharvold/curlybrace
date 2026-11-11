@@ -61,14 +61,15 @@ pub(super) fn dispatch(
         indexes::spawn_purge(&shared, connection);
         return;
     }
-    // Shell history needs only the history file, not a live session.
+    // Shell history needs only the history file, not a live session. Queued synchronously, so
+    // send order is run order.
     if matches!(
         command,
         Command::ShellHistory { .. }
             | Command::ClearShellHistory { .. }
             | Command::CopyShellHistory { .. }
     ) {
-        shell_handlers::dispatch_history(shared, events, repaint, command);
+        shell_handlers::dispatch_history(&shared, command);
         return;
     }
     // Synchronous, so request order decides: ending the session bumps its epoch before any later

@@ -219,7 +219,8 @@ impl Event {
             | Self::ShellOutput { session, .. }
             | Self::ShellFinished { session, .. }
             | Self::ShellRefused { session, .. }
-            | Self::ShellHistory { session, .. } => Some(*session),
+            | Self::ShellHistory { session, .. }
+            | Self::ShellHistoryChanged { session, .. } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }

@@ -110,13 +110,13 @@ pub(super) fn on_event(state: AppState, session: Uuid, event: Event) -> Out {
             text,
             ..
         } => shell.output_arrived(run_id, stream, &text),
-        // The core recorded the run before sending this, so the history read sees it.
         Event::ShellFinished {
             run_id, outcome, ..
-        } => {
-            let next = shell.finished(run_id, outcome);
+        } => shell.finished(run_id, outcome),
+        // The record of a run is written after its `ShellFinished`; the read is queued behind it.
+        Event::ShellHistoryChanged { .. } => {
             let read = Command::ShellHistory { session };
-            return (state.with_shell(session, next), vec![read]);
+            return (state, vec![read]);
         }
         Event::ShellRefused { run_id, reason, .. } => shell.refused(run_id, reason),
         Event::ShellHistory { entries, .. } => shell.history_loaded(entries),

@@ -676,6 +676,7 @@ fn shared_with_history() -> Arc<Shared> {
         cancelled: Default::default(),
         history: Some(Arc::new(HistoryDb::open_in_memory().unwrap())),
         sampler_config: tokio::sync::watch::channel(SamplerConfig::default().clamped()).0,
+        shell_history: super::shell_history_queue::ShellHistoryQueue::detached(),
     })
 }
 

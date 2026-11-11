@@ -94,7 +94,7 @@ fn an_open_refused_for_a_session_that_is_not_connected_asks_nothing() {
 }
 
 #[test]
-fn a_finished_run_requests_the_history_again() {
+fn a_recorded_run_requests_the_history_again() {
     let dir = tempfile::tempdir().unwrap();
     let exe = fake_mongosh(dir.path());
     let (s, id) = with_history();
@@ -114,7 +114,14 @@ fn a_finished_run_requests_the_history_again() {
         run_id: 1,
         outcome: Outcome::Exited(0),
     };
-    let (_, commands) = event(s, finished);
+    // The record is written after the run ends: the read waits for it.
+    let (s, commands) = event(s, finished);
+    assert!(!asks_history(&commands, id), "{commands:?}");
+    let changed = Event::ShellHistoryChanged {
+        session: id,
+        stored: true,
+    };
+    let (_, commands) = event(s, changed);
     assert!(asks_history(&commands, id), "{commands:?}");
 }
 
