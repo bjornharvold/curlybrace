@@ -1,5 +1,5 @@
 //! History panel state of the Shell tab: the remembered runs of the connection, and the panel's
-//! open, confirm-clear, clear-failed and refresh-failed flags. Pure and egui-free; every updater returns a new value.
+//! open, confirm-clear, clear-failed, refresh-failed and not-saved flags. Pure and egui-free; every updater returns a new value.
 //! No user-facing strings.
 use super::shell::ShellState;
 pub use curlybrace_core::history::ShellHistoryEntry;
@@ -24,6 +24,9 @@ pub struct HistoryView {
     /// The last read failed while a list was shown; the list shown is the one read before.
     /// Cleared by the next list from the core, by opening or closing the panel and by a new read.
     pub refresh_failed: bool,
+    /// The newest run's script was too long to remember. Kept while the panel is closed, so
+    /// opening it says so; cleared by the next stored run, by closing the panel and by a clear.
+    pub last_not_saved: bool,
 }
 
 impl ShellState {
@@ -69,6 +72,15 @@ impl ShellState {
         }
     }
 
+    /// The core recorded a run: `stored`, or its script was too long to remember. Also while
+    /// the panel is closed, so opening it says so.
+    pub fn history_changed(&self, stored: bool) -> Self {
+        self.with_history(HistoryView {
+            last_not_saved: !stored,
+            ..self.history.clone()
+        })
+    }
+
     /// A new read was sent: a failed refresh's line goes until it answers. The list stays.
     pub fn history_read_requested(&self) -> Self {
         self.with_history(HistoryView {
@@ -90,13 +102,16 @@ impl ShellState {
     }
 
     /// Opens or closes the panel. A pending clear is dropped either way, so a panel shown again
-    /// never offers to confirm a step the person started before closing it.
+    /// never offers to confirm a step the person started before closing it. A script too long to
+    /// remember is said once the panel opens, so only closing it ends that line.
     pub fn history_toggled(&self) -> Self {
+        let open = !self.history.open;
         self.with_history(HistoryView {
-            open: !self.history.open,
+            open,
             confirm_clear: false,
             clear_failed: false,
             refresh_failed: false,
+            last_not_saved: self.history.last_not_saved && open,
             ..self.history.clone()
         })
     }
@@ -124,9 +139,16 @@ impl ShellState {
     }
 
     /// Resets the confirm step; the flag is true only if a clear was pending, i.e. the caller
-    /// should send the command. The list empties when the core's answer arrives.
+    /// should send the command. The list empties when the core's answer arrives; a sent clear
+    /// ends the "too long to remember" line.
     pub fn clear_confirmed(&self) -> (Self, bool) {
-        (self.with_confirm_clear(false), self.history.confirm_clear)
+        let sends = self.history.confirm_clear;
+        let next = self.with_history(HistoryView {
+            confirm_clear: false,
+            last_not_saved: self.history.last_not_saved && !sends,
+            ..self.history.clone()
+        });
+        (next, sends)
     }
 
     fn with_confirm_clear(&self, confirm_clear: bool) -> Self {

@@ -134,9 +134,10 @@ pub(super) fn on_event(state: AppState, session: Uuid, event: Event) -> Out {
             run_id, outcome, ..
         } => shell.finished(run_id, outcome),
         // The record of a run is written after its `ShellFinished`; the read is queued behind it.
-        // Only an open panel reads; a closed one reads when it is opened.
-        Event::ShellHistoryChanged { .. } => {
-            let (next, commands) = read_if_open(shell, session);
+        // Only an open panel reads; a closed one reads when it is opened, but still notes a
+        // script that was too long to remember.
+        Event::ShellHistoryChanged { stored, .. } => {
+            let (next, commands) = read_if_open(&shell.history_changed(stored), session);
             return (state.with_shell(session, next), commands);
         }
         Event::ShellRefused { run_id, reason, .. } => shell.refused(run_id, reason),

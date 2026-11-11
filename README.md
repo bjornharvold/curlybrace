@@ -114,7 +114,7 @@ an account, a trial, or a license fee.
   selection, or the whole script), each with its time and how it ended (succeeded, script errors,
   incomplete, cancelled, output cap, failed). Pick an entry to put it back in the editor; it is never
   run for you. **Clear history** asks first. Output is never stored, a script over 32 KiB is not
-  stored (it still runs), and the same script run twice in a row is one row. A run that never
+  stored (it still runs, and the panel says so), and the same script run twice in a row is one row. A run that never
   started (refused, `mongosh` could not start, could not connect) is not recorded. It is stored in
   `history.sqlite` and is copied when the connection is duplicated. **Clear history** and deleting
   the connection remove it from the app's database, but SQLite can keep the old bytes in the file's

@@ -148,6 +148,10 @@ fn list_section(
         false => rows(ui, entries, place, i18n),
     };
     ui.label(egui::RichText::new(i18n.t("shell.history.plaintext_note")).small());
+    if history.last_not_saved {
+        let text = i18n.t("shell.history.not_saved");
+        tone_notice(ui, Tone::Warning, &text, false);
+    }
     if history.refresh_failed {
         let text = i18n.t("shell.history.refresh_failed");
         tone_notice(ui, Tone::Warning, &text, false);

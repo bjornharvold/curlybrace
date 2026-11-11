@@ -59,7 +59,7 @@ pub use retention::{ChartRange, MAX_DB_BYTES};
 pub use shape_schema::{RAW_BUCKET_SECS, TYPED_HOST};
 pub use shapes::{ShapeBucket, ShapeKey, ShapeObservation, ShapeSource, ShapeSummary, is_miss};
 pub use shell_history::{
-    MAX_STORED_SCRIPT_BYTES, SHELL_HISTORY_LIMIT, ShellHistoryEntry, ShellRunStatus,
+    MAX_STORED_SCRIPT_BYTES, Recorded, SHELL_HISTORY_LIMIT, ShellHistoryEntry, ShellRunStatus,
 };
 
 pub use series::{

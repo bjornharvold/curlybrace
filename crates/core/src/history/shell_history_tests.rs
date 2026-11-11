@@ -2,7 +2,7 @@
 
 use super::db::HistoryDb;
 use super::shell_history::{
-    MAX_STORED_SCRIPT_BYTES, SHELL_HISTORY_LIMIT, ShellHistoryEntry, ShellRunStatus,
+    MAX_STORED_SCRIPT_BYTES, Recorded, SHELL_HISTORY_LIMIT, ShellHistoryEntry, ShellRunStatus,
 };
 use crate::shell::Outcome;
 use uuid::Uuid;
@@ -105,11 +105,11 @@ fn a_script_over_the_size_cap_is_not_stored() {
     let c = conn(1);
     let at_cap = "x".repeat(MAX_STORED_SCRIPT_BYTES);
     let over = "x".repeat(MAX_STORED_SCRIPT_BYTES + 1);
-    db.record_shell_run(c, &over, ShellRunStatus::Succeeded, NOW)
-        .unwrap();
+    let too_large = db.record_shell_run(c, &over, ShellRunStatus::Succeeded, NOW);
+    assert_eq!(too_large.unwrap(), Recorded::TooLarge, "it says why");
     assert!(db.shell_history(c).unwrap().is_empty());
-    db.record_shell_run(c, &at_cap, ShellRunStatus::Succeeded, NOW)
-        .unwrap();
+    let stored = db.record_shell_run(c, &at_cap, ShellRunStatus::Succeeded, NOW);
+    assert_eq!(stored.unwrap(), Recorded::Stored);
     assert_eq!(db.shell_history(c).unwrap().len(), 1);
 }
 
@@ -202,9 +202,12 @@ fn purge_connection_removes_shell_history_and_blocks_later_records() {
     assert!(db.shell_history(gone).unwrap().is_empty());
     assert_eq!(scripts(&db, kept), ["keep"]);
 
-    // A run queued before the delete must not bring it back.
-    db.record_shell_run(gone, "late", ShellRunStatus::Succeeded, NOW)
-        .unwrap();
+    // A run queued before the delete must not bring it back, a long one included.
+    let late = db.record_shell_run(gone, "late", ShellRunStatus::Succeeded, NOW);
+    assert_eq!(late.unwrap(), Recorded::Skipped);
+    let long = "x".repeat(MAX_STORED_SCRIPT_BYTES + 1);
+    let long = db.record_shell_run(gone, &long, ShellRunStatus::Succeeded, NOW);
+    assert_eq!(long.unwrap(), Recorded::Skipped);
     assert!(db.shell_history(gone).unwrap().is_empty());
     // Nor a copy into it.
     db.copy_shell_history(kept, gone).unwrap();

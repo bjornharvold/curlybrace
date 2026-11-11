@@ -113,6 +113,21 @@ fn nothing_is_read_while_the_panel_is_closed() {
     assert!(changed.is_empty(), "{changed:?}");
 }
 
+/// A script too long to remember is noted even while the panel is closed (nothing is read), so
+/// opening the panel says so.
+#[test]
+fn a_script_too_long_to_remember_is_noted_while_the_panel_is_closed() {
+    let (s, id) = with_history();
+    let (s, commands) = event(s, changed_event(id, false));
+    assert!(commands.is_empty(), "{commands:?}");
+    assert!(shell_of(&s, id).history.last_not_saved);
+    let (s, opened) = shell(s, ShellAction::ToggleHistory);
+    assert_eq!(reads(&opened, id), 1);
+    assert!(shell_of(&s, id).history.last_not_saved, "shown when opened");
+    let (s, _) = event(s, changed_event(id, true));
+    assert!(!shell_of(&s, id).history.last_not_saved);
+}
+
 fn reads(commands: &[Command], id: Uuid) -> usize {
     commands
         .iter()

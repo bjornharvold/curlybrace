@@ -138,6 +138,28 @@ async fn a_record_answers_with_shell_history_changed() {
 }
 
 #[tokio::test]
+async fn a_script_too_long_to_store_answers_not_stored_and_a_purged_one_nothing() {
+    let (queue, mut rx, history) = queue();
+    let session = Uuid::new_v4();
+    let long = "x".repeat(crate::history::MAX_STORED_SCRIPT_BYTES + 1);
+    queue.push(record(session, &long));
+    assert_eq!(
+        next(&mut rx).await,
+        Event::ShellHistoryChanged {
+            session,
+            stored: false
+        }
+    );
+    history.purge_connection(session).unwrap();
+    queue.push(record(session, "db.a.find()"));
+    queue.push(Job::Read { session });
+    assert!(
+        scripts(next(&mut rx).await).is_empty(),
+        "skipped, unannounced"
+    );
+}
+
+#[tokio::test]
 async fn a_run_that_never_executed_is_not_recorded_and_not_announced() {
     let (queue, mut rx, _) = queue();
     let session = Uuid::new_v4();

@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::clock;
 use crate::error::{CoreError, Result};
-use crate::history::{HistoryDb, ShellRunStatus};
+use crate::history::{HistoryDb, Recorded, ShellRunStatus};
 use crate::shell::Outcome;
 
 use super::indexes::blocking;
@@ -147,14 +147,19 @@ fn perform(history: Option<&HistoryDb>, job: Job) -> Option<Event> {
     }
 }
 
-/// Remembers a finished run whose script executed; `ShellHistoryChanged` once written.
+/// Remembers a finished run whose script executed. `ShellHistoryChanged` once it was stored, or
+/// with `stored: false` when it was too long to store; nothing when nothing was recorded (the
+/// script never executed, the connection was deleted) or the write failed.
 fn record(history: &HistoryDb, connection: Uuid, script: &str, outcome: Outcome) -> Option<Event> {
     let status = ShellRunStatus::from_outcome(&outcome)?;
+    let changed = |stored| Event::ShellHistoryChanged {
+        session: connection,
+        stored,
+    };
     match history.record_shell_run(connection, script, status, clock::now_secs()) {
-        Ok(()) => Some(Event::ShellHistoryChanged {
-            session: connection,
-            stored: true,
-        }),
+        Ok(Recorded::Stored) => Some(changed(true)),
+        Ok(Recorded::TooLarge) => Some(changed(false)),
+        Ok(Recorded::Skipped) => None,
         Err(_) => {
             log::warn!("recording a shell run of {connection} in the history failed");
             None

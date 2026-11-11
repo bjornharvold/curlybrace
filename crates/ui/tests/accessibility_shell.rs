@@ -11,7 +11,7 @@ use curlybrace_ui::app::shell_actions::ShellAction;
 use curlybrace_ui::viewmodel::ConnectionBadge;
 use curlybrace_ui::viewmodel::index_detail::Age;
 use curlybrace_ui::viewmodel::shell::{ShellNotice, ShellState, ToolProblem};
-use curlybrace_ui::viewmodel::shell_history::first_line;
+use curlybrace_ui::viewmodel::shell_history::{HistoryView, first_line};
 use curlybrace_ui::views::shell::{ShellViewContext, ShellViewEvent, show_shell};
 use eframe::egui;
 use eframe::egui::accesskit::Role;
@@ -637,6 +637,25 @@ fn a_failed_refresh_is_said_in_words_and_keeps_the_runs() {
     h.get_by_label(&t("shell.history.refresh_failed"));
     h.get_by_role_and_label(Role::Button, &row_label(&first));
     assert!(h.query_by_label(&t("shell.history.unavailable")).is_none());
+}
+
+#[test]
+fn a_script_too_long_to_remember_is_said_in_the_open_panel_only() {
+    let first = entry(1, 120, "db.a.find()", ShellRunStatus::Succeeded);
+    let not_saved = open_history(vec![first.clone()]).history_changed(false);
+    let h = harness(Frame::new(not_saved.clone()));
+    h.get_by_label(&t("shell.history.not_saved"));
+    h.get_by_role_and_label(Role::Button, &row_label(&first));
+    // Closed (the flag kept for when it opens): not shown.
+    let closed = ShellState {
+        history: HistoryView {
+            open: false,
+            ..not_saved.history
+        },
+        ..not_saved
+    };
+    let h = harness(Frame::new(closed));
+    assert!(h.query_by_label(&t("shell.history.not_saved")).is_none());
 }
 
 #[test]

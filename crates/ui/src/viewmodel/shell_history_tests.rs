@@ -205,6 +205,39 @@ fn the_failed_refresh_line_goes_with_a_list_a_toggle_or_a_new_read() {
     );
 }
 
+// ---- A script too long to remember ----
+
+#[test]
+fn a_change_not_stored_is_kept_until_a_stored_one() {
+    let not_saved = loaded().history_changed(false);
+    assert!(not_saved.history.last_not_saved);
+    assert_eq!(not_saved.history.entries.len(), 2, "the list is untouched");
+    assert!(!not_saved.history_changed(true).history.last_not_saved);
+    assert!(
+        loaded().history_changed(true) == loaded(),
+        "a stored change changes nothing"
+    );
+}
+
+/// The panel shows the line when it is opened (the flag outlives a closed panel); closing the
+/// panel, or a clear, ends it.
+#[test]
+fn the_not_saved_line_survives_opening_and_goes_with_closing_or_a_clear() {
+    let not_saved = loaded().history_changed(false);
+    let opened = not_saved.history_toggled();
+    assert!(opened.history.open && opened.history.last_not_saved);
+    assert!(!opened.history_toggled().history.last_not_saved);
+    let (cleared, sends) = opened.clear_requested().clear_confirmed();
+    assert!(sends);
+    assert!(!cleared.history.last_not_saved);
+    let (_, unsent) = opened.clear_confirmed();
+    assert!(!unsent);
+    assert!(
+        opened.clear_confirmed().0.history.last_not_saved,
+        "no clear, no change"
+    );
+}
+
 // ---- A failed clear ----
 
 #[test]

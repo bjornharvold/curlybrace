@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::*;
-use crate::history::{HistoryDb, ShellHistoryEntry, ShellRunStatus};
+use crate::history::{HistoryDb, MAX_STORED_SCRIPT_BYTES, ShellHistoryEntry, ShellRunStatus};
 use crate::shell::Outcome;
 use crate::shell::fake::{Behaviour, FakeMongosh};
 use crate::test_support::InMemoryStore;
@@ -249,6 +249,25 @@ async fn a_read_sent_after_shell_history_changed_sees_the_row() {
     assert_eq!(entries[0].script, "hello shell");
 }
 
+/// A script too long to remember still runs; the change says it was not stored.
+#[tokio::test]
+async fn a_script_too_long_to_store_is_announced_as_not_stored() {
+    let mut f = Fixture::with_history().await;
+    // Short lines (the fake shell reads line by line), more bytes than are stored.
+    let line = format!("{}\n", "x".repeat(250));
+    let long = format!("hello shell\n{}", line.repeat(140));
+    assert!(long.len() > MAX_STORED_SCRIPT_BYTES);
+    f.run(1, &long);
+    // Whatever the long echo makes of the outcome, the script executed.
+    let outcome = f.finished().await;
+    assert!(
+        ShellRunStatus::from_outcome(&outcome).is_some(),
+        "{outcome:?}"
+    );
+    assert!(!f.changed().await, "not stored");
+    assert!(f.history_of(f.id).await.is_empty());
+}
+
 #[tokio::test]
 async fn a_refused_run_is_not_recorded() {
     let mut f = Fixture::new(true, true).await;
@@ -392,8 +411,8 @@ async fn a_run_finishing_after_its_connection_was_purged_is_not_recorded() {
     f.cancel(2);
     // The run did end (a live connection would have recorded it as cancelled).
     assert_eq!(f.finished().await, Outcome::Cancelled);
-    // Until the store says what it skipped, its answer is the same as for a stored record.
-    f.changed().await;
+    // Nothing was recorded, so nothing is announced: the next event is the read's answer, which
+    // is queued after the record.
     assert!(f.history_of(f.id).await.is_empty());
     assert!(f.stored(f.id).is_empty());
 }

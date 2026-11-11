@@ -7,7 +7,7 @@
 use super::db_schema::{SchemaError, prepare};
 use super::retention::{ChartRange, MAX_DB_BYTES};
 use super::series::{Bucket, Sample};
-use super::shell_history::{self, ShellHistoryEntry, ShellRunStatus};
+use super::shell_history::{self, Recorded, ShellHistoryEntry, ShellRunStatus};
 use super::{shapes, thin, usage};
 use crate::error::{CoreError, Result};
 use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
@@ -360,18 +360,19 @@ impl HistoryDb {
             .contains(&connection)
     }
 
-    /// Remembers one shell run of `connection`; see `shell_history::record`. Ignored for a
-    /// purged connection, checked under the connection lock like [`Self::record_many`].
+    /// Remembers one shell run of `connection`; see `shell_history::record`. Ignored
+    /// ([`Recorded::Skipped`]) for a purged connection, checked under the connection lock like
+    /// [`Self::record_many`].
     pub fn record_shell_run(
         &self,
         connection: Uuid,
         script: &str,
         status: ShellRunStatus,
         now_secs: i64,
-    ) -> Result<()> {
+    ) -> Result<Recorded> {
         let mut conn = self.lock();
         if self.is_purged(connection) {
-            return Ok(());
+            return Ok(Recorded::Skipped);
         }
         shell_history::record(&mut conn, connection, script, status, now_secs)
     }

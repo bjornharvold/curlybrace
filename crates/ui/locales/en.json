@@ -1290,6 +1290,7 @@
       "clear_failed": "Could not clear the history. Try again.",
       "empty": "No scripts have run on this connection yet.",
       "loading": "Loading history…",
+      "not_saved": "The last script was too long to remember.",
       "plaintext_note": "Scripts are stored on this computer exactly as written, including anything typed or pasted into them, such as a password. Their output is never stored.",
       "recall_hint": "Put this script in the editor",
       "refresh_failed": "Could not refresh the history.",

@@ -88,6 +88,17 @@ impl ShellRunStatus {
     }
 }
 
+/// What recording a run did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recorded {
+    /// The run is in the history.
+    Stored,
+    /// The script is longer than [`MAX_STORED_SCRIPT_BYTES`], so it was not stored.
+    TooLarge,
+    /// Nothing to record: the connection was deleted, or the script never executed.
+    Skipped,
+}
+
 /// One remembered run.
 #[derive(Clone, PartialEq)]
 pub struct ShellHistoryEntry {
@@ -136,16 +147,16 @@ pub(super) fn cap_batch(conn: &Connection, limit: i64) -> Result<usize> {
 }
 
 /// Stores one run: replaces the newest row when it holds the same script, then trims. One
-/// transaction. A script over [`MAX_STORED_SCRIPT_BYTES`] is silently not stored.
+/// transaction. A script over [`MAX_STORED_SCRIPT_BYTES`] is not stored ([`Recorded::TooLarge`]).
 pub(super) fn record(
     conn: &mut Connection,
     connection: Uuid,
     script: &str,
     status: ShellRunStatus,
     now_secs: i64,
-) -> Result<()> {
+) -> Result<Recorded> {
     if script.len() > MAX_STORED_SCRIPT_BYTES {
-        return Ok(());
+        return Ok(Recorded::TooLarge);
     }
     let id = connection.to_string();
     let tx = conn.transaction().map_err(sql_err)?;
@@ -162,7 +173,8 @@ pub(super) fn record(
     )
     .map_err(sql_err)?;
     trim(&tx, &id)?;
-    tx.commit().map_err(sql_err)
+    tx.commit().map_err(sql_err)?;
+    Ok(Recorded::Stored)
 }
 
 /// The newest [`SHELL_HISTORY_LIMIT`] runs of a connection, newest first. A row whose status this
