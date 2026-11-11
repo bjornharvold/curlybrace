@@ -505,7 +505,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 45;
+const COMMAND_VARIANTS: usize = 48;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -552,7 +552,10 @@ fn classify(command: &Command) -> Class {
         | Command::PurgeHistory { .. }
         | Command::SnapshotList { .. }
         | Command::SnapshotDelete { .. }
-        | Command::ShellCancel { .. } => Class::Other,
+        | Command::ShellCancel { .. }
+        | Command::ShellHistory { .. }
+        | Command::ClearShellHistory { .. }
+        | Command::CopyShellHistory { .. } => Class::Other,
         Command::ShellRun { .. } => Class::ShellWrite,
     }
 }
@@ -617,6 +620,12 @@ async fn is_write_agrees_with_what_the_read_only_store_refuses() {
         Command::ShellCancel {
             session: cfg.id,
             run_id: 1,
+        },
+        Command::ShellHistory { session: cfg.id },
+        Command::ClearShellHistory { session: cfg.id },
+        Command::CopyShellHistory {
+            from: cfg.id,
+            to: Uuid::new_v4(),
         },
     ];
     let shell_run = Command::ShellRun {

@@ -10,7 +10,7 @@
 //! command is documented in the `compare` module. And `Event::Sampler`: the index usage sampler
 //! of a connected session reports its status (running, or paused and why) on its own, whenever
 //! it changes, with no command behind it. The session-less `SetSamplingExcluded` and
-//! `PurgeHistory` have no answer, like `LockReadOnly`.
+//! `PurgeHistory` have no answer, like `LockReadOnly`, and neither has `CopyShellHistory`.
 //!
 //! Every connection is its own session (`Connect(cfg)` opens session `cfg.id`); data commands and
 //! session events carry the session they belong to, and all epochs come from one counter.
@@ -85,6 +85,8 @@ mod session;
 #[cfg(test)]
 mod session_tests;
 mod shell_handlers;
+#[cfg(test)]
+mod shell_history_tests;
 mod shell_slot;
 #[cfg(test)]
 mod shell_slot_tests;
@@ -469,6 +471,23 @@ pub enum Command {
         session: SessionId,
         run_id: u64,
     },
+    /// Reads the remembered shell runs of the session's connection, answered with
+    /// [`Event::ShellHistory`] (an empty list when history is off). Needs no live connection:
+    /// the history is keyed by the connection id, which is the session id.
+    ShellHistory {
+        session: SessionId,
+    },
+    /// Forgets the shell runs of the session's connection, answered with [`Event::ShellHistory`]
+    /// (the now empty list).
+    ClearShellHistory {
+        session: SessionId,
+    },
+    /// Gives the connection `to` a copy of the shell runs of `from` (a duplicated connection).
+    /// No session, no epoch, no answer event; a failure is logged.
+    CopyShellHistory {
+        from: uuid::Uuid,
+        to: uuid::Uuid,
+    },
 }
 
 /// Why a [`Command::ShellRun`] was not started.
@@ -715,6 +734,12 @@ pub enum Event {
         session: SessionId,
         run_id: u64,
         reason: ShellRefusal,
+    },
+    /// The answer to `ShellHistory` and `ClearShellHistory`: the connection's remembered runs,
+    /// newest first. Not epoch-gated. Its `Debug` leaves the scripts out.
+    ShellHistory {
+        session: SessionId,
+        entries: Vec<crate::history::ShellHistoryEntry>,
     },
 }
 

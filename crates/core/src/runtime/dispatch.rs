@@ -61,6 +61,16 @@ pub(super) fn dispatch(
         indexes::spawn_purge(&shared, connection);
         return;
     }
+    // Shell history needs only the history file, not a live session.
+    if matches!(
+        command,
+        Command::ShellHistory { .. }
+            | Command::ClearShellHistory { .. }
+            | Command::CopyShellHistory { .. }
+    ) {
+        shell_handlers::dispatch_history(shared, events, repaint, command);
+        return;
+    }
     // Synchronous, so request order decides: ending the session bumps its epoch before any later
     // command is dispatched. The session is gone afterwards, so the answer needs no `Session`.
     if let Command::Disconnect { session: id } = command {

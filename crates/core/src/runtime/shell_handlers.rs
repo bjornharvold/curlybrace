@@ -10,15 +10,20 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 
 use tokio::sync::mpsc::UnboundedSender;
+use uuid::Uuid;
 
+use crate::clock;
 use crate::connection::ConnectionConfig;
+use crate::history::{HistoryDb, ShellRunStatus};
 use crate::shell::{Outcome, RunLimits, build_invocation, percent_encode_component, spawn_shell};
 
+use super::indexes::blocking;
 use super::session::Session;
 use super::{Command, Event, Repaint, SessionId, Shared, ShellRefusal, handlers};
 
@@ -207,7 +212,10 @@ pub(super) async fn start(
         };
         send(&out_events, &out_repaint, event);
     };
+    let (history, connection, script) = (shared.history.clone(), run.cfg.id, run.script.clone());
     let on_done = move |outcome| {
+        // Before the slot is freed and the event sent: whoever sees `ShellFinished` finds the run.
+        record_run(history.as_deref(), connection, &script, &outcome);
         // Free the slot before the event, so a run sent on seeing `ShellFinished` is not refused.
         if let Some(session) = weak.upgrade() {
             session.shell.release(run_id);
@@ -258,4 +266,88 @@ fn send(events: &UnboundedSender<Event>, repaint: &Repaint, event: Event) {
     if events.send(event).is_ok() {
         repaint();
     }
+}
+
+/// Remembers a finished run in the history, if there is one and the script actually executed.
+/// Runs on the runner's thread, before the slot is released and `ShellFinished` is sent, so a
+/// reader that has seen the event finds the entry. A failure (or a panic) is logged and changes
+/// nothing: the log names the connection only, because neither the script nor an error that may
+/// quote it belongs in a log.
+fn record_run(history: Option<&HistoryDb>, connection: Uuid, script: &str, outcome: &Outcome) {
+    let (Some(history), Some(status)) = (history, ShellRunStatus::from_outcome(outcome)) else {
+        return;
+    };
+    let now = clock::now_secs();
+    let recorded = catch_unwind(AssertUnwindSafe(|| {
+        history.record_shell_run(connection, script, status, now)
+    }));
+    match recorded {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => log::warn!("recording a shell run of {connection} in the history failed"),
+        Err(_) => log::warn!("recording a shell run of {connection} in the history panicked"),
+    }
+}
+
+/// `ShellHistory`, `ClearShellHistory` and `CopyShellHistory`: reads and writes of the history
+/// file on the blocking pool. The history is keyed by the connection id, which is the session id.
+pub(super) fn dispatch_history(
+    shared: Arc<Shared>,
+    events: UnboundedSender<Event>,
+    repaint: Repaint,
+    command: Command,
+) {
+    let history = shared.history.clone();
+    match command {
+        Command::ShellHistory { session } => {
+            answer_history(history, session, false, "shell_history", events, repaint);
+        }
+        Command::ClearShellHistory { session } => {
+            answer_history(
+                history,
+                session,
+                true,
+                "clear_shell_history",
+                events,
+                repaint,
+            );
+        }
+        Command::CopyShellHistory { from, to } => {
+            let Some(history) = history else {
+                return;
+            };
+            tokio::spawn(async move {
+                let copied = blocking(move || history.copy_shell_history(from, to)).await;
+                if let Err(error) = copied {
+                    log::warn!("copying the shell history of {from} to {to} failed: {error}");
+                }
+            });
+        }
+        _ => unreachable!("only shell history commands are routed here"),
+    }
+}
+
+/// Answers with the connection's entries, or with none after `clear`. Without history the answer
+/// is the empty list; a failed read is a `Failed` event, not an empty list.
+fn answer_history(
+    history: Option<Arc<HistoryDb>>,
+    session: SessionId,
+    clear: bool,
+    context: &'static str,
+    events: UnboundedSender<Event>,
+    repaint: Repaint,
+) {
+    tokio::spawn(async move {
+        let entries = match history {
+            None => Ok(Vec::new()),
+            Some(history) if clear => {
+                blocking(move || history.clear_shell_history(session).map(|()| Vec::new())).await
+            }
+            Some(history) => blocking(move || history.shell_history(session)).await,
+        };
+        let event = match entries {
+            Ok(entries) => Event::ShellHistory { session, entries },
+            Err(error) => handlers::failure_event(session, context, None, 0, error),
+        };
+        send(&events, &repaint, event);
+    });
 }

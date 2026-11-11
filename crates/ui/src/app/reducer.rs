@@ -455,7 +455,9 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::Snapshots { .. }
         | Event::ShellOutput { .. }
         | Event::ShellFinished { .. }
-        | Event::ShellRefused { .. } => (state, Vec::new()),
+        | Event::ShellRefused { .. }
+        // Wired by the shell history tab work; nothing asks for it yet.
+        | Event::ShellHistory { .. } => (state, Vec::new()),
     }
 }
 

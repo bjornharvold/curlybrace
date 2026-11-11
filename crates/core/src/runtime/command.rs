@@ -51,7 +51,10 @@ impl Command {
             | Self::BulkCancel { .. }
             | Self::SnapshotList { .. }
             | Self::SnapshotDelete { .. }
-            | Self::ShellCancel { .. } => false,
+            | Self::ShellCancel { .. }
+            | Self::ShellHistory { .. }
+            | Self::ClearShellHistory { .. }
+            | Self::CopyShellHistory { .. } => false,
         }
     }
 
@@ -119,6 +122,9 @@ impl Command {
             Self::SnapshotDelete { .. } => "snapshot_delete",
             Self::ShellRun { .. } => "shell_run",
             Self::ShellCancel { .. } => "shell_cancel",
+            Self::ShellHistory { .. } => "shell_history",
+            Self::ClearShellHistory { .. } => "clear_shell_history",
+            Self::CopyShellHistory { .. } => "copy_shell_history",
         }
     }
 
@@ -162,7 +168,9 @@ impl Command {
             | Self::BulkUndoPreview { session, .. }
             | Self::BulkUndo { session, .. }
             | Self::ShellRun { session, .. }
-            | Self::ShellCancel { session, .. } => Some(*session),
+            | Self::ShellCancel { session, .. }
+            | Self::ShellHistory { session }
+            | Self::ClearShellHistory { session } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
@@ -170,7 +178,8 @@ impl Command {
             | Self::SetSamplingExcluded { .. }
             | Self::PurgeHistory { .. }
             | Self::SnapshotList { .. }
-            | Self::SnapshotDelete { .. } => None,
+            | Self::SnapshotDelete { .. }
+            | Self::CopyShellHistory { .. } => None,
         }
     }
 }
@@ -209,7 +218,8 @@ impl Event {
             | Self::RequestFailed { session, .. }
             | Self::ShellOutput { session, .. }
             | Self::ShellFinished { session, .. }
-            | Self::ShellRefused { session, .. } => Some(*session),
+            | Self::ShellRefused { session, .. }
+            | Self::ShellHistory { session, .. } => Some(*session),
             Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
