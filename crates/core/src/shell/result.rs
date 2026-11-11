@@ -159,11 +159,20 @@ fn array(envelope: &Envelope) -> Option<ShellResult> {
     })
 }
 
+/// The emitter sends every non-array object as `object`, so a last value that is one BSON-typed
+/// value (`new Date(0)`, `ObjectId(..)`, `NumberLong(5)`, `UUID()`, ...) comes as a JSON object
+/// that converts to that value, not to a document: it is a scalar then (its `t` is not needed).
 fn object(envelope: &Envelope) -> Option<ShellResult> {
-    Some(ShellResult::Object {
-        type_name: optional_string(envelope.get("t")?)?,
-        doc: to_document(envelope.get("v")?)?,
-    })
+    let type_name = optional_string(envelope.get("t")?)?;
+    let v = envelope.get("v")?;
+    v.as_object()?;
+    match to_bson(v)? {
+        Bson::Document(doc) => Some(ShellResult::Object { type_name, doc }),
+        value => Some(ShellResult::Scalar {
+            value,
+            undefined: false,
+        }),
+    }
 }
 
 fn scalar(envelope: &Envelope) -> Option<ShellResult> {

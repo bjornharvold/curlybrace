@@ -261,6 +261,33 @@ fn table_shows_the_reason_when_the_result_is_not_documents() {
     );
 }
 
+/// A last value that is one BSON-typed value (a Date, an ObjectId, a Long, a UUID) is a scalar:
+/// Table and Tree say it is not documents, and nothing panics drawing it.
+#[test]
+fn a_bson_typed_scalar_is_not_documents_in_both_modes() {
+    let oid = bson::oid::ObjectId::parse_str("650000000000000000000001").unwrap();
+    let uuid = bson::Binary {
+        subtype: bson::spec::BinarySubtype::Uuid,
+        bytes: vec![7; 16],
+    };
+    let values = [
+        Bson::DateTime(bson::DateTime::from_millis(0)),
+        Bson::ObjectId(oid),
+        Bson::Int64(5),
+        Bson::Binary(uuid),
+    ];
+    for value in values {
+        for mode in [OutputMode::Table, OutputMode::Tree] {
+            let scalar = ShellResult::Scalar {
+                value: value.clone(),
+                undefined: false,
+            };
+            let h = harness(with_result(scalar, mode));
+            h.get_by_label(&t("shell.result.unavailable.not_documents"));
+        }
+    }
+}
+
 #[test]
 fn every_reason_is_said_in_words() {
     // The emitter counts characters (UTF-16 units), not bytes: said as a character count.

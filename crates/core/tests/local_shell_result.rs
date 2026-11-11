@@ -464,6 +464,56 @@ async fn print_and_ejson_overrides_still_get_a_result() {
     assert_eq!(doc.get_str("b").ok(), Some("x"), "{doc:?}");
 }
 
+/// A last value that is one BSON-typed object (a Date, an ObjectId, a Long, a UUID) is a scalar of
+/// that type, not "no value".
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn a_bson_typed_last_value_is_a_scalar() {
+    let test = "a_bson_typed_last_value_is_a_scalar";
+    let scripts: Vec<String> = [
+        "new Date(0)",
+        "ObjectId(\"650000000000000000000001\")",
+        "NumberLong(5)",
+        "UUID()",
+    ]
+    .map(String::from)
+    .to_vec();
+    let Some(runs) = runs_on_local(test, &scripts).await else {
+        return;
+    };
+    let values: Vec<Option<&Bson>> = runs
+        .iter()
+        .map(|events| match result_of(events) {
+            Some(ShellResult::Scalar {
+                value,
+                undefined: false,
+            }) => Some(value),
+            _ => None,
+        })
+        .collect();
+    for (script, (events, value)) in scripts.iter().zip(runs.iter().zip(&values)) {
+        assert_eq!(outcome(events), Outcome::Exited(0), "{script}: {events:?}");
+        assert!(value.is_some(), "{script}: no scalar in {events:?}");
+    }
+    assert_eq!(
+        values[0],
+        Some(&Bson::DateTime(bson::DateTime::from_millis(0)))
+    );
+    assert_eq!(
+        values[1],
+        Some(&Bson::ObjectId(
+            bson::oid::ObjectId::parse_str("650000000000000000000001").unwrap()
+        ))
+    );
+    assert_eq!(values[2], Some(&Bson::Int64(5)));
+    assert!(
+        matches!(values[3], Some(Bson::Binary(b))
+            if b.subtype == bson::spec::BinarySubtype::Uuid && b.bytes.len() == 16),
+        "{:?}",
+        values[3]
+    );
+}
+
 /// A script that ends the shell itself after some output: the run ends by itself (bounded by
 /// `run_script`'s wait), with the shell's own exit status, and has no result.
 async fn ends_by_itself(test: &str, exit: &str, code: i32) {

@@ -418,3 +418,64 @@ fn a_non_alphabetical_field_order_survives_parsing() {
     let keys: Vec<&str> = doc.keys().map(String::as_str).collect();
     assert_eq!(keys, ["z", "a", "m"]);
 }
+
+/// An `object` payload whose value is one BSON-typed value (the emitter sends any non-array
+/// object as `object`, so `new Date(0)` or `ObjectId(..)` as the last value lands here).
+fn object_scalar(v: &str) -> Bson {
+    let line = format!(r#"{{"k":"object","t":null,"v":{v}}}"#);
+    match parsed(&line) {
+        ShellResult::Scalar {
+            value,
+            undefined: false,
+        } => value,
+        other => panic!("expected a scalar for {v}, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_object_payload_holding_one_bson_value_is_a_scalar() {
+    assert_eq!(
+        object_scalar(r#"{"$oid":"650000000000000000000001"}"#),
+        Bson::ObjectId(bson::oid::ObjectId::parse_str("650000000000000000000001").unwrap())
+    );
+    assert_eq!(
+        object_scalar(r#"{"$date":{"$numberLong":"0"}}"#),
+        Bson::DateTime(bson::DateTime::from_millis(0))
+    );
+    assert_eq!(object_scalar(r#"{"$numberLong":"5"}"#), Bson::Int64(5));
+    assert!(matches!(
+        object_scalar(r#"{"$binary":{"base64":"ASNFZ4mrze8BI0VniavN7w==","subType":"04"}}"#),
+        Bson::Binary(b) if b.subtype == bson::spec::BinarySubtype::Uuid
+    ));
+    assert!(matches!(
+        object_scalar(r#"{"$binary":{"base64":"aGVsbG8=","subType":"00"}}"#),
+        Bson::Binary(b) if b.bytes == b"hello"
+    ));
+    assert!(matches!(
+        object_scalar(r#"{"$numberDecimal":"12.345"}"#),
+        Bson::Decimal128(d) if d.to_string() == "12.345"
+    ));
+    assert_eq!(
+        object_scalar(r#"{"$timestamp":{"t":1700000000,"i":3}}"#),
+        Bson::Timestamp(bson::Timestamp {
+            time: 1700000000,
+            increment: 3
+        })
+    );
+    assert!(matches!(
+        object_scalar(r#"{"$regularExpression":{"pattern":"ab+c","options":"i"}}"#),
+        Bson::RegularExpression(r) if r.pattern == "ab+c" && r.options == "i"
+    ));
+}
+
+#[test]
+fn an_object_payload_with_a_type_name_and_a_bson_value_is_still_a_scalar() {
+    let line = r#"{"k":"object","t":"Something","v":{"$numberLong":"5"}}"#;
+    assert_eq!(
+        parsed(line),
+        ShellResult::Scalar {
+            value: Bson::Int64(5),
+            undefined: false
+        }
+    );
+}
