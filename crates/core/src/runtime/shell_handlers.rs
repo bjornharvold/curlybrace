@@ -241,6 +241,8 @@ pub(super) async fn start(
         Some(&path),
         RunLimits::default(),
         on_output,
+        // Task 4 turns the payload into an event.
+        |_| {},
         on_done,
     );
     run.session.shell.attach(run_id, handle);

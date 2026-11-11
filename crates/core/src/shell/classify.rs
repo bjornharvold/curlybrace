@@ -21,14 +21,22 @@
 //!   prompt past the last line followed by the end of the output means a bracket, string or
 //!   comment was left open. Both are [`Classifier::incomplete`];
 //! - routes a block that starts (at a line start) with the error marker to stderr until the next
-//!   prompt. The marker includes the `\r`, so printed text such as `Uncaught x` stays output.
+//!   prompt. The marker includes the `\r`, so printed text such as `Uncaught x` stays output;
+//! - made with a result token ([`Classifier::with_result`]), gives the verdict on the epilogue
+//!   with [`Piece::Evaluated`] and then lifts the epilogue's answer out of the text (see
+//!   `classify_result.rs`).
 //!
 //! Limitation: once a script redefines `prompt`, its own prompt is shown as output and the end of
 //! the script is no longer seen, so from then on the routing to stderr and the outcome are
-//! unreliable (an error after it may show as output, and the run may end `Exited(0)`).
+//! unreliable (an error after it may show as output, and the run may end `Exited(0)`). Such a
+//! script gets no epilogue (`invocation::blocks_the_epilogue`).
 use super::Stream;
-use super::invocation::PROMPT;
+use super::invocation::{PROMPT, result_marker};
+use result::{PayloadLine, Start};
 use std::collections::VecDeque;
+
+#[path = "classify_result.rs"]
+mod result;
 
 const READY: &str = "__CB_READY__";
 const FAILED: &str = "__CB_FAILED__";
@@ -40,13 +48,24 @@ const ERROR_MARKERS: [&str; 2] = ["Uncaught \r", "Uncaught:\n\r"];
 /// Lines of pre-sentinel output kept to explain a run that never connected.
 const UNREADY_LINES: usize = 20;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub(crate) enum Piece {
     Out(Stream, String),
     /// A continuation prompt: `mongosh` is still reading the statement and wants the next line.
     Continue,
-    /// The prompt came back after the script: `mongosh` evaluated what it read.
-    Evaluated,
+    /// The prompt came back after the script: `mongosh` evaluated what it read. `epilogue`: the
+    /// whole block was read and evaluated without an error, and the epilogue may be sent (only
+    /// ever true with a result token); from now on until the next prompt the answer is lifted.
+    Evaluated {
+        epilogue: bool,
+    },
+    /// A continuation prompt may have come after the last script line: `mongosh` may be waiting
+    /// for a line that never comes, so no epilogue may be sent (stdin must close now).
+    NoEpilogue,
+    /// The epilogue's answer (the text after the marker, without the line end). Never text.
+    Result(String),
+    /// The epilogue's answer was longer than the cap; it is dropped.
+    ResultTooLarge,
     /// The preamble connected; the script may be written.
     Ready,
     /// The preamble failed with this message; nothing after it is shown.
@@ -94,6 +113,22 @@ pub(crate) struct Classifier {
     /// Fixed prompts seen since READY.
     prompts: usize,
     incomplete: bool,
+    /// [`result_marker`] of the run's token; `None`: no epilogue is ever sent.
+    marker: Option<String>,
+    /// Longest answer kept (bytes after the marker).
+    max_result_bytes: usize,
+    /// The verdict on the epilogue was given ([`Piece::Evaluated`] or [`Piece::NoEpilogue`]).
+    verdict_given: bool,
+    /// Between `Evaluated { epilogue: true }` and the next prompt: marker lines are answers.
+    window: bool,
+    /// The answer line being read.
+    payload: Option<PayloadLine>,
+    /// Drop one `\n` right after an answer (the empty result `print` leaves).
+    skip_result_blank: bool,
+    /// The end of the block's output so far, to find the `_` text split across pieces.
+    block_tail: String,
+    /// The block printed `mongosh`'s "assignment to `_`" notice: `_` is the user's value.
+    saw_underscore: bool,
 }
 
 impl Classifier {
@@ -103,6 +138,22 @@ impl Classifier {
             continuations: Some(continuations),
             ..Self::default()
         }
+    }
+
+    /// Like [`Classifier::expecting`], for a run whose epilogue asks for a result line marked
+    /// with `token`; an answer longer than `max_result_bytes` is dropped.
+    pub(crate) fn with_result(continuations: usize, token: &str, max_result_bytes: usize) -> Self {
+        Self {
+            marker: Some(result_marker(token)),
+            max_result_bytes,
+            ..Self::expecting(continuations)
+        }
+    }
+
+    /// Whether output now belongs to the epilogue's answer window (its bytes are counted
+    /// against the result budget, not the text budget).
+    pub(crate) fn in_result_window(&self) -> bool {
+        self.window
     }
 
     pub(crate) fn push(&mut self, text: &str) -> Vec<Piece> {
@@ -193,6 +244,16 @@ impl Classifier {
             rest = rest.strip_prefix('\n').unwrap_or(rest);
         }
         while !rest.is_empty() {
+            if self.payload.is_some() {
+                rest = self.payload_text(rest, out);
+                continue;
+            }
+            if std::mem::take(&mut self.skip_result_blank) {
+                if let Some(after) = rest.strip_prefix('\n') {
+                    rest = after;
+                    continue;
+                }
+            }
             if let Some(after) = rest.strip_prefix(PROMPT) {
                 self.prompt(out);
                 rest = after;
@@ -216,6 +277,18 @@ impl Classifier {
                 }
             }
             if !self.mid_line {
+                match self.result_start(rest, at_end) {
+                    Start::Answer(after) => {
+                        self.payload = Some(PayloadLine::default());
+                        rest = after;
+                        continue;
+                    }
+                    Start::Hold => {
+                        self.held = rest.to_owned();
+                        return;
+                    }
+                    Start::Other => {}
+                }
                 if ERROR_MARKERS.iter().any(|m| rest.starts_with(m)) {
                     self.in_error = true;
                     self.saw_uncaught = true;
@@ -234,11 +307,19 @@ impl Classifier {
         self.mid_line = false;
         self.after_prompt = true;
         self.prompts += 1;
-        if self.prompts == 2 {
-            if self.continuations.is_some_and(|left| left > 0) {
-                self.incomplete = true;
+        match self.prompts {
+            2 => {
+                if self.continuations.is_some_and(|left| left > 0) {
+                    self.incomplete = true;
+                }
+                let epilogue = self.epilogue_wanted();
+                self.verdict_given = true;
+                self.window = epilogue;
+                out.push(Piece::Evaluated { epilogue });
             }
-            out.push(Piece::Evaluated);
+            // The epilogue's own prompt: its answer is over.
+            3 => self.window = false,
+            _ => {}
         }
     }
 
@@ -253,7 +334,10 @@ impl Classifier {
                     self.incomplete = true;
                     Bar::Stripped("")
                 }
-                (true, false) => Bar::Hold,
+                (true, false) => {
+                    self.refuse_epilogue(out);
+                    Bar::Hold
+                }
                 (false, _) => Bar::Output,
             };
         }
@@ -280,20 +364,38 @@ impl Classifier {
         };
         // A leading U+0001 here is not a prompt (checked by the caller): it is output.
         let skip = usize::from(rest.starts_with('\u{1}'));
-        match rest[skip..].find(['\n', '\u{1}']).map(|i| i + skip) {
+        let (segment, left) = match rest[skip..].find(['\n', '\u{1}']).map(|i| i + skip) {
             Some(i) if rest[i..].starts_with('\n') => {
-                emit(out, stream, &rest[..=i]);
                 self.mid_line = false;
-                &rest[i + 1..]
+                (&rest[..=i], &rest[i + 1..])
             }
-            Some(i) => {
-                emit(out, stream, &rest[..i]);
-                &rest[i..]
-            }
-            None => {
-                emit(out, stream, rest);
-                ""
-            }
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, ""),
+        };
+        if self.prompts < 2 {
+            self.note_block_output(segment);
+        }
+        emit(out, stream, segment);
+        left
+    }
+}
+
+impl std::fmt::Debug for Piece {
+    /// An answer is shown by its length only: it holds document data (not masked yet).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Piece::Out(stream, text) => f.debug_tuple("Out").field(stream).field(text).finish(),
+            Piece::Continue => f.write_str("Continue"),
+            Piece::Evaluated { epilogue } => f
+                .debug_struct("Evaluated")
+                .field("epilogue", epilogue)
+                .finish(),
+            Piece::NoEpilogue => f.write_str("NoEpilogue"),
+            Piece::Result(payload) => write!(f, "Result(<{} bytes>)", payload.len()),
+            Piece::ResultTooLarge => f.write_str("ResultTooLarge"),
+            Piece::Ready => f.write_str("Ready"),
+            Piece::Failed(message) => f.debug_tuple("Failed").field(message).finish(),
+            Piece::NoSentinel(lines) => f.debug_tuple("NoSentinel").field(lines).finish(),
         }
     }
 }
@@ -331,3 +433,7 @@ fn emit(out: &mut Vec<Piece>, stream: Stream, text: &str) {
 #[cfg(test)]
 #[path = "classify_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "classify_result_tests.rs"]
+mod result_tests;

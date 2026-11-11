@@ -38,7 +38,10 @@ fn nothing_before_the_ready_sentinel_is_shown() {
     assert_eq!(pieces[0], Piece::Ready);
     assert_eq!(
         pieces[1..],
-        [Piece::Out(Stdout, "2\n".into()), Piece::Evaluated]
+        [
+            Piece::Out(Stdout, "2\n".into()),
+            Piece::Evaluated { epilogue: false }
+        ]
     );
 }
 
@@ -273,7 +276,7 @@ fn each_continuation_prompt_asks_for_the_next_line_and_the_next_prompt_ends_the_
     let raw = format!("{P}| | | then\n\n{P}");
     let (pieces, classifier) = feed_block(3, &[READY, &raw]);
     assert_eq!(count(&pieces, &Piece::Continue), 3);
-    assert_eq!(pieces.last(), Some(&Piece::Evaluated));
+    assert_eq!(pieces.last(), Some(&Piece::Evaluated { epilogue: false }));
     assert_eq!(shown(&pieces, Stdout), "then\n\n");
     assert!(!classifier.saw_uncaught() && !classifier.incomplete());
 }
@@ -302,7 +305,7 @@ fn a_prompt_before_the_last_line_was_asked_for_is_incomplete() {
     // `{print(1) }` / `print("ESCAPED")` / `}`: the first line closed the block early.
     let (pieces, classifier) = feed_block(2, &[READY, P, "1\n\n", P]);
     assert_eq!(count(&pieces, &Piece::Continue), 0);
-    assert_eq!(pieces.last(), Some(&Piece::Evaluated));
+    assert_eq!(pieces.last(), Some(&Piece::Evaluated { epilogue: false }));
     assert!(classifier.incomplete());
 }
 
@@ -314,7 +317,7 @@ fn a_syntax_error_part_way_is_an_error_that_ends_the_script() {
     );
     let (pieces, classifier) = feed_block(3, &[READY, &raw]);
     assert_eq!(count(&pieces, &Piece::Continue), 1);
-    assert_eq!(pieces.last(), Some(&Piece::Evaluated));
+    assert_eq!(pieces.last(), Some(&Piece::Evaluated { epilogue: false }));
     assert!(shown(&pieces, Stderr).starts_with("Uncaught:\nSyntaxError: Unexpected token (2:4)\n"));
     assert!(classifier.saw_uncaught());
 }

@@ -7,6 +7,9 @@ use std::process::{Child, ExitStatus};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+/// Bytes the answer window may hold beyond the answer itself.
+const WINDOW_SLACK: usize = 64 * 1024;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Stop {
     Cancelled,
@@ -31,6 +34,9 @@ pub(super) struct Control {
     state: Mutex<State>,
     max_output_bytes: usize,
     output_bytes: AtomicUsize,
+    /// The budget of the epilogue's answer window, counted apart from the text's.
+    max_window_bytes: usize,
+    window_bytes: AtomicUsize,
     saw_uncaught: AtomicBool,
     /// `mongosh` stopped reading the script before its end.
     incomplete: AtomicBool,
@@ -39,12 +45,16 @@ pub(super) struct Control {
 }
 
 impl Control {
-    pub(super) fn new(pid: u32, max_output_bytes: usize) -> Self {
+    /// The answer window may take `max_result_bytes` plus [`WINDOW_SLACK`] (its marker, line
+    /// ends, prompt and any late output in it).
+    pub(super) fn new(pid: u32, max_output_bytes: usize, max_result_bytes: usize) -> Self {
         Self {
             pid,
             state: Mutex::new(State::default()),
             max_output_bytes,
             output_bytes: AtomicUsize::new(0),
+            max_window_bytes: max_result_bytes.saturating_add(WINDOW_SLACK),
+            window_bytes: AtomicUsize::new(0),
             saw_uncaught: AtomicBool::new(false),
             incomplete: AtomicBool::new(false),
             handshake_done: AtomicBool::new(false),
@@ -91,8 +101,18 @@ impl Control {
     /// Counts `n` more raw output bytes; returns how many fit under the cap and stops the run
     /// when they do not all fit.
     pub(super) fn admit(&self, n: usize) -> usize {
-        let before = self.output_bytes.fetch_add(n, Ordering::SeqCst);
-        let allowed = self.max_output_bytes.saturating_sub(before).min(n);
+        self.admit_to(&self.output_bytes, self.max_output_bytes, n)
+    }
+
+    /// Like [`Control::admit`], for bytes read in the epilogue's answer window: they count
+    /// against the window's own budget, so a large answer does not eat the text's.
+    pub(super) fn admit_window(&self, n: usize) -> usize {
+        self.admit_to(&self.window_bytes, self.max_window_bytes, n)
+    }
+
+    fn admit_to(&self, counter: &AtomicUsize, max: usize, n: usize) -> usize {
+        let before = counter.fetch_add(n, Ordering::SeqCst);
+        let allowed = max.saturating_sub(before).min(n);
         if allowed < n {
             self.stop(Stop::CapReached);
         }

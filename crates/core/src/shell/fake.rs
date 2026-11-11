@@ -29,7 +29,20 @@
 //! | `split <a> <b>` | `printf <a>`, a 0.2 s pause, `printf <b>`: two separate reads |
 //! | `long <n>` | `n` times `x` without a newline |
 //! | `passwordPrompt()` | with the preamble's override: its `Uncaught \rError: <message>`; without: `Enter password`, then reads all of stdin as the password and exits 0, as `mongosh` does |
+//! | `result <payload>` | the epilogue's answer: `\x01CBJ-<token> <payload>`, then the blank line `print` leaves |
+//! | `result-twice <payload>` | the same answer, twice |
+//! | `result-huge <n>` | the answer is `n` times `x` |
+//! | `result-slow` | the epilogue prints `epilogue-received` and hangs (`sleep 30`) |
+//! | `spoof <token>` | prints a marker line now: `\x01CBJ-<token> {"k":"spoof"}` |
+//! | `prompt <text>` | later prompts are `<text>` instead of the fixed one (a redefined `prompt`) |
 //! | anything else | echoed back |
+//!
+//! The epilogue (`__cbEmit(_, "\u0001CBJ-<token> ", 200, 4194304)`, one complete statement, so
+//! no `| `) is answered as the script's last `result*` line said, with the token read from the
+//! epilogue itself; without such a line it answers nothing. Like `mongosh`, the prompt follows.
+//!
+//! What it was started with and every stdin line it read go to [`FakeMongosh::seen_log`]:
+//! `arg:<a>` per argument, `env:<NAME=value>` per variable, then `in:<line>` per line read.
 //!
 //! The child gets an empty environment, so it needs a `PATH` with `/usr/bin:/bin`
 //! ([`FAKE_PATH`]).
@@ -82,7 +95,8 @@ impl FakeMongosh {
         let script = SCRIPT
             .replace("@MODE@", mode)
             .replace("@MESSAGE@", message)
-            .replace("@LOG@", &dir.path().join("stdin.log").display().to_string());
+            .replace("@LOG@", &dir.path().join("stdin.log").display().to_string())
+            .replace("@SEEN@", &dir.path().join("seen.log").display().to_string());
         std::fs::write(&exe, script).expect("write the fake mongosh");
         std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755))
             .expect("make the fake mongosh executable");
@@ -92,6 +106,11 @@ impl FakeMongosh {
     /// Where [`Behaviour::ConnectFails`] logs the stdin lines it read after the preamble.
     pub(crate) fn stdin_log(&self) -> PathBuf {
         self.dir.path().join("stdin.log")
+    }
+
+    /// Its arguments, environment and every stdin line it read (see the module docs).
+    pub(crate) fn seen_log(&self) -> PathBuf {
+        self.dir.path().join("seen.log")
     }
 
     /// A scratch path inside the fake's temp dir (for pid files).
@@ -106,13 +125,21 @@ impl FakeMongosh {
 
 const SCRIPT: &str = r#"#!/bin/bash
 MODE='@MODE@'
+SEEN='@SEEN@'
+{ for a in "$@"; do printf 'arg:%s\n' "$a"; done; env | sed 's/^/env:/'; } > "$SEEN"
+# Reads one stdin line into $line and logs it.
+read_line() {
+  IFS= read -r line || return 1
+  printf 'in:%s\n' "$line" >> "$SEEN"
+}
 if [ "$MODE" = ignore ]; then
   printf '__CB_READY__\n\nignored\n'
   sleep 0.3
   exit 0
 fi
 printf '> '
-IFS= read -r preamble || exit 0
+read_line || exit 0
+preamble="$line"
 if [ "$MODE" = fail ]; then
   printf '__CB_FAILED__ %s\n\n> ' '@MESSAGE@'
   while IFS= read -r line; do printf '%s\n' "$line" >> '@LOG@'; done
@@ -147,6 +174,12 @@ run_line() {
     'bytes '*) printf "${1#bytes }" ;;
     'split '*) read -r _ first second <<< "$1"; printf "$first"; sleep 0.2; printf "$second" ;;
     'long '*) head -c "${1#long }" /dev/zero | tr '\0' x ;;
+    'result '*) answer_mode=payload; answer="${1#result }" ;;
+    'result-twice '*) answer_mode=twice; answer="${1#result-twice }" ;;
+    'result-huge '*) answer_mode=huge; answer="${1#result-huge }" ;;
+    result-slow) answer_mode=slow ;;
+    'spoof '*) printf '\001CBJ-%s {"k":"spoof"}\n' "${1#spoof }" ;;
+    'prompt '*) PROMPT_TEXT="${1#prompt }" ;;
     'passwordPrompt()')
       if [ -n "$pw_blocked" ]; then printf 'Uncaught \rError: %s\n' "$pw_blocked"; return 1; fi
       printf 'Enter password\n'; cat > /dev/null; exit 0 ;;
@@ -166,10 +199,25 @@ evaluate() {
     run_line "$line" || return
   done
 }
+# The epilogue's answer, as `__cbEmit` prints it: one line, then the blank line `print` leaves.
+answer_epilogue() {
+  case "$answer_mode" in
+    payload) printf '\001CBJ-%s %s\n\n' "$1" "$answer" ;;
+    twice) printf '\001CBJ-%s %s\n\n' "$1" "$answer" "$1" "$answer" ;;
+    huge) printf '\001CBJ-%s ' "$1"; head -c "$answer" /dev/zero | tr '\0' x; printf '\n\n' ;;
+    slow) printf 'epilogue-received\n'; sleep 30 ;;
+    *) ;;
+  esac
+}
+emit_re='^__cbEmit\(_, "\\u0001CBJ-([0-9a-f]+) ", 200, 4194304\)$'
+answer_mode=''
+answer=''
+PROMPT_TEXT=$'\001CBP> '
 ARGS=("$@")
 while true; do
-  printf '\001CBP> '
-  IFS= read -r line || exit 0
+  printf '%s' "$PROMPT_TEXT"
+  read_line || exit 0
+  if [[ "$line" =~ $emit_re ]]; then answer_epilogue "${BASH_REMATCH[1]}"; continue; fi
   lines=()
   depth=0
   # Like mongosh: an unfinished statement reads continuation lines, each after a `| `; a
@@ -180,7 +228,7 @@ while true; do
     depth=$((depth + $(depth_of "$line")))
     if [ "$depth" -le 0 ] && [[ "$line" != *+ ]]; then break; fi
     printf '| '
-    IFS= read -r line || exit 0
+    read_line || exit 0
   done
   if [ ${#lines[@]} -gt 0 ]; then evaluate "${lines[@]}"; fi
 done

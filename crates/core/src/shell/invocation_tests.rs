@@ -300,3 +300,83 @@ fn ipv6_tunnel_address_is_bracketed() {
     let text = preamble_text(&build(&cfg("mongodb://h/admin"), None, Some(v6)));
     assert!(text.contains("mongodb://[::1]:50000/admin?"));
 }
+
+/// The emitter from the spike note (`docs/superpowers/notes/shell-structured-output-spike.md`).
+const SPIKE_EMITTER: &str = r#"__cbEmit = ((P, E, SYM) => (v, T, MAXN, MAXB) => { const out = o => P(T + E.stringify(o, null, 0, {relaxed: false})); try { const t = v !== null && typeof v === "object" ? v[SYM] : undefined; const r = t !== undefined && v._currentIterationResult; let o; if (r && Array.isArray(r.documents)) { o = {k: "cursor", t: String(t), more: !!r.cursorHasMore, v: r.documents.slice(0, MAXN)} } else if (Array.isArray(v)) { o = {k: "array", n: v.length, more: v.length > MAXN, v: v.slice(0, MAXN)} } else if (v !== null && typeof v === "object") { o = {k: "object", t: t === undefined ? null : String(t), v: v} } else { o = {k: "scalar", v: v === undefined ? null : v, u: v === undefined} } const s = E.stringify(o, null, 0, {relaxed: false}); if (s.length > MAXB) { out({k: "too_big", bytes: s.length}) } else { P(T + s) } } catch (e) { out({k: "unsupported", t: v && v.constructor ? String(v.constructor.name) : null}) } })(print, EJSON, Symbol.for("@@mongosh.shellApiType"));"#;
+
+#[test]
+fn the_preamble_defines_the_emitter_before_connecting() {
+    let inv = build(&scram("mongodb://h/admin"), Some("pw"), None);
+    let text = preamble_text(&inv);
+    let at = text
+        .find(SPIKE_EMITTER)
+        .expect("the emitter, as in the spike");
+    assert!(at < text.find("try { db = connect(").unwrap(), "{text}");
+    assert!(text.find("passwordPrompt = ").unwrap() < at, "{text}");
+    assert_eq!(text.matches('\n').count(), 1, "still one line");
+}
+
+#[test]
+fn the_token_is_sixteen_lowercase_hex_chars_and_not_in_the_preamble_args_or_script() {
+    let inv = build(&scram("mongodb://h/admin"), Some("pw"), None);
+    let token = &inv.result_token;
+    assert_eq!(token.len(), 16);
+    assert!(
+        token
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        "{token}"
+    );
+    assert!(!preamble_text(&inv).contains(token.as_str()));
+    assert!(!String::from_utf8_lossy(&inv.script).contains(token.as_str()));
+    for arg in &inv.args {
+        assert!(!arg.to_string_lossy().contains(token.as_str()));
+    }
+}
+
+#[test]
+fn the_debug_output_never_shows_the_token() {
+    let inv = build(&cfg("mongodb://h/admin"), None, None);
+    for text in [format!("{inv:?}"), format!("{inv:#?}")] {
+        assert!(!text.contains(&inv.result_token), "{text}");
+    }
+}
+
+#[test]
+fn the_epilogue_is_the_spike_line_with_the_token() {
+    assert_eq!(
+        epilogue("0123456789abcdef"),
+        r#"__cbEmit(_, "\u0001CBJ-0123456789abcdef ", 200, 4194304)"#
+    );
+    assert_eq!(
+        result_marker("0123456789abcdef"),
+        "\u{1}CBJ-0123456789abcdef "
+    );
+}
+
+#[test]
+fn a_script_that_mentions_prompt_or_the_emitter_blocks_the_epilogue() {
+    for script in [
+        "prompt = () => 'x> '",
+        "globalThis.prompt = 'x'",
+        "this[\"prompt\"] = 1",
+        "var prompt",
+        "{prompt}",
+        "__cbEmit = null",
+        "delete globalThis.__cbEmit",
+    ] {
+        assert!(blocks_the_epilogue(script.as_bytes()), "{script}");
+    }
+    for script in [
+        "db.prompts.find()",
+        "passwordPrompt()",
+        "db.a.find()",
+        "prompted",
+        "x_prompt",
+        "$prompt",
+        "__cbEmitter",
+        "my__cbEmit",
+    ] {
+        assert!(!blocks_the_epilogue(script.as_bytes()), "{script}");
+    }
+}
