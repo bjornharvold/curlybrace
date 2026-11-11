@@ -1,5 +1,5 @@
 //! History panel state of the Shell tab: the remembered runs of the connection, and the panel's
-//! open, confirm-clear and clear-failed flags. Pure and egui-free; every updater returns a new value.
+//! open, confirm-clear, clear-failed and refresh-failed flags. Pure and egui-free; every updater returns a new value.
 //! No user-facing strings.
 use super::shell::ShellState;
 pub use curlybrace_core::history::ShellHistoryEntry;
@@ -21,6 +21,9 @@ pub struct HistoryView {
     /// The last confirmed clear failed; the list shown is still the stored one. Cleared by the
     /// next list from the core, by opening or closing the panel and by a new "clear history".
     pub clear_failed: bool,
+    /// The last read failed while a list was shown; the list shown is the one read before.
+    /// Cleared by the next list from the core, by opening or closing the panel and by a new read.
+    pub refresh_failed: bool,
 }
 
 impl ShellState {
@@ -39,6 +42,7 @@ impl ShellState {
             entries: Arc::new(entries),
             confirm_clear: false,
             clear_failed: false,
+            refresh_failed: false,
             ..self.history.clone()
         })
     }
@@ -53,6 +57,26 @@ impl ShellState {
         })
     }
 
+    /// A read failed. A list already shown stays (it was read before) and the panel says it
+    /// could not be refreshed; without one, the history is unavailable.
+    pub fn history_read_failed(&self) -> Self {
+        match self.history.loaded && self.history.available {
+            true => self.with_history(HistoryView {
+                refresh_failed: true,
+                ..self.history.clone()
+            }),
+            false => self.history_unavailable(),
+        }
+    }
+
+    /// A new read was sent: a failed refresh's line goes until it answers. The list stays.
+    pub fn history_read_requested(&self) -> Self {
+        self.with_history(HistoryView {
+            refresh_failed: false,
+            ..self.history.clone()
+        })
+    }
+
     pub fn history_unavailable(&self) -> Self {
         self.with_history(HistoryView {
             loaded: true,
@@ -60,6 +84,7 @@ impl ShellState {
             entries: Arc::default(),
             confirm_clear: false,
             clear_failed: false,
+            refresh_failed: false,
             ..self.history.clone()
         })
     }
@@ -71,6 +96,7 @@ impl ShellState {
             open: !self.history.open,
             confirm_clear: false,
             clear_failed: false,
+            refresh_failed: false,
             ..self.history.clone()
         })
     }

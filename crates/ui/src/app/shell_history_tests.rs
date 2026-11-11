@@ -279,21 +279,47 @@ fn toggling_the_panel_resets_a_pending_clear_confirmation() {
     assert_eq!(clears(&confirmed, id), 0, "the stale confirm is gone");
 }
 
-#[test]
-fn a_failed_history_read_marks_it_unavailable_without_a_banner() {
-    let (s, id) = with_history();
-    let failed = Event::Failed {
+fn read_failed(id: Uuid) -> Event {
+    Event::Failed {
         session: id,
         context: "shell_history",
         error: CoreError::Unsupported("history".into()),
-    };
-    let (s, commands) = event(s, failed);
+    }
+}
+
+#[test]
+fn a_failed_first_read_marks_the_history_unavailable_without_a_banner() {
+    let (s, id) = browsing(with_flags(false, false));
+    let (s, _) = shell(s, ShellAction::Open);
+    let (s, _) = shell(s, ShellAction::ToggleHistory);
+    let (s, commands) = event(s, read_failed(id));
     assert!(commands.is_empty());
     assert!(s.banner.is_none(), "{:?}", s.banner);
     let h = &shell_of(&s, id).history;
     assert!(h.loaded && !h.available);
     assert!(h.entries.is_empty());
-    assert!(!h.clear_failed);
+    assert!(!h.clear_failed && !h.refresh_failed);
+}
+
+/// A refresh that fails says nothing about the list already shown: it stays, and the panel says
+/// it could not be refreshed, until the next read is sent.
+#[test]
+fn a_failed_refresh_keeps_the_list_and_says_so_without_a_banner() {
+    let (s, id) = with_history();
+    let (s, _) = shell(s, ShellAction::ToggleHistory);
+    let (s, commands) = event(s, read_failed(id));
+    assert!(commands.is_empty());
+    assert!(s.banner.is_none(), "{:?}", s.banner);
+    let h = &shell_of(&s, id).history;
+    assert!(h.loaded && h.available);
+    assert_eq!(h.entries.len(), 2);
+    assert!(h.refresh_failed);
+
+    let (s, commands) = event(s, changed_event(id, true));
+    assert_eq!(reads(&commands, id), 1);
+    let h = &shell_of(&s, id).history;
+    assert!(!h.refresh_failed, "a new read hides the line");
+    assert_eq!(h.entries.len(), 2);
 }
 
 /// A clear that failed says nothing about whether the history can be read: the list and its

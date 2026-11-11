@@ -629,6 +629,17 @@ fn a_failed_clear_is_said_in_words_and_keeps_the_runs() {
 }
 
 #[test]
+fn a_failed_refresh_is_said_in_words_and_keeps_the_runs() {
+    let first = entry(1, 120, "db.a.find()", ShellRunStatus::Succeeded);
+    let h = harness(Frame::new(
+        open_history(vec![first.clone()]).history_read_failed(),
+    ));
+    h.get_by_label(&t("shell.history.refresh_failed"));
+    h.get_by_role_and_label(Role::Button, &row_label(&first));
+    assert!(h.query_by_label(&t("shell.history.unavailable")).is_none());
+}
+
+#[test]
 fn clicking_a_row_emits_recall() {
     let older = entry(3, 7_200, "db.old.find()", ShellRunStatus::Failed);
     let newer = entry(4, 10, "db.new.find()", ShellRunStatus::Succeeded);

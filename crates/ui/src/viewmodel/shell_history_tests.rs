@@ -171,6 +171,40 @@ fn a_new_list_or_unavailable_ends_a_pending_confirmation() {
     assert!(!sends, "no stale confirm sends a clear");
 }
 
+// ---- A failed read ----
+
+#[test]
+fn a_failed_refresh_keeps_a_loaded_list_and_says_so() {
+    let failed = loaded().history_toggled().history_read_failed();
+    let h = &failed.history;
+    assert!(h.loaded && h.available && h.open, "{h:?}");
+    assert_eq!(h.entries.len(), 2, "the list shown before stays");
+    assert!(h.refresh_failed);
+}
+
+#[test]
+fn a_failed_first_read_means_unavailable() {
+    let never_loaded = ShellState::default().history_read_failed();
+    assert!(never_loaded.history.loaded && !never_loaded.history.available);
+    assert!(!never_loaded.history.refresh_failed);
+    let unavailable = loaded().history_unavailable().history_read_failed();
+    assert!(unavailable.history.loaded && !unavailable.history.available);
+    assert!(!unavailable.history.refresh_failed);
+}
+
+#[test]
+fn the_failed_refresh_line_goes_with_a_list_a_toggle_or_a_new_read() {
+    let failed = loaded().history_read_failed();
+    assert!(!failed.history_loaded(vec![]).history.refresh_failed);
+    assert!(!failed.history_toggled().history.refresh_failed);
+    assert!(!failed.history_read_requested().history.refresh_failed);
+    assert_eq!(
+        failed.history_read_requested().history.entries.len(),
+        2,
+        "a new read keeps the list until it answers"
+    );
+}
+
 // ---- A failed clear ----
 
 #[test]

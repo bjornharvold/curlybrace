@@ -1292,6 +1292,7 @@
       "loading": "Loading history…",
       "plaintext_note": "Scripts are stored on this computer exactly as written, including anything typed or pasted into them, such as a password. Their output is never stored.",
       "recall_hint": "Put this script in the editor",
+      "refresh_failed": "Could not refresh the history.",
       "row_label": "{status}, {time}: {script}",
       "status": {
         "cancelled": "Cancelled",
