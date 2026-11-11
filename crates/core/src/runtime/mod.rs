@@ -483,7 +483,9 @@ pub enum Command {
         session: SessionId,
     },
     /// Gives the connection `to` a copy of the shell runs of `from` (a duplicated connection).
-    /// No session, no epoch, no answer event; a failure is logged.
+    /// No session, no epoch, no answer event; a failure is logged. UNORDERED with a following
+    /// `ShellHistory` or `ClearShellHistory` (each runs in its own task), so a reader must not
+    /// assume the copy is visible yet.
     CopyShellHistory {
         from: uuid::Uuid,
         to: uuid::Uuid,

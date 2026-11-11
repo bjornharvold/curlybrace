@@ -287,12 +287,25 @@ async fn copy_shell_history_copies_between_connection_ids() {
 #[tokio::test]
 async fn a_run_finishing_after_its_connection_was_purged_is_not_recorded() {
     let mut f = Fixture::with_history().await;
-    f.run(1, "started\nhang");
+    // An earlier run leaves a row, so the purge's completion can be seen: the row is gone.
+    f.run(1, "earlier");
+    f.finished().await;
+    assert_eq!(f.stored(f.id).len(), 1);
+    f.run(2, "started\nhang");
     f.until_running().await;
     f.h.tx
         .send(Command::PurgeHistory { connection: f.id })
         .unwrap();
-    f.cancel(1);
+    // The purge has no answer and runs in the background: wait (bounded, no sleep) until it
+    // has deleted the row. Only then does the run finish, so nothing but the guard can keep
+    // its record out.
+    let mut polls = 0;
+    while !f.stored(f.id).is_empty() {
+        polls += 1;
+        assert!(polls < 100_000, "the purge never completed");
+        tokio::task::yield_now().await;
+    }
+    f.cancel(2);
     // The run did end (a live connection would have recorded it as cancelled).
     assert_eq!(f.finished().await, Outcome::Cancelled);
     assert!(f.stored(f.id).is_empty());

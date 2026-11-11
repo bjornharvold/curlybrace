@@ -212,10 +212,14 @@ pub(super) async fn start(
         };
         send(&out_events, &out_repaint, event);
     };
-    let (history, connection, script) = (shared.history.clone(), run.cfg.id, run.script.clone());
+    let (history, connection) = (shared.history.clone(), run.cfg.id);
+    // Only kept when there is a history to record in.
+    let script = history.as_ref().map(|_| run.script.clone());
     let on_done = move |outcome| {
         // Before the slot is freed and the event sent: whoever sees `ShellFinished` finds the run.
-        record_run(history.as_deref(), connection, &script, &outcome);
+        if let Some(script) = &script {
+            record_run(history.as_deref(), connection, script, &outcome);
+        }
         // Free the slot before the event, so a run sent on seeing `ShellFinished` is not refused.
         if let Some(session) = weak.upgrade() {
             session.shell.release(run_id);
@@ -317,8 +321,9 @@ pub(super) fn dispatch_history(
             };
             tokio::spawn(async move {
                 let copied = blocking(move || history.copy_shell_history(from, to)).await;
-                if let Err(error) = copied {
-                    log::warn!("copying the shell history of {from} to {to} failed: {error}");
+                // Ids only, like `record_run`: the error text is not logged.
+                if copied.is_err() {
+                    log::warn!("copying the shell history of {from} to {to} failed");
                 }
             });
         }
