@@ -219,6 +219,11 @@ async fn a_spoofed_marker_is_plain_text() {
     assert!(out.contains("\"k\":\"fake\""), "{out:?}");
     assert!(out.contains("\"k\":\"guess\""), "{out:?}");
     // The only result is the real one: `print` returned undefined. Neither fake line became it.
+    let results = events
+        .iter()
+        .filter(|e| matches!(e, Event::ShellResult { .. }))
+        .count();
+    assert_eq!(results, 1, "{events:?}");
     assert!(
         matches!(
             result_of(&events),
@@ -334,23 +339,28 @@ async fn a_script_that_silences_stdout_is_ended_only_by_cancel() {
     // Drain for a while: the run must not end by itself.
     let window = tokio::time::sleep(Duration::from_secs(8));
     tokio::pin!(window);
-    loop {
+    let early = loop {
         tokio::select! {
-            () = &mut window => break,
+            () = &mut window => break None,
             event = h.rx.recv() => match event {
                 Some(Event::ShellFinished { outcome, .. }) => {
-                    panic!("ended by itself with {outcome:?}")
+                    break Some(format!("ended by itself with {outcome:?}"))
                 }
                 Some(_) => {}
-                None => panic!("runtime closed"),
+                None => break Some("runtime closed".to_owned()),
             },
         }
-    }
-    h.tx.send(Command::ShellCancel {
+    };
+    // Cancel before any failure, so no `mongosh` is left running whatever happened.
+    let cancel = Command::ShellCancel {
         session: id,
         run_id: RUN,
-    })
-    .unwrap();
+    };
+    let sent = h.tx.send(cancel);
+    if let Some(why) = early {
+        panic!("{why}");
+    }
+    sent.unwrap();
     loop {
         match next_event(&mut h.rx, LIMIT, "the cancelled run").await {
             Event::ShellFinished { outcome, .. } => {
