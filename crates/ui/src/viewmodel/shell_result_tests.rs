@@ -191,6 +191,7 @@ fn every_unavailable_reason_is_reported() {
         (ready(scalar(true)), Reason::NoValue),
         (ready(too_big), Reason::TooBig(5_000_000)),
         (ready(unsupported), Reason::Unsupported),
+        (ready(ShellResult::Withheld), Reason::Withheld),
         (failed, Reason::RunFailed),
         (in_flight, Reason::Pending),
         (clean_without_value, Reason::NoValue),
@@ -215,7 +216,7 @@ fn every_unavailable_reason_is_reported() {
 fn the_availability_table() {
     use Availability::Available as A;
     let nd = unavailable(Reason::NotDocuments);
-    let rows: [(ShellResult, [Availability; 3]); 8] = [
+    let rows: [(ShellResult, [Availability; 3]); 9] = [
         (people(), [A, A, A]),
         (documents(Vec::new()), [A, A, A]),
         (object(), [A, A, A]),
@@ -243,6 +244,14 @@ fn the_availability_table() {
                 A,
                 unavailable(Reason::Unsupported),
                 unavailable(Reason::Unsupported),
+            ],
+        ),
+        (
+            ShellResult::Withheld,
+            [
+                A,
+                unavailable(Reason::Withheld),
+                unavailable(Reason::Withheld),
             ],
         ),
     ];

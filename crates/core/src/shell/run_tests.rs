@@ -17,7 +17,8 @@ const TOKEN: &str = "0123456789abcdef";
 #[derive(Clone, Debug, PartialEq)]
 enum Event {
     Out(Stream, String),
-    Result(String),
+    /// The payload and whether masking changed it.
+    Result(String, bool),
     Done(Outcome),
 }
 
@@ -78,7 +79,20 @@ impl Run {
             .unwrap()
             .iter()
             .filter_map(|e| match e {
-                Event::Result(payload) => Some(payload.clone()),
+                Event::Result(payload, _) => Some(payload.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Per delivered result, whether masking changed it.
+    fn result_masked(&self) -> Vec<bool> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                Event::Result(_, masked) => Some(*masked),
                 _ => None,
             })
             .collect()
@@ -157,7 +171,7 @@ fn start_full(exe: &Path, inv: Invocation, secrets: Vec<String>, limits: RunLimi
         Some(OsStr::new(FAKE_PATH)),
         limits,
         move |stream, text| out_sink.push(Event::Out(stream, text)),
-        move |payload| result_sink.push(Event::Result(payload)),
+        move |payload, masked| result_sink.push(Event::Result(payload, masked)),
         move |outcome| {
             done_sink.push(Event::Done(outcome));
             let _ = tx.send(());
@@ -608,7 +622,7 @@ fn a_panicking_on_output_stops_the_run_and_still_reports_once() {
         Some(OsStr::new(FAKE_PATH)),
         RunLimits::default(),
         |_, _| std::panic::resume_unwind(Box::new("on_output failed on purpose")),
-        |_| {},
+        |_, _| {},
         move |outcome| {
             let _ = tx.send(outcome);
         },

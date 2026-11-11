@@ -194,7 +194,18 @@ fn the_payload_is_scrubbed_before_it_is_delivered() {
     let run = start_full(&fake.exe, inv, secret_forms(NASTY), RunLimits::default());
     assert_eq!(run.wait(), Outcome::Exited(0));
     assert_eq!(run.results(), [masked_payload()]);
+    assert_eq!(run.result_masked(), [true]);
     assert_eq!(run.text(Stream::Stdout), "");
+}
+
+#[test]
+fn a_payload_masking_did_not_change_is_delivered_as_unmasked() {
+    let fake = repl();
+    let inv = invocation(&format!("result {}", masked_payload()));
+    let run = start_full(&fake.exe, inv, secret_forms(NASTY), RunLimits::default());
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    assert_eq!(run.results(), [masked_payload()]);
+    assert_eq!(run.result_masked(), [false]);
 }
 
 #[test]
@@ -353,7 +364,7 @@ fn on_result_is_called_before_on_done() {
     let events = run.events.lock().unwrap().clone();
     let result_at = events
         .iter()
-        .position(|e| matches!(e, Event::Result(_)))
+        .position(|e| matches!(e, Event::Result(..)))
         .expect("a result");
     let last_out = events
         .iter()

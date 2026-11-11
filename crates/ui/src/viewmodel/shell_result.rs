@@ -69,6 +69,8 @@ pub enum Reason {
     TooBig(u64),
     /// A value of a kind that cannot be lifted out.
     Unsupported,
+    /// Masking the connection password broke the value, so it is hidden.
+    Withheld,
     /// The run failed, was cancelled or refused, or its connection was lost.
     RunFailed,
 }
@@ -170,6 +172,7 @@ fn availability_of(result: &ShellResult, mode: OutputMode) -> Availability {
         ShellResult::Scalar { .. } => unavailable(Reason::NotDocuments),
         ShellResult::TooBig { chars } => unavailable(Reason::TooBig(*chars)),
         ShellResult::Unsupported { .. } => unavailable(Reason::Unsupported),
+        ShellResult::Withheld => unavailable(Reason::Withheld),
     }
 }
 

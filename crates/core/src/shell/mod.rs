@@ -11,6 +11,6 @@ mod result;
 mod run;
 mod scrub;
 pub use invocation::{Invocation, ShellError, build_invocation, percent_encode_component};
-pub use result::{DocKind, MAX_RESULT_ELEMENTS, ShellResult, parse_result};
+pub use result::{DocKind, MAX_RESULT_ELEMENTS, ShellResult, parse_result, parse_scrubbed};
 pub use run::{Outcome, RunLimits, ShellHandle, Stream, spawn_shell};
 pub use scrub::{MASK, Scrubber, secret_forms};

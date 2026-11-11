@@ -287,6 +287,20 @@ async fn a_result_never_carries_the_password() {
     }
 }
 
+/// A password equal to a JSON token (`true`) is masked in the raw payload, which then no longer
+/// parses: the run says its value is withheld (no content), not that it has none.
+#[tokio::test]
+async fn a_password_that_breaks_the_payload_withholds_the_result() {
+    let mut cfg = ConnectionConfig::new("t", "mongodb://localhost:27017/app");
+    cfg.auth = crate::connection::AuthMechanism::ScramSha256;
+    cfg.username = Some("alice".into());
+    let mut f = Fixture::connected(cfg, Some("true")).await;
+    f.run(1, r#"result {"k":"object","t":null,"v":{"ok":true}}"#);
+    let events = f.until_done().await;
+    assert_eq!(finished_outcome(&events), Outcome::Exited(0));
+    assert_eq!(results(&events), vec![&ShellResult::Withheld], "{events:?}");
+}
+
 #[tokio::test]
 async fn a_refused_run_sends_no_result() {
     let mut cfg = ConnectionConfig::new("t", "mongodb://localhost:27017/app");

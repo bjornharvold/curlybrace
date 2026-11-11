@@ -102,6 +102,7 @@ pub(crate) fn reason_text(reason: Reason, i18n: &I18n) -> String {
         Reason::NoValue => "shell.result.unavailable.no_value",
         Reason::NotDocuments => "shell.result.unavailable.not_documents",
         Reason::Unsupported => "shell.result.unavailable.unsupported",
+        Reason::Withheld => "shell.result.unavailable.withheld",
         Reason::RunFailed => "shell.result.unavailable.run_failed",
         Reason::TooBig(chars) => {
             let count = chars.to_string();

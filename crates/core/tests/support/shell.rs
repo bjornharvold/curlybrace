@@ -143,7 +143,8 @@ pub fn run_raw(exe: &std::path::Path, script: &str, extra_args: &[&std::ffi::OsS
                 Stream::Stderr => text.1.push_str(&chunk),
             }
         },
-        move |payload| result_sink.lock().unwrap().push(payload),
+        // No secrets are passed, so masking never changes a payload here.
+        move |payload, _masked| result_sink.lock().unwrap().push(payload),
         move |outcome| {
             let _ = done_tx.send(outcome);
         },

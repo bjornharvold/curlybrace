@@ -451,6 +451,26 @@ fn a_non_alphabetical_field_order_survives_parsing() {
     assert_eq!(keys, ["z", "a", "m"]);
 }
 
+/// A payload the password masking broke (a password equal to a JSON token: `true`, `k`, ...) is
+/// withheld, not "no value"; a masked payload that still parses is shown masked, and an
+/// unmasked one that does not parse is nothing.
+#[test]
+fn a_payload_broken_by_masking_is_withheld() {
+    let broken = r#"{"k":"object","t":null,"v":{"a":****}}"#;
+    assert_eq!(parse_scrubbed(broken, true), Some(ShellResult::Withheld));
+    assert_eq!(parse_scrubbed(broken, false), None);
+    let still_fine = r#"{"k":"object","t":null,"v":{"pw":"****"}}"#;
+    assert_eq!(
+        parse_scrubbed(still_fine, true),
+        Some(ShellResult::Object {
+            type_name: None,
+            doc: doc! {"pw": "****"}
+        })
+    );
+    assert_eq!(parse_scrubbed(still_fine, false), parse_result(still_fine));
+    assert_eq!(format!("{:?}", ShellResult::Withheld), "Withheld");
+}
+
 /// An `object` payload whose value is one BSON-typed value (the emitter sends any non-array
 /// object as `object`, so `new Date(0)` or `ObjectId(..)` as the last value lands here).
 fn object_scalar(v: &str) -> Bson {

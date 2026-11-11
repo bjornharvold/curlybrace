@@ -18,7 +18,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::connection::ConnectionConfig;
 use crate::shell::{
-    Outcome, RunLimits, ShellResult, build_invocation, parse_result, secret_forms, spawn_shell,
+    Outcome, RunLimits, ShellResult, build_invocation, parse_scrubbed, secret_forms, spawn_shell,
 };
 
 use super::session::Session;
@@ -221,13 +221,16 @@ pub(super) async fn start(
     let lifted: Arc<Mutex<Option<ShellResult>>> = Arc::new(Mutex::new(None));
     let on_result = {
         let lifted = lifted.clone();
-        move |payload: String| {
-            let parsed = parse_result(&payload);
+        move |payload: String, masked: bool| {
+            let parsed = parse_scrubbed(&payload, masked);
             log::debug!(
-                "shell run {run_id}: a result of {} bytes, parsed: {}",
+                "shell run {run_id}: a result of {} bytes, masked: {masked}, parsed: {}",
                 payload.len(),
                 parsed.is_some()
             );
+            if parsed == Some(ShellResult::Withheld) {
+                log::warn!("shell run {run_id}: masking the password broke the result; withheld");
+            }
             *lifted.lock().unwrap_or_else(PoisonError::into_inner) = parsed;
         }
     };

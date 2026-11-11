@@ -21,8 +21,8 @@ pub(super) enum Pace {
 /// What the readers hand the supervisor, in order.
 pub(super) enum Delivery {
     Text(Stream, String),
-    /// The epilogue's answer, masked.
-    Result(String),
+    /// The epilogue's answer, masked; `true` when masking changed it.
+    Result(String, bool),
 }
 
 /// Writes the preamble, then the script a line at a time, each when `pace` asks for it: the first
@@ -269,8 +269,9 @@ impl StdoutLane {
     }
 
     /// Hands the first answer on, masked as a whole (the classifier kept the line whole, so a
-    /// secret split across reads is masked too); a later one, one after a stop, or one read
-    /// while the answer window went over its budget, is dropped.
+    /// secret split across reads is masked too), saying whether masking changed it (it may then
+    /// no longer parse); a later one, one after a stop, or one read while the answer window went
+    /// over its budget, is dropped.
     fn result(&mut self, payload: &str, sink: &mut Sink<'_>) -> bool {
         if self.result_sent || sink.control.stopped() {
             return true;
@@ -281,7 +282,8 @@ impl StdoutLane {
         }
         self.result_sent = true;
         let masked = sink.scrubber.mask(payload);
-        sink.output.send(Delivery::Result(masked)).is_ok()
+        let changed = masked != payload;
+        sink.output.send(Delivery::Result(masked, changed)).is_ok()
     }
 
     fn next_line(&self) {

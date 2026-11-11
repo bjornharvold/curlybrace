@@ -128,7 +128,8 @@ impl ShellHandle {
 
 /// Runs `exe` with `inv` and streams its output to `on_output`; `on_done` follows exactly once,
 /// after the last `on_output`. `on_result` gets the structured result (the payload JSON text of
-/// the epilogue's answer, masked) at most once, and only before `on_done`; there is none when
+/// the epilogue's answer, masked, and whether masking changed it: then it may no longer parse,
+/// see `parse_scrubbed`) at most once, and only before `on_done`; there is none when
 /// the script failed, ended early or assigned `_`, when the end of the block was never seen,
 /// when the shell did not answer, or when the answer was over [`RunLimits::max_result_bytes`]
 /// (the preamble locks `prompt` and `__cbEmit`, so a script cannot replace either: see
@@ -148,7 +149,7 @@ pub fn spawn_shell(
     path_var: Option<&OsStr>,
     limits: RunLimits,
     on_output: impl Fn(Stream, String) + Send + 'static,
-    on_result: impl FnMut(String) + Send + 'static,
+    on_result: impl FnMut(String, bool) + Send + 'static,
     on_done: impl FnOnce(Outcome) + Send + 'static,
 ) -> ShellHandle {
     let Invocation {
@@ -241,7 +242,7 @@ struct Supervisor<F, R> {
     panicked: bool,
 }
 
-impl<F: Fn(Stream, String), R: FnMut(String)> Supervisor<F, R> {
+impl<F: Fn(Stream, String), R: FnMut(String, bool)> Supervisor<F, R> {
     /// Forwards output until the child has exited and the readers are done, then reports.
     /// `on_result` is called only from `forward`, on this thread, and `on_done` only after the
     /// last `forward` returned, so a result always comes before `on_done`; one a reader still
@@ -296,10 +297,10 @@ impl<F: Fn(Stream, String), R: FnMut(String)> Supervisor<F, R> {
             Delivery::Text(stream, text) => {
                 catch_unwind(AssertUnwindSafe(|| (self.on_output)(stream, text)))
             }
-            Delivery::Result(_) if self.result_delivered => return,
-            Delivery::Result(payload) => {
+            Delivery::Result(..) if self.result_delivered => return,
+            Delivery::Result(payload, masked) => {
                 self.result_delivered = true;
-                catch_unwind(AssertUnwindSafe(|| (self.on_result)(payload)))
+                catch_unwind(AssertUnwindSafe(|| (self.on_result)(payload, masked)))
             }
         };
         if call.is_err() {

@@ -1374,7 +1374,8 @@
         "pending": "Waiting for the run to finish.",
         "run_failed": "The run did not finish cleanly, so it has no value to show.",
         "too_big": "The result is too large for the table view (about {count} characters).",
-        "unsupported": "This kind of value cannot be shown as a table or a tree."
+        "unsupported": "This kind of value cannot be shown as a table or a tree.",
+        "withheld": "The result is hidden because it contains the connection password."
       },
       "values_title": "Values"
     },

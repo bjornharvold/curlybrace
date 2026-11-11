@@ -46,6 +46,9 @@ pub enum ShellResult {
     Unsupported {
         type_name: Option<String>,
     },
+    /// Masking the connection password changed the payload and broke it (a password equal to a
+    /// JSON token such as `true` or `k`): the value is hidden. Holds nothing.
+    Withheld,
 }
 
 // Hand-written: documents and values may hold secrets, so only shapes, counts and flags are shown.
@@ -88,12 +91,24 @@ impl std::fmt::Debug for ShellResult {
                 .debug_struct("Unsupported")
                 .field("type_name", type_name)
                 .finish(),
+            Self::Withheld => f.write_str("Withheld"),
         }
     }
 }
 
 type Json = serde_json::Value;
 type Envelope = serde_json::Map<String, Json>;
+
+/// Parse one payload line as the runner delivers it: already masked, with `masked` telling
+/// whether masking changed it. The raw text is masked before parsing (nothing can leak), so a
+/// password equal to a structural token breaks the JSON: that is [`ShellResult::Withheld`], not
+/// "no value". A masked payload that still parses is shown, masked.
+pub fn parse_scrubbed(payload: &str, masked: bool) -> Option<ShellResult> {
+    match (parse_result(payload), masked) {
+        (None, true) => Some(ShellResult::Withheld),
+        (parsed, _) => parsed,
+    }
+}
 
 /// Parse one payload line. `None` for anything that is not exactly a well-formed payload.
 pub fn parse_result(payload: &str) -> Option<ShellResult> {

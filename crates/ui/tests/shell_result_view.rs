@@ -301,6 +301,18 @@ fn every_reason_is_said_in_words() {
     let h = harness(with_result(unsupported, OutputMode::Tree));
     h.get_by_label(&t("shell.result.unavailable.unsupported"));
 
+    // Masking the password broke the payload: said so, not "no value", in both modes.
+    for mode in [OutputMode::Table, OutputMode::Tree] {
+        let h = harness(with_result(ShellResult::Withheld, mode));
+        let withheld = t("shell.result.unavailable.withheld");
+        assert!(withheld.contains("password"), "{withheld}");
+        h.get_by_label(&withheld);
+        assert!(
+            h.query_by_label(&t("shell.result.unavailable.no_value"))
+                .is_none()
+        );
+    }
+
     let pending = ShellState::default()
         .edited("db.a.find()".into(), None)
         .run_requested()
