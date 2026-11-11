@@ -399,3 +399,22 @@ fn debug_never_prints_document_contents() {
         assert!(!shown.contains(secret), "leaked in {shown}");
     }
 }
+
+#[test]
+fn a_non_alphabetical_field_order_survives_parsing() {
+    // Guards `serde_json`'s `preserve_order` feature (asked for in crates/core/Cargo.toml, and
+    // today also by `bson`): without it the fields would come back sorted (a, m, z), and the
+    // table's columns with them.
+    let payload = r#"{"k":"cursor","t":"Cursor","more":false,"v":[{"z":{"$numberInt":"1"},"a":{"$numberInt":"2"},"m":{"$numberInt":"3"}}]}"#;
+    let ShellResult::Documents { docs, .. } = parsed(payload) else {
+        panic!("expected documents");
+    };
+    let keys: Vec<&str> = docs[0].keys().map(String::as_str).collect();
+    assert_eq!(keys, ["z", "a", "m"]);
+    let object = r#"{"k":"object","t":null,"v":{"z":true,"a":true,"m":true}}"#;
+    let ShellResult::Object { doc, .. } = parsed(object) else {
+        panic!("expected an object");
+    };
+    let keys: Vec<&str> = doc.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["z", "a", "m"]);
+}

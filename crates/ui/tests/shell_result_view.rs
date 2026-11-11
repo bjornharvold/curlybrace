@@ -413,6 +413,16 @@ fn an_empty_result_says_so() {
     }
 }
 
+/// The table's columns keep the parsed payload's field order (z, a, m), not an alphabetical one.
+#[test]
+fn table_columns_keep_a_non_alphabetical_field_order_from_the_payload() {
+    let payload = r#"{"k":"cursor","t":"Cursor","more":false,"v":[{"z":{"$numberInt":"1"},"a":{"$numberInt":"2"},"m":{"$numberInt":"3"}}]}"#;
+    let result = curlybrace_core::shell::parse_result(payload).expect("parses");
+    let h = harness(with_result(result, OutputMode::Table));
+    let x = |name: &str| h.get_by_label(name).rect().left();
+    assert!(x("z") < x("a") && x("a") < x("m"), "columns reordered");
+}
+
 #[test]
 fn an_empty_object_says_it_has_no_fields_and_no_row_count() {
     let object = ShellResult::Object {
