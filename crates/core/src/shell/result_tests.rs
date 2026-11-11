@@ -106,6 +106,38 @@ fn an_array_of_documents_has_a_total() {
     assert_eq!(docs[0], doc! {"a": 1});
 }
 
+/// Each element is converted once: documents first and a value last is still values (every
+/// element kept, in order), and only documents is documents.
+#[test]
+fn an_array_is_documents_only_when_every_element_is_one() {
+    let mixed = parsed(
+        r#"{"k":"array","n":3,"more":false,"v":[{"a":{"$numberInt":"1"}},{"b":true},{"$oid":"650000000000000000000001"}]}"#,
+    );
+    let oid = bson::oid::ObjectId::parse_str("650000000000000000000001").unwrap();
+    assert_eq!(
+        mixed,
+        ShellResult::Values {
+            values: vec![
+                Bson::Document(doc! {"a": 1}),
+                Bson::Document(doc! {"b": true}),
+                Bson::ObjectId(oid),
+            ],
+            more: false,
+            total: 3,
+        }
+    );
+    let docs = parsed(r#"{"k":"array","n":2,"more":false,"v":[{"a":"x"},{"b":[1,{"c":2}]}]}"#);
+    assert_eq!(
+        docs,
+        ShellResult::Documents {
+            kind: DocKind::Array,
+            docs: vec![doc! {"a": "x"}, doc! {"b": [1, {"c": 2}]}],
+            more: false,
+            total: Some(2),
+        }
+    );
+}
+
 #[test]
 fn an_empty_array_is_documents_with_no_docs() {
     let r = parsed(r#"{"k":"array","n":{"$numberInt":"0"},"more":false,"v":[]}"#);

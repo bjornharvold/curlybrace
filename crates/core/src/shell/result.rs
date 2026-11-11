@@ -102,12 +102,15 @@ pub fn parse_result(payload: &str) -> Option<ShellResult> {
     if depth_exceeds(&value, MAX_JSON_DEPTH) {
         return None;
     }
-    let envelope = value.as_object()?;
-    match envelope.get("k")?.as_str()? {
-        "cursor" => cursor(envelope),
-        "array" => array(envelope),
-        "object" => object(envelope),
-        "scalar" => scalar(envelope),
+    let Json::Object(mut envelope) = value else {
+        return None;
+    };
+    let kind = envelope.get("k")?.as_str()?.to_owned();
+    match kind.as_str() {
+        "cursor" => cursor(&mut envelope),
+        "array" => array(&mut envelope),
+        "object" => object(&mut envelope),
+        "scalar" => scalar(&mut envelope),
         "too_big" => Some(ShellResult::TooBig {
             chars: whole_number(envelope.get("bytes")?)?,
         }),
@@ -118,53 +121,66 @@ pub fn parse_result(payload: &str) -> Option<ShellResult> {
     }
 }
 
-fn cursor(envelope: &Envelope) -> Option<ShellResult> {
+fn cursor(envelope: &mut Envelope) -> Option<ShellResult> {
     envelope.get("t")?.as_str()?;
-    let (items, cut) = elements(envelope.get("v")?)?;
+    let more = envelope.get("more")?.as_bool()?;
+    let (items, cut) = elements(envelope.remove("v")?)?;
     let docs = items
-        .iter()
-        .map(to_document)
+        .into_iter()
+        .map(|item| match to_bson(item)? {
+            Bson::Document(doc) => Some(doc),
+            _ => None,
+        })
         .collect::<Option<Vec<Document>>>()?;
     Some(ShellResult::Documents {
         kind: DocKind::Cursor,
         docs,
-        more: envelope.get("more")?.as_bool()? || cut,
+        more: more || cut,
         total: None,
     })
 }
 
-fn array(envelope: &Envelope) -> Option<ShellResult> {
+/// Each element is converted once, taking it; the array is documents only when every element
+/// became one.
+fn array(envelope: &mut Envelope) -> Option<ShellResult> {
     let n = whole_number(envelope.get("n")?)?;
-    let (items, cut) = elements(envelope.get("v")?)?;
+    let more = envelope.get("more")?.as_bool()?;
+    let (items, cut) = elements(envelope.remove("v")?)?;
     let kept = items.len() as u64;
-    let more = envelope.get("more")?.as_bool()? || cut || n > kept;
+    let more = more || cut || n > kept;
     let total = n.max(kept);
-    if let Some(docs) = items
-        .iter()
-        .map(to_document)
-        .collect::<Option<Vec<Document>>>()
-    {
-        return Some(ShellResult::Documents {
-            kind: DocKind::Array,
-            docs,
+    let values = items
+        .into_iter()
+        .map(to_bson)
+        .collect::<Option<Vec<Bson>>>()?;
+    if !values.iter().all(|v| matches!(v, Bson::Document(_))) {
+        return Some(ShellResult::Values {
+            values,
             more,
-            total: Some(total),
+            total,
         });
     }
-    let values = items.iter().map(to_bson).collect::<Option<Vec<Bson>>>()?;
-    Some(ShellResult::Values {
-        values,
+    let docs = values
+        .into_iter()
+        .filter_map(|v| match v {
+            Bson::Document(doc) => Some(doc),
+            _ => None,
+        })
+        .collect();
+    Some(ShellResult::Documents {
+        kind: DocKind::Array,
+        docs,
         more,
-        total,
+        total: Some(total),
     })
 }
 
 /// The emitter sends every non-array object as `object`, so a last value that is one BSON-typed
 /// value (`new Date(0)`, `ObjectId(..)`, `NumberLong(5)`, `UUID()`, ...) comes as a JSON object
 /// that converts to that value, not to a document: it is a scalar then (its `t` is not needed).
-fn object(envelope: &Envelope) -> Option<ShellResult> {
+fn object(envelope: &mut Envelope) -> Option<ShellResult> {
     let type_name = optional_string(envelope.get("t")?)?;
-    let v = envelope.get("v")?;
+    let v = envelope.remove("v")?;
     v.as_object()?;
     match to_bson(v)? {
         Bson::Document(doc) => Some(ShellResult::Object { type_name, doc }),
@@ -175,29 +191,27 @@ fn object(envelope: &Envelope) -> Option<ShellResult> {
     }
 }
 
-fn scalar(envelope: &Envelope) -> Option<ShellResult> {
+fn scalar(envelope: &mut Envelope) -> Option<ShellResult> {
+    let undefined = envelope.get("u")?.as_bool()?;
     Some(ShellResult::Scalar {
-        value: to_bson(envelope.get("v")?)?,
-        undefined: envelope.get("u")?.as_bool()?,
+        value: to_bson(envelope.remove("v")?)?,
+        undefined,
     })
 }
 
 /// The first `MAX_RESULT_ELEMENTS` of a JSON array, and whether any were cut.
-fn elements(v: &Json) -> Option<(&[Json], bool)> {
-    let all = v.as_array()?;
-    let kept = all.len().min(MAX_RESULT_ELEMENTS);
-    Some((&all[..kept], all.len() > kept))
+fn elements(v: Json) -> Option<(Vec<Json>, bool)> {
+    let Json::Array(mut all) = v else {
+        return None;
+    };
+    let cut = all.len() > MAX_RESULT_ELEMENTS;
+    all.truncate(MAX_RESULT_ELEMENTS);
+    Some((all, cut))
 }
 
-fn to_bson(v: &Json) -> Option<Bson> {
-    Bson::try_from(v.clone()).ok()
-}
-
-fn to_document(v: &Json) -> Option<Document> {
-    match to_bson(v)? {
-        Bson::Document(doc) => Some(doc),
-        _ => None,
-    }
+/// Takes the value: `Bson::try_from` consumes it, so no subtree is cloned.
+fn to_bson(v: Json) -> Option<Bson> {
+    Bson::try_from(v).ok()
 }
 
 /// `Some(None)` for JSON null, `Some(Some(s))` for a string, `None` for anything else.
