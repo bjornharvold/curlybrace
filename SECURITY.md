@@ -32,7 +32,7 @@ password reaches it, and where it does not:
 
 - The password is written to the child's **stdin** as its first line, a connect line with the
   percent-encoded credentials. It is never in the command line (the arguments are only `--nodb` and
-  `--quiet`), never in the environment, and never in a log or in the app's history.
+  `--quiet`), never in the environment, and never in a log or in the Shell history (below).
 - The output pane masks the exact password and its percent-encoded form. This is a best-effort
   courtesy, **not a security boundary**: a script can read and transform the value it was started with,
   and anything it prints appears in the output, in a form the app cannot recognise. A short
@@ -42,6 +42,10 @@ password reaches it, and where it does not:
   "Evaluating input". It does not log the connect line. This was checked on macOS with `mongosh`
   2.14.1; it has not been checked on Linux or Windows. On Linux the process environment
   (`/proc/<pid>/environ`) was not checked either. Do not put secrets in the scripts you type.
+- The Shell history stores each script that ran **in plain text** in `history.sqlite` (owner-only,
+  `0600`), exactly as written: anything you typed into a script, such as a password, is kept, up to
+  the last 200 scripts per connection. Output is never stored. Deleting the connection or **Clear
+  history** removes it; duplicating a connection copies it.
 - A read-only connection is refused in the core, not only in the UI. A production connection asks
   for confirmation on every run.
 - A script runs with your own credentials and can do anything you can do on that server, including

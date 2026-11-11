@@ -110,6 +110,14 @@ an account, a trial, or a license fee.
   the function out of the block); declare it with `const f = () => ...` or use `var`.
   `passwordPrompt()` is not available. Long scripts start slowly: mongosh re-reads the block for
   every line (about 1 s for 200 lines, 5 s for 1000).
+- The tab keeps a **History** per connection: the last 200 scripts that actually ran (the
+  selection, or the whole script), each with its time and how it ended (succeeded, script errors,
+  incomplete, cancelled, output cap, failed). Pick an entry to put it back in the editor; it is never
+  run for you. **Clear history** asks first. Output is never stored, a script over 32 KiB is not
+  stored (it still runs), and the same script run twice in a row is one row. A run that never
+  started (refused, `mongosh` could not start, could not connect) is not recorded. It is stored in
+  `history.sqlite`; it goes when the connection is deleted and is copied when it is duplicated. If
+  `history.sqlite` is unavailable the panel says so and nothing is recorded.
 
 **Indexes** ([#68](https://github.com/bjornharvold/curlybrace/issues/68))
 - An **Indexes** tab on each collection: the indexes on the left, the selected one on the right with
