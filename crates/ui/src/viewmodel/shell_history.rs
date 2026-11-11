@@ -31,11 +31,13 @@ impl ShellState {
         }
     }
 
+    /// The core's list. A pending confirmation ends with it: it was asked about the list before.
     pub fn history_loaded(&self, entries: Vec<ShellHistoryEntry>) -> Self {
         self.with_history(HistoryView {
             loaded: true,
             available: true,
             entries: Arc::new(entries),
+            confirm_clear: false,
             clear_failed: false,
             ..self.history.clone()
         })
@@ -56,6 +58,8 @@ impl ShellState {
             loaded: true,
             available: false,
             entries: Arc::default(),
+            confirm_clear: false,
+            clear_failed: false,
             ..self.history.clone()
         })
     }
