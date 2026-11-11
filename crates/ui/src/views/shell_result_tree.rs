@@ -1,0 +1,201 @@
+//! The Shell tab's Tree mode: one collapsible tree per document (an object is one, an array of
+//! values is one whose rows are its elements), with Expand all / Collapse all. Read-only: rows
+//! are the Documents tab's (`PageRow`, `TreeRow`) drawn with its chevrons and type labels, but
+//! without selection or menus. An expandable row is a button whose name says whether it is
+//! expanded, and its accesskit node carries the expanded state. Rows are virtualised and come
+//! from the per-session cache, so a repaint does not flatten the documents again.
+use super::metrics::{fixed_row, row_height};
+use super::shell_result::{note_text, show_notes};
+use super::shell_result_cache::{ShownText, TreeLine, TreeLines, tree_lines};
+use super::shell_result_store::{Scroll, first_draw_of_run};
+use super::tree::arrow;
+use crate::I18n;
+use crate::app::shell_actions::ShellAction;
+use crate::theme::text_button;
+use crate::viewmodel::shell::ShellState;
+use crate::viewmodel::shell_result::ShellResult;
+use crate::viewmodel::{PageRow, TreeRow, type_label_key};
+use eframe::egui;
+use uuid::Uuid;
+
+/// The most of a row's remaining width a key takes.
+const KEY_SHARE: f32 = 0.4;
+
+/// What the empty tree says instead of rows, if it is empty. An empty array always parses as
+/// documents (none), so it says this too.
+fn empty_key(lines: &TreeLines) -> Option<&'static str> {
+    lines.lines.is_empty().then_some("shell.result.empty")
+}
+
+/// The Tree's part of the output heading row: Expand all / Collapse all and the notes (what the
+/// value leaves out, fields left closed), on that row so they take no height of their own.
+pub(super) fn show_tree_bar(
+    ui: &mut egui::Ui,
+    state: &ShellState,
+    session: Uuid,
+    i18n: &I18n,
+) -> Option<ShellAction> {
+    let lines = tree_lines(ui.ctx(), session, state, i18n)?;
+    let result = state.result.result.as_deref()?;
+    let left_out = note_text(result, i18n);
+    if empty_key(&lines).is_some() {
+        show_notes(ui, &Vec::from_iter(left_out), i18n);
+        return None;
+    }
+    let capped = state
+        .result
+        .tree
+        .capped
+        .then(|| i18n.t("shell.result.expand_capped"));
+    let notes: Vec<String> = left_out.into_iter().chain(capped).collect();
+    let expand = text_button(ui, i18n.t("shell.result.expand_all")).clicked();
+    let collapse = text_button(ui, i18n.t("shell.result.collapse_all")).clicked();
+    show_notes(ui, &notes, i18n);
+    match (expand, collapse) {
+        (true, _) => Some(ShellAction::TreeExpandAll),
+        (_, true) => Some(ShellAction::TreeCollapseAll),
+        _ => None,
+    }
+}
+
+/// The Tree's rows (or what the empty tree says), below the heading row.
+pub(super) fn show_result_tree(
+    ui: &mut egui::Ui,
+    state: &ShellState,
+    session: Uuid,
+    i18n: &I18n,
+) -> Option<ShellAction> {
+    let lines = tree_lines(ui.ctx(), session, state, i18n)?;
+    let result = state.result.result.as_deref()?;
+    if let Some(key) = empty_key(&lines) {
+        ui.label(i18n.t(key));
+        return None;
+    }
+    let height = row_height(ui);
+    let mut toggled = None;
+    let mut area = egui::ScrollArea::vertical()
+        .id_salt(("shell_result_tree", session))
+        .auto_shrink([false; 2]);
+    // A new run's value starts at the top (expanding or collapsing keeps the offset).
+    if first_draw_of_run(ui.ctx(), Scroll::Tree, session, state.result.run_id) {
+        area = area.vertical_scroll_offset(0.0);
+    }
+    area.show_rows(ui, height, lines.lines.len(), |ui, range| {
+        for index in range {
+            let Some(line) = lines.lines.get(index) else {
+                continue;
+            };
+            if let Some(action) = show_line(ui, line, state, result, height, i18n) {
+                toggled = Some(action);
+            }
+        }
+    });
+    toggled
+}
+
+fn show_line(
+    ui: &mut egui::Ui,
+    line: &TreeLine,
+    state: &ShellState,
+    result: &ShellResult,
+    height: f32,
+    i18n: &I18n,
+) -> Option<ShellAction> {
+    match &line.row {
+        PageRow::Header { doc_index } => {
+            let text = header_text(result, *doc_index, i18n);
+            fixed_row(ui, height, |ui| {
+                ui.label(egui::RichText::new(text).strong())
+            });
+            None
+        }
+        PageRow::Field { doc_index, row } => {
+            let open = state.result.tree.is_expanded(*doc_index, &row.path);
+            let value = line.value.as_ref();
+            let (rect, ()) = fixed_row(ui, height, |ui| field_cells(ui, row, open, value, i18n));
+            toggle(ui, rect, *doc_index, row, open, i18n)
+        }
+    }
+}
+
+/// The heading of one tree: "Document N", or "Values" for an array of values.
+fn header_text(result: &ShellResult, doc_index: usize, i18n: &I18n) -> String {
+    match result {
+        ShellResult::Values { .. } => i18n.t("shell.result.values_title"),
+        _ => {
+            let n = (doc_index + 1).to_string();
+            i18n.t_with("doc.header", &[("n", &n)])
+        }
+    }
+}
+
+/// An expandable row as a button over the whole row: named by its key and state, carrying the
+/// expanded state for assistive technology; clicked (or Enter / Space) it toggles.
+fn toggle(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    doc_index: usize,
+    row: &TreeRow,
+    open: bool,
+    i18n: &I18n,
+) -> Option<ShellAction> {
+    if !row.is_expandable() {
+        return None;
+    }
+    let id = ui.id().with(("shell_result_row", doc_index, &row.path));
+    let response = ui.interact(rect, id, egui::Sense::click());
+    let word = match open {
+        true => i18n.t("shell.result.expanded"),
+        false => i18n.t("shell.result.collapsed"),
+    };
+    let name = i18n.t_with(
+        "shell.result.row_toggle",
+        &[("key", &row.key), ("state", &word)],
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_expanded(open));
+    response
+        .clicked()
+        .then(|| ShellAction::TreeToggle(doc_index, row.path.clone()))
+}
+
+/// Indent, chevron, key, type label (words, never colour alone) and the cut value.
+fn field_cells(
+    ui: &mut egui::Ui,
+    row: &TreeRow,
+    open: bool,
+    value: Option<&ShownText>,
+    i18n: &I18n,
+) {
+    ui.add_space(ui.spacing().indent * (row.depth + 1) as f32);
+    let text = value.map(|v| v.shown.as_str()).unwrap_or_default();
+    if row.is_summary() {
+        ui.weak(text);
+        return;
+    }
+    arrow(ui, row, open);
+    // A long key is cut (in the cache) and never takes more than its share of the row, so the
+    // type and the value stay in view.
+    let key_width = ui.available_width() * KEY_SHARE;
+    ui.scope(|ui| {
+        ui.set_max_width(key_width);
+        let key = egui::Label::new(egui::RichText::new(&row.key).strong())
+            .truncate()
+            .selectable(false);
+        ui.add(key);
+    });
+    ui.add(
+        egui::Label::new(egui::RichText::new(i18n.t(&type_label_key(row.type_name))).weak())
+            .selectable(false),
+    );
+    let hover = value.and_then(|v| v.hover.as_deref());
+    let label = egui::Label::new(text)
+        .truncate()
+        .selectable(false)
+        .show_tooltip_when_elided(hover.is_none());
+    let response = ui.add(label);
+    if let Some(hover) = hover {
+        response.on_hover_text(hover);
+    }
+}

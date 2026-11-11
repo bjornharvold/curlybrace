@@ -18,12 +18,27 @@ const PLAIN_SCHEME: &str = "mongodb://";
 /// prompt (`rs0 [primary] admin> `, `[mongos] admin> `, ...) and the classifier strips exactly
 /// this token. U+0001 does not occur in normal output.
 pub(crate) const PROMPT: &str = "\u{1}CBP> ";
-/// [`PROMPT`] as a `mongosh` statement (verified on piped stdin with mongosh 2.14.1: every later
-/// prompt, also after `use <db>`, is exactly this token).
-const PROMPT_JS: &str = "prompt = () => \"\\u0001CBP> \"; ";
+/// The function `mongosh` calls for each prompt: returns [`PROMPT`] (verified on piped stdin with
+/// mongosh 2.14.1: every later prompt, also after `use <db>`, is exactly this token).
+const PROMPT_FN_JS: &str = "() => \"\\u0001CBP> \"";
 /// On piped stdin `passwordPrompt()` would read the rest of the script as the password (nothing
 /// after it runs, and the run looks successful), so it throws instead. Shown as mongosh output.
 const PASSWORD_PROMPT_JS: &str = "passwordPrompt = () => { throw new Error(\"passwordPrompt() is not available in the shell tab\") }; ";
+/// `__cbEmit(value, marker, max_elements, max_chars)`: prints `marker` + the canonical EJSON of
+/// a description of `value` (cursor batch, array, object, scalar, `too_big` or `unsupported`)
+/// as one line, and never throws. The right-hand side of the spike's statement, verbatim
+/// (`docs/superpowers/notes/shell-structured-output-spike.md`); it holds no secret and no token.
+/// It captures the `print` function and the `EJSON` object when the preamble runs, so a script
+/// that replaces either still gets its result.
+const EMITTER_FN_JS: &str = r#"((P, E, SYM) => (v, T, MAXN, MAXB) => { const out = o => P(T + E.stringify(o, null, 0, {relaxed: false})); try { const t = v !== null && typeof v === "object" ? v[SYM] : undefined; const r = t !== undefined && v._currentIterationResult; let o; if (r && Array.isArray(r.documents)) { o = {k: "cursor", t: String(t), more: !!r.cursorHasMore, v: r.documents.slice(0, MAXN)} } else if (Array.isArray(v)) { o = {k: "array", n: v.length, more: v.length > MAXN, v: v.slice(0, MAXN)} } else if (v !== null && typeof v === "object") { o = {k: "object", t: t === undefined ? null : String(t), v: v} } else { o = {k: "scalar", v: v === undefined ? null : v, u: v === undefined} } const s = E.stringify(o, null, 0, {relaxed: false}); if (s.length > MAXB) { out({k: "too_big", bytes: s.length}) } else { P(T + s) } } catch (e) { out({k: "unsupported", t: v && v.constructor ? String(v.constructor.name) : null}) } })(print, EJSON, Symbol.for("@@mongosh.shellApiType"))"#;
+/// Most array elements a result carries.
+const RESULT_MAX_ELEMENTS: usize = 200;
+/// Most EJSON characters (JS string length: UTF-16 units) a result carries; above it the
+/// emitter answers `too_big`. The runner's byte budget for the answer is derived from it
+/// (`run::DEFAULT_MAX_RESULT_BYTES`).
+pub(crate) const RESULT_MAX_CHARS: usize = 4 * 1024 * 1024;
+/// Hex characters in a result token.
+const TOKEN_LEN: usize = 16;
 
 /// What to spawn and what to write to its stdin.
 ///
@@ -31,13 +46,17 @@ const PASSWORD_PROMPT_JS: &str = "passwordPrompt = () => { throw new Error(\"pas
 pub struct Invocation {
     /// Always `["--nodb", "--quiet"]`.
     pub args: Vec<OsString>,
-    /// One line (ends in a single `\n`) that fixes the prompt ([`PROMPT`]), makes
-    /// `passwordPrompt()` throw, connects and prints `__CB_READY__`, or `__CB_FAILED__ <message>`.
-    /// Holds the password; written first.
+    /// One line (ends in a single `\n`) that locks the prompt to [`PROMPT`], makes
+    /// `passwordPrompt()` throw, locks the emitter (`__cbEmit`), connects and prints
+    /// `__CB_READY__`, or `__CB_FAILED__ <message>`. Holds the password; written first.
     pub preamble: Vec<u8>,
     /// The user's script as one block ([`script_block`]); written after the ready sentinel, a
     /// line at a time.
     pub script: Vec<u8>,
+    /// 16 lowercase hex characters, fresh per invocation: the epilogue ([`epilogue`]) asks the
+    /// emitter to start its line with [`result_marker`] of it. Sent only in the epilogue, after
+    /// the script ran, so the script cannot know it and cannot fake a result line.
+    pub result_token: String,
 }
 
 impl std::fmt::Debug for Invocation {
@@ -47,6 +66,7 @@ impl std::fmt::Debug for Invocation {
             .field("preamble", &format_args!("<redacted>"))
             .field("preamble_len", &self.preamble.len())
             .field("script_len", &self.script.len())
+            .field("result_token", &format_args!("<redacted>"))
             .finish()
     }
 }
@@ -93,14 +113,60 @@ pub fn build_invocation(
     }
     let uri = connect_uri(cfg, password, tunnel)?;
     let preamble = format!(
-        "{PROMPT_JS}{PASSWORD_PROMPT_JS}try {{ db = connect({}); print(\"__CB_READY__\") }} catch (e) {{ print(\"__CB_FAILED__ \" + e.message) }}\n",
+        "{}{PASSWORD_PROMPT_JS}{}try {{ db = connect({}); print(\"__CB_READY__\") }} catch (e) {{ print(\"__CB_FAILED__ \" + e.message) }}\n",
+        locked_global_js("prompt", PROMPT_FN_JS),
+        locked_global_js("__cbEmit", EMITTER_FN_JS),
         js_string(&uri)
     );
     Ok(Invocation {
         args: vec![OsString::from("--nodb"), OsString::from("--quiet")],
         preamble: preamble.into_bytes(),
         script: script_block(script),
+        result_token: fresh_token(),
     })
+}
+
+/// [`TOKEN_LEN`] hex characters of a v4 UUID (from the OS random source).
+fn fresh_token() -> String {
+    let mut token = uuid::Uuid::new_v4().simple().to_string();
+    token.truncate(TOKEN_LEN);
+    token
+}
+
+/// The line written after a cleanly evaluated script (without its `\n`): it hands the REPL's
+/// last value (`_`) to the preamble's emitter, which prints [`result_marker`] + the payload.
+/// The JS source holds the escape `\u0001`, not the control character.
+pub fn epilogue(token: &str) -> String {
+    format!("__cbEmit(_, \"\\u0001CBJ-{token} \", {RESULT_MAX_ELEMENTS}, {RESULT_MAX_CHARS})")
+}
+
+/// What the emitter's line starts with, as printed: U+0001, `CBJ-`, the token and a space.
+pub(crate) fn result_marker(token: &str) -> String {
+    format!("\u{1}CBJ-{token} ")
+}
+
+/// A statement that defines the global `name` as `value_js`, locked: not writable, not
+/// configurable. The runner depends on both locked globals: a redefined `prompt` would hide the
+/// end of the block (a writer waiting for it to send the epilogue would keep stdin open, and
+/// the shell would wait for input forever), a replaced `__cbEmit` would make the epilogue throw.
+/// Verified with mongosh 2.14.1 (piped stdin, a block per script): `prompt = f`,
+/// `globalThis.prompt = f`, `globalThis["pro" + "mpt"] = f`, `this.prompt = f`, `var prompt`,
+/// a strict-mode assignment, `delete globalThis.prompt` and the same for `__cbEmit` are ignored;
+/// `Object.defineProperty(globalThis, "prompt", ...)`, `Object.assign(globalThis, {prompt})` and
+/// `function prompt() {}` throw (an `Uncaught` error, so no epilogue). The fixed prompt comes
+/// back every time.
+///
+/// `mongosh` loads `~/.mongoshrc.js` on piped stdin too (2.14.1 `cli-repl.js`: rc files load
+/// whenever no script file or `--eval` is given). A `var prompt` or `function prompt() {}` there
+/// makes `prompt` a non-configurable, writable, enumerable property: redefining its
+/// `enumerable` flag would throw `Cannot redefine property`, so the flag is left out (an
+/// existing property keeps its own; a new one is not enumerable), and changing the value and
+/// `writable: false` is still allowed (verified). Each lock is in its own `try`, so one that
+/// still throws (an rc file that locked `prompt` itself) never keeps `connect` from running.
+fn locked_global_js(name: &str, value_js: &str) -> String {
+    format!(
+        "try {{ Object.defineProperty(globalThis, \"{name}\", {{value: {value_js}, writable: false, configurable: false}}) }} catch (e) {{}} "
+    )
 }
 
 /// The script as `mongosh` gets it: one block statement, `{` + the script + a `}` line, with

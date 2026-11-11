@@ -1,8 +1,69 @@
 //! Masks the connection password in `mongosh` output before it is shown. Best-effort courtesy,
 //! not a security boundary: output arrives in chunks, so a secret can be split across two pushes.
 
+use super::invocation::percent_encode_component;
+
 /// What a secret is replaced with.
 pub const MASK: &str = "••••";
+
+/// Every text the password can show up as, deduplicated, in a stable order: raw, percent-encoded
+/// (as in a connection string), JSON-escaped (what `EJSON.stringify` writes between the quotes)
+/// and as `mongosh` echoes a string (Node's `util.inspect`, with and without the escaped quote).
+/// Empty for an empty password.
+pub fn secret_forms(password: &str) -> Vec<String> {
+    if password.is_empty() {
+        return Vec::new();
+    }
+    let candidates = [
+        password.to_owned(),
+        percent_encode_component(password),
+        json_escaped(password),
+        inspect_escaped(password, false),
+        inspect_escaped(password, true),
+    ];
+    candidates.into_iter().fold(Vec::new(), |forms, candidate| {
+        if candidate.is_empty() || forms.contains(&candidate) {
+            forms
+        } else {
+            forms.into_iter().chain([candidate]).collect()
+        }
+    })
+}
+
+/// The contents of the JSON string for `text`, without the surrounding quotes.
+fn json_escaped(text: &str) -> String {
+    // Serializing a `&str` cannot fail; the fallback keeps the raw text (still masked as the raw form).
+    let quoted = serde_json::to_string(text).unwrap_or_default();
+    quoted
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// The contents of a string as Node's `util.inspect` prints it: backslash doubled, control
+/// characters as `\n`, `\t`... or `\xNN`, and, in its default single-quote style, `'` as `\'`
+/// (`escape_single_quote`). Inspect picks double quotes or backticks when the text contains `'`;
+/// those styles leave the quote alone, hence both variants.
+fn inspect_escaped(text: &str, escape_single_quote: bool) -> String {
+    text.chars()
+        .fold(String::with_capacity(text.len()), |mut out, ch| {
+            match ch {
+                '\\' => out.push_str("\\\\"),
+                '\'' if escape_single_quote => out.push_str("\\'"),
+                '\u{8}' => out.push_str("\\b"),
+                '\t' => out.push_str("\\t"),
+                '\n' => out.push_str("\\n"),
+                '\u{c}' => out.push_str("\\f"),
+                '\r' => out.push_str("\\r"),
+                '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' => {
+                    out.push_str(&format!("\\x{:02X}", u32::from(ch)));
+                }
+                _ => out.push(ch),
+            }
+            out
+        })
+}
 
 /// Streaming secret masker for one output stream.
 #[derive(Debug)]

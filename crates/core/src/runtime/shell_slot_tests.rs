@@ -48,6 +48,7 @@ fn start(exe: &std::path::Path) -> Started {
         Some(&path),
         RunLimits::default(),
         |_, _| {},
+        |_, _| {},
         move |outcome| {
             let _ = tx.send(outcome);
         },

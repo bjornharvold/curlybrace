@@ -10,11 +10,15 @@ use std::time::{Duration, Instant};
 const LONG: Duration = Duration::from_secs(10);
 const SECRET: &str = "p@ss:w/rd";
 const SECRET_ENCODED: &str = "p%40ss%3Aw%2Frd";
+/// The result token of [`invocation`].
+const TOKEN: &str = "0123456789abcdef";
 
 /// What a run reported, in callback order.
 #[derive(Clone, Debug, PartialEq)]
 enum Event {
     Out(Stream, String),
+    /// The payload and whether masking changed it.
+    Result(String, bool),
     Done(Outcome),
 }
 
@@ -29,6 +33,8 @@ impl Drop for Guard {
 
 struct Run {
     events: Arc<Mutex<Vec<Event>>>,
+    /// Every event as it comes, to wait on output without sleeping.
+    live: mpsc::Receiver<Event>,
     done: mpsc::Receiver<()>,
     guard: Guard,
 }
@@ -67,6 +73,45 @@ impl Run {
             .collect()
     }
 
+    fn results(&self) -> Vec<String> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                Event::Result(payload, _) => Some(payload.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Per delivered result, whether masking changed it.
+    fn result_masked(&self) -> Vec<bool> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                Event::Result(_, masked) => Some(*masked),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Waits until `stream` has shown `needle`.
+    fn wait_for_text(&self, stream: Stream, needle: &str) {
+        let deadline = Instant::now() + LONG;
+        let mut seen = String::new();
+        while !seen.contains(needle) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.live.recv_timeout(left) {
+                Ok(Event::Out(s, text)) if s == stream => seen.push_str(&text),
+                Ok(_) => {}
+                Err(_) => panic!("{needle:?} never came; {stream:?} showed {seen:?}"),
+            }
+        }
+    }
+
     fn handle(&self) -> &ShellHandle {
         &self.guard.0
     }
@@ -87,6 +132,7 @@ fn invocation(script: &str) -> Invocation {
         preamble: format!("try {{ db = connect(\"mongodb://u:{SECRET_ENCODED}@h/admin\") }}\n")
             .into_bytes(),
         script: script_block(script),
+        result_token: TOKEN.to_owned(),
     }
 }
 
@@ -95,25 +141,45 @@ fn start_with(exe: &Path, inv: Invocation, limits: RunLimits) -> Run {
     start_full(exe, inv, secrets, limits)
 }
 
+/// Keeps every event and passes it on live.
+#[derive(Clone)]
+struct Recorder {
+    events: Arc<Mutex<Vec<Event>>>,
+    live: mpsc::Sender<Event>,
+}
+
+impl Recorder {
+    fn push(&self, event: Event) {
+        self.events.lock().unwrap().push(event.clone());
+        let _ = self.live.send(event);
+    }
+}
+
 fn start_full(exe: &Path, inv: Invocation, secrets: Vec<String>, limits: RunLimits) -> Run {
     let events = Arc::new(Mutex::new(Vec::new()));
     let (tx, done) = mpsc::channel();
-    let out_events = Arc::clone(&events);
-    let done_events = Arc::clone(&events);
+    let (live_tx, live) = mpsc::channel();
+    let sink = Recorder {
+        events: Arc::clone(&events),
+        live: live_tx,
+    };
+    let (out_sink, result_sink, done_sink) = (sink.clone(), sink.clone(), sink);
     let handle = spawn_shell(
         exe,
         inv,
         secrets,
         Some(OsStr::new(FAKE_PATH)),
         limits,
-        move |stream, text| out_events.lock().unwrap().push(Event::Out(stream, text)),
+        move |stream, text| out_sink.push(Event::Out(stream, text)),
+        move |payload, masked| result_sink.push(Event::Result(payload, masked)),
         move |outcome| {
-            done_events.lock().unwrap().push(Event::Done(outcome));
+            done_sink.push(Event::Done(outcome));
             let _ = tx.send(());
         },
     );
     Run {
         events,
+        live,
         done,
         guard: Guard(handle),
     }
@@ -337,6 +403,33 @@ fn cancel_kills_the_whole_group() {
     wait_until_gone(pid, "the background child survived");
 }
 
+/// Kills a process the group kill cannot reach (it is in its own session).
+struct KillOnDrop(i32);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        // SAFETY: a plain signal to a pid this test started.
+        unsafe { libc::kill(self.0, libc::SIGKILL) };
+    }
+}
+
+#[test]
+fn the_writer_ends_when_a_detached_process_keeps_stdout_open() {
+    // The shell exits after the last line without a verdict; something it started in its own
+    // session (out of the group kill's reach) keeps stdout open, so the stdout reader never ends
+    // and its pace sender is never dropped. The run still ends, and so does the writer.
+    let fake = repl();
+    let pid_file = fake.path("detached.pid");
+    let run = start(&fake, &format!("detach {}\nexit 0", pid_file.display()));
+    let _detached = KillOnDrop(read_pid(&pid_file));
+    assert_eq!(run.wait(), Outcome::Exited(0));
+    let control = run.handle().control.as_ref().expect("a started run");
+    assert!(
+        control.wait_writer_done(LONG),
+        "the writer is still waiting"
+    );
+}
+
 #[test]
 fn second_cancel_and_cancel_after_exit_are_harmless() {
     let fake = repl();
@@ -556,6 +649,7 @@ fn a_panicking_on_output_stops_the_run_and_still_reports_once() {
         Some(OsStr::new(FAKE_PATH)),
         RunLimits::default(),
         |_, _| std::panic::resume_unwind(Box::new("on_output failed on purpose")),
+        |_, _| {},
         move |outcome| {
             let _ = tx.send(outcome);
         },
@@ -565,3 +659,9 @@ fn a_panicking_on_output_stops_the_run_and_still_reports_once() {
     let pid = read_pid(&pid_file);
     wait_until_gone(pid, "the group survived the panic");
 }
+
+#[path = "run_result_tests.rs"]
+mod result;
+
+#[path = "run_grace_tests.rs"]
+mod grace;

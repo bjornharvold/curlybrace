@@ -49,6 +49,19 @@ password reaches it, and where it does not:
   keep the old bytes in the file's free space and write-ahead log until it reuses them, and backups
   (such as Time Machine) keep their own copies. A password typed into a script may stay on disk for
   a while: do not type secrets into scripts.
+- The **Table** and **Tree** views get their data from a side channel: one extra line the app sends
+  after your script has finished, carrying a random per-run token, and the one marked line it
+  answers with. A line printed before the script ends can never pass as the result: the token is
+  written to `mongosh`'s stdin only after that. (A script that deliberately reads its stdin or
+  `mongosh`'s log could only fake its own result, which it could return directly anyway.) The
+  answer goes through the same password masking as the text, before it is parsed, and is never
+  written to the app's logs. `mongosh`'s own log records every line the app sends after the
+  connect line, including the extra one, which holds the token but no document data. The masking
+  also covers
+  the escaped forms of the password (a password with a backslash, quote or control character is now
+  masked in the text pane too). The feature depends on `mongosh` internals: a `mongosh` upgrade can
+  reduce it to "no table", never to wrong data. `prompt` and `__cbEmit` are locked in the preamble
+  so a script cannot redefine them.
 - A read-only connection is refused in the core, not only in the UI. A production connection asks
   for confirmation on every run.
 - A script runs with your own credentials and can do anything you can do on that server, including

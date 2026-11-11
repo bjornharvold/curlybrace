@@ -10,6 +10,7 @@ use super::state::{AppState, ConnStatus, Workspace};
 use super::tools_state::{ProbeScope, ProbeStatus};
 use super::write_guard::{ParkedWrite, WriteKind};
 use crate::viewmodel::shell::{ShellNotice, ShellState, ShellStatus, ToolProblem};
+use crate::viewmodel::shell_result::OutputMode;
 use curlybrace_core::runtime::{Command, Event, ShellRefusal};
 use curlybrace_core::tools::{Compatibility, ToolKind, compatibility, resolve};
 use std::ops::Range;
@@ -36,6 +37,12 @@ pub enum ShellAction {
     ClearHistory,
     ConfirmClear,
     CancelClear,
+    /// Show the output as text, or the run's last value as a table or a tree. Kept across runs.
+    SetOutputMode(OutputMode),
+    /// Open or close this path of the tree's document with this index.
+    TreeToggle(usize, Vec<String>),
+    TreeExpandAll,
+    TreeCollapseAll,
 }
 
 pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
@@ -62,6 +69,13 @@ pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
         ShellAction::ClearHistory => updated(state, id, ShellState::clear_requested),
         ShellAction::CancelClear => updated(state, id, ShellState::clear_cancelled),
         ShellAction::ConfirmClear => confirm_clear(state, id),
+        // How the result is shown: only the view changes, also mid-run; nothing is sent.
+        ShellAction::SetOutputMode(mode) => updated(state, id, |shell| shell.mode_set(mode)),
+        ShellAction::TreeToggle(doc_index, path) => {
+            updated(state, id, |shell| shell.tree_toggled(doc_index, path))
+        }
+        ShellAction::TreeExpandAll => updated(state, id, |shell| shell.tree_all_set(true)),
+        ShellAction::TreeCollapseAll => updated(state, id, |shell| shell.tree_all_set(false)),
     }
 }
 
@@ -130,6 +144,8 @@ pub(super) fn on_event(state: AppState, session: Uuid, event: Event) -> Out {
             text,
             ..
         } => shell.output_arrived(run_id, stream, &text),
+        // Moved, not cloned: the view-model wraps it in an `Arc` once.
+        Event::ShellResult { run_id, result, .. } => shell.result_arrived(run_id, result),
         Event::ShellFinished {
             run_id, outcome, ..
         } => shell.finished(run_id, outcome),
@@ -289,6 +305,8 @@ fn too_old(state: &AppState, id: Uuid) -> Option<ToolProblem> {
     }
 }
 
+/// A Run refused before it started: only the notice changes. Nothing ran, so the previous run's
+/// output and value stay, as for an empty script.
 fn notice(state: AppState, id: Uuid, notice: ShellNotice) -> Out {
     let shell = ShellState {
         notice: Some(notice),
@@ -332,3 +350,9 @@ impl AppState {
         }
     }
 }
+
+// Declared here, not in `app/mod.rs` (kept from growing), so its path is
+// `app::shell_actions::shell_result_app_tests`: run with `cargo test shell_result`.
+#[cfg(test)]
+#[path = "shell_result_app_tests.rs"]
+mod shell_result_app_tests;

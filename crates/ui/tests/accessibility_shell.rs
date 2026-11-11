@@ -144,8 +144,16 @@ fn the_editor_has_an_accessible_name() {
 
 #[test]
 fn the_tab_says_how_a_script_runs() {
+    // Both hints are one label (the editor's first, then how a script runs).
     let h = harness(Frame::new(script("db.users.find({})")));
-    h.get_by_label(&t("shell.script_hint"));
+    let script_hint = t("shell.script_hint");
+    let hints = h.get_by_label_contains(&script_hint);
+    assert!(
+        hints
+            .accesskit_node()
+            .value()
+            .is_some_and(|v| v.starts_with(&t("shell.editor_hint")))
+    );
 }
 
 #[test]

@@ -7,17 +7,23 @@
 //! Threads per run (see `pipe.rs`):
 //! - a writer: writes the preamble, waits for the stdout reader to see `__CB_READY__`, then writes
 //!   the script (one block statement) a line at a time, each line only when `mongosh` asks for it,
-//!   and closes stdin (EOF ends `mongosh`) after the last line or as soon as `mongosh` evaluated
-//!   what it read. Without READY the script is never written.
+//!   and closes stdin (EOF ends `mongosh`) as soon as `mongosh` evaluated what it read, or after
+//!   the last line once the verdict on the epilogue is in: when the block was evaluated cleanly it
+//!   first writes the epilogue (`invocation::epilogue`), which prints the block's value as one
+//!   marked line of EJSON. Without READY the script is never written.
 //! - one reader per output stream: raw bytes are counted against the cap, decoded (UTF-8, a
 //!   character split across reads kept whole), then scrubbed; stdout is classified before it is
-//!   scrubbed (the classifier also paces the writer).
-//! - a supervisor: the only thread that calls `on_output`, then `on_done` exactly once after the
-//!   child has exited and both readers have finished (or were given up on, see [`DRAIN`]). It
-//!   reaps the child last, so every kill before that targets a group that is still ours.
+//!   scrubbed (the classifier also paces the writer, gives the verdict on the epilogue and lifts
+//!   its answer out of the text, see `classify_result.rs`).
+//! - a supervisor: the only thread that calls `on_output` and `on_result`, in the order the
+//!   readers handed them over (text keeps its own order; text the scrubber held back may still
+//!   come after the result), then `on_done` exactly once after the child has exited and both
+//!   readers have finished (or were given up on, see [`DRAIN`]). It reaps the child last, so
+//!   every kill before that targets a group that is still ours.
 use super::control::{Control, Stop};
 use super::decode::Utf8Decoder;
-use super::pipe::{Lane, Reader, write_input};
+use super::invocation::{RESULT_MAX_CHARS, epilogue};
+use super::pipe::{Delivery, Expect, Input, Lane, Pace, Reader, write_input};
 use super::{Invocation, Scrubber};
 use crate::tools::{absolute_entries, kill_group};
 use std::ffi::OsStr;
@@ -25,13 +31,24 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 pub const DEFAULT_CHUNK_BYTES: usize = 8 * 1024;
+/// Most UTF-8 bytes one UTF-16 unit takes (a surrogate pair: 2 units, 4 bytes).
+const MAX_UTF8_BYTES_PER_UTF16_UNIT: usize = 3;
+/// The emitter caps its payload at [`RESULT_MAX_CHARS`] UTF-16 units, so in UTF-8 it is at most
+/// three times that; plus a little slack. A result the emitter lets through therefore always
+/// fits; one over this (a lower limit set in [`RunLimits`]) is dropped, and never stops the run.
+pub const DEFAULT_MAX_RESULT_BYTES: usize =
+    MAX_UTF8_BYTES_PER_UTF16_UNIT * RESULT_MAX_CHARS + 64 * 1024;
+const _: () = assert!(DEFAULT_MAX_RESULT_BYTES >= MAX_UTF8_BYTES_PER_UTF16_UNIT * RESULT_MAX_CHARS);
 /// A little over the driver's 30 s server selection timeout.
 pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(35);
+/// The rest of a line split by a read comes at once; a continuation prompt is followed by
+/// nothing. Long enough for the first, short enough that an unfinished block still ends soon.
+pub const DEFAULT_CONTINUATION_GRACE: Duration = Duration::from_millis(750);
 /// How often the supervisor checks whether the child has exited.
 const POLL: Duration = Duration::from_millis(10);
 /// Grace period for the readers after the child has exited. Something it started may still hold
@@ -76,6 +93,15 @@ pub struct RunLimits {
     pub chunk_bytes: usize,
     /// How long the preamble may take to answer before the run stops with `ConnectFailed`.
     pub handshake_timeout: Duration,
+    /// Longest structured result kept (the payload line, in bytes); a longer one is dropped and
+    /// the run goes on (it never ends in `CapReached` for it). It does not count against
+    /// `max_output_bytes`.
+    pub max_result_bytes: usize,
+    /// How long the writer waits when the output read so far ends, right after the last script
+    /// line, in a bare `|` / `| `: a continuation prompt (`mongosh` waits for a line that never
+    /// comes) or the start of output that begins with `|`, split by the read. More output within
+    /// it shows it was output; otherwise stdin is closed and the run has no result.
+    pub continuation_grace: Duration,
 }
 
 impl Default for RunLimits {
@@ -84,6 +110,8 @@ impl Default for RunLimits {
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
             chunk_bytes: DEFAULT_CHUNK_BYTES,
             handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
+            max_result_bytes: DEFAULT_MAX_RESULT_BYTES,
+            continuation_grace: DEFAULT_CONTINUATION_GRACE,
         }
     }
 }
@@ -96,7 +124,10 @@ pub struct ShellHandle {
 
 impl ShellHandle {
     /// Kills the shell and everything it started; the run then ends with `Cancelled`. A no-op once
-    /// the shell has been reaped, and when called again.
+    /// the shell has been reaped, and when called again. This is also the only way to end a run
+    /// whose script silenced or replaced `process.stdout.write` (or otherwise stopped `mongosh`
+    /// printing): no prompt comes after the block, so the writer waits for a verdict that never
+    /// comes; the kill ends the stdout reader, which tells the writer to stop (`Pace::Close`).
     pub fn cancel(&self) {
         if let Some(control) = &self.control {
             control.stop(Stop::Cancelled);
@@ -105,10 +136,21 @@ impl ShellHandle {
 }
 
 /// Runs `exe` with `inv` and streams its output to `on_output`; `on_done` follows exactly once,
-/// after the last `on_output`. Both are called from a background thread. `secrets` are masked
-/// in all output. A failed spawn is reported as `on_done(Outcome::StartFailed)` before this
-/// returns. If `on_output` panics, the run is stopped, later output is dropped and `on_done`
-/// still comes, with `Outcome::Cancelled`.
+/// after the last `on_output`. `on_result` gets the structured result (the payload JSON text of
+/// the epilogue's answer, masked, and whether masking changed it: then it may no longer parse,
+/// see `parse_scrubbed`) at most once, and only before `on_done`; there is none when
+/// the script failed, ended early or assigned `_`, when the end of the block was never seen,
+/// when the shell did not answer, or when the answer was over [`RunLimits::max_result_bytes`]
+/// (the preamble locks `prompt` and `__cbEmit`, so a script cannot replace either: see
+/// `invocation::locked_global_js`). A script that silences or replaces `process.stdout.write`
+/// (or otherwise stops `mongosh` printing) leaves no prompt after the block: the writer then
+/// waits for a verdict that never comes and the run is ended only by [`ShellHandle::cancel`]
+/// (or the process exiting). All three are called
+/// from one background thread. `secrets` are masked in all output. A failed spawn is reported
+/// as `on_done(Outcome::StartFailed)` before this returns. If `on_output` or `on_result`
+/// panics, the run is stopped, later output is dropped and `on_done` still comes, with
+/// `Outcome::Cancelled`.
+#[allow(clippy::too_many_arguments)] // three callbacks with different signatures
 pub fn spawn_shell(
     exe: &Path,
     inv: Invocation,
@@ -116,12 +158,14 @@ pub fn spawn_shell(
     path_var: Option<&OsStr>,
     limits: RunLimits,
     on_output: impl Fn(Stream, String) + Send + 'static,
+    on_result: impl FnMut(String, bool) + Send + 'static,
     on_done: impl FnOnce(Outcome) + Send + 'static,
 ) -> ShellHandle {
     let Invocation {
         args,
         preamble,
         script,
+        result_token,
     } = inv;
     let mut command = Command::new(exe);
     command
@@ -153,13 +197,27 @@ pub fn spawn_shell(
         on_done(Outcome::StartFailed);
         return ShellHandle { control: None };
     };
-    let control = Arc::new(Control::new(child.id(), limits.max_output_bytes));
+    let control = Arc::new(Control::new(
+        child.id(),
+        limits.max_output_bytes,
+        limits.max_result_bytes,
+    ));
     let chunk_bytes = limits.chunk_bytes.max(1);
     let secrets: Vec<&str> = secrets.iter().map(String::as_str).collect();
     let (output_tx, output_rx) = mpsc::channel();
     let (pace_tx, pace_rx) = mpsc::channel();
     let lines = script.split_inclusive(|&b| b == b'\n').count();
-    std::thread::spawn(move || write_input(stdin, preamble, script, &pace_rx));
+    let input = Input {
+        preamble,
+        script,
+        epilogue: format!("{}\n", epilogue(&result_token)).into_bytes(),
+        grace: limits.continuation_grace,
+    };
+    let writer_control = Arc::clone(&control);
+    std::thread::spawn(move || {
+        write_input(stdin, input, &pace_rx);
+        writer_control.mark_writer_done();
+    });
     let reader = |lane| Reader {
         control: Arc::clone(&control),
         output: output_tx.clone(),
@@ -167,7 +225,12 @@ pub fn spawn_shell(
         decoder: Utf8Decoder::default(),
         lane,
     };
-    let stdout_lane = Lane::stdout(pace_tx, lines.saturating_sub(1));
+    let expect = Expect {
+        token: &result_token,
+        max_result_bytes: limits.max_result_bytes,
+    };
+    let close_writer = pace_tx.clone();
+    let stdout_lane = Lane::stdout(pace_tx, lines.saturating_sub(1), expect);
     let (out_reader, err_reader) = (reader(stdout_lane), reader(Lane::Stderr));
     std::thread::spawn(move || out_reader.run(stdout, chunk_bytes));
     std::thread::spawn(move || err_reader.run(stderr, chunk_bytes));
@@ -176,7 +239,10 @@ pub fn spawn_shell(
         control: Arc::clone(&control),
         output: output_rx,
         on_output,
+        on_result,
+        result_delivered: false,
         panicked: false,
+        pace: Some(close_writer),
     };
     let timeout = limits.handshake_timeout;
     std::thread::spawn(move || supervisor.run(child, timeout, on_done));
@@ -185,16 +251,24 @@ pub fn spawn_shell(
     }
 }
 
-struct Supervisor<F> {
+struct Supervisor<F, R> {
     control: Arc<Control>,
-    output: Receiver<(Stream, String)>,
+    output: Receiver<Delivery>,
     on_output: F,
-    /// `on_output` panicked: the run was stopped and later output is dropped.
+    on_result: R,
+    /// `on_result` was called: it never is again.
+    result_delivered: bool,
+    /// A callback panicked: the run was stopped and later output is dropped.
     panicked: bool,
+    /// To tell the writer the run is over (see [`Pace::Close`]).
+    pace: Option<Sender<Pace>>,
 }
 
-impl<F: Fn(Stream, String)> Supervisor<F> {
+impl<F: Fn(Stream, String), R: FnMut(String, bool)> Supervisor<F, R> {
     /// Forwards output until the child has exited and the readers are done, then reports.
+    /// `on_result` is called only from `forward`, on this thread, and `on_done` only after the
+    /// last `forward` returned, so a result always comes before `on_done`; one a reader still
+    /// produces after that (a reader given up on) is never delivered.
     fn run(mut self, mut child: Child, handshake_timeout: Duration, on_done: impl FnOnce(Outcome)) {
         let handshake_deadline = Instant::now() + handshake_timeout;
         let mut timed_out = false;
@@ -221,6 +295,11 @@ impl<F: Fn(Stream, String)> Supervisor<F> {
             self.control.kill();
             self.forward(Instant::now() + DRAIN);
         }
+        // The child has exited: nothing more is written. A reader given up on never ends, so
+        // the writer is told here (it may still be waiting for the verdict).
+        if let Some(pace) = self.pace.take() {
+            let _ = pace.send(Pace::Close);
+        }
         let status = self.control.reap(&mut child);
         on_done(self.control.outcome(status));
     }
@@ -230,18 +309,28 @@ impl<F: Fn(Stream, String)> Supervisor<F> {
         loop {
             let wait = deadline.saturating_duration_since(Instant::now());
             match self.output.recv_timeout(wait) {
-                Ok((stream, text)) => self.deliver(stream, text),
+                Ok(delivery) => self.deliver(delivery),
                 Err(RecvTimeoutError::Timeout) => return false,
                 Err(RecvTimeoutError::Disconnected) => return true,
             }
         }
     }
 
-    fn deliver(&mut self, stream: Stream, text: String) {
+    fn deliver(&mut self, delivery: Delivery) {
         if self.panicked {
             return;
         }
-        if catch_unwind(AssertUnwindSafe(|| (self.on_output)(stream, text))).is_err() {
+        let call = match delivery {
+            Delivery::Text(stream, text) => {
+                catch_unwind(AssertUnwindSafe(|| (self.on_output)(stream, text)))
+            }
+            Delivery::Result(..) if self.result_delivered => return,
+            Delivery::Result(payload, masked) => {
+                self.result_delivered = true;
+                catch_unwind(AssertUnwindSafe(|| (self.on_result)(payload, masked)))
+            }
+        };
+        if call.is_err() {
             self.panicked = true;
             self.control.stop(Stop::CallbackPanicked);
         }

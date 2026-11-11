@@ -12,12 +12,14 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::connection::ConnectionConfig;
-use crate::shell::{Outcome, RunLimits, build_invocation, percent_encode_component, spawn_shell};
+use crate::shell::{
+    Outcome, RunLimits, ShellResult, build_invocation, parse_scrubbed, secret_forms, spawn_shell,
+};
 
 use super::session::Session;
 use super::shell_history_queue::Job;
@@ -214,10 +216,38 @@ pub(super) async fn start(
         .as_ref()
         .map(|_| (shared.shell_history.clone(), run.script.clone()));
     let connection = run.cfg.id;
+    // The parsed payload, written by `on_result` and read by `on_done`; both run on the
+    // supervisor thread, `on_result` first.
+    let lifted: Arc<Mutex<Option<ShellResult>>> = Arc::new(Mutex::new(None));
+    let on_result = {
+        let lifted = lifted.clone();
+        move |payload: String, masked: bool| {
+            let parsed = parse_scrubbed(&payload, masked);
+            log::debug!(
+                "shell run {run_id}: a result of {} bytes, masked: {masked}, parsed: {}",
+                payload.len(),
+                parsed.is_some()
+            );
+            if parsed == Some(ShellResult::Withheld) {
+                log::warn!("shell run {run_id}: masking the password broke the result; withheld");
+            }
+            *lifted.lock().unwrap_or_else(PoisonError::into_inner) = parsed;
+        }
+    };
     let on_done = move |outcome| {
         // Free the slot before the event, so a run sent on seeing `ShellFinished` is not refused.
         if let Some(session) = weak.upgrade() {
             session.shell.release(run_id);
+        }
+        let parsed = lifted.lock().unwrap_or_else(PoisonError::into_inner).take();
+        // Right before `ShellFinished`, and before the history record is queued.
+        if let Some(result) = result_to_send(outcome, parsed) {
+            let event = Event::ShellResult {
+                session: id,
+                run_id,
+                result,
+            };
+            send(&events, &repaint, event);
         }
         send(&events, &repaint, finished(id, run_id, outcome));
         // After the event and without waiting: the history file never holds up the run's end.
@@ -241,17 +271,32 @@ pub(super) async fn start(
         Some(&path),
         RunLimits::default(),
         on_output,
+        on_result,
         on_done,
     );
     run.session.shell.attach(run_id, handle);
 }
 
-/// The password and its percent-encoded form (as it appears inside a connection string).
-fn secrets_of(password: Option<String>) -> Vec<String> {
-    match password.filter(|p| !p.is_empty()) {
-        Some(password) => vec![password.clone(), percent_encode_component(&password)],
-        None => Vec::new(),
+/// What a run's parsed payload becomes: it is delivered only for a run that exited 0, and dropped
+/// for every other outcome (cancelled, capped, script errors, a non-zero exit, ...).
+pub(super) fn result_to_send(outcome: Outcome, parsed: Option<ShellResult>) -> Option<ShellResult> {
+    match outcome {
+        Outcome::Exited(0) => parsed,
+        Outcome::Exited(_)
+        | Outcome::ScriptErrors
+        | Outcome::Incomplete
+        | Outcome::ConnectFailed
+        | Outcome::Signalled
+        | Outcome::Cancelled
+        | Outcome::CapReached
+        | Outcome::StartFailed => None,
     }
+}
+
+/// The password in every form it can be echoed in (raw, percent-encoded, JSON- and
+/// inspect-escaped).
+fn secrets_of(password: Option<String>) -> Vec<String> {
+    password.as_deref().map(secret_forms).unwrap_or_default()
 }
 
 fn refused(session: SessionId, run_id: u64, reason: ShellRefusal) -> Event {

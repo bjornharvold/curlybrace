@@ -1,6 +1,7 @@
 //! The Shell tab: the connection it runs on and why it may not run, the Run / Cancel / Format
-//! toolbar (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`), the script editor, the notice of the
-//! last run, the History panel and the output pane. It only draws and reports; every decision is the reducer's.
+//! toolbar (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`, and the finished run's notice as its
+//! status), the script editor, any other notice, the History panel and the output pane (with its
+//! `Text | Table | Tree` switch). It only draws and reports; every decision is the reducer's.
 //!
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.
@@ -10,7 +11,7 @@ use super::shell_history::show_history;
 use super::shell_layout::{heights, last_chrome, remember_chrome};
 use super::shell_notice::{notice_text, offers_tool_paths};
 use super::shell_output::show_output;
-use super::tone_notice::tone_notice;
+use super::tone_notice::{tone_notice, tone_status};
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
 use crate::theme::{Tone, filled_button, gate, text_button, tonal_button};
@@ -97,11 +98,18 @@ pub fn show_shell(
     let planned = heights(ui.available_height(), open, last_chrome(ui, ctx.session));
     let edited = show_editor(ui, state, ctx.session, planned.editor, i18n);
     let editor_used = ui.cursor().min.y - top;
-    ui.label(egui::RichText::new(i18n.t("shell.editor_hint")).small());
-    ui.label(egui::RichText::new(i18n.t("shell.script_hint")).small());
+    // One wrapped label: two would cost a line break and a gap of the output pane's height.
+    let (editor_hint, script_hint) = (i18n.t("shell.editor_hint"), i18n.t("shell.script_hint"));
+    let hints = i18n.t_with(
+        "shell.hints",
+        &[("editor", &editor_hint), ("script", &script_hint)],
+    );
+    ui.label(egui::RichText::new(hints).small());
+    // A finished run's notice is the toolbar's status (see `toolbar`); the others are read here.
     let notice = state
         .notice
         .as_ref()
+        .filter(|notice| !matches!(notice, ShellNotice::Finished(_)))
         .and_then(|notice| show_notice(ui, notice, i18n));
     let panel = show_history(
         ui,
@@ -117,7 +125,7 @@ pub fn show_shell(
         remember_chrome(ui, ctx.session, used - editor_used - panel.list_height);
     }
     let history = panel.action;
-    show_output(ui, state, ctx.session, i18n);
+    let output = show_output(ui, state, ctx.session, i18n);
     let script = match &edited {
         Some(ShellAction::Edit { script, .. }) => script.as_str(),
         _ => state.script.as_str(),
@@ -127,6 +135,7 @@ pub fn show_shell(
         .into_iter()
         .chain(shortcut.or(clicked))
         .chain(history)
+        .chain(output)
         .map(ShellViewEvent::Action)
         .chain(notice)
         .collect()
@@ -201,6 +210,10 @@ fn toolbar(
         .on_hover_text(i18n.t_with("shell.format_tooltip", &[("shortcut", &format_shortcut)]));
         if state.is_running() {
             ui.label(i18n.t("shell.status_running"));
+        }
+        if let Some(notice @ ShellNotice::Finished(_)) = &state.notice {
+            let (severity, text) = notice_text(notice, i18n);
+            tone_status(ui, severity.tone(), &text);
         }
         match (run.clicked(), cancel.clicked(), format.clicked()) {
             (true, _, _) => Some(ShellAction::Run),

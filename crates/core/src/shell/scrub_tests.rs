@@ -116,3 +116,127 @@ fn carry_stays_bounded_over_a_long_partial_match_stream() {
         }
     }
 }
+
+// ---- escaped forms of the password ----
+
+/// A scrubber over every form of `password`, as the runtime builds it.
+fn run_forms(password: &str, chunks: &[&str]) -> String {
+    let forms = secret_forms(password);
+    let refs: Vec<&str> = forms.iter().map(String::as_str).collect();
+    run(&refs, chunks)
+}
+
+#[test]
+fn a_plain_password_still_yields_the_raw_and_percent_encoded_forms() {
+    assert_eq!(secret_forms("hunter2"), vec!["hunter2".to_owned()]);
+    assert_eq!(
+        secret_forms("p@ss:w/rd"),
+        vec!["p@ss:w/rd".to_owned(), "p%40ss%3Aw%2Frd".to_owned()]
+    );
+}
+
+#[test]
+fn an_empty_password_yields_no_forms() {
+    assert!(secret_forms("").is_empty());
+}
+
+#[test]
+fn a_password_with_a_backslash_is_masked_in_its_doubled_form() {
+    let forms = secret_forms(r"pa\ss");
+    assert!(forms.contains(&r"pa\ss".to_owned()));
+    assert!(forms.contains(&r"pa\\ss".to_owned()), "{forms:?}");
+    assert_eq!(
+        run_forms(r"pa\ss", &[r"echo 'pa\\ss' and raw pa\ss"]),
+        format!("echo '{MASK}' and raw {MASK}")
+    );
+}
+
+#[test]
+fn a_password_with_a_quote_is_masked_in_its_json_escaped_form() {
+    let forms = secret_forms(r#"pa"ss"#);
+    assert!(forms.contains(&r#"pa\"ss"#.to_owned()), "{forms:?}");
+    assert_eq!(
+        run_forms(r#"pa"ss"#, &[r#"{"u":"pa\"ss"}"#]),
+        format!(r#"{{"u":"{MASK}"}}"#)
+    );
+}
+
+#[test]
+fn a_password_with_a_newline_or_unicode_is_masked_in_json_form() {
+    let password = "a\nb\té";
+    let forms = secret_forms(password);
+    // serde_json keeps é literal and escapes the control characters.
+    assert!(forms.contains(&r"a\nb\té".to_owned()), "{forms:?}");
+    assert_eq!(
+        run_forms(password, &[r#"{"p":"a\nb\té"}"#]),
+        format!(r#"{{"p":"{MASK}"}}"#)
+    );
+}
+
+#[test]
+fn a_password_with_a_control_character_is_masked_in_json_and_inspect_form() {
+    assert_eq!(
+        run_forms("a\u{1}b", &[r#"j "a\u0001b" i 'a\x01b'"#]),
+        format!(r#"j "{MASK}" i '{MASK}'"#)
+    );
+}
+
+#[test]
+fn a_password_with_a_single_quote_is_masked_in_inspect_form() {
+    let forms = secret_forms("pa'ss");
+    // Single-quote style escapes the quote; the double-quote style does not.
+    assert!(forms.contains(&r"pa\'ss".to_owned()), "{forms:?}");
+    assert!(forms.contains(&"pa'ss".to_owned()), "{forms:?}");
+    assert_eq!(
+        run_forms("pa'ss", &[r"'pa\'ss' then "]),
+        format!("'{MASK}' then ")
+    );
+    assert_eq!(
+        run_forms("pa'ss", &[r#"then "pa'ss""#]),
+        format!(r#"then "{MASK}""#)
+    );
+}
+
+#[test]
+fn a_password_with_a_quote_and_a_backslash_is_masked_in_every_inspect_style() {
+    for shown in [r"a\\b\'c", r"a\\b'c"] {
+        assert_eq!(run_forms(r"a\b'c", &[shown]), MASK, "{shown}");
+    }
+}
+
+#[test]
+fn forms_equal_to_the_raw_password_are_not_duplicated() {
+    for password in ["plain", "p@ss", r"a\b", "a'b", "é"] {
+        let forms = secret_forms(password);
+        let mut unique = forms.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(forms.len(), unique.len(), "{forms:?}");
+        assert_eq!(forms[0], password);
+        assert!(forms.iter().all(|f| !f.is_empty()));
+    }
+    assert_eq!(secret_forms("é"), vec!["é".to_owned(), "%C3%A9".to_owned()]);
+}
+
+#[test]
+fn the_escaped_form_is_masked_across_a_chunk_boundary() {
+    assert_eq!(
+        run_forms(r"pa\ss", &[r"x 'pa\", r"\ss' y"]),
+        format!("x '{MASK}' y")
+    );
+    assert_eq!(
+        run_forms(r#"pa"ss"#, &[r#"x "pa\"#, r#""ss" y"#]),
+        format!(r#"x "{MASK}" y"#)
+    );
+}
+
+#[test]
+fn mask_covers_the_escaped_forms_too() {
+    let forms = secret_forms(r"pa\ss");
+    let refs: Vec<&str> = forms.iter().map(String::as_str).collect();
+    let scrubber = Scrubber::new(&refs);
+    assert_eq!(
+        scrubber.mask(r"bad pa\\ss here"),
+        format!("bad {MASK} here")
+    );
+}

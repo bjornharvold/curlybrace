@@ -93,16 +93,15 @@ fn preamble_has_the_sentinels() {
 }
 
 #[test]
-fn preamble_fixes_the_prompt_before_connecting() {
+fn preamble_locks_the_prompt_before_connecting() {
     let text = preamble_text(&build(&cfg("mongodb://h/admin"), None, None));
     assert!(
-        text.starts_with("prompt = () => \"\\u0001CBP> \"; "),
+        text.starts_with(&locked("prompt", "() => \"\\u0001CBP> \"")),
         "{text}"
     );
-    let prompt_at = text.find("prompt = ").unwrap();
     assert!(
-        prompt_at < text.find("try { db = connect(").unwrap(),
-        "{text}"
+        !text.contains("prompt = () =>"),
+        "not a plain assignment: {text}"
     );
     // The JS escape and the token the classifier strips are the same text.
     assert_eq!(PROMPT, "\u{1}CBP> ");
@@ -299,4 +298,93 @@ fn ipv6_tunnel_address_is_bracketed() {
     let v6: SocketAddr = "[::1]:50000".parse().unwrap();
     let text = preamble_text(&build(&cfg("mongodb://h/admin"), None, Some(v6)));
     assert!(text.contains("mongodb://[::1]:50000/admin?"));
+}
+
+/// The emitter from the spike note (`docs/superpowers/notes/shell-structured-output-spike.md`):
+/// the right-hand side of its `__cbEmit = ...;` statement.
+const SPIKE_EMITTER: &str = r#"((P, E, SYM) => (v, T, MAXN, MAXB) => { const out = o => P(T + E.stringify(o, null, 0, {relaxed: false})); try { const t = v !== null && typeof v === "object" ? v[SYM] : undefined; const r = t !== undefined && v._currentIterationResult; let o; if (r && Array.isArray(r.documents)) { o = {k: "cursor", t: String(t), more: !!r.cursorHasMore, v: r.documents.slice(0, MAXN)} } else if (Array.isArray(v)) { o = {k: "array", n: v.length, more: v.length > MAXN, v: v.slice(0, MAXN)} } else if (v !== null && typeof v === "object") { o = {k: "object", t: t === undefined ? null : String(t), v: v} } else { o = {k: "scalar", v: v === undefined ? null : v, u: v === undefined} } const s = E.stringify(o, null, 0, {relaxed: false}); if (s.length > MAXB) { out({k: "too_big", bytes: s.length}) } else { P(T + s) } } catch (e) { out({k: "unsupported", t: v && v.constructor ? String(v.constructor.name) : null}) } })(print, EJSON, Symbol.for("@@mongosh.shellApiType"))"#;
+
+/// How the preamble locks a global (see `locked_global_js`).
+fn locked(name: &str, value: &str) -> String {
+    format!(
+        "try {{ Object.defineProperty(globalThis, \"{name}\", {{value: {value}, writable: false, configurable: false}}) }} catch (e) {{}} "
+    )
+}
+
+#[test]
+fn a_lock_that_throws_never_keeps_the_preamble_from_connecting() {
+    // A `var prompt` / `function prompt` in the user's `~/.mongoshrc.js` makes `prompt` a
+    // non-configurable property: redefining one of its flags (`enumerable`) would throw, and an
+    // uncaught throw would skip `connect`. So no flag beyond value/writable/configurable is set,
+    // and every lock is caught on its own.
+    let text = preamble_text(&build(&scram("mongodb://h/admin"), Some("pw"), None));
+    assert!(!text.contains("enumerable"), "{text}");
+    assert_eq!(text.matches("Object.defineProperty(").count(), 2, "{text}");
+    for name in ["prompt", "__cbEmit"] {
+        let at = text
+            .find(&format!(
+                "try {{ Object.defineProperty(globalThis, \"{name}\", "
+            ))
+            .unwrap_or_else(|| panic!("{name} locked inside a try: {text}"));
+        let close = at
+            + text[at..]
+                .find("configurable: false}) } catch (e) {} ")
+                .expect("its catch");
+        assert!(close < text.find("try { db = connect(").unwrap(), "{text}");
+    }
+    assert!(text.ends_with("catch (e) { print(\"__CB_FAILED__ \" + e.message) }\n"));
+}
+
+#[test]
+fn the_preamble_defines_the_emitter_locked_before_connecting() {
+    let inv = build(&scram("mongodb://h/admin"), Some("pw"), None);
+    let text = preamble_text(&inv);
+    let at = text
+        .find(&locked("__cbEmit", SPIKE_EMITTER))
+        .expect("the spike's emitter, locked");
+    assert!(at < text.find("try { db = connect(").unwrap(), "{text}");
+    assert!(text.find("passwordPrompt = ").unwrap() < at, "{text}");
+    assert_eq!(text.matches('\n').count(), 1, "still one line");
+    assert!(
+        !text.contains("__cbEmit = "),
+        "not a plain assignment: {text}"
+    );
+}
+
+#[test]
+fn the_token_is_sixteen_lowercase_hex_chars_and_not_in_the_preamble_args_or_script() {
+    let inv = build(&scram("mongodb://h/admin"), Some("pw"), None);
+    let token = &inv.result_token;
+    assert_eq!(token.len(), 16);
+    assert!(
+        token
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        "{token}"
+    );
+    assert!(!preamble_text(&inv).contains(token.as_str()));
+    assert!(!String::from_utf8_lossy(&inv.script).contains(token.as_str()));
+    for arg in &inv.args {
+        assert!(!arg.to_string_lossy().contains(token.as_str()));
+    }
+}
+
+#[test]
+fn the_debug_output_never_shows_the_token() {
+    let inv = build(&cfg("mongodb://h/admin"), None, None);
+    for text in [format!("{inv:?}"), format!("{inv:#?}")] {
+        assert!(!text.contains(&inv.result_token), "{text}");
+    }
+}
+
+#[test]
+fn the_epilogue_is_the_spike_line_with_the_token() {
+    assert_eq!(
+        epilogue("0123456789abcdef"),
+        r#"__cbEmit(_, "\u0001CBJ-0123456789abcdef ", 200, 4194304)"#
+    );
+    assert_eq!(
+        result_marker("0123456789abcdef"),
+        "\u{1}CBJ-0123456789abcdef "
+    );
 }

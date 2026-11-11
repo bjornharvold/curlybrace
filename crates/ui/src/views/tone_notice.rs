@@ -21,3 +21,19 @@ pub fn tone_notice(ui: &mut egui::Ui, tone: Tone, text: &str, strong: bool) {
             ui.label(if strong { text.strong() } else { text });
         });
 }
+
+/// `text` on the container of `tone`, only as wide as it needs (it still wraps at the end of
+/// the row): a status that shares a row with buttons, no taller than they are.
+pub fn tone_status(ui: &mut egui::Ui, tone: Tone, text: &str) {
+    let colors = current_ui(ui).tone(tone);
+    egui::Frame::new()
+        .fill(colors.container)
+        .corner_radius(shape::radius(shape::MEDIUM))
+        .inner_margin(egui::Margin::symmetric(
+            shape::SPACE_3 as i8,
+            shape::SPACE_1 as i8,
+        ))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(text).color(colors.on_container));
+        });
+}

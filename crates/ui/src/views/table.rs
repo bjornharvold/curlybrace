@@ -98,7 +98,7 @@ fn header_cells(
 /// cells join into one band. A cell's own clip rectangle would cut that widening, so the band is
 /// clipped to the table's `viewport` instead: a cell scrolled out of view never paints over the
 /// card's padding or the panels around it.
-fn paint_header_cell(ui: &egui::Ui, s: &Scheme, viewport: egui::Rect) {
+pub(super) fn paint_header_cell(ui: &egui::Ui, s: &Scheme, viewport: egui::Rect) {
     let band = ui.max_rect().expand2(0.5 * ui.spacing().item_spacing);
     // `set_clip_rect` replaces the cell's clip rect (`with_clip_rect` would intersect with it).
     let mut painter = ui.painter().clone();

@@ -155,7 +155,7 @@ fn field_cells(ui: &mut egui::Ui, row: &TreeRow, open: bool, i18n: &I18n) {
 
 /// The disclosure chevron of an expandable row. Every row reserves the same slot (the wider of
 /// the two chevrons), so keys line up whether or not a row can be expanded or is open.
-fn arrow(ui: &mut egui::Ui, row: &TreeRow, open: bool) {
+pub(super) fn arrow(ui: &mut egui::Ui, row: &TreeRow, open: bool) {
     let (rect, _) = ui.allocate_exact_size(chevron_slot(ui), egui::Sense::hover());
     if row.is_expandable() && ui.is_rect_visible(rect) {
         let color = ui.visuals().text_color();
