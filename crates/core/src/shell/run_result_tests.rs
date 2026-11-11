@@ -101,6 +101,27 @@ fn when_the_fixed_prompt_never_comes_back_the_process_exit_ends_the_run() {
 }
 
 #[test]
+fn a_shell_that_prints_nothing_after_the_block_is_ended_only_by_cancel() {
+    // Like a script that silenced `process.stdout.write` on real mongosh: no prompt after the
+    // block, the process stays alive, the writer waits for a verdict that never comes. The run
+    // does not end by itself (unlike before this feature) but a cancel ends it promptly. The
+    // case where the process exits instead is
+    // `when_the_fixed_prompt_never_comes_back_the_process_exit_ends_the_run`.
+    let fake = repl();
+    let run = start(&fake, "a\nsilence");
+    run.wait_for_text(Stream::Stdout, "a\n");
+    assert!(
+        run.done.recv_timeout(Duration::from_millis(300)).is_err(),
+        "the run ended by itself"
+    );
+    let cancelled_at = Instant::now();
+    run.handle().cancel();
+    assert_eq!(run.wait(), Outcome::Cancelled);
+    assert!(cancelled_at.elapsed() < Duration::from_secs(5));
+    assert!(!epilogue_was_sent(&fake));
+}
+
+#[test]
 fn scripts_that_mention_prompt_or_the_emitter_still_get_the_epilogue() {
     for line in [
         "db.prompt.find()",

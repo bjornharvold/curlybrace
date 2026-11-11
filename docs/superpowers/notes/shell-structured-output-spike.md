@@ -139,6 +139,9 @@ expect one more `PROMPT`; the line that starts (at line start) with `\u0001CBJ-<
 the single empty line after it is dropped, everything else in that window is ordinary output (see the
 async case below). After that prompt the run ends as today. If the script redefined `prompt`, Evaluated
 is never seen (existing limitation), so the epilogue is never sent: no table.
+*Superseded: both are now locked in the preamble (see Task 2 fix round); redefinition attempts
+are ignored or error; the remaining known stall is a script that silences `process.stdout.write`,
+ended only by Cancel.*
 
 (ii) **Multi-batch cursors / caps.** The recommended emitter sends what the echo printed: at most
 `displayBatchSize` docs (20 by default, `config.get("displayBatchSize")` = 20 here; a user's mongosh
@@ -233,6 +236,9 @@ medians, noise). The inline variant is slower because `mongosh` async-rewrites e
   cannot be shown as documents".
 - Errors, syntax errors, incomplete or early-ended blocks: no epilogue -> no table, existing outcome.
 - Scripts that assign `_`, `__cbEmit` or redefine `prompt`: no or wrong table (see Q3 vi).
+  *Superseded for `prompt` and `__cbEmit`: both are now locked in the preamble (see Task 2 fix
+  round); redefinition attempts are ignored or error; the remaining known stall is a script that
+  silences `process.stdout.write`, ended only by Cancel.*
 - Cursor docs past the echo batch: table shows the same <= 20 docs as the text, with "more documents
   in the cursor" when `more` is true.
 - Over 200 array elements: first 200 + "showing 200 of N".

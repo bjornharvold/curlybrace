@@ -108,7 +108,10 @@ pub struct ShellHandle {
 
 impl ShellHandle {
     /// Kills the shell and everything it started; the run then ends with `Cancelled`. A no-op once
-    /// the shell has been reaped, and when called again.
+    /// the shell has been reaped, and when called again. This is also the only way to end a run
+    /// whose script silenced or replaced `process.stdout.write` (or otherwise stopped `mongosh`
+    /// printing): no prompt comes after the block, so the writer waits for a verdict that never
+    /// comes; the kill ends the stdout reader, which closes the pace channel and ends the writer.
     pub fn cancel(&self) {
         if let Some(control) = &self.control {
             control.stop(Stop::Cancelled);
@@ -121,8 +124,11 @@ impl ShellHandle {
 /// the epilogue's answer, masked) at most once, and only before `on_done`; there is none when
 /// the script failed, ended early or assigned `_`, when the end of the block was never seen,
 /// when the shell did not answer, or when the answer was over [`RunLimits::max_result_bytes`]
-/// (the preamble locks `prompt` and `__cbEmit`, so a script cannot hide the end of the block or
-/// replace the emitter: see `invocation::locked_global_js`). All three are called
+/// (the preamble locks `prompt` and `__cbEmit`, so a script cannot replace either: see
+/// `invocation::locked_global_js`). A script that silences or replaces `process.stdout.write`
+/// (or otherwise stops `mongosh` printing) leaves no prompt after the block: the writer then
+/// waits for a verdict that never comes and the run is ended only by [`ShellHandle::cancel`]
+/// (or the process exiting). All three are called
 /// from one background thread. `secrets` are masked in all output. A failed spawn is reported
 /// as `on_done(Outcome::StartFailed)` before this returns. If `on_output` or `on_result`
 /// panics, the run is stopped, later output is dropped and `on_done` still comes, with

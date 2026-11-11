@@ -37,7 +37,10 @@ pub(super) enum Delivery {
 /// the prompt is back after the block (`Pace::Epilogue`: write it, then return), or as the
 /// channel closing: the block was not clean, `mongosh` may be waiting for another line, or the
 /// output ended (a cancel, the process exited). Anything else ends it too: it never guesses.
-/// The prompt is locked by the preamble, so a script cannot keep it from coming back.
+/// The prompt is locked by the preamble, so a script cannot replace it; but a script that
+/// silences or replaces `process.stdout.write` (or otherwise stops `mongosh` printing) leaves
+/// no prompt after the block, and this wait then never resolves: the run is ended only by
+/// Cancel (which kills the group, so the stdout reader ends and the pace channel closes).
 pub(super) fn write_input(
     mut stdin: ChildStdin,
     preamble: Vec<u8>,

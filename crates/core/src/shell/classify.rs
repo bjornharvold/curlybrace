@@ -26,10 +26,12 @@
 //!   with [`Piece::Evaluated`] and then lifts the epilogue's answer out of the text (see
 //!   `classify_result.rs`).
 //!
-//! The preamble locks `prompt` (`invocation::locked_global_js`), so a script cannot redefine
-//! it: an attempt is ignored or is an `Uncaught` error, and the fixed prompt always comes back.
-//! Were it ever not seen again, the routing to stderr and the outcome would be unreliable from
-//! then on, no epilogue would be sent, and the run would end with the process.
+//! The preamble locks `prompt` (`invocation::locked_global_js`), so a script cannot replace
+//! it: an attempt is ignored or is an `Uncaught` error. A script can still stop `mongosh`
+//! printing (it silences or replaces `process.stdout.write`, say): then the prompt after the
+//! block never shows, the routing to stderr and the outcome are unreliable from then on, no
+//! epilogue is sent, and the writer waits for a verdict that never comes, so only the process
+//! ending (or Cancel, which always works) ends the run.
 use super::Stream;
 use super::invocation::{PROMPT, result_marker};
 use result::{PayloadLine, Start};

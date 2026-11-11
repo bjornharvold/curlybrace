@@ -36,6 +36,7 @@
 //! | `spoof <token>` | prints a marker line now: `\x01CBJ-<token> {"k":"spoof"}` |
 //! | `result-late <n>` | the answer `{"k":"late"}`, then `n` times `x` and a newline (late output in the answer window) |
 //! | `redefine-prompt` | what `mongosh` does for `Object.defineProperty(globalThis, "prompt", ...)` against the preamble's lock: `Uncaught \rTypeError: Cannot redefine property: prompt` |
+//! | `silence` | prints no prompts from then on and keeps reading stdin (a script that silenced `process.stdout.write`: the run waits for Cancel) |
 //! | `prompt-exit <text>` | the next prompt is `<text>`, not the fixed one, and the fake exits 0 right after printing it (the fixed prompt never comes back) |
 //! | anything else | echoed back |
 //!
@@ -184,6 +185,7 @@ run_line() {
     'result-late '*) answer_mode=late; answer="${1#result-late }" ;;
     redefine-prompt) printf 'Uncaught \rTypeError: Cannot redefine property: prompt\n'; return 1 ;;
     'prompt-exit '*) PROMPT_TEXT="${1#prompt-exit }"; exit_after_prompt=yes ;;
+    silence) PROMPT_TEXT='' ;;
     'passwordPrompt()')
       if [ -n "$pw_blocked" ]; then printf 'Uncaught \rError: %s\n' "$pw_blocked"; return 1; fi
       printf 'Enter password\n'; cat > /dev/null; exit 0 ;;

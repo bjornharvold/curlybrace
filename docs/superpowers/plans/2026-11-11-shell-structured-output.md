@@ -23,7 +23,7 @@
 ## Review Focus
 
 - A password containing `\`, `"`, a newline or a non-ASCII character must not appear in the text pane, the Table or the Tree (all three tested against a real result).
-- A script that prints a fake marker line (even with a guessed token), assigns `_`, assigns `__cbEmit`, redefines `print`/`EJSON`, or overrides `prompt` must not produce a wrong-looking-right table: spoofing is impossible without the token, and the documented degraded cases give "no table" with an explanation.
+- A script that prints a fake marker line (even with a guessed token), assigns `_`, assigns `__cbEmit`, redefines `print`/`EJSON`, or overrides `prompt` must not produce a wrong-looking-right table: spoofing is impossible without the token, and the documented degraded cases give "no table" with an explanation. *Superseded for `prompt` and `__cbEmit`: both are now locked in the preamble (see Task 2 fix round); redefinition attempts are ignored or error; the remaining known stall is a script that silences `process.stdout.write`, ended only by Cancel.*
 - A result of 200 documents with 40 columns and a result with one 1 MiB string must not freeze the UI (virtualised rows, truncated cells).
 - Documents whose fields differ between rows; empty result; `undefined`; a script that errors after printing; a cancelled run: each must show a clear state, never a stale result from the previous run.
 - A new run clears the previous result immediately (Table/Tree never show the old run's documents under the new run's text).
