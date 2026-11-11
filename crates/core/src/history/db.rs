@@ -7,6 +7,7 @@
 use super::db_schema::{SchemaError, prepare};
 use super::retention::{ChartRange, MAX_DB_BYTES};
 use super::series::{Bucket, Sample};
+use super::shell_history::{self, ShellHistoryEntry, ShellRunStatus};
 use super::{shapes, thin, usage};
 use crate::error::{CoreError, Result};
 use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
@@ -359,6 +360,43 @@ impl HistoryDb {
             .contains(&connection)
     }
 
+    /// Remembers one shell run of `connection`; see [`shell_history::record`]. Ignored for a
+    /// purged connection, checked under the connection lock like [`Self::record_many`].
+    pub fn record_shell_run(
+        &self,
+        connection: Uuid,
+        script: &str,
+        status: ShellRunStatus,
+        now_secs: i64,
+    ) -> Result<()> {
+        let mut conn = self.lock();
+        if self.is_purged(connection) {
+            return Ok(());
+        }
+        shell_history::record(&mut conn, connection, script, status, now_secs)
+    }
+
+    /// The remembered shell runs of a connection, newest first, at most
+    /// [`shell_history::SHELL_HISTORY_LIMIT`].
+    pub fn shell_history(&self, connection: Uuid) -> Result<Vec<ShellHistoryEntry>> {
+        shell_history::read(&self.lock(), connection)
+    }
+
+    /// Forgets every shell run of a connection. Not a purge: it can record again right away.
+    pub fn clear_shell_history(&self, connection: Uuid) -> Result<()> {
+        shell_history::clear(&self.lock(), connection)
+    }
+
+    /// Gives `to` its own copy of the newest shell runs of `from` (a duplicated connection).
+    /// Ignored for a purged `to`.
+    pub fn copy_shell_history(&self, from: Uuid, to: Uuid) -> Result<()> {
+        let mut conn = self.lock();
+        if self.is_purged(to) {
+            return Ok(());
+        }
+        shell_history::copy(&mut conn, from, to)
+    }
+
     /// Deletes everything stored for one connection (its samples and rolled rows).
     /// Also marks it purged, so nothing written for it afterwards recreates the series.
     pub fn purge_connection(&self, connection: Uuid) -> Result<()> {
@@ -373,6 +411,7 @@ impl HistoryDb {
         .map_err(sql_err)?;
         // Same locked section: shape rows (typed ones included) and their gaps go with it.
         shapes::delete_connection(&tx, connection)?;
+        shell_history::delete_connection(&tx, connection)?;
         tx.commit().map_err(sql_err)?;
         thin::release_free_pages(&conn)
     }

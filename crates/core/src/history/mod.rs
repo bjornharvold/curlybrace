@@ -8,6 +8,8 @@ mod db_schema;
 #[cfg(test)]
 mod db_schema_v2_tests;
 #[cfg(test)]
+mod db_schema_v3_tests;
+#[cfg(test)]
 mod db_tests;
 #[cfg(test)]
 mod db_wal_tests;
@@ -33,6 +35,9 @@ mod shapes_latest_tests;
 mod shapes_read;
 #[cfg(test)]
 mod shapes_tests;
+mod shell_history;
+#[cfg(test)]
+mod shell_history_tests;
 #[cfg(test)]
 mod skew_roll_tests;
 #[cfg(test)]
@@ -51,6 +56,9 @@ pub use profile_mark::ProfileMark;
 pub use retention::{ChartRange, MAX_DB_BYTES};
 pub use shape_schema::{RAW_BUCKET_SECS, TYPED_HOST};
 pub use shapes::{ShapeBucket, ShapeKey, ShapeObservation, ShapeSource, ShapeSummary, is_miss};
+pub use shell_history::{
+    MAX_STORED_SCRIPT_BYTES, SHELL_HISTORY_LIMIT, ShellHistoryEntry, ShellRunStatus,
+};
 
 pub use series::{
     Bucket, DEFAULT_MAX_CONTINUOUS_SECS, GAP_INTERVALS, MAX_BUCKETS, MAX_FUTURE_SKEW_SECS, Point,

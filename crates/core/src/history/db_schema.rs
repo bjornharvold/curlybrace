@@ -8,12 +8,14 @@
 //!   `derive` must see them in (it never re-sorts by timestamp).
 //! - `rolled`: thinned rows, `tier` 1 = hourly, 2 = daily, holding exactly a `Bucket`'s fields.
 //! - Version 2 adds the `shape*` tables (see [`super::shape_schema`]).
+//! - Version 3 adds `shell_history` (see [`super::shell_history`]).
 
 use super::shape_schema::{PROFILE_MARK, V2};
+use super::shell_history::V3;
 use rusqlite::{Connection, TransactionBehavior};
 
 /// The schema version this build writes.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Tier of an hourly rolled row.
 pub const TIER_HOURLY: i64 = 1;
@@ -80,6 +82,9 @@ pub fn prepare(conn: &mut Connection) -> Result<(), SchemaError> {
     if version < 2 {
         migrate_to_v2(conn)?;
     }
+    if version < 3 {
+        migrate_to_v3(conn)?;
+    }
     ensure_profile_mark(conn)?;
     Ok(())
 }
@@ -123,6 +128,20 @@ pub(super) fn migrate_to_v2(conn: &mut Connection) -> Result<(), SchemaError> {
     }
     tx.execute_batch(V2)?;
     tx.pragma_update(None, "user_version", 2)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Adds the shell history table (see [`super::shell_history`]). Same shape as
+/// [`migrate_to_v2`]: the write lock first, `user_version` re-read inside it.
+pub(super) fn migrate_to_v3(conn: &mut Connection) -> Result<(), SchemaError> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let version: i64 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if version >= 3 {
+        return Ok(());
+    }
+    tx.execute_batch(V3)?;
+    tx.pragma_update(None, "user_version", 3)?;
     tx.commit()?;
     Ok(())
 }
