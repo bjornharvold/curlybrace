@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/bjornharvold/curlybrace/compare/v0.9.0...v0.10.0) (2026-11-11)
+
+
+### Features
+
+* **shell:** per-connection history for the shell tab ([#143](https://github.com/bjornharvold/curlybrace/issues/143)) ([02375f0](https://github.com/bjornharvold/curlybrace/commit/02375f01e0054f3b99223fc79894a6a544a7fad4))
+
 ## [0.9.0](https://github.com/bjornharvold/curlybrace/compare/v0.8.0...v0.9.0) (2026-11-11)
 
 
