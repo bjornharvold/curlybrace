@@ -23,7 +23,7 @@
 use super::control::{Control, Stop};
 use super::decode::Utf8Decoder;
 use super::invocation::{RESULT_MAX_CHARS, epilogue};
-use super::pipe::{Delivery, Expect, Lane, Reader, write_input};
+use super::pipe::{Delivery, Expect, Input, Lane, Reader, write_input};
 use super::{Invocation, Scrubber};
 use crate::tools::{absolute_entries, kill_group};
 use std::ffi::OsStr;
@@ -46,6 +46,9 @@ pub const DEFAULT_MAX_RESULT_BYTES: usize =
 const _: () = assert!(DEFAULT_MAX_RESULT_BYTES >= MAX_UTF8_BYTES_PER_UTF16_UNIT * RESULT_MAX_CHARS);
 /// A little over the driver's 30 s server selection timeout.
 pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(35);
+/// The rest of a line split by a read comes at once; a continuation prompt is followed by
+/// nothing. Long enough for the first, short enough that an unfinished block still ends soon.
+pub const DEFAULT_CONTINUATION_GRACE: Duration = Duration::from_millis(750);
 /// How often the supervisor checks whether the child has exited.
 const POLL: Duration = Duration::from_millis(10);
 /// Grace period for the readers after the child has exited. Something it started may still hold
@@ -94,6 +97,11 @@ pub struct RunLimits {
     /// the run goes on (it never ends in `CapReached` for it). It does not count against
     /// `max_output_bytes`.
     pub max_result_bytes: usize,
+    /// How long the writer waits when the output read so far ends, right after the last script
+    /// line, in a bare `|` / `| `: a continuation prompt (`mongosh` waits for a line that never
+    /// comes) or the start of output that begins with `|`, split by the read. More output within
+    /// it shows it was output; otherwise stdin is closed and the run has no result.
+    pub continuation_grace: Duration,
 }
 
 impl Default for RunLimits {
@@ -103,6 +111,7 @@ impl Default for RunLimits {
             chunk_bytes: DEFAULT_CHUNK_BYTES,
             handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
             max_result_bytes: DEFAULT_MAX_RESULT_BYTES,
+            continuation_grace: DEFAULT_CONTINUATION_GRACE,
         }
     }
 }
@@ -198,8 +207,13 @@ pub fn spawn_shell(
     let (output_tx, output_rx) = mpsc::channel();
     let (pace_tx, pace_rx) = mpsc::channel();
     let lines = script.split_inclusive(|&b| b == b'\n').count();
-    let epilogue_line = format!("{}\n", epilogue(&result_token)).into_bytes();
-    std::thread::spawn(move || write_input(stdin, preamble, script, epilogue_line, &pace_rx));
+    let input = Input {
+        preamble,
+        script,
+        epilogue: format!("{}\n", epilogue(&result_token)).into_bytes(),
+        grace: limits.continuation_grace,
+    };
+    std::thread::spawn(move || write_input(stdin, input, &pace_rx));
     let reader = |lane| Reader {
         control: Arc::clone(&control),
         output: output_tx.clone(),

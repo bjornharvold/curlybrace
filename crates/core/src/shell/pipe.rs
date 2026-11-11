@@ -8,6 +8,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::process::ChildStdin;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::time::{Duration, Instant};
 
 /// What the stdout lane tells the writer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,6 +17,12 @@ pub(super) enum Pace {
     Next,
     /// The block was evaluated cleanly: write the epilogue.
     Epilogue,
+    /// After the last line, `mongosh` may be waiting for a line that never comes (a bare `| `
+    /// at a read boundary): wait a short grace for [`Pace::NotWaiting`] or the verdict, then
+    /// close stdin.
+    MaybeWaiting,
+    /// That was output after all: wait for the verdict as usual.
+    NotWaiting,
 }
 
 /// What the readers hand the supervisor, in order.
@@ -35,19 +42,21 @@ pub(super) enum Delivery {
 ///
 /// After the last line it waits for the stdout lane's verdict on the `epilogue`, which comes when
 /// the prompt is back after the block (`Pace::Epilogue`: write it, then return), or as the
-/// channel closing: the block was not clean, `mongosh` may be waiting for another line, or the
-/// output ended (a cancel, the process exited). Anything else ends it too: it never guesses.
-/// The prompt is locked by the preamble, so a script cannot replace it; but a script that
-/// silences or replaces `process.stdout.write` (or otherwise stops `mongosh` printing) leaves
-/// no prompt after the block, and this wait then never resolves: the run is ended only by
-/// Cancel (which kills the group, so the stdout reader ends and the pace channel closes).
-pub(super) fn write_input(
-    mut stdin: ChildStdin,
-    preamble: Vec<u8>,
-    script: Vec<u8>,
-    epilogue: Vec<u8>,
-    pace: &Receiver<Pace>,
-) {
+/// channel closing: the block was not clean, or the output ended (a cancel, the process exited).
+/// `Pace::MaybeWaiting` (`mongosh` may be waiting for another line) starts a `grace`: unless
+/// `Pace::NotWaiting` or the verdict comes within it, it returns (closing stdin, so `mongosh`
+/// sees EOF in the unfinished statement and exits). Anything else ends it too: it never
+/// guesses. The prompt is locked by the preamble, so a script cannot replace it; but a script
+/// that silences or replaces `process.stdout.write` (or otherwise stops `mongosh` printing)
+/// leaves no prompt after the block, and this wait then never resolves: the run is ended only
+/// by Cancel (which kills the group, so the stdout reader ends and the pace channel closes).
+pub(super) fn write_input(mut stdin: ChildStdin, input: Input, pace: &Receiver<Pace>) {
+    let Input {
+        preamble,
+        script,
+        epilogue,
+        grace,
+    } = input;
     let sent = stdin.write_all(&preamble).and_then(|()| stdin.flush());
     // The password's only copy outside the scrubbers: do not keep it for the whole run.
     drop(preamble);
@@ -55,13 +64,47 @@ pub(super) fn write_input(
         return;
     }
     for line in script.split_inclusive(|&b| b == b'\n') {
-        if pace.recv() != Ok(Pace::Next) || stdin.write_all(line).is_err() {
+        if next_pace(pace, None) != Some(Pace::Next) || stdin.write_all(line).is_err() {
             return;
         }
     }
-    if pace.recv() == Ok(Pace::Epilogue) {
+    if await_verdict(pace, grace) {
         // A failed write means the shell is gone: there is no answer, and nothing to report.
         let _ = stdin.write_all(&epilogue);
+    }
+}
+
+/// What the writer sends.
+pub(super) struct Input {
+    pub(super) preamble: Vec<u8>,
+    pub(super) script: Vec<u8>,
+    pub(super) epilogue: Vec<u8>,
+    /// How long to wait after `Pace::MaybeWaiting` before giving up on the epilogue.
+    pub(super) grace: Duration,
+}
+
+/// Whether the epilogue may be written: waits for the verdict after the last line, giving up
+/// `grace` after a `Pace::MaybeWaiting` that nothing resolved.
+fn await_verdict(pace: &Receiver<Pace>, grace: Duration) -> bool {
+    let mut deadline = None;
+    loop {
+        match next_pace(pace, deadline) {
+            Some(Pace::Epilogue) => return true,
+            Some(Pace::MaybeWaiting) => deadline = Some(Instant::now() + grace),
+            Some(Pace::NotWaiting) => deadline = None,
+            Some(Pace::Next) | None => return false,
+        }
+    }
+}
+
+/// The next message; `None` when the channel closed or `deadline` passed.
+fn next_pace(pace: &Receiver<Pace>, deadline: Option<Instant>) -> Option<Pace> {
+    match deadline {
+        None => pace.recv().ok(),
+        Some(deadline) => {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            pace.recv_timeout(wait).ok()
+        }
     }
 }
 
@@ -239,8 +282,12 @@ impl StdoutLane {
                 self.pace.take();
                 true
             }
-            Piece::NoEpilogue => {
-                self.pace.take();
+            Piece::MaybeContinuation => {
+                self.send_pace(Pace::MaybeWaiting);
+                true
+            }
+            Piece::NotContinuation => {
+                self.send_pace(Pace::NotWaiting);
                 true
             }
             Piece::Result(payload) => self.result(&payload, sink),

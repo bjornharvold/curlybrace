@@ -464,6 +464,30 @@ async fn print_and_ejson_overrides_still_get_a_result() {
     assert_eq!(doc.get_str("b").ok(), Some("x"), "{doc:?}");
 }
 
+/// Output that starts with `|` (as a continuation prompt does) right after the script was read
+/// must not cost the run its result.
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn output_starting_with_a_bar_still_gets_a_result() {
+    let test = "output_starting_with_a_bar_still_gets_a_result";
+    let Some(events) = in_scratch_db(test, None, |n| {
+        format!("print(\"| a | b |\")\n{}t.find()", seed_30(n))
+    })
+    .await
+    else {
+        return;
+    };
+    assert_eq!(outcome(&events), Outcome::Exited(0), "{events:?}");
+    assert!(
+        text(&events, Stream::Stdout).starts_with("| a | b |\n"),
+        "{events:?}"
+    );
+    let Some(ShellResult::Documents { docs, .. }) = result_of(&events) else {
+        panic!("no result in {events:?}");
+    };
+    assert_eq!(docs.len(), 20);
+}
+
 /// A last value that is one BSON-typed object (a Date, an ObjectId, a Long, a UUID) is a scalar of
 /// that type, not "no value".
 #[tokio::test]

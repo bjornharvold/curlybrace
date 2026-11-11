@@ -243,18 +243,76 @@ fn without_a_token_there_is_never_an_epilogue_or_a_payload() {
 }
 
 #[test]
-fn a_continuation_prompt_past_the_last_line_gives_no_epilogue_at_once() {
+fn a_continuation_prompt_past_the_last_line_is_reported_at_once_as_maybe_waiting() {
     // A bracket is still open: `mongosh` waits for a line that will never come, so the writer
-    // must hear "no epilogue" now (and close stdin), not after the end of the output.
+    // must hear it now (and close stdin after its grace), not after the end of the output. It
+    // could still be output that starts with `| `, so no verdict is given yet.
     let mut c = classifier();
     let mut pieces = Vec::new();
     for chunk in [READY, P, "| ", "| "] {
         pieces.extend(c.push(chunk));
     }
-    assert_eq!(count(&pieces, &Piece::NoEpilogue), 1);
+    assert_eq!(count(&pieces, &Piece::MaybeContinuation), 1);
+    assert_eq!(count(&pieces, &Piece::NotContinuation), 0);
     pieces.extend(c.finish());
     assert!(c.incomplete());
     assert!(!pieces.iter().any(|p| matches!(p, Piece::Evaluated { .. })));
+}
+
+/// The block's output starts with `|`: wherever a read splits it (after `|`, after `| `, or
+/// anywhere else), it is text, the epilogue is still asked for and the answer lifted. A split
+/// that leaves a bare `|` / `| ` held is reported as maybe waiting, then as not waiting.
+#[test]
+fn output_starting_with_a_bar_split_anywhere_still_gets_the_epilogue() {
+    let output = "| a | b |\n";
+    let tail = format!("| {output}");
+    for at in 1..tail.len() {
+        let (first, second) = tail.split_at(at);
+        let mut c = classifier();
+        let after = [first, second, P, &answer(PAYLOAD), P];
+        let mut pieces = Vec::new();
+        for chunk in [READY, P].iter().chain(&after) {
+            pieces.extend(c.push(chunk));
+        }
+        pieces.extend(c.finish());
+        assert_eq!(shown(&pieces, Stdout), output, "split at {at}");
+        assert_eq!(
+            count(&pieces, &Piece::Evaluated { epilogue: true }),
+            1,
+            "split at {at}: {pieces:?}"
+        );
+        assert_eq!(results(&pieces), [PAYLOAD], "split at {at}");
+        let bare = first == "| |" || first == "| | ";
+        let maybe = count(&pieces, &Piece::MaybeContinuation);
+        assert_eq!(maybe, usize::from(bare), "split at {at}: {pieces:?}");
+        assert_eq!(
+            count(&pieces, &Piece::NotContinuation),
+            maybe,
+            "split at {at}"
+        );
+        assert!(!c.incomplete(), "split at {at}");
+    }
+}
+
+/// One character per read: the bare `|` is reported once, and resolved once.
+#[test]
+fn output_starting_with_a_bar_read_a_character_at_a_time_still_gets_the_epilogue() {
+    let mut c = classifier();
+    let mut pieces = Vec::new();
+    for chunk in [READY, P] {
+        pieces.extend(c.push(chunk));
+    }
+    let tail = format!("| | a | b |\n{P}{}{P}", answer(PAYLOAD));
+    let mut buf = [0u8; 4];
+    for ch in tail.chars() {
+        pieces.extend(c.push(ch.encode_utf8(&mut buf)));
+    }
+    pieces.extend(c.finish());
+    assert_eq!(shown(&pieces, Stdout), "| a | b |\n");
+    assert_eq!(count(&pieces, &Piece::MaybeContinuation), 1, "{pieces:?}");
+    assert_eq!(count(&pieces, &Piece::NotContinuation), 1, "{pieces:?}");
+    assert_eq!(count(&pieces, &Piece::Evaluated { epilogue: true }), 1);
+    assert_eq!(results(&pieces), [PAYLOAD]);
 }
 
 #[test]

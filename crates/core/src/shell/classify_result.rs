@@ -4,9 +4,11 @@
 //! The epilogue may be sent only once `mongosh` evaluated the whole block: the second prompt
 //! came (`Piece::Evaluated`), every script line was asked for, no error block was seen, and
 //! `mongosh` did not say that the script assigned `_` (then `_` is the script's own value, not
-//! the block's). The verdict is given once, with `Evaluated`; a continuation prompt after the
-//! last line gives it early as `NoEpilogue` (`mongosh` may be waiting for input that never
-//! comes, so the writer must close stdin now, as it always did).
+//! the block's). The verdict is given once, with `Evaluated`. A bare `|` / `| ` held right
+//! after the last line may be a continuation prompt (`mongosh` waits for input that never comes)
+//! or the split start of output that begins with `|`: it is reported as `MaybeContinuation`,
+//! and more text that shows it was output as `NotContinuation`. The writer waits a short grace
+//! for that (or the verdict) and otherwise closes stdin, as it did for a continuation prompt.
 //!
 //! After `Evaluated { epilogue: true }` and up to the next prompt (the epilogue's own), a line
 //! that starts with the marker (U+0001, `CBJ-`, the run's token, a space) is the answer: it is
@@ -58,11 +60,19 @@ impl Classifier {
             && !self.saw_underscore
     }
 
-    /// Gives the verdict "no epilogue" now, unless it was given.
-    pub(super) fn refuse_epilogue(&mut self, out: &mut Vec<Piece>) {
-        if self.marker.is_some() && !self.verdict_given && self.prompts < 2 {
-            self.verdict_given = true;
-            out.push(Piece::NoEpilogue);
+    /// Reports a held bare `|` / `| ` after the last line once, while the verdict is still to
+    /// come (only the writer of a run with an epilogue waits on it).
+    pub(super) fn maybe_continuation(&mut self, out: &mut Vec<Piece>) {
+        if self.marker.is_some() && !self.verdict_given && self.prompts < 2 && !self.maybe_waiting {
+            self.maybe_waiting = true;
+            out.push(Piece::MaybeContinuation);
+        }
+    }
+
+    /// The held `|` turned out to be output: says so, if it was reported.
+    pub(super) fn not_continuation(&mut self, out: &mut Vec<Piece>) {
+        if std::mem::take(&mut self.maybe_waiting) {
+            out.push(Piece::NotContinuation);
         }
     }
 

@@ -27,6 +27,7 @@
 //! | `flood` | endless output (`yes flood`) |
 //! | `bytes <fmt>` | `printf <fmt>` (raw bytes, octal escapes; no spaces in `fmt`) |
 //! | `split <a> <b>` | `printf <a>`, a 0.2 s pause, `printf <b>`: two separate reads |
+//! | `bar-hang` | `\|` on stdout (no newline), a 0.2 s pause, `bar-out` on stderr, then `sleep 30` |
 //! | `long <n>` | `n` times `x` without a newline |
 //! | `passwordPrompt()` | with the preamble's override: its `Uncaught \rError: <message>`; without: `Enter password`, then reads all of stdin as the password and exits 0, as `mongosh` does |
 //! | `result <payload>` | the epilogue's answer: `\x01CBJ-<token> <payload>`, then the blank line `print` leaves |
@@ -177,6 +178,7 @@ run_line() {
     flood) yes flood ;;
     'bytes '*) printf "${1#bytes }" ;;
     'split '*) read -r _ first second <<< "$1"; printf "$first"; sleep 0.2; printf "$second" ;;
+    bar-hang) printf '|'; sleep 0.2; printf 'bar-out\n' >&2; sleep 30 ;;
     'long '*) head -c "${1#long }" /dev/zero | tr '\0' x ;;
     'result '*) answer_mode=payload; answer="${1#result }" ;;
     'result-twice '*) answer_mode=twice; answer="${1#result-twice }" ;;

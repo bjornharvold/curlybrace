@@ -635,3 +635,6 @@ fn a_panicking_on_output_stops_the_run_and_still_reports_once() {
 
 #[path = "run_result_tests.rs"]
 mod result;
+
+#[path = "run_grace_tests.rs"]
+mod grace;

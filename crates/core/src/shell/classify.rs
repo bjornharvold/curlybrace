@@ -61,9 +61,13 @@ pub(crate) enum Piece {
     Evaluated {
         epilogue: bool,
     },
-    /// A continuation prompt may have come after the last script line: `mongosh` may be waiting
-    /// for a line that never comes, so no epilogue may be sent (stdin must close now).
-    NoEpilogue,
+    /// A bare `|` or `| ` ends the text read so far right after the last script line: it may be
+    /// a continuation prompt (`mongosh` waits for a line that never comes, so stdin must close
+    /// soon) or the start of output that begins with `|` and was split by the read. Not decided
+    /// here: the writer waits a short grace for [`Piece::NotContinuation`] or the verdict.
+    MaybeContinuation,
+    /// More text showed that the held `|` was output after all: the run goes on as usual.
+    NotContinuation,
     /// The epilogue's answer (the text after the marker, without the line end). Never text.
     Result(String),
     /// The epilogue's answer was longer than the cap; it is dropped.
@@ -119,8 +123,10 @@ pub(crate) struct Classifier {
     marker: Option<String>,
     /// Longest answer kept (bytes after the marker).
     max_result_bytes: usize,
-    /// The verdict on the epilogue was given ([`Piece::Evaluated`] or [`Piece::NoEpilogue`]).
+    /// The verdict on the epilogue was given ([`Piece::Evaluated`]).
     verdict_given: bool,
+    /// [`Piece::MaybeContinuation`] was reported and not resolved yet.
+    maybe_waiting: bool,
     /// Between `Evaluated { epilogue: true }` and the next prompt: marker lines are answers.
     window: bool,
     /// The answer line being read.
@@ -331,16 +337,21 @@ impl Classifier {
         if self.continuations == Some(0) {
             // Every line was asked for. One more continuation prompt asks for a line after the
             // script's end, and only the end of the output follows it; anything else is output.
+            // A bare `|` / `| ` at a read boundary is either: it is held and reported, not
+            // decided (output that starts with `|` must not lose its epilogue).
             return match (partial, at_end) {
                 (true, true) => {
                     self.incomplete = true;
                     Bar::Stripped("")
                 }
                 (true, false) => {
-                    self.refuse_epilogue(out);
+                    self.maybe_continuation(out);
                     Bar::Hold
                 }
-                (false, _) => Bar::Output,
+                (false, _) => {
+                    self.not_continuation(out);
+                    Bar::Output
+                }
             };
         }
         if let Some(after) = rest.strip_prefix(CONTINUATION) {
@@ -392,7 +403,8 @@ impl std::fmt::Debug for Piece {
                 .debug_struct("Evaluated")
                 .field("epilogue", epilogue)
                 .finish(),
-            Piece::NoEpilogue => f.write_str("NoEpilogue"),
+            Piece::MaybeContinuation => f.write_str("MaybeContinuation"),
+            Piece::NotContinuation => f.write_str("NotContinuation"),
             Piece::Result(payload) => write!(f, "Result(<{} bytes>)", payload.len()),
             Piece::ResultTooLarge => f.write_str("ResultTooLarge"),
             Piece::Ready => f.write_str("Ready"),
