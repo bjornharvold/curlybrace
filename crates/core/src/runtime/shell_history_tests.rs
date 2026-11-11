@@ -124,6 +124,21 @@ impl Fixture {
         self.answer(session).await
     }
 
+    /// The context and error of the next event, which must be a `Failed` for `wanted`.
+    async fn failure(&mut self, wanted: SessionId) -> (&'static str, CoreError) {
+        match next(&mut self.h).await {
+            Event::Failed {
+                session,
+                context,
+                error,
+            } => {
+                assert_eq!(session, wanted);
+                (context, error)
+            }
+            other => panic!("expected Failed, got {other:?}"),
+        }
+    }
+
     async fn answer(&mut self, wanted: SessionId) -> Vec<ShellHistoryEntry> {
         match next(&mut self.h).await {
             Event::ShellHistory { session, entries } => {
@@ -213,15 +228,24 @@ async fn a_cancelled_run_is_recorded_as_cancelled() {
 }
 
 #[tokio::test]
-async fn history_off_records_nothing_and_reads_empty() {
+async fn history_off_records_nothing_and_reads_as_unavailable() {
     let mut f = Fixture::new(false, false).await;
     f.run(1, "hello shell");
     assert_eq!(f.finished().await, Outcome::Exited(0));
-    assert!(f.history_of(f.id).await.is_empty());
+    f.h.tx
+        .send(Command::ShellHistory { session: f.id })
+        .unwrap();
+    assert_eq!(
+        f.failure(f.id).await,
+        ("shell_history", CoreError::NotFound)
+    );
     f.h.tx
         .send(Command::ClearShellHistory { session: f.id })
         .unwrap();
-    assert!(f.answer(f.id).await.is_empty());
+    assert_eq!(
+        f.failure(f.id).await,
+        ("clear_shell_history", CoreError::NotFound)
+    );
 }
 
 #[tokio::test]

@@ -245,6 +245,29 @@ fn a_failed_history_read_or_clear_marks_it_unavailable_without_a_banner() {
     }
 }
 
+/// History off: the core answers a read with `Failed(shell_history)`, never with an empty list,
+/// so the panel says "unavailable" rather than "no scripts yet". A later list makes it usable.
+#[test]
+fn history_off_reads_as_unavailable_until_a_list_arrives() {
+    let (s, id) = browsing(with_flags(false, false));
+    let (s, _) = shell(s, ShellAction::Open);
+    let off = Event::Failed {
+        session: id,
+        context: "shell_history",
+        error: CoreError::NotFound,
+    };
+    let (s, commands) = event(s, off);
+    assert!(commands.is_empty(), "{commands:?}");
+    assert!(s.banner.is_none(), "{:?}", s.banner);
+    let h = &shell_of(&s, id).history;
+    assert!(h.loaded && !h.available);
+
+    let (s, _) = event(s, history(id, vec![entry(1, "db.a.find()")]));
+    let h = &shell_of(&s, id).history;
+    assert!(h.loaded && h.available);
+    assert_eq!(h.entries.len(), 1);
+}
+
 #[test]
 fn a_reconnect_keeps_the_history_list() {
     let (s, id) = with_history();

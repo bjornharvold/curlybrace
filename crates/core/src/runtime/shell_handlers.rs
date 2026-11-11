@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::clock;
 use crate::connection::ConnectionConfig;
+use crate::error::CoreError;
 use crate::history::{HistoryDb, ShellRunStatus};
 use crate::shell::{Outcome, RunLimits, build_invocation, percent_encode_component, spawn_shell};
 
@@ -331,8 +332,9 @@ pub(super) fn dispatch_history(
     }
 }
 
-/// Answers with the connection's entries, or with none after `clear`. Without history the answer
-/// is the empty list; a failed read is a `Failed` event, not an empty list.
+/// Answers with the connection's entries, or with none after `clear`. Without history, and on a
+/// failed read or clear, the answer is a `Failed` event with the command's context (never an
+/// empty list, which would read as "no scripts yet"); the error carries no path or system text.
 fn answer_history(
     history: Option<Arc<HistoryDb>>,
     session: SessionId,
@@ -343,7 +345,7 @@ fn answer_history(
 ) {
     tokio::spawn(async move {
         let entries = match history {
-            None => Ok(Vec::new()),
+            None => Err(CoreError::NotFound),
             Some(history) if clear => {
                 blocking(move || history.clear_shell_history(session).map(|()| Vec::new())).await
             }
