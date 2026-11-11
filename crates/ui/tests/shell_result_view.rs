@@ -414,6 +414,29 @@ fn an_empty_result_says_so() {
 }
 
 #[test]
+fn an_empty_object_says_it_has_no_fields_and_no_row_count() {
+    let object = ShellResult::Object {
+        type_name: None,
+        doc: doc! {},
+    };
+    let h = harness(with_result(object, OutputMode::Table));
+    h.get_by_label(&t("shell.result.empty_object"));
+    let rows = tw("shell.result.row_count", &[("count", "1")]);
+    assert!(h.query_by_label_contains(&rows).is_none());
+}
+
+#[test]
+fn documents_without_fields_say_so_and_no_row_count() {
+    let h = harness(with_result(
+        cursor(vec![doc! {}, doc! {}], false),
+        OutputMode::Table,
+    ));
+    h.get_by_label(&t("shell.result.no_fields"));
+    let rows = tw("shell.result.row_count", &[("count", "2")]);
+    assert!(h.query_by_label_contains(&rows).is_none());
+}
+
+#[test]
 fn tree_values_show_each_element() {
     let values = ShellResult::Values {
         values: vec![

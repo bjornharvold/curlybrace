@@ -9,6 +9,7 @@ use super::table::paint_header_cell;
 use crate::I18n;
 use crate::theme::{StateLayer, card, current_ui, state_layer};
 use crate::viewmodel::shell::ShellState;
+use crate::viewmodel::shell_result::ShellResult;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use uuid::Uuid;
@@ -19,12 +20,26 @@ pub(super) fn show_result_table(ui: &mut egui::Ui, state: &ShellState, session: 
     let Some(cells) = table_cells(ui.ctx(), session, state, i18n) else {
         return;
     };
+    match empty_key(&cells, state) {
+        Some(key) => {
+            ui.label(i18n.t(key));
+        }
+        None => show_cells(ui, &cells, session),
+    }
+}
+
+/// What a table with nothing to draw says instead: no rows, or rows without a single field (an
+/// empty object, documents that are all `{}`).
+fn empty_key(cells: &TableCells, state: &ShellState) -> Option<&'static str> {
     if cells.rows.is_empty() {
-        ui.label(i18n.t("shell.result.empty"));
-        return;
+        return Some("shell.result.empty");
     }
     if !cells.columns.shown.is_empty() {
-        show_cells(ui, &cells, session);
+        return None;
+    }
+    match state.result.result.as_deref() {
+        Some(ShellResult::Object { .. }) => Some("shell.result.empty_object"),
+        _ => Some("shell.result.no_fields"),
     }
 }
 
@@ -39,9 +54,9 @@ pub(super) fn show_table_bar(ui: &mut egui::Ui, state: &ShellState, session: Uui
         .result
         .as_deref()
         .and_then(|result| note_text(result, i18n));
-    let parts = match cells.rows.is_empty() {
-        true => Vec::from_iter(left_out),
-        false => notes(&cells, left_out, i18n),
+    let parts = match empty_key(&cells, state) {
+        Some(_) => Vec::from_iter(left_out),
+        None => notes(&cells, left_out, i18n),
     };
     show_notes(ui, &parts, i18n);
 }
