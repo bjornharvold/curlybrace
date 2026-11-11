@@ -37,6 +37,8 @@ mod shapes_read;
 mod shapes_tests;
 mod shell_history;
 #[cfg(test)]
+mod shell_history_cap_tests;
+#[cfg(test)]
 mod shell_history_tests;
 #[cfg(test)]
 mod skew_roll_tests;

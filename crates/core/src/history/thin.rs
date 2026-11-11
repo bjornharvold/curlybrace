@@ -38,12 +38,15 @@ use super::retention::{
 use super::seam;
 use super::series::{MAX_FUTURE_SKEW_SECS, bucketize_within, derive};
 use super::shape_thin::{self, CapStep};
+use super::shell_history;
 use super::usage::{clip_gap, trusted_seam};
 use crate::error::Result;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 /// Rows deleted per step while enforcing the size cap.
 const CAP_BATCH_ROWS: i64 = 500;
+/// Shell runs deleted per step: a run can be 32 KiB, so a smaller batch overshoots less.
+const SHELL_CAP_BATCH_ROWS: i64 = 20;
 
 pub(super) fn thin(
     conn: &mut Connection,
@@ -263,8 +266,9 @@ pub(super) fn release_free_pages(conn: &Connection) -> Result<()> {
         .map_err(sql_err)
 }
 
-/// Deletes rows until the file fits: first the raw rows of series that hold no sample the reads
-/// can see (all stamped ahead of the clock, whether or not they also have rolled rows), then the
+/// Deletes rows until the file fits. Shell history goes first (see [`trim_shell_history`]): its
+/// rows are large, and without this a few big scripts could cost all the usage and shape
+/// history. Then the raw rows of series that hold no sample the reads can see (all stamped ahead of the clock, whether or not they also have rolled rows), then the
 /// oldest daily rows, then hourly, then raw. Shape history shares the cap: at every step a batch
 /// of usage rows and a batch of shape buckets go in turn, with the size re-checked between them,
 /// so neither set starves the other.
@@ -273,6 +277,9 @@ pub(super) fn release_free_pages(conn: &Connection) -> Result<()> {
 /// real rows of a dead series look like future ones and go first. That is acceptable, because
 /// the cap is already deleting data; below the cap nothing is ever deleted for its stamp.
 fn enforce_cap(conn: &Connection, max_bytes: u64, now_secs: i64) -> Result<()> {
+    if trim_shell_history(conn, max_bytes)? {
+        return Ok(());
+    }
     let believable_until = now_secs.saturating_add(MAX_FUTURE_SKEW_SECS);
     let steps = [
         (
@@ -329,6 +336,21 @@ fn enforce_cap(conn: &Connection, max_bytes: u64, now_secs: i64) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Deletes the oldest shell runs (across all connections, keeping the newest
+/// `CAP_KEEP_PER_CONNECTION` of each) a batch at a time, giving the pages back and measuring
+/// after each, until the file fits or nothing more may go. Whether the file fits.
+fn trim_shell_history(conn: &Connection, max_bytes: u64) -> Result<bool> {
+    loop {
+        if used_bytes(conn)? <= max_bytes {
+            return Ok(true);
+        }
+        if shell_history::cap_batch(conn, SHELL_CAP_BATCH_ROWS)? == 0 {
+            return Ok(false);
+        }
+        release_free_pages(conn)?;
+    }
 }
 
 fn usage_batch(conn: &Connection, delete: &str, takes_until: bool, until: i64) -> Result<usize> {

@@ -18,9 +18,12 @@ use uuid::Uuid;
 pub const SHELL_HISTORY_LIMIT: usize = 200;
 
 /// Longest script (in bytes) that is stored. A longer one is run but not remembered. Kept small
-/// because shell history counts toward the history file's size cap, which can trim usage and
-/// shape rows but not this table: 200 large scripts could otherwise push unrelated history out.
+/// because shell history counts toward the history file's size cap.
 pub const MAX_STORED_SCRIPT_BYTES: usize = 32 * 1024;
+
+/// The newest runs of each connection the size cap never deletes. Past these, the cap trims
+/// shell history (oldest first, across all connections) before any usage or shape row.
+pub const CAP_KEEP_PER_CONNECTION: usize = 20;
 
 pub(super) const V3: &str = "
 CREATE TABLE shell_history (
@@ -116,6 +119,20 @@ fn trim(conn: &Connection, connection: &str) -> Result<()> {
     )
     .map_err(sql_err)?;
     Ok(())
+}
+
+/// Deletes up to `limit` of the oldest runs across all connections, never one of the newest
+/// [`CAP_KEEP_PER_CONNECTION`] of its connection; how many went. For the size cap.
+pub(super) fn cap_batch(conn: &Connection, limit: i64) -> Result<usize> {
+    conn.execute(
+        "DELETE FROM shell_history WHERE id IN (
+             SELECT id FROM (
+                 SELECT id, ROW_NUMBER() OVER (PARTITION BY connection ORDER BY id DESC) AS newer
+                 FROM shell_history)
+             WHERE newer > ?2 ORDER BY id LIMIT ?1)",
+        params![limit, CAP_KEEP_PER_CONNECTION as i64],
+    )
+    .map_err(sql_err)
 }
 
 /// Stores one run: replaces the newest row when it holds the same script, then trims. One
