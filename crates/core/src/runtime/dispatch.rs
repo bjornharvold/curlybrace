@@ -8,7 +8,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::session::Session;
 use super::{
     Command, CoreError, Event, Repaint, SessionId, Shared, compare, copy, handlers, indexes,
-    profiler_handlers, profiler_start, snapshots,
+    profiler_handlers, profiler_start, shell_handlers, snapshots,
 };
 
 /// Runs one command in its own task. The work runs in an inner task so a
@@ -71,6 +71,14 @@ pub(super) fn dispatch(
         {
             repaint();
         }
+        return;
+    }
+    // Synchronous, so request order decides which of two runs holds the session's one slot.
+    if matches!(
+        command,
+        Command::ShellRun { .. } | Command::ShellCancel { .. }
+    ) {
+        shell_handlers::dispatch(shared, events, repaint, command);
         return;
     }
     let context = command.context();

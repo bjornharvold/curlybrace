@@ -93,6 +93,9 @@ run "core local_profiler_paging" \
   cargo test -p curlybrace-core --test local_profiler_paging --locked -- --include-ignored --nocapture "$@"
 run "core local_profiler_poller" \
   cargo test -p curlybrace-core --test local_profiler_poller --locked -- --include-ignored --nocapture "$@"
+# local_shell: runs the real mongosh (found on PATH) against the server; it skips without one.
+run "core local_shell" \
+  cargo test -p curlybrace-core --test local_shell --locked -- --include-ignored --nocapture "$@"
 run "ui local_e2e_flows" \
   cargo test -p curlybrace-ui --test local_e2e_flows --locked -- --include-ignored --nocapture "$@"
 run "ui local_compare_flows" \

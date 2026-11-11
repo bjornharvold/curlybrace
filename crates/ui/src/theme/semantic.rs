@@ -17,6 +17,19 @@ pub struct JsonColors {
     pub punctuation: Color32,
 }
 
+/// Syntax colors of the Shell tab's JavaScript editor. A token kind is also told apart by its
+/// text (a comment starts with `//`, a string with a quote), so color is never the only signal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct JsColors {
+    pub plain: Color32,
+    pub keyword: Color32,
+    pub string: Color32,
+    pub number: Color32,
+    pub comment: Color32,
+    /// The mongosh globals and helpers: `db`, `sh`, `rs`, `use`, `show`, `it`.
+    pub shell_word: Color32,
+}
+
 /// Colors of the usage and miss charts. A series is never told apart by color alone: the legend
 /// names it and bars, lines and bands differ in shape.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +57,20 @@ pub fn json_colors(scheme: &Scheme) -> JsonColors {
         boolean,
         null,
         punctuation: scheme.on_surface_variant,
+    }
+}
+
+/// JavaScript syntax colors for `scheme`: the JSON hues where a kind matches (strings, numbers,
+/// keywords as booleans, mongosh words as keys) so both views read alike.
+pub fn js_colors(scheme: &Scheme) -> JsColors {
+    let json = json_colors(scheme);
+    JsColors {
+        plain: scheme.on_surface,
+        keyword: json.boolean,
+        string: json.string,
+        number: json.number,
+        comment: scheme.on_surface_variant,
+        shell_word: json.key,
     }
 }
 

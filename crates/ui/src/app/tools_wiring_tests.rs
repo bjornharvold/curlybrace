@@ -428,7 +428,7 @@ fn by_default_the_app_also_searches_the_usual_install_folders() {
         Arc::new(MemorySecretStore::default()),
     )
     .with_config_path(Ok(dir.path().join("connections.json")));
-    let path = app.tool_path_var.clone().expect("a search path");
+    let path = app.state.tool_search_path.clone().expect("a search path");
     for folder in curlybrace_core::tools::COMMON_DIRS {
         assert!(
             std::env::split_paths(&path).any(|p| p == std::path::Path::new(folder)),

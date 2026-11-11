@@ -27,6 +27,9 @@ pub enum WriteKind {
     RenameCollection,
     DuplicateCollection,
     CreateView,
+    /// A `mongosh` script: without a parser a read cannot be told from a write, so every run is
+    /// asked about.
+    ShellRun,
 }
 
 /// Whether a mutation must wait for the user's confirmation when it targets a production
@@ -44,7 +47,8 @@ pub enum Guard {
 pub struct ParkedWrite {
     pub command: Command,
     /// What `pending` becomes when the write is sent, exactly as an unguarded write would set it.
-    pub pending: Pending,
+    /// `None` for a shell run, which is tracked by its Shell tab instead.
+    pub pending: Option<Pending>,
     pub kind: WriteKind,
     /// The connect epoch of the session when the write was parked: a reconnect bumps it, so a
     /// write never outlives the opening it was aimed at.
@@ -140,14 +144,15 @@ pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
             let banner = Some(Banner::ReadOnly);
             (AppState { banner, ..state }, Vec::new())
         }
+        // A shell run has its own in-flight state (the Shell tab), not `pending`.
+        (WriteWarningAction::Confirm, Some(parked)) if parked.kind == WriteKind::ShellRun => {
+            super::shell_actions::confirmed(state, parked)
+        }
         (WriteWarningAction::Confirm, Some(parked)) if still_valid(&state, &parked) => {
             let ParkedWrite {
                 command, pending, ..
             } = parked;
-            let next = AppState {
-                pending: Some(pending),
-                ..state
-            };
+            let next = AppState { pending, ..state };
             (
                 super::index_write_actions::sent(next, &command),
                 vec![command],
@@ -171,7 +176,7 @@ pub(super) fn on_action(state: AppState, action: WriteWarningAction) -> Out {
 }
 
 /// The parked write still targets the same, connected opening of the active session.
-fn connection_unchanged(state: &AppState, parked: &ParkedWrite) -> bool {
+pub(super) fn connection_unchanged(state: &AppState, parked: &ParkedWrite) -> bool {
     let session = state.session_id();
     parked.command.session() == Some(session)
         && state.is_open(session)

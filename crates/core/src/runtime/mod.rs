@@ -84,6 +84,12 @@ mod sampler_tests;
 mod session;
 #[cfg(test)]
 mod session_tests;
+mod shell_handlers;
+mod shell_slot;
+#[cfg(test)]
+mod shell_slot_tests;
+#[cfg(test)]
+mod shell_tests;
 mod snapshots;
 #[cfg(test)]
 mod test_connection_tests;
@@ -447,6 +453,31 @@ pub enum Command {
         session: SessionId,
         run: crate::bulk::BulkRunId,
     },
+    /// Runs `script` in `mongosh` (at `exe`, which the UI resolved from the tool settings) against
+    /// the session's connection. A write: refused on a read-only connection. Streams
+    /// [`Event::ShellOutput`] and ends with [`Event::ShellFinished`], or is answered by
+    /// [`Event::ShellRefused`] when nothing was started. `run_id` is the caller's number for it.
+    ShellRun {
+        session: SessionId,
+        run_id: u64,
+        exe: std::path::PathBuf,
+        script: String,
+    },
+    /// Stops the run `run_id` of the session; any other id is ignored. The run still ends with
+    /// [`Event::ShellFinished`] (`Cancelled`).
+    ShellCancel {
+        session: SessionId,
+        run_id: u64,
+    },
+}
+
+/// Why a [`Command::ShellRun`] was not started.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ShellRefusal {
+    ReadOnly,
+    NotConnected,
+    AlreadyRunning,
+    Invalid(crate::shell::ShellError),
 }
 
 // Events are moved through a channel once; boxing `Query` would only add noise
@@ -661,6 +692,29 @@ pub enum Event {
     Profiler {
         session: SessionId,
         status: ProfilerStatus,
+    },
+    /// Text a shell run printed, already scrubbed of the password. Not epoch-gated: a run is
+    /// tagged with its `session` and `run_id` and the UI ignores the ones it no longer shows.
+    ShellOutput {
+        session: SessionId,
+        run_id: u64,
+        stream: crate::shell::Stream,
+        text: String,
+    },
+    /// The run `run_id` ended; follows its last `ShellOutput`. Also sent for a run killed by a
+    /// disconnect (`Cancelled`) and for one that could not start (`StartFailed`).
+    ShellFinished {
+        session: SessionId,
+        run_id: u64,
+        outcome: crate::shell::Outcome,
+    },
+    /// The `ShellRun` `run_id` was refused. Nothing was spawned in any refusal. It can arrive
+    /// late: after the password lookup (a disconnect or reconnect landed meanwhile, or the
+    /// tunnel was gone), not only straight after the command.
+    ShellRefused {
+        session: SessionId,
+        run_id: u64,
+        reason: ShellRefusal,
     },
 }
 

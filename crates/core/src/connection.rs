@@ -187,11 +187,7 @@ impl ConnectionConfig {
         self.validate_name()?;
         self.validate_uri()?;
         self.validate_folder()?;
-        if self.auth == AuthMechanism::X509
-            && !(self.tls.enabled && self.tls.client_cert_key_file.is_some())
-        {
-            return Err(CoreError::InvalidUri(UriProblem::X509Needs));
-        }
+        self.validate_x509()?;
         if let Some(ssh) = &self.ssh {
             if ssh.host.trim().is_empty() || ssh.username.trim().is_empty() || ssh.port == 0 {
                 return Err(CoreError::Ssh(
@@ -202,7 +198,17 @@ impl ConnectionConfig {
         Ok(())
     }
 
-    fn validate_uri(&self) -> Result<()> {
+    /// x509 sign-in needs TLS on and a client certificate file.
+    pub(crate) fn validate_x509(&self) -> Result<()> {
+        if self.auth == AuthMechanism::X509
+            && !(self.tls.enabled && self.tls.client_cert_key_file.is_some())
+        {
+            return Err(CoreError::InvalidUri(UriProblem::X509Needs));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_uri(&self) -> Result<()> {
         let rest = self
             .uri
             .strip_prefix("mongodb+srv://")

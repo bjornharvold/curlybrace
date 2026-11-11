@@ -10,6 +10,7 @@ use super::persistence::PersistError;
 use super::queries_actions;
 use super::saved_copies;
 use super::session_actions;
+use super::shell_actions::{self, ShellAction};
 use super::state::{AppState, Banner, ConnStatus, Pending};
 use super::tools_actions;
 use super::tools_state::ToolsAction;
@@ -55,6 +56,8 @@ pub enum Input {
     Bulk(BulkAction),
     /// The list of saved undo copies.
     Copies(super::saved_copies::CopiesAction),
+    /// The Shell tab of the active session.
+    Shell(ShellAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -81,6 +84,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Tools(a) => tools_actions::on_action(state, a),
         Input::Bulk(a) => bulk_actions::on_action(state, a),
         Input::Copies(a) => saved_copies::on_action(state, a),
+        Input::Shell(a) => shell_actions::on_action(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
@@ -140,6 +144,14 @@ fn on_event(state: AppState, ev: Event) -> Out {
         // A late answer of a session that was closed: it never resurrects the root and never
         // applies to another session.
         (_, Some(session)) if !state.is_open(session) => (state, Vec::new()),
+        // A shell run is tagged with its session and run id, not an epoch: it goes straight to
+        // that session's shell, which ignores a run it no longer shows.
+        (
+            ev @ (Event::ShellOutput { .. }
+            | Event::ShellFinished { .. }
+            | Event::ShellRefused { .. }),
+            Some(session),
+        ) => shell_actions::on_event(state, session, ev),
         (ev, Some(session)) => {
             // Inside `with_session` the active session is the event's own, so whether the person
             // is looking at it must be read before.
@@ -178,7 +190,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::Disconnected { .. } => (state, Vec::new()),
         Event::ConnectFailed { epoch, error, .. } => at_epoch(state, epoch, |s| {
             let error = specific(&s, "connect", error);
-            (connection_lost(s, "connect", error, background), Vec::new())
+            lost_with_shell_cancelled(s, "connect", error, background)
         }),
         // The root was dropped when Disconnect was sent and the runtime always answers
         // `Disconnected`; a failure that still arrives must not fail a root opened since.
@@ -281,10 +293,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         } => {
             let error = specific(&state, context, error);
             match state.editor.is_none() && !state.indexes.has_prompt() {
-                true => (
-                    connection_lost(state, context, error, background),
-                    Vec::new(),
-                ),
+                true => lost_with_shell_cancelled(state, context, error, background),
                 false => (
                     data_failed_keeping_banner(state, context, error, background),
                     Vec::new(),
@@ -439,11 +448,14 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             bulk_actions::undo_preview_arrived(state, run, request_id, outcome),
             Vec::new(),
         ),
-        // Routed before; these have no session.
+        // Routed before: these have no session, or go to the session's shell.
         Event::Compare(_)
         | Event::Copy(_)
         | Event::TestConnection { .. }
-        | Event::Snapshots { .. } => (state, Vec::new()),
+        | Event::Snapshots { .. }
+        | Event::ShellOutput { .. }
+        | Event::ShellFinished { .. }
+        | Event::ShellRefused { .. } => (state, Vec::new()),
     }
 }
 
@@ -530,6 +542,22 @@ fn connection_lost(
         forget_target,
         ..state.failed(error)
     }
+}
+
+/// `connection_lost`, plus a cancel of the session's running shell: `mongosh` holds its own
+/// connection and may outlive the blip, and once the shell is reset to idle nothing else could
+/// stop it. Read while the failing session is the active one.
+fn lost_with_shell_cancelled(
+    state: AppState,
+    context: &'static str,
+    error: CoreError,
+    background: bool,
+) -> Out {
+    let cancel = shell_actions::cancel_running(&state, state.session_id());
+    (
+        connection_lost(state, context, error, background),
+        cancel.into_iter().collect(),
+    )
 }
 
 /// Stores a fresh page, memoising its content key once (not per frame).

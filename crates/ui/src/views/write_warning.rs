@@ -28,6 +28,7 @@ pub fn message_key(kind: WriteKind) -> &'static str {
         WriteKind::RenameCollection => "write_warning.message_rename_collection",
         WriteKind::DuplicateCollection => "write_warning.message_duplicate_collection",
         WriteKind::CreateView => "write_warning.message_create_view",
+        WriteKind::ShellRun => "write_warning.message_shell_run",
     }
 }
 
@@ -90,7 +91,7 @@ mod tests {
     use egui_kittest::kittest::{NodeT, Queryable};
     use uuid::Uuid;
 
-    const KINDS: [WriteKind; 16] = [
+    const KINDS: [WriteKind; 17] = [
         WriteKind::Insert,
         WriteKind::Replace,
         WriteKind::Clone,
@@ -107,6 +108,7 @@ mod tests {
         WriteKind::RenameCollection,
         WriteKind::DuplicateCollection,
         WriteKind::CreateView,
+        WriteKind::ShellRun,
     ];
 
     fn parked(kind: WriteKind) -> ParkedWrite {
@@ -117,7 +119,7 @@ mod tests {
                 ns: ns.clone(),
                 id: Bson::Int32(1),
             },
-            pending: Pending { ns, editor: None },
+            pending: Some(Pending { ns, editor: None }),
             kind,
             epoch: 1,
         }

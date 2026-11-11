@@ -19,6 +19,7 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
         Some(_) => return (activate_in_browser(state, id), Vec::new()),
     }
     let epoch = state.epoch_counter + 1;
+    let cancel = super::shell_actions::cancel_running(&state, id);
     let view = SessionView {
         status: ConnStatus::Connecting,
         latest_requested_epoch: epoch,
@@ -29,14 +30,18 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
     };
     // A reconnect keeps a still-running bulk write's flow: its finish is still coming and the
     // report of a write whose result is not known must not be lost. Any other flow was aimed at
-    // the opening that is gone, so it is dropped.
+    // the opening that is gone, so it is dropped. The shell keeps its draft and goes idle.
     let next = AppState {
         epoch_counter: epoch,
         forget_confirm: None,
         workspace: Workspace::Browse,
-        ..cleared_for_connect(state.bulk_dropped_for(id, true), id).opened_with(id, view)
+        ..cleared_for_connect(state.bulk_dropped_for(id, true).shell_reset_for(id), id)
+            .opened_with(id, view)
     };
-    (next, vec![Command::Connect(cfg)])
+    // A reconnect resets the shell: a run it still showed is cancelled first (see
+    // `shell_actions::cancel_running`).
+    let commands = cancel.into_iter().chain([Command::Connect(cfg)]).collect();
+    (next, commands)
 }
 
 /// Connecting `id` withdraws the banner about it (and a banner nobody owns); a banner another
@@ -61,6 +66,9 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
         .or_else(|| position.checked_sub(1).and_then(|p| state.open.get(p)))
         .copied();
     let epoch = state.epoch_counter + 1;
+    // The closed session's running shell is cancelled before the Disconnect (which kills it in
+    // the core as well), under the same rule as a lost connection.
+    let cancel = super::shell_actions::cancel_running(&state, id);
     let focused = match (state.active == Some(id), neighbour) {
         (true, Some(next)) => state.activated(next),
         _ => state,
@@ -77,7 +85,11 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
         epoch_counter: epoch,
         ..next
     };
-    (next, vec![Command::Disconnect { session: id }])
+    let commands = cancel
+        .into_iter()
+        .chain([Command::Disconnect { session: id }])
+        .collect();
+    (next, commands)
 }
 
 /// Shows the open session `id`; unknown ids change nothing.

@@ -51,6 +51,8 @@ pub mod sampling_settings;
 pub mod session;
 mod session_actions;
 pub mod settings_file;
+pub mod shell_actions;
+pub mod shell_state;
 pub mod state;
 mod tool_picker;
 mod tool_probe;
@@ -154,9 +156,6 @@ pub struct CurlybraceApp {
     /// Where the version-check threads put their answers, drained once per frame.
     probe_answers: Receiver<ProbeAnswer>,
     probe_sender: std::sync::mpsc::Sender<ProbeAnswer>,
-    /// The `PATH` the tool checks search and pass on: the process's own plus the usual install
-    /// folders (an app started from the Finder lacks Homebrew's), unless replaced.
-    tool_path_var: Option<std::ffi::OsString>,
     /// The executable dialog being shown, if any: at most one at a time.
     tool_pick: Option<tool_picker::ToolPick>,
     known_hosts: Option<PathBuf>,
@@ -181,7 +180,14 @@ impl CurlybraceApp {
         connections: Vec<ConnectionConfig>,
         secrets: Arc<dyn SecretStore>,
     ) -> Self {
-        let state = refresh_flags(AppState::new(connections), secrets.as_ref());
+        // The `PATH` the tool checks and the shell search: the process's own plus the usual
+        // install folders (an app started from the Finder lacks Homebrew's), unless replaced.
+        let state = AppState {
+            tool_search_path: Some(curlybrace_core::tools::default_search_path(
+                std::env::var_os("PATH").as_deref(),
+            )),
+            ..refresh_flags(AppState::new(connections), secrets.as_ref())
+        };
         let (probe_sender, probe_answers) = std::sync::mpsc::channel();
         Self {
             state,
@@ -198,9 +204,6 @@ impl CurlybraceApp {
             tools_notice: None,
             probe_answers,
             probe_sender,
-            tool_path_var: Some(curlybrace_core::tools::default_search_path(
-                std::env::var_os("PATH").as_deref(),
-            )),
             tool_pick: None,
             known_hosts: default_known_hosts_path(),
             prompt: PromptState::default(),
@@ -862,6 +865,12 @@ mod queries_test_support;
 
 #[cfg(test)]
 mod queries_tests;
+
+#[cfg(test)]
+mod shell_tests;
+
+#[cfg(test)]
+mod shell_view_tests;
 
 #[cfg(test)]
 mod connection_import_tests;

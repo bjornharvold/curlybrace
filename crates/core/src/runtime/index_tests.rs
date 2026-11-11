@@ -689,7 +689,7 @@ async fn a_sampler_status_never_follows_disconnected() {
     let shared = shared_with_history();
     let id = Uuid::from_u128(11);
     let (session, generation) = shared.begin_session_epoch(id);
-    assert!(session.install_if_current(generation, store_with(&["testdb"]), None));
+    assert!(session.install_with_config(generation, store_with(&["testdb"]), None, None));
     let (events, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     let begin_in_progress = session.epoch_lock.write().unwrap();

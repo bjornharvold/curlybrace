@@ -1,9 +1,12 @@
 //! One open connection: its store, tunnel and current epoch.
 
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+use super::shell_slot::ShellRuns;
 use super::tunneling::TunnelHandle;
+use crate::connection::ConnectionConfig;
 use crate::store::DocumentStore;
 use tokio::task::JoinHandle;
 
@@ -31,6 +34,11 @@ pub(crate) struct Session {
     sampler: Mutex<Option<JoinHandle<()>>>,
     /// The profile poller of the installed store, stopped with the sampler.
     profiler: Mutex<Option<JoinHandle<()>>>,
+    /// The config of the installed connection, kept for the Shell tab (the commands carry none).
+    /// Cleared with the store on every new epoch.
+    config: Mutex<Option<ConnectionConfig>>,
+    /// The `mongosh` run of this session, killed when the session ends.
+    pub(super) shell: ShellRuns,
 }
 
 impl Session {
@@ -42,6 +50,8 @@ impl Session {
             epoch_lock: RwLock::new(()),
             sampler: Mutex::new(None),
             profiler: Mutex::new(None),
+            config: Mutex::new(None),
+            shell: ShellRuns::default(),
         }
     }
 
@@ -67,8 +77,11 @@ impl Session {
         let mut slot = self.store.write().unwrap_or_else(|e| e.into_inner());
         *slot = None;
         let old = self.tunnel.lock().unwrap_or_else(|e| e.into_inner()).take();
+        *self.config.lock().unwrap_or_else(|e| e.into_inner()) = None;
         drop(slot);
         drop(old);
+        // A shell started on the old connection must not outlive it.
+        self.shell.cancel_all();
         // After the generation moved: an `attach_sampler` or `attach_profiler` that takes the
         // lock later sees it.
         self.stop_background();
@@ -121,19 +134,36 @@ impl Session {
         }
     }
 
-    /// Installs `store` and its tunnel only if `generation` is still the latest
-    /// request. When superseded, both are dropped (closing the tunnel).
-    pub fn install_if_current(
+    /// The local forward address of the installed tunnel, if the connection has one.
+    pub fn tunnel_addr(&self) -> Option<SocketAddr> {
+        let tunnel = self.tunnel.lock().unwrap_or_else(|e| e.into_inner());
+        tunnel.as_ref().map(|t| t.local_addr())
+    }
+
+    /// The config of the installed connection; `None` when none is installed (or the store was
+    /// handed in at spawn time).
+    pub(super) fn connection_config(&self) -> Option<ConnectionConfig> {
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Installs `store`, its tunnel and the connection's `config` only if `generation` is still
+    /// the latest request. When superseded, they are dropped (closing the tunnel).
+    pub(super) fn install_with_config(
         &self,
         generation: u64,
         store: Arc<dyn DocumentStore>,
         tunnel: Option<Box<dyn TunnelHandle>>,
+        config: Option<ConnectionConfig>,
     ) -> bool {
         let mut slot = self.store.write().unwrap_or_else(|e| e.into_inner());
         if self.generation.load(Ordering::SeqCst) != generation {
             return false;
         }
         *slot = Some(store);
+        *self.config.lock().unwrap_or_else(|e| e.into_inner()) = config;
         let previous = std::mem::replace(
             &mut *self.tunnel.lock().unwrap_or_else(|e| e.into_inner()),
             tunnel,
@@ -147,5 +177,6 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         self.stop_background();
+        self.shell.cancel_all();
     }
 }
