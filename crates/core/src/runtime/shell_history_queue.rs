@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::clock;
 use crate::error::{CoreError, Result};
-use crate::history::{HistoryDb, Recorded, ShellRunStatus};
+use crate::history::{HistoryDb, Recorded, ShellHistoryEntry, ShellRunStatus};
 use crate::shell::Outcome;
 
 use super::indexes::blocking;
@@ -31,26 +31,66 @@ pub(super) enum Job {
         script: String,
         outcome: Outcome,
     },
-    /// Answer with the session's entries.
-    Read { session: SessionId },
-    /// Forget the session's entries, then answer with the (empty) list.
-    Clear { session: SessionId },
+    /// A job answered with the session's list (or a `Failed` in its context).
+    Answer { session: SessionId, kind: Answer },
     /// Copy the entries of `from` to `to`; no answer.
     Copy { from: Uuid, to: Uuid },
+}
+
+/// What an answered job does; it also names the job's failure context, so the two never
+/// disagree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Answer {
+    /// Answer with the session's entries (`ShellHistory`).
+    Read,
+    /// Forget the session's entries, then answer with the (empty) list (`ClearShellHistory`).
+    Clear,
     /// A read that panics inside the job (tests only).
     #[cfg(test)]
-    PanickingRead { session: SessionId },
+    PanickingRead,
+}
+
+impl Answer {
+    /// The `Failed` context: the i18n key suffix of the command this answers.
+    pub(super) fn context(self) -> &'static str {
+        match self {
+            Self::Read => "shell_history",
+            Self::Clear => "clear_shell_history",
+            #[cfg(test)]
+            Self::PanickingRead => "shell_history",
+        }
+    }
+
+    fn entries(self, history: &HistoryDb, session: SessionId) -> Result<Vec<ShellHistoryEntry>> {
+        match self {
+            Self::Read => history.shell_history(session),
+            Self::Clear => history.clear_shell_history(session).map(|()| Vec::new()),
+            #[cfg(test)]
+            Self::PanickingRead => panic!("injected history job panic"),
+        }
+    }
 }
 
 impl Job {
+    pub(super) fn read(session: SessionId) -> Self {
+        Self::Answer {
+            session,
+            kind: Answer::Read,
+        }
+    }
+
+    pub(super) fn clear(session: SessionId) -> Self {
+        Self::Answer {
+            session,
+            kind: Answer::Clear,
+        }
+    }
+
     /// The session and failure context of a job that is answered, so even a job that panicked
     /// gets its `Failed` answer.
     fn answered(&self) -> Option<(SessionId, &'static str)> {
         match self {
-            Self::Read { session } => Some((*session, "shell_history")),
-            Self::Clear { session } => Some((*session, "clear_shell_history")),
-            #[cfg(test)]
-            Self::PanickingRead { session } => Some((*session, "shell_history")),
+            Self::Answer { session, kind } => Some((*session, kind.context())),
             Self::Record { .. } | Self::Copy { .. } => None,
         }
     }
@@ -123,18 +163,7 @@ fn perform(history: Option<&HistoryDb>, job: Job) -> Option<Event> {
             script,
             outcome,
         } => record(history?, connection, &script, outcome),
-        Job::Read { session } => Some(answer(
-            session,
-            "shell_history",
-            history.map_or(Err(CoreError::NotFound), |h| h.shell_history(session)),
-        )),
-        Job::Clear { session } => Some(answer(
-            session,
-            "clear_shell_history",
-            history.map_or(Err(CoreError::NotFound), |h| {
-                h.clear_shell_history(session).map(|()| Vec::new())
-            }),
-        )),
+        Job::Answer { session, kind } => Some(answer(history, session, kind)),
         Job::Copy { from, to } => {
             // Ids only: the error text is not logged.
             if history?.copy_shell_history(from, to).is_err() {
@@ -142,8 +171,6 @@ fn perform(history: Option<&HistoryDb>, job: Job) -> Option<Event> {
             }
             None
         }
-        #[cfg(test)]
-        Job::PanickingRead { .. } => panic!("injected history job panic"),
     }
 }
 
@@ -167,16 +194,16 @@ fn record(history: &HistoryDb, connection: Uuid, script: &str, outcome: Outcome)
     }
 }
 
-/// The list, or a `Failed` with the job's context (never an empty list, which would read as "no
-/// scripts yet"); the error carries no path or system text.
-fn answer(
-    session: SessionId,
-    context: &'static str,
-    entries: Result<Vec<crate::history::ShellHistoryEntry>>,
-) -> Event {
+/// The list, or a `Failed` with the job's context: without history too (never an empty list,
+/// which would read as "no scripts yet"). The error carries no path or system text.
+fn answer(history: Option<&HistoryDb>, session: SessionId, kind: Answer) -> Event {
+    let entries = match history {
+        None => Err(CoreError::NotFound),
+        Some(history) => kind.entries(history, session),
+    };
     match entries {
         Ok(entries) => Event::ShellHistory { session, entries },
-        Err(error) => failed(session, context, error),
+        Err(error) => failed(session, kind.context(), error),
     }
 }
 

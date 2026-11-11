@@ -281,8 +281,8 @@ fn send(events: &UnboundedSender<Event>, repaint: &Repaint, event: Event) {
 /// keyed by the connection id, which is the session id.
 pub(super) fn dispatch_history(shared: &Shared, command: Command) {
     let job = match command {
-        Command::ShellHistory { session } => Job::Read { session },
-        Command::ClearShellHistory { session } => Job::Clear { session },
+        Command::ShellHistory { session } => Job::read(session),
+        Command::ClearShellHistory { session } => Job::clear(session),
         Command::CopyShellHistory { from, to } => Job::Copy { from, to },
         _ => unreachable!("only shell history commands are routed here"),
     };

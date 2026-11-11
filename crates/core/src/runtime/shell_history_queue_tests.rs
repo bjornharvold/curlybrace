@@ -61,8 +61,8 @@ async fn a_read_pushed_right_after_a_clear_never_returns_the_cleared_entries() {
     let (queue, mut rx, history) = queue();
     for _ in 0..20 {
         let session = seeded(&history, 50);
-        queue.push(Job::Clear { session });
-        queue.push(Job::Read { session });
+        queue.push(Job::clear(session));
+        queue.push(Job::read(session));
         assert!(
             scripts(next(&mut rx).await).is_empty(),
             "the clear's answer"
@@ -77,8 +77,8 @@ async fn reads_answer_in_send_order() {
     // The first read has far more rows to read than the second, so only order keeps them in order.
     let (big, small) = (seeded(&history, 200), seeded(&history, 1));
     for _ in 0..20 {
-        queue.push(Job::Read { session: big });
-        queue.push(Job::Read { session: small });
+        queue.push(Job::read(big));
+        queue.push(Job::read(small));
         assert_eq!(next(&mut rx).await.session(), Some(big));
         assert_eq!(next(&mut rx).await.session(), Some(small));
     }
@@ -89,9 +89,9 @@ async fn a_record_pushed_after_a_clear_is_not_erased_by_it() {
     let (queue, mut rx, history) = queue();
     for _ in 0..20 {
         let session = seeded(&history, 50);
-        queue.push(Job::Clear { session });
+        queue.push(Job::clear(session));
         queue.push(record(session, "db.after.find()"));
-        queue.push(Job::Read { session });
+        queue.push(Job::read(session));
         assert!(
             scripts(next(&mut rx).await).is_empty(),
             "the clear's answer"
@@ -104,14 +104,27 @@ async fn a_record_pushed_after_a_clear_is_not_erased_by_it() {
     }
 }
 
+/// An answered job's failure context is the one of the command it answers.
+#[test]
+fn an_answer_fails_in_the_context_of_its_command() {
+    let session = Uuid::new_v4();
+    let read = super::super::Command::ShellHistory { session };
+    let clear = super::super::Command::ClearShellHistory { session };
+    assert_eq!(Answer::Read.context(), read.context());
+    assert_eq!(Answer::Clear.context(), clear.context());
+}
+
 // ---- One job's failure ends that job only ----
 
 #[tokio::test]
 async fn a_panicking_job_is_answered_and_the_worker_goes_on() {
     let (queue, mut rx, _) = queue();
     let session = Uuid::new_v4();
-    queue.push(Job::PanickingRead { session });
-    queue.push(Job::Read { session });
+    queue.push(Job::Answer {
+        session,
+        kind: Answer::PanickingRead,
+    });
+    queue.push(Job::read(session));
     assert!(matches!(
         next(&mut rx).await,
         Event::Failed {
@@ -152,7 +165,7 @@ async fn a_script_too_long_to_store_answers_not_stored_and_a_purged_one_nothing(
     );
     history.purge_connection(session).unwrap();
     queue.push(record(session, "db.a.find()"));
-    queue.push(Job::Read { session });
+    queue.push(Job::read(session));
     assert!(
         scripts(next(&mut rx).await).is_empty(),
         "skipped, unannounced"
@@ -168,6 +181,6 @@ async fn a_run_that_never_executed_is_not_recorded_and_not_announced() {
         script: "db.a.find()".into(),
         outcome: Outcome::ConnectFailed,
     });
-    queue.push(Job::Read { session });
+    queue.push(Job::read(session));
     assert!(scripts(next(&mut rx).await).is_empty());
 }

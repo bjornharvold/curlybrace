@@ -214,12 +214,8 @@ pub(super) fn read(conn: &Connection, connection: Uuid) -> Result<Vec<ShellHisto
     Ok(entries)
 }
 
-/// Deletes every run of a connection.
-pub(super) fn clear(conn: &Connection, connection: Uuid) -> Result<()> {
-    delete_connection(conn, connection)
-}
-
-/// Deletes every run of a connection (the caller holds the connection lock).
+/// Deletes every run of a connection (the caller holds the connection lock): a clear, or a
+/// purge.
 pub(super) fn delete_connection(conn: &Connection, connection: Uuid) -> Result<()> {
     conn.execute(
         "DELETE FROM shell_history WHERE connection = ?1",

@@ -386,7 +386,7 @@ impl HistoryDb {
     /// Forgets every shell run of a connection. Not a purge: it can record again right away.
     pub fn clear_shell_history(&self, connection: Uuid) -> Result<()> {
         let conn = self.lock();
-        shell_history::clear(&conn, connection)?;
+        shell_history::delete_connection(&conn, connection)?;
         thin::release_free_pages(&conn)
     }
 
