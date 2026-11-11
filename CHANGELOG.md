@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.9.0](https://github.com/bjornharvold/curlybrace/compare/v0.8.0...v0.9.0) (2026-11-11)
+
+
+### Features
+
+* **admin:** drop, rename, duplicate and create views from the sidebar ([#140](https://github.com/bjornharvold/curlybrace/issues/140)) ([d95849a](https://github.com/bjornharvold/curlybrace/commit/d95849a63e70cbcd024eb6956517ccaa2f11c71a))
+* **edit:** bulk update and delete by filter with a count preview and typed confirmation ([#135](https://github.com/bjornharvold/curlybrace/issues/135)) ([da1d3b5](https://github.com/bjornharvold/curlybrace/commit/da1d3b5869a8817c98b79599e402bdb3c71dee00)), closes [#51](https://github.com/bjornharvold/curlybrace/issues/51)
+* **edit:** list and delete saved undo copies ([b867ab9](https://github.com/bjornharvold/curlybrace/commit/b867ab9b59b1b2460291be8f8e27db399dadd5af))
+* **edit:** undo for bulk update and delete in the dialog ([7941b59](https://github.com/bjornharvold/curlybrace/commit/7941b591692baf7b9aef94c430ebb8e9a1f651c2)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **edit:** undo for bulk update and delete in the dialog (UI) ([f25994f](https://github.com/bjornharvold/curlybrace/commit/f25994f81027a78337ff6ec8a3324055ab22bcca))
+* **edit:** undo snapshots and restore engine for bulk update and delete ([cf63496](https://github.com/bjornharvold/curlybrace/commit/cf6349642b05ec11356185c0572f2ea92776571e)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **edit:** undo snapshots and restore engine for bulk update and delete (core) ([b4bc59f](https://github.com/bjornharvold/curlybrace/commit/b4bc59f7c674f6591e2128733a36517503cff181))
+* **shell:** shell tab that runs mongosh scripts against a connection ([#141](https://github.com/bjornharvold/curlybrace/issues/141)) ([e11382a](https://github.com/bjornharvold/curlybrace/commit/e11382af759d87ca986095def2ad7edafaee4967))
+
+
+### Bug Fixes
+
+* **edit:** address review of the undo dialog ([21b5733](https://github.com/bjornharvold/curlybrace/commit/21b573383d20b7b0eae4207649651a13b490d875)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **edit:** address review of the undo snapshot engine ([1842f2d](https://github.com/bjornharvold/curlybrace/commit/1842f2dd18c096a4ed6dfb711711339634a748bc)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **edit:** address the second review of the undo dialog ([7d9ef05](https://github.com/bjornharvold/curlybrace/commit/7d9ef05a10ba78f130381ba1071bcbc7ff3937a4)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **edit:** avoid a let chain that is not stable on the CI toolchain ([8239737](https://github.com/bjornharvold/curlybrace/commit/8239737a58e167ce0633fd7d7502efea310e3d7a)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **edit:** deleting an undo copy removes the after-state first and reports a failure ([4daaf31](https://github.com/bjornharvold/curlybrace/commit/4daaf316b9ac04c4ec6ae972baced3305d670ae5)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **edit:** deleting an undo copy removes the after-state first and reports a failure ([38f3504](https://github.com/bjornharvold/curlybrace/commit/38f350485ede06753a60ca9ecc7c984c2993c341)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **edit:** report uncovered documents of an empty snapshot; keep readable snapshots by header date ([7eb2b11](https://github.com/bjornharvold/curlybrace/commit/7eb2b11cb883665ccf3c51cabd3b69ba19df771c)), closes [#137](https://github.com/bjornharvold/curlybrace/issues/137)
+* **shell:** make shell tests compile on the CI toolchain ([#142](https://github.com/bjornharvold/curlybrace/issues/142)) ([7dfd80b](https://github.com/bjornharvold/curlybrace/commit/7dfd80be76ee6a39c477b94f2046a4ede77a63f7))
+
 ## [0.8.0](https://github.com/bjornharvold/curlybrace/compare/v0.7.0...v0.8.0) (2026-11-09)
 
 
