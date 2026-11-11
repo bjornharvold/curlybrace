@@ -555,7 +555,7 @@ fn closing_a_session_drops_its_shell_state() {
 
     let (s, _) = update(s, Input::Disconnect(id));
 
-    assert!(!s.shell.get(id).is_some());
+    assert!(s.shell.get(id).is_none());
 }
 
 #[test]
