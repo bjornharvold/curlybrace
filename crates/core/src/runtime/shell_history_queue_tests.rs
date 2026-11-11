@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
 
 use super::*;
-use crate::history::HistoryDb;
+use crate::history::{HistoryDb, ShellRunStatus};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -41,6 +41,70 @@ fn scripts(event: Event) -> Vec<String> {
         other => panic!("expected ShellHistory, got {other:?}"),
     }
 }
+
+/// A connection with `n` stored runs, written straight to the store.
+fn seeded(history: &HistoryDb, n: usize) -> Uuid {
+    let session = Uuid::new_v4();
+    for i in 0..n {
+        let script = format!("db.run{i}.find()");
+        history
+            .record_shell_run(session, &script, ShellRunStatus::Succeeded, 1_000)
+            .unwrap();
+    }
+    session
+}
+
+// ---- Order: each job runs after every job pushed before it ----
+
+#[tokio::test]
+async fn a_read_pushed_right_after_a_clear_never_returns_the_cleared_entries() {
+    let (queue, mut rx, history) = queue();
+    for _ in 0..20 {
+        let session = seeded(&history, 50);
+        queue.push(Job::Clear { session });
+        queue.push(Job::Read { session });
+        assert!(
+            scripts(next(&mut rx).await).is_empty(),
+            "the clear's answer"
+        );
+        assert!(scripts(next(&mut rx).await).is_empty(), "the read's answer");
+    }
+}
+
+#[tokio::test]
+async fn reads_answer_in_send_order() {
+    let (queue, mut rx, history) = queue();
+    // The first read has far more rows to read than the second, so only order keeps them in order.
+    let (big, small) = (seeded(&history, 200), seeded(&history, 1));
+    for _ in 0..20 {
+        queue.push(Job::Read { session: big });
+        queue.push(Job::Read { session: small });
+        assert_eq!(next(&mut rx).await.session(), Some(big));
+        assert_eq!(next(&mut rx).await.session(), Some(small));
+    }
+}
+
+#[tokio::test]
+async fn a_record_pushed_after_a_clear_is_not_erased_by_it() {
+    let (queue, mut rx, history) = queue();
+    for _ in 0..20 {
+        let session = seeded(&history, 50);
+        queue.push(Job::Clear { session });
+        queue.push(record(session, "db.after.find()"));
+        queue.push(Job::Read { session });
+        assert!(
+            scripts(next(&mut rx).await).is_empty(),
+            "the clear's answer"
+        );
+        assert!(matches!(
+            next(&mut rx).await,
+            Event::ShellHistoryChanged { stored: true, .. }
+        ));
+        assert_eq!(scripts(next(&mut rx).await), ["db.after.find()"]);
+    }
+}
+
+// ---- One job's failure ends that job only ----
 
 #[tokio::test]
 async fn a_panicking_job_is_answered_and_the_worker_goes_on() {

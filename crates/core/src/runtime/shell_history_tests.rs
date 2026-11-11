@@ -335,6 +335,21 @@ async fn clear_shell_history_answers_with_an_empty_list() {
     assert!(f.stored(f.id).is_empty());
 }
 
+/// The UI's read after a confirmed Clear (a run finishing meanwhile triggers one) is sent after
+/// the clear, so it can never bring the cleared list back.
+#[tokio::test]
+async fn a_read_sent_right_after_a_clear_answers_after_it() {
+    let mut f = Fixture::with_history().await;
+    f.run(1, "first");
+    f.finished().await;
+    assert!(f.changed().await);
+    let session = f.id;
+    f.h.tx.send(Command::ClearShellHistory { session }).unwrap();
+    f.h.tx.send(Command::ShellHistory { session }).unwrap();
+    assert!(f.answer(session).await.is_empty(), "the clear's answer");
+    assert!(f.answer(session).await.is_empty(), "the read's answer");
+}
+
 #[tokio::test]
 async fn copy_shell_history_copies_between_connection_ids() {
     let mut f = Fixture::with_history().await;
