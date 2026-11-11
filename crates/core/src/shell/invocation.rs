@@ -155,9 +155,17 @@ pub(crate) fn result_marker(token: &str) -> String {
 /// `Object.defineProperty(globalThis, "prompt", ...)`, `Object.assign(globalThis, {prompt})` and
 /// `function prompt() {}` throw (an `Uncaught` error, so no epilogue). The fixed prompt comes
 /// back every time.
+///
+/// `mongosh` loads `~/.mongoshrc.js` on piped stdin too (2.14.1 `cli-repl.js`: rc files load
+/// whenever no script file or `--eval` is given). A `var prompt` or `function prompt() {}` there
+/// makes `prompt` a non-configurable, writable, enumerable property: redefining its
+/// `enumerable` flag would throw `Cannot redefine property`, so the flag is left out (an
+/// existing property keeps its own; a new one is not enumerable), and changing the value and
+/// `writable: false` is still allowed (verified). Each lock is in its own `try`, so one that
+/// still throws (an rc file that locked `prompt` itself) never keeps `connect` from running.
 fn locked_global_js(name: &str, value_js: &str) -> String {
     format!(
-        "Object.defineProperty(globalThis, \"{name}\", {{value: {value_js}, writable: false, configurable: false, enumerable: false}}); "
+        "try {{ Object.defineProperty(globalThis, \"{name}\", {{value: {value_js}, writable: false, configurable: false}}) }} catch (e) {{}} "
     )
 }
 

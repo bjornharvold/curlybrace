@@ -266,6 +266,51 @@ async fn ordinary_scripts_mentioning_prompt_still_get_a_result() {
     assert_eq!(docs.len(), 1);
 }
 
+/// A startup file (as `~/.mongoshrc.js` is, also on piped stdin) that declares `prompt` makes it
+/// a non-configurable global: the preamble's lock must not throw on it, and must still connect.
+/// The file is run with `--shell <file>`, which `mongosh` loads in the same context just before
+/// its rc files (the real HOME is not overridden).
+#[tokio::test]
+#[ignore = "needs a local MongoDB; see scripts/integration-tests.sh"]
+async fn a_startup_file_that_declares_prompt_does_not_stop_the_connect() {
+    let test = "a_startup_file_that_declares_prompt_does_not_stop_the_connect";
+    if !local_enabled(test) {
+        return;
+    }
+    let Some(exe) = mongosh(test) else {
+        return;
+    };
+    for rc in [
+        "var prompt = \"theirs> \";\n",
+        "function prompt() { return \"theirs> \" }\n",
+        "var prompt = 1;\nvar __cbEmit = 2;\n",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rc.js");
+        std::fs::write(&file, rc).unwrap();
+        let run = run_raw(
+            &exe,
+            "print(\"ran-cbit\")\n1 + 1",
+            &[std::ffi::OsStr::new("--shell"), file.as_os_str()],
+        );
+        assert_eq!(run.outcome, Outcome::Exited(0), "{rc}: {run:?}");
+        assert_eq!(run.stdout, "ran-cbit\n2\n", "{rc}: {run:?}");
+        assert!(!run.stderr.contains("redefine"), "{rc}: {run:?}");
+        assert_eq!(run.results.len(), 1, "{rc}: {run:?}");
+        let result = curlybrace_core::shell::parse_result(&run.results[0]).unwrap();
+        assert!(
+            matches!(
+                result,
+                ShellResult::Scalar {
+                    value: Bson::Int32(2),
+                    ..
+                }
+            ),
+            "{rc}: {result:?}"
+        );
+    }
+}
+
 /// A script that silences stdout leaves the runner waiting for the end of the block: only Cancel
 /// ends it. Bounded: a short wait for "no end by itself", then a cancel that must end the run.
 #[tokio::test]

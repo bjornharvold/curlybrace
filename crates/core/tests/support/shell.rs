@@ -106,6 +106,68 @@ pub async fn run_on_local(test: &str, script: &str) -> Option<Vec<Event>> {
     Some(run_script(&mut h, id, exe, script).await)
 }
 
+/// What a run straight through `spawn_shell` (no runtime) produced.
+#[derive(Debug)]
+pub struct RawRun {
+    pub outcome: Outcome,
+    pub stdout: String,
+    pub stderr: String,
+    /// Every `on_result` payload, in order.
+    pub results: Vec<String>,
+}
+
+/// Runs `script` on the local server through `spawn_shell` itself, with `extra_args` after the
+/// usual `--nodb --quiet` (`--shell <file>` runs a file first, as `~/.mongoshrc.js` would be).
+/// Bounded: a run that does not end within [`LIMIT`] is cancelled and the test fails.
+pub fn run_raw(exe: &std::path::Path, script: &str, extra_args: &[&std::ffi::OsStr]) -> RawRun {
+    use curlybrace_core::shell::{RunLimits, build_invocation, spawn_shell};
+    use std::sync::Mutex;
+    let cfg = ConnectionConfig::new("local", &curlybrace_testkit::local_uri());
+    let mut inv = build_invocation(&cfg, None, None, script).expect("an invocation");
+    inv.args
+        .extend(extra_args.iter().map(|arg| arg.to_os_string()));
+    let text = Arc::new(Mutex::new((String::new(), String::new())));
+    let results = Arc::new(Mutex::new(Vec::new()));
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let (text_sink, result_sink) = (Arc::clone(&text), Arc::clone(&results));
+    let handle = spawn_shell(
+        exe,
+        inv,
+        Vec::new(),
+        std::env::var_os("PATH").as_deref(),
+        RunLimits::default(),
+        move |stream, chunk| {
+            let mut text = text_sink.lock().unwrap();
+            match stream {
+                Stream::Stdout => text.0.push_str(&chunk),
+                Stream::Stderr => text.1.push_str(&chunk),
+            }
+        },
+        move |payload| result_sink.lock().unwrap().push(payload),
+        move |outcome| {
+            let _ = done_tx.send(outcome);
+        },
+    );
+    let outcome = match done_rx.recv_timeout(LIMIT) {
+        Ok(outcome) => outcome,
+        Err(_) => {
+            handle.cancel();
+            panic!(
+                "the run did not end within {LIMIT:?}: {:?}",
+                text.lock().unwrap()
+            );
+        }
+    };
+    let (stdout, stderr) = text.lock().unwrap().clone();
+    let results = results.lock().unwrap().clone();
+    RawRun {
+        outcome,
+        stdout,
+        stderr,
+        results,
+    }
+}
+
 /// No prompt, sentinel or continuation prompt (`| `) in `out`. Not for syntax errors: their code
 /// frame has `| ` of its own.
 pub fn assert_no_prompt_leak(out: &str) {

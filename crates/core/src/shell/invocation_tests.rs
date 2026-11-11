@@ -307,8 +307,32 @@ const SPIKE_EMITTER: &str = r#"((P, E, SYM) => (v, T, MAXN, MAXB) => { const out
 /// How the preamble locks a global (see `locked_global_js`).
 fn locked(name: &str, value: &str) -> String {
     format!(
-        "Object.defineProperty(globalThis, \"{name}\", {{value: {value}, writable: false, configurable: false, enumerable: false}}); "
+        "try {{ Object.defineProperty(globalThis, \"{name}\", {{value: {value}, writable: false, configurable: false}}) }} catch (e) {{}} "
     )
+}
+
+#[test]
+fn a_lock_that_throws_never_keeps_the_preamble_from_connecting() {
+    // A `var prompt` / `function prompt` in the user's `~/.mongoshrc.js` makes `prompt` a
+    // non-configurable property: redefining one of its flags (`enumerable`) would throw, and an
+    // uncaught throw would skip `connect`. So no flag beyond value/writable/configurable is set,
+    // and every lock is caught on its own.
+    let text = preamble_text(&build(&scram("mongodb://h/admin"), Some("pw"), None));
+    assert!(!text.contains("enumerable"), "{text}");
+    assert_eq!(text.matches("Object.defineProperty(").count(), 2, "{text}");
+    for name in ["prompt", "__cbEmit"] {
+        let at = text
+            .find(&format!(
+                "try {{ Object.defineProperty(globalThis, \"{name}\", "
+            ))
+            .unwrap_or_else(|| panic!("{name} locked inside a try: {text}"));
+        let close = at
+            + text[at..]
+                .find("configurable: false}) } catch (e) {} ")
+                .expect("its catch");
+        assert!(close < text.find("try { db = connect(").unwrap(), "{text}");
+    }
+    assert!(text.ends_with("catch (e) { print(\"__CB_FAILED__ \" + e.message) }\n"));
 }
 
 #[test]
