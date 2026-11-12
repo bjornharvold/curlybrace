@@ -27,6 +27,7 @@ pub mod queries;
 pub mod queries_chart;
 pub mod queries_status;
 pub mod shell;
+pub mod shell_check;
 pub mod shell_format;
 pub mod shell_history;
 pub mod shell_output;

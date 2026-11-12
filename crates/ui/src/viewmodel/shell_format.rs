@@ -357,6 +357,151 @@ fn scan_line(line: &[u8], sc: &mut Scanner) -> bool {
     false
 }
 
+/// A literal that is not code: what an unterminated one is called.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Literal {
+    String,
+    Template,
+    Comment,
+}
+
+/// Which bytes of a script are code, and which literals never end.
+pub(crate) struct CodeScan {
+    /// Per byte: code, as opposed to a string, template text, comment or regex literal
+    /// (delimiters included). A template's `${` is not code but the `{`, its contents and its
+    /// closing `}` are, so brackets balance there like anywhere else.
+    pub in_code: Vec<bool>,
+    /// Literals left open, as (kind, byte offset of the opening delimiter), in no set order.
+    pub unterminated: Vec<(Literal, usize)>,
+}
+
+/// Where a `\` at `i` leaves the scan: past the escaped byte (`\r\n` counts as one), and the
+/// start of the line the scan is then on.
+fn skip_escape(bytes: &[u8], i: usize, line_start: usize) -> (usize, usize) {
+    match (bytes.get(i + 1), bytes.get(i + 2)) {
+        (Some(b'\r'), Some(b'\n')) => (i + 3, i + 3),
+        (Some(b'\n'), _) => (i + 2, i + 2),
+        _ => (i + 2, line_start),
+    }
+}
+
+/// One pass over `text` with the same lexical rules as [`format_script`]: strings end at the
+/// line end unless it is escaped, templates and block comments span lines, a `/` is a regex
+/// literal where [`starts_regex`] says so. Format, highlight and the syntax check share these.
+pub(crate) fn scan_code(text: &str) -> CodeScan {
+    let bytes = text.as_bytes();
+    let mut in_code = vec![false; bytes.len()];
+    let mut unterminated = Vec::new();
+    let mut state = Lex::Code;
+    let (mut line_start, mut lit_start, mut depth) = (0, 0, 0usize);
+    // For each unfinished `${`: the bracket depth it was entered at and where its template began.
+    let mut subst: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        let next = bytes.get(i + 1).copied();
+        if b == b'\n' {
+            match state {
+                Lex::Single | Lex::Double => {
+                    unterminated.push((Literal::String, lit_start));
+                    state = Lex::Code;
+                }
+                Lex::LineComment => state = Lex::Code,
+                _ => {}
+            }
+            // The newline that ends a line is code, unlike one inside a template or block comment.
+            in_code[i] = state == Lex::Code;
+            line_start = i + 1;
+            i += 1;
+            continue;
+        }
+        match state {
+            Lex::Code => {
+                in_code[i] = true;
+                match b {
+                    b'\'' | b'"' | b'`' => {
+                        in_code[i] = false;
+                        lit_start = i;
+                        state = match b {
+                            b'\'' => Lex::Single,
+                            b'"' => Lex::Double,
+                            _ => Lex::Template,
+                        };
+                    }
+                    b'/' if next == Some(b'/') => {
+                        in_code[i] = false;
+                        state = Lex::LineComment;
+                        i += 1;
+                    }
+                    b'/' if next == Some(b'*') => {
+                        in_code[i] = false;
+                        lit_start = i;
+                        state = Lex::BlockComment;
+                        i += 1;
+                    }
+                    b'/' if starts_regex(&bytes[line_start..], i - line_start) => {
+                        let line_end = bytes[i..]
+                            .iter()
+                            .position(|&c| c == b'\n')
+                            .map_or(bytes.len(), |n| i + n);
+                        let line = &bytes[line_start..line_end];
+                        if let Some(end) = regex_end(line, i - line_start) {
+                            in_code[i] = false;
+                            i = line_start + end;
+                        }
+                    }
+                    b'{' | b'[' | b'(' => depth += 1,
+                    b'}' | b']' | b')' => {
+                        depth = depth.saturating_sub(1);
+                        if b == b'}' && subst.last().is_some_and(|&(d, _)| d == depth) {
+                            lit_start = subst.pop().map_or(0, |(_, start)| start);
+                            state = Lex::Template;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Lex::Single | Lex::Double | Lex::Template => {
+                let quote = match state {
+                    Lex::Single => b'\'',
+                    Lex::Double => b'"',
+                    _ => b'`',
+                };
+                if b == b'\\' {
+                    (i, line_start) = skip_escape(bytes, i, line_start);
+                    continue;
+                } else if b == quote {
+                    state = Lex::Code;
+                } else if state == Lex::Template && b == b'$' && next == Some(b'{') {
+                    subst.push((depth, lit_start));
+                    depth += 1;
+                    in_code[i + 1] = true;
+                    state = Lex::Code;
+                    i += 1;
+                }
+            }
+            Lex::LineComment => {}
+            Lex::BlockComment => {
+                if b == b'*' && next == Some(b'/') {
+                    state = Lex::Code;
+                    i += 1;
+                }
+            }
+        }
+        i += 1;
+    }
+    match state {
+        Lex::Single | Lex::Double => unterminated.push((Literal::String, lit_start)),
+        Lex::Template => unterminated.push((Literal::Template, lit_start)),
+        Lex::BlockComment => unterminated.push((Literal::Comment, lit_start)),
+        Lex::Code | Lex::LineComment => {}
+    }
+    CodeScan {
+        in_code,
+        unterminated,
+    }
+}
+
 #[cfg(test)]
 #[path = "shell_format_tests.rs"]
 mod tests;
