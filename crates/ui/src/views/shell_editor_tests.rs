@@ -60,7 +60,8 @@ fn harness_of(shells: BTreeMap<Uuid, ShellState>, session: Uuid) -> Harness<'sta
     let mut harness = Harness::new_ui_state(
         move |ui, frame: &mut Frame| {
             let session = frame.session;
-            let Some(edit) = show_editor(ui, frame.shell(session), session, 200.0, &i18n) else {
+            let Some(edit) = show_editor(ui, frame.shell(session), session, 200.0, &[], &i18n)
+            else {
                 return;
             };
             if let ShellAction::Edit { script, selection } = &edit {
@@ -150,6 +151,78 @@ fn the_states_selection_is_applied_only_when_the_state_changed_the_script() {
 }
 
 #[test]
+fn a_selection_the_state_moved_on_its_own_reaches_the_text_box_without_taking_the_focus() {
+    let mut h = harness(script("db.a.find(\nx", None));
+    let edits_before = h.state().edits.len();
+    // Like a Format that left the text: only the selection changes, outside the editor.
+    let moved = h
+        .state()
+        .shell(A)
+        .edited("db.a.find(\nx".into(), Some(9..10));
+    h.state_mut().shells.insert(A, moved);
+    h.run_steps(2);
+    assert_eq!(cursor_chars(&h, A), Some(9..10));
+    assert_eq!(h.state().shell(A).selection, Some(9..10));
+    assert_eq!(h.state().edits.len(), edits_before, "nothing reported back");
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+}
+
+/// The shell after a Run stopped on a syntax problem, then Go to problem.
+fn gone_to_problem(shell: &ShellState) -> ShellState {
+    shell.problem_selected()
+}
+
+#[test]
+fn every_go_to_problem_focuses_the_editor_and_shows_the_problem() {
+    let broken = script("db.a.find(\nx", None).run_requested().0;
+    let mut h = harness(broken);
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    let first = gone_to_problem(h.state().shell(A));
+    h.state_mut().shells.insert(A, first);
+    h.run_steps(2);
+    assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    assert_eq!(cursor_chars(&h, A), Some(9..9));
+    // The focus moves away (the button was clicked), the editor is not touched, and Go to
+    // problem is clicked again: the same selection, focused again.
+    h.ctx.memory_mut(|m| m.surrender_focus(editor_id(A)));
+    h.run_steps(2);
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    let second = gone_to_problem(h.state().shell(A));
+    assert_eq!(second.selection, h.state().shell(A).selection);
+    h.state_mut().shells.insert(A, second);
+    h.run_steps(2);
+    assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    assert_eq!(cursor_chars(&h, A), Some(9..9));
+}
+
+#[test]
+fn a_shell_state_created_anew_for_the_same_session_does_not_take_the_focus() {
+    let broken = script("db.a.find(\nx", None).run_requested().0;
+    let mut h = harness(broken);
+    let twice = gone_to_problem(&gone_to_problem(h.state().shell(A)));
+    h.state_mut().shells.insert(A, twice);
+    h.run_steps(2);
+    h.ctx.memory_mut(|m| m.surrender_focus(editor_id(A)));
+    h.run_steps(2);
+    // The session's shell is replaced by a fresh one (its focus counter starts over).
+    let fresh = script("db.a.find(\nx", None).run_requested().0;
+    h.state_mut().shells.insert(A, fresh);
+    h.run_steps(2);
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    // Its own first Go to problem still focuses.
+    let asked = gone_to_problem(h.state().shell(A));
+    h.state_mut().shells.insert(A, asked);
+    h.run_steps(2);
+    assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
+}
+
+#[test]
+fn the_first_frame_does_not_take_the_focus() {
+    let h = harness(script("abc", Some(0..2)));
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+}
+
+#[test]
 fn an_outside_change_without_a_selection_collapses_the_old_one() {
     let mut h = harness(script("abcd", Some(0..3)));
     assert_eq!(cursor_chars(&h, A), Some(0..3));
@@ -216,4 +289,18 @@ fn undo_in_one_session_never_brings_back_another_sessions_text() {
     h.run_steps(2);
     assert_eq!(h.state().shell(B).script, "bbb");
     assert_eq!(h.state().shell(A).script, "aaa1");
+}
+
+#[test]
+fn typing_after_go_to_problem_inserts_at_the_caret_and_keeps_the_bracket() {
+    let broken = script("db.a.find(\nx", None).run_requested().0;
+    let mut h = harness(broken);
+    let gone = gone_to_problem(h.state().shell(A));
+    h.state_mut().shells.insert(A, gone);
+    h.run_steps(2);
+    h.input_mut().events.push(egui::Event::Text("y".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().shell(A).script, "db.a.findy(\nx");
+    // The caret alone is no selection: nothing about it is reported as one.
+    assert_eq!(h.state().shell(A).selection, None);
 }

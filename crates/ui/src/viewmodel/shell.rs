@@ -1,5 +1,7 @@
 //! View-model of the Shell tab: the script, its selection, the captured output and the run state.
 //! Pure and egui-free; every updater returns a new value and never mutates. No user-facing strings.
+pub use super::shell_check::SyntaxProblem;
+use super::shell_check::check;
 use super::shell_format::format_script;
 use super::shell_history::HistoryView;
 pub use super::shell_output::{MAX_LINE_BYTES, MAX_OUTPUT_LINES, OutputLine, OutputLog};
@@ -34,6 +36,14 @@ pub enum ShellNotice {
     Refused(ShellRefusal),
     ToolProblem(ToolProblem),
     EmptyScript,
+    /// The text to run is visibly broken, so it was not run. The problem's range is bytes of
+    /// the whole script (not of the selection that was checked); `ran` is what was checked (the
+    /// selection, `None` for the whole script), which Run anyway runs. Both go stale once the text
+    /// changes, so a text change drops the notice.
+    SyntaxProblem {
+        problem: SyntaxProblem,
+        ran: Option<Range<usize>>,
+    },
 }
 
 /// What to run: the selection, else the whole script.
@@ -59,6 +69,9 @@ pub struct ShellState {
     pub mode: OutputMode,
     /// The last value of the current (or last) run, for the Table and Tree modes.
     pub result: ResultView,
+    /// Bumped each time the editor must take the keyboard focus (Go to problem); the editor
+    /// takes it once for every value greater than the last one it saw. Nothing else changes it.
+    pub editor_focus: u64,
 }
 
 impl Default for ShellState {
@@ -74,6 +87,7 @@ impl Default for ShellState {
             history: HistoryView::default(),
             mode: OutputMode::Text,
             result: ResultView::default(),
+            editor_focus: 0,
         }
     }
 }
@@ -92,8 +106,11 @@ impl ShellState {
         self.status == (ShellStatus::Running { run_id })
     }
 
+    /// The text or the selection changed in the editor. A syntax notice goes once the text
+    /// changes (its range would point at the wrong bytes); the other notices stay.
     pub fn edited(&self, script: String, selection: Option<Range<usize>>) -> Self {
         Self {
+            notice: self.notice_for(&script),
             script,
             selection,
             ..self.clone()
@@ -103,29 +120,96 @@ impl ShellState {
     pub fn formatted(&self) -> Self {
         let result = format_script(&self.script, self.effective_selection());
         Self {
+            notice: self.notice_for(&result.text),
             script: result.text,
             selection: result.selection,
             ..self.clone()
         }
     }
 
+    /// Run: the text to run is checked first, and a visibly broken one is not run.
     pub fn run_requested(&self) -> (Self, Option<RunRequest>) {
+        self.run_with(self.effective_selection(), true)
+    }
+
+    /// Run anyway: as `run_requested`, without the syntax check (this once). While the syntax
+    /// notice is up it runs exactly what was checked (the text cannot have changed: a text change
+    /// drops the notice), whatever the caret or the selection did since (Go to problem moves the
+    /// caret); without the notice it runs the selection, else the whole script.
+    pub fn run_anyway(&self) -> (Self, Option<RunRequest>) {
+        let range = match &self.notice {
+            Some(ShellNotice::SyntaxProblem { ran, .. }) => ran.clone(),
+            _ => self.effective_selection(),
+        };
+        self.run_with(range, false)
+    }
+
+    /// Go to problem: a collapsed caret at the problem's first byte (kept inside the script, on a
+    /// char boundary), so the next key does not replace the bracket and Run runs the whole
+    /// script; the editor is asked for the focus, also when the caret was there already. Nothing
+    /// else changes; without a syntax notice nothing does.
+    pub fn problem_selected(&self) -> Self {
+        let Some(ShellNotice::SyntaxProblem { problem, .. }) = &self.notice else {
+            return self.clone();
+        };
+        let caret = self.boundary(problem.range.start);
+        Self {
+            selection: Some(caret..caret),
+            editor_focus: self.editor_focus.saturating_add(1),
+            ..self.clone()
+        }
+    }
+
+    /// Runs `range` of the script (`None`: all of it), checked first when `checked`.
+    fn run_with(&self, range: Option<Range<usize>>, checked: bool) -> (Self, Option<RunRequest>) {
         if self.is_running() {
             return (self.clone(), None);
         }
-        let text = match self.effective_selection() {
-            Some(range) => &self.script[range],
-            None => self.script.as_str(),
+        // A range off the script's char boundaries cannot happen (a text change drops the notice
+        // that stored it); should it, the whole script is the safe reading.
+        let range = range.filter(|r| self.script.get(r.clone()).is_some());
+        let (start, text) = match range.clone() {
+            Some(range) => (range.start, &self.script[range]),
+            None => (0, self.script.as_str()),
         };
         if text.trim().is_empty() {
-            let next = Self {
-                notice: Some(ShellNotice::EmptyScript),
-                ..self.clone()
+            return (self.with_notice(ShellNotice::EmptyScript), None);
+        }
+        if let Some(problem) = checked.then(|| check(text)).flatten() {
+            let notice = ShellNotice::SyntaxProblem {
+                problem: problem.placed_in(&self.script, start),
+                ran: range,
             };
-            return (next, None);
+            return (self.with_notice(notice), None);
         }
         let (next, request) = self.started(text);
         (next, Some(request))
+    }
+
+    /// A Run refused before it started: only the notice changes, so the previous run's output
+    /// and value stay.
+    fn with_notice(&self, notice: ShellNotice) -> Self {
+        Self {
+            notice: Some(notice),
+            ..self.clone()
+        }
+    }
+
+    /// The notice once the script becomes `script`.
+    fn notice_for(&self, script: &str) -> Option<ShellNotice> {
+        match &self.notice {
+            Some(ShellNotice::SyntaxProblem { .. }) if script != self.script => None,
+            other => other.clone(),
+        }
+    }
+
+    /// `at` kept inside the script and moved back to a char boundary.
+    fn boundary(&self, at: usize) -> usize {
+        let mut at = at.min(self.script.len());
+        while !self.script.is_char_boundary(at) {
+            at -= 1;
+        }
+        at
     }
 
     /// Starts a run of exactly `script_to_run` (whatever the editor holds now): the next run id,

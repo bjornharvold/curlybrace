@@ -20,6 +20,7 @@ pub mod fixture;
 pub mod indexes_shots;
 pub mod production_shots;
 pub mod screen;
+pub mod shell_shots;
 pub mod shots;
 pub mod sidebar;
 pub mod snapshot_options;

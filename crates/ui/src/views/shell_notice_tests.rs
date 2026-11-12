@@ -1,4 +1,5 @@
 use super::*;
+use crate::viewmodel::shell_check::{ProblemKind, SyntaxProblem};
 use curlybrace_core::tools::{ToolError, ToolVersion};
 use curlybrace_core::uri_problem::UriProblem;
 use std::collections::BTreeSet;
@@ -36,7 +37,106 @@ fn all_notices() -> Vec<ShellNotice> {
         .chain(refusals.into_iter().map(ShellNotice::Refused))
         .chain(tools.into_iter().map(ShellNotice::ToolProblem))
         .chain([ShellNotice::EmptyScript])
+        .chain(syntax_notices())
         .collect()
+}
+
+fn problem(kind: ProblemKind) -> SyntaxProblem {
+    SyntaxProblem {
+        kind,
+        range: 40..41,
+        line: 3,
+        column: 17,
+    }
+}
+
+fn syntax_notices() -> Vec<ShellNotice> {
+    [
+        ProblemKind::UnclosedBracket('{'),
+        ProblemKind::UnexpectedClosing(']'),
+        ProblemKind::MismatchedClosing {
+            opener: '(',
+            found: '}',
+        },
+        ProblemKind::UnterminatedString,
+        ProblemKind::UnterminatedTemplate,
+        ProblemKind::UnterminatedComment,
+    ]
+    .into_iter()
+    .map(|kind| ShellNotice::SyntaxProblem {
+        problem: problem(kind),
+        ran: None,
+    })
+    .collect()
+}
+
+#[test]
+fn a_syntax_problem_is_a_warning_that_names_its_place_and_brackets() {
+    let i18n = I18n::english();
+    for notice in syntax_notices() {
+        let (severity, text) = notice_text(&notice, &i18n);
+        assert_eq!(severity, Severity::Warning);
+        assert!(text.contains('3') && text.contains("17"), "{text}");
+    }
+    let of = |kind| {
+        let notice = ShellNotice::SyntaxProblem {
+            problem: problem(kind),
+            ran: None,
+        };
+        notice_text(&notice, &i18n).1
+    };
+    assert!(of(ProblemKind::UnclosedBracket('[')).contains('['));
+    assert!(of(ProblemKind::UnexpectedClosing(')')).contains(')'));
+    let mismatched = of(ProblemKind::MismatchedClosing {
+        opener: '[',
+        found: '}',
+    });
+    assert!(
+        mismatched.contains('[') && mismatched.contains('}'),
+        "{mismatched}"
+    );
+}
+
+#[test]
+fn the_notice_says_the_script_was_not_run_around_the_same_problem_sentence() {
+    let i18n = I18n::english();
+    let found = problem(ProblemKind::UnclosedBracket('('));
+    let sentence = problem_text(&found, &i18n);
+    assert_eq!(
+        sentence,
+        i18n.t_with(
+            "shell.check.unclosed_bracket",
+            &[("line", "3"), ("column", "17"), ("bracket", "(")]
+        )
+    );
+    let notice = ShellNotice::SyntaxProblem {
+        problem: found,
+        ran: None,
+    };
+    let notice = notice_text(&notice, &i18n).1;
+    assert_eq!(
+        notice,
+        i18n.t_with("shell.check.not_run", &[("problem", &sentence)])
+    );
+    assert_ne!(notice, sentence, "the notice adds that nothing ran");
+}
+
+#[test]
+fn only_a_syntax_problem_offers_go_to_and_run_anyway() {
+    let offering: Vec<_> = all_notices()
+        .into_iter()
+        .filter(offers_problem_actions)
+        .collect();
+    assert_eq!(offering, syntax_notices());
+}
+
+/// A `{name}` left in `text` (a lone `{` is a bracket a syntax notice names).
+fn has_placeholder(text: &str) -> bool {
+    text.split('{').skip(1).any(|rest| {
+        rest.split_once('}').is_some_and(|(name, _)| {
+            !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+    })
 }
 
 #[test]
@@ -48,7 +148,7 @@ fn every_notice_has_its_own_translated_sentence() {
         .collect();
     for text in &texts {
         assert!(!text.contains('⟦'), "missing key: {text}");
-        assert!(!text.contains('{'), "unfilled placeholder: {text}");
+        assert!(!has_placeholder(text), "unfilled placeholder: {text}");
     }
     let distinct: BTreeSet<_> = texts.iter().collect();
     assert_eq!(distinct.len(), texts.len(), "{texts:#?}");

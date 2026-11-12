@@ -65,6 +65,7 @@ fn harness(size: egui::Vec2, shell: ShellState) -> Harness<'static, ShellState> 
                 badge: ConnectionBadge::default(),
                 connected: true,
                 now_secs: NOW,
+                collections: &[],
             };
             let _ = show_shell(ui, shell, ctx, &i18n);
         },
@@ -264,5 +265,36 @@ fn after_a_finished_run_text_mode_gets_no_less_room_than_before_the_mode_switch(
         let area = text_area(&h, size.y);
         assert!(area >= before - TEXT_AREA_SLACK, "{size:?}: {area}");
         assert!(text_rows(&h, size.y) >= 2, "{size:?}");
+    }
+}
+
+/// One small text row, with its item spacing (points).
+const LINE_ROW: f32 = 24.0;
+
+/// A script with a syntax problem adds the problem line under the editor. It is chrome, measured
+/// like the rest: with the panel open the output keeps its minimum and the editor stays usable;
+/// with it closed the editor keeps its usual share and the line costs the output one small row at
+/// most. Under the notice of a stopped Run the line is not drawn for the same problem, so the
+/// notice's layout is the one from before the line existed.
+#[test]
+fn a_problem_line_keeps_the_planned_layout() {
+    for size in [SMALL, COMMON] {
+        for open in [false, true] {
+            let good = with_table(open, OutputMode::Table);
+            let broken = good.edited("db.a.find(".into(), None);
+            let before = measured_shell(size, good);
+            let l = measured_shell(size, broken);
+            let at = format!("{size:?} open={open}: {l:?} vs {before:?}");
+            match open {
+                true => {
+                    assert!(l.output >= OUTPUT_MIN, "{at}");
+                    assert!(l.editor >= EDITOR_USABLE, "{at}");
+                }
+                false => {
+                    assert!((l.editor - before.editor).abs() <= 1.0, "{at}");
+                    assert!(before.output - l.output <= LINE_ROW, "{at}");
+                }
+            }
+        }
     }
 }

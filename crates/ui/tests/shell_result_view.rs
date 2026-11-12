@@ -58,6 +58,7 @@ fn harness_sized(shell: ShellState, size: egui::Vec2, dark: bool) -> Harness<'st
                 badge: ConnectionBadge::default(),
                 connected: true,
                 now_secs: NOW,
+                collections: &[],
             };
             for event in show_shell(ui, &frame.shell, ctx, &i18n) {
                 if let ShellViewEvent::Action(action) = event {

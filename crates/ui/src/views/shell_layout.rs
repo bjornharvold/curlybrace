@@ -5,10 +5,11 @@
 //! [`OUTPUT_MIN_HEIGHT`] while the window allows it, and the editor and the list shrink first
 //! (each down to a floor that keeps it usable).
 //!
-//! Everything else the tab draws below the toolbar (the hints, a notice, the panel's toggle, note
-//! and clear controls, the separator) is its "chrome". Its height depends on wrapping and on the
-//! notice shown, so it is measured in one frame and used in the next ([`remember_chrome`]); a
-//! change asks for one more frame, so the layout settles at once.
+//! Everything else the tab draws below the toolbar (the problem line, the hints, a notice, the
+//! panel's toggle, note and clear controls, the separator) is its "chrome". Its height depends on
+//! wrapping, on the notice and on whether the script has a problem, so it is measured in one frame
+//! and used in the next ([`remember_chrome`]); a change asks for one more frame, so the layout
+//! settles at once.
 use eframe::egui;
 use uuid::Uuid;
 

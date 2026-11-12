@@ -1,7 +1,8 @@
 //! The Shell tab: the connection it runs on and why it may not run, the Run / Cancel / Format
 //! toolbar (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`, and the finished run's notice as its
-//! status), the script editor, any other notice, the History panel and the output pane (with its
-//! `Text | Table | Tree` switch). It only draws and reports; every decision is the reducer's.
+//! status), the script editor with the first syntax problem under it, any other notice, the
+//! History panel and the output pane (with its `Text | Table | Tree` switch). It only draws and
+//! reports; every decision is the reducer's.
 //!
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.
@@ -9,8 +10,9 @@ use super::documents::show_connection_header;
 use super::shell_editor::{editor_id, show_editor};
 use super::shell_history::show_history;
 use super::shell_layout::{heights, last_chrome, remember_chrome};
-use super::shell_notice::{notice_text, offers_tool_paths};
+use super::shell_notice::{notice_text, offers_problem_actions, offers_tool_paths};
 use super::shell_output::show_output;
+use super::shell_problem::show_problem_line;
 use super::tone_notice::{tone_notice, tone_status};
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
@@ -40,6 +42,9 @@ pub struct ShellViewContext<'a> {
     /// The frame's wall-clock time (Unix seconds), read once by the caller; history rows say
     /// how long ago they ran against it.
     pub now_secs: i64,
+    /// The collection names the editor's completion offers: those of every database of the
+    /// session whose collections are loaded, sorted and without duplicates.
+    pub collections: &'a [String],
 }
 
 /// What the user asked for: a shell action, or the Tool paths dialog (offered when `mongosh`
@@ -82,7 +87,8 @@ struct Pressed {
 
 /// Draws the tab and returns every event of the frame in the order the reducer must apply them:
 /// the editor's `Edit` first, so a Run or Format in the same frame acts on the text as typed,
-/// then the shortcut or button, then the Tool paths request.
+/// then the shortcut or button, then the notice's own button (Tool paths, or Go to problem and
+/// Run anyway).
 pub fn show_shell(
     ui: &mut egui::Ui,
     state: &ShellState,
@@ -96,8 +102,27 @@ pub fn show_shell(
     let open = state.history.open;
     let top = ui.cursor().min.y;
     let planned = heights(ui.available_height(), open, last_chrome(ui, ctx.session));
-    let edited = show_editor(ui, state, ctx.session, planned.editor, i18n);
+    let edited = show_editor(
+        ui,
+        state,
+        ctx.session,
+        planned.editor,
+        ctx.collections,
+        i18n,
+    );
+    // The text as typed in this frame, so the problem line never lags a key behind.
+    let typed = match &edited {
+        Some(ShellAction::Edit { script, .. }) => script.as_str(),
+        _ => state.script.as_str(),
+    };
     let editor_used = ui.cursor().min.y - top;
+    // Part of the chrome (measured, see `shell_layout`): it takes a row only while there is a
+    // problem, and the next frame plans the heights with it.
+    let in_notice = match &state.notice {
+        Some(ShellNotice::SyntaxProblem { problem, .. }) => Some(problem),
+        _ => None,
+    };
+    show_problem_line(ui, editor_id(ctx.session), typed, in_notice, i18n);
     // One wrapped label: two would cost a line break and a gap of the output pane's height.
     let (editor_hint, script_hint) = (i18n.t("shell.editor_hint"), i18n.t("shell.script_hint"));
     let hints = i18n.t_with(
@@ -126,11 +151,7 @@ pub fn show_shell(
     }
     let history = panel.action;
     let output = show_output(ui, state, ctx.session, i18n);
-    let script = match &edited {
-        Some(ShellAction::Edit { script, .. }) => script.as_str(),
-        _ => state.script.as_str(),
-    };
-    let shortcut = gated(pressed, Gates::of(state, script, &ctx));
+    let shortcut = gated(pressed, Gates::of(state, typed, &ctx));
     edited
         .into_iter()
         .chain(shortcut.or(clicked))
@@ -242,11 +263,28 @@ fn run_hint(state: &ShellState, ctx: &ShellViewContext<'_>, shortcut: &str, i18n
 }
 
 /// The notice of the last run or refusal; a missing or too old `mongosh` offers the Tool paths
-/// dialog.
+/// dialog, a syntax problem offers Go to problem and Run anyway.
 fn show_notice(ui: &mut egui::Ui, notice: &ShellNotice, i18n: &I18n) -> Option<ShellViewEvent> {
     let (severity, text) = notice_text(notice, i18n);
     tone_notice(ui, severity.tone(), &text, false);
+    if offers_problem_actions(notice) {
+        return problem_actions(ui, i18n).map(ShellViewEvent::Action);
+    }
     let open =
         offers_tool_paths(notice) && text_button(ui, i18n.t("shell.open_tool_paths")).clicked();
     open.then_some(ShellViewEvent::OpenToolPaths)
+}
+
+/// Go to problem (selects it in the editor) and Run anyway (the check can be wrong).
+fn problem_actions(ui: &mut egui::Ui, i18n: &I18n) -> Option<ShellAction> {
+    ui.horizontal_wrapped(|ui| {
+        let go_to = text_button(ui, i18n.t("shell.check.go_to")).clicked();
+        let anyway = text_button(ui, i18n.t("shell.check.run_anyway")).clicked();
+        match (go_to, anyway) {
+            (true, _) => Some(ShellAction::GoToProblem),
+            (_, true) => Some(ShellAction::RunAnyway),
+            _ => None,
+        }
+    })
+    .inner
 }

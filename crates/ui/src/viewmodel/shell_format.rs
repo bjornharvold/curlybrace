@@ -34,7 +34,7 @@ pub struct Formatted {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Lex {
+pub(crate) enum Lex {
     Code,
     Single,
     Double,

@@ -1,8 +1,10 @@
-//! The sentence the Shell tab shows for its notice: why a run was refused, how it ended, or what
-//! is wrong with `mongosh`. Pure: the words come from `I18n`, the severity picks the tone.
+//! The sentence the Shell tab shows for its notice: why a run was refused, how it ended, what
+//! is wrong with `mongosh`, or where the script is visibly broken. Pure: the words come from
+//! `I18n`, the severity picks the tone.
 use crate::I18n;
 use crate::theme::Tone;
 use crate::viewmodel::shell::{ShellNotice, ToolProblem};
+use crate::viewmodel::shell_check::{ProblemKind, SyntaxProblem};
 use crate::viewmodel::tool_rows::version_text;
 use curlybrace_core::runtime::ShellRefusal;
 use curlybrace_core::shell::{Outcome, ShellError};
@@ -35,7 +37,51 @@ pub fn notice_text(notice: &ShellNotice, i18n: &I18n) -> (Severity, String) {
         ShellNotice::Refused(refusal) => refusal_text(refusal, i18n),
         ShellNotice::ToolProblem(problem) => (Severity::Error, tool_text(problem, i18n)),
         ShellNotice::EmptyScript => (Severity::Warning, i18n.t("shell.notice.empty_script")),
+        ShellNotice::SyntaxProblem { problem, .. } => {
+            (Severity::Warning, not_run_text(problem, i18n))
+        }
     }
+}
+
+/// Whether the notice is a syntax problem, so Go to problem and Run anyway are the ways out.
+pub fn offers_problem_actions(notice: &ShellNotice) -> bool {
+    matches!(notice, ShellNotice::SyntaxProblem { .. })
+}
+
+/// The notice of a Run the check stopped: that nothing ran, then the problem.
+fn not_run_text(problem: &SyntaxProblem, i18n: &I18n) -> String {
+    let problem = problem_text(problem, i18n);
+    i18n.t_with("shell.check.not_run", &[("problem", &problem)])
+}
+
+/// The problem and where it is (line and column of the whole script, 1-based). The notice and
+/// the problem line under the editor both read it.
+pub(crate) fn problem_text(problem: &SyntaxProblem, i18n: &I18n) -> String {
+    let (line, column) = (problem.line.to_string(), problem.column.to_string());
+    let (key, bracket, opener) = match problem.kind {
+        ProblemKind::UnclosedBracket(c) => ("shell.check.unclosed_bracket", Some(c), None),
+        ProblemKind::UnexpectedClosing(c) => ("shell.check.unexpected_closing", Some(c), None),
+        ProblemKind::MismatchedClosing { opener, found } => {
+            ("shell.check.mismatched_closing", Some(found), Some(opener))
+        }
+        ProblemKind::UnterminatedString => ("shell.check.unterminated_string", None, None),
+        ProblemKind::UnterminatedTemplate => ("shell.check.unterminated_template", None, None),
+        ProblemKind::UnterminatedComment => ("shell.check.unterminated_comment", None, None),
+    };
+    let (bracket, opener) = (char_text(bracket), char_text(opener));
+    i18n.t_with(
+        key,
+        &[
+            ("line", &line),
+            ("column", &column),
+            ("bracket", &bracket),
+            ("opener", &opener),
+        ],
+    )
+}
+
+fn char_text(c: Option<char>) -> String {
+    c.map(String::from).unwrap_or_default()
 }
 
 /// Whether the notice is about the `mongosh` file itself (missing or too old), so the Tool

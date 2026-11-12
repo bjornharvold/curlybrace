@@ -1,7 +1,8 @@
 //! The Shell tab in the accesskit tree: the editor and the output pane are named, Run, Cancel
 //! and Format are buttons whose enabled state follows the run, stderr is announced in words,
 //! every notice is text, a tool problem offers the Tool paths dialog, and Run and Format work
-//! from the keyboard alone. Fast, offline, no GPU.
+//! from the keyboard alone. The editor's completion list and syntax check are in
+//! `accessibility_shell_editor.rs`. Fast, offline, no GPU.
 use curlybrace_core::history::{ShellHistoryEntry, ShellRunStatus};
 use curlybrace_core::runtime::ShellRefusal;
 use curlybrace_core::shell::{Outcome, ShellError, Stream};
@@ -45,6 +46,8 @@ struct Frame {
     /// The events of each frame that had any.
     frames: Vec<Vec<ShellViewEvent>>,
     field: String,
+    /// The loaded collection names the completion offers.
+    collections: Vec<String>,
 }
 
 impl Frame {
@@ -56,6 +59,7 @@ impl Frame {
             events: Vec::new(),
             frames: Vec::new(),
             field: String::new(),
+            collections: Vec::new(),
         }
     }
 
@@ -90,6 +94,7 @@ fn harness(frame: Frame) -> Harness<'static, Frame> {
                     badge: frame.badge,
                     connected: frame.connected,
                     now_secs: NOW,
+                    collections: &frame.collections,
                 };
                 let events = show_shell(ui, &frame.shell, ctx, &i18n);
                 for event in &events {

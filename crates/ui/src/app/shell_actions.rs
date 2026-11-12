@@ -25,6 +25,10 @@ pub enum ShellAction {
         selection: Option<Range<usize>>,
     },
     Run,
+    /// Run without the syntax check, after it stopped a Run. Every other guard of Run applies.
+    RunAnyway,
+    /// Select the bytes of the syntax notice's problem in the editor. Never runs anything.
+    GoToProblem,
     Cancel,
     Format,
     /// Show the Shell tab of the active session (only while it is connected).
@@ -59,7 +63,9 @@ pub(super) fn on_action(state: AppState, action: ShellAction) -> Out {
             unchanged(state.with_shell(id, shell))
         }
         ShellAction::Open => open(state, id),
-        ShellAction::Run => run(state, id),
+        ShellAction::Run => run(state, id, Check::Syntax),
+        ShellAction::RunAnyway => run(state, id, Check::Skip),
+        ShellAction::GoToProblem => updated(state, id, ShellState::problem_selected),
         ShellAction::Cancel => cancel(state, id),
         ShellAction::ToggleHistory => toggle_history(state, id),
         // Only the buffer changes, also mid-run: nothing is sent.
@@ -210,7 +216,16 @@ fn open(state: AppState, id: Uuid) -> Out {
     (next, commands)
 }
 
-fn run(state: AppState, id: Uuid) -> Out {
+/// Whether a Run checks the text's syntax first: Run does, Run anyway does not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Check {
+    Syntax,
+    Skip,
+}
+
+/// Run and Run anyway share every guard; only the syntax check differs. A run parked for the
+/// production confirmation is never checked again: `confirmed` sends the parked text.
+fn run(state: AppState, id: Uuid, check: Check) -> Out {
     let shell = state.shell_or_new(id);
     if shell.is_running() || state.write_warning.is_some() {
         return unchanged(state);
@@ -225,8 +240,12 @@ fn run(state: AppState, id: Uuid) -> Out {
         Ok(exe) => exe,
         Err(problem) => return notice(state, id, ShellNotice::ToolProblem(problem)),
     };
-    let (started, request) = shell.run_requested();
-    // An empty script: the view-model's notice, and no warning about a run that cannot happen.
+    let (started, request) = match check {
+        Check::Syntax => shell.run_requested(),
+        Check::Skip => shell.run_anyway(),
+    };
+    // An empty or broken script: the view-model's notice, and no warning about a run that
+    // does not happen.
     let Some(request) = request else {
         return unchanged(state.with_shell(id, started));
     };
@@ -356,3 +375,8 @@ impl AppState {
 #[cfg(test)]
 #[path = "shell_result_app_tests.rs"]
 mod shell_result_app_tests;
+
+// Declared here for the same reason: run with `cargo test shell_check`.
+#[cfg(test)]
+#[path = "shell_check_app_tests.rs"]
+mod shell_check_app_tests;

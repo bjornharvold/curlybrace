@@ -164,6 +164,18 @@ impl SidebarState {
         }
     }
 
+    /// Every collection name of the databases whose collections are loaded, sorted and without
+    /// duplicates (the Shell tab's completion offers them). An unloaded database adds nothing.
+    pub fn loaded_collections(&self) -> Vec<String> {
+        let names: std::collections::BTreeSet<&String> = self
+            .databases
+            .iter()
+            .filter_map(|node| node.collections.as_ref())
+            .flatten()
+            .collect();
+        names.into_iter().cloned().collect()
+    }
+
     fn map_db(self, db: &str, f: impl FnOnce(DbNode) -> DbNode) -> Self {
         let mut f = Some(f);
         let databases = self
@@ -300,5 +312,18 @@ mod tests {
         let order: Vec<_> = s.databases.iter().map(|d| d.name.as_str()).collect();
         assert_eq!(order, ["b", "a", "c"]);
         assert_eq!(s.databases[1].collections, Some(names(&["x", "y"])));
+    }
+
+    #[test]
+    fn loaded_collections_are_the_sorted_union_of_the_loaded_databases() {
+        let s = state()
+            .with_collections("app", names(&["users", "orders"]))
+            .with_collections("my db", names(&["users", "a.b", "Zed"]))
+            .with_collections("данные", vec![]);
+        assert_eq!(
+            s.loaded_collections(),
+            names(&["Zed", "a.b", "orders", "users"])
+        );
+        assert!(state().loaded_collections().is_empty(), "nothing loaded");
     }
 }
