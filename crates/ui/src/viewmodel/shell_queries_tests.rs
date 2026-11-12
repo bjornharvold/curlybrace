@@ -109,7 +109,7 @@ fn use_changes_the_database_for_later_calls() {
 
 #[test]
 fn a_use_whose_name_is_not_plain_makes_later_calls_unchecked_until_a_plain_one() {
-    let text = "use 'x'\ndb.a.find({})\nuse a.b\ndb.a.find({})\nuse ok\ndb.a.find({})";
+    let text = "use $x\ndb.a.find({})\nuse a.b\ndb.a.find({})\nuse ok\ndb.a.find({})";
     let reading = read_calls(text, "t");
     assert_eq!(reading.unchecked, 2);
     assert_eq!(reading.calls.len(), 1);
@@ -128,21 +128,89 @@ fn use_as_a_variable_or_mid_line_is_not_a_database_switch() {
 }
 
 #[test]
-fn get_sibling_db_with_a_literal_names_the_database() {
+fn get_sibling_db_with_a_literal_names_the_database_of_its_own_call_only() {
     let call = one("db.getSiblingDB(\"a\").users.find({})", "test");
     assert_eq!((call.db.as_str(), call.collection.as_str()), ("a", "users"));
-    // As decided for this guard, the literal also applies to later calls.
-    let reading = read_calls("db.getSiblingDB('a')\ndb.b.find({})", "test");
-    assert_eq!(reading.calls[0].db, "a");
+    let reading = read_calls("db.getSiblingDB('a').x.find({})\ndb.y.find({})", "test");
+    let dbs: Vec<&str> = reading.calls.iter().map(|c| c.db.as_str()).collect();
+    assert_eq!(dbs, ["a", "test"]);
+    assert_eq!(
+        one("db.getSiblingDB('a')\ndb.b.find({})", "test").db,
+        "test"
+    );
 }
 
 #[test]
-fn get_sibling_db_with_a_variable_makes_it_and_later_calls_unchecked() {
-    let text = "db.getSiblingDB(name).users.find({})\ndb.b.find({})\nuse back\ndb.c.find({})";
+fn get_sibling_db_with_a_variable_makes_only_its_own_call_unchecked() {
+    let text = "db.getSiblingDB(name).users.find({})\ndb.b.find({})";
     let reading = read_calls(text, "test");
-    assert_eq!(reading.unchecked, 2);
+    assert_eq!(reading.unchecked, 1);
     assert_eq!(reading.calls.len(), 1);
-    assert_eq!(reading.calls[0].db, "back");
+    assert_eq!(reading.calls[0].db, "test");
+}
+
+fn dbs_and_unchecked(text: &str) -> (Vec<String>, usize) {
+    let reading = read_calls(text, "test");
+    let dbs = reading.calls.into_iter().map(|c| c.db).collect();
+    (dbs, reading.unchecked)
+}
+
+#[test]
+fn assigning_db_a_literal_sibling_sets_the_database_for_later_calls() {
+    assert_eq!(
+        dbs_and_unchecked("db = db.getSiblingDB(\"b\")\ndb.z.find({})"),
+        (vec!["b".to_string()], 0)
+    );
+    assert_eq!(
+        dbs_and_unchecked("db.a.find({}); db = db.getSiblingDB('b'); db.z.find({})"),
+        (vec!["test".to_string(), "b".to_string()], 0)
+    );
+}
+
+#[test]
+fn any_other_assignment_of_db_makes_later_calls_unchecked_until_a_use_line() {
+    for set in [
+        "db = somethingElse()",
+        "db = db.getSiblingDB(name)",
+        "db = db.getSiblingDB('b').getMongo()",
+        "db = x",
+        "db ||= x",
+        "db ??= db.getSiblingDB('b')",
+        "var db = db.getSiblingDB('b')",
+        "let db",
+        "const db = connect('x')",
+    ] {
+        let text = format!("{set}\ndb.z.find({{}})\nuse shop\ndb.z.find({{}})");
+        assert_eq!(
+            dbs_and_unchecked(&text),
+            (vec!["shop".to_string()], 1),
+            "after {set:?}"
+        );
+    }
+}
+
+#[test]
+fn comparisons_and_arrow_parameters_named_db_are_not_assignments() {
+    for text in [
+        "if (db == x) {}\ndb.z.find({})",
+        "db === x\ndb.z.find({})",
+        "f(db => 1)\ndb.z.find({})",
+        "x.db = 1\ndb.z.find({})",
+    ] {
+        assert_eq!(
+            dbs_and_unchecked(text),
+            (vec!["test".to_string()], 0),
+            "in {text:?}"
+        );
+    }
+}
+
+#[test]
+fn use_takes_a_bare_or_quoted_name() {
+    assert_eq!(one("use shop\ndb.a.find({})", "t").db, "shop");
+    assert_eq!(one("use 'shop'\ndb.a.find({})", "t").db, "shop");
+    assert_eq!(one("use \"my-db\";\ndb.a.find({})", "t").db, "my-db");
+    assert_eq!(read_calls("use 'a b'\ndb.a.find({})", "t").unchecked, 1);
 }
 
 #[test]

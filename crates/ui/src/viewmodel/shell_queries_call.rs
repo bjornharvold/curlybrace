@@ -77,34 +77,30 @@ pub(super) enum Outcome {
     Call(Box<ShellCall>),
 }
 
-pub(super) struct Found {
-    /// The database later calls use, when this expression names one (`None` inside: not a
-    /// literal name).
-    pub switch: Option<Option<String>>,
-    pub outcome: Outcome,
+/// `.getSiblingDB(...)` at token `i`, closed: its name (`None`: not a string literal) and the
+/// index of its closing `)`. `None` when there is no such closed call.
+pub(super) fn sibling_db(c: &Cursor<'_>, i: usize) -> Option<(Option<String>, usize)> {
+    match c.dot_call(i)? {
+        ("getSiblingDB", Some(close)) => {
+            Some((c.inner(i + 2, close).and_then(parse_string), close))
+        }
+        _ => None,
+    }
 }
 
 /// The call that starts at the `db` token `t`, read against the database `current`
-/// (`None`: not known).
-pub(super) fn read_db(c: &Cursor<'_>, t: usize, current: &Option<String>) -> Found {
-    let (db, after, switch) = match c.dot_call(t + 1) {
-        Some(("getSiblingDB", Some(close))) => {
-            let name = c.inner(t + 3, close).and_then(parse_string);
-            (name.clone(), close + 1, Some(name))
-        }
-        Some(("getSiblingDB", None)) => {
-            return Found {
-                switch: Some(None),
-                outcome: Outcome::Nothing,
-            };
-        }
-        _ => (current.clone(), t + 1, None),
+/// (`None`: not known). A `db.getSiblingDB(...)` receiver names the database of this call
+/// only, as in mongosh; it never changes `current`.
+pub(super) fn read_db(c: &Cursor<'_>, t: usize, current: &Option<String>) -> Outcome {
+    let (db, after) = match (c.dot_call(t + 1), sibling_db(c, t + 1)) {
+        (_, Some((name, close))) => (name, close + 1),
+        (Some(("getSiblingDB", None)), None) => return Outcome::Nothing,
+        _ => (current.clone(), t + 1),
     };
-    let outcome = match receiver(c, after) {
+    match receiver(c, after) {
         None => Outcome::Nothing,
         Some(receiver) => call(c, t, db, receiver),
-    };
-    Found { switch, outcome }
+    }
 }
 
 /// A collection and method, with the method's `(` token and its partner.
