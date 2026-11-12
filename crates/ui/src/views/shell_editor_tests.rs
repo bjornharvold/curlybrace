@@ -181,7 +181,7 @@ fn every_go_to_problem_focuses_the_editor_and_shows_the_problem() {
     h.state_mut().shells.insert(A, first);
     h.run_steps(2);
     assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
-    assert_eq!(cursor_chars(&h, A), Some(9..10));
+    assert_eq!(cursor_chars(&h, A), Some(9..9));
     // The focus moves away (the button was clicked), the editor is not touched, and Go to
     // problem is clicked again: the same selection, focused again.
     h.ctx.memory_mut(|m| m.surrender_focus(editor_id(A)));
@@ -192,7 +192,7 @@ fn every_go_to_problem_focuses_the_editor_and_shows_the_problem() {
     h.state_mut().shells.insert(A, second);
     h.run_steps(2);
     assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
-    assert_eq!(cursor_chars(&h, A), Some(9..10));
+    assert_eq!(cursor_chars(&h, A), Some(9..9));
 }
 
 #[test]
@@ -289,4 +289,18 @@ fn undo_in_one_session_never_brings_back_another_sessions_text() {
     h.run_steps(2);
     assert_eq!(h.state().shell(B).script, "bbb");
     assert_eq!(h.state().shell(A).script, "aaa1");
+}
+
+#[test]
+fn typing_after_go_to_problem_inserts_at_the_caret_and_keeps_the_bracket() {
+    let broken = script("db.a.find(\nx", None).run_requested().0;
+    let mut h = harness(broken);
+    let gone = gone_to_problem(h.state().shell(A));
+    h.state_mut().shells.insert(A, gone);
+    h.run_steps(2);
+    h.input_mut().events.push(egui::Event::Text("y".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().shell(A).script, "db.a.findy(\nx");
+    // The caret alone is no selection: nothing about it is reported as one.
+    assert_eq!(h.state().shell(A).selection, None);
 }

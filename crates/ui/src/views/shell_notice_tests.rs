@@ -63,7 +63,10 @@ fn syntax_notices() -> Vec<ShellNotice> {
         ProblemKind::UnterminatedComment,
     ]
     .into_iter()
-    .map(|kind| ShellNotice::SyntaxProblem(problem(kind)))
+    .map(|kind| ShellNotice::SyntaxProblem {
+        problem: problem(kind),
+        ran: None,
+    })
     .collect()
 }
 
@@ -75,7 +78,13 @@ fn a_syntax_problem_is_a_warning_that_names_its_place_and_brackets() {
         assert_eq!(severity, Severity::Warning);
         assert!(text.contains('3') && text.contains("17"), "{text}");
     }
-    let of = |kind| notice_text(&ShellNotice::SyntaxProblem(problem(kind)), &i18n).1;
+    let of = |kind| {
+        let notice = ShellNotice::SyntaxProblem {
+            problem: problem(kind),
+            ran: None,
+        };
+        notice_text(&notice, &i18n).1
+    };
     assert!(of(ProblemKind::UnclosedBracket('[')).contains('['));
     assert!(of(ProblemKind::UnexpectedClosing(')')).contains(')'));
     let mismatched = of(ProblemKind::MismatchedClosing {
@@ -100,7 +109,11 @@ fn the_notice_says_the_script_was_not_run_around_the_same_problem_sentence() {
             &[("line", "3"), ("column", "17"), ("bracket", "(")]
         )
     );
-    let notice = notice_text(&ShellNotice::SyntaxProblem(found), &i18n).1;
+    let notice = ShellNotice::SyntaxProblem {
+        problem: found,
+        ran: None,
+    };
+    let notice = notice_text(&notice, &i18n).1;
     assert_eq!(
         notice,
         i18n.t_with("shell.check.not_run", &[("problem", &sentence)])

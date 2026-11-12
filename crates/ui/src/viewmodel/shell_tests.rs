@@ -311,7 +311,7 @@ fn started_runs_the_given_text_whatever_the_editor_holds() {
 
 fn syntax_problem(state: &ShellState) -> &SyntaxProblem {
     match &state.notice {
-        Some(ShellNotice::SyntaxProblem(problem)) => problem,
+        Some(ShellNotice::SyntaxProblem { problem, .. }) => problem,
         other => panic!("no syntax problem: {other:?}"),
     }
 }
@@ -392,11 +392,12 @@ fn a_problem_in_the_selection_is_placed_in_the_whole_script() {
 }
 
 #[test]
-fn go_to_problem_selects_the_problem_and_keeps_the_rest() {
+fn go_to_problem_puts_the_caret_before_the_problem_and_keeps_the_rest() {
     let script = "db.a.find()\ndb.b.find(";
     let (state, _) = with_script(script, None).run_requested();
     let next = state.problem_selected();
-    assert_eq!(next.selection, Some(21..22));
+    // A collapsed caret: the next key does not replace the bracket, and Run runs the script.
+    assert_eq!(next.selection, Some(21..21));
     assert_eq!(&next.script[21..22], "(");
     assert_eq!(next.notice, state.notice);
     assert_eq!(next.output, state.output);
@@ -439,16 +440,19 @@ fn go_to_problem_keeps_the_range_inside_the_script_and_on_char_boundaries() {
         column: 2,
     };
     let state = ShellState {
-        notice: Some(ShellNotice::SyntaxProblem(problem)),
+        notice: Some(ShellNotice::SyntaxProblem { problem, ran: None }),
         ..with_script("éab", None)
     };
-    assert_eq!(state.problem_selected().selection, Some(0..4));
+    assert_eq!(state.problem_selected().selection, Some(0..0));
 }
 
 #[test]
 fn editing_the_text_or_formatting_clears_a_syntax_notice() {
     let (state, _) = with_script("if (a) {\nb();", None).run_requested();
-    assert!(matches!(state.notice, Some(ShellNotice::SyntaxProblem(_))));
+    assert!(matches!(
+        state.notice,
+        Some(ShellNotice::SyntaxProblem { .. })
+    ));
     let typed = state.edited("if (a) {\nb();}".into(), None);
     assert_eq!(typed.notice, None);
     let moved = state.edited(state.script.clone(), Some(0..2));
@@ -470,4 +474,68 @@ fn editing_keeps_the_other_notices_as_before() {
     let done = state.finished(id, Outcome::Exited(0));
     assert_eq!(done.edited("y".into(), None).notice, done.notice);
     assert_eq!(done.formatted().notice, done.notice);
+}
+
+fn ran(state: &ShellState) -> Option<Range<usize>> {
+    match &state.notice {
+        Some(ShellNotice::SyntaxProblem { ran, .. }) => ran.clone(),
+        other => panic!("no syntax problem: {other:?}"),
+    }
+}
+
+const TWO_LINES: &str = "db.a.find()\ndb.b.find(";
+
+#[test]
+fn the_notice_remembers_what_was_checked() {
+    let (whole, _) = with_script(TWO_LINES, None).run_requested();
+    assert_eq!(ran(&whole), None, "the whole script");
+    let (part, _) = with_script(TWO_LINES, Some(12..22)).run_requested();
+    assert_eq!(ran(&part), Some(12..22));
+}
+
+#[test]
+fn run_anyway_after_go_to_problem_runs_the_whole_original_script() {
+    let (stopped, _) = with_script(TWO_LINES, None).run_requested();
+    let (_, request) = stopped.problem_selected().run_anyway();
+    assert_eq!(request.expect("a request").script, TWO_LINES);
+}
+
+#[test]
+fn run_anyway_after_go_to_problem_runs_the_original_selection() {
+    let (stopped, _) = with_script(TWO_LINES, Some(12..22)).run_requested();
+    let (_, request) = stopped.problem_selected().run_anyway();
+    assert_eq!(request.expect("a request").script, "db.b.find(");
+}
+
+#[test]
+fn run_anyway_after_a_caret_move_still_runs_what_was_checked() {
+    let (stopped, _) = with_script(TWO_LINES, Some(12..22)).run_requested();
+    let moved = stopped.edited(TWO_LINES.into(), Some(0..2));
+    assert!(moved.notice.is_some(), "the text did not change");
+    let (_, request) = moved.run_anyway();
+    assert_eq!(request.expect("a request").script, "db.b.find(");
+    let (stopped, _) = with_script(TWO_LINES, None).run_requested();
+    let (_, request) = stopped.edited(TWO_LINES.into(), Some(0..2)).run_anyway();
+    assert_eq!(request.expect("a request").script, TWO_LINES);
+}
+
+#[test]
+fn a_plain_run_after_go_to_problem_checks_the_whole_script() {
+    let (stopped, _) = with_script(TWO_LINES, Some(12..22)).run_requested();
+    let (again, request) = stopped.problem_selected().run_requested();
+    assert_eq!(request, None);
+    assert_eq!(ran(&again), None, "the whole script was checked");
+    assert_eq!(syntax_problem(&again).range, 21..22);
+}
+
+#[test]
+fn a_text_change_drops_the_stored_range_with_the_notice() {
+    let (stopped, _) = with_script(TWO_LINES, Some(12..22)).run_requested();
+    let fixed = stopped.edited("db.a.find()\ndb.b.find()".into(), None);
+    assert_eq!(fixed.notice, None);
+    let (_, request) = fixed.run_anyway();
+    assert_eq!(
+        request.expect("a request").script,
+        "db.a.find()\ndb.b.find()"
+    );
 }

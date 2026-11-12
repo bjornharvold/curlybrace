@@ -119,7 +119,7 @@ pub fn show_shell(
     // Part of the chrome (measured, see `shell_layout`): it takes a row only while there is a
     // problem, and the next frame plans the heights with it.
     let in_notice = match &state.notice {
-        Some(ShellNotice::SyntaxProblem(problem)) => Some(problem),
+        Some(ShellNotice::SyntaxProblem { problem, .. }) => Some(problem),
         _ => None,
     };
     show_problem_line(ui, editor_id(ctx.session), typed, in_notice, i18n);

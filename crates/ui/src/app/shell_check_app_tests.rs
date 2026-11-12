@@ -69,7 +69,10 @@ fn runs(commands: &[Command]) -> Vec<(u64, String)> {
 }
 
 fn has_syntax_problem(s: &AppState, id: Uuid) -> bool {
-    matches!(shell_of(s, id).notice, Some(ShellNotice::SyntaxProblem(_)))
+    matches!(
+        shell_of(s, id).notice,
+        Some(ShellNotice::SyntaxProblem { .. })
+    )
 }
 
 #[test]
@@ -254,7 +257,7 @@ fn a_good_selection_inside_a_broken_script_runs() {
 }
 
 #[test]
-fn go_to_problem_selects_the_problem_and_sends_nothing() {
+fn go_to_problem_puts_the_caret_at_the_problem_and_sends_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let (s, id) = ready(plain(), &fake_mongosh(dir.path()));
     let (s, _) = shell(s, ShellAction::Run);
@@ -262,7 +265,7 @@ fn go_to_problem_selects_the_problem_and_sends_nothing() {
     let (s, commands) = shell(s, ShellAction::GoToProblem);
 
     assert!(commands.is_empty());
-    assert_eq!(shell_of(&s, id).selection, Some(21..22));
+    assert_eq!(shell_of(&s, id).selection, Some(21..21));
     assert!(has_syntax_problem(&s, id), "the notice stays");
 }
 
@@ -305,4 +308,16 @@ fn after_a_run_anyway_the_next_run_is_checked_again() {
 
     assert!(commands.is_empty());
     assert!(has_syntax_problem(&s, id));
+}
+
+#[test]
+fn run_anyway_after_go_to_problem_sends_the_whole_original_script() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, _) = ready(plain(), &fake_mongosh(dir.path()));
+    let (s, _) = shell(s, ShellAction::Run);
+    let (s, _) = shell(s, ShellAction::GoToProblem);
+
+    let (_, commands) = shell(s, ShellAction::RunAnyway);
+
+    assert_eq!(runs(&commands), vec![(1, BROKEN.to_string())]);
 }

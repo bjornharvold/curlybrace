@@ -96,7 +96,10 @@ pub(crate) fn show_editor(
             .char_range()
             .and_then(|range| char_range_to_bytes(&buffer, range.as_sorted_char_range())),
     };
-    let edited = was_picked || output.response.changed() || selection != state.selection;
+    // The state's collapsed caret (Go to problem) is no selection: the text box reports it as
+    // `None`, which is not an edit.
+    let state_selection = state.selection.clone().filter(|r| r.start < r.end);
+    let edited = was_picked || output.response.changed() || selection != state_selection;
     remember_seen(ui, id, edited, script_hash, &buffer, &selection, state);
     edited.then_some(ShellAction::Edit {
         script: buffer,

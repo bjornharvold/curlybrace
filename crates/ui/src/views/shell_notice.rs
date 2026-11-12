@@ -37,13 +37,15 @@ pub fn notice_text(notice: &ShellNotice, i18n: &I18n) -> (Severity, String) {
         ShellNotice::Refused(refusal) => refusal_text(refusal, i18n),
         ShellNotice::ToolProblem(problem) => (Severity::Error, tool_text(problem, i18n)),
         ShellNotice::EmptyScript => (Severity::Warning, i18n.t("shell.notice.empty_script")),
-        ShellNotice::SyntaxProblem(problem) => (Severity::Warning, not_run_text(problem, i18n)),
+        ShellNotice::SyntaxProblem { problem, .. } => {
+            (Severity::Warning, not_run_text(problem, i18n))
+        }
     }
 }
 
 /// Whether the notice is a syntax problem, so Go to problem and Run anyway are the ways out.
 pub fn offers_problem_actions(notice: &ShellNotice) -> bool {
-    matches!(notice, ShellNotice::SyntaxProblem(_))
+    matches!(notice, ShellNotice::SyntaxProblem { .. })
 }
 
 /// The notice of a Run the check stopped: that nothing ran, then the problem.
