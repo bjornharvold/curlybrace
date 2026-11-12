@@ -47,7 +47,11 @@ fn show_checking(ui: &mut egui::Ui, i18n: &I18n) {
 
 /// `content` with its text in the tone's `on_container` color, for the words that sit on the
 /// notice's container. The buttons are drawn outside it: they bring their own colors.
-fn on_container<R>(ui: &mut egui::Ui, tone: Tone, content: impl FnOnce(&mut egui::Ui) -> R) -> R {
+pub(super) fn on_container<R>(
+    ui: &mut egui::Ui,
+    tone: Tone,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
     let color = current_ui(ui).tone(tone).on_container;
     ui.scope(|ui| {
         ui.visuals_mut().override_text_color = Some(color);
@@ -93,7 +97,7 @@ fn buttons(ui: &mut egui::Ui, i18n: &I18n) -> Option<GuardNoticeAction> {
 
 /// How a screen reader is told about the notice.
 #[derive(Clone, Copy)]
-enum Announce {
+pub(super) enum Announce {
     /// Said when the reader is idle (the check running).
     Status,
     /// Said at once (the query was held back and waits for an answer).
@@ -102,7 +106,7 @@ enum Announce {
 
 /// `content` on the container of `tone`, as one live region named `label` whose children are
 /// the notice's own widgets.
-fn announced<R>(
+pub(super) fn announced<R>(
     ui: &mut egui::Ui,
     tone: Tone,
     announce: Announce,

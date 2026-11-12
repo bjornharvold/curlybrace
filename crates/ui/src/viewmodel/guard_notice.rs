@@ -30,18 +30,23 @@ pub fn guard_notice(state: &GuardState) -> Option<GuardNotice> {
     match state {
         GuardState::None => None,
         GuardState::Checking { .. } => Some(GuardNotice::Checking),
-        GuardState::Warn { report, .. } => report.findings.first().map(warn_model),
+        GuardState::Warn { report, .. } => report
+            .findings
+            .first()
+            .map(|finding| GuardNotice::Warn(finding_model(finding))),
     }
 }
 
-fn warn_model(finding: &GuardFinding) -> GuardNotice {
+/// What the notice says about one finding: its problem, reasons and suggested index. The Shell
+/// tab's notice lists several of these.
+pub(crate) fn finding_model(finding: &GuardFinding) -> WarnModel {
     let (icon, verdict_title) = kind_presentation(finding.kind);
-    GuardNotice::Warn(WarnModel {
+    WarnModel {
         icon,
         title_key: title_key(finding.kind, verdict_title),
         reasons: finding.reasons.clone(),
         suggestion: finding.suggestion.as_ref().map(|s| s.command(&finding.ns)),
-    })
+    }
 }
 
 /// The sentence of the problem. Only a scan and a blocking sort are raised by the guard; any

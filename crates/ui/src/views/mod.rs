@@ -45,6 +45,7 @@ pub mod saved_copies;
 pub mod shell;
 mod shell_complete;
 mod shell_editor;
+pub mod shell_guard;
 pub mod shell_highlight;
 mod shell_history;
 mod shell_layout;

@@ -105,6 +105,9 @@ an account, a trial, or a license fee.
   methods; Ctrl+Space asks for suggestions where a word can start) and **checks the script** for
   unclosed brackets, strings and comments: the first problem shows under the editor, and Run
   stops on one with Go to problem and Run anyway (the check can be wrong).
+- Before a run, the queries written out in the script (`find`, `aggregate` and the like on a named
+  collection) are checked against the server, and the notice lists the ones that would read a whole
+  collection or sort in memory, with the index to create; Run anyway runs the script regardless.
 - The script runs as **one block**, not line by line: an `else` on its own line stays with its
   `if`, a `.map(...)` on the next line continues the expression, and a syntax error anywhere means
   none of it runs. Only the last value is shown, so print the rest with `print()` or

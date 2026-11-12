@@ -7,7 +7,9 @@
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.
 use super::documents::show_connection_header;
+use super::guard_notice::GuardNoticeAction;
 use super::shell_editor::{editor_id, show_editor};
+use super::shell_guard::{show_checking, show_index_miss};
 use super::shell_history::show_history;
 use super::shell_layout::{heights, last_chrome, remember_chrome};
 use super::shell_notice::{notice_text, offers_problem_actions, offers_tool_paths};
@@ -19,6 +21,7 @@ use crate::app::shell_actions::ShellAction;
 use crate::theme::{Tone, filled_button, gate, text_button, tonal_button};
 use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::shell::{ShellNotice, ShellState};
+use curlybrace_core::guard::GuardReport;
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
 use uuid::Uuid;
 
@@ -231,6 +234,9 @@ fn toolbar(
         .on_hover_text(i18n.t_with("shell.format_tooltip", &[("shortcut", &format_shortcut)]));
         if state.is_running() {
             ui.label(i18n.t("shell.status_running"));
+        } else if state.is_busy() {
+            // Busy and not running: the script's queries are being checked.
+            show_checking(ui, i18n);
         }
         if let Some(notice @ ShellNotice::Finished(_)) = &state.notice {
             let (severity, text) = notice_text(notice, i18n);
@@ -265,6 +271,12 @@ fn run_hint(state: &ShellState, ctx: &ShellViewContext<'_>, shortcut: &str, i18n
 /// The notice of the last run or refusal; a missing or too old `mongosh` offers the Tool paths
 /// dialog, a syntax problem offers Go to problem and Run anyway.
 fn show_notice(ui: &mut egui::Ui, notice: &ShellNotice, i18n: &I18n) -> Option<ShellViewEvent> {
+    if let ShellNotice::IndexMiss {
+        report, unchecked, ..
+    } = notice
+    {
+        return index_miss_event(ui, report, *unchecked, i18n);
+    }
     let (severity, text) = notice_text(notice, i18n);
     tone_notice(ui, severity.tone(), &text, false);
     if offers_problem_actions(notice) {
@@ -273,6 +285,23 @@ fn show_notice(ui: &mut egui::Ui, notice: &ShellNotice, i18n: &I18n) -> Option<S
     let open =
         offers_tool_paths(notice) && text_button(ui, i18n.t("shell.open_tool_paths")).clicked();
     open.then_some(ShellViewEvent::OpenToolPaths)
+}
+
+/// The index notice: Run anyway and Cancel are shell actions, Copy goes to the clipboard.
+fn index_miss_event(
+    ui: &mut egui::Ui,
+    report: &GuardReport,
+    unchecked: usize,
+    i18n: &I18n,
+) -> Option<ShellViewEvent> {
+    match show_index_miss(ui, report, unchecked, i18n)? {
+        GuardNoticeAction::RunAnyway => Some(ShellViewEvent::Action(ShellAction::RunAnyway)),
+        GuardNoticeAction::Cancel => Some(ShellViewEvent::Action(ShellAction::Cancel)),
+        GuardNoticeAction::Copy(command) => {
+            ui.ctx().copy_text(command);
+            None
+        }
+    }
 }
 
 /// Go to problem (selects it in the editor) and Run anyway (the check can be wrong).

@@ -33,6 +33,7 @@ pub mod shell_complete;
 pub mod shell_complete_data;
 pub mod shell_complete_ops;
 pub mod shell_format;
+pub mod shell_guard_notice;
 mod shell_guard_state;
 pub mod shell_history;
 pub mod shell_literal;

@@ -1311,6 +1311,16 @@
     "editor_placeholder": "Write a mongosh script, for example db.users.find({})",
     "format": "Format",
     "format_tooltip": "Re-indent the selection, or the whole script when nothing is selected ({shortcut})",
+    "guard": {
+      "cancel": "Cancel",
+      "checking": "Checking the queries in the script…",
+      "finding": "{db}.{collection}: {problem}",
+      "not_started": "A confirmation is waiting, so the script was not started. Press Run again after answering it.",
+      "run_anyway": "Run anyway",
+      "title": "Some queries in this script would read a whole collection or sort in memory",
+      "unchecked_one": "{count} call could not be checked",
+      "unchecked_other": "{count} calls could not be checked"
+    },
     "hints": "{editor} {script}",
     "history": {
       "clear": "Clear history",

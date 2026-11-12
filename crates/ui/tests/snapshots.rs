@@ -731,6 +731,12 @@ shot!(
     support::shell_shots::syntax_notice
 );
 
+shot!(
+    shell_guard_notice,
+    vec![],
+    support::shell_shots::guard_notice
+);
+
 /// Not gated (no GPU, no database): the app the screenshots use must write only inside its temp
 /// dir. Saving a connection through the UI must create the file there, never in the real config
 /// directory.

@@ -40,10 +40,9 @@ pub fn notice_text(notice: &ShellNotice, i18n: &I18n) -> (Severity, String) {
         ShellNotice::SyntaxProblem { problem, .. } => {
             (Severity::Warning, not_run_text(problem, i18n))
         }
-        // The guard's notices are not drawn as sentences of their own yet: no words.
-        ShellNotice::IndexMiss { .. } | ShellNotice::GuardNotStarted => {
-            (Severity::Warning, String::new())
-        }
+        // The index notice is drawn by `shell_guard` (its title is the sentence here).
+        ShellNotice::IndexMiss { .. } => (Severity::Warning, i18n.t("shell.guard.title")),
+        ShellNotice::GuardNotStarted => (Severity::Warning, i18n.t("shell.guard.not_started")),
     }
 }
 
