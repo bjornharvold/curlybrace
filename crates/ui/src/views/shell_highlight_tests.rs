@@ -74,6 +74,15 @@ fn brackets_and_comment_markers_stay_inside_strings() {
 }
 
 #[test]
+fn an_escaped_crlf_keeps_the_string_going() {
+    let text = "'a\\\r\nb' + 1";
+    assert_eq!(
+        kinds(text),
+        [(Kind::String, "'a\\\r\nb'"), (Kind::Number, "1")]
+    );
+}
+
+#[test]
 fn an_unterminated_string_ends_at_the_end_of_its_line() {
     assert_eq!(
         kinds("x = \"open\ny = 1"),

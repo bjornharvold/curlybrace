@@ -30,6 +30,37 @@ fn a_word_at_the_start_of_a_statement_offers_statement_words() {
 }
 
 #[test]
+fn the_first_key_of_a_multi_line_object_gets_no_statement_words() {
+    assert_eq!(at_end("db.a.find({\n  d", &[]), None);
+    assert_eq!(at_end("x = {\n  d", &[]), None);
+    assert_eq!(at_end("f(a, {\n  d", &[]), None);
+    assert_eq!(at_end("return {\n  d", &[]), None);
+    assert_eq!(at_end("x = [{\n  d", &[]), None);
+}
+
+#[test]
+fn the_first_line_of_a_block_gets_statement_words() {
+    for head in [
+        "if (a) {", "else {", "} else {", "try {", "do {", "{", "x;\n{",
+    ] {
+        let text = format!("{head}\n  pri");
+        assert_eq!(
+            labels(&at_end(&text, &[])),
+            ["print", "printjson"],
+            "{head}"
+        );
+    }
+}
+
+#[test]
+fn a_collection_named_like_a_db_property_uses_get_collection() {
+    for name in ["help", "auth", "logout"] {
+        let c = at_end("db.", &[name]).unwrap();
+        assert_eq!(c.items[0].insert, format!("db.getCollection(\"{name}\")"));
+    }
+}
+
+#[test]
 fn a_word_inside_an_expression_offers_nothing() {
     assert_eq!(at_end("x = pri", &[]), None);
     assert_eq!(at_end("f(pri", &[]), None);

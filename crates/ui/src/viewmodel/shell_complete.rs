@@ -237,7 +237,25 @@ fn statement_start(bytes: &[u8], scan: &CodeScan, idx: usize) -> bool {
         return true;
     }
     let new_line = bytes[end..idx].contains(&b'\n');
+    if code && last == b'{' {
+        return new_line && opens_block(bytes, scan, end - 1);
+    }
     new_line && (!code || !b",([:=+-*/%&|?<>!.^~".contains(&last))
+}
+
+/// Whether the `{` at `brace` looks like the start of a block rather than an object literal:
+/// it opens the script, follows `)`, `;`, `}` or a line break, or follows `else`, `try`,
+/// `finally` or `do`. Without a parser that is the best guess.
+fn opens_block(bytes: &[u8], scan: &CodeScan, brace: usize) -> bool {
+    let before = skip_ws_back(bytes, brace);
+    if before == 0 || bytes[before..brace].contains(&b'\n') {
+        return true;
+    }
+    if scan.in_code[before - 1] && matches!(bytes[before - 1], b')' | b';' | b'}') {
+        return true;
+    }
+    let word = word_start(bytes, before);
+    matches!(&bytes[word..before], b"else" | b"try" | b"finally" | b"do")
 }
 
 fn items_for(place: Place, prefix: &str, collections: &[String]) -> Vec<Suggestion> {
