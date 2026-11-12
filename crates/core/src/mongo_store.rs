@@ -417,6 +417,10 @@ impl DocumentStore for MongoStore {
         crate::mongo_explain::explain_find(&self.client.database(&ns.db), ns, q).await
     }
 
+    async fn explain_plan(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
+        crate::mongo_explain::explain_plan(&self.client.database(&ns.db), ns, q).await
+    }
+
     async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {
         crate::mongo_profile::mongos_decision(self.topology().await?)?;
         crate::mongo_profile::profiling_level(&self.client.database(db)).await

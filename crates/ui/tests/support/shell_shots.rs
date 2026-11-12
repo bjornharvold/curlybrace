@@ -37,6 +37,38 @@ pub fn syntax_notice(state: &mut AppState) {
     shell_tab(state, stopped);
 }
 
+/// A Run held back by the index check: two queries of the script would scan a collection or
+/// sort in memory, and one call could not be checked. The notice lists both with their suggested
+/// index, and offers Run anyway and Cancel.
+pub fn guard_notice(state: &mut AppState) {
+    use curlybrace_core::explain::{Reason, SuggestedIndex, VerdictKind};
+    use curlybrace_core::guard::{GuardFinding, GuardReport};
+    use curlybrace_core::store::{Namespace, Query};
+    let finding = |collection: &str, kind, field: &str| GuardFinding {
+        ns: Namespace::new("crm", collection),
+        method: "find".into(),
+        query: Query::default(),
+        kind,
+        reasons: vec![Reason::new("collscan")],
+        suggestion: Some(SuggestedIndex {
+            keys: vec![(field.into(), 1)],
+        }),
+    };
+    let report = GuardReport {
+        findings: vec![
+            finding("customers", VerdictKind::CollectionScan, "status"),
+            finding("invoices", VerdictKind::SortNotCovered, "total"),
+        ],
+        unchecked: 1,
+    };
+    let script = "db.customers.find({ status: \"active\" })\ndb.invoices.find().sort({ total: 1 })";
+    let held = ShellState::default()
+        .edited(script.into(), None)
+        .checking(1, None, 0)
+        .index_missed(report);
+    shell_tab(state, held);
+}
+
 /// An empty Shell tab; [`type_completion`] then opens the list.
 pub fn empty(state: &mut AppState) {
     shell_tab(state, ShellState::default());

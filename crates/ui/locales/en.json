@@ -1248,6 +1248,15 @@
     "write_failed": "Could not write the saved connections file."
   },
   "query": {
+    "guard": {
+      "cancel": "Cancel",
+      "checking": "Checking how the query runs…",
+      "run_anyway": "Run anyway",
+      "setting": "Warn before queries that would scan a collection",
+      "setting_hint": "Before running a query, the app asks the server for its query plan and warns you if it would scan the whole collection, and you can still run it anyway.",
+      "title_collection_scan": "This query would read every document in the collection",
+      "title_sort_not_covered": "This query would sort in memory instead of using an index"
+    },
     "verdict": {
       "automatic": "Check index use automatically",
       "checking": "Checking how this query runs...",
@@ -1302,6 +1311,19 @@
     "editor_placeholder": "Write a mongosh script, for example db.users.find({})",
     "format": "Format",
     "format_tooltip": "Re-indent the selection, or the whole script when nothing is selected ({shortcut})",
+    "guard": {
+      "cancel": "Cancel",
+      "cancel_run": "Cancel, do not run the script",
+      "checking": "Checking the queries in the script…",
+      "finding": "{db}.{collection}.{method}: {problem}",
+      "not_started": "A confirmation is waiting, so the script was not started. Press Run again after answering it.",
+      "not_started_background": "The check finished while you were in another connection, so the script was not started. Press Run again here.",
+      "run_anyway": "Run anyway",
+      "title_one": "1 query in this script would read a whole collection or sort in memory",
+      "title_other": "{count} queries in this script would read a whole collection or sort in memory",
+      "unchecked_one": "{count} call could not be checked",
+      "unchecked_other": "{count} calls could not be checked"
+    },
     "hints": "{editor} {script}",
     "history": {
       "clear": "Clear history",
@@ -1400,6 +1422,7 @@
       "values_title": "Values"
     },
     "run": "Run",
+    "run_disabled_checking": "Checking the queries in the script…",
     "run_disabled_empty": "Type a script to run.",
     "run_disabled_not_connected": "Connect to run the script.",
     "run_disabled_read_only": "Scripts cannot run on a read-only connection.",

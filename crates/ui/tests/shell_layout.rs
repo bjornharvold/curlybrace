@@ -298,3 +298,49 @@ fn a_problem_line_keeps_the_planned_layout() {
         }
     }
 }
+
+/// Two flagged queries and one call that could not be checked.
+fn index_miss_report() -> curlybrace_core::guard::GuardReport {
+    use curlybrace_core::explain::{Reason, SuggestedIndex, VerdictKind};
+    use curlybrace_core::guard::{GuardFinding, GuardReport};
+    use curlybrace_core::store::{Namespace, Query};
+    let finding = |collection: &str, kind| GuardFinding {
+        ns: Namespace::new("shop", collection),
+        method: "find".into(),
+        query: Query::default(),
+        kind,
+        reasons: vec![Reason::new("collscan")],
+        suggestion: Some(SuggestedIndex {
+            keys: vec![("status".into(), 1)],
+        }),
+    };
+    GuardReport {
+        findings: vec![
+            finding("orders", VerdictKind::CollectionScan),
+            finding("users", VerdictKind::SortNotCovered),
+        ],
+        unchecked: 1,
+    }
+}
+
+/// The index notice (two findings and an unchecked line) after a finished run, History open:
+/// the editor stays usable and the output is no shorter than under the syntax notice, the
+/// tallest notice the tab had before (at 800x500 that notice already leaves less than the usual
+/// minimum; the index notice must not take more). At 1280x800 the findings area is taller and
+/// the output keeps its minimum.
+#[test]
+fn the_index_notice_keeps_the_output_as_tall_as_the_syntax_notice_does() {
+    for size in [SMALL, COMMON] {
+        let idle = shell(true).finished(1, Outcome::Exited(0));
+        let (syntax, _) = idle.edited("db.a.find(".into(), None).run_requested();
+        let missed = idle.checking(2, None, 0).index_missed(index_miss_report());
+        let before = measured_shell(size, syntax);
+        let l = measured_shell(size, missed);
+        let at = format!("{size:?}: {l:?} vs {before:?}");
+        assert!(l.editor >= EDITOR_USABLE, "{at}");
+        match size == SMALL {
+            true => assert!(l.output >= before.output - 1.0, "{at}"),
+            false => assert!(l.output >= OUTPUT_MIN, "{at}"),
+        }
+    }
+}

@@ -110,6 +110,18 @@ pub(crate) async fn explain_find(db: &Database, ns: &Namespace, q: &Query) -> Re
     }
 }
 
+/// Explains `q` with the plan alone: the server plans the find and never runs it.
+pub(crate) async fn explain_plan(db: &Database, ns: &Namespace, q: &Query) -> Result<Explain> {
+    let plan = explain_command(ns, q, Verbosity::QueryPlanner)?;
+    let document = run_explain(db, plan)
+        .await
+        .map_err(|e| crate::driver_error::classify_driver_error(&e))?;
+    Ok(Explain {
+        document,
+        plan_only: true,
+    })
+}
+
 #[cfg(test)]
 #[path = "mongo_explain_tests.rs"]
 mod tests;

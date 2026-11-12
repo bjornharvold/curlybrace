@@ -38,6 +38,8 @@ pub use explain_actions::VerdictState;
 mod admin_actions;
 mod admin_dialog_actions;
 mod explain_settings;
+mod guard_actions;
+pub use guard_actions::GuardState;
 pub mod file_picker;
 pub mod host_key;
 mod index_actions;
@@ -52,6 +54,8 @@ pub mod session;
 mod session_actions;
 pub mod settings_file;
 pub mod shell_actions;
+mod shell_guard;
+mod shell_preflight;
 pub mod shell_state;
 pub mod state;
 mod tool_picker;
@@ -849,6 +853,10 @@ mod tools_wiring_tests;
 mod explain_settings_tests;
 #[cfg(test)]
 mod explain_tests;
+#[cfg(test)]
+mod guard_drop_tests;
+#[cfg(test)]
+mod guard_tests;
 
 #[cfg(test)]
 mod admin_dialog_tests;

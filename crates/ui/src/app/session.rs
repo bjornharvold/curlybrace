@@ -30,6 +30,7 @@ pub struct SessionView {
     pub page: Option<Page>,
     pub page_key: Option<PageKey>,
     pub verdict: super::explain_actions::VerdictState,
+    pub guard: Box<super::guard_actions::GuardState>,
     pub tree: TreeState,
     pub view_mode: ViewMode,
     pub tab: CollectionTab,
@@ -99,6 +100,7 @@ impl AppState {
             page: self.page.take(),
             page_key: self.page_key.take(),
             verdict: std::mem::take(&mut self.verdict),
+            guard: std::mem::take(&mut self.guard),
             tree: std::mem::take(&mut self.tree),
             view_mode: std::mem::take(&mut self.view_mode),
             tab: std::mem::take(&mut self.tab),
@@ -128,6 +130,7 @@ impl AppState {
             page,
             page_key,
             verdict,
+            guard,
             tree,
             view_mode,
             tab,
@@ -151,6 +154,7 @@ impl AppState {
         self.page = page;
         self.page_key = page_key;
         self.verdict = verdict;
+        self.guard = guard;
         self.tree = tree;
         self.view_mode = view_mode;
         self.tab = tab;

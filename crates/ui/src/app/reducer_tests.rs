@@ -51,6 +51,8 @@ fn browsing() -> AppState {
     let page = three_docs();
     s.page_key = Some(page_key(&page));
     s.page = Some(page);
+    // A Run sends its find at once here; `guard_tests` covers the guard holding it back.
+    s.explain.guard = false;
     s
 }
 

@@ -17,6 +17,7 @@ pub mod copy_shots;
 pub mod db;
 pub mod export_flow;
 pub mod fixture;
+pub mod guard_shots;
 pub mod indexes_shots;
 pub mod production_shots;
 pub mod screen;

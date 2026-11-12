@@ -5,6 +5,7 @@ use crate::I18n;
 use crate::theme::Tone;
 use crate::viewmodel::shell::{ShellNotice, ToolProblem};
 use crate::viewmodel::shell_check::{ProblemKind, SyntaxProblem};
+use crate::viewmodel::shell_guard_notice::title_key;
 use crate::viewmodel::tool_rows::version_text;
 use curlybrace_core::runtime::ShellRefusal;
 use curlybrace_core::shell::{Outcome, ShellError};
@@ -40,6 +41,17 @@ pub fn notice_text(notice: &ShellNotice, i18n: &I18n) -> (Severity, String) {
         ShellNotice::SyntaxProblem { problem, .. } => {
             (Severity::Warning, not_run_text(problem, i18n))
         }
+        // The index notice is drawn by `shell_guard` (its title is the sentence here).
+        ShellNotice::IndexMiss { report, .. } => {
+            let count = report.findings.len();
+            let text = i18n.t_with(title_key(count), &[("count", &count.to_string())]);
+            (Severity::Warning, text)
+        }
+        ShellNotice::GuardNotStarted => (Severity::Warning, i18n.t("shell.guard.not_started")),
+        ShellNotice::GuardNotStartedBackground => (
+            Severity::Warning,
+            i18n.t("shell.guard.not_started_background"),
+        ),
     }
 }
 

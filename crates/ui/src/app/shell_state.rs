@@ -54,11 +54,12 @@ impl ShellTabs {
         }
     }
 
-    /// The connection of `session` was lost or is being reopened: its shell goes back to idle
-    /// and what was known of its server is forgotten. The script and the run counter stay (a
-    /// restarted counter would let a late event of the old run match a new one); the output
-    /// stays until the next run clears it, and so does the run's value (a run cut short here
-    /// has none: the Table and Tree say it failed). The chosen output mode stays.
+    /// The connection of `session` was lost or is being reopened: its shell goes back to idle (a
+    /// guard check in flight is forgotten, and its late answer matches nothing) and what was
+    /// known of its server is forgotten. The script and the run counter stay (a restarted
+    /// counter would let a late event of the old run match a new one); the output stays until
+    /// the next run clears it, and so does the run's value (a run cut short here has none: the
+    /// Table and Tree say it failed). The chosen output mode stays.
     pub fn reset(self, session: Uuid) -> Self {
         let mut server_versions = self.server_versions;
         server_versions.remove(&session);
@@ -71,11 +72,18 @@ impl ShellTabs {
         };
         let idle = ShellState {
             status: ShellStatus::Idle,
+            pending_check: None,
             output: shell.output.closed(),
             notice: None,
             ..shell.result_interrupted()
         };
         next.with(session, idle)
+    }
+
+    /// Every shell changed by `change` (the run floor and server versions stay).
+    pub fn each(self, change: impl Fn(&ShellState) -> ShellState) -> Self {
+        let tabs = self.tabs.iter().map(|(id, s)| (*id, change(s))).collect();
+        Self { tabs, ..self }
     }
 
     /// The session was closed: its shell and server version go, and the run ids it handed out

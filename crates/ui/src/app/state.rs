@@ -167,7 +167,7 @@ pub struct Pending {
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
-/// `loading_page`, `page`, `page_key`, `verdict`, `tree`, `view_mode`, `tab`, `indexes`, `editor`,
+/// `loading_page`, `page`, `page_key`, `verdict`, `guard`, `tree`, `view_mode`, `tab`, `indexes`, `editor`,
 /// `pending`, `ssh_endpoint`, `production` and `read_only`. They are parked per session and must
 /// be added to `SessionView` (and to `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
@@ -225,6 +225,9 @@ pub struct AppState {
     pub page_key: Option<PageKey>,
     /// How the query bar's current run is served (see `explain_actions`).
     pub verdict: super::explain_actions::VerdictState,
+    /// The query bar's index-miss guard for the run asked for (see `guard_actions`). Boxed, like
+    /// `shell`: it holds a query and a report, and `AppState` moves by value through every step.
+    pub guard: Box<super::guard_actions::GuardState>,
     pub tree: TreeState,
     pub view_mode: ViewMode,
     /// Which tab of the selected collection is shown.
@@ -236,6 +239,9 @@ pub struct AppState {
     pub sampling: SamplingSettings,
     /// Whether a Run also asks for the index verdict. Global too.
     pub explain: ExplainSettings,
+    /// Guard check requests numbered so far. Global: the query bar and the Shell tab share it, so
+    /// an answer meant for one never matches a check of the other.
+    pub guard_request: u64,
     /// The tool paths (global and per connection) and their version checks. Global too.
     pub tools: ToolsState,
     /// The `PATH` a `PATH` tool choice is searched in: the process's own plus the usual install
@@ -342,6 +348,11 @@ impl AppState {
         self.explain.automatic
     }
 
+    /// Whether a query is checked against the server's plan before it runs (the global setting).
+    pub fn guard_enabled(&self) -> bool {
+        self.explain.guard
+    }
+
     /// `(has_prev, has_next)` for the find bar.
     pub fn paging(&self) -> (bool, bool) {
         (
@@ -371,6 +382,7 @@ impl AppState {
             page: None,
             page_key: None,
             verdict: Default::default(),
+            guard: Default::default(),
             tree: self.tree.results_replaced(),
             tab: CollectionTab::default(),
             indexes: IndexesState::default(),

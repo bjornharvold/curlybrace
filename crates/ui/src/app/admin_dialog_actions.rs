@@ -225,6 +225,7 @@ fn deselected(state: AppState) -> AppState {
         page: None,
         page_key: None,
         verdict: Default::default(),
+        guard: Default::default(),
         tree: state.tree.results_replaced(),
         editor: None,
         indexes: IndexesState::default(),

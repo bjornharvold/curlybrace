@@ -101,3 +101,10 @@ async fn explain_without_a_read_preference_sets_none_and_so_uses_the_default() {
     let db = database("mongodb://127.0.0.1:1/").await;
     assert!(explain_criteria(&db).is_none());
 }
+
+#[test]
+fn plan_only_command_carries_query_planner_verbosity_and_the_time_limit() {
+    let cmd = explain_command(&ns(), &full_query(), Verbosity::QueryPlanner).unwrap();
+    assert_eq!(cmd.get_str("verbosity").unwrap(), "queryPlanner");
+    assert_eq!(cmd.get_i64("maxTimeMS").unwrap(), EXPLAIN_MAX_TIME_MS);
+}

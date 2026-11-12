@@ -471,6 +471,15 @@ pub trait DocumentStore: Send + Sync {
         ))
     }
 
+    /// Explains the find a query sends with the plan alone (`queryPlanner`): the server plans
+    /// the query but never runs it, so it is cheap on any collection. A read, so a read-only
+    /// connection may call it. The answer always has `plan_only` set.
+    async fn explain_plan(&self, _ns: &Namespace, _q: &Query) -> Result<Explain> {
+        Err(CoreError::Unsupported(
+            "this store cannot explain queries".into(),
+        ))
+    }
+
     /// The profiler setting of `db`.
     async fn profiling_level(&self, _db: &str) -> Result<ProfilingState> {
         Err(CoreError::Unsupported(

@@ -17,16 +17,22 @@ use std::path::Path;
 
 const FILE_NAME: &str = "explain.json";
 const FIELD: &str = "automatic";
+const GUARD_FIELD: &str = "guard";
 
-/// The explain setting. `automatic` is on unless the person turned it off.
+/// The explain settings. Each switch is on unless the person turned it off: `automatic` checks
+/// index use on every Run, `guard` asks for the plan before a query and warns about a scan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExplainSettings {
     pub automatic: bool,
+    pub guard: bool,
 }
 
 impl Default for ExplainSettings {
     fn default() -> Self {
-        Self { automatic: true }
+        Self {
+            automatic: true,
+            guard: true,
+        }
     }
 }
 
@@ -45,21 +51,31 @@ pub fn load(path: &Path, backup: BackupFn<'_>) -> ExplainStartup {
     })
 }
 
-/// `{"automatic": true|false}`; a missing field is the default, anything of another shape is
-/// corrupt.
+/// `{"automatic": true|false, "guard": true|false}`; a missing field is its default, anything of
+/// another shape is corrupt.
 fn parse(bytes: &[u8]) -> Result<ExplainSettings, PersistError> {
     let value: Value = settings_file::json_object(bytes)?;
-    let automatic = match value.get(FIELD) {
-        None => ExplainSettings::default().automatic,
-        Some(flag) => flag.as_bool().ok_or(PersistError::Corrupt)?,
-    };
-    Ok(ExplainSettings { automatic })
+    let defaults = ExplainSettings::default();
+    Ok(ExplainSettings {
+        automatic: flag(&value, FIELD, defaults.automatic)?,
+        guard: flag(&value, GUARD_FIELD, defaults.guard)?,
+    })
+}
+
+/// One boolean field: `default` when absent, corrupt when not a boolean.
+fn flag(value: &Value, field: &str, default: bool) -> Result<bool, PersistError> {
+    match value.get(field) {
+        None => Ok(default),
+        Some(flag) => flag.as_bool().ok_or(PersistError::Corrupt),
+    }
 }
 
 /// Atomically writes the settings (pretty JSON, 0600).
 pub fn save(path: &Path, settings: &ExplainSettings) -> Result<(), PersistError> {
-    let bytes = serde_json::to_vec_pretty(&json!({ FIELD: settings.automatic }))
-        .map_err(|_| PersistError::Write(std::io::ErrorKind::InvalidData))?;
+    let bytes = serde_json::to_vec_pretty(
+        &json!({ FIELD: settings.automatic, GUARD_FIELD: settings.guard }),
+    )
+    .map_err(|_| PersistError::Write(std::io::ErrorKind::InvalidData))?;
     atomic_write(path, &bytes)
 }
 
@@ -102,12 +118,32 @@ pub(super) fn set_automatic(state: AppState, automatic: bool) -> Out {
     };
     (
         AppState {
-            explain: ExplainSettings { automatic },
+            explain: ExplainSettings {
+                automatic,
+                ..state.explain
+            },
             verdict,
             ..state
         },
         Vec::new(),
     )
+}
+
+/// `FindAction::SetGuard`: the guard switch changes for every collection and Shell tab. Turning
+/// it off makes the runs shown behave as without a guard: the query bar's check in flight lets
+/// its run go on, and the notices close (a Shell check in flight goes on when it answers).
+pub(super) fn set_guard(state: AppState, guard: bool) -> Out {
+    let state = AppState {
+        explain: ExplainSettings {
+            guard,
+            ..state.explain
+        },
+        ..state
+    };
+    match guard {
+        true => (state, Vec::new()),
+        false => super::guard_actions::switched_off(super::shell_guard::notices_closed(state)),
+    }
 }
 
 impl CurlybraceApp {

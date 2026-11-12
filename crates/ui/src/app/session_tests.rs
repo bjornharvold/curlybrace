@@ -64,6 +64,13 @@ fn busy_view(n: i32) -> SessionView {
                 ..Query::default()
             },
         },
+        guard: Box::new(crate::app::guard_actions::GuardState::Checking {
+            request: 10 + n as u64,
+            query: Query {
+                skip: n as u64,
+                ..Query::default()
+            },
+        }),
         tree: {
             let mut tree = TreeState::default();
             tree.projected = n % 2 == 0;
@@ -122,6 +129,7 @@ fn snapshot(s: &AppState) -> (String, Vec<(Uuid, String)>) {
         page: s.page.clone(),
         page_key: s.page_key,
         verdict: s.verdict.clone(),
+        guard: s.guard.clone(),
         tree: s.tree.clone(),
         view_mode: s.view_mode,
         tab: s.tab,

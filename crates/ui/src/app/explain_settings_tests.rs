@@ -11,7 +11,10 @@ use curlybrace_core::runtime::Command;
 use curlybrace_core::secrets::MemorySecretStore;
 
 fn off() -> ExplainSettings {
-    ExplainSettings { automatic: false }
+    ExplainSettings {
+        automatic: false,
+        ..ExplainSettings::default()
+    }
 }
 
 fn app_in(dir: &tempfile::TempDir) -> CurlybraceApp {
@@ -45,7 +48,12 @@ fn missing_file_is_default() {
 fn corrupt_file_is_backed_up_and_default() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("explain.json");
-    for bad in ["{ not json", "[true]", "{\"automatic\": \"no\"}"] {
+    for bad in [
+        "{ not json",
+        "[true]",
+        "{\"automatic\": \"no\"}",
+        "{\"guard\": \"no\"}",
+    ] {
         std::fs::write(&path, bad).unwrap();
         let started = load(&path, &back_up);
         assert_eq!(started.settings, ExplainSettings::default(), "{bad}");
@@ -89,7 +97,11 @@ fn round_trips_false() {
 #[test]
 fn disabled_run_issues_only_find() {
     let state = AppState {
-        explain: off(),
+        // The guard is off too, so the find is not held back for its check.
+        explain: ExplainSettings {
+            guard: false,
+            ..off()
+        },
         ..browsing()
     };
     assert!(!state.explain_enabled());
@@ -157,4 +169,61 @@ fn a_corrupt_file_at_launch_shows_the_recovery_banner() {
         Some(Banner::Recovery(Recovery::Explain { backed_up: true }))
     );
     assert!(app.state().explain_enabled());
+}
+
+#[test]
+fn guard_defaults_to_on_and_a_missing_field_means_on() {
+    assert!(ExplainSettings::default().guard);
+    assert!(AppState::new(vec![]).guard_enabled());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("explain.json");
+    std::fs::write(&path, "{}").unwrap();
+    assert!(load(&path, &back_up).settings.guard);
+    std::fs::write(&path, "{\"automatic\": false}").unwrap();
+    let started = load(&path, &back_up);
+    assert!(started.settings.guard && !started.settings.automatic);
+}
+
+#[test]
+fn guard_round_trips_false_and_keeps_automatic() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("explain.json");
+    let settings = ExplainSettings {
+        guard: false,
+        ..ExplainSettings::default()
+    };
+    save(&path, &settings).unwrap();
+    assert_eq!(load(&path, &back_up).settings, settings);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("\"guard\": false"), "{text}");
+    assert!(text.contains("\"automatic\": true"), "{text}");
+}
+
+#[test]
+fn setting_the_guard_needs_no_connection_and_leaves_the_verdict_alone() {
+    let (s, cmds) = act(AppState::new(vec![]), FindAction::SetGuard(false));
+    assert!(!s.guard_enabled() && s.explain_enabled());
+    assert!(cmds.is_empty(), "{cmds:?}");
+    let (s, _) = act(s, FindAction::SetGuard(true));
+    assert!(s.guard_enabled());
+}
+
+#[test]
+fn setting_the_guard_persists_and_respects_a_blocked_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("explain.json");
+    let mut app = app_in(&dir);
+    app.dispatch(Input::Find(FindAction::SetGuard(false)));
+    assert!(!load(&path, &back_up).settings.guard);
+    assert_eq!(app.state().banner, None);
+
+    std::fs::write(&path, "{ not json").unwrap();
+    app.explain_guard = persistence::PersistGuard::blocked();
+    app.dispatch(Input::Find(FindAction::SetGuard(true)));
+    assert!(app.state().guard_enabled(), "applies for this run");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    assert!(matches!(
+        app.state().banner,
+        Some(Banner::Recovery(Recovery::Explain { backed_up: false }))
+    ));
 }

@@ -324,6 +324,14 @@ impl DocumentStore for InMemoryStore {
             .ok_or_else(|| CoreError::Unsupported("this store cannot explain queries".into()))
     }
 
+    /// Answers the same scripted document as `explain_find`, flagged plan-only.
+    async fn explain_plan(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
+        self.explain_find(ns, q).await.map(|explain| Explain {
+            plan_only: true,
+            ..explain
+        })
+    }
+
     async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {
         prof::level(&*self.profiles.lock().map_err(|_| poisoned())?, db)
     }
