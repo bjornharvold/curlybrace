@@ -1,9 +1,19 @@
 //! The Shell tab's index-miss guard in the view-model: a Run held back while its queries are
 //! planned (`ShellStatus::Checking`), and the `IndexMiss` notice when the plan would scan. Pure:
 //! every updater returns a new value. The app decides when to check and what to send.
-use super::shell::{PendingCheck, ShellNotice, ShellState, ShellStatus};
+use super::shell::{ShellNotice, ShellState, ShellStatus};
 use curlybrace_core::guard::GuardReport;
 use std::ops::Range;
+
+/// The guard check a `Checking` shell waits for: what it would run once the check lets it, and
+/// how many of its queries the check was never asked about.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PendingCheck {
+    /// The range checked (`None`: the whole script).
+    pub ran: Option<Range<usize>>,
+    /// Calls the reader could not read plus the calls past the cap.
+    pub unchecked: usize,
+}
 
 impl ShellState {
     /// Waits for guard request `request` before running `ran` (`None`: the whole script);
@@ -39,14 +49,7 @@ impl ShellState {
     /// Cancel: a check in flight goes, and so does an index notice (the run it held back is
     /// not wanted). A real run is stopped by the app, not here.
     pub fn check_cancelled(&self) -> Self {
-        let next = self.check_dropped();
-        match next.notice {
-            Some(ShellNotice::IndexMiss { .. }) => Self {
-                notice: None,
-                ..next
-            },
-            _ => next,
-        }
+        self.check_dropped().index_notice_closed()
     }
 
     /// The check let the run go on: back to idle, with what it was for (the range to run and
@@ -56,6 +59,17 @@ impl ShellState {
     pub fn check_settled(&self) -> (Self, PendingCheck) {
         let pending = self.pending_check.clone().unwrap_or_default();
         (self.check_dropped(), pending)
+    }
+
+    /// The index notice closes; any other notice stays.
+    pub fn index_notice_closed(&self) -> Self {
+        match self.notice {
+            Some(ShellNotice::IndexMiss { .. }) => Self {
+                notice: None,
+                ..self.clone()
+            },
+            _ => self.clone(),
+        }
     }
 
     /// The check found queries that would scan: back to idle with the `IndexMiss` notice, whose

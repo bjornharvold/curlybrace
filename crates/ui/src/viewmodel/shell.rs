@@ -3,6 +3,7 @@
 pub use super::shell_check::SyntaxProblem;
 use super::shell_check::check;
 use super::shell_format::format_script;
+pub use super::shell_guard_state::PendingCheck;
 use super::shell_history::HistoryView;
 pub use super::shell_output::{MAX_LINE_BYTES, MAX_OUTPUT_LINES, OutputLine, OutputLog};
 use super::shell_result::{OutputMode, ResultView};
@@ -59,16 +60,9 @@ pub enum ShellNotice {
         unchecked: usize,
         ran: Option<Range<usize>>,
     },
-}
-
-/// The guard check a `Checking` shell waits for: what it would run once the check lets it, and
-/// how many of its queries the check was never asked about.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PendingCheck {
-    /// The range checked (`None`: the whole script).
-    pub ran: Option<Range<usize>>,
-    /// Calls the reader could not read plus the calls past the cap.
-    pub unchecked: usize,
+    /// The check let a production run go on, but the write warning was already taken by
+    /// another write, so the run was not started; Run again once that one is answered.
+    GuardNotStarted,
 }
 
 /// What to run: the selection, else the whole script.

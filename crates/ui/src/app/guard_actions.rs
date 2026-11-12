@@ -107,13 +107,14 @@ pub(super) fn not_started(state: AppState, request: u64, error: CoreError) -> Ou
 }
 
 /// The answer to the query bar's check (the caller made sure it [`awaits`] it). Findings hold the
-/// run back as a notice; no findings, or a check that failed, let it go on.
+/// run back as a notice while the guard is on; no findings, a check that failed, or a guard
+/// turned off since (a background session's view misses the switch) let it go on.
 fn checked(state: AppState, outcome: Result<GuardReport, CoreError>) -> Out {
     let GuardState::Checking { query, .. } = (*state.guard).clone() else {
         return (state, Vec::new());
     };
     match outcome {
-        Ok(report) if !report.findings.is_empty() => {
+        Ok(report) if !report.findings.is_empty() && state.guard_enabled() => {
             let guard = Box::new(GuardState::Warn { query, report });
             (AppState { guard, ..state }, Vec::new())
         }
@@ -130,6 +131,17 @@ fn go_on(state: AppState, query: Query) -> Out {
     let state = dropped(state);
     let explain = state.explain_enabled();
     super::explain_actions::run(state, query, explain)
+}
+
+/// The guard switch was turned off: the run shown behaves as without a guard. A check in
+/// flight lets its run go on (as a failed check does; its late answer is then ignored), and a
+/// notice just closes (the person can Run again).
+pub(super) fn switched_off(state: AppState) -> Out {
+    match (*state.guard).clone() {
+        GuardState::Checking { query, .. } => go_on(state, query),
+        GuardState::Warn { .. } => (dropped(state), Vec::new()),
+        GuardState::None => (state, Vec::new()),
+    }
 }
 
 /// `FindAction::GuardRunAnyway`: sends the held-back find once. It is neither checked again nor

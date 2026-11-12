@@ -4,7 +4,9 @@
 
 use super::explain_tests::{act, query_a};
 use super::guard_actions::GuardState;
-use super::guard_tests::{checked, checked_in, guarded, query_b, scan_report, sorted_only};
+use super::guard_tests::{
+    assert_find_and_explain, checked, checked_in, guarded, query_b, scan_report, sorted_only,
+};
 use super::reducer::{Input, update};
 use super::session::SessionView;
 use super::state::{AppState, ConnStatus};
@@ -46,16 +48,41 @@ fn opening_a_collection_drops_the_check_and_the_warning() {
 }
 
 #[test]
-fn turning_the_guard_off_drops_the_check_and_the_warning() {
+fn turning_the_guard_off_mid_check_lets_the_run_go_on() {
     let (s, _) = act(guarded(), FindAction::Run(query_a()));
-    let (s, _) = act(s, FindAction::SetGuard(false));
-    assert_eq!(*s.guard, GuardState::None);
-    let (_, cmds) = checked(s, 1, Ok(GuardReport::default()));
-    assert!(cmds.is_empty(), "{cmds:?}");
 
+    let (s, cmds) = act(s, FindAction::SetGuard(false));
+
+    // As after a failed check: the find and the badge's explain.
+    assert_find_and_explain(&cmds, &query_a());
+    assert_eq!(*s.guard, GuardState::None);
+    let (_, cmds) = checked(s, 1, Ok(scan_report(query_a())));
+    assert!(
+        cmds.is_empty(),
+        "the late answer is not the run's: {cmds:?}"
+    );
+}
+
+#[test]
+fn turning_the_guard_off_closes_the_warning_and_sends_nothing() {
     let (s, _) = act(guarded(), FindAction::Run(query_a()));
     let (s, _) = checked(s, 1, Ok(scan_report(query_a())));
-    let (s, _) = act(s, FindAction::SetGuard(false));
+
+    let (s, cmds) = act(s, FindAction::SetGuard(false));
+
+    assert!(cmds.is_empty(), "{cmds:?}");
+    assert_eq!(*s.guard, GuardState::None);
+}
+
+#[test]
+fn findings_for_a_check_still_awaited_with_the_guard_off_let_the_run_go_on() {
+    let (mut s, _) = act(guarded(), FindAction::Run(query_a()));
+    // As for a background session's check, whose view missed the switch.
+    s.explain.guard = false;
+
+    let (s, cmds) = checked(s, 1, Ok(scan_report(query_a())));
+
+    assert_find_and_explain(&cmds, &query_a());
     assert_eq!(*s.guard, GuardState::None);
 }
 

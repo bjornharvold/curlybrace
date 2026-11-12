@@ -12,7 +12,7 @@ use super::reducer::Out;
 use super::shell_actions::{notice, send};
 use super::shell_preflight::usable;
 use super::state::AppState;
-use crate::viewmodel::shell::ShellState;
+use crate::viewmodel::shell::{ShellNotice, ShellState};
 use crate::viewmodel::shell_queries::{ShellCall, read_calls};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::guard::{GUARD_MAX_TARGETS, GUARD_MIN_DOCS, GuardReport, GuardTarget};
@@ -97,7 +97,8 @@ pub(super) fn answered(
     };
     let shell = shell.clone();
     match outcome {
-        Ok(report) if !report.findings.is_empty() => {
+        // A guard turned off since the check was sent means "run as without a guard".
+        Ok(report) if !report.findings.is_empty() && state.guard_enabled() => {
             (state.with_shell(id, shell.index_missed(report)), Vec::new())
         }
         Ok(_) => go_on(state, id, &shell),
@@ -116,14 +117,23 @@ pub(super) fn answered(
 fn go_on(state: AppState, id: Uuid, shell: &ShellState) -> Out {
     let (idle, pending) = shell.check_settled();
     let state = state.with_shell(id, idle.clone());
-    // The warning holds one write at a time; another one raised while this check ran keeps it.
-    if state.write_warning.is_some() {
-        log::info!("shell run not started: another write awaits confirmation");
-        return (state, Vec::new());
+    // Only a production run needs the warning, which holds one write at a time: when another
+    // write took it while this check ran, it keeps it and the shell says the run did not start.
+    if state.write_warning.is_some() && state.session_production(id) {
+        return notice(state, id, ShellNotice::GuardNotStarted);
     }
     match usable(&state, id) {
         Ok(exe) => send(state, id, &idle, exe, pending.ran),
         Err(refusal) => notice(state, id, refusal),
+    }
+}
+
+/// The guard was turned off: every Shell tab's index notice closes (the person can Run again).
+pub(super) fn notices_closed(state: AppState) -> AppState {
+    let tabs = Box::new((*state.shell).clone().each(ShellState::index_notice_closed));
+    AppState {
+        shell: tabs,
+        ..state
     }
 }
 
@@ -202,3 +212,7 @@ mod shell_guard_drop_tests;
 #[cfg(test)]
 #[path = "shell_guard_order_tests.rs"]
 mod shell_guard_order_tests;
+
+#[cfg(test)]
+#[path = "shell_guard_switch_tests.rs"]
+mod shell_guard_switch_tests;

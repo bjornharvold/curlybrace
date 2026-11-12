@@ -129,23 +129,21 @@ pub(super) fn set_automatic(state: AppState, automatic: bool) -> Out {
     )
 }
 
-/// `FindAction::SetGuard`: the guard switch changes for every collection. Turning it off drops
-/// the guard of the run shown (a check in flight or its notice), which no longer applies.
+/// `FindAction::SetGuard`: the guard switch changes for every collection and Shell tab. Turning
+/// it off makes the runs shown behave as without a guard: the query bar's check in flight lets
+/// its run go on, and the notices close (a Shell check in flight goes on when it answers).
 pub(super) fn set_guard(state: AppState, guard: bool) -> Out {
-    let state = match guard {
-        true => state,
-        false => super::guard_actions::dropped(state),
-    };
-    (
-        AppState {
-            explain: ExplainSettings {
-                guard,
-                ..state.explain
-            },
-            ..state
+    let state = AppState {
+        explain: ExplainSettings {
+            guard,
+            ..state.explain
         },
-        Vec::new(),
-    )
+        ..state
+    };
+    match guard {
+        true => (state, Vec::new()),
+        false => super::guard_actions::switched_off(super::shell_guard::notices_closed(state)),
+    }
 }
 
 impl CurlybraceApp {
