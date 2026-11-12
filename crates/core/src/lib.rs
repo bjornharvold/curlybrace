@@ -19,6 +19,7 @@ pub mod ejson;
 pub mod error;
 mod error_name;
 pub mod explain;
+pub mod guard;
 pub mod history;
 pub mod indexes;
 mod mongo_admin;

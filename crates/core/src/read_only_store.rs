@@ -156,6 +156,10 @@ impl DocumentStore for ReadOnlyStore {
         self.inner.explain_find(ns, q).await
     }
 
+    async fn explain_plan(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
+        self.inner.explain_plan(ns, q).await
+    }
+
     async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {
         self.guard()?;
         self.inner.create_index(ns, spec).await
