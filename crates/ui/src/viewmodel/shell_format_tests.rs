@@ -1,34 +1,5 @@
 use super::*;
 
-/// The text with every byte that is not code replaced by `.`.
-fn code_of(text: &str) -> String {
-    let scan = scan_code(text);
-    text.bytes()
-        .zip(&scan.in_code)
-        .map(|(b, &c)| if c { b as char } else { '.' })
-        .collect()
-}
-
-#[test]
-fn scan_code_masks_strings_comments_template_text_and_regex_literals() {
-    assert_eq!(code_of("a('x') // c"), "a(...) ....");
-    assert_eq!(code_of("f(/[(]/)"), "f(.....)");
-    assert_eq!(code_of("a /* ( */ b"), "a ....... b");
-    // The `${ ... }` placeholder is code; its `$`, the backticks and the text are not.
-    assert_eq!(code_of("`a${b}c`"), "...{b}..");
-}
-
-#[test]
-fn scan_code_reports_unterminated_literals_with_their_start() {
-    assert_eq!(
-        scan_code("x = 'abc\ny").unterminated,
-        [(Literal::String, 4)]
-    );
-    assert_eq!(scan_code("`a${b}").unterminated, [(Literal::Template, 0)]);
-    assert_eq!(scan_code("a /* x").unterminated, [(Literal::Comment, 2)]);
-    assert!(scan_code("'a\\\nb' + \"c\"").unterminated.is_empty());
-}
-
 fn fmt(text: &str) -> String {
     format_script(text, None).text
 }

@@ -34,6 +34,7 @@ pub mod shell_output;
 pub mod shell_result;
 pub mod shell_result_table;
 pub mod shell_result_tree;
+pub mod shell_scan;
 pub mod sidebar;
 pub mod sidebar_selection;
 pub mod table;

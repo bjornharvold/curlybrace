@@ -236,9 +236,13 @@ impl Lexer<'_> {
         let mut end = self.rest().len();
         while let Some((at, c)) = chars.next() {
             match c {
-                // The escaped character, a line break included, belongs to the string.
+                // The escaped character, a line break included (`\r\n` is one), belongs to the string.
                 '\\' => {
+                    let crlf = self.rest().as_bytes().get(at + 1..at + 3) == Some(b"\r\n");
                     chars.next();
+                    if crlf {
+                        chars.next();
+                    }
                 }
                 '\n' => {
                     end = at;

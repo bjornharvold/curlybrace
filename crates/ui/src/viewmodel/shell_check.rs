@@ -1,7 +1,7 @@
 //! The Shell tab's pre-run syntax check: the first unclosed or stray bracket, or unterminated
 //! string, template literal or block comment in a mongosh script. Pure and egui-free; the
 //! problems are enum values, the view turns them into translated messages.
-use super::shell_format::{Literal, scan_code};
+use super::shell_scan::{Literal, scan_code};
 use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +64,7 @@ pub fn check(text: &str) -> Option<SyntaxProblem> {
     {
         candidates.push((ProblemKind::UnclosedBracket(opener), at..at + 1));
     }
+    // Quirk: first in text order, so an earlier unclosed opener beats a later unterminated string that swallowed its closer.
     let (kind, range) = candidates.into_iter().min_by_key(|(_, r)| r.start)?;
     let (line, column) = position(text, range.start);
     Some(SyntaxProblem {
