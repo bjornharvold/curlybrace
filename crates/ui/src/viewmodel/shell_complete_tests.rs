@@ -36,6 +36,34 @@ fn the_first_key_of_a_multi_line_object_gets_no_statement_words() {
     assert_eq!(at_end("f(a, {\n  d", &[]), None);
     assert_eq!(at_end("return {\n  d", &[]), None);
     assert_eq!(at_end("x = [{\n  d", &[]), None);
+    for text in [
+        "db.a.aggregate([\n  { $match: {} },\n  {\n    d",
+        "db.a.insertMany([\n {a:1},\n {\n  d",
+        "x =\n{\n  d",
+        "f(\n{\n d",
+        "x = [\n{\n d",
+        "o = {\n a:\n{\n d",
+    ] {
+        assert_eq!(at_end(text, &[]), None, "{text:?}");
+    }
+}
+
+#[test]
+fn block_heads_on_their_own_line_or_after_a_function_head_complete() {
+    for text in [
+        "for (let i = 0; i < 2; i++) {\n  pri",
+        "function f() {\n  pri",
+        "x;\n{\n  pri",
+        "} else {\n pri",
+        "if (a) {}\n{\n pri",
+        "x = 1;\nif (a)\n{\n pri",
+    ] {
+        assert_eq!(
+            labels(&at_end(text, &[])),
+            ["print", "printjson"],
+            "{text:?}"
+        );
+    }
 }
 
 #[test]

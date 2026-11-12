@@ -244,11 +244,11 @@ fn statement_start(bytes: &[u8], scan: &CodeScan, idx: usize) -> bool {
 }
 
 /// Whether the `{` at `brace` looks like the start of a block rather than an object literal:
-/// it opens the script, follows `)`, `;`, `}` or a line break, or follows `else`, `try`,
+/// it opens the script, follows `)`, `;`, `}`, or follows `else`, `try`,
 /// `finally` or `do`. Without a parser that is the best guess.
 fn opens_block(bytes: &[u8], scan: &CodeScan, brace: usize) -> bool {
     let before = skip_ws_back(bytes, brace);
-    if before == 0 || bytes[before..brace].contains(&b'\n') {
+    if before == 0 {
         return true;
     }
     if scan.in_code[before - 1] && matches!(bytes[before - 1], b')' | b';' | b'}') {
