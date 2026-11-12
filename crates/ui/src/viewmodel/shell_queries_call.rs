@@ -90,17 +90,58 @@ pub(super) fn sibling_db(c: &Cursor<'_>, i: usize) -> Option<(Option<String>, us
 
 /// The call that starts at the `db` token `t`, read against the database `current`
 /// (`None`: not known). A `db.getSiblingDB(...)` receiver names the database of this call
-/// only, as in mongosh; it never changes `current`.
+/// only, as in mongosh; it never changes `current`, and while `current` is not known the
+/// sibling is not either (`db` may be another server's). A listed method reached through any
+/// other receiver shape is `Unchecked`, never dropped.
 pub(super) fn read_db(c: &Cursor<'_>, t: usize, current: &Option<String>) -> Outcome {
-    let (db, after) = match (c.dot_call(t + 1), sibling_db(c, t + 1)) {
-        (_, Some((name, close))) => (name, close + 1),
-        (Some(("getSiblingDB", None)), None) => return Outcome::Nothing,
-        _ => (current.clone(), t + 1),
+    let start = match (c.dot_call(t + 1), sibling_db(c, t + 1)) {
+        (_, Some((name, close))) => Some((current.as_ref().and(name), close + 1)),
+        (Some(("getSiblingDB", None)), None) => None,
+        _ => Some((current.clone(), t + 1)),
     };
-    match receiver(c, after) {
+    let read = start.and_then(|(db, after)| receiver(c, after).map(|r| call(c, t, db, r)));
+    match read {
+        Some(outcome) => outcome,
+        None if reaches_method(c, t + 1) => Outcome::Unchecked,
         None => Outcome::Nothing,
-        Some(receiver) => call(c, t, db, receiver),
     }
+}
+
+/// Whether the member chain from token `p` (`.name`, `.name(...)`, `[...]` segments) calls one
+/// of [`METHODS`].
+fn reaches_method(c: &Cursor<'_>, p: usize) -> bool {
+    let mut q = p;
+    loop {
+        let next = match c.dot_call(q) {
+            Some((name, _)) if method_named(name).is_some() => return true,
+            Some((_, close)) => close.map(|close| close + 1),
+            None if c.dot_ident(q).is_some() => Some(q + 2),
+            None if c.is_punct(q, b'[') => c
+                .tokens
+                .get(q)
+                .and_then(|t| t.partner)
+                .map(|close| close + 1),
+            None => None,
+        };
+        match next {
+            Some(n) => q = n,
+            None => return false,
+        }
+    }
+}
+
+/// `.getCollection(...)` or `[...]` at token `p`, closed: the collection (`None`: not a string
+/// literal) and the index of the closing token.
+fn collection_index(c: &Cursor<'_>, p: usize) -> Option<(Option<String>, usize)> {
+    if let Some(("getCollection", close)) = c.dot_call(p) {
+        let close = close?;
+        return Some((c.inner(p + 2, close).and_then(parse_string), close));
+    }
+    if !c.is_punct(p, b'[') {
+        return None;
+    }
+    let close = c.tokens.get(p)?.partner?;
+    Some((c.inner(p, close).and_then(parse_string), close))
 }
 
 /// A collection and method, with the method's `(` token and its partner.
@@ -118,9 +159,7 @@ fn method_named(name: &str) -> Option<&'static str> {
 
 /// The receiver and method from token `p` (just after `db`, or after `getSiblingDB(...)`).
 fn receiver(c: &Cursor<'_>, p: usize) -> Option<Receiver> {
-    if let Some(("getCollection", close)) = c.dot_call(p) {
-        let close = close?;
-        let collection = c.inner(p + 2, close).and_then(parse_string);
+    if let Some((collection, close)) = collection_index(c, p) {
         let (name, method_close) = c.dot_call(close + 1)?;
         return Some(Receiver {
             collection,
@@ -160,6 +199,11 @@ fn call(c: &Cursor<'_>, t: usize, db: Option<String>, receiver: Receiver) -> Out
         } else {
             None
         };
+        // Options (hint, collation, ...) to a find change its plan: not the query we explain.
+        let options = finds && args.iter().skip(2).any(|arg| !is_blank(arg));
+        if options {
+            return None;
+        }
         let chained = chain(c, close, finds)?;
         Some(ShellCall {
             db: db.clone()?,
@@ -195,7 +239,8 @@ struct Chained {
 }
 
 /// The `.name(...)` calls chained after the call closing at token `close`; `None` when one is
-/// left open or, after `find`/`findOne`, its `sort` is not a literal.
+/// left open, is a plan-changing `hint`/`collation`/`min`/`max`, or, after `find`/`findOne`,
+/// is a `sort` that is not a literal.
 fn chain(c: &Cursor<'_>, close: usize, finds: bool) -> Option<Chained> {
     let mut chained = Chained {
         sort: None,
@@ -209,6 +254,8 @@ fn chain(c: &Cursor<'_>, close: usize, finds: bool) -> Option<Chained> {
         let inner = c.inner(p + 2, closing)?;
         let count = || inner.trim().parse::<u64>().ok();
         chained = match name {
+            // These change the plan the server picks, so our explain would not match.
+            "hint" | "collation" | "min" | "max" => return None,
             "sort" if finds => Chained {
                 sort: Some(parse_literal(inner)?),
                 ..chained

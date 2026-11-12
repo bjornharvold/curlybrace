@@ -265,11 +265,11 @@ fn thirty_calls_are_all_returned() {
 
 #[test]
 fn ranges_are_byte_ranges_of_the_original_text_around_multibyte_text() {
-    let text = "// 😀 é\nconst s = '日本'; db.ü.find({n: \"😀\"}).sort({é: 1}) // ß";
+    let text = "// 😀 é\nconst s = '日本'; db.ü.find({n: \"😀\"}).sort({'é': 1}) // ß";
     let call = one(text, "t");
     assert_eq!(
         &text[call.range.clone()],
-        "db.ü.find({n: \"😀\"}).sort({é: 1})"
+        "db.ü.find({n: \"😀\"}).sort({'é': 1})"
     );
     assert_eq!(call.collection, "ü");
     assert_eq!(call.query.sort, Some(doc! { "é": 1 }));

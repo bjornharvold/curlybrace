@@ -6,7 +6,11 @@
 //! literal, `new`, trailing text) makes the whole text `None`: the guard never guesses.
 //!
 //! Numbers: an integer literal (no `.` or exponent) is an `Int32` when it fits, else an `Int64`
-//! when it fits, else a `Double`; every other number is a `Double`.
+//! when it fits, else a `Double`; every other number is a `Double`. This does not mirror mongosh,
+//! which sends a large integer as a `Double` and loses precision above 2^53; the guard only
+//! asks which index a query would use, and that does not depend on the numeric type. A legacy
+//! octal (`010`, which mongosh reads as 8) is rejected, in values and in bare numeric keys.
+//! Bare keys are ASCII only (quoted keys may hold anything).
 //!
 //! Total on any input: every step advances or fails, nesting is cut off at [`MAX_DEPTH`], and
 //! text is read by char, never sliced inside one. Pure and egui-free; no user-facing strings.
@@ -137,12 +141,13 @@ impl Parser<'_> {
     fn key(&mut self) -> Option<String> {
         match self.peek()? {
             b'\'' | b'"' => self.string(),
-            b if is_ident_start(b) => self.ident().map(str::to_string),
+            // A bare key is ASCII only: JavaScript reads some non-ASCII chars (a no-break
+            // space) as whitespace, so the field name would be wrong.
+            b if is_ident_start(b) => self.ident().filter(|k| k.is_ascii()).map(str::to_string),
             b if b.is_ascii_digit() => {
+                self.reject_legacy_octal()?;
                 let start = self.pos;
-                while self.peek().is_some_and(|b| b.is_ascii_digit()) {
-                    self.pos += 1;
-                }
+                self.digits();
                 self.text.get(start..self.pos).map(str::to_string)
             }
             _ => None,
@@ -200,6 +205,13 @@ impl Parser<'_> {
         Some(text)
     }
 
+    /// `None` at a `0` followed by a digit: sloppy-mode mongosh reads `010` as octal 8.
+    fn reject_legacy_octal(&self) -> Option<()> {
+        let octal =
+            self.peek() == Some(b'0') && self.peek_at(1).is_some_and(|b| b.is_ascii_digit());
+        (!octal).then_some(())
+    }
+
     fn digits(&mut self) -> usize {
         let start = self.pos;
         while self.peek().is_some_and(|b| b.is_ascii_digit()) {
@@ -214,6 +226,7 @@ impl Parser<'_> {
         if matches!(self.peek(), Some(b'-' | b'+')) {
             self.pos += 1;
         }
+        self.reject_legacy_octal()?;
         let mut mantissa = self.digits();
         let mut integer = true;
         if self.eat(b'.').is_some() {

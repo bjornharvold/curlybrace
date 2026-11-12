@@ -1,15 +1,19 @@
 //! The collection calls of a mongosh script whose queries the index-miss guard can check: plain
-//! `db.<name>.<method>(...)` and `db.getCollection("<name>").<method>(...)` calls of
-//! [`METHODS`], with literal filters (and, after `find`/`findOne`, a literal projection and a
-//! chained literal `sort`). A matching call whose query is not made of literals is counted in
-//! [`Reading::unchecked`], never guessed at. Calls in comments, strings, template text and regex
-//! literals are not code (see [`scan_code`](super::shell_scan::scan_code)) and are not read.
+//! `db.<name>.<method>(...)`, `db.getCollection("<name>").<method>(...)` and
+//! `db["<name>"].<method>(...)` calls of [`METHODS`], with literal filters (and, after
+//! `find`/`findOne`, a literal projection and a chained literal `sort`). A call of a listed
+//! method on a `db` receiver is never dropped: one whose query is not made of literals, that
+//! has a plan-changing part (`find` options, a chained `hint`, `collation`, `min` or `max`), or
+//! whose receiver has another shape is counted in [`Reading::unchecked`], never guessed at.
+//! Calls in comments, strings, template text and regex literals are not code (see
+//! [`scan_code`](super::shell_scan::scan_code)) and are not read.
 //!
 //! The database starts as the one the script runs against, as in mongosh: a `use <name>` line
-//! and a `db = db.getSiblingDB("<name>")` statement change it for later calls when the name is a
-//! literal; any other assignment or declaration of `db`, or a `use` whose name is not plain,
-//! makes later calls unchecked until a plain `use` follows. A `db.getSiblingDB(...)` receiver
-//! names the database of its own call only (a non-literal name makes that call unchecked).
+//! sets it for later calls (unknown when the name is not plain). Any assignment or declaration of
+//! `db` makes it unknown, except a whole `db = db.getSiblingDB("<literal>")` statement while it
+//! is known, which sets it. A `db.getSiblingDB(...)` receiver names the database of its own call
+//! only (a non-literal name makes that call unchecked). Once unknown, the database stays unknown
+//! (`db` may be another server's, and so are its siblings) until the next plain `use`.
 //!
 //! One pass over paired tokens: linear in the script, total on any input. Every readable call is
 //! returned (the run flow caps how many it checks). Pure and egui-free; no user-facing strings.
@@ -70,7 +74,7 @@ pub fn read_calls(text: &str, start_db: &str) -> Reading {
             t += 1;
             continue;
         }
-        if let Some(assigned) = db_assignment(&c, t) {
+        if let Some(assigned) = db_assignment(&c, t, &db) {
             db = assigned;
             t += 1;
             continue;
@@ -122,8 +126,9 @@ fn statement_ends(c: &Cursor<'_>, k: usize) -> bool {
 
 /// A statement that sets `db` at the `db` token `t`: the database later calls use (`None`: not
 /// known), or `None` when `t` does not set `db`. Only `db = db.getSiblingDB("<name>")` as a
-/// whole statement names one; any other assignment or a `var`/`let`/`const db` does not.
-fn db_assignment(c: &Cursor<'_>, t: usize) -> Option<Option<String>> {
+/// whole statement names one, and only while `current` is known; any other assignment or a
+/// `var`/`let`/`const db` does not.
+fn db_assignment(c: &Cursor<'_>, t: usize, current: &Option<String>) -> Option<Option<String>> {
     if t > 0 && matches!(c.ident(t - 1), Some("var" | "let" | "const")) {
         return Some(None);
     }
@@ -132,7 +137,7 @@ fn db_assignment(c: &Cursor<'_>, t: usize) -> Option<Option<String>> {
         return Some(None);
     }
     match sibling_db(c, value + 1) {
-        Some((name, close)) if statement_ends(c, close + 1) => Some(name),
+        Some((name, close)) if statement_ends(c, close + 1) => Some(current.as_ref().and(name)),
         _ => Some(None),
     }
 }
@@ -183,3 +188,7 @@ const FORBIDDEN_IN_DB_NAME: [char; 12] =
 #[cfg(test)]
 #[path = "shell_queries_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "shell_queries_shape_tests.rs"]
+mod shape_tests;

@@ -25,10 +25,30 @@ fn single_and_double_quoted_strings_with_escapes() {
 }
 
 #[test]
-fn non_ascii_text_in_keys_strings_and_comments() {
+fn non_ascii_text_in_quoted_keys_strings_and_comments() {
     assert_eq!(
-        parsed("{café: 'crème 😀', '日本': \"語\" /* ü 😀 */, // ß\n n: 1}"),
+        parsed("{'café': 'crème 😀', '日本': \"語\" /* ü 😀 */, // ß\n n: 1}"),
         doc! { "café": "crème 😀", "日本": "語", "n": 1 }
+    );
+}
+
+#[test]
+fn a_bare_key_with_non_ascii_text_is_rejected() {
+    // JavaScript reads a no-break space as whitespace; a key "name\u{a0}" would be a wrong field.
+    assert_eq!(parse_literal("{name\u{a0}: 1}"), None);
+    assert_eq!(parse_literal("{café: 1}"), None);
+    assert_eq!(parse_literal("{a: 1, 😀: 2}"), None);
+}
+
+#[test]
+fn legacy_octal_numbers_and_keys_are_rejected() {
+    // Sloppy-mode mongosh reads `010` as 8.
+    for text in ["{a: 010}", "{a: -07}", "{a: 00}", "{010: 1}", "{00: 1}"] {
+        assert_eq!(parse_literal(text), None, "in {text:?}");
+    }
+    assert_eq!(
+        parsed("{a: 0, b: 0.5, c: -0.25, d: 0e1, 0: 1}"),
+        doc! { "a": 0, "b": 0.5, "c": -0.25, "d": 0.0, "0": 1 }
     );
 }
 
