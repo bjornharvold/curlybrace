@@ -9,7 +9,13 @@ use crate::explain::{Reason, SuggestedIndex, VerdictKind, classify};
 use crate::store::{DocumentStore, Namespace, Query};
 
 /// The most queries one check explains; the rest count as unchecked.
-pub const MAX_TARGETS: usize = 20;
+pub const GUARD_MAX_TARGETS: usize = 20;
+
+/// A scan is reported only on a collection of at least this many documents (estimated).
+pub const GUARD_MIN_DOCS: u64 = 1000;
+
+/// How long one check may run, in milliseconds. The single source of the budget.
+pub const GUARD_BUDGET_MS: u64 = 10_000;
 
 /// One query to check, with the collection it runs against.
 #[derive(Clone, Debug, PartialEq)]
@@ -54,7 +60,7 @@ enum Judged {
 /// Explains each target in turn (plan only; nothing runs) and reports those that warn.
 ///
 /// A target with no filter and no sort is skipped: there is nothing an index could serve. At most
-/// [`MAX_TARGETS`] are explained, and none is started once `budget` has elapsed; an explain still
+/// [`GUARD_MAX_TARGETS`] are explained, and none is started once `budget` has elapsed; an explain still
 /// running at the deadline is cut off. A scan on a collection estimated below `min_docs` is not
 /// reported; with `min_docs` of `None` no count is taken. A failing count keeps the finding.
 pub async fn check(
@@ -66,10 +72,10 @@ pub async fn check(
     let started = Instant::now();
     let candidates: Vec<GuardTarget> = targets.into_iter().filter(is_checkable).collect();
     let mut report = GuardReport {
-        unchecked: candidates.len().saturating_sub(MAX_TARGETS),
+        unchecked: candidates.len().saturating_sub(GUARD_MAX_TARGETS),
         ..GuardReport::default()
     };
-    let mut pending = candidates.into_iter().take(MAX_TARGETS);
+    let mut pending = candidates.into_iter().take(GUARD_MAX_TARGETS);
     while let Some(target) = pending.next() {
         let left = budget.saturating_sub(started.elapsed());
         if left.is_zero() {

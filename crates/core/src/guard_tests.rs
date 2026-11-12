@@ -119,7 +119,7 @@ fn target(collection: &str) -> GuardTarget {
     }
 }
 
-const BUDGET: Duration = Duration::from_secs(10);
+const BUDGET: Duration = Duration::from_millis(GUARD_BUDGET_MS);
 
 #[test]
 fn warns_only_for_scan_and_uncovered_sort() {
@@ -134,8 +134,8 @@ fn warns_only_for_scan_and_uncovered_sort() {
 
 #[tokio::test]
 async fn a_scan_on_a_collection_of_exactly_min_docs_is_reported() {
-    let store = FakeStore::default().with("c", Script::scan(1000));
-    let report = check(&store, vec![target("c")], Some(1000), BUDGET).await;
+    let store = FakeStore::default().with("c", Script::scan(GUARD_MIN_DOCS));
+    let report = check(&store, vec![target("c")], Some(GUARD_MIN_DOCS), BUDGET).await;
     assert_eq!(report.findings.len(), 1);
     assert_eq!(report.findings[0].kind, VerdictKind::CollectionScan);
     assert_eq!(report.findings[0].ns, Namespace::new("db", "c"));
@@ -146,8 +146,8 @@ async fn a_scan_on_a_collection_of_exactly_min_docs_is_reported() {
 
 #[tokio::test]
 async fn a_scan_on_a_collection_one_below_min_docs_is_not_reported() {
-    let store = FakeStore::default().with("c", Script::scan(999));
-    let report = check(&store, vec![target("c")], Some(1000), BUDGET).await;
+    let store = FakeStore::default().with("c", Script::scan(GUARD_MIN_DOCS - 1));
+    let report = check(&store, vec![target("c")], Some(GUARD_MIN_DOCS), BUDGET).await;
     assert!(report.findings.is_empty());
     assert_eq!(report.unchecked, 0);
 }
@@ -179,7 +179,7 @@ async fn a_failing_count_still_reports_the_scan() {
         ..Script::scan(0)
     };
     let store = FakeStore::default().with("c", script);
-    let report = check(&store, vec![target("c")], Some(1000), BUDGET).await;
+    let report = check(&store, vec![target("c")], Some(GUARD_MIN_DOCS), BUDGET).await;
     assert_eq!(report.findings.len(), 1);
     assert_eq!(report.unchecked, 0);
 }
@@ -208,7 +208,9 @@ async fn targets_beyond_max_targets_count_as_unchecked() {
         .fold(FakeStore::default(), |s, n| s.with(n, Script::scan(10)));
     let targets = names.iter().map(|n| target(n)).collect();
     let report = check(&store, targets, None, BUDGET).await;
-    assert_eq!(MAX_TARGETS, 20);
+    assert_eq!(GUARD_MAX_TARGETS, 20);
+    assert_eq!(GUARD_MIN_DOCS, 1000);
+    assert_eq!(GUARD_BUDGET_MS, 10_000);
     assert_eq!(store.explained().len(), 20);
     assert_eq!(report.findings.len(), 20);
     assert_eq!(report.unchecked, 5);
@@ -258,4 +260,37 @@ async fn a_sort_alone_is_explained() {
     let report = check(&store, vec![sorted], None, BUDGET).await;
     assert_eq!(store.explained(), vec!["c"]);
     assert_eq!(report.findings.len(), 1);
+}
+
+struct Bare;
+
+#[async_trait]
+impl DocumentStore for Bare {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn find(&self, _ns: &Namespace, _q: &Query) -> Result<Page> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+}
+
+#[tokio::test]
+async fn the_trait_default_explain_plan_is_unsupported() {
+    let err = Bare
+        .explain_plan(&Namespace::new("db", "c"), &query())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, CoreError::Unsupported(_)), "{err:?}");
 }
