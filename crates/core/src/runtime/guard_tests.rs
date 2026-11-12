@@ -36,6 +36,7 @@ fn collscan() -> Document {
 fn target() -> GuardTarget {
     GuardTarget {
         ns: mock_namespace(),
+        method: "find".into(),
         query: Query {
             filter: bson::doc! { "status": "open" },
             ..Query::default()

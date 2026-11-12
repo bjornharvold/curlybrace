@@ -66,6 +66,7 @@ pub(super) fn run(state: AppState, query: Query) -> Out {
         request,
         targets: vec![GuardTarget {
             ns,
+            method: "find".into(),
             query: query.clone(),
         }],
         min_docs,

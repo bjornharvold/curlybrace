@@ -40,6 +40,7 @@ pub(super) fn scan_report(query: Query) -> GuardReport {
     GuardReport {
         findings: vec![GuardFinding {
             ns: ns(),
+            method: "find".into(),
             query,
             kind: VerdictKind::CollectionScan,
             reasons: Vec::new(),
@@ -121,6 +122,7 @@ fn guard_on_with_a_filter_sends_only_the_check() {
         request: 1,
         targets: vec![GuardTarget {
             ns: ns(),
+            method: "find".into(),
             query: query_a(),
         }],
         min_docs: Some(GUARD_MIN_DOCS),

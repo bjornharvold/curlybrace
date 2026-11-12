@@ -306,6 +306,7 @@ fn index_miss_report() -> curlybrace_core::guard::GuardReport {
     use curlybrace_core::store::{Namespace, Query};
     let finding = |collection: &str, kind| GuardFinding {
         ns: Namespace::new("shop", collection),
+        method: "find".into(),
         query: Query::default(),
         kind,
         reasons: vec![Reason::new("collscan")],

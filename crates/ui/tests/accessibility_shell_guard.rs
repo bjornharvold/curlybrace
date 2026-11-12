@@ -31,6 +31,7 @@ fn t(key: &str) -> String {
 fn finding(collection: &str, kind: VerdictKind) -> GuardFinding {
     GuardFinding {
         ns: Namespace::new("shop", collection),
+        method: "find".into(),
         query: Query::default(),
         kind,
         reasons: vec![Reason::new("collscan")],
@@ -53,19 +54,25 @@ fn report() -> GuardReport {
 // --- The notice on its own ---
 
 struct Notice {
+    report: GuardReport,
     unchecked: usize,
     seen: Vec<GuardNoticeAction>,
 }
 
 fn notice(unchecked: usize) -> Harness<'static, Notice> {
+    notice_of(report(), unchecked)
+}
+
+fn notice_of(report: GuardReport, unchecked: usize) -> Harness<'static, Notice> {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(800.0, 900.0))
         .build_ui_state(
             |ui, state: &mut Notice| {
-                let action = show_index_miss(ui, &report(), state.unchecked, &I18n::english());
+                let action = show_index_miss(ui, &state.report, state.unchecked, &I18n::english());
                 state.seen.extend(action);
             },
             Notice {
+                report,
                 unchecked,
                 seen: Vec::new(),
             },
@@ -105,9 +112,9 @@ fn the_notice_is_an_alert_naming_each_collection_and_problem() {
     assert_shows(
         &h,
         &[
-            &t("shell.guard.title"),
-            "shop.orders: This query would read every document in the collection",
-            "shop.users: This query would sort in memory instead of using an index",
+            "2 queries in this script would read a whole collection or sort in memory",
+            "shop.orders.find: This query would read every document in the collection",
+            "shop.users.find: This query would sort in memory instead of using an index",
             "Suggested index",
             COMMAND,
         ],
@@ -117,7 +124,7 @@ fn the_notice_is_an_alert_naming_each_collection_and_problem() {
 #[test]
 fn both_buttons_and_the_copy_buttons_are_named() {
     let h = notice(0);
-    for key in ["shell.guard.run_anyway", "shell.guard.cancel"] {
+    for key in ["shell.guard.run_anyway", "shell.guard.cancel_run"] {
         h.get_by_role_and_label(Role::Button, &t(key));
     }
     assert_eq!(h.get_all_by_label(&t("query.verdict.copy")).count(), 2);
@@ -126,7 +133,7 @@ fn both_buttons_and_the_copy_buttons_are_named() {
 #[test]
 fn cancel_has_the_first_focus_and_enter_cancels() {
     let mut h = notice(0);
-    let name = t("shell.guard.cancel");
+    let name = t("shell.guard.cancel_run");
     let cancel = h.get_by_role_and_label(Role::Button, &name);
     assert!(cancel.accesskit_node().is_focused());
     h.key_press(Key::Enter);
@@ -159,7 +166,7 @@ fn tab_reaches_cancel_from_run_anyway_and_space_cancels() {
     h.run_steps(2);
     h.key_press(Key::Tab);
     h.run_steps(3);
-    let name = t("shell.guard.cancel");
+    let name = t("shell.guard.cancel_run");
     let cancel = h.get_by_role_and_label(Role::Button, &name);
     assert!(cancel.accesskit_node().is_focused());
     h.key_press(Key::Space);
@@ -271,10 +278,8 @@ fn the_tab_shows_the_notice_and_its_buttons_emit_the_actions() {
     h.get_by_role_and_label(Role::Button, &t("shell.guard.run_anyway"))
         .click();
     h.run_steps(2);
-    // The toolbar's own Cancel is off (nothing runs); the notice's is the one that works.
-    h.get_all_by_role_and_label(Role::Button, &t("shell.guard.cancel"))
-        .find(|node| !node.accesskit_node().is_disabled())
-        .expect("the notice's Cancel")
+    // The toolbar's Cancel has its own name; the notice's is named for what it does.
+    h.get_by_role_and_label(Role::Button, &t("shell.guard.cancel_run"))
         .click();
     h.run_steps(2);
     assert_eq!(
@@ -296,4 +301,66 @@ fn a_cleared_run_that_was_not_started_says_so_in_words() {
             "A confirmation is waiting, so the script was not started. Press Run again after answering it.",
         ],
     );
+}
+
+fn finding_of(collection: &str, method: &str) -> GuardFinding {
+    GuardFinding {
+        method: method.to_string(),
+        ..finding(collection, VerdictKind::CollectionScan)
+    }
+}
+
+#[test]
+fn two_calls_on_one_collection_read_as_two_different_lines() {
+    let report = GuardReport {
+        findings: vec![
+            finding_of("orders", "find"),
+            finding_of("orders", "deleteMany"),
+        ],
+        unchecked: 0,
+    };
+    let h = notice_of(report, 0);
+    let problem = "This query would read every document in the collection";
+    assert_shows(
+        &h,
+        &[
+            &format!("shop.orders.find: {problem}"),
+            &format!("shop.orders.deleteMany: {problem}"),
+        ],
+    );
+}
+
+#[test]
+fn the_title_counts_the_findings_for_one_and_for_three() {
+    let one = GuardReport {
+        findings: vec![finding_of("orders", "find")],
+        unchecked: 0,
+    };
+    assert_shows(
+        &notice_of(one, 0),
+        &["1 query in this script would read a whole collection or sort in memory"],
+    );
+    let three = GuardReport {
+        findings: vec![
+            finding_of("orders", "find"),
+            finding_of("orders", "deleteMany"),
+            finding_of("users", "aggregate"),
+        ],
+        unchecked: 0,
+    };
+    assert_shows(
+        &notice_of(three, 0),
+        &["3 queries in this script would read a whole collection or sort in memory"],
+    );
+}
+
+#[test]
+fn the_notice_cancel_and_the_toolbar_cancel_have_different_names() {
+    let h = tab(missed());
+    assert_eq!(
+        h.get_all_by_role_and_label(Role::Button, &t("shell.cancel"))
+            .count(),
+        1
+    );
+    h.get_by_role_and_label(Role::Button, &t("shell.guard.cancel_run"));
 }

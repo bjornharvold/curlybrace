@@ -46,6 +46,7 @@ pub fn guard_notice(state: &mut AppState) {
     use curlybrace_core::store::{Namespace, Query};
     let finding = |collection: &str, kind, field: &str| GuardFinding {
         ns: Namespace::new("crm", collection),
+        method: "find".into(),
         query: Query::default(),
         kind,
         reasons: vec![Reason::new("collscan")],

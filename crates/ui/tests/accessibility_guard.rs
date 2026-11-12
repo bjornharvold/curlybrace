@@ -29,6 +29,7 @@ fn t(key: &str) -> String {
 fn finding(kind: VerdictKind) -> GuardFinding {
     GuardFinding {
         ns: Namespace::new("shop", "orders"),
+        method: "find".into(),
         query: Query::default(),
         kind,
         reasons: vec![Reason::new("collscan")],

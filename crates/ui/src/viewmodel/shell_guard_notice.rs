@@ -11,6 +11,8 @@ use curlybrace_core::guard::GuardReport;
 pub struct FindingModel {
     pub db: String,
     pub collection: String,
+    /// The call's method as the script wrote it (never any of its filter).
+    pub method: String,
     pub warn: WarnModel,
 }
 
@@ -31,12 +33,21 @@ pub fn index_miss_model(report: &GuardReport, unchecked: usize) -> IndexMissMode
         .map(|finding| FindingModel {
             db: finding.ns.db.clone(),
             collection: finding.ns.collection.clone(),
+            method: finding.method.clone(),
             warn: finding_model(finding),
         })
         .collect();
     IndexMissModel {
         findings,
         unchecked,
+    }
+}
+
+/// The key of the notice's title: it counts the flagged queries.
+pub fn title_key(count: usize) -> &'static str {
+    match count {
+        1 => "shell.guard.title_one",
+        _ => "shell.guard.title_other",
     }
 }
 

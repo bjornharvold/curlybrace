@@ -123,6 +123,7 @@ pub(super) fn scan(db: &str, unchecked: usize) -> GuardReport {
     GuardReport {
         findings: vec![GuardFinding {
             ns: target.ns,
+            method: target.method,
             query: target.query,
             kind: VerdictKind::CollectionScan,
             reasons: Vec::new(),
@@ -139,6 +140,7 @@ pub(super) fn targets_of(text: &str, db: &str) -> Vec<GuardTarget> {
         .into_iter()
         .map(|call| GuardTarget {
             ns: Namespace::new(call.db, call.collection),
+            method: call.method.to_string(),
             query: call.query,
         })
         .collect()

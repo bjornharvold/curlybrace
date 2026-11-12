@@ -21,6 +21,9 @@ pub const GUARD_BUDGET_MS: u64 = 10_000;
 #[derive(Clone, Debug, PartialEq)]
 pub struct GuardTarget {
     pub ns: Namespace,
+    /// The call the query comes from, as the author wrote it (`find`, `deleteMany`): only its
+    /// name, to tell two flagged calls on one collection apart.
+    pub method: String,
     pub query: Query,
 }
 
@@ -28,6 +31,8 @@ pub struct GuardTarget {
 #[derive(Clone, Debug, PartialEq)]
 pub struct GuardFinding {
     pub ns: Namespace,
+    /// The method of the target the finding came from.
+    pub method: String,
     pub query: Query,
     pub kind: VerdictKind,
     pub reasons: Vec<Reason>,
@@ -122,6 +127,7 @@ async fn judge(store: &dyn DocumentStore, target: GuardTarget, min_docs: Option<
     }
     Judged::Finding(Box::new(GuardFinding {
         ns: target.ns,
+        method: target.method,
         query: target.query,
         kind: verdict.kind,
         reasons: verdict.reasons,

@@ -115,6 +115,7 @@ fn query() -> Query {
 fn target(collection: &str) -> GuardTarget {
     GuardTarget {
         ns: Namespace::new("db", collection),
+        method: "find".into(),
         query: query(),
     }
 }
@@ -142,6 +143,17 @@ async fn a_scan_on_a_collection_of_exactly_min_docs_is_reported() {
     assert_eq!(report.findings[0].query, query());
     assert!(report.findings[0].suggestion.is_some());
     assert_eq!(report.unchecked, 0);
+}
+
+#[tokio::test]
+async fn the_method_of_a_target_travels_to_its_finding() {
+    let store = FakeStore::default().with("c", Script::scan(10));
+    let target = GuardTarget {
+        method: "deleteMany".into(),
+        ..target("c")
+    };
+    let report = check(&store, vec![target], None, BUDGET).await;
+    assert_eq!(report.findings[0].method, "deleteMany");
 }
 
 #[tokio::test]
@@ -239,6 +251,7 @@ async fn a_target_without_filter_and_sort_is_skipped_without_an_explain() {
     let store = FakeStore::default().with("c", Script::scan(10));
     let bare = GuardTarget {
         ns: Namespace::new("db", "c"),
+        method: "find".into(),
         query: Query::default(),
     };
     let report = check(&store, vec![bare], None, BUDGET).await;
@@ -252,6 +265,7 @@ async fn a_sort_alone_is_explained() {
     let store = FakeStore::default().with("c", Script::scan(10));
     let sorted = GuardTarget {
         ns: Namespace::new("db", "c"),
+        method: "find".into(),
         query: Query {
             sort: Some(doc! { "a": 1 }),
             ..Query::default()

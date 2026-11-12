@@ -17,6 +17,7 @@ pub fn scan_notice(state: &mut AppState) {
         report: GuardReport {
             findings: vec![GuardFinding {
                 ns: Namespace::new("crm", "customers"),
+                method: "find".into(),
                 query,
                 kind: VerdictKind::CollectionScan,
                 reasons: vec![Reason::new("collscan")],

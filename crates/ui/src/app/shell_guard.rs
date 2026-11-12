@@ -61,6 +61,7 @@ pub(super) fn check_first(
         .take(GUARD_MAX_TARGETS)
         .map(|call| GuardTarget {
             ns: Namespace::new(call.db, call.collection),
+            method: call.method.to_string(),
             query: call.query,
         })
         .collect();

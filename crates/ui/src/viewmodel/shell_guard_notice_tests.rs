@@ -6,6 +6,7 @@ use curlybrace_core::store::{Namespace, Query};
 fn finding(collection: &str, kind: VerdictKind) -> GuardFinding {
     GuardFinding {
         ns: Namespace::new("shop", collection),
+        method: "find".into(),
         query: Query::default(),
         kind,
         reasons: vec![Reason::new("collscan")],
@@ -50,4 +51,21 @@ fn each_finding_names_its_collection_and_problem() {
 fn the_unchecked_line_is_singular_for_one_only() {
     assert_eq!(unchecked_key(1), "shell.guard.unchecked_one");
     assert_eq!(unchecked_key(3), "shell.guard.unchecked_other");
+}
+
+#[test]
+fn the_title_counts_the_findings_and_each_names_its_method() {
+    assert_eq!(title_key(1), "shell.guard.title_one");
+    assert_eq!(title_key(3), "shell.guard.title_other");
+    let report = GuardReport {
+        findings: vec![GuardFinding {
+            method: "deleteMany".into(),
+            ..finding("orders", VerdictKind::CollectionScan)
+        }],
+        unchecked: 0,
+    };
+    assert_eq!(
+        index_miss_model(&report, 0).findings[0].method,
+        "deleteMany"
+    );
 }

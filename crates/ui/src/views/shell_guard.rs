@@ -9,7 +9,7 @@ use super::verdict_badge::{VerdictAction, reason_line, show_suggestion};
 use crate::I18n;
 use crate::theme::{Tone, filled_button, tonal_button};
 use crate::viewmodel::shell_guard_notice::{
-    FindingModel, IndexMissModel, index_miss_model, unchecked_key,
+    FindingModel, IndexMissModel, index_miss_model, title_key, unchecked_key,
 };
 use curlybrace_core::guard::GuardReport;
 use eframe::egui::{self, accesskit};
@@ -43,7 +43,8 @@ pub fn show_index_miss(
     i18n: &I18n,
 ) -> Option<GuardNoticeAction> {
     let model = index_miss_model(report, unchecked);
-    let title = i18n.t("shell.guard.title");
+    let count = model.findings.len().to_string();
+    let title = i18n.t_with(title_key(model.findings.len()), &[("count", &count)]);
     announced(ui, Tone::Warning, Announce::Alert, &title, |ui| {
         // Snug rows: the notice shares the tab with the editor, History and the output.
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -103,6 +104,7 @@ fn show_finding(
         &[
             ("db", &finding.db),
             ("collection", &finding.collection),
+            ("method", &finding.method),
             ("problem", &problem),
         ],
     );
@@ -122,6 +124,11 @@ fn show_finding(
 fn buttons(ui: &mut egui::Ui, i18n: &I18n) -> Option<GuardNoticeAction> {
     let anyway = tonal_button(ui, i18n.t("shell.guard.run_anyway"));
     let cancel = filled_button(ui, i18n.t("shell.guard.cancel"));
+    // The toolbar has a Cancel too: this one is named for what it does.
+    let name = i18n.t("shell.guard.cancel_run");
+    ui.ctx().accesskit_node_builder(cancel.id, |node| {
+        node.set_label(name.as_str());
+    });
     focus_once(ui, &cancel, ("shell_guard_focus", "cancel"));
     if cancel.clicked() {
         Some(GuardNoticeAction::Cancel)
