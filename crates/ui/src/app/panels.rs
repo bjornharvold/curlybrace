@@ -299,12 +299,21 @@ fn show_collection(
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
         out.push(UiEvent::Input(Input::Find(action)));
     }
-    if let Some(action) = show_automatic_verdict(ui, state.explain_enabled(), i18n) {
-        out.push(UiEvent::Input(Input::Find(action)));
-    }
-    if let Some(action) = show_guard_setting(ui, state.guard_enabled(), i18n) {
-        out.push(UiEvent::Input(Input::Find(action)));
-    }
+    // Both global switches share one row so the layout below keeps a single checkbox's height.
+    let actions = ui
+        .horizontal_wrapped(|ui| {
+            [
+                show_automatic_verdict(ui, state.explain_enabled(), i18n),
+                show_guard_setting(ui, state.guard_enabled(), i18n),
+            ]
+        })
+        .inner;
+    out.extend(
+        actions
+            .into_iter()
+            .flatten()
+            .map(|action| UiEvent::Input(Input::Find(action))),
+    );
     show_verdict(ui, state, i18n);
     state.view_mode = show_mode_switcher(ui, state.view_mode, i18n);
     ui.separator();
