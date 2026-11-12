@@ -65,7 +65,7 @@ pub struct ShellState {
     /// The last value of the current (or last) run, for the Table and Tree modes.
     pub result: ResultView,
     /// Bumped each time the editor must take the keyboard focus (Go to problem); the editor
-    /// takes it once for every value it has not seen. Nothing else changes it.
+    /// takes it once for every value greater than the last one it saw. Nothing else changes it.
     pub editor_focus: u64,
 }
 
@@ -141,7 +141,7 @@ impl ShellState {
         };
         Self {
             selection: self.clamped(&problem.range),
-            editor_focus: self.editor_focus.wrapping_add(1),
+            editor_focus: self.editor_focus.saturating_add(1),
             ..self.clone()
         }
     }

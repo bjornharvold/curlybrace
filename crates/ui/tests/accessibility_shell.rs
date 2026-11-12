@@ -45,6 +45,8 @@ struct Frame {
     /// The events of each frame that had any.
     frames: Vec<Vec<ShellViewEvent>>,
     field: String,
+    /// The loaded collection names the completion offers.
+    collections: Vec<String>,
 }
 
 impl Frame {
@@ -56,6 +58,7 @@ impl Frame {
             events: Vec::new(),
             frames: Vec::new(),
             field: String::new(),
+            collections: Vec::new(),
         }
     }
 
@@ -90,7 +93,7 @@ fn harness(frame: Frame) -> Harness<'static, Frame> {
                     badge: frame.badge,
                     connected: frame.connected,
                     now_secs: NOW,
-                    collections: &[],
+                    collections: &frame.collections,
                 };
                 let events = show_shell(ui, &frame.shell, ctx, &i18n);
                 for event in &events {
@@ -700,4 +703,46 @@ fn a_huge_multi_line_script_is_one_bounded_row() {
         .rect();
     assert_eq!(big_rect.height(), small_rect.height());
     assert!(big_rect.width() <= 900.0, "{big_rect:?}");
+}
+
+fn with_collections(names: &[&str]) -> Harness<'static, Frame> {
+    let mut frame = Frame::new(script(""));
+    frame.collections = names.iter().map(|s| s.to_string()).collect();
+    harness(frame)
+}
+
+/// Types `text` one key at a time, like a person.
+fn type_keys(h: &mut Harness<'static, Frame>, text: &str) {
+    for c in text.chars() {
+        h.input_mut().events.push(egui::Event::Text(c.to_string()));
+        h.run_steps(2);
+    }
+}
+
+#[test]
+fn the_completion_list_is_announced_with_its_items_and_the_selected_one() {
+    let mut h = with_collections(&["orders", "users"]);
+    focus_editor(&mut h);
+    type_keys(&mut h, "db.");
+    h.get_by_role_and_label(Role::List, &t("shell.complete.list_label"));
+    let first = h.get_by_role_and_label(Role::ListItem, "orders");
+    assert_eq!(first.accesskit_node().is_selected(), Some(true));
+    let second = h.get_by_role_and_label(Role::ListItem, "users");
+    assert_eq!(second.accesskit_node().is_selected(), Some(false));
+}
+
+#[test]
+fn a_suggestion_is_picked_from_the_keyboard_alone() {
+    let mut h = with_collections(&["orders", "users"]);
+    focus_editor(&mut h);
+    type_keys(&mut h, "db.u");
+    press(&mut h, (Modifiers::NONE, Key::Enter));
+    assert_eq!(h.state().shell.script, "db.users");
+    assert!(
+        h.query_by_role_and_label(Role::List, &t("shell.complete.list_label"))
+            .is_none()
+    );
+    // With the list closed, Enter is a newline again.
+    press(&mut h, (Modifiers::NONE, Key::Enter));
+    assert_eq!(h.state().shell.script, "db.users\n");
 }

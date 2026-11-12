@@ -161,6 +161,28 @@ fn a_narrower_list_keeps_the_selected_name_when_it_is_still_there() {
     assert_eq!(kept.completion.items[kept.selected].label, "users");
 }
 
+#[test]
+fn a_word_that_already_is_the_selected_name_closes_the_list() {
+    let colls = names(&["users", "user_prefs"]);
+    assert_eq!(next_popup(None, &typed("db.users"), &colls), None);
+    assert_eq!(next_popup(None, &typed("show dbs"), &[]), None);
+    assert_eq!(next_popup(None, &typed("it"), &[]), None);
+    let open = next_popup(None, &typed("db.us"), &colls);
+    assert_eq!(next_popup(open, &typed("db.users"), &colls), None);
+    // Mid-word: `db.us|ers` is the whole word `users`.
+    let mid = Moment {
+        typed: true,
+        changed: true,
+        ..moment("db.users", 5)
+    };
+    assert_eq!(next_popup(None, &mid, &colls), None);
+    // No exact match: the list stays.
+    assert!(next_popup(None, &typed("db.us"), &colls).is_some());
+    // A rewrite inserts other text than was typed, so it stays open.
+    let odd = names(&["my-coll"]);
+    assert!(next_popup(None, &typed("db.my"), &odd).is_some());
+}
+
 // --- the editor with its list (egui_kittest) ----------------------------------------------
 
 struct Frame {
@@ -212,8 +234,19 @@ fn caret_at(h: &mut Harness<'static, Frame>, at: usize) {
     h.run_steps(2);
 }
 
+/// Types `text` one key at a time, like a person (a line break is the Enter key).
 fn type_text(h: &mut Harness<'static, Frame>, text: &str) {
-    h.input_mut().events.push(Event::Text(text.into()));
+    for c in text.chars() {
+        match c {
+            '\n' => h.key_press(Key::Enter),
+            c => h.input_mut().events.push(Event::Text(c.to_string())),
+        }
+        h.run_steps(2);
+    }
+}
+
+fn press_with(h: &mut Harness<'static, Frame>, modifiers: Modifiers, key: Key) {
+    h.key_press_modifiers(modifiers, key);
     h.run_steps(2);
 }
 
@@ -350,9 +383,10 @@ fn ctrl_space_opens_the_list_on_an_empty_word() {
 
 #[test]
 fn a_pick_in_the_middle_of_a_word_does_not_double_it() {
-    let mut h = harness("db.ers.find()", &["users"]);
+    // db.u|sxs: the word `usxs` is not `users` yet, so the list is up.
+    let mut h = harness("db.sxs.find()", &["users"]);
     caret_at(&mut h, 3);
-    type_text(&mut h, "us");
+    type_text(&mut h, "u");
     assert!(list_open(&h));
     press(&mut h, Key::Enter);
     assert_eq!(h.state().shell.script, "db.users.find()");
@@ -421,6 +455,66 @@ fn caret_rect_for_test(h: &Harness<'static, Frame>) -> f32 {
 fn a_range_off_a_char_boundary_or_past_the_end_does_not_panic() {
     assert_eq!(applied("é", &(1..9), "x"), ("x".into(), 1));
     assert_eq!(applied("ab", &(5..9), "x"), ("abx".into(), 3));
+}
+
+#[test]
+fn enter_after_a_complete_word_is_a_newline() {
+    for word in ["show dbs", "show collections", "it", "use"] {
+        let mut h = typed_in(word, &[]);
+        press(&mut h, Key::Enter);
+        assert_eq!(h.state().shell.script, format!("{word}\n"), "{word:?}");
+    }
+}
+
+#[test]
+fn tab_after_a_complete_collection_name_indents() {
+    let mut h = typed_in("db.users", &["users", "user_prefs"]);
+    press(&mut h, Key::Tab);
+    let script = &h.state().shell.script;
+    assert!(
+        script.starts_with("db.users") && script.len() > 8,
+        "{script:?}"
+    );
+    assert!(script[8..].chars().all(char::is_whitespace), "{script:?}");
+}
+
+#[test]
+fn shift_tab_and_shift_enter_pass_through_an_open_list() {
+    let mut h = typed_in("db.us", &["users"]);
+    press_with(&mut h, Modifiers::SHIFT, Key::Tab);
+    assert_eq!(h.state().shell.script, "db.us", "Shift+Tab picks nothing");
+    let mut h = typed_in("db.us", &["users"]);
+    press_with(&mut h, Modifiers::SHIFT, Key::Enter);
+    assert!(
+        !h.state().shell.script.contains("users"),
+        "{:?}",
+        h.state().shell.script
+    );
+}
+
+#[test]
+fn a_paste_or_a_multi_character_text_does_not_open_the_list() {
+    let mut h = harness("", &["users"]);
+    caret_at(&mut h, 0);
+    h.input_mut().events.push(Event::Paste("db.us".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().shell.script, "db.us");
+    assert!(!list_open(&h));
+    let mut h = harness("", &["users"]);
+    caret_at(&mut h, 0);
+    h.input_mut().events.push(Event::Text("db.us".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().shell.script, "db.us");
+    assert!(!list_open(&h));
+}
+
+#[test]
+fn undo_after_a_pick_brings_back_the_text_before_it() {
+    let mut h = typed_in("db.us", &["users"]);
+    press(&mut h, Key::Enter);
+    assert_eq!(h.state().shell.script, "db.users");
+    press_with(&mut h, Modifiers::COMMAND, Key::Z);
+    assert_eq!(h.state().shell.script, "db.us");
 }
 
 #[test]

@@ -17,7 +17,7 @@
 //! The completion list (`shell_complete`) reads its keys before the text box is drawn, so Enter,
 //! Tab, Up, Down and Esc reach the text box as before whenever the list is closed.
 use super::shell_complete::{
-    Moment, Popup, applied, clicking_popup, next_popup, put_caret, read_keys, show_popup,
+    Moment, Popup, applied, clicking_popup, next_popup, put_pick, read_keys, show_popup,
     typed_trigger,
 };
 use super::shell_highlight::cached_highlight;
@@ -139,7 +139,8 @@ fn sync_from_state(ui: &mut egui::Ui, id: egui::Id, state: &ShellState) -> (u64,
     let seen_selection = ui.data(|d| d.get_temp::<Option<Range<usize>>>(id.with(SEEN_SELECTION)));
     let selection_moved = !script_changed && seen_selection.as_ref() != Some(&state.selection);
     let seen_focus = ui.data(|d| d.get_temp::<u64>(id.with(SEEN_FOCUS)));
-    let focus_asked = seen_focus.is_some_and(|seen| seen != state.editor_focus);
+    // Only a newer request: a shell state created anew for the session starts over at 0.
+    let focus_asked = seen_focus.is_some_and(|seen| state.editor_focus > seen);
     if script_changed || selection_moved || focus_asked {
         apply_selection(ui.ctx(), id, &state.script, state.selection.as_ref());
     }
@@ -230,7 +231,7 @@ fn caret_of(output: &egui::text_edit::TextEditOutput, text: &str) -> Option<(usi
 fn picked(ctx: &egui::Context, id: egui::Id, text: &str, popup: &Popup, index: usize) -> String {
     let item = &popup.completion.items[index];
     let (next, caret) = applied(text, &popup.completion.replace, &item.insert);
-    put_caret(ctx, id, &next, caret);
+    put_pick(ctx, id, text, &next, caret);
     next
 }
 

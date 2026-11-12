@@ -53,6 +53,31 @@ pub(crate) fn next_popup(
     moment: &Moment<'_>,
     collections: &[String],
 ) -> Option<Popup> {
+    // A word that already is the selected name needs nothing, and the list would take the Enter
+    // or Tab the person meant as a newline or an indent.
+    followed(prev, moment, collections).filter(|popup| !popup.is_exact(moment.text))
+}
+
+impl Popup {
+    /// Whether the word at the caret (with any tail after the caret) already is the selected
+    /// item's text.
+    fn is_exact(&self, text: &str) -> bool {
+        let start = self.completion.replace.start.min(text.len());
+        let end = word_end(text, self.caret);
+        let insert = &self.completion.items[self.selected].insert;
+        text.get(start..end) == Some(insert.as_str())
+    }
+}
+
+/// End of the identifier that continues after `caret`.
+fn word_end(text: &str, caret: usize) -> usize {
+    let bytes = text.as_bytes();
+    (caret.min(text.len())..text.len())
+        .find(|&i| !is_word_byte(bytes[i]))
+        .unwrap_or(text.len())
+}
+
+fn followed(prev: Option<Popup>, moment: &Moment<'_>, collections: &[String]) -> Option<Popup> {
     let caret = moment.caret.filter(|_| moment.focused)?;
     let start = word_start(moment.text.as_bytes(), caret.min(moment.text.len()));
     if moment.forced {
@@ -101,7 +126,6 @@ fn opened(
 /// `text` with `replace` (and the rest of the word after it, so a pick in the middle of a word
 /// does not double its tail) replaced by `insert`, and the caret (bytes) just after the insertion.
 pub(crate) fn applied(text: &str, replace: &Range<usize>, insert: &str) -> (String, usize) {
-    let bytes = text.as_bytes();
     let boundary = |at: usize| {
         (0..=at.min(text.len()))
             .rev()
@@ -109,21 +133,21 @@ pub(crate) fn applied(text: &str, replace: &Range<usize>, insert: &str) -> (Stri
             .unwrap_or(0)
     };
     let start = boundary(replace.start);
-    let end = (boundary(replace.end).max(start)..text.len())
-        .find(|&i| !is_word_byte(bytes[i]))
-        .unwrap_or(text.len());
+    let end = word_end(text, boundary(replace.end).max(start));
     let next = format!("{}{insert}{}", &text[..start], &text[end..]);
     (next, start + insert.len())
 }
 
-/// Whether this frame typed a character that opens the list.
+/// Whether this frame typed one character that opens the list (a paste, or a longer text, is
+/// not typing).
 pub(crate) fn typed_trigger(ui: &egui::Ui) -> bool {
     ui.input(|i| {
         i.events.iter().any(|event| match event {
-            egui::Event::Text(text) => text
-                .chars()
-                .last()
-                .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '.')),
+            egui::Event::Text(text) => {
+                let mut chars = text.chars();
+                let one = chars.next().filter(|_| chars.next().is_none());
+                one.is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '.'))
+            }
             _ => false,
         })
     })
@@ -159,11 +183,11 @@ pub(crate) fn read_keys(ui: &mut egui::Ui, editor: egui::Id, popup: Option<&Popu
         };
     };
     let (down, up, pick, close) = ui.input_mut(|i| {
-        let down = i.count_and_consume_key(Modifiers::NONE, Key::ArrowDown);
-        let up = i.count_and_consume_key(Modifiers::NONE, Key::ArrowUp);
-        let enter = i.consume_key(Modifiers::NONE, Key::Enter);
-        let tab = i.consume_key(Modifiers::NONE, Key::Tab);
-        let close = i.consume_key(Modifiers::NONE, Key::Escape);
+        let down = take_plain(i, Key::ArrowDown);
+        let up = take_plain(i, Key::ArrowUp);
+        let enter = take_plain(i, Key::Enter) > 0;
+        let tab = take_plain(i, Key::Tab) > 0;
+        let close = take_plain(i, Key::Escape) > 0;
         (down, up, enter || tab, close)
     });
     if close {
@@ -182,15 +206,41 @@ pub(crate) fn read_keys(ui: &mut egui::Ui, editor: egui::Id, popup: Option<&Popu
     }
 }
 
+/// Consumes the presses of `key` held with no modifier (Shift+Tab, Shift+Enter and the like stay
+/// with the text box); returns how many there were.
+fn take_plain(input: &mut egui::InputState, key: Key) -> usize {
+    let before = input.events.len();
+    input.events.retain(|event| {
+        !matches!(event, egui::Event::Key { key: k, pressed: true, modifiers, .. }
+            if *k == key && modifiers.is_none())
+    });
+    before - input.events.len()
+}
+
 /// `selected` moved `down` and `up` rows in a list of `count`, wrapping at both ends.
 fn moved(selected: usize, down: usize, up: usize, count: usize) -> usize {
     let count = count.max(1) as isize;
     (selected as isize + down as isize - up as isize).rem_euclid(count) as usize
 }
 
-/// Puts the caret of the text box `editor` at byte `caret` of `text`.
-pub(crate) fn put_caret(ctx: &egui::Context, editor: egui::Id, text: &str, caret: usize) {
+/// Records `before` (the text a pick replaces) as an undo step of the text box `editor`, so one
+/// undo brings it back, and puts the caret at byte `caret` of `text`.
+pub(crate) fn put_pick(
+    ctx: &egui::Context,
+    editor: egui::Id,
+    before: &str,
+    text: &str,
+    caret: usize,
+) {
     let mut state = egui::text_edit::TextEditState::load(ctx, editor).unwrap_or_default();
+    let mut undoer = state.undoer();
+    let end = egui::text::CCursor::new(before.chars().count());
+    let cursor = state
+        .cursor
+        .char_range()
+        .unwrap_or_else(|| egui::text::CCursorRange::one(end));
+    undoer.add_undo(&(cursor, before.to_string()));
+    state.set_undoer(undoer);
     let at = byte_range_to_chars(text, &(caret..caret)).start;
     let range = egui::text::CCursorRange::one(egui::text::CCursor::new(at));
     state.cursor.set_char_range(Some(range));

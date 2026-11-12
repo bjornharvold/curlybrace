@@ -196,6 +196,27 @@ fn every_go_to_problem_focuses_the_editor_and_shows_the_problem() {
 }
 
 #[test]
+fn a_shell_state_created_anew_for_the_same_session_does_not_take_the_focus() {
+    let broken = script("db.a.find(\nx", None).run_requested().0;
+    let mut h = harness(broken);
+    let twice = gone_to_problem(&gone_to_problem(h.state().shell(A)));
+    h.state_mut().shells.insert(A, twice);
+    h.run_steps(2);
+    h.ctx.memory_mut(|m| m.surrender_focus(editor_id(A)));
+    h.run_steps(2);
+    // The session's shell is replaced by a fresh one (its focus counter starts over).
+    let fresh = script("db.a.find(\nx", None).run_requested().0;
+    h.state_mut().shells.insert(A, fresh);
+    h.run_steps(2);
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    // Its own first Go to problem still focuses.
+    let asked = gone_to_problem(h.state().shell(A));
+    h.state_mut().shells.insert(A, asked);
+    h.run_steps(2);
+    assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
+}
+
+#[test]
 fn the_first_frame_does_not_take_the_focus() {
     let h = harness(script("abc", Some(0..2)));
     assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
