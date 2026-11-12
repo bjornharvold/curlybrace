@@ -6,6 +6,7 @@ use super::shell_format::format_script;
 use super::shell_history::HistoryView;
 pub use super::shell_output::{MAX_LINE_BYTES, MAX_OUTPUT_LINES, OutputLine, OutputLog};
 use super::shell_result::{OutputMode, ResultView};
+use curlybrace_core::guard::GuardReport;
 use curlybrace_core::runtime::ShellRefusal;
 use curlybrace_core::shell::{Outcome, Stream};
 use curlybrace_core::tools::{ServerVersion, ToolError, ToolVersion};
@@ -17,6 +18,10 @@ pub enum ShellStatus {
     Idle,
     Running {
         run_id: u64,
+    },
+    /// The text's queries are being planned (as guard request `request`) before the run.
+    Checking {
+        request: u64,
     },
 }
 
@@ -44,6 +49,26 @@ pub enum ShellNotice {
         problem: SyntaxProblem,
         ran: Option<Range<usize>>,
     },
+    /// The guard planned the text to run and some of its queries would scan a collection (or sort
+    /// in memory), so it was not run. `report` holds those findings; `unchecked` counts every
+    /// query that could not be judged (unreadable, past the cap, or not answered by the check);
+    /// `ran` is what was checked, which Run anyway runs. A text change drops the notice, as it
+    /// does a syntax notice.
+    IndexMiss {
+        report: GuardReport,
+        unchecked: usize,
+        ran: Option<Range<usize>>,
+    },
+}
+
+/// The guard check a `Checking` shell waits for: what it would run once the check lets it, and
+/// how many of its queries the check was never asked about.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PendingCheck {
+    /// The range checked (`None`: the whole script).
+    pub ran: Option<Range<usize>>,
+    /// Calls the reader could not read plus the calls past the cap.
+    pub unchecked: usize,
 }
 
 /// What to run: the selection, else the whole script.
@@ -72,6 +97,8 @@ pub struct ShellState {
     /// Bumped each time the editor must take the keyboard focus (Go to problem); the editor
     /// takes it once for every value greater than the last one it saw. Nothing else changes it.
     pub editor_focus: u64,
+    /// While `Checking`: what the check is for. `None` in any other status.
+    pub pending_check: Option<PendingCheck>,
 }
 
 impl Default for ShellState {
@@ -88,6 +115,7 @@ impl Default for ShellState {
             mode: OutputMode::Text,
             result: ResultView::default(),
             editor_focus: 0,
+            pending_check: None,
         }
     }
 }
@@ -97,51 +125,99 @@ impl ShellState {
         matches!(self.status, ShellStatus::Running { .. })
     }
 
+    /// Running, or checking its queries before a run: a second Run is refused and Cancel works.
+    pub fn is_busy(&self) -> bool {
+        matches!(
+            self.status,
+            ShellStatus::Running { .. } | ShellStatus::Checking { .. }
+        )
+    }
+
     /// Whether the Run button is enabled: idle and the script has non-whitespace text.
     pub fn can_run(&self) -> bool {
-        !self.is_running() && !self.script.trim().is_empty()
+        !self.is_busy() && !self.script.trim().is_empty()
     }
 
     pub(super) fn is_current(&self, run_id: u64) -> bool {
         self.status == (ShellStatus::Running { run_id })
     }
 
-    /// The text or the selection changed in the editor. A syntax notice goes once the text
-    /// changes (its range would point at the wrong bytes); the other notices stay.
+    /// The text or the selection changed in the editor. A syntax or index notice goes once the
+    /// text changes (its range would point at the wrong bytes), and so does a check in flight
+    /// (it checked other text); the other notices stay.
     pub fn edited(&self, script: String, selection: Option<Range<usize>>) -> Self {
         Self {
-            notice: self.notice_for(&script),
-            script,
             selection,
-            ..self.clone()
+            ..self.text_set(script)
         }
     }
 
     pub fn formatted(&self) -> Self {
         let result = format_script(&self.script, self.effective_selection());
         Self {
-            notice: self.notice_for(&result.text),
-            script: result.text,
             selection: result.selection,
-            ..self.clone()
+            ..self.text_set(result.text)
+        }
+    }
+
+    /// The script becomes `script`: when it changed, the notices about the old text and a check
+    /// of it go (the check's late answer then matches nothing).
+    fn text_set(&self, script: String) -> Self {
+        let next = match script != self.script {
+            true => self.check_dropped(),
+            false => self.clone(),
+        };
+        Self {
+            notice: self.notice_for(&script),
+            script,
+            ..next
         }
     }
 
     /// Run: the text to run is checked first, and a visibly broken one is not run.
     pub fn run_requested(&self) -> (Self, Option<RunRequest>) {
-        self.run_with(self.effective_selection(), true)
+        self.started_from(self.run_target(true))
     }
 
     /// Run anyway: as `run_requested`, without the syntax check (this once). While the syntax
-    /// notice is up it runs exactly what was checked (the text cannot have changed: a text change
-    /// drops the notice), whatever the caret or the selection did since (Go to problem moves the
-    /// caret); without the notice it runs the selection, else the whole script.
+    /// or index notice is up it runs exactly what was checked (the text cannot have changed: a
+    /// text change drops the notice), whatever the caret or the selection did since (Go to
+    /// problem moves the caret); without either it runs the selection, else the whole script.
     pub fn run_anyway(&self) -> (Self, Option<RunRequest>) {
-        let range = match &self.notice {
-            Some(ShellNotice::SyntaxProblem { ran, .. }) => ran.clone(),
+        self.started_from(self.run_target(false))
+    }
+
+    /// What a Run (`syntax`: checked) or Run anyway would run, as a range of the script (`None`:
+    /// all of it), or the shell as it is to show instead: unchanged while busy, else with the
+    /// empty-script or syntax notice. Nothing starts.
+    pub fn run_target(&self, syntax: bool) -> Result<Option<Range<usize>>, Box<Self>> {
+        let range = match (&self.notice, syntax) {
+            (Some(ShellNotice::SyntaxProblem { ran, .. }), false)
+            | (Some(ShellNotice::IndexMiss { ran, .. }), false) => ran.clone(),
             _ => self.effective_selection(),
         };
-        self.run_with(range, false)
+        self.prepared(range, syntax)
+    }
+
+    /// The text of `range` of the script (`None`, or a range off its char boundaries: all of it).
+    pub fn text_of(&self, range: &Option<Range<usize>>) -> &str {
+        range
+            .as_ref()
+            .and_then(|r| self.script.get(r.clone()))
+            .unwrap_or(&self.script)
+    }
+
+    fn started_from(
+        &self,
+        target: Result<Option<Range<usize>>, Box<Self>>,
+    ) -> (Self, Option<RunRequest>) {
+        match target {
+            Ok(range) => {
+                let (next, request) = self.started(self.text_of(&range));
+                (next, Some(request))
+            }
+            Err(next) => (*next, None),
+        }
     }
 
     /// Go to problem: a collapsed caret at the problem's first byte (kept inside the script, on a
@@ -160,10 +236,14 @@ impl ShellState {
         }
     }
 
-    /// Runs `range` of the script (`None`: all of it), checked first when `checked`.
-    fn run_with(&self, range: Option<Range<usize>>, checked: bool) -> (Self, Option<RunRequest>) {
-        if self.is_running() {
-            return (self.clone(), None);
+    /// `range` of the script (`None`: all of it) when it may run, checked first when `checked`.
+    fn prepared(
+        &self,
+        range: Option<Range<usize>>,
+        checked: bool,
+    ) -> Result<Option<Range<usize>>, Box<Self>> {
+        if self.is_busy() {
+            return Err(Box::new(self.clone()));
         }
         // A range off the script's char boundaries cannot happen (a text change drops the notice
         // that stored it); should it, the whole script is the safe reading.
@@ -173,17 +253,16 @@ impl ShellState {
             None => (0, self.script.as_str()),
         };
         if text.trim().is_empty() {
-            return (self.with_notice(ShellNotice::EmptyScript), None);
+            return Err(Box::new(self.with_notice(ShellNotice::EmptyScript)));
         }
         if let Some(problem) = checked.then(|| check(text)).flatten() {
             let notice = ShellNotice::SyntaxProblem {
                 problem: problem.placed_in(&self.script, start),
                 ran: range,
             };
-            return (self.with_notice(notice), None);
+            return Err(Box::new(self.with_notice(notice)));
         }
-        let (next, request) = self.started(text);
-        (next, Some(request))
+        Ok(range)
     }
 
     /// A Run refused before it started: only the notice changes, so the previous run's output
@@ -198,7 +277,11 @@ impl ShellState {
     /// The notice once the script becomes `script`.
     fn notice_for(&self, script: &str) -> Option<ShellNotice> {
         match &self.notice {
-            Some(ShellNotice::SyntaxProblem { .. }) if script != self.script => None,
+            Some(ShellNotice::SyntaxProblem { .. } | ShellNotice::IndexMiss { .. })
+                if script != self.script =>
+            {
+                None
+            }
             other => other.clone(),
         }
     }
@@ -229,6 +312,7 @@ impl ShellState {
             next_run_id: run_id + 1,
             notice: None,
             result: ResultView::pending(run_id),
+            pending_check: None,
             ..self.clone()
         };
         (next, request)

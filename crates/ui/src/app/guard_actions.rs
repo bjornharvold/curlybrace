@@ -4,8 +4,8 @@
 //! run goes on as if there were no guard.
 //!
 //! Guard checks are numbered from `AppState::guard_request`, which the Shell tab shares: an answer
-//! is offered to the query bar first ([`awaits`]) and, when it is not the query bar's, left to the
-//! next consumer.
+//! is offered to the query bar first ([`awaits`]) and, when it is not the query bar's, to the
+//! Shell tab (`shell_guard`).
 
 use super::explain_actions::error_variant;
 use super::reducer::Out;
@@ -43,7 +43,7 @@ impl GuardState {
 
 /// Whether a query is worth checking: with neither a filter nor a sort the server reads the
 /// collection in natural order whatever indexes exist, so there is nothing to warn about.
-fn worth_checking(query: &Query) -> bool {
+pub(super) fn worth_checking(query: &Query) -> bool {
     !(query.filter.is_empty() && query.sort.is_none())
 }
 
@@ -84,8 +84,8 @@ pub(super) fn awaits(state: &AppState, request: u64) -> bool {
 }
 
 /// `Event::GuardChecked`, offered to the query bar's check first. An answer the query bar does
-/// not await belongs to another consumer of the shared counter, or to a check that is gone; no
-/// other consumer exists yet, so it is dropped.
+/// not await goes to the Shell tab, which drops it in turn when no shell waits for it (a check
+/// that is gone).
 pub(super) fn answered(
     state: AppState,
     request: u64,
@@ -94,16 +94,16 @@ pub(super) fn answered(
     if awaits(&state, request) {
         return checked(state, outcome);
     }
-    (state, Vec::new())
+    super::shell_guard::answered(state, request, outcome)
 }
 
 /// `Event::RequestFailed` of a guard check that could not start, routed like [`answered`]. The
-/// query bar's run goes on, without a banner, exactly as after a failed check.
+/// query bar's or the shell's run goes on, without a banner, exactly as after a failed check.
 pub(super) fn not_started(state: AppState, request: u64, error: CoreError) -> Out {
     if awaits(&state, request) {
         return checked(state, Err(error));
     }
-    (state, Vec::new())
+    super::shell_guard::answered(state, request, Err(error))
 }
 
 /// The answer to the query bar's check (the caller made sure it [`awaits`] it). Findings hold the

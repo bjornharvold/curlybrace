@@ -54,6 +54,8 @@ pub mod session;
 mod session_actions;
 pub mod settings_file;
 pub mod shell_actions;
+mod shell_guard;
+mod shell_preflight;
 pub mod shell_state;
 pub mod state;
 mod tool_picker;

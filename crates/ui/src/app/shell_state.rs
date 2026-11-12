@@ -54,8 +54,8 @@ impl ShellTabs {
         }
     }
 
-    /// The connection of `session` was lost or is being reopened: its shell goes back to idle
-    /// and what was known of its server is forgotten. The script and the run counter stay (a
+    /// The connection of `session` was lost or is being reopened: its shell goes back to idle (a
+    /// guard check in flight is forgotten, and its late answer matches nothing) and what was known of its server is forgotten. The script and the run counter stay (a
     /// restarted counter would let a late event of the old run match a new one); the output
     /// stays until the next run clears it, and so does the run's value (a run cut short here
     /// has none: the Table and Tree say it failed). The chosen output mode stays.
@@ -71,6 +71,7 @@ impl ShellTabs {
         };
         let idle = ShellState {
             status: ShellStatus::Idle,
+            pending_check: None,
             output: shell.output.closed(),
             notice: None,
             ..shell.result_interrupted()

@@ -3,16 +3,17 @@
 //!
 //! A run is guarded in this order, and every refusal sends nothing: the session must be
 //! connected, its connection must not be read-only (the core refuses it too), `mongosh` must
-//! resolve, and must not be older than the server when both versions are known. A production
-//! connection then asks for confirmation on every run, through the production write warning.
+//! resolve, and must not be older than the server when both versions are known. The text then
+//! passes the syntax check and, with the guard on, the index-miss check (`shell_guard`), whose
+//! answer comes back later. A production connection then asks for confirmation on every run,
+//! through the production write warning.
 use super::reducer::Out;
+use super::shell_preflight::usable;
 use super::state::{AppState, ConnStatus, Workspace};
-use super::tools_state::{ProbeScope, ProbeStatus};
 use super::write_guard::{ParkedWrite, WriteKind};
-use crate::viewmodel::shell::{ShellNotice, ShellState, ShellStatus, ToolProblem};
+use crate::viewmodel::shell::{ShellNotice, ShellState, ShellStatus};
 use crate::viewmodel::shell_result::OutputMode;
-use curlybrace_core::runtime::{Command, Event, ShellRefusal};
-use curlybrace_core::tools::{Compatibility, ToolKind, compatibility, resolve};
+use curlybrace_core::runtime::{Command, Event};
 use std::ops::Range;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -25,10 +26,12 @@ pub enum ShellAction {
         selection: Option<Range<usize>>,
     },
     Run,
-    /// Run without the syntax check, after it stopped a Run. Every other guard of Run applies.
+    /// Run without the syntax check, after it stopped a Run. Every other guard of Run applies;
+    /// after an index notice the index check is skipped too (it runs exactly what was checked).
     RunAnyway,
     /// Select the bytes of the syntax notice's problem in the editor. Never runs anything.
     GoToProblem,
+    /// Stop the run, or the index check before it; also drops an index notice.
     Cancel,
     Format,
     /// Show the Shell tab of the active session (only while it is connected).
@@ -188,7 +191,7 @@ pub(super) fn confirmed(state: AppState, parked: ParkedWrite) -> Out {
         return unchanged(AppState { banner, ..state });
     }
     let shell = state.shell_or_new(session);
-    if shell.is_running() {
+    if shell.is_busy() {
         return unchanged(state);
     }
     // The script as it was when Run was clicked runs, whatever the editor holds now.
@@ -223,32 +226,45 @@ enum Check {
     Skip,
 }
 
-/// Run and Run anyway share every guard; only the syntax check differs. A run parked for the
-/// production confirmation is never checked again: `confirmed` sends the parked text.
+/// Run and Run anyway share every guard; only the syntax check differs, and Run anyway on an
+/// index notice skips the index check too. A run parked for the production confirmation is
+/// never checked again: `confirmed` sends the parked text.
 fn run(state: AppState, id: Uuid, check: Check) -> Out {
     let shell = state.shell_or_new(id);
-    if shell.is_running() || state.write_warning.is_some() {
+    if shell.is_busy() || state.write_warning.is_some() {
         return unchanged(state);
     }
-    if state.status != ConnStatus::Connected {
-        return notice(state, id, ShellNotice::Refused(ShellRefusal::NotConnected));
-    }
-    if state.session_read_only(id) {
-        return notice(state, id, ShellNotice::Refused(ShellRefusal::ReadOnly));
-    }
-    let exe = match mongosh(&state, id) {
+    let exe = match usable(&state, id) {
         Ok(exe) => exe,
-        Err(problem) => return notice(state, id, ShellNotice::ToolProblem(problem)),
+        Err(refusal) => return notice(state, id, refusal),
     };
-    let (started, request) = match check {
-        Check::Syntax => shell.run_requested(),
-        Check::Skip => shell.run_anyway(),
-    };
+    let index_checked =
+        check == Check::Syntax || !matches!(shell.notice, Some(ShellNotice::IndexMiss { .. }));
     // An empty or broken script: the view-model's notice, and no warning about a run that
     // does not happen.
-    let Some(request) = request else {
-        return unchanged(state.with_shell(id, started));
+    let range = match shell.run_target(check == Check::Syntax) {
+        Ok(range) => range,
+        Err(refused) => return unchanged(state.with_shell(id, *refused)),
     };
+    if !index_checked {
+        return send(state, id, &shell, exe, range);
+    }
+    match super::shell_guard::check_first(state, id, &shell, range.clone()) {
+        super::shell_guard::Guarded::Checking(out) => out,
+        super::shell_guard::Guarded::Clear(state) => send(state, id, &shell, exe, range),
+    }
+}
+
+/// Runs `range` of `shell`'s script (`None`: all of it) with `exe`, after every check passed:
+/// at once, or on a production connection parked in the write warning.
+pub(super) fn send(
+    state: AppState,
+    id: Uuid,
+    shell: &ShellState,
+    exe: PathBuf,
+    range: Option<Range<usize>>,
+) -> Out {
+    let (started, request) = shell.started(shell.text_of(&range));
     let command = Command::ShellRun {
         session: id,
         run_id: request.run_id,
@@ -272,9 +288,16 @@ fn run(state: AppState, id: Uuid, check: Check) -> Out {
     (state.with_shell(id, started), vec![command])
 }
 
+/// Stops the running `mongosh`, or forgets the index check before a run (nothing was sent to
+/// stop: its late answer is ignored); an index notice goes too.
 fn cancel(state: AppState, id: Uuid) -> Out {
     let commands = cancel_running(&state, id).into_iter().collect();
-    (state, commands)
+    let shell = state.shell.get(id).map(ShellState::check_cancelled);
+    let next = match shell {
+        Some(shell) => state.with_shell(id, shell),
+        None => state,
+    };
+    (next, commands)
 }
 
 /// The cancel of the run the shell of `id` shows as running, if any. Sent by the user's Cancel
@@ -290,43 +313,9 @@ pub(super) fn cancel_running(state: &AppState, id: Uuid) -> Option<Command> {
     }
 }
 
-/// The `mongosh` the session's connection uses, or why it cannot be used.
-fn mongosh(state: &AppState, id: Uuid) -> Result<PathBuf, ToolProblem> {
-    let choice = state.tools.settings.effective(ToolKind::Mongosh, Some(id));
-    let exe = resolve(
-        ToolKind::Mongosh,
-        &choice,
-        state.tool_search_path.as_deref(),
-    )
-    .map_err(ToolProblem::Missing)?;
-    match too_old(state, id) {
-        Some(problem) => Err(problem),
-        None => Ok(exe),
-    }
-}
-
-/// `TooOld` when the version check of the session's `mongosh` has answered and the server version
-/// is known; anything unknown is not flagged (and no check is run from here).
-fn too_old(state: &AppState, id: Uuid) -> Option<ToolProblem> {
-    let server = state.shell.server_version(id)?;
-    let status = state
-        .tools
-        .shown_status(ProbeScope::Connection(id), ToolKind::Mongosh);
-    let Some(ProbeStatus::Done(Ok(tool))) = status else {
-        return None;
-    };
-    match compatibility(ToolKind::Mongosh, *tool, Some(server)) {
-        Compatibility::TooOld => Some(ToolProblem::TooOld {
-            tool: *tool,
-            server,
-        }),
-        Compatibility::Ok | Compatibility::Unknown => None,
-    }
-}
-
 /// A Run refused before it started: only the notice changes. Nothing ran, so the previous run's
 /// output and value stay, as for an empty script.
-fn notice(state: AppState, id: Uuid, notice: ShellNotice) -> Out {
+pub(super) fn notice(state: AppState, id: Uuid, notice: ShellNotice) -> Out {
     let shell = ShellState {
         notice: Some(notice),
         ..state.shell_or_new(id)
@@ -339,11 +328,11 @@ fn unchanged(state: AppState) -> Out {
 }
 
 impl AppState {
-    fn shell_or_new(&self, id: Uuid) -> ShellState {
+    pub(super) fn shell_or_new(&self, id: Uuid) -> ShellState {
         self.shell.get_or_new(id)
     }
 
-    fn with_shell(self, id: Uuid, shell: ShellState) -> AppState {
+    pub(super) fn with_shell(self, id: Uuid, shell: ShellState) -> AppState {
         let tabs = Box::new((*self.shell).with(id, shell));
         AppState {
             shell: tabs,

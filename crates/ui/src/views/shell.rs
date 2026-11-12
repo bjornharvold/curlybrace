@@ -69,9 +69,9 @@ impl Gates {
     fn of(state: &ShellState, script: &str, ctx: &ShellViewContext<'_>) -> Self {
         let has_text = !script.trim().is_empty();
         Self {
-            run: ctx.connected && !ctx.badge.read_only && !state.is_running() && has_text,
-            // A running shell can always be stopped.
-            cancel: state.is_running(),
+            run: ctx.connected && !ctx.badge.read_only && !state.is_busy() && has_text,
+            // A running shell can always be stopped, and a check before a run dropped.
+            cancel: state.is_busy(),
             // Formatting edits the draft only, so it works offline and on read-only connections.
             format: has_text,
         }
@@ -252,7 +252,7 @@ fn run_hint(state: &ShellState, ctx: &ShellViewContext<'_>, shortcut: &str, i18n
         "shell.run_disabled_not_connected"
     } else if ctx.badge.read_only {
         "shell.run_disabled_read_only"
-    } else if state.is_running() {
+    } else if state.is_busy() {
         "shell.run_disabled_running"
     } else if state.script.trim().is_empty() {
         "shell.run_disabled_empty"

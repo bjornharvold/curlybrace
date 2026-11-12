@@ -40,6 +40,8 @@ pub fn notice_text(notice: &ShellNotice, i18n: &I18n) -> (Severity, String) {
         ShellNotice::SyntaxProblem { problem, .. } => {
             (Severity::Warning, not_run_text(problem, i18n))
         }
+        // The index notice is not drawn as a sentence of its own yet: no words.
+        ShellNotice::IndexMiss { .. } => (Severity::Warning, String::new()),
     }
 }
 
