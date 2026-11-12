@@ -28,7 +28,8 @@ pub(crate) struct Popup {
     pub word_start: usize,
     /// The caret (bytes) the names were computed for.
     pub caret: usize,
-    /// Opened on demand (Ctrl+Space), so an emptied or already complete word still lists names.
+    /// Opened on demand (Ctrl+Space) and the text not changed since, so an empty or already
+    /// complete word still lists names. Typing turns it into a typed list.
     pub forced: bool,
 }
 
@@ -89,7 +90,10 @@ fn followed(prev: Option<Popup>, moment: &Moment<'_>, collections: &[String]) ->
             if !moment.changed && prev.caret == caret {
                 return Some(prev);
             }
-            let next = opened(moment.text, caret, start, prev.forced, collections)?;
+            // Ctrl+Space's list stays forced only while the text is unchanged: a word typed on
+            // makes it a typed list again, which an exact word closes (Enter stays a newline).
+            let forced = prev.forced && !moment.changed;
+            let next = opened(moment.text, caret, start, forced, collections)?;
             let label = &prev.completion.items[prev.selected].label;
             let selected = next
                 .completion

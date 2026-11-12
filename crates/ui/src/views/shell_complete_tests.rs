@@ -412,6 +412,36 @@ fn ctrl_space_after_a_complete_word_offers_the_longer_names() {
 }
 
 #[test]
+fn a_keyword_typed_out_after_ctrl_space_leaves_enter_to_the_editor() {
+    for word in ["print", "it"] {
+        let mut h = harness("", &[]);
+        caret_at(&mut h, 0);
+        press_with(&mut h, Modifiers::CTRL, Key::Space);
+        assert!(list_open(&h));
+        type_text(&mut h, word);
+        press(&mut h, Key::Enter);
+        assert_eq!(h.state().shell.script, format!("{word}\n"));
+    }
+}
+
+#[test]
+fn typing_after_ctrl_space_turns_the_list_into_a_typed_one() {
+    let forced = Moment {
+        forced: true,
+        ..moment("", 0)
+    };
+    let open = next_popup(None, &forced, &[]);
+    assert!(open.as_ref().is_some_and(|p| p.forced));
+    let typed_on = next_popup(open, &typed("pri"), &[]);
+    assert_eq!(labels(&typed_on), ["print", "printjson"]);
+    assert!(
+        !typed_on.as_ref().is_some_and(|p| p.forced),
+        "a typed list now"
+    );
+    assert_eq!(next_popup(typed_on, &typed("print"), &[]), None);
+}
+
+#[test]
 fn a_pick_in_the_middle_of_a_word_does_not_double_it() {
     // db.u|sxs: the word `usxs` is not `users` yet, so the list is up.
     let mut h = harness("db.sxs.find()", &["users"]);
