@@ -74,10 +74,10 @@ pub fn check(text: &str) -> Option<SyntaxProblem> {
         }
     }
     // Brackets left open count only when the scan ran to the end; the innermost, nearest the end, is the one to fix.
-    if !candidates.iter().any(|(k, _)| is_bracket_error(k))
-        && let Some(&(opener, at)) = open.last()
-    {
-        candidates.push((ProblemKind::UnclosedBracket(opener), at..at + 1));
+    if !candidates.iter().any(|(k, _)| is_bracket_error(k)) {
+        if let Some(&(opener, at)) = open.last() {
+            candidates.push((ProblemKind::UnclosedBracket(opener), at..at + 1));
+        }
     }
     // Quirk: first in text order, so an earlier unclosed opener beats a later unterminated string that swallowed its closer.
     let (kind, range) = candidates.into_iter().min_by_key(|(_, r)| r.start)?;
