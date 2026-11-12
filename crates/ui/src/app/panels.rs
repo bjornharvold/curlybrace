@@ -256,12 +256,14 @@ fn show_shell_tab(
     let empty = ShellState::default();
     let shell = state.shell.get(session).unwrap_or(&empty);
     let connection = state.active_connection_label(i18n);
+    let collections = state.sidebar.loaded_collections();
     let context = ShellViewContext {
         session,
         connection: &connection,
         badge: state.active_badge(),
         connected: state.status == ConnStatus::Connected,
         now_secs,
+        collections: &collections,
     };
     let events = show_shell(ui, shell, context, i18n)
         .into_iter()

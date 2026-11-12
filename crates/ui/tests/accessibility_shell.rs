@@ -90,6 +90,7 @@ fn harness(frame: Frame) -> Harness<'static, Frame> {
                     badge: frame.badge,
                     connected: frame.connected,
                     now_secs: NOW,
+                    collections: &[],
                 };
                 let events = show_shell(ui, &frame.shell, ctx, &i18n);
                 for event in &events {

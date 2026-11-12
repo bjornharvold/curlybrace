@@ -3,8 +3,10 @@
 //!
 //! Where the caret is comes from a short backward look from the caret (identifier characters,
 //! `.`, `$`), after [`scan_code`] confirmed the word is code: never in a string, template text,
-//! comment or regular expression. The word is a prefix; nothing is offered for an empty word
-//! unless the caret follows a `.` (or is `$`, which is part of the word).
+//! comment or regular expression. The word is a prefix; while typing, nothing is offered for an
+//! empty word unless the caret follows a `.` (or is `$`, which is part of the word). Asked for on
+//! demand ([`complete_forced`], `Ctrl+Space`), an empty word also gets the statement words at a
+//! statement start and the `show` arguments after `show `.
 use super::shell_complete_data::{COLLECTION_METHODS, DB_METHODS, SHOW_ARGS, STATEMENT_WORDS};
 use super::shell_complete_ops::OPERATORS;
 use super::shell_scan::{CodeScan, scan_code};
@@ -66,8 +68,23 @@ struct Context {
 /// Suggestions for the word ending at `caret` (a byte offset; one inside a char is moved back to
 /// its start). `collections` is every loaded collection name, sorted and without duplicates.
 pub fn complete(text: &str, caret: usize, collections: &[String]) -> Option<Completion> {
+    complete_with(text, caret, collections, false)
+}
+
+/// As [`complete`], asked for on demand: an empty word in code also gets the statement words at
+/// a statement start, or the `show` arguments after `show `.
+pub fn complete_forced(text: &str, caret: usize, collections: &[String]) -> Option<Completion> {
+    complete_with(text, caret, collections, true)
+}
+
+fn complete_with(
+    text: &str,
+    caret: usize,
+    collections: &[String],
+    forced: bool,
+) -> Option<Completion> {
     let caret = floor_boundary(text, caret)?;
-    let ctx = context(text, caret)?;
+    let ctx = context(text, caret, forced)?;
     let prefix = text[ctx.word.clone()].to_lowercase();
     let mut items = items_for(ctx.place, &prefix, collections);
     items.truncate(MAX_ITEMS);
@@ -80,7 +97,7 @@ pub fn complete(text: &str, caret: usize, collections: &[String]) -> Option<Comp
 /// Where the caret is, when completion applies there at all (ignoring whether a name matches).
 pub fn place_at(text: &str, caret: usize) -> Option<Place> {
     let caret = floor_boundary(text, caret)?;
-    context(text, caret).map(|c| c.place)
+    context(text, caret, false).map(|c| c.place)
 }
 
 fn floor_boundary(text: &str, caret: usize) -> Option<usize> {
@@ -90,12 +107,13 @@ fn floor_boundary(text: &str, caret: usize) -> Option<usize> {
     (0..=caret).rev().find(|&i| text.is_char_boundary(i))
 }
 
-fn is_word_byte(b: u8) -> bool {
+/// A byte of an identifier (`$` included).
+pub(crate) fn is_word_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
 /// Start of the identifier that ends at `end`.
-fn word_start(bytes: &[u8], end: usize) -> usize {
+pub(crate) fn word_start(bytes: &[u8], end: usize) -> usize {
     (0..end)
         .rev()
         .take_while(|&i| is_word_byte(bytes[i]))
@@ -112,14 +130,20 @@ fn skip_ws_back(bytes: &[u8], end: usize) -> usize {
         .unwrap_or(end)
 }
 
-fn context(text: &str, caret: usize) -> Option<Context> {
+fn context(text: &str, caret: usize, forced: bool) -> Option<Context> {
     let bytes = text.as_bytes();
     let scan = scan_code(text);
     let start = word_start(bytes, caret);
     let word = start..caret;
     if word.is_empty() {
-        // Only a `.` leads to a member list.
-        return member(bytes, &scan, start, word);
+        let after_dot = start > 0 && bytes[start - 1] == b'.';
+        if after_dot || !forced {
+            // While typing, only a `.` leads to a list.
+            return member(bytes, &scan, start, word);
+        }
+        return caret_in_code(text, caret)
+            .then(|| statement(bytes, &scan, start, word))
+            .flatten();
     }
     if bytes[start].is_ascii_digit() || !scan.in_code[word.clone()].iter().all(|&c| c) {
         return None;
@@ -131,6 +155,12 @@ fn context(text: &str, caret: usize) -> Option<Context> {
         return member(bytes, &scan, start, word);
     }
     statement(bytes, &scan, start, word)
+}
+
+/// Whether a word typed at `caret` would be code (not inside a string, comment or the like).
+fn caret_in_code(text: &str, caret: usize) -> bool {
+    let probe = format!("{} ", &text[..caret]);
+    scan_code(&probe).in_code[caret]
 }
 
 /// `$word` counts inside an object or array, not after a `.` or at the top of a script.

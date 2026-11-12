@@ -404,6 +404,25 @@ fn go_to_problem_selects_the_problem_and_keeps_the_rest() {
 }
 
 #[test]
+fn every_go_to_problem_asks_the_editor_for_the_focus_once_more() {
+    let (state, _) = with_script("db.b.find(", None).run_requested();
+    let once = state.problem_selected();
+    let twice = once.problem_selected();
+    assert_ne!(once.editor_focus, state.editor_focus);
+    assert_ne!(
+        twice.editor_focus, once.editor_focus,
+        "a second click asks again"
+    );
+    assert_eq!(twice.selection, once.selection);
+    let typed = twice.edited("db.b.find()".into(), None);
+    assert_eq!(
+        typed.editor_focus, twice.editor_focus,
+        "typing asks nothing"
+    );
+    assert_eq!(typed.formatted().editor_focus, twice.editor_focus);
+}
+
+#[test]
 fn go_to_problem_without_a_syntax_notice_changes_nothing() {
     let state = with_script("db.a.find()", Some(0..2));
     assert_eq!(state.problem_selected(), state);

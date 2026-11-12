@@ -64,6 +64,9 @@ pub struct ShellState {
     pub mode: OutputMode,
     /// The last value of the current (or last) run, for the Table and Tree modes.
     pub result: ResultView,
+    /// Bumped each time the editor must take the keyboard focus (Go to problem); the editor
+    /// takes it once for every value it has not seen. Nothing else changes it.
+    pub editor_focus: u64,
 }
 
 impl Default for ShellState {
@@ -79,6 +82,7 @@ impl Default for ShellState {
             history: HistoryView::default(),
             mode: OutputMode::Text,
             result: ResultView::default(),
+            editor_focus: 0,
         }
     }
 }
@@ -129,13 +133,15 @@ impl ShellState {
     }
 
     /// Go to problem: the syntax notice's bytes become the selection (kept inside the script, on
-    /// char boundaries). Nothing else changes; without a syntax notice nothing does.
+    /// char boundaries) and the editor is asked for the focus, also when the selection was there
+    /// already. Nothing else changes; without a syntax notice nothing does.
     pub fn problem_selected(&self) -> Self {
         let Some(ShellNotice::SyntaxProblem(problem)) = &self.notice else {
             return self.clone();
         };
         Self {
             selection: self.clamped(&problem.range),
+            editor_focus: self.editor_focus.wrapping_add(1),
             ..self.clone()
         }
     }

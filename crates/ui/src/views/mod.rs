@@ -42,6 +42,7 @@ pub mod queries_consent;
 pub mod queries_rows;
 pub mod saved_copies;
 pub mod shell;
+mod shell_complete;
 mod shell_editor;
 pub mod shell_highlight;
 mod shell_history;

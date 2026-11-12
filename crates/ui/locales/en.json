@@ -1287,6 +1287,14 @@
       "unterminated_string": "The script was not run. Line {line}, column {column}: a string is never closed.",
       "unterminated_template": "The script was not run. Line {line}, column {column}: a template string (`) is never closed."
     },
+    "complete": {
+      "kind_collection": "collection",
+      "kind_collection_method": "collection method",
+      "kind_db_method": "database method",
+      "kind_operator": "operator",
+      "kind_word": "keyword",
+      "list_label": "Suggestions"
+    },
     "editor_hint": "Tab indents. Press Esc, then Tab, to leave the editor.",
     "editor_label": "Shell script",
     "editor_placeholder": "Write a mongosh script, for example db.users.find({})",

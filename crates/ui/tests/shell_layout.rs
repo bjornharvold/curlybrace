@@ -65,6 +65,7 @@ fn harness(size: egui::Vec2, shell: ShellState) -> Harness<'static, ShellState> 
                 badge: ConnectionBadge::default(),
                 connected: true,
                 now_secs: NOW,
+                collections: &[],
             };
             let _ = show_shell(ui, shell, ctx, &i18n);
         },

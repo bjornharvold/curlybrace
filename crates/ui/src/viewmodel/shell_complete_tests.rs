@@ -351,3 +351,48 @@ fn place_at_names_the_context() {
     assert_eq!(place_at("x = 1", 5), None);
     assert_eq!(place_at("'db.", 4), None);
 }
+
+// --- on demand (Ctrl+Space) -------------------------------------------------------------------
+
+fn forced_at_end(text: &str) -> Option<Completion> {
+    complete_forced(text, text.len(), &[])
+}
+
+#[test]
+fn on_demand_an_empty_word_at_a_statement_start_offers_the_statement_words() {
+    for text in ["", "x;\n", "print(1);", "if (a) {\n  "] {
+        let c = forced_at_end(text).unwrap_or_else(|| panic!("{text:?}"));
+        assert_eq!(c.replace, text.len()..text.len(), "{text:?}");
+        let expected: Vec<&str> = STATEMENT_WORDS.iter().take(12).copied().collect();
+        assert_eq!(labels(&Some(c)), expected, "{text:?}");
+    }
+}
+
+#[test]
+fn on_demand_an_empty_word_after_show_offers_the_show_arguments() {
+    let c = forced_at_end("show ");
+    assert_eq!(labels(&c), SHOW_ARGS);
+    assert_eq!(c.unwrap().replace, 5..5);
+}
+
+#[test]
+fn on_demand_offers_nothing_inside_literals_or_mid_expression() {
+    for text in [
+        "'a ", "\"a ", "`a ", "// a ", "/* a\n", "x = ", "f(", "x = /a ",
+    ] {
+        assert_eq!(forced_at_end(text), None, "{text:?}");
+    }
+}
+
+#[test]
+fn on_demand_a_typed_word_or_a_dot_completes_like_typing() {
+    let users = colls(&["users"]);
+    for (text, caret) in [("pri", 3), ("db.", 3), ("db.us", 5), ("f({ $ma", 7)] {
+        assert_eq!(
+            complete_forced(text, caret, &users),
+            complete(text, caret, &users),
+            "{text:?}"
+        );
+    }
+    assert_eq!(complete("", 0, &[]), None, "typing still needs a word");
+}

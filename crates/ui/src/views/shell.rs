@@ -40,6 +40,9 @@ pub struct ShellViewContext<'a> {
     /// The frame's wall-clock time (Unix seconds), read once by the caller; history rows say
     /// how long ago they ran against it.
     pub now_secs: i64,
+    /// The collection names the editor's completion offers: those of every database of the
+    /// session whose collections are loaded, sorted and without duplicates.
+    pub collections: &'a [String],
 }
 
 /// What the user asked for: a shell action, or the Tool paths dialog (offered when `mongosh`
@@ -97,7 +100,14 @@ pub fn show_shell(
     let open = state.history.open;
     let top = ui.cursor().min.y;
     let planned = heights(ui.available_height(), open, last_chrome(ui, ctx.session));
-    let edited = show_editor(ui, state, ctx.session, planned.editor, i18n);
+    let edited = show_editor(
+        ui,
+        state,
+        ctx.session,
+        planned.editor,
+        ctx.collections,
+        i18n,
+    );
     let editor_used = ui.cursor().min.y - top;
     // One wrapped label: two would cost a line break and a gap of the output pane's height.
     let (editor_hint, script_hint) = (i18n.t("shell.editor_hint"), i18n.t("shell.script_hint"));

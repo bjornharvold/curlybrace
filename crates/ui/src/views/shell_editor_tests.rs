@@ -60,7 +60,8 @@ fn harness_of(shells: BTreeMap<Uuid, ShellState>, session: Uuid) -> Harness<'sta
     let mut harness = Harness::new_ui_state(
         move |ui, frame: &mut Frame| {
             let session = frame.session;
-            let Some(edit) = show_editor(ui, frame.shell(session), session, 200.0, &i18n) else {
+            let Some(edit) = show_editor(ui, frame.shell(session), session, 200.0, &[], &i18n)
+            else {
                 return;
             };
             if let ShellAction::Edit { script, selection } = &edit {
@@ -150,10 +151,10 @@ fn the_states_selection_is_applied_only_when_the_state_changed_the_script() {
 }
 
 #[test]
-fn a_selection_the_state_moved_on_its_own_reaches_the_text_box_and_focuses_it() {
+fn a_selection_the_state_moved_on_its_own_reaches_the_text_box_without_taking_the_focus() {
     let mut h = harness(script("db.a.find(\nx", None));
     let edits_before = h.state().edits.len();
-    // Like Go to problem: only the selection changes, outside the editor.
+    // Like a Format that left the text: only the selection changes, outside the editor.
     let moved = h
         .state()
         .shell(A)
@@ -163,7 +164,35 @@ fn a_selection_the_state_moved_on_its_own_reaches_the_text_box_and_focuses_it() 
     assert_eq!(cursor_chars(&h, A), Some(9..10));
     assert_eq!(h.state().shell(A).selection, Some(9..10));
     assert_eq!(h.state().edits.len(), edits_before, "nothing reported back");
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+}
+
+/// The shell after a Run stopped on a syntax problem, then Go to problem.
+fn gone_to_problem(shell: &ShellState) -> ShellState {
+    shell.problem_selected()
+}
+
+#[test]
+fn every_go_to_problem_focuses_the_editor_and_shows_the_problem() {
+    let broken = script("db.a.find(\nx", None).run_requested().0;
+    let mut h = harness(broken);
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    let first = gone_to_problem(h.state().shell(A));
+    h.state_mut().shells.insert(A, first);
+    h.run_steps(2);
     assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    assert_eq!(cursor_chars(&h, A), Some(9..10));
+    // The focus moves away (the button was clicked), the editor is not touched, and Go to
+    // problem is clicked again: the same selection, focused again.
+    h.ctx.memory_mut(|m| m.surrender_focus(editor_id(A)));
+    h.run_steps(2);
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    let second = gone_to_problem(h.state().shell(A));
+    assert_eq!(second.selection, h.state().shell(A).selection);
+    h.state_mut().shells.insert(A, second);
+    h.run_steps(2);
+    assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
+    assert_eq!(cursor_chars(&h, A), Some(9..10));
 }
 
 #[test]
