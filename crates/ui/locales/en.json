@@ -1248,6 +1248,10 @@
     "write_failed": "Could not write the saved connections file."
   },
   "query": {
+    "guard": {
+      "setting": "Warn before queries that would scan a collection",
+      "setting_hint": "Before running a query, the app asks the server for its query plan and warns you if it would scan the whole collection, and you can still run it anyway."
+    },
     "verdict": {
       "automatic": "Check index use automatically",
       "checking": "Checking how this query runs...",

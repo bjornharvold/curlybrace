@@ -342,6 +342,11 @@ impl AppState {
         self.explain.automatic
     }
 
+    /// Whether a query is checked against the server's plan before it runs (the global setting).
+    pub fn guard_enabled(&self) -> bool {
+        self.explain.guard
+    }
+
     /// `(has_prev, has_next)` for the find bar.
     pub fn paging(&self) -> (bool, bool) {
         (

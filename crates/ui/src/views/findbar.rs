@@ -52,6 +52,16 @@ pub fn show_automatic_verdict(
         .then_some(FindAction::SetAutomaticVerdict(checked))
 }
 
+/// The global "warn before queries that would scan a collection" box; the tooltip says what the
+/// check costs. Same shape as [`show_automatic_verdict`].
+pub fn show_guard_setting(ui: &mut egui::Ui, guard: bool, i18n: &I18n) -> Option<FindAction> {
+    let mut checked = guard;
+    let response = ui
+        .checkbox(&mut checked, i18n.t("query.guard.setting"))
+        .on_hover_text(i18n.t("query.guard.setting_hint"));
+    response.changed().then_some(FindAction::SetGuard(checked))
+}
+
 /// An outlined single-line box whose label floats on the border (and is its accessible name);
 /// true when Enter was pressed in it.
 fn text_row(ui: &mut egui::Ui, keys: (&str, &str), value: &mut String, i18n: &I18n) -> bool {

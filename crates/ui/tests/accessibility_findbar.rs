@@ -62,6 +62,62 @@ fn clicking_reports_the_opposite_setting() {
     );
 }
 
+mod guard_setting {
+    use curlybrace_ui::I18n;
+    use curlybrace_ui::views::findbar::{FindAction, show_guard_setting};
+    use eframe::egui;
+    use eframe::egui::accesskit::{Role, Toggled};
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    const LABEL: &str = "Warn before queries that would scan a collection";
+
+    struct Frame {
+        guard: bool,
+        seen: Vec<FindAction>,
+    }
+
+    fn open(guard: bool) -> Harness<'static, Frame> {
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(600.0, 200.0))
+            .build_ui_state(
+                |ui, frame: &mut Frame| {
+                    let action = show_guard_setting(ui, frame.guard, &I18n::english());
+                    frame.seen.extend(action);
+                },
+                Frame {
+                    guard,
+                    seen: Vec::new(),
+                },
+            );
+        harness.run_steps(4);
+        harness
+    }
+
+    #[test]
+    fn the_checkbox_has_its_label_and_state_and_no_missing_key_marker() {
+        for guard in [true, false] {
+            let harness = open(guard);
+            let checkbox = harness.get_by_role_and_label(Role::CheckBox, LABEL);
+            let expected = if guard { Toggled::True } else { Toggled::False };
+            assert_eq!(checkbox.accesskit_node().toggled(), Some(expected));
+            let mut labels = Vec::new();
+            for node in harness.root().children_recursive() {
+                labels.extend(node.accesskit_node().label());
+            }
+            assert!(labels.iter().all(|l| !l.contains('\u{27e6}')), "{labels:?}");
+        }
+    }
+
+    #[test]
+    fn clicking_reports_the_opposite_setting() {
+        let mut harness = open(true);
+        harness.get_by_role_and_label(Role::CheckBox, LABEL).click();
+        harness.run_steps(4);
+        assert_eq!(harness.state().seen, vec![FindAction::SetGuard(false)]);
+    }
+}
+
 mod query_bar {
     use curlybrace_ui::I18n;
     use curlybrace_ui::theme;

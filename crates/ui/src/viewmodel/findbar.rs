@@ -29,6 +29,9 @@ pub enum FindAction {
     Clear,
     /// The "check index use automatically" box was toggled; the value is the new setting.
     SetAutomaticVerdict(bool),
+    /// The "warn before queries that would scan a collection" box was toggled; the value is the
+    /// new setting.
+    SetGuard(bool),
 }
 
 /// A raw user gesture on the find bar, before validation.

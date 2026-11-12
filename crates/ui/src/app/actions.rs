@@ -156,12 +156,15 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
     if let FindAction::SetAutomaticVerdict(automatic) = action {
         return super::explain_settings::set_automatic(state, automatic);
     }
+    if let FindAction::SetGuard(guard) = action {
+        return super::explain_settings::set_guard(state, guard);
+    }
     gated(state, |s| match action {
         FindAction::Run(query) => {
             let enabled = s.explain_enabled();
             super::explain_actions::run(s, query, enabled)
         }
-        FindAction::SetAutomaticVerdict(_) => (s, Vec::new()),
+        FindAction::SetAutomaticVerdict(_) | FindAction::SetGuard(_) => (s, Vec::new()),
         FindAction::Clear => {
             let s = AppState {
                 find: FindBarState::default(),
