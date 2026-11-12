@@ -1,7 +1,8 @@
 //! The Shell tab: the connection it runs on and why it may not run, the Run / Cancel / Format
 //! toolbar (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`, and the finished run's notice as its
-//! status), the script editor, any other notice, the History panel and the output pane (with its
-//! `Text | Table | Tree` switch). It only draws and reports; every decision is the reducer's.
+//! status), the script editor with the first syntax problem under it, any other notice, the
+//! History panel and the output pane (with its `Text | Table | Tree` switch). It only draws and
+//! reports; every decision is the reducer's.
 //!
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.
@@ -11,6 +12,7 @@ use super::shell_history::show_history;
 use super::shell_layout::{heights, last_chrome, remember_chrome};
 use super::shell_notice::{notice_text, offers_problem_actions, offers_tool_paths};
 use super::shell_output::show_output;
+use super::shell_problem::show_problem_line;
 use super::tone_notice::{tone_notice, tone_status};
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
@@ -108,7 +110,19 @@ pub fn show_shell(
         ctx.collections,
         i18n,
     );
+    // The text as typed in this frame, so the problem line never lags a key behind.
+    let typed = match &edited {
+        Some(ShellAction::Edit { script, .. }) => script.as_str(),
+        _ => state.script.as_str(),
+    };
     let editor_used = ui.cursor().min.y - top;
+    // Part of the chrome (measured, see `shell_layout`): it takes a row only while there is a
+    // problem, and the next frame plans the heights with it.
+    let in_notice = match &state.notice {
+        Some(ShellNotice::SyntaxProblem(problem)) => Some(problem),
+        _ => None,
+    };
+    show_problem_line(ui, editor_id(ctx.session), typed, in_notice, i18n);
     // One wrapped label: two would cost a line break and a gap of the output pane's height.
     let (editor_hint, script_hint) = (i18n.t("shell.editor_hint"), i18n.t("shell.script_hint"));
     let hints = i18n.t_with(
@@ -137,11 +151,7 @@ pub fn show_shell(
     }
     let history = panel.action;
     let output = show_output(ui, state, ctx.session, i18n);
-    let script = match &edited {
-        Some(ShellAction::Edit { script, .. }) => script.as_str(),
-        _ => state.script.as_str(),
-    };
-    let shortcut = gated(pressed, Gates::of(state, script, &ctx));
+    let shortcut = gated(pressed, Gates::of(state, typed, &ctx));
     edited
         .into_iter()
         .chain(shortcut.or(clicked))

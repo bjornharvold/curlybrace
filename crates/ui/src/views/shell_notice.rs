@@ -37,7 +37,7 @@ pub fn notice_text(notice: &ShellNotice, i18n: &I18n) -> (Severity, String) {
         ShellNotice::Refused(refusal) => refusal_text(refusal, i18n),
         ShellNotice::ToolProblem(problem) => (Severity::Error, tool_text(problem, i18n)),
         ShellNotice::EmptyScript => (Severity::Warning, i18n.t("shell.notice.empty_script")),
-        ShellNotice::SyntaxProblem(problem) => (Severity::Warning, syntax_text(problem, i18n)),
+        ShellNotice::SyntaxProblem(problem) => (Severity::Warning, not_run_text(problem, i18n)),
     }
 }
 
@@ -46,8 +46,15 @@ pub fn offers_problem_actions(notice: &ShellNotice) -> bool {
     matches!(notice, ShellNotice::SyntaxProblem(_))
 }
 
-/// The problem and where it is (line and column of the whole script, 1-based).
-fn syntax_text(problem: &SyntaxProblem, i18n: &I18n) -> String {
+/// The notice of a Run the check stopped: that nothing ran, then the problem.
+fn not_run_text(problem: &SyntaxProblem, i18n: &I18n) -> String {
+    let problem = problem_text(problem, i18n);
+    i18n.t_with("shell.check.not_run", &[("problem", &problem)])
+}
+
+/// The problem and where it is (line and column of the whole script, 1-based). The notice and
+/// the problem line under the editor both read it.
+pub(crate) fn problem_text(problem: &SyntaxProblem, i18n: &I18n) -> String {
     let (line, column) = (problem.line.to_string(), problem.column.to_string());
     let (key, bracket, opener) = match problem.kind {
         ProblemKind::UnclosedBracket(c) => ("shell.check.unclosed_bracket", Some(c), None),

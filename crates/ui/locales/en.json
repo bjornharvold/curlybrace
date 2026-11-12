@@ -1279,13 +1279,15 @@
     "cancel_tooltip": "Stop the script that is running",
     "check": {
       "go_to": "Go to problem",
-      "mismatched_closing": "The script was not run. Line {line}, column {column}: {bracket} does not close the {opener} before it.",
+      "live": "Possible problem. {problem}",
+      "mismatched_closing": "Line {line}, column {column}: {bracket} does not close the {opener} before it.",
+      "not_run": "The script was not run. {problem}",
       "run_anyway": "Run anyway",
-      "unclosed_bracket": "The script was not run. Line {line}, column {column}: {bracket} is never closed.",
-      "unexpected_closing": "The script was not run. Line {line}, column {column}: {bracket} closes nothing.",
-      "unterminated_comment": "The script was not run. Line {line}, column {column}: a /* comment is never closed.",
-      "unterminated_string": "The script was not run. Line {line}, column {column}: a string is never closed.",
-      "unterminated_template": "The script was not run. Line {line}, column {column}: a template string (`) is never closed."
+      "unclosed_bracket": "Line {line}, column {column}: {bracket} is never closed.",
+      "unexpected_closing": "Line {line}, column {column}: {bracket} closes nothing.",
+      "unterminated_comment": "Line {line}, column {column}: a /* comment is never closed.",
+      "unterminated_string": "Line {line}, column {column}: a string is never closed.",
+      "unterminated_template": "Line {line}, column {column}: a template string (`) is never closed."
     },
     "complete": {
       "kind_collection": "collection",
@@ -1295,7 +1297,7 @@
       "kind_word": "keyword",
       "list_label": "Suggestions"
     },
-    "editor_hint": "Tab indents. Press Esc, then Tab, to leave the editor.",
+    "editor_hint": "Tab indents, Ctrl+Space suggests. Esc, then Tab, leaves the editor.",
     "editor_label": "Shell script",
     "editor_placeholder": "Write a mongosh script, for example db.users.find({})",
     "format": "Format",

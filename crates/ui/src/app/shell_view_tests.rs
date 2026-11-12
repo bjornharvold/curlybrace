@@ -159,11 +159,12 @@ fn clicked_shell_action(label: &str) -> Option<ShellAction> {
 #[test]
 fn a_syntax_problem_is_read_out_with_its_place() {
     let h = with_syntax_problem();
-    let text = I18n::english().t_with(
+    let i18n = I18n::english();
+    let problem = i18n.t_with(
         "shell.check.unclosed_bracket",
         &[("line", "1"), ("column", "10"), ("bracket", "(")],
     );
-    h.get_by_label(&text);
+    h.get_by_label(&i18n.t_with("shell.check.not_run", &[("problem", &problem)]));
 }
 
 #[test]

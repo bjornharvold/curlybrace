@@ -89,6 +89,26 @@ fn a_syntax_problem_is_a_warning_that_names_its_place_and_brackets() {
 }
 
 #[test]
+fn the_notice_says_the_script_was_not_run_around_the_same_problem_sentence() {
+    let i18n = I18n::english();
+    let found = problem(ProblemKind::UnclosedBracket('('));
+    let sentence = problem_text(&found, &i18n);
+    assert_eq!(
+        sentence,
+        i18n.t_with(
+            "shell.check.unclosed_bracket",
+            &[("line", "3"), ("column", "17"), ("bracket", "(")]
+        )
+    );
+    let notice = notice_text(&ShellNotice::SyntaxProblem(found), &i18n).1;
+    assert_eq!(
+        notice,
+        i18n.t_with("shell.check.not_run", &[("problem", &sentence)])
+    );
+    assert_ne!(notice, sentence, "the notice adds that nothing ran");
+}
+
+#[test]
 fn only_a_syntax_problem_offers_go_to_and_run_anyway() {
     let offering: Vec<_> = all_notices()
         .into_iter()
