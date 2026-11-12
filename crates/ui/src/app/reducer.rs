@@ -4,6 +4,7 @@ use super::bulk_actions::{self, BulkAction};
 use super::compare::{self, CompareAction};
 use super::connection_test;
 use super::copy::{self, CopyInput};
+use super::guard_actions;
 use super::index_actions;
 use super::index_write_actions;
 use super::persistence::PersistError;
@@ -314,6 +315,14 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             }
         }
         Event::Failed { context, error, .. } => (data_failed(state, context, error), Vec::new()),
+        // A guard check that could not start fails open: it never raises a banner, and the run it
+        // held back goes on. A lost server is noticed by that run's own find.
+        Event::RequestFailed {
+            context: "guard_check",
+            request,
+            error,
+            ..
+        } => guard_actions::not_started(state, request, error),
         // A numbered bulk read failed (a count that outran the client-side bound included). It
         // settles by its own id and never reaches the index panel's arm below, whose counter is
         // unrelated.
@@ -397,8 +406,9 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::AdminChanged { db, .. } => super::admin_actions::changed(state, db),
         // No view shows statistics yet; the answer is consumed.
         Event::CollectionStats { .. } | Event::DatabaseStats { .. } => (state, Vec::new()),
-        // Nothing issues a guard check yet; the answer is consumed until the guard is wired in.
-        Event::GuardChecked { .. } => (state, Vec::new()),
+        Event::GuardChecked {
+            request, outcome, ..
+        } => guard_actions::answered(state, request, outcome),
         Event::Explain {
             ns, query, outcome, ..
         } => (

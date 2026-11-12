@@ -120,6 +120,7 @@ fn open(state: AppState, ns: Namespace) -> Out {
         page: None,
         page_key: None,
         verdict: Default::default(),
+        guard: Default::default(),
         tree: state.tree.results_replaced(),
         editor: None,
         ..state
@@ -159,17 +160,21 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
     if let FindAction::SetGuard(guard) = action {
         return super::explain_settings::set_guard(state, guard);
     }
+    // Dropping a notice sends nothing, so it needs no connection either.
+    if let FindAction::GuardCancel = action {
+        return (super::guard_actions::dropped(state), Vec::new());
+    }
     gated(state, |s| match action {
-        FindAction::Run(query) => {
-            let enabled = s.explain_enabled();
-            super::explain_actions::run(s, query, enabled)
+        FindAction::Run(query) => super::guard_actions::run(s, query),
+        FindAction::GuardRunAnyway => super::guard_actions::run_anyway(s),
+        FindAction::SetAutomaticVerdict(_) | FindAction::SetGuard(_) | FindAction::GuardCancel => {
+            (s, Vec::new())
         }
-        FindAction::SetAutomaticVerdict(_) | FindAction::SetGuard(_) => (s, Vec::new()),
         FindAction::Clear => {
             let s = AppState {
                 find: FindBarState::default(),
                 verdict: Default::default(),
-                ..s
+                ..super::guard_actions::dropped(s)
             };
             issue_find(s, Query::default())
         }

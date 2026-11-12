@@ -129,8 +129,13 @@ pub(super) fn set_automatic(state: AppState, automatic: bool) -> Out {
     )
 }
 
-/// `FindAction::SetGuard`: the guard switch changes for every collection; nothing else moves.
+/// `FindAction::SetGuard`: the guard switch changes for every collection. Turning it off drops
+/// the guard of the run shown (a check in flight or its notice), which no longer applies.
 pub(super) fn set_guard(state: AppState, guard: bool) -> Out {
+    let state = match guard {
+        true => state,
+        false => super::guard_actions::dropped(state),
+    };
     (
         AppState {
             explain: ExplainSettings {

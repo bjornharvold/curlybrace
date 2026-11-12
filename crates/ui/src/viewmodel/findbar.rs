@@ -32,6 +32,10 @@ pub enum FindAction {
     /// The "warn before queries that would scan a collection" box was toggled; the value is the
     /// new setting.
     SetGuard(bool),
+    /// The guard's notice: send the find it held back, once, without checking it again.
+    GuardRunAnyway,
+    /// The guard's notice: drop it and the find it held back.
+    GuardCancel,
 }
 
 /// A raw user gesture on the find bar, before validation.

@@ -97,7 +97,11 @@ fn round_trips_false() {
 #[test]
 fn disabled_run_issues_only_find() {
     let state = AppState {
-        explain: off(),
+        // The guard is off too, so the find is not held back for its check.
+        explain: ExplainSettings {
+            guard: false,
+            ..off()
+        },
         ..browsing()
     };
     assert!(!state.explain_enabled());

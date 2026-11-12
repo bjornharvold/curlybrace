@@ -32,6 +32,9 @@ pub(super) fn browsing() -> AppState {
         .with_collections("app", vec!["people".into(), "pets".into()])
         .toggled("app")
         .selecting(ns());
+    // These tests are about the badge: a Run sends its find at once (`guard_tests` covers the
+    // guard, which would hold it back).
+    s.explain.guard = false;
     s
 }
 
