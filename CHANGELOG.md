@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0](https://github.com/bjornharvold/curlybrace/compare/v0.10.0...v0.11.0) (2026-11-12)
+
+
+### Features
+
+* **shell:** completion and a syntax check in the shell editor ([#147](https://github.com/bjornharvold/curlybrace/issues/147)) ([3de2224](https://github.com/bjornharvold/curlybrace/commit/3de2224d23abb23c79219d2d88656d440e27fcbc))
+* **shell:** table and tree view of a run's result ([#145](https://github.com/bjornharvold/curlybrace/issues/145)) ([3f995a7](https://github.com/bjornharvold/curlybrace/commit/3f995a71455338aa3338cbab67a1b14e1ba8af1b))
+
 ## [0.10.0](https://github.com/bjornharvold/curlybrace/compare/v0.9.0...v0.10.0) (2026-11-11)
 
 
