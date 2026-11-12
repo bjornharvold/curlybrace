@@ -53,16 +53,16 @@ pub enum ShellNotice {
     /// The guard planned the text to run and some of its queries would scan a collection (or sort
     /// in memory), so it was not run. `report` holds those findings; `unchecked` counts every
     /// query that could not be judged (unreadable, past the cap, or not answered by the check);
-    /// `ran` is what was checked, which Run anyway runs. A text change drops the notice, as it
-    /// does a syntax notice.
+    /// `ran` is what was checked, which Run anyway runs. A text change drops it, as a syntax one.
     IndexMiss {
         report: GuardReport,
         unchecked: usize,
         ran: Option<Range<usize>>,
     },
-    /// The check let a production run go on, but the write warning was already taken by
-    /// another write, so the run was not started; Run again once that one is answered.
+    /// A production run the check let go was not started: another write holds the warning.
     GuardNotStarted,
+    /// The same when the check answered in the background: only the active session confirms.
+    GuardNotStartedBackground,
 }
 
 /// What to run: the selection, else the whole script.

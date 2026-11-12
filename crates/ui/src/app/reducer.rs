@@ -322,7 +322,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             request,
             error,
             ..
-        } => guard_actions::not_started(state, request, error),
+        } => guard_actions::not_started(state, request, error, background),
         // A numbered bulk read failed (a count that outran the client-side bound included). It
         // settles by its own id and never reaches the index panel's arm below, whose counter is
         // unrelated.
@@ -408,7 +408,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::CollectionStats { .. } | Event::DatabaseStats { .. } => (state, Vec::new()),
         Event::GuardChecked {
             request, outcome, ..
-        } => guard_actions::answered(state, request, outcome),
+        } => guard_actions::answered(state, request, outcome, background),
         Event::Explain {
             ns, query, outcome, ..
         } => (

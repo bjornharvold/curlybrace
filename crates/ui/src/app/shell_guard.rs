@@ -85,10 +85,12 @@ pub(super) fn check_first(
 /// `Event::GuardChecked` (or a guard check that could not start, as `Err`) the query bar did
 /// not await. It belongs to the active session's shell when that shell waits for `request` (the
 /// reducer makes the event's session the active one); any other answer is stale and dropped.
+/// `background`: that session is not the one the person is looking at.
 pub(super) fn answered(
     state: AppState,
     request: u64,
     outcome: Result<GuardReport, CoreError>,
+    background: bool,
 ) -> Out {
     let Some(id) = state.active else {
         return (state, Vec::new());
@@ -102,22 +104,27 @@ pub(super) fn answered(
         Ok(report) if !report.findings.is_empty() && state.guard_enabled() => {
             (state.with_shell(id, shell.index_missed(report)), Vec::new())
         }
-        Ok(_) => go_on(state, id, &shell),
+        Ok(_) => go_on(state, id, &shell, background),
         Err(error) => {
             log::warn!(
                 "shell index guard check unavailable: {}",
                 error_variant(&error)
             );
-            go_on(state, id, &shell)
+            go_on(state, id, &shell, background)
         }
     }
 }
 
 /// The check let the run go on: the run is sent as a Run would send it, through every guard
 /// that can have changed since (connection, read-only, `mongosh`) and the production warning.
-fn go_on(state: AppState, id: Uuid, shell: &ShellState) -> Out {
+fn go_on(state: AppState, id: Uuid, shell: &ShellState, background: bool) -> Out {
     let (idle, pending) = shell.check_settled();
     let state = state.with_shell(id, idle.clone());
+    // A production run is confirmed only from the session the person is looking at (the
+    // confirmation shows and checks the active one): a background session's run is not started.
+    if background && state.session_production(id) {
+        return notice(state, id, ShellNotice::GuardNotStartedBackground);
+    }
     // Only a production run needs the warning, which holds one write at a time: when another
     // write took it while this check ran, it keeps it and the shell says the run did not start.
     if state.write_warning.is_some() && state.session_production(id) {
@@ -217,3 +224,7 @@ mod shell_guard_order_tests;
 #[cfg(test)]
 #[path = "shell_guard_switch_tests.rs"]
 mod shell_guard_switch_tests;
+
+#[cfg(test)]
+#[path = "shell_guard_background_tests.rs"]
+mod shell_guard_background_tests;

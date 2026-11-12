@@ -86,25 +86,31 @@ pub(super) fn awaits(state: &AppState, request: u64) -> bool {
 
 /// `Event::GuardChecked`, offered to the query bar's check first. An answer the query bar does
 /// not await goes to the Shell tab, which drops it in turn when no shell waits for it (a check
-/// that is gone).
+/// that is gone). `background`: the answer's session is not the one the person is looking at.
 pub(super) fn answered(
     state: AppState,
     request: u64,
     outcome: Result<GuardReport, CoreError>,
+    background: bool,
 ) -> Out {
     if awaits(&state, request) {
         return checked(state, outcome);
     }
-    super::shell_guard::answered(state, request, outcome)
+    super::shell_guard::answered(state, request, outcome, background)
 }
 
 /// `Event::RequestFailed` of a guard check that could not start, routed like [`answered`]. The
 /// query bar's or the shell's run goes on, without a banner, exactly as after a failed check.
-pub(super) fn not_started(state: AppState, request: u64, error: CoreError) -> Out {
+pub(super) fn not_started(
+    state: AppState,
+    request: u64,
+    error: CoreError,
+    background: bool,
+) -> Out {
     if awaits(&state, request) {
         return checked(state, Err(error));
     }
-    super::shell_guard::answered(state, request, Err(error))
+    super::shell_guard::answered(state, request, Err(error), background)
 }
 
 /// The answer to the query bar's check (the caller made sure it [`awaits`] it). Findings hold the

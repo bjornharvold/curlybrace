@@ -88,3 +88,23 @@ fn an_options_argument_to_find_makes_the_call_unchecked() {
     // A blank third argument is no options at all.
     assert_eq!(counts("db.a.find({a: 1}, {b: 1}, )"), (1, 0));
 }
+
+#[test]
+fn an_options_argument_to_a_count_update_or_delete_makes_the_call_unchecked() {
+    for (call, args) in [
+        ("countDocuments", "{a: 1}"),
+        ("updateOne", "{a: 1}, {$set: {b: 2}}"),
+        ("updateMany", "{a: 1}, {$set: {b: 2}}"),
+        ("deleteOne", "{a: 1}"),
+        ("deleteMany", "{a: 1}"),
+    ] {
+        let plain = format!("db.a.{call}({args})");
+        assert_eq!(counts(&plain), (1, 0), "in {plain:?}");
+        let blank = format!("db.a.{call}({args}, )");
+        assert_eq!(counts(&blank), (1, 0), "in {blank:?}");
+        for options in ["{hint: 'a_1'}", "{collation: {locale: 'fr'}}"] {
+            let text = format!("db.a.{call}({args}, {options})");
+            assert_eq!(counts(&text), (0, 1), "in {text:?}");
+        }
+    }
+}

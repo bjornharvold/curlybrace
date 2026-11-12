@@ -26,6 +26,7 @@ struct Script {
     explain: std::result::Result<Document, ()>,
     count: std::result::Result<u64, ()>,
     delay: Duration,
+    count_delay: Duration,
 }
 
 impl Script {
@@ -34,6 +35,7 @@ impl Script {
             explain: Ok(scan_plan()),
             count: Ok(count),
             delay: Duration::ZERO,
+            count_delay: Duration::ZERO,
         }
     }
 }
@@ -82,7 +84,9 @@ impl DocumentStore for FakeStore {
     }
     async fn estimated_count(&self, ns: &Namespace) -> Result<u64> {
         self.counts.lock().unwrap().push(ns.collection.clone());
-        match self.scripts.get(&ns.collection).map(|s| s.count) {
+        let script = self.scripts.get(&ns.collection);
+        tokio::time::sleep(script.map_or(Duration::ZERO, |s| s.count_delay)).await;
+        match script.map(|s| s.count) {
             Some(Ok(n)) => Ok(n),
             _ => Err(CoreError::Database("count failed".into())),
         }
@@ -244,6 +248,30 @@ async fn targets_not_reached_in_the_budget_count_as_unchecked() {
     assert_eq!(report.findings.len(), 1);
     assert_eq!(report.unchecked, 3);
     assert_eq!(store.explained(), vec!["a", "b"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_count_that_outlasts_the_budget_still_reports_the_scan() {
+    let stuck = Script {
+        count_delay: Duration::from_secs(3600),
+        ..Script::scan(0)
+    };
+    let store = FakeStore::default()
+        .with("a", stuck)
+        .with("b", Script::scan(GUARD_MIN_DOCS));
+    let targets = vec![target("a"), target("b")];
+    let report = check(
+        &store,
+        targets,
+        Some(GUARD_MIN_DOCS),
+        Duration::from_millis(50),
+    )
+    .await;
+    // `a`'s count is cut off at 50 ms and counts as a failing count; `b` is never started.
+    assert_eq!(report.findings.len(), 1);
+    assert_eq!(report.findings[0].ns.collection, "a");
+    assert_eq!(report.unchecked, 1);
+    assert_eq!(store.explained(), vec!["a"]);
 }
 
 #[tokio::test]

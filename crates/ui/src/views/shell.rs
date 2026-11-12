@@ -258,8 +258,11 @@ fn run_hint(state: &ShellState, ctx: &ShellViewContext<'_>, shortcut: &str, i18n
         "shell.run_disabled_not_connected"
     } else if ctx.badge.read_only {
         "shell.run_disabled_read_only"
-    } else if state.is_busy() {
+    } else if state.is_running() {
         "shell.run_disabled_running"
+    } else if state.is_busy() {
+        // Busy and not running: the script's queries are being checked.
+        "shell.run_disabled_checking"
     } else if state.script.trim().is_empty() {
         "shell.run_disabled_empty"
     } else {

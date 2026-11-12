@@ -1317,6 +1317,7 @@
       "checking": "Checking the queries in the script…",
       "finding": "{db}.{collection}.{method}: {problem}",
       "not_started": "A confirmation is waiting, so the script was not started. Press Run again after answering it.",
+      "not_started_background": "The check finished while you were in another connection, so the script was not started. Press Run again here.",
       "run_anyway": "Run anyway",
       "title_one": "1 query in this script would read a whole collection or sort in memory",
       "title_other": "{count} queries in this script would read a whole collection or sort in memory",
@@ -1421,6 +1422,7 @@
       "values_title": "Values"
     },
     "run": "Run",
+    "run_disabled_checking": "Checking the queries in the script…",
     "run_disabled_empty": "Type a script to run.",
     "run_disabled_not_connected": "Connect to run the script.",
     "run_disabled_read_only": "Scripts cannot run on a read-only connection.",

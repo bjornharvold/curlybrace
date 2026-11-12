@@ -199,8 +199,11 @@ fn call(c: &Cursor<'_>, t: usize, db: Option<String>, receiver: Receiver) -> Out
         } else {
             None
         };
-        // Options (hint, collation, ...) to a find change its plan: not the query we explain.
-        let options = finds && args.iter().skip(2).any(|arg| !is_blank(arg));
+        // Options (hint, collation, ...) change the call's plan: not the query we explain.
+        let options = args
+            .iter()
+            .skip(options_at(receiver.method))
+            .any(|arg| !is_blank(arg));
         if options {
             return None;
         }
@@ -220,6 +223,16 @@ fn call(c: &Cursor<'_>, t: usize, db: Option<String>, receiver: Receiver) -> Out
         })
     };
     read().map_or(Outcome::Unchecked, |call| Outcome::Call(Box::new(call)))
+}
+
+/// The position of `method`'s options argument: `find(filter, projection, options)`,
+/// `updateX(filter, update, options)`, `countDocuments(filter, options)`,
+/// `deleteX(filter, options)`.
+fn options_at(method: &str) -> usize {
+    match method {
+        "find" | "findOne" | "updateOne" | "updateMany" => 2,
+        _ => 1,
+    }
 }
 
 /// An absent or blank argument is `Some(None)`, a literal `Some(Some(doc))`, else `None`.

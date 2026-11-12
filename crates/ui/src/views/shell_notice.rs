@@ -48,6 +48,10 @@ pub fn notice_text(notice: &ShellNotice, i18n: &I18n) -> (Severity, String) {
             (Severity::Warning, text)
         }
         ShellNotice::GuardNotStarted => (Severity::Warning, i18n.t("shell.guard.not_started")),
+        ShellNotice::GuardNotStartedBackground => (
+            Severity::Warning,
+            i18n.t("shell.guard.not_started_background"),
+        ),
     }
 }
 

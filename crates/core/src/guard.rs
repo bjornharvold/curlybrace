@@ -89,9 +89,7 @@ pub async fn check(
                 ..report
             };
         }
-        let judged = tokio::time::timeout(left, judge(store, target, min_docs))
-            .await
-            .unwrap_or(Judged::Unchecked);
+        let judged = judge(store, target, min_docs, Instant::now() + left).await;
         report = absorb(report, judged);
     }
     report
@@ -115,14 +113,22 @@ fn is_checkable(target: &GuardTarget) -> bool {
     !target.query.filter.is_empty() || target.query.sort.is_some()
 }
 
-async fn judge(store: &dyn DocumentStore, target: GuardTarget, min_docs: Option<u64>) -> Judged {
-    let Ok(explain) = store.explain_plan(&target.ns, &target.query).await else {
+/// Judges one target by `deadline`: an explain still running then leaves it unchecked, a count
+/// still running then is a failing count.
+async fn judge(
+    store: &dyn DocumentStore,
+    target: GuardTarget,
+    min_docs: Option<u64>,
+    deadline: Instant,
+) -> Judged {
+    let explained = store.explain_plan(&target.ns, &target.query);
+    let Ok(Ok(explain)) = tokio::time::timeout_at(deadline, explained).await else {
         return Judged::Unchecked;
     };
     let Ok(verdict) = classify(&explain.document, &target.query) else {
         return Judged::Unchecked;
     };
-    if !warns(verdict.kind) || !large_enough(store, &target.ns, min_docs).await {
+    if !warns(verdict.kind) || !large_enough(store, &target.ns, min_docs, deadline).await {
         return Judged::Fine;
     }
     Judged::Finding(Box::new(GuardFinding {
@@ -136,11 +142,20 @@ async fn judge(store: &dyn DocumentStore, target: GuardTarget, min_docs: Option<
 }
 
 /// Whether the collection holds at least `min_docs` documents. No threshold, or a count that
-/// fails, keeps the finding: a missed warning costs more than a spurious one.
-async fn large_enough(store: &dyn DocumentStore, ns: &Namespace, min_docs: Option<u64>) -> bool {
-    match min_docs {
-        None => true,
-        Some(min) => store.estimated_count(ns).await.map_or(true, |n| n >= min),
+/// fails or is still running at `deadline`, keeps the finding: a missed warning costs more than
+/// a spurious one.
+async fn large_enough(
+    store: &dyn DocumentStore,
+    ns: &Namespace,
+    min_docs: Option<u64>,
+    deadline: Instant,
+) -> bool {
+    let Some(min) = min_docs else {
+        return true;
+    };
+    match tokio::time::timeout_at(deadline, store.estimated_count(ns)).await {
+        Ok(Ok(n)) => n >= min,
+        Ok(Err(_)) | Err(_) => true,
     }
 }
 
