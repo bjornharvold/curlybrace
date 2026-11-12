@@ -6,10 +6,12 @@
 //! selection, the undo history and the scroll offset of one session never leak into another.
 //!
 //! The selection held in the state is pushed into the text box only when the state changed the
-//! script on its own (Format, the first frame of this session's editor), so the caret is not
-//! reset on every frame. "Changed on its own" means: the script's hash differs from the one this
-//! editor last saw or sent. A state without a selection then collapses the text box's selection,
-//! so an old one is never reported as the new script's.
+//! script or the selection on its own (Format, Go to problem, the first frame of this session's
+//! editor), so the caret is not reset on every frame. "Changed on its own" means: the script's
+//! hash, or the selection, differs from the one this editor last saw or sent. A state without a
+//! selection then collapses the text box's selection, so an old one is never reported as the new
+//! script's. A selection moved on its own while the script stayed (Go to problem) also focuses
+//! the editor, since egui shows a selection only in a focused text box.
 use super::shell_highlight::cached_highlight;
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
@@ -41,9 +43,17 @@ pub(crate) fn show_editor(
 ) -> Option<ShellAction> {
     let id = editor_id(session);
     let seen_id = id.with("seen");
+    let seen_selection_id = id.with("seen_selection");
     let script_hash = egui::util::hash(&state.script);
-    if ui.data(|d| d.get_temp::<u64>(seen_id)) != Some(script_hash) {
+    let script_changed = ui.data(|d| d.get_temp::<u64>(seen_id)) != Some(script_hash);
+    let seen_selection = ui.data(|d| d.get_temp::<Option<Range<usize>>>(seen_selection_id));
+    let selection_moved = !script_changed && seen_selection.as_ref() != Some(&state.selection);
+    if script_changed || selection_moved {
         apply_selection(ui.ctx(), id, &state.script, state.selection.as_ref());
+    }
+    if selection_moved {
+        // Go to problem: the selection only shows in a focused text box.
+        ui.memory_mut(|m| m.request_focus(id));
     }
     let mut buffer = state.script.clone();
     let font = egui::TextStyle::Monospace.resolve(ui.style());
@@ -82,12 +92,15 @@ pub(crate) fn show_editor(
         .char_range()
         .and_then(|range| char_range_to_bytes(&buffer, range.as_sorted_char_range()));
     let edited = output.response.changed() || selection != state.selection;
-    let seen = if edited {
-        egui::util::hash(&buffer)
+    let (seen, seen_selection) = if edited {
+        (egui::util::hash(&buffer), selection.clone())
     } else {
-        script_hash
+        (script_hash, state.selection.clone())
     };
-    ui.data_mut(|d| d.insert_temp(seen_id, seen));
+    ui.data_mut(|d| {
+        d.insert_temp(seen_id, seen);
+        d.insert_temp(seen_selection_id, seen_selection);
+    });
     edited.then_some(ShellAction::Edit {
         script: buffer,
         selection,

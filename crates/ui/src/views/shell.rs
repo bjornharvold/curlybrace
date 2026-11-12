@@ -9,7 +9,7 @@ use super::documents::show_connection_header;
 use super::shell_editor::{editor_id, show_editor};
 use super::shell_history::show_history;
 use super::shell_layout::{heights, last_chrome, remember_chrome};
-use super::shell_notice::{notice_text, offers_tool_paths};
+use super::shell_notice::{notice_text, offers_problem_actions, offers_tool_paths};
 use super::shell_output::show_output;
 use super::tone_notice::{tone_notice, tone_status};
 use crate::I18n;
@@ -82,7 +82,8 @@ struct Pressed {
 
 /// Draws the tab and returns every event of the frame in the order the reducer must apply them:
 /// the editor's `Edit` first, so a Run or Format in the same frame acts on the text as typed,
-/// then the shortcut or button, then the Tool paths request.
+/// then the shortcut or button, then the notice's own button (Tool paths, or Go to problem and
+/// Run anyway).
 pub fn show_shell(
     ui: &mut egui::Ui,
     state: &ShellState,
@@ -242,11 +243,28 @@ fn run_hint(state: &ShellState, ctx: &ShellViewContext<'_>, shortcut: &str, i18n
 }
 
 /// The notice of the last run or refusal; a missing or too old `mongosh` offers the Tool paths
-/// dialog.
+/// dialog, a syntax problem offers Go to problem and Run anyway.
 fn show_notice(ui: &mut egui::Ui, notice: &ShellNotice, i18n: &I18n) -> Option<ShellViewEvent> {
     let (severity, text) = notice_text(notice, i18n);
     tone_notice(ui, severity.tone(), &text, false);
+    if offers_problem_actions(notice) {
+        return problem_actions(ui, i18n).map(ShellViewEvent::Action);
+    }
     let open =
         offers_tool_paths(notice) && text_button(ui, i18n.t("shell.open_tool_paths")).clicked();
     open.then_some(ShellViewEvent::OpenToolPaths)
+}
+
+/// Go to problem (selects it in the editor) and Run anyway (the check can be wrong).
+fn problem_actions(ui: &mut egui::Ui, i18n: &I18n) -> Option<ShellAction> {
+    ui.horizontal_wrapped(|ui| {
+        let go_to = text_button(ui, i18n.t("shell.check.go_to")).clicked();
+        let anyway = text_button(ui, i18n.t("shell.check.run_anyway")).clicked();
+        match (go_to, anyway) {
+            (true, _) => Some(ShellAction::GoToProblem),
+            (_, true) => Some(ShellAction::RunAnyway),
+            _ => None,
+        }
+    })
+    .inner
 }

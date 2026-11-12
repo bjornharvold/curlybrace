@@ -150,6 +150,29 @@ fn the_states_selection_is_applied_only_when_the_state_changed_the_script() {
 }
 
 #[test]
+fn a_selection_the_state_moved_on_its_own_reaches_the_text_box_and_focuses_it() {
+    let mut h = harness(script("db.a.find(\nx", None));
+    let edits_before = h.state().edits.len();
+    // Like Go to problem: only the selection changes, outside the editor.
+    let moved = h
+        .state()
+        .shell(A)
+        .edited("db.a.find(\nx".into(), Some(9..10));
+    h.state_mut().shells.insert(A, moved);
+    h.run_steps(2);
+    assert_eq!(cursor_chars(&h, A), Some(9..10));
+    assert_eq!(h.state().shell(A).selection, Some(9..10));
+    assert_eq!(h.state().edits.len(), edits_before, "nothing reported back");
+    assert!(h.ctx.memory(|m| m.has_focus(editor_id(A))));
+}
+
+#[test]
+fn the_first_frame_does_not_take_the_focus() {
+    let h = harness(script("abc", Some(0..2)));
+    assert!(!h.ctx.memory(|m| m.has_focus(editor_id(A))));
+}
+
+#[test]
 fn an_outside_change_without_a_selection_collapses_the_old_one() {
     let mut h = harness(script("abcd", Some(0..3)));
     assert_eq!(cursor_chars(&h, A), Some(0..3));

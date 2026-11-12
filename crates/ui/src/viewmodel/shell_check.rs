@@ -25,6 +25,21 @@ pub struct SyntaxProblem {
     pub column: usize,
 }
 
+impl SyntaxProblem {
+    /// This problem of the part of `script` that starts at byte `start`, placed in the whole
+    /// script: its range shifted and its line and column counted from the script's start.
+    pub fn placed_in(&self, script: &str, start: usize) -> SyntaxProblem {
+        let range = self.range.start + start..self.range.end + start;
+        let (line, column) = position(script, range.start);
+        SyntaxProblem {
+            kind: self.kind,
+            range,
+            line,
+            column,
+        }
+    }
+}
+
 /// The first problem in text order, or `None` when the brackets balance and every literal ends.
 pub fn check(text: &str) -> Option<SyntaxProblem> {
     let scan = scan_code(text);

@@ -127,6 +127,57 @@ fn the_tool_paths_button_opens_the_tool_paths_dialog() {
     assert!(opened);
 }
 
+/// The Shell tab of a session whose Run was stopped by an unclosed bracket.
+fn with_syntax_problem() -> Harness<'static, Frame> {
+    let s = open_shell(false);
+    let edit = ShellAction::Edit {
+        script: "db.a.find(".into(),
+        selection: None,
+    };
+    let s = update(s, Input::Shell(edit)).0;
+    let id = s.active.expect("active");
+    let (shell, _) = s.shell.get_or_new(id).run_requested();
+    let tabs = (*s.shell).clone().with(id, shell);
+    workspace(AppState {
+        shell: Box::new(tabs),
+        ..s
+    })
+}
+
+fn clicked_shell_action(label: &str) -> Option<ShellAction> {
+    let mut h = with_syntax_problem();
+    h.get_by_role_and_label(Role::Button, label).click();
+    h.run_steps(2);
+    h.state().out.iter().find_map(|e| match e {
+        UiEvent::Input(Input::Shell(
+            action @ (ShellAction::GoToProblem | ShellAction::RunAnyway),
+        )) => Some(action.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn a_syntax_problem_is_read_out_with_its_place() {
+    let h = with_syntax_problem();
+    let text = I18n::english().t_with(
+        "shell.check.unclosed_bracket",
+        &[("line", "1"), ("column", "10"), ("bracket", "(")],
+    );
+    h.get_by_label(&text);
+}
+
+#[test]
+fn the_syntax_problem_buttons_reach_the_reducer() {
+    assert_eq!(
+        clicked_shell_action(&t("shell.check.go_to")),
+        Some(ShellAction::GoToProblem)
+    );
+    assert_eq!(
+        clicked_shell_action(&t("shell.check.run_anyway")),
+        Some(ShellAction::RunAnyway)
+    );
+}
+
 fn switcher(current: Workspace, connected: bool) -> Harness<'static, Option<Input>> {
     let mut h = Harness::new_ui_state(
         move |ui, out: &mut Option<Input>| {
