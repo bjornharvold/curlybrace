@@ -200,6 +200,11 @@ async fn run(
         Command::ExplainFind { ns, query, .. } => Some((ns.clone(), query.clone())),
         _ => None,
     };
+    // Likewise a guard check: its timeout is an outcome, answered under the request's number.
+    let guard_request = match &command {
+        Command::GuardCheck { request, .. } => Some(*request),
+        _ => None,
+    };
     // A profiler command is the one write whose read-only refusal is not decided here: the store
     // wrapper is the authority and its refusal is the outcome. Every other check (session,
     // currency, generation) still applies to it, `execute` turns its failures into outcomes.
@@ -250,6 +255,15 @@ async fn run(
             session: id,
             ns,
             query,
+            outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
+        });
+    }
+    // The same holds for a guard check: it is a batch of plan-only explains, so a timeout is an
+    // outcome, never a ping-settled failure.
+    if let (true, Some(request)) = (timed_out, guard_request) {
+        return Ok(Event::GuardChecked {
+            session: id,
+            request,
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
     }
@@ -333,6 +347,20 @@ async fn data_command(
                 ns,
                 query,
                 outcome,
+            }
+        }
+        Command::GuardCheck {
+            request,
+            targets,
+            min_docs,
+            ..
+        } => {
+            let budget = std::time::Duration::from_millis(crate::guard::GUARD_BUDGET_MS);
+            let report = crate::guard::check(&*store, targets, min_docs, budget).await;
+            Event::GuardChecked {
+                session,
+                request,
+                outcome: Ok(report),
             }
         }
         Command::Insert { ns, json, .. } => {

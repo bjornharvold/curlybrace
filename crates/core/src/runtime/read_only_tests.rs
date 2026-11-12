@@ -532,6 +532,7 @@ fn classify(command: &Command) -> Class {
         | Command::ListCollections { .. }
         | Command::Find { .. }
         | Command::ExplainFind { .. }
+        | Command::GuardCheck { .. }
         | Command::ListIndexes { .. }
         | Command::IndexHistory { .. }
         | Command::EstimatedCount { .. }

@@ -25,7 +25,7 @@ pub struct GuardTarget {
 }
 
 /// A query the server would answer with a collection scan or an in-memory sort.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GuardFinding {
     pub ns: Namespace,
     pub query: Query,
@@ -36,7 +36,7 @@ pub struct GuardFinding {
 
 /// What a check found. `unchecked` counts the targets it could not judge: over the cap, past the
 /// budget, or whose explain failed.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct GuardReport {
     pub findings: Vec<GuardFinding>,
     pub unchecked: usize,

@@ -397,6 +397,8 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         Event::AdminChanged { db, .. } => super::admin_actions::changed(state, db),
         // No view shows statistics yet; the answer is consumed.
         Event::CollectionStats { .. } | Event::DatabaseStats { .. } => (state, Vec::new()),
+        // Nothing issues a guard check yet; the answer is consumed until the guard is wired in.
+        Event::GuardChecked { .. } => (state, Vec::new()),
         Event::Explain {
             ns, query, outcome, ..
         } => (

@@ -52,6 +52,8 @@ mod dispatch;
 mod epoch_tests;
 #[cfg(test)]
 mod explain_tests;
+#[cfg(test)]
+mod guard_tests;
 mod handlers;
 #[cfg(test)]
 mod index_build_timeout_tests;
@@ -122,6 +124,7 @@ use tokio::sync::watch;
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
 use crate::explain::Verdict;
+use crate::guard::{GuardReport, GuardTarget};
 use crate::history::{ChartRange, HistoryDb, ShapeSummary};
 use crate::indexes::IndexSpec;
 use crate::secrets::SecretStore;
@@ -229,6 +232,16 @@ pub enum Command {
         session: SessionId,
         ns: Namespace,
         query: Query,
+    },
+    /// Plan-only explains `targets` and reports the ones that would miss an index. A read,
+    /// allowed on a read-only connection. Answered by [`Event::GuardChecked`], whose `outcome`
+    /// also carries any failure or timeout.
+    GuardCheck {
+        session: SessionId,
+        /// Echoed by the answer.
+        request: u64,
+        targets: Vec<GuardTarget>,
+        min_docs: Option<u64>,
     },
     Insert {
         session: SessionId,
@@ -599,6 +612,14 @@ pub enum Event {
         ns: Namespace,
         query: Query,
         outcome: std::result::Result<Verdict, CoreError>,
+    },
+    /// The answer to `GuardCheck`. A timeout is an `Err` outcome; it is never an
+    /// [`Event::Failed`], which raises a banner.
+    GuardChecked {
+        session: SessionId,
+        /// The `request` of the command this answers.
+        request: u64,
+        outcome: std::result::Result<GuardReport, CoreError>,
     },
     /// The answer to `ProfilingState` and `SetProfilingLevel`. A failure, a refusal or a timeout
     /// is an `Err` outcome shown inline; it is never an [`Event::Failed`], which raises a banner
