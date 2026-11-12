@@ -28,7 +28,7 @@ pub(crate) struct Popup {
     pub word_start: usize,
     /// The caret (bytes) the names were computed for.
     pub caret: usize,
-    /// Opened on demand, so an emptied word still lists names.
+    /// Opened on demand (Ctrl+Space), so an emptied or already complete word still lists names.
     pub forced: bool,
 }
 
@@ -54,8 +54,9 @@ pub(crate) fn next_popup(
     collections: &[String],
 ) -> Option<Popup> {
     // A word that already is the selected name needs nothing, and the list would take the Enter
-    // or Tab the person meant as a newline or an indent.
-    followed(prev, moment, collections).filter(|popup| !popup.is_exact(moment.text))
+    // or Tab the person meant as a newline or an indent. A list asked for with Ctrl+Space stays:
+    // the person wants the longer names (`print` -> `printjson`).
+    followed(prev, moment, collections).filter(|popup| popup.forced || !popup.is_exact(moment.text))
 }
 
 impl Popup {

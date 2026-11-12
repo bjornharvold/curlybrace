@@ -183,6 +183,21 @@ fn a_word_that_already_is_the_selected_name_closes_the_list() {
     assert!(next_popup(None, &typed("db.my"), &odd).is_some());
 }
 
+#[test]
+fn ctrl_space_on_a_complete_word_still_lists_the_longer_names() {
+    let forced = Moment {
+        forced: true,
+        ..moment("print", 5)
+    };
+    let open = next_popup(None, &forced, &[]);
+    assert_eq!(labels(&open), ["print", "printjson"]);
+    // The next frame (nothing typed) keeps the list the person asked for.
+    let kept = next_popup(open, &moment("print", 5), &[]);
+    assert_eq!(labels(&kept), ["print", "printjson"]);
+    // Without Ctrl+Space the same word closes the list, as before.
+    assert_eq!(next_popup(None, &typed("print"), &[]), None);
+}
+
 // --- the editor with its list (egui_kittest) ----------------------------------------------
 
 struct Frame {
@@ -379,6 +394,21 @@ fn ctrl_space_opens_the_list_on_an_empty_word() {
     assert_eq!(selected_item(&h).as_deref(), Some("db"));
     press(&mut h, Key::Enter);
     assert_eq!(h.state().shell.script, "db");
+}
+
+#[test]
+fn ctrl_space_after_a_complete_word_offers_the_longer_names() {
+    let mut h = typed_in("print", &[]);
+    assert!(!list_open(&h), "an exact word closes the list");
+    press_with(&mut h, Modifiers::CTRL, Key::Space);
+    assert!(list_open(&h));
+    h.get_by_role_and_label(Role::ListItem, "printjson");
+    press(&mut h, Key::ArrowDown);
+    press(&mut h, Key::Enter);
+    assert_eq!(h.state().shell.script, "printjson");
+    // Enter and Tab after a complete word without Ctrl+Space are unchanged.
+    press(&mut h, Key::Enter);
+    assert_eq!(h.state().shell.script, "printjson\n");
 }
 
 #[test]
