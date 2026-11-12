@@ -699,6 +699,24 @@ fn host_key_prompt_named() {
     shot.snapshot("host_key_prompt_named");
 }
 
+/// The Shell tab with the completion list open after `db.` (the loaded `crm` collections).
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn shell_completion_list() {
+    if !snapshots_enabled("shell_completion_list") {
+        return;
+    }
+    let mut shot = Shot::new(vec![], support::shell_shots::empty);
+    support::shell_shots::type_completion(&mut shot);
+    shot.snapshot("shell_completion_list");
+}
+
+shot!(
+    shell_syntax_notice,
+    vec![],
+    support::shell_shots::syntax_notice
+);
+
 /// Not gated (no GPU, no database): the app the screenshots use must write only inside its temp
 /// dir. Saving a connection through the UI must create the file there, never in the real config
 /// directory.
