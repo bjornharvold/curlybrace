@@ -1249,8 +1249,13 @@
   },
   "query": {
     "guard": {
+      "cancel": "Cancel",
+      "checking": "Checking how the query runs…",
+      "run_anyway": "Run anyway",
       "setting": "Warn before queries that would scan a collection",
-      "setting_hint": "Before running a query, the app asks the server for its query plan and warns you if it would scan the whole collection, and you can still run it anyway."
+      "setting_hint": "Before running a query, the app asks the server for its query plan and warns you if it would scan the whole collection, and you can still run it anyway.",
+      "title_collection_scan": "This query would read every document in the collection",
+      "title_sort_not_covered": "This query would sort in memory instead of using an index"
     },
     "verdict": {
       "automatic": "Check index use automatically",

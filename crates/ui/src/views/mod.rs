@@ -27,6 +27,7 @@ pub mod documents;
 pub mod editor;
 pub mod error_label;
 pub mod findbar;
+pub mod guard_notice;
 pub mod index_builder;
 pub mod index_chart;
 pub mod index_detail;

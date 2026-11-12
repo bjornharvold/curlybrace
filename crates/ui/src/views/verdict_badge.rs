@@ -102,7 +102,7 @@ fn show_details(ui: &mut egui::Ui, model: &BadgeModel, i18n: &I18n) -> Option<Ve
 
 /// A reason's text; one core emits that the badge has no string for still says something
 /// visible (with its raw key) instead of vanishing.
-fn reason_line(key: &str, params: &[(&'static str, String)], i18n: &I18n) -> String {
+pub(super) fn reason_line(key: &str, params: &[(&'static str, String)], i18n: &I18n) -> String {
     match reason_text_key(key) {
         Some(full) => {
             let params: Vec<(&str, &str)> = params.iter().map(|(n, v)| (*n, v.as_str())).collect();
@@ -112,7 +112,11 @@ fn reason_line(key: &str, params: &[(&'static str, String)], i18n: &I18n) -> Str
     }
 }
 
-fn show_suggestion(ui: &mut egui::Ui, command: &str, i18n: &I18n) -> Option<VerdictAction> {
+pub(super) fn show_suggestion(
+    ui: &mut egui::Ui,
+    command: &str,
+    i18n: &I18n,
+) -> Option<VerdictAction> {
     ui.label(i18n.t("query.verdict.suggestion"));
     ui.label(egui::RichText::new(command).monospace());
     compact_text_button(ui, i18n.t("query.verdict.copy"))

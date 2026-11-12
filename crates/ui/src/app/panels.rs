@@ -25,7 +25,8 @@ use crate::views::documents::{
     DocTarget, show_connection_header, show_documents_keyed, show_mode_switcher,
 };
 use crate::views::editor::show_editor_with;
-use crate::views::findbar::{show_automatic_verdict, show_findbar, show_guard_setting};
+use crate::views::findbar::{FindAction, show_automatic_verdict, show_findbar, show_guard_setting};
+use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
 use crate::views::index_builder::{BuilderContext, show_index_builder};
 use crate::views::index_dialogs::{
     DialogContext, show_drop_confirm, show_drop_old, show_ttl_prompt,
@@ -314,6 +315,7 @@ fn show_collection(
             .flatten()
             .map(|action| UiEvent::Input(Input::Find(action))),
     );
+    show_guard(ui, state, i18n, out);
     show_verdict(ui, state, i18n);
     state.view_mode = show_mode_switcher(ui, state.view_mode, i18n);
     ui.separator();
@@ -346,6 +348,21 @@ fn show_collection(
     if let Some(action) = action {
         out.push(UiEvent::Input(Input::Doc(action)));
     }
+}
+
+/// The index-miss guard's notice under the find bar (nothing unless a Run is being checked or
+/// held back); Run anyway and Cancel go to the reducer, the copy button to the clipboard here.
+fn show_guard(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    let find = match show_guard_notice(ui, &state.guard, i18n) {
+        Some(GuardNoticeAction::RunAnyway) => Some(FindAction::GuardRunAnyway),
+        Some(GuardNoticeAction::Cancel) => Some(FindAction::GuardCancel),
+        Some(GuardNoticeAction::Copy(text)) => {
+            ui.ctx().copy_text(text);
+            None
+        }
+        None => None,
+    };
+    out.extend(find.map(|action| UiEvent::Input(Input::Find(action))));
 }
 
 /// The index verdict of the current run in a fixed-height row above the documents (reserved

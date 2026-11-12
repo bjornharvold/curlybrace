@@ -145,6 +145,20 @@ fn browser_verdict_dark() {
         .snapshot("browser_verdict_dark");
 }
 
+// The browser with the index-miss guard's notice (a scan with a suggested index), in both modes.
+shot!(guard_notice, vec![], support::guard_shots::scan_notice);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn guard_notice_dark() {
+    if !snapshots_enabled("guard_notice_dark") {
+        return;
+    }
+    Shot::new(vec![], support::guard_shots::scan_notice)
+        .mode(Mode::Dark)
+        .snapshot("guard_notice_dark");
+}
+
 /// Parks a root for a connection named `name` in the given status.
 fn parked_root(state: &mut AppState, name: &str, status: ConnStatus, failure: Option<CoreError>) {
     let cfg = ConnectionConfig::new(name, "mongodb://other.example.com:27017");
