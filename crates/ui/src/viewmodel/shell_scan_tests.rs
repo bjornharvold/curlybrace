@@ -69,3 +69,19 @@ fn a_slash_on_a_line_that_began_in_a_block_comment_is_judged_on_that_line() {
     assert_eq!(code_of("/* a\n*/ /x/ y"), "....... /x/ y");
     assert_eq!(code_of("/* a\n*/ x = /[(]/"), "....... x = .....");
 }
+
+#[test]
+fn one_long_line_of_regex_literals_is_scanned_in_linear_time() {
+    // 256 KiB on one line (eight times the 32 KiB that is already slow to notice), with tens of
+    // thousands of `/x/` that each could start a regex: a search to the line's end per slash
+    // takes many seconds here, one per line takes milliseconds.
+    let unit = "a=/x/;";
+    let text = unit.repeat(256 * 1024 / unit.len());
+    let started = std::time::Instant::now();
+    let scan = scan_code(&text);
+    let took = started.elapsed();
+    assert!(scan.unterminated.is_empty());
+    // Every regex is masked: only `a=` and `;` stay code.
+    assert_eq!(code_of(&text[..12]), "a=...;a=...;");
+    assert!(took.as_secs_f64() < 2.0, "took {took:?}");
+}

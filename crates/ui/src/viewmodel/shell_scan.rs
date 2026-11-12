@@ -41,6 +41,8 @@ struct Walk<'a> {
     unterminated: Vec<(Literal, usize)>,
     state: Lex,
     line_start: usize,
+    /// The end of the line starting at the first byte, once a slash asked for it.
+    line_end: Option<(usize, usize)>,
     /// Where the literal being scanned opened.
     lit_start: usize,
     depth: usize,
@@ -116,16 +118,29 @@ impl Walk<'_> {
         if !starts_regex(&self.bytes[self.line_start..], from) {
             return i + 1;
         }
-        let line_end = self.bytes[i..]
-            .iter()
-            .position(|&c| c == b'\n')
-            .map_or(self.bytes.len(), |n| i + n);
+        let line_end = self.line_end();
         match regex_end(&self.bytes[self.line_start..line_end], from) {
             Some(end) => {
                 self.in_code[i] = false;
                 self.line_start + end + 1
             }
             None => i + 1,
+        }
+    }
+
+    /// The end of the line that starts at `line_start` (its newline, or the text's end), found
+    /// once per line: searching from every slash would be quadratic on one long line.
+    fn line_end(&mut self) -> usize {
+        match self.line_end {
+            Some((start, end)) if start == self.line_start => end,
+            _ => {
+                let end = self.bytes[self.line_start..]
+                    .iter()
+                    .position(|&c| c == b'\n')
+                    .map_or(self.bytes.len(), |n| self.line_start + n);
+                self.line_end = Some((self.line_start, end));
+                end
+            }
         }
     }
 
@@ -193,6 +208,7 @@ pub(crate) fn scan_code(text: &str) -> CodeScan {
         unterminated: Vec::new(),
         state: Lex::Code,
         line_start: 0,
+        line_end: None,
         lit_start: 0,
         depth: 0,
         subst: Vec::new(),
