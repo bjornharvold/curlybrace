@@ -1,10 +1,10 @@
 //! Text mode of the Aggregate tab: the whole pipeline as one JSON array in a monospace editor,
 //! with the reason it cannot go back to stage cards (line and column for a syntax error) under it.
-use super::aggregate::pipeline_error_text;
+use super::aggregate::{NO_DRAG_SCROLL, pipeline_error_text};
 use crate::I18n;
 use crate::app::AggregateAction;
 use crate::viewmodel::aggregate::AggregateState;
-use eframe::egui::{self, WidgetInfo, WidgetType};
+use eframe::egui;
 
 /// The editor grows with the text between these many lines.
 const EDITOR_ROWS: std::ops::RangeInclusive<usize> = 6..=30;
@@ -24,6 +24,7 @@ pub(super) fn show_text(
         .clamp(*EDITOR_ROWS.start(), *EDITOR_ROWS.end());
     let changed = egui::ScrollArea::vertical()
         .id_salt("aggregate_text")
+        .scroll_source(NO_DRAG_SCROLL)
         .max_height(max_height)
         .auto_shrink([false, true])
         .show(ui, |ui| {
@@ -34,13 +35,10 @@ pub(super) fn show_text(
                     .desired_rows(rows)
                     .desired_width(f32::INFINITY),
             );
+            // Named on its accesskit node: `widget_info` would announce a one-line field.
             let name = i18n.t("aggregate.text.editor");
-            let value = buffer.clone();
-            response.widget_info(|| {
-                let mut info = WidgetInfo::labeled(WidgetType::TextEdit, true, name.clone());
-                info.current_text_value = Some(value.clone());
-                info
-            });
+            ui.ctx()
+                .accesskit_node_builder(response.id, |node| node.set_label(name));
             response.changed()
         })
         .inner;

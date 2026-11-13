@@ -17,6 +17,14 @@ use std::time::Duration;
 /// The most of the tab's height the stage list or the text takes; the preview gets the rest.
 const EDITOR_SHARE: f32 = 0.5;
 
+/// How the stage list and the text scroll: wheel and bar, not dragging the content. A drag
+/// area would also be an unnamed stop in the Tab order between the header and the first stage.
+pub(super) const NO_DRAG_SCROLL: egui::scroll_area::ScrollSource =
+    egui::scroll_area::ScrollSource {
+        drag: false,
+        ..egui::scroll_area::ScrollSource::ALL
+    };
+
 /// Draws the tab; returns the actions of this frame in the order they apply.
 pub fn show_aggregate(
     ui: &mut egui::Ui,

@@ -2,12 +2,12 @@
 //! and stage name, which previews the stage when clicked, a "Previewed" marker on the selected
 //! card, Move up, Move down, Remove), the stage's JSON in a monospace editor, and a one-line
 //! status. Every control's accessible name carries the stage's position.
-use super::aggregate::named_button;
+use super::aggregate::{NO_DRAG_SCROLL, named_button};
 use super::aggregate_complete::completing_editor;
 use crate::I18n;
 use crate::app::AggregateAction;
 use crate::theme::shape::{self, radius};
-use crate::theme::{Tone, chip, current_ui};
+use crate::theme::{CONTROL_HEIGHT, Tone, chip, current_ui};
 use crate::viewmodel::aggregate::AggregateState;
 use crate::viewmodel::aggregate_view::{AggregateView, StageStatus, stage_status};
 use curlybrace_core::pipeline::Stage;
@@ -42,6 +42,7 @@ pub(super) fn show_stages(
     let last = draft.stages.len() - 1;
     egui::ScrollArea::vertical()
         .id_salt("aggregate_stages")
+        .scroll_source(NO_DRAG_SCROLL)
         .max_height(max_height)
         .auto_shrink([false, true])
         .show(ui, |ui| {
@@ -113,6 +114,9 @@ fn card_header(
     let i = card.index;
     let params = [("n", n)];
     ui.horizontal_wrapped(|ui| {
+        // One row height for every control, so the checkbox, the title and the 32 pt buttons
+        // share a centre line instead of hanging from the top.
+        ui.spacing_mut().interact_size.y = CONTROL_HEIGHT;
         let toggled = enable_box(
             ui,
             card.stage.enabled,
@@ -199,13 +203,11 @@ fn stage_editor(
         .clamp(*EDITOR_ROWS.start(), *EDITOR_ROWS.end());
     let id = egui::Id::new(("aggregate_stage_text", index));
     let (response, changed) = completing_editor(ui, id, &mut buffer, rows, i18n);
+    // Named on its accesskit node, not through `widget_info`, which would announce the
+    // multi-line editor as a one-line text field.
     let name = i18n.t_with("aggregate.stage.editor_n", &[("n", n)]);
-    let value = buffer.clone();
-    response.widget_info(|| {
-        let mut info = WidgetInfo::labeled(WidgetType::TextEdit, true, name.clone());
-        info.current_text_value = Some(value.clone());
-        info
-    });
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_label(name));
     changed.then_some(buffer)
 }
 
