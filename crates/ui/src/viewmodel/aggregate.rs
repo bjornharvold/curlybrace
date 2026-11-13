@@ -107,7 +107,7 @@ pub struct AggregateState {
     /// completion list to the stage rather than to its position.
     pub keys: Vec<u64>,
     /// The identity the next new stage gets.
-    next_key: u64,
+    pub(super) next_key: u64,
     /// The stage whose output is previewed; `0` while there are none.
     pub selected: usize,
     pub mode: Mode,
@@ -116,6 +116,11 @@ pub struct AggregateState {
     /// Why the text-mode buffer cannot go back to stages (syntax errors carry line and column).
     pub text_error: Option<PipelineError>,
     pub preview: PreviewState,
+    /// The preview request sent and not answered yet: at most one per session (see
+    /// `aggregate_flight`).
+    pub in_flight: Option<u64>,
+    /// The newest wanted preview while one is in flight.
+    pub queued: Option<super::aggregate_flight::Queued>,
     /// The newest preview request; bumped by every pipeline change so an older answer is stale.
     pub request: u64,
 }
@@ -341,6 +346,7 @@ impl AggregateState {
     pub fn on_collection_changed(self) -> Self {
         Self {
             preview: PreviewState::Idle,
+            queued: None,
             ..self
         }
         .changed()
@@ -382,6 +388,7 @@ impl AggregateState {
             Err(PipelineError::Empty) => {
                 let next = Self {
                     preview: PreviewState::Idle,
+                    queued: None,
                     request,
                     ..self
                 };
@@ -394,6 +401,7 @@ impl AggregateState {
                 };
                 let next = Self {
                     preview,
+                    queued: None,
                     request,
                     ..self
                 };

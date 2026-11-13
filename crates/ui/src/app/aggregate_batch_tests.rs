@@ -4,7 +4,7 @@ use super::AggregateAction as A;
 use crate::app::reducer::{Input, update};
 use crate::app::state::{AppState, ConnStatus};
 use crate::viewmodel::aggregate::Mode;
-use curlybrace_core::runtime::{Command, EMBEDDED_SESSION};
+use curlybrace_core::runtime::{Command, EMBEDDED_SESSION, Event};
 use curlybrace_core::store::Namespace;
 
 /// Connected embedded session with `app.people` selected.
@@ -26,11 +26,20 @@ fn act(s: AppState, action: A) -> (AppState, Vec<Command>) {
     update(s, Input::Aggregate(action))
 }
 
-/// `connected()` with `$match`, `$sort` and `$limit` stages.
+/// `connected()` with `$match`, `$sort` and `$limit` stages, every preview answered.
 fn with_three_stages() -> AppState {
-    ["$match", "$sort", "$limit"]
+    let mut s = ["$match", "$sort", "$limit"]
         .into_iter()
-        .fold(connected(), |s, name| act(s, A::AddStage(name.into())).0)
+        .fold(connected(), |s, name| act(s, A::AddStage(name.into())).0);
+    while let Some(request) = s.aggregate.in_flight {
+        let event = Event::AggregatePreviewed {
+            session: EMBEDDED_SESSION,
+            request,
+            outcome: Ok(vec![]),
+        };
+        s = update(s, Input::Event(event)).0;
+    }
+    s
 }
 
 /// The request numbers of the preview commands in `commands`.

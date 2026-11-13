@@ -72,12 +72,20 @@ fn limit() -> Document {
     doc! { "$limit": PREVIEW_LIMIT }
 }
 
+/// Answers the preview in flight and then any that waited behind it, until none is out.
+fn settled(s: AppState) -> AppState {
+    let mut s = s;
+    while let Some(request) = s.aggregate.in_flight {
+        s = previewed(s, EMBEDDED_SESSION, request, Ok(vec![doc! { "a": 1 }])).0;
+    }
+    s
+}
+
 /// `connected()` with a `$match` and a `$sort` stage, the `$sort` previewed and answered.
 fn with_two_stages() -> AppState {
     let (s, _) = act(connected(), A::AddStage("$match".into()));
-    let (s, c) = act(s, A::AddStage("$sort".into()));
-    let (_, request, _) = the_preview(&c);
-    previewed(s, EMBEDDED_SESSION, request, Ok(vec![doc! { "a": 1 }])).0
+    let (s, _) = act(s, A::AddStage("$sort".into()));
+    settled(s)
 }
 
 fn shown_docs(s: &AggregateState) -> Option<Vec<Document>> {
@@ -165,6 +173,7 @@ fn a_refused_pipeline_fails_inline_and_sends_nothing() {
 #[test]
 fn removing_the_last_stage_resets_the_preview_to_idle() {
     let (s, _) = act(connected(), A::AddStage("$match".into()));
+    let s = settled(s);
     let (s, c) = act(s, A::Remove(0));
     assert!(c.is_empty());
     assert_eq!(s.aggregate.preview, PreviewState::Idle);
@@ -226,13 +235,15 @@ fn the_answer_is_shown_and_a_stale_one_is_ignored() {
     let (s, c) = act(with_two_stages(), A::Select(0));
     let (_, older, _) = the_preview(&c);
     let (s, c) = act(s, A::Refresh);
-    let (_, newer, _) = the_preview(&c);
+    assert!(c.is_empty(), "the newer one waits for the one in flight");
 
+    // The older answer is stale, but it frees the slot: the newer request goes out.
     let (s, c) = previewed(s, EMBEDDED_SESSION, older, Ok(vec![doc! { "old": 1 }]));
-    assert!(c.is_empty());
+    let (_, newer, _) = the_preview(&c);
     assert!(matches!(s.aggregate.preview, PreviewState::Loading { .. }));
 
-    let (s, _) = previewed(s, EMBEDDED_SESSION, newer, Ok(vec![doc! { "new": 1 }]));
+    let (s, c) = previewed(s, EMBEDDED_SESSION, newer, Ok(vec![doc! { "new": 1 }]));
+    assert!(c.is_empty());
     assert_eq!(shown_docs(&s.aggregate), Some(vec![doc! { "new": 1 }]));
 }
 
@@ -297,7 +308,13 @@ fn a_superseded_preview_is_consumed() {
     let (s, c) = update(s, Input::Event(event));
     assert!(c.is_empty());
     assert!(s.banner.is_none());
-    assert_eq!(*s.aggregate, before);
+    assert_eq!(s.aggregate.in_flight, None);
+    assert_eq!(s.aggregate.stages, before.stages);
+    assert_eq!(s.aggregate.preview, before.preview);
+    assert_eq!(
+        s.aggregate.request, before.request,
+        "only the slot is freed"
+    );
 }
 
 #[test]

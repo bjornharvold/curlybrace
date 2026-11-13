@@ -81,11 +81,20 @@ fn batch(state: AppState, actions: Vec<AggregateAction>) -> Out {
                 (next, commands)
             });
     let current = state.aggregate.request;
-    let commands = commands
-        .into_iter()
-        .filter(|c| !matches!(c, Command::AggregatePreview { request, .. } if *request != current))
-        .collect();
-    (state, commands)
+    let (kept, unwanted): (Vec<_>, Vec<_>) = commands.into_iter().partition(
+        |c| !matches!(c, Command::AggregatePreview { request, .. } if *request != current),
+    );
+    // A preview sent for an intermediate change was dropped: its slot is free, and the
+    // current request, if it waited behind it, goes out in its place.
+    let state = unwanted.iter().fold(state, |state, c| match c {
+        Command::AggregatePreview { request, .. } => {
+            let draft = (*state.aggregate).clone().unsent(*request);
+            with_draft(state, draft)
+        }
+        _ => state,
+    });
+    let (state, flushed) = flushed(state);
+    (state, kept.into_iter().chain(flushed).collect())
 }
 
 /// `state` holding `draft` as the active session's Aggregate draft.
@@ -127,19 +136,51 @@ fn set_mode(state: AppState, draft: AggregateState, mode: Mode) -> Out {
 /// session, a connection or a collection there is nothing to preview against and the draft is
 /// only kept.
 fn previewed(state: AppState, draft: AggregateState) -> Out {
-    let target = match (state.active, &state.status, state.selected_ns()) {
-        (Some(session), ConnStatus::Connected, Some(ns)) => Some((session, ns.clone())),
-        _ => None,
-    };
-    let Some((session, ns)) = target else {
+    let Some((session, ns)) = target(&state) else {
         return (with_draft(state, draft), Vec::new());
     };
     let (draft, plan) = draft.begin_preview();
-    let commands = plan
+    let (draft, send) = match plan {
+        Some((request, pipeline)) => draft.offered(request, ns.clone(), pipeline),
+        None => (draft, None),
+    };
+    let commands = send
         .map(|(request, pipeline)| preview_command(session, request, ns, pipeline))
         .into_iter()
         .collect();
     (with_draft(state, draft), commands)
+}
+
+/// The session and collection a preview can be sent for now: the active session when it is
+/// connected with a collection selected.
+fn target(state: &AppState) -> Option<(Uuid, Namespace)> {
+    match (state.active, &state.status, state.selected_ns()) {
+        (Some(session), ConnStatus::Connected, Some(ns)) => Some((session, ns.clone())),
+        _ => None,
+    }
+}
+
+/// Sends the preview that waited for the slot, when one is free and it still applies.
+fn flushed(state: AppState) -> Out {
+    let target = target(&state);
+    let ns = target.as_ref().map(|(_, ns)| ns);
+    let (draft, send) = (*state.aggregate).clone().flushed(ns);
+    sent(state, draft, target, send)
+}
+
+/// `state` holding `draft`, with `send` as the command for `target` (none without a target).
+fn sent(
+    state: AppState,
+    draft: AggregateState,
+    target: Option<(Uuid, Namespace)>,
+    send: Option<(u64, Vec<Document>)>,
+) -> Out {
+    let command = send
+        .zip(target)
+        .map(|((request, pipeline), (session, ns))| {
+            preview_command(session, request, ns, pipeline)
+        });
+    (with_draft(state, draft), command.into_iter().collect())
 }
 
 fn preview_command(session: Uuid, request: u64, ns: Namespace, pipeline: Vec<Document>) -> Command {
@@ -180,9 +221,9 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
             Event::AggregatePreviewed {
                 request, outcome, ..
             },
-        ) => arrived(s, request, outcome),
+        ) => arrived(s, request, outcome, lost.is_none()),
         (ConnStatus::Connected, Event::RequestFailed { request, error, .. }) => {
-            request_failed(s, request, error)
+            request_failed(s, request, error, lost.is_none())
         }
         _ => (s, Vec::new()),
     });
@@ -199,8 +240,9 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
 }
 
 /// The error of a preview failure that says the server is gone (`Unreachable`, a failed TLS
-/// handshake), for the request its connected session still awaits; `None` for anything else. An
-/// older request's loss is a late echo: the newer one answers for the server.
+/// handshake), for the request its connected session still awaits (the current one or the one
+/// in flight, behind which the current one may wait); `None` for anything else. A request that
+/// was already replaced and answered is a late echo.
 fn lost_server(state: &AppState, ev: &Event) -> Option<CoreError> {
     let Event::RequestFailed {
         session,
@@ -215,26 +257,40 @@ fn lost_server(state: &AppState, ev: &Event) -> Option<CoreError> {
         true => Some(&*state.aggregate),
         false => state.parked.get(session).map(|v| &*v.aggregate),
     };
-    let awaited = draft.is_some_and(|d| d.request == *request);
+    let awaited = draft.is_some_and(|d| d.request == *request || d.in_flight == Some(*request));
     let connected = state.status_of(*session) == Some(ConnStatus::Connected);
     (awaited && connected).then(|| error.clone())
 }
 
 /// The answer to preview `request`, applied to the active session's draft. A stale answer
 /// changes nothing; a failure keeps the last good preview and is shown in the preview pane only,
-/// never as a banner.
-fn arrived(state: AppState, request: u64, outcome: Result<Vec<Document>, CoreError>) -> Out {
+/// never as a banner. Either way the answer of the preview in flight frees the slot, and with
+/// `release` the newest waiting preview goes out (not when the session is about to fail).
+fn arrived(
+    state: AppState,
+    request: u64,
+    outcome: Result<Vec<Document>, CoreError>,
+    release: bool,
+) -> Out {
     let draft = (*state.aggregate).clone().arrived(request, outcome);
-    (with_draft(state, draft), Vec::new())
+    released(with_draft(state, draft), request, release)
+}
+
+/// Frees the slot of `request` and, with `release`, sends the waiting preview.
+fn released(state: AppState, request: u64, release: bool) -> Out {
+    let target = target(&state);
+    let ns = target.as_ref().map(|(_, ns)| ns).filter(|_| release);
+    let (draft, send) = (*state.aggregate).clone().released(request, ns);
+    sent(state, draft, target, send)
 }
 
 /// A preview the runtime could not run (not connected, a lost connection settled by a ping, a
 /// read-only refusal): the same inline failure as an `Err` outcome, never a banner. A superseded
-/// one belongs to a connection that was replaced and is consumed.
-fn request_failed(state: AppState, request: u64, error: CoreError) -> Out {
+/// one belongs to a connection that was replaced: it shows nothing but frees its slot.
+fn request_failed(state: AppState, request: u64, error: CoreError, release: bool) -> Out {
     match error {
-        CoreError::Superseded => (state, Vec::new()),
-        error => arrived(state, request, Err(error)),
+        CoreError::Superseded => released(state, request, release),
+        error => arrived(state, request, Err(error), release),
     }
 }
 
@@ -245,3 +301,7 @@ mod tests;
 #[cfg(test)]
 #[path = "aggregate_batch_tests.rs"]
 mod batch_tests;
+
+#[cfg(test)]
+#[path = "aggregate_flight_tests.rs"]
+mod flight_tests;

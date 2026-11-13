@@ -155,9 +155,25 @@ fn an_ordinary_preview_failure_stays_inline() {
 }
 
 #[test]
-fn a_stale_preview_that_finds_the_server_gone_changes_nothing() {
+fn a_loss_of_the_preview_in_flight_fails_the_session_though_a_newer_one_waits() {
     let (s, id, request) = previewing();
-    let (s, _) = update(s, Input::Aggregate(A::AddStage("$sort".into())));
-    let (s, _) = ev(s, preview_failed(id, request, CoreError::Unreachable));
-    assert_eq!(s.status, ConnStatus::Connected, "the newer request answers");
+    let (s, c) = update(s, Input::Aggregate(A::AddStage("$sort".into())));
+    assert!(
+        c.is_empty(),
+        "the newer one waits: nobody else would answer"
+    );
+    let (s, c) = ev(s, preview_failed(id, request, CoreError::Unreachable));
+    assert_eq!(s.status, ConnStatus::Failed);
+    assert!(c.is_empty(), "nothing is sent on the lost connection");
+    assert_eq!(s.aggregate.in_flight, None);
+    assert_eq!(s.aggregate.queued, None);
+}
+
+#[test]
+fn an_answer_that_is_not_the_one_in_flight_changes_nothing() {
+    let (s, id, request) = previewing();
+    let (s, c) = ev(s, preview_failed(id, request + 7, CoreError::Unreachable));
+    assert_eq!(s.status, ConnStatus::Connected);
+    assert!(c.is_empty());
+    assert_eq!(s.aggregate.in_flight, Some(request));
 }

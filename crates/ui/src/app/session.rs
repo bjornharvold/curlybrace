@@ -77,7 +77,7 @@ fn carried_aggregate(
     view: &AggregateView,
 ) -> (Box<AggregateState>, Box<AggregateView>) {
     (
-        Box::new(draft.clone().on_collection_changed()),
+        Box::new(draft.clone().on_connection_reset()),
         Box::new(view.carried()),
     )
 }
