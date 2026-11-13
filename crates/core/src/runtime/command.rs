@@ -34,6 +34,7 @@ impl Command {
             | Self::Find { .. }
             | Self::ExplainFind { .. }
             | Self::GuardCheck { .. }
+            | Self::AggregatePreview { .. }
             | Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
@@ -68,6 +69,7 @@ impl Command {
             | Self::DatabaseStats { request, .. }
             | Self::QueryShapes { request, .. }
             | Self::GuardCheck { request, .. }
+            | Self::AggregatePreview { request, .. }
             | Self::BulkCount { request, .. }
             | Self::BulkSample { request, .. }
             | Self::SnapshotList { request }
@@ -86,6 +88,7 @@ impl Command {
             Self::Find { .. } => "find",
             Self::ExplainFind { .. } => "explain_find",
             Self::GuardCheck { .. } => "guard_check",
+            Self::AggregatePreview { .. } => "aggregate_preview",
             Self::Insert { .. } => "insert",
             Self::Replace { .. } => "replace",
             Self::Delete { .. } => "delete",
@@ -142,6 +145,7 @@ impl Command {
             | Self::Find { session, .. }
             | Self::ExplainFind { session, .. }
             | Self::GuardCheck { session, .. }
+            | Self::AggregatePreview { session, .. }
             | Self::Insert { session, .. }
             | Self::Replace { session, .. }
             | Self::Delete { session, .. }
@@ -200,6 +204,7 @@ impl Event {
             | Self::Results { session, .. }
             | Self::Explain { session, .. }
             | Self::GuardChecked { session, .. }
+            | Self::AggregatePreviewed { session, .. }
             | Self::Mutated { session, .. }
             | Self::Indexes { session, .. }
             | Self::IndexHistory { session, .. }

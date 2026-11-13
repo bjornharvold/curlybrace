@@ -26,6 +26,12 @@ pub const SNAPSHOT_MAX_BYTES: u64 = 512 * 1024 * 1024;
 /// Server-side time limit of the match count shown before a bulk write.
 pub const BULK_COUNT_MAX_TIME: Duration = Duration::from_secs(10);
 
+/// Client-side bound of an aggregate preview: a little above the server-side `maxTimeMS`
+/// ([`crate::pipeline::PREVIEW_MAX_TIME_MS`]), so the server's own timeout normally answers
+/// first. The runtime still applies `command_timeout` when that is shorter.
+pub const AGGREGATE_PREVIEW_TIMEOUT: Duration =
+    Duration::from_millis(crate::pipeline::PREVIEW_MAX_TIME_MS + 2_000);
+
 /// Upper bound for the reachability ping that follows a suspect failure of a data command.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(3);
 
