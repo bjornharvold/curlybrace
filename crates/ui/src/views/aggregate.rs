@@ -74,7 +74,7 @@ pub fn flush_typing(view: &mut AggregateView) -> Option<AggregateAction> {
     due.map(|(index, text)| AggregateAction::Edit(index, text))
 }
 
-/// A Refresh of an idle pane with stages to run (first display, another collection, a new
+/// A Refresh of an idle pane with stages to run in stages mode (text mode replaces them) (first display, another collection, a new
 /// connection), asked once per request so a Refresh that cannot run is not repeated every frame.
 fn with_auto_refresh(
     draft: &AggregateState,
@@ -82,7 +82,8 @@ fn with_auto_refresh(
     actions: Vec<AggregateAction>,
 ) -> Vec<AggregateAction> {
     let quiet = actions.is_empty() && view.pending.is_none();
-    if !quiet || !draft.wants_auto_refresh(view.auto_sent) {
+    let stages = draft.mode == Mode::Stages;
+    if !quiet || !stages || !draft.wants_auto_refresh(view.auto_sent) {
         return actions;
     }
     view.auto_sent = Some(draft.request);
@@ -220,6 +221,14 @@ mod tests {
             with_auto_refresh(&moved, &mut view, Vec::new()),
             [AggregateAction::Refresh]
         );
+    }
+
+    #[test]
+    fn text_mode_never_asks_for_an_automatic_refresh() {
+        let draft = AggregateState::default().add_stage("$match").to_text();
+        let mut view = AggregateView::default();
+        assert!(with_auto_refresh(&draft, &mut view, Vec::new()).is_empty());
+        assert_eq!(view.auto_sent, None);
     }
 
     #[test]
