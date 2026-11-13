@@ -16,8 +16,10 @@ use eframe::egui::{self, accesskit};
 
 /// The window height (points) up to which the findings area keeps its minimum.
 const SMALL_WINDOW: f32 = 500.0;
-/// The findings area is one row tall in a small window (points); more scroll.
-const FINDINGS_MIN_HEIGHT: f32 = 24.0;
+/// The findings area is one row tall in a small window (points); more scroll. One body line
+/// (about 18) and a sliver of the next, so the area reads as scrollable; it must leave the
+/// notice no taller than the syntax notice (two rows with a 6 pt row gap).
+const FINDINGS_MIN_HEIGHT: f32 = 22.0;
 /// ... and grows by this share of the window height above [`SMALL_WINDOW`] ...
 const FINDINGS_GROWTH: f32 = 0.4;
 /// ... up to this (points).
