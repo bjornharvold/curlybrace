@@ -331,6 +331,10 @@
           <dd>Write a script in the Shell tab and run the selection or all of it, Cancel it, format it, and read the output as it streams. It runs the <code>mongosh</code> you chose under Tool paths against the open connection; Curlybrace does not bundle one. The editor completes shell words, collection names, database and collection methods and <code>$</code> operators, and checks the script locally for unclosed brackets and strings before it runs, with <b>Run anyway</b> if the check is wrong. The last value can be read as text, a table or a tree. Each connection keeps its last 200 scripts; output is never stored. A production connection asks before each run and a read-only connection refuses. The password goes to <code>mongosh</code> over stdin, not on its command line or in logs. The script runs as one block, so the shell commands <code>use</code> and <code>show</code> do not work.</dd>
         </div>
         <div>
+          <dt>Build an aggregation pipeline and preview every stage</dt>
+          <dd>An Aggregate tab on each collection holds a pipeline as a list of stage cards, or as one JSON array in text mode; add, remove, move and disable stages, with stage names completed as you type. Select a stage to see up to 20 documents after it, in the Tree, Table or JSON view. A preview only reads: it is limited to 10 seconds on the server, works on read-only and production connections, and never runs <code>$out</code> or <code>$merge</code>; a trailing one is left out and named, and one anywhere else is refused. The draft is kept when you switch tabs, collections or connections. Saved pipelines, running a write stage and export as driver code come later. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/67">#67</a>.</dd>
+        </div>
+        <div>
           <dt>Bulk update and delete, with an undo copy</dt>
           <dd>Update or delete every document that matches the current filter, not just the page you see. A three-step dialog shows how many documents match and a few examples, before and after for an update, and nothing is written until you confirm. A delete always asks you to type the collection name; so does an update that matches more than 100 documents, runs on a production connection, or could not be previewed. An empty filter needs an extra tick first. Before the write runs, a copy of the documents it will change is saved on this computer, so you can restore them afterwards from the dialog and delete the copy when you are done. Documents someone else changed since are left alone. Stopping a running write is best effort, and the report says when the outcome is unknown.</dd>
         </div>
@@ -366,7 +370,7 @@
         <div>
           <h3>In progress</h3>
           <ul>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/67">Aggregation pipeline builder</a><span>Build a pipeline stage by stage and preview what each stage returns.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/67">Aggregation pipeline builder</a><span>The first slice is out: build a pipeline and preview each stage. Saved pipelines and a confirmed <code>$out</code> / <code>$merge</code> run come next.</span></li>
           </ul>
         </div>
         <div>

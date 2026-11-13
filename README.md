@@ -3,8 +3,8 @@
 # Curlybrace
 
 **Curlybrace is a free, native MongoDB GUI for macOS.** Browse your MongoDB collections, run queries,
-edit documents, compare and copy data between databases, and see how your indexes are used, without
-an account, a trial, or a license fee.
+edit documents, build aggregation pipelines with a preview of each stage, compare and copy data
+between databases, and see how your indexes are used, without an account, a trial, or a license fee.
 
 [![CI](https://github.com/bjornharvold/curlybrace/actions/workflows/ci.yml/badge.svg)](https://github.com/bjornharvold/curlybrace/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/bjornharvold/curlybrace?include_prereleases)](https://github.com/bjornharvold/curlybrace/releases/latest)
@@ -245,7 +245,9 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   mode edits the whole pipeline as one JSON array; text that does not parse shows the line and
   column and stays in text mode until it is fixed.
 - The preview shows the first 20 documents after the selected stage in the Tree, Table or JSON
-  view. It runs when the pipeline or the selection changes, and on **Refresh**.
+  view. It runs when the pipeline or the selection changes, and on **Refresh**. A connection runs
+  one preview at a time: if you change the pipeline while one is running, only the newest request
+  is sent when it answers.
 - A preview is a read, bounded by a 10 s time limit: one that takes longer says so and keeps the
   last result on screen. A trailing `$out` or `$merge` is never run in a preview (the pane says
   which stages were not run), and one anywhere else, including inside `$facet`, `$lookup` or
