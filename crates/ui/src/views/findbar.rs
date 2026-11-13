@@ -31,6 +31,7 @@ pub fn show_findbar(
     has_next: bool,
     i18n: &I18n,
 ) -> Option<FindAction> {
+    *state = state.more_settled();
     let more = MoreToggle {
         open: more_open(state),
         hidden: hidden_count(&state.text),
@@ -217,10 +218,29 @@ mod tests {
                 ..Default::default()
             },
             last_error: Some(CoreError::InvalidJson("filter: x".into())),
-            more: None,
+            more: Some(true),
         };
         let before = s.clone();
         assert_eq!(run_frame(&mut s, true, true), None);
         assert_eq!(s, before, "an idle frame must not change the state");
+    }
+
+    #[test]
+    fn more_opened_by_a_value_stays_open_when_the_last_value_is_deleted() {
+        let mut s = FindBarState {
+            text: QueryText {
+                limit: "10".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        run_frame(&mut s, false, false);
+        assert_eq!(s.more, Some(true), "shown open, so the opening sticks");
+        s.text.limit.clear();
+        run_frame(&mut s, false, false);
+        assert!(more_open(&s), "deleting the last value does not close it");
+        let mut empty = FindBarState::default();
+        run_frame(&mut empty, false, false);
+        assert_eq!(empty.more, None, "nothing shown open, nothing decided");
     }
 }

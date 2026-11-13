@@ -38,6 +38,19 @@ impl FindBarState {
             ..self.clone()
         }
     }
+
+    /// Opening by itself is a one-time event: once the disclosure is shown open with no choice
+    /// made, that becomes the choice, so deleting the last value behind it does not close it
+    /// under the cursor. Clear drops the choice again.
+    pub fn more_settled(&self) -> Self {
+        match (self.more, more_open(self)) {
+            (None, true) => Self {
+                more: Some(true),
+                ..self.clone()
+            },
+            _ => self.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -129,6 +142,27 @@ mod tests {
         };
         assert!(fixed.last_error.is_some(), "the error stays until the next run");
         assert!(!more_open(&fixed), "an edit of the Filter must not open More");
+    }
+
+    #[test]
+    fn settling_keeps_an_automatic_opening_after_the_last_value_goes() {
+        let settled = with(QueryText {
+            sort: "{\"a\": 1}".into(),
+            ..QueryText::default()
+        })
+        .more_settled();
+        assert_eq!(settled.more, Some(true));
+        let emptied = FindBarState {
+            text: QueryText::default(),
+            ..settled
+        };
+        assert!(more_open(&emptied));
+        assert_eq!(FindBarState::default().more_settled().more, None);
+        let closed = FindBarState {
+            more: Some(false),
+            ..emptied
+        };
+        assert_eq!(closed.more_settled(), closed, "a choice made is kept");
     }
 
     #[test]

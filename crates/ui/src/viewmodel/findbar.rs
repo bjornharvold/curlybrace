@@ -8,8 +8,9 @@ use curlybrace_core::store::Query;
 pub struct FindBarState {
     pub text: QueryText,
     pub last_error: Option<CoreError>,
-    /// The person's choice for the "More" disclosure (Sort, Projection, Skip, Limit); `None`
-    /// follows the content (see [`super::findbar_more::more_open`]). Clear drops the choice.
+    /// The choice for the "More" disclosure (Sort, Projection, Skip, Limit); `None` follows the
+    /// content (see [`super::findbar_more::more_open`]) until it is first shown open, which then
+    /// sticks (see [`Self::more_settled`]). Clear drops the choice.
     pub more: Option<bool>,
 }
 
