@@ -1,8 +1,9 @@
-//! The Shell tab: the connection it runs on with the Run / Cancel / Format toolbar on the same
-//! row (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`, and the finished run's notice as its
-//! status), why it may not run, the script editor with the first syntax problem under it, any other notice, the
-//! History panel and the output pane (with its `Text | Table | Tree` switch). It only draws and
-//! reports; every decision is the reducer's.
+//! The Shell tab, top to bottom: the connection it runs on with the Run / Cancel / Format
+//! toolbar on the same row (`Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`; a finished run's notice is
+//! the toolbar's status); why runs are blocked or need confirming; the script editor with its
+//! first syntax problem under it; the editor and script hints; any other notice; the History
+//! panel; then the output pane with its `Text | Table | Tree` switch. It only draws and reports;
+//! every decision is the reducer's.
 //!
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.

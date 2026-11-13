@@ -1,7 +1,8 @@
-//! The Queries view of the Indexes tab: the range and refresh (after whatever the caller leads
-//! that row with), a one-line status row, the miss trend and the recorded shapes. Draws state and reports what the person did; the reducer
-//! decides what happens. The status row has a fixed height, so nothing below it moves when the
-//! profiler or the poller changes state.
+//! The Queries view of the Indexes tab, top to bottom: one row with whatever the caller leads it
+//! with, then the range and refresh; a one-line status row; the miss trend; then the recorded
+//! shapes. It draws state and reports what the person did; the reducer decides what happens.
+//! The status row has a fixed height, so nothing below it moves when the profiler or the poller
+//! changes state.
 use super::queries_chart::show_miss_chart;
 use super::queries_rows::show_rows;
 use super::tone_notice::tone_notice;
