@@ -31,6 +31,7 @@ mod mongo_bulk_preview;
 mod mongo_collection_options;
 mod mongo_explain;
 mod mongo_indexes;
+mod mongo_pipeline;
 mod mongo_profile;
 mod mongo_snapshot;
 pub mod mongo_store;

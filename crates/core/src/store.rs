@@ -480,6 +480,21 @@ pub trait DocumentStore: Send + Sync {
         ))
     }
 
+    /// Runs `pipeline` on `ns` as a preview and returns its documents. A read, so a read-only
+    /// connection may call it. Refuses a pipeline holding `$out` or `$merge` at any depth
+    /// before it reaches the server; the caller bounds the size with its own `$limit` and the
+    /// server stops the work after `max_time`.
+    async fn aggregate_preview(
+        &self,
+        _ns: &Namespace,
+        _pipeline: Vec<Document>,
+        _max_time: Duration,
+    ) -> Result<Vec<Document>> {
+        Err(CoreError::Unsupported(
+            "this store cannot preview a pipeline".into(),
+        ))
+    }
+
     /// The profiler setting of `db`.
     async fn profiling_level(&self, _db: &str) -> Result<ProfilingState> {
         Err(CoreError::Unsupported(
