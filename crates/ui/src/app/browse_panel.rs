@@ -1,5 +1,5 @@
 //! The Browse page of a collection, top to bottom: one row with the connection header and the
-//! Documents | Indexes tabs; the find bar; one wrapping row with the two global switches and
+//! Documents | Indexes | Aggregate tabs; the find bar; one wrapping row with the two global switches and
 //! the index verdict; the guard's notice (only while it has something to say); then the
 //! documents with their one-row toolbar. Kept dense so the data starts high on the window.
 use super::panels::UiEvent;
@@ -37,9 +37,16 @@ pub(super) fn show_collection(
     if let Some(tab) = picked {
         out.push(UiEvent::Input(Input::Tab(tab)));
     }
-    if state.tab == CollectionTab::Indexes {
-        show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
-        return;
+    match state.tab {
+        CollectionTab::Indexes => {
+            show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
+            return;
+        }
+        CollectionTab::Aggregate => {
+            ui.label(i18n.t("aggregate.placeholder"));
+            return;
+        }
+        CollectionTab::Documents => {}
     }
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {

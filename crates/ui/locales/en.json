@@ -42,6 +42,10 @@
       "instruction": "Type this name exactly to confirm:"
     }
   },
+  "aggregate": {
+    "placeholder": "Aggregate pipeline builder",
+    "tab": "Aggregate"
+  },
   "app": {
     "title": "Curlybrace"
   },

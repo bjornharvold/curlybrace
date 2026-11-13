@@ -54,7 +54,9 @@ pub(super) fn on_action(state: AppState, action: IndexesAction) -> Out {
 /// refused with the banner and the tab stays where it was.
 pub(super) fn switch_tab(state: AppState, tab: CollectionTab) -> Out {
     match tab {
-        CollectionTab::Documents => (AppState { tab, ..state }, Vec::new()),
+        CollectionTab::Documents | CollectionTab::Aggregate => {
+            (AppState { tab, ..state }, Vec::new())
+        }
         CollectionTab::Indexes => gated(state, open_tab),
     }
 }
@@ -109,7 +111,7 @@ pub(super) fn collection_opened(state: AppState) -> (AppState, Vec<Command>) {
     let next = AppState { indexes, ..state };
     match next.tab {
         CollectionTab::Indexes => request(next),
-        CollectionTab::Documents => (next, Vec::new()),
+        CollectionTab::Documents | CollectionTab::Aggregate => (next, Vec::new()),
     }
 }
 

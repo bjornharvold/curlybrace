@@ -135,6 +135,20 @@ fn switching_to_the_indexes_tab_behaves_like_opening_it() {
 }
 
 #[test]
+fn switching_to_the_aggregate_tab_sends_nothing_and_keeps_the_draft() {
+    let s = AppState {
+        aggregate: Box::new(crate::viewmodel::AggregateState::default().add_stage("$match")),
+        ..connected()
+    };
+    let draft = s.aggregate.clone();
+    let (s, commands) = update(s, Input::Tab(CollectionTab::Aggregate));
+    assert!(commands.is_empty());
+    assert_eq!(s.tab, CollectionTab::Aggregate);
+    let (s, _) = update(s, Input::Tab(CollectionTab::Documents));
+    assert_eq!(s.aggregate, draft);
+}
+
+#[test]
 fn a_matching_answer_is_applied() {
     let (s, _) = open_tab(connected());
     let (s, _) = event(

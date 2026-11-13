@@ -4,8 +4,8 @@ use super::reducer::Out;
 use super::state::{AppState, ConnStatus, HostEndpoint, Pending};
 use crate::I18n;
 use crate::viewmodel::{
-    CollectionTab, EditorState, FindBarState, IndexesState, PageKey, SidebarState, TreeState,
-    ViewMode,
+    AggregateState, CollectionTab, EditorState, FindBarState, IndexesState, PageKey, SidebarState,
+    TreeState, ViewMode,
 };
 use crate::viewmodel::{ConnectionBadge, connection_list};
 use curlybrace_core::connection::ConnectionConfig;
@@ -35,6 +35,7 @@ pub struct SessionView {
     pub view_mode: ViewMode,
     pub tab: CollectionTab,
     pub indexes: IndexesState,
+    pub aggregate: Box<AggregateState>,
     pub editor: Option<EditorState>,
     pub pending: Option<Pending>,
     pub ssh_endpoint: Option<HostEndpoint>,
@@ -105,6 +106,7 @@ impl AppState {
             view_mode: std::mem::take(&mut self.view_mode),
             tab: std::mem::take(&mut self.tab),
             indexes: std::mem::take(&mut self.indexes),
+            aggregate: std::mem::take(&mut self.aggregate),
             editor: self.editor.take(),
             pending: self.pending.take(),
             ssh_endpoint: self.ssh_endpoint.take(),
@@ -135,6 +137,7 @@ impl AppState {
             view_mode,
             tab,
             indexes,
+            aggregate,
             editor,
             pending,
             ssh_endpoint,
@@ -159,6 +162,7 @@ impl AppState {
         self.view_mode = view_mode;
         self.tab = tab;
         self.indexes = indexes;
+        self.aggregate = aggregate;
         self.editor = editor;
         self.pending = pending;
         self.ssh_endpoint = ssh_endpoint;
