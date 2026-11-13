@@ -5,12 +5,8 @@
 //! nesting, so deeply nested input is an error, never a stack overflow.
 //! Pipeline text is user data and is never logged here.
 
-use std::fmt;
-
 use bson::{Bson, Document};
 use serde_json::Value;
-
-use crate::error::CoreError;
 
 /// Documents shown by a preview.
 pub const PREVIEW_LIMIT: i64 = 20;
@@ -26,6 +22,8 @@ pub struct Stage {
     pub enabled: bool,
 }
 
+/// Why pipeline text cannot be previewed. The UI maps each variant to an i18n key;
+/// there is deliberately no English `Display`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PipelineError {
     Syntax {
@@ -47,47 +45,6 @@ pub enum PipelineError {
         name: String,
     },
     Empty,
-}
-
-impl fmt::Display for PipelineError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Syntax {
-                line,
-                column,
-                message,
-            } => write!(f, "line {line}, column {column}: {message}"),
-            Self::NotAnArray => write!(f, "a pipeline is a JSON array of stage objects"),
-            Self::NotAStage { index } => write!(
-                f,
-                "stage {} must be an object with exactly one $-prefixed key",
-                index + 1
-            ),
-            Self::WriteStageNotLast { index, name } => {
-                write!(f, "stage {}: {name} must be the last stage", index + 1)
-            }
-            Self::NestedWriteStage { index, name } => {
-                write!(
-                    f,
-                    "stage {}: {name} is not allowed in a sub-pipeline",
-                    index + 1
-                )
-            }
-            Self::Empty => write!(f, "the pipeline has no enabled stages"),
-        }
-    }
-}
-
-impl std::error::Error for PipelineError {}
-
-impl PipelineError {
-    /// The shared error taxonomy: syntax errors are `InvalidJson`, the rest `InvalidDocument`.
-    pub fn into_core(self) -> CoreError {
-        match self {
-            Self::Syntax { .. } => CoreError::InvalidJson(self.to_string()),
-            other => CoreError::InvalidDocument(other.to_string()),
-        }
-    }
 }
 
 fn syntax(e: &serde_json::Error) -> PipelineError {
@@ -174,33 +131,46 @@ fn is_write(name: &str) -> bool {
     WRITE_STAGES.contains(&name)
 }
 
-fn find_write_in_bson(b: &Bson) -> Option<String> {
+/// A write stage inside a list of stages (a sub-pipeline array).
+fn find_write_in_stages(b: &Bson) -> Option<String> {
     match b {
-        Bson::Document(d) => find_write_in_doc(d),
-        Bson::Array(items) => items.iter().find_map(find_write_in_bson),
+        Bson::Array(items) => items.iter().find_map(|item| match item {
+            Bson::Document(d) => find_write_in_stage(d),
+            _ => None,
+        }),
         _ => None,
     }
 }
 
-fn find_write_in_doc(d: &Document) -> Option<String> {
-    d.iter().find_map(|(k, v)| {
-        if is_write(k) {
-            Some(k.clone())
-        } else {
-            find_write_in_bson(v)
+/// A write stage at the position of `stage` itself or in a sub-pipeline of it.
+///
+/// Sub-pipelines live only in `$facet` (each value), `$lookup.pipeline` and
+/// `$unionWith.pipeline`. A `$out`/`$merge` key anywhere else is data.
+fn find_write_in_stage(stage: &Document) -> Option<String> {
+    stage.iter().find_map(|(key, value)| {
+        if is_write(key) {
+            return Some(key.clone());
+        }
+        match (key.as_str(), value) {
+            ("$facet", Bson::Document(facets)) => facets.values().find_map(find_write_in_stages),
+            ("$lookup" | "$unionWith", Bson::Document(inner)) => {
+                inner.get("pipeline").and_then(find_write_in_stages)
+            }
+            _ => None,
         }
     })
 }
 
-/// A write stage (`$out`/`$merge`) at any depth of any stage, by name.
+/// A write stage (`$out`/`$merge`) at a stage position of the pipeline or of a
+/// sub-pipeline (`$facet`, `$lookup`, `$unionWith`), by name.
 pub fn contains_write_stage(pipeline: &[Document]) -> Option<String> {
-    pipeline.iter().find_map(find_write_in_doc)
+    pipeline.iter().find_map(find_write_in_stage)
 }
 
 /// Builds the read-only pipeline that previews stages `0..=upto`.
 ///
 /// Only enabled stages count. A trailing write stage is dropped and named in
-/// `not_run`; a write stage anywhere else, or nested under any stage, is refused.
+/// `not_run`; a write stage anywhere else, or inside a sub-pipeline of a stage, is refused.
 /// `{ "$limit": limit }` is appended.
 pub fn preview_pipeline(
     stages: &[Stage],
@@ -228,7 +198,7 @@ pub fn preview_pipeline(
                 name: name.clone(),
             });
         }
-        if let Some(nested) = find_write_in_doc(doc) {
+        if let Some(nested) = find_write_in_stage(doc) {
             return Err(PipelineError::NestedWriteStage {
                 index: *index,
                 name: nested,

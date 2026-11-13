@@ -1,7 +1,6 @@
 use bson::doc;
 
 use super::*;
-use crate::error::CoreError;
 
 fn st(text: &str) -> Stage {
     Stage {
@@ -259,7 +258,22 @@ fn nested_write_stages_are_refused() {
 }
 
 #[test]
-fn contains_write_stage_finds_any_depth() {
+fn write_stage_names_in_data_positions_are_allowed() {
+    let cases = [
+        r#"{"$replaceWith": {"$literal": {"$merge": 1}}}"#,
+        r#"{"$addFields": {"x": {"$literal": {"$out": "t"}}}}"#,
+        r#"{"$match": {"$merge": 1}}"#,
+        r#"{"$unionWith": "other"}"#,
+        r#"{"$lookup": {"from": "c", "as": "x", "let": {"$out": 1}}}"#,
+    ];
+    for case in cases {
+        let plan = preview_pipeline(&[st(case)], 0, 20).unwrap_or_else(|e| panic!("{case}: {e:?}"));
+        assert_eq!(contains_write_stage(&plan.pipeline), None, "{case}");
+    }
+}
+
+#[test]
+fn contains_write_stage_finds_stage_positions() {
     assert_eq!(contains_write_stage(&[doc! {"$match": {}}]), None);
     assert_eq!(
         contains_write_stage(&[doc! {"$out": "t"}]).as_deref(),
@@ -278,33 +292,4 @@ fn deeply_nested_json_never_panics() {
     assert!(parse_pipeline_text(&text).is_err());
     let nested_objs = format!("{}1{}", r#"{"a":"#.repeat(200), "}".repeat(200));
     let _ = preview_pipeline(&[st(&format!(r#"{{"$match": {nested_objs}}}"#))], 0, 20);
-}
-
-#[test]
-fn errors_convert_to_the_core_taxonomy() {
-    let syntax = PipelineError::Syntax {
-        line: 2,
-        column: 4,
-        message: "boom".into(),
-    };
-    match syntax.into_core() {
-        CoreError::InvalidJson(m) => assert!(m.contains("line 2") && m.contains("column 4")),
-        other => panic!("{other:?}"),
-    }
-    for e in [
-        PipelineError::NotAnArray,
-        PipelineError::NotAStage { index: 0 },
-        PipelineError::WriteStageNotLast {
-            index: 0,
-            name: "$out".into(),
-        },
-        PipelineError::NestedWriteStage {
-            index: 0,
-            name: "$out".into(),
-        },
-        PipelineError::Empty,
-    ] {
-        assert!(!e.to_string().is_empty());
-        assert!(matches!(e.into_core(), CoreError::InvalidDocument(_)));
-    }
 }
