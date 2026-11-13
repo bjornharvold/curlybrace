@@ -304,7 +304,7 @@
         </div>
         <div>
           <dt>Query without leaving the page</dt>
-          <dd>Type a filter, sort, projection, skip and limit as JSON and run it. If something is wrong, the app says what, and your previous results stay on screen.</dd>
+          <dd>Type a filter as JSON and run it. Sort, projection, skip and limit sit behind <b>More options</b>, which says how many of them are set while it is closed. If something is wrong, the app says what, and your previous results stay on screen.</dd>
         </div>
         <div>
           <dt>Edit without losing types</dt>
@@ -321,6 +321,22 @@
         <div>
           <dt>Indexes, and how much they are used</dt>
           <dd>An Indexes tab on each collection shows its indexes with size and use over the last 24 hours, 7 days or 30 days, from a local history. Create an index with a builder that shows the command first, edit a copy, hide or drop one, and change a TTL. Index changes follow the same production and read-only rules as document writes. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/68">#68</a>.</dd>
+        </div>
+        <div>
+          <dt>Warned before a query scans the collection</dt>
+          <dd>Every query shows a verdict badge, such as &ldquo;Collection scan: no index used&rdquo;, with the reason and a suggested index. Before the query bar or the Shell tab sends a query that would read a whole collection or sort in memory, the app asks the server for a plan only, without running the query, and offers <b>Run anyway</b> or <b>Cancel</b>. On a production connection it asks at any size; on others only for collections over 1,000 documents. The setting &ldquo;Warn before queries that would scan a collection&rdquo; is on by default. If the plan cannot be had, the query just runs. The Shell tab reads plain <code>db.collection.find</code>, <code>count</code>, <code>update</code> and <code>delete</code> calls and says &ldquo;not checked&rdquo; for anything it cannot read.</dd>
+        </div>
+        <div>
+          <dt>A shell tab that runs your own mongosh</dt>
+          <dd>Write a script in the Shell tab and run the selection or all of it, Cancel it, format it, and read the output as it streams. It runs the <code>mongosh</code> you chose under Tool paths against the open connection; Curlybrace does not bundle one. The editor completes shell words, collection names, database and collection methods and <code>$</code> operators, and checks the script locally for unclosed brackets and strings before it runs, with <b>Run anyway</b> if the check is wrong. The last value can be read as text, a table or a tree. Each connection keeps its last 200 scripts; output is never stored. A production connection asks before each run and a read-only connection refuses. The password goes to <code>mongosh</code> over stdin, not on its command line or in logs. The script runs as one block, so the shell commands <code>use</code> and <code>show</code> do not work.</dd>
+        </div>
+        <div>
+          <dt>Bulk update and delete, with an undo copy</dt>
+          <dd>Update or delete every document that matches the current filter, not just the page you see. A three-step dialog shows how many documents match and a few examples, before and after for an update, and nothing is written until you confirm. A delete always asks you to type the collection name; so does an update that matches more than 100 documents, runs on a production connection, or could not be previewed. An empty filter needs an extra tick first. Before the write runs, a copy of the documents it will change is saved on this computer, so you can restore them afterwards from the dialog and delete the copy when you are done. Documents someone else changed since are left alone. Stopping a running write is best effort, and the report says when the outcome is unknown.</dd>
+        </div>
+        <div>
+          <dt>Manage databases, collections and views</dt>
+          <dd>From the sidebar, drop a database or a collection by typing its name to confirm, rename or duplicate a collection, and create a read-only view from a collection and a pipeline. These follow the same production and read-only rules as document writes.</dd>
         </div>
         <div>
           <dt>Several connections at once</dt>
@@ -350,16 +366,15 @@
         <div>
           <h3>In progress</h3>
           <ul>
-            <li><span>Nothing is being built right now. Pick something from Next.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/67">Aggregation pipeline builder</a><span>Build a pipeline stage by stage and preview what each stage returns.</span></li>
           </ul>
         </div>
         <div>
           <h3>Next</h3>
           <ul>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/17">Signing and notarization</a><span>So the app opens without a Gatekeeper warning.</span></li>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/50">A shell tab</a><span>Run your own <code>mongosh</code> inside the app, with history.</span></li>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/51">Bulk update and delete</a><span>Change many documents at once, after a count and sample preview.</span></li>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/52">Collection administration</a><span>Create, rename and drop databases, collections and views.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/116">Index misses from your apps</a><span>The query bar and Shell now check before they run. Finding misses in what your own apps send, and keeping them over time, is still open.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/12">Inline editing</a><span>Edit a value in the table and tree views instead of the JSON editor.</span></li>
           </ul>
         </div>
         <div>
@@ -368,7 +383,6 @@
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/9">Data masking and reschema</a></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/10">SQL and MongoDB</a></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/11">Task scheduler</a></li>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/67">Aggregation builder</a></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/69">Explain plans</a></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/70">Schema analysis</a></li>
             <li><a href="https://github.com/bjornharvold/curlybrace/issues/55">Import</a> and <a href="https://github.com/bjornharvold/curlybrace/issues/54">export</a></li>
