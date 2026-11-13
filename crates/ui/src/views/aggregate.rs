@@ -93,10 +93,15 @@ fn with_auto_refresh(
 fn show_header(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) -> Vec<AggregateAction> {
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(CONTROL_HEIGHT);
-        // A stage added in text mode would not be in the text being edited.
-        let added = add_stage_menu(ui, draft.mode == Mode::Stages, i18n);
+        // A stage added in text mode would not be in the text being edited, and a Refresh there
+        // would preview the stages the text is replacing.
+        let stages = draft.mode == Mode::Stages;
+        let added = add_stage_menu(ui, stages, i18n);
         let mode = mode_toggle(ui, draft.mode, i18n);
-        let refresh = tonal_button(ui, i18n.t("aggregate.refresh")).clicked();
+        let refresh = gate(ui, stages, |ui| {
+            tonal_button(ui, i18n.t("aggregate.refresh"))
+        });
+        let refresh = refresh.clicked() && stages;
         let (tone, key) = status_chip(&draft.preview);
         chip(ui, tone, &i18n.t(key));
         [

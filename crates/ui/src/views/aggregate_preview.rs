@@ -27,9 +27,16 @@ pub(super) fn show_preview(
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(CONTROL_HEIGHT);
         view.mode = show_mode_switcher(ui, view.mode, i18n);
-        if !draft.stages.is_empty() {
-            let n = (draft.selected + 1).to_string();
-            ui.strong(i18n.t_with("aggregate.preview.heading", &[("n", &n)]));
+        // A disabled stage has no output of its own: the preview skips it.
+        match draft.stages.get(draft.selected) {
+            Some(stage) if stage.enabled => {
+                let n = (draft.selected + 1).to_string();
+                ui.strong(i18n.t_with("aggregate.preview.heading", &[("n", &n)]));
+            }
+            Some(_) => {
+                ui.strong(i18n.t("aggregate.stage.disabled"));
+            }
+            None => {}
         }
         if let Some(preview) = shown.filter(|p| !p.docs.is_empty()) {
             ui.label(count_text(preview.docs.len(), i18n));

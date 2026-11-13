@@ -10,7 +10,7 @@ use curlybrace_ui::viewmodel::aggregate_view::AggregateView;
 use curlybrace_ui::views::aggregate::show_aggregate;
 use eframe::egui;
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 type Frame = (AggregateState, AggregateView, Vec<AggregateAction>);
 
@@ -142,4 +142,38 @@ fn text_mode_warns_that_disabled_stages_are_not_kept_only_when_one_is() {
     assert!(harness.query_by_label(&warning).is_none());
     let harness = open(three_stages_shown().toggle(1).to_text());
     harness.get_by_label(&warning);
+}
+
+#[test]
+fn refresh_is_off_in_text_mode_where_it_would_preview_the_old_stages() {
+    let refresh = t("aggregate.refresh");
+    let harness = open(three_stages_shown());
+    assert!(
+        !harness
+            .get_by_label(&refresh)
+            .accesskit_node()
+            .is_disabled()
+    );
+    let harness = open(three_stages_shown().to_text());
+    assert!(
+        harness
+            .get_by_label(&refresh)
+            .accesskit_node()
+            .is_disabled()
+    );
+}
+
+#[test]
+fn a_disabled_selected_stage_is_not_headed_as_the_output_shown() {
+    let i18n = I18n::english();
+    let heading = i18n.t_with("aggregate.preview.heading", &[("n", "3")]);
+    let harness = open(three_stages_shown().toggle(2));
+    assert!(harness.query_by_label(&heading).is_none());
+    // Once on the card's status line, once over the preview.
+    assert_eq!(
+        harness
+            .query_all_by_label(&t("aggregate.stage.disabled"))
+            .count(),
+        2
+    );
 }
