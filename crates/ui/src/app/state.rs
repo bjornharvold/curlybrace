@@ -9,8 +9,8 @@ use super::shell_state::ShellTabs;
 use super::tools_state::ToolsState;
 use crate::viewmodel::compare::CompareState;
 use crate::viewmodel::{
-    CollectionTab, CopyClipboard, EditorState, FindBarState, IndexesState, PageKey, PasteBlock,
-    SidebarSelection, SidebarState, TreeState, ViewMode,
+    AggregateState, CollectionTab, CopyClipboard, EditorState, FindBarState, IndexesState, PageKey,
+    PasteBlock, SidebarSelection, SidebarState, TreeState, ViewMode,
 };
 use crate::views::connections::ConnectionsState;
 use bson::Bson;
@@ -167,7 +167,7 @@ pub struct Pending {
 ///
 /// The fields describing the ACTIVE session are `status`, `failure`, `topology`,
 /// `latest_requested_epoch`, `sidebar`, `loading`, `find`, `issued_query`, `page_query`,
-/// `loading_page`, `page`, `page_key`, `verdict`, `guard`, `tree`, `view_mode`, `tab`, `indexes`, `editor`,
+/// `loading_page`, `page`, `page_key`, `verdict`, `guard`, `tree`, `view_mode`, `tab`, `indexes`, `aggregate`, `aggregate_view`, `editor`,
 /// `pending`, `ssh_endpoint`, `production` and `read_only`. They are parked per session and must
 /// be added to `SessionView` (and to `take_view`/`restore_view`) together; `restore_view` destructures it exhaustively so a
 /// missed field fails to compile.
@@ -234,6 +234,11 @@ pub struct AppState {
     pub tab: CollectionTab,
     /// The Indexes tab of the selected collection and the session's sampler status.
     pub indexes: IndexesState,
+    /// The Aggregate tab's pipeline draft and preview. Boxed, like `guard`: `AppState` moves by
+    /// value through every step.
+    pub aggregate: Box<AggregateState>,
+    /// The Aggregate tab's own view state (the preview's tree and mode, typing not yet sent).
+    pub aggregate_view: Box<crate::viewmodel::aggregate_view::AggregateView>,
     /// The databases the usage sampler skips. Global: it belongs to no session, so it is not
     /// parked with one.
     pub sampling: SamplingSettings,
@@ -386,6 +391,8 @@ impl AppState {
             tree: self.tree.results_replaced(),
             tab: CollectionTab::default(),
             indexes: IndexesState::default(),
+            aggregate: Box::default(),
+            aggregate_view: Box::default(),
             editor: None,
             pending: None,
             write_warning: None,

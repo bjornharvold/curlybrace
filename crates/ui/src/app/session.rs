@@ -3,9 +3,10 @@
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus, HostEndpoint, Pending};
 use crate::I18n;
+use crate::viewmodel::aggregate_view::AggregateView;
 use crate::viewmodel::{
-    CollectionTab, EditorState, FindBarState, IndexesState, PageKey, SidebarState, TreeState,
-    ViewMode,
+    AggregateState, CollectionTab, EditorState, FindBarState, IndexesState, PageKey, SidebarState,
+    TreeState, ViewMode,
 };
 use crate::viewmodel::{ConnectionBadge, connection_list};
 use curlybrace_core::connection::ConnectionConfig;
@@ -35,6 +36,8 @@ pub struct SessionView {
     pub view_mode: ViewMode,
     pub tab: CollectionTab,
     pub indexes: IndexesState,
+    pub aggregate: Box<AggregateState>,
+    pub aggregate_view: Box<AggregateView>,
     pub editor: Option<EditorState>,
     pub pending: Option<Pending>,
     pub ssh_endpoint: Option<HostEndpoint>,
@@ -64,6 +67,19 @@ pub struct Root {
 /// The name to show for the open session `id`: see [`AppState::open_label`].
 pub fn session_display_name(state: &AppState, id: Uuid, i18n: &I18n) -> Option<String> {
     state.open_label(id, i18n)
+}
+
+/// What a session's Aggregate tab keeps through a lost connection or a reconnect: the draft with
+/// its preview made stale (it ran against the connection that is gone), and the view's typing and
+/// mode.
+fn carried_aggregate(
+    draft: &AggregateState,
+    view: &AggregateView,
+) -> (Box<AggregateState>, Box<AggregateView>) {
+    (
+        Box::new(draft.clone().on_connection_reset()),
+        Box::new(view.carried()),
+    )
 }
 
 /// The first four hex characters of a connection id.
@@ -105,6 +121,8 @@ impl AppState {
             view_mode: std::mem::take(&mut self.view_mode),
             tab: std::mem::take(&mut self.tab),
             indexes: std::mem::take(&mut self.indexes),
+            aggregate: std::mem::take(&mut self.aggregate),
+            aggregate_view: std::mem::take(&mut self.aggregate_view),
             editor: self.editor.take(),
             pending: self.pending.take(),
             ssh_endpoint: self.ssh_endpoint.take(),
@@ -135,6 +153,8 @@ impl AppState {
             view_mode,
             tab,
             indexes,
+            aggregate,
+            aggregate_view,
             editor,
             pending,
             ssh_endpoint,
@@ -159,6 +179,8 @@ impl AppState {
         self.view_mode = view_mode;
         self.tab = tab;
         self.indexes = indexes;
+        self.aggregate = aggregate;
+        self.aggregate_view = aggregate_view;
         self.editor = editor;
         self.pending = pending;
         self.ssh_endpoint = ssh_endpoint;
@@ -334,6 +356,8 @@ impl AppState {
             .bulk_dropped_for(session, true)
             .shell_reset_for(session);
         let old = next.take_view();
+        // The Aggregate draft is the person's work, not the server's: it stays (its preview stale).
+        let (aggregate, aggregate_view) = carried_aggregate(&old.aggregate, &old.aggregate_view);
         next.restore_view(SessionView {
             status: ConnStatus::Failed,
             failure: Some(error),
@@ -341,9 +365,26 @@ impl AppState {
             ssh_endpoint: old.ssh_endpoint,
             production: old.production,
             read_only: old.read_only,
+            aggregate,
+            aggregate_view,
             ..SessionView::default()
         });
         next
+    }
+
+    /// The Aggregate draft and view session `id` starts its next opening with (see
+    /// [`carried_aggregate`]); a session that is not open starts empty.
+    pub(super) fn aggregate_for_reopen(
+        &self,
+        id: Uuid,
+    ) -> (Box<AggregateState>, Box<AggregateView>) {
+        if self.active == Some(id) {
+            return carried_aggregate(&self.aggregate, &self.aggregate_view);
+        }
+        match self.parked.get(&id) {
+            Some(view) => carried_aggregate(&view.aggregate, &view.aggregate_view),
+            None => Default::default(),
+        }
     }
 
     pub fn is_open(&self, id: Uuid) -> bool {

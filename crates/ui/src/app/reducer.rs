@@ -1,5 +1,6 @@
 //! The pure reducer: `update(state, input) -> (state, commands)`. No I/O, no egui.
 use super::actions;
+use super::aggregate_actions::{self, AggregateAction};
 use super::bulk_actions::{self, BulkAction};
 use super::compare::{self, CompareAction};
 use super::connection_test;
@@ -59,6 +60,8 @@ pub enum Input {
     Copies(super::saved_copies::CopiesAction),
     /// The Shell tab of the active session.
     Shell(ShellAction),
+    /// The Aggregate tab of the active session.
+    Aggregate(AggregateAction),
     DismissBanner,
     ForgetRequested,
     ForgetCancelled,
@@ -86,6 +89,7 @@ pub fn update(state: AppState, input: Input) -> Out {
         Input::Bulk(a) => bulk_actions::on_action(state, a),
         Input::Copies(a) => saved_copies::on_action(state, a),
         Input::Shell(a) => shell_actions::on_action(state, a),
+        Input::Aggregate(a) => aggregate_actions::on_action(state, a),
         Input::DismissBanner => (state.without_banner(), Vec::new()),
         Input::ForgetRequested => (forget_requested(state), Vec::new()),
         Input::ForgetCancelled => (
@@ -115,6 +119,12 @@ pub(super) fn failure(state: AppState, context: &'static str, error: CoreError) 
 }
 
 fn on_event(state: AppState, ev: Event) -> Out {
+    // A preview answer or failure goes to its session's Aggregate draft, inline and never as a
+    // banner (only a lost server then takes the connection-lost path). Taken ahead of the match below and of `on_session_event`: both are near the
+    // debug-build stack limit, and one more arm there overflows it.
+    if aggregate_actions::is_preview_event(&ev) {
+        return aggregate_actions::on_event(state, ev);
+    }
     // Compare sessions and connection tests are independent of the browsing sessions and their
     // epochs.
     let session = match &ev {
@@ -348,41 +358,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             context,
             request,
             error,
-        } => {
-            // The shapes read is numbered on its own and fails inline, never as a banner.
-            if context == "query_shapes" {
-                // Only a lost server still takes the connection-lost path, like any numbered
-                // read; every other failure stays inline.
-                let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
-                let current = state.indexes.queries.request == request;
-                let next = queries_actions::shapes_failed(state, request, error.clone());
-                if !(lost && current) {
-                    return (next, Vec::new());
-                }
-                let failed = Event::Failed {
-                    session,
-                    context,
-                    error,
-                };
-                return on_session_event(next, failed, background);
-            }
-            let current = state.indexes.request == request;
-            let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
-            if !(current || lost && state.indexes.answered <= request) {
-                return (state, Vec::new());
-            }
-            let awaiting = state.indexes.loading && !current;
-            let (next, commands) = on_session_event(
-                state,
-                Event::Failed {
-                    session,
-                    context,
-                    error,
-                },
-                background,
-            );
-            (keep_waiting(next, awaiting), commands)
-        }
+        } => numbered_read_failed(state, session, context, request, error, background),
         Event::Indexes {
             ns,
             indexes,
@@ -473,7 +449,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             bulk_actions::undo_preview_arrived(state, run, request_id, outcome),
             Vec::new(),
         ),
-        // Routed before: these have no session, or go to the session's shell.
+        // Routed before: these have no session, or go to the session's shell or Aggregate draft.
         Event::Compare(_)
         | Event::Copy(_)
         | Event::TestConnection { .. }
@@ -483,8 +459,55 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::ShellFinished { .. }
         | Event::ShellRefused { .. }
         | Event::ShellHistory { .. }
-        | Event::ShellHistoryChanged { .. } => (state, Vec::new()),
+        | Event::ShellHistoryChanged { .. }
+        | Event::AggregatePreviewed { .. } => (state, Vec::new()),
     }
+}
+
+/// The failure of a numbered read of the Indexes tab (the query shapes included); see the
+/// `RequestFailed` arm of [`on_session_event`]. Kept out of that match so its frame, which a
+/// lost connection recurses through, stays small in debug builds.
+fn numbered_read_failed(
+    state: AppState,
+    session: Uuid,
+    context: &'static str,
+    request: u64,
+    error: CoreError,
+    background: bool,
+) -> Out {
+    // The shapes read is numbered on its own and fails inline, never as a banner.
+    if context == "query_shapes" {
+        // Only a lost server still takes the connection-lost path, like any numbered
+        // read; every other failure stays inline.
+        let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
+        let current = state.indexes.queries.request == request;
+        let next = queries_actions::shapes_failed(state, request, error.clone());
+        if !(lost && current) {
+            return (next, Vec::new());
+        }
+        let failed = Event::Failed {
+            session,
+            context,
+            error,
+        };
+        return on_session_event(next, failed, background);
+    }
+    let current = state.indexes.request == request;
+    let lost = matches!(error, CoreError::Unreachable | CoreError::TlsHandshake);
+    if !(current || lost && state.indexes.answered <= request) {
+        return (state, Vec::new());
+    }
+    let awaiting = state.indexes.loading && !current;
+    let (next, commands) = on_session_event(
+        state,
+        Event::Failed {
+            session,
+            context,
+            error,
+        },
+        background,
+    );
+    (keep_waiting(next, awaiting), commands)
 }
 
 /// The error as it is shown. An unreachable server of a session that goes through an SSH tunnel

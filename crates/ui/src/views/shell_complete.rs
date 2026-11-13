@@ -54,10 +54,26 @@ pub(crate) fn next_popup(
     moment: &Moment<'_>,
     collections: &[String],
 ) -> Option<Popup> {
+    let names = |text: &str, caret: usize, forced: bool| match forced {
+        true => complete_forced(text, caret, collections),
+        false => complete(text, caret, collections),
+    };
+    next_popup_with(prev, moment, &names)
+}
+
+/// Computes the names for the text, the caret and whether they were asked for on demand.
+pub(crate) type Completer<'a> = &'a dyn Fn(&str, usize, bool) -> Option<Completion>;
+
+/// As [`next_popup`] with another source of names (the Aggregate tab's stage editors).
+pub(crate) fn next_popup_with(
+    prev: Option<Popup>,
+    moment: &Moment<'_>,
+    names: Completer<'_>,
+) -> Option<Popup> {
     // A word that already is the selected name needs nothing, and the list would take the Enter
     // or Tab the person meant as a newline or an indent. A list asked for with Ctrl+Space stays:
     // the person wants the longer names (`print` -> `printjson`).
-    followed(prev, moment, collections).filter(|popup| popup.forced || !popup.is_exact(moment.text))
+    followed(prev, moment, names).filter(|popup| popup.forced || !popup.is_exact(moment.text))
 }
 
 impl Popup {
@@ -79,11 +95,11 @@ fn word_end(text: &str, caret: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-fn followed(prev: Option<Popup>, moment: &Moment<'_>, collections: &[String]) -> Option<Popup> {
+fn followed(prev: Option<Popup>, moment: &Moment<'_>, names: Completer<'_>) -> Option<Popup> {
     let caret = moment.caret.filter(|_| moment.focused)?;
     let start = word_start(moment.text.as_bytes(), caret.min(moment.text.len()));
     if moment.forced {
-        return opened(moment.text, caret, start, true, collections);
+        return opened(moment.text, caret, start, true, names);
     }
     match prev {
         Some(prev) if prev.word_start == start => {
@@ -93,7 +109,7 @@ fn followed(prev: Option<Popup>, moment: &Moment<'_>, collections: &[String]) ->
             // Ctrl+Space's list stays forced only while the text is unchanged: a word typed on
             // makes it a typed list again, which an exact word closes (Enter stays a newline).
             let forced = prev.forced && !moment.changed;
-            let next = opened(moment.text, caret, start, forced, collections)?;
+            let next = opened(moment.text, caret, start, forced, names)?;
             let label = &prev.completion.items[prev.selected].label;
             let selected = next
                 .completion
@@ -103,7 +119,7 @@ fn followed(prev: Option<Popup>, moment: &Moment<'_>, collections: &[String]) ->
                 .unwrap_or(0);
             Some(Popup { selected, ..next })
         }
-        _ if moment.typed => opened(moment.text, caret, start, false, collections),
+        _ if moment.typed => opened(moment.text, caret, start, false, names),
         _ => None,
     }
 }
@@ -113,12 +129,9 @@ fn opened(
     caret: usize,
     word_start: usize,
     forced: bool,
-    collections: &[String],
+    names: Completer<'_>,
 ) -> Option<Popup> {
-    let completion = match forced {
-        true => complete_forced(text, caret, collections),
-        false => complete(text, caret, collections),
-    }?;
+    let completion = names(text, caret, forced)?;
     Some(Popup {
         completion,
         selected: 0,

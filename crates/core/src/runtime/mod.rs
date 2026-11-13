@@ -25,6 +25,8 @@
 
 #[cfg(test)]
 mod admin_tests;
+#[cfg(test)]
+mod aggregate_tests;
 mod bulk;
 #[cfg(test)]
 mod bulk_cancel_tests;
@@ -242,6 +244,16 @@ pub enum Command {
         request: u64,
         targets: Vec<GuardTarget>,
         min_docs: Option<u64>,
+    },
+    /// Runs `pipeline` on `ns` as a bounded preview. A read, allowed on a read-only connection;
+    /// the store refuses a pipeline holding a write stage. Answered by
+    /// [`Event::AggregatePreviewed`], whose `outcome` also carries any failure or timeout.
+    AggregatePreview {
+        session: SessionId,
+        /// Echoed by the answer.
+        request: u64,
+        ns: Namespace,
+        pipeline: Vec<Document>,
     },
     Insert {
         session: SessionId,
@@ -620,6 +632,14 @@ pub enum Event {
         /// The `request` of the command this answers.
         request: u64,
         outcome: std::result::Result<GuardReport, CoreError>,
+    },
+    /// The answer to `AggregatePreview`. A failure, a refused write stage or a timeout is an
+    /// `Err` outcome; it is never an [`Event::Failed`], which raises a banner.
+    AggregatePreviewed {
+        session: SessionId,
+        /// The `request` of the command this answers.
+        request: u64,
+        outcome: std::result::Result<Vec<Document>, CoreError>,
     },
     /// The answer to `ProfilingState` and `SetProfilingLevel`. A failure, a refusal or a timeout
     /// is an `Err` outcome shown inline; it is never an [`Event::Failed`], which raises a banner

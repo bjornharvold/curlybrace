@@ -160,6 +160,15 @@ impl DocumentStore for ReadOnlyStore {
         self.inner.explain_plan(ns, q).await
     }
 
+    async fn aggregate_preview(
+        &self,
+        ns: &Namespace,
+        pipeline: Vec<Document>,
+        max_time: Duration,
+    ) -> Result<Vec<Document>> {
+        self.inner.aggregate_preview(ns, pipeline, max_time).await
+    }
+
     async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {
         self.guard()?;
         self.inner.create_index(ns, spec).await

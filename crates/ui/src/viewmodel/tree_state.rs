@@ -1,6 +1,6 @@
 //! View state shared by the document views: expansion, delete confirmation, caches.
 use super::copy_clipboard::MENU_COPY_DOCUMENT;
-use super::doc_actions::{DeleteConfirm, DocAction, MenuItem, choose};
+use super::doc_actions::{DeleteConfirm, DocAction, MenuItem, choose, menu_items};
 use super::doc_copy::{CopyEntry, DocCopy, DocPick};
 use super::json_cache::JsonCache;
 use super::page_key::PageKey;
@@ -69,6 +69,9 @@ pub struct TreeState {
     /// The shown collection is server-owned (`system.*`): Copy is shown disabled. Set by the app
     /// every frame.
     pub copy_blocked: bool,
+    /// The documents are not rows of a collection (an aggregate preview): the row menu offers
+    /// nothing, not even disabled entries. Set by the owner of the view every frame.
+    pub no_row_menu: bool,
     json: JsonCache,
     rows: Option<(CacheKey, Rc<Vec<PageRow>>)>,
     /// Identity of the page the state last rendered.
@@ -87,7 +90,16 @@ impl TreeState {
             projected: self.projected,
             read_only: self.read_only,
             copy_blocked: self.copy_blocked,
+            no_row_menu: self.no_row_menu,
             ..Self::default()
+        }
+    }
+
+    /// The entries of the row menu for `doc`: none for a view without one.
+    pub fn menu_items_for(&self, doc: &bson::Document) -> Vec<MenuItem> {
+        match self.no_row_menu {
+            true => Vec::new(),
+            false => menu_items(doc, self.projected),
         }
     }
 
@@ -441,6 +453,16 @@ mod tests {
         let mut state = TreeState::default();
         let a = rows_of(&mut state, &before);
         assert!(!Rc::ptr_eq(&a, &rows_of(&mut state, &after)));
+    }
+
+    #[test]
+    fn a_view_without_a_row_menu_offers_no_entries() {
+        let doc = bson::doc! { "_id": 1_i32, "n": 1_i32 };
+        let mut state = TreeState::default();
+        assert!(state.menu_items_for(&doc).contains(&MenuItem::Edit));
+        state.no_row_menu = true;
+        assert!(state.menu_items_for(&doc).is_empty());
+        assert!(state.results_replaced().menu_items_for(&doc).is_empty());
     }
 
     #[test]

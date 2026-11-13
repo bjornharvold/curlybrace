@@ -89,6 +89,8 @@ run "core local_explain" \
   cargo test -p curlybrace-core --test local_explain --locked -- --include-ignored --nocapture "$@"
 run "core local_guard" \
   cargo test -p curlybrace-core --test local_guard --locked -- --include-ignored --nocapture "$@"
+run "core local_aggregate" \
+  cargo test -p curlybrace-core --test local_aggregate --locked -- --include-ignored --nocapture "$@"
 run "core local_profiler" \
   cargo test -p curlybrace-core --test local_profiler --locked -- --include-ignored --nocapture "$@"
 run "core local_profiler_paging" \

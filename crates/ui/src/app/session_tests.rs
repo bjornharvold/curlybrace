@@ -22,6 +22,14 @@ fn editor(text: &str) -> EditorState {
     }
 }
 
+/// An Aggregate draft that tells session `n` apart: `n` stages, the first edited, mid-text-mode.
+fn draft(n: i32) -> AggregateState {
+    let stages = (0..n).fold(AggregateState::default(), |d, _| d.add_stage("$match"));
+    stages
+        .edit(0, &format!("{{\"$match\": {{\"n\": {n}}}}}"))
+        .to_text()
+}
+
 /// A fully populated view, so a lost field shows up as a difference.
 fn busy_view(n: i32) -> SessionView {
     SessionView {
@@ -90,6 +98,16 @@ fn busy_view(n: i32) -> SessionView {
         indexes: IndexesState::default()
             .for_collection(Namespace::new("shared", format!("c{n}")))
             .selecting(format!("idx{n}")),
+        aggregate: Box::new(draft(n)),
+        aggregate_view: Box::new(
+            AggregateView {
+                mode: ViewMode::Json,
+                auto_sent: Some(n as u64),
+                ..AggregateView::default()
+            }
+            .edited(0, format!("typed {n}"), 1.0)
+            .0,
+        ),
         editor: Some(editor(&format!("doc {n}"))),
         pending: Some(Pending {
             ns: Namespace::new("db", "c"),
@@ -135,6 +153,8 @@ fn snapshot(s: &AppState) -> (String, Vec<(Uuid, String)>) {
         view_mode: s.view_mode,
         tab: s.tab,
         indexes: s.indexes.clone(),
+        aggregate: s.aggregate.clone(),
+        aggregate_view: s.aggregate_view.clone(),
         editor: s.editor.clone(),
         pending: s.pending.clone(),
         ssh_endpoint: s.ssh_endpoint.clone(),
@@ -327,4 +347,24 @@ fn a_background_root_without_a_parked_view_reports_the_default_state() {
     assert_eq!(roots[1].failure, None);
     assert_eq!(roots[1].topology, None);
     assert_eq!(roots[0].status, ConnStatus::Connected);
+}
+
+#[test]
+fn switching_sessions_keeps_each_aggregate_draft() {
+    let (s, a, b) = open_two();
+    let s = AppState {
+        aggregate: Box::new(s.aggregate.add_stage("$sort").select(0)),
+        ..s
+    };
+    let mine = s.aggregate.clone();
+    let there = s.activated(b);
+    assert_eq!(*there.aggregate, draft(2));
+    let there = AppState {
+        aggregate: Box::new(there.aggregate.add_stage("$limit")),
+        ..there
+    };
+    let theirs = there.aggregate.clone();
+    let back = there.activated(a);
+    assert_eq!(back.aggregate, mine);
+    assert_eq!(back.parked[&b].aggregate, theirs);
 }

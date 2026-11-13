@@ -421,6 +421,21 @@ impl DocumentStore for MongoStore {
         crate::mongo_explain::explain_plan(&self.client.database(&ns.db), ns, q).await
     }
 
+    async fn aggregate_preview(
+        &self,
+        ns: &Namespace,
+        pipeline: Vec<Document>,
+        max_time: Duration,
+    ) -> Result<Vec<Document>> {
+        crate::mongo_pipeline::aggregate_preview(
+            &self.client.database(&ns.db),
+            ns,
+            pipeline,
+            max_time,
+        )
+        .await
+    }
+
     async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {
         crate::mongo_profile::mongos_decision(self.topology().await?)?;
         crate::mongo_profile::profiling_level(&self.client.database(db)).await

@@ -16,6 +16,9 @@ pub fn row_context_menu(
     i18n: &I18n,
 ) -> Option<MenuItem> {
     let mut chosen = None;
+    if items.is_empty() {
+        return chosen;
+    }
     response.context_menu(|ui| {
         for item in items {
             let clicked = match item {

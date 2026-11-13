@@ -205,6 +205,11 @@ async fn run(
         Command::GuardCheck { request, .. } => Some(*request),
         _ => None,
     };
+    // And an aggregate preview: a slow pipeline says nothing about the server.
+    let preview_request = match &command {
+        Command::AggregatePreview { request, .. } => Some(*request),
+        _ => None,
+    };
     // A profiler command is the one write whose read-only refusal is not decided here: the store
     // wrapper is the authority and its refusal is the outcome. Every other check (session,
     // currency, generation) still applies to it, `execute` turns its failures into outcomes.
@@ -267,6 +272,13 @@ async fn run(
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
     }
+    if let (true, Some(request)) = (timed_out, preview_request) {
+        return Ok(Event::AggregatePreviewed {
+            session: id,
+            request,
+            outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
+        });
+    }
     // A profiler command is not settled by a ping either, whether it timed out or lost the
     // connection: a timeout is an outcome, and the loss is detected by the next ordinary command
     // or the sampler. `execute` turns the error into its outcome.
@@ -301,6 +313,14 @@ async fn settle_by_ping(
         },
         Err(_) => CoreError::Unreachable,
     }
+}
+
+/// Whether `error` says the connection is gone or suspect rather than that the command failed.
+fn is_connection_error(error: &CoreError) -> bool {
+    matches!(
+        error,
+        CoreError::Unreachable | CoreError::TlsHandshake | CoreError::ConnectionInterrupted(_)
+    )
 }
 
 async fn data_command(
@@ -361,6 +381,27 @@ async fn data_command(
                 session,
                 request,
                 outcome: Ok(report),
+            }
+        }
+        Command::AggregatePreview {
+            request,
+            ns,
+            pipeline,
+            ..
+        } => {
+            // Every failure of the pipeline, the store's write-stage refusal included, is the
+            // outcome: the preview pane shows it inline, never as a banner. A lost connection is
+            // not the pipeline's failure: it fails the command like any read's, so `run` settles
+            // an interruption by a ping and the UI learns the server is gone.
+            let max_time = std::time::Duration::from_millis(crate::pipeline::PREVIEW_MAX_TIME_MS);
+            let outcome = match store.aggregate_preview(&ns, pipeline, max_time).await {
+                Err(error) if is_connection_error(&error) => return Err(error),
+                other => other,
+            };
+            Event::AggregatePreviewed {
+                session,
+                request,
+                outcome,
             }
         }
         Command::Insert { ns, json, .. } => {
@@ -678,7 +719,8 @@ async fn test_connection(
 
 /// The bound a command runs under. An index build and a collection duplicate (a full copy, then
 /// its index builds) can run for a long time and must not be cut off half-way; every other
-/// command keeps the short bound.
+/// command keeps the short bound. An aggregate preview is cut off shortly after the server's own
+/// time limit, and never later than the short bound.
 pub(super) fn command_time_limit(
     config: &super::RuntimeConfig,
     command: &Command,
@@ -687,6 +729,9 @@ pub(super) fn command_time_limit(
         Command::CreateIndex { .. } | Command::DuplicateCollection { .. } => {
             config.index_build_timeout
         }
+        Command::AggregatePreview { .. } => config
+            .command_timeout
+            .min(super::config::AGGREGATE_PREVIEW_TIMEOUT),
         _ => config.command_timeout,
     }
 }

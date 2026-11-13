@@ -1,13 +1,15 @@
 //! The Browse page of a collection, top to bottom: one row with the connection header and the
-//! Documents | Indexes tabs; the find bar; one wrapping row with the two global switches and
+//! Documents | Indexes | Aggregate tabs; the find bar; one wrapping row with the two global switches and
 //! the index verdict; the guard's notice (only while it has something to say); then the
 //! documents with their one-row toolbar. Kept dense so the data starts high on the window.
 use super::panels::UiEvent;
 use super::reducer::Input;
 use super::state::AppState;
 use crate::I18n;
+use crate::app::AggregateAction;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
+use crate::views::aggregate::{flush_typing, show_aggregate};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::documents::{
     DocTarget, show_connection_header_with, show_documents_pending, show_documents_switchable,
@@ -37,9 +39,17 @@ pub(super) fn show_collection(
     if let Some(tab) = picked {
         out.push(UiEvent::Input(Input::Tab(tab)));
     }
-    if state.tab == CollectionTab::Indexes {
-        show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
-        return;
+    let leaving = picked.is_some_and(|tab| tab != state.tab);
+    match state.tab {
+        CollectionTab::Indexes => {
+            show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
+            return;
+        }
+        CollectionTab::Aggregate => {
+            show_aggregate_tab(ui, state, leaving, i18n, out);
+            return;
+        }
+        CollectionTab::Documents => {}
     }
     let (has_prev, has_next) = state.paging();
     if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
@@ -138,6 +148,30 @@ fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
     if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
         ui.ctx().copy_text(text);
     }
+}
+
+/// The Aggregate tab of the active session: its draft, drawn with the tab's own view state (per
+/// connection, like the Indexes tab's egui memory). When the tab is being left (`leaving`), the
+/// typing that still waits is sent too.
+fn show_aggregate_tab(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    leaving: bool,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    let mut actions = ui
+        .push_id(("aggregate_tab", state.active), |ui| {
+            show_aggregate(ui, &state.aggregate, &mut state.aggregate_view, i18n)
+        })
+        .inner;
+    if leaving {
+        actions.extend(flush_typing(&mut state.aggregate_view));
+    }
+    // One input for the whole frame, so the frame sends at most one preview.
+    out.extend(
+        AggregateAction::batched(actions).map(|action| UiEvent::Input(Input::Aggregate(action))),
+    );
 }
 
 /// The Indexes tab; "copy as JSON" goes to the clipboard here (`IndexesAction::clipboard_text`),

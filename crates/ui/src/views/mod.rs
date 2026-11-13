@@ -1,5 +1,10 @@
 //! egui views. Logic lives in `viewmodel`; these only render and collect input.
 pub mod admin_dialogs;
+pub mod aggregate;
+mod aggregate_complete;
+mod aggregate_preview;
+mod aggregate_stage;
+mod aggregate_text;
 pub mod bulk_dialog;
 mod bulk_dialog_steps;
 mod bulk_undo_steps;

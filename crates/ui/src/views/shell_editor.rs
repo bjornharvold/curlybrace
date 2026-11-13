@@ -220,7 +220,10 @@ fn text_box(
 }
 
 /// The caret as a byte of `text` and its rect on screen; `None` with a selection.
-fn caret_of(output: &egui::text_edit::TextEditOutput, text: &str) -> Option<(usize, egui::Rect)> {
+pub(crate) fn caret_of(
+    output: &egui::text_edit::TextEditOutput,
+    text: &str,
+) -> Option<(usize, egui::Rect)> {
     let range = output.state.cursor.char_range()?;
     if range.primary.index != range.secondary.index {
         return None;

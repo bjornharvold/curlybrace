@@ -4,6 +4,8 @@
 //! * `connections` / `persistence` / `host_key`: side effects behind injectable seams
 //! * `panels`: the thin egui layer
 mod actions;
+mod aggregate_actions;
+pub use aggregate_actions::AggregateAction;
 mod banner;
 mod bulk_actions;
 pub mod saved_copies;
@@ -838,6 +840,8 @@ impl eframe::App for CurlybraceApp {
     }
 }
 
+#[cfg(test)]
+mod aggregate_session_tests;
 #[cfg(test)]
 mod file_picker_tests;
 

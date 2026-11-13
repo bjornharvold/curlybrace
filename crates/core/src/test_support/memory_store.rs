@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bson::{Bson, Document, oid::ObjectId};
@@ -25,6 +26,8 @@ use crate::store::{
     WriteOp, WriteOutcome,
 };
 
+use super::memory_aggregate::AggregateScript;
+
 pub(super) type Collections = BTreeMap<(String, String), Vec<Document>>;
 
 #[derive(Default)]
@@ -35,6 +38,7 @@ pub struct InMemoryStore {
     pub(super) options: Mutex<OptionsMap>,
     explains: Mutex<BTreeMap<(String, String), Document>>,
     pub(super) profiles: Mutex<ProfileMap>,
+    pub(super) aggregate: Mutex<AggregateScript>,
 }
 
 impl InMemoryStore {
@@ -322,6 +326,15 @@ impl DocumentStore for InMemoryStore {
                 plan_only: false,
             })
             .ok_or_else(|| CoreError::Unsupported("this store cannot explain queries".into()))
+    }
+
+    async fn aggregate_preview(
+        &self,
+        _ns: &Namespace,
+        pipeline: Vec<Document>,
+        max_time: Duration,
+    ) -> Result<Vec<Document>> {
+        self.run_aggregate(pipeline, max_time)
     }
 
     /// Answers the same scripted document as `explain_find`, flagged plan-only.

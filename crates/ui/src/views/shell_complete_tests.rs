@@ -614,3 +614,20 @@ fn every_kind_marker_and_the_list_name_are_translated() {
         assert!(seen.insert(text), "{key} repeats another marker");
     }
 }
+
+#[test]
+fn a_stage_editor_list_opens_on_a_typed_key_and_ctrl_space() {
+    use crate::viewmodel::stage_complete::complete_stage;
+    let names = |t: &str, at: usize, forced: bool| complete_stage(t, at, forced);
+    let open = next_popup_with(None, &typed("{ \"$m"), &names);
+    assert_eq!(labels(&open), ["$match", "$merge"]);
+    assert_eq!(
+        next_popup_with(None, &typed("{ \"$match\": \"$m"), &names),
+        None
+    );
+    let forced = Moment {
+        forced: true,
+        ..moment("", 0)
+    };
+    assert!(next_popup_with(None, &forced, &names).is_some());
+}

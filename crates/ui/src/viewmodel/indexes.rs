@@ -16,6 +16,7 @@ pub enum CollectionTab {
     #[default]
     Documents,
     Indexes,
+    Aggregate,
 }
 
 impl CollectionTab {
@@ -24,6 +25,7 @@ impl CollectionTab {
         match self {
             Self::Documents => "browser.tab_documents",
             Self::Indexes => "indexes.tab",
+            Self::Aggregate => "aggregate.tab",
         }
     }
 }
