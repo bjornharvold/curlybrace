@@ -161,3 +161,55 @@ fn a_frame_that_ends_refused_sends_nothing_and_frees_the_slot() {
     assert!(requests(&c).is_empty());
     assert_eq!(s.aggregate.in_flight, None);
 }
+
+fn failed_preview(s: AppState, request: u64, error: CoreError) -> Out {
+    let event = Event::RequestFailed {
+        session: EMBEDDED_SESSION,
+        request,
+        context: "aggregate_preview",
+        error,
+    };
+    update(s, Input::Event(event))
+}
+
+/// Request 1 in flight with request 2 queued behind it (the pane shows Loading for 2).
+fn one_in_flight_one_queued() -> (AppState, u64) {
+    let (s, first) = act(settled(), A::Select(0));
+    let first = requests(&first)[0].0;
+    let (s, none) = act(s, A::Select(1));
+    assert!(none.is_empty());
+    (s, first)
+}
+
+#[test]
+fn a_lost_server_drops_the_queued_preview_and_leaves_loading_while_an_editor_is_open() {
+    use crate::viewmodel::aggregate::PreviewState;
+    for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
+        let (mut s, first) = one_in_flight_one_queued();
+        s.editor = Some(crate::viewmodel::editor::EditorState::for_new());
+        let (s, sent) = failed_preview(s, first, error);
+        assert!(
+            requests(&sent).is_empty(),
+            "nothing is sent on a dead connection"
+        );
+        assert_eq!(s.aggregate.in_flight, None);
+        assert_eq!(s.aggregate.queued, None);
+        assert!(
+            !matches!(s.aggregate.preview, PreviewState::Loading { .. }),
+            "the pane must not stay on Loading with nothing in flight"
+        );
+        assert!(
+            !s.aggregate.wants_auto_refresh(None),
+            "a failed pane is not refreshed on its own against a dead connection"
+        );
+    }
+}
+
+#[test]
+fn without_an_editor_a_lost_server_still_fails_the_session_and_resets_the_pane() {
+    let (s, first) = one_in_flight_one_queued();
+    let (s, sent) = failed_preview(s, first, CoreError::Unreachable);
+    assert!(requests(&sent).is_empty());
+    assert_ne!(s.status, ConnStatus::Connected);
+    assert_eq!(s.aggregate.in_flight, None);
+}

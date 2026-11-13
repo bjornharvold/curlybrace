@@ -272,7 +272,16 @@ fn arrived(
     outcome: Result<Vec<Document>, CoreError>,
     release: bool,
 ) -> Out {
-    let draft = (*state.aggregate).clone().arrived(request, outcome);
+    let current = state.aggregate.request;
+    let lost = outcome.clone().err().filter(|_| !release);
+    let mut draft = (*state.aggregate).clone().arrived(request, outcome);
+    // The session is about to fail on this error, so the waiting preview is dropped and never
+    // sent: a pane still loading it would wait for an answer that cannot come (the session may
+    // stay connected while an editor is open). It fails with the same connection error instead
+    // of going idle, which would ask again at once against the dead connection.
+    if let Some(error) = lost {
+        draft = draft.arrived(current, Err(error));
+    }
     released(with_draft(state, draft), request, release)
 }
 
