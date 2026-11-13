@@ -99,7 +99,14 @@ pub fn show_documents_pending(
     i18n: &I18n,
 ) {
     // Nothing on the disabled actions can be clicked, so there is no action to report.
-    let _ = show_toolbar(ui, &mut ModeChoice::Switch(mode), state, target, false, i18n);
+    let _ = show_toolbar(
+        ui,
+        &mut ModeChoice::Switch(mode),
+        state,
+        target,
+        false,
+        i18n,
+    );
     ui.label(i18n.t(message_key));
 }
 

@@ -60,7 +60,14 @@ pub(super) fn show_collection(
         } else {
             "browser.load_failed"
         };
-        show_documents_pending(ui, &mut state.view_mode, &mut state.tree, target, empty, i18n);
+        show_documents_pending(
+            ui,
+            &mut state.view_mode,
+            &mut state.tree,
+            target,
+            empty,
+            i18n,
+        );
         return;
     };
     state.tree.projected = state.page_is_projected();

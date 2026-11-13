@@ -130,13 +130,19 @@ fn the_toolbar_row_holds_its_place_while_there_is_no_page() {
         let harness = &page.harness;
         let table = harness.get_by_label(&t("view.table")).rect();
         let insert = harness.get_by_label(&t("doc.insert")).rect();
-        assert!((table.center().y - insert.center().y).abs() < 2.0, "one row");
+        assert!(
+            (table.center().y - insert.center().y).abs() < 2.0,
+            "one row"
+        );
         assert!(
             (table.top() - table_at.top()).abs() < 0.5,
             "the row moved: {table:?} vs {table_at:?} (loading={loading})"
         );
         let label = harness.get_by_label(&t(message)).rect();
-        assert!(label.top() >= table.bottom(), "{message} comes under the row");
+        assert!(
+            label.top() >= table.bottom(),
+            "{message} comes under the row"
+        );
         page.harness.get_by_label(&t("view.json")).click();
         page.harness.run_steps(2);
         assert_eq!(page.harness.state().state().view_mode, ViewMode::Json);

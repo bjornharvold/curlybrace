@@ -140,8 +140,14 @@ mod tests {
             },
             ..failed
         };
-        assert!(fixed.last_error.is_some(), "the error stays until the next run");
-        assert!(!more_open(&fixed), "an edit of the Filter must not open More");
+        assert!(
+            fixed.last_error.is_some(),
+            "the error stays until the next run"
+        );
+        assert!(
+            !more_open(&fixed),
+            "an edit of the Filter must not open More"
+        );
     }
 
     #[test]
