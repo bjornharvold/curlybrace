@@ -1,12 +1,12 @@
-//! The Shell tab: the connection it runs on and why it may not run, the Run / Cancel / Format
-//! toolbar (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`, and the finished run's notice as its
-//! status), the script editor with the first syntax problem under it, any other notice, the
+//! The Shell tab: the connection it runs on with the Run / Cancel / Format toolbar on the same
+//! row (with `Cmd/Ctrl+Enter` and `Cmd/Ctrl+Shift+F`, and the finished run's notice as its
+//! status), why it may not run, the script editor with the first syntax problem under it, any other notice, the
 //! History panel and the output pane (with its `Text | Table | Tree` switch). It only draws and
 //! reports; every decision is the reducer's.
 //!
 //! `Esc` is not bound to Cancel: in the editor it hands keyboard focus back (the editor keeps
 //! `Tab` for indenting), so binding it would cancel a run whenever someone leaves the editor.
-use super::documents::show_connection_header;
+use super::documents::show_connection_header_with;
 use super::guard_notice::GuardNoticeAction;
 use super::shell_editor::{editor_id, show_editor};
 use super::shell_guard::{show_checking, show_index_miss};
@@ -18,7 +18,7 @@ use super::shell_problem::show_problem_line;
 use super::tone_notice::{tone_notice, tone_status};
 use crate::I18n;
 use crate::app::shell_actions::ShellAction;
-use crate::theme::{Tone, filled_button, gate, text_button, tonal_button};
+use crate::theme::{CONTROL_HEIGHT, Tone, filled_button, gate, text_button, tonal_button};
 use crate::viewmodel::ConnectionBadge;
 use crate::viewmodel::shell::{ShellNotice, ShellState};
 use curlybrace_core::guard::GuardReport;
@@ -99,9 +99,12 @@ pub fn show_shell(
     i18n: &I18n,
 ) -> Vec<ShellViewEvent> {
     let pressed = shortcuts(ui, ctx.session);
-    show_connection_header(ui, ctx.connection, &ctx.badge, i18n);
+    // The connection and the toolbar share a row; why runs are blocked comes right under it.
+    let gates = Gates::of(state, &state.script, &ctx);
+    let clicked = show_connection_header_with(ui, ctx.connection, &ctx.badge, i18n, |ui| {
+        toolbar(ui, state, &ctx, gates, i18n)
+    });
     show_conditions(ui, &ctx, i18n);
-    let clicked = toolbar(ui, state, &ctx, Gates::of(state, &state.script, &ctx), i18n);
     let open = state.history.open;
     let top = ui.cursor().min.y;
     let planned = heights(ui.available_height(), open, last_chrome(ui, ctx.session));
@@ -221,7 +224,11 @@ fn toolbar(
 ) -> Option<ShellAction> {
     let run_shortcut = ui.ctx().format_shortcut(&RUN_SHORTCUT);
     let format_shortcut = ui.ctx().format_shortcut(&FORMAT_SHORTCUT);
-    ui.horizontal_wrapped(|ui| {
+    // Its own wrapping area beside the connection, as tall as a control from the start so the
+    // buttons line up with the name.
+    let size = egui::vec2(ui.available_width(), CONTROL_HEIGHT);
+    let wrapped = egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true);
+    ui.allocate_ui_with_layout(size, wrapped, |ui| {
         let run = gate(ui, gates.run, |ui| filled_button(ui, i18n.t("shell.run")))
             .on_hover_text(run_hint(state, ctx, &run_shortcut, i18n));
         let cancel = gate(ui, gates.cancel, |ui| {
