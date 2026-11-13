@@ -2,6 +2,7 @@
 pub mod admin_dialog;
 pub mod aggregate;
 pub mod aggregate_flight;
+mod aggregate_template;
 pub mod aggregate_view;
 pub mod bulk_entry;
 pub mod bulk_flow;
