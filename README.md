@@ -220,9 +220,27 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   failure is recognised from the driver's error text; an unrecognised reason is shown as "could not
   reach the server".
 - The find bar takes strict JSON, not mongo shell syntax.
-- Everyday tools you may expect from other clients (aggregation builder, document import and
-  export, schema analysis) are not built yet. They come after the features at
-  the top of the [roadmap](#roadmap).
+- Everyday tools you may expect from other clients (document import and export, schema analysis)
+  are not built yet. They come after the features at the top of the [roadmap](#roadmap). The
+  aggregation builder previews pipelines but cannot save them or run a write stage yet (see
+  **Aggregate** above).
+
+**Aggregate** ([#67](https://github.com/bjornharvold/curlybrace/issues/67))
+- An **Aggregate** tab on each collection builds a pipeline stage by stage. Add a stage from the
+  **Add stage** menu (it starts from a template body), edit its JSON with stage-name suggestions,
+  and move it up or down, disable it or remove it. Each stage says whether it is valid. **Text**
+  mode edits the whole pipeline as one JSON array; text that does not parse shows the line and
+  column and stays in text mode until it is fixed.
+- The preview shows the first 20 documents after the selected stage in the Tree, Table or JSON
+  view. It runs when the pipeline or the selection changes, and on **Refresh**.
+- A preview is a read, bounded by a 10 s time limit: one that takes longer says so and keeps the
+  last result on screen. A trailing `$out` or `$merge` is never run in a preview (the pane says
+  which stages were not run), and one anywhere else, including inside `$facet`, `$lookup` or
+  `$unionWith`, is refused before anything is sent. So previews work on production connections
+  without a confirmation, and on read-only connections.
+- Not yet: saving and opening pipelines, running a write stage, export as driver code, explain,
+  and options such as collation, hint and `allowDiskUse`. The draft is kept per open connection
+  while the app runs, not saved.
 
 ## Roadmap
 
@@ -253,6 +271,11 @@ contribute.
   optional indexes and options, progress and Cancel. Nothing is left to build; feedback and fixes
   are welcome. See the [guide](docs/copy.md).
 
+- **Aggregation builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): the first slice is built: stage list and text mode, and a
+  read-only, time-bounded preview of the selected stage. Later slices: saved pipelines and a
+  confirmed `$out` / `$merge` run; export as driver code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)), explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) and per-stage
+  counts; options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
+
 ### In progress
 
 Nothing is being built right now. Pick something from **Next**.
@@ -269,7 +292,7 @@ Nothing is being built right now. Pick something from **Next**.
 
 - **Beyond the basics:** Data Masking and Reschema ([#9](https://github.com/bjornharvold/curlybrace/issues/9)), SQL and MongoDB ([#10](https://github.com/bjornharvold/curlybrace/issues/10)), Task
   Scheduler ([#11](https://github.com/bjornharvold/curlybrace/issues/11)).
-- **Query and analysis:** aggregation builder ([#67](https://github.com/bjornharvold/curlybrace/issues/67)), explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), schema analysis
+- **Query and analysis:** aggregation builder follow-ups ([#67](https://github.com/bjornharvold/curlybrace/issues/67)), explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), schema analysis
   ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)), query history ([#72](https://github.com/bjornharvold/curlybrace/issues/72)), copy as driver code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)),
   visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), query options ([#75](https://github.com/bjornharvold/curlybrace/issues/75)), an opt-in natural-language assistant
   ([#76](https://github.com/bjornharvold/curlybrace/issues/76)), data model diagrams ([#77](https://github.com/bjornharvold/curlybrace/issues/77)), a map view for geo fields ([#79](https://github.com/bjornharvold/curlybrace/issues/79)).
