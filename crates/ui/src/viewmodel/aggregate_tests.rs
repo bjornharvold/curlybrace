@@ -248,15 +248,46 @@ fn begin_preview_sends_a_numbered_plan_for_the_selected_stage() {
 
 #[test]
 fn begin_preview_of_an_invalid_pipeline_fails_without_a_request() {
-    let (s, sent) = AggregateState::default().begin_preview();
+    let (s, sent) = AggregateState::default()
+        .add_stage("$match")
+        .edit(0, "{ bad")
+        .begin_preview();
     assert!(sent.is_none());
     assert_eq!(
         s.preview,
         PreviewState::Failed {
-            error: PreviewError::Pipeline(PipelineError::Empty),
+            error: PreviewError::Pipeline(PipelineError::NotAStage { index: 0 }),
             last: None
         }
     );
+}
+
+#[test]
+fn an_empty_or_all_disabled_pipeline_resets_the_preview_to_idle_without_old_documents() {
+    let (s, request) = loading();
+    let shown = s.arrived(request, Ok(vec![doc! {"a": 1}]));
+    for emptied in [
+        shown.clone().remove(2).remove(1).remove(0),
+        shown.clone().toggle(0).toggle(1).toggle(2),
+    ] {
+        let (s, sent) = emptied.begin_preview();
+        assert!(sent.is_none());
+        assert_eq!(s.preview, PreviewState::Idle);
+    }
+}
+
+#[test]
+fn an_idle_pane_with_nothing_to_run_does_not_ask_for_a_refresh() {
+    let s = three().toggle(0).toggle(1).toggle(2);
+    assert!(!s.wants_auto_refresh(None));
+    let (s, _) = s.begin_preview();
+    assert!(!s.wants_auto_refresh(None));
+    let s = s.toggle(1);
+    assert!(
+        s.wants_auto_refresh(None),
+        "an enabled stage previews again"
+    );
+    assert!(!AggregateState::default().wants_auto_refresh(None));
 }
 
 #[test]

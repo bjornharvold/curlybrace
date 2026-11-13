@@ -163,17 +163,14 @@ fn a_refused_pipeline_fails_inline_and_sends_nothing() {
 }
 
 #[test]
-fn removing_the_last_stage_fails_inline_as_empty() {
+fn removing_the_last_stage_resets_the_preview_to_idle() {
     let (s, _) = act(connected(), A::AddStage("$match".into()));
     let (s, c) = act(s, A::Remove(0));
     assert!(c.is_empty());
-    assert!(matches!(
-        s.aggregate.preview,
-        PreviewState::Failed {
-            error: PreviewError::Pipeline(PipelineError::Empty),
-            ..
-        }
-    ));
+    assert_eq!(s.aggregate.preview, PreviewState::Idle);
+    let (s, c) = act(s, A::AddStage("$match".into()));
+    assert_eq!(c.len(), 1, "re-adding a stage previews again");
+    assert!(matches!(s.aggregate.preview, PreviewState::Loading { .. }));
 }
 
 #[test]

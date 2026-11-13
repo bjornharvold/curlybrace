@@ -316,15 +316,21 @@ impl AggregateState {
         .changed()
     }
 
-    /// Whether the tab should ask for a preview on its own: the pane is idle with stages to run
-    /// and request `sent` (the last one asked for automatically) is not the current one, so an
+    /// Whether the tab should ask for a preview on its own: the pane is idle with a stage to run
+    /// (an empty or all-disabled pipeline stays idle) and request `sent` (the last one asked for automatically) is not the current one, so an
     /// ask that could not run (no connection) is not repeated every frame.
     pub fn wants_auto_refresh(&self, sent: Option<u64>) -> bool {
-        self.preview == PreviewState::Idle && !self.stages.is_empty() && sent != Some(self.request)
+        self.preview == PreviewState::Idle
+            && sent != Some(self.request)
+            && !matches!(
+                preview_pipeline(&self.stages, self.selected, PREVIEW_LIMIT),
+                Err(PipelineError::Empty)
+            )
     }
 
     /// Starts a preview of the selected stage: the numbered request and the read-only pipeline
-    /// to send, or `None` when the pipeline is refused (shown as `Failed`, nothing sent).
+    /// to send, or `None` when nothing is sent: a pipeline with no runnable stage resets the pane to
+    /// idle (dropping the old documents), any other refusal is shown as `Failed`.
     pub fn begin_preview(self) -> (Self, Option<(u64, Vec<Document>)>) {
         let request = self.request.wrapping_add(1);
         let plan = preview_pipeline(&self.stages, self.selected, PREVIEW_LIMIT);
@@ -341,6 +347,15 @@ impl AggregateState {
                     ..self
                 };
                 (next, Some((request, plan.pipeline)))
+            }
+            // Nothing to run: no error and no stale documents, just the idle pane.
+            Err(PipelineError::Empty) => {
+                let next = Self {
+                    preview: PreviewState::Idle,
+                    request,
+                    ..self
+                };
+                (next, None)
             }
             Err(error) => {
                 let preview = PreviewState::Failed {
