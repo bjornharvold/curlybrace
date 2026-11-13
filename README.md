@@ -47,7 +47,8 @@ an account, a trial, or a license fee.
 - Sidebar with databases and collections, loaded on demand.
 - View the same page of documents as a **tree**, a **table** or **JSON**, 50 documents per page.
 - Query bar with filter, sort, projection, skip and limit. Bad input shows an error and keeps your
-  previous results on screen. A query that would read the whole collection or sort in memory is
+  previous results on screen. Sort, projection, skip and limit sit behind **More options**, which
+  counts the ones that are set while it is closed. A query that would read the whole collection or sort in memory is
   explained before it runs, and you can run it anyway. Turn this off with **Warn before queries
   that would scan a collection**.
 
@@ -140,6 +141,18 @@ an account, a trial, or a license fee.
   free space and write-ahead log until it reuses them, and backups (such as Time Machine) keep their
   own copies, so a password typed into a script may stay on disk for a while: do not type secrets
   into scripts. If `history.sqlite` is unavailable the panel says so and nothing is recorded.
+
+**Bulk edit and administration** ([#51](https://github.com/bjornharvold/curlybrace/issues/51), [#52](https://github.com/bjornharvold/curlybrace/issues/52))
+- **Update matching...** and **Delete matching...** act on every document the current filter matches,
+  not just the page. A three-step dialog shows the count and 3 sample documents (before and after
+  for an update); nothing is written until you confirm. A delete always asks you to type the
+  collection name, and so does an update over 100 documents, on a production connection, or whose
+  result could not be previewed. An empty filter needs an extra tick. Not available on a projected
+  page or a read-only connection.
+- Before the write runs, a copy of the documents it will change is saved on this computer so the
+  dialog can restore them (**Undo...**). The copy is plain text; delete it when you no longer need it.
+- From the sidebar: drop a database or collection (type the name to confirm), rename or duplicate a
+  collection, and create a view from a collection and a pipeline.
 
 **Indexes** ([#68](https://github.com/bjornharvold/curlybrace/issues/68))
 - An **Indexes** tab on each collection: the indexes on the left, the selected one on the right with
@@ -248,6 +261,13 @@ contribute.
   the TTL of indexes, and see their use over time from a local history. Finding queries that miss
   an index is a follow-up that builds on the profiler ([#60](https://github.com/bjornharvold/curlybrace/issues/60)) and explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)).
 
+- **Shell tab** ([#50](https://github.com/bjornharvold/curlybrace/issues/50)): run your own `mongosh` from an editor with
+  completion, a syntax check, history, and a table or tree view of the result. See **Shell** above.
+- **Bulk update and delete** ([#51](https://github.com/bjornharvold/curlybrace/issues/51)): act on every document a filter
+  matches, after a count and sample preview, with an undo copy saved first.
+- **Collection administration** ([#52](https://github.com/bjornharvold/curlybrace/issues/52)): drop, rename and duplicate
+  collections, drop databases and create views from the sidebar.
+
 - **Copy between connections** ([#48](https://github.com/bjornharvold/curlybrace/issues/48)): copy a database, collections or documents to
   another open connection or within one, with a review dialog, Skip, Overwrite or Upsert by `_id`,
   optional indexes and options, progress and Cancel. Nothing is left to build; feedback and fixes
@@ -255,21 +275,23 @@ contribute.
 
 ### In progress
 
-Nothing is being built right now. Pick something from **Next**.
+- **Aggregation pipeline builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): build a pipeline
+  stage by stage with a preview of each stage.
 
 ### Next
 
 - **Signing and notarization** ([#17](https://github.com/bjornharvold/curlybrace/issues/17)): planned (`P2`), so the app opens without a
   Gatekeeper warning.
-- A **shell tab** that runs your own `mongosh` ([#50](https://github.com/bjornharvold/curlybrace/issues/50)).
-- **Bulk update and delete** with a count preview ([#51](https://github.com/bjornharvold/curlybrace/issues/51)).
-- **Create, rename and drop** databases, collections and views ([#52](https://github.com/bjornharvold/curlybrace/issues/52)).
+- **Index misses from your apps** ([#116](https://github.com/bjornharvold/curlybrace/issues/116)): the query bar and
+  the Shell tab already warn before a scan; finding misses in the queries your own apps send, and
+  keeping them over time, is open.
+- **Inline editing** in the table and tree views ([#12](https://github.com/bjornharvold/curlybrace/issues/12)).
 
 ### Later
 
 - **Beyond the basics:** Data Masking and Reschema ([#9](https://github.com/bjornharvold/curlybrace/issues/9)), SQL and MongoDB ([#10](https://github.com/bjornharvold/curlybrace/issues/10)), Task
   Scheduler ([#11](https://github.com/bjornharvold/curlybrace/issues/11)).
-- **Query and analysis:** aggregation builder ([#67](https://github.com/bjornharvold/curlybrace/issues/67)), explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), schema analysis
+- **Query and analysis:** explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), schema analysis
   ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)), query history ([#72](https://github.com/bjornharvold/curlybrace/issues/72)), copy as driver code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)),
   visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), query options ([#75](https://github.com/bjornharvold/curlybrace/issues/75)), an opt-in natural-language assistant
   ([#76](https://github.com/bjornharvold/curlybrace/issues/76)), data model diagrams ([#77](https://github.com/bjornharvold/curlybrace/issues/77)), a map view for geo fields ([#79](https://github.com/bjornharvold/curlybrace/issues/79)).
