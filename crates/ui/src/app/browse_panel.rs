@@ -6,6 +6,7 @@ use super::panels::UiEvent;
 use super::reducer::Input;
 use super::state::AppState;
 use crate::I18n;
+use crate::app::AggregateAction;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::aggregate::{flush_typing, show_aggregate};
@@ -167,10 +168,9 @@ fn show_aggregate_tab(
     if leaving {
         actions.extend(flush_typing(&mut state.aggregate_view));
     }
+    // One input for the whole frame, so the frame sends at most one preview.
     out.extend(
-        actions
-            .into_iter()
-            .map(|action| UiEvent::Input(Input::Aggregate(action))),
+        AggregateAction::batched(actions).map(|action| UiEvent::Input(Input::Aggregate(action))),
     );
 }
 

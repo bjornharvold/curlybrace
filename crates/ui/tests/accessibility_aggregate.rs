@@ -48,6 +48,7 @@ fn applied(draft: AggregateState, action: &AggregateAction) -> AggregateState {
         AggregateAction::SetMode(Mode::Stages) => draft.from_text(),
         AggregateAction::EditText(text) => draft.with_text(text),
         AggregateAction::Refresh => draft,
+        AggregateAction::Batch(actions) => actions.iter().fold(draft, applied),
     }
 }
 

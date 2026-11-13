@@ -30,6 +30,21 @@ pub enum AggregateAction {
     EditText(String),
     /// Preview the selected stage again.
     Refresh,
+    /// The actions of one frame, applied in order; at most one preview is sent for all of them
+    /// (see [`batch`]).
+    Batch(Vec<AggregateAction>),
+}
+
+impl AggregateAction {
+    /// The actions of one frame as one action: none is nothing, one is itself, more are a
+    /// `Batch`.
+    pub fn batched(mut actions: Vec<AggregateAction>) -> Option<AggregateAction> {
+        match actions.len() {
+            0 => None,
+            1 => actions.pop(),
+            _ => Some(AggregateAction::Batch(actions)),
+        }
+    }
 }
 
 /// Applies `action` to the active session's draft. Every change of the pipeline or of the
@@ -47,7 +62,29 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::SetMode(mode) => set_mode(state, draft, mode),
         AggregateAction::EditText(text) => (with_draft(state, draft.with_text(&text)), Vec::new()),
         AggregateAction::Refresh => previewed(state, draft),
+        AggregateAction::Batch(actions) => batch(state, actions),
     }
+}
+
+/// Applies the actions of one frame in order. Each change still bumps the request, but only the
+/// preview of the request that is current afterwards is sent: the earlier ones would be stale on
+/// arrival, and each could run on the server for up to its time limit. When the last change was
+/// refused (shown as failed, nothing sent) no preview is sent at all.
+fn batch(state: AppState, actions: Vec<AggregateAction>) -> Out {
+    let (state, commands) =
+        actions
+            .into_iter()
+            .fold((state, Vec::new()), |(state, mut commands), action| {
+                let (next, more) = on_action(state, action);
+                commands.extend(more);
+                (next, commands)
+            });
+    let current = state.aggregate.request;
+    let commands = commands
+        .into_iter()
+        .filter(|c| !matches!(c, Command::AggregatePreview { request, .. } if *request != current))
+        .collect();
+    (state, commands)
 }
 
 /// `state` holding `draft` as the active session's Aggregate draft.
@@ -169,3 +206,7 @@ fn request_failed(state: AppState, request: u64, error: CoreError) -> Out {
 #[cfg(test)]
 #[path = "aggregate_actions_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "aggregate_batch_tests.rs"]
+mod batch_tests;

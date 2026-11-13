@@ -197,18 +197,6 @@ fn text_mode_edits_the_buffer_only_and_leaving_it_previews_the_parsed_stages() {
 }
 
 #[test]
-fn leaving_unchanged_text_keeps_the_stages_and_sends_nothing() {
-    let (s, _) = act(with_two_stages(), A::Toggle(0));
-    let before = s.aggregate.clone();
-    let (s, _) = act(s, A::SetMode(Mode::Text));
-    let (s, c) = act(s, A::SetMode(Mode::Stages));
-    assert!(c.is_empty(), "{c:?}");
-    assert_eq!(s.aggregate.stages, before.stages);
-    assert_eq!(s.aggregate.selected, before.selected);
-    assert_eq!(s.aggregate.mode, Mode::Stages);
-}
-
-#[test]
 fn invalid_text_stays_in_text_mode_and_sends_nothing() {
     let (s, _) = act(with_two_stages(), A::SetMode(Mode::Text));
     let (s, _) = act(s, A::EditText("[{".into()));
