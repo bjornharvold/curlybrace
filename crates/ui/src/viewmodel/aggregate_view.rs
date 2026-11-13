@@ -10,6 +10,7 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::{PipelineError, stage_name};
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::Page;
+use std::collections::HashMap;
 
 /// How long the typing in a stage pauses before the edit is sent (and previewed).
 pub const EDIT_PAUSE_SECS: f64 = 0.6;
@@ -50,6 +51,40 @@ impl PageCache {
     }
 }
 
+/// The status of each stage's text, computed again only when that text changes (parsing every
+/// stage's JSON on every frame is wasted work).
+#[derive(Clone, Debug, Default)]
+pub struct StatusCache {
+    /// Stage key to the text a status was computed for, and that status.
+    entries: HashMap<u64, (String, StageStatus)>,
+    computed: usize,
+}
+
+impl StatusCache {
+    /// The status of the stage with identity `key` whose text is `text`.
+    pub fn of(&mut self, key: u64, text: &str) -> StageStatus {
+        if let Some((seen, status)) = self.entries.get(&key) {
+            if seen == text {
+                return status.clone();
+            }
+        }
+        let status = stage_status(text);
+        self.computed += 1;
+        self.entries.insert(key, (text.to_string(), status.clone()));
+        status
+    }
+
+    /// Forgets the stages that are gone: only `keys` stay.
+    pub fn keeping(&mut self, keys: &[u64]) {
+        self.entries.retain(|k, _| keys.contains(k));
+    }
+
+    /// How many statuses were computed (not served from the cache) so far.
+    pub fn computed(&self) -> usize {
+        self.computed
+    }
+}
+
 /// The Aggregate tab's own view state of one session.
 #[derive(Clone, Debug, Default)]
 pub struct AggregateView {
@@ -62,6 +97,7 @@ pub struct AggregateView {
     pub auto_sent: Option<u64>,
     pub pending: Option<PendingEdit>,
     pub page: PageCache,
+    pub statuses: StatusCache,
 }
 
 impl AggregateView {
@@ -96,6 +132,16 @@ impl AggregateView {
             Some(p) if p.index == index => &p.text,
             _ => text,
         }
+    }
+
+    /// The status of stage `index` (identity `key`, stored text `text`) as it is shown: of what
+    /// is being typed there, else of `text`.
+    pub fn status_of(&mut self, index: usize, key: u64, text: &str) -> StageStatus {
+        let shown = match &self.pending {
+            Some(p) if p.index == index => p.text.as_str(),
+            _ => text,
+        };
+        self.statuses.of(key, shown)
     }
 
     /// Seconds left before the waiting edit is due, if one waits.

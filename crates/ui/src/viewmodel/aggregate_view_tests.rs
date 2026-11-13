@@ -195,3 +195,36 @@ fn a_timed_out_preview_has_its_own_message_other_errors_keep_the_generic_one() {
     assert_eq!(preview_error_key(&CoreError::Database("boom".into())), None);
     assert_eq!(preview_error_key(&CoreError::Unreachable), None);
 }
+
+#[test]
+fn a_status_is_computed_again_only_when_its_text_changes() {
+    let mut cache = StatusCache::default();
+    let a = r#"{"$match": {}}"#;
+    assert_eq!(cache.of(1, a), StageStatus::Valid("$match".into()));
+    assert_eq!(cache.of(1, a), StageStatus::Valid("$match".into()));
+    assert_eq!(
+        cache.computed(),
+        1,
+        "the second frame is served from the cache"
+    );
+    assert_eq!(cache.of(2, a), StageStatus::Valid("$match".into()));
+    assert_eq!(cache.computed(), 2, "another stage has its own entry");
+    assert_eq!(cache.of(1, "{ bad"), stage_status("{ bad"));
+    assert_eq!(cache.computed(), 3, "changed text is parsed again");
+    cache.keeping(&[2]);
+    assert_eq!(cache.of(1, a), StageStatus::Valid("$match".into()));
+    assert_eq!(cache.computed(), 4, "a removed stage's entry is gone");
+}
+
+#[test]
+fn the_status_shown_follows_what_is_being_typed() {
+    let (mut view, _) = AggregateView::default().edited(0, "{ bad".into(), 1.0);
+    assert_eq!(
+        view.status_of(0, 7, r#"{"$match": {}}"#),
+        stage_status("{ bad")
+    );
+    assert_eq!(
+        view.status_of(1, 8, r#"{"$match": {}}"#),
+        StageStatus::Valid("$match".into())
+    );
+}

@@ -9,7 +9,7 @@ use crate::app::AggregateAction;
 use crate::theme::shape::{self, radius};
 use crate::theme::{CONTROL_HEIGHT, Tone, chip, current_ui};
 use crate::viewmodel::aggregate::AggregateState;
-use crate::viewmodel::aggregate_view::{AggregateView, StageStatus, stage_status};
+use crate::viewmodel::aggregate_view::{AggregateView, StageStatus};
 use curlybrace_core::pipeline::Stage;
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
@@ -49,16 +49,19 @@ pub(super) fn show_stages(
         .auto_shrink([false, true])
         .show(ui, |ui| {
             let mut actions = Vec::new();
+            view.statuses.keeping(&draft.keys);
             for (index, stage) in draft.stages.iter().enumerate() {
+                let key = draft.keys.get(index).copied().unwrap_or(index as u64);
+                let status = view.status_of(index, key, &stage.text);
                 let card = Card {
                     index,
-                    key: draft.keys.get(index).copied().unwrap_or(index as u64),
+                    key,
                     stage,
                     selected: index == draft.selected,
                     last,
                 };
-                let shown = view.shown_text(index, &stage.text).to_string();
-                let (picked, typed) = show_card(ui, &card, &shown, i18n);
+                let shown = view.shown_text(index, &stage.text);
+                let (picked, typed) = show_card(ui, &card, (shown, &status), i18n);
                 actions.extend(picked);
                 if let Some(text) = typed {
                     let (next, displaced) = std::mem::take(view).edited(index, text, now);
@@ -77,17 +80,16 @@ pub(super) fn show_stages(
 fn show_card(
     ui: &mut egui::Ui,
     card: &Card<'_>,
-    text: &str,
+    (text, status): (&str, &StageStatus),
     i18n: &I18n,
 ) -> (Vec<AggregateAction>, Option<String>) {
-    let status = stage_status(text);
     let n = (card.index + 1).to_string();
     card_frame(ui, card.selected)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            let actions = card_header(ui, card, &status, &n, i18n);
+            let actions = card_header(ui, card, status, &n, i18n);
             let typed = stage_editor(ui, card.key, text, &n, i18n);
-            status_line(ui, card.stage.enabled, &status, i18n);
+            status_line(ui, card.stage.enabled, status, i18n);
             (actions, typed)
         })
         .inner
