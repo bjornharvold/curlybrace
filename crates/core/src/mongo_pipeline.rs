@@ -13,7 +13,8 @@ use crate::error::{CoreError, Result};
 use crate::pipeline::contains_write_stage;
 use crate::store::Namespace;
 
-/// Refuses a pipeline holding `$out` or `$merge` at any depth. Defence in depth: the preview
+/// Refuses a pipeline holding `$out` or `$merge` at a stage position: the stage key itself, the
+/// branches of `$facet`, `$lookup.pipeline` and `$unionWith.pipeline`. Defence in depth: the preview
 /// plan already drops them, so this only fires if a caller skipped that step. The message names
 /// the stage, never the pipeline text.
 pub(crate) fn ensure_read_only(pipeline: &[Document]) -> Result<()> {
