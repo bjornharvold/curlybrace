@@ -102,6 +102,12 @@ impl PreviewState {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AggregateState {
     pub stages: Vec<Stage>,
+    /// One identity per stage, in step with `stages`: assigned when a stage is created or loaded,
+    /// kept when it moves, never reused, so the view can tie its focus, cursor, undo and
+    /// completion list to the stage rather than to its position.
+    pub keys: Vec<u64>,
+    /// The identity the next new stage gets.
+    next_key: u64,
     /// The stage whose output is previewed; `0` while there are none.
     pub selected: usize,
     pub mode: Mode,
@@ -118,6 +124,13 @@ impl AggregateState {
     /// The highest valid selection for `len` stages.
     fn clamp(i: usize, len: usize) -> usize {
         i.min(len.saturating_sub(1))
+    }
+
+    /// `stages` with fresh identities, appended to `kept` (the identities that stay).
+    fn keyed(&self, kept: Vec<u64>, added: usize) -> (Vec<u64>, u64) {
+        let first = self.next_key;
+        let end = first.wrapping_add(added as u64);
+        (kept.into_iter().chain(first..end).collect(), end)
     }
 
     /// The pipeline changed: an answer still in flight no longer matches it.
@@ -153,6 +166,8 @@ impl AggregateState {
         }
         let mut stages = self.stages.clone();
         stages.swap(i, i + 1);
+        let mut keys = self.keys.clone();
+        keys.swap(i, i + 1);
         let selected = match self.selected {
             s if s == i => i + 1,
             s if s == i + 1 => i,
@@ -160,6 +175,7 @@ impl AggregateState {
         };
         Self {
             stages,
+            keys,
             selected,
             ..self
         }
@@ -178,8 +194,11 @@ impl AggregateState {
             }))
             .collect();
         let selected = stages.len() - 1;
+        let (keys, next_key) = self.keyed(self.keys.clone(), 1);
         Self {
             stages,
+            keys,
+            next_key,
             selected,
             ..self
         }
@@ -198,6 +217,13 @@ impl AggregateState {
             .filter(|(j, _)| *j != i)
             .map(|(_, s)| s.clone())
             .collect();
+        let keys = self
+            .keys
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, k)| *k)
+            .collect();
         let selected = match self.selected > i {
             true => self.selected - 1,
             false => self.selected,
@@ -205,6 +231,7 @@ impl AggregateState {
         let selected = Self::clamp(selected, stages.len());
         Self {
             stages,
+            keys,
             selected,
             ..self
         }
@@ -284,8 +311,11 @@ impl AggregateState {
         match parse_pipeline_text(&self.text) {
             Ok(stages) => {
                 let selected = Self::clamp(usize::MAX, stages.len());
+                let (keys, next_key) = self.keyed(Vec::new(), stages.len());
                 Self {
                     stages,
+                    keys,
+                    next_key,
                     selected,
                     mode: Mode::Stages,
                     text_error: None,

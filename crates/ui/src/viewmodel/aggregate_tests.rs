@@ -443,3 +443,46 @@ fn an_automatic_refresh_is_wanted_once_per_request_for_an_idle_non_empty_draft()
     assert!(sent.is_none());
     assert!(!failed.wants_auto_refresh(None), "failed stays until asked");
 }
+
+#[test]
+fn a_stage_keeps_its_key_when_it_moves_and_keys_are_never_reused() {
+    let s = three();
+    let [a, b, c] = [s.keys[0], s.keys[1], s.keys[2]];
+    let s = s.move_up(2);
+    assert_eq!(s.keys, [a, c, b]);
+    assert_eq!(names(&s), ["$match", "$limit", "$sort"]);
+    let s = s.move_down(0);
+    assert_eq!(s.keys, [c, a, b]);
+    let s = s.remove(0);
+    assert_eq!(s.keys, [a, b]);
+    let s = s.add_stage("$skip");
+    assert!(!s.keys[..2].contains(&s.keys[2]));
+    assert_ne!(s.keys[2], c, "a removed stage's key is not reused");
+}
+
+#[test]
+fn keys_stay_unique_through_stages_text_stages() {
+    let s = three();
+    let old = s.keys.clone();
+    let same = s.clone().to_text().from_text();
+    assert_eq!(same.keys, old, "unchanged text keeps the stages and keys");
+    let edited = s
+        .to_text()
+        .with_text(r#"[{"$skip": 1}, {"$limit": 2}]"#)
+        .from_text();
+    assert_eq!(edited.keys.len(), 2);
+    assert!(edited.keys.iter().all(|k| !old.contains(k)));
+    let more = edited.add_stage("$match");
+    let mut all = more.keys.clone();
+    all.sort_unstable();
+    all.dedup();
+    assert_eq!(all.len(), 3);
+}
+
+#[test]
+fn toggling_and_editing_keep_the_key() {
+    let s = three();
+    let keys = s.keys.clone();
+    let s = s.toggle(1).edit(0, r#"{"$match": {"a": 1}}"#);
+    assert_eq!(s.keys, keys);
+}

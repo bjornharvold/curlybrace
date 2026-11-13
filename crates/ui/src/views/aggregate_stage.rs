@@ -19,6 +19,8 @@ const EDITOR_ROWS: std::ops::RangeInclusive<usize> = 2..=12;
 /// One card to draw: the stage, its index and what the card needs to know about the list.
 struct Card<'a> {
     index: usize,
+    /// The stage's identity: what its editor's egui id is built from.
+    key: u64,
     stage: &'a Stage,
     /// The stage whose output is previewed.
     selected: bool,
@@ -50,6 +52,7 @@ pub(super) fn show_stages(
             for (index, stage) in draft.stages.iter().enumerate() {
                 let card = Card {
                     index,
+                    key: draft.keys.get(index).copied().unwrap_or(index as u64),
                     stage,
                     selected: index == draft.selected,
                     last,
@@ -83,7 +86,7 @@ fn show_card(
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let actions = card_header(ui, card, &status, &n, i18n);
-            let typed = stage_editor(ui, card.index, text, &n, i18n);
+            let typed = stage_editor(ui, card.key, text, &n, i18n);
             status_line(ui, card.stage.enabled, &status, i18n);
             (actions, typed)
         })
@@ -193,19 +196,13 @@ fn title(ui: &mut egui::Ui, card: &Card<'_>, status: &StageStatus, n: &str, i18n
 
 /// The stage's JSON in a monospace editor named after its position, with stage-name completion;
 /// the new text when typed in.
-fn stage_editor(
-    ui: &mut egui::Ui,
-    index: usize,
-    text: &str,
-    n: &str,
-    i18n: &I18n,
-) -> Option<String> {
+fn stage_editor(ui: &mut egui::Ui, key: u64, text: &str, n: &str, i18n: &I18n) -> Option<String> {
     let mut buffer = text.to_string();
     let rows = text
         .lines()
         .count()
         .clamp(*EDITOR_ROWS.start(), *EDITOR_ROWS.end());
-    let id = egui::Id::new(("aggregate_stage_text", index));
+    let id = stage_text_id(key);
     let (response, changed) = completing_editor(ui, id, &mut buffer, rows, i18n);
     // Named on its accesskit node, not through `widget_info`, which would announce the
     // multi-line editor as a one-line text field.
@@ -213,6 +210,11 @@ fn stage_editor(
     ui.ctx()
         .accesskit_node_builder(response.id, |node| node.set_label(name));
     changed.then_some(buffer)
+}
+
+/// The egui id of the stage editor of identity `key`; it follows the stage when it moves.
+pub(super) fn stage_text_id(key: u64) -> egui::Id {
+    egui::Id::new(("aggregate_stage_text", key))
 }
 
 /// Valid, or what is wrong; a disabled stage also says the preview skips it.
@@ -245,4 +247,21 @@ fn status_line(ui: &mut egui::Ui, enabled: bool, status: &StageStatus, i18n: &I1
 
 fn error_label(ui: &mut egui::Ui, text: String) {
     ui.colored_label(ui.visuals().error_fg_color, text);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_editor_id_follows_the_stage_when_it_moves() {
+        let draft = ["$match", "$sort"]
+            .into_iter()
+            .fold(AggregateState::default(), |d, n| d.add_stage(n));
+        let before: Vec<_> = draft.keys.iter().map(|k| stage_text_id(*k)).collect();
+        let moved = draft.move_up(1);
+        let after: Vec<_> = moved.keys.iter().map(|k| stage_text_id(*k)).collect();
+        assert_eq!(after, [before[1], before[0]]);
+        assert_ne!(before[0], before[1]);
+    }
 }
