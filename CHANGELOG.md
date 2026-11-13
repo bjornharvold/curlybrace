@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/bjornharvold/curlybrace/compare/v0.12.0...v0.13.0) (2026-11-13)
+
+
+### Features
+
+* **aggregate:** pipeline builder with per-stage preview ([#152](https://github.com/bjornharvold/curlybrace/issues/152)) ([131c36c](https://github.com/bjornharvold/curlybrace/commit/131c36c403849d93aea366a41972144b23d06f7a))
+
 ## [0.12.0](https://github.com/bjornharvold/curlybrace/compare/v0.11.0...v0.12.0) (2026-11-13)
 
 
