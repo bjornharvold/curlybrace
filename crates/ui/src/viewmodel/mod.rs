@@ -50,6 +50,7 @@ pub mod shell_result_tree;
 pub mod shell_scan;
 pub mod sidebar;
 pub mod sidebar_selection;
+pub mod stage_complete;
 pub mod table;
 pub mod tool_rows;
 pub mod tree;

@@ -219,3 +219,36 @@ pub const OPERATORS: &[&str] = &[
     "$covariancePop",
     "$covarianceSamp",
 ];
+
+/// The aggregation stage names, the Aggregate tab's Add stage menu first, then the other real
+/// stages. Each is also in [`OPERATORS`].
+pub const STAGE_NAMES: &[&str] = &[
+    "$match",
+    "$group",
+    "$project",
+    "$sort",
+    "$limit",
+    "$skip",
+    "$unwind",
+    "$lookup",
+    "$addFields",
+    "$count",
+    "$facet",
+    "$out",
+    "$merge",
+    "$bucket",
+    "$bucketAuto",
+    "$geoNear",
+    "$graphLookup",
+    "$replaceRoot",
+    "$replaceWith",
+    "$sample",
+    "$set",
+    "$unset",
+    "$sortByCount",
+    "$unionWith",
+    "$redact",
+    "$densify",
+    "$fill",
+    "$setWindowFields",
+];

@@ -3,6 +3,7 @@
 //! card, Move up, Move down, Remove), the stage's JSON in a monospace editor, and a one-line
 //! status. Every control's accessible name carries the stage's position.
 use super::aggregate::named_button;
+use super::aggregate_complete::completing_editor;
 use crate::I18n;
 use crate::app::AggregateAction;
 use crate::theme::shape::{self, radius};
@@ -182,7 +183,8 @@ fn title(ui: &mut egui::Ui, card: &Card<'_>, status: &StageStatus, n: &str, i18n
     response.clicked() && !card.selected
 }
 
-/// The stage's JSON in a monospace editor named after its position; the new text when typed in.
+/// The stage's JSON in a monospace editor named after its position, with stage-name completion;
+/// the new text when typed in.
 fn stage_editor(
     ui: &mut egui::Ui,
     index: usize,
@@ -195,13 +197,8 @@ fn stage_editor(
         .lines()
         .count()
         .clamp(*EDITOR_ROWS.start(), *EDITOR_ROWS.end());
-    let response = ui.add(
-        egui::TextEdit::multiline(&mut buffer)
-            .id_salt(("aggregate_stage_text", index))
-            .font(egui::TextStyle::Monospace)
-            .desired_rows(rows)
-            .desired_width(f32::INFINITY),
-    );
+    let id = egui::Id::new(("aggregate_stage_text", index));
+    let (response, changed) = completing_editor(ui, id, &mut buffer, rows, i18n);
     let name = i18n.t_with("aggregate.stage.editor_n", &[("n", n)]);
     let value = buffer.clone();
     response.widget_info(|| {
@@ -209,7 +206,7 @@ fn stage_editor(
         info.current_text_value = Some(value.clone());
         info
     });
-    response.changed().then_some(buffer)
+    changed.then_some(buffer)
 }
 
 /// Valid, or what is wrong; a disabled stage also says the preview skips it.
