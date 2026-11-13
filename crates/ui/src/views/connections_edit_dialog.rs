@@ -53,8 +53,12 @@ pub(super) fn show_edit_dialog(
                 ui,
                 i18n.t(state.edit_mode.title_key()),
             ));
+            // The same height from the first frame on: without a minimum the first frame's body
+            // is shorter, the centred dialog grows a frame later and jumps up without a repaint.
+            let body = body_height(ctx);
             egui::ScrollArea::vertical()
-                .max_height(body_height(ctx))
+                .max_height(body)
+                .min_scrolled_height(body)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     (action, tool_action) = show_body(ui, state, tools, i18n);
