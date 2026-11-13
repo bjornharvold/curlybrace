@@ -12,6 +12,10 @@ use eframe::egui::{
 };
 use std::sync::Arc;
 
+/// Side padding of an option's label; tight enough that "Browse | Compare | Shell" fits the
+/// sidebar's default width in full.
+const SEGMENT_PADDING: f32 = 10.0;
+
 /// Options of equal width (the widest label's, shrunk to fit the available width, labels then
 /// elided). Each option is a radio button for accessibility, with its selected state. Returns
 /// the option clicked this frame when it differs from `selected`.
@@ -70,7 +74,7 @@ fn segmented_sized<T: PartialEq + Copy>(
         return None;
     }
     let s = current_ui(ui);
-    let padding = shape::SPACE_3;
+    let padding = SEGMENT_PADDING;
     let font = medium_font(ui, TextStyle::Button.resolve(ui.style()).size);
     let count = items.len() as f32;
     let item_width = item_width(ui, items, &font, padding);

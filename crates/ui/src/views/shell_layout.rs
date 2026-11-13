@@ -31,11 +31,13 @@ const LIST_SHARE: f32 = 0.25;
 pub(crate) const LIST_MAX_HEIGHT: f32 = 180.0;
 /// The open list always shows at least this much (points): one row.
 pub(crate) const LIST_MIN_HEIGHT: f32 = 32.0;
-/// The chrome assumed before a frame has measured it (points).
-const CHROME_GUESS: f32 = 220.0;
+/// The chrome assumed before a frame has measured it (points): about what the hints, the
+/// History controls and the separator measure with the 32 pt controls (104 to 118 with the
+/// panel open, more under a notice).
+const CHROME_GUESS: f32 = 120.0;
 /// Room kept for the item spacing around the editor and the list, which the measurement leaves
-/// out (points).
-const SPACING_SLACK: f32 = 16.0;
+/// out (points): two 6 pt row gaps.
+const SPACING_SLACK: f32 = 12.0;
 
 /// The heights the editor and the History list get in one frame (points). `list` is the most the
 /// list may take; it is 0 while the panel is closed.

@@ -8,12 +8,16 @@ use crate::viewmodel::verdict::{BadgeModel, Tone, reason_text_key};
 use eframe::egui;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+/// The narrowest the row gets: room for the longest English chip and the Why button.
+const MIN_ROW_WIDTH: f32 = 320.0;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum VerdictAction {
     CopySuggestion(String),
 }
 
-/// Draws the row for `model` (an empty row of the same height for `None`).
+/// Draws the row for `model` (an empty row of the same size for `None`) in the rest of the
+/// current row, or on the next line of a wrapping row when less than its minimum width is left.
 pub fn show_verdict_row(
     ui: &mut egui::Ui,
     model: Option<&BadgeModel>,
@@ -26,9 +30,12 @@ pub fn show_verdict_row(
         .y
         .max(theme::CHIP_HEIGHT)
         .max(theme::CONTROL_HEIGHT);
+    // At least a fixed width whatever the verdict says, so in a wrapping row (beside the
+    // checkboxes) whether the row wraps depends on the window, never on the verdict.
+    let width = ui.available_width().max(MIN_ROW_WIDTH);
     let mut action = None;
     let layout = egui::Layout::left_to_right(egui::Align::Center);
-    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), height), layout, |ui| {
+    ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
         ui.set_min_height(height);
         action = model.and_then(|model| show_row(ui, model, i18n));
     });

@@ -1,27 +1,45 @@
 //! The Sampling section of the Indexes tab: which databases the usage sampler leaves out. A
-//! collapsed header keeps it out of the way; inside, the excluded databases with a button each to
-//! sample them again, and a box to exclude another. Draws the settings it is given and reports
-//! what the person did; the typed text is the only thing it keeps (in egui's memory).
+//! disclosure button in the toolbar row keeps it out of the way (it costs no row while closed);
+//! opened, the excluded databases with a button each to sample them again, and a box to exclude
+//! another. Draws the settings it is given and reports what the person did; whether it is open
+//! (per collection, under the scope the caller names) and the typed text are the only things it
+//! keeps (in egui's memory).
 use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
-use crate::theme::{compact_text_button, gate, outlined_field, tonal_button};
+use crate::theme::{
+    compact_text_button, gate, icons, outlined_field, text_button_with_icon, tonal_button,
+};
 use crate::viewmodel::IndexesAction;
 use eframe::egui;
 
 const INPUT_WIDTH: f32 = 200.0;
 
-/// The header and, when opened, the list and the input.
-pub fn show_sampling(
+/// The disclosure button, named by the section's heading and reported with its expanded state;
+/// a chevron shows the state too. Returns whether the section is open after this frame's click.
+/// Whether it is open is kept under `scope`, which names the collection (and connection) shown,
+/// so opening it on one leaves the others as they were.
+pub fn sampling_toggle(ui: &mut egui::Ui, scope: egui::Id, i18n: &I18n) -> bool {
+    let open_id = scope.with("indexes_sampling_open");
+    let was_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+    let icon = match was_open {
+        true => icons::CHEVRON_DOWN,
+        false => icons::CHEVRON_RIGHT,
+    };
+    let response = text_button_with_icon(ui, icon, &i18n.t("indexes.sampling.heading"));
+    let open = was_open != response.clicked();
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_expanded(open));
+    ui.data_mut(|d| d.insert_temp(open_id, open));
+    open
+}
+
+/// The section's body (drawn while it is open): the list and the input.
+pub fn show_sampling_body(
     ui: &mut egui::Ui,
     sampling: &SamplingSettings,
     i18n: &I18n,
 ) -> Option<IndexesAction> {
-    let mut action = None;
-    egui::CollapsingHeader::new(i18n.t("indexes.sampling.heading"))
-        .id_salt("indexes_sampling")
-        .default_open(false)
-        .show(ui, |ui| action = body(ui, sampling, i18n));
-    action
+    body(ui, sampling, i18n)
 }
 
 fn body(ui: &mut egui::Ui, sampling: &SamplingSettings, i18n: &I18n) -> Option<IndexesAction> {

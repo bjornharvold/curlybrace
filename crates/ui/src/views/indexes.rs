@@ -2,8 +2,8 @@
 //! selected range, the selected index on the right. Draws state and reports what the person
 //! did; the reducer decides what happens.
 use super::index_detail::{DetailInput, show_detail};
-use super::index_sampling::show_sampling;
-use super::queries::show_queries;
+use super::index_sampling::{sampling_toggle, show_sampling_body};
+use super::queries::show_queries_led;
 use crate::I18n;
 use crate::app::sampling_settings::SamplingSettings;
 use crate::theme::{PILL_HEIGHT, filled_button, gate, pill, segmented, tonal_button};
@@ -23,7 +23,8 @@ const LIST_SHARE: f32 = 0.3;
 /// Draws the tab at the wall-clock time `now_secs` (Unix seconds), which the caller reads once
 /// per frame; nothing in here reads the clock, so the output depends only on the arguments.
 /// `read_only` disables the write controls (Create index) and says why. `sampling` is the list of
-/// databases the sampler skips, shown in the Sampling section.
+/// databases the sampler skips, shown in the Sampling section, which is opened per collection
+/// (under the id of `ui`, so a caller showing several connections gives each its own).
 pub fn show_indexes(
     ui: &mut egui::Ui,
     state: &IndexesState,
@@ -32,12 +33,35 @@ pub fn show_indexes(
     now_secs: i64,
     sampling: &SamplingSettings,
 ) -> Option<IndexesAction> {
-    let toggled = view_toggle(ui, state.view, i18n);
     if state.view == IndexesView::Queries {
-        return queries_view(ui, state, read_only, i18n, now_secs).or(toggled);
+        return queries_view(ui, state, read_only, i18n, now_secs);
     }
-    let mut action = toolbar(ui, state, read_only, i18n).or(toggled);
-    action = show_sampling(ui, sampling, i18n).or(action);
+    let sampling_scope = ui.id().with(("indexes_sampling", &state.ns));
+    // The toggle, the toolbar and the Sampling disclosure share one wrapping row.
+    let (mut action, sampling_open, status_below) = ui
+        .horizontal_wrapped(|ui| {
+            let toggled = view_toggle(ui, state.view, i18n);
+            let action = toolbar(ui, state, read_only, i18n).or(toggled);
+            let open = sampling_toggle(ui, sampling_scope, i18n);
+            let status = state.sampler.map(|status| i18n.t(sampler_key(status)));
+            let below = match status {
+                Some(text) if fits_in_row(ui, &text) => {
+                    ui.weak(text);
+                    None
+                }
+                other => other,
+            };
+            (action, open, below)
+        })
+        .inner;
+    // A status that does not fit beside the buttons gets a line of its own, a text line high
+    // (a wrapped row would be a whole control row high), never split across the two.
+    if let Some(text) = status_below {
+        ui.weak(text);
+    }
+    if sampling_open {
+        action = show_sampling_body(ui, sampling, i18n).or(action);
+    }
     ui.separator();
     if state.indexes.is_empty() {
         let key = if state.loading {
@@ -99,12 +123,10 @@ fn view_toggle(ui: &mut egui::Ui, view: IndexesView, i18n: &I18n) -> Option<Inde
         (IndexesView::Indexes, i18n.t("indexes.queries.view_indexes")),
         (IndexesView::Queries, i18n.t("indexes.queries.view_queries")),
     ];
-    ui.horizontal(|ui| segmented(ui, &items, view))
-        .inner
-        .map(IndexesAction::ShowView)
+    segmented(ui, &items, view).map(IndexesAction::ShowView)
 }
 
-/// The Queries view of the collection the tab is on.
+/// The Queries view of the collection the tab is on, the toggle leading its toolbar row.
 fn queries_view(
     ui: &mut egui::Ui,
     state: &IndexesState,
@@ -112,9 +134,13 @@ fn queries_view(
     i18n: &I18n,
     now_secs: i64,
 ) -> Option<IndexesAction> {
-    ui.separator();
-    let ns = state.ns.as_ref()?;
-    show_queries(ui, &state.queries, ns, read_only, i18n, now_secs).map(IndexesAction::Queries)
+    let toggle = |ui: &mut egui::Ui| view_toggle(ui, state.view, i18n);
+    let Some(ns) = state.ns.as_ref() else {
+        return ui.horizontal_wrapped(toggle).inner;
+    };
+    let (queries, toggled) =
+        show_queries_led(ui, &state.queries, ns, read_only, i18n, now_secs, toggle);
+    queries.map(IndexesAction::Queries).or(toggled)
 }
 
 /// The selected index, or the first one while nothing is selected.
@@ -126,7 +152,7 @@ fn shown_index(state: &IndexesState) -> Option<&CollectionIndex> {
         .or_else(|| state.indexes.first())
 }
 
-/// Range switch, refresh, Create index and the sampler's status line.
+/// Range switch, refresh and Create index, in the caller's row.
 fn toolbar(
     ui: &mut egui::Ui,
     state: &IndexesState,
@@ -134,22 +160,31 @@ fn toolbar(
     i18n: &I18n,
 ) -> Option<IndexesAction> {
     let mut action = None;
-    ui.horizontal(|ui| {
-        let ranges = RANGES.map(|range| (range, i18n.t(range_key(range))));
-        if let Some(range) = segmented(ui, &ranges, state.range) {
-            action = Some(IndexesAction::SetRange(range));
-        }
-        if tonal_button(ui, i18n.t("indexes.refresh")).clicked() {
-            action = Some(IndexesAction::Refresh);
-        }
-        if create_button(ui, read_only, state.writing.as_ref(), i18n) {
-            action = Some(IndexesAction::OpenBuilder);
-        }
-        if let Some(key) = state.sampler.map(sampler_key) {
-            ui.weak(i18n.t(key));
-        }
-    });
+    let ranges = RANGES.map(|range| (range, i18n.t(range_key(range))));
+    if let Some(range) = segmented(ui, &ranges, state.range) {
+        action = Some(IndexesAction::SetRange(range));
+    }
+    if tonal_button(ui, i18n.t("indexes.refresh")).clicked() {
+        action = Some(IndexesAction::Refresh);
+    }
+    if create_button(ui, read_only, state.writing.as_ref(), i18n) {
+        action = Some(IndexesAction::OpenBuilder);
+    }
     action
+}
+
+/// Whether `text` fits in what is left of the current row.
+fn fits_in_row(ui: &egui::Ui, text: &str) -> bool {
+    let width = egui::WidgetText::from(text)
+        .into_galley(
+            ui,
+            Some(egui::TextWrapMode::Extend),
+            f32::INFINITY,
+            egui::TextStyle::Body,
+        )
+        .size()
+        .x;
+    width <= ui.available_size_before_wrap().x
 }
 
 /// The Create index button. On a read-only connection it is disabled and the reason is both its

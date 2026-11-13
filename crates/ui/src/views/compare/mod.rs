@@ -63,8 +63,7 @@ fn layout(
     connections: &ConnectionsState,
     i18n: &I18n,
 ) -> Option<CompareAction> {
-    let header = show_header(ui, i18n);
-    let connect = show_connect(ui, state, connections, i18n);
+    let header = show_connect(ui, state, connections, i18n, |ui| show_header(ui, i18n));
     let body = match state.session {
         None => None,
         Some(SessionPhase::Opening(_)) => {
@@ -78,18 +77,15 @@ fn layout(
     let read_only = state.read_only_destination(&connections.connections);
     let review = apply::show_review(ui.ctx(), state, &production, read_only, i18n);
     let export = export::show_export(ui.ctx(), state, i18n);
-    header.or(connect).or(body).or(review).or(export)
+    header.or(body).or(review).or(export)
 }
 
+/// The page's heading and Back, at the start of the connection row.
 fn show_header(ui: &mut egui::Ui, i18n: &I18n) -> Option<CompareAction> {
-    let mut action = None;
-    ui.horizontal(|ui| {
-        ui.heading(i18n.t("compare.title"));
-        if text_button(ui, i18n.t("compare.back")).clicked() {
-            action = Some(CompareAction::Hide);
-        }
-    });
-    action
+    ui.heading(i18n.t("compare.title"));
+    text_button(ui, i18n.t("compare.back"))
+        .clicked()
+        .then_some(CompareAction::Hide)
 }
 
 /// Everything below the connection pickers, once the session is usable: the results of the

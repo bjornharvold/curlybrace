@@ -17,8 +17,9 @@ use eframe::egui::collapsing_header::CollapsingState;
 use eframe::egui::{WidgetInfo, WidgetType};
 
 /// Width the sidebar opens at: wide enough for a connection name beside its Disconnect button
-/// and the toggle (the name is a pill with Material's side padding). Still resizable.
-pub(crate) const SIDEBAR_DEFAULT_WIDTH: f32 = 260.0;
+/// and the toggle (the name is a pill with Material's side padding), and for the three workspace
+/// switcher labels in full ("Compare" is the widest). Still resizable.
+pub(crate) const SIDEBAR_DEFAULT_WIDTH: f32 = 280.0;
 
 /// Rows of a root's database tree shown before it scrolls.
 const MAX_TREE_ROWS: usize = 12;

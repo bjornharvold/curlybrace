@@ -1,10 +1,13 @@
 //! Document area: mode switcher, insert button, the three views and the delete confirmation.
 use super::connection_badge::show_badge;
-use super::doc_select::show_selection_bar;
+use super::doc_select::show_selection_buttons;
 use super::write_warning::focus_cancel_unless_focused;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
-use crate::theme::{filled_button, gate, modal_frame, segmented, text_button, tonal_button};
+use crate::theme::{
+    CONTROL_HEIGHT, filled_button, gate, modal_frame, segmented_hinted_compact, text_button,
+    tonal_button,
+};
 use crate::viewmodel::connection_tag::READ_ONLY_REASON_KEY;
 use crate::viewmodel::{
     BulkEntry, BulkKind, ConnectionBadge, DocAction, PageKey, TreeState, ViewMode, id_preview,
@@ -13,15 +16,14 @@ use crate::viewmodel::{
 use curlybrace_core::store::Page;
 use eframe::egui;
 
-/// Segmented mode switcher; returns the (possibly changed) mode.
+/// Compact segmented mode switcher (Tree | Table | JSON) drawn into the current row, so it can
+/// lead the documents toolbar; returns the (possibly changed) mode.
 pub fn show_mode_switcher(ui: &mut egui::Ui, mode: ViewMode, i18n: &I18n) -> ViewMode {
     let items: Vec<(ViewMode, String)> = ViewMode::ALL
         .into_iter()
         .map(|candidate| (candidate, i18n.t(candidate.label_key())))
         .collect();
-    ui.horizontal(|ui| segmented(ui, &items, mode))
-        .inner
-        .unwrap_or(mode)
+    segmented_hinted_compact(ui, &items, mode, |_| true, |_| None).unwrap_or(mode)
 }
 
 /// Renders the page in `mode`.
@@ -67,42 +69,128 @@ pub fn show_documents_keyed(
     target: DocTarget<'_>,
     i18n: &I18n,
 ) -> Option<DocAction> {
+    show_documents_in(ui, ModeChoice::Fixed(mode), page, key, state, target, i18n)
+}
+
+/// [`show_documents_keyed`] whose toolbar leads with the Tree | Table | JSON switcher, so the
+/// whole header of the documents is one row; a pick changes `mode` and is drawn this frame.
+pub fn show_documents_switchable(
+    ui: &mut egui::Ui,
+    mode: &mut ViewMode,
+    page: &Page,
+    key: &PageKey,
+    state: &mut TreeState,
+    target: DocTarget<'_>,
+    i18n: &I18n,
+) -> Option<DocAction> {
+    show_documents_in(ui, ModeChoice::Switch(mode), page, key, state, target, i18n)
+}
+
+/// The header of [`show_documents_switchable`] while there is no page (it is loading, or the
+/// load failed): the switcher works, the actions are there but disabled, and the `message_key`
+/// line stands where the documents go. The row is in its place before the page arrives, so
+/// nothing jumps when it does.
+pub fn show_documents_pending(
+    ui: &mut egui::Ui,
+    mode: &mut ViewMode,
+    state: &mut TreeState,
+    target: DocTarget<'_>,
+    message_key: &str,
+    i18n: &I18n,
+) {
+    // Nothing on the disabled actions can be clicked, so there is no action to report.
+    let _ = show_toolbar(
+        ui,
+        &mut ModeChoice::Switch(mode),
+        state,
+        target,
+        false,
+        i18n,
+    );
+    ui.label(i18n.t(message_key));
+}
+
+/// Whether the toolbar offers the view-mode switcher.
+enum ModeChoice<'a> {
+    Fixed(ViewMode),
+    Switch(&'a mut ViewMode),
+}
+
+fn show_documents_in(
+    ui: &mut egui::Ui,
+    mut choice: ModeChoice<'_>,
+    page: &Page,
+    key: &PageKey,
+    state: &mut TreeState,
+    target: DocTarget<'_>,
+    i18n: &I18n,
+) -> Option<DocAction> {
     let key = *key;
     state.synced_to(&key);
     state.read_only = target.read_only;
-    let action = show_toolbar(ui, target, i18n);
-    let copy = show_selection_bar(ui, state, i18n);
+    let action = show_toolbar(ui, &mut choice, state, target, true, i18n);
+    let mode = match choice {
+        ModeChoice::Fixed(mode) => mode,
+        ModeChoice::Switch(mode) => *mode,
+    };
     let from_view = match mode {
         ViewMode::Tree => show_tree(ui, page, &key, state, i18n),
         ViewMode::Table => show_table(ui, page, &key, state, i18n),
         ViewMode::Json => show_json(ui, page, &key, state, i18n),
     };
     let from_dialog = show_delete_confirm(ui.ctx(), &key, state, target, i18n);
-    action.or(copy).or(from_view).or(from_dialog)
+    action.or(from_view).or(from_dialog)
 }
 
-/// The document actions in one wrapping row: Insert, then "Update matching" and "Delete
-/// matching". When any of them is off, the reason is a visible line under the row (and the
-/// buttons' hover text), so the state is never colour or hover alone. A read-only connection
-/// shows its reason once for all three.
-fn show_toolbar(ui: &mut egui::Ui, target: DocTarget<'_>, i18n: &I18n) -> Option<DocAction> {
-    let mut action = None;
-    ui.horizontal_wrapped(|ui| {
-        let insert = gate(ui, !target.read_only, |ui| {
-            tonal_button(ui, i18n.t("doc.insert"))
-        });
-        if target.read_only {
-            insert.on_hover_text(i18n.t(READ_ONLY_REASON_KEY));
-        } else if insert.clicked() {
-            action = Some(DocAction::Insert);
-        }
-        let bulk = bulk_buttons(ui, target.bulk, i18n);
-        action = action.take().or(bulk.map(DocAction::Bulk));
-    });
+/// The documents toolbar in one wrapping row: the mode switcher (when offered), Insert,
+/// "Update matching" and "Delete matching", then "Select all documents of the query", "Clear
+/// selection" and Copy. When a write action is off, the reason is a visible line under the row
+/// (and the buttons' hover text), so the state is never colour or hover alone. A read-only
+/// connection shows its reason once for all three. Without `actions` (no page) everything after
+/// the switcher is drawn disabled.
+fn show_toolbar(
+    ui: &mut egui::Ui,
+    choice: &mut ModeChoice<'_>,
+    state: &mut TreeState,
+    target: DocTarget<'_>,
+    actions: bool,
+    i18n: &I18n,
+) -> Option<DocAction> {
+    let action = ui
+        .horizontal_wrapped(|ui| {
+            // As tall as the buttons from the start, so the compact switcher is centred on them.
+            ui.set_min_height(CONTROL_HEIGHT);
+            if let ModeChoice::Switch(mode) = choice {
+                **mode = show_mode_switcher(ui, **mode, i18n);
+            }
+            if !actions {
+                ui.disable();
+            }
+            let write = write_buttons(ui, target, i18n);
+            let copy = show_selection_buttons(ui, state, i18n);
+            write.or(copy)
+        })
+        .inner;
     if let Some(key) = reason_key(target) {
         ui.label(i18n.t(key));
     }
     action
+}
+
+/// Insert, then "Update matching" and "Delete matching"; the one clicked.
+fn write_buttons(ui: &mut egui::Ui, target: DocTarget<'_>, i18n: &I18n) -> Option<DocAction> {
+    let insert = gate(ui, !target.read_only, |ui| {
+        tonal_button(ui, i18n.t("doc.insert"))
+    });
+    let inserted = match target.read_only {
+        true => {
+            insert.on_hover_text(i18n.t(READ_ONLY_REASON_KEY));
+            None
+        }
+        false => insert.clicked().then_some(DocAction::Insert),
+    };
+    let bulk = bulk_buttons(ui, target.bulk, i18n);
+    inserted.or(bulk.map(DocAction::Bulk))
 }
 
 /// The reason line under the toolbar: the read-only reason when the connection is read-only
@@ -145,10 +233,40 @@ pub fn show_connection_header(
     badge: &ConnectionBadge,
     i18n: &I18n,
 ) {
+    header_row(ui, connection, badge, i18n, 0.0, |_| ());
+}
+
+/// [`show_connection_header`] with `trailing` drawn on the same row after the name (the
+/// collection tabs), so the header costs one row; returns what `trailing` returns.
+pub fn show_connection_header_with<R>(
+    ui: &mut egui::Ui,
+    connection: &str,
+    badge: &ConnectionBadge,
+    i18n: &I18n,
+    trailing: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    // As tall as the tabs from the start, so the badge and the name are centred on them.
+    header_row(ui, connection, badge, i18n, CONTROL_HEIGHT, |ui| {
+        ui.add_space(crate::theme::shape::SPACE_4);
+        trailing(ui)
+    })
+}
+
+fn header_row<R>(
+    ui: &mut egui::Ui,
+    connection: &str,
+    badge: &ConnectionBadge,
+    i18n: &I18n,
+    min_height: f32,
+    trailing: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
     ui.horizontal(|ui| {
+        ui.set_min_height(min_height);
         show_badge(ui, badge, i18n);
         ui.label(i18n.t_with("doc.connection", &[("name", connection)]));
-    });
+        trailing(ui)
+    })
+    .inner
 }
 
 /// Modal asking to confirm a parked delete; confirming emits `Delete` exactly once.

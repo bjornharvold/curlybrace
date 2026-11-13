@@ -16,6 +16,7 @@ pub mod doc_actions;
 pub mod doc_copy;
 pub mod editor;
 pub mod findbar;
+pub mod findbar_more;
 pub mod guard_notice;
 pub mod index_builder;
 pub mod index_chart;

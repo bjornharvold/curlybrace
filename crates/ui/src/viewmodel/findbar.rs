@@ -1,4 +1,5 @@
 //! Find bar state: raw query text plus the last validation error.
+use super::findbar_more::error_concerns_more;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::query::{QueryText, parse_query};
 use curlybrace_core::store::Query;
@@ -7,14 +8,18 @@ use curlybrace_core::store::Query;
 pub struct FindBarState {
     pub text: QueryText,
     pub last_error: Option<CoreError>,
+    /// The choice for the "More" disclosure (Sort, Projection, Skip, Limit); `None` follows the
+    /// content (see [`super::findbar_more::more_open`]) until it is first shown open, which then
+    /// sticks (see [`Self::more_settled`]). Clear drops the choice.
+    pub more: Option<bool>,
 }
 
 impl FindBarState {
-    /// Same text, no error (used by the view after a successful submit).
+    /// Same text and disclosure, no error (used by the view after a successful submit).
     pub fn cleared_error(&self) -> Self {
         Self {
-            text: self.text.clone(),
             last_error: None,
+            ..self.clone()
         }
     }
 }
@@ -74,12 +79,20 @@ pub fn resolve_find_intent(
 }
 
 /// Parses the bar text. On failure returns a new state carrying the error with the text
-/// untouched, so the user can fix what they typed.
+/// untouched, so the user can fix what they typed; an error about a field behind "More" opens
+/// it, so the field and its message are on screen together.
 #[allow(clippy::result_large_err)] // signature mandated: Err carries the full new state
 pub fn submit_find(state: &FindBarState) -> Result<Query, FindBarState> {
-    parse_query(&state.text).map_err(|e| FindBarState {
-        text: state.text.clone(),
-        last_error: Some(e),
+    parse_query(&state.text).map_err(|e| {
+        let more = match error_concerns_more(&state.text) {
+            true => Some(true),
+            false => state.more,
+        };
+        FindBarState {
+            last_error: Some(e),
+            more,
+            ..state.clone()
+        }
     })
 }
 
@@ -95,6 +108,7 @@ mod tests {
                 ..Default::default()
             },
             last_error: Some(CoreError::InvalidJson("old".into())),
+            more: None,
         }
     }
 
@@ -135,6 +149,7 @@ mod tests {
                 ..Default::default()
             },
             last_error: None,
+            more: None,
         }
     }
 

@@ -134,7 +134,13 @@ mod query_bar {
         has_next: bool,
     }
 
+    const HIDDEN: [&str; 4] = ["Sort", "Projection", "Skip", "Limit"];
+
     fn open(has_next: bool) -> Harness<'static, Bar> {
+        open_with(FindBarState::default(), has_next)
+    }
+
+    fn open_with(state: FindBarState, has_next: bool) -> Harness<'static, Bar> {
         let mut harness = Harness::builder()
             .with_size(egui::vec2(900.0, 400.0))
             .build_ui_state(
@@ -144,7 +150,7 @@ mod query_bar {
                     bar.seen.extend(action);
                 },
                 Bar {
-                    state: FindBarState::default(),
+                    state,
                     seen: Vec::new(),
                     has_next,
                 },
@@ -154,9 +160,27 @@ mod query_bar {
         harness
     }
 
+    fn shown(harness: &Harness<'static, Bar>, label: &str) -> bool {
+        harness
+            .query_by_role_and_label(Role::TextInput, label)
+            .is_some()
+    }
+
+    fn expanded(harness: &Harness<'static, Bar>, label: &str) -> Option<bool> {
+        harness
+            .get_by_role_and_label(Role::Button, label)
+            .accesskit_node()
+            .data()
+            .is_expanded()
+    }
+
     #[test]
     fn every_query_field_is_an_editable_text_field_with_its_label() {
-        let harness = open(false);
+        let mut harness = open(false);
+        harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .click();
+        harness.run_steps(4);
         for label in ["Filter", "Sort", "Projection", "Skip", "Limit"] {
             let field = harness.get_by_role_and_label(Role::TextInput, label);
             assert_eq!(field.value().as_deref(), Some(""), "{label}");
@@ -222,5 +246,93 @@ mod query_bar {
             _ => false,
         });
         assert!(filled, "no primary fill behind the Find button at {find:?}");
+    }
+
+    #[test]
+    fn closed_and_empty_more_keeps_its_fields_out_of_the_tree_until_toggled() {
+        let mut harness = open(false);
+        assert!(shown(&harness, "Filter"));
+        for label in HIDDEN {
+            assert!(!shown(&harness, label), "{label} shown while closed");
+        }
+        assert_eq!(expanded(&harness, "More options"), Some(false));
+        harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .click();
+        harness.run_steps(4);
+        for label in HIDDEN {
+            assert!(shown(&harness, label), "{label} missing once opened");
+        }
+        assert_eq!(expanded(&harness, "More options"), Some(true));
+        harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .click();
+        harness.run_steps(4);
+        assert!(HIDDEN.iter().all(|label| !shown(&harness, label)));
+    }
+
+    #[test]
+    fn more_opens_by_itself_when_a_hidden_field_holds_a_value_and_says_so_when_closed() {
+        let mut state = FindBarState::default();
+        state.text.sort = "{\"a\": 1}".into();
+        let mut harness = open_with(state, false);
+        for label in HIDDEN {
+            assert!(
+                shown(&harness, label),
+                "{label} hidden although Sort is set"
+            );
+        }
+        assert_eq!(
+            harness
+                .get_by_role_and_label(Role::TextInput, "Sort")
+                .value(),
+            Some("{\"a\": 1}".to_string())
+        );
+        harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .click();
+        harness.run_steps(4);
+        assert!(!shown(&harness, "Sort"));
+        assert_eq!(expanded(&harness, "More options (1 set)"), Some(false));
+        assert_eq!(harness.state().state.text.sort, "{\"a\": 1}", "kept");
+    }
+
+    #[test]
+    fn tab_moves_from_the_filter_to_find() {
+        let mut harness = open(false);
+        harness
+            .get_by_role_and_label(Role::TextInput, "Filter")
+            .click();
+        harness.run_steps(2);
+        harness.key_press(egui::Key::Tab);
+        harness.run_steps(2);
+        assert!(
+            harness
+                .get_by_role_and_label(Role::Button, "Find")
+                .accesskit_node()
+                .is_focused()
+        );
+    }
+
+    #[test]
+    fn the_buttons_share_the_filter_row_on_a_wide_window() {
+        let harness = open(false);
+        let filter = harness
+            .get_by_role_and_label(Role::TextInput, "Filter")
+            .rect();
+        let find = harness.get_by_role_and_label(Role::Button, "Find").rect();
+        let more = harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .rect();
+        assert!(find.left() > filter.right(), "Find is beside the Filter");
+        assert!(
+            (find.center().y - filter.center().y).abs() < 1.0,
+            "Find {find:?} is centred on the Filter's box {filter:?}"
+        );
+        assert!((more.center().y - find.center().y).abs() < 1.0, "same row");
+        assert!(
+            filter.width() > 300.0,
+            "the Filter takes the rest: {filter:?}"
+        );
     }
 }

@@ -28,7 +28,7 @@ pub use modal::modal_frame;
 pub use outlined_field::{FieldOptions, outlined_field, outlined_field_opts, outlined_field_with};
 pub use pill::{PILL_HEIGHT, pill, pill_row};
 pub use segmented::{segmented, segmented_hinted, segmented_hinted_compact, segmented_where};
-pub use tabs::tabs;
+pub use tabs::{tabs, tabs_inline};
 
 use super::fonts::{has_family, medium_family};
 use super::{StateLayer, state_layer};
@@ -38,11 +38,11 @@ use eframe::egui::{
 };
 use std::sync::Arc;
 
-/// Height of buttons, segmented controls and outlined fields (Material's 40 dp target).
-pub(crate) const CONTROL_HEIGHT: f32 = 40.0;
-/// Height of a compact segmented control, for a heading row where height is scarce (Material's
-/// densest step: 40 dp less 3 x 4 dp).
-pub(crate) const COMPACT_CONTROL_HEIGHT: f32 = 28.0;
+/// Height of buttons, segmented controls and outlined fields. A desktop-dense 32 pt: the data
+/// is the point of the app, so chrome must not push it down the window.
+pub(crate) const CONTROL_HEIGHT: f32 = 32.0;
+/// Height of a compact segmented control, for a heading row where height is scarce.
+pub(crate) const COMPACT_CONTROL_HEIGHT: f32 = 24.0;
 /// Width of the keyboard focus ring.
 const FOCUS_RING_WIDTH: f32 = 2.0;
 /// Gap between a widget and its focus ring, so the ring stays visible on a `primary` fill.

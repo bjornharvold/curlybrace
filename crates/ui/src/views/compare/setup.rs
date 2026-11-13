@@ -26,18 +26,26 @@ pub fn show_setup(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Optio
 }
 
 /// Key, filters and rules every pair follows, with what is wrong with them (the pickers are not
-/// part of the defaults).
+/// part of the defaults). The key and the two filters sit side by side, wrapping when narrow.
 fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option<CompareAction> {
     let form = &state.setup;
-    let mut action = None;
     ui.strong(i18n.t("compare.pairs.defaults_title"));
-    if let Some(text) = text_field(ui, "key", form_key(), &form.key_text, i18n) {
-        action = Some(CompareAction::SetKey(text));
-    }
-    for side in [Side::Source, Side::Target] {
-        let shown = show_filter(ui, side, form.side(side), i18n);
-        action = shown.or(action);
-    }
+    let width = column_width(ui.available_width(), ui.spacing().item_spacing.x);
+    let mut action = ui
+        .horizontal_wrapped(|ui| {
+            let key = column(ui, width, |ui| {
+                // The room a side heading takes, so the key box lines up with the filters.
+                let heading = ui.text_style_height(&egui::TextStyle::Body);
+                ui.add_space(heading + ui.spacing().item_spacing.y);
+                text_field(ui, "key", form_key(), &form.key_text, i18n)
+            })
+            .map(CompareAction::SetKey);
+            [Side::Source, Side::Target]
+                .into_iter()
+                .map(|side| column(ui, width, |ui| show_filter(ui, side, form.side(side), i18n)))
+                .fold(key, |action, shown| shown.or(action))
+        })
+        .inner;
     if let Some(rules) = show_rules(ui, &form.rules, i18n) {
         action = Some(CompareAction::SetRules(rules));
     }
@@ -45,6 +53,24 @@ fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option
         ui.weak(i18n.t(issue.i18n_key()));
     }
     action
+}
+
+/// The narrowest a key or filter box gets before the row wraps (points).
+const COLUMN_MIN_WIDTH: f32 = 200.0;
+
+/// A third of the row (less the gaps), at least [`COLUMN_MIN_WIDTH`] and at most the row.
+fn column_width(available: f32, gap: f32) -> f32 {
+    ((available - 2.0 * gap) / 3.0)
+        .max(COLUMN_MIN_WIDTH)
+        .min(available)
+}
+
+fn column<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.vertical(|ui| {
+        ui.set_width(width);
+        add(ui)
+    })
+    .inner
 }
 
 fn show_filter(

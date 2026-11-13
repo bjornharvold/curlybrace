@@ -989,6 +989,8 @@
     "filter": "Filter",
     "filter_hint": "{ \"status\": \"active\" }",
     "limit": "Limit",
+    "more": "More options",
+    "more_set": "More options ({count} set)",
     "next": "Next",
     "prev": "Previous",
     "projection": "Projection",

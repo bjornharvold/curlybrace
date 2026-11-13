@@ -378,10 +378,25 @@ pub fn show_connections_with_tools(
     tools: &ToolsState,
     i18n: &I18n,
 ) -> Vec<ConnectionAction> {
+    show_connections_led(ui, state, tools, i18n, |_| ())
+}
+
+/// [`show_connections_with_tools`] with `beside` drawn on the heading's row after it (the app's
+/// Settings and Copies buttons), so they cost no row of their own.
+pub fn show_connections_led(
+    ui: &mut egui::Ui,
+    state: &mut ConnectionsState,
+    tools: &ToolsState,
+    i18n: &I18n,
+    beside: impl FnOnce(&mut egui::Ui),
+) -> Vec<ConnectionAction> {
     state.invalidate_stale_test();
     // Before the dialog draws, so a closed dialog's pasted text is gone from egui at once.
     super::connections_from_uri::wipe_if_pending(ui.ctx(), state);
-    ui.heading(i18n.t("connections.title"));
+    ui.horizontal_wrapped(|ui| {
+        ui.heading(i18n.t("connections.title"));
+        beside(ui);
+    });
     let action = super::connections_list::show_list(ui, state, i18n);
     let edit = super::connections_edit_dialog::show_edit_dialog(ui.ctx(), state, tools, i18n);
     // Apply or Cancel inside the dialog: wipe this frame, not the next.

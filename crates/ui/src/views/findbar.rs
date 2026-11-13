@@ -1,19 +1,27 @@
-//! Find bar view: filter/sort/projection/skip/limit inputs and paging controls.
+//! Find bar view: the Filter with Find / Clear / Previous / Next and the "More" toggle on one
+//! wrapping row, then, behind "More", Sort / Projection / Skip / Limit on another.
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
+use super::findbar_more::{show_more_fields, show_more_toggle};
 use crate::I18n;
-use crate::theme::{filled_button, gate, outlined_field, text_button, tonal_button};
+use crate::theme::{
+    CONTROL_HEIGHT, filled_button, gate, outlined_field, text_button, tonal_button,
+};
+use crate::viewmodel::findbar_more::{hidden_count, more_open};
 use crate::viewmodel::{FindBarState, FindIntent, pick_intent, resolve_find_intent};
-use curlybrace_core::query::QueryText;
 use eframe::egui::{self, vec2};
 
 pub use crate::viewmodel::FindAction;
 
-/// Width of the Skip and Limit fields: room for the floating label and a few digits.
-const NUMBER_FIELD_WIDTH: f32 = 96.0;
+/// The Filter is never narrower than this beside the buttons; on a narrower row the buttons
+/// wrap under it and the Filter takes the whole row.
+const FILTER_MIN_WIDTH: f32 = 240.0;
+/// The width of the buttons after the Filter until a frame has measured it.
+const TRAILING_GUESS: f32 = 440.0;
+/// Room left between the Filter and the buttons' measured width, so rounding never wraps the
+/// last button.
+const ROW_SLACK: f32 = 1.0;
 
 const KEY_FILTER: (&str, &str) = ("findbar.filter", "findbar.filter_hint");
-const KEY_SORT: (&str, &str) = ("findbar.sort", "findbar.sort_hint");
-const KEY_PROJECTION: (&str, &str) = ("findbar.projection", "findbar.projection_hint");
 
 /// `has_prev` / `has_next` come from the caller (current skip > 0 / `Page::has_more`).
 pub fn show_findbar(
@@ -23,16 +31,20 @@ pub fn show_findbar(
     has_next: bool,
     i18n: &I18n,
 ) -> Option<FindAction> {
-    let mut enter = false;
-    enter |= text_row(ui, KEY_FILTER, &mut state.text.filter, i18n);
-    enter |= text_row(ui, KEY_SORT, &mut state.text.sort, i18n);
-    enter |= text_row(ui, KEY_PROJECTION, &mut state.text.projection, i18n);
-    enter |= number_row(ui, &mut state.text, i18n);
+    *state = state.more_settled();
+    let more = MoreToggle {
+        open: more_open(state),
+        hidden: hidden_count(&state.text),
+    };
+    let row = query_row(ui, &mut state.text.filter, (has_prev, has_next), more, i18n);
+    let more_enter = more.open && show_more_fields(ui, &mut state.text, i18n);
     if let Some(e) = &state.last_error {
         super::error_label::show_error(ui, e, i18n);
     }
-    let button = buttons(ui, has_prev, has_next, i18n);
-    let intent = pick_intent(button, enter)?;
+    if row.toggled {
+        *state = state.more_toggled();
+    }
+    let intent = pick_intent(row.button, row.enter || more_enter)?;
     let (next, action) = resolve_find_intent(state, intent, has_prev, has_next);
     *state = next;
     action
@@ -62,62 +74,127 @@ pub fn show_guard_setting(ui: &mut egui::Ui, guard: bool, i18n: &I18n) -> Option
     response.changed().then_some(FindAction::SetGuard(checked))
 }
 
-/// An outlined single-line box whose label floats on the border (and is its accessible name);
-/// true when Enter was pressed in it.
-fn text_row(ui: &mut egui::Ui, keys: (&str, &str), value: &mut String, i18n: &I18n) -> bool {
-    let response = outlined_field(ui, &i18n.t(keys.0), value, &i18n.t(keys.1));
-    pressed_enter(ui, &response)
+/// What the "More" toggle shows: whether the fields behind it are open and how many hold a
+/// value.
+#[derive(Clone, Copy)]
+struct MoreToggle {
+    open: bool,
+    hidden: usize,
 }
 
-fn pressed_enter(ui: &egui::Ui, response: &egui::Response) -> bool {
+/// What the person did on the Filter row this frame.
+struct RowOutcome {
+    enter: bool,
+    button: Option<FindIntent>,
+    toggled: bool,
+}
+
+/// The Filter, as wide as the row allows beside the buttons, then Find / Clear / Previous /
+/// Next and the "More" toggle; the row wraps on a narrow window. The buttons' width is measured
+/// each frame (a change re-runs the frame unseen), so the Filter's width needs no guessing.
+fn query_row(
+    ui: &mut egui::Ui,
+    filter: &mut String,
+    (has_prev, has_next): (bool, bool),
+    more: MoreToggle,
+    i18n: &I18n,
+) -> RowOutcome {
+    let memory = ui.id().with("findbar_trailing_width");
+    let trailing = ui.data(|d| d.get_temp::<f32>(memory));
+    // The Filter's label sticks out above its box; mirrored below, the box is centred in the
+    // row, and so are the buttons, which then line up with the box.
+    let overhang = ui.text_style_height(&egui::TextStyle::Small) / 2.0;
+    ui.horizontal_wrapped(|ui| {
+        let row_height = CONTROL_HEIGHT + 2.0 * overhang;
+        ui.set_row_height(row_height);
+        let width = filter_width(ui.available_width(), trailing.unwrap_or(TRAILING_GUESS));
+        let enter = ui
+            .vertical(|ui| {
+                ui.set_min_height(row_height);
+                sized_field(ui, width, KEY_FILTER, filter, i18n)
+            })
+            .inner;
+        let (button, buttons_width) = buttons(ui, has_prev, has_next, i18n);
+        let toggle = show_more_toggle(ui, more.open, more.hidden, i18n);
+        let measured = buttons_width + toggle.rect.width() + ui.spacing().item_spacing.x;
+        if trailing.is_none_or(|known| (known - measured).abs() > 0.5) {
+            ui.data_mut(|d| d.insert_temp(memory, measured));
+            ui.ctx().request_discard("find bar buttons measured");
+        }
+        RowOutcome {
+            enter,
+            button,
+            toggled: toggle.clicked(),
+        }
+    })
+    .inner
+}
+
+/// The Filter's width: what the buttons leave, or the whole row when that is too narrow.
+fn filter_width(available: f32, trailing: f32) -> f32 {
+    let beside = available - trailing - ROW_SLACK;
+    if beside >= FILTER_MIN_WIDTH {
+        beside
+    } else {
+        available
+    }
+}
+
+/// An outlined single-line box `width` wide whose label floats on the border (and is its
+/// accessible name); true when Enter was pressed in it.
+pub(super) fn sized_field(
+    ui: &mut egui::Ui,
+    width: f32,
+    (label, hint): (&str, &str),
+    value: &mut String,
+    i18n: &I18n,
+) -> bool {
+    let hint = match hint.is_empty() {
+        true => String::new(),
+        false => i18n.t(hint),
+    };
+    let response = ui
+        .allocate_ui(vec2(width, 0.0), |ui| {
+            outlined_field(ui, &i18n.t(label), value, &hint)
+        })
+        .inner;
     response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
-fn number_row(ui: &mut egui::Ui, text: &mut QueryText, i18n: &I18n) -> bool {
-    ui.horizontal_top(|ui| {
-        let mut enter = false;
-        for (key, value) in [
-            ("findbar.skip", &mut text.skip),
-            ("findbar.limit", &mut text.limit),
-        ] {
-            let response = ui
-                .allocate_ui(vec2(NUMBER_FIELD_WIDTH, 0.0), |ui| {
-                    outlined_field(ui, &i18n.t(key), value, "")
-                })
-                .inner;
-            enter |= pressed_enter(ui, &response);
+/// Find, Clear, Previous and Next in the current row; the intent clicked and the width they
+/// took with the gap before each.
+fn buttons(
+    ui: &mut egui::Ui,
+    has_prev: bool,
+    has_next: bool,
+    i18n: &I18n,
+) -> (Option<FindIntent>, f32) {
+    let gap = ui.spacing().item_spacing.x;
+    let mut intent = None;
+    let mut width = 0.0;
+    let run = filled_button(ui, i18n.t("findbar.run"));
+    let clear = tonal_button(ui, i18n.t("findbar.clear"));
+    let prev = gate(ui, has_prev, |ui| text_button(ui, i18n.t("findbar.prev")));
+    let next = gate(ui, has_next, |ui| text_button(ui, i18n.t("findbar.next")));
+    for (response, clicked) in [
+        (run, FindIntent::RunButton),
+        (clear, FindIntent::ClearButton),
+        (prev, FindIntent::PrevButton),
+        (next, FindIntent::NextButton),
+    ] {
+        width += response.rect.width() + gap;
+        if response.clicked() {
+            intent = Some(clicked);
         }
-        enter
-    })
-    .inner
-}
-
-fn buttons(ui: &mut egui::Ui, has_prev: bool, has_next: bool, i18n: &I18n) -> Option<FindIntent> {
-    ui.horizontal(|ui| {
-        let mut intent = None;
-        if filled_button(ui, i18n.t("findbar.run")).clicked() {
-            intent = Some(FindIntent::RunButton);
-        }
-        if tonal_button(ui, i18n.t("findbar.clear")).clicked() {
-            intent = Some(FindIntent::ClearButton);
-        }
-        let prev = gate(ui, has_prev, |ui| text_button(ui, i18n.t("findbar.prev")));
-        if prev.clicked() {
-            intent = Some(FindIntent::PrevButton);
-        }
-        let next = gate(ui, has_next, |ui| text_button(ui, i18n.t("findbar.next")));
-        if next.clicked() {
-            intent = Some(FindIntent::NextButton);
-        }
-        intent
-    })
-    .inner
+    }
+    (intent, width)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use curlybrace_core::error::CoreError;
+    use curlybrace_core::query::QueryText;
 
     fn run_frame(state: &mut FindBarState, prev: bool, next: bool) -> Option<FindAction> {
         let ctx = egui::Context::default();
@@ -141,9 +218,29 @@ mod tests {
                 ..Default::default()
             },
             last_error: Some(CoreError::InvalidJson("filter: x".into())),
+            more: Some(true),
         };
         let before = s.clone();
         assert_eq!(run_frame(&mut s, true, true), None);
         assert_eq!(s, before, "an idle frame must not change the state");
+    }
+
+    #[test]
+    fn more_opened_by_a_value_stays_open_when_the_last_value_is_deleted() {
+        let mut s = FindBarState {
+            text: QueryText {
+                limit: "10".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        run_frame(&mut s, false, false);
+        assert_eq!(s.more, Some(true), "shown open, so the opening sticks");
+        s.text.limit.clear();
+        run_frame(&mut s, false, false);
+        assert!(more_open(&s), "deleting the last value does not close it");
+        let mut empty = FindBarState::default();
+        run_frame(&mut empty, false, false);
+        assert_eq!(empty.more, None, "nothing shown open, nothing decided");
     }
 }

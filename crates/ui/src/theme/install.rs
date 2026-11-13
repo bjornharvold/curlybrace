@@ -6,6 +6,9 @@ use eframe::egui::{
     style::{Selection, WidgetVisuals},
 };
 
+/// Vertical gap between rows (horizontal gaps stay on the 8 pt grid).
+const ROW_GAP: f32 = 6.0;
+
 /// Interaction overlays from Material's state-layer spec.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StateLayer {
@@ -44,7 +47,7 @@ pub fn install(ctx: &Context) {
         ctx.set_visuals_of(theme, visuals_for(scheme(mode)));
         ctx.style_mut_of(theme, |style| {
             style.text_styles = typography::text_styles();
-            style.spacing.item_spacing = Vec2::splat(shape::SPACE_2);
+            style.spacing.item_spacing = Vec2::new(shape::SPACE_2, ROW_GAP);
             style.spacing.button_padding = Vec2::new(shape::SPACE_3, shape::SPACE_1);
         });
     }
