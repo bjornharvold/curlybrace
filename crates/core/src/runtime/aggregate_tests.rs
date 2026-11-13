@@ -1,6 +1,7 @@
 //! `AggregatePreview`: the documents arrive as an outcome inside `Event::AggregatePreviewed`; a
 //! failure, a refused write stage or a timeout is an `Err` outcome, never an `Event::Failed`
-//! (which would raise the error banner) and never a ping-settled `Unreachable`.
+//! (which would raise the error banner) and never a ping-settled `Unreachable`. Only a lost
+//! connection fails the command, as for every read, so the session learns of it.
 
 use std::time::Duration;
 
@@ -238,5 +239,104 @@ fn a_preview_is_bounded_just_above_the_server_time_limit() {
     assert_eq!(
         handlers::command_time_limit(&short, &command),
         Duration::from_millis(50)
+    );
+}
+
+/// A store whose preview fails at once with `error`; its ping answers when `ping_answers`.
+struct FailingAggregate {
+    error: CoreError,
+    ping_answers: bool,
+}
+
+#[async_trait::async_trait]
+impl DocumentStore for FailingAggregate {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn find(&self, _ns: &Namespace, _q: &Query) -> Result<crate::store::Page> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn ping(&self) -> Result<()> {
+        match self.ping_answers {
+            true => Ok(()),
+            false => Err(CoreError::Unreachable),
+        }
+    }
+    async fn aggregate_preview(
+        &self,
+        _ns: &Namespace,
+        _pipeline: Vec<Document>,
+        _max_time: Duration,
+    ) -> Result<Vec<Document>> {
+        Err(self.error.clone())
+    }
+}
+
+/// The event a preview against a store failing with `error` answers with.
+async fn preview_failing_with(error: CoreError, ping_answers: bool) -> (Event, SessionId) {
+    let store = FailingAggregate {
+        error,
+        ping_answers,
+    };
+    let (mut h, session) = connected_to(Arc::new(store), false, RuntimeConfig::default()).await;
+    h.tx.send(preview_command(session, match_stage())).unwrap();
+    (next(&mut h).await, session)
+}
+
+#[tokio::test]
+async fn a_lost_server_fails_the_preview_as_a_read_so_the_session_learns_of_it() {
+    for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
+        let (event, session) = preview_failing_with(error.clone(), false).await;
+        assert_eq!(
+            event,
+            Event::RequestFailed {
+                session,
+                context: "aggregate_preview",
+                request: 9,
+                error,
+            }
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_interrupted_preview_is_settled_by_a_ping() {
+    let interrupted = CoreError::ConnectionInterrupted("reset".into());
+    let (event, _) = preview_failing_with(interrupted.clone(), false).await;
+    assert!(
+        matches!(
+            &event,
+            Event::RequestFailed {
+                error: CoreError::Unreachable,
+                ..
+            }
+        ),
+        "{event:?}"
+    );
+    let (event, _) = preview_failing_with(interrupted, true).await;
+    assert!(
+        matches!(&event, Event::RequestFailed { error: CoreError::Database(t), .. } if t == "reset"),
+        "a server that answers the ping makes it an ordinary failure: {event:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_ordinary_store_error_stays_the_outcome_even_when_the_ping_fails() {
+    let (event, _) = preview_failing_with(CoreError::Database("bad".into()), false).await;
+    assert!(
+        matches!(&event, Event::AggregatePreviewed { outcome: Err(CoreError::Database(t)), .. } if t == "bad"),
+        "{event:?}"
     );
 }

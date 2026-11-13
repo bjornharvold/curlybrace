@@ -1,6 +1,7 @@
 //! Pure handlers for the Aggregate tab: the person's edits of the pipeline draft and the
 //! runtime's preview answers. A preview is a read: it is sent on read-only and production
-//! sessions alike, with no write confirmation, and its failures stay in the preview pane.
+//! sessions alike, with no write confirmation, and its failures stay in the preview pane; only a
+//! server found gone also fails the session, as any read's loss does.
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus};
 use crate::viewmodel::AggregateState;
@@ -166,12 +167,14 @@ pub(super) fn is_preview_event(ev: &Event) -> bool {
 /// A preview event (see [`is_preview_event`]) of its session, active or not: `with_session`
 /// makes the event's own session the active one while it applies, so an inactive session's
 /// parked draft is the one updated. A closed session (`with_session` ignores it) or one that is
-/// not connected any more drops the late answer.
+/// not connected any more drops the late answer. A preview that is still awaited and found the
+/// server gone then fails the session like any read (the connection-lost path).
 pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     let Some(session) = ev.session() else {
         return (state, Vec::new());
     };
-    state.with_session(session, |s| match (&s.status, ev) {
+    let lost = lost_server(&state, &ev);
+    let (state, commands) = state.with_session(session, |s| match (&s.status, ev) {
         (
             ConnStatus::Connected,
             Event::AggregatePreviewed {
@@ -182,7 +185,39 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
             request_failed(s, request, error)
         }
         _ => (s, Vec::new()),
-    })
+    });
+    let Some(error) = lost else {
+        return (state, commands);
+    };
+    let failed = Event::Failed {
+        session,
+        context: "aggregate_preview",
+        error,
+    };
+    let (state, more) = super::reducer::update(state, super::reducer::Input::Event(failed));
+    (state, commands.into_iter().chain(more).collect())
+}
+
+/// The error of a preview failure that says the server is gone (`Unreachable`, a failed TLS
+/// handshake), for the request its connected session still awaits; `None` for anything else. An
+/// older request's loss is a late echo: the newer one answers for the server.
+fn lost_server(state: &AppState, ev: &Event) -> Option<CoreError> {
+    let Event::RequestFailed {
+        session,
+        request,
+        error: error @ (CoreError::Unreachable | CoreError::TlsHandshake),
+        ..
+    } = ev
+    else {
+        return None;
+    };
+    let draft = match state.active == Some(*session) {
+        true => Some(&*state.aggregate),
+        false => state.parked.get(session).map(|v| &*v.aggregate),
+    };
+    let awaited = draft.is_some_and(|d| d.request == *request);
+    let connected = state.status_of(*session) == Some(ConnStatus::Connected);
+    (awaited && connected).then(|| error.clone())
 }
 
 /// The answer to preview `request`, applied to the active session's draft. A stale answer

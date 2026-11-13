@@ -997,6 +997,7 @@
     "write_outcome_unknown": "The connection was interrupted while saving. The change may or may not have been applied; check the data before saving again."
   },
   "failures": {
+    "aggregate_preview": "Could not preview the pipeline",
     "bulk_cancel": "Could not cancel the bulk write",
     "bulk_count": "Could not count the matching documents",
     "bulk_delete": "Could not delete the matching documents",

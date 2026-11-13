@@ -262,7 +262,9 @@ fn an_error_keeps_the_last_preview_and_raises_no_banner() {
 
 #[test]
 fn a_preview_that_could_not_run_fails_inline_never_as_a_banner() {
-    for error in [CoreError::ReadOnly, CoreError::Unreachable] {
+    // A read-only refusal, and an interruption a ping proved harmless. A server that is gone
+    // fails the session instead (see `aggregate_session_tests`).
+    for error in [CoreError::ReadOnly, CoreError::Database("reset".into())] {
         let (s, c) = act(with_two_stages(), A::Refresh);
         let (_, request, _) = the_preview(&c);
         let event = Event::RequestFailed {

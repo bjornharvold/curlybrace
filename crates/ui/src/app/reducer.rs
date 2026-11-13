@@ -120,7 +120,7 @@ pub(super) fn failure(state: AppState, context: &'static str, error: CoreError) 
 
 fn on_event(state: AppState, ev: Event) -> Out {
     // A preview answer or failure goes to its session's Aggregate draft, inline and never as a
-    // banner. Taken ahead of the match below and of `on_session_event`: both are near the
+    // banner (only a lost server then takes the connection-lost path). Taken ahead of the match below and of `on_session_event`: both are near the
     // debug-build stack limit, and one more arm there overflows it.
     if aggregate_actions::is_preview_event(&ev) {
         return aggregate_actions::on_event(state, ev);

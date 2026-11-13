@@ -122,3 +122,42 @@ fn a_reconnect_keeps_the_draft_of_the_failed_session() {
     assert_eq!(s.aggregate.selected, 1);
     assert_eq!(s.aggregate.preview, PreviewState::Idle);
 }
+
+fn preview_failed(id: Uuid, request: u64, error: CoreError) -> Event {
+    Event::RequestFailed {
+        session: id,
+        context: "aggregate_preview",
+        request,
+        error,
+    }
+}
+
+#[test]
+fn a_preview_that_finds_the_server_gone_fails_the_session_like_any_read() {
+    for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
+        let (s, id, request) = previewing();
+        let (s, _) = ev(s, preview_failed(id, request, error));
+        assert_eq!(s.status, ConnStatus::Failed);
+        assert_eq!(s.aggregate.stages.len(), 1, "the draft survives the reset");
+    }
+}
+
+#[test]
+fn an_ordinary_preview_failure_stays_inline() {
+    let (s, id, request) = previewing();
+    let (s, _) = ev(
+        s,
+        preview_failed(id, request, CoreError::Database("x".into())),
+    );
+    assert_eq!(s.status, ConnStatus::Connected);
+    assert!(s.banner.is_none());
+    assert!(matches!(s.aggregate.preview, PreviewState::Failed { .. }));
+}
+
+#[test]
+fn a_stale_preview_that_finds_the_server_gone_changes_nothing() {
+    let (s, id, request) = previewing();
+    let (s, _) = update(s, Input::Aggregate(A::AddStage("$sort".into())));
+    let (s, _) = ev(s, preview_failed(id, request, CoreError::Unreachable));
+    assert_eq!(s.status, ConnStatus::Connected, "the newer request answers");
+}

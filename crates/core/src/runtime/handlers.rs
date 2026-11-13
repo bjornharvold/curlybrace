@@ -315,6 +315,14 @@ async fn settle_by_ping(
     }
 }
 
+/// Whether `error` says the connection is gone or suspect rather than that the command failed.
+fn is_connection_error(error: &CoreError) -> bool {
+    matches!(
+        error,
+        CoreError::Unreachable | CoreError::TlsHandshake | CoreError::ConnectionInterrupted(_)
+    )
+}
+
 async fn data_command(
     session: SessionId,
     store: Arc<dyn DocumentStore>,
@@ -381,10 +389,15 @@ async fn data_command(
             pipeline,
             ..
         } => {
-            // Every failure, the store's write-stage refusal included, is the outcome: the
-            // preview pane shows it inline, never as a banner.
+            // Every failure of the pipeline, the store's write-stage refusal included, is the
+            // outcome: the preview pane shows it inline, never as a banner. A lost connection is
+            // not the pipeline's failure: it fails the command like any read's, so `run` settles
+            // an interruption by a ping and the UI learns the server is gone.
             let max_time = std::time::Duration::from_millis(crate::pipeline::PREVIEW_MAX_TIME_MS);
-            let outcome = store.aggregate_preview(&ns, pipeline, max_time).await;
+            let outcome = match store.aggregate_preview(&ns, pipeline, max_time).await {
+                Err(error) if is_connection_error(&error) => return Err(error),
+                other => other,
+            };
             Event::AggregatePreviewed {
                 session,
                 request,
