@@ -16,15 +16,20 @@ type Picks = (Option<Uuid>, Option<Uuid>);
 /// behind the view's back (the sidebar's "Compare to...") the old picks are dropped.
 type Draft = (Option<(Uuid, Uuid)>, Picks);
 
+/// One wrapping row: what `leading` draws (the page's heading and Back), the two connection
+/// pickers and Open / Close; the read-only note under it. Returns the first action of the
+/// leading part, the pickers' buttons otherwise.
 pub fn show_connect(
     ui: &mut egui::Ui,
     state: &CompareState,
     connections: &ConnectionsState,
     i18n: &I18n,
+    leading: impl FnOnce(&mut egui::Ui) -> Option<CompareAction>,
 ) -> Option<CompareAction> {
     if connections.connections.is_empty() {
+        let led = ui.horizontal_wrapped(leading).inner;
         ui.label(i18n.t("compare.session.no_connections"));
-        return None;
+        return led;
     }
     let id = ui.make_persistent_id("compare_connection_draft");
     let (_, mut picks) = ui
@@ -34,21 +39,43 @@ pub fn show_connect(
     // A compare can write to its target, so a read-only connection is never a target pick (a
     // stale or default pick of one is cleared); it stays listed, disabled, with the reason.
     picks.1 = picks.1.filter(|id| !is_read_only(connections, *id));
-    ui.horizontal_wrapped(|ui| {
-        ui.push_id("source", |ui| {
-            let key = "compare.session.source_connection";
-            connection_combo(ui, key, Side::Source, &mut picks.0, connections, i18n);
-        });
-        ui.push_id("target", |ui| {
-            let key = "compare.session.target_connection";
-            connection_combo(ui, key, Side::Target, &mut picks.1, connections, i18n);
-        });
-    });
+    let action = ui
+        .horizontal_wrapped(|ui| {
+            let led = leading(ui);
+            wrapped_group(ui, "source", |ui| {
+                let key = "compare.session.source_connection";
+                connection_combo(ui, key, Side::Source, &mut picks.0, connections, i18n);
+            });
+            wrapped_group(ui, "target", |ui| {
+                let key = "compare.session.target_connection";
+                connection_combo(ui, key, Side::Target, &mut picks.1, connections, i18n);
+            });
+            led.or(session_buttons(ui, state, picks, i18n))
+        })
+        .inner;
     if connections.connections.iter().any(|c| c.read_only) {
         ui.label(i18n.t(TARGET_READ_ONLY_KEY));
     }
     ui.data_mut(|d| d.insert_temp::<Draft>(id, (state.connections, picks)));
-    session_buttons(ui, state, picks, i18n)
+    action
+}
+
+/// Draws `add` (a picker and its caption, which egui lays out as one group it cannot wrap) under
+/// the id `salt`, starting a new line of the wrapping row first when the group's width from the
+/// last frame does not fit in the rest of this one. A changed width redoes the frame, so a group
+/// is never shown past the edge.
+fn wrapped_group(ui: &mut egui::Ui, salt: &str, add: impl FnOnce(&mut egui::Ui)) {
+    let key = ui.id().with((salt, "group_width"));
+    let last = ui.data(|d| d.get_temp::<f32>(key));
+    let line_started = ui.cursor().min.x > ui.max_rect().min.x + 0.5;
+    if line_started && last.is_some_and(|width| width > ui.available_size_before_wrap().x) {
+        ui.end_row();
+    }
+    let width = ui.push_id(salt, add).response.rect.width();
+    if last.is_none_or(|last| (last - width).abs() > 0.5) {
+        ui.data_mut(|d| d.insert_temp(key, width));
+        ui.ctx().request_discard("compare picker measured");
+    }
 }
 
 const TARGET_READ_ONLY_KEY: &str = "compare.session.target_read_only";
@@ -83,6 +110,7 @@ fn initial_picks(state: &CompareState, connections: &ConnectionsState) -> Picks 
     (fallback, fallback)
 }
 
+/// Open and Close, in the caller's row.
 fn session_buttons(
     ui: &mut egui::Ui,
     state: &CompareState,
@@ -90,23 +118,21 @@ fn session_buttons(
     i18n: &I18n,
 ) -> Option<CompareAction> {
     let mut action = None;
-    ui.horizontal(|ui| {
-        let open = gate(ui, state.can_open(picks), |ui| {
-            filled_button(ui, i18n.t("compare.session.open"))
-        });
-        if open.clicked() {
-            action = picks
-                .0
-                .zip(picks.1)
-                .map(|(source, target)| CompareAction::Open { source, target });
-        }
-        let close = gate(ui, state.can_close(), |ui| {
-            tonal_button(ui, i18n.t("compare.session.close"))
-        });
-        if close.clicked() {
-            action = Some(CompareAction::CloseSession);
-        }
+    let open = gate(ui, state.can_open(picks), |ui| {
+        filled_button(ui, i18n.t("compare.session.open"))
     });
+    if open.clicked() {
+        action = picks
+            .0
+            .zip(picks.1)
+            .map(|(source, target)| CompareAction::Open { source, target });
+    }
+    let close = gate(ui, state.can_close(), |ui| {
+        tonal_button(ui, i18n.t("compare.session.close"))
+    });
+    if close.clicked() {
+        action = Some(CompareAction::CloseSession);
+    }
     action
 }
 
