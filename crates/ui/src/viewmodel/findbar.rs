@@ -83,15 +83,15 @@ pub fn resolve_find_intent(
 #[allow(clippy::result_large_err)] // signature mandated: Err carries the full new state
 pub fn submit_find(state: &FindBarState) -> Result<Query, FindBarState> {
     parse_query(&state.text).map_err(|e| {
-        let failed = FindBarState {
-            last_error: Some(e),
-            ..state.clone()
-        };
-        let more = match error_concerns_more(&failed) {
+        let more = match error_concerns_more(&state.text) {
             true => Some(true),
-            false => failed.more,
+            false => state.more,
         };
-        FindBarState { more, ..failed }
+        FindBarState {
+            last_error: Some(e),
+            more,
+            ..state.clone()
+        }
     })
 }
 

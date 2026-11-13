@@ -1,6 +1,6 @@
 //! The query bar's "More" disclosure, which holds Sort, Projection, Skip and Limit under the
 //! always-visible Filter. Pure: whether it is open, how many of its fields hold a value, and
-//! whether the last error is about one of them.
+//! whether a parse error just produced is about one of them.
 use super::findbar::FindBarState;
 use curlybrace_core::query::{QueryText, parse_query};
 
@@ -12,13 +12,11 @@ pub fn hidden_count(text: &QueryText) -> usize {
         .count()
 }
 
-/// Whether the last error is about a field behind "More": there is one and the Filter alone
-/// parses, so the error can only come from Sort, Projection, Skip or Limit.
-pub fn error_concerns_more(state: &FindBarState) -> bool {
-    state.last_error.is_some() && filter_parses(&state.text)
-}
-
-fn filter_parses(text: &QueryText) -> bool {
+/// Whether a parse error of `text`, produced from this very text, is about a field behind
+/// "More": the Filter is parsed first, so when it parses alone the error can only come from Sort,
+/// Projection, Skip or Limit. Asked once, when the error is produced (see
+/// [`super::findbar::submit_find`]); a later edit must not reinterpret a stale error.
+pub(super) fn error_concerns_more(text: &QueryText) -> bool {
     let filter_only = QueryText {
         filter: text.filter.clone(),
         ..QueryText::default()
@@ -26,12 +24,10 @@ fn filter_parses(text: &QueryText) -> bool {
     parse_query(&filter_only).is_ok()
 }
 
-/// Whether the disclosure is open: the person's choice when they made one, else open while a
-/// field behind it holds a value or the last error is about one of them.
+/// Whether the disclosure is open: the choice made (by the person, or by a failed run about a
+/// field behind it), else open while a field behind it holds a value.
 pub fn more_open(state: &FindBarState) -> bool {
-    state
-        .more
-        .unwrap_or_else(|| hidden_count(&state.text) > 0 || error_concerns_more(state))
+    state.more.unwrap_or_else(|| hidden_count(&state.text) > 0)
 }
 
 impl FindBarState {
@@ -48,7 +44,6 @@ impl FindBarState {
 mod tests {
     use super::*;
     use crate::viewmodel::{FindIntent, resolve_find_intent};
-    use curlybrace_core::error::CoreError;
 
     fn with(text: QueryText) -> FindBarState {
         FindBarState {
@@ -98,17 +93,42 @@ mod tests {
 
     #[test]
     fn an_error_about_a_hidden_field_opens_it_but_a_filter_error_does_not() {
-        let mut sort_error = with(QueryText::default());
-        sort_error.last_error = Some(CoreError::InvalidJson("sort: x".into()));
-        assert!(error_concerns_more(&sort_error));
+        let run = |text| resolve_find_intent(&with(text), FindIntent::RunButton, false, false).0;
+        let sort_error = run(QueryText {
+            sort: "x".into(),
+            ..QueryText::default()
+        });
+        assert!(sort_error.last_error.is_some());
         assert!(more_open(&sort_error));
-        let mut filter_error = with(QueryText {
+        let filter_error = run(QueryText {
             filter: "{ oops".into(),
             ..QueryText::default()
         });
-        filter_error.last_error = Some(CoreError::InvalidJson("filter: x".into()));
-        assert!(!error_concerns_more(&filter_error));
+        assert!(filter_error.last_error.is_some());
+        assert_eq!(filter_error.more, None);
         assert!(!more_open(&filter_error));
+    }
+
+    #[test]
+    fn fixing_the_filter_after_its_error_leaves_more_as_it_was() {
+        let (failed, _) = resolve_find_intent(
+            &with(QueryText {
+                filter: "{ oops".into(),
+                ..QueryText::default()
+            }),
+            FindIntent::RunButton,
+            false,
+            false,
+        );
+        let fixed = FindBarState {
+            text: QueryText {
+                filter: "{}".into(),
+                ..failed.text.clone()
+            },
+            ..failed
+        };
+        assert!(fixed.last_error.is_some(), "the error stays until the next run");
+        assert!(!more_open(&fixed), "an edit of the Filter must not open More");
     }
 
     #[test]
