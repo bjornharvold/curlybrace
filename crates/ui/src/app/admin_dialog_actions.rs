@@ -229,6 +229,8 @@ fn deselected(state: AppState) -> AppState {
         tree: state.tree.results_replaced(),
         editor: None,
         indexes: IndexesState::default(),
+        // The draft stays; its preview belonged to the collection that is gone.
+        aggregate: Box::new(state.aggregate.on_collection_changed()),
         ..state
     }
 }

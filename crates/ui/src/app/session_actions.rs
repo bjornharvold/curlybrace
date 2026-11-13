@@ -20,12 +20,16 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
     }
     let epoch = state.epoch_counter + 1;
     let cancel = super::shell_actions::cancel_running(&state, id);
+    // A reconnect keeps the Aggregate draft, like the shell's: it is the person's work.
+    let (aggregate, aggregate_view) = state.aggregate_for_reopen(id);
     let view = SessionView {
         status: ConnStatus::Connecting,
         latest_requested_epoch: epoch,
         ssh_endpoint: HostEndpoint::of(&cfg),
         production: cfg.production,
         read_only: cfg.read_only,
+        aggregate,
+        aggregate_view,
         ..SessionView::default()
     };
     // A reconnect keeps a still-running bulk write's flow: its finish is still coming and the

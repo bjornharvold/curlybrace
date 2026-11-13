@@ -841,6 +841,8 @@ impl eframe::App for CurlybraceApp {
 }
 
 #[cfg(test)]
+mod aggregate_session_tests;
+#[cfg(test)]
 mod file_picker_tests;
 
 #[cfg(test)]

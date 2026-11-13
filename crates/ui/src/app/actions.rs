@@ -122,6 +122,8 @@ fn open(state: AppState, ns: Namespace) -> Out {
         verdict: Default::default(),
         guard: Default::default(),
         tree: state.tree.results_replaced(),
+        // The draft stays; its preview ran against the collection that was open before.
+        aggregate: Box::new(state.aggregate.on_collection_changed()),
         editor: None,
         ..state
     };

@@ -8,6 +8,7 @@ use super::state::AppState;
 use crate::I18n;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
+use crate::views::aggregate::show_aggregate;
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::documents::{
     DocTarget, show_connection_header_with, show_documents_pending, show_documents_switchable,
@@ -43,7 +44,7 @@ pub(super) fn show_collection(
             return;
         }
         CollectionTab::Aggregate => {
-            ui.label(i18n.t("aggregate.placeholder"));
+            show_aggregate_tab(ui, state, i18n, out);
             return;
         }
         CollectionTab::Documents => {}
@@ -145,6 +146,26 @@ fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
     if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
         ui.ctx().copy_text(text);
     }
+}
+
+/// The Aggregate tab of the active session: its draft, drawn with the tab's own view state (per
+/// connection, like the Indexes tab's egui memory).
+fn show_aggregate_tab(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    i18n: &I18n,
+    out: &mut Vec<UiEvent>,
+) {
+    let actions = ui
+        .push_id(("aggregate_tab", state.active), |ui| {
+            show_aggregate(ui, &state.aggregate, &mut state.aggregate_view, i18n)
+        })
+        .inner;
+    out.extend(
+        actions
+            .into_iter()
+            .map(|action| UiEvent::Input(Input::Aggregate(action))),
+    );
 }
 
 /// The Indexes tab; "copy as JSON" goes to the clipboard here (`IndexesAction::clipboard_text`),

@@ -43,8 +43,61 @@
     }
   },
   "aggregate": {
-    "placeholder": "Aggregate pipeline builder",
-    "tab": "Aggregate"
+    "add_stage": "Add stage",
+    "error": {
+      "empty": "The pipeline has no enabled stages to preview.",
+      "nested_write": "Stage {n}: {name} cannot be used inside a sub-pipeline of a preview.",
+      "not_a_stage": "Stage {n} must be an object with exactly one key that starts with $.",
+      "not_an_array": "The pipeline must be a JSON array of stage objects.",
+      "syntax": "line {line}, column {column}: {message}",
+      "write_not_last": "Stage {n}: {name} can only be the last stage."
+    },
+    "mode": {
+      "stages": "Stages",
+      "text": "Text"
+    },
+    "no_stages": "No stages yet. Add one from the Add stage menu.",
+    "preview": {
+      "capped": "Showing the first {limit} documents.",
+      "count_many": "{n} documents.",
+      "count_one": "1 document.",
+      "empty": "No documents come out of this stage.",
+      "heading": "Output of stage {n}",
+      "idle": "No preview yet. Refresh runs one.",
+      "kept": "Showing the last preview that ran.",
+      "loading": "Running the preview...",
+      "not_run_many": "{count} stages not run: {names}",
+      "not_run_one": "1 stage not run: {names}"
+    },
+    "refresh": "Refresh",
+    "stage": {
+      "disabled": "Disabled: the preview skips it.",
+      "editor_n": "Stage {n} JSON",
+      "enable_n": "Stage {n} enabled",
+      "invalid": "invalid",
+      "move_down": "Down",
+      "move_down_n": "Move stage {n} down",
+      "move_up": "Up",
+      "move_up_n": "Move stage {n} up",
+      "not_a_stage": "Not a stage: use an object with exactly one key that starts with $.",
+      "previewed": "Previewed",
+      "remove": "Remove",
+      "remove_n": "Remove stage {n}",
+      "select_n": "Preview the output of stage {n}",
+      "title": "{n}. {name}",
+      "valid": "Valid {name} stage."
+    },
+    "status": {
+      "failed": "Preview failed",
+      "idle": "Not run",
+      "loading": "Running",
+      "shown": "Up to date"
+    },
+    "tab": "Aggregate",
+    "text": {
+      "editor": "Pipeline JSON",
+      "hint": "Switching back to Stages checks the text and turns it into stage cards."
+    }
   },
   "app": {
     "title": "Curlybrace"

@@ -99,6 +99,14 @@ fn busy_view(n: i32) -> SessionView {
             .for_collection(Namespace::new("shared", format!("c{n}")))
             .selecting(format!("idx{n}")),
         aggregate: Box::new(draft(n)),
+        aggregate_view: Box::new(
+            AggregateView {
+                mode: ViewMode::Json,
+                auto_sent: Some(n as u64),
+                ..AggregateView::default()
+            }
+            .edited(0, format!("typed {n}"), 1.0),
+        ),
         editor: Some(editor(&format!("doc {n}"))),
         pending: Some(Pending {
             ns: Namespace::new("db", "c"),
@@ -145,6 +153,7 @@ fn snapshot(s: &AppState) -> (String, Vec<(Uuid, String)>) {
         tab: s.tab,
         indexes: s.indexes.clone(),
         aggregate: s.aggregate.clone(),
+        aggregate_view: s.aggregate_view.clone(),
         editor: s.editor.clone(),
         pending: s.pending.clone(),
         ssh_endpoint: s.ssh_endpoint.clone(),

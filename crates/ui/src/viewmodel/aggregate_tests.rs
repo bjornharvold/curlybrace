@@ -350,3 +350,43 @@ fn begin_preview_does_not_change_the_stages() {
     assert_eq!(next.stages, s.stages);
     assert_eq!(next.selected, s.selected);
 }
+
+#[test]
+fn a_collection_change_makes_a_preview_stale_and_idle() {
+    let (s, request) = loading();
+    let moved = s.on_collection_changed();
+    assert_eq!(moved.preview, PreviewState::Idle);
+    assert!(moved.request != request);
+    let late = moved.clone().arrived(request, Ok(vec![doc! { "a": 1 }]));
+    assert_eq!(late, moved, "the answer for the old collection is stale");
+    assert_eq!(
+        names(&late),
+        ["$match", "$sort", "$limit"],
+        "the draft stays"
+    );
+}
+
+#[test]
+fn a_collection_change_drops_a_shown_preview() {
+    let (s, request) = loading();
+    let shown = s.arrived(request, Ok(vec![doc! { "a": 1 }]));
+    assert!(matches!(shown.preview, PreviewState::Shown(_)));
+    assert_eq!(shown.on_collection_changed().preview, PreviewState::Idle);
+}
+
+#[test]
+fn an_automatic_refresh_is_wanted_once_per_request_for_an_idle_non_empty_draft() {
+    let idle = three();
+    assert!(idle.wants_auto_refresh(None));
+    assert!(!idle.wants_auto_refresh(Some(idle.request)));
+    assert!(idle.wants_auto_refresh(Some(idle.request.wrapping_sub(1))));
+    assert!(!AggregateState::default().wants_auto_refresh(None), "empty");
+    let (loading, _) = loading();
+    assert!(!loading.wants_auto_refresh(None), "in flight");
+    let (failed, sent) = AggregateState::default()
+        .add_stage("$match")
+        .edit(0, "{ \"$match\": ")
+        .begin_preview();
+    assert!(sent.is_none());
+    assert!(!failed.wants_auto_refresh(None), "failed stays until asked");
+}

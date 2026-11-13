@@ -291,6 +291,24 @@ impl AggregateState {
         }
     }
 
+    /// The pipeline now runs against another collection (or a new connection): an answer still
+    /// in flight is stale and a shown preview no longer applies, so the pane is idle again. The
+    /// draft itself stays.
+    pub fn on_collection_changed(self) -> Self {
+        Self {
+            preview: PreviewState::Idle,
+            ..self
+        }
+        .changed()
+    }
+
+    /// Whether the tab should ask for a preview on its own: the pane is idle with stages to run
+    /// and request `sent` (the last one asked for automatically) is not the current one, so an
+    /// ask that could not run (no connection) is not repeated every frame.
+    pub fn wants_auto_refresh(&self, sent: Option<u64>) -> bool {
+        self.preview == PreviewState::Idle && !self.stages.is_empty() && sent != Some(self.request)
+    }
+
     /// Starts a preview of the selected stage: the numbered request and the read-only pipeline
     /// to send, or `None` when the pipeline is refused (shown as `Failed`, nothing sent).
     pub fn begin_preview(self) -> (Self, Option<(u64, Vec<Document>)>) {
