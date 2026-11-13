@@ -28,7 +28,7 @@ pub use modal::modal_frame;
 pub use outlined_field::{FieldOptions, outlined_field, outlined_field_opts, outlined_field_with};
 pub use pill::{PILL_HEIGHT, pill, pill_row};
 pub use segmented::{segmented, segmented_hinted, segmented_hinted_compact, segmented_where};
-pub use tabs::tabs;
+pub use tabs::{tabs, tabs_inline};
 
 use super::fonts::{has_family, medium_family};
 use super::{StateLayer, state_layer};
