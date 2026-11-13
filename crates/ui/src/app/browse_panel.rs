@@ -9,7 +9,9 @@ use crate::I18n;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::collection_tabs::show_collection_tabs;
-use crate::views::documents::{DocTarget, show_connection_header_with, show_documents_switchable};
+use crate::views::documents::{
+    DocTarget, show_connection_header_with, show_documents_pending, show_documents_switchable,
+};
 use crate::views::findbar::{FindAction, show_automatic_verdict, show_findbar, show_guard_setting};
 use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
 use crate::views::indexes::show_indexes;
@@ -45,14 +47,20 @@ pub(super) fn show_collection(
     }
     show_switches_and_verdict(ui, state, i18n, out);
     show_guard(ui, state, i18n, out);
-    let bulk = state.bulk_entry();
+    let target = DocTarget {
+        connection: &connection,
+        production: badge.production,
+        read_only: badge.read_only,
+        bulk: state.bulk_entry(),
+    };
     let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
+        // The toolbar row stays in its place (and the view can still be switched) without a page.
         let empty = if state.loading_page {
             "browser.loading"
         } else {
             "browser.load_failed"
         };
-        ui.label(i18n.t(empty));
+        show_documents_pending(ui, &mut state.view_mode, &mut state.tree, target, empty, i18n);
         return;
     };
     state.tree.projected = state.page_is_projected();
@@ -63,12 +71,7 @@ pub(super) fn show_collection(
         page,
         key,
         &mut state.tree,
-        DocTarget {
-            connection: &connection,
-            production: badge.production,
-            read_only: badge.read_only,
-            bulk,
-        },
+        target,
         i18n,
     );
     if let Some(action) = action {

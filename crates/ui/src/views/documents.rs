@@ -86,6 +86,23 @@ pub fn show_documents_switchable(
     show_documents_in(ui, ModeChoice::Switch(mode), page, key, state, target, i18n)
 }
 
+/// The header of [`show_documents_switchable`] while there is no page (it is loading, or the
+/// load failed): the switcher works, the actions are there but disabled, and the `message_key`
+/// line stands where the documents go. The row is in its place before the page arrives, so
+/// nothing jumps when it does.
+pub fn show_documents_pending(
+    ui: &mut egui::Ui,
+    mode: &mut ViewMode,
+    state: &mut TreeState,
+    target: DocTarget<'_>,
+    message_key: &str,
+    i18n: &I18n,
+) {
+    // Nothing on the disabled actions can be clicked, so there is no action to report.
+    let _ = show_toolbar(ui, &mut ModeChoice::Switch(mode), state, target, false, i18n);
+    ui.label(i18n.t(message_key));
+}
+
 /// Whether the toolbar offers the view-mode switcher.
 enum ModeChoice<'a> {
     Fixed(ViewMode),
@@ -104,7 +121,7 @@ fn show_documents_in(
     let key = *key;
     state.synced_to(&key);
     state.read_only = target.read_only;
-    let action = show_toolbar(ui, &mut choice, state, target, i18n);
+    let action = show_toolbar(ui, &mut choice, state, target, true, i18n);
     let mode = match choice {
         ModeChoice::Fixed(mode) => mode,
         ModeChoice::Switch(mode) => *mode,
@@ -122,12 +139,14 @@ fn show_documents_in(
 /// "Update matching" and "Delete matching", then "Select all documents of the query", "Clear
 /// selection" and Copy. When a write action is off, the reason is a visible line under the row
 /// (and the buttons' hover text), so the state is never colour or hover alone. A read-only
-/// connection shows its reason once for all three.
+/// connection shows its reason once for all three. Without `actions` (no page) everything after
+/// the switcher is drawn disabled.
 fn show_toolbar(
     ui: &mut egui::Ui,
     choice: &mut ModeChoice<'_>,
     state: &mut TreeState,
     target: DocTarget<'_>,
+    actions: bool,
     i18n: &I18n,
 ) -> Option<DocAction> {
     let action = ui
@@ -136,6 +155,9 @@ fn show_toolbar(
             ui.set_min_height(CONTROL_HEIGHT);
             if let ModeChoice::Switch(mode) = choice {
                 **mode = show_mode_switcher(ui, **mode, i18n);
+            }
+            if !actions {
+                ui.disable();
             }
             let write = write_buttons(ui, target, i18n);
             let copy = show_selection_buttons(ui, state, i18n);

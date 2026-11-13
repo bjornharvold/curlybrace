@@ -6,6 +6,7 @@ mod support;
 
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::CurlybraceApp;
+use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::theme;
 use curlybrace_ui::viewmodel::{CollectionTab, ViewMode};
 use eframe::egui;
@@ -26,6 +27,11 @@ struct Page {
 }
 
 fn browse(mode: ViewMode) -> Page {
+    browse_with(mode, |_| ())
+}
+
+/// [`browse`] with `adjust` applied to the state after the page is installed.
+fn browse_with(mode: ViewMode, adjust: impl FnOnce(&mut AppState)) -> Page {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .build()
@@ -33,6 +39,7 @@ fn browse(mode: ViewMode) -> Page {
     let enter = rt.enter();
     let (mut app, dir) = build_app(vec![], None);
     browsing(mode)(app.state_mut());
+    adjust(app.state_mut());
     let mut installed = false;
     let mut harness = Harness::builder()
         .with_size(egui::vec2(SHOT_SIZE.0, SHOT_SIZE.1))
@@ -103,4 +110,35 @@ fn the_view_switcher_leads_the_documents_toolbar_row() {
         (table.center().y - insert.center().y).abs() < 2.0,
         "{table:?} and {insert:?} are not on one row"
     );
+}
+
+/// No page yet (loading) or none at all (the load failed).
+fn without_page(loading: bool) -> impl FnOnce(&mut AppState) {
+    move |state| {
+        state.page = None;
+        state.page_key = None;
+        state.loading_page = loading;
+    }
+}
+
+#[test]
+fn the_toolbar_row_holds_its_place_while_there_is_no_page() {
+    let with_page = browse(ViewMode::Table);
+    let table_at = with_page.harness.get_by_label(&t("view.table")).rect();
+    for (loading, message) in [(true, "browser.loading"), (false, "browser.load_failed")] {
+        let mut page = browse_with(ViewMode::Table, without_page(loading));
+        let harness = &page.harness;
+        let table = harness.get_by_label(&t("view.table")).rect();
+        let insert = harness.get_by_label(&t("doc.insert")).rect();
+        assert!((table.center().y - insert.center().y).abs() < 2.0, "one row");
+        assert!(
+            (table.top() - table_at.top()).abs() < 0.5,
+            "the row moved: {table:?} vs {table_at:?} (loading={loading})"
+        );
+        let label = harness.get_by_label(&t(message)).rect();
+        assert!(label.top() >= table.bottom(), "{message} comes under the row");
+        page.harness.get_by_label(&t("view.json")).click();
+        page.harness.run_steps(2);
+        assert_eq!(page.harness.state().state().view_mode, ViewMode::Json);
+    }
 }
