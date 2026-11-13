@@ -18,7 +18,7 @@ use crate::viewmodel::shell::ShellState;
 use crate::viewmodel::{IndexesAction, ProfilingView};
 use crate::views::bulk_dialog::show_bulk_dialog;
 use crate::views::compare::{show_compare, show_workspace_switcher};
-use crate::views::connections::{ConnectionAction, show_connections_with_tools};
+use crate::views::connections::{ConnectionAction, show_connections_led};
 use crate::views::editor::show_editor_with;
 use crate::views::index_builder::{BuilderContext, show_index_builder};
 use crate::views::index_dialogs::{
@@ -67,7 +67,11 @@ pub fn show_copies_button(
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
-    if state.snapshot_dir.is_some() && text_button(ui, i18n.t("copies.button")).clicked() {
+    copies_button(ui, state.snapshot_dir.is_some(), i18n, out);
+}
+
+fn copies_button(ui: &mut egui::Ui, undo_on: bool, i18n: &I18n, out: &mut Vec<UiEvent>) {
+    if undo_on && text_button(ui, i18n.t("copies.button")).clicked() {
         out.push(UiEvent::Input(Input::Copies(CopiesAction::Open)));
     }
 }
@@ -166,14 +170,17 @@ pub fn show_connections_screen(
         .iter()
         .any(|root| root.status == ConnStatus::Connecting);
     egui::CentralPanel::default().show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            show_settings_button(ui, i18n, out);
-            show_copies_button(ui, state, i18n, out);
+        // The heading's row holds Settings, Copies and the "connecting" status.
+        let undo_on = state.snapshot_dir.is_some();
+        let mut buttons = Vec::new();
+        let actions = show_connections_led(ui, &mut state.conn, &state.tools, i18n, |ui| {
+            show_settings_button(ui, i18n, &mut buttons);
+            copies_button(ui, undo_on, i18n, &mut buttons);
+            if opening {
+                ui.label(i18n.t("connections.connecting"));
+            }
         });
-        if opening {
-            ui.label(i18n.t("connections.connecting"));
-        }
-        let actions = show_connections_with_tools(ui, &mut state.conn, &state.tools, i18n);
+        out.extend(buttons);
         out.extend(actions.into_iter().map(UiEvent::Connection));
     });
 }
