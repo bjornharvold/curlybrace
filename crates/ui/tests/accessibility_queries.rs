@@ -559,23 +559,30 @@ fn the_chart_has_a_text_alternative() {
     assert_shows(&empty, &[t("indexes.queries.chart_empty")]);
 }
 
-/// The height of the status row: from the top of its first widget (the profiler text) to the top
-/// of the range selector that follows it. A row drawn only in some states (or without its
-/// reserved height) changes this number, so comparing it across states catches the layout jump:
-/// without the reserved height the button-less states (Unknown, Loading, unavailable) are
-/// shorter than the ones with a button.
+/// The height of the status row and the chart under it: from the bottom of the range selector
+/// (the toolbar row above the status) to the top of the chart's text summary (the chart has a
+/// fixed height). A row drawn only in some states (or without its reserved height) changes this
+/// number, so comparing it across states catches the layout jump: without the reserved height
+/// the button-less states (Unknown, Loading, unavailable) are shorter than the ones with a
+/// button. The states here record no shapes, so the summary is the empty-chart line.
 fn status_height(state: QueriesState, read_only: bool) -> f32 {
     let harness = open(state, read_only);
-    let range = t("indexes.range_day");
-    let below = harness.get_by_label(&range).rect().top();
-    let first = harness
-        .root()
-        .children_recursive()
-        .filter(|n| named(n))
-        .filter(|n| n.rect().top() < below && n.rect().width() > 0.0)
-        .map(|n| n.rect().top())
-        .fold(f32::MAX, f32::min);
-    below - first
+    let (above, below) = status_band(&harness);
+    below - above
+}
+
+/// The band the status row (and the chart) occupy: from the range selector's bottom to the top
+/// of the empty-chart line.
+fn status_band(harness: &Harness<'static, Frame>) -> (f32, f32) {
+    let above = harness
+        .get_by_label(&t("indexes.range_day"))
+        .rect()
+        .bottom();
+    let below = harness
+        .get_by_label(&t("indexes.queries.chart_empty"))
+        .rect()
+        .top();
+    (above, below)
 }
 
 /// Whether the node carries text (a label's text is its value in the tree).
@@ -657,10 +664,11 @@ fn at_a_narrow_width_nothing_of_the_status_row_is_beyond_the_edge() {
                 },
             );
         harness.run_steps(4);
-        let below = harness.get_by_label(&t("indexes.range_day")).rect().top();
+        let (above, below) = status_band(&harness);
         for node in harness.root().children_recursive() {
             let rect = node.rect();
-            if named(&node) && rect.top() < below && rect.width() > 0.0 {
+            let in_band = rect.top() >= above && rect.top() < below;
+            if named(&node) && in_band && rect.width() > 0.0 {
                 assert!(
                     rect.right() <= WIDTH,
                     "{:?} {rect:?}",

@@ -1,5 +1,5 @@
-//! The Queries view of the Indexes tab: a one-line status row, the range and refresh, the miss
-//! trend and the recorded shapes. Draws state and reports what the person did; the reducer
+//! The Queries view of the Indexes tab: the range and refresh (after whatever the caller leads
+//! that row with), a one-line status row, the miss trend and the recorded shapes. Draws state and reports what the person did; the reducer
 //! decides what happens. The status row has a fixed height, so nothing below it moves when the
 //! profiler or the poller changes state.
 use super::queries_chart::show_miss_chart;
@@ -28,8 +28,23 @@ pub fn show_queries(
     i18n: &I18n,
     now_secs: i64,
 ) -> Option<QueriesAction> {
-    let mut action = show_status(ui, &status_row(state, read_only), i18n);
-    action = toolbar(ui, state, i18n).or(action);
+    show_queries_led(ui, state, ns, read_only, i18n, now_secs, |_| ()).0
+}
+
+/// [`show_queries`] with `leading` drawn at the start of the range and refresh row (the Indexes
+/// tab puts its Indexes | Queries toggle there); returns what `leading` returned too.
+pub fn show_queries_led<R>(
+    ui: &mut egui::Ui,
+    state: &QueriesState,
+    ns: &Namespace,
+    read_only: bool,
+    i18n: &I18n,
+    now_secs: i64,
+    leading: impl FnOnce(&mut egui::Ui) -> R,
+) -> (Option<QueriesAction>, R) {
+    let (toolbar_action, led) = toolbar(ui, state, i18n, leading);
+    let status = show_status(ui, &status_row(state, read_only), i18n);
+    let action = toolbar_action.or(status);
     // The chart ends at a bucket boundary, so it holds still between frames.
     let end = anchored_now(state.range, now_secs);
     show_miss_chart(ui, &state.shapes, state.range, end, i18n);
@@ -63,7 +78,7 @@ pub fn show_queries(
             ui.label(i18n.t(empty_key(other)));
         }
     }
-    action
+    (action, led)
 }
 
 fn empty_key(body: Body) -> &'static str {
@@ -129,17 +144,26 @@ fn button(
     (response.clicked() && row.enabled).then_some(action)
 }
 
-/// The range switch and refresh.
-fn toolbar(ui: &mut egui::Ui, state: &QueriesState, i18n: &I18n) -> Option<QueriesAction> {
+/// `leading`, the range switch and refresh on one wrapping row.
+fn toolbar<R>(
+    ui: &mut egui::Ui,
+    state: &QueriesState,
+    i18n: &I18n,
+    leading: impl FnOnce(&mut egui::Ui) -> R,
+) -> (Option<QueriesAction>, R) {
     let mut action = None;
-    ui.horizontal(|ui| {
-        let ranges = RANGES.map(|range| (range, i18n.t(range_key(range))));
-        if let Some(range) = segmented(ui, &ranges, state.range) {
-            action = Some(QueriesAction::SetRange(range));
-        }
-        if tonal_button(ui, i18n.t("indexes.refresh")).clicked() {
-            action = Some(QueriesAction::Refresh);
-        }
-    });
-    action
+    let led = ui
+        .horizontal_wrapped(|ui| {
+            let led = leading(ui);
+            let ranges = RANGES.map(|range| (range, i18n.t(range_key(range))));
+            if let Some(range) = segmented(ui, &ranges, state.range) {
+                action = Some(QueriesAction::SetRange(range));
+            }
+            if tonal_button(ui, i18n.t("indexes.refresh")).clicked() {
+                action = Some(QueriesAction::Refresh);
+            }
+            led
+        })
+        .inner;
+    (action, led)
 }

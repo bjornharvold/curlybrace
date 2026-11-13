@@ -140,7 +140,6 @@ fn show_indexes_tab(
     out: &mut Vec<UiEvent>,
     now_secs: i64,
 ) {
-    ui.separator();
     let shown = show_indexes(
         ui,
         &state.indexes,
