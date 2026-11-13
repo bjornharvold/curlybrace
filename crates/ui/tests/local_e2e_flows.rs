@@ -98,6 +98,8 @@ fn find_bar_filter_sort_projection_and_bad_input() {
     assert_names_on_screen(&f, &["Ada Lovelace", "Grace Hopper"]);
     assert_eq!(f.db.count(PEOPLE), 3, "a find never changes the data");
 
+    // Sort and Projection are behind "More".
+    click_key(&mut f, "findbar.more");
     fill(&mut f, &sort, r#"{"seats": -1}"#);
     click_key(&mut f, "findbar.run");
     wait_until(&mut f.harness, "Grace sorted first", SHORT, |h| {
@@ -271,6 +273,7 @@ fn a_projected_page_offers_delete_but_not_edit_or_clone() {
         "a full page offers everything"
     );
 
+    click_key(&mut f, "findbar.more");
     fill(&mut f, &projection, r#"{"name": 1}"#);
     click_key(&mut f, "findbar.run");
     wait_gone(&mut f, "pro");

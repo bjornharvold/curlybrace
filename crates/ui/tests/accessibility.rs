@@ -61,6 +61,9 @@ fn find_bar_boxes_are_found_by_their_caption_and_keep_typed_text() {
     harness.get_by_label(&filter).type_text("{ \"a\": 1 }");
     harness.run();
     assert_eq!(harness.state().text.filter, "{ \"a\": 1 }");
+    // Sort, Projection, Skip and Limit are behind "More".
+    harness.get_by_label(&i18n.t("findbar.more")).click();
+    harness.run();
     for key in [
         "findbar.sort",
         "findbar.projection",
