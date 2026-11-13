@@ -177,7 +177,9 @@ mod query_bar {
     #[test]
     fn every_query_field_is_an_editable_text_field_with_its_label() {
         let mut harness = open(false);
-        harness.get_by_role_and_label(Role::Button, "More options").click();
+        harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .click();
         harness.run_steps(4);
         for label in ["Filter", "Sort", "Projection", "Skip", "Limit"] {
             let field = harness.get_by_role_and_label(Role::TextInput, label);
@@ -254,13 +256,17 @@ mod query_bar {
             assert!(!shown(&harness, label), "{label} shown while closed");
         }
         assert_eq!(expanded(&harness, "More options"), Some(false));
-        harness.get_by_role_and_label(Role::Button, "More options").click();
+        harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .click();
         harness.run_steps(4);
         for label in HIDDEN {
             assert!(shown(&harness, label), "{label} missing once opened");
         }
         assert_eq!(expanded(&harness, "More options"), Some(true));
-        harness.get_by_role_and_label(Role::Button, "More options").click();
+        harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .click();
         harness.run_steps(4);
         assert!(HIDDEN.iter().all(|label| !shown(&harness, label)));
     }
@@ -271,13 +277,20 @@ mod query_bar {
         state.text.sort = "{\"a\": 1}".into();
         let mut harness = open_with(state, false);
         for label in HIDDEN {
-            assert!(shown(&harness, label), "{label} hidden although Sort is set");
+            assert!(
+                shown(&harness, label),
+                "{label} hidden although Sort is set"
+            );
         }
         assert_eq!(
-            harness.get_by_role_and_label(Role::TextInput, "Sort").value(),
+            harness
+                .get_by_role_and_label(Role::TextInput, "Sort")
+                .value(),
             Some("{\"a\": 1}".to_string())
         );
-        harness.get_by_role_and_label(Role::Button, "More options").click();
+        harness
+            .get_by_role_and_label(Role::Button, "More options")
+            .click();
         harness.run_steps(4);
         assert!(!shown(&harness, "Sort"));
         assert_eq!(expanded(&harness, "More options (1 set)"), Some(false));
@@ -312,8 +325,14 @@ mod query_bar {
             .get_by_role_and_label(Role::Button, "More options")
             .rect();
         assert!(find.left() > filter.right(), "Find is beside the Filter");
-        assert!(find.center().y > filter.top() && find.center().y < filter.bottom() + 8.0);
+        assert!(
+            (find.center().y - filter.center().y).abs() < 1.0,
+            "Find {find:?} is centred on the Filter's box {filter:?}"
+        );
         assert!((more.center().y - find.center().y).abs() < 1.0, "same row");
-        assert!(filter.width() > 300.0, "the Filter takes the rest: {filter:?}");
+        assert!(
+            filter.width() > 300.0,
+            "the Filter takes the rest: {filter:?}"
+        );
     }
 }

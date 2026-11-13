@@ -1,4 +1,4 @@
-//! Picking documents to copy: a checkbox per document and the bar above the views with
+//! Picking documents to copy: a checkbox per document and, on the documents toolbar,
 //! "select all documents of the query", "clear" and Copy. Every control is a plain button or
 //! checkbox, so the whole flow works from the keyboard.
 use crate::I18n;
@@ -77,26 +77,23 @@ pub fn pick_id(doc: &bson::Document) -> Option<&Bson> {
     curlybrace_core::crud::id_of(doc).ok()
 }
 
-/// The bar above the document views; returns the Copy action when Copy was clicked.
-pub fn show_selection_bar(
+/// "Select all documents of the query", "Clear selection" and Copy, drawn into the current row
+/// (the documents toolbar, which wraps); returns the Copy action when Copy was clicked.
+pub fn show_selection_buttons(
     ui: &mut egui::Ui,
     state: &mut TreeState,
     i18n: &I18n,
 ) -> Option<DocAction> {
-    let mut action = None;
-    ui.horizontal(|ui| {
-        if text_button(ui, i18n.t("doc.select_all_result")).clicked() {
-            state.pick = std::mem::take(&mut state.pick).all_selected();
-        }
-        let clear = gate(ui, !state.pick.is_empty(), |ui| {
-            text_button(ui, i18n.t("doc.clear_selection"))
-        });
-        if clear.clicked() {
-            state.pick = Default::default();
-        }
-        action = copy_button(ui, state, i18n);
+    if text_button(ui, i18n.t("doc.select_all_result")).clicked() {
+        state.pick = std::mem::take(&mut state.pick).all_selected();
+    }
+    let clear = gate(ui, !state.pick.is_empty(), |ui| {
+        text_button(ui, i18n.t("doc.clear_selection"))
     });
-    action
+    if clear.clicked() {
+        state.pick = Default::default();
+    }
+    copy_button(ui, state, i18n)
 }
 
 fn copy_button(ui: &mut egui::Ui, state: &TreeState, i18n: &I18n) -> Option<DocAction> {

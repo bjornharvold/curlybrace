@@ -3,7 +3,9 @@
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
 use super::findbar_more::{show_more_fields, show_more_toggle};
 use crate::I18n;
-use crate::theme::{filled_button, gate, outlined_field, text_button, tonal_button};
+use crate::theme::{
+    CONTROL_HEIGHT, filled_button, gate, outlined_field, text_button, tonal_button,
+};
 use crate::viewmodel::findbar_more::{hidden_count, more_open};
 use crate::viewmodel::{FindBarState, FindIntent, pick_intent, resolve_find_intent};
 use eframe::egui::{self, vec2};
@@ -98,9 +100,19 @@ fn query_row(
 ) -> RowOutcome {
     let memory = ui.id().with("findbar_trailing_width");
     let trailing = ui.data(|d| d.get_temp::<f32>(memory));
+    // The Filter's label sticks out above its box; mirrored below, the box is centred in the
+    // row, and so are the buttons, which then line up with the box.
+    let overhang = ui.text_style_height(&egui::TextStyle::Small) / 2.0;
     ui.horizontal_wrapped(|ui| {
+        let row_height = CONTROL_HEIGHT + 2.0 * overhang;
+        ui.set_row_height(row_height);
         let width = filter_width(ui.available_width(), trailing.unwrap_or(TRAILING_GUESS));
-        let enter = sized_field(ui, width, KEY_FILTER, filter, i18n);
+        let enter = ui
+            .vertical(|ui| {
+                ui.set_min_height(row_height);
+                sized_field(ui, width, KEY_FILTER, filter, i18n)
+            })
+            .inner;
         let (button, buttons_width) = buttons(ui, has_prev, has_next, i18n);
         let toggle = show_more_toggle(ui, more.open, more.hidden, i18n);
         let measured = buttons_width + toggle.rect.width() + ui.spacing().item_spacing.x;

@@ -40,6 +40,7 @@ mod admin_dialog_actions;
 mod explain_settings;
 mod guard_actions;
 pub use guard_actions::GuardState;
+mod browse_panel;
 pub mod file_picker;
 pub mod host_key;
 mod index_actions;

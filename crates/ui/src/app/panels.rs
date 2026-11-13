@@ -15,29 +15,20 @@ use crate::theme::{
     current, filled_button, icons, modal_frame, shape, text_button, tonal_button, typography,
 };
 use crate::viewmodel::shell::ShellState;
-use crate::viewmodel::verdict::badge;
-use crate::viewmodel::{CollectionTab, IndexesAction, ProfilingView, copy_blocked};
+use crate::viewmodel::{IndexesAction, ProfilingView};
 use crate::views::bulk_dialog::show_bulk_dialog;
-use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::compare::{show_compare, show_workspace_switcher};
 use crate::views::connections::{ConnectionAction, show_connections_with_tools};
-use crate::views::documents::{
-    DocTarget, show_connection_header, show_documents_keyed, show_mode_switcher,
-};
 use crate::views::editor::show_editor_with;
-use crate::views::findbar::{FindAction, show_automatic_verdict, show_findbar, show_guard_setting};
-use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
 use crate::views::index_builder::{BuilderContext, show_index_builder};
 use crate::views::index_dialogs::{
     DialogContext, show_drop_confirm, show_drop_old, show_ttl_prompt,
 };
-use crate::views::indexes::show_indexes;
 use crate::views::queries_consent::show_profiler_consent;
 use crate::views::saved_copies::show_saved_copies;
 use crate::views::shell::{ShellViewContext, ShellViewEvent, show_shell};
 use crate::views::sidebar_roots::{SIDEBAR_DEFAULT_WIDTH, show_roots};
 use crate::views::tools_settings::show_tools_settings;
-use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
 use crate::views::write_warning::show_write_warning;
 use curlybrace_core::tunnel::HostKeyDecision;
 use eframe::egui;
@@ -228,7 +219,7 @@ pub fn show_workspace(
 ) {
     egui::CentralPanel::default().show(ctx, |ui| match state.workspace {
         Workspace::Browse | Workspace::Connections => {
-            show_collection(ui, state, i18n, out, now_secs)
+            super::browse_panel::show_collection(ui, state, i18n, out, now_secs)
         }
         Workspace::Compare => {
             if let Some(action) = show_compare(ui, &state.compare, &state.conn, i18n) {
@@ -273,136 +264,6 @@ fn show_shell_tab(
             ShellViewEvent::OpenToolPaths => UiEvent::OpenToolSettings,
         });
     out.extend(events);
-}
-
-fn show_collection(
-    ui: &mut egui::Ui,
-    state: &mut AppState,
-    i18n: &I18n,
-    out: &mut Vec<UiEvent>,
-    now_secs: i64,
-) {
-    if state.selected_ns().is_none() {
-        ui.label(i18n.t("browser.select_collection"));
-        return;
-    }
-    let connection = state.active_connection_label(i18n);
-    let badge = state.active_badge();
-    show_connection_header(ui, &connection, &badge, i18n);
-    if let Some(tab) = show_collection_tabs(ui, state.tab, i18n) {
-        out.push(UiEvent::Input(Input::Tab(tab)));
-    }
-    if state.tab == CollectionTab::Indexes {
-        show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
-        return;
-    }
-    let (has_prev, has_next) = state.paging();
-    if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
-        out.push(UiEvent::Input(Input::Find(action)));
-    }
-    // Both global switches share one row so the layout below keeps a single checkbox's height.
-    let actions = ui
-        .horizontal_wrapped(|ui| {
-            [
-                show_automatic_verdict(ui, state.explain_enabled(), i18n),
-                show_guard_setting(ui, state.guard_enabled(), i18n),
-            ]
-        })
-        .inner;
-    out.extend(
-        actions
-            .into_iter()
-            .flatten()
-            .map(|action| UiEvent::Input(Input::Find(action))),
-    );
-    show_guard(ui, state, i18n, out);
-    show_verdict(ui, state, i18n);
-    state.view_mode = show_mode_switcher(ui, state.view_mode, i18n);
-    ui.separator();
-    let bulk = state.bulk_entry();
-    let (Some(page), Some(key)) = (&state.page, &state.page_key) else {
-        let empty = if state.loading_page {
-            "browser.loading"
-        } else {
-            "browser.load_failed"
-        };
-        ui.label(i18n.t(empty));
-        return;
-    };
-    state.tree.projected = state.page_is_projected();
-    state.tree.copy_blocked = state.selected_ns().is_some_and(copy_blocked);
-    let action = show_documents_keyed(
-        ui,
-        state.view_mode,
-        page,
-        key,
-        &mut state.tree,
-        DocTarget {
-            connection: &connection,
-            production: badge.production,
-            read_only: badge.read_only,
-            bulk,
-        },
-        i18n,
-    );
-    if let Some(action) = action {
-        out.push(UiEvent::Input(Input::Doc(action)));
-    }
-}
-
-/// The index-miss guard's notice under the find bar (nothing unless a Run is being checked or
-/// held back); Run anyway and Cancel go to the reducer, the copy button to the clipboard here.
-fn show_guard(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<UiEvent>) {
-    let find = match show_guard_notice(ui, &state.guard, i18n) {
-        Some(GuardNoticeAction::RunAnyway) => Some(FindAction::GuardRunAnyway),
-        Some(GuardNoticeAction::Cancel) => Some(FindAction::GuardCancel),
-        Some(GuardNoticeAction::Copy(text)) => {
-            ui.ctx().copy_text(text);
-            None
-        }
-        None => None,
-    };
-    out.extend(find.map(|action| UiEvent::Input(Input::Find(action))));
-}
-
-/// The index verdict of the current run in a fixed-height row above the documents (reserved
-/// whenever explain is on, so nothing shifts); its copy button goes to the clipboard here.
-fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
-    if !state.explain_enabled() {
-        return;
-    }
-    let model = badge(&super::explain_actions::shown(state), state.selected_ns());
-    if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
-        ui.ctx().copy_text(text);
-    }
-}
-
-/// The Indexes tab; "copy as JSON" goes to the clipboard here (`IndexesAction::clipboard_text`),
-/// the reducer needs no record of it.
-fn show_indexes_tab(
-    ui: &mut egui::Ui,
-    state: &AppState,
-    read_only: bool,
-    i18n: &I18n,
-    out: &mut Vec<UiEvent>,
-    now_secs: i64,
-) {
-    ui.separator();
-    let shown = show_indexes(
-        ui,
-        &state.indexes,
-        read_only,
-        i18n,
-        now_secs,
-        &state.sampling,
-    );
-    let Some(action) = shown else {
-        return;
-    };
-    if let Some(text) = action.clipboard_text() {
-        ui.ctx().copy_text(text.to_string());
-    }
-    out.push(UiEvent::Input(Input::Indexes(action)));
 }
 
 pub fn show_modals(
