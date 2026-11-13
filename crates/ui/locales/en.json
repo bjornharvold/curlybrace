@@ -96,6 +96,7 @@
     },
     "tab": "Aggregate",
     "text": {
+      "disabled_lost": "Disabled stages are not kept in text mode: switching back turns them on.",
       "editor": "Pipeline JSON",
       "hint": "Switching back to Stages checks the text and turns it into stage cards."
     }

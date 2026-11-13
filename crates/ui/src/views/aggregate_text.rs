@@ -1,5 +1,6 @@
 //! Text mode of the Aggregate tab: the whole pipeline as one JSON array in a monospace editor,
-//! with the reason it cannot go back to stage cards (line and column for a syntax error) under it.
+//! with the reason it cannot go back to stage cards (line and column for a syntax error) under it,
+//! and a warning while a stage is turned off (edited text comes back with every stage on).
 use super::aggregate::{NO_DRAG_SCROLL, pipeline_error_text};
 use crate::I18n;
 use crate::app::AggregateAction;
@@ -52,6 +53,12 @@ pub(super) fn show_text(
         None => {
             ui.weak(i18n.t("aggregate.text.hint"));
         }
+    }
+    if draft.has_disabled() {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            i18n.t("aggregate.text.disabled_lost"),
+        );
     }
     changed
         .then_some(AggregateAction::EditText(buffer))

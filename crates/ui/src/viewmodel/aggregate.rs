@@ -269,9 +269,18 @@ impl AggregateState {
         }
     }
 
-    /// Leaves text mode with the parsed stages, selecting the last; invalid text keeps
-    /// everything as it was and records why.
+    /// Leaves text mode. Text still as `to_text` wrote it goes back to the same stages, their
+    /// enabled flags and the selection kept, and changes nothing. Edited text becomes the parsed
+    /// stages (all enabled: the text has no place for the flag), selecting the last; invalid
+    /// text keeps everything as it was and records why.
     pub fn from_text(self) -> Self {
+        if self.text == pipeline_text(&self.stages) {
+            return Self {
+                mode: Mode::Stages,
+                text_error: None,
+                ..self
+            };
+        }
         match parse_pipeline_text(&self.text) {
             Ok(stages) => {
                 let selected = Self::clamp(usize::MAX, stages.len());
@@ -289,6 +298,11 @@ impl AggregateState {
                 ..self
             },
         }
+    }
+
+    /// Whether a stage is turned off (text mode cannot keep that).
+    pub fn has_disabled(&self) -> bool {
+        self.stages.iter().any(|s| !s.enabled)
     }
 
     /// The pipeline now runs against another collection (or a new connection): an answer still

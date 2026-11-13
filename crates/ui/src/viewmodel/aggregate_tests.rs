@@ -176,6 +176,28 @@ fn text_round_trips_through_text_mode() {
 }
 
 #[test]
+fn unchanged_text_returns_to_the_same_stages_disabled_ones_included() {
+    let s = three().edit(0, r#"{"$match":{"a":1}}"#).toggle(1).select(0);
+    let back = s.clone().to_text().from_text();
+    assert_eq!(back.mode, Mode::Stages);
+    assert_eq!(back.stages, s.stages, "texts and enabled flags kept");
+    assert_eq!(back.selected, 0, "the selection is kept");
+    assert_eq!(
+        back.request, s.request,
+        "nothing changed, nothing to preview"
+    );
+}
+
+#[test]
+fn edited_text_turns_every_stage_on() {
+    let t = three().toggle(1).to_text();
+    let text = t.text.replace("10", "5");
+    let back = t.with_text(&text).from_text();
+    assert!(back.stages.iter().all(|st| st.enabled));
+    assert_eq!(back.selected, 2);
+}
+
+#[test]
 fn edited_text_replaces_the_stages() {
     let s = three().to_text().with_text(r#"[{"$skip": 1}]"#).from_text();
     assert_eq!(names(&s), ["$skip"]);

@@ -67,9 +67,10 @@ fn changed(state: AppState, next: AggregateState) -> Out {
     }
 }
 
-/// Text mode starts from the stages; leaving it previews the parsed stages, while invalid text
-/// stays in text mode with its error and sends nothing. Asking for the mode already shown keeps
-/// the draft as it is (the text buffer is not overwritten, the stages are not re-parsed).
+/// Text mode starts from the stages; leaving it with edited text previews the parsed stages,
+/// leaving it unchanged keeps the stages and sends nothing, and invalid text stays in text mode
+/// with its error and sends nothing. Asking for the mode already shown keeps the draft as it is
+/// (the text buffer is not overwritten, the stages are not re-parsed).
 fn set_mode(state: AppState, draft: AggregateState, mode: Mode) -> Out {
     if draft.mode == mode {
         return (state, Vec::new());
@@ -77,7 +78,7 @@ fn set_mode(state: AppState, draft: AggregateState, mode: Mode) -> Out {
     match mode {
         Mode::Text => (with_draft(state, draft.to_text()), Vec::new()),
         Mode::Stages => match draft.from_text() {
-            next if next.mode == Mode::Stages => previewed(state, next),
+            next if next.request != state.aggregate.request => previewed(state, next),
             next => (with_draft(state, next), Vec::new()),
         },
     }

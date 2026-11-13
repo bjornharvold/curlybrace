@@ -134,3 +134,12 @@ fn switching_to_text_mode_sends_the_waiting_edit_first() {
         "{seen:?}"
     );
 }
+
+#[test]
+fn text_mode_warns_that_disabled_stages_are_not_kept_only_when_one_is() {
+    let warning = t("aggregate.text.disabled_lost");
+    let harness = open(three_stages_shown().to_text());
+    assert!(harness.query_by_label(&warning).is_none());
+    let harness = open(three_stages_shown().toggle(1).to_text());
+    harness.get_by_label(&warning);
+}
