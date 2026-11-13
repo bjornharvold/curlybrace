@@ -6,7 +6,9 @@
 use super::aggregate::{Preview, PreviewState};
 use super::{PageKey, TreeState, ViewMode, page_key};
 use bson::Document;
+use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::{PipelineError, stage_name};
+use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::Page;
 
 /// How long the typing in a stage pauses before the edit is sent (and previewed).
@@ -164,6 +166,18 @@ fn bare_message(message: &str) -> String {
         .next()
         .unwrap_or(message)
         .to_string()
+}
+
+/// The i18n key of a preview failure that has a message of its own (a timeout, which core maps to
+/// `Database("timeout")` for both the server's code 50 and the client-side bound); `None` for
+/// the rest, which show as database errors.
+pub fn preview_error_key(error: &CoreError) -> Option<&'static str> {
+    match error {
+        CoreError::Database(text) if text == COMMAND_TIMEOUT_MESSAGE => {
+            Some("aggregate.error.timeout")
+        }
+        _ => None,
+    }
 }
 
 /// The i18n key and parameters of a pipeline error; positions are 1-based.

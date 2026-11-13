@@ -50,6 +50,7 @@
       "not_a_stage": "Stage {n} must be an object with exactly one key that starts with $.",
       "not_an_array": "The pipeline must be a JSON array of stage objects.",
       "syntax": "line {line}, column {column}: {message}",
+      "timeout": "The preview took too long and was stopped. Showing the last result.",
       "write_not_last": "Stage {n}: {name} can only be the last stage."
     },
     "mode": {

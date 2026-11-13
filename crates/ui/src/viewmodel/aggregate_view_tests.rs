@@ -170,3 +170,15 @@ fn an_idle_draft_asks_once_and_a_view_remembers_it() {
     };
     assert!(!draft.wants_auto_refresh(view.auto_sent));
 }
+
+#[test]
+fn a_timed_out_preview_has_its_own_message_other_errors_keep_the_generic_one() {
+    use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
+    let timeout = CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into());
+    let key = preview_error_key(&timeout).expect("timeout key");
+    assert_eq!(key, "aggregate.error.timeout");
+    let text = I18n::english().t(key);
+    assert!(text.contains("took too long") && text.contains("last result"));
+    assert_eq!(preview_error_key(&CoreError::Database("boom".into())), None);
+    assert_eq!(preview_error_key(&CoreError::Unreachable), None);
+}

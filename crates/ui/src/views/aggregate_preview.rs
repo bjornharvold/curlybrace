@@ -11,7 +11,7 @@ use crate::I18n;
 use crate::theme::CONTROL_HEIGHT;
 use crate::viewmodel::ViewMode;
 use crate::viewmodel::aggregate::{AggregateState, Preview, PreviewError, PreviewState};
-use crate::viewmodel::aggregate_view::{AggregateView, shown_preview};
+use crate::viewmodel::aggregate_view::{AggregateView, preview_error_key, shown_preview};
 use bson::Document;
 use curlybrace_core::pipeline::PREVIEW_LIMIT;
 use eframe::egui;
@@ -76,9 +76,17 @@ fn status_lines(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) {
                 PreviewError::Pipeline(e) => {
                     ui.colored_label(ui.visuals().error_fg_color, pipeline_error_text(e, i18n));
                 }
-                PreviewError::Core(e) => show_error(ui, e, i18n),
+                PreviewError::Core(e) => match preview_error_key(e) {
+                    Some(key) => {
+                        ui.colored_label(ui.visuals().error_fg_color, i18n.t(key));
+                    }
+                    None => show_error(ui, e, i18n),
+                },
             }
-            kept_line(ui, last.as_ref(), i18n);
+            // The timeout message already says the last result stays.
+            if !matches!(error, PreviewError::Core(e) if preview_error_key(e).is_some()) {
+                kept_line(ui, last.as_ref(), i18n);
+            }
         }
     }
 }
