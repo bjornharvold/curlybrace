@@ -23,7 +23,8 @@ const LIST_SHARE: f32 = 0.3;
 /// Draws the tab at the wall-clock time `now_secs` (Unix seconds), which the caller reads once
 /// per frame; nothing in here reads the clock, so the output depends only on the arguments.
 /// `read_only` disables the write controls (Create index) and says why. `sampling` is the list of
-/// databases the sampler skips, shown in the Sampling section.
+/// databases the sampler skips, shown in the Sampling section, which is opened per collection
+/// (under the id of `ui`, so a caller showing several connections gives each its own).
 pub fn show_indexes(
     ui: &mut egui::Ui,
     state: &IndexesState,
@@ -35,12 +36,13 @@ pub fn show_indexes(
     if state.view == IndexesView::Queries {
         return queries_view(ui, state, read_only, i18n, now_secs);
     }
+    let sampling_scope = ui.id().with(("indexes_sampling", &state.ns));
     // The toggle, the toolbar and the Sampling disclosure share one wrapping row.
     let (mut action, sampling_open, status_below) = ui
         .horizontal_wrapped(|ui| {
             let toggled = view_toggle(ui, state.view, i18n);
             let action = toolbar(ui, state, read_only, i18n).or(toggled);
-            let open = sampling_toggle(ui, i18n);
+            let open = sampling_toggle(ui, sampling_scope, i18n);
             let status = state.sampler.map(|status| i18n.t(sampler_key(status)));
             let below = match status {
                 Some(text) if fits_in_row(ui, &text) => {

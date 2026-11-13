@@ -143,14 +143,20 @@ fn show_indexes_tab(
     out: &mut Vec<UiEvent>,
     now_secs: i64,
 ) {
-    let shown = show_indexes(
-        ui,
-        &state.indexes,
-        read_only,
-        i18n,
-        now_secs,
-        &state.sampling,
-    );
+    // Per connection: what the tab keeps in egui's memory (the Sampling section's open state)
+    // is not shared with the same collection on another connection.
+    let shown = ui
+        .push_id(("indexes_tab", state.active), |ui| {
+            show_indexes(
+                ui,
+                &state.indexes,
+                read_only,
+                i18n,
+                now_secs,
+                &state.sampling,
+            )
+        })
+        .inner;
     let Some(action) = shown else {
         return;
     };

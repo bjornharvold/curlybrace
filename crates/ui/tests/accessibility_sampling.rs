@@ -113,3 +113,39 @@ fn whitespace_alone_cannot_be_submitted() {
     assert!(add.accesskit_node().is_disabled());
     assert!(harness.state().1.is_empty());
 }
+
+#[test]
+fn opening_the_section_on_one_collection_leaves_another_closed() {
+    use curlybrace_core::store::Namespace;
+    let (a, b) = (Namespace::new("crm", "a"), Namespace::new("crm", "b"));
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(
+            |ui, ns: &mut Namespace| {
+                let state = IndexesState {
+                    ns: Some(ns.clone()),
+                    ..IndexesState::default()
+                };
+                let sampling = SamplingSettings::default();
+                let _ = show_indexes(ui, &state, false, &I18n::english(), NOW, &sampling);
+            },
+            a.clone(),
+        );
+    harness.run_steps(3);
+    harness.get_by_label(&t("indexes.sampling.heading")).click();
+    harness.run_steps(3);
+    let input = t("indexes.sampling.input");
+    assert!(harness.query_by_label(&input).is_some(), "open on {a:?}");
+    *harness.state_mut() = b;
+    harness.run_steps(3);
+    assert!(
+        harness.query_by_label(&input).is_none(),
+        "closed on the other"
+    );
+    *harness.state_mut() = a;
+    harness.run_steps(3);
+    assert!(
+        harness.query_by_label(&input).is_some(),
+        "still open on the first"
+    );
+}
