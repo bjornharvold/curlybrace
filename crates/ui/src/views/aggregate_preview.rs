@@ -1,8 +1,8 @@
 //! The preview pane of the Aggregate tab: a heading row (Tree | Table | JSON, which stage it
 //! shows, how many documents), the status lines (running, stages not run, why it failed), then
 //! the documents in the Documents tab's own views. A preview is read-only: its documents are a
-//! pipeline's output, not rows of the collection, so every write entry is off and Copy (which
-//! copies by `_id` from the collection) is blocked.
+//! pipeline's output, not rows of the collection, so the right-click menu offers nothing: no write
+//! entries, not even disabled ones, and no Copy (which copies by `_id` from the collection).
 use super::aggregate::pipeline_error_text;
 use super::documents::show_mode_switcher;
 use super::error_label::show_error;
@@ -104,8 +104,8 @@ fn kept_line(ui: &mut egui::Ui, last: Option<&Preview>, i18n: &I18n) {
     }
 }
 
-/// The documents in the chosen view, read-only. The views' answers are not used: with every write
-/// off and Copy blocked, all they can report is a menu entry that does nothing here.
+/// The documents in the chosen view, read-only. The views' answers are not used: the row menu
+/// offers nothing, so they report no choice.
 fn show_docs(ui: &mut egui::Ui, docs: &[Document], view: &mut AggregateView, i18n: &I18n) {
     let AggregateView {
         tree, mode, page, ..
@@ -115,6 +115,7 @@ fn show_docs(ui: &mut egui::Ui, docs: &[Document], view: &mut AggregateView, i18
     tree.read_only = true;
     tree.projected = true;
     tree.copy_blocked = true;
+    tree.no_row_menu = true;
     let _offers_nothing = match mode {
         ViewMode::Tree => show_tree(ui, page, &key, tree, i18n),
         ViewMode::Table => show_table(ui, page, &key, tree, i18n),
@@ -125,6 +126,43 @@ fn show_docs(ui: &mut egui::Ui, docs: &[Document], view: &mut AggregateView, i18
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::theme;
+    use bson::doc;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    #[test]
+    fn right_clicking_a_preview_row_offers_no_write_entries() {
+        let docs = vec![doc! { "_id": 1_i32, "name": "Ada" }];
+        for mode in [ViewMode::Tree, ViewMode::Table, ViewMode::Json] {
+            let mut view = AggregateView {
+                mode,
+                ..AggregateView::default()
+            };
+            let mut harness = Harness::builder()
+                .with_size(egui::vec2(600.0, 300.0))
+                .build_ui_state(
+                    |ui, state: &mut (Vec<Document>, AggregateView)| {
+                        show_docs(ui, &state.0, &mut state.1, &I18n::english());
+                    },
+                    (docs.clone(), std::mem::take(&mut view)),
+                );
+            theme::install(&harness.ctx);
+            harness.run_steps(4);
+            let i18n = I18n::english();
+            let row = harness.get_by_label_contains("Ada");
+            row.click_secondary();
+            harness.run_steps(4);
+            for key in ["doc.edit", "doc.clone", "doc.delete", "doc.insert"] {
+                let label = i18n.t(key);
+                assert!(
+                    harness.query_by_label(&label).is_none(),
+                    "{mode:?} offers {label}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn the_count_says_when_only_the_first_documents_are_shown() {

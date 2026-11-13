@@ -9,7 +9,7 @@ use super::json_highlight::highlight;
 use super::metrics::{fixed_row_sized, row_height};
 use crate::I18n;
 use crate::theme::{current_ui, json_colors};
-use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState, menu_items};
+use crate::viewmodel::{DocAction, MenuItem, PageKey, TreeState};
 use curlybrace_core::store::Page;
 use eframe::egui;
 
@@ -36,7 +36,7 @@ pub(crate) fn render_json(
 ) -> (egui::scroll_area::ScrollAreaOutput<()>, Chosen) {
     let lines = state.json_cache(page, key).shared_lines();
     let height = row_height(ui);
-    let (projected, read_only) = (state.projected, state.read_only);
+    let read_only = state.read_only;
     let (font, color) = (
         egui::TextStyle::Monospace.resolve(ui.style()),
         ui.visuals().text_color(),
@@ -74,7 +74,7 @@ pub(crate) fn render_json(
                 if tick {
                     toggled = Some(line.doc_index);
                 }
-                let items = menu_items(doc, projected);
+                let items = state.menu_items_for(doc);
                 let copy = state.copy_entry_for(doc);
                 if let Some(item) = row_context_menu(&response, &items, read_only, copy, i18n) {
                     chosen = Some((line.doc_index, item));

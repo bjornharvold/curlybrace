@@ -4,7 +4,7 @@ use super::doc_select::{apply_toggle, checkbox_width, doc_checkbox, resolve_choi
 use super::metrics::row_height;
 use crate::I18n;
 use crate::theme::{Scheme, StateLayer, card, current_ui, state_layer};
-use crate::viewmodel::{DocAction, PageKey, TreeState, cell_text, menu_items, table_columns};
+use crate::viewmodel::{DocAction, PageKey, TreeState, cell_text, table_columns};
 use curlybrace_core::store::Page;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
@@ -36,7 +36,6 @@ pub fn show_table(
         return None;
     }
     let height = row_height(ui);
-    let projected = state.projected;
     let read_only = state.read_only;
     let mut chosen = None;
     let mut toggled = None;
@@ -66,7 +65,7 @@ pub fn show_table(
                     for name in &columns {
                         row.col(|ui| cell(ui, doc, name, i18n));
                     }
-                    let items = menu_items(doc, projected);
+                    let items = state.menu_items_for(doc);
                     let copy = state.copy_entry_for(doc);
                     let response = row.response();
                     if let Some(item) = row_context_menu(&response, &items, read_only, copy, i18n) {

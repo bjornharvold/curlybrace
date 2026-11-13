@@ -6,8 +6,8 @@ use crate::I18n;
 use crate::theme::icons;
 use crate::viewmodel::copy_clipboard::MENU_COPY_DOCUMENT;
 use crate::viewmodel::{
-    CopyEntry, DocAction, MenuItem, PageKey, PageRow, TreeRow, TreeState, menu_items,
-    row_value_text, type_label_key,
+    CopyEntry, DocAction, MenuItem, PageKey, PageRow, TreeRow, TreeState, row_value_text,
+    type_label_key,
 };
 use curlybrace_core::store::Page;
 use eframe::egui;
@@ -98,7 +98,7 @@ fn show_row(
     let items = page
         .docs
         .get(row.doc_index())
-        .map(|doc| menu_items(doc, state.projected))
+        .map(|doc| state.menu_items_for(doc))
         .unwrap_or_default();
     let copy = page
         .docs
