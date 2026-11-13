@@ -58,7 +58,11 @@ pub(super) fn show_stages(
                 let (picked, typed) = show_card(ui, &card, &shown, i18n);
                 actions.extend(picked);
                 if let Some(text) = typed {
-                    *view = std::mem::take(view).edited(index, text, now);
+                    let (next, displaced) = std::mem::take(view).edited(index, text, now);
+                    *view = next;
+                    // The other stage's waiting edit goes out now; the new one is then taken at
+                    // once too, as an action follows.
+                    actions.extend(displaced.map(|(i, text)| AggregateAction::Edit(i, text)));
                 }
             }
             actions

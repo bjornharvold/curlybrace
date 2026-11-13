@@ -66,6 +66,14 @@ fn with_due_edit(
         .collect()
 }
 
+/// The waiting stage edit as an `Edit`, taken at once: the tab is being left, and the draft
+/// should hold what was typed rather than wait for the tab to be drawn again.
+pub fn flush_typing(view: &mut AggregateView) -> Option<AggregateAction> {
+    let (next, due) = std::mem::take(view).take_due(f64::INFINITY, true);
+    *view = next;
+    due.map(|(index, text)| AggregateAction::Edit(index, text))
+}
+
 /// A Refresh of an idle pane with stages to run (first display, another collection, a new
 /// connection), asked once per request so a Refresh that cannot run is not repeated every frame.
 fn with_auto_refresh(
@@ -207,6 +215,17 @@ mod tests {
             with_auto_refresh(&moved, &mut view, Vec::new()),
             [AggregateAction::Refresh]
         );
+    }
+
+    #[test]
+    fn leaving_the_tab_takes_the_waiting_edit() {
+        let (mut view, _) = AggregateView::default().edited(2, "x".into(), 1.0);
+        assert_eq!(
+            flush_typing(&mut view),
+            Some(AggregateAction::Edit(2, "x".into()))
+        );
+        assert_eq!(view.pending, None);
+        assert_eq!(flush_typing(&mut view), None);
     }
 
     #[test]

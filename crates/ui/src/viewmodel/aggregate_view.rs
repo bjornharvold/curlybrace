@@ -75,16 +75,19 @@ impl AggregateView {
         }
     }
 
-    /// Stage `index` was typed in at `now`.
-    pub fn edited(self, index: usize, text: String, now: f64) -> Self {
-        Self {
-            pending: Some(PendingEdit {
-                index,
-                text,
-                at: now,
-            }),
-            ..self
-        }
+    /// Stage `index` was typed in at `now`. An edit still waiting in another stage is handed
+    /// back, to be sent first: only one stage's typing waits at a time, and it must not be lost.
+    pub fn edited(self, index: usize, text: String, now: f64) -> (Self, Option<(usize, String)>) {
+        let displaced = self
+            .pending
+            .filter(|p| p.index != index)
+            .map(|p| (p.index, p.text));
+        let pending = Some(PendingEdit {
+            index,
+            text,
+            at: now,
+        });
+        (Self { pending, ..self }, displaced)
     }
 
     /// The text stage `index` shows: what is being typed there, else `text`.

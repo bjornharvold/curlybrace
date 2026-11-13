@@ -105,7 +105,8 @@ fn busy_view(n: i32) -> SessionView {
                 auto_sent: Some(n as u64),
                 ..AggregateView::default()
             }
-            .edited(0, format!("typed {n}"), 1.0),
+            .edited(0, format!("typed {n}"), 1.0)
+            .0,
         ),
         editor: Some(editor(&format!("doc {n}"))),
         pending: Some(Pending {

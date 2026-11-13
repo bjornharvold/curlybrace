@@ -33,8 +33,14 @@ fn three_stages_shown() -> AggregateState {
 }
 
 fn open(draft: AggregateState) -> Harness<'static, Frame> {
+    open_stepping(draft, 0.25)
+}
+
+/// The tab with each frame `step_dt` seconds after the one before.
+fn open_stepping(draft: AggregateState, step_dt: f32) -> Harness<'static, Frame> {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1000.0, 800.0))
+        .with_step_dt(step_dt)
         .build_ui_state(
             |ui, (draft, view, seen): &mut Frame| {
                 seen.extend(show_aggregate(ui, draft, view, &I18n::english()));
@@ -79,4 +85,52 @@ fn clicking_move_up_of_stage_two_reports_it() {
     harness.get_by_label(&name).click();
     harness.run_steps(2);
     assert_eq!(harness.state().2, [AggregateAction::MoveUp(1)]);
+}
+
+/// Types `text` at the end of stage `n`'s editor (1-based).
+fn type_in_stage(harness: &mut Harness<'static, Frame>, n: &str, text: &str) {
+    let name = I18n::english().t_with("aggregate.stage.editor_n", &[("n", n)]);
+    harness.get_by_label(&name).focus();
+    harness.run_steps(1);
+    harness.key_press(egui::Key::End);
+    harness.get_by_label(&name).type_text(text);
+    harness.run_steps(1);
+}
+
+#[test]
+fn typing_in_a_second_stage_before_the_pause_still_sends_the_first_edit() {
+    // Frames 10 ms apart: both stages are typed in well within the pause.
+    let mut harness = open_stepping(three_stages_shown(), 0.01);
+    type_in_stage(&mut harness, "1", " ");
+    assert!(
+        harness.state().2.is_empty(),
+        "the first edit waits for the pause"
+    );
+    type_in_stage(&mut harness, "2", " ");
+    let edited: Vec<usize> = harness
+        .state()
+        .2
+        .iter()
+        .filter_map(|a| match a {
+            AggregateAction::Edit(i, _) => Some(*i),
+            _ => None,
+        })
+        .collect();
+    assert!(edited.contains(&0), "stage 1 edit is sent: {edited:?}");
+}
+
+#[test]
+fn switching_to_text_mode_sends_the_waiting_edit_first() {
+    let mut harness = open_stepping(three_stages_shown(), 0.01);
+    type_in_stage(&mut harness, "1", " ");
+    harness.get_by_label(&t("aggregate.mode.text")).click();
+    harness.run_steps(1);
+    let seen = &harness.state().2;
+    assert!(
+        matches!(
+            seen.as_slice(),
+            [AggregateAction::Edit(0, _), AggregateAction::SetMode(_)]
+        ),
+        "{seen:?}"
+    );
 }

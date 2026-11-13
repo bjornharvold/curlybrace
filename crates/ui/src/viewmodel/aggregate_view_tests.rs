@@ -6,7 +6,8 @@ use curlybrace_core::error::CoreError;
 
 #[test]
 fn a_typed_edit_waits_for_the_pause_then_is_taken_once() {
-    let view = AggregateView::default().edited(1, "{}".into(), 10.0);
+    let (view, displaced) = AggregateView::default().edited(1, "{}".into(), 10.0);
+    assert_eq!(displaced, None);
     assert_eq!(view.shown_text(1, "old"), "{}");
     assert_eq!(
         view.shown_text(0, "old"),
@@ -24,8 +25,19 @@ fn a_typed_edit_waits_for_the_pause_then_is_taken_once() {
 
 #[test]
 fn another_action_takes_the_waiting_edit_at_once() {
-    let view = AggregateView::default().edited(0, "x".into(), 5.0);
+    let (view, _) = AggregateView::default().edited(0, "x".into(), 5.0);
     assert_eq!(view.take_due(5.0, true).1, Some((0, "x".to_string())));
+}
+
+#[test]
+fn typing_in_another_stage_hands_the_waiting_edit_back() {
+    let (view, _) = AggregateView::default().edited(0, "a".into(), 1.0);
+    let (view, displaced) = view.edited(1, "b".into(), 1.1);
+    assert_eq!(displaced, Some((0, "a".to_string())));
+    assert_eq!(view.shown_text(1, "old"), "b");
+    let (view, displaced) = view.edited(1, "bc".into(), 1.2);
+    assert_eq!(displaced, None, "more typing in the same stage replaces it");
+    assert_eq!(view.take_due(9.0, false).1, Some((1, "bc".to_string())));
 }
 
 #[test]
@@ -35,7 +47,8 @@ fn a_carried_view_keeps_the_typing_and_the_mode_only() {
         auto_sent: Some(3),
         ..AggregateView::default()
     }
-    .edited(0, "x".into(), 1.0);
+    .edited(0, "x".into(), 1.0)
+    .0;
     let carried = view.carried();
     assert_eq!(carried.mode, ViewMode::Json);
     assert_eq!(carried.auto_sent, None);

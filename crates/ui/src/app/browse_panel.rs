@@ -8,7 +8,7 @@ use super::state::AppState;
 use crate::I18n;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
-use crate::views::aggregate::show_aggregate;
+use crate::views::aggregate::{flush_typing, show_aggregate};
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::documents::{
     DocTarget, show_connection_header_with, show_documents_pending, show_documents_switchable,
@@ -38,13 +38,14 @@ pub(super) fn show_collection(
     if let Some(tab) = picked {
         out.push(UiEvent::Input(Input::Tab(tab)));
     }
+    let leaving = picked.is_some_and(|tab| tab != state.tab);
     match state.tab {
         CollectionTab::Indexes => {
             show_indexes_tab(ui, state, badge.read_only, i18n, out, now_secs);
             return;
         }
         CollectionTab::Aggregate => {
-            show_aggregate_tab(ui, state, i18n, out);
+            show_aggregate_tab(ui, state, leaving, i18n, out);
             return;
         }
         CollectionTab::Documents => {}
@@ -149,18 +150,23 @@ fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
 }
 
 /// The Aggregate tab of the active session: its draft, drawn with the tab's own view state (per
-/// connection, like the Indexes tab's egui memory).
+/// connection, like the Indexes tab's egui memory). When the tab is being left (`leaving`), the
+/// typing that still waits is sent too.
 fn show_aggregate_tab(
     ui: &mut egui::Ui,
     state: &mut AppState,
+    leaving: bool,
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
-    let actions = ui
+    let mut actions = ui
         .push_id(("aggregate_tab", state.active), |ui| {
             show_aggregate(ui, &state.aggregate, &mut state.aggregate_view, i18n)
         })
         .inner;
+    if leaving {
+        actions.extend(flush_typing(&mut state.aggregate_view));
+    }
     out.extend(
         actions
             .into_iter()
