@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0](https://github.com/bjornharvold/curlybrace/compare/v0.11.0...v0.12.0) (2026-11-13)
+
+
+### Features
+
+* **guard:** warn before a query that scans the collection ([#148](https://github.com/bjornharvold/curlybrace/issues/148)) ([8e0d654](https://github.com/bjornharvold/curlybrace/commit/8e0d654533ffadcbe495864eb0ec019ab9b1f0ea))
+* **ui:** denser layout, compact headers and a sidebar that fits Compare ([#150](https://github.com/bjornharvold/curlybrace/issues/150)) ([5b8f3d4](https://github.com/bjornharvold/curlybrace/commit/5b8f3d4d272fa2095c0b9cb80dadce330a99c984))
+
 ## [0.11.0](https://github.com/bjornharvold/curlybrace/compare/v0.10.0...v0.11.0) (2026-11-12)
 
 
