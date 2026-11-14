@@ -13,9 +13,19 @@ pub(crate) struct Rust;
 
 impl Rust {
     fn frame(ns: &Namespace, options: &CodeOptions, syn: &RustSyntax, body: &str) -> String {
+        let limit = syn.recursion_limit();
         if !options.setup {
-            return body.to_string();
+            return match limit {
+                // The attribute is only legal at the crate root.
+                Some(n) => {
+                    format!("// Needs #![recursion_limit = \"{n}\"] at the top of main.rs\n{body}")
+                }
+                None => body.to_string(),
+            };
         }
+        let attribute = limit
+            .map(|n| format!("#![recursion_limit = \"{n}\"]\n\n"))
+            .unwrap_or_default();
         let bson_import = if syn.uses_bson_path() {
             "{self, Document, doc}"
         } else {
@@ -33,7 +43,7 @@ impl Rust {
             body.trim_end(),
         );
         format!(
-            "use futures::TryStreamExt;\nuse mongodb::Client;\nuse mongodb::bson::{bson_import};\n\n#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {{\n{}\n}}\n",
+            "{attribute}use futures::TryStreamExt;\nuse mongodb::Client;\nuse mongodb::bson::{bson_import};\n\n#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {{\n{}\n}}\n",
             indent_lines(&inner, "    ", 1),
         )
     }

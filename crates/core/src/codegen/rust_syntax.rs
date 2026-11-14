@@ -16,16 +16,34 @@ pub(crate) fn quote(text: &str) -> String {
     double_quoted(text, braced_unicode_escape)
 }
 
+/// Entries in one document or array that `doc!` still expands under rustc's
+/// default `recursion_limit` of 128 (it recurses about three times per entry).
+const SAFE_MACRO_ENTRIES: usize = 32;
+
 pub(crate) struct RustSyntax {
     /// Set when a value is spelled with a `bson::...` path.
     uses_bson_path: Cell<bool>,
+    /// The most entries any one rendered document or array holds.
+    widest: Cell<usize>,
 }
 
 impl RustSyntax {
     pub(crate) fn new() -> Self {
         Self {
             uses_bson_path: Cell::new(false),
+            widest: Cell::new(0),
         }
+    }
+
+    /// The `recursion_limit` the rendered macros need, when the default is
+    /// not enough.
+    pub(crate) fn recursion_limit(&self) -> Option<usize> {
+        let widest = self.widest.get();
+        (widest > SAFE_MACRO_ENTRIES).then(|| (widest * 4 + 64).next_power_of_two())
+    }
+
+    fn note_width(&self, entries: usize) {
+        self.widest.set(self.widest.get().max(entries));
     }
 
     pub(crate) fn uses_bson_path(&self) -> bool {
@@ -168,6 +186,18 @@ impl Syntax for RustSyntax {
             quote(namespace),
             self.object_id(id_hex)
         )
+    }
+
+    fn document(&self, entries: &[(String, String)], depth: usize) -> String {
+        self.note_width(entries.len());
+        let items: Vec<String> = entries.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+        let pad = self.brace_pad();
+        lay_out_with(self.indent_unit(), ("{", "}"), pad, &items, depth, true)
+    }
+
+    fn array(&self, items: &[String], depth: usize) -> String {
+        self.note_width(items.len());
+        lay_out_with(self.indent_unit(), ("[", "]"), "", items, depth, true)
     }
 
     fn pipeline(&self, items: &[String], depth: usize) -> String {

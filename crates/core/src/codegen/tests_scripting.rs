@@ -137,6 +137,41 @@ fn rust_imports_the_bson_module_only_when_a_path_needs_it() {
 }
 
 #[test]
+fn rust_wide_documents_raise_the_macro_recursion_limit() {
+    // `doc!` recurses once or more per entry; rustc's default of 128 fails
+    // from about 45 entries.
+    let wide = |n: usize| {
+        let mut doc = Document::new();
+        for i in 0..n {
+            doc.insert(format!("f{i}"), Bson::Int32(1));
+        }
+        Bson::Document(doc)
+    };
+    let small = value(Language::Rust, wide(10)).unwrap();
+    assert!(!small.contains("recursion_limit"), "{small}");
+    let big = value(Language::Rust, wide(60)).unwrap();
+    assert!(big.starts_with("#![recursion_limit = \""), "{big}");
+    // The attribute is only legal at the crate root: a fragment gets a note.
+    let bare = CodeOptions {
+        setup: false,
+        ..CodeOptions::default()
+    };
+    let request = CodeRequest::Aggregate {
+        ns: ns(),
+        stages: vec![doc! { "$match": { "v": wide(60) } }],
+    };
+    let fragment = generate(Language::Rust, &request, &bare).unwrap();
+    assert!(fragment.starts_with("// "), "{fragment}");
+    assert!(fragment.contains("#![recursion_limit = \""), "{fragment}");
+    let narrow = CodeRequest::Aggregate {
+        ns: ns(),
+        stages: vec![doc! { "$match": { "v": 1_i32 } }],
+    };
+    let fragment = generate(Language::Rust, &narrow, &bare).unwrap();
+    assert!(!fragment.contains("recursion_limit"), "{fragment}");
+}
+
+#[test]
 fn rust_strings_are_plain_literals_that_never_format() {
     let out = value(
         Language::Rust,
