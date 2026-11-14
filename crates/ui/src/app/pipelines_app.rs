@@ -85,16 +85,32 @@ impl AppState {
     }
 
     /// A cleanup after a connection change: the list follows at once (a stale entry for a
-    /// deleted connection would only be written again later) and the write is tried; a failure
-    /// is logged and shown unless another banner is up.
-    fn apply_pipelines_cleanup(&mut self, next: SavedPipelines) {
+    /// deleted connection would only be written again later) and the write is tried. When
+    /// another window changed the file, the cleanup is applied again to what was reloaded and
+    /// written once more; nothing is left for the user to retry. A failure is logged and shown
+    /// unless another banner is up.
+    fn apply_pipelines_cleanup(&mut self, cleanup: impl Fn(&SavedPipelines) -> SavedPipelines) {
+        let next = cleanup(&self.pipelines);
         if next == self.pipelines {
             return;
         }
-        let written = self.persist_pipelines(next.clone());
-        // Another window's list (just reloaded) is kept over this stale cleanup.
-        if written != Err(PipelinesSaveError::ChangedOnDisk) {
-            self.pipelines = next;
+        let mut written = self.persist_pipelines(next.clone());
+        if written == Err(PipelinesSaveError::ChangedOnDisk) {
+            let again = cleanup(&self.pipelines);
+            written = if again == self.pipelines {
+                Ok(())
+            } else {
+                self.persist_pipelines(again)
+            };
+            if written == Err(PipelinesSaveError::ChangedOnDisk) {
+                // A second change under our hands: not something to try again from here.
+                written = Err(PipelinesSaveError::Persist(PersistError::Write(
+                    std::io::ErrorKind::Other,
+                )));
+            }
+        }
+        if written.is_err() {
+            self.pipelines = cleanup(&self.pipelines);
         }
         if let Err(e) = written {
             log::warn!("could not save the saved pipelines: {e:?}");
@@ -117,23 +133,28 @@ impl CurlybraceApp {
         if !saved {
             return;
         }
-        let next = before
+        let removed: Vec<Uuid> = before
             .iter()
-            .filter(|id| self.state.connection(**id).is_none())
-            .fold(self.state.pipelines.clone(), |store, id| {
-                store.without_connection(*id)
-            });
-        self.state.apply_pipelines_cleanup(next);
+            .copied()
+            .filter(|id| self.state.connection(*id).is_none())
+            .collect();
+        self.state.apply_pipelines_cleanup(|store| {
+            removed
+                .iter()
+                .fold(store.clone(), |store, id| store.without_connection(*id))
+        });
     }
 
     /// A duplicate starts with the pipelines of the connection it was copied from.
     pub(super) fn copy_pipelines_to_new(&mut self, source: Uuid, before: &[Uuid]) {
-        let next = connection_ops::saved_ids(&self.state)
+        let added: Vec<Uuid> = connection_ops::saved_ids(&self.state)
             .into_iter()
             .filter(|id| !before.contains(id))
-            .fold(self.state.pipelines.clone(), |store, id| {
-                store.with_connection_copied(source, id)
-            });
-        self.state.apply_pipelines_cleanup(next);
+            .collect();
+        self.state.apply_pipelines_cleanup(|store| {
+            added.iter().fold(store.clone(), |store, id| {
+                store.with_connection_copied(source, *id)
+            })
+        });
     }
 }

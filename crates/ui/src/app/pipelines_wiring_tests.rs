@@ -311,6 +311,76 @@ fn a_newer_file_is_left_untouched_and_saving_says_why() {
     assert_eq!(std::fs::read_to_string(pipeline_file(&dir)).unwrap(), newer);
 }
 
+/// Window `a` has saved an entry for `id`; window `b` (started before) then reloads it and adds
+/// one of its own for `other`, so `a` no longer knows what is on disk.
+fn two_windows(
+    dir: &tempfile::TempDir,
+    cfg: ConnectionConfig,
+    other: Uuid,
+) -> (CurlybraceApp, CurlybraceApp) {
+    let id = cfg.id;
+    let (mut a, _ea, _ca) = app_in(dir, vec![cfg]);
+    let (mut b, _eb, _cb) = app_in(dir, Vec::new());
+    a.state_mut()
+        .persist_pipelines(store_with(id, "from a"))
+        .unwrap();
+    let refused = b.state_mut().persist_pipelines(store_with(other, "x"));
+    assert_eq!(
+        refused,
+        Err(pipelines_store::PipelinesSaveError::ChangedOnDisk)
+    );
+    let theirs = b
+        .state()
+        .pipelines
+        .saved(other, "from b", None, stage(), 2, false)
+        .unwrap();
+    b.state_mut().persist_pipelines(theirs).unwrap();
+    (a, b)
+}
+
+#[test]
+fn a_delete_refused_by_a_change_on_disk_is_cleaned_up_after_the_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let (id, other) = (cfg.id, Uuid::new_v4());
+    let (mut a, _b) = two_windows(&dir, cfg, other);
+    a.dispatch_connection(ConnectionAction::Delete(id));
+    assert!(a.state().connection(id).is_none());
+    assert!(
+        !matches!(a.state().banner, Some(Banner::PipelinesPersist(_))),
+        "the cleanup went through"
+    );
+    let on_disk = load(&pipeline_file(&dir), &persistence::back_up).settings;
+    assert!(on_disk.list(id).is_empty(), "no dead entries are left");
+    assert_eq!(on_disk.list(other)[0].name, "from b");
+    assert_eq!(a.state().pipelines, on_disk);
+}
+
+#[test]
+fn a_duplicate_refused_by_a_change_on_disk_still_gets_its_copies() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ConnectionConfig::new("local", "mongodb://localhost:27017");
+    let (id, other) = (cfg.id, Uuid::new_v4());
+    let (mut a, _b) = two_windows(&dir, cfg, other);
+    a.dispatch_connection(ConnectionAction::Duplicate(id));
+    let copy = a
+        .state()
+        .conn
+        .connections
+        .iter()
+        .find(|c| c.id != id)
+        .expect("the copy")
+        .id;
+    assert!(!matches!(
+        a.state().banner,
+        Some(Banner::PipelinesPersist(_))
+    ));
+    let on_disk = load(&pipeline_file(&dir), &persistence::back_up).settings;
+    assert_eq!(on_disk.list(copy)[0].name, "from a");
+    assert_eq!(on_disk.list(id).len(), 1);
+    assert_eq!(on_disk.list(other)[0].name, "from b");
+}
+
 fn backups(dir: &tempfile::TempDir) -> Vec<std::path::PathBuf> {
     std::fs::read_dir(dir.path())
         .unwrap()
