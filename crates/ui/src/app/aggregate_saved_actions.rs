@@ -20,8 +20,22 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
     let Some(conn) = state.active else {
         return (state, Vec::new());
     };
+    let dialog = state.aggregate.saved.dialog.clone();
+    let action = match (action, &dialog) {
+        (AggregateAction::SaveNameEdited(name), Some(SavedDialog::Save { .. })) => {
+            let dialog = SavedDialog::Save {
+                name,
+                replace_prompt: false,
+            };
+            return (dialog_replaced(state, dialog), Vec::new());
+        }
+        (AggregateAction::RenameEdited(name), Some(SavedDialog::Rename { id, .. })) => {
+            let dialog = SavedDialog::Rename { id: *id, name };
+            return (dialog_replaced(state, dialog), Vec::new());
+        }
+        (action, _) => action,
+    };
     let draft = (*state.aggregate).clone();
-    let dialog = draft.saved.dialog.clone();
     let next = match (action, dialog) {
         (AggregateAction::SaveClicked, _) => save_clicked(state, draft),
         (AggregateAction::SaveNameEdited(name), Some(SavedDialog::Save { .. })) => shown(
@@ -62,6 +76,14 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         _ => state,
     };
     (next, Vec::new())
+}
+
+/// `state` showing `dialog` with no error, for a name typed into a dialog. The draft is moved
+/// into its replacement, not copied: this runs on every keystroke and the draft can hold
+/// megabytes of stage text.
+fn dialog_replaced(mut state: AppState, dialog: SavedDialog) -> AppState {
+    let draft = std::mem::take(&mut *state.aggregate);
+    with_draft(state, draft.with_saved_dialog(Some(dialog)))
 }
 
 /// `state` showing `dialog`, with no error from an earlier attempt.

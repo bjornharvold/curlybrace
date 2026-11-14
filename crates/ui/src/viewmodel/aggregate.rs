@@ -100,10 +100,12 @@ impl AggregateState {
         (kept.into_iter().chain(first..end).collect(), end)
     }
 
-    /// The pipeline changed: an answer still in flight is stale.
+    /// The pipeline changed: an answer still in flight is stale, and so is the remembered
+    /// "modified" answer.
     pub(super) fn changed(self) -> Self {
         Self {
             request: self.request.wrapping_add(1),
+            saved: self.saved.with_modified_forgotten(),
             ..self
         }
     }
@@ -259,6 +261,7 @@ impl AggregateState {
         Self {
             text: text.to_string(),
             text_error: None,
+            saved: self.saved.with_modified_forgotten(),
             ..self
         }
     }

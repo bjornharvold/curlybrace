@@ -356,3 +356,44 @@ fn re_saving_a_pipeline_keeps_its_own_collection_hint() {
     assert_eq!(s.pipelines.list(conn)[0].stages.len(), 3, "it was replaced");
     assert_eq!(hint_of(&s, conn, "Totals").as_deref(), Some("app.people"));
 }
+
+#[test]
+fn typing_a_name_moves_the_dialog_without_copying_or_comparing_the_draft() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = run(
+        drafted(session_in(&dir, Uuid::new_v4())),
+        vec![A::SaveClicked],
+    );
+    assert!(s.aggregate.is_modified());
+    let stages = s.aggregate.stages.as_ptr();
+    let s = run(s, vec![A::SaveNameEdited("To".into())]);
+    assert_eq!(s.aggregate.stages.as_ptr(), stages, "the draft was copied");
+    assert!(s.aggregate.is_modified());
+    assert_eq!(s.aggregate.saved.modified_evaluations(), 1);
+    assert_eq!(
+        s.aggregate.saved.dialog,
+        Some(SavedDialog::Save {
+            name: "To".into(),
+            replace_prompt: false
+        })
+    );
+}
+
+#[test]
+fn typing_a_new_name_in_rename_does_not_copy_the_draft_either() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let s = saved_as(drafted(session_in(&dir, conn)), "Totals");
+    let id = only_entry(&s, conn).id;
+    let s = run(s, vec![A::RenameStarted(id)]);
+    let stages = s.aggregate.stages.as_ptr();
+    let s = run(s, vec![A::RenameEdited("Tot".into())]);
+    assert_eq!(s.aggregate.stages.as_ptr(), stages, "the draft was copied");
+    assert_eq!(
+        s.aggregate.saved.dialog,
+        Some(SavedDialog::Rename {
+            id,
+            name: "Tot".into()
+        })
+    );
+}

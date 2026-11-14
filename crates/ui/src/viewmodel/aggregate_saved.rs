@@ -9,6 +9,7 @@ use curlybrace_core::saved_pipeline::{
     MAX_NAME_CHARS, MAX_PER_CONNECTION, MAX_STAGE_BYTES, SavedError, SavedPipeline, SavedStage,
     name_taken_in, validate_name,
 };
+use std::cell::Cell;
 use uuid::Uuid;
 
 /// The dialog the Save / Open controls have open. The pipelines are named by id, so a dialog
@@ -45,9 +46,43 @@ pub struct SavedUi {
     /// Why the last confirm of the open dialog failed, as an i18n key. Shown inline in the
     /// dialog and cleared whenever the dialog changes.
     pub error: Option<&'static str>,
+    /// The answer of `is_modified` until the draft or the baseline changes.
+    pub(super) modified: ModifiedMemo,
 }
 
+/// A remembered answer of `AggregateState::is_modified`, asked on every repaint. Whatever
+/// changes the stages, the text-mode buffer or the baseline must reset it (see
+/// `AggregateState::changed` and `with_text`); a dialog or an error never does. Two memos are
+/// always equal: it says nothing about the draft that the draft does not already say.
+#[derive(Clone, Debug, Default)]
+pub struct ModifiedMemo {
+    answer: Cell<Option<bool>>,
+    evaluations: Cell<u32>,
+}
+
+impl PartialEq for ModifiedMemo {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for ModifiedMemo {}
+
 impl SavedUi {
+    /// The remembered "modified" answer is dropped: the draft or the baseline changed.
+    pub(super) fn with_modified_forgotten(self) -> Self {
+        Self {
+            modified: ModifiedMemo::default(),
+            ..self
+        }
+    }
+
+    /// How many times the draft was really compared with its baseline (the seam that shows
+    /// a repaint does not).
+    pub fn modified_evaluations(&self) -> u32 {
+        self.modified.evaluations.get()
+    }
+
     /// `dialog` (or none) is shown, with no error from an earlier attempt.
     pub fn with_dialog(self, dialog: Option<SavedDialog>) -> Self {
         Self {
@@ -154,6 +189,18 @@ impl AggregateState {
     /// modified exactly when it has stages: an empty draft has nothing to lose. Unparsable
     /// text-mode edits count as modified.
     pub fn is_modified(&self) -> bool {
+        let memo = &self.saved.modified;
+        if let Some(answer) = memo.answer.get() {
+            return answer;
+        }
+        let answer = self.modified_uncached();
+        memo.answer.set(Some(answer));
+        memo.evaluations.set(memo.evaluations.get().wrapping_add(1));
+        answer
+    }
+
+    /// The comparison itself, for `is_modified` to remember.
+    pub(super) fn modified_uncached(&self) -> bool {
         if self.text_is_invalid() {
             return true;
         }
@@ -184,8 +231,7 @@ impl AggregateState {
             saved: SavedUi {
                 opened: Some((saved.id, saved.name.clone())),
                 baseline: Some(saved.stages.clone()),
-                dialog: None,
-                error: None,
+                ..SavedUi::default()
             },
             ..self
         }
@@ -199,8 +245,7 @@ impl AggregateState {
             saved: SavedUi {
                 opened: Some((id, name.to_string())),
                 baseline,
-                dialog: None,
-                error: None,
+                ..SavedUi::default()
             },
             ..self
         }
@@ -211,12 +256,12 @@ impl AggregateState {
         let opened = self
             .saved
             .opened
-            .clone()
-            .map(|(id, _)| (id, name.to_string()));
+            .as_ref()
+            .map(|(id, _)| (*id, name.to_string()));
         Self {
             saved: SavedUi {
                 opened,
-                ..self.saved.clone()
+                ..self.saved
             },
             ..self
         }
@@ -228,22 +273,23 @@ impl AggregateState {
             saved: SavedUi {
                 opened: None,
                 baseline: None,
-                ..self.saved.clone()
-            },
+                ..self.saved
+            }
+            .with_modified_forgotten(),
             ..self
         }
     }
 
     pub fn with_saved_dialog(self, dialog: Option<SavedDialog>) -> Self {
         Self {
-            saved: self.saved.clone().with_dialog(dialog),
+            saved: self.saved.with_dialog(dialog),
             ..self
         }
     }
 
     pub fn with_saved_error(self, key: &'static str) -> Self {
         Self {
-            saved: self.saved.clone().with_error(key),
+            saved: self.saved.with_error(key),
             ..self
         }
     }
@@ -252,3 +298,7 @@ impl AggregateState {
 #[cfg(test)]
 #[path = "aggregate_saved_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "aggregate_saved_memo_tests.rs"]
+mod memo_tests;
