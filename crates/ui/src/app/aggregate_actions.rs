@@ -80,7 +80,21 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::EditText(text) => (with_draft(state, draft.with_text(&text)), Vec::new()),
         AggregateAction::Refresh => previewed(state, draft),
         AggregateAction::Batch(actions) => batch(state, actions),
-        saved => super::aggregate_saved_actions::on_action(state, saved),
+        // Listed one by one, so a new variant must be placed here and `Batch` can never fall
+        // through to the saved-pipelines handler.
+        saved @ (AggregateAction::SaveClicked
+        | AggregateAction::SaveNameEdited(_)
+        | AggregateAction::SaveConfirmed
+        | AggregateAction::OpenMenuPicked(_)
+        | AggregateAction::OpenConfirmed
+        | AggregateAction::RenameStarted(_)
+        | AggregateAction::RenameEdited(_)
+        | AggregateAction::RenameConfirmed
+        | AggregateAction::DeleteAsked(_)
+        | AggregateAction::DeleteConfirmed
+        | AggregateAction::DialogCancelled) => {
+            super::aggregate_saved_actions::on_action(state, saved)
+        }
     }
 }
 
