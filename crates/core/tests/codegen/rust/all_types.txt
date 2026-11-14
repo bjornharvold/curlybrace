@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use futures::TryStreamExt;
 use mongodb::Client;
 use mongodb::bson::{self, Document, doc};

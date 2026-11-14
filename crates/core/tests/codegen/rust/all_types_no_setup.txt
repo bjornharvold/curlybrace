@@ -1,3 +1,4 @@
+// Needs #![recursion_limit = "256"] at the top of main.rs
 let pipeline = vec![
     doc! {
         "$match": {
