@@ -235,8 +235,8 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 - The find bar takes strict JSON, not mongo shell syntax.
 - Everyday tools you may expect from other clients (document import and export, schema analysis)
   are not built yet. They come after the features at the top of the [roadmap](#roadmap). The
-  aggregation builder previews and saves pipelines but cannot run a write stage yet (see
-  **Aggregate** above).
+  aggregation builder previews and saves pipelines and runs a trailing `$out` or `$merge` behind a
+  typed confirmation, without an undo copy (see **Aggregate** above).
 
 **Aggregate** ([#67](https://github.com/bjornharvold/curlybrace/issues/67))
 - An **Aggregate** tab on each collection builds a pipeline stage by stage. Add a stage from the
@@ -266,9 +266,21 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   `connections.json`, readable only by you, and are removed with the connection and copied when
   you duplicate it. If the file cannot be written the draft stays open and the dialog says so; an
   unreadable file is backed up, the list starts empty and the app tells you.
-- Not yet: running a write stage (a confirmed `$out` / `$merge` run is next), export as driver
-  code, explain, and options such as collation, hint and `allowDiskUse`. The draft that is not
-  saved is kept per open connection while the app runs.
+- **Run** appears in the header when the last enabled stage is `$out` or `$merge`, and is off with
+  its reason on a read-only connection, while a run is in progress, when edited text has not been
+  applied, or when the pipeline cannot be run as written. It opens a confirmation that names the
+  collection it reads, the `db.collection` it writes, what the stage does (`$out` replaces the
+  whole target collection; `$merge` inserts, merges, replaces or fails per its options) and the
+  target's current document count. You must type the target collection's name to enable **Run
+  pipeline**; Enter confirms only a matching name and Escape cancels. This is asked on every
+  connection, production or not, and a production connection shows its badge in the dialog
+  instead of a second warning. The app keeps no undo copy of the target: a run cannot be undone
+  from here. The run is bounded by a 60 s server time limit and cannot be cancelled. The status
+  line then shows the target and its document count, the error if it failed, or, after a timeout
+  or a lost connection, that the server may or may not have finished writing, so you can check
+  the target before running again.
+- Not yet: export as driver code, explain, undo of a run, and options such as collation, hint and
+  `allowDiskUse`. The draft that is not saved is kept per open connection while the app runs.
 
 ## Roadmap
 
