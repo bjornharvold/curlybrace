@@ -39,6 +39,8 @@ pub struct SavedPipeline {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SavedError {
     EmptyName,
+    /// A name with a control character (a newline, a tab inside, NUL).
+    InvalidName,
     NameTooLong,
     NameTaken,
     TooMany,
@@ -52,6 +54,7 @@ impl SavedError {
     pub fn error_variant(&self) -> &'static str {
         match self {
             Self::EmptyName => "empty_name",
+            Self::InvalidName => "invalid_name",
             Self::NameTooLong => "name_too_long",
             Self::NameTaken => "name_taken",
             Self::TooMany => "too_many",
@@ -61,7 +64,8 @@ impl SavedError {
     }
 }
 
-/// The name without surrounding whitespace, when it is 1 to 80 characters.
+/// The name without surrounding whitespace, when it is 1 to 80 characters with no control
+/// character (a newline or NUL would break the list and the dialogs).
 pub fn validate_name(name: &str) -> Result<String, SavedError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -69,6 +73,9 @@ pub fn validate_name(name: &str) -> Result<String, SavedError> {
     }
     if trimmed.chars().count() > MAX_NAME_CHARS {
         return Err(SavedError::NameTooLong);
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(SavedError::InvalidName);
     }
     Ok(trimmed.to_string())
 }

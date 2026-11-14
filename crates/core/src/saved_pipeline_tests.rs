@@ -25,6 +25,22 @@ fn a_name_is_trimmed_and_must_not_be_empty() {
 }
 
 #[test]
+fn a_name_with_a_control_character_is_refused() {
+    for bad in ["a\nb", "a\tb", "a\0b", "a\r\nb", "x\u{7f}y", "\u{1b}[31mred"] {
+        assert_eq!(validate_name(bad), Err(SavedError::InvalidName), "{bad:?}");
+    }
+    // Whitespace around the name is trimmed away first, so it is not a control character in it.
+    assert_eq!(validate_name("\n daily\t"), Ok("daily".into()));
+}
+
+#[test]
+fn ordinary_unicode_names_are_accepted() {
+    for good in ["Café totals", "日本語 パイプライン", "rocket 🚀 stats", "naïve"] {
+        assert_eq!(validate_name(good), Ok(good.to_string()), "{good}");
+    }
+}
+
+#[test]
 fn a_name_may_have_eighty_characters_not_eighty_one() {
     assert!(validate_name(&"a".repeat(80)).is_ok());
     assert_eq!(validate_name(&"a".repeat(81)), Err(SavedError::NameTooLong));
@@ -259,6 +275,7 @@ fn a_newer_version_is_refused_and_unknown_fields_are_tolerated() {
 fn error_variants_are_stable_names() {
     let names: Vec<&str> = [
         SavedError::EmptyName,
+        SavedError::InvalidName,
         SavedError::NameTooLong,
         SavedError::NameTaken,
         SavedError::TooMany,
@@ -272,6 +289,7 @@ fn error_variants_are_stable_names() {
         names,
         [
             "empty_name",
+            "invalid_name",
             "name_too_long",
             "name_taken",
             "too_many",

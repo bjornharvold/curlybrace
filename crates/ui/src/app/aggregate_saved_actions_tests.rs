@@ -118,6 +118,7 @@ fn name_problems_show_inline_and_keep_the_dialog_open() {
     let cases = [
         ("   ", "aggregate.saved.error.empty_name"),
         (&"x".repeat(81), "aggregate.saved.error.name_too_long"),
+        ("two\nlines", "aggregate.saved.error.invalid_name"),
     ];
     for (name, key) in cases {
         let s = saved_as(drafted(session_in(&dir, conn)), name);

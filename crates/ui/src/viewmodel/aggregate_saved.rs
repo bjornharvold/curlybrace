@@ -67,6 +67,7 @@ impl SavedUi {
 pub fn saved_error_key(error: SavedError) -> &'static str {
     match error {
         SavedError::EmptyName => "aggregate.saved.error.empty_name",
+        SavedError::InvalidName => "aggregate.saved.error.invalid_name",
         SavedError::NameTooLong => "aggregate.saved.error.name_too_long",
         SavedError::NameTaken => "aggregate.saved.error.name_taken",
         SavedError::TooMany => "aggregate.saved.error.too_many",

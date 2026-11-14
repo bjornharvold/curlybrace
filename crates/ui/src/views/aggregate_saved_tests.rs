@@ -332,6 +332,22 @@ fn a_name_over_80_characters_shows_its_message_and_cannot_be_saved() {
 }
 
 #[test]
+fn a_name_with_a_line_break_shows_its_message_and_cannot_be_saved() {
+    let dialog = SavedDialog::Save {
+        name: "two\nlines".into(),
+        replace_prompt: false,
+    };
+    let mut harness = open(with_dialog(dialog), Vec::new(), BIG);
+    assert_eq!(
+        name_field_description(&harness),
+        Some(t("aggregate.saved.error.invalid_name"))
+    );
+    harness.key_press(egui::Key::Enter);
+    harness.run_steps(3);
+    assert!(harness.state().seen.is_empty());
+}
+
+#[test]
 fn the_rename_dialog_refuses_a_name_another_pipeline_has_but_not_its_own() {
     let saved = list_of(&["Alpha", "Beta"]);
     let beta = saved[0].id;
