@@ -215,8 +215,36 @@ fn a_long_name_is_elided_but_keeps_its_full_accessible_name() {
     let long = "N".repeat(80);
     let saved = list_of(&[&long]);
     let opened = draft().opened_from(&saved[0]);
-    let harness = open(opened, saved, (800.0, 500.0));
-    harness.get_by_label(&tn("aggregate.saved.opened", &long));
+    let mut harness = open(opened, saved, (360.0, 500.0));
+    let full = tn("aggregate.saved.opened", &long);
+    harness.get_by_label(&full);
+    // What is drawn is shorter than the name and ends in an ellipsis.
+    let drawn: Vec<String> = harness
+        .output()
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => {
+                Some(t.galley.rows.iter().map(|r| r.text()).collect::<String>())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !drawn.contains(&full),
+        "the whole name was drawn: {drawn:?}"
+    );
+    assert!(
+        drawn.iter().any(|t| t.contains("NN")
+            && t.ends_with('…')
+            && t.chars().count() < full.chars().count()),
+        "no elided name among {drawn:?}"
+    );
+    // The full name is in the tooltip only once the chip is hovered.
+    assert_eq!(harness.get_all_by_label(&full).count(), 1);
+    harness.get_by_label(&full).hover();
+    harness.run_steps(12);
+    assert_eq!(harness.get_all_by_label(&full).count(), 2, "the tooltip");
 }
 
 #[test]
