@@ -243,6 +243,9 @@ pub struct AppState {
     pub aggregate: Box<AggregateState>,
     /// The Aggregate tab's own view state (the preview's tree and mode, typing not yet sent).
     pub aggregate_view: Box<crate::viewmodel::aggregate_view::AggregateView>,
+    /// The Copy as code dialog and the language and options it remembers. Global: it belongs to
+    /// no session and is never saved. Boxed, like `aggregate`.
+    pub code_export: Box<crate::viewmodel::CodeExportUi>,
     /// The databases the usage sampler skips. Global: it belongs to no session, so it is not
     /// parked with one.
     pub sampling: SamplingSettings,

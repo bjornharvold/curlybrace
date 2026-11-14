@@ -10,6 +10,8 @@ mod aggregate_saved_actions;
 pub use aggregate_actions::AggregateAction;
 mod banner;
 mod bulk_actions;
+mod code_export_actions;
+pub use code_export_actions::{CodeAction, CodeSource};
 pub mod saved_copies;
 pub use bulk_actions::BulkAction;
 pub mod bulk_state;
