@@ -1,0 +1,71 @@
+use super::*;
+
+#[test]
+fn a_string_cannot_break_out_of_its_literal() {
+    let text = "a\"b\\c\nd\re\tf\u{0}g\u{1f}h\u{7f}i\u{2028}j";
+    let out = double_quoted(text, unicode_escape);
+    assert_eq!(
+        out,
+        "\"a\\\"b\\\\c\\nd\\re\\tf\\u0000g\\u001fh\\u007fi\\u2028j\""
+    );
+    assert!(!out.contains('\n'));
+}
+
+#[test]
+fn text_with_sigils_and_unicode_is_left_alone() {
+    let out = double_quoted(
+        "${x} #{y} $z %s {} emoji \u{1F600} e\u{301}",
+        unicode_escape,
+    );
+    assert_eq!(out, "\"${x} #{y} $z %s {} emoji \u{1F600} e\u{301}\"");
+}
+
+#[test]
+fn doubles_keep_a_decimal_point_or_exponent() {
+    assert_eq!(float_text(1.0), "1.0");
+    assert_eq!(float_text(-0.0), "-0.0");
+    assert_eq!(float_text(1.5), "1.5");
+    assert_eq!(float_text(1e300), "1e300");
+}
+
+#[test]
+fn base64_and_hex_match_known_vectors() {
+    assert_eq!(base64(b""), "");
+    assert_eq!(base64(b"f"), "Zg==");
+    assert_eq!(base64(b"fo"), "Zm8=");
+    assert_eq!(base64(b"foo"), "Zm9v");
+    assert_eq!(base64(&[0, 1, 2, 255]), "AAEC/w==");
+    assert_eq!(hex(&[0, 1, 255]), "0001ff");
+}
+
+#[test]
+fn uuid_text_needs_sixteen_bytes() {
+    let bytes: Vec<u8> = (0..16).collect();
+    assert_eq!(
+        uuid_text(&bytes).as_deref(),
+        Some("00010203-0405-0607-0809-0a0b0c0d0e0f")
+    );
+    assert_eq!(uuid_text(&bytes[..15]), None);
+}
+
+#[test]
+fn civil_time_handles_epoch_pre_1970_and_leap_days() {
+    assert_eq!(civil_from_millis(0).iso(), "1970-01-01T00:00:00.000Z");
+    assert_eq!(civil_from_millis(-1).iso(), "1969-12-31T23:59:59.999Z");
+    assert_eq!(
+        civil_from_millis(1_709_210_096_789).iso(),
+        "2024-02-29T12:34:56.789Z"
+    );
+    assert_eq!(
+        civil_from_millis(-62_135_596_800_000).iso(),
+        "0001-01-01T00:00:00.000Z"
+    );
+}
+
+#[test]
+fn civil_time_flags_years_outside_the_common_range() {
+    assert!(civil_from_millis(0).in_common_range());
+    assert!(!civil_from_millis(-62_135_596_800_001).in_common_range());
+    assert!(!civil_from_millis(253_402_300_800_000).in_common_range());
+    assert_eq!(civil_from_millis(253_402_300_800_000).year, 10_000);
+}

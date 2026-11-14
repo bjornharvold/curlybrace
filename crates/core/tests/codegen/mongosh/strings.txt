@@ -1,0 +1,21 @@
+// Run with: mongosh "<your connection string>"
+const collection = db.getSiblingDB("shop").getCollection("orders");
+
+const pipeline = [
+  {
+    $match: {
+      "double quote": "say \"hi\"",
+      "single quote": "it's",
+      backslash: "C:\\temp\\new",
+      newline: "line1\nline2",
+      tab: "a\tb",
+      control: "nul\u0000 bell\u0007 del\u007f ls\u2028",
+      unicode: "café 😀 é",
+      sigils: "$var ${expr} #{ruby} %s %d {0} {name} `tick` ${`x`}",
+      regexWithSlash: BSONRegExp("a/b\"c", "ix"),
+    },
+  },
+];
+
+const results = collection.aggregate(pipeline).toArray();
+printjson(results);
