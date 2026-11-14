@@ -1,0 +1,15 @@
+pipeline = [
+    {
+        "$match": {
+            "empty": Binary(bytes.fromhex(""), 0),
+            "emptyUuid": Binary(bytes.fromhex(""), 4),
+            "oldUuid": Binary(bytes.fromhex("000102030405060708090a0b0c0d0e0f"), 3),
+            "md5": Binary(bytes.fromhex("000102030405060708090a0b0c0d0e0f"), 5),
+            "shortUuid": Binary(bytes.fromhex("0102030405"), 4),
+            "uuid": Binary(bytes.fromhex("000102030405060708090a0b0c0d0e0f"), 4),
+        },
+    },
+]
+
+results = list(collection.aggregate(pipeline))
+print(results)

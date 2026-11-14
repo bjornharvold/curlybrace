@@ -1,0 +1,10 @@
+List<Document> pipeline = Arrays.asList(
+    new Document("$match", new Document("regex", new BsonRegularExpression("a\u202eb\u200bc\udb40\udc01", "i"))
+            .append("code", new Code("x\u202e + \ufeff1 // \255"))
+            .append("scoped", new CodeWithScope("y\u2066", new Document("k\u200b", "v\udb40\udc7f")))
+            .append("symbol", new Symbol("s\u202ey\udb40\udc01m"))
+            .append("dbPointer", new BsonDbPointer("sh\u202eop.or\u200bders", new ObjectId("65a1b2c3d4e5f60718293a4b"))))
+);
+
+List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+System.out.println(results);

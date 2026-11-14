@@ -1,0 +1,23 @@
+<?php
+
+require 'vendor/autoload.php';
+
+$client = new MongoDB\Client('<your connection string>');
+$db = $client->selectDatabase('shop');
+$collection = $db->selectCollection('orders');
+
+// Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
+$pipeline = [
+    [
+        '$match' => [
+            'regex' => new MongoDB\BSON\Regex("a\u{202e}b\u{200b}c\u{e0001}", 'i'),
+            'code' => new MongoDB\BSON\Javascript("x\u{202e} + \u{feff}1 // \u{ad}"),
+            'scoped' => new MongoDB\BSON\Javascript("y\u{2066}", ["k\u{200b}" => "v\u{e007f}"]),
+            'symbol' => "s\u{202e}y\u{e0001}m",
+            'dbPointer' => ['$ref' => "sh\u{202e}op.or\u{200b}ders", '$id' => new MongoDB\BSON\ObjectId('65a1b2c3d4e5f60718293a4b')],
+        ],
+    ],
+];
+
+$results = $collection->aggregate($pipeline)->toArray();
+print_r($results);

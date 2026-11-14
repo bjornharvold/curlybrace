@@ -1,0 +1,30 @@
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.bson.Document;
+import org.bson.types.Binary;
+
+public class Main {
+    public static void main(String[] args) {
+        try (MongoClient client = MongoClients.create("<your connection string>")) {
+            MongoDatabase db = client.getDatabase("shop");
+            MongoCollection<Document> collection = db.getCollection("orders");
+
+            List<Document> pipeline = Arrays.asList(
+                new Document("$match", new Document("empty", new Binary((byte) 0x00, new byte[] {}))
+                        .append("emptyUuid", new Binary((byte) 0x04, new byte[] {}))
+                        .append("oldUuid", new Binary((byte) 0x03, new byte[] {(byte) 0x00, (byte) 0x01, (byte) 0x02, (byte) 0x03, (byte) 0x04, (byte) 0x05, (byte) 0x06, (byte) 0x07, (byte) 0x08, (byte) 0x09, (byte) 0x0a, (byte) 0x0b, (byte) 0x0c, (byte) 0x0d, (byte) 0x0e, (byte) 0x0f}))
+                        .append("md5", new Binary((byte) 0x05, new byte[] {(byte) 0x00, (byte) 0x01, (byte) 0x02, (byte) 0x03, (byte) 0x04, (byte) 0x05, (byte) 0x06, (byte) 0x07, (byte) 0x08, (byte) 0x09, (byte) 0x0a, (byte) 0x0b, (byte) 0x0c, (byte) 0x0d, (byte) 0x0e, (byte) 0x0f}))
+                        .append("shortUuid", new Binary((byte) 0x04, new byte[] {(byte) 0x01, (byte) 0x02, (byte) 0x03, (byte) 0x04, (byte) 0x05}))
+                        .append("uuid", new Binary((byte) 0x04, new byte[] {(byte) 0x00, (byte) 0x01, (byte) 0x02, (byte) 0x03, (byte) 0x04, (byte) 0x05, (byte) 0x06, (byte) 0x07, (byte) 0x08, (byte) 0x09, (byte) 0x0a, (byte) 0x0b, (byte) 0x0c, (byte) 0x0d, (byte) 0x0e, (byte) 0x0f})))
+            );
+
+            List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+            System.out.println(results);
+        }
+    }
+}

@@ -1,0 +1,14 @@
+<?php
+
+require 'vendor/autoload.php';
+
+$client = new MongoDB\Client('<your connection string>');
+$db = $client->selectDatabase('shop');
+$collection = $db->selectCollection('orders');
+
+$pipeline = [
+    ['$match' => ['nine' => new MongoDB\BSON\Binary(hex2bin('010203'), 9)]],
+];
+
+$results = $collection->aggregate($pipeline)->toArray();
+print_r($results);

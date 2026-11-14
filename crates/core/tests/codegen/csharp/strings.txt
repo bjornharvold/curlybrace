@@ -1,0 +1,25 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+
+var client = new MongoClient("<your connection string>");
+var db = client.GetDatabase("shop");
+var collection = db.GetCollection<BsonDocument>("orders");
+
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument {
+            { "double quote", "say \"hi\"" },
+            { "single quote", "it's" },
+            { "backslash", "C:\\temp\\new" },
+            { "newline", "line1\nline2" },
+            { "tab", "a\tb" },
+            { "control", "nul\u0000 bell\u0007 del\u007f ls\u2028" },
+            { "unicode", "café 😀 é" },
+            { "sigils", "$var ${expr} #{ruby} %s %d {0} {name} `tick` ${`x`}" },
+            { "regexWithSlash", new BsonRegularExpression("a/b\"c", "ix") },
+        } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

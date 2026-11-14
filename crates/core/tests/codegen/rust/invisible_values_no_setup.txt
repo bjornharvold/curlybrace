@@ -1,0 +1,17 @@
+// Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
+let pipeline = vec![
+    doc! {
+        "$match": {
+            "regex": bson::Regex { pattern: "a\u{202e}b\u{200b}c\u{e0001}".to_string(), options: "i".to_string() },
+            "code": bson::Bson::JavaScriptCode("x\u{202e} + \u{feff}1 // \u{ad}".to_string()),
+            "scoped": bson::Bson::JavaScriptCodeWithScope(bson::JavaScriptCodeWithScope { code: "y\u{2066}".to_string(), scope: doc! { "k\u{200b}": "v\u{e007f}" } }),
+            "symbol": bson::Bson::Symbol("s\u{202e}y\u{e0001}m".to_string()),
+            "dbPointer": { "$ref": "sh\u{202e}op.or\u{200b}ders", "$id": bson::oid::ObjectId::parse_str("65a1b2c3d4e5f60718293a4b")? },
+        },
+    },
+];
+
+let mut cursor = collection.aggregate(pipeline).await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}

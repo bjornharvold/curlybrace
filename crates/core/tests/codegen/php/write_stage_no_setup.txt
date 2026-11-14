@@ -1,0 +1,7 @@
+$pipeline = [
+    ['$match' => ['status' => 'A']],
+    ['$out' => ['db' => 'shop', 'coll' => 'archive']],
+];
+
+$results = $collection->aggregate($pipeline)->toArray();
+print_r($results);

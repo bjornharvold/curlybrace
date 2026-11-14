@@ -1,0 +1,25 @@
+from pymongo import MongoClient
+
+client = MongoClient("<your connection string>")
+db = client["shop"]
+collection = db["orders"]
+
+pipeline = [
+    {
+        "$match": {
+            "bidi": "user\u202etxt.exe \u2066x\u2069",
+            "zeroWidth": "a\u200bb\u200dc\u2060d",
+            "bom": "\ufeffstart",
+            "c1": "next\x85line",
+            "softHyphen": "co\xadop",
+            "mongolian": "a\u180eb",
+            "annotation": "x\ufff9y\ufffaz\ufffb",
+            "tags": "flag\U000e0001\U000e0067\U000e007f",
+            "marks": "ok: 😀 café é 中文",
+            "k\u202eey": 1,
+        },
+    },
+]
+
+results = list(collection.aggregate(pipeline))
+print(results)

@@ -1,0 +1,7 @@
+pipeline = [
+    {"$match": {"status": "A"}},
+    {"$out": {"db": "shop", "coll": "archive"}},
+]
+
+results = list(collection.aggregate(pipeline))
+print(results)

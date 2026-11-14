@@ -1,0 +1,15 @@
+let pipeline = vec![
+    doc! {
+        "$match": {
+            "plain": { "b": 1_i32, "2": 2_i32, "1": 3_i32 },
+            "inOrder": { "1": 1_i32, "2": 2_i32, "b": 3_i32 },
+            "leadingZero": { "01": 1_i32, "a": 2_i32 },
+            "nested": [{ "x": { "z": 1_i32, "10": 2_i32, "9": 3_i32 } }],
+        },
+    },
+];
+
+let mut cursor = collection.aggregate(pipeline).await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}

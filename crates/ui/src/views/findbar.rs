@@ -1,6 +1,7 @@
 //! Find bar view: the Filter with Find / Clear / Previous / Next and the "More" toggle on one
 //! wrapping row, then, behind "More", Sort / Projection / Skip / Limit on another.
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
+use super::code_export_entry::{find_blocked, show_copy_code_icon};
 use super::findbar_more::{show_more_fields, show_more_toggle};
 use crate::I18n;
 use crate::theme::{
@@ -14,9 +15,10 @@ pub use crate::viewmodel::FindAction;
 
 /// The Filter is never narrower than this beside the buttons; on a narrower row the buttons
 /// wrap under it and the Filter takes the whole row.
-const FILTER_MIN_WIDTH: f32 = 240.0;
-/// The width of the buttons after the Filter until a frame has measured it.
-const TRAILING_GUESS: f32 = 440.0;
+const FILTER_MIN_WIDTH: f32 = 220.0;
+/// The width of the buttons after the Filter until a frame has measured it (about 475 with the
+/// icon-only Copy as code button; the Filter keeps one row with them at the 1000-wide window).
+const TRAILING_GUESS: f32 = 475.0;
 /// Room left between the Filter and the buttons' measured width, so rounding never wraps the
 /// last button.
 const ROW_SLACK: f32 = 1.0;
@@ -36,7 +38,14 @@ pub fn show_findbar(
         open: more_open(state),
         hidden: hidden_count(&state.text),
     };
-    let row = query_row(ui, &mut state.text.filter, (has_prev, has_next), more, i18n);
+    let blocked = find_blocked(&state.text, i18n);
+    let row = query_row(
+        ui,
+        &mut state.text.filter,
+        (has_prev, has_next),
+        (more, blocked.as_deref()),
+        i18n,
+    );
     let more_enter = more.open && show_more_fields(ui, &mut state.text, i18n);
     if let Some(e) = &state.last_error {
         super::error_label::show_error(ui, e, i18n);
@@ -96,7 +105,7 @@ fn query_row(
     ui: &mut egui::Ui,
     filter: &mut String,
     (has_prev, has_next): (bool, bool),
-    more: MoreToggle,
+    (more, code_blocked): (MoreToggle, Option<&str>),
     i18n: &I18n,
 ) -> RowOutcome {
     let memory = ui.id().with("findbar_trailing_width");
@@ -114,7 +123,7 @@ fn query_row(
                 sized_field(ui, width, KEY_FILTER, filter, i18n)
             })
             .inner;
-        let (button, buttons_width) = buttons(ui, has_prev, has_next, i18n);
+        let (button, buttons_width) = buttons(ui, (has_prev, has_next), code_blocked, i18n);
         let toggle = show_more_toggle(ui, more.open, more.hidden, i18n);
         let measured = buttons_width + toggle.rect.width() + ui.spacing().item_spacing.x;
         if trailing.is_none_or(|known| (known - measured).abs() > 0.5) {
@@ -161,12 +170,12 @@ pub(super) fn sized_field(
     response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
-/// Find, Clear, Previous and Next in the current row; the intent clicked and the width they
-/// took with the gap before each.
+/// Find, Clear, the `</>` Copy as code icon (off with the parse error as its reason), Previous
+/// and Next in the current row; the intent clicked and the width they took with the gap before each.
 fn buttons(
     ui: &mut egui::Ui,
-    has_prev: bool,
-    has_next: bool,
+    (has_prev, has_next): (bool, bool),
+    code_blocked: Option<&str>,
     i18n: &I18n,
 ) -> (Option<FindIntent>, f32) {
     let gap = ui.spacing().item_spacing.x;
@@ -174,16 +183,19 @@ fn buttons(
     let mut width = 0.0;
     let run = filled_button(ui, i18n.t("findbar.run"));
     let clear = tonal_button(ui, i18n.t("findbar.clear"));
+    let code = show_copy_code_icon(ui, code_blocked, i18n);
     let prev = gate(ui, has_prev, |ui| text_button(ui, i18n.t("findbar.prev")));
     let next = gate(ui, has_next, |ui| text_button(ui, i18n.t("findbar.next")));
     for (response, clicked) in [
         (run, FindIntent::RunButton),
         (clear, FindIntent::ClearButton),
+        (code, FindIntent::CodeButton),
         (prev, FindIntent::PrevButton),
         (next, FindIntent::NextButton),
     ] {
         width += response.rect.width() + gap;
-        if response.clicked() {
+        let usable = clicked != FindIntent::CodeButton || code_blocked.is_none();
+        if response.clicked() && usable {
             intent = Some(clicked);
         }
     }

@@ -3,13 +3,14 @@
 //! the last request it asked a preview for on its own. View-only state, parked with its session
 //! like the Documents tab's tree; nothing here is sent anywhere. Also the pure helpers the tab
 //! draws from: a stage's one-line status and the i18n key of a pipeline error.
-use super::aggregate::{Preview, PreviewState};
+use super::aggregate::{AggregateState, Preview, PreviewState};
 use super::{PageKey, TreeState, ViewMode, page_key};
 use bson::Document;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::pipeline::{PipelineError, stage_name};
+use curlybrace_core::pipeline::{PipelineError, Stage, stage_name};
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::Page;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// How long the typing in a stage pauses before the edit is sent (and previewed).
@@ -124,6 +125,31 @@ impl AggregateView {
             at: now,
         });
         (Self { pending, ..self }, displaced)
+    }
+
+    /// The stages of `draft` with the waiting stage text applied, as the edit will once it is
+    /// due (what a click would see after `flush_typing`); the draft's own stages when nothing
+    /// waits or the waiting text changes nothing. Only the stage list is copied, never the
+    /// preview page, so it is cheap to ask every frame.
+    pub fn typed_stages<'a>(&self, draft: &'a AggregateState) -> Cow<'a, [Stage]> {
+        match &self.pending {
+            Some(p) if draft.stages.get(p.index).is_some_and(|s| s.text != p.text) => {
+                let stages = draft
+                    .stages
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| match i == p.index {
+                        true => Stage {
+                            text: p.text.clone(),
+                            ..s.clone()
+                        },
+                        false => s.clone(),
+                    })
+                    .collect();
+                Cow::Owned(stages)
+            }
+            _ => Cow::Borrowed(&draft.stages),
+        }
     }
 
     /// The text stage `index` shows: what is being typed there, else `text`.

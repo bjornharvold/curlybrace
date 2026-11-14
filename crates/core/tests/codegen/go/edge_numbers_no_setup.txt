@@ -1,0 +1,22 @@
+pipeline := mongo.Pipeline{
+	bson.D{
+		{Key: "$match", Value: bson.D{
+			{Key: "negativeZero", Value: math.Copysign(0, -1)},
+			{Key: "int64Min", Value: int64(-9223372036854775808)},
+			{Key: "int64Max", Value: int64(9223372036854775807)},
+			{Key: "int32Min", Value: int32(-2147483648)},
+			{Key: "int32Max", Value: int32(2147483647)},
+			{Key: "timestamp", Value: bson.Timestamp{T: 3000000000, I: 4000000000}},
+		}},
+	},
+}
+
+cursor, err := collection.Aggregate(context.TODO(), pipeline)
+if err != nil {
+	log.Fatal(err)
+}
+var results []bson.M
+if err := cursor.All(context.TODO(), &results); err != nil {
+	log.Fatal(err)
+}
+fmt.Println(results)

@@ -1,0 +1,17 @@
+let pipeline = vec![
+    doc! {
+        "$match": {
+            "empty": bson::Binary { subtype: bson::spec::BinarySubtype::Generic, bytes: vec![] },
+            "emptyUuid": bson::Binary { subtype: bson::spec::BinarySubtype::Uuid, bytes: vec![] },
+            "oldUuid": bson::Binary { subtype: bson::spec::BinarySubtype::from(0x03_u8), bytes: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f] },
+            "md5": bson::Binary { subtype: bson::spec::BinarySubtype::from(0x05_u8), bytes: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f] },
+            "shortUuid": bson::Binary { subtype: bson::spec::BinarySubtype::Uuid, bytes: vec![0x01, 0x02, 0x03, 0x04, 0x05] },
+            "uuid": bson::Binary { subtype: bson::spec::BinarySubtype::Uuid, bytes: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f] },
+        },
+    },
+];
+
+let mut cursor = collection.aggregate(pipeline).await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}

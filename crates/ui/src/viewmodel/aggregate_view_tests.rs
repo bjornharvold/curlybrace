@@ -228,3 +228,25 @@ fn the_status_shown_follows_what_is_being_typed() {
         StageStatus::Valid("$match".into())
     );
 }
+
+#[test]
+fn the_typed_stages_borrow_the_draft_unless_an_edit_waits() {
+    let draft = AggregateState::default()
+        .add_stage("$match")
+        .edit(0, r#"{"$match": {}}"#);
+    let idle = AggregateView::default();
+    assert!(matches!(idle.typed_stages(&draft), Cow::Borrowed(_)));
+
+    let (waiting, _) = AggregateView::default().edited(0, "{ bad".into(), 1.0);
+    let typed = waiting.typed_stages(&draft);
+    assert_eq!(typed[0].text, "{ bad");
+    assert_eq!(
+        draft.stages[0].text, r#"{"$match": {}}"#,
+        "the draft is untouched"
+    );
+
+    let (same, _) = AggregateView::default().edited(0, draft.stages[0].text.clone(), 1.0);
+    assert!(matches!(same.typed_stages(&draft), Cow::Borrowed(_)));
+    let (beyond, _) = AggregateView::default().edited(9, "x".into(), 1.0);
+    assert!(matches!(beyond.typed_stages(&draft), Cow::Borrowed(_)));
+}

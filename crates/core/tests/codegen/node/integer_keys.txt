@@ -1,0 +1,28 @@
+const { MongoClient } = require("mongodb");
+
+async function main() {
+  const client = new MongoClient("<your connection string>");
+  try {
+    await client.connect();
+    const db = client.db("shop");
+    const collection = db.collection("orders");
+
+    const pipeline = [
+      {
+        $match: {
+          plain: new Map([["b", 1], ["2", 2], ["1", 3]]),
+          inOrder: { "1": 1, "2": 2, b: 3 },
+          leadingZero: { "01": 1, a: 2 },
+          nested: [{ x: new Map([["z", 1], ["10", 2], ["9", 3]]) }],
+        },
+      },
+    ];
+
+    const results = await collection.aggregate(pipeline).toArray();
+    console.log(results);
+  } finally {
+    await client.close();
+  }
+}
+
+main().catch(console.error);

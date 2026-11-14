@@ -1,0 +1,4 @@
+const pipeline = [{ $match: { status: "A" } }, { $out: { db: "shop", coll: "archive" } }];
+
+const results = await collection.aggregate(pipeline).toArray();
+console.log(results);

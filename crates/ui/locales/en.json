@@ -368,6 +368,44 @@
     "timestamp": "Timestamp({time}, {increment})",
     "undefined": "undefined"
   },
+  "codegen": {
+    "button": "Copy as code",
+    "button_hint": "Show this as code for mongosh or a driver",
+    "button_icon": "</>",
+    "copy": "Copy",
+    "disabled": {
+      "text_not_applied": "Apply the edited text to the stages before you copy code."
+    },
+    "error": {
+      "empty_pipeline": "There is no stage to show code for. Turn the write stage back on or enable a stage.",
+      "invalid_name": "The {field} cannot be used. Use letters, digits and underscores, start with a letter or an underscore, keep it to 41 characters, avoid keywords, and give each variable its own name.",
+      "key_order": "The mongosh shell lists numeric field names first, so this document's field order cannot be kept there. Pick another language.",
+      "out_of_range": "The {field} is too large for this language.",
+      "unsupported_value": "This language cannot write a value of type {type}."
+    },
+    "language": {
+      "csharp": "C#",
+      "go": "Go",
+      "java": "Java",
+      "label": "Language",
+      "mongosh": "mongosh",
+      "node": "Node.js",
+      "php": "PHP",
+      "python": "Python",
+      "ruby": "Ruby",
+      "rust": "Rust"
+    },
+    "name": {
+      "client": "Client variable",
+      "collection": "Collection variable",
+      "db": "Database variable"
+    },
+    "note": "The code connects with a placeholder connection string. Nothing is sent to the server.",
+    "preview": "Code",
+    "setup": "Include setup (imports and connection)",
+    "title": "Copy as code",
+    "write_stage": "Include the $out or $merge stage"
+  },
   "common": {
     "cancel": "Cancel",
     "close": "Close",

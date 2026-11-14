@@ -1,0 +1,15 @@
+$pipeline = [
+    [
+        '$match' => [
+            'empty' => new MongoDB\BSON\Binary(hex2bin(''), 0),
+            'emptyUuid' => new MongoDB\BSON\Binary(hex2bin(''), 4),
+            'oldUuid' => new MongoDB\BSON\Binary(hex2bin('000102030405060708090a0b0c0d0e0f'), 3),
+            'md5' => new MongoDB\BSON\Binary(hex2bin('000102030405060708090a0b0c0d0e0f'), 5),
+            'shortUuid' => new MongoDB\BSON\Binary(hex2bin('0102030405'), 4),
+            'uuid' => new MongoDB\BSON\Binary(hex2bin('000102030405060708090a0b0c0d0e0f'), 4),
+        ],
+    ],
+];
+
+$results = $collection->aggregate($pipeline)->toArray();
+print_r($results);

@@ -279,8 +279,17 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   line then shows the target and its document count, the error if it failed, or, after a timeout
   or a lost connection, that the server may or may not have finished writing, so you can check
   the target before running again.
-- Not yet: export as driver code, explain, undo of a run, and options such as collation, hint and
-  `allowDiskUse`. The draft that is not saved is kept per open connection while the app runs.
+- **Copy as code** ([#73](https://github.com/bjornharvold/curlybrace/issues/73)) shows the enabled
+  stages, or the query of the Browse query bar, as runnable code for mongosh, Node.js, Python, Java,
+  C#, Go, PHP, Ruby or Rust, and **Copy** puts exactly the text shown on the clipboard. It has
+  options for the setup lines (imports and connection), the three variable names and a trailing
+  `$out` or `$merge` stage; a name that cannot be used shows why instead of the code. The code
+  connects with a placeholder connection string, so no credential is ever in it, and nothing is
+  sent to the server (it works without a connection). The button is off, with the reason, when a
+  stage or the query does not parse, when no stage is enabled, or when edited text has not been
+  applied. The preview's 20-document limit is never part of the code. The language and options are
+  remembered until you quit.
+- Not yet: explain, undo of a run, and options such as collation, hint and `allowDiskUse`. The draft that is not saved is kept per open connection while the app runs.
 
 ## Roadmap
 
@@ -320,7 +329,7 @@ contribute.
 
 - **Aggregation builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): built: stage list and text mode, a
   read-only, time-bounded preview of the selected stage, and saved pipelines (save, open, rename
-  and delete per connection). Later slices: a confirmed `$out` / `$merge` run; export as driver code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)), explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) and per-stage
+  and delete per connection), a confirmed `$out` / `$merge` run, and Copy as code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)). Later slices: explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) and per-stage
   counts; options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
 
 ### In progress
@@ -343,7 +352,7 @@ contribute.
 - **Beyond the basics:** Data Masking and Reschema ([#9](https://github.com/bjornharvold/curlybrace/issues/9)), SQL and MongoDB ([#10](https://github.com/bjornharvold/curlybrace/issues/10)), Task
   Scheduler ([#11](https://github.com/bjornharvold/curlybrace/issues/11)).
 - **Query and analysis:** aggregation builder follow-ups ([#67](https://github.com/bjornharvold/curlybrace/issues/67)), explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), schema analysis
-  ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)), query history ([#72](https://github.com/bjornharvold/curlybrace/issues/72)), copy as driver code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)),
+  ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)), query history ([#72](https://github.com/bjornharvold/curlybrace/issues/72)),
   visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), query options ([#75](https://github.com/bjornharvold/curlybrace/issues/75)), an opt-in natural-language assistant
   ([#76](https://github.com/bjornharvold/curlybrace/issues/76)), data model diagrams ([#77](https://github.com/bjornharvold/curlybrace/issues/77)), a map view for geo fields ([#79](https://github.com/bjornharvold/curlybrace/issues/79)).
 - **Data in and out:** export ([#54](https://github.com/bjornharvold/curlybrace/issues/54)), import ([#55](https://github.com/bjornharvold/curlybrace/issues/55)), backup and restore ([#53](https://github.com/bjornharvold/curlybrace/issues/53)), test data

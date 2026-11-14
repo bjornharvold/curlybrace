@@ -8,8 +8,9 @@ use super::aggregate_saved::show_saved_toolbar;
 use super::aggregate_saved_dialogs::show_saved_dialog;
 use super::aggregate_stage::show_stages;
 use super::aggregate_text::show_text;
+use super::code_export_entry::{aggregate_blocked, show_copy_code_button};
 use crate::I18n;
-use crate::app::AggregateAction;
+use crate::app::{AggregateAction, CodeAction, CodeSource};
 use crate::theme::{CONTROL_HEIGHT, Tone, chip, gate, segmented, tonal_button};
 use crate::viewmodel::aggregate::{AggregateState, Mode, PreviewState, STAGE_MENU};
 use crate::viewmodel::aggregate_view::{AggregateView, pipeline_error_message};
@@ -39,7 +40,7 @@ pub fn show_aggregate(
     run: &RunContext,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
-    let header = show_header(ui, draft, saved, run, i18n);
+    let header = show_header(ui, draft, view, saved, run, i18n);
     show_run_status(ui, &draft.run.status, i18n);
     let max_height = ui.available_height() * EDITOR_SHARE;
     let edited = match draft.mode {
@@ -112,10 +113,13 @@ fn with_auto_refresh(
 fn show_header(
     ui: &mut egui::Ui,
     draft: &AggregateState,
+    view: &AggregateView,
     saved: &[SavedPipeline],
     run: &RunContext,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
+    // What was typed and is still waiting counts: a click applies it before it opens the code.
+    let typed = view.typed_stages(draft);
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(CONTROL_HEIGHT);
         // A stage added in text mode would not be in the text being edited, and a Refresh there
@@ -128,6 +132,8 @@ fn show_header(
         });
         let refresh = refresh.clicked() && stages;
         let saved_actions = show_saved_toolbar(ui, draft, saved, i18n);
+        let blocked = aggregate_blocked(draft, &typed, i18n);
+        let code = show_copy_code_button(ui, blocked.as_deref(), i18n);
         let run_clicked = show_run_button(ui, &run.availability, i18n);
         let (tone, key) = status_chip(&draft.preview);
         chip(ui, tone, &i18n.t(key));
@@ -135,6 +141,9 @@ fn show_header(
             added.map(AggregateAction::AddStage),
             mode.map(AggregateAction::SetMode),
             refresh.then_some(AggregateAction::Refresh),
+            code.then_some(AggregateAction::Code(CodeAction::Open(
+                CodeSource::Aggregate,
+            ))),
         ]
         .into_iter()
         .flatten()

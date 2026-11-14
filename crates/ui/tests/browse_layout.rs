@@ -15,9 +15,10 @@ use egui_kittest::kittest::Queryable;
 use support::shots::{SHOT_SIZE, browsing, build_app};
 
 /// Where the first document row may start at most (points from the window's top). The header
-/// above it is: connection + tabs (one row), the Filter row, the switches with the verdict's
-/// reserved row (it wraps at this width), the toolbar (two rows at this width) and the table's
-/// column header. Before the dense layout the first row started at about y = 633.
+/// above it is: connection + tabs (one row), the Filter row (one row: Copy as code is an icon),
+/// the switches with the verdict's reserved row (it wraps at this width), the toolbar (two rows
+/// at this width) and the table's column header. Before the dense layout the first row started at
+/// about y = 633.
 const FIRST_ROW_BUDGET: f32 = 300.0;
 
 struct Page {

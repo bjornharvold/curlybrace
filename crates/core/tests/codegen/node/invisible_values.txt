@@ -1,0 +1,37 @@
+const {
+  BSONRegExp,
+  BSONSymbol,
+  Code,
+  DBRef,
+  MongoClient,
+  ObjectId,
+} = require("mongodb");
+
+async function main() {
+  const client = new MongoClient("<your connection string>");
+  try {
+    await client.connect();
+    const db = client.db("shop");
+    const collection = db.collection("orders");
+
+    // Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
+    const pipeline = [
+      {
+        $match: {
+          regex: new BSONRegExp("a\u202eb\u200bc\udb40\udc01", "i"),
+          code: new Code("x\u202e + \ufeff1 // \u00ad"),
+          scoped: new Code("y\u2066", { "k\u200b": "v\udb40\udc7f" }),
+          symbol: new BSONSymbol("s\u202ey\udb40\udc01m"),
+          dbPointer: new DBRef("sh\u202eop.or\u200bders", new ObjectId("65a1b2c3d4e5f60718293a4b")),
+        },
+      },
+    ];
+
+    const results = await collection.aggregate(pipeline).toArray();
+    console.log(results);
+  } finally {
+    await client.close();
+  }
+}
+
+main().catch(console.error);

@@ -1,0 +1,14 @@
+var filter = new BsonDocument {
+    { "status", "A" },
+    { "qty", new BsonDocument { { "$gt", 10 } } },
+};
+var projection = new BsonDocument { { "name", 1 }, { "qty", 1 }, { "_id", 0 } };
+var sort = new BsonDocument { { "qty", -1 }, { "name", 1 } };
+
+var results = collection.Find(filter)
+    .Project<BsonDocument>(projection)
+    .Sort(sort)
+    .Skip(20)
+    .Limit(10)
+    .ToList();
+results.ForEach(Console.WriteLine);

@@ -41,6 +41,8 @@ pub enum FindAction {
     GuardRunAnyway,
     /// The guard's notice: drop it and the find it held back.
     GuardCancel,
+    /// Copy as code was clicked: opens the dialog for the query the Find button would send.
+    CopyAsCode,
 }
 
 /// A raw user gesture on the find bar, before validation.
@@ -52,6 +54,8 @@ pub enum FindIntent {
     ClearButton,
     PrevButton,
     NextButton,
+    /// The Copy as code button (only offered while the text parses).
+    CodeButton,
 }
 
 /// Chooses the intent for a frame; a button click wins over Enter.
@@ -75,6 +79,9 @@ pub fn resolve_find_intent(
         FindIntent::ClearButton => (FindBarState::default(), Some(FindAction::Clear)),
         FindIntent::PrevButton => (state.clone(), has_prev.then_some(FindAction::Prev)),
         FindIntent::NextButton => (state.clone(), has_next.then_some(FindAction::Next)),
+        // The bar's text stays as typed; the dialog reads it (and the button is off when it
+        // does not parse).
+        FindIntent::CodeButton => (state.clone(), Some(FindAction::CopyAsCode)),
     }
 }
 

@@ -230,3 +230,38 @@ pub fn preview_pipeline(
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
 mod tests;
+
+/// The enabled stages exactly as a run would send them, with no preview `$limit`: for exporting
+/// a pipeline as code. A trailing `$out` / `$merge` is kept (a lone one too); a write stage
+/// anywhere else is refused, and so is a stage that does not parse. Nothing enabled is `Empty`.
+pub fn export_stages(stages: &[Stage]) -> Result<Vec<Document>, PipelineError> {
+    let mut parsed: Vec<(usize, String, Document)> = Vec::new();
+    for (index, stage) in stages.iter().enumerate().filter(|(_, s)| s.enabled) {
+        let (name, doc) = parse_stage(&stage.text).ok_or(PipelineError::NotAStage { index })?;
+        parsed.push((index, name, doc));
+    }
+    if parsed.is_empty() {
+        return Err(PipelineError::Empty);
+    }
+    let ends_in_write = parsed.last().is_some_and(|(_, name, _)| is_write(name));
+    let checked = parsed.len() - usize::from(ends_in_write);
+    for (index, name, doc) in &parsed[..checked] {
+        if is_write(name) {
+            return Err(PipelineError::WriteStageNotLast {
+                index: *index,
+                name: name.clone(),
+            });
+        }
+        if let Some(nested) = find_write_in_stage(doc) {
+            return Err(PipelineError::NestedWriteStage {
+                index: *index,
+                name: nested,
+            });
+        }
+    }
+    Ok(parsed.into_iter().map(|(_, _, doc)| doc).collect())
+}
+
+#[cfg(test)]
+#[path = "pipeline_export_tests.rs"]
+mod export_tests;

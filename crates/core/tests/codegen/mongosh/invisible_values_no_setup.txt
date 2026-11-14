@@ -1,0 +1,15 @@
+// Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
+const pipeline = [
+  {
+    $match: {
+      regex: BSONRegExp("a\u202eb\u200bc\udb40\udc01", "i"),
+      code: Code("x\u202e + \ufeff1 // \u00ad"),
+      scoped: Code("y\u2066", { "k\u200b": "v\udb40\udc7f" }),
+      symbol: BSONSymbol("s\u202ey\udb40\udc01m"),
+      dbPointer: DBRef("sh\u202eop.or\u200bders", ObjectId("65a1b2c3d4e5f60718293a4b")),
+    },
+  },
+];
+
+const results = collection.aggregate(pipeline).toArray();
+printjson(results);
