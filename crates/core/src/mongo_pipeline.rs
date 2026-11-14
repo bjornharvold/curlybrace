@@ -69,7 +69,7 @@ pub(crate) async fn aggregate_write(
     pipeline: Vec<Document>,
     max_time: Duration,
 ) -> Result<()> {
-    ensure_run_shape(&pipeline)?;
+    ensure_run_shape(ns, &pipeline)?;
     let mut cursor = db
         .collection::<Document>(&ns.collection)
         .aggregate(pipeline)

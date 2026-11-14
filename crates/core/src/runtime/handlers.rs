@@ -247,6 +247,7 @@ async fn run(
         store.clone(),
         shared.history.clone(),
         max_continuous,
+        super::aggregate_run::RunLimits::new(&shared.config),
         command,
     );
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
@@ -362,6 +363,7 @@ async fn data_command(
     store: Arc<dyn DocumentStore>,
     history: Option<Arc<HistoryDb>>,
     max_continuous: i64,
+    run_limits: super::aggregate_run::RunLimits,
     command: Command,
 ) -> Result<Event> {
     let service = DocumentService::new(store.clone());
@@ -440,7 +442,7 @@ async fn data_command(
         }
         Command::AggregateRun {
             ns, pipeline, run, ..
-        } => super::aggregate_run::run(session, &*store, ns, pipeline, run).await?,
+        } => super::aggregate_run::run(session, &*store, ns, pipeline, run, run_limits).await?,
         Command::Insert { ns, json, .. } => {
             service.insert_from_json(&ns, &json).await?;
             Event::Mutated { session, ns }
@@ -758,6 +760,12 @@ async fn test_connection(
 /// its index builds) can run for a long time and must not be cut off half-way; every other
 /// command keeps the short bound. An aggregate preview is cut off shortly after the server's own
 /// time limit, and never later than the short bound.
+pub(super) fn run_write_limit(config: &super::RuntimeConfig) -> std::time::Duration {
+    config
+        .index_build_timeout
+        .min(super::config::AGGREGATE_RUN_TIMEOUT)
+}
+
 pub(super) fn command_time_limit(
     config: &super::RuntimeConfig,
     command: &Command,
@@ -769,9 +777,9 @@ pub(super) fn command_time_limit(
         Command::AggregatePreview { .. } => config
             .command_timeout
             .min(super::config::AGGREGATE_PREVIEW_TIMEOUT),
-        Command::AggregateRun { .. } => config
-            .index_build_timeout
-            .min(super::config::AGGREGATE_RUN_TIMEOUT),
+        Command::AggregateRun { .. } => {
+            run_write_limit(config) + super::config::AGGREGATE_RUN_COUNT_TIMEOUT
+        }
         _ => config.command_timeout,
     }
 }

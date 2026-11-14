@@ -288,7 +288,7 @@ fn a_run_is_bounded_just_above_the_server_time_limit() {
     };
     assert_eq!(
         handlers::command_time_limit(&short, &command),
-        Duration::from_millis(50)
+        Duration::from_millis(50) + config::AGGREGATE_RUN_COUNT_TIMEOUT
     );
 }
 
@@ -325,7 +325,7 @@ async fn a_preview_still_never_forwards_a_write_stage() {
 }
 
 /// A store whose write run succeeds and whose count of the target fails.
-struct CountFails(CoreError);
+struct CountFails(Option<CoreError>);
 
 #[async_trait::async_trait]
 impl DocumentStore for CountFails {
@@ -351,7 +351,10 @@ impl DocumentStore for CountFails {
         Ok(())
     }
     async fn estimated_count(&self, _ns: &Namespace) -> Result<u64> {
-        Err(self.0.clone())
+        match &self.0 {
+            Some(error) => Err(error.clone()),
+            None => std::future::pending().await,
+        }
     }
     async fn aggregate_write(
         &self,
@@ -365,7 +368,7 @@ impl DocumentStore for CountFails {
 
 #[tokio::test]
 async fn a_run_stays_a_success_when_only_the_count_cannot_be_read() {
-    let store = CountFails(CoreError::Database("count".into()));
+    let store = CountFails(Some(CoreError::Database("count".into())));
     let (mut h, session) = connected_to(Arc::new(store), false, RuntimeConfig::default()).await;
     h.tx.send(run_command(session, out_pipeline())).unwrap();
     match next(&mut h).await {
@@ -379,7 +382,7 @@ async fn a_run_stays_a_success_when_only_the_count_cannot_be_read() {
 
 #[tokio::test]
 async fn a_lost_connection_while_counting_keeps_the_known_success() {
-    let store = CountFails(CoreError::Unreachable);
+    let store = CountFails(Some(CoreError::Unreachable));
     let (mut h, session) = connected_to(Arc::new(store), false, RuntimeConfig::default()).await;
     h.tx.send(run_command(session, out_pipeline())).unwrap();
     assert!(matches!(
@@ -387,6 +390,58 @@ async fn a_lost_connection_while_counting_keeps_the_known_success() {
         Event::AggregateRan {
             run: 4,
             outcome: Ok(None),
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn a_count_outrunning_its_own_bound_leaves_the_success_without_a_count() {
+    let store = CountFails(None);
+    let limits = aggregate_run::RunLimits {
+        write: Duration::from_secs(30),
+        count: Duration::from_millis(50),
+    };
+    let event = aggregate_run::run(
+        SessionId::new_v4(),
+        &store,
+        mock_namespace(),
+        out_pipeline(),
+        4,
+        limits,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        event,
+        Event::AggregateRan {
+            run: 4,
+            outcome: Ok(None),
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn the_write_bound_is_apart_from_the_count_bound() {
+    let limits = aggregate_run::RunLimits {
+        write: Duration::from_millis(50),
+        count: Duration::from_secs(30),
+    };
+    let event = aggregate_run::run(
+        SessionId::new_v4(),
+        &HangingWrite,
+        mock_namespace(),
+        out_pipeline(),
+        4,
+        limits,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        event,
+        Event::AggregateRan {
+            outcome: Err(CoreError::WriteOutcomeUnknown),
             ..
         }
     ));

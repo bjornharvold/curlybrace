@@ -189,8 +189,12 @@ fn run_target_reads_the_last_stage_of_a_pipeline() {
     assert_eq!(run_target(&[]), None);
 }
 
+fn source() -> crate::store::Namespace {
+    crate::store::Namespace::new("app", "src")
+}
+
 fn shape_message(pipeline: &[bson::Document]) -> String {
-    match ensure_run_shape(pipeline) {
+    match ensure_run_shape(&source(), pipeline) {
         Err(CoreError::InvalidDocument(m)) => m,
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -198,8 +202,8 @@ fn shape_message(pipeline: &[bson::Document]) -> String {
 
 #[test]
 fn a_good_shape_passes() {
-    assert!(ensure_run_shape(&[doc! { "$match": {} }, doc! { "$out": "dest" }]).is_ok());
-    assert!(ensure_run_shape(&[doc! { "$merge": { "into": "dest" } }]).is_ok());
+    assert!(ensure_run_shape(&source(), &[doc! { "$match": {} }, doc! { "$out": "dest" }]).is_ok());
+    assert!(ensure_run_shape(&source(), &[doc! { "$merge": { "into": "dest" } }]).is_ok());
 }
 
 #[test]
@@ -252,11 +256,34 @@ fn a_target_in_a_server_database_is_refused_by_the_shape_check() {
     for db in ["admin", "local", "config"] {
         let pipeline = [doc! { "$out": { "db": db, "coll": "x" } }];
         assert_eq!(
-            ensure_run_shape(&pipeline),
+            ensure_run_shape(&source(), &pipeline),
             Err(CoreError::ReservedDatabase),
             "{db}"
         );
     }
     let allowed = [doc! { "$out": { "db": "warehouse", "coll": "x" } }];
-    assert!(ensure_run_shape(&allowed).is_ok());
+    assert!(ensure_run_shape(&source(), &allowed).is_ok());
+}
+
+#[test]
+fn a_bare_target_follows_the_source_database_in_the_shape_check() {
+    let bare = [doc! { "$match": {} }, doc! { "$out": "x" }];
+    let merge = [doc! { "$merge": { "into": "x" } }];
+    for db in ["admin", "local", "config"] {
+        let from = crate::store::Namespace::new(db, "src");
+        assert_eq!(
+            ensure_run_shape(&from, &bare),
+            Err(CoreError::ReservedDatabase),
+            "{db}"
+        );
+        assert_eq!(
+            ensure_run_shape(&from, &merge),
+            Err(CoreError::ReservedDatabase),
+            "{db}"
+        );
+        // A named, allowed database wins over the source's.
+        let named = [doc! { "$out": { "db": "warehouse", "coll": "x" } }];
+        assert!(ensure_run_shape(&from, &named).is_ok(), "{db}");
+    }
+    assert!(ensure_run_shape(&source(), &bare).is_ok());
 }

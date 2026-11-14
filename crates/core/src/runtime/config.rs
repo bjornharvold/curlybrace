@@ -38,6 +38,11 @@ pub const AGGREGATE_PREVIEW_TIMEOUT: Duration =
 pub const AGGREGATE_RUN_TIMEOUT: Duration =
     Duration::from_millis(crate::pipeline::AGGREGATE_RUN_MAX_TIME_MS + 5_000);
 
+/// Client-side bound of the count that follows a write run. Its own bound, apart from the
+/// write's: a slow count after a write that went through leaves the run a success without a
+/// count, never an unknown outcome.
+pub const AGGREGATE_RUN_COUNT_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Upper bound for the reachability ping that follows a suspect failure of a data command.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(3);
 

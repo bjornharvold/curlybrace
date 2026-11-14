@@ -9,6 +9,7 @@ use bson::{Bson, Document};
 use crate::admin::RESERVED_DATABASES;
 use crate::error::CoreError;
 use crate::pipeline::{PipelineError, Stage, find_write_in_stage, is_write, parse_stage};
+use crate::store::Namespace;
 
 /// Server-side time bound for a write run, in milliseconds.
 pub const AGGREGATE_RUN_MAX_TIME_MS: u64 = 60_000;
@@ -77,6 +78,44 @@ pub fn run_target(pipeline: &[Document]) -> Option<(String, RunTarget)> {
     Some((name.clone(), stage_target(name, body)?))
 }
 
+/// Why a list of stages is not the shape of a run. Positions index the list checked.
+enum Misshape {
+    Empty,
+    /// A write stage before the last position.
+    WriteNotLast {
+        at: usize,
+        name: String,
+    },
+    /// A write stage inside a sub-pipeline of an earlier stage.
+    NestedWrite {
+        at: usize,
+        name: String,
+    },
+    /// The last stage is not a write stage.
+    NoWrite,
+}
+
+/// The one check of a run's shape, shared by the plan (`run_pipeline`) and the store layer
+/// (`ensure_run_shape`) so they cannot drift: stages as `(name, body)`, the last one the only
+/// write stage and none nested in an earlier one. The target is not looked at here.
+fn check_shape(stages: &[(&str, &Document)]) -> Result<(), Misshape> {
+    let Some(((last_name, _), rest)) = stages.split_last() else {
+        return Err(Misshape::Empty);
+    };
+    for (at, (name, doc)) in rest.iter().enumerate() {
+        if let Some(found) = find_write_in_stage(doc) {
+            return Err(match is_write(name) {
+                true => Misshape::WriteNotLast { at, name: found },
+                false => Misshape::NestedWrite { at, name: found },
+            });
+        }
+    }
+    match is_write(last_name) {
+        true => Ok(()),
+        false => Err(Misshape::NoWrite),
+    }
+}
+
 /// Builds the pipeline of a write run from the enabled stages.
 ///
 /// The last enabled stage must be `$out` or `$merge` with a resolvable target; any other write
@@ -87,26 +126,20 @@ pub fn run_pipeline(stages: &[Stage]) -> Result<RunPlan, PipelineError> {
         let (name, doc) = parse_stage(&stage.text).ok_or(PipelineError::NotAStage { index })?;
         parsed.push((index, name, doc));
     }
-    let Some((last_index, last_name, _)) = parsed.last().cloned() else {
-        return Err(PipelineError::Empty);
-    };
-    for (index, name, doc) in &parsed[..parsed.len() - 1] {
-        if is_write(name) {
-            return Err(PipelineError::WriteStageNotLast {
-                index: *index,
-                name: name.clone(),
-            });
-        }
-        if let Some(nested) = find_write_in_stage(doc) {
-            return Err(PipelineError::NestedWriteStage {
-                index: *index,
-                name: nested,
-            });
-        }
-    }
-    if !is_write(&last_name) {
-        return Err(PipelineError::NoWriteStage);
-    }
+    let shape: Vec<(&str, &Document)> = parsed.iter().map(|(_, n, d)| (n.as_str(), d)).collect();
+    check_shape(&shape).map_err(|misshape| match misshape {
+        Misshape::Empty => PipelineError::Empty,
+        Misshape::WriteNotLast { at, name } => PipelineError::WriteStageNotLast {
+            index: parsed[at].0,
+            name,
+        },
+        Misshape::NestedWrite { at, name } => PipelineError::NestedWriteStage {
+            index: parsed[at].0,
+            name,
+        },
+        Misshape::NoWrite => PipelineError::NoWriteStage,
+    })?;
+    let last_index = parsed.last().map_or(0, |(index, _, _)| *index);
     let pipeline: Vec<Document> = parsed.into_iter().map(|(_, _, d)| d).collect();
     let (stage, target) =
         run_target(&pipeline).ok_or(PipelineError::TargetUnresolved { index: last_index })?;
@@ -121,12 +154,14 @@ pub fn run_pipeline(stages: &[Stage]) -> Result<RunPlan, PipelineError> {
 }
 
 /// Whether the target names a database the server owns (`admin`, `local`, `config`). A target
-/// without a database is the source's, which the runtime checks where it knows the source.
+/// without a database is the source's, which the store layer and the runtime check where they
+/// know the source.
 pub(crate) fn is_reserved_target(target: &RunTarget) -> bool {
-    target
-        .db
-        .as_deref()
-        .is_some_and(|db| RESERVED_DATABASES.contains(&db))
+    target.db.as_deref().is_some_and(is_reserved_db)
+}
+
+fn is_reserved_db(db: &str) -> bool {
+    RESERVED_DATABASES.contains(&db)
 }
 
 fn refusal(reason: &str) -> CoreError {
@@ -134,28 +169,34 @@ fn refusal(reason: &str) -> CoreError {
 }
 
 /// Defence in depth for the store layer: exactly one write stage, at stage position, last, none
-/// nested, with a resolvable target. The message names the stage, never the pipeline text.
-pub fn ensure_run_shape(pipeline: &[Document]) -> Result<(), CoreError> {
-    let Some((last, rest)) = pipeline.split_last() else {
-        return Err(refusal("at least one stage"));
-    };
-    if let Some(name) = rest.iter().find_map(find_write_in_stage) {
-        return Err(refusal(&format!(
-            "the write stage {name} to be the one and only, as the last stage"
-        )));
+/// nested, with a resolvable target, in a database the server does not own: the effective one
+/// is the target's own, else the source's (`ns.db`). The message names the stage, never the
+/// pipeline text.
+pub fn ensure_run_shape(ns: &Namespace, pipeline: &[Document]) -> Result<(), CoreError> {
+    let named: Vec<(&str, &Document)> = pipeline
+        .iter()
+        .map(|doc| (doc.keys().next().map_or("", String::as_str), doc))
+        .collect();
+    let target = run_target(pipeline);
+    let shape = check_shape(&named);
+    match (shape, target) {
+        (Err(Misshape::Empty), _) => Err(refusal("at least one stage")),
+        (Err(Misshape::WriteNotLast { name, .. } | Misshape::NestedWrite { name, .. }), _) => {
+            Err(refusal(&format!(
+                "the write stage {name} to be the one and only, as the last stage"
+            )))
+        }
+        (_, Some((_, target))) => match is_reserved_db(target.db.as_deref().unwrap_or(&ns.db)) {
+            true => Err(CoreError::ReservedDatabase),
+            false => Ok(()),
+        },
+        (_, None) => Err(refusal(
+            match pipeline.last().and_then(find_write_in_stage) {
+                Some(_) => "a single write stage with a usable target collection",
+                None => "$out or $merge as its last stage",
+            },
+        )),
     }
-    if run_target(pipeline).is_some_and(|(_, target)| is_reserved_target(&target)) {
-        return Err(CoreError::ReservedDatabase);
-    }
-    if run_target(pipeline).is_none() {
-        let what = if find_write_in_stage(last).is_some() {
-            "a single write stage with a usable target collection"
-        } else {
-            "$out or $merge as its last stage"
-        };
-        return Err(refusal(what));
-    }
-    Ok(())
 }
 
 #[cfg(test)]

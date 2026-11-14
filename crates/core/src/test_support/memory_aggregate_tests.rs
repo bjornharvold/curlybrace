@@ -89,3 +89,16 @@ async fn a_scripted_write_error_is_returned() {
         .unwrap_err();
     assert_eq!(err, CoreError::Database("boom".into()));
 }
+
+#[tokio::test]
+async fn a_bare_target_from_a_server_database_is_refused_and_not_recorded() {
+    let store = InMemoryStore::new();
+    for db in ["admin", "local", "config"] {
+        let err = store
+            .aggregate_write(&Namespace::new(db, "c"), vec![doc! { "$out": "t" }], LIMIT)
+            .await
+            .unwrap_err();
+        assert_eq!(err, CoreError::ReservedDatabase, "{db}");
+    }
+    assert!(store.written_pipelines().is_empty());
+}

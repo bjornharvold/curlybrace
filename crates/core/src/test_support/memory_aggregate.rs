@@ -9,6 +9,7 @@ use super::memory_store::{InMemoryStore, poisoned};
 use crate::error::{CoreError, Result};
 use crate::mongo_pipeline::ensure_read_only;
 use crate::pipeline::ensure_run_shape;
+use crate::store::Namespace;
 
 /// What is scripted and what was received.
 #[derive(Default)]
@@ -55,8 +56,12 @@ impl InMemoryStore {
             .unwrap_or_default()
     }
 
-    pub(super) fn run_aggregate_write(&self, pipeline: Vec<Document>) -> Result<()> {
-        ensure_run_shape(&pipeline)?;
+    pub(super) fn run_aggregate_write(
+        &self,
+        ns: &Namespace,
+        pipeline: Vec<Document>,
+    ) -> Result<()> {
+        ensure_run_shape(ns, &pipeline)?;
         let mut script = self.aggregate.lock().map_err(|_| poisoned())?;
         script.written.push(pipeline);
         script.write_error.clone().map_or(Ok(()), Err)

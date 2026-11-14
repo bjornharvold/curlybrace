@@ -339,11 +339,11 @@ impl DocumentStore for InMemoryStore {
 
     async fn aggregate_write(
         &self,
-        _ns: &Namespace,
+        ns: &Namespace,
         pipeline: Vec<Document>,
         _max_time: Duration,
     ) -> Result<()> {
-        self.run_aggregate_write(pipeline)
+        self.run_aggregate_write(ns, pipeline)
     }
 
     /// Answers the same scripted document as `explain_find`, flagged plan-only.
