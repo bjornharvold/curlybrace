@@ -50,6 +50,8 @@ mod index_edit_actions;
 mod index_write_actions;
 mod panels;
 pub mod persistence;
+mod pipelines_app;
+pub mod pipelines_store;
 mod queries_actions;
 pub mod reducer;
 pub mod sampling_settings;
@@ -92,6 +94,7 @@ use host_key::{
 };
 use panels::UiEvent;
 use persistence::default_connections_path;
+use pipelines_store::default_pipelines_path;
 use reducer::{Input, update};
 use sampling_settings::{SaveError, default_sampling_path};
 use state::{AppState, Banner, ConnStatus};
@@ -263,6 +266,7 @@ impl CurlybraceApp {
             .with_sampling_path(default_sampling_path())
             .with_explain_path(default_explain_path())
             .with_tools_path(default_tools_path())
+            .with_pipelines_path(default_pipelines_path())
     }
 
     pub fn with_config_path(self, config_path: ConfigPath) -> Self {
@@ -553,6 +557,7 @@ impl CurlybraceApp {
                 // disk: if the write failed the connection returns at the next launch.
                 self.send(purges_after(saved, &before, &self.state));
                 self.forget_tools_of_removed(saved, &before);
+                self.forget_pipelines_of_removed(saved, &before);
             }
             ConnectionAction::Duplicate(id) => {
                 let before = connection_ops::saved_ids(&state);
@@ -564,6 +569,7 @@ impl CurlybraceApp {
                 self.state =
                     connection_ops::duplicate(state, id, name, now, secrets, &self.config_path);
                 self.copy_tools_to_new(id, &before);
+                self.copy_pipelines_to_new(id, &before);
                 self.send(connection_ops::copy_history_to_new(
                     id,
                     &before,
@@ -587,6 +593,7 @@ impl CurlybraceApp {
                 // under the same rule: only once the list was written.
                 self.send(purges_after(saved, &before, &self.state));
                 self.forget_tools_of_removed(saved, &before);
+                self.forget_pipelines_of_removed(saved, &before);
             }
             ConnectionAction::Test(form) => {
                 self.state = state;
@@ -845,6 +852,10 @@ mod aggregate_session_tests;
 #[cfg(test)]
 mod file_picker_tests;
 
+#[cfg(test)]
+mod pipelines_store_tests;
+#[cfg(test)]
+mod pipelines_wiring_tests;
 #[cfg(test)]
 mod sampling_settings_tests;
 #[cfg(test)]

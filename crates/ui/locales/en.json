@@ -71,6 +71,13 @@
       "not_run_one": "1 stage not run: {names}"
     },
     "refresh": "Refresh",
+    "saved": {
+      "blocked": "The saved pipelines file could not be backed up earlier, so changes to saved pipelines are not written. Nothing was saved.",
+      "config_dir_unknown": "Saved pipelines cannot be written because there is no settings folder for this account. Nothing was saved.",
+      "recovered_backed_up": "The saved pipelines file was not readable, so the list of saved pipelines starts empty. A backup copy was kept next to it; saving a pipeline will replace the original file.",
+      "recovered_backup_failed": "The saved pipelines file was not readable and a backup copy could not be made. The list starts empty, and saving pipelines is turned off so nothing is overwritten.",
+      "write_failed": "Could not write the saved pipelines file. Your pipeline is still open here; try again."
+    },
     "stage": {
       "disabled": "Disabled: the preview skips it.",
       "editor_n": "Stage {n} JSON",

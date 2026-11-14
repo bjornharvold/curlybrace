@@ -55,6 +55,9 @@ pub enum Banner {
     Persist(PersistError),
     /// The tool paths file could not be written; the change applies until the app closes.
     ToolsPersist(PersistError),
+    /// The saved pipelines file could not be written (after a connection was deleted or
+    /// duplicated); the list changes until the app closes.
+    PipelinesPersist(PersistError),
     /// The file chosen for import was refused. Says nothing about the saved list.
     ImportFailed(ImportError),
     /// Writing the export file failed. Says nothing about the saved list.
@@ -249,6 +252,14 @@ pub struct AppState {
     pub guard_request: u64,
     /// The tool paths (global and per connection) and their version checks. Global too.
     pub tools: ToolsState,
+    /// Every connection's saved aggregation pipelines. Global too; changed only through
+    /// `persist_pipelines`, so it never runs ahead of the file.
+    pub pipelines: curlybrace_core::saved_pipeline::SavedPipelines,
+    /// Where `pipelines.json` is; `None` when there is no settings folder (or in tests that do
+    /// not set one), so nothing is ever written to the real config directory by accident.
+    pub pipelines_path: Option<std::path::PathBuf>,
+    /// Whether `pipelines.json` may be replaced (not when a bad one could not be backed up).
+    pub pipelines_guard: PersistGuard,
     /// The `PATH` a `PATH` tool choice is searched in: the process's own plus the usual install
     /// folders in the app; `None` (no search at all) by default, so tests never find a program of
     /// the machine they run on.
