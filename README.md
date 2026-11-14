@@ -235,7 +235,7 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
 - The find bar takes strict JSON, not mongo shell syntax.
 - Everyday tools you may expect from other clients (document import and export, schema analysis)
   are not built yet. They come after the features at the top of the [roadmap](#roadmap). The
-  aggregation builder previews pipelines but cannot save them or run a write stage yet (see
+  aggregation builder previews and saves pipelines but cannot run a write stage yet (see
   **Aggregate** above).
 
 **Aggregate** ([#67](https://github.com/bjornharvold/curlybrace/issues/67))
@@ -253,9 +253,22 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   which stages were not run), and one anywhere else, including inside `$facet`, `$lookup` or
   `$unionWith`, is refused before anything is sent. So previews work on production connections
   without a confirmation, and on read-only connections.
-- Not yet: saving and opening pipelines, running a write stage, export as driver code, explain,
-  and options such as collation, hint and `allowDiskUse`. The draft is kept per open connection
-  while the app runs, not saved.
+- **Save** keeps the pipeline under a name; **Open** lists the saved pipelines of the connection
+  (newest first, with the collection each was saved from) and replaces the draft with the one you
+  pick; each item has **Rename** and **Delete** (Delete asks first). The header shows the name of
+  the opened pipeline and a **Modified** mark while the draft differs from what was saved. Opening
+  a pipeline runs nothing by itself; the normal preview follows. When the draft has unsaved
+  changes, Open asks before replacing them.
+- A name is 1 to 80 characters, ignoring spaces around it, and unique per connection without
+  regard to case; saving under a name that is taken asks whether to replace that pipeline. A
+  connection keeps up to 200 pipelines of up to 1 MB of stage text each. Saved pipelines belong to
+  one connection and are offered on every collection of it. They live in `pipelines.json` next to
+  `connections.json`, readable only by you, and are removed with the connection and copied when
+  you duplicate it. If the file cannot be written the draft stays open and the dialog says so; an
+  unreadable file is backed up, the list starts empty and the app tells you.
+- Not yet: running a write stage (a confirmed `$out` / `$merge` run is next), export as driver
+  code, explain, and options such as collation, hint and `allowDiskUse`. The draft that is not
+  saved is kept per open connection while the app runs.
 
 ## Roadmap
 
@@ -293,15 +306,15 @@ contribute.
   optional indexes and options, progress and Cancel. Nothing is left to build; feedback and fixes
   are welcome. See the [guide](docs/copy.md).
 
-- **Aggregation builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): the first slice is built: stage list and text mode, and a
-  read-only, time-bounded preview of the selected stage. Later slices: saved pipelines and a
-  confirmed `$out` / `$merge` run; export as driver code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)), explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) and per-stage
+- **Aggregation builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): built: stage list and text mode, a
+  read-only, time-bounded preview of the selected stage, and saved pipelines (save, open, rename
+  and delete per connection). Later slices: a confirmed `$out` / `$merge` run; export as driver code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)), explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) and per-stage
   counts; options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
 
 ### In progress
 
 - **Aggregation pipeline builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): the first slice (build a
-  pipeline stage by stage with a preview of each stage) is done; saved pipelines and a confirmed `$out` / `$merge` run are next.
+  pipeline stage by stage with a preview of each stage) and slice 2a (saved pipelines) are built; the confirmed `$out` / `$merge` run is next.
 
 ### Next
 

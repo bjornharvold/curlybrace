@@ -49,6 +49,8 @@ fn applied(draft: AggregateState, action: &AggregateAction) -> AggregateState {
         AggregateAction::EditText(text) => draft.with_text(text),
         AggregateAction::Refresh => draft,
         AggregateAction::Batch(actions) => actions.iter().fold(draft, applied),
+        // The saved-pipeline dialogs are the reducer's and have their own tests.
+        _ => draft,
     }
 }
 
@@ -92,7 +94,8 @@ fn open_sized(draft: AggregateState, size: (f32, f32)) -> Harness<'static, Frame
                     theme::install(ui.ctx());
                     installed = true;
                 }
-                let actions = show_aggregate(ui, &frame.draft, &mut frame.view, &I18n::english());
+                let actions =
+                    show_aggregate(ui, &frame.draft, &mut frame.view, &[], &I18n::english());
                 for action in &actions {
                     frame.draft = applied(std::mem::take(&mut frame.draft), action);
                 }
@@ -195,7 +198,7 @@ fn tab_walks_the_header_then_the_first_stage() {
         .focus();
     harness.run_steps(2);
     let mut order = vec![focused(&harness)];
-    for _ in 0..8 {
+    for _ in 0..9 {
         harness.key_press(egui::Key::Tab);
         harness.run_steps(2);
         order.push(focused(&harness));
@@ -205,6 +208,7 @@ fn tab_walks_the_header_then_the_first_stage() {
         t("aggregate.mode.stages"),
         t("aggregate.mode.text"),
         t("aggregate.refresh"),
+        t("aggregate.saved.save"),
         tn("aggregate.stage.enable_n", 1),
         tn("aggregate.stage.select_n", 1),
         tn("aggregate.stage.move_down_n", 1),

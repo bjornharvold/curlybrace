@@ -44,6 +44,17 @@ impl PersistError {
     }
 }
 
+impl PersistError {
+    /// The neutral message for a failure to save the pipelines (not the connection list), for
+    /// where the operation is not known (a banner).
+    pub fn pipelines_i18n_key(&self) -> &'static str {
+        match self {
+            Self::ConfigDirUnknown => "aggregate.saved.config_dir_unknown",
+            _ => "aggregate.saved.write_failed",
+        }
+    }
+}
+
 /// What startup found wrong with the saved list and whether the original file was preserved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Recovery {
@@ -81,6 +92,13 @@ pub enum Recovery {
     Tools {
         backed_up: bool,
     },
+    /// The saved pipelines file was not usable; the store starts empty.
+    Pipelines {
+        backed_up: bool,
+    },
+    /// The saved pipelines file was written by a newer version: it is left as it is, the store
+    /// starts empty and saving is turned off.
+    PipelinesNewer,
 }
 
 impl Recovery {
@@ -114,6 +132,9 @@ impl Recovery {
             Self::Explain { backed_up: false } => "persist.explain_backup_failed",
             Self::Tools { backed_up: true } => "persist.tools_backed_up",
             Self::Tools { backed_up: false } => "persist.tools_backup_failed",
+            Self::Pipelines { backed_up: true } => "aggregate.saved.recovered_backed_up",
+            Self::Pipelines { backed_up: false } => "aggregate.saved.recovered_backup_failed",
+            Self::PipelinesNewer => "aggregate.saved.error.unsupported",
         }
     }
 }

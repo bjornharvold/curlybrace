@@ -34,9 +34,44 @@ pub enum AggregateAction {
     /// The actions of one frame, applied in order; at most one preview is sent for all of them
     /// (see [`batch`]).
     Batch(Vec<AggregateAction>),
+    /// Save was clicked: opens the name dialog.
+    SaveClicked,
+    SaveNameEdited(String),
+    /// Save the draft under the dialog's name (asks to replace when the name is taken).
+    SaveConfirmed,
+    /// A saved pipeline was picked in the Open menu (asks first when the draft is modified).
+    OpenMenuPicked(Uuid),
+    /// Replace the draft with the pipeline the open prompt names.
+    OpenConfirmed,
+    RenameStarted(Uuid),
+    RenameEdited(String),
+    RenameConfirmed,
+    DeleteAsked(Uuid),
+    DeleteConfirmed,
+    /// Close whichever saved-pipeline dialog is open, changing nothing.
+    DialogCancelled,
 }
 
 impl AggregateAction {
+    /// Whether this is one of the Save / Open / Rename / Delete actions of the saved pipelines.
+    /// Only a shortcut for `on_action`: its match still names every variant.
+    pub(super) fn is_saved_pipeline_action(&self) -> bool {
+        matches!(
+            self,
+            Self::SaveClicked
+                | Self::SaveNameEdited(_)
+                | Self::SaveConfirmed
+                | Self::OpenMenuPicked(_)
+                | Self::OpenConfirmed
+                | Self::RenameStarted(_)
+                | Self::RenameEdited(_)
+                | Self::RenameConfirmed
+                | Self::DeleteAsked(_)
+                | Self::DeleteConfirmed
+                | Self::DialogCancelled
+        )
+    }
+
     /// The actions of one frame as one action: none is nothing, one is itself, more are a
     /// `Batch`.
     pub fn batched(mut actions: Vec<AggregateAction>) -> Option<AggregateAction> {
@@ -51,6 +86,11 @@ impl AggregateAction {
 /// Applies `action` to the active session's draft. Every change of the pipeline or of the
 /// selection previews the selected stage at once.
 pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
+    if action.is_saved_pipeline_action() {
+        // Before the draft is copied for the others: a name typed into a dialog changes the
+        // dialog only, and the saved handler moves the draft rather than copy it.
+        return super::aggregate_saved_actions::on_action(state, action);
+    }
     let draft = (*state.aggregate).clone();
     match action {
         AggregateAction::AddStage(name) => changed(state, draft.add_stage(&name)),
@@ -64,6 +104,21 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::EditText(text) => (with_draft(state, draft.with_text(&text)), Vec::new()),
         AggregateAction::Refresh => previewed(state, draft),
         AggregateAction::Batch(actions) => batch(state, actions),
+        // Listed one by one, so a new variant must be placed here and `Batch` can never fall
+        // through to the saved-pipelines handler.
+        saved @ (AggregateAction::SaveClicked
+        | AggregateAction::SaveNameEdited(_)
+        | AggregateAction::SaveConfirmed
+        | AggregateAction::OpenMenuPicked(_)
+        | AggregateAction::OpenConfirmed
+        | AggregateAction::RenameStarted(_)
+        | AggregateAction::RenameEdited(_)
+        | AggregateAction::RenameConfirmed
+        | AggregateAction::DeleteAsked(_)
+        | AggregateAction::DeleteConfirmed
+        | AggregateAction::DialogCancelled) => {
+            super::aggregate_saved_actions::on_action(state, saved)
+        }
     }
 }
 
@@ -98,7 +153,7 @@ fn batch(state: AppState, actions: Vec<AggregateAction>) -> Out {
 }
 
 /// `state` holding `draft` as the active session's Aggregate draft.
-fn with_draft(state: AppState, draft: AggregateState) -> AppState {
+pub(super) fn with_draft(state: AppState, draft: AggregateState) -> AppState {
     AppState {
         aggregate: Box::new(draft),
         ..state

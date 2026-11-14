@@ -83,25 +83,29 @@ pub struct AggregateState {
     pub queued: Option<super::aggregate_flight::Queued>,
     /// The newest preview request; bumped by every pipeline change so an older answer is stale.
     pub request: u64,
+    /// The opened saved pipeline and the open dialog (see `aggregate_saved`).
+    pub saved: super::aggregate_saved::SavedUi,
 }
 
 impl AggregateState {
     /// The highest valid selection for `len` stages.
-    fn clamp(i: usize, len: usize) -> usize {
+    pub(super) fn clamp(i: usize, len: usize) -> usize {
         i.min(len.saturating_sub(1))
     }
 
     /// `stages` with fresh identities, appended to `kept` (the identities that stay).
-    fn keyed(&self, kept: Vec<u64>, added: usize) -> (Vec<u64>, u64) {
+    pub(super) fn keyed(&self, kept: Vec<u64>, added: usize) -> (Vec<u64>, u64) {
         let first = self.next_key;
         let end = first.wrapping_add(added as u64);
         (kept.into_iter().chain(first..end).collect(), end)
     }
 
-    /// The pipeline changed: an answer still in flight no longer matches it.
-    fn changed(self) -> Self {
+    /// The pipeline changed: an answer still in flight is stale, and so is the remembered
+    /// "modified" answer.
+    pub(super) fn changed(self) -> Self {
         Self {
             request: self.request.wrapping_add(1),
+            saved: self.saved.with_modified_forgotten(),
             ..self
         }
     }
@@ -257,6 +261,7 @@ impl AggregateState {
         Self {
             text: text.to_string(),
             text_error: None,
+            saved: self.saved.with_modified_forgotten(),
             ..self
         }
     }
@@ -313,8 +318,8 @@ impl AggregateState {
     }
 
     /// Whether the tab should ask for a preview on its own: the pane is idle with a stage to run
-    /// (an empty or all-disabled pipeline stays idle) and request `sent` (the last one asked for automatically) is not the current one, so an
-    /// ask that could not run (no connection) is not repeated every frame.
+    /// and request `sent` (the last one asked for automatically) is not the current one, so an
+    /// ask that could not run is not repeated.
     pub fn wants_auto_refresh(&self, sent: Option<u64>) -> bool {
         self.preview == PreviewState::Idle
             && sent != Some(self.request)
@@ -344,7 +349,6 @@ impl AggregateState {
                 };
                 (next, Some((request, plan.pipeline)))
             }
-            // Nothing to run: no error and no stale documents, just the idle pane.
             Err(PipelineError::Empty) => {
                 let next = Self {
                     preview: PreviewState::Idle,

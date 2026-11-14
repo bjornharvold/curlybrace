@@ -2,9 +2,11 @@
 //! `crm.customers` (`$match`, `$group`, `$sort`) with stage 2 selected and its preview shown.
 use super::shots::browsing;
 use bson::{Document, doc};
+use curlybrace_core::saved_pipeline::{SavedPipeline, SavedStage};
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::AggregateState;
 use curlybrace_ui::viewmodel::{CollectionTab, ViewMode};
+use uuid::Uuid;
 
 /// The stage texts, as the person typed them (JSON data, not labels).
 const MATCH: &str = "{\n  \"$match\": { \"status\": \"active\" }\n}";
@@ -41,4 +43,44 @@ pub fn aggregate_tab(state: &mut AppState) {
     browsing(ViewMode::Tree)(state);
     state.tab = CollectionTab::Aggregate;
     state.aggregate = Box::new(three_stage_draft());
+}
+
+/// The name the opened-pipeline fixture was saved under.
+pub const OPENED_NAME: &str = "Customers per city";
+
+/// [`three_stage_draft`] as a saved pipeline, so a draft can be opened from it.
+pub fn saved_three_stages() -> SavedPipeline {
+    let stages = three_stage_draft()
+        .stages
+        .iter()
+        .map(|s| SavedStage {
+            text: s.text.clone(),
+            enabled: s.enabled,
+        })
+        .collect();
+    SavedPipeline {
+        id: Uuid::from_u128(7),
+        name: OPENED_NAME.into(),
+        ns_hint: Some("crm.customers".into()),
+        saved_unix: 1_700_000_000,
+        stages,
+    }
+}
+
+/// [`three_stage_draft`] opened from its saved pipeline and then edited (the `$sort` direction),
+/// so the header shows the name and the Modified mark; stage 3 previewed.
+pub fn opened_modified_draft() -> AggregateState {
+    let draft = AggregateState::default()
+        .opened_from(&saved_three_stages())
+        .edit(2, "{\n  \"$sort\": { \"customers\": 1 }\n}");
+    let (draft, sent) = draft.begin_preview();
+    let (request, _) = sent.expect("the fixture pipeline is valid");
+    draft.arrived(request, Ok(grouped_docs()))
+}
+
+/// The Aggregate tab of a connected browser on `crm.customers` showing [`opened_modified_draft`].
+pub fn aggregate_opened_tab(state: &mut AppState) {
+    browsing(ViewMode::Tree)(state);
+    state.tab = CollectionTab::Aggregate;
+    state.aggregate = Box::new(opened_modified_draft());
 }

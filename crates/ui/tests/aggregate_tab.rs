@@ -43,7 +43,7 @@ fn open_stepping(draft: AggregateState, step_dt: f32) -> Harness<'static, Frame>
         .with_step_dt(step_dt)
         .build_ui_state(
             |ui, (draft, view, seen): &mut Frame| {
-                seen.extend(show_aggregate(ui, draft, view, &I18n::english()));
+                seen.extend(show_aggregate(ui, draft, view, &[], &I18n::english()));
             },
             (draft, AggregateView::default(), Vec::new()),
         );

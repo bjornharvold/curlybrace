@@ -34,7 +34,20 @@ pub(super) fn load<T: Default>(
     parse: impl Fn(&[u8]) -> Result<T, PersistError>,
     recovery: impl Fn(bool) -> Recovery,
 ) -> Startup<T> {
-    let tag = match std::fs::read(path) {
+    load_read(path, std::fs::read(path), backup, what, parse, recovery)
+}
+
+/// [`load`] for a caller that already read the file, so the bytes it parses are the bytes it
+/// knows about.
+pub(super) fn load_read<T: Default>(
+    path: &Path,
+    read: std::io::Result<Vec<u8>>,
+    backup: BackupFn<'_>,
+    what: &str,
+    parse: impl Fn(&[u8]) -> Result<T, PersistError>,
+    recovery: impl Fn(bool) -> Recovery,
+) -> Startup<T> {
+    let tag = match read {
         Ok(bytes) => match parse(&bytes) {
             Ok(settings) => return Startup::usable(settings),
             Err(_) => "corrupt",

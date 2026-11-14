@@ -217,24 +217,6 @@ fn indexes_tab_dark() {
         .snapshot("indexes_tab_dark");
 }
 
-// The Aggregate tab: `$match`, `$group`, `$sort` with stage 2 previewed (four documents).
-shot!(
-    aggregate_tab,
-    vec![],
-    support::aggregate_shots::aggregate_tab
-);
-
-#[test]
-#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
-fn aggregate_tab_dark() {
-    if !snapshots_enabled("aggregate_tab_dark") {
-        return;
-    }
-    Shot::new(vec![], support::aggregate_shots::aggregate_tab)
-        .mode(Mode::Dark)
-        .snapshot("aggregate_tab_dark");
-}
-
 // The Queries view with a bad, a warning and a good verdict chip and the miss trend.
 shot!(
     queries_view_light,

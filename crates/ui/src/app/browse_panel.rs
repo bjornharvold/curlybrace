@@ -160,9 +160,12 @@ fn show_aggregate_tab(
     i18n: &I18n,
     out: &mut Vec<UiEvent>,
 ) {
+    let saved = state
+        .active
+        .map_or(&[][..], |connection| state.pipelines.list(connection));
     let mut actions = ui
         .push_id(("aggregate_tab", state.active), |ui| {
-            show_aggregate(ui, &state.aggregate, &mut state.aggregate_view, i18n)
+            show_aggregate(ui, &state.aggregate, &mut state.aggregate_view, saved, i18n)
         })
         .inner;
     if leaving {
