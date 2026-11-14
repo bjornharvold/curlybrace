@@ -119,7 +119,7 @@ fn show_header(
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
     // What was typed and is still waiting counts: a click applies it before it opens the code.
-    let typed = view.typed_into(draft);
+    let typed = view.typed_stages(draft);
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(CONTROL_HEIGHT);
         // A stage added in text mode would not be in the text being edited, and a Refresh there
@@ -132,7 +132,7 @@ fn show_header(
         });
         let refresh = refresh.clicked() && stages;
         let saved_actions = show_saved_toolbar(ui, draft, saved, i18n);
-        let blocked = aggregate_blocked(&typed, i18n);
+        let blocked = aggregate_blocked(draft, &typed, i18n);
         let code = show_copy_code_button(ui, blocked.as_deref(), i18n);
         let run_clicked = show_run_button(ui, &run.availability, i18n);
         let (tone, key) = status_chip(&draft.preview);

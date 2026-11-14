@@ -7,7 +7,7 @@ use super::aggregate::{AggregateState, Preview, PreviewState};
 use super::{PageKey, TreeState, ViewMode, page_key};
 use bson::Document;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::pipeline::{PipelineError, stage_name};
+use curlybrace_core::pipeline::{PipelineError, Stage, stage_name};
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::Page;
 use std::borrow::Cow;
@@ -127,12 +127,28 @@ impl AggregateView {
         (Self { pending, ..self }, displaced)
     }
 
-    /// `draft` with the waiting stage text applied, as the edit will once it is due (what a
-    /// click would see after `flush_typing`); `draft` itself when nothing waits.
-    pub fn typed_into<'a>(&self, draft: &'a AggregateState) -> Cow<'a, AggregateState> {
+    /// The stages of `draft` with the waiting stage text applied, as the edit will once it is
+    /// due (what a click would see after `flush_typing`); the draft's own stages when nothing
+    /// waits or the waiting text changes nothing. Only the stage list is copied, never the
+    /// preview page, so it is cheap to ask every frame.
+    pub fn typed_stages<'a>(&self, draft: &'a AggregateState) -> Cow<'a, [Stage]> {
         match &self.pending {
-            Some(p) => Cow::Owned(draft.clone().edit(p.index, &p.text)),
-            None => Cow::Borrowed(draft),
+            Some(p) if draft.stages.get(p.index).is_some_and(|s| s.text != p.text) => {
+                let stages = draft
+                    .stages
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| match i == p.index {
+                        true => Stage {
+                            text: p.text.clone(),
+                            ..s.clone()
+                        },
+                        false => s.clone(),
+                    })
+                    .collect();
+                Cow::Owned(stages)
+            }
+            _ => Cow::Borrowed(&draft.stages),
         }
     }
 

@@ -5,13 +5,15 @@ use super::aggregate::pipeline_error_text;
 use crate::I18n;
 use crate::theme::{compact_text_button, gate, tonal_button};
 use crate::viewmodel::aggregate::AggregateState;
-use crate::viewmodel::code_export::{CodeBlock, aggregate_stages};
+use crate::viewmodel::code_export::{CodeBlock, stages_exported};
+use curlybrace_core::pipeline::Stage;
 use curlybrace_core::query::{QueryText, parse_query};
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
 /// Why the Aggregate tab has no code to offer, in words; `None` when it has.
-pub fn aggregate_blocked(draft: &AggregateState, i18n: &I18n) -> Option<String> {
-    match aggregate_stages(draft) {
+/// `stages` are the draft's own, or with the text still being typed applied.
+pub fn aggregate_blocked(draft: &AggregateState, stages: &[Stage], i18n: &I18n) -> Option<String> {
+    match stages_exported(draft, stages) {
         Ok(_) => None,
         Err(CodeBlock::Pipeline(error)) => Some(pipeline_error_text(&error, i18n)),
         Err(CodeBlock::TextNotApplied) => Some(i18n.t("codegen.disabled.text_not_applied")),

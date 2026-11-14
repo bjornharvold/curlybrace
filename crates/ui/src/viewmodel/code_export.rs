@@ -6,7 +6,7 @@
 use super::aggregate::{AggregateState, Mode};
 use bson::Document;
 use curlybrace_core::codegen::{CodeOptions, CodeRequest, CodegenError, Language, generate};
-use curlybrace_core::pipeline::{PipelineError, export_stages, pipeline_text};
+use curlybrace_core::pipeline::{PipelineError, Stage, export_stages, pipeline_text};
 use curlybrace_core::store::Namespace;
 use std::fmt;
 use uuid::Uuid;
@@ -31,11 +31,20 @@ pub enum CodeBlock {
 /// The enabled stages of the draft exactly as a run would send them: the preview's `$limit` is
 /// never part of them, and a trailing `$out` / `$merge` is kept (the dialog's option drops it).
 pub fn aggregate_stages(draft: &AggregateState) -> Result<Vec<Document>, CodeBlock> {
-    let text_edited = draft.mode == Mode::Text && draft.text != pipeline_text(&draft.stages);
+    stages_exported(draft, &draft.stages)
+}
+
+/// `aggregate_stages` for `stages` standing in for the draft's own (the text still being typed
+/// applied), so the check needs no copy of the whole draft.
+pub fn stages_exported(
+    draft: &AggregateState,
+    stages: &[Stage],
+) -> Result<Vec<Document>, CodeBlock> {
+    let text_edited = draft.mode == Mode::Text && draft.text != pipeline_text(stages);
     if text_edited {
         return Err(CodeBlock::TextNotApplied);
     }
-    export_stages(&draft.stages).map_err(CodeBlock::Pipeline)
+    export_stages(stages).map_err(CodeBlock::Pipeline)
 }
 
 /// An open dialog: what it shows code for, and the code.
