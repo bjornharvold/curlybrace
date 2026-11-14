@@ -6,7 +6,7 @@ use crate::app::reducer::{Input, Out, update};
 use crate::app::state::{AppState, Banner, ConnStatus};
 use crate::viewmodel::AggregateState;
 use crate::viewmodel::SidebarAction;
-use crate::viewmodel::aggregate_run::{RunAvailability, RunDisabled, RunStatus};
+use crate::viewmodel::aggregate_run::{CountState, RunAvailability, RunDisabled, RunStatus};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::runtime::{Command, EMBEDDED_SESSION, Event};
@@ -128,7 +128,7 @@ fn the_count_answer_fills_the_dialog() {
         },
     );
     assert!(commands.is_empty());
-    assert_eq!(s.aggregate.run.dialog.unwrap().target_count, Some(12));
+    assert_eq!(s.aggregate.run.dialog.unwrap().count, CountState::Known(12));
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn the_count_of_another_collection_does_not_fill_the_dialog() {
             count: 99,
         },
     );
-    assert_eq!(s.aggregate.run.dialog.unwrap().target_count, None);
+    assert_eq!(s.aggregate.run.dialog.unwrap().count, CountState::Loading);
 }
 
 #[test]
@@ -699,3 +699,6 @@ fn run_actions_inside_a_batch_apply_in_order() {
     assert_eq!(run_commands(&commands).len(), 1);
     assert_eq!(s.aggregate.run.status, RunStatus::Running);
 }
+
+#[path = "aggregate_run_gate_tests.rs"]
+mod gate_tests;

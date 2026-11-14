@@ -87,6 +87,9 @@ pub struct AggregateState {
     pub saved: super::aggregate_saved::SavedUi,
     /// The write run's confirmation dialog and last outcome (see `aggregate_run`).
     pub run: super::aggregate_run::RunUi,
+    /// What the draft says about its run, remembered between repaints (see
+    /// `aggregate_run_availability`); keyed on the stages, mode and text, so it needs no reset.
+    pub(super) run_shape: super::aggregate_run_availability::RunShapeMemo,
 }
 
 impl AggregateState {

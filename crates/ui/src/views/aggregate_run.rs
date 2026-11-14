@@ -11,7 +11,9 @@ use crate::I18n;
 use crate::app::AggregateAction;
 use crate::theme::{Tone, filled_button, gate, modal_frame, text_button, tonal_button, typography};
 use crate::viewmodel::ConnectionBadge;
-use crate::viewmodel::aggregate_run::{RunAvailability, RunDialog, RunDisabled, RunStatus};
+use crate::viewmodel::aggregate_run::{
+    CountState, RunAvailability, RunDialog, RunDisabled, RunStatus,
+};
 use curlybrace_core::store::Namespace;
 use eframe::egui;
 
@@ -37,6 +39,7 @@ fn disabled_key(reason: &RunDisabled) -> Option<&'static str> {
         RunDisabled::NoConnection => Some("aggregate.run.disabled.no_connection"),
         RunDisabled::NoCollection => Some("aggregate.run.disabled.no_collection"),
         RunDisabled::Busy => Some("aggregate.run.disabled.busy"),
+        RunDisabled::OtherWrite => Some("aggregate.run.disabled.other_write"),
         RunDisabled::TextNotApplied => Some("aggregate.run.disabled.text_not_applied"),
         RunDisabled::Invalid(_) => None,
     }
@@ -167,9 +170,10 @@ fn facts(ui: &mut egui::Ui, dialog: &RunDialog, i18n: &I18n) {
         _ => "aggregate.run.stage_merge",
     };
     ui.label(i18n.t(stage_key));
-    let count = match dialog.target_count {
-        Some(n) => i18n.t_with("aggregate.run.count", &[("count", &n.to_string())]),
-        None => i18n.t("aggregate.run.count_unavailable"),
+    let count = match dialog.count {
+        CountState::Known(n) => i18n.t_with("aggregate.run.count", &[("count", &n.to_string())]),
+        CountState::Loading => i18n.t("aggregate.run.count_loading"),
+        CountState::Unavailable => i18n.t("aggregate.run.count_unavailable"),
     };
     ui.label(count);
     let irreversible = i18n.t("aggregate.run.irreversible");
@@ -199,7 +203,7 @@ fn confirmation(ui: &mut egui::Ui, dialog: &RunDialog, i18n: &I18n) -> (Option<S
     let field = show_typed_confirmation(ui, &prompt, &mut text);
     focus_once(ui, &field, ("aggregate_run_focus", "typed"));
     let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    let matches = text.trim() == name;
+    let matches = dialog.confirms(&text);
     (field.changed().then_some(text), entered && matches)
 }
 

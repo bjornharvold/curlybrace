@@ -1,5 +1,5 @@
 use super::*;
-use curlybrace_core::pipeline::Stage;
+use curlybrace_core::pipeline::{PipelineError, Stage};
 
 fn stage(text: &str, enabled: bool) -> Stage {
     Stage {
@@ -25,6 +25,7 @@ fn env() -> RunEnv {
         has_collection: true,
         read_only: false,
         source_reserved: false,
+        other_write: false,
     }
 }
 
@@ -37,7 +38,7 @@ fn dialog() -> RunDialog {
         stage: "$out".into(),
         source: Namespace::new("app", "people"),
         typed: String::new(),
-        target_count: None,
+        count: CountState::Loading,
     }
 }
 
@@ -91,6 +92,7 @@ fn run_is_disabled_with_the_reason() {
             has_collection,
             read_only,
             source_reserved: false,
+            other_write: false,
         })
     };
     assert_eq!(
@@ -181,9 +183,9 @@ fn the_count_fills_the_dialog_only_for_its_target() {
     let wrong = ui
         .clone()
         .count_arrived(&Namespace::new("app", "people"), 9);
-    assert_eq!(wrong.dialog.unwrap().target_count, None);
+    assert_eq!(wrong.dialog.unwrap().count, CountState::Loading);
     let right = ui.count_arrived(&Namespace::new("app", "dest"), 7);
-    assert_eq!(right.dialog.unwrap().target_count, Some(7));
+    assert_eq!(right.dialog.unwrap().count, CountState::Known(7));
 }
 
 #[test]
@@ -350,6 +352,7 @@ fn a_run_into_a_server_source_database_is_not_offered() {
     assert_eq!(
         d.can_run(RunEnv {
             source_reserved: true,
+            other_write: false,
             ..env()
         }),
         RunAvailability::Disabled(RunDisabled::Invalid(
@@ -363,6 +366,7 @@ fn a_run_into_a_server_source_database_is_not_offered() {
     assert_eq!(
         named.can_run(RunEnv {
             source_reserved: true,
+            other_write: false,
             ..env()
         }),
         RunAvailability::Ready
@@ -393,4 +397,77 @@ fn a_target_in_a_server_database_cannot_be_run() {
             PipelineError::ReservedTargetDatabase { index: 1 }
         ))
     );
+}
+
+#[test]
+fn only_a_server_error_of_a_merge_is_a_partial_failure() {
+    let merge = RunUi::default().started(1).with_stage("$merge".into());
+    let nothing_written = [
+        CoreError::Unsupported("x".into()),
+        CoreError::TlsHandshake,
+        CoreError::TlsHandshakeSsh,
+        CoreError::TlsThroughTunnel,
+        CoreError::AuthFailed,
+        CoreError::Ssh("x".into()),
+        CoreError::SshHostKeyChanged,
+        CoreError::InvalidNamespace,
+        CoreError::NotFound,
+        CoreError::Superseded,
+        CoreError::ReservedDatabase,
+        CoreError::InvalidDocument("x".into()),
+        CoreError::Unauthorized,
+        CoreError::ReadOnly,
+    ];
+    for error in nothing_written {
+        assert_eq!(
+            merge.failure(error.clone()),
+            RunStatus::Failed(error.clone()),
+            "{error:?}"
+        );
+    }
+    let server = CoreError::Database("boom".into());
+    assert_eq!(
+        merge.failure(server.clone()),
+        RunStatus::FailedPartial(server.clone())
+    );
+    let out = RunUi::default().started(1).with_stage("$out".into());
+    assert_eq!(out.failure(server.clone()), RunStatus::Failed(server));
+}
+
+#[test]
+fn the_count_that_failed_is_not_available_unless_it_already_arrived() {
+    let loading = RunUi::default().opened(dialog());
+    assert_eq!(
+        loading.clone().count_failed().dialog.unwrap().count,
+        CountState::Unavailable
+    );
+    let known = loading.count_arrived(&Namespace::new("app", "dest"), 3);
+    assert_eq!(
+        known.count_failed().dialog.unwrap().count,
+        CountState::Known(3)
+    );
+    assert_eq!(RunUi::default().count_failed().dialog, None);
+}
+
+#[test]
+fn the_view_and_the_reducer_confirm_by_one_comparison() {
+    let spaced = RunDialog {
+        target: RunTarget {
+            db: None,
+            collection: "reports ".into(),
+        },
+        ..dialog()
+    };
+    assert_eq!(spaced.required_text(), "reports ");
+    for typed in ["reports", "reports ", "  reports  "] {
+        assert!(spaced.confirms(typed), "{typed:?}");
+        let typed_into = RunDialog {
+            typed: typed.into(),
+            ..spaced.clone()
+        };
+        assert!(typed_into.is_confirmed(), "{typed:?}");
+    }
+    assert!(!spaced.confirms("report"));
+    assert!(!spaced.confirms("Reports"));
+    assert!(!spaced.confirms(""));
 }

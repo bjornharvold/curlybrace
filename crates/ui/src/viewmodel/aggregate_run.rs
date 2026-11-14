@@ -1,16 +1,25 @@
 //! The Aggregate draft's confirmed write run: whether Run is offered, the typed-confirmation
 //! dialog, and the outcome of the last run. Per session, kept through a lost connection like the
 //! draft. Every op returns a new state; nothing here talks to a server.
-use super::aggregate::{AggregateState, Mode};
+use super::aggregate::AggregateState;
+pub use super::aggregate_run_availability::{RunAvailability, RunDisabled, RunEnv};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::RunTarget;
-use curlybrace_core::pipeline::{
-    PipelineError, WRITE_STAGES, pipeline_text, run_pipeline, stage_name,
-};
 use curlybrace_core::store::Namespace;
 
 /// The stage whose failure can leave part of its result in the target (it is not atomic).
 const MERGE_STAGE: &str = "$merge";
+
+/// The document count of the run's target, as the dialog knows it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CountState {
+    /// Asked, not answered yet.
+    #[default]
+    Loading,
+    Known(u64),
+    /// The count could not be taken (the ask failed).
+    Unavailable,
+}
 
 /// What the person is asked to type, and what the run is about. Closed by anything that changes
 /// the pipeline, the collection, the session or the connection.
@@ -24,8 +33,8 @@ pub struct RunDialog {
     pub source: Namespace,
     /// What the person typed to confirm.
     pub typed: String,
-    /// The target's document count now, once it arrived.
-    pub target_count: Option<u64>,
+    /// The target's document count now: loading, known or not available.
+    pub count: CountState,
 }
 
 impl RunDialog {
@@ -50,9 +59,16 @@ impl RunDialog {
         }
     }
 
-    /// Whether the typed text is the required one: trimmed, case-sensitive, always.
+    /// Whether `typed` is the required text: both trimmed, case-sensitive, always. The one
+    /// comparison of the view (Enter, the Run button) and the reducer, so they cannot disagree
+    /// about a name with a space at its end.
+    pub fn confirms(&self, typed: &str) -> bool {
+        typed.trim() == self.required_text().trim()
+    }
+
+    /// Whether what is typed so far is the required text.
     pub fn is_confirmed(&self) -> bool {
-        self.typed.trim() == self.required_text()
+        self.confirms(&self.typed)
     }
 }
 
@@ -68,7 +84,7 @@ pub enum RunStatus {
         count: Option<u64>,
     },
     Failed(CoreError),
-    /// A `$merge` failed part-way: the target may hold part of the result.
+    /// A `$merge` failed on the server, possibly part-way: the target may hold part of the result.
     FailedPartial(CoreError),
     /// The client gave up waiting or the connection was lost: the server may or may not have
     /// finished the write.
@@ -92,18 +108,14 @@ impl RunUi {
         Self { stage, ..self }
     }
 
-    /// The status of a run that failed with `error`: a `$merge` may have written part of its
-    /// result, a `$out` leaves the target untouched, and a refusal before anything is written
-    /// (reserved database, invalid document, unauthorized, read-only) is a plain failure.
+    /// The status of a run that failed with `error`. Partial is the exception: only a `$merge`
+    /// whose error came from the server mid-run (`Database`) may have written part of its
+    /// result. A `$out` leaves the target untouched, and every other error (a refusal, a
+    /// connection that never opened, an unsupported store, a TLS failure) means nothing was
+    /// written: a plain failure.
     pub fn failure(&self, error: CoreError) -> RunStatus {
-        let refused_before_writing = matches!(
-            error,
-            CoreError::ReservedDatabase
-                | CoreError::InvalidDocument(_)
-                | CoreError::Unauthorized
-                | CoreError::ReadOnly
-        );
-        match self.stage == MERGE_STAGE && !refused_before_writing {
+        let from_the_server = matches!(error, CoreError::Database(_));
+        match self.stage == MERGE_STAGE && from_the_server {
             true => RunStatus::FailedPartial(error),
             false => RunStatus::Failed(error),
         }
@@ -137,10 +149,22 @@ impl RunUi {
     pub fn count_arrived(self, ns: &Namespace, count: u64) -> Self {
         let dialog = self.dialog.map(|d| match d.target_ns() == *ns {
             true => RunDialog {
-                target_count: Some(count),
+                count: CountState::Known(count),
                 ..d
             },
             false => d,
+        });
+        Self { dialog, ..self }
+    }
+
+    /// The ask for the count failed: a dialog still waiting for it says it is not available.
+    pub fn count_failed(self) -> Self {
+        let dialog = self.dialog.map(|d| match d.count {
+            CountState::Loading => RunDialog {
+                count: CountState::Unavailable,
+                ..d
+            },
+            _ => d,
         });
         Self { dialog, ..self }
     }
@@ -208,87 +232,7 @@ impl RunUi {
     }
 }
 
-/// What the Run button needs to know about the session around the draft.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RunEnv {
-    pub connected: bool,
-    pub has_collection: bool,
-    pub read_only: bool,
-    /// The open collection is in a database the server owns (`admin`, `local`, `config`): a
-    /// stage that names no target database would write there.
-    pub source_reserved: bool,
-}
-
-/// Why Run is shown but cannot be used.
-#[derive(Clone, Debug, PartialEq)]
-pub enum RunDisabled {
-    ReadOnly,
-    NoConnection,
-    NoCollection,
-    /// A run is already in flight.
-    Busy,
-    /// The text-mode buffer was edited and not applied to the stages yet.
-    TextNotApplied,
-    /// The pipeline cannot be run as written.
-    Invalid(PipelineError),
-}
-
-/// Whether the Run button is shown and usable.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum RunAvailability {
-    /// The last enabled stage is not `$out` or `$merge`: there is nothing to run.
-    #[default]
-    Hidden,
-    Disabled(RunDisabled),
-    Ready,
-}
-
 impl AggregateState {
-    /// Whether the last enabled stage writes (`$out` or `$merge`).
-    fn ends_in_write_stage(&self) -> bool {
-        self.stages
-            .iter()
-            .rfind(|s| s.enabled)
-            .and_then(|s| stage_name(&s.text))
-            .is_some_and(|name| WRITE_STAGES.contains(&name.as_str()))
-    }
-
-    /// Whether Run is shown and usable for this draft in `env`.
-    pub fn can_run(&self, env: RunEnv) -> RunAvailability {
-        if !self.ends_in_write_stage() {
-            return RunAvailability::Hidden;
-        }
-        let refusal = match () {
-            _ if self.run.is_running() => Some(RunDisabled::Busy),
-            _ if env.read_only => Some(RunDisabled::ReadOnly),
-            _ if !env.connected => Some(RunDisabled::NoConnection),
-            _ if !env.has_collection => Some(RunDisabled::NoCollection),
-            _ if self.mode == Mode::Text && self.text != pipeline_text(&self.stages) => {
-                Some(RunDisabled::TextNotApplied)
-            }
-            _ => self.plan_refusal(env),
-        };
-        match refusal {
-            Some(reason) => RunAvailability::Disabled(reason),
-            None => RunAvailability::Ready,
-        }
-    }
-
-    /// Why the pipeline cannot run: it is unrunnable as written, or its target (the source
-    /// database when the stage names none) belongs to the server.
-    fn plan_refusal(&self, env: RunEnv) -> Option<RunDisabled> {
-        match run_pipeline(&self.stages) {
-            Err(error) => Some(RunDisabled::Invalid(error)),
-            Ok(plan) if plan.target.db.is_none() && env.source_reserved => {
-                let index = self.stages.iter().rposition(|s| s.enabled).unwrap_or(0);
-                Some(RunDisabled::Invalid(
-                    PipelineError::ReservedTargetDatabase { index },
-                ))
-            }
-            Ok(_) => None,
-        }
-    }
-
     /// The draft with its run dialog closed (the view the person leaves behind).
     pub fn with_run_dialog_closed(self) -> Self {
         let run = self.run.clone().dialog_closed();

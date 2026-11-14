@@ -7,7 +7,7 @@ use curlybrace_core::store::Namespace;
 use curlybrace_ui::I18n;
 use curlybrace_ui::theme;
 use curlybrace_ui::viewmodel::aggregate_run::{
-    RunAvailability, RunDialog, RunDisabled, RunStatus, RunUi,
+    CountState, RunAvailability, RunDialog, RunDisabled, RunStatus, RunUi,
 };
 use curlybrace_ui::viewmodel::aggregate_view::AggregateView;
 use curlybrace_ui::viewmodel::{AggregateState, ConnectionBadge};
@@ -47,7 +47,7 @@ fn dialog(typed: &str) -> RunDialog {
         stage: "$out".into(),
         source: Namespace::new("crm", "customers"),
         typed: typed.into(),
-        target_count: Some(42),
+        count: CountState::Known(42),
     }
 }
 

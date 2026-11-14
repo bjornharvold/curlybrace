@@ -753,7 +753,8 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
         | "create_view"
         | "duplicate_collection" => super::admin_dialog_actions::failed(state, context, error),
         // The count only decides whether a warning shows: a missing one is not worth a banner.
-        "estimated_count" => state,
+        // A run dialog waiting for it says it is not available.
+        "estimated_count" => aggregate_run_actions::count_failed(state),
         "aggregate_run" => failure(aggregate_run_actions::lost(state, &error), context, error),
         "list_indexes" | "index_history" => failure(
             AppState {

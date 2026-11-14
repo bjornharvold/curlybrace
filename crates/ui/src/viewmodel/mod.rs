@@ -4,6 +4,7 @@ pub mod aggregate;
 pub mod aggregate_flight;
 mod aggregate_order;
 pub mod aggregate_run;
+mod aggregate_run_availability;
 pub mod aggregate_saved;
 mod aggregate_template;
 pub mod aggregate_view;

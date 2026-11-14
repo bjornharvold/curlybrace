@@ -7,7 +7,7 @@ use curlybrace_core::saved_pipeline::{SavedPipeline, SavedStage};
 use curlybrace_core::store::Namespace;
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::AggregateState;
-use curlybrace_ui::viewmodel::aggregate_run::RunDialog;
+use curlybrace_ui::viewmodel::aggregate_run::{CountState, RunDialog};
 use curlybrace_ui::viewmodel::{CollectionTab, ViewMode};
 use uuid::Uuid;
 
@@ -111,7 +111,7 @@ pub fn aggregate_run_dialog_tab(state: &mut AppState) {
         stage: "$out".into(),
         source: Namespace::new("crm", "customers"),
         typed: "city_tot".into(),
-        target_count: Some(1_204),
+        count: CountState::Known(1_204),
     };
     let draft = draft.arrived(request, Ok(grouped_docs()));
     let run = draft.run.clone().opened(dialog);

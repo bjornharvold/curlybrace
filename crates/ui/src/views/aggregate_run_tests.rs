@@ -34,7 +34,7 @@ fn dialog(typed: &str) -> RunDialog {
         stage: "$out".into(),
         source: Namespace::new("crm", "customers"),
         typed: typed.into(),
-        target_count: Some(42),
+        count: CountState::Known(42),
     }
 }
 
@@ -116,6 +116,10 @@ fn run_is_off_with_the_reason_of_each_refusal() {
         (RunDisabled::ReadOnly, "aggregate.run.disabled.read_only"),
         (RunDisabled::Busy, "aggregate.run.disabled.busy"),
         (
+            RunDisabled::OtherWrite,
+            "aggregate.run.disabled.other_write",
+        ),
+        (
             RunDisabled::TextNotApplied,
             "aggregate.run.disabled.text_not_applied",
         ),
@@ -168,7 +172,7 @@ fn the_dialog_states_what_will_happen() {
 fn a_merge_dialog_says_what_merge_does_and_an_unknown_count_is_not_available() {
     let merge = RunDialog {
         stage: "$merge".into(),
-        target_count: None,
+        count: CountState::Unavailable,
         target: RunTarget {
             db: Some("reports".into()),
             collection: "city_totals".into(),
@@ -332,6 +336,7 @@ fn a_draft_that_writes_offers_run_and_a_read_draft_does_not() {
         has_collection: true,
         read_only: true,
         source_reserved: false,
+        other_write: false,
     };
     let read = AggregateState::default().add_stage("$match");
     assert_eq!(read.can_run(env), RunAvailability::Hidden);
@@ -343,4 +348,38 @@ fn a_draft_that_writes_offers_run_and_a_read_draft_does_not() {
         write.can_run(env),
         RunAvailability::Disabled(RunDisabled::ReadOnly)
     );
+}
+
+#[test]
+fn a_count_still_loading_says_so_and_is_not_called_unavailable() {
+    let loading = RunDialog {
+        count: CountState::Loading,
+        ..dialog("")
+    };
+    let run = RunUi::default().opened(loading);
+    let h = harness(with(RunAvailability::Ready, run), BIG);
+    h.get_by_label(&t("aggregate.run.count_loading"));
+    assert!(
+        h.query_by_label(&t("aggregate.run.count_unavailable"))
+            .is_none()
+    );
+}
+
+#[test]
+fn a_target_named_with_a_space_at_its_end_can_be_confirmed() {
+    let spaced = RunDialog {
+        target: RunTarget {
+            db: None,
+            collection: "reports ".into(),
+        },
+        typed: "reports".into(),
+        ..dialog("")
+    };
+    let h = harness(
+        with(RunAvailability::Ready, RunUi::default().opened(spaced)),
+        BIG,
+    );
+    let label = t("aggregate.run.confirm");
+    let run = h.get_by_role_and_label(Role::Button, &label);
+    assert!(!run.accesskit_node().is_disabled());
 }

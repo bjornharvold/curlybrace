@@ -8,7 +8,9 @@ use super::aggregate_actions::{AggregateAction, with_draft};
 use super::reducer::Out;
 use super::state::{AppState, Banner, ConnStatus};
 use super::write_guard::{Guard, WriteKind};
-use crate::viewmodel::aggregate_run::{RunAvailability, RunDialog, RunEnv, RunStatus, RunUi};
+use crate::viewmodel::aggregate_run::{
+    CountState, RunAvailability, RunDialog, RunEnv, RunStatus, RunUi,
+};
 use curlybrace_core::admin::RESERVED_DATABASES;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::run_pipeline;
@@ -25,6 +27,7 @@ impl AppState {
             source_reserved: self
                 .selected_ns()
                 .is_some_and(|ns| RESERVED_DATABASES.contains(&ns.db.as_str())),
+            other_write: self.pending.is_some() || self.write_warning.is_some(),
         }
     }
 
@@ -32,17 +35,6 @@ impl AppState {
     pub fn run_availability(&self) -> RunAvailability {
         self.aggregate.can_run(self.run_env())
     }
-}
-
-/// Whether `action` is one of the run actions.
-pub(super) fn is_run_action(action: &AggregateAction) -> bool {
-    matches!(
-        action,
-        AggregateAction::RunClicked
-            | AggregateAction::RunTyped(_)
-            | AggregateAction::RunConfirmed
-            | AggregateAction::RunDismissed
-    )
 }
 
 pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
@@ -67,8 +59,9 @@ fn with_run(state: AppState, run: RunUi) -> AppState {
 }
 
 /// Run was clicked: opens the dialog for the pipeline's target and asks for the target's count.
-/// Nothing opens on a read-only connection (the banner says why), without a usable pipeline,
-/// while a run or another write is in flight, or while a write warning is open.
+/// Nothing opens on a read-only connection (the banner says why) or unless Run is ready, which
+/// it is not while a run or another write is in flight or a write warning is open: the button
+/// says so, and a click that still arrives opens nothing.
 fn clicked(state: AppState) -> Out {
     if state.active_is_read_only() {
         let banner = Some(Banner::ReadOnly);
@@ -80,8 +73,7 @@ fn clicked(state: AppState) -> Out {
     ) else {
         return (state, Vec::new());
     };
-    let busy = state.pending.is_some() || state.write_warning.is_some();
-    if busy || state.aggregate.run.dialog.is_some() {
+    if state.aggregate.run.dialog.is_some() {
         return (state, Vec::new());
     }
     let Ok(plan) = run_pipeline(&state.aggregate.stages) else {
@@ -92,7 +84,7 @@ fn clicked(state: AppState) -> Out {
         stage: plan.stage,
         source,
         typed: String::new(),
-        target_count: None,
+        count: CountState::Loading,
     };
     let count = Command::EstimatedCount {
         session: state.session_id(),
@@ -160,6 +152,17 @@ pub(super) fn estimate_arrived(state: AppState, ns: Namespace, count: u64) -> Ap
         None => state,
     };
     super::index_write_actions::estimate_arrived(state, ns, count)
+}
+
+/// The ask for the count failed: a dialog still waiting for it says the count is not available.
+pub(super) fn count_failed(state: AppState) -> AppState {
+    match state.aggregate.run.dialog {
+        Some(_) => {
+            let run = state.aggregate.run.clone().count_failed();
+            with_run(state, run)
+        }
+        None => state,
+    }
 }
 
 /// Whether `ev` answers a run and is not a lost server (that one takes the connection-lost path,

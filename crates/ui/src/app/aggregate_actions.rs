@@ -99,9 +99,6 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         // dialog only, and the saved handler moves the draft rather than copy it.
         return super::aggregate_saved_actions::on_action(state, action);
     }
-    if super::aggregate_run_actions::is_run_action(&action) {
-        return super::aggregate_run_actions::on_action(state, action);
-    }
     let draft = (*state.aggregate).clone();
     match action {
         AggregateAction::AddStage(name) => changed(state, draft.add_stage(&name)),

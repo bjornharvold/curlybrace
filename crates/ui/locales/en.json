@@ -79,11 +79,13 @@
       "confirm": "Run pipeline",
       "confirm_blocked": "Type the collection name above to enable Run pipeline.",
       "count": "Documents in the target now: {count}",
+      "count_loading": "Documents in the target now: loading...",
       "count_unavailable": "Documents in the target now: not available",
       "disabled": {
         "busy": "A run is already in progress.",
         "no_collection": "Open a collection to run a pipeline.",
         "no_connection": "Connect to a server to run a pipeline.",
+        "other_write": "Another write is in progress or waiting for your confirmation. Finish it first.",
         "read_only": "This connection is read-only, so the pipeline cannot write.",
         "text_not_applied": "Apply the edited text to the stages before you run."
       },
