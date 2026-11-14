@@ -12,7 +12,8 @@ use uuid::Uuid;
 impl AppState {
     /// Loads the saved pipelines from `path`. A file that cannot be used is backed up and the
     /// store starts empty, with the recovery banner (an earlier banner keeps its place and
-    /// this one waits behind it). An unknown config folder keeps the store in memory only.
+    /// this one waits behind it). An unknown config folder gives an empty store with no path:
+    /// saving is refused with `ConfigDirUnknown`, so nothing is ever kept in memory alone.
     pub fn with_pipelines_path(self, path: ConfigPath) -> Self {
         match path {
             Ok(path) => {
