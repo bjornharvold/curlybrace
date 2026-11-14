@@ -43,6 +43,10 @@ pub const AGGREGATE_RUN_TIMEOUT: Duration =
 /// count, never an unknown outcome.
 pub const AGGREGATE_RUN_COUNT_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Slack on the outer limit of a run, so the count's own deadline always fires before it and a
+/// write that finished just inside its bound is never reported as unknown.
+pub const AGGREGATE_RUN_OUTER_SLACK: Duration = Duration::from_secs(1);
+
 /// Upper bound for the reachability ping that follows a suspect failure of a data command.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(3);
 

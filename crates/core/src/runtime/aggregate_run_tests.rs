@@ -288,7 +288,9 @@ fn a_run_is_bounded_just_above_the_server_time_limit() {
     };
     assert_eq!(
         handlers::command_time_limit(&short, &command),
-        Duration::from_millis(50) + config::AGGREGATE_RUN_COUNT_TIMEOUT
+        Duration::from_millis(50)
+            + config::AGGREGATE_RUN_COUNT_TIMEOUT
+            + config::AGGREGATE_RUN_OUTER_SLACK
     );
 }
 

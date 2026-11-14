@@ -778,7 +778,9 @@ pub(super) fn command_time_limit(
             .command_timeout
             .min(super::config::AGGREGATE_PREVIEW_TIMEOUT),
         Command::AggregateRun { .. } => {
-            run_write_limit(config) + super::config::AGGREGATE_RUN_COUNT_TIMEOUT
+            run_write_limit(config)
+                + super::config::AGGREGATE_RUN_COUNT_TIMEOUT
+                + super::config::AGGREGATE_RUN_OUTER_SLACK
         }
         _ => config.command_timeout,
     }
