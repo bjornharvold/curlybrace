@@ -100,6 +100,9 @@ pub enum PipelinesSaveError {
     NewerVersion,
     /// Another window changed the file since this one read or wrote it.
     ChangedOnDisk,
+    /// Another window left a file that cannot be read. A copy was kept and the file is
+    /// untouched; the next save replaces it with this window's list.
+    UnreadableOnDisk,
     Persist(PersistError),
 }
 
@@ -111,6 +114,7 @@ impl PipelinesSaveError {
             Self::TooLarge => "aggregate.saved.error.file_too_large",
             Self::NewerVersion => "aggregate.saved.error.unsupported",
             Self::ChangedOnDisk => "aggregate.saved.error.changed_on_disk",
+            Self::UnreadableOnDisk => "aggregate.saved.error.unreadable_on_disk",
             Self::Persist(e) => e.pipelines_i18n_key(),
         }
     }
@@ -158,18 +162,37 @@ fn read_current(path: &Path) -> Result<Option<Vec<u8>>, PersistError> {
     }
 }
 
-/// The store as another window left it on disk, and the stamp of that file; `None` when it
-/// cannot be read or is not usable (this window then keeps what it has).
-pub fn reloaded(path: &Path) -> Option<(SavedPipelines, DiskStamp)> {
+/// What a window finds on disk after another window changed the file.
+#[derive(Debug, PartialEq)]
+pub enum Reload {
+    /// The store as it is now, and the stamp of that file.
+    Usable(SavedPipelines, DiskStamp),
+    /// A file that cannot be used (corrupt, too large or unreadable): its stamp, and the tag
+    /// for its backup.
+    Unusable { seen: DiskStamp, tag: &'static str },
+}
+
+/// Reads the store another window left on disk.
+pub fn reloaded(path: &Path) -> Reload {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Some((SavedPipelines::default(), DiskStamp::default()));
+            return Reload::Usable(SavedPipelines::default(), DiskStamp::default());
         }
-        Err(_) => return None,
+        Err(_) => {
+            return Reload::Unusable {
+                seen: DiskStamp::default(),
+                tag: "unreadable",
+            };
+        }
     };
-    let store = parse(&bytes).ok()?;
-    Some((store, DiskStamp::of(&bytes)))
+    match parse(&bytes) {
+        Ok(store) => Reload::Usable(store, DiskStamp::of(&bytes)),
+        Err(_) => Reload::Unusable {
+            seen: DiskStamp::of(&bytes),
+            tag: "corrupt",
+        },
+    }
 }
 
 /// [`save`] unless the guard says the file must not be replaced, the result would be too big

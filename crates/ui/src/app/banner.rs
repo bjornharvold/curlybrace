@@ -177,6 +177,7 @@ mod tests {
             ))),
             Banner::PipelinesPersist(PipelinesSaveError::TooLarge),
             Banner::PipelinesPersist(PipelinesSaveError::ChangedOnDisk),
+            Banner::PipelinesPersist(PipelinesSaveError::UnreadableOnDisk),
             Banner::ImportFailed(ImportError::TooLarge),
             Banner::ImportFailed(ImportError::NotValid),
             Banner::ImportFailed(ImportError::TooManyEntries),

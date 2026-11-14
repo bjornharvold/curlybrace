@@ -53,14 +53,34 @@ impl AppState {
                 self.pipelines_seen = seen;
                 Ok(())
             }
-            Err(PipelinesSaveError::ChangedOnDisk) => {
-                if let Some((store, seen)) = pipelines_store::reloaded(&path) {
-                    self.pipelines = store;
-                    self.pipelines_seen = seen;
-                }
-                Err(PipelinesSaveError::ChangedOnDisk)
-            }
+            Err(PipelinesSaveError::ChangedOnDisk) => Err(self.follow_the_file(&path)),
             Err(e) => Err(e),
+        }
+    }
+
+    /// Another window changed the file: take what it holds, or, when that cannot be used, keep
+    /// a copy of it and accept it as the thing the next save replaces. A copy that cannot be
+    /// made blocks saving, so an unreadable file is never overwritten unseen.
+    fn follow_the_file(&mut self, path: &std::path::Path) -> PipelinesSaveError {
+        match pipelines_store::reloaded(path) {
+            pipelines_store::Reload::Usable(store, seen) => {
+                self.pipelines = store;
+                self.pipelines_seen = seen;
+                PipelinesSaveError::ChangedOnDisk
+            }
+            pipelines_store::Reload::Unusable { seen, tag } => {
+                match persistence::back_up(path, tag) {
+                    Ok(_) => {
+                        self.pipelines_seen = seen;
+                        PipelinesSaveError::UnreadableOnDisk
+                    }
+                    Err(e) => {
+                        log::warn!("could not back up the saved pipelines ({tag}): {e}");
+                        self.pipelines_guard = persistence::PersistGuard::blocked();
+                        PipelinesSaveError::Blocked
+                    }
+                }
+            }
         }
     }
 
