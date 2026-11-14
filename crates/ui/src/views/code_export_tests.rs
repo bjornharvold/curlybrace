@@ -240,6 +240,57 @@ fn enter_copies_and_escape_closes() {
     assert!(h.state().code.dialog.is_none());
 }
 
+/// The text a language previews, as the dialog generates it.
+fn preview_of(request: CodeRequest, language: Language) -> String {
+    CodeExportUi::default()
+        .opened(request)
+        .language_set(language)
+        .clipboard_text()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn enter_choosing_a_language_does_not_copy_the_previous_one() {
+    let mut h = harness(find_request(), BIG);
+    // Open the picker from the keyboard, step to the next language and choose it with Enter.
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(3);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(3);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    let chosen = h
+        .state()
+        .seen
+        .iter()
+        .find_map(|a| match a {
+            CodeAction::SetLanguage(l) => Some(*l),
+            _ => None,
+        })
+        .expect("a language was chosen from the keyboard");
+    assert!(
+        !h.state().seen.contains(&CodeAction::Copy),
+        "choosing must not copy: {:?}",
+        h.state().seen
+    );
+    assert!(h.state().copied.is_empty());
+    // Enter on a name field now copies the chosen language's preview.
+    h.get_by_role_and_label(Role::TextInput, &t("codegen.name.client"))
+        .focus();
+    h.run_steps(4);
+    assert_ne!(
+        chosen,
+        Language::Mongosh,
+        "the walk moved off the first item"
+    );
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(h.state().copied, [preview_of(find_request(), chosen)]);
+}
+
 #[test]
 fn enter_on_close_closes_without_copying() {
     let mut h = harness(find_request(), BIG);

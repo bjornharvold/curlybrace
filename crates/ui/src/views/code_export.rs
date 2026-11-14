@@ -30,6 +30,8 @@ pub fn show_code_dialog(ctx: &egui::Context, code: &CodeExportUi, i18n: &I18n) -
         return Vec::new();
     };
     let mut actions = Vec::new();
+    // A drop-down open at the start of the frame owns this frame's Enter.
+    let popup_was_open = egui::Popup::is_any_open(ctx);
     let screen = ctx.screen_rect();
     let width = MODAL_WIDTH.min(screen.width() - SIDE_ROOM);
     let modal = egui::Modal::new(egui::Id::new("code_export_dialog"))
@@ -45,7 +47,12 @@ pub fn show_code_dialog(ctx: &egui::Context, code: &CodeExportUi, i18n: &I18n) -
             actions.extend(controls.actions);
             own_enter.extend(controls.activating);
             let ready = dialog.clipboard_text().is_some();
-            if ready && enter_copies(ui, &own_enter) && !actions.contains(&CodeAction::Close) {
+            let settled = !popup_was_open && !actions.iter().any(changes_options);
+            if ready
+                && settled
+                && enter_copies(ui, &own_enter)
+                && !actions.contains(&CodeAction::Close)
+            {
                 actions.push(CodeAction::Copy);
             }
         });
@@ -137,6 +144,8 @@ fn language_picker(
                 let name = i18n.t(language_label_key(language));
                 if ui.selectable_label(language == current, name).clicked() {
                     actions.push(CodeAction::SetLanguage(language));
+                    // A pick made with the keyboard closes the list as a click does.
+                    ui.close();
                 }
             }
         });
@@ -191,6 +200,17 @@ fn buttons(ui: &mut egui::Ui, dialog: &CodeDialog, i18n: &I18n) -> Controls {
         }
     })
     .inner
+}
+
+/// Whether an action edits the options (a pick or an edit made this frame owns the Enter).
+fn changes_options(action: &CodeAction) -> bool {
+    matches!(
+        action,
+        CodeAction::SetLanguage(_)
+            | CodeAction::SetSetup(_)
+            | CodeAction::SetName(..)
+            | CodeAction::SetWriteStage(_)
+    )
 }
 
 /// Whether Enter was pressed where it means Copy: not on a widget it already activates (a check
