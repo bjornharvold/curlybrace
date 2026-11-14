@@ -80,8 +80,7 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::EditText(text) => (with_draft(state, draft.with_text(&text)), Vec::new()),
         AggregateAction::Refresh => previewed(state, draft),
         AggregateAction::Batch(actions) => batch(state, actions),
-        // The saved-pipeline actions come with the reducer.
-        _ => (state, Vec::new()),
+        saved => super::aggregate_saved_actions::on_action(state, saved),
     }
 }
 
@@ -116,7 +115,7 @@ fn batch(state: AppState, actions: Vec<AggregateAction>) -> Out {
 }
 
 /// `state` holding `draft` as the active session's Aggregate draft.
-fn with_draft(state: AppState, draft: AggregateState) -> AppState {
+pub(super) fn with_draft(state: AppState, draft: AggregateState) -> AppState {
     AppState {
         aggregate: Box::new(draft),
         ..state
