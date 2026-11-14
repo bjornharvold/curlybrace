@@ -148,14 +148,66 @@ async fn an_interrupted_run_is_an_unknown_outcome_when_the_server_still_answers(
         .with_aggregate_write_error(CoreError::ConnectionInterrupted("reset".into()));
     let (mut h, session) = connected_to(Arc::new(store), false, RuntimeConfig::default()).await;
     h.tx.send(run_command(session, out_pipeline())).unwrap();
+    // Answered under the run's number, so a late answer can never settle another run.
+    assert_eq!(
+        next(&mut h).await,
+        Event::AggregateRan {
+            session,
+            run: 4,
+            ns: mock_namespace(),
+            target: Namespace::new("testdb", "dest"),
+            outcome: Err(CoreError::WriteOutcomeUnknown),
+        }
+    );
+}
+
+#[tokio::test]
+async fn a_server_time_limit_expiry_is_an_unknown_outcome() {
+    let store = InMemoryStore::new().with_aggregate_write_error(CoreError::Database(
+        handlers::COMMAND_TIMEOUT_MESSAGE.into(),
+    ));
+    let (mut h, session) = connected_to(Arc::new(store), false, RuntimeConfig::default()).await;
+    h.tx.send(run_command(session, out_pipeline())).unwrap();
     assert!(matches!(
         next(&mut h).await,
-        Event::Failed {
-            context: "aggregate_run",
-            error: CoreError::WriteOutcomeUnknown,
+        Event::AggregateRan {
+            run: 4,
+            outcome: Err(CoreError::WriteOutcomeUnknown),
             ..
         }
     ));
+}
+
+#[tokio::test]
+async fn a_target_in_a_server_database_is_refused_before_anything_runs() {
+    let store = Arc::new(InMemoryStore::new());
+    let (mut h, session) = connected_to(store.clone(), false, RuntimeConfig::default()).await;
+    let into_local = vec![doc! { "$out": { "db": "local", "coll": "x" } }];
+    h.tx.send(run_command(session, into_local)).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::AggregateRan {
+            outcome: Err(CoreError::ReservedDatabase),
+            ..
+        }
+    ));
+    // The source's own database, when the stage names none.
+    h.tx.send(Command::AggregateRun {
+        session,
+        ns: Namespace::new("admin", "src"),
+        pipeline: out_pipeline(),
+        run: 5,
+    })
+    .unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::AggregateRan {
+            run: 5,
+            outcome: Err(CoreError::ReservedDatabase),
+            ..
+        }
+    ));
+    assert!(store.written_pipelines().is_empty());
 }
 
 /// A store whose write run never finishes, and whose ping never answers.
@@ -326,14 +378,15 @@ async fn a_run_stays_a_success_when_only_the_count_cannot_be_read() {
 }
 
 #[tokio::test]
-async fn a_lost_connection_while_counting_still_fails_the_command() {
+async fn a_lost_connection_while_counting_keeps_the_known_success() {
     let store = CountFails(CoreError::Unreachable);
     let (mut h, session) = connected_to(Arc::new(store), false, RuntimeConfig::default()).await;
     h.tx.send(run_command(session, out_pipeline())).unwrap();
     assert!(matches!(
         next(&mut h).await,
-        Event::Failed {
-            context: "aggregate_run",
+        Event::AggregateRan {
+            run: 4,
+            outcome: Ok(None),
             ..
         }
     ));

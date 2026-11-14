@@ -224,3 +224,39 @@ fn a_bad_shape_is_refused_naming_the_stage_never_the_text() {
     assert!(shape_message(&cases[2]).contains("$out"));
     assert!(shape_message(&cases[4]).contains("$out"));
 }
+
+#[test]
+fn a_target_in_a_server_database_is_refused_by_the_plan() {
+    for db in ["admin", "local", "config"] {
+        let out = format!(r#"{{"$out": {{"db": "{db}", "coll": "x"}}}}"#);
+        assert_eq!(
+            plan_target(&out),
+            Err(PipelineError::ReservedTargetDatabase { index: 1 }),
+            "{db}"
+        );
+        let merge = format!(r#"{{"$merge": {{"into": {{"db": "{db}", "coll": "x"}}}}}}"#);
+        assert_eq!(
+            plan_target(&merge),
+            Err(PipelineError::ReservedTargetDatabase { index: 1 }),
+            "{db}"
+        );
+    }
+    assert_eq!(
+        plan_target(r#"{"$out": {"db": "adminx", "coll": "x"}}"#),
+        Ok(target(Some("adminx"), "x"))
+    );
+}
+
+#[test]
+fn a_target_in_a_server_database_is_refused_by_the_shape_check() {
+    for db in ["admin", "local", "config"] {
+        let pipeline = [doc! { "$out": { "db": db, "coll": "x" } }];
+        assert_eq!(
+            ensure_run_shape(&pipeline),
+            Err(CoreError::ReservedDatabase),
+            "{db}"
+        );
+    }
+    let allowed = [doc! { "$out": { "db": "warehouse", "coll": "x" } }];
+    assert!(ensure_run_shape(&allowed).is_ok());
+}

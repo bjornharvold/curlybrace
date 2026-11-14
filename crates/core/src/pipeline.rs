@@ -55,6 +55,10 @@ pub enum PipelineError {
     TargetUnresolved {
         index: usize,
     },
+    /// The last stage writes into `admin`, `local` or `config`.
+    ReservedTargetDatabase {
+        index: usize,
+    },
 }
 
 fn syntax(e: &serde_json::Error) -> PipelineError {

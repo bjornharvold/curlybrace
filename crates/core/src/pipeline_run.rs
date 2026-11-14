@@ -6,6 +6,7 @@
 
 use bson::{Bson, Document};
 
+use crate::admin::RESERVED_DATABASES;
 use crate::error::CoreError;
 use crate::pipeline::{PipelineError, Stage, find_write_in_stage, is_write, parse_stage};
 
@@ -109,11 +110,23 @@ pub fn run_pipeline(stages: &[Stage]) -> Result<RunPlan, PipelineError> {
     let pipeline: Vec<Document> = parsed.into_iter().map(|(_, _, d)| d).collect();
     let (stage, target) =
         run_target(&pipeline).ok_or(PipelineError::TargetUnresolved { index: last_index })?;
+    if is_reserved_target(&target) {
+        return Err(PipelineError::ReservedTargetDatabase { index: last_index });
+    }
     Ok(RunPlan {
         pipeline,
         stage,
         target,
     })
+}
+
+/// Whether the target names a database the server owns (`admin`, `local`, `config`). A target
+/// without a database is the source's, which the runtime checks where it knows the source.
+pub(crate) fn is_reserved_target(target: &RunTarget) -> bool {
+    target
+        .db
+        .as_deref()
+        .is_some_and(|db| RESERVED_DATABASES.contains(&db))
 }
 
 fn refusal(reason: &str) -> CoreError {
@@ -130,6 +143,9 @@ pub fn ensure_run_shape(pipeline: &[Document]) -> Result<(), CoreError> {
         return Err(refusal(&format!(
             "the write stage {name} to be the one and only, as the last stage"
         )));
+    }
+    if run_target(pipeline).is_some_and(|(_, target)| is_reserved_target(&target)) {
+        return Err(CoreError::ReservedDatabase);
     }
     if run_target(pipeline).is_none() {
         let what = if find_write_in_stage(last).is_some() {

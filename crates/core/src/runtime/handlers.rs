@@ -290,7 +290,7 @@ async fn run(
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
     }
-    if let (true, Some((run, ns, target))) = (timed_out, run_namespaces) {
+    if let (true, Some((run, ns, target))) = (timed_out, run_namespaces.clone()) {
         return Ok(Event::AggregateRan {
             session: id,
             run,
@@ -308,6 +308,19 @@ async fn run(
     match result {
         Err(error) if timed_out || matches!(error, CoreError::ConnectionInterrupted(_)) => {
             let settled = settle_by_ping(&store, shared.config.ping_timeout, error, is_write).await;
+            // A run whose write may have gone through while the server still answers is an
+            // outcome under the run's own number; only a lost server fails the command.
+            if let (CoreError::WriteOutcomeUnknown, Some((run, ns, target))) =
+                (&settled, run_namespaces)
+            {
+                return Ok(Event::AggregateRan {
+                    session: id,
+                    run,
+                    ns,
+                    target,
+                    outcome: Err(CoreError::WriteOutcomeUnknown),
+                });
+            }
             Err(gate(session, generation, settled))
         }
         other => other,
