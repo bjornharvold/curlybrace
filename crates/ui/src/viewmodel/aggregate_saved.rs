@@ -2,9 +2,12 @@
 //! looked like then, and the dialog that is open. Per session, kept through a lost connection
 //! like the draft. Every op returns a new state; nothing here touches a file.
 use super::aggregate::{AggregateState, Mode, PreviewState};
+use crate::I18n;
+use crate::app::pipelines_store::MAX_FILE_BYTES;
 use curlybrace_core::pipeline::{Stage, parse_pipeline_text, pipeline_text};
 use curlybrace_core::saved_pipeline::{
-    SavedError, SavedPipeline, SavedStage, name_taken_in, validate_name,
+    MAX_NAME_CHARS, MAX_PER_CONNECTION, MAX_STAGE_BYTES, SavedError, SavedPipeline, SavedStage,
+    name_taken_in, validate_name,
 };
 use uuid::Uuid;
 
@@ -74,6 +77,24 @@ pub fn saved_error_key(error: SavedError) -> &'static str {
         SavedError::TooLarge => "aggregate.saved.error.too_large",
         SavedError::Unsupported => "aggregate.saved.error.unsupported",
     }
+}
+
+/// `bytes` as whole megabytes, rounded: 1 000 000 and 5 MiB read as 1 and 5.
+fn megabytes(bytes: usize) -> String {
+    format!("{:.0}", bytes as f64 / (1024.0 * 1024.0))
+}
+
+/// The text of an error key of the saved pipelines. A message that names a limit has it filled
+/// in from the constant that enforces it (`{max}`), so the text can never disagree with the rule.
+pub fn saved_message(i18n: &I18n, key: &str) -> String {
+    let max = match key {
+        "aggregate.saved.error.too_many" => MAX_PER_CONNECTION.to_string(),
+        "aggregate.saved.error.name_too_long" => MAX_NAME_CHARS.to_string(),
+        "aggregate.saved.error.too_large" => megabytes(MAX_STAGE_BYTES),
+        "aggregate.saved.error.file_too_large" => megabytes(MAX_FILE_BYTES),
+        _ => return i18n.t(key),
+    };
+    i18n.t_with(key, &[("max", &max)])
 }
 
 /// Why `name` cannot be used, as an error: empty or too long, or (when `check_taken`) used by

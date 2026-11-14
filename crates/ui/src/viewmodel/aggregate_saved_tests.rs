@@ -191,3 +191,33 @@ fn the_saved_state_survives_a_connection_reset() {
     let reset = draft.clone().on_connection_reset();
     assert_eq!(reset.saved, draft.saved);
 }
+
+#[test]
+fn a_message_that_names_a_limit_shows_the_constant_that_enforces_it() {
+    let i18n = I18n::english();
+    let cases = [
+        (
+            "aggregate.saved.error.too_many",
+            MAX_PER_CONNECTION.to_string(),
+        ),
+        (
+            "aggregate.saved.error.name_too_long",
+            MAX_NAME_CHARS.to_string(),
+        ),
+        ("aggregate.saved.error.too_large", "1".to_string()),
+        ("aggregate.saved.error.file_too_large", "5".to_string()),
+    ];
+    for (key, value) in cases {
+        let text = saved_message(&i18n, key);
+        assert!(text.contains(&value), "{key}: {text}");
+        assert!(
+            !text.contains('{') && !text.starts_with('⟦'),
+            "{key}: {text}"
+        );
+    }
+    assert_eq!(megabytes(MAX_STAGE_BYTES), "1");
+    assert_eq!(megabytes(MAX_FILE_BYTES), "5");
+    // A message without a limit is the plain text.
+    let plain = "aggregate.saved.error.name_taken";
+    assert_eq!(saved_message(&i18n, plain), i18n.t(plain));
+}

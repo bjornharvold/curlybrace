@@ -83,13 +83,13 @@
       "error": {
         "changed_on_disk": "The saved pipelines were changed by another window and have been reloaded. Nothing was saved: try again.",
         "empty_name": "Give the pipeline a name.",
-        "file_too_large": "The saved pipelines file would grow past 5 MB. Delete a saved pipeline first. Nothing was saved.",
+        "file_too_large": "The saved pipelines file would grow past {max} MB. Delete a saved pipeline first. Nothing was saved.",
         "invalid_name": "The name cannot contain line breaks, tabs or other control characters.",
         "invalid_text": "The text is not a valid pipeline yet. Fix it or switch back to stages before saving.",
         "name_taken": "Another saved pipeline already has this name.",
-        "name_too_long": "The name is too long: use at most 80 characters.",
-        "too_large": "This pipeline is too large to save (the limit is 1 MB of stage text).",
-        "too_many": "This connection already has 200 saved pipelines. Delete one first.",
+        "name_too_long": "The name is too long: use at most {max} characters.",
+        "too_large": "This pipeline is too large to save (the limit is {max} MB of stage text).",
+        "too_many": "This connection already has {max} saved pipelines. Delete one first.",
         "unreadable_on_disk": "Another window left a saved pipelines file that cannot be read. A backup copy was kept next to it and the file was not changed. Nothing was saved: saving again replaces it with the pipelines in this window.",
         "unsupported":"pipelines.json was written by a newer version of Curlybrace and was left untouched. Nothing was saved."
       },

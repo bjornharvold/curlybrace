@@ -10,7 +10,9 @@ use crate::theme::{
     filled_button, gate, modal_frame, outlined_field_with, text_button, typography,
 };
 use crate::viewmodel::aggregate::AggregateState;
-use crate::viewmodel::aggregate_saved::{SavedDialog, name_problem, saved_error_key};
+use crate::viewmodel::aggregate_saved::{
+    SavedDialog, name_problem, saved_error_key, saved_message,
+};
 use curlybrace_core::saved_pipeline::{SavedError, SavedPipeline, same_name};
 use eframe::egui;
 use uuid::Uuid;
@@ -144,12 +146,12 @@ pub fn show_saved_dialog(
 fn problem_message(problem: Option<SavedError>, i18n: &I18n) -> Option<String> {
     problem
         .filter(|p| *p != SavedError::EmptyName)
-        .map(|p| i18n.t(saved_error_key(p)))
+        .map(|p| saved_message(i18n, saved_error_key(p)))
 }
 
 fn show_failure(ui: &mut egui::Ui, failed: Option<&'static str>, i18n: &I18n) {
     if let Some(key) = failed {
-        ui.colored_label(ui.visuals().error_fg_color, i18n.t(key));
+        ui.colored_label(ui.visuals().error_fg_color, saved_message(i18n, key));
     }
 }
 

@@ -6,7 +6,7 @@ use crate::I18n;
 use crate::app::AggregateAction;
 use crate::theme;
 use crate::viewmodel::aggregate::AggregateState;
-use crate::viewmodel::aggregate_saved::SavedDialog;
+use crate::viewmodel::aggregate_saved::{SavedDialog, saved_message};
 use crate::viewmodel::aggregate_view::AggregateView;
 use curlybrace_core::saved_pipeline::{SavedPipeline, SavedPipelines, SavedStage};
 use eframe::egui;
@@ -324,7 +324,10 @@ fn a_name_over_80_characters_shows_its_message_and_cannot_be_saved() {
     let mut harness = open(with_dialog(dialog), Vec::new(), BIG);
     assert_eq!(
         name_field_description(&harness),
-        Some(t("aggregate.saved.error.name_too_long"))
+        Some(saved_message(
+            &I18n::english(),
+            "aggregate.saved.error.name_too_long"
+        ))
     );
     harness.key_press(egui::Key::Enter);
     harness.run_steps(3);
