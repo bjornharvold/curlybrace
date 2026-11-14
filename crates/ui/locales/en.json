@@ -47,9 +47,11 @@
     "error": {
       "empty": "The pipeline has no enabled stages to preview.",
       "nested_write": "Stage {n}: {name} cannot be used inside a sub-pipeline of a preview.",
+      "no_write_stage": "A run needs $out or $merge as its last enabled stage.",
       "not_a_stage": "Stage {n} must be an object with exactly one key that starts with $.",
       "not_an_array": "The pipeline must be a JSON array of stage objects.",
       "syntax": "line {line}, column {column}: {message}",
+      "target_unresolved": "Stage {n}: the target collection of the write stage is missing or not usable.",
       "timeout": "The preview took too long and was stopped. Showing the last result.",
       "write_not_last": "Stage {n}: {name} can only be the last stage."
     },
