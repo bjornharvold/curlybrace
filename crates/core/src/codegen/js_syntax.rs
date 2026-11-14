@@ -152,25 +152,25 @@ impl Syntax for JsSyntax {
         }
     }
 
-    fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> String {
+    fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> Result<String, CodegenError> {
         if subtype == BinarySubtype::Uuid {
             if let Some(uuid) = uuid_text(bytes) {
-                return format!("{}(\"{uuid}\")", self.ctor("UUID"));
+                return Ok(format!("{}(\"{uuid}\")", self.ctor("UUID")));
             }
         }
         let code = u8::from(subtype);
         let b64 = base64(bytes);
-        if self.node() {
+        Ok(if self.node() {
             format!(
                 "{}(Buffer.from(\"{b64}\", \"base64\"), {code})",
                 self.ctor("Binary")
             )
         } else {
             format!("BinData({code}, \"{b64}\")")
-        }
+        })
     }
 
-    fn decimal128(&self, text: &str) -> String {
+    fn decimal128(&self, text: &str, _bytes: [u8; 16]) -> String {
         if self.node() {
             self.used.borrow_mut().insert("Decimal128");
             format!("Decimal128.fromString(\"{text}\")")

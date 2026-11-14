@@ -120,15 +120,15 @@ impl Syntax for PythonSyntax {
         ))
     }
 
-    fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> String {
-        self.call(
+    fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> Result<String, CodegenError> {
+        Ok(self.call(
             "from bson.binary import Binary",
             "Binary",
             &format!("bytes.fromhex(\"{}\"), {}", hex(bytes), u8::from(subtype)),
-        )
+        ))
     }
 
-    fn decimal128(&self, text: &str) -> String {
+    fn decimal128(&self, text: &str, _bytes: [u8; 16]) -> String {
         self.call(
             "from bson.decimal128 import Decimal128",
             "Decimal128",

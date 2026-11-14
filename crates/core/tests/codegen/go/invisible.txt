@@ -1,0 +1,50 @@
+// Uses the v2 driver: go.mongodb.org/mongo-driver/v2
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+func main() {
+	client, err := mongo.Connect(options.Client().ApplyURI("<your connection string>"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := client.Disconnect(context.TODO()); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	db := client.Database("shop")
+	collection := db.Collection("orders")
+
+	pipeline := mongo.Pipeline{
+		bson.D{
+			{Key: "$match", Value: bson.D{
+				{Key: "bidi", Value: "user\u202etxt.exe \u2066x\u2069"},
+				{Key: "zeroWidth", Value: "a\u200bb\u200dc\u2060d"},
+				{Key: "bom", Value: "\ufeffstart"},
+				{Key: "c1", Value: "next\u0085line"},
+				{Key: "marks", Value: "ok: 😀 café é 中文"},
+				{Key: "k\u202eey", Value: int32(1)},
+			}},
+		},
+	}
+
+	cursor, err := collection.Aggregate(context.TODO(), pipeline)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var results []bson.M
+	if err := cursor.All(context.TODO(), &results); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(results)
+}

@@ -1,0 +1,72 @@
+// Uses the v2 driver: go.mongodb.org/mongo-driver/v2
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+func main() {
+	client, err := mongo.Connect(options.Client().ApplyURI("<your connection string>"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := client.Disconnect(context.TODO()); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	db := client.Database("shop")
+	collection := db.Collection("orders")
+
+	pipeline := mongo.Pipeline{
+		bson.D{
+			{Key: "$match", Value: bson.D{
+				{Key: "status", Value: bson.D{{Key: "$in", Value: bson.A{"A", "B"}}}},
+				{Key: "total", Value: bson.D{{Key: "$gte", Value: int32(100)}}},
+			}},
+		},
+		bson.D{
+			{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: "customers"},
+				{Key: "localField", Value: "customerId"},
+				{Key: "foreignField", Value: "_id"},
+				{Key: "as", Value: "customer"},
+			}},
+		},
+		bson.D{
+			{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: "$customer.region"},
+				{Key: "revenue", Value: bson.D{{Key: "$sum", Value: "$total"}}},
+				{Key: "orders", Value: bson.D{{Key: "$count", Value: bson.D{}}}},
+			}},
+		},
+		bson.D{
+			{Key: "$facet", Value: bson.D{
+				{Key: "top", Value: bson.A{
+					bson.D{
+						{Key: "$sort", Value: bson.D{{Key: "revenue", Value: int32(-1)}}},
+					},
+					bson.D{{Key: "$limit", Value: int32(5)}},
+				}},
+				{Key: "all", Value: bson.A{bson.D{{Key: "$count", Value: "n"}}}},
+			}},
+		},
+	}
+
+	cursor, err := collection.Aggregate(context.TODO(), pipeline)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var results []bson.M
+	if err := cursor.All(context.TODO(), &results); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(results)
+}

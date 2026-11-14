@@ -28,8 +28,9 @@ pub(crate) trait Syntax {
     fn undefined(&self) -> String;
     fn object_id(&self, hex: &str) -> String;
     fn date_time(&self, millis: i64) -> Result<String, CodegenError>;
-    fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> String;
-    fn decimal128(&self, text: &str) -> String;
+    fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> Result<String, CodegenError>;
+    /// `bytes` is the little-endian 128-bit encoding.
+    fn decimal128(&self, text: &str, bytes: [u8; 16]) -> String;
     fn regex(&self, pattern: &str, options: &str) -> String;
     fn timestamp(&self, time: u32, increment: u32) -> String;
     fn min_key(&self) -> String;
@@ -39,6 +40,33 @@ pub(crate) trait Syntax {
     fn code_with_scope(&self, code: &str, scope: &str) -> String;
     fn symbol(&self, text: &str) -> String;
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String;
+
+    /// A document from `(rendered key, rendered value)` pairs; never empty.
+    fn document(&self, entries: &[(String, String)], depth: usize) -> String {
+        let items: Vec<String> = entries.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+        lay_out_with(
+            self.indent_unit(),
+            ("{", "}"),
+            self.brace_pad(),
+            &items,
+            depth,
+            true,
+        )
+    }
+    /// An array of rendered items; never empty.
+    fn array(&self, items: &[String], depth: usize) -> String {
+        lay_out_with(self.indent_unit(), ("[", "]"), "", items, depth, true)
+    }
+    /// The list of rendered stage documents.
+    fn pipeline(&self, items: &[String], depth: usize) -> String {
+        self.array(items, depth)
+    }
+    fn empty_document(&self) -> String {
+        "{}".into()
+    }
+    fn empty_array(&self) -> String {
+        "[]".into()
+    }
 }
 
 /// Longest inline `{ ... }` / `[ ... ]` before it is broken over lines.
@@ -59,8 +87,8 @@ pub(crate) fn render(syn: &dyn Syntax, value: &Bson, depth: usize) -> Result<Str
         Bson::Undefined => Ok(syn.undefined()),
         Bson::ObjectId(oid) => Ok(syn.object_id(&oid.to_hex())),
         Bson::DateTime(dt) => syn.date_time(dt.timestamp_millis()),
-        Bson::Binary(Binary { subtype, bytes }) => Ok(syn.binary(*subtype, bytes)),
-        Bson::Decimal128(d) => Ok(syn.decimal128(&d.to_string())),
+        Bson::Binary(Binary { subtype, bytes }) => syn.binary(*subtype, bytes),
+        Bson::Decimal128(d) => Ok(syn.decimal128(&d.to_string(), d.bytes())),
         Bson::RegularExpression(r) => Ok(syn.regex(&r.pattern, &r.options)),
         Bson::Timestamp(t) => Ok(syn.timestamp(t.time, t.increment)),
         Bson::MinKey => Ok(syn.min_key()),
@@ -101,65 +129,71 @@ pub(crate) fn render_document(
     depth: usize,
 ) -> Result<String, CodegenError> {
     if doc.is_empty() {
-        return Ok("{}".into());
+        return Ok(syn.empty_document());
     }
     let mut entries = Vec::with_capacity(doc.len());
     for (key, value) in doc {
-        entries.push(format!(
-            "{}: {}",
-            syn.key(key),
-            render(syn, value, depth + 1)?
-        ));
+        entries.push((syn.key(key), render(syn, value, depth + 1)?));
     }
-    Ok(lay_out(syn, ("{", "}"), syn.brace_pad(), &entries, depth))
+    Ok(syn.document(&entries, depth))
 }
 
-/// Renders a list of documents (a pipeline) as an array.
+/// Renders a list of documents (a pipeline).
 pub(crate) fn render_documents(
     syn: &dyn Syntax,
     docs: &[Document],
     depth: usize,
 ) -> Result<String, CodegenError> {
-    if docs.is_empty() {
-        return Ok("[]".into());
-    }
     let mut entries = Vec::with_capacity(docs.len());
     for doc in docs {
         entries.push(render_document(syn, doc, depth + 1)?);
     }
-    Ok(lay_out(syn, ("[", "]"), "", &entries, depth))
+    Ok(syn.pipeline(&entries, depth))
 }
 
 fn render_array(syn: &dyn Syntax, items: &[Bson], depth: usize) -> Result<String, CodegenError> {
     if items.is_empty() {
-        return Ok("[]".into());
+        return Ok(syn.empty_array());
     }
     let mut entries = Vec::with_capacity(items.len());
     for item in items {
         entries.push(render(syn, item, depth + 1)?);
     }
-    Ok(lay_out(syn, ("[", "]"), "", &entries, depth))
+    Ok(syn.array(&entries, depth))
 }
 
 pub(crate) fn lay_out(
     syn: &dyn Syntax,
+    brackets: (&str, &str),
+    pad: &str,
+    entries: &[String],
+    depth: usize,
+) -> String {
+    lay_out_with(syn.indent_unit(), brackets, pad, entries, depth, true)
+}
+
+/// Inline when short, else one entry per line. `trailing_comma` puts a comma
+/// after the last entry of the broken form.
+pub(crate) fn lay_out_with(
+    unit: &str,
     (open, close): (&str, &str),
     pad: &str,
     entries: &[String],
     depth: usize,
+    trailing_comma: bool,
 ) -> String {
     let inline = format!("{open}{pad}{}{pad}{close}", entries.join(", "));
     if inline.len() <= INLINE_WIDTH && !entries.iter().any(|e| e.contains('\n')) {
         return inline;
     }
-    let unit = syn.indent_unit();
     let inner = indent(unit, depth + 1);
     let mut out = String::from(open);
     out.push('\n');
-    for entry in entries {
+    for (i, entry) in entries.iter().enumerate() {
         out.push_str(&inner);
         out.push_str(entry);
-        out.push_str(",\n");
+        let last = i + 1 == entries.len();
+        out.push_str(if last && !trailing_comma { "\n" } else { ",\n" });
     }
     out.push_str(&indent(unit, depth));
     out.push_str(close);

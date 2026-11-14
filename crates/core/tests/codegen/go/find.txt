@@ -1,0 +1,54 @@
+// Uses the v2 driver: go.mongodb.org/mongo-driver/v2
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+func main() {
+	client, err := mongo.Connect(options.Client().ApplyURI("<your connection string>"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := client.Disconnect(context.TODO()); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	db := client.Database("shop")
+	collection := db.Collection("orders")
+
+	filter := bson.D{
+		{Key: "status", Value: "A"},
+		{Key: "qty", Value: bson.D{{Key: "$gt", Value: int32(10)}}},
+	}
+	projection := bson.D{
+		{Key: "name", Value: int32(1)},
+		{Key: "qty", Value: int32(1)},
+		{Key: "_id", Value: int32(0)},
+	}
+	sort := bson.D{{Key: "qty", Value: int32(-1)}, {Key: "name", Value: int32(1)}}
+
+	opts := options.Find().
+		SetProjection(projection).
+		SetSort(sort).
+		SetSkip(20).
+		SetLimit(10)
+
+	cursor, err := collection.Find(context.TODO(), filter, opts)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var results []bson.M
+	if err := cursor.All(context.TODO(), &results); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(results)
+}

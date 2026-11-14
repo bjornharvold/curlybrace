@@ -42,6 +42,12 @@ const RESERVED: &[&str] = &[
     "Timestamp", "MinKey", "MaxKey", "Code", "UUID", "DBRef", "BSONRegExp", "BSONSymbol", "Regex",
     "Int64", "DatetimeMS", "datetime", "Document", "Date", "ISODate", "load", "quit", "sleep",
     "printjson", "console", "exports", "process", "Buffer",
+    // Classes and packages the Java, C#, Go, PHP and Ruby snippets rely on
+    "Main", "String", "System", "Arrays", "List", "ArrayList", "MongoClients", "MongoDatabase",
+    "MongoCollection", "BsonRegularExpression", "BsonTimestamp", "BsonUndefined", "BsonDbPointer",
+    "CodeWithScope", "Symbol", "BsonDocument", "BsonArray", "BsonDateTime", "BsonBinaryData",
+    "BsonNull", "BsonMinKey", "BsonMaxKey", "BsonJavaScript", "BsonSymbolTable", "Console",
+    "MongoDB", "err", "opts", "DateTime", "gen", "Bson", "Self",
 ];
 
 pub(crate) fn is_reserved_name(name: &str) -> bool {

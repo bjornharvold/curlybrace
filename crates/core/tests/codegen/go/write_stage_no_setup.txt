@@ -1,0 +1,16 @@
+pipeline := mongo.Pipeline{
+	bson.D{{Key: "$match", Value: bson.D{{Key: "status", Value: "A"}}}},
+	bson.D{
+		{Key: "$out", Value: bson.D{{Key: "db", Value: "shop"}, {Key: "coll", Value: "archive"}}},
+	},
+}
+
+cursor, err := collection.Aggregate(context.TODO(), pipeline)
+if err != nil {
+	log.Fatal(err)
+}
+var results []bson.M
+if err := cursor.All(context.TODO(), &results); err != nil {
+	log.Fatal(err)
+}
+fmt.Println(results)

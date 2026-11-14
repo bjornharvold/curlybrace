@@ -1,0 +1,19 @@
+List<Document> pipeline = Arrays.asList(
+    new Document("$match", new Document("status", new Document("$in", Arrays.asList("A", "B")))
+            .append("total", new Document("$gte", 100))),
+    new Document("$lookup", new Document("from", "customers")
+            .append("localField", "customerId")
+            .append("foreignField", "_id")
+            .append("as", "customer")),
+    new Document("$group", new Document("_id", "$customer.region")
+            .append("revenue", new Document("$sum", "$total"))
+            .append("orders", new Document("$count", new Document()))),
+    new Document("$facet", new Document("top", Arrays.asList(
+                new Document("$sort", new Document("revenue", -1)),
+                new Document("$limit", 5)
+            ))
+            .append("all", Arrays.asList(new Document("$count", "n"))))
+);
+
+List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+System.out.println(results);

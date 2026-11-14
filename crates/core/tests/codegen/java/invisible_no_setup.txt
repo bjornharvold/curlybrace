@@ -1,0 +1,11 @@
+List<Document> pipeline = Arrays.asList(
+    new Document("$match", new Document("bidi", "user\u202etxt.exe \u2066x\u2069")
+            .append("zeroWidth", "a\u200bb\u200dc\u2060d")
+            .append("bom", "\ufeffstart")
+            .append("c1", "next\205line")
+            .append("marks", "ok: 😀 café é 中文")
+            .append("k\u202eey", 1))
+);
+
+List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+System.out.println(results);

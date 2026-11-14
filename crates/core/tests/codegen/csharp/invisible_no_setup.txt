@@ -1,0 +1,15 @@
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument {
+            { "bidi", "user\u202etxt.exe \u2066x\u2069" },
+            { "zeroWidth", "a\u200bb\u200dc\u2060d" },
+            { "bom", "\ufeffstart" },
+            { "c1", "next\u0085line" },
+            { "marks", "ok: 😀 café é 中文" },
+            { "k\u202eey", 1 },
+        } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

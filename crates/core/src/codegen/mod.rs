@@ -7,7 +7,13 @@
 //! deterministic and ends with a newline. Request content is never logged and
 //! never appears in an error.
 
+mod csharp;
+mod csharp_syntax;
 mod escape;
+mod go;
+mod go_syntax;
+mod java;
+mod java_syntax;
 mod js_ops;
 mod js_syntax;
 mod keywords;
@@ -48,12 +54,12 @@ fn renderer(language: Language) -> Result<&'static dyn Renderer, CodegenError> {
         Language::Mongosh => Ok(&mongosh::Mongosh),
         Language::Node => Ok(&node::Node),
         Language::Python => Ok(&python::Python),
-        Language::Java
-        | Language::CSharp
-        | Language::Go
-        | Language::Php
-        | Language::Ruby
-        | Language::Rust => Err(CodegenError::UnsupportedLanguage(language.key())),
+        Language::Java => Ok(&java::Java),
+        Language::CSharp => Ok(&csharp::Csharp),
+        Language::Go => Ok(&go::Go),
+        Language::Php | Language::Ruby | Language::Rust => {
+            Err(CodegenError::UnsupportedLanguage(language.key()))
+        }
     }
 }
 
@@ -95,3 +101,5 @@ pub fn generate(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_langs;

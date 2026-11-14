@@ -12,7 +12,14 @@ use curlybrace_core::codegen::{CodeOptions, CodeRequest, Language, generate};
 
 use curlybrace_core::store::{Namespace, Query};
 
-const LANGUAGES: [Language; 3] = [Language::Mongosh, Language::Node, Language::Python];
+const LANGUAGES: [Language; 6] = [
+    Language::Mongosh,
+    Language::Node,
+    Language::Python,
+    Language::Java,
+    Language::CSharp,
+    Language::Go,
+];
 
 fn ns() -> Namespace {
     Namespace::new("shop", "orders")
@@ -197,7 +204,7 @@ fn generated_code_matches_the_golden_files() {
 fn no_golden_file_contains_a_raw_invisible_character() {
     let bad = |c: char| {
         let n = c as u32;
-        (c.is_control() && c != '\n')
+        (c.is_control() && c != '\n' && c != '\t')
             || (0x200b..=0x200f).contains(&n)
             || (0x2028..=0x202e).contains(&n)
             || (0x2060..=0x2069).contains(&n)

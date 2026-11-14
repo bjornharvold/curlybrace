@@ -1,0 +1,35 @@
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument {
+            { "status", new BsonDocument { { "$in", new BsonArray { "A", "B" } } } },
+            { "total", new BsonDocument { { "$gte", 100 } } },
+        } },
+    },
+    new BsonDocument {
+        { "$lookup", new BsonDocument {
+            { "from", "customers" },
+            { "localField", "customerId" },
+            { "foreignField", "_id" },
+            { "as", "customer" },
+        } },
+    },
+    new BsonDocument {
+        { "$group", new BsonDocument {
+            { "_id", "$customer.region" },
+            { "revenue", new BsonDocument { { "$sum", "$total" } } },
+            { "orders", new BsonDocument { { "$count", new BsonDocument() } } },
+        } },
+    },
+    new BsonDocument {
+        { "$facet", new BsonDocument {
+            { "top", new BsonArray {
+                new BsonDocument { { "$sort", new BsonDocument { { "revenue", -1 } } } },
+                new BsonDocument { { "$limit", 5 } },
+            } },
+            { "all", new BsonArray { new BsonDocument { { "$count", "n" } } } },
+        } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);
