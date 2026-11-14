@@ -4,9 +4,9 @@
 //! and options last used are remembered for the rest of the app run (never saved to disk). Nothing
 //! here is sent anywhere, and the generated code is never logged (not even by `Debug`).
 use super::aggregate::{AggregateState, Mode};
-use bson::{Bson, Document};
+use bson::Document;
 use curlybrace_core::codegen::{CodeOptions, CodeRequest, CodegenError, Language, generate};
-use curlybrace_core::pipeline::{PREVIEW_LIMIT, PipelineError, pipeline_text, preview_pipeline};
+use curlybrace_core::pipeline::{PipelineError, export_stages, pipeline_text};
 use std::fmt;
 
 /// Which variable-name field of the dialog is meant.
@@ -33,27 +33,7 @@ pub fn aggregate_stages(draft: &AggregateState) -> Result<Vec<Document>, CodeBlo
     if text_edited {
         return Err(CodeBlock::TextNotApplied);
     }
-    let plan =
-        preview_pipeline(&draft.stages, usize::MAX, PREVIEW_LIMIT).map_err(CodeBlock::Pipeline)?;
-    // The plan ends in the preview's `$limit`; a trailing write stage is not in it at all.
-    let mut stages = plan.pipeline;
-    stages.pop();
-    if plan.not_run.is_empty() {
-        return Ok(stages);
-    }
-    let index = draft.stages.iter().rposition(|stage| stage.enabled);
-    let write = index
-        .and_then(|i| serde_json::from_str::<serde_json::Value>(&draft.stages[i].text).ok())
-        .and_then(|value| Bson::try_from(value).ok())
-        .and_then(|bson| match bson {
-            Bson::Document(doc) => Some(doc),
-            _ => None,
-        })
-        .ok_or(CodeBlock::Pipeline(PipelineError::NotAStage {
-            index: index.unwrap_or(0),
-        }))?;
-    stages.push(write);
-    Ok(stages)
+    export_stages(&draft.stages).map_err(CodeBlock::Pipeline)
 }
 
 /// An open dialog: what it shows code for, and the code.

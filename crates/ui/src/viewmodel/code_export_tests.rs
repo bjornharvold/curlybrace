@@ -66,6 +66,12 @@ fn a_trailing_write_stage_is_kept_as_the_run_plan_sends_it() {
 }
 
 #[test]
+fn a_lone_write_stage_is_exported_as_a_run_accepts_it() {
+    let stages = aggregate_stages(&draft(&[("$out", OUT)])).unwrap();
+    assert_eq!(stages, vec![doc! { "$out": "city_totals" }]);
+}
+
+#[test]
 fn a_stage_that_does_not_parse_blocks_with_its_position() {
     let broken = draft(&[("$match", MATCH), ("$group", "{ not json")]);
     assert_eq!(
