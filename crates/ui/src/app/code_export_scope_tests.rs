@@ -152,3 +152,62 @@ fn the_remembered_language_and_options_outlive_a_closed_dialog() {
     assert_eq!(s.code_export.dialog, None);
     assert!(!s.code_export.last.1.setup, "the options are remembered");
 }
+
+fn unreachable(session: Uuid) -> Event {
+    Event::Failed {
+        session,
+        context: "find",
+        error: CoreError::Unreachable,
+    }
+}
+
+#[test]
+fn a_background_session_losing_its_connection_keeps_the_dialog_of_the_one_in_view() {
+    let (s, a, b) = two_sessions();
+    let s = with_dialog(s);
+    let (s, _) = ev(s, unreachable(a));
+    assert_eq!(s.active, Some(b));
+    let dialog = s.code_export.dialog.as_ref().expect("still open");
+    assert_eq!(dialog.session, b);
+}
+
+#[test]
+fn a_background_loss_keeps_it_when_the_session_in_view_holds_the_banner() {
+    let (s, a, b) = two_sessions();
+    let s = with_dialog(s);
+    let data_failure = Event::Failed {
+        session: b,
+        context: "find",
+        error: CoreError::Database("boom".into()),
+    };
+    let s = ev(s, data_failure).0;
+    assert_eq!(s.banner_owner(), Some(b));
+    let (s, _) = ev(s, unreachable(a));
+    assert!(s.code_export.dialog.is_some());
+}
+
+#[test]
+fn a_background_reconnect_failing_keeps_the_dialog_of_the_one_in_view() {
+    let (s, a, _) = two_sessions();
+    let s = with_dialog(s);
+    let failed = Event::ConnectFailed {
+        session: a,
+        epoch: s.latest_requested_epoch,
+        error: CoreError::Unreachable,
+    };
+    let (s, _) = ev(s, failed);
+    assert!(s.code_export.dialog.is_some());
+}
+
+#[test]
+fn the_session_in_view_failing_to_connect_closes_it() {
+    let (s, _, b) = two_sessions();
+    let s = with_dialog(s);
+    let failed = Event::ConnectFailed {
+        session: b,
+        epoch: s.latest_requested_epoch,
+        error: CoreError::Unreachable,
+    };
+    let (s, _) = ev(s, failed);
+    assert_eq!(s.code_export.dialog, None);
+}

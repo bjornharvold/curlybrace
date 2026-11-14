@@ -394,3 +394,24 @@ fn a_lost_connection_closes_the_dialog_and_raises_the_banner() {
     assert!(s.pending.is_none());
     assert!(s.banner.is_some());
 }
+
+#[test]
+fn dropping_the_open_collection_closes_its_copy_as_code_dialog_at_once() {
+    use super::aggregate_actions::AggregateAction;
+    use super::code_export_actions::{CodeAction, CodeSource};
+    let (s, _) = update(
+        connected(),
+        Input::Aggregate(AggregateAction::Code(CodeAction::Open(CodeSource::Find))),
+    );
+    assert!(s.code_export.dialog.is_some(), "the fixture opens it");
+    let (s, _) = update(s, request(AdminKind::DropDatabase, None));
+    assert!(s.code_export.dialog.is_some(), "the request alone keeps it");
+    let (s, _) = act(s, AdminAction::Typed("shop".into()));
+    let (s, _) = act(s, AdminAction::Confirmed);
+    let (s, _) = update(s, changed("shop"));
+    assert_eq!(s.selected_ns(), None);
+    assert_eq!(
+        s.code_export.dialog, None,
+        "not left on a vanished namespace"
+    );
+}

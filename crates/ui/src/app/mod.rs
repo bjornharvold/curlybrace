@@ -58,6 +58,8 @@ mod pipelines_app;
 pub mod pipelines_store;
 mod queries_actions;
 pub mod reducer;
+mod reducer_dispatch;
+mod reducer_lost;
 pub mod sampling_settings;
 pub mod session;
 mod session_actions;

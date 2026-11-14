@@ -11,13 +11,13 @@ use super::index_actions;
 use super::index_write_actions;
 use super::persistence::PersistError;
 use super::queries_actions;
+use super::reducer_dispatch::update_view;
+use super::reducer_lost::{after_connected, at_epoch, lost_with_shell_cancelled};
 use super::saved_copies;
-use super::session_actions;
 use super::shell_actions::{self, ShellAction};
 use super::state::{AppState, Banner, ConnStatus, Pending};
-use super::tools_actions;
 use super::tools_state::ToolsAction;
-use super::write_guard::{self, WriteWarningAction};
+use super::write_guard::WriteWarningAction;
 use crate::viewmodel::{
     CollectionTab, ConnectionForm, DocAction, EditorAction, EditorState, FindAction, IndexesAction,
     SidebarAction, page_key,
@@ -73,52 +73,19 @@ pub fn update(state: AppState, input: Input) -> Out {
     match input {
         // Events go straight to their handler: it is the deepest path, near the debug-build stack
         // limit. A lost connection closes the Copy as code dialog itself (`connection_lost`).
-        Input::Event(ev) => on_event(state, ev),
+        Input::Event(ev) => event_then_close_stale(state, ev),
         other => update_view(state, other),
     }
 }
 
-/// What the person does, then the Copy as code dialog closed if the view moved away from it.
+/// An event, then the Copy as code dialog closed if it took its session or collection out of view
+/// (a drop answered, a session gone). Not inlined into `update`: its frame must not add to the
+/// deepest event path, which is near the debug-build stack limit.
 #[inline(never)]
-fn update_view(state: AppState, input: Input) -> Out {
-    let mut out = dispatch(state, input);
+fn event_then_close_stale(state: AppState, ev: Event) -> Out {
+    let mut out = on_event(state, ev);
     super::code_export_actions::close_if_stale(&mut out.0);
     out
-}
-
-fn dispatch(state: AppState, input: Input) -> Out {
-    match input {
-        Input::Event(ev) => on_event(state, ev),
-        Input::Sidebar(a) => actions::sidebar(state, a),
-        Input::Find(a) => actions::find(state, a),
-        Input::Doc(a) => actions::doc(state, a),
-        Input::Editor(a) => actions::editor(state, a),
-        Input::Indexes(a) => index_actions::on_action(state, a),
-        Input::Tab(tab) => index_actions::switch_tab(state, tab),
-        Input::WriteWarning(a) => write_guard::on_action(state, a),
-        Input::Connect(id) => session_actions::connect(state, id),
-        Input::Disconnect(id) => session_actions::disconnect(state, id),
-        Input::Activate(id) => session_actions::activate(state, id),
-        Input::ShowConnections => session_actions::show_connections(state),
-        Input::TestConnection(form) => connection_test::start(state, &form),
-        Input::Compare(a) => compare::on_action(state, a),
-        Input::Copy(a) => copy::on_input(state, a),
-        Input::Tools(a) => tools_actions::on_action(state, a),
-        Input::Bulk(a) => bulk_actions::on_action(state, a),
-        Input::Copies(a) => saved_copies::on_action(state, a),
-        Input::Shell(a) => shell_actions::on_action(state, a),
-        Input::Aggregate(a) => aggregate_actions::on_action(state, a),
-        Input::DismissBanner => (state.without_banner(), Vec::new()),
-        Input::ForgetRequested => (forget_requested(state), Vec::new()),
-        Input::ForgetCancelled => (
-            AppState {
-                forget_confirm: None,
-                ..state
-            },
-            Vec::new(),
-        ),
-        Input::ForgetFinished(result) => (forget_finished(state, result), Vec::new()),
-    }
 }
 
 /// State-only view of [`update`] for callers that do not send commands.
@@ -136,7 +103,7 @@ pub(super) fn failure(state: AppState, context: &'static str, error: CoreError) 
     }
 }
 
-fn on_event(state: AppState, ev: Event) -> Out {
+pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     // A preview answer or failure goes to its session's Aggregate draft, inline and never as a
     // banner (only a lost server then takes the connection-lost path). Taken ahead of the match below and of `on_session_event`: both are near the
     // debug-build stack limit, and one more arm there overflows it.
@@ -562,80 +529,6 @@ fn specific(state: &AppState, context: &str, error: CoreError) -> CoreError {
     }
 }
 
-/// Applies a connect-family outcome unless a newer Connect/Disconnect was requested since.
-fn at_epoch(state: AppState, epoch: u64, apply: impl FnOnce(AppState) -> Out) -> Out {
-    if epoch < state.latest_requested_epoch {
-        return (state, Vec::new());
-    }
-    apply(AppState {
-        latest_requested_epoch: state.latest_requested_epoch.max(epoch),
-        ..state
-    })
-}
-
-/// The state after a session connected: its own data-failure banner is stale now; any other
-/// banner (another session's included) stays.
-fn after_connected(state: AppState) -> AppState {
-    let stale = state.banner_owner() == state.active
-        && state.banner.as_ref().is_some_and(Banner::is_data_failure);
-    if stale { state.without_banner() } else { state }
-}
-
-/// The active session's connection failed (connect) or was lost (a data command): its root
-/// stays (marked failed, showing the error), its view is cleared, and the user is told through
-/// the banner.
-///
-/// Only a background (not focused) session leaves another session's banner alone: its root shows
-/// `Failed` and its error in the tree. The focused session always raises its own banner.
-fn connection_lost(
-    state: AppState,
-    context: &'static str,
-    error: CoreError,
-    background: bool,
-) -> AppState {
-    if background
-        && state
-            .banner_owner()
-            .is_some_and(|owner| Some(owner) != state.active)
-    {
-        return state.failed(error);
-    }
-    let banner = Some(Banner::Failure {
-        context,
-        error: error.clone(),
-    });
-    // Captured here, while the failing session's view is the active one.
-    let forget_target = (context == "connect" && error == CoreError::SshHostKeyChanged)
-        .then(|| state.ssh_endpoint.clone())
-        .flatten();
-    let banner_session = state.active;
-    // The view is cleared with the session, so the Copy as code dialog opened on it goes too.
-    let code_export = Box::new((*state.code_export).clone().closed());
-    AppState {
-        banner,
-        banner_session,
-        forget_target,
-        code_export,
-        ..state.failed(error)
-    }
-}
-
-/// `connection_lost`, plus a cancel of the session's running shell: `mongosh` holds its own
-/// connection and may outlive the blip, and once the shell is reset to idle nothing else could
-/// stop it. Read while the failing session is the active one.
-fn lost_with_shell_cancelled(
-    state: AppState,
-    context: &'static str,
-    error: CoreError,
-    background: bool,
-) -> Out {
-    let cancel = shell_actions::cancel_running(&state, state.session_id());
-    (
-        connection_lost(state, context, error, background),
-        cancel.into_iter().collect(),
-    )
-}
-
 /// Stores a fresh page, memoising its content key once (not per frame).
 fn results_replaced(
     state: AppState,
@@ -788,7 +681,7 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
     }
 }
 
-fn forget_requested(state: AppState) -> AppState {
+pub(super) fn forget_requested(state: AppState) -> AppState {
     let target = state.forgettable_host().cloned();
     match target {
         Some(endpoint) => AppState {
@@ -799,7 +692,7 @@ fn forget_requested(state: AppState) -> AppState {
     }
 }
 
-fn forget_finished(state: AppState, result: Result<(), PersistError>) -> AppState {
+pub(super) fn forget_finished(state: AppState, result: Result<(), PersistError>) -> AppState {
     let banner = match result {
         Ok(()) => Banner::HostForgotten,
         Err(e) => Banner::Persist(e),
