@@ -264,7 +264,8 @@ async fn a_snapshot_from_another_connection_is_never_restored() {
         connection: uuid::Uuid::new_v4(), // not this session
         ns: mock_namespace(),
         kind: SnapshotKind::Delete { filter: doc! {} },
-        created_unix: 0,
+        // Recent: the start-up expiry purges anything past retention, which would race this test.
+        created_unix: crate::clock::now_secs(),
     };
     let mut w = SnapshotWriter::create(dir.path(), header, u64::MAX).unwrap();
     w.push(&doc! { "_id": 1 }).unwrap();
