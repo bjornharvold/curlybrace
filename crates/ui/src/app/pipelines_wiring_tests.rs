@@ -310,3 +310,61 @@ fn a_newer_file_is_left_untouched_and_saving_says_why() {
     assert!(app.state().pipelines.list(conn).is_empty());
     assert_eq!(std::fs::read_to_string(pipeline_file(&dir)).unwrap(), newer);
 }
+
+const NEWER_FILE: &str = r#"{"version": 2, "connections": {}}"#;
+
+#[test]
+fn the_newer_file_block_lifts_when_the_file_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    std::fs::write(pipeline_file(&dir), NEWER_FILE).unwrap();
+    let (mut app, _events, _commands) = app_in(&dir, Vec::new());
+    let refused = app.state_mut().persist_pipelines(store_with(conn, "x"));
+    assert_eq!(
+        refused,
+        Err(pipelines_store::PipelinesSaveError::NewerVersion)
+    );
+    std::fs::remove_file(pipeline_file(&dir)).unwrap();
+    app.state_mut()
+        .persist_pipelines(store_with(conn, "x"))
+        .unwrap();
+    let again = load(&pipeline_file(&dir), &persistence::back_up);
+    assert_eq!(again.settings.list(conn).len(), 1);
+}
+
+#[test]
+fn the_newer_file_block_lifts_when_the_file_becomes_version_one_but_reloads_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    std::fs::write(pipeline_file(&dir), NEWER_FILE).unwrap();
+    let (mut app, _events, _commands) = app_in(&dir, Vec::new());
+    // Another window (or the user) leaves a version 1 file with an entry of its own.
+    pipelines_store::save(&pipeline_file(&dir), &store_with(conn, "theirs")).unwrap();
+    let first = app.state_mut().persist_pipelines(store_with(conn, "mine"));
+    assert_eq!(
+        first,
+        Err(pipelines_store::PipelinesSaveError::ChangedOnDisk)
+    );
+    assert_eq!(app.state().pipelines.list(conn)[0].name, "theirs");
+    let next = app
+        .state()
+        .pipelines
+        .saved(conn, "mine", None, stage(), 2, false)
+        .unwrap();
+    app.state_mut().persist_pipelines(next).unwrap();
+    let again = load(&pipeline_file(&dir), &persistence::back_up);
+    assert_eq!(again.settings.list(conn).len(), 2);
+}
+
+#[test]
+fn a_file_that_is_still_newer_keeps_the_unsupported_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    std::fs::write(pipeline_file(&dir), NEWER_FILE).unwrap();
+    let (mut app, _events, _commands) = app_in(&dir, Vec::new());
+    for _ in 0..2 {
+        let refused = app.state_mut().persist_pipelines(store_with(conn, "x"));
+        let error = refused.unwrap_err();
+        assert_eq!(error.i18n_key(), "aggregate.saved.error.unsupported");
+    }
+}

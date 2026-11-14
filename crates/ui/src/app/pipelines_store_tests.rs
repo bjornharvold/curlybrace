@@ -252,9 +252,12 @@ fn a_file_of_a_newer_version_is_neither_backed_up_nor_replaced() {
     let started = load(&path, &back_up);
     assert_eq!(started.settings, SavedPipelines::default());
     assert_eq!(started.recovery, Some(Recovery::PipelinesNewer));
-    assert_eq!(started.guard.check(), Err(PersistError::Blocked));
+    assert!(
+        started.guard.check().is_ok(),
+        "the refusal follows the file, not a guard"
+    );
     assert_eq!(backups_of(dir.path()), 0, "nothing was copied aside");
-    let result = saved(&path, &started.guard, DiskStamp::default(), &sample());
+    let result = saved(&path, &started.guard, started.seen, &sample());
     assert_eq!(result, Err(PipelinesSaveError::NewerVersion));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), NEWER);
     assert_eq!(

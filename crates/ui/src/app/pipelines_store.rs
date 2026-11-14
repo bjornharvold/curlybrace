@@ -41,11 +41,14 @@ pub fn load(path: &Path, backup: BackupFn<'_>) -> PipelinesStartup {
         .as_ref()
         .map_or_else(|_| DiskStamp::default(), |bytes| DiskStamp::of(bytes));
     if read.as_ref().is_ok_and(|bytes| is_newer(bytes)) {
+        // Not a guard: the file is checked again at every save, so the refusal ends with the
+        // file. The list is empty, so it is stamped as if there were no file: a file that
+        // is removed can be written to, any other file is reloaded first.
         return PipelinesStartup {
             settings: SavedPipelines::default(),
-            guard: PersistGuard::blocked(),
+            guard: PersistGuard::default(),
             recovery: Some(Recovery::PipelinesNewer),
-            seen,
+            seen: DiskStamp::default(),
         };
     }
     let started = settings_file::load_read(path, read, backup, "saved pipelines", parse, |b| {
