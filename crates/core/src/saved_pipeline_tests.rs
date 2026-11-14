@@ -26,7 +26,14 @@ fn a_name_is_trimmed_and_must_not_be_empty() {
 
 #[test]
 fn a_name_with_a_control_character_is_refused() {
-    for bad in ["a\nb", "a\tb", "a\0b", "a\r\nb", "x\u{7f}y", "\u{1b}[31mred"] {
+    for bad in [
+        "a\nb",
+        "a\tb",
+        "a\0b",
+        "a\r\nb",
+        "x\u{7f}y",
+        "\u{1b}[31mred",
+    ] {
         assert_eq!(validate_name(bad), Err(SavedError::InvalidName), "{bad:?}");
     }
     // Whitespace around the name is trimmed away first, so it is not a control character in it.
@@ -35,7 +42,12 @@ fn a_name_with_a_control_character_is_refused() {
 
 #[test]
 fn ordinary_unicode_names_are_accepted() {
-    for good in ["Café totals", "日本語 パイプライン", "rocket 🚀 stats", "naïve"] {
+    for good in [
+        "Café totals",
+        "日本語 パイプライン",
+        "rocket 🚀 stats",
+        "naïve",
+    ] {
         assert_eq!(validate_name(good), Ok(good.to_string()), "{good}");
     }
 }

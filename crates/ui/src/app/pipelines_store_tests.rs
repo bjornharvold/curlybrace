@@ -113,6 +113,32 @@ fn a_file_of_the_wrong_shape_is_unusable() {
 }
 
 #[test]
+fn a_file_that_breaks_the_limits_is_backed_up_and_not_trimmed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pipelines.json");
+    let (conn, id) = (Uuid::new_v4(), Uuid::new_v4());
+    let one = |name: &str| format!(r#"{{"id":"{id}","name":"{name}","saved_unix":1,"stages":[]}}"#);
+    let text = format!(
+        r#"{{"version":1,"connections":{{"{conn}":[{},{}]}}}}"#,
+        one("a"),
+        one("b")
+    );
+    std::fs::write(&path, &text).unwrap();
+    let started = load(&path, &back_up);
+    assert_eq!(
+        started.recovery,
+        Some(Recovery::Pipelines { backed_up: true })
+    );
+    assert!(started.settings.list(conn).is_empty());
+    assert_eq!(backups_of(dir.path()), 1);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        text,
+        "left for the next save"
+    );
+}
+
+#[test]
 fn a_file_over_five_megabytes_is_treated_as_corrupt() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("pipelines.json");

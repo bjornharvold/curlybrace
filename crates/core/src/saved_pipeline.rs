@@ -104,11 +104,47 @@ impl TryFrom<Raw> for SavedPipelines {
         if raw.version > VERSION {
             return Err(SavedError::Unsupported.error_variant().to_string());
         }
+        let connections = raw
+            .connections
+            .into_iter()
+            .map(|(id, list)| checked_list(list).map(|list| (id, list)))
+            .collect::<Result<_, SavedError>>()
+            .map_err(|e| e.error_variant().to_string())?;
         Ok(Self {
             version: VERSION,
-            connections: raw.connections,
+            connections,
         })
     }
+}
+
+/// One connection's list as read from a file. The limits the API enforces hold here too, and a
+/// list that breaks one is refused whole, never trimmed: dropping entries on load would lose
+/// someone's pipelines silently, while a refusal makes the app back the file up and say so.
+/// Only harmless tidying is done: names are trimmed. Refused: a name that is empty, too long or
+/// has a control character, a repeated id, a name repeated ignoring case, more than
+/// [`MAX_PER_CONNECTION`] entries, more than [`MAX_STAGE_BYTES`] of stage text in one entry.
+fn checked_list(list: Vec<SavedPipeline>) -> Result<Vec<SavedPipeline>, SavedError> {
+    if list.len() > MAX_PER_CONNECTION {
+        return Err(SavedError::TooMany);
+    }
+    let list = list
+        .into_iter()
+        .map(|p| {
+            let name = validate_name(&p.name)?;
+            match p.stages.iter().map(|s| s.text.len()).sum::<usize>() > MAX_STAGE_BYTES {
+                true => Err(SavedError::TooLarge),
+                false => Ok(SavedPipeline { name, ..p }),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut ids = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    for p in &list {
+        if !ids.insert(p.id) || !names.insert(p.name.to_lowercase()) {
+            return Err(SavedError::NameTaken);
+        }
+    }
+    Ok(list)
 }
 
 /// Every connection's saved pipelines, newest first.
@@ -258,3 +294,7 @@ impl SavedPipelines {
 #[cfg(test)]
 #[path = "saved_pipeline_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "saved_pipeline_load_tests.rs"]
+mod load_tests;
