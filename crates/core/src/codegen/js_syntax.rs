@@ -145,7 +145,7 @@ impl Syntax for JsSyntax {
                 format!("ISODate(\"{iso}\")")
             });
         }
-        if millis.abs() <= JS_DATE_LIMIT_MS {
+        if millis.unsigned_abs() <= JS_DATE_LIMIT_MS.unsigned_abs() {
             Ok(format!("new Date({millis})"))
         } else {
             Err(CodegenError::UnsupportedValue("dateTime"))

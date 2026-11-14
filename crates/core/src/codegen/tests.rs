@@ -256,6 +256,21 @@ fn integer_widths_are_kept() {
 }
 
 #[test]
+fn the_extreme_dates_do_not_overflow_the_range_check() {
+    // `i64::MIN.abs()` panics in debug and wraps negative in release.
+    for language in [Language::Mongosh, Language::Node] {
+        for millis in [i64::MIN, i64::MAX] {
+            let out = first_value(language, Bson::DateTime(bson::DateTime::from_millis(millis)));
+            assert_eq!(
+                out,
+                Err(CodegenError::UnsupportedValue("dateTime")),
+                "{language:?} {millis}"
+            );
+        }
+    }
+}
+
+#[test]
 fn dates_before_1970_and_out_of_range_are_expressible() {
     let before = Bson::DateTime(bson::DateTime::from_millis(-1));
     assert!(
