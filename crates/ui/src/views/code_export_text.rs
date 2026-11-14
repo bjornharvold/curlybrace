@@ -38,6 +38,14 @@ fn field_named(which: &str) -> NameField {
     }
 }
 
+/// The label key of the query option an `OutOfRange` error names (`skip` or `limit`).
+fn option_label_key(which: &str) -> &'static str {
+    match which {
+        "skip" => "findbar.skip",
+        _ => "findbar.limit",
+    }
+}
+
 /// The translated message of a generation error.
 pub(super) fn error_text(error: &CodegenError, i18n: &I18n) -> String {
     match error {
@@ -50,8 +58,9 @@ pub(super) fn error_text(error: &CodegenError, i18n: &I18n) -> String {
             i18n.t_with("codegen.error.unsupported_value", &[("type", kind)])
         }
         CodegenError::KeyOrder => i18n.t("codegen.error.key_order"),
-        CodegenError::OutOfRange(field) => {
-            i18n.t_with("codegen.error.out_of_range", &[("field", field)])
+        CodegenError::OutOfRange(which) => {
+            let field = i18n.t(option_label_key(which));
+            i18n.t_with("codegen.error.out_of_range", &[("field", &field)])
         }
     }
 }
@@ -95,7 +104,9 @@ mod tests {
         let kind = error_text(&CodegenError::UnsupportedValue("Symbol"), &i18n);
         assert!(kind.contains("Symbol") && !kind.contains('{'), "{kind}");
         let range = error_text(&CodegenError::OutOfRange("skip"), &i18n);
-        assert_eq!(range, "The skip is too large for this language.");
+        assert_eq!(range, "The Skip is too large for this language.");
+        let limit = error_text(&CodegenError::OutOfRange("limit"), &i18n);
+        assert_eq!(limit, "The Limit is too large for this language.");
         let order = error_text(&CodegenError::KeyOrder, &i18n);
         assert!(
             order.contains("field order") && !order.contains('{'),
