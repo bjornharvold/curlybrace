@@ -3,7 +3,7 @@
 //! connection. Copy itself is the view's (the clipboard is egui's); the reducer only keeps the
 //! dialog open.
 use super::reducer::Out;
-use super::state::AppState;
+use super::state::{AppState, Workspace};
 use crate::viewmodel::NameField;
 use crate::viewmodel::code_export::aggregate_stages;
 use curlybrace_core::codegen::{CodeRequest, Language};
@@ -44,6 +44,22 @@ fn request(state: &AppState, source: CodeSource) -> Option<CodeRequest> {
     }
 }
 
+/// `state` with the dialog closed when it no longer belongs to what is in view: another session,
+/// another collection (none, after a lost connection) or the connection manager. Run after every
+/// input, so no path that changes the view can leave it behind.
+pub(super) fn close_if_stale(state: &mut AppState) {
+    if state.code_export.dialog.is_none() {
+        return;
+    }
+    let browsing = state.workspace == Workspace::Browse;
+    let stale = state
+        .code_export
+        .is_stale(state.session_id(), state.selected_ns());
+    if !browsing || stale {
+        state.code_export = Box::new((*state.code_export).clone().closed());
+    }
+}
+
 // Never inlined: `AppState` moves by value through the reducer, and its frames are near the
 // debug-build stack limit (see `reducer::on_event`).
 #[inline(never)]
@@ -51,7 +67,7 @@ pub(super) fn on_action(state: AppState, action: CodeAction) -> Out {
     let ui = (*state.code_export).clone();
     let next = match action {
         CodeAction::Open(source) => match request(&state, source) {
-            Some(request) => ui.opened(request),
+            Some(request) => ui.opened_in(request, state.session_id()),
             None => ui,
         },
         CodeAction::SetLanguage(language) => ui.language_set(language),
@@ -71,3 +87,7 @@ pub(super) fn on_action(state: AppState, action: CodeAction) -> Out {
 #[cfg(test)]
 #[path = "code_export_actions_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "code_export_scope_tests.rs"]
+mod scope_tests;

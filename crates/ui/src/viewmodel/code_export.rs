@@ -7,7 +7,9 @@ use super::aggregate::{AggregateState, Mode};
 use bson::Document;
 use curlybrace_core::codegen::{CodeOptions, CodeRequest, CodegenError, Language, generate};
 use curlybrace_core::pipeline::{PipelineError, export_stages, pipeline_text};
+use curlybrace_core::store::Namespace;
 use std::fmt;
+use uuid::Uuid;
 
 /// Which variable-name field of the dialog is meant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +42,8 @@ pub fn aggregate_stages(draft: &AggregateState) -> Result<Vec<Document>, CodeBlo
 #[derive(Clone, PartialEq)]
 pub struct CodeDialog {
     pub request: CodeRequest,
+    /// The session it was opened in; the dialog closes when another one is in view.
+    pub session: Uuid,
     pub language: Language,
     pub options: CodeOptions,
     /// The generated code, or why there is none (shown in its place).
@@ -57,13 +61,21 @@ impl fmt::Debug for CodeDialog {
 }
 
 impl CodeDialog {
-    fn new(request: CodeRequest, language: Language, options: CodeOptions) -> Self {
+    fn new(request: CodeRequest, session: Uuid, language: Language, options: CodeOptions) -> Self {
         let text = generate(language, &request, &options);
         Self {
             request,
+            session,
             language,
             options,
             text,
+        }
+    }
+
+    /// The namespace the code is for.
+    pub fn namespace(&self) -> &Namespace {
+        match &self.request {
+            CodeRequest::Find { ns, .. } | CodeRequest::Aggregate { ns, .. } => ns,
         }
     }
 
@@ -78,11 +90,11 @@ impl CodeDialog {
     }
 
     fn with_language(self, language: Language) -> Self {
-        Self::new(self.request, language, self.options)
+        Self::new(self.request, self.session, language, self.options)
     }
 
     fn with_options(self, options: CodeOptions) -> Self {
-        Self::new(self.request, self.language, options)
+        Self::new(self.request, self.session, self.language, options)
     }
 }
 
@@ -104,13 +116,26 @@ impl Default for CodeExportUi {
 }
 
 impl CodeExportUi {
-    /// The dialog opened for `request` with the remembered language and options.
+    /// The dialog opened for `request` in the embedded session, with the remembered language and
+    /// options.
     pub fn opened(self, request: CodeRequest) -> Self {
+        self.opened_in(request, Uuid::nil())
+    }
+
+    /// The dialog opened for `request` in `session`, with the remembered language and options.
+    pub fn opened_in(self, request: CodeRequest, session: Uuid) -> Self {
         let (language, options) = self.last.clone();
         Self {
-            dialog: Some(CodeDialog::new(request, language, options)),
+            dialog: Some(CodeDialog::new(request, session, language, options)),
             ..self
         }
+    }
+
+    /// Whether a dialog is open for another session or namespace than `session` and `ns`.
+    pub fn is_stale(&self, session: Uuid, ns: Option<&Namespace>) -> bool {
+        self.dialog
+            .as_ref()
+            .is_some_and(|dialog| dialog.session != session || ns != Some(dialog.namespace()))
     }
 
     pub fn closed(self) -> Self {

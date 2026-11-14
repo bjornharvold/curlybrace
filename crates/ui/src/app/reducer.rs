@@ -71,6 +71,23 @@ pub enum Input {
 
 pub fn update(state: AppState, input: Input) -> Out {
     match input {
+        // Events go straight to their handler: it is the deepest path, near the debug-build stack
+        // limit. A lost connection closes the Copy as code dialog itself (`connection_lost`).
+        Input::Event(ev) => on_event(state, ev),
+        other => update_view(state, other),
+    }
+}
+
+/// What the person does, then the Copy as code dialog closed if the view moved away from it.
+#[inline(never)]
+fn update_view(state: AppState, input: Input) -> Out {
+    let mut out = dispatch(state, input);
+    super::code_export_actions::close_if_stale(&mut out.0);
+    out
+}
+
+fn dispatch(state: AppState, input: Input) -> Out {
+    match input {
         Input::Event(ev) => on_event(state, ev),
         Input::Sidebar(a) => actions::sidebar(state, a),
         Input::Find(a) => actions::find(state, a),
@@ -592,10 +609,13 @@ fn connection_lost(
         .then(|| state.ssh_endpoint.clone())
         .flatten();
     let banner_session = state.active;
+    // The view is cleared with the session, so the Copy as code dialog opened on it goes too.
+    let code_export = Box::new((*state.code_export).clone().closed());
     AppState {
         banner,
         banner_session,
         forget_target,
+        code_export,
         ..state.failed(error)
     }
 }
