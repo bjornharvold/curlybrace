@@ -283,6 +283,12 @@ fn bulk_write_commands(session: SessionId) -> Vec<Command> {
             request_id: 1,
         },
         Command::BulkUndo { session, run },
+        Command::AggregateRun {
+            session,
+            ns: mock_namespace(),
+            pipeline: vec![bson::doc! { "$out": "dest" }],
+            run: 1,
+        },
     ]
 }
 
@@ -505,7 +511,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 48;
+const COMMAND_VARIANTS: usize = 49;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -527,7 +533,8 @@ fn classify(command: &Command) -> Class {
         | Command::BulkUpdate { .. }
         | Command::BulkDelete { .. }
         | Command::BulkUndoPreview { .. }
-        | Command::BulkUndo { .. } => Class::Write,
+        | Command::BulkUndo { .. }
+        | Command::AggregateRun { .. } => Class::Write,
         Command::ListDatabases { .. }
         | Command::ListCollections { .. }
         | Command::Find { .. }

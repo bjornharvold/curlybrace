@@ -495,6 +495,20 @@ pub trait DocumentStore: Send + Sync {
         ))
     }
 
+    /// Runs `pipeline` on `ns` for its effect: its last stage is the single `$out` or `$merge`.
+    /// A write, so a read-only connection refuses it first. Refuses any other shape before it
+    /// reaches the server; the server stops the work after `max_time`.
+    async fn aggregate_write(
+        &self,
+        _ns: &Namespace,
+        _pipeline: Vec<Document>,
+        _max_time: Duration,
+    ) -> Result<()> {
+        Err(CoreError::Unsupported(
+            "this store cannot run a write pipeline".into(),
+        ))
+    }
+
     /// The profiler setting of `db`.
     async fn profiling_level(&self, _db: &str) -> Result<ProfilingState> {
         Err(CoreError::Unsupported(

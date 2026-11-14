@@ -16,7 +16,7 @@ use crate::test_support::mock_objects::mock_namespace;
 
 const WAIT: Duration = Duration::from_secs(5);
 
-struct FixedConnector(Arc<dyn DocumentStore>);
+pub(super) struct FixedConnector(Arc<dyn DocumentStore>);
 
 #[async_trait::async_trait]
 impl Connector for FixedConnector {
@@ -46,14 +46,14 @@ fn preview_command(session: SessionId, pipeline: Vec<Document>) -> Command {
     }
 }
 
-async fn next(h: &mut RuntimeHandle) -> Event {
+pub(super) async fn next(h: &mut RuntimeHandle) -> Event {
     tokio::time::timeout(WAIT, h.rx.recv())
         .await
         .expect("event within bound")
         .expect("channel open")
 }
 
-async fn connected_to(
+pub(super) async fn connected_to(
     store: Arc<dyn DocumentStore>,
     read_only: bool,
     config: RuntimeConfig,

@@ -1046,6 +1046,7 @@
   },
   "failures": {
     "aggregate_preview": "Could not preview the pipeline",
+    "aggregate_run": "Could not run the pipeline",
     "bulk_cancel": "Could not cancel the bulk write",
     "bulk_count": "Could not count the matching documents",
     "bulk_delete": "Could not delete the matching documents",

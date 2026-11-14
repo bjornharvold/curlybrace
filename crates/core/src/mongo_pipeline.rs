@@ -10,7 +10,7 @@ use mongodb::options::AggregateOptions;
 
 use crate::driver_error::classify_driver_error;
 use crate::error::{CoreError, Result};
-use crate::pipeline::contains_write_stage;
+use crate::pipeline::{contains_write_stage, ensure_run_shape};
 use crate::store::Namespace;
 
 /// Refuses a pipeline holding `$out` or `$merge` at a stage position: the stage key itself, the
@@ -56,10 +56,46 @@ pub(crate) async fn aggregate_preview(
         .map_err(|e| classify_driver_error(&e))
 }
 
+/// Options of a write run: only the server-side time limit (no options of the pipeline itself).
+fn run_options(max_time: Duration) -> AggregateOptions {
+    AggregateOptions::builder().max_time(max_time).build()
+}
+
+/// Runs a pipeline whose last stage is `$out`/`$merge` and drains its cursor, so the server
+/// finishes the write before this returns. The shape is checked again here, before the server.
+pub(crate) async fn aggregate_write(
+    db: &Database,
+    ns: &Namespace,
+    pipeline: Vec<Document>,
+    max_time: Duration,
+) -> Result<()> {
+    ensure_run_shape(&pipeline)?;
+    let mut cursor = db
+        .collection::<Document>(&ns.collection)
+        .aggregate(pipeline)
+        .with_options(run_options(max_time))
+        .await
+        .map_err(|e| classify_driver_error(&e))?;
+    while cursor
+        .try_next()
+        .await
+        .map_err(|e| classify_driver_error(&e))?
+        .is_some()
+    {}
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use bson::doc;
+
+    #[test]
+    fn the_run_options_carry_only_the_time_limit() {
+        let o = run_options(Duration::from_millis(900));
+        assert_eq!(o.max_time, Some(Duration::from_millis(900)));
+        assert_eq!(o.allow_disk_use, None);
+    }
 
     #[test]
     fn a_read_only_pipeline_passes() {

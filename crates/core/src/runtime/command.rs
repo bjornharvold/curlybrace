@@ -26,6 +26,7 @@ impl Command {
             | Self::BulkDelete { .. }
             | Self::BulkUndoPreview { .. }
             | Self::BulkUndo { .. }
+            | Self::AggregateRun { .. }
             | Self::ShellRun { .. } => true,
             Self::Connect(_)
             | Self::Disconnect { .. }
@@ -89,6 +90,7 @@ impl Command {
             Self::ExplainFind { .. } => "explain_find",
             Self::GuardCheck { .. } => "guard_check",
             Self::AggregatePreview { .. } => "aggregate_preview",
+            Self::AggregateRun { .. } => "aggregate_run",
             Self::Insert { .. } => "insert",
             Self::Replace { .. } => "replace",
             Self::Delete { .. } => "delete",
@@ -146,6 +148,7 @@ impl Command {
             | Self::ExplainFind { session, .. }
             | Self::GuardCheck { session, .. }
             | Self::AggregatePreview { session, .. }
+            | Self::AggregateRun { session, .. }
             | Self::Insert { session, .. }
             | Self::Replace { session, .. }
             | Self::Delete { session, .. }
@@ -205,6 +208,7 @@ impl Event {
             | Self::Explain { session, .. }
             | Self::GuardChecked { session, .. }
             | Self::AggregatePreviewed { session, .. }
+            | Self::AggregateRan { session, .. }
             | Self::Mutated { session, .. }
             | Self::Indexes { session, .. }
             | Self::IndexHistory { session, .. }

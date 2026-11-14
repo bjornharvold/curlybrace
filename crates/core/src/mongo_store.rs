@@ -436,6 +436,21 @@ impl DocumentStore for MongoStore {
         .await
     }
 
+    async fn aggregate_write(
+        &self,
+        ns: &Namespace,
+        pipeline: Vec<Document>,
+        max_time: Duration,
+    ) -> Result<()> {
+        crate::mongo_pipeline::aggregate_write(
+            &self.client.database(&ns.db),
+            ns,
+            pipeline,
+            max_time,
+        )
+        .await
+    }
+
     async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {
         crate::mongo_profile::mongos_decision(self.topology().await?)?;
         crate::mongo_profile::profiling_level(&self.client.database(db)).await

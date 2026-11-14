@@ -210,6 +210,14 @@ async fn run(
         Command::AggregatePreview { request, .. } => Some(*request),
         _ => None,
     };
+    // A write run that outruns the client bound has an unknown outcome: answered, never pinged.
+    let run_namespaces = match &command {
+        Command::AggregateRun { ns, pipeline, .. } => Some((
+            ns.clone(),
+            super::aggregate_run::target_namespace(ns, pipeline),
+        )),
+        _ => None,
+    };
     // A profiler command is the one write whose read-only refusal is not decided here: the store
     // wrapper is the authority and its refusal is the outcome. Every other check (session,
     // currency, generation) still applies to it, `execute` turns its failures into outcomes.
@@ -279,6 +287,14 @@ async fn run(
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
     }
+    if let (true, Some((ns, target))) = (timed_out, run_namespaces) {
+        return Ok(Event::AggregateRan {
+            session: id,
+            ns,
+            target,
+            outcome: Err(CoreError::WriteOutcomeUnknown),
+        });
+    }
     // A profiler command is not settled by a ping either, whether it timed out or lost the
     // connection: a timeout is an outcome, and the loss is detected by the next ordinary command
     // or the sampler. `execute` turns the error into its outcome.
@@ -316,7 +332,7 @@ async fn settle_by_ping(
 }
 
 /// Whether `error` says the connection is gone or suspect rather than that the command failed.
-fn is_connection_error(error: &CoreError) -> bool {
+pub(super) fn is_connection_error(error: &CoreError) -> bool {
     matches!(
         error,
         CoreError::Unreachable | CoreError::TlsHandshake | CoreError::ConnectionInterrupted(_)
@@ -403,6 +419,9 @@ async fn data_command(
                 request,
                 outcome,
             }
+        }
+        Command::AggregateRun { ns, pipeline, .. } => {
+            super::aggregate_run::run(session, &*store, ns, pipeline).await?
         }
         Command::Insert { ns, json, .. } => {
             service.insert_from_json(&ns, &json).await?;
@@ -732,6 +751,9 @@ pub(super) fn command_time_limit(
         Command::AggregatePreview { .. } => config
             .command_timeout
             .min(super::config::AGGREGATE_PREVIEW_TIMEOUT),
+        Command::AggregateRun { .. } => config
+            .index_build_timeout
+            .min(super::config::AGGREGATE_RUN_TIMEOUT),
         _ => config.command_timeout,
     }
 }
