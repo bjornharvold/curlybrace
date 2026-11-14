@@ -73,7 +73,8 @@ pub fn validate_name(name: &str) -> Result<String, SavedError> {
     Ok(trimmed.to_string())
 }
 
-fn same_name(a: &str, b: &str) -> bool {
+/// Whether two names are the same pipeline name: equal ignoring case and surrounding spaces.
+pub fn same_name(a: &str, b: &str) -> bool {
     a.trim().to_lowercase() == b.trim().to_lowercase()
 }
 

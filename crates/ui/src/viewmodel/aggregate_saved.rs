@@ -3,7 +3,9 @@
 //! like the draft. Every op returns a new state; nothing here touches a file.
 use super::aggregate::{AggregateState, Mode, PreviewState};
 use curlybrace_core::pipeline::{Stage, parse_pipeline_text, pipeline_text};
-use curlybrace_core::saved_pipeline::{SavedPipeline, SavedStage};
+use curlybrace_core::saved_pipeline::{
+    SavedError, SavedPipeline, SavedStage, same_name, validate_name,
+};
 use uuid::Uuid;
 
 /// The dialog the Save / Open controls have open. The pipelines are named by id, so a dialog
@@ -59,6 +61,35 @@ impl SavedUi {
             ..self
         }
     }
+}
+
+/// The i18n key of the message for a refused change to the list.
+pub fn saved_error_key(error: SavedError) -> &'static str {
+    match error {
+        SavedError::EmptyName => "aggregate.saved.error.empty_name",
+        SavedError::NameTooLong => "aggregate.saved.error.name_too_long",
+        SavedError::NameTaken => "aggregate.saved.error.name_taken",
+        SavedError::TooMany => "aggregate.saved.error.too_many",
+        SavedError::TooLarge => "aggregate.saved.error.too_large",
+        SavedError::Unsupported => "aggregate.saved.error.unsupported",
+    }
+}
+
+/// Why `name` cannot be used, as an error: empty or too long, or (when `check_taken`) used by
+/// another of `entries` than `except`.
+pub fn name_problem(
+    entries: &[SavedPipeline],
+    name: &str,
+    except: Option<Uuid>,
+    check_taken: bool,
+) -> Option<SavedError> {
+    if let Err(e) = validate_name(name) {
+        return Some(e);
+    }
+    let taken = entries
+        .iter()
+        .any(|p| Some(p.id) != except && same_name(&p.name, name));
+    (check_taken && taken).then_some(SavedError::NameTaken)
 }
 
 fn to_saved(stages: &[Stage]) -> Vec<SavedStage> {

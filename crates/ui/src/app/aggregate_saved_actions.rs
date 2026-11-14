@@ -8,7 +8,7 @@ use super::aggregate_actions::{AggregateAction, with_draft};
 use super::reducer::Out;
 use super::state::AppState;
 use crate::viewmodel::AggregateState;
-use crate::viewmodel::aggregate_saved::SavedDialog;
+use crate::viewmodel::aggregate_saved::{SavedDialog, saved_error_key};
 use crate::viewmodel::aggregate_view::AggregateView;
 use curlybrace_core::saved_pipeline::{SavedError, SavedPipeline, SavedPipelines};
 use uuid::Uuid;
@@ -74,18 +74,6 @@ fn closed(state: AppState, draft: AggregateState) -> AppState {
 /// `state` keeping the dialog open, saying why in `key`.
 fn failed(state: AppState, draft: AggregateState, key: &'static str) -> AppState {
     with_draft(state, draft.with_saved_error(key))
-}
-
-/// The message key of a refused change to the list.
-fn error_key(error: SavedError) -> &'static str {
-    match error {
-        SavedError::EmptyName => "aggregate.saved.error.empty_name",
-        SavedError::NameTooLong => "aggregate.saved.error.name_too_long",
-        SavedError::NameTaken => "aggregate.saved.error.name_taken",
-        SavedError::TooMany => "aggregate.saved.error.too_many",
-        SavedError::TooLarge => "aggregate.saved.error.too_large",
-        SavedError::Unsupported => "aggregate.saved.error.unsupported",
-    }
 }
 
 /// Writes `next`: the state holds it as the list when that worked; a failure leaves the list as
@@ -161,7 +149,7 @@ fn save_confirmed(
                 },
             );
         }
-        Err(e) => return failed(state, draft, error_key(e)),
+        Err(e) => return failed(state, draft, saved_error_key(e)),
     };
     let Some(entry) = next.find_by_name(conn, name).cloned() else {
         return failed(state, draft, "aggregate.saved.error.empty_name");
@@ -212,7 +200,7 @@ fn rename_confirmed(
 ) -> AppState {
     let next = match state.pipelines.renamed(conn, id, name) {
         Ok(next) => next,
-        Err(e) => return failed(state, draft, error_key(e)),
+        Err(e) => return failed(state, draft, saved_error_key(e)),
     };
     let shown_name = next.find(conn, id).map(|p| p.name.clone());
     match persisted(state, next) {

@@ -3,6 +3,8 @@
 //! Draws the draft it is given and returns what the person did; the reducer decides what happens.
 //! Typing in a stage is held in the view until it pauses, so a preview does not run per keystroke.
 use super::aggregate_preview::show_preview;
+use super::aggregate_saved::show_saved_toolbar;
+use super::aggregate_saved_dialogs::show_saved_dialog;
 use super::aggregate_stage::show_stages;
 use super::aggregate_text::show_text;
 use crate::I18n;
@@ -11,6 +13,7 @@ use crate::theme::{CONTROL_HEIGHT, Tone, chip, gate, segmented, tonal_button};
 use crate::viewmodel::aggregate::{AggregateState, Mode, PreviewState, STAGE_MENU};
 use crate::viewmodel::aggregate_view::{AggregateView, pipeline_error_message};
 use curlybrace_core::pipeline::PipelineError;
+use curlybrace_core::saved_pipeline::SavedPipeline;
 use eframe::egui::{self, WidgetInfo, WidgetType};
 use std::time::Duration;
 
@@ -25,14 +28,16 @@ pub(super) const NO_DRAG_SCROLL: egui::scroll_area::ScrollSource =
         ..egui::scroll_area::ScrollSource::ALL
     };
 
-/// Draws the tab; returns the actions of this frame in the order they apply.
+/// Draws the tab; returns the actions of this frame in the order they apply. `saved` are the
+/// active connection's saved pipelines, newest first (none without a connection).
 pub fn show_aggregate(
     ui: &mut egui::Ui,
     draft: &AggregateState,
     view: &mut AggregateView,
+    saved: &[SavedPipeline],
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
-    let header = show_header(ui, draft, i18n);
+    let header = show_header(ui, draft, saved, i18n);
     let max_height = ui.available_height() * EDITOR_SHARE;
     let edited = match draft.mode {
         Mode::Stages => show_stages(ui, draft, view, max_height, i18n),
@@ -40,7 +45,10 @@ pub fn show_aggregate(
     };
     ui.separator();
     show_preview(ui, draft, view, i18n);
-    let actions = header.into_iter().chain(edited).collect();
+    // The dialogs are part of the tab's frame, so a typed stage edit that is still waiting is
+    // applied before whatever they send (Save must save what was typed).
+    let dialog = show_saved_dialog(ui.ctx(), draft, saved, i18n);
+    let actions = header.into_iter().chain(edited).chain(dialog).collect();
     let actions = with_due_edit(ui, view, actions);
     with_auto_refresh(draft, view, actions)
 }
@@ -90,8 +98,14 @@ fn with_auto_refresh(
     vec![AggregateAction::Refresh]
 }
 
-/// Add stage, the mode toggle, Refresh and the preview's status chip in one wrapping row.
-fn show_header(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) -> Vec<AggregateAction> {
+/// Add stage, the mode toggle, Refresh, the saved pipeline controls and the preview's status chip
+/// in one wrapping row.
+fn show_header(
+    ui: &mut egui::Ui,
+    draft: &AggregateState,
+    saved: &[SavedPipeline],
+    i18n: &I18n,
+) -> Vec<AggregateAction> {
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(CONTROL_HEIGHT);
         // A stage added in text mode would not be in the text being edited, and a Refresh there
@@ -103,6 +117,7 @@ fn show_header(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) -> Vec<Ag
             tonal_button(ui, i18n.t("aggregate.refresh"))
         });
         let refresh = refresh.clicked() && stages;
+        let saved_actions = show_saved_toolbar(ui, draft, saved, i18n);
         let (tone, key) = status_chip(&draft.preview);
         chip(ui, tone, &i18n.t(key));
         [
@@ -112,6 +127,7 @@ fn show_header(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) -> Vec<Ag
         ]
         .into_iter()
         .flatten()
+        .chain(saved_actions)
         .collect()
     })
     .inner
