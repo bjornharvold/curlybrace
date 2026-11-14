@@ -17,10 +17,12 @@ impl AppState {
         match path {
             Ok(path) => {
                 let started = pipelines_store::load(&path, &persistence::back_up);
+                let seen = pipelines_store::DiskStamp::read(&path).unwrap_or_default();
                 let state = Self {
                     pipelines: started.settings,
                     pipelines_path: Some(path),
                     pipelines_guard: started.guard,
+                    pipelines_seen: seen,
                     ..self
                 };
                 match started.recovery {
@@ -32,20 +34,35 @@ impl AppState {
                 pipelines: SavedPipelines::default(),
                 pipelines_path: None,
                 pipelines_guard: Default::default(),
+                pipelines_seen: Default::default(),
                 ..self
             },
         }
     }
 
     /// Writes `next` and makes it the list only once it is on disk: a failed write (or a
-    /// blocked file) leaves `pipelines` exactly as it was.
+    /// blocked file) leaves `pipelines` exactly as it was. When another window changed the file
+    /// since this one last read or wrote it, nothing is written and the list is replaced by
+    /// what the file now holds, so the change can be made again on top of it.
     pub fn persist_pipelines(&mut self, next: SavedPipelines) -> Result<(), PipelinesSaveError> {
-        let Some(path) = &self.pipelines_path else {
+        let Some(path) = self.pipelines_path.clone() else {
             return Err(PipelinesSaveError::Persist(PersistError::ConfigDirUnknown));
         };
-        pipelines_store::saved(path, &self.pipelines_guard, &next)?;
-        self.pipelines = next;
-        Ok(())
+        match pipelines_store::saved(&path, &self.pipelines_guard, self.pipelines_seen, &next) {
+            Ok(seen) => {
+                self.pipelines = next;
+                self.pipelines_seen = seen;
+                Ok(())
+            }
+            Err(PipelinesSaveError::ChangedOnDisk) => {
+                if let Some((store, seen)) = pipelines_store::reloaded(&path) {
+                    self.pipelines = store;
+                    self.pipelines_seen = seen;
+                }
+                Err(PipelinesSaveError::ChangedOnDisk)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// A cleanup after a connection change: the list follows at once (a stale entry for a
@@ -56,7 +73,10 @@ impl AppState {
             return;
         }
         let written = self.persist_pipelines(next.clone());
-        self.pipelines = next;
+        // Another window's list (just reloaded) is kept over this stale cleanup.
+        if written != Err(PipelinesSaveError::ChangedOnDisk) {
+            self.pipelines = next;
+        }
         if let Err(e) = written {
             log::warn!("could not save the saved pipelines: {e:?}");
             if self.banner.is_none() {

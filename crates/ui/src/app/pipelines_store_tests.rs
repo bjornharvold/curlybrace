@@ -2,7 +2,7 @@
 //! config directory.
 use super::persistence::{PersistError, PersistGuard, Recovery, back_up};
 use super::pipelines_store::{
-    MAX_FILE_BYTES, PipelinesSaveError, default_pipelines_path, load, save, saved,
+    DiskStamp, MAX_FILE_BYTES, PipelinesSaveError, default_pipelines_path, load, save, saved,
 };
 use curlybrace_core::saved_pipeline::{SavedPipelines, SavedStage};
 use std::path::Path;
@@ -91,7 +91,7 @@ fn a_failed_backup_blocks_saving_so_the_original_survives() {
     );
     assert_eq!(started.guard.check(), Err(PersistError::Blocked));
     assert_eq!(
-        saved(&path, &started.guard, &sample()),
+        saved(&path, &started.guard, DiskStamp::default(), &sample()),
         Err(PipelinesSaveError::Blocked)
     );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "[]");
@@ -199,7 +199,12 @@ fn a_write_past_the_file_cap_is_refused_and_the_file_is_left_alone() {
     save(&path, &sample()).unwrap();
     let before = std::fs::read(&path).unwrap();
     // Six pipelines under the 1 MB each limit, together over the 5 MB the next launch accepts.
-    let result = saved(&path, &PersistGuard::default(), &heavy(6, 900_000));
+    let result = saved(
+        &path,
+        &PersistGuard::default(),
+        DiskStamp::default(),
+        &heavy(6, 900_000),
+    );
     assert_eq!(result, Err(PipelinesSaveError::TooLarge));
     assert_eq!(std::fs::read(&path).unwrap(), before);
     assert_eq!(
@@ -213,7 +218,13 @@ fn a_file_the_app_wrote_under_the_cap_loads_again() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("pipelines.json");
     let store = heavy(4, 900_000);
-    saved(&path, &PersistGuard::default(), &store).unwrap();
+    saved(
+        &path,
+        &PersistGuard::default(),
+        DiskStamp::default(),
+        &store,
+    )
+    .unwrap();
     let started = load(&path, &back_up);
     assert_eq!(started.recovery, None);
     assert_eq!(started.settings, store);

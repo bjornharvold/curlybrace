@@ -234,3 +234,59 @@ fn a_list_too_big_for_the_file_is_refused_and_nothing_changes() {
     assert_eq!(app.state().pipelines, before);
     assert_eq!(std::fs::read(pipeline_file(&dir)).unwrap(), on_disk);
 }
+
+#[test]
+fn a_second_window_cannot_overwrite_what_the_first_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let (mut a, _ea, _ca) = app_in(&dir, Vec::new());
+    let (mut b, _eb, _cb) = app_in(&dir, Vec::new());
+    a.state_mut()
+        .persist_pipelines(store_with(conn, "x"))
+        .unwrap();
+    let on_disk = std::fs::read(pipeline_file(&dir)).unwrap();
+
+    let refused = b.state_mut().persist_pipelines(store_with(conn, "y"));
+    assert_eq!(
+        refused,
+        Err(pipelines_store::PipelinesSaveError::ChangedOnDisk)
+    );
+    assert_eq!(std::fs::read(pipeline_file(&dir)).unwrap(), on_disk);
+    let names: Vec<_> = b
+        .state()
+        .pipelines
+        .list(conn)
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect();
+    assert_eq!(names, ["x"], "the window now shows what is on disk");
+
+    let retried = b
+        .state()
+        .pipelines
+        .saved(conn, "y", None, stage(), 2, false);
+    b.state_mut().persist_pipelines(retried.unwrap()).unwrap();
+    let again = load(&pipeline_file(&dir), &persistence::back_up);
+    assert!(again.settings.find_by_name(conn, "x").is_some());
+    assert!(again.settings.find_by_name(conn, "y").is_some());
+    assert_eq!(
+        pipelines_store::PipelinesSaveError::ChangedOnDisk.i18n_key(),
+        "aggregate.saved.error.changed_on_disk"
+    );
+}
+
+#[test]
+fn a_window_keeps_saving_when_only_it_changes_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let (mut a, _e, _c) = app_in(&dir, Vec::new());
+    a.state_mut()
+        .persist_pipelines(store_with(conn, "x"))
+        .unwrap();
+    let more = a
+        .state()
+        .pipelines
+        .saved(conn, "y", None, stage(), 2, false);
+    a.state_mut().persist_pipelines(more.unwrap()).unwrap();
+    assert_eq!(a.state().pipelines.list(conn).len(), 2);
+}

@@ -251,6 +251,33 @@ fn the_limits_map_to_their_own_messages() {
 }
 
 #[test]
+fn a_file_changed_by_another_window_refuses_inline_and_reloads() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let first = drafted(session_in(&dir, conn));
+    let second = drafted(session_in(&dir, conn));
+    let first = saved_as(first, "other");
+    assert_eq!(first.aggregate.saved.error, None);
+    let draft = second.aggregate.stages.clone();
+    let s = saved_as(second, "totals");
+    assert_eq!(
+        s.aggregate.saved.error,
+        Some("aggregate.saved.error.changed_on_disk")
+    );
+    assert!(matches!(
+        s.aggregate.saved.dialog,
+        Some(SavedDialog::Save { .. })
+    ));
+    assert_eq!(s.aggregate.stages, draft);
+    assert_eq!(s.pipelines.list(conn).len(), 1);
+    assert_eq!(s.pipelines.list(conn)[0].name, "other");
+    assert!(s.banner.is_none());
+    let s = act(s, A::SaveConfirmed).0;
+    assert_eq!(s.aggregate.saved.error, None);
+    assert_eq!(s.pipelines.list(conn).len(), 2);
+}
+
+#[test]
 fn text_that_does_not_parse_cannot_be_saved() {
     let dir = tempfile::tempdir().unwrap();
     let conn = Uuid::new_v4();

@@ -11,6 +11,7 @@ use super::persistence::{
 use super::settings_file::{self, Startup};
 use super::state::Banner;
 use curlybrace_core::saved_pipeline::SavedPipelines;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 const FILE_NAME: &str = "pipelines.json";
@@ -58,6 +59,8 @@ pub enum PipelinesSaveError {
     Blocked,
     /// The file would pass [`MAX_FILE_BYTES`], which the next launch would not read back.
     TooLarge,
+    /// Another window changed the file since this one read or wrote it.
+    ChangedOnDisk,
     Persist(PersistError),
 }
 
@@ -67,6 +70,7 @@ impl PipelinesSaveError {
         match self {
             Self::Blocked => "aggregate.saved.blocked",
             Self::TooLarge => "aggregate.saved.error.file_too_large",
+            Self::ChangedOnDisk => "aggregate.saved.error.changed_on_disk",
             Self::Persist(e) => e.pipelines_i18n_key(),
         }
     }
@@ -81,16 +85,58 @@ impl PipelinesSaveError {
     }
 }
 
-/// [`save`] unless the guard says the file must not be replaced.
+/// What this window last read from or wrote to the file: its length and a hash. A save that
+/// finds something else on disk was preceded by a write from another window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DiskStamp(Option<(usize, u64)>);
+
+impl DiskStamp {
+    fn of(bytes: &[u8]) -> Self {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        Self(Some((bytes.len(), hasher.finish())))
+    }
+
+    /// The stamp of the file as it is now; a missing file has none.
+    pub fn read(path: &Path) -> Result<Self, PersistError> {
+        match std::fs::read(path) {
+            Ok(bytes) => Ok(Self::of(&bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self(None)),
+            Err(e) => Err(PersistError::Read(e.kind())),
+        }
+    }
+}
+
+/// The store as another window left it on disk, and the stamp of that file; `None` when it
+/// cannot be read or is not usable (this window then keeps what it has).
+pub fn reloaded(path: &Path) -> Option<(SavedPipelines, DiskStamp)> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Some((SavedPipelines::default(), DiskStamp::default()));
+        }
+        Err(_) => return None,
+    };
+    let store = parse(&bytes).ok()?;
+    Some((store, DiskStamp::of(&bytes)))
+}
+
+/// [`save`] unless the guard says the file must not be replaced, the result would be too big
+/// to read back, or the file is no longer what `seen` says. Gives the stamp of what it wrote.
 pub fn saved(
     path: &Path,
     guard: &PersistGuard,
+    seen: DiskStamp,
     pipelines: &SavedPipelines,
-) -> Result<(), PipelinesSaveError> {
+) -> Result<DiskStamp, PipelinesSaveError> {
     guard.check().map_err(|_| PipelinesSaveError::Blocked)?;
     let bytes = serialised(pipelines).map_err(PipelinesSaveError::Persist)?;
     if bytes.len() > MAX_FILE_BYTES {
         return Err(PipelinesSaveError::TooLarge);
     }
-    atomic_write(path, &bytes).map_err(PipelinesSaveError::Persist)
+    if DiskStamp::read(path).map_err(PipelinesSaveError::Persist)? != seen {
+        return Err(PipelinesSaveError::ChangedOnDisk);
+    }
+    atomic_write(path, &bytes).map_err(PipelinesSaveError::Persist)?;
+    Ok(DiskStamp::of(&bytes))
 }

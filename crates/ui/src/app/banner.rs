@@ -175,6 +175,7 @@ mod tests {
                 std::io::ErrorKind::Other,
             ))),
             Banner::PipelinesPersist(PipelinesSaveError::TooLarge),
+            Banner::PipelinesPersist(PipelinesSaveError::ChangedOnDisk),
             Banner::ImportFailed(ImportError::TooLarge),
             Banner::ImportFailed(ImportError::NotValid),
             Banner::ImportFailed(ImportError::TooManyEntries),

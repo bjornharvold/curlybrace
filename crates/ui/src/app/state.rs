@@ -260,6 +260,8 @@ pub struct AppState {
     pub pipelines_path: Option<std::path::PathBuf>,
     /// Whether `pipelines.json` may be replaced (not when a bad one could not be backed up).
     pub pipelines_guard: PersistGuard,
+    /// What this window last read from or wrote to `pipelines.json`, to notice another window.
+    pub pipelines_seen: super::pipelines_store::DiskStamp,
     /// The `PATH` a `PATH` tool choice is searched in: the process's own plus the usual install
     /// folders in the app; `None` (no search at all) by default, so tests never find a program of
     /// the machine they run on.
