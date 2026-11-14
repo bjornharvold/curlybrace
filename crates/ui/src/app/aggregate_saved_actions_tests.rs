@@ -203,7 +203,7 @@ fn a_failed_write_keeps_the_dialog_the_draft_and_the_list() {
     ));
     assert_eq!(
         s.aggregate.saved.error,
-        Some("aggregate.saved.write_failed")
+        Some("aggregate.saved.write_failed_save")
     );
     assert_eq!(s.aggregate.stages, stages);
     assert!(s.pipelines.list(conn).is_empty());

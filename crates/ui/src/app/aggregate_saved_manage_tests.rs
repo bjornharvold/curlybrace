@@ -127,6 +127,86 @@ fn delete_asks_and_deleting_the_opened_pipeline_keeps_the_draft() {
     assert!(again.pipelines.list(conn).is_empty(), "the file follows");
 }
 
+/// A session holding one saved pipeline, in a folder that can no longer be written to: the
+/// next write fails. Gives the state, the pipeline and the folder (restored afterwards by the
+/// caller through `restore`); `None` where permissions are not enforced, as for root.
+fn unwritable(dir: &tempfile::TempDir, conn: Uuid) -> Option<(crate::app::state::AppState, Uuid)> {
+    use std::os::unix::fs::PermissionsExt;
+    let s = saved_as(drafted(session_in(dir, conn)), "totals");
+    let id = only_entry(&s, conn).id;
+    let mode = |m| std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(m));
+    mode(0o555).unwrap();
+    if std::fs::write(dir.path().join("probe"), "x").is_ok() {
+        mode(0o755).unwrap();
+        return None;
+    }
+    Some((s, id))
+}
+
+fn restore(dir: &tempfile::TempDir) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn a_failed_save_says_the_pipeline_is_still_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let Some((s, _)) = unwritable(&dir, conn) else {
+        return;
+    };
+    let s = run(s, vec![A::SaveClicked, A::SaveNameEdited("more".into())]);
+    let s = act(s, A::SaveConfirmed).0;
+    restore(&dir);
+    assert_eq!(
+        s.aggregate.saved.error,
+        Some("aggregate.saved.write_failed_save")
+    );
+}
+
+#[test]
+fn a_failed_rename_says_the_pipeline_was_not_renamed() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let Some((s, id)) = unwritable(&dir, conn) else {
+        return;
+    };
+    let s = run(
+        s,
+        vec![
+            A::RenameStarted(id),
+            A::RenameEdited("renamed".into()),
+            A::RenameConfirmed,
+        ],
+    );
+    restore(&dir);
+    assert_eq!(
+        s.aggregate.saved.error,
+        Some("aggregate.saved.write_failed_rename")
+    );
+    assert_eq!(s.pipelines.list(conn)[0].name, "totals");
+}
+
+#[test]
+fn a_failed_delete_says_the_pipeline_was_not_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let Some((s, id)) = unwritable(&dir, conn) else {
+        return;
+    };
+    let s = run(s, vec![A::DeleteAsked(id), A::DeleteConfirmed]);
+    restore(&dir);
+    assert_eq!(
+        s.aggregate.saved.error,
+        Some("aggregate.saved.write_failed_delete")
+    );
+    assert_eq!(s.pipelines.list(conn).len(), 1);
+    assert!(matches!(
+        s.aggregate.saved.dialog,
+        Some(SavedDialog::ConfirmDelete { .. })
+    ));
+}
+
 #[test]
 fn deleting_another_pipeline_keeps_the_opened_mark() {
     let dir = tempfile::tempdir().unwrap();

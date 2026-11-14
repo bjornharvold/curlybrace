@@ -45,7 +45,8 @@ impl PersistError {
 }
 
 impl PersistError {
-    /// The message for a failure to save the pipelines (not the connection list).
+    /// The neutral message for a failure to save the pipelines (not the connection list), for
+    /// where the operation is not known (a banner).
     pub fn pipelines_i18n_key(&self) -> &'static str {
         match self {
             Self::ConfigDirUnknown => "aggregate.saved.config_dir_unknown",

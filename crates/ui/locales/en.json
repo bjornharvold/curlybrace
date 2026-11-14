@@ -109,7 +109,10 @@
       "replace_message": "A saved pipeline named “{name}” already exists. Replace it with this one?",
       "save": "Save",
       "save_title": "Save pipeline",
-      "write_failed": "Could not write the saved pipelines file. Your pipeline is still open here; try again."
+      "write_failed": "Could not write the saved pipelines file. Nothing was changed.",
+      "write_failed_delete": "Could not write the saved pipelines file. The pipeline was not deleted; try again.",
+      "write_failed_rename": "Could not write the saved pipelines file. The pipeline was not renamed; try again.",
+      "write_failed_save": "Could not write the saved pipelines file. Your pipeline is still open here; try again."
     },
     "stage": {
       "disabled": "Disabled: the preview skips it.",

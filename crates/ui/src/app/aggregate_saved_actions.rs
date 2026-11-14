@@ -5,6 +5,8 @@
 //! Opening a pipeline sends nothing: the tab's own auto refresh previews it. Nothing here logs
 //! a name or a stage.
 use super::aggregate_actions::{AggregateAction, with_draft};
+use super::persistence::PersistError;
+use super::pipelines_store::PipelinesSaveError;
 use super::reducer::Out;
 use super::state::AppState;
 use crate::viewmodel::AggregateState;
@@ -76,12 +78,37 @@ fn failed(state: AppState, draft: AggregateState, key: &'static str) -> AppState
     with_draft(state, draft.with_saved_error(key))
 }
 
+/// What a write was for, so a failure says what was not done.
+#[derive(Clone, Copy)]
+enum Op {
+    Save,
+    Rename,
+    Delete,
+}
+
+/// The message for a failed write of `op`: a file that could not be written says what did not
+/// happen; every other refusal has its own text.
+fn failure_key(error: &PipelinesSaveError, op: Op) -> &'static str {
+    match (error, op) {
+        (PipelinesSaveError::Persist(PersistError::ConfigDirUnknown), _) => error.i18n_key(),
+        (PipelinesSaveError::Persist(_), Op::Save) => "aggregate.saved.write_failed_save",
+        (PipelinesSaveError::Persist(_), Op::Rename) => "aggregate.saved.write_failed_rename",
+        (PipelinesSaveError::Persist(_), Op::Delete) => "aggregate.saved.write_failed_delete",
+        _ => error.i18n_key(),
+    }
+}
+
 /// Writes `next`: the state holds it as the list when that worked; a failure leaves the list as
-/// it was (`persist_pipelines` changes it only after the write) and gives the message key.
-fn persisted(mut state: AppState, next: SavedPipelines) -> (AppState, Option<&'static str>) {
+/// it was (`persist_pipelines` changes it only after the write, or reloads it from the file when
+/// another window changed it) and gives the message key.
+fn persisted(
+    mut state: AppState,
+    next: SavedPipelines,
+    op: Op,
+) -> (AppState, Option<&'static str>) {
     let error = state.persist_pipelines(next).err().map(|e| {
         log::warn!("could not save the saved pipelines: {e:?}");
-        e.i18n_key()
+        failure_key(&e, op)
     });
     (state, error)
 }
@@ -154,7 +181,7 @@ fn save_confirmed(
     let Some(entry) = next.find_by_name(conn, name).cloned() else {
         return failed(state, draft, "aggregate.saved.error.empty_name");
     };
-    match persisted(state, next) {
+    match persisted(state, next, Op::Save) {
         (state, None) => with_draft(state, draft.saved_as(entry.id, &entry.name)),
         (state, Some(key)) => failed(state, draft, key),
     }
@@ -203,7 +230,7 @@ fn rename_confirmed(
         Err(e) => return failed(state, draft, saved_error_key(e)),
     };
     let shown_name = next.find(conn, id).map(|p| p.name.clone());
-    match persisted(state, next) {
+    match persisted(state, next, Op::Rename) {
         (state, None) => {
             let renamed_opened = draft.saved.opened.as_ref().is_some_and(|(o, _)| *o == id);
             let draft = match (renamed_opened, shown_name) {
@@ -226,7 +253,7 @@ fn delete_asked(state: AppState, conn: Uuid, draft: AggregateState, id: Uuid) ->
 /// Deletes the pipeline; when it was the opened one the draft stays as an unsaved draft.
 fn delete_confirmed(state: AppState, conn: Uuid, draft: AggregateState, id: Uuid) -> AppState {
     let next = state.pipelines.deleted(conn, id);
-    match persisted(state, next) {
+    match persisted(state, next, Op::Delete) {
         (state, None) => {
             let was_opened = draft.saved.opened.as_ref().is_some_and(|(o, _)| *o == id);
             let draft = if was_opened {
