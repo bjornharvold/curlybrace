@@ -2,6 +2,8 @@
 pub mod admin_dialog;
 pub mod aggregate;
 pub mod aggregate_flight;
+mod aggregate_order;
+pub mod aggregate_run;
 pub mod aggregate_saved;
 mod aggregate_template;
 pub mod aggregate_view;

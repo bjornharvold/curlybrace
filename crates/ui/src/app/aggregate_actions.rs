@@ -50,6 +50,14 @@ pub enum AggregateAction {
     DeleteConfirmed,
     /// Close whichever saved-pipeline dialog is open, changing nothing.
     DialogCancelled,
+    /// Run was clicked: opens the typed confirmation of the pipeline's `$out` / `$merge`.
+    RunClicked,
+    /// The confirmation text changed.
+    RunTyped(String),
+    /// Confirm was pressed: runs the pipeline when the typed text names the target.
+    RunConfirmed,
+    /// The confirmation dialog was closed without running.
+    RunDismissed,
 }
 
 impl AggregateAction {
@@ -91,6 +99,9 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         // dialog only, and the saved handler moves the draft rather than copy it.
         return super::aggregate_saved_actions::on_action(state, action);
     }
+    if super::aggregate_run_actions::is_run_action(&action) {
+        return super::aggregate_run_actions::on_action(state, action);
+    }
     let draft = (*state.aggregate).clone();
     match action {
         AggregateAction::AddStage(name) => changed(state, draft.add_stage(&name)),
@@ -106,6 +117,10 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::Batch(actions) => batch(state, actions),
         // Listed one by one, so a new variant must be placed here and `Batch` can never fall
         // through to the saved-pipelines handler.
+        run @ (AggregateAction::RunClicked
+        | AggregateAction::RunTyped(_)
+        | AggregateAction::RunConfirmed
+        | AggregateAction::RunDismissed) => super::aggregate_run_actions::on_action(state, run),
         saved @ (AggregateAction::SaveClicked
         | AggregateAction::SaveNameEdited(_)
         | AggregateAction::SaveConfirmed

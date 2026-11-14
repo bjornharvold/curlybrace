@@ -1627,6 +1627,7 @@
   },
   "write_warning": {
     "confirm": "Yes, write to production",
+    "message_aggregate_run": "This is your production server, {connection}. Are you sure you want to run this pipeline? Its $out or $merge stage writes to the target collection. This cannot be undone.",
     "message_bulk_delete": "This is your production server, {connection}. Are you sure you want to delete every document the filter matches? This cannot be undone.",
     "message_bulk_update": "This is your production server, {connection}. Are you sure you want to update every document the filter matches? This cannot be undone.",
     "message_clone": "This is your production server, {connection}. Are you sure you want to clone this document into it?",

@@ -18,6 +18,7 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
         Some(ConnStatus::Failed) | None => {}
         Some(_) => return (activate_in_browser(state, id), Vec::new()),
     }
+    let state = super::aggregate_run_actions::dialog_closed(state);
     let epoch = state.epoch_counter + 1;
     let cancel = super::shell_actions::cancel_running(&state, id);
     // A reconnect keeps the Aggregate draft, like the shell's: it is the person's work.
@@ -106,7 +107,7 @@ pub(super) fn show_connections(state: AppState) -> Out {
     (
         AppState {
             workspace: Workspace::Connections,
-            ..state
+            ..super::aggregate_run_actions::dialog_closed(state)
         },
         Vec::new(),
     )
@@ -116,9 +117,11 @@ fn activate_in_browser(state: AppState, id: Uuid) -> AppState {
     if !state.is_open(id) {
         return state;
     }
+    // Leaving the session in view closes its run dialog: the confirmation belongs to what was on
+    // screen when it opened.
     AppState {
         workspace: Workspace::Browse,
-        ..state.activated(id)
+        ..super::aggregate_run_actions::dialog_closed(state).activated(id)
     }
 }
 
