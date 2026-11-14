@@ -192,9 +192,10 @@ pub enum RunDisabled {
 }
 
 /// Whether the Run button is shown and usable.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum RunAvailability {
     /// The last enabled stage is not `$out` or `$merge`: there is nothing to run.
+    #[default]
     Hidden,
     Disabled(RunDisabled),
     Ready,

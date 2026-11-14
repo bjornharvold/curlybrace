@@ -10,6 +10,7 @@ use crate::app::AggregateAction;
 use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::aggregate::{flush_typing, show_aggregate};
+use crate::views::aggregate_run::RunContext;
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::documents::{
     DocTarget, show_connection_header_with, show_documents_pending, show_documents_switchable,
@@ -163,9 +164,14 @@ fn show_aggregate_tab(
     let saved = state
         .active
         .map_or(&[][..], |connection| state.pipelines.list(connection));
+    let run = RunContext {
+        availability: state.run_availability(),
+        badge: state.active_badge(),
+    };
     let mut actions = ui
         .push_id(("aggregate_tab", state.active), |ui| {
-            show_aggregate(ui, &state.aggregate, &mut state.aggregate_view, saved, i18n)
+            let view = &mut state.aggregate_view;
+            show_aggregate(ui, &state.aggregate, view, saved, &run, i18n)
         })
         .inner;
     if leaving {

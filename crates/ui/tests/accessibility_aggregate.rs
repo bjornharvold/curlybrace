@@ -14,6 +14,7 @@ use curlybrace_ui::viewmodel::AggregateState;
 use curlybrace_ui::viewmodel::aggregate::{Mode, PreviewState};
 use curlybrace_ui::viewmodel::aggregate_view::AggregateView;
 use curlybrace_ui::views::aggregate::show_aggregate;
+use curlybrace_ui::views::aggregate_run::RunContext;
 use eframe::egui;
 use eframe::egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
@@ -94,8 +95,14 @@ fn open_sized(draft: AggregateState, size: (f32, f32)) -> Harness<'static, Frame
                     theme::install(ui.ctx());
                     installed = true;
                 }
-                let actions =
-                    show_aggregate(ui, &frame.draft, &mut frame.view, &[], &I18n::english());
+                let actions = show_aggregate(
+                    ui,
+                    &frame.draft,
+                    &mut frame.view,
+                    &[],
+                    &RunContext::default(),
+                    &I18n::english(),
+                );
                 for action in &actions {
                     frame.draft = applied(std::mem::take(&mut frame.draft), action);
                 }

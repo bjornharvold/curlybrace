@@ -2,6 +2,7 @@
 //! role, on real drafts and a real list. Keyboard: Enter confirms a usable name, Escape cancels,
 //! focus starts in the name field (or on Cancel for a prompt that replaces or removes).
 use super::aggregate::show_aggregate;
+use super::aggregate_run::RunContext;
 use crate::I18n;
 use crate::app::AggregateAction;
 use crate::theme;
@@ -70,6 +71,7 @@ fn open(
                     &frame.draft,
                     &mut frame.view,
                     &frame.saved,
+                    &RunContext::default(),
                     &I18n::english(),
                 );
                 frame.seen.extend(actions);

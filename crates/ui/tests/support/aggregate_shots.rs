@@ -2,9 +2,12 @@
 //! `crm.customers` (`$match`, `$group`, `$sort`) with stage 2 selected and its preview shown.
 use super::shots::browsing;
 use bson::{Document, doc};
+use curlybrace_core::pipeline::RunTarget;
 use curlybrace_core::saved_pipeline::{SavedPipeline, SavedStage};
+use curlybrace_core::store::Namespace;
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::AggregateState;
+use curlybrace_ui::viewmodel::aggregate_run::RunDialog;
 use curlybrace_ui::viewmodel::{CollectionTab, ViewMode};
 use uuid::Uuid;
 
@@ -83,4 +86,34 @@ pub fn aggregate_opened_tab(state: &mut AppState) {
     browsing(ViewMode::Tree)(state);
     state.tab = CollectionTab::Aggregate;
     state.aggregate = Box::new(opened_modified_draft());
+}
+
+/// `$match`, `$group`, `$out` (to `city_totals`) with the confirmation dialog open on a
+/// production connection, the target's count known and the name half typed.
+pub fn aggregate_run_dialog_tab(state: &mut AppState) {
+    super::production_shots::production_root(state);
+    state.tab = CollectionTab::Aggregate;
+    let draft = AggregateState::default()
+        .add_stage("$match")
+        .add_stage("$group")
+        .add_stage("$out")
+        .edit(0, MATCH)
+        .edit(1, GROUP)
+        .edit(2, "{\n  \"$out\": \"city_totals\"\n}")
+        .select(1);
+    let (draft, sent) = draft.begin_preview();
+    let (request, _) = sent.expect("the fixture pipeline is valid");
+    let dialog = RunDialog {
+        target: RunTarget {
+            db: None,
+            collection: "city_totals".into(),
+        },
+        stage: "$out".into(),
+        source: Namespace::new("crm", "customers"),
+        typed: "city_tot".into(),
+        target_count: Some(1_204),
+    };
+    let draft = draft.arrived(request, Ok(grouped_docs()));
+    let run = draft.run.clone().opened(dialog);
+    state.aggregate = Box::new(draft.with_run(run));
 }

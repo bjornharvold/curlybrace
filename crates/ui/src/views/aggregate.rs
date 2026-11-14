@@ -3,6 +3,7 @@
 //! Draws the draft it is given and returns what the person did; the reducer decides what happens.
 //! Typing in a stage is held in the view until it pauses, so a preview does not run per keystroke.
 use super::aggregate_preview::show_preview;
+use super::aggregate_run::{RunContext, show_run_button, show_run_dialog, show_run_status};
 use super::aggregate_saved::show_saved_toolbar;
 use super::aggregate_saved_dialogs::show_saved_dialog;
 use super::aggregate_stage::show_stages;
@@ -35,9 +36,11 @@ pub fn show_aggregate(
     draft: &AggregateState,
     view: &mut AggregateView,
     saved: &[SavedPipeline],
+    run: &RunContext,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
-    let header = show_header(ui, draft, saved, i18n);
+    let header = show_header(ui, draft, saved, run, i18n);
+    show_run_status(ui, &draft.run.status, i18n);
     let max_height = ui.available_height() * EDITOR_SHARE;
     let edited = match draft.mode {
         Mode::Stages => show_stages(ui, draft, view, max_height, i18n),
@@ -48,7 +51,13 @@ pub fn show_aggregate(
     // The dialogs are part of the tab's frame, so a typed stage edit that is still waiting is
     // applied before whatever they send (Save must save what was typed).
     let dialog = show_saved_dialog(ui.ctx(), draft, saved, i18n);
-    let actions = header.into_iter().chain(edited).chain(dialog).collect();
+    let run_dialog = show_run_dialog(ui.ctx(), draft.run.dialog.as_ref(), &run.badge, i18n);
+    let actions = header
+        .into_iter()
+        .chain(edited)
+        .chain(dialog)
+        .chain(run_dialog)
+        .collect();
     let actions = with_due_edit(ui, view, actions);
     with_auto_refresh(draft, view, actions)
 }
@@ -98,12 +107,13 @@ fn with_auto_refresh(
     vec![AggregateAction::Refresh]
 }
 
-/// Add stage, the mode toggle, Refresh, the saved pipeline controls and the preview's status chip
+/// Add stage, the mode toggle, Refresh, the saved pipeline controls, Run and the preview's status chip
 /// in one wrapping row.
 fn show_header(
     ui: &mut egui::Ui,
     draft: &AggregateState,
     saved: &[SavedPipeline],
+    run: &RunContext,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
     ui.horizontal_wrapped(|ui| {
@@ -118,6 +128,7 @@ fn show_header(
         });
         let refresh = refresh.clicked() && stages;
         let saved_actions = show_saved_toolbar(ui, draft, saved, i18n);
+        let run_clicked = show_run_button(ui, &run.availability, i18n);
         let (tone, key) = status_chip(&draft.preview);
         chip(ui, tone, &i18n.t(key));
         [
@@ -128,6 +139,7 @@ fn show_header(
         .into_iter()
         .flatten()
         .chain(saved_actions)
+        .chain(run_clicked)
         .collect()
     })
     .inner
