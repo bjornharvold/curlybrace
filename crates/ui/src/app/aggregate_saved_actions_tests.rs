@@ -313,3 +313,46 @@ fn text_that_does_not_parse_cannot_be_saved() {
     );
     assert!(s.pipelines.list(conn).is_empty());
 }
+
+fn selecting(mut s: AppState, collection: &str) -> AppState {
+    s.sidebar = s
+        .sidebar
+        .with_collections("app", vec!["people".into(), collection.into()])
+        .selecting(Namespace::new("app", collection));
+    s
+}
+
+fn hint_of(s: &AppState, conn: Uuid, name: &str) -> Option<String> {
+    s.pipelines.find_by_name(conn, name)?.ns_hint.clone()
+}
+
+#[test]
+fn a_new_pipeline_is_hinted_with_the_selected_collection() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let s = saved_as(drafted(session_in(&dir, conn)), "first");
+    let s = saved_as(selecting(s, "orders"), "second");
+    assert_eq!(hint_of(&s, conn, "first").as_deref(), Some("app.people"));
+    assert_eq!(hint_of(&s, conn, "second").as_deref(), Some("app.orders"));
+}
+
+#[test]
+fn re_saving_a_pipeline_keeps_its_own_collection_hint() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let s = saved_as(drafted(session_in(&dir, conn)), "Totals");
+    // The sidebar moved on to another collection; the pipeline was saved from app.people.
+    let s = selecting(s, "orders");
+    let s = run(
+        s,
+        vec![
+            A::AddStage("$limit".into()),
+            A::SaveClicked,
+            A::SaveConfirmed,
+            A::SaveConfirmed,
+        ],
+    );
+    assert_eq!(s.pipelines.list(conn).len(), 1);
+    assert_eq!(s.pipelines.list(conn)[0].stages.len(), 3, "it was replaced");
+    assert_eq!(hint_of(&s, conn, "Totals").as_deref(), Some("app.people"));
+}

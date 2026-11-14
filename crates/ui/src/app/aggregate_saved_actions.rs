@@ -119,11 +119,20 @@ fn now_unix() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-/// The `db.collection` the pipeline is saved from, as a hint for the list.
-fn ns_hint(state: &AppState) -> Option<String> {
-    state
-        .selected_ns()
-        .map(|ns| format!("{}.{}", ns.db, ns.collection))
+/// The `db.collection` hint for a save under `name`. A save that replaces a pipeline keeps the
+/// collection that pipeline was saved from: the sidebar may have moved on since it was opened,
+/// and re-saving must not re-label it. A new pipeline is hinted with the selected collection.
+fn ns_hint(state: &AppState, conn: Uuid, name: &str, replace: bool) -> Option<String> {
+    let own = state
+        .pipelines
+        .find_by_name(conn, name)
+        .filter(|_| replace)
+        .and_then(|p| p.ns_hint.clone());
+    own.or_else(|| {
+        state
+            .selected_ns()
+            .map(|ns| format!("{}.{}", ns.db, ns.collection))
+    })
 }
 
 /// The Save dialog, starting from the opened pipeline's name so a re-save is one confirmation
@@ -158,7 +167,7 @@ fn save_confirmed(
     let result = state.pipelines.saved(
         conn,
         name,
-        ns_hint(&state),
+        ns_hint(&state, conn, name, replace),
         draft.as_saved_stages(),
         now_unix(),
         replace,
