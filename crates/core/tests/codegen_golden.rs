@@ -106,6 +106,17 @@ fn strings() -> Document {
     }
 }
 
+fn invisible() -> Document {
+    doc! {
+        "bidi": "user\u{202e}txt.exe \u{2066}x\u{2069}",
+        "zeroWidth": "a\u{200b}b\u{200d}c\u{2060}d",
+        "bom": "\u{feff}start",
+        "c1": "next\u{85}line",
+        "marks": "ok: \u{1F600} caf\u{e9} e\u{301} \u{4e2d}\u{6587}",
+        "k\u{202e}ey": 1_i32,
+    }
+}
+
 fn find_query() -> Query {
     Query {
         filter: doc! { "status": "A", "qty": { "$gt": 10_i32 } },
@@ -129,6 +140,7 @@ fn cases() -> Vec<(&'static str, CodeRequest)> {
             },
         ),
         ("strings", aggregate(vec![doc! { "$match": strings() }])),
+        ("invisible", aggregate(vec![doc! { "$match": invisible() }])),
         (
             "write_stage",
             aggregate(vec![
@@ -176,6 +188,26 @@ fn generated_code_matches_the_golden_files() {
                 };
                 check(language, &name, &code);
             }
+        }
+    }
+}
+
+/// No generated file may contain a raw invisible or bidi character.
+#[test]
+fn no_golden_file_contains_a_raw_invisible_character() {
+    let bad = |c: char| {
+        let n = c as u32;
+        (c.is_control() && c != '\n')
+            || (0x200b..=0x200f).contains(&n)
+            || (0x2028..=0x202e).contains(&n)
+            || (0x2060..=0x2069).contains(&n)
+            || n == 0x61c
+            || n == 0xfeff
+    };
+    for language in LANGUAGES {
+        for (case, request) in cases() {
+            let code = generate(language, &request, &CodeOptions::default()).expect("generates");
+            assert!(!code.chars().any(bad), "{} {case}", language.key());
         }
     }
 }

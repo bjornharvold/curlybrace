@@ -21,6 +21,33 @@ pub(crate) fn indent_lines(text: &str, unit: &str, depth: usize) -> String {
         .join("\n")
 }
 
+/// Characters that must never appear raw in generated code: controls, line
+/// separators and the invisible or bidirectional formatting characters used
+/// for "Trojan Source" attacks. Every string escaper spells them as escapes.
+pub(crate) fn is_unsafe_invisible(c: char) -> bool {
+    matches!(
+        c as u32,
+        0..=0x1f
+            | 0x7f..=0x9f
+            | 0x61c
+            | 0x200b..=0x200f
+            | 0x2028..=0x202e
+            | 0x2060..=0x2069
+            | 0xfeff
+            | 0xfffe
+            | 0xffff
+    )
+}
+
+/// `\xNN` below U+0100, `\uNNNN` above (Python, Go).
+pub(crate) fn x_or_u_escape(code: u32) -> String {
+    if code < 0x100 {
+        format!("\\x{code:02x}")
+    } else {
+        format!("\\u{code:04x}")
+    }
+}
+
 /// A double-quoted string literal valid in JavaScript and Python (and most C
 /// family languages): quotes, backslashes and every control character are
 /// escaped, so the text can neither end the literal nor start an escape.
@@ -36,8 +63,7 @@ pub(crate) fn double_quoted(text: &str, hex_escape: fn(u32) -> String) -> String
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&hex_escape(c as u32)),
-            '\u{2028}' | '\u{2029}' => out.push_str(&hex_escape(c as u32)),
+            c if is_unsafe_invisible(c) => out.push_str(&hex_escape(c as u32)),
             c => out.push(c),
         }
     }

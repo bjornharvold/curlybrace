@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use bson::spec::BinarySubtype;
 
-use crate::codegen::escape::{civil_from_millis, double_quoted, float_text, hex};
+use crate::codegen::escape::{civil_from_millis, double_quoted, float_text, hex, x_or_u_escape};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::Syntax;
 
@@ -14,17 +14,9 @@ pub(crate) struct PythonSyntax {
     imports: RefCell<BTreeSet<&'static str>>,
 }
 
-fn escape(code: u32) -> String {
-    if code < 0x100 {
-        format!("\\x{code:02x}")
-    } else {
-        format!("\\u{code:04x}")
-    }
-}
-
 /// A Python string literal for arbitrary text.
 pub(crate) fn quote(text: &str) -> String {
-    double_quoted(text, escape)
+    double_quoted(text, x_or_u_escape)
 }
 
 impl PythonSyntax {

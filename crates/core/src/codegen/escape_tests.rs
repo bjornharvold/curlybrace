@@ -69,3 +69,40 @@ fn civil_time_flags_years_outside_the_common_range() {
     assert!(!civil_from_millis(253_402_300_800_000).in_common_range());
     assert_eq!(civil_from_millis(253_402_300_800_000).year, 10_000);
 }
+
+#[test]
+fn invisible_and_bidi_characters_are_flagged_and_normal_text_is_not() {
+    for c in [
+        '\u{0}', '\u{1f}', '\u{7f}', '\u{80}', '\u{85}', '\u{9f}', '\u{61c}', '\u{200b}',
+        '\u{200f}', '\u{2028}', '\u{2029}', '\u{202a}', '\u{202e}', '\u{2060}', '\u{2069}',
+        '\u{feff}', '\u{fffe}', '\u{ffff}',
+    ] {
+        assert!(is_unsafe_invisible(c), "{:x}", c as u32);
+    }
+    for c in [
+        ' ',
+        'a',
+        '"',
+        '\u{a0}',
+        '\u{a1}',
+        '\u{e9}',
+        '\u{301}',
+        '\u{200a}',
+        '\u{2010}',
+        '\u{205f}',
+        '\u{206a}',
+        '\u{1F600}',
+        '\u{fffd}',
+    ] {
+        assert!(!is_unsafe_invisible(c), "{:x}", c as u32);
+    }
+}
+
+#[test]
+fn bidi_characters_are_escaped_in_double_quoted_literals() {
+    let out = double_quoted(
+        "a\u{202e}b\u{200b}c\u{feff}d\u{85}e\u{301}\u{1F600}",
+        x_or_u_escape,
+    );
+    assert_eq!(out, "\"a\\u202eb\\u200bc\\ufeffd\\x85e\u{301}\u{1F600}\"");
+}
