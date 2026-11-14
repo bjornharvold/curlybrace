@@ -264,6 +264,9 @@ pub fn pipeline_error_message(
         PipelineError::TargetUnresolved { index } => {
             ("aggregate.error.target_unresolved", vec![position(index)])
         }
+        PipelineError::ReservedTargetDatabase { index } => {
+            ("aggregate.error.reserved_target", vec![position(index)])
+        }
     }
 }
 

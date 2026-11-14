@@ -265,3 +265,66 @@ fn a_lost_connection_makes_a_run_in_flight_unknown() {
     assert_eq!(ui.status, RunStatus::Unknown);
     assert_eq!(ui.run, 5);
 }
+
+#[test]
+fn another_database_needs_the_qualified_name() {
+    let elsewhere = |t: &str, db: &str| RunDialog {
+        target: RunTarget {
+            db: Some(db.into()),
+            collection: "dest".into(),
+        },
+        typed: t.into(),
+        ..dialog()
+    };
+    assert_eq!(elsewhere("", "warehouse").required_text(), "warehouse.dest");
+    assert!(elsewhere(" warehouse.dest ", "warehouse").is_confirmed());
+    assert!(!elsewhere("dest", "warehouse").is_confirmed());
+    assert!(!elsewhere("app.dest", "warehouse").is_confirmed());
+    // The source's own database, named or not, needs the collection alone.
+    assert_eq!(elsewhere("", "app").required_text(), "dest");
+    assert!(elsewhere("dest", "app").is_confirmed());
+    assert!(!elsewhere("app.dest", "app").is_confirmed());
+    assert_eq!(dialog().required_text(), "dest");
+}
+
+#[test]
+fn a_merge_that_failed_may_have_left_part_of_its_result() {
+    let error = CoreError::Database("x".into());
+    let merge = RunUi::default().started(1).with_stage("$merge".into());
+    assert_eq!(
+        merge.clone().command_failed(error.clone()).status,
+        RunStatus::FailedPartial(error.clone())
+    );
+    assert_eq!(
+        merge.failure(error.clone()),
+        RunStatus::FailedPartial(error.clone())
+    );
+    let out = RunUi::default().started(1).with_stage("$out".into());
+    assert_eq!(out.failure(error.clone()), RunStatus::Failed(error));
+}
+
+#[test]
+fn a_partial_failure_stays_in_view_when_the_collection_changes() {
+    let ui = RunUi {
+        status: RunStatus::FailedPartial(CoreError::NotFound),
+        ..RunUi::default()
+    };
+    assert_eq!(
+        ui.collection_changed().status,
+        RunStatus::FailedPartial(CoreError::NotFound)
+    );
+}
+
+#[test]
+fn a_target_in_a_server_database_cannot_be_run() {
+    let d = draft(&[
+        (MATCH, true),
+        (r#"{ "$out": { "db": "admin", "coll": "x" } }"#, true),
+    ]);
+    assert_eq!(
+        d.can_run(env()),
+        RunAvailability::Disabled(RunDisabled::Invalid(
+            PipelineError::ReservedTargetDatabase { index: 1 }
+        ))
+    );
+}

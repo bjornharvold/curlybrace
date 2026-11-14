@@ -50,6 +50,7 @@
       "no_write_stage": "A run needs $out or $merge as its last enabled stage.",
       "not_a_stage": "Stage {n} must be an object with exactly one key that starts with $.",
       "not_an_array": "The pipeline must be a JSON array of stage objects.",
+      "reserved_target": "Stage {n}: the target database belongs to the server and cannot be written to here.",
       "syntax": "line {line}, column {column}: {message}",
       "target_unresolved": "Stage {n}: the target collection of the write stage is missing or not usable.",
       "timeout": "The preview took too long and was stopped. Showing the last result.",
@@ -94,6 +95,7 @@
         "done": "Run finished. {target} now holds {count} documents.",
         "done_no_count": "Run finished. {target} was written; its document count is not available.",
         "failed": "The run failed. {error}",
+        "failed_partial": "The run failed part-way. {error} The target may hold part of the result, so check it before you decide what to do.",
         "running": "Running the pipeline...",
         "unknown": "The outcome is unknown: the server may or may not have finished writing. Check the target collection before you run again."
       },
@@ -101,7 +103,9 @@
       "title": "Run this pipeline?",
       "type_accessible": "Type {name} to confirm the run",
       "type_field": "Collection name",
-      "type_instruction": "Type the target collection name exactly to confirm:"
+      "type_field_qualified": "Database and collection name",
+      "type_instruction": "Type the target collection name exactly to confirm:",
+      "type_instruction_qualified": "The target is in another database. Type its database and collection name, like database.collection, exactly to confirm:"
     },
     "saved": {
       "blocked": "The saved pipelines file could not be backed up earlier, so changes to saved pipelines are not written. Nothing was saved.",

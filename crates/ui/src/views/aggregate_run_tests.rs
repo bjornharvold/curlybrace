@@ -182,6 +182,13 @@ fn a_merge_dialog_says_what_merge_does_and_an_unknown_count_is_not_available() {
     let target =
         I18n::english().t_with("aggregate.run.target", &[("target", "reports.city_totals")]);
     h.get_by_label(&target);
+    // Another database than the source's: the qualified name is asked for.
+    h.get_by_label(&t("aggregate.run.type_instruction_qualified"));
+    let accessible = I18n::english().t_with(
+        "aggregate.run.type_accessible",
+        &[("name", "reports.city_totals")],
+    );
+    h.get_by_label(&accessible);
 }
 
 #[test]
@@ -301,6 +308,10 @@ fn each_status_has_its_own_line() {
         (
             RunStatus::Failed(CoreError::NotFound),
             i18n.t_with("aggregate.run.status.failed", &[("error", &failed)]),
+        ),
+        (
+            RunStatus::FailedPartial(CoreError::NotFound),
+            i18n.t_with("aggregate.run.status.failed_partial", &[("error", &failed)]),
         ),
         (RunStatus::Unknown, t("aggregate.run.status.unknown")),
     ];

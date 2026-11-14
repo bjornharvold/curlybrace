@@ -541,6 +541,121 @@ fn a_run_in_flight_when_the_connection_resets_is_unknown() {
     assert_eq!(draft.run.status, RunStatus::Unknown);
 }
 
+const MERGE: &str = r#"{ "$merge": { "into": "dest" } }"#;
+
+fn merging() -> AppState {
+    let (s, _) = act(drafted(&[MATCH, MERGE]), A::RunClicked);
+    let (s, _) = act(s, A::RunTyped("dest".into()));
+    act(s, A::RunConfirmed).0
+}
+
+#[test]
+fn a_failed_merge_says_the_target_may_hold_part_of_the_result() {
+    let error = CoreError::Database("boom".into());
+    let (done, commands) = ev(merging(), ran(1, Err(error.clone())));
+    assert_eq!(
+        done.aggregate.run.status,
+        RunStatus::FailedPartial(error.clone())
+    );
+    assert!(commands.is_empty());
+    let (via_command, _) = ev(
+        merging(),
+        Event::Failed {
+            session: EMBEDDED_SESSION,
+            context: "aggregate_run",
+            error: error.clone(),
+        },
+    );
+    assert_eq!(
+        via_command.aggregate.run.status,
+        RunStatus::FailedPartial(error)
+    );
+}
+
+#[test]
+fn an_unknown_outcome_refreshes_the_sidebar_like_a_success() {
+    let (s, commands) = ev(running(), ran(1, Err(CoreError::WriteOutcomeUnknown)));
+    assert_eq!(s.aggregate.run.status, RunStatus::Unknown);
+    assert!(
+        commands
+            .iter()
+            .any(|c| matches!(c, Command::ListDatabases { .. }))
+    );
+}
+
+#[test]
+fn a_run_onto_the_open_collection_fetches_the_documents_again() {
+    let onto_self = |outcome| {
+        let s = drafted(&[MATCH, r#"{ "$out": "people" }"#]);
+        let (s, _) = act(s, A::RunClicked);
+        let (s, _) = act(s, A::RunTyped("people".into()));
+        let (s, _) = act(s, A::RunConfirmed);
+        let event = Event::AggregateRan {
+            session: EMBEDDED_SESSION,
+            run: 1,
+            ns: people(),
+            target: people(),
+            outcome,
+        };
+        ev(s, event).1
+    };
+    for outcome in [Ok(Some(3)), Err(CoreError::WriteOutcomeUnknown)] {
+        let commands = onto_self(outcome);
+        assert!(
+            commands
+                .iter()
+                .any(|c| matches!(c, Command::Find { ns, .. } if *ns == people())),
+            "{commands:?}"
+        );
+    }
+    // Another target leaves the open documents alone; a failure does too.
+    let (_, commands) = ev(running(), ran(1, Ok(Some(1))));
+    assert!(!commands.iter().any(|c| matches!(c, Command::Find { .. })));
+    let commands = onto_self(Err(CoreError::Database("x".into())));
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn a_target_in_another_database_needs_the_qualified_name() {
+    let open = || {
+        let s = drafted(&[
+            MATCH,
+            r#"{ "$out": { "db": "warehouse", "coll": "dest" } }"#,
+        ]);
+        act(s, A::RunClicked).0
+    };
+    let (collection_only, _) = act(open(), A::RunTyped("dest".into()));
+    let (_, commands) = act(collection_only, A::RunConfirmed);
+    assert!(run_commands(&commands).is_empty());
+    let (qualified, _) = act(open(), A::RunTyped("warehouse.dest".into()));
+    let (_, commands) = act(qualified, A::RunConfirmed);
+    assert_eq!(run_commands(&commands).len(), 1);
+}
+
+#[test]
+fn a_late_answer_of_an_earlier_run_does_not_settle_the_next_run() {
+    let (s, _) = ev(running(), ran(1, Ok(Some(1))));
+    let (s, _) = act(s, A::RunClicked);
+    let (s, _) = act(s, A::RunTyped("dest".into()));
+    let (s, _) = act(s, A::RunConfirmed);
+    assert_eq!(s.aggregate.run.run, 2);
+    let (s, _) = ev(s, ran(1, Err(CoreError::WriteOutcomeUnknown)));
+    assert_eq!(s.aggregate.run.status, RunStatus::Running);
+    assert!(s.pending.is_some());
+}
+
+#[test]
+fn a_target_in_a_server_database_cannot_be_run() {
+    let s = drafted(&[MATCH, r#"{ "$out": { "db": "config", "coll": "x" } }"#]);
+    assert!(matches!(
+        s.run_availability(),
+        RunAvailability::Disabled(RunDisabled::Invalid(_))
+    ));
+    let (s, commands) = act(s, A::RunClicked);
+    assert!(s.aggregate.run.dialog.is_none());
+    assert!(commands.is_empty());
+}
+
 #[test]
 fn run_numbers_do_not_repeat() {
     let (s, _) = ev(running(), ran(1, Ok(Some(1))));

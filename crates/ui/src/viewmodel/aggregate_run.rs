@@ -4,11 +4,13 @@
 use super::aggregate::{AggregateState, Mode};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::RunTarget;
-use curlybrace_core::pipeline::{PipelineError, pipeline_text, run_pipeline, stage_name};
+use curlybrace_core::pipeline::{
+    PipelineError, WRITE_STAGES, pipeline_text, run_pipeline, stage_name,
+};
 use curlybrace_core::store::Namespace;
 
-/// The stages that make a pipeline a write run.
-const WRITE_STAGES: [&str; 2] = ["$out", "$merge"];
+/// The stage whose failure can leave part of its result in the target (it is not atomic).
+const MERGE_STAGE: &str = "$merge";
 
 /// What the person is asked to type, and what the run is about. Closed by anything that changes
 /// the pipeline, the collection, the session or the connection.
@@ -38,9 +40,18 @@ impl RunDialog {
         )
     }
 
-    /// Whether the typed text names the target collection: trimmed, case-sensitive, always.
+    /// What must be typed: the collection, or `db.collection` when the target is in a database
+    /// other than the source's.
+    pub fn required_text(&self) -> String {
+        match &self.target.db {
+            Some(db) if *db != self.source.db => format!("{db}.{}", self.target.collection),
+            _ => self.target.collection.clone(),
+        }
+    }
+
+    /// Whether the typed text is the required one: trimmed, case-sensitive, always.
     pub fn is_confirmed(&self) -> bool {
-        self.typed.trim() == self.target.collection
+        self.typed.trim() == self.required_text()
     }
 }
 
@@ -56,6 +67,8 @@ pub enum RunStatus {
         count: Option<u64>,
     },
     Failed(CoreError),
+    /// A `$merge` failed part-way: the target may hold part of the result.
+    FailedPartial(CoreError),
     /// The client gave up waiting or the connection was lost: the server may or may not have
     /// finished the write.
     Unknown,
@@ -68,9 +81,25 @@ pub struct RunUi {
     pub status: RunStatus,
     /// The number of the newest run sent; an answer to another number is stale.
     pub run: u64,
+    /// The write stage of the run in flight or last sent (`"$out"` or `"$merge"`).
+    pub stage: String,
 }
 
 impl RunUi {
+    /// The run's write stage, known once it was sent.
+    pub fn with_stage(self, stage: String) -> Self {
+        Self { stage, ..self }
+    }
+
+    /// The status of a run that failed with `error`: a `$merge` may have written part of its
+    /// result, a `$out` leaves the target untouched.
+    pub fn failure(&self, error: CoreError) -> RunStatus {
+        match self.stage == MERGE_STAGE {
+            true => RunStatus::FailedPartial(error),
+            false => RunStatus::Failed(error),
+        }
+    }
+
     /// The dialog is open on `dialog`.
     pub fn opened(self, dialog: RunDialog) -> Self {
         Self {
@@ -113,6 +142,7 @@ impl RunUi {
             dialog: None,
             status: RunStatus::Running,
             run,
+            ..self
         }
     }
 
@@ -128,7 +158,7 @@ impl RunUi {
     pub fn command_failed(self, error: CoreError) -> Self {
         let status = match error {
             CoreError::WriteOutcomeUnknown | CoreError::Unreachable => RunStatus::Unknown,
-            error => RunStatus::Failed(error),
+            error => self.failure(error),
         };
         match self.status == RunStatus::Running {
             true => Self { status, ..self },

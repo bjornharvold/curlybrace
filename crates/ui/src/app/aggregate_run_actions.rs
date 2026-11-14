@@ -123,6 +123,7 @@ fn confirmed(state: AppState) -> Out {
         return (state, Vec::new());
     };
     let run = state.aggregate.run.run.wrapping_add(1);
+    let stage = plan.stage.clone();
     let (next, commands) = mutation(
         state,
         None,
@@ -138,7 +139,7 @@ fn confirmed(state: AppState) -> Out {
     match commands.is_empty() {
         true => (next, commands),
         false => {
-            let ui = next.aggregate.run.clone().started(run);
+            let ui = next.aggregate.run.clone().started(run).with_stage(stage);
             (with_run(next, ui), commands)
         }
     }
@@ -195,8 +196,9 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
 }
 
 /// The answer of run `run`. A stale one (another number, or no run in flight) changes nothing.
-/// The write is over either way, so the guard on further writes is lifted. A target that is not
-/// in the sidebar yet makes the sidebar list again.
+/// The write is over either way, so the guard on further writes is lifted. After a success or an
+/// unknown outcome (the target may have been written) a target that is not in the sidebar yet
+/// makes the sidebar list again, and the open collection is fetched again when it is the target.
 fn ran(
     state: AppState,
     run: u64,
@@ -215,18 +217,40 @@ fn ran(
             },
             true,
         ),
-        Err(CoreError::WriteOutcomeUnknown) => (RunStatus::Unknown, false),
-        Err(error) => (RunStatus::Failed(error), false),
+        Err(CoreError::WriteOutcomeUnknown) => (RunStatus::Unknown, true),
+        Err(error) => (ui.failure(error), false),
     };
     let next = settled(state, run, status);
-    match wrote && !listed(&next, &target) {
-        true => super::admin_actions::changed(next, target.db),
+    match wrote {
+        true => written(next, target),
         false => (next, Vec::new()),
     }
 }
 
+/// The target may hold new documents: the sidebar lists it when it does not yet, and the
+/// Documents view fetches again when the target is the open collection (a `$out` onto itself).
+fn written(state: AppState, target: Namespace) -> Out {
+    let (next, mut commands) = match listed(&state, &target) {
+        true => (state, Vec::new()),
+        false => super::admin_actions::changed(state, target.db.clone()),
+    };
+    if next.selected_ns() != Some(&target) {
+        return (next, commands);
+    }
+    let query = next.page_query.clone();
+    let (next, find) = super::actions::issue_find(next, query);
+    commands.extend(find);
+    (next, commands)
+}
+
 /// A run that failed as a command: unknown when the write may have gone through, a refusal on a
 /// connection locked meanwhile (banner), a failure shown with the run otherwise.
+///
+/// The failure carries no run number, so it is matched by "a run is in flight" alone. That is
+/// sound because the core answers every outcome of a run (a pipeline or server failure, a
+/// client timeout, an interruption the server survived) as an `AggregateRan` under its number,
+/// leaving only the read-only refusal, which is immediate, and a lost connection, which is
+/// answered `Superseded` (and dropped) once a newer connect replaced its session.
 fn command_failed(state: AppState, error: CoreError) -> Out {
     if !state.aggregate.run.is_running() {
         return (state, Vec::new());
@@ -238,7 +262,10 @@ fn command_failed(state: AppState, error: CoreError) -> Out {
             ..settled(state, run, RunStatus::Idle)
         },
         CoreError::WriteOutcomeUnknown => settled(state, run, RunStatus::Unknown),
-        error => settled(state, run, RunStatus::Failed(error)),
+        error => {
+            let status = state.aggregate.run.failure(error);
+            settled(state, run, status)
+        }
     };
     (next, Vec::new())
 }

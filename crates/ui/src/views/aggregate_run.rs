@@ -103,6 +103,11 @@ pub fn show_run_status(ui: &mut egui::Ui, status: &RunStatus, i18n: &I18n) {
             let text = i18n.t_with("aggregate.run.status.failed", &[("error", &reason)]);
             tone_notice(ui, Tone::Bad, &text, false);
         }
+        RunStatus::FailedPartial(error) => {
+            let reason = i18n.error(error);
+            let text = i18n.t_with("aggregate.run.status.failed_partial", &[("error", &reason)]);
+            tone_notice(ui, Tone::Bad, &text, false);
+        }
         RunStatus::Unknown => {
             let text = i18n.t("aggregate.run.status.unknown");
             tone_notice(ui, Tone::Warning, &text, false);
@@ -173,12 +178,21 @@ fn facts(ui: &mut egui::Ui, dialog: &RunDialog, i18n: &I18n) {
 
 /// The typed confirmation; the text typed this frame, and whether Enter confirmed a matching one.
 fn confirmation(ui: &mut egui::Ui, dialog: &RunDialog, i18n: &I18n) -> (Option<String>, bool) {
-    let name = dialog.target.collection.as_str();
+    let required = dialog.required_text();
+    let name = required.as_str();
+    let qualified = name != dialog.target.collection;
+    let (instruction_key, field_key) = match qualified {
+        true => (
+            "aggregate.run.type_instruction_qualified",
+            "aggregate.run.type_field_qualified",
+        ),
+        false => ("aggregate.run.type_instruction", "aggregate.run.type_field"),
+    };
     let accessible = i18n.t_with("aggregate.run.type_accessible", &[("name", name)]);
     let prompt = TypedConfirmation {
-        instruction: &i18n.t("aggregate.run.type_instruction"),
+        instruction: &i18n.t(instruction_key),
         required: name,
-        field_label: &i18n.t("aggregate.run.type_field"),
+        field_label: &i18n.t(field_key),
         accessible_name: &accessible,
     };
     let mut text = dialog.typed.clone();
