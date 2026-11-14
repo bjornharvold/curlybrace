@@ -41,11 +41,12 @@ impl RunDialog {
     }
 
     /// What must be typed: the collection, or `db.collection` when the target is in a database
-    /// other than the source's.
+    /// other than the source's or its name contains a dot (the bare name would be ambiguous).
     pub fn required_text(&self) -> String {
-        match &self.target.db {
-            Some(db) if *db != self.source.db => format!("{db}.{}", self.target.collection),
-            _ => self.target.collection.clone(),
+        let target = self.target_ns();
+        match target.db != self.source.db || target.collection.contains('.') {
+            true => format!("{}.{}", target.db, target.collection),
+            false => target.collection,
         }
     }
 
@@ -92,9 +93,17 @@ impl RunUi {
     }
 
     /// The status of a run that failed with `error`: a `$merge` may have written part of its
-    /// result, a `$out` leaves the target untouched.
+    /// result, a `$out` leaves the target untouched, and a refusal before anything is written
+    /// (reserved database, invalid document, unauthorized, read-only) is a plain failure.
     pub fn failure(&self, error: CoreError) -> RunStatus {
-        match self.stage == MERGE_STAGE {
+        let refused_before_writing = matches!(
+            error,
+            CoreError::ReservedDatabase
+                | CoreError::InvalidDocument(_)
+                | CoreError::Unauthorized
+                | CoreError::ReadOnly
+        );
+        match self.stage == MERGE_STAGE && !refused_before_writing {
             true => RunStatus::FailedPartial(error),
             false => RunStatus::Failed(error),
         }
@@ -205,6 +214,9 @@ pub struct RunEnv {
     pub connected: bool,
     pub has_collection: bool,
     pub read_only: bool,
+    /// The open collection is in a database the server owns (`admin`, `local`, `config`): a
+    /// stage that names no target database would write there.
+    pub source_reserved: bool,
 }
 
 /// Why Run is shown but cannot be used.
@@ -254,11 +266,26 @@ impl AggregateState {
             _ if self.mode == Mode::Text && self.text != pipeline_text(&self.stages) => {
                 Some(RunDisabled::TextNotApplied)
             }
-            _ => run_pipeline(&self.stages).err().map(RunDisabled::Invalid),
+            _ => self.plan_refusal(env),
         };
         match refusal {
             Some(reason) => RunAvailability::Disabled(reason),
             None => RunAvailability::Ready,
+        }
+    }
+
+    /// Why the pipeline cannot run: it is unrunnable as written, or its target (the source
+    /// database when the stage names none) belongs to the server.
+    fn plan_refusal(&self, env: RunEnv) -> Option<RunDisabled> {
+        match run_pipeline(&self.stages) {
+            Err(error) => Some(RunDisabled::Invalid(error)),
+            Ok(plan) if plan.target.db.is_none() && env.source_reserved => {
+                let index = self.stages.iter().rposition(|s| s.enabled).unwrap_or(0);
+                Some(RunDisabled::Invalid(
+                    PipelineError::ReservedTargetDatabase { index },
+                ))
+            }
+            Ok(_) => None,
         }
     }
 

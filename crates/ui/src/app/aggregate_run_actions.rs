@@ -9,6 +9,7 @@ use super::reducer::Out;
 use super::state::{AppState, Banner, ConnStatus};
 use super::write_guard::{Guard, WriteKind};
 use crate::viewmodel::aggregate_run::{RunAvailability, RunDialog, RunEnv, RunStatus, RunUi};
+use curlybrace_core::admin::RESERVED_DATABASES;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::run_pipeline;
 use curlybrace_core::runtime::{Command, Event};
@@ -21,6 +22,9 @@ impl AppState {
             connected: self.status == ConnStatus::Connected,
             has_collection: self.selected_ns().is_some(),
             read_only: self.active_is_read_only(),
+            source_reserved: self
+                .selected_ns()
+                .is_some_and(|ns| RESERVED_DATABASES.contains(&ns.db.as_str())),
         }
     }
 

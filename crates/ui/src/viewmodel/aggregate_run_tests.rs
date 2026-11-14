@@ -24,6 +24,7 @@ fn env() -> RunEnv {
         connected: true,
         has_collection: true,
         read_only: false,
+        source_reserved: false,
     }
 }
 
@@ -89,6 +90,7 @@ fn run_is_disabled_with_the_reason() {
             connected,
             has_collection,
             read_only,
+            source_reserved: false,
         })
     };
     assert_eq!(
@@ -301,6 +303,70 @@ fn a_merge_that_failed_may_have_left_part_of_its_result() {
     );
     let out = RunUi::default().started(1).with_stage("$out".into());
     assert_eq!(out.failure(error.clone()), RunStatus::Failed(error));
+}
+
+#[test]
+fn a_refusal_before_any_write_is_a_plain_failure_for_a_merge_too() {
+    let merge = RunUi::default().started(1).with_stage("$merge".into());
+    for error in [
+        CoreError::ReservedDatabase,
+        CoreError::InvalidDocument("x".into()),
+        CoreError::Unauthorized,
+        CoreError::ReadOnly,
+    ] {
+        assert_eq!(
+            merge.failure(error.clone()),
+            RunStatus::Failed(error.clone())
+        );
+        assert_eq!(
+            merge.clone().command_failed(error.clone()).status,
+            RunStatus::Failed(error)
+        );
+    }
+}
+
+#[test]
+fn a_dotted_target_name_needs_the_qualified_form() {
+    let dotted = |db: Option<&str>, typed: &str| RunDialog {
+        target: RunTarget {
+            db: db.map(Into::into),
+            collection: "a.b".into(),
+        },
+        typed: typed.into(),
+        ..dialog()
+    };
+    assert_eq!(dotted(None, "").required_text(), "app.a.b");
+    assert_eq!(dotted(Some("app"), "").required_text(), "app.a.b");
+    assert!(dotted(None, "app.a.b").is_confirmed());
+    assert!(!dotted(None, "a.b").is_confirmed());
+    assert!(!dotted(Some("app"), "a.b").is_confirmed());
+    assert_eq!(dotted(Some("other"), "").required_text(), "other.a.b");
+}
+
+#[test]
+fn a_run_into_a_server_source_database_is_not_offered() {
+    let d = draft(&[(MATCH, true), (r#"{ "$out": "x" }"#, true)]);
+    assert_eq!(d.can_run(env()), RunAvailability::Ready);
+    assert_eq!(
+        d.can_run(RunEnv {
+            source_reserved: true,
+            ..env()
+        }),
+        RunAvailability::Disabled(RunDisabled::Invalid(
+            PipelineError::ReservedTargetDatabase { index: 1 }
+        ))
+    );
+    let named = draft(&[
+        (MATCH, true),
+        (r#"{ "$out": { "db": "app", "coll": "x" } }"#, true),
+    ]);
+    assert_eq!(
+        named.can_run(RunEnv {
+            source_reserved: true,
+            ..env()
+        }),
+        RunAvailability::Ready
+    );
 }
 
 #[test]

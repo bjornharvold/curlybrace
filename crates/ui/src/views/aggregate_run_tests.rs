@@ -331,6 +331,7 @@ fn a_draft_that_writes_offers_run_and_a_read_draft_does_not() {
         connected: true,
         has_collection: true,
         read_only: true,
+        source_reserved: false,
     };
     let read = AggregateState::default().add_stage("$match");
     assert_eq!(read.can_run(env), RunAvailability::Hidden);

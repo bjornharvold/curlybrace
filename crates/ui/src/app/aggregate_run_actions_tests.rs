@@ -657,6 +657,24 @@ fn a_target_in_a_server_database_cannot_be_run() {
 }
 
 #[test]
+fn a_run_in_a_server_source_database_opens_no_dialog() {
+    let mut s = drafted(&[MATCH, OUT]);
+    s.sidebar = s
+        .sidebar
+        .with_databases(vec!["admin".into()])
+        .with_collections("admin", vec!["people".into()])
+        .toggled("admin")
+        .selecting(Namespace::new("admin", "people"));
+    assert!(matches!(
+        s.run_availability(),
+        RunAvailability::Disabled(RunDisabled::Invalid(_))
+    ));
+    let (s, commands) = act(s, A::RunClicked);
+    assert!(s.aggregate.run.dialog.is_none());
+    assert!(commands.is_empty());
+}
+
+#[test]
 fn run_numbers_do_not_repeat() {
     let (s, _) = ev(running(), ran(1, Ok(Some(1))));
     let (s, _) = act(s, A::RunClicked);

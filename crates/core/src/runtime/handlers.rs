@@ -310,6 +310,7 @@ async fn run(
             let settled = settle_by_ping(&store, shared.config.ping_timeout, error, is_write).await;
             // A run whose write may have gone through while the server still answers is an
             // outcome under the run's own number; only a lost server fails the command.
+            // No `gate` here on purpose: the answer carries the run number and can only settle that run.
             if let (CoreError::WriteOutcomeUnknown, Some((run, ns, target))) =
                 (&settled, run_namespaces)
             {
