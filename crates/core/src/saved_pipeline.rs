@@ -147,7 +147,8 @@ impl SavedPipelines {
     }
 
     /// Saves `stages` under `name`. When the name is taken, `replace` overwrites that pipeline
-    /// (same id, new content, moved to the front); without it the name is refused.
+    /// (same id and name as stored, new content, moved to the front); without it the name is
+    /// refused.
     pub fn saved(
         &self,
         connection: Uuid,
@@ -161,7 +162,9 @@ impl SavedPipelines {
         if stages.iter().map(|s| s.text.len()).sum::<usize>() > MAX_STAGE_BYTES {
             return Err(SavedError::TooLarge);
         }
-        let existing = self.find_by_name(connection, &name).map(|p| p.id);
+        let found = self.find_by_name(connection, &name);
+        let existing = found.map(|p| p.id);
+        let name = found.map_or(name, |p| p.name.clone());
         if existing.is_some() && !replace {
             return Err(SavedError::NameTaken);
         }

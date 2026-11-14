@@ -157,7 +157,8 @@ fn a_taken_name_asks_to_replace_and_replacing_keeps_the_id() {
     let entry = only_entry(&s, conn);
     assert_eq!(entry.id, id);
     assert_eq!(entry.stages.len(), 3);
-    assert_eq!(entry.name, "totals");
+    assert_eq!(entry.name, "Totals", "the stored spelling stays");
+    assert_eq!(s.aggregate.saved.opened, Some((id, "Totals".into())));
 }
 
 #[test]

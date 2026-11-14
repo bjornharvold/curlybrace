@@ -11,7 +11,7 @@ use crate::theme::{
 };
 use crate::viewmodel::aggregate::AggregateState;
 use crate::viewmodel::aggregate_saved::{SavedDialog, name_problem, saved_error_key};
-use curlybrace_core::saved_pipeline::{SavedError, SavedPipeline};
+use curlybrace_core::saved_pipeline::{SavedError, SavedPipeline, same_name};
 use eframe::egui;
 use uuid::Uuid;
 
@@ -73,18 +73,25 @@ pub fn show_saved_dialog(
         SavedDialog::Save {
             name,
             replace_prompt: true,
-        } => prompt_dialog(
-            ctx,
-            Prompt {
-                salt: "replace",
-                title: "aggregate.saved.save_title",
-                message: i18n.t_with("aggregate.saved.replace_message", &[("name", name.trim())]),
-                confirm: "aggregate.saved.replace_confirm",
-                confirmed: AggregateAction::SaveConfirmed,
-                failed,
-            },
-            i18n,
-        ),
+        } => {
+            // The pipeline that is replaced keeps its stored spelling; name it as stored.
+            let stored = entries
+                .iter()
+                .find(|p| same_name(&p.name, name))
+                .map_or_else(|| name.trim().to_string(), |p| p.name.clone());
+            prompt_dialog(
+                ctx,
+                Prompt {
+                    salt: "replace",
+                    title: "aggregate.saved.save_title",
+                    message: i18n.t_with("aggregate.saved.replace_message", &[("name", &stored)]),
+                    confirm: "aggregate.saved.replace_confirm",
+                    confirmed: AggregateAction::SaveConfirmed,
+                    failed,
+                },
+                i18n,
+            )
+        }
         SavedDialog::ConfirmOpen { id } => named(id).map_or_else(gone, |name| {
             prompt_dialog(
                 ctx,

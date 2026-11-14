@@ -72,7 +72,7 @@ fn replacing_keeps_the_id_and_updates_the_content() {
     assert_eq!(next.list(conn).len(), 1);
     let kept = &next.list(conn)[0];
     assert_eq!(kept.id, id);
-    assert_eq!(kept.name, "TOTALS");
+    assert_eq!(kept.name, "totals", "the stored spelling stays");
     assert_eq!(kept.ns_hint.as_deref(), Some("shop.orders"));
     assert_eq!(kept.saved_unix, 20);
     assert_eq!(kept.stages, one("new"));

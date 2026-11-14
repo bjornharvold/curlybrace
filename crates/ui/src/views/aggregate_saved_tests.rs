@@ -351,9 +351,10 @@ fn a_prompt_that_replaces_or_removes_starts_on_cancel_so_enter_changes_nothing()
 #[test]
 fn the_replace_prompt_names_the_pipeline_and_confirms_with_replace() {
     let dialog = SavedDialog::Save {
-        name: " Top cities ".into(),
+        name: " top CITIES ".into(),
         replace_prompt: true,
     };
+    // The message names the stored pipeline, spelled as it is stored, not what was typed.
     let mut harness = open(with_dialog(dialog), list_of(&["Top cities"]), BIG);
     harness.get_by_label(&tn("aggregate.saved.replace_message", "Top cities"));
     harness
