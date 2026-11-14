@@ -43,7 +43,7 @@ fn a_delete_refused_by_a_change_on_disk_is_cleaned_up_after_the_reload() {
     a.dispatch_connection(ConnectionAction::Delete(id));
     assert!(a.state().connection(id).is_none());
     assert!(
-        !matches!(a.state().banner, Some(Banner::PipelinesPersist(_))),
+        !matches!(a.state().banner, Some(Banner::PipelinesCleanup)),
         "the cleanup went through"
     );
     let on_disk = load(&pipeline_file(&dir), &persistence::back_up).settings;
@@ -67,10 +67,7 @@ fn a_duplicate_refused_by_a_change_on_disk_still_gets_its_copies() {
         .find(|c| c.id != id)
         .expect("the copy")
         .id;
-    assert!(!matches!(
-        a.state().banner,
-        Some(Banner::PipelinesPersist(_))
-    ));
+    assert!(!matches!(a.state().banner, Some(Banner::PipelinesCleanup)));
     let on_disk = load(&pipeline_file(&dir), &persistence::back_up).settings;
     assert_eq!(on_disk.list(copy)[0].name, "from a");
     assert_eq!(on_disk.list(id).len(), 1);

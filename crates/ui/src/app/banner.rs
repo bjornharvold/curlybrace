@@ -13,7 +13,7 @@ pub fn banner_text(banner: &Banner, i18n: &I18n) -> (String, Option<String>) {
         Banner::Failure { context, error } => (i18n.failure(context), Some(i18n.error(error))),
         Banner::Persist(e) => (i18n.t(e.i18n_key()), None),
         Banner::ToolsPersist(e) => (i18n.t(e.tools_i18n_key()), None),
-        Banner::PipelinesPersist(e) => (i18n.t(e.i18n_key()), None),
+        Banner::PipelinesCleanup => (i18n.t("aggregate.saved.cleanup_failed"), None),
         Banner::ImportFailed(e) => (i18n.t(e.i18n_key()), None),
         Banner::ExportFailed(_) => (i18n.t("banner.export_failed"), None),
         Banner::Recovery(r) => (recovery_headline(r, i18n), None),
@@ -77,7 +77,7 @@ pub fn banner_level(banner: &Banner) -> BannerLevel {
         Banner::Failure { .. }
         | Banner::Persist(_)
         | Banner::ToolsPersist(_)
-        | Banner::PipelinesPersist(_)
+        | Banner::PipelinesCleanup
         | Banner::ImportFailed(_)
         | Banner::ExportFailed(_) => BannerLevel::Error,
         Banner::HostForgotten | Banner::FieldsCovered => BannerLevel::Info,
@@ -143,7 +143,6 @@ mod tests {
     use super::*;
     use crate::app::connection_io::ImportError;
     use crate::app::persistence::PersistError;
-    use crate::app::pipelines_store::PipelinesSaveError;
     use curlybrace_core::error::CoreError;
 
     fn resolved(b: &Banner) -> (String, Option<String>) {
@@ -171,13 +170,7 @@ mod tests {
             Banner::Persist(PersistError::Blocked),
             Banner::ToolsPersist(PersistError::ConfigDirUnknown),
             Banner::ToolsPersist(PersistError::Write(std::io::ErrorKind::Other)),
-            Banner::PipelinesPersist(PipelinesSaveError::Persist(PersistError::ConfigDirUnknown)),
-            Banner::PipelinesPersist(PipelinesSaveError::Persist(PersistError::Write(
-                std::io::ErrorKind::Other,
-            ))),
-            Banner::PipelinesPersist(PipelinesSaveError::TooLarge),
-            Banner::PipelinesPersist(PipelinesSaveError::ChangedOnDisk),
-            Banner::PipelinesPersist(PipelinesSaveError::UnreadableOnDisk),
+            Banner::PipelinesCleanup,
             Banner::ImportFailed(ImportError::TooLarge),
             Banner::ImportFailed(ImportError::NotValid),
             Banner::ImportFailed(ImportError::TooManyEntries),

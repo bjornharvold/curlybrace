@@ -86,28 +86,30 @@ impl AppState {
 
     /// A cleanup after a connection change: the list follows at once (a stale entry for a
     /// deleted connection would only be written again later) and the write is tried. When
-    /// another window changed the file, the cleanup is applied again to what was reloaded and
-    /// written once more; nothing is left for the user to retry. A failure is logged and shown
+    /// another window changed the file, or left one that cannot be read (now backed up, so
+    /// replaceable), the cleanup is applied again to the list as it then is and written once
+    /// more; nothing is left for the user to retry. When that fails too the list still changes
+    /// here, and the banner says the file could not be updated. A failure is logged and shown
     /// unless another banner is up.
-    fn apply_pipelines_cleanup(&mut self, cleanup: impl Fn(&SavedPipelines) -> SavedPipelines) {
+    pub(super) fn apply_pipelines_cleanup(
+        &mut self,
+        cleanup: impl Fn(&SavedPipelines) -> SavedPipelines,
+    ) {
         let next = cleanup(&self.pipelines);
         if next == self.pipelines {
             return;
         }
-        let mut written = self.persist_pipelines(next.clone());
-        if written == Err(PipelinesSaveError::ChangedOnDisk) {
+        let mut written = self.persist_pipelines(next);
+        if matches!(
+            written,
+            Err(PipelinesSaveError::ChangedOnDisk | PipelinesSaveError::UnreadableOnDisk)
+        ) {
             let again = cleanup(&self.pipelines);
             written = if again == self.pipelines {
                 Ok(())
             } else {
                 self.persist_pipelines(again)
             };
-            if written == Err(PipelinesSaveError::ChangedOnDisk) {
-                // A second change under our hands: not something to try again from here.
-                written = Err(PipelinesSaveError::Persist(PersistError::Write(
-                    std::io::ErrorKind::Other,
-                )));
-            }
         }
         if written.is_err() {
             self.pipelines = cleanup(&self.pipelines);
@@ -115,7 +117,7 @@ impl AppState {
         if let Err(e) = written {
             log::warn!("could not save the saved pipelines: {e:?}");
             if self.banner.is_none() {
-                self.banner = Some(e.banner());
+                self.banner = Some(e.cleanup_banner());
             }
         }
     }

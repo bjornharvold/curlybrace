@@ -73,6 +73,7 @@
     "refresh": "Refresh",
     "saved": {
       "blocked": "The saved pipelines file could not be backed up earlier, so changes to saved pipelines are not written. Nothing was saved.",
+      "cleanup_failed": "The saved pipelines of the connection you just changed could not be updated on disk. They were updated in this window, and the file will be corrected on the next successful save.",
       "config_dir_unknown": "Saved pipelines cannot be written because there is no settings folder for this account. Nothing was saved.",
       "delete": "Delete",
       "delete_confirm": "Delete",

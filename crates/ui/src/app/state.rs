@@ -55,9 +55,10 @@ pub enum Banner {
     Persist(PersistError),
     /// The tool paths file could not be written; the change applies until the app closes.
     ToolsPersist(PersistError),
-    /// The saved pipelines file could not be written (after a connection was deleted or
-    /// duplicated); the list changes until the app closes.
-    PipelinesPersist(super::pipelines_store::PipelinesSaveError),
+    /// A connection was deleted or duplicated and its saved pipelines could not be updated on
+    /// disk (even after one retry). The list was updated in this window; the file is corrected
+    /// by the next successful save.
+    PipelinesCleanup,
     /// The file chosen for import was refused. Says nothing about the saved list.
     ImportFailed(ImportError),
     /// Writing the export file failed. Says nothing about the saved list.

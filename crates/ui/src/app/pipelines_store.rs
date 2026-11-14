@@ -119,13 +119,13 @@ impl PipelinesSaveError {
         }
     }
 
-    /// The banner for a refusal that nothing else shows (a connection cleanup, say). A blocked
-    /// save reuses the failed-backup recovery text.
-    pub fn banner(self) -> Banner {
+    /// The banner for a connection cleanup that could not be written. The list was changed in
+    /// this window all the same, so only a newer file (which says the file is left alone) has
+    /// its own text; every other refusal says the file will be corrected by the next save.
+    pub fn cleanup_banner(self) -> Banner {
         match self {
-            Self::Blocked => Banner::Recovery(Recovery::Pipelines { backed_up: false }),
             Self::NewerVersion => Banner::Recovery(Recovery::PipelinesNewer),
-            other => Banner::PipelinesPersist(other),
+            _ => Banner::PipelinesCleanup,
         }
     }
 }
