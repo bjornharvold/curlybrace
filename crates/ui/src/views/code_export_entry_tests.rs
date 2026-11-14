@@ -199,17 +199,55 @@ fn the_query_bar_button_is_off_with_the_parse_error_as_its_reason() {
 }
 
 #[test]
-fn it_sits_next_to_find_and_clear() {
+fn it_is_an_icon_between_clear_and_previous_on_the_find_row() {
     let h = bar("{}");
     let rect = |key: &str| {
         let label = t(key);
         h.get_by_role_and_label(Role::Button, &label).rect()
     };
-    let (find, clear, code) = (
+    let (find, clear, code, prev, next) = (
         rect("findbar.run"),
         rect("findbar.clear"),
         rect("codegen.button"),
+        rect("findbar.prev"),
+        rect("findbar.next"),
     );
     assert!(find.left() < clear.left() && clear.left() < code.left());
-    assert!((code.center().y - find.center().y).abs() < 1.0, "same row");
+    assert!(code.left() < prev.left() && prev.left() < next.left());
+    for other in [clear, prev, next] {
+        assert!((code.center().y - other.center().y).abs() < 1.0, "one row");
+    }
+    assert!(
+        code.width() < 60.0,
+        "an icon, not a labelled button: {code:?}"
+    );
+}
+
+#[test]
+fn the_find_row_stays_on_one_line_with_the_icon() {
+    let h = bar("{}");
+    let filter = h.get_by_label(&t("findbar.filter")).rect();
+    let code = h
+        .get_by_role_and_label(Role::Button, &t("codegen.button"))
+        .rect();
+    let find = h
+        .get_by_role_and_label(Role::Button, &t("findbar.run"))
+        .rect();
+    assert!(
+        (find.center().y - code.center().y).abs() < 1.0 && filter.bottom() > find.top(),
+        "the buttons share the Filter's row: {filter:?} {find:?}"
+    );
+}
+
+#[test]
+fn the_icon_is_named_in_words_and_described_by_its_hint() {
+    let h = bar("{}");
+    let label = t("codegen.button");
+    let button = h.get_by_role_and_label(Role::Button, &label);
+    assert_eq!(button.accesskit_node().label(), Some(label.clone()));
+    assert_eq!(
+        button.accesskit_node().description(),
+        Some(t("codegen.button_hint"))
+    );
+    assert!(h.query_by_label(&t("codegen.button_icon")).is_none());
 }

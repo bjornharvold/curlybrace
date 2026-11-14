@@ -3,11 +3,11 @@
 //! is nothing valid to show code for. Nothing here needs a connection.
 use super::aggregate::pipeline_error_text;
 use crate::I18n;
-use crate::theme::{gate, tonal_button};
+use crate::theme::{compact_text_button, gate, tonal_button};
 use crate::viewmodel::aggregate::AggregateState;
 use crate::viewmodel::code_export::{CodeBlock, aggregate_stages};
 use curlybrace_core::query::{QueryText, parse_query};
-use eframe::egui;
+use eframe::egui::{self, WidgetInfo, WidgetType};
 
 /// Why the Aggregate tab has no code to offer, in words; `None` when it has.
 pub fn aggregate_blocked(draft: &AggregateState, i18n: &I18n) -> Option<String> {
@@ -29,8 +29,7 @@ pub fn show_copy_code_button(ui: &mut egui::Ui, blocked: Option<&str>, i18n: &I1
     show_copy_code_response(ui, blocked, i18n).clicked() && blocked.is_none()
 }
 
-/// [`show_copy_code_button`]'s response, for a row that measures its buttons.
-pub fn show_copy_code_response(
+fn show_copy_code_response(
     ui: &mut egui::Ui,
     blocked: Option<&str>,
     i18n: &I18n,
@@ -46,6 +45,31 @@ pub fn show_copy_code_response(
             off
         }
     }
+}
+
+/// The query bar's Copy as code button: the icon-only `</>` glyph, so it does not make the row
+/// wrap. "Copy as code" is its accessible name and its tooltip; off, the tooltip and the
+/// accessible description also give the reason. The response of the button.
+pub fn show_copy_code_icon(
+    ui: &mut egui::Ui,
+    blocked: Option<&str>,
+    i18n: &I18n,
+) -> egui::Response {
+    let name = i18n.t("codegen.button");
+    let glyph = i18n.t("codegen.button_icon");
+    let enabled = blocked.is_none();
+    let response = match blocked {
+        None => compact_text_button(ui, glyph).on_hover_text(name.clone()),
+        Some(reason) => gate(ui, false, |ui| compact_text_button(ui, glyph)).on_hover_ui(|ui| {
+            ui.strong(name.clone());
+            ui.label(reason);
+        }),
+    };
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, name.clone()));
+    let description = blocked.map_or_else(|| i18n.t("codegen.button_hint"), str::to_string);
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_description(description));
+    response
 }
 
 #[cfg(test)]

@@ -371,6 +371,7 @@
   "codegen": {
     "button": "Copy as code",
     "button_hint": "Show this as code for mongosh or a driver",
+    "button_icon": "</>",
     "copy": "Copy",
     "disabled": {
       "text_not_applied": "Apply the edited text to the stages before you copy code."

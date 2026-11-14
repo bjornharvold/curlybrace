@@ -1,7 +1,7 @@
 //! Find bar view: the Filter with Find / Clear / Previous / Next and the "More" toggle on one
 //! wrapping row, then, behind "More", Sort / Projection / Skip / Limit on another.
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
-use super::code_export_entry::{find_blocked, show_copy_code_response};
+use super::code_export_entry::{find_blocked, show_copy_code_icon};
 use super::findbar_more::{show_more_fields, show_more_toggle};
 use crate::I18n;
 use crate::theme::{
@@ -15,9 +15,10 @@ pub use crate::viewmodel::FindAction;
 
 /// The Filter is never narrower than this beside the buttons; on a narrower row the buttons
 /// wrap under it and the Filter takes the whole row.
-const FILTER_MIN_WIDTH: f32 = 240.0;
-/// The width of the buttons after the Filter until a frame has measured it.
-const TRAILING_GUESS: f32 = 570.0;
+const FILTER_MIN_WIDTH: f32 = 220.0;
+/// The width of the buttons after the Filter until a frame has measured it (about 475 with the
+/// icon-only Copy as code button; the Filter keeps one row with them at the 1000-wide window).
+const TRAILING_GUESS: f32 = 475.0;
 /// Room left between the Filter and the buttons' measured width, so rounding never wraps the
 /// last button.
 const ROW_SLACK: f32 = 1.0;
@@ -169,8 +170,8 @@ pub(super) fn sized_field(
     response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
-/// Find, Clear, Copy as code (off with the parse error as its reason), Previous and Next in the
-/// current row; the intent clicked and the width they took with the gap before each.
+/// Find, Clear, the `</>` Copy as code icon (off with the parse error as its reason), Previous
+/// and Next in the current row; the intent clicked and the width they took with the gap before each.
 fn buttons(
     ui: &mut egui::Ui,
     (has_prev, has_next): (bool, bool),
@@ -182,7 +183,7 @@ fn buttons(
     let mut width = 0.0;
     let run = filled_button(ui, i18n.t("findbar.run"));
     let clear = tonal_button(ui, i18n.t("findbar.clear"));
-    let code = show_copy_code_response(ui, code_blocked, i18n);
+    let code = show_copy_code_icon(ui, code_blocked, i18n);
     let prev = gate(ui, has_prev, |ui| text_button(ui, i18n.t("findbar.prev")));
     let next = gate(ui, has_next, |ui| text_button(ui, i18n.t("findbar.next")));
     for (response, clicked) in [
