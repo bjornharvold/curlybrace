@@ -4,6 +4,7 @@ use bson::Document;
 
 use crate::codegen::Renderer;
 use crate::codegen::escape::indent;
+use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::python_syntax::{PythonSyntax, quote};
 use crate::codegen::walk::{Syntax, lay_out, render, render_document, render_documents};
@@ -13,8 +14,10 @@ pub(crate) struct Python;
 
 impl Python {
     fn frame(ns: &Namespace, options: &CodeOptions, syn: &PythonSyntax, body: &str) -> String {
+        let noted = with_note(syn, "#", body.to_string());
+        let body = noted.as_str();
         if !options.setup {
-            return body.to_string();
+            return noted;
         }
         let mut head = String::new();
         let (plain, from): (Vec<&str>, Vec<&str>) = syn

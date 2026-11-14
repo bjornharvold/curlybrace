@@ -117,7 +117,7 @@ fn java_and_csharp_refuse_a_skip_or_limit_beyond_int() {
         };
         assert_eq!(
             generate(language, &request, &CodeOptions::default()),
-            Err(CodegenError::UnsupportedValue("skip"))
+            Err(CodegenError::OutOfRange("skip"))
         );
     }
 }

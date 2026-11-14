@@ -1,6 +1,7 @@
 // Run with: mongosh "<your connection string>"
 const collection = db.getSiblingDB("shop").getCollection("orders");
 
+// Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
 const pipeline = [
   {
     $match: {

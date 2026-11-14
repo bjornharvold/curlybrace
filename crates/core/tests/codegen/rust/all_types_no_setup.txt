@@ -1,4 +1,5 @@
 // Needs #![recursion_limit = "256"] at the top of main.rs
+// Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
 let pipeline = vec![
     doc! {
         "$match": {

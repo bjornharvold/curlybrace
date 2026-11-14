@@ -29,22 +29,37 @@ pub(crate) fn is_unsafe_invisible(c: char) -> bool {
         c as u32,
         0..=0x1f
             | 0x7f..=0x9f
+            | 0xad
             | 0x61c
+            | 0x180e
             | 0x200b..=0x200f
             | 0x2028..=0x202e
             | 0x2060..=0x2069
             | 0xfeff
+            | 0xfff9..=0xfffb
             | 0xfffe
             | 0xffff
+            | 0xe0000..=0xe007f
     )
 }
 
-/// `\xNN` below U+0100, `\uNNNN` above (Python, Go).
+/// `\xNN` below U+0100, `\uNNNN` up to U+FFFF, `\UNNNNNNNN` above (Python).
 pub(crate) fn x_or_u_escape(code: u32) -> String {
     if code < 0x100 {
         format!("\\x{code:02x}")
-    } else {
+    } else if code <= 0xffff {
         format!("\\u{code:04x}")
+    } else {
+        format!("\\U{code:08x}")
+    }
+}
+
+/// `\uNNNN` up to U+FFFF, `\UNNNNNNNN` above (Go has no surrogate escapes).
+pub(crate) fn go_escape(code: u32) -> String {
+    if code <= 0xffff {
+        format!("\\u{code:04x}")
+    } else {
+        format!("\\U{code:08x}")
     }
 }
 
@@ -115,9 +130,14 @@ pub(crate) fn braced_unicode_escape(code: u32) -> String {
     format!("\\u{{{code:x}}}")
 }
 
-/// `\u00XX` style escape (JavaScript, Java, C#, Rust-adjacent).
+/// `\uNNNN` escape, as a UTF-16 surrogate pair above U+FFFF (JavaScript, Java, C#).
 pub(crate) fn unicode_escape(code: u32) -> String {
-    format!("\\u{code:04x}")
+    if code <= 0xffff {
+        return format!("\\u{code:04x}");
+    }
+    let offset = code - 0x10000;
+    let (high, low) = (0xd800 + (offset >> 10), 0xdc00 + (offset & 0x3ff));
+    format!("\\u{high:04x}\\u{low:04x}")
 }
 
 /// A double with a decimal point or exponent so it re-reads as a float.

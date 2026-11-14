@@ -8,6 +8,7 @@ use std::cell::Cell;
 use bson::spec::BinarySubtype;
 
 use crate::codegen::escape::{braced_unicode_escape, double_quoted, float_text};
+use crate::codegen::lossy::Conversions;
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
@@ -25,6 +26,8 @@ pub(crate) struct RustSyntax {
     uses_bson_path: Cell<bool>,
     /// The most entries any one rendered document or array holds.
     widest: Cell<usize>,
+    /// A DBPointer was written as its `$ref` / `$id` document.
+    converted: Conversions,
 }
 
 impl RustSyntax {
@@ -32,6 +35,7 @@ impl RustSyntax {
         Self {
             uses_bson_path: Cell::new(false),
             widest: Cell::new(0),
+            converted: Conversions::default(),
         }
     }
 
@@ -109,6 +113,10 @@ impl Syntax for RustSyntax {
         self.bson("bson::Bson::Null".into())
     }
 
+    fn converted(&self) -> bool {
+        self.converted.happened()
+    }
+
     fn undefined(&self) -> String {
         self.bson("bson::Bson::Undefined".into())
     }
@@ -181,6 +189,7 @@ impl Syntax for RustSyntax {
 
     /// The `bson` crate cannot build a DBPointer; it becomes the `$ref` / `$id` document.
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String {
+        self.converted.mark();
         format!(
             "{{ \"$ref\": {}, \"$id\": {} }}",
             quote(namespace),

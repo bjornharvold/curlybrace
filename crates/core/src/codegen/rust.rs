@@ -4,6 +4,7 @@ use bson::Document;
 
 use crate::codegen::Renderer;
 use crate::codegen::escape::indent_lines;
+use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::rust_syntax::{RustSyntax, quote};
 use crate::codegen::walk::{render_document, render_documents};
@@ -14,13 +15,15 @@ pub(crate) struct Rust;
 impl Rust {
     fn frame(ns: &Namespace, options: &CodeOptions, syn: &RustSyntax, body: &str) -> String {
         let limit = syn.recursion_limit();
+        let noted = with_note(syn, "//", body.to_string());
+        let body = noted.as_str();
         if !options.setup {
             return match limit {
                 // The attribute is only legal at the crate root.
                 Some(n) => {
                     format!("// Needs #![recursion_limit = \"{n}\"] at the top of main.rs\n{body}")
                 }
-                None => body.to_string(),
+                None => noted,
             };
         }
         let attribute = limit
@@ -54,7 +57,7 @@ const PRINT_CURSOR: &str =
 
 /// `limit` is an `i64` in the Rust driver.
 fn limit_arg(value: u64) -> Result<i64, CodegenError> {
-    i64::try_from(value).map_err(|_| CodegenError::UnsupportedValue("limit"))
+    i64::try_from(value).map_err(|_| CodegenError::OutOfRange("limit"))
 }
 
 impl Renderer for Rust {

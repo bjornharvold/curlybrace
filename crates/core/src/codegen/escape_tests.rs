@@ -73,9 +73,33 @@ fn civil_time_flags_years_outside_the_common_range() {
 #[test]
 fn invisible_and_bidi_characters_are_flagged_and_normal_text_is_not() {
     for c in [
-        '\u{0}', '\u{1f}', '\u{7f}', '\u{80}', '\u{85}', '\u{9f}', '\u{61c}', '\u{200b}',
-        '\u{200f}', '\u{2028}', '\u{2029}', '\u{202a}', '\u{202e}', '\u{2060}', '\u{2069}',
-        '\u{feff}', '\u{fffe}', '\u{ffff}',
+        '\u{0}',
+        '\u{1f}',
+        '\u{7f}',
+        '\u{80}',
+        '\u{85}',
+        '\u{9f}',
+        '\u{61c}',
+        '\u{200b}',
+        '\u{200f}',
+        '\u{2028}',
+        '\u{2029}',
+        '\u{202a}',
+        '\u{202e}',
+        '\u{2060}',
+        '\u{2069}',
+        '\u{feff}',
+        '\u{fffe}',
+        '\u{ffff}',
+        '\u{ad}',
+        '\u{180e}',
+        '\u{fff9}',
+        '\u{fffa}',
+        '\u{fffb}',
+        '\u{e0000}',
+        '\u{e0001}',
+        '\u{e0020}',
+        '\u{e007f}',
     ] {
         assert!(is_unsafe_invisible(c), "{:x}", c as u32);
     }
@@ -93,6 +117,15 @@ fn invisible_and_bidi_characters_are_flagged_and_normal_text_is_not() {
         '\u{206a}',
         '\u{1F600}',
         '\u{fffd}',
+        '\u{ac}',
+        '\u{ae}',
+        '\u{180d}',
+        '\u{180f}',
+        '\u{fff8}',
+        '\u{fffc}',
+        '\u{dffff}',
+        '\u{e0080}',
+        '\u{e0100}',
     ] {
         assert!(!is_unsafe_invisible(c), "{:x}", c as u32);
     }
@@ -105,6 +138,17 @@ fn bidi_characters_are_escaped_in_double_quoted_literals() {
         x_or_u_escape,
     );
     assert_eq!(out, "\"a\\u202eb\\u200bc\\ufeffd\\x85e\u{301}\u{1F600}\"");
+}
+
+#[test]
+fn characters_beyond_the_bmp_are_escaped_the_way_each_language_reads_them() {
+    // U+E0001 (a tag character) is above U+FFFF: a bare `\ue0001` would be U+E000 then `1`.
+    let text = "a\u{e0001}b";
+    assert_eq!(double_quoted(text, unicode_escape), "\"a\\udb40\\udc01b\"");
+    assert_eq!(double_quoted(text, x_or_u_escape), "\"a\\U000e0001b\"");
+    assert_eq!(double_quoted(text, go_escape), "\"a\\U000e0001b\"");
+    assert_eq!(double_quoted("\u{ad}", go_escape), "\"\\u00ad\"");
+    assert_eq!(double_quoted("\u{ad}", x_or_u_escape), "\"\\xad\"");
 }
 
 #[test]

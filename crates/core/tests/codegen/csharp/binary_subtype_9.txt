@@ -1,0 +1,17 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+
+var client = new MongoClient("<your connection string>");
+var db = client.GetDatabase("shop");
+var collection = db.GetCollection<BsonDocument>("orders");
+
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument {
+            { "nine", new BsonBinaryData(new byte[] { 0x01, 0x02, 0x03 }, (BsonBinarySubType)0x09) },
+        } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

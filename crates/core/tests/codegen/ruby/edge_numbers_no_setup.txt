@@ -1,0 +1,15 @@
+pipeline = [
+  {
+    '$match' => {
+      'negativeZero' => -0.0,
+      'int64Min' => BSON::Int64.new(-9223372036854775808),
+      'int64Max' => BSON::Int64.new(9223372036854775807),
+      'int32Min' => -2147483648,
+      'int32Max' => 2147483647,
+      'timestamp' => BSON::Timestamp.new(3000000000, 4000000000),
+    },
+  },
+]
+
+results = collection.aggregate(pipeline).to_a
+puts results.inspect

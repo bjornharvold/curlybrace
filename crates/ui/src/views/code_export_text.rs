@@ -49,6 +49,10 @@ pub(super) fn error_text(error: &CodegenError, i18n: &I18n) -> String {
         CodegenError::UnsupportedValue(kind) => {
             i18n.t_with("codegen.error.unsupported_value", &[("type", kind)])
         }
+        CodegenError::KeyOrder => i18n.t("codegen.error.key_order"),
+        CodegenError::OutOfRange(field) => {
+            i18n.t_with("codegen.error.out_of_range", &[("field", field)])
+        }
     }
 }
 
@@ -90,6 +94,13 @@ mod tests {
         );
         let kind = error_text(&CodegenError::UnsupportedValue("Symbol"), &i18n);
         assert!(kind.contains("Symbol") && !kind.contains('{'), "{kind}");
+        let range = error_text(&CodegenError::OutOfRange("skip"), &i18n);
+        assert_eq!(range, "The skip is too large for this language.");
+        let order = error_text(&CodegenError::KeyOrder, &i18n);
+        assert!(
+            order.contains("field order") && !order.contains('{'),
+            "{order}"
+        );
     }
 
     #[test]

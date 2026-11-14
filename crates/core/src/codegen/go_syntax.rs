@@ -5,14 +5,14 @@ use std::cell::Cell;
 
 use bson::spec::BinarySubtype;
 
-use crate::codegen::escape::{double_quoted, float_text, unicode_escape};
+use crate::codegen::escape::{double_quoted, float_text, go_escape};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
 /// A Go interpreted string literal. `\u` is used for every escape because
 /// `\xNN` in Go is a raw byte, not a code point.
 pub(crate) fn quote(text: &str) -> String {
-    double_quoted(text, unicode_escape)
+    double_quoted(text, go_escape)
 }
 
 pub(crate) struct GoSyntax {
@@ -62,6 +62,10 @@ impl Syntax for GoSyntax {
                 "math.Inf(-1)"
             }
             .into()
+        } else if v == 0.0 && v.is_sign_negative() {
+            // A constant `-0.0` is a positive zero in Go.
+            self.uses_math.set(true);
+            "math.Copysign(0, -1)".into()
         } else {
             float_text(v)
         }

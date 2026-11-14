@@ -3,6 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::php_syntax::{PhpSyntax, quote};
 use crate::codegen::walk::{render_document, render_documents};
@@ -29,9 +30,11 @@ fn check_names(options: &CodeOptions) -> Result<(), CodegenError> {
 }
 
 impl Php {
-    fn frame(ns: &Namespace, options: &CodeOptions, body: &str) -> String {
+    fn frame(ns: &Namespace, options: &CodeOptions, syn: &PhpSyntax, body: &str) -> String {
+        let noted = with_note(syn, "//", body.to_string());
+        let body = noted.as_str();
         if !options.setup {
-            return body.to_string();
+            return noted;
         }
         let (client, db, coll) = (
             &options.client_var,
@@ -54,7 +57,7 @@ impl Renderer for Php {
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;
-        let syn = PhpSyntax;
+        let syn = PhpSyntax::new();
         let mut body = format!("$filter = {};\n", render_document(&syn, &query.filter, 0)?);
         let mut args: Vec<String> = Vec::new();
         if let Some(projection) = &query.projection {
@@ -82,7 +85,7 @@ impl Renderer for Php {
             format!("${coll}->find($filter, [\n{lines}])->toArray()")
         };
         body.push_str(&format!("\n$results = {call};\nprint_r($results);\n"));
-        Ok(Self::frame(ns, options, &body))
+        Ok(Self::frame(ns, options, &syn, &body))
     }
 
     fn aggregate(
@@ -92,11 +95,12 @@ impl Renderer for Php {
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;
-        let pipeline = render_documents(&PhpSyntax, stages, 0)?;
+        let syn = PhpSyntax::new();
+        let pipeline = render_documents(&syn, stages, 0)?;
         let body = format!(
             "$pipeline = {pipeline};\n\n$results = ${}->aggregate($pipeline)->toArray();\nprint_r($results);\n",
             options.collection_var
         );
-        Ok(Self::frame(ns, options, &body))
+        Ok(Self::frame(ns, options, &syn, &body))
     }
 }

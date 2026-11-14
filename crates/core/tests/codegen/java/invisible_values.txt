@@ -1,0 +1,34 @@
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.bson.BsonDbPointer;
+import org.bson.BsonRegularExpression;
+import org.bson.Document;
+import org.bson.types.Code;
+import org.bson.types.CodeWithScope;
+import org.bson.types.ObjectId;
+import org.bson.types.Symbol;
+
+public class Main {
+    public static void main(String[] args) {
+        try (MongoClient client = MongoClients.create("<your connection string>")) {
+            MongoDatabase db = client.getDatabase("shop");
+            MongoCollection<Document> collection = db.getCollection("orders");
+
+            List<Document> pipeline = Arrays.asList(
+                new Document("$match", new Document("regex", new BsonRegularExpression("a\u202eb\u200bc\udb40\udc01", "i"))
+                        .append("code", new Code("x\u202e + \ufeff1 // \255"))
+                        .append("scoped", new CodeWithScope("y\u2066", new Document("k\u200b", "v\udb40\udc7f")))
+                        .append("symbol", new Symbol("s\u202ey\udb40\udc01m"))
+                        .append("dbPointer", new BsonDbPointer("sh\u202eop.or\u200bders", new ObjectId("65a1b2c3d4e5f60718293a4b"))))
+            );
+
+            List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+            System.out.println(results);
+        }
+    }
+}

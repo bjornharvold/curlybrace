@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use bson::spec::BinarySubtype;
 
-use crate::codegen::escape::{double_quoted, float_text};
+use crate::codegen::escape::{double_quoted, float_text, unicode_escape};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
@@ -17,7 +17,7 @@ fn java_escape(code: u32) -> String {
     if code < 0x100 {
         format!("\\{code:03o}")
     } else {
-        format!("\\u{code:04x}")
+        unicode_escape(code)
     }
 }
 

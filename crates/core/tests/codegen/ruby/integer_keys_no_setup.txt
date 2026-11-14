@@ -1,0 +1,13 @@
+pipeline = [
+  {
+    '$match' => {
+      'plain' => { 'b' => 1, '2' => 2, '1' => 3 },
+      'inOrder' => { '1' => 1, '2' => 2, 'b' => 3 },
+      'leadingZero' => { '01' => 1, 'a' => 2 },
+      'nested' => [{ 'x' => { 'z' => 1, '10' => 2, '9' => 3 } }],
+    },
+  },
+]
+
+results = collection.aggregate(pipeline).to_a
+puts results.inspect

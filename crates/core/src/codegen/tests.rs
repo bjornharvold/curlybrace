@@ -269,13 +269,22 @@ fn node_keeps_the_key_order_of_integer_like_keys() {
     let out = first_value(Language::Node, kept).unwrap();
     assert!(!out.contains("Map"), "{out}");
     assert!(out.contains("\"1\": 1"), "{out}");
-    // The shell has no ordered literal: documented limit, plain object.
+    // The shell has no ordered literal (a `Map` could not be shown to survive its serializer),
+    // so it refuses rather than write the fields in another order; in order, it writes them.
     let shell = Bson::Document(doc! { "b": 1_i32, "1": 3_i32 });
-    assert!(
-        !first_value(Language::Mongosh, shell)
-            .unwrap()
-            .contains("Map")
+    assert_eq!(
+        first_value(Language::Mongosh, shell),
+        Err(CodegenError::KeyOrder)
     );
+    let nested = Bson::Array(vec![Bson::Document(
+        doc! { "x": { "b": 1_i32, "1": 3_i32 } },
+    )]);
+    assert_eq!(
+        first_value(Language::Mongosh, nested),
+        Err(CodegenError::KeyOrder)
+    );
+    let in_order = Bson::Document(doc! { "1": 1_i32, "2": 2_i32, "b": 3_i32 });
+    assert!(first_value(Language::Mongosh, in_order).is_ok());
 }
 
 #[test]

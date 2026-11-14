@@ -378,6 +378,8 @@
     "error": {
       "empty_pipeline": "There is no stage to show code for. Turn the write stage back on or enable a stage.",
       "invalid_name": "The {field} cannot be used. Use letters, digits and underscores, start with a letter or an underscore, keep it to 41 characters, avoid keywords, and give each variable its own name.",
+      "key_order": "The mongosh shell lists numeric field names first, so this document's field order cannot be kept there. Pick another language.",
+      "out_of_range": "The {field} is too large for this language.",
       "unsupported_value": "This language cannot write a value of type {type}."
     },
     "language": {

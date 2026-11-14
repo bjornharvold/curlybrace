@@ -50,7 +50,7 @@ fn check_names(options: &CodeOptions) -> Result<(), CodegenError> {
 
 /// `SetSkip` / `SetLimit` take `int64`.
 fn int_arg(name: &'static str, value: u64) -> Result<i64, CodegenError> {
-    i64::try_from(value).map_err(|_| CodegenError::UnsupportedValue(name))
+    i64::try_from(value).map_err(|_| CodegenError::OutOfRange(name))
 }
 
 const READ_RESULTS: &str = "if err != nil {\n\tlog.Fatal(err)\n}\nvar results []bson.M\nif err := cursor.All(context.TODO(), &results); err != nil {\n\tlog.Fatal(err)\n}\nfmt.Println(results)\n";

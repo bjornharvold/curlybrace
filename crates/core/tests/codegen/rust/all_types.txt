@@ -10,6 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = client.database("shop");
     let collection = db.collection::<Document>("orders");
 
+    // Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
     let pipeline = vec![
         doc! {
             "$match": {

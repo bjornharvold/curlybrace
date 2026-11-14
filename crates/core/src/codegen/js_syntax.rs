@@ -2,7 +2,7 @@
 //! (`NumberInt`, `ISODate`, ... helpers) and the Node.js driver (`bson` classes
 //! imported from `mongodb`).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 
 use bson::spec::BinarySubtype;
@@ -10,6 +10,7 @@ use bson::spec::BinarySubtype;
 use crate::codegen::escape::{
     Civil, base64, civil_from_millis, double_quoted, float_text, unicode_escape, uuid_text,
 };
+use crate::codegen::lossy::Conversions;
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
@@ -26,6 +27,10 @@ pub(crate) struct JsSyntax {
     dialect: JsDialect,
     /// Driver classes the rendered values used (Node import list).
     used: RefCell<BTreeSet<&'static str>>,
+    /// A document was written whose integer-like keys a plain object would reorder.
+    reordered: Cell<bool>,
+    /// A value was converted (`undefined` -> `null`, DBPointer -> DBRef).
+    converted: Conversions,
 }
 
 impl JsSyntax {
@@ -33,7 +38,15 @@ impl JsSyntax {
         Self {
             dialect,
             used: RefCell::new(BTreeSet::new()),
+            reordered: Cell::new(false),
+            converted: Conversions::default(),
         }
+    }
+
+    /// Whether a plain object literal had to stand for a document it cannot keep in order
+    /// (only the shell: Node writes a `Map`). The shell renderer refuses such a document.
+    pub(crate) fn lost_key_order(&self) -> bool {
+        self.reordered.get()
     }
 
     /// Driver classes used so far, sorted.
@@ -127,7 +140,8 @@ impl Syntax for JsSyntax {
 
     /// An object literal, or for Node a `Map` when a plain object would list
     /// integer-like keys out of document order (the driver serializes a `Map`
-    /// in insertion order). The shell has no ordered literal.
+    /// in insertion order). The shell has no ordered literal that is known to
+    /// survive its serializer, so it records the loss and the renderer refuses.
     fn document(&self, entries: &[(String, String)], depth: usize) -> String {
         if self.node() && object_would_reorder(entries) {
             let pairs: Vec<String> = entries
@@ -136,6 +150,9 @@ impl Syntax for JsSyntax {
                 .collect();
             let list = lay_out_with(self.indent_unit(), ("[", "]"), "", &pairs, depth, true);
             return format!("new Map({list})");
+        }
+        if object_would_reorder(entries) {
+            self.reordered.set(true);
         }
         let items: Vec<String> = entries.iter().map(|(k, v)| format!("{k}: {v}")).collect();
         let pad = self.brace_pad();
@@ -182,8 +199,14 @@ impl Syntax for JsSyntax {
         "null".into()
     }
 
+    /// The driver stores a JavaScript `undefined` as `null`.
     fn undefined(&self) -> String {
+        self.converted.mark();
         "undefined".into()
+    }
+
+    fn converted(&self) -> bool {
+        self.converted.happened()
     }
 
     fn object_id(&self, hex: &str) -> String {
@@ -270,7 +293,9 @@ impl Syntax for JsSyntax {
         format!("{}({})", self.ctor("BSONSymbol"), quote(text))
     }
 
+    /// Written as a `DBRef`, which stores the `$ref` / `$id` document, not a DBPointer.
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String {
+        self.converted.mark();
         format!(
             "{}({}, {}(\"{id_hex}\"))",
             self.ctor("DBRef"),

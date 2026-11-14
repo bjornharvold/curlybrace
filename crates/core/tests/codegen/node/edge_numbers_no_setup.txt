@@ -1,0 +1,15 @@
+const pipeline = [
+  {
+    $match: {
+      negativeZero: new Double(-0.0),
+      int64Min: Long.fromString("-9223372036854775808"),
+      int64Max: Long.fromString("9223372036854775807"),
+      int32Min: -2147483648,
+      int32Max: 2147483647,
+      timestamp: new Timestamp({ t: 3000000000, i: 4000000000 }),
+    },
+  },
+];
+
+const results = await collection.aggregate(pipeline).toArray();
+console.log(results);

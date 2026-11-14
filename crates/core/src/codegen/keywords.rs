@@ -48,6 +48,11 @@ const RESERVED: &[&str] = &[
     "CodeWithScope", "Symbol", "BsonDocument", "BsonArray", "BsonDateTime", "BsonBinaryData",
     "BsonNull", "BsonMinKey", "BsonMaxKey", "BsonJavaScript", "BsonSymbolTable", "Console",
     "MongoDB", "err", "opts", "item", "DateTime", "gen", "Bson", "Self",
+    // Built-ins and helpers the generated values call: the shell's `NumberLong` family, Node's
+    // `Map` for ordered documents, Python's `bytes` and `float`, the `args` parameter of the
+    // Java and C# entry points, C# subtype and scope classes, PHP's `hex2bin`.
+    "Map", "NumberLong", "NumberDecimal", "BinData", "bytes", "float", "args",
+    "BsonBinarySubType", "BsonJavaScriptWithScope", "hex2bin",
 ];
 
 pub(crate) fn is_reserved_name(name: &str) -> bool {

@@ -17,6 +17,7 @@ mod java_syntax;
 mod js_ops;
 mod js_syntax;
 mod keywords;
+mod lossy;
 mod model;
 mod mongosh;
 mod node;
@@ -109,5 +110,7 @@ pub fn generate(
 mod tests;
 #[cfg(test)]
 mod tests_langs;
+#[cfg(test)]
+mod tests_review;
 #[cfg(test)]
 mod tests_scripting;

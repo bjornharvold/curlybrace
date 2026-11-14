@@ -6,6 +6,7 @@ use crate::codegen::Renderer;
 use crate::codegen::escape::indent_lines;
 use crate::codegen::js_ops::JsOps;
 use crate::codegen::js_syntax::{JsDialect, JsSyntax, quote};
+use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::store::{Namespace, Query};
 
@@ -16,8 +17,10 @@ pub(crate) struct Node;
 
 impl Node {
     fn frame(ns: &Namespace, options: &CodeOptions, syn: &JsSyntax, body: &str) -> String {
+        let noted = with_note(syn, "//", body.to_string());
+        let body = noted.as_str();
         if !options.setup {
-            return body.to_string();
+            return noted;
         }
         let mut classes = vec!["MongoClient"];
         classes.extend(syn.used_classes());

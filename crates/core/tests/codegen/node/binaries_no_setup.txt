@@ -1,0 +1,15 @@
+const pipeline = [
+  {
+    $match: {
+      empty: new Binary(Buffer.from("", "base64"), 0),
+      emptyUuid: new Binary(Buffer.from("", "base64"), 4),
+      oldUuid: new Binary(Buffer.from("AAECAwQFBgcICQoLDA0ODw==", "base64"), 3),
+      md5: new Binary(Buffer.from("AAECAwQFBgcICQoLDA0ODw==", "base64"), 5),
+      shortUuid: new Binary(Buffer.from("AQIDBAU=", "base64"), 4),
+      uuid: new UUID("00010203-0405-0607-0809-0a0b0c0d0e0f"),
+    },
+  },
+];
+
+const results = await collection.aggregate(pipeline).toArray();
+console.log(results);

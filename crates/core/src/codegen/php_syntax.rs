@@ -5,6 +5,7 @@
 use bson::spec::BinarySubtype;
 
 use crate::codegen::escape::{float_text, hex, single_or_double_quoted};
+use crate::codegen::lossy::Conversions;
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
@@ -13,7 +14,18 @@ pub(crate) fn quote(text: &str) -> String {
     single_or_double_quoted(text, '$')
 }
 
-pub(crate) struct PhpSyntax;
+pub(crate) struct PhpSyntax {
+    /// A value was converted (`undefined` -> `null`, a symbol -> a string, DBPointer -> array).
+    converted: Conversions,
+}
+
+impl PhpSyntax {
+    pub(crate) fn new() -> Self {
+        Self {
+            converted: Conversions::default(),
+        }
+    }
+}
 
 /// Rendered keys PHP would turn into integers (`'0'`, `'12'`, `'-3'`).
 fn is_integer_key(rendered: &str) -> bool {
@@ -85,7 +97,12 @@ impl Syntax for PhpSyntax {
 
     /// The library cannot build `undefined`; it is sent as null.
     fn undefined(&self) -> String {
+        self.converted.mark();
         "null".into()
+    }
+
+    fn converted(&self) -> bool {
+        self.converted.happened()
     }
 
     fn object_id(&self, hex: &str) -> String {
@@ -142,11 +159,13 @@ impl Syntax for PhpSyntax {
 
     /// The library cannot build the deprecated symbol type; it is a string.
     fn symbol(&self, text: &str) -> String {
+        self.converted.mark();
         quote(text)
     }
 
     /// Sent as the equivalent `$ref` / `$id` document.
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String {
+        self.converted.mark();
         format!(
             "['$ref' => {}, '$id' => {}]",
             quote(namespace),

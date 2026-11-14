@@ -6,12 +6,15 @@ use std::collections::BTreeSet;
 use bson::spec::BinarySubtype;
 
 use crate::codegen::escape::{civil_from_millis, double_quoted, float_text, hex, x_or_u_escape};
+use crate::codegen::lossy::Conversions;
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::Syntax;
 
 pub(crate) struct PythonSyntax {
     /// Import lines the rendered values need.
     imports: RefCell<BTreeSet<&'static str>>,
+    /// A value was converted (`undefined` -> `None`, a symbol -> a string, DBPointer -> DBRef).
+    converted: Conversions,
 }
 
 /// A Python string literal for arbitrary text.
@@ -23,6 +26,7 @@ impl PythonSyntax {
     pub(crate) fn new() -> Self {
         Self {
             imports: RefCell::new(BTreeSet::new()),
+            converted: Conversions::default(),
         }
     }
 
@@ -86,7 +90,12 @@ impl Syntax for PythonSyntax {
     }
 
     fn undefined(&self) -> String {
+        self.converted.mark();
         "None".into()
+    }
+
+    fn converted(&self) -> bool {
+        self.converted.happened()
     }
 
     fn object_id(&self, hex: &str) -> String {
@@ -174,10 +183,13 @@ impl Syntax for PythonSyntax {
 
     /// PyMongo cannot write the deprecated symbol type; it is sent as a string.
     fn symbol(&self, text: &str) -> String {
+        self.converted.mark();
         quote(text)
     }
 
+    /// Written as a `DBRef`, which stores the `$ref` / `$id` document, not a DBPointer.
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String {
+        self.converted.mark();
         let id = self.object_id(id_hex);
         self.call(
             "from bson.dbref import DBRef",

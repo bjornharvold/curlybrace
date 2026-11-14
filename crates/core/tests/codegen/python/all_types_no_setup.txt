@@ -1,3 +1,4 @@
+# Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
 pipeline = [
     {
         "$match": {

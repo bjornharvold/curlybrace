@@ -1,0 +1,15 @@
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument {
+            { "negativeZero", -0.0 },
+            { "int64Min", -9223372036854775808L },
+            { "int64Max", 9223372036854775807L },
+            { "int32Min", -2147483648 },
+            { "int32Max", 2147483647 },
+            { "timestamp", new BsonTimestamp(unchecked((int)3000000000L), unchecked((int)4000000000L)) },
+        } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

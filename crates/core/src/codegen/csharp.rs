@@ -30,7 +30,7 @@ impl Csharp {
 
 /// `Skip` / `Limit` take `int?` in the .NET driver.
 fn int_arg(name: &'static str, value: u64) -> Result<i32, CodegenError> {
-    i32::try_from(value).map_err(|_| CodegenError::UnsupportedValue(name))
+    i32::try_from(value).map_err(|_| CodegenError::OutOfRange(name))
 }
 
 impl Renderer for Csharp {

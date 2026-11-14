@@ -6,6 +6,7 @@ $client = new MongoDB\Client('<your connection string>');
 $db = $client->selectDatabase('shop');
 $collection = $db->selectCollection('orders');
 
+// Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
 $pipeline = [
     [
         '$match' => [

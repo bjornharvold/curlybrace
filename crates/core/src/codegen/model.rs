@@ -138,6 +138,11 @@ pub enum CodegenError {
     EmptyPipeline,
     /// A BSON type (by name) the language cannot express.
     UnsupportedValue(&'static str),
+    /// The mongosh shell lists integer-like keys first, so a document whose keys are in another
+    /// order cannot be written there without changing the field order.
+    KeyOrder,
+    /// A number (by field name: `skip`, `limit`) too large for the language's integer type.
+    OutOfRange(&'static str),
 }
 
 impl CodegenError {
@@ -147,6 +152,8 @@ impl CodegenError {
             CodegenError::InvalidName(_) => "InvalidName",
             CodegenError::EmptyPipeline => "EmptyPipeline",
             CodegenError::UnsupportedValue(_) => "UnsupportedValue",
+            CodegenError::KeyOrder => "KeyOrder",
+            CodegenError::OutOfRange(_) => "OutOfRange",
         }
     }
 }
@@ -158,6 +165,12 @@ impl std::fmt::Display for CodegenError {
             CodegenError::EmptyPipeline => write!(f, "the pipeline has no stage to export"),
             CodegenError::UnsupportedValue(kind) => {
                 write!(f, "a {kind} value cannot be expressed in this language")
+            }
+            CodegenError::KeyOrder => {
+                write!(f, "the field order cannot be kept in the mongosh shell")
+            }
+            CodegenError::OutOfRange(field) => {
+                write!(f, "the {field} is too large for this language")
             }
         }
     }

@@ -18,6 +18,10 @@ public class Main {
                         .append("zeroWidth", "a\u200bb\u200dc\u2060d")
                         .append("bom", "\ufeffstart")
                         .append("c1", "next\205line")
+                        .append("softHyphen", "co\255op")
+                        .append("mongolian", "a\u180eb")
+                        .append("annotation", "x\ufff9y\ufffaz\ufffb")
+                        .append("tags", "flag\udb40\udc01\udb40\udc67\udb40\udc7f")
                         .append("marks", "ok: 😀 café é 中文")
                         .append("k\u202eey", 1))
             );

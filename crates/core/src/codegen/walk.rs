@@ -61,6 +61,11 @@ pub(crate) trait Syntax {
     fn pipeline(&self, items: &[String], depth: usize) -> String {
         self.array(items, depth)
     }
+    /// Whether a value was converted while writing (see `lossy`); languages that never
+    /// convert keep the default.
+    fn converted(&self) -> bool {
+        false
+    }
     fn empty_document(&self) -> String {
         "{}".into()
     }
