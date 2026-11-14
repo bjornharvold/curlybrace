@@ -89,7 +89,7 @@
         "too_large": "This pipeline is too large to save (the limit is 1 MB of stage text).",
         "too_many": "This connection already has 200 saved pipelines. Delete one first.",
         "unreadable_on_disk": "Another window left a saved pipelines file that cannot be read. A backup copy was kept next to it and the file was not changed. Nothing was saved: saving again replaces it with the pipelines in this window.",
-        "unsupported":"pipelines.json was written by a newer version of this app, so saved pipelines are not loaded and changes are not written. The file is left untouched."
+        "unsupported":"pipelines.json was written by a newer version of Curlybrace and was left untouched. Nothing was saved."
       },
       "modified": "Modified",
       "name_label": "Pipeline name",
