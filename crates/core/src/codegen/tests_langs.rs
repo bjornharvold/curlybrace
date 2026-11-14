@@ -4,7 +4,14 @@ use bson::{Bson, doc};
 
 use super::*;
 
-const NEW_SIX: [Language; 3] = [Language::Java, Language::CSharp, Language::Go];
+const NEW_SIX: [Language; 6] = [
+    Language::Java,
+    Language::CSharp,
+    Language::Go,
+    Language::Php,
+    Language::Ruby,
+    Language::Rust,
+];
 
 fn ns() -> Namespace {
     Namespace::new("shop", "orders")
@@ -54,8 +61,7 @@ fn the_new_languages_connect_with_the_placeholder_and_drop_setup_on_request() {
         let bare = agg(language, stages.clone(), &off).unwrap();
         assert!(!bare.contains("connection string"), "{language:?}");
         assert!(
-            bare.contains("collection.aggregate(pipeline)")
-                || bare.contains("collection.Aggregate"),
+            bare.contains("ggregate(") || bare.contains("Aggregate<"),
             "{language:?}"
         );
     }

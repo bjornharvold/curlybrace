@@ -12,14 +12,7 @@ use curlybrace_core::codegen::{CodeOptions, CodeRequest, Language, generate};
 
 use curlybrace_core::store::{Namespace, Query};
 
-const LANGUAGES: [Language; 6] = [
-    Language::Mongosh,
-    Language::Node,
-    Language::Python,
-    Language::Java,
-    Language::CSharp,
-    Language::Go,
-];
+const LANGUAGES: [Language; 9] = Language::ALL;
 
 fn ns() -> Namespace {
     Namespace::new("shop", "orders")
@@ -196,6 +189,24 @@ fn generated_code_matches_the_golden_files() {
                 check(language, &name, &code);
             }
         }
+    }
+}
+
+#[test]
+fn every_language_renders_the_all_types_fixture() {
+    let (_, request) = cases()
+        .into_iter()
+        .find(|(n, _)| *n == "all_types")
+        .expect("case");
+    assert_eq!(Language::ALL.len(), 9);
+    for language in Language::ALL {
+        let code = generate(language, &request, &CodeOptions::default());
+        assert!(code.is_ok(), "{}", language.key());
+        assert!(
+            fixture_path(language, "all_types").exists(),
+            "{}",
+            language.key()
+        );
     }
 }
 

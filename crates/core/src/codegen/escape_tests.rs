@@ -106,3 +106,19 @@ fn bidi_characters_are_escaped_in_double_quoted_literals() {
     );
     assert_eq!(out, "\"a\\u202eb\\u200bc\\ufeffd\\x85e\u{301}\u{1F600}\"");
 }
+
+#[test]
+fn plain_text_is_single_quoted_with_only_backslash_and_quote_escaped() {
+    assert_eq!(
+        single_or_double_quoted("it's a\\b $x #{y} \"q\"", '$'),
+        "'it\\'s a\\\\b $x #{y} \"q\"'"
+    );
+}
+
+#[test]
+fn text_with_invisible_characters_switches_to_a_safe_double_quoted_form() {
+    let php = single_or_double_quoted("a\n$x {$y} \"\\\u{202e}", '$');
+    assert_eq!(php, "\"a\\n\\$x {\\$y} \\\"\\\\\\u{202e}\"");
+    let ruby = single_or_double_quoted("#{evil} #$x \u{200b}", '#');
+    assert_eq!(ruby, "\"\\#{evil} \\#$x \\u{200b}\"");
+}

@@ -176,17 +176,6 @@ fn the_snippet_connects_with_the_placeholder_only() {
 }
 
 #[test]
-fn languages_without_a_renderer_yet_report_it() {
-    let err = generate(
-        Language::Php,
-        &aggregate(vec![doc! {}]),
-        &CodeOptions::default(),
-    )
-    .unwrap_err();
-    assert_eq!(err, CodegenError::UnsupportedLanguage("php"));
-}
-
-#[test]
 fn language_keys_are_stable_and_unique() {
     let keys: Vec<_> = Language::ALL.iter().map(|l| l.key()).collect();
     assert_eq!(

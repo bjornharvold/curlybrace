@@ -138,8 +138,6 @@ pub enum CodegenError {
     EmptyPipeline,
     /// A BSON type (by name) the language cannot express.
     UnsupportedValue(&'static str),
-    /// The renderer for this language key is not available yet.
-    UnsupportedLanguage(&'static str),
 }
 
 impl CodegenError {
@@ -149,7 +147,6 @@ impl CodegenError {
             CodegenError::InvalidName(_) => "InvalidName",
             CodegenError::EmptyPipeline => "EmptyPipeline",
             CodegenError::UnsupportedValue(_) => "UnsupportedValue",
-            CodegenError::UnsupportedLanguage(_) => "UnsupportedLanguage",
         }
     }
 }
@@ -161,9 +158,6 @@ impl std::fmt::Display for CodegenError {
             CodegenError::EmptyPipeline => write!(f, "the pipeline has no stage to export"),
             CodegenError::UnsupportedValue(kind) => {
                 write!(f, "a {kind} value cannot be expressed in this language")
-            }
-            CodegenError::UnsupportedLanguage(lang) => {
-                write!(f, "code for {lang} is not available")
             }
         }
     }

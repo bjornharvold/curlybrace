@@ -71,6 +71,50 @@ pub(crate) fn double_quoted(text: &str, hex_escape: fn(u32) -> String) -> String
     out
 }
 
+/// A single-quoted literal (PHP, Ruby: no interpolation, only `\` and `'`
+/// are special) for text without invisible or control characters; any other
+/// text becomes a double-quoted literal in which `"`, `\`, the interpolation
+/// `sigil` (`$` for PHP, `#` for Ruby), newline, return and tab are escaped and
+/// every other unsafe character is written `\u{XX}`.
+pub(crate) fn single_or_double_quoted(text: &str, sigil: char) -> String {
+    if !text.chars().any(is_unsafe_invisible) {
+        let mut out = String::with_capacity(text.len() + 2);
+        out.push('\'');
+        for c in text.chars() {
+            if c == '\\' || c == '\'' {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out.push('\'');
+        return out;
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c == sigil => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if is_unsafe_invisible(c) => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// `\u{XX}` escape (Rust).
+pub(crate) fn braced_unicode_escape(code: u32) -> String {
+    format!("\\u{{{code:x}}}")
+}
+
 /// `\u00XX` style escape (JavaScript, Java, C#, Rust-adjacent).
 pub(crate) fn unicode_escape(code: u32) -> String {
     format!("\\u{code:04x}")

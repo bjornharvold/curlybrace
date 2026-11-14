@@ -20,8 +20,14 @@ mod keywords;
 mod model;
 mod mongosh;
 mod node;
+mod php;
+mod php_syntax;
 mod python;
 mod python_syntax;
+mod ruby;
+mod ruby_syntax;
+mod rust;
+mod rust_syntax;
 mod walk;
 
 use bson::Document;
@@ -49,17 +55,17 @@ pub(crate) trait Renderer {
     ) -> Result<String, CodegenError>;
 }
 
-fn renderer(language: Language) -> Result<&'static dyn Renderer, CodegenError> {
+fn renderer(language: Language) -> &'static dyn Renderer {
     match language {
-        Language::Mongosh => Ok(&mongosh::Mongosh),
-        Language::Node => Ok(&node::Node),
-        Language::Python => Ok(&python::Python),
-        Language::Java => Ok(&java::Java),
-        Language::CSharp => Ok(&csharp::Csharp),
-        Language::Go => Ok(&go::Go),
-        Language::Php | Language::Ruby | Language::Rust => {
-            Err(CodegenError::UnsupportedLanguage(language.key()))
-        }
+        Language::Mongosh => &mongosh::Mongosh,
+        Language::Node => &node::Node,
+        Language::Python => &python::Python,
+        Language::Java => &java::Java,
+        Language::CSharp => &csharp::Csharp,
+        Language::Go => &go::Go,
+        Language::Php => &php::Php,
+        Language::Ruby => &ruby::Ruby,
+        Language::Rust => &rust::Rust,
     }
 }
 
@@ -89,7 +95,7 @@ pub fn generate(
     options: &CodeOptions,
 ) -> Result<String, CodegenError> {
     let options = options.clone().validated()?;
-    let renderer = renderer(language)?;
+    let renderer = renderer(language);
     match request {
         CodeRequest::Find { ns, query } => renderer.find(ns, query, &options),
         CodeRequest::Aggregate { ns, stages } => {
@@ -103,3 +109,5 @@ pub fn generate(
 mod tests;
 #[cfg(test)]
 mod tests_langs;
+#[cfg(test)]
+mod tests_scripting;

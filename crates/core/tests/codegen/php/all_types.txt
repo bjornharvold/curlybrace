@@ -1,0 +1,52 @@
+<?php
+
+require 'vendor/autoload.php';
+
+$client = new MongoDB\Client('<your connection string>');
+$db = $client->selectDatabase('shop');
+$collection = $db->selectCollection('orders');
+
+$pipeline = [
+    [
+        '$match' => [
+            'double' => 1.5,
+            'wholeDouble' => 1.0,
+            'nan' => NAN,
+            'posInf' => INF,
+            'negInf' => -INF,
+            'string' => 'text',
+            'int32' => 7,
+            'int64' => new MongoDB\BSON\Int64('1099511627776'),
+            'bool' => true,
+            'null' => null,
+            'undefined' => null,
+            'objectId' => new MongoDB\BSON\ObjectId('65a1b2c3d4e5f60718293a4b'),
+            'date' => new MongoDB\BSON\UTCDateTime(1709210096789),
+            'dateBefore1970' => new MongoDB\BSON\UTCDateTime(-86400000),
+            'dateYear10000' => new MongoDB\BSON\UTCDateTime(253402300800000),
+            'decimal' => new MongoDB\BSON\Decimal128('1.5E+3'),
+            'binary' => new MongoDB\BSON\Binary(hex2bin('000102ff'), 0),
+            'uuid' => new MongoDB\BSON\Binary(hex2bin('000102030405060708090a0b0c0d0e0f'), 4),
+            'userBinary' => new MongoDB\BSON\Binary(hex2bin('09'), 128),
+            'regex' => new MongoDB\BSON\Regex('^a.*z$', 'i'),
+            'timestamp' => new MongoDB\BSON\Timestamp(3, 1700000000),
+            'minKey' => new MongoDB\BSON\MinKey(),
+            'maxKey' => new MongoDB\BSON\MaxKey(),
+            'code' => new MongoDB\BSON\Javascript('function () { return 1; }'),
+            'codeWithScope' => new MongoDB\BSON\Javascript('x + 1', ['x' => 41]),
+            'symbol' => 'sym',
+            'dbPointer' => ['$ref' => 'shop.orders', '$id' => new MongoDB\BSON\ObjectId('65a1b2c3d4e5f60718293a4b')],
+            'emptyDoc' => (object) [],
+            'emptyArray' => [],
+            'nested' => ['a' => ['b' => [1, [2, [3]], ['c' => 'd']]]],
+            'needs quoting' => 1,
+            'dotted.key' => 2,
+            '$dollar' => 3,
+            '__proto__' => 4,
+            '' => 5,
+        ],
+    ],
+];
+
+$results = $collection->aggregate($pipeline)->toArray();
+print_r($results);

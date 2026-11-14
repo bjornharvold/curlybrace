@@ -1,0 +1,17 @@
+let pipeline = vec![
+    doc! {
+        "$match": {
+            "bidi": "user\u{202e}txt.exe \u{2066}x\u{2069}",
+            "zeroWidth": "a\u{200b}b\u{200d}c\u{2060}d",
+            "bom": "\u{feff}start",
+            "c1": "next\u{85}line",
+            "marks": "ok: 😀 café é 中文",
+            "k\u{202e}ey": 1_i32,
+        },
+    },
+];
+
+let mut cursor = collection.aggregate(pipeline).await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}

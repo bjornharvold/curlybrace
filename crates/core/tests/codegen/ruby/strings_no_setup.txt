@@ -1,0 +1,18 @@
+pipeline = [
+  {
+    '$match' => {
+      'double quote' => 'say "hi"',
+      'single quote' => 'it\'s',
+      'backslash' => 'C:\\temp\\new',
+      'newline' => "line1\nline2",
+      'tab' => "a\tb",
+      'control' => "nul\u{0} bell\u{7} del\u{7f} ls\u{2028}",
+      'unicode' => 'café 😀 é',
+      'sigils' => '$var ${expr} #{ruby} %s %d {0} {name} `tick` ${`x`}',
+      'regexWithSlash' => BSON::Regexp::Raw.new('a/b"c', 'ix'),
+    },
+  },
+]
+
+results = collection.aggregate(pipeline).to_a
+puts results.inspect

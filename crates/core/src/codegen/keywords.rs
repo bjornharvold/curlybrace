@@ -47,7 +47,7 @@ const RESERVED: &[&str] = &[
     "MongoCollection", "BsonRegularExpression", "BsonTimestamp", "BsonUndefined", "BsonDbPointer",
     "CodeWithScope", "Symbol", "BsonDocument", "BsonArray", "BsonDateTime", "BsonBinaryData",
     "BsonNull", "BsonMinKey", "BsonMaxKey", "BsonJavaScript", "BsonSymbolTable", "Console",
-    "MongoDB", "err", "opts", "DateTime", "gen", "Bson", "Self",
+    "MongoDB", "err", "opts", "item", "DateTime", "gen", "Bson", "Self",
 ];
 
 pub(crate) fn is_reserved_name(name: &str) -> bool {

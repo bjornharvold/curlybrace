@@ -1,0 +1,46 @@
+let pipeline = vec![
+    doc! {
+        "$match": {
+            "double": 1.5,
+            "wholeDouble": 1.0,
+            "nan": f64::NAN,
+            "posInf": f64::INFINITY,
+            "negInf": f64::NEG_INFINITY,
+            "string": "text",
+            "int32": 7_i32,
+            "int64": 1099511627776_i64,
+            "bool": true,
+            "null": bson::Bson::Null,
+            "undefined": bson::Bson::Undefined,
+            "objectId": bson::oid::ObjectId::parse_str("65a1b2c3d4e5f60718293a4b")?,
+            "date": bson::DateTime::from_millis(1709210096789),
+            "dateBefore1970": bson::DateTime::from_millis(-86400000),
+            "dateYear10000": bson::DateTime::from_millis(253402300800000),
+            "decimal": "1.5E+3".parse::<bson::Decimal128>()?,
+            "binary": bson::Binary { subtype: bson::spec::BinarySubtype::Generic, bytes: vec![0x00, 0x01, 0x02, 0xff] },
+            "uuid": bson::Binary { subtype: bson::spec::BinarySubtype::Uuid, bytes: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f] },
+            "userBinary": bson::Binary { subtype: bson::spec::BinarySubtype::from(0x80_u8), bytes: vec![0x09] },
+            "regex": bson::Regex { pattern: "^a.*z$".to_string(), options: "i".to_string() },
+            "timestamp": bson::Timestamp { time: 1700000000, increment: 3 },
+            "minKey": bson::Bson::MinKey,
+            "maxKey": bson::Bson::MaxKey,
+            "code": bson::Bson::JavaScriptCode("function () { return 1; }".to_string()),
+            "codeWithScope": bson::Bson::JavaScriptCodeWithScope(bson::JavaScriptCodeWithScope { code: "x + 1".to_string(), scope: doc! { "x": 41_i32 } }),
+            "symbol": bson::Bson::Symbol("sym".to_string()),
+            "dbPointer": { "$ref": "shop.orders", "$id": bson::oid::ObjectId::parse_str("65a1b2c3d4e5f60718293a4b")? },
+            "emptyDoc": {},
+            "emptyArray": [],
+            "nested": { "a": { "b": [1_i32, [2_i32, [3_i32]], { "c": "d" }] } },
+            "needs quoting": 1_i32,
+            "dotted.key": 2_i32,
+            "$dollar": 3_i32,
+            "__proto__": 4_i32,
+            "": 5_i32,
+        },
+    },
+];
+
+let mut cursor = collection.aggregate(pipeline).await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}
