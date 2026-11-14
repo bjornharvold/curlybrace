@@ -294,9 +294,9 @@ pub struct AppState {
     pub copies: Option<super::saved_copies::SavedCopies>,
     pub persist: PersistGuard,
     pub banner: Option<Banner>,
-    /// A startup notice waiting for the single banner slot: it is shown, once, as soon as the
-    /// banner showing now is gone (see `with_queued_recovery_shown`).
-    pub pending_recovery: Option<Recovery>,
+    /// Startup notices waiting for the single banner slot, oldest first: each is shown, once,
+    /// as soon as the banner showing now is gone (see `with_queued_recovery_shown`).
+    pub pending_recovery: Vec<Recovery>,
     /// What the edit dialog may repeat of `banner` (only what is new since it opened).
     pub dialog_banner_watch: DialogBannerWatch,
     /// SSH endpoint of the connection being (or last) opened.
@@ -435,23 +435,34 @@ impl AppState {
         }
     }
 
-    /// Puts the queued startup notice in the banner slot when it is free, and only then; the
-    /// notice leaves the queue, so it is shown exactly once.
+    /// Puts the oldest queued startup notice in the banner slot when it is free, and only
+    /// then; the notice leaves the queue, so it is shown exactly once and the next one follows
+    /// when this banner is dismissed.
     pub fn with_queued_recovery_shown(self) -> Self {
-        if self.banner.is_some() || self.pending_recovery.is_none() {
+        let Some((first, rest)) = self.pending_recovery.split_first() else {
+            return self;
+        };
+        if self.banner.is_some() {
             return self;
         }
         Self {
-            banner: self.pending_recovery.clone().map(Banner::Recovery),
-            pending_recovery: None,
+            banner: Some(Banner::Recovery(first.clone())),
+            pending_recovery: rest.to_vec(),
             ..self
         }
     }
 
-    /// Shows `recovery` now if the banner slot is free, else queues it behind the banner.
+    /// Shows `recovery` now if the banner slot is free and nothing is queued ahead of it, else
+    /// queues it behind the banner and the earlier notices (none is ever dropped).
     pub fn with_recovery_notice(self, recovery: Recovery) -> Self {
+        let pending_recovery = self
+            .pending_recovery
+            .iter()
+            .cloned()
+            .chain(std::iter::once(recovery))
+            .collect();
         Self {
-            pending_recovery: Some(recovery),
+            pending_recovery,
             ..self
         }
         .with_queued_recovery_shown()

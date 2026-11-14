@@ -310,3 +310,38 @@ fn a_newer_file_is_left_untouched_and_saving_says_why() {
     assert!(app.state().pipelines.list(conn).is_empty());
     assert_eq!(std::fs::read_to_string(pipeline_file(&dir)).unwrap(), newer);
 }
+
+#[test]
+fn startup_notices_are_all_shown_one_after_another() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("tools.json"), "{ not json").unwrap();
+    std::fs::write(pipeline_file(&dir), r#"{"version": 2, "connections": {}}"#).unwrap();
+    let connections = Banner::Recovery(Recovery::Corrupt { backed_up: true });
+    let (tx, commands) = tokio::sync::mpsc::unbounded_channel();
+    std::mem::forget(commands);
+    let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut app = CurlybraceApp::new(
+        RuntimeHandle { tx, rx },
+        I18n::english(),
+        Vec::new(),
+        Arc::new(MemorySecretStore::default()),
+    )
+    .with_banner(Some(connections.clone()))
+    .with_tools_path(Ok(dir.path().join("tools.json")))
+    .with_pipelines_path(Ok(pipeline_file(&dir)));
+    let mut shown = vec![app.state().banner.clone()];
+    for _ in 0..3 {
+        app.dispatch(Input::DismissBanner);
+        shown.push(app.state().banner.clone());
+    }
+    assert_eq!(
+        shown,
+        vec![
+            Some(connections),
+            Some(Banner::Recovery(Recovery::Tools { backed_up: true })),
+            Some(Banner::Recovery(Recovery::PipelinesNewer)),
+            None,
+        ],
+        "in the order the files were loaded, none lost"
+    );
+}
