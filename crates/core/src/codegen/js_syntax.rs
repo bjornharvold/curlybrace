@@ -11,7 +11,7 @@ use crate::codegen::escape::{
     Civil, base64, civil_from_millis, double_quoted, float_text, unicode_escape, uuid_text,
 };
 use crate::codegen::model::CodegenError;
-use crate::codegen::walk::Syntax;
+use crate::codegen::walk::{Syntax, lay_out_with};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JsDialect {
@@ -62,6 +62,44 @@ fn is_plain_key(key: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
+/// The array index a rendered key spells (`"12"`), if it is one: a canonical
+/// decimal below 2^32 - 1, the keys a JavaScript object lists first.
+fn array_index(rendered_key: &str) -> Option<u32> {
+    let digits = rendered_key.strip_prefix('"')?.strip_suffix('"')?;
+    let canonical = digits == "0" || !digits.starts_with('0');
+    if !canonical || digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<u32>().ok().filter(|&n| n != u32::MAX)
+}
+
+/// Whether a JavaScript object literal would list these keys in another order.
+fn object_would_reorder(entries: &[(String, String)]) -> bool {
+    let indexes: Vec<Option<u32>> = entries.iter().map(|(k, _)| array_index(k)).collect();
+    let mut previous_index: Option<u32> = None;
+    let mut seen_other = false;
+    for index in indexes {
+        match index {
+            Some(n) if seen_other || previous_index.is_some_and(|p| p >= n) => return true,
+            Some(n) => previous_index = Some(n),
+            None => seen_other = true,
+        }
+    }
+    false
+}
+
+/// A rendered key (`name`, `"a b"` or `["__proto__"]`) as a string literal.
+fn key_literal(rendered_key: &str) -> String {
+    match rendered_key
+        .strip_prefix('[')
+        .and_then(|k| k.strip_suffix(']'))
+    {
+        Some(literal) => literal.to_string(),
+        None if rendered_key.starts_with('"') => rendered_key.to_string(),
+        None => format!("\"{rendered_key}\""),
+    }
+}
+
 /// A JavaScript string literal for arbitrary text.
 pub(crate) fn quote(text: &str) -> String {
     double_quoted(text, unicode_escape)
@@ -85,6 +123,23 @@ impl Syntax for JsSyntax {
         } else {
             quote(key)
         }
+    }
+
+    /// An object literal, or for Node a `Map` when a plain object would list
+    /// integer-like keys out of document order (the driver serializes a `Map`
+    /// in insertion order). The shell has no ordered literal.
+    fn document(&self, entries: &[(String, String)], depth: usize) -> String {
+        if self.node() && object_would_reorder(entries) {
+            let pairs: Vec<String> = entries
+                .iter()
+                .map(|(k, v)| format!("[{}, {v}]", key_literal(k)))
+                .collect();
+            let list = lay_out_with(self.indent_unit(), ("[", "]"), "", &pairs, depth, true);
+            return format!("new Map({list})");
+        }
+        let items: Vec<String> = entries.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+        let pad = self.brace_pad();
+        lay_out_with(self.indent_unit(), ("{", "}"), pad, &items, depth, true)
     }
 
     fn double(&self, v: f64) -> String {

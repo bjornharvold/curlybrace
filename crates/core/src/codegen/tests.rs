@@ -256,11 +256,37 @@ fn integer_widths_are_kept() {
 }
 
 #[test]
+fn node_keeps_the_key_order_of_integer_like_keys() {
+    // A JavaScript object lists integer-like keys first, ascending.
+    let moved = Bson::Document(doc! { "b": 1_i32, "2": 2_i32, "1": 3_i32 });
+    let out = first_value(Language::Node, moved).unwrap();
+    assert!(
+        out.contains("new Map([[\"b\", 1], [\"2\", 2], [\"1\", 3]])"),
+        "{out}"
+    );
+    // Already in the order an object would keep: stays a plain literal.
+    let kept = Bson::Document(doc! { "1": 1_i32, "2": 2_i32, "a": 3_i32, "01": 4_i32 });
+    let out = first_value(Language::Node, kept).unwrap();
+    assert!(!out.contains("Map"), "{out}");
+    assert!(out.contains("\"1\": 1"), "{out}");
+    // The shell has no ordered literal: documented limit, plain object.
+    let shell = Bson::Document(doc! { "b": 1_i32, "1": 3_i32 });
+    assert!(
+        !first_value(Language::Mongosh, shell)
+            .unwrap()
+            .contains("Map")
+    );
+}
+
+#[test]
 fn the_extreme_dates_do_not_overflow_the_range_check() {
     // `i64::MIN.abs()` panics in debug and wraps negative in release.
     for language in [Language::Mongosh, Language::Node] {
         for millis in [i64::MIN, i64::MAX] {
-            let out = first_value(language, Bson::DateTime(bson::DateTime::from_millis(millis)));
+            let out = first_value(
+                language,
+                Bson::DateTime(bson::DateTime::from_millis(millis)),
+            );
             assert_eq!(
                 out,
                 Err(CodegenError::UnsupportedValue("dateTime")),
