@@ -25,6 +25,9 @@
 
 #[cfg(test)]
 mod admin_tests;
+mod aggregate_run;
+#[cfg(test)]
+mod aggregate_run_tests;
 #[cfg(test)]
 mod aggregate_tests;
 mod bulk;
@@ -254,6 +257,16 @@ pub enum Command {
         request: u64,
         ns: Namespace,
         pipeline: Vec<Document>,
+    },
+    /// Runs `pipeline` (the last stage the single `$out`/`$merge`) on `ns` for real. A write:
+    /// refused on a read-only connection. The UI sends it only after the typed confirmation.
+    /// Answered by [`Event::AggregateRan`].
+    AggregateRun {
+        session: SessionId,
+        ns: Namespace,
+        pipeline: Vec<Document>,
+        /// The UI's number of this run; the answer echoes it so a stale one can be ignored.
+        run: u64,
     },
     Insert {
         session: SessionId,
@@ -640,6 +653,20 @@ pub enum Event {
         /// The `request` of the command this answers.
         request: u64,
         outcome: std::result::Result<Vec<Document>, CoreError>,
+    },
+    /// The answer to `AggregateRun`: `outcome` is the estimated document count of `target` after
+    /// the run (`Ok(None)` when the run succeeded but the count could not be read). A pipeline or server failure is an `Err` outcome shown inline, never an
+    /// [`Event::Failed`]. `Err(WriteOutcomeUnknown)` means the client gave up waiting: the server
+    /// may or may not have finished. A lost connection is an `Event::Failed` instead.
+    AggregateRan {
+        session: SessionId,
+        /// The `run` of the command this answers.
+        run: u64,
+        /// The collection the pipeline read.
+        ns: Namespace,
+        /// The collection the write stage wrote to.
+        target: Namespace,
+        outcome: std::result::Result<Option<u64>, CoreError>,
     },
     /// The answer to `ProfilingState` and `SetProfilingLevel`. A failure, a refusal or a timeout
     /// is an `Err` outcome shown inline; it is never an [`Event::Failed`], which raises a banner

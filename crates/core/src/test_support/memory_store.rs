@@ -337,6 +337,15 @@ impl DocumentStore for InMemoryStore {
         self.run_aggregate(pipeline, max_time)
     }
 
+    async fn aggregate_write(
+        &self,
+        ns: &Namespace,
+        pipeline: Vec<Document>,
+        _max_time: Duration,
+    ) -> Result<()> {
+        self.run_aggregate_write(ns, pipeline)
+    }
+
     /// Answers the same scripted document as `explain_find`, flagged plan-only.
     async fn explain_plan(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
         self.explain_find(ns, q).await.map(|explain| Explain {

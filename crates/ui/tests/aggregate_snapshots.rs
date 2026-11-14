@@ -58,3 +58,21 @@ fn aggregate_opened_dark() {
         .mode(Mode::Dark)
         .snapshot("aggregate_opened_dark");
 }
+
+// The confirmation dialog of a `$out` run on a production connection (light and dark).
+shot!(
+    aggregate_run_dialog,
+    vec![],
+    support::aggregate_shots::aggregate_run_dialog_tab
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn aggregate_run_dialog_dark() {
+    if !snapshots_enabled("aggregate_run_dialog_dark") {
+        return;
+    }
+    Shot::new(vec![], support::aggregate_shots::aggregate_run_dialog_tab)
+        .mode(Mode::Dark)
+        .snapshot("aggregate_run_dialog_dark");
+}

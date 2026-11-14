@@ -210,6 +210,17 @@ async fn run(
         Command::AggregatePreview { request, .. } => Some(*request),
         _ => None,
     };
+    // A write run that outruns the client bound has an unknown outcome: answered, never pinged.
+    let run_namespaces = match &command {
+        Command::AggregateRun {
+            ns, pipeline, run, ..
+        } => Some((
+            *run,
+            ns.clone(),
+            super::aggregate_run::target_namespace(ns, pipeline),
+        )),
+        _ => None,
+    };
     // A profiler command is the one write whose read-only refusal is not decided here: the store
     // wrapper is the authority and its refusal is the outcome. Every other check (session,
     // currency, generation) still applies to it, `execute` turns its failures into outcomes.
@@ -236,6 +247,7 @@ async fn run(
         store.clone(),
         shared.history.clone(),
         max_continuous,
+        super::aggregate_run::RunLimits::new(&shared.config),
         command,
     );
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
@@ -279,6 +291,15 @@ async fn run(
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
     }
+    if let (true, Some((run, ns, target))) = (timed_out, run_namespaces.clone()) {
+        return Ok(Event::AggregateRan {
+            session: id,
+            run,
+            ns,
+            target,
+            outcome: Err(CoreError::WriteOutcomeUnknown),
+        });
+    }
     // A profiler command is not settled by a ping either, whether it timed out or lost the
     // connection: a timeout is an outcome, and the loss is detected by the next ordinary command
     // or the sampler. `execute` turns the error into its outcome.
@@ -288,6 +309,20 @@ async fn run(
     match result {
         Err(error) if timed_out || matches!(error, CoreError::ConnectionInterrupted(_)) => {
             let settled = settle_by_ping(&store, shared.config.ping_timeout, error, is_write).await;
+            // A run whose write may have gone through while the server still answers is an
+            // outcome under the run's own number; only a lost server fails the command.
+            // No `gate` here on purpose: the answer carries the run number and can only settle that run.
+            if let (CoreError::WriteOutcomeUnknown, Some((run, ns, target))) =
+                (&settled, run_namespaces)
+            {
+                return Ok(Event::AggregateRan {
+                    session: id,
+                    run,
+                    ns,
+                    target,
+                    outcome: Err(CoreError::WriteOutcomeUnknown),
+                });
+            }
             Err(gate(session, generation, settled))
         }
         other => other,
@@ -316,7 +351,7 @@ async fn settle_by_ping(
 }
 
 /// Whether `error` says the connection is gone or suspect rather than that the command failed.
-fn is_connection_error(error: &CoreError) -> bool {
+pub(super) fn is_connection_error(error: &CoreError) -> bool {
     matches!(
         error,
         CoreError::Unreachable | CoreError::TlsHandshake | CoreError::ConnectionInterrupted(_)
@@ -328,6 +363,7 @@ async fn data_command(
     store: Arc<dyn DocumentStore>,
     history: Option<Arc<HistoryDb>>,
     max_continuous: i64,
+    run_limits: super::aggregate_run::RunLimits,
     command: Command,
 ) -> Result<Event> {
     let service = DocumentService::new(store.clone());
@@ -404,6 +440,9 @@ async fn data_command(
                 outcome,
             }
         }
+        Command::AggregateRun {
+            ns, pipeline, run, ..
+        } => super::aggregate_run::run(session, &*store, ns, pipeline, run, run_limits).await?,
         Command::Insert { ns, json, .. } => {
             service.insert_from_json(&ns, &json).await?;
             Event::Mutated { session, ns }
@@ -721,6 +760,12 @@ async fn test_connection(
 /// its index builds) can run for a long time and must not be cut off half-way; every other
 /// command keeps the short bound. An aggregate preview is cut off shortly after the server's own
 /// time limit, and never later than the short bound.
+pub(super) fn run_write_limit(config: &super::RuntimeConfig) -> std::time::Duration {
+    config
+        .index_build_timeout
+        .min(super::config::AGGREGATE_RUN_TIMEOUT)
+}
+
 pub(super) fn command_time_limit(
     config: &super::RuntimeConfig,
     command: &Command,
@@ -732,6 +777,11 @@ pub(super) fn command_time_limit(
         Command::AggregatePreview { .. } => config
             .command_timeout
             .min(super::config::AGGREGATE_PREVIEW_TIMEOUT),
+        Command::AggregateRun { .. } => {
+            run_write_limit(config)
+                + super::config::AGGREGATE_RUN_COUNT_TIMEOUT
+                + super::config::AGGREGATE_RUN_OUTER_SLACK
+        }
         _ => config.command_timeout,
     }
 }

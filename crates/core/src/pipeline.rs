@@ -8,6 +8,10 @@
 use bson::{Bson, Document};
 use serde_json::Value;
 
+pub use crate::pipeline_run::{
+    AGGREGATE_RUN_MAX_TIME_MS, RunPlan, RunTarget, ensure_run_shape, run_pipeline, run_target,
+};
+
 /// Documents shown by a preview.
 pub const PREVIEW_LIMIT: i64 = 20;
 /// Server-side time bound for a preview, in milliseconds.
@@ -45,6 +49,16 @@ pub enum PipelineError {
         name: String,
     },
     Empty,
+    /// A run needs a write stage (`$out` or `$merge`) as its last enabled stage.
+    NoWriteStage,
+    /// The last stage names no usable target collection.
+    TargetUnresolved {
+        index: usize,
+    },
+    /// The last stage writes into `admin`, `local` or `config`.
+    ReservedTargetDatabase {
+        index: usize,
+    },
 }
 
 fn syntax(e: &serde_json::Error) -> PipelineError {
@@ -107,7 +121,7 @@ pub fn stage_name(text: &str) -> Option<String> {
     parse_stage(text).map(|(name, _)| name)
 }
 
-fn parse_stage(text: &str) -> Option<(String, Document)> {
+pub(crate) fn parse_stage(text: &str) -> Option<(String, Document)> {
     let value: Value = serde_json::from_str(text).ok()?;
     let Bson::Document(doc) = Bson::try_from(value).ok()? else {
         return None;
@@ -127,7 +141,7 @@ pub struct PreviewPlan {
     pub not_run: Vec<String>,
 }
 
-fn is_write(name: &str) -> bool {
+pub(crate) fn is_write(name: &str) -> bool {
     WRITE_STAGES.contains(&name)
 }
 
@@ -146,7 +160,7 @@ fn find_write_in_stages(b: &Bson) -> Option<String> {
 ///
 /// Sub-pipelines live only in `$facet` (each value), `$lookup.pipeline` and
 /// `$unionWith.pipeline`. A `$out`/`$merge` key anywhere else is data.
-fn find_write_in_stage(stage: &Document) -> Option<String> {
+pub(crate) fn find_write_in_stage(stage: &Document) -> Option<String> {
     stage.iter().find_map(|(key, value)| {
         if is_write(key) {
             return Some(key.clone());

@@ -47,7 +47,7 @@ impl RecordingStore {
 
 /// Every write method of `DocumentStore`. Adding a write to the trait? Name it here, give
 /// `RecordingStore` a counter for it, refuse it in `ReadOnlyStore`, and cover it below.
-const WRITES: [&str; 18] = [
+const WRITES: [&str; 19] = [
     "insert",
     "replace",
     "delete",
@@ -66,6 +66,7 @@ const WRITES: [&str; 18] = [
     "preview_update",
     "update_many",
     "delete_many",
+    "aggregate_write",
 ];
 
 fn ns() -> Namespace {
@@ -204,6 +205,15 @@ impl DocumentStore for RecordingStore {
     ) -> Result<Vec<Document>> {
         self.hit("aggregate_preview");
         Ok(vec![doc! { "via": "aggregate_preview" }])
+    }
+    async fn aggregate_write(
+        &self,
+        _ns: &Namespace,
+        _pipeline: Vec<Document>,
+        _max_time: Duration,
+    ) -> Result<()> {
+        self.hit("aggregate_write");
+        Ok(())
     }
     async fn create_index(&self, _ns: &Namespace, _spec: &IndexSpec) -> Result<()> {
         self.hit("create_index");
@@ -412,6 +422,12 @@ async fn refused_writes(store: &dyn DocumentStore) -> [bool; WRITES.len()] {
         is_ro(store.preview_update(&ns(), &update_req()).await.err()),
         is_ro(store.update_many(&ns(), &update_req(), run()).await.err()),
         is_ro(store.delete_many(&ns(), &delete_req(), run()).await.err()),
+        is_ro(
+            store
+                .aggregate_write(&ns(), vec![doc! { "$out": "dest" }], Duration::from_secs(1))
+                .await
+                .err(),
+        ),
     ]
 }
 
@@ -535,6 +551,17 @@ async fn read_only_store_forwards_aggregate_preview() {
         .unwrap();
     assert_eq!(out, vec![doc! { "via": "aggregate_preview" }]);
     assert_eq!(inner.count("aggregate_preview"), 1);
+}
+
+#[tokio::test]
+async fn a_locked_store_refuses_a_run_before_looking_at_it() {
+    // A malformed pipeline still answers ReadOnly: the lock is decided first.
+    let (inner, _flag, store) = wrapped(true);
+    let out = store
+        .aggregate_write(&ns(), Vec::new(), Duration::from_secs(1))
+        .await;
+    assert_eq!(out, Err(CoreError::ReadOnly));
+    assert_eq!(inner.count("aggregate_write"), 0);
 }
 
 #[tokio::test]

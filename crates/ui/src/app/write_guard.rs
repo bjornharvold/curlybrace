@@ -27,6 +27,9 @@ pub enum WriteKind {
     RenameCollection,
     DuplicateCollection,
     CreateView,
+    /// A pipeline ending in `$out` / `$merge`. Always confirmed by its own typed dialog
+    /// (`Guard::Confirmed`), so this warning is never parked; the wording exists for the match.
+    AggregateRun,
     /// A `mongosh` script: without a parser a read cannot be told from a write, so every run is
     /// asked about.
     ShellRun,

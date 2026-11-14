@@ -94,6 +94,7 @@ impl AggregateState {
         Self {
             in_flight: None,
             queued: None,
+            run: self.run.connection_reset(),
             ..self
         }
         .on_collection_changed()

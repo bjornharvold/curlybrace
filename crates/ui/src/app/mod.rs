@@ -5,6 +5,7 @@
 //! * `panels`: the thin egui layer
 mod actions;
 mod aggregate_actions;
+mod aggregate_run_actions;
 mod aggregate_saved_actions;
 pub use aggregate_actions::AggregateAction;
 mod banner;

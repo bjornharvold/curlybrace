@@ -10,6 +10,7 @@ use curlybrace_ui::viewmodel::AggregateState;
 use curlybrace_ui::viewmodel::aggregate_saved::SavedDialog;
 use curlybrace_ui::viewmodel::aggregate_view::AggregateView;
 use curlybrace_ui::views::aggregate::show_aggregate;
+use curlybrace_ui::views::aggregate_run::RunContext;
 use eframe::egui;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
@@ -69,7 +70,14 @@ fn open(
                     theme::install(ui.ctx());
                     installed = true;
                 }
-                show_aggregate(ui, draft, view, saved, &I18n::english());
+                show_aggregate(
+                    ui,
+                    draft,
+                    view,
+                    saved,
+                    &RunContext::default(),
+                    &I18n::english(),
+                );
             },
             (draft, AggregateView::default(), saved),
         );

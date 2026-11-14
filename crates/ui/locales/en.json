@@ -47,9 +47,12 @@
     "error": {
       "empty": "The pipeline has no enabled stages to preview.",
       "nested_write": "Stage {n}: {name} cannot be used inside a sub-pipeline of a preview.",
+      "no_write_stage": "A run needs $out or $merge as its last enabled stage.",
       "not_a_stage": "Stage {n} must be an object with exactly one key that starts with $.",
       "not_an_array": "The pipeline must be a JSON array of stage objects.",
+      "reserved_target": "Stage {n}: the target database belongs to the server and cannot be written to here.",
       "syntax": "line {line}, column {column}: {message}",
+      "target_unresolved": "Stage {n}: the target collection of the write stage is missing or not usable.",
       "timeout": "The preview took too long and was stopped. Showing the last result.",
       "write_not_last": "Stage {n}: {name} can only be the last stage."
     },
@@ -71,6 +74,41 @@
       "not_run_one": "1 stage not run: {names}"
     },
     "refresh": "Refresh",
+    "run": {
+      "button": "Run",
+      "confirm": "Run pipeline",
+      "confirm_blocked": "Type the collection name above to enable Run pipeline.",
+      "count": "Documents in the target now: {count}",
+      "count_loading": "Documents in the target now: loading...",
+      "count_unavailable": "Documents in the target now: not available",
+      "disabled": {
+        "busy": "A run is already in progress.",
+        "no_collection": "Open a collection to run a pipeline.",
+        "no_connection": "Connect to a server to run a pipeline.",
+        "other_write": "Another write is in progress or waiting for your confirmation. Finish it first.",
+        "read_only": "This connection is read-only, so the pipeline cannot write.",
+        "text_not_applied": "Apply the edited text to the stages before you run."
+      },
+      "irreversible": "This cannot be undone by the app. It keeps no copy of the target to restore.",
+      "source": "Reads from: {source}",
+      "stage_merge": "The $merge stage inserts, merges, replaces or fails for each result document, as its options say. Documents it does not touch stay in the target.",
+      "stage_out": "The $out stage replaces the whole target collection with the result. Every document in it now is removed.",
+      "status": {
+        "done": "Run finished. {target} now holds {count} documents.",
+        "done_no_count": "Run finished. {target} was written; its document count is not available.",
+        "failed": "The run failed. {error}",
+        "failed_partial": "The run failed part-way. {error} The target may hold part of the result, so check it before you decide what to do.",
+        "running": "Running the pipeline...",
+        "unknown": "The outcome is unknown: the server may or may not have finished writing. Check the target collection before you run again."
+      },
+      "target": "Writes to: {target}",
+      "title": "Run this pipeline?",
+      "type_accessible": "Type {name} to confirm the run",
+      "type_field": "Collection name",
+      "type_field_qualified": "Database and collection name",
+      "type_instruction": "Type the target collection name exactly to confirm:",
+      "type_instruction_qualified": "The target is in another database. Type its database and collection name, like database.collection, exactly to confirm:"
+    },
     "saved": {
       "blocked": "The saved pipelines file could not be backed up earlier, so changes to saved pipelines are not written. Nothing was saved.",
       "cleanup_failed": "The saved pipelines of the connection you just changed could not be updated on disk. They were updated in this window, and the file will be corrected on the next successful save.",
@@ -1044,6 +1082,7 @@
   },
   "failures": {
     "aggregate_preview": "Could not preview the pipeline",
+    "aggregate_run": "Could not run the pipeline",
     "bulk_cancel": "Could not cancel the bulk write",
     "bulk_count": "Could not count the matching documents",
     "bulk_delete": "Could not delete the matching documents",
@@ -1624,6 +1663,7 @@
   },
   "write_warning": {
     "confirm": "Yes, write to production",
+    "message_aggregate_run": "This is your production server, {connection}. Are you sure you want to run this pipeline? Its $out or $merge stage writes to the target collection. This cannot be undone.",
     "message_bulk_delete": "This is your production server, {connection}. Are you sure you want to delete every document the filter matches? This cannot be undone.",
     "message_bulk_update": "This is your production server, {connection}. Are you sure you want to update every document the filter matches? This cannot be undone.",
     "message_clone": "This is your production server, {connection}. Are you sure you want to clone this document into it?",

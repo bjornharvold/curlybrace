@@ -1,6 +1,7 @@
 //! The pure reducer: `update(state, input) -> (state, commands)`. No I/O, no egui.
 use super::actions;
 use super::aggregate_actions::{self, AggregateAction};
+use super::aggregate_run_actions;
 use super::bulk_actions::{self, BulkAction};
 use super::compare::{self, CompareAction};
 use super::connection_test;
@@ -124,6 +125,9 @@ fn on_event(state: AppState, ev: Event) -> Out {
     // debug-build stack limit, and one more arm there overflows it.
     if aggregate_actions::is_preview_event(&ev) {
         return aggregate_actions::on_event(state, ev);
+    }
+    if aggregate_run_actions::is_run_event(&ev) {
+        return aggregate_run_actions::on_event(state, ev);
     }
     // Compare sessions and connection tests are independent of the browsing sessions and their
     // epochs.
@@ -392,7 +396,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
             Vec::new(),
         ),
         Event::EstimatedCount { ns, count, .. } => (
-            index_write_actions::estimate_arrived(state, ns, count),
+            aggregate_run_actions::estimate_arrived(state, ns, count),
             Vec::new(),
         ),
         Event::Sampler { status, .. } => {
@@ -460,7 +464,8 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::ShellRefused { .. }
         | Event::ShellHistory { .. }
         | Event::ShellHistoryChanged { .. }
-        | Event::AggregatePreviewed { .. } => (state, Vec::new()),
+        | Event::AggregatePreviewed { .. }
+        | Event::AggregateRan { .. } => (state, Vec::new()),
     }
 }
 
@@ -748,7 +753,9 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
         | "create_view"
         | "duplicate_collection" => super::admin_dialog_actions::failed(state, context, error),
         // The count only decides whether a warning shows: a missing one is not worth a banner.
-        "estimated_count" => state,
+        // A run dialog waiting for it says it is not available.
+        "estimated_count" => aggregate_run_actions::count_failed(state),
+        "aggregate_run" => failure(aggregate_run_actions::lost(state, &error), context, error),
         "list_indexes" | "index_history" => failure(
             AppState {
                 indexes: state.indexes.settled(),

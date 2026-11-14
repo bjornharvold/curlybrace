@@ -28,6 +28,7 @@ pub fn message_key(kind: WriteKind) -> &'static str {
         WriteKind::RenameCollection => "write_warning.message_rename_collection",
         WriteKind::DuplicateCollection => "write_warning.message_duplicate_collection",
         WriteKind::CreateView => "write_warning.message_create_view",
+        WriteKind::AggregateRun => "write_warning.message_aggregate_run",
         WriteKind::ShellRun => "write_warning.message_shell_run",
     }
 }
@@ -91,7 +92,7 @@ mod tests {
     use egui_kittest::kittest::{NodeT, Queryable};
     use uuid::Uuid;
 
-    const KINDS: [WriteKind; 17] = [
+    const KINDS: [WriteKind; 18] = [
         WriteKind::Insert,
         WriteKind::Replace,
         WriteKind::Clone,
@@ -108,6 +109,7 @@ mod tests {
         WriteKind::RenameCollection,
         WriteKind::DuplicateCollection,
         WriteKind::CreateView,
+        WriteKind::AggregateRun,
         WriteKind::ShellRun,
     ];
 

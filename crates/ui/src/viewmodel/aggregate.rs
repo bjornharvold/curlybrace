@@ -85,6 +85,11 @@ pub struct AggregateState {
     pub request: u64,
     /// The opened saved pipeline and the open dialog (see `aggregate_saved`).
     pub saved: super::aggregate_saved::SavedUi,
+    /// The write run's confirmation dialog and last outcome (see `aggregate_run`).
+    pub run: super::aggregate_run::RunUi,
+    /// What the draft says about its run, remembered between repaints (see
+    /// `aggregate_run_availability`); keyed on the stages, mode and text, so it needs no reset.
+    pub(super) run_shape: super::aggregate_run_availability::RunShapeMemo,
 }
 
 impl AggregateState {
@@ -106,6 +111,7 @@ impl AggregateState {
         Self {
             request: self.request.wrapping_add(1),
             saved: self.saved.with_modified_forgotten(),
+            run: self.run.dialog_closed(),
             ..self
         }
     }
@@ -126,29 +132,6 @@ impl AggregateState {
             .map(|(j, s)| if j == i { new.clone() } else { s.clone() })
             .collect();
         Self { stages, ..self }.changed()
-    }
-
-    /// `self` with stages `i` and `i + 1` swapped; the selection stays on the stage it was on.
-    fn swapped(self, i: usize) -> Self {
-        if i >= self.stages.len().saturating_sub(1) {
-            return self;
-        }
-        let mut stages = self.stages.clone();
-        stages.swap(i, i + 1);
-        let mut keys = self.keys.clone();
-        keys.swap(i, i + 1);
-        let selected = match self.selected {
-            s if s == i => i + 1,
-            s if s == i + 1 => i,
-            s => s,
-        };
-        Self {
-            stages,
-            keys,
-            selected,
-            ..self
-        }
-        .changed()
     }
 
     /// Appends a `name` stage with its template body and selects it.
@@ -205,19 +188,6 @@ impl AggregateState {
             ..self
         }
         .changed()
-    }
-
-    /// Moves stage `i` one place up; the first stage stays.
-    pub fn move_up(self, i: usize) -> Self {
-        match i {
-            0 => self,
-            _ => self.swapped(i - 1),
-        }
-    }
-
-    /// Moves stage `i` one place down; the last stage stays.
-    pub fn move_down(self, i: usize) -> Self {
-        self.swapped(i)
     }
 
     /// Enables or disables stage `i`; the selection is unchanged (a disabled stage can be shown).
@@ -312,6 +282,7 @@ impl AggregateState {
         Self {
             preview: PreviewState::Idle,
             queued: None,
+            run: self.run.collection_changed(),
             ..self
         }
         .changed()

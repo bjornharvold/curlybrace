@@ -260,6 +260,13 @@ pub fn pipeline_error_message(
             vec![position(index), ("name", name.clone())],
         ),
         PipelineError::Empty => ("aggregate.error.empty", Vec::new()),
+        PipelineError::NoWriteStage => ("aggregate.error.no_write_stage", Vec::new()),
+        PipelineError::TargetUnresolved { index } => {
+            ("aggregate.error.target_unresolved", vec![position(index)])
+        }
+        PipelineError::ReservedTargetDatabase { index } => {
+            ("aggregate.error.reserved_target", vec![position(index)])
+        }
     }
 }
 

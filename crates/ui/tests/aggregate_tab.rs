@@ -8,6 +8,7 @@ use curlybrace_ui::viewmodel::AggregateState;
 use curlybrace_ui::viewmodel::aggregate::PreviewState;
 use curlybrace_ui::viewmodel::aggregate_view::AggregateView;
 use curlybrace_ui::views::aggregate::show_aggregate;
+use curlybrace_ui::views::aggregate_run::RunContext;
 use eframe::egui;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
@@ -43,7 +44,8 @@ fn open_stepping(draft: AggregateState, step_dt: f32) -> Harness<'static, Frame>
         .with_step_dt(step_dt)
         .build_ui_state(
             |ui, (draft, view, seen): &mut Frame| {
-                seen.extend(show_aggregate(ui, draft, view, &[], &I18n::english()));
+                let run = RunContext::default();
+                seen.extend(show_aggregate(ui, draft, view, &[], &run, &I18n::english()));
             },
             (draft, AggregateView::default(), Vec::new()),
         );
