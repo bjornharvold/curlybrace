@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/bjornharvold/curlybrace/compare/v0.13.0...v0.14.0) (2026-11-14)
+
+
+### Features
+
+* **aggregate:** confirmed $out/$merge run with typed confirmation ([#168](https://github.com/bjornharvold/curlybrace/issues/168)) ([e18fdb9](https://github.com/bjornharvold/curlybrace/commit/e18fdb97f9c83ba279480a7c4deae6c932bef3a3))
+* **aggregate:** save and open named pipelines per connection ([#166](https://github.com/bjornharvold/curlybrace/issues/166)) ([81e939a](https://github.com/bjornharvold/curlybrace/commit/81e939a38dd51d1f35cd4a3fd71dd6803be4d1c9))
+
+
+### Bug Fixes
+
+* **test:** date the foreign-connection snapshot now so expiry cannot purge it ([#155](https://github.com/bjornharvold/curlybrace/issues/155)) ([5f01009](https://github.com/bjornharvold/curlybrace/commit/5f0100959e0696738ce68e7353613f245692120f))
+
 ## [0.13.0](https://github.com/bjornharvold/curlybrace/compare/v0.12.0...v0.13.0) (2026-11-13)
 
 
