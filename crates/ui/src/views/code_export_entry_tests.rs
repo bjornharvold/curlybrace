@@ -3,7 +3,7 @@
 use super::*;
 use crate::app::AggregateAction;
 use crate::theme;
-use crate::viewmodel::aggregate_view::AggregateView;
+use crate::viewmodel::aggregate_view::{AggregateView, PendingEdit};
 use crate::viewmodel::{FindAction, FindBarState};
 use crate::views::aggregate::show_aggregate;
 use crate::views::aggregate_run::RunContext;
@@ -138,6 +138,40 @@ fn the_aggregate_button_is_off_with_the_pipeline_error_as_its_reason() {
         h.run_steps(2);
         assert!(!h.state().seen.contains(&opens_aggregate_code()));
     }
+}
+
+/// Types `text` into stage 0 and leaves it waiting (far from due), as a keystroke does.
+fn typing(h: &mut Harness<'static, Tab>, text: &str) {
+    h.state_mut().view.pending = Some(PendingEdit {
+        index: 0,
+        text: text.to_string(),
+        at: 1.0e9,
+    });
+    h.run_steps(3);
+}
+
+#[test]
+fn an_invalid_edit_still_waiting_turns_the_button_off_with_its_reason() {
+    let mut h = tab(draft(&[("$match", r#"{ "$match": {} }"#)]));
+    typing(&mut h, "{ nope");
+    let label = t("codegen.button");
+    let button = h.get_by_role_and_label(Role::Button, &label);
+    let reason = I18n::english().t_with("aggregate.error.not_a_stage", &[("n", "1")]);
+    assert!(button.accesskit_node().is_disabled());
+    assert_eq!(button.accesskit_node().description(), Some(reason));
+    button.click();
+    h.run_steps(2);
+    assert!(!h.state().seen.contains(&opens_aggregate_code()));
+}
+
+#[test]
+fn a_valid_edit_still_waiting_turns_the_button_on() {
+    let mut h = tab(draft(&[("$match", "{ nope")]));
+    typing(&mut h, r#"{ "$match": {} }"#);
+    let label = t("codegen.button");
+    let button = h.get_by_role_and_label(Role::Button, &label);
+    assert!(!button.accesskit_node().is_disabled());
+    assert!(button.accesskit_node().description().is_none());
 }
 
 #[test]

@@ -3,13 +3,14 @@
 //! the last request it asked a preview for on its own. View-only state, parked with its session
 //! like the Documents tab's tree; nothing here is sent anywhere. Also the pure helpers the tab
 //! draws from: a stage's one-line status and the i18n key of a pipeline error.
-use super::aggregate::{Preview, PreviewState};
+use super::aggregate::{AggregateState, Preview, PreviewState};
 use super::{PageKey, TreeState, ViewMode, page_key};
 use bson::Document;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::{PipelineError, stage_name};
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::Page;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// How long the typing in a stage pauses before the edit is sent (and previewed).
@@ -124,6 +125,15 @@ impl AggregateView {
             at: now,
         });
         (Self { pending, ..self }, displaced)
+    }
+
+    /// `draft` with the waiting stage text applied, as the edit will once it is due (what a
+    /// click would see after `flush_typing`); `draft` itself when nothing waits.
+    pub fn typed_into<'a>(&self, draft: &'a AggregateState) -> Cow<'a, AggregateState> {
+        match &self.pending {
+            Some(p) => Cow::Owned(draft.clone().edit(p.index, &p.text)),
+            None => Cow::Borrowed(draft),
+        }
     }
 
     /// The text stage `index` shows: what is being typed there, else `text`.

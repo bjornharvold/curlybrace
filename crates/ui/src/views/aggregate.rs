@@ -40,7 +40,7 @@ pub fn show_aggregate(
     run: &RunContext,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
-    let header = show_header(ui, draft, saved, run, i18n);
+    let header = show_header(ui, draft, view, saved, run, i18n);
     show_run_status(ui, &draft.run.status, i18n);
     let max_height = ui.available_height() * EDITOR_SHARE;
     let edited = match draft.mode {
@@ -113,10 +113,13 @@ fn with_auto_refresh(
 fn show_header(
     ui: &mut egui::Ui,
     draft: &AggregateState,
+    view: &AggregateView,
     saved: &[SavedPipeline],
     run: &RunContext,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
+    // What was typed and is still waiting counts: a click applies it before it opens the code.
+    let typed = view.typed_into(draft);
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(CONTROL_HEIGHT);
         // A stage added in text mode would not be in the text being edited, and a Refresh there
@@ -129,7 +132,7 @@ fn show_header(
         });
         let refresh = refresh.clicked() && stages;
         let saved_actions = show_saved_toolbar(ui, draft, saved, i18n);
-        let blocked = aggregate_blocked(draft, i18n);
+        let blocked = aggregate_blocked(&typed, i18n);
         let code = show_copy_code_button(ui, blocked.as_deref(), i18n);
         let run_clicked = show_run_button(ui, &run.availability, i18n);
         let (tone, key) = status_chip(&draft.preview);
