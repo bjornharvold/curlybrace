@@ -29,9 +29,25 @@ pub type PipelinesStartup = Startup<SavedPipelines>;
 
 /// Reads the file (see `settings_file::load` for the rules).
 pub fn load(path: &Path, backup: BackupFn<'_>) -> PipelinesStartup {
+    if std::fs::read(path).is_ok_and(|bytes| is_newer(&bytes)) {
+        return PipelinesStartup {
+            settings: SavedPipelines::default(),
+            guard: PersistGuard::blocked(),
+            recovery: Some(Recovery::PipelinesNewer),
+        };
+    }
     settings_file::load(path, backup, "saved pipelines", parse, |backed_up| {
         Recovery::Pipelines { backed_up }
     })
+}
+
+/// Whether the bytes are a JSON object written by a newer version of the format: such a file is
+/// not ours to back up or replace.
+fn is_newer(bytes: &[u8]) -> bool {
+    settings_file::json_object(bytes)
+        .ok()
+        .and_then(|value| value.get("version").and_then(serde_json::Value::as_u64))
+        .is_some_and(|version| version > u64::from(curlybrace_core::saved_pipeline::VERSION))
 }
 
 /// A JSON object of the expected shape and size, of a version this build understands.
@@ -59,6 +75,8 @@ pub enum PipelinesSaveError {
     Blocked,
     /// The file would pass [`MAX_FILE_BYTES`], which the next launch would not read back.
     TooLarge,
+    /// The file was written by a newer version of the app and is left as it is.
+    NewerVersion,
     /// Another window changed the file since this one read or wrote it.
     ChangedOnDisk,
     Persist(PersistError),
@@ -70,6 +88,7 @@ impl PipelinesSaveError {
         match self {
             Self::Blocked => "aggregate.saved.blocked",
             Self::TooLarge => "aggregate.saved.error.file_too_large",
+            Self::NewerVersion => "aggregate.saved.error.unsupported",
             Self::ChangedOnDisk => "aggregate.saved.error.changed_on_disk",
             Self::Persist(e) => e.pipelines_i18n_key(),
         }
@@ -80,6 +99,7 @@ impl PipelinesSaveError {
     pub fn banner(self) -> Banner {
         match self {
             Self::Blocked => Banner::Recovery(Recovery::Pipelines { backed_up: false }),
+            Self::NewerVersion => Banner::Recovery(Recovery::PipelinesNewer),
             other => Banner::PipelinesPersist(other),
         }
     }
@@ -97,13 +117,23 @@ impl DiskStamp {
         Self(Some((bytes.len(), hasher.finish())))
     }
 
-    /// The stamp of the file as it is now; a missing file has none.
+    /// The stamp of a file's bytes; a missing file has none.
+    fn of_file(bytes: Option<&[u8]>) -> Self {
+        bytes.map_or(Self(None), Self::of)
+    }
+
+    /// The stamp of the file as it is now.
     pub fn read(path: &Path) -> Result<Self, PersistError> {
-        match std::fs::read(path) {
-            Ok(bytes) => Ok(Self::of(&bytes)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self(None)),
-            Err(e) => Err(PersistError::Read(e.kind())),
-        }
+        read_current(path).map(|bytes| Self::of_file(bytes.as_deref()))
+    }
+}
+
+/// The file's bytes, or nothing when there is no file.
+fn read_current(path: &Path) -> Result<Option<Vec<u8>>, PersistError> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(PersistError::Read(e.kind())),
     }
 }
 
@@ -129,12 +159,23 @@ pub fn saved(
     seen: DiskStamp,
     pipelines: &SavedPipelines,
 ) -> Result<DiskStamp, PipelinesSaveError> {
-    guard.check().map_err(|_| PipelinesSaveError::Blocked)?;
+    if guard.check().is_err() {
+        let newer = std::fs::read(path).is_ok_and(|bytes| is_newer(&bytes));
+        return Err(if newer {
+            PipelinesSaveError::NewerVersion
+        } else {
+            PipelinesSaveError::Blocked
+        });
+    }
     let bytes = serialised(pipelines).map_err(PipelinesSaveError::Persist)?;
     if bytes.len() > MAX_FILE_BYTES {
         return Err(PipelinesSaveError::TooLarge);
     }
-    if DiskStamp::read(path).map_err(PipelinesSaveError::Persist)? != seen {
+    let current = read_current(path).map_err(PipelinesSaveError::Persist)?;
+    if current.as_deref().is_some_and(is_newer) {
+        return Err(PipelinesSaveError::NewerVersion);
+    }
+    if DiskStamp::of_file(current.as_deref()) != seen {
         return Err(PipelinesSaveError::ChangedOnDisk);
     }
     atomic_write(path, &bytes).map_err(PipelinesSaveError::Persist)?;

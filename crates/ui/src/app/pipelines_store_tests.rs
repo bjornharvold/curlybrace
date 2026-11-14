@@ -98,13 +98,12 @@ fn a_failed_backup_blocks_saving_so_the_original_survives() {
 }
 
 #[test]
-fn a_file_of_the_wrong_shape_or_a_newer_version_is_unusable() {
+fn a_file_of_the_wrong_shape_is_unusable() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("pipelines.json");
     for text in [
         r#"{"version": 1, "connections": {"not-a-uuid": []}}"#,
         r#"{"version": 1, "connections": []}"#,
-        r#"{"version": 2, "connections": {}}"#,
     ] {
         std::fs::write(&path, text).unwrap();
         assert!(load(&path, &back_up).recovery.is_some(), "{text}");
@@ -228,4 +227,38 @@ fn a_file_the_app_wrote_under_the_cap_loads_again() {
     let started = load(&path, &back_up);
     assert_eq!(started.recovery, None);
     assert_eq!(started.settings, store);
+}
+
+const NEWER: &str = r#"{"version": 2, "connections": {}, "future": true}"#;
+
+fn backups_of(dir: &Path) -> usize {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains("pipelines.json.")
+        })
+        .count()
+}
+
+#[test]
+fn a_file_of_a_newer_version_is_neither_backed_up_nor_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pipelines.json");
+    std::fs::write(&path, NEWER).unwrap();
+    let started = load(&path, &back_up);
+    assert_eq!(started.settings, SavedPipelines::default());
+    assert_eq!(started.recovery, Some(Recovery::PipelinesNewer));
+    assert_eq!(started.guard.check(), Err(PersistError::Blocked));
+    assert_eq!(backups_of(dir.path()), 0, "nothing was copied aside");
+    let result = saved(&path, &started.guard, DiskStamp::default(), &sample());
+    assert_eq!(result, Err(PipelinesSaveError::NewerVersion));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), NEWER);
+    assert_eq!(
+        Recovery::PipelinesNewer.i18n_key(),
+        PipelinesSaveError::NewerVersion.i18n_key()
+    );
 }

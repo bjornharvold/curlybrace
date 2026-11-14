@@ -290,3 +290,23 @@ fn a_window_keeps_saving_when_only_it_changes_the_file() {
     a.state_mut().persist_pipelines(more.unwrap()).unwrap();
     assert_eq!(a.state().pipelines.list(conn).len(), 2);
 }
+
+#[test]
+fn a_newer_file_is_left_untouched_and_saving_says_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let newer = r#"{"version": 2, "connections": {}}"#;
+    std::fs::write(pipeline_file(&dir), newer).unwrap();
+    let (mut app, _events, _commands) = app_in(&dir, Vec::new());
+    assert_eq!(
+        app.state().banner,
+        Some(Banner::Recovery(Recovery::PipelinesNewer))
+    );
+    let result = app.state_mut().persist_pipelines(store_with(conn, "x"));
+    assert_eq!(
+        result,
+        Err(pipelines_store::PipelinesSaveError::NewerVersion)
+    );
+    assert!(app.state().pipelines.list(conn).is_empty());
+    assert_eq!(std::fs::read_to_string(pipeline_file(&dir)).unwrap(), newer);
+}

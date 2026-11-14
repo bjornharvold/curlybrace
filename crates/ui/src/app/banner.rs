@@ -57,7 +57,8 @@ fn recovery_headline(recovery: &Recovery, i18n: &I18n) -> String {
         | Recovery::Sampling { .. }
         | Recovery::Explain { .. }
         | Recovery::Tools { .. }
-        | Recovery::Pipelines { .. } => i18n.t(key),
+        | Recovery::Pipelines { .. }
+        | Recovery::PipelinesNewer => i18n.t(key),
     }
 }
 
@@ -219,6 +220,7 @@ mod tests {
             Banner::Recovery(Recovery::Tools { backed_up: false }),
             Banner::Recovery(Recovery::Pipelines { backed_up: true }),
             Banner::Recovery(Recovery::Pipelines { backed_up: false }),
+            Banner::Recovery(Recovery::PipelinesNewer),
             Banner::NotConnected,
             Banner::CopyUnavailable,
             Banner::HostForgotten,

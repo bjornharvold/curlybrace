@@ -278,6 +278,22 @@ fn a_file_changed_by_another_window_refuses_inline_and_reloads() {
 }
 
 #[test]
+fn a_file_of_a_newer_version_refuses_every_save_and_stays_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let newer = r#"{"version": 2, "connections": {}}"#;
+    std::fs::write(dir.path().join("pipelines.json"), newer).unwrap();
+    let s = saved_as(drafted(session_in(&dir, conn)), "totals");
+    assert_eq!(
+        s.aggregate.saved.error,
+        Some("aggregate.saved.error.unsupported")
+    );
+    assert!(s.pipelines.list(conn).is_empty());
+    let text = std::fs::read_to_string(dir.path().join("pipelines.json")).unwrap();
+    assert_eq!(text, newer);
+}
+
+#[test]
 fn text_that_does_not_parse_cannot_be_saved() {
     let dir = tempfile::tempdir().unwrap();
     let conn = Uuid::new_v4();
