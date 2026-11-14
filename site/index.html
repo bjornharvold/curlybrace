@@ -332,7 +332,7 @@
         </div>
         <div>
           <dt>Build an aggregation pipeline and preview every stage</dt>
-          <dd>An Aggregate tab on each collection holds a pipeline as a list of stage cards, or as one JSON array in text mode; add, remove, move and disable stages, with stage names completed as you type. Select a stage to see up to 20 documents after it, in the Tree, Table or JSON view. A preview only reads: it is limited to 10 seconds on the server, works on read-only and production connections, and never runs <code>$out</code> or <code>$merge</code>; a trailing one is left out and named, and one anywhere else is refused. The draft is kept when you switch tabs, collections or connections. Saved pipelines, running a write stage and export as driver code come later. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/67">#67</a>.</dd>
+          <dd>An Aggregate tab on each collection holds a pipeline as a list of stage cards, or as one JSON array in text mode; add, remove, move and disable stages, with stage names completed as you type. Select a stage to see up to 20 documents after it, in the Tree, Table or JSON view. A preview only reads: it is limited to 10 seconds on the server, works on read-only and production connections, and never runs <code>$out</code> or <code>$merge</code>; a trailing one is left out and named, and one anywhere else is refused. The draft is kept when you switch tabs, collections or connections. <b>Save</b> a pipeline under a name and <b>Open</b> it later from the connection&rsquo;s list; each saved pipeline can be renamed or deleted there. Saved pipelines belong to one connection, work on any of its collections, and stay on your Mac; they are not part of an exported connection list. Running a write stage and export as driver code come later. Details in <a href="https://github.com/bjornharvold/curlybrace/issues/67">#67</a>.</dd>
         </div>
         <div>
           <dt>Bulk update and delete, with an undo copy</dt>
@@ -370,7 +370,7 @@
         <div>
           <h3>In progress</h3>
           <ul>
-            <li><a href="https://github.com/bjornharvold/curlybrace/issues/67">Aggregation pipeline builder</a><span>The first slice is out: build a pipeline and preview each stage. Saved pipelines and a confirmed <code>$out</code> / <code>$merge</code> run come next.</span></li>
+            <li><a href="https://github.com/bjornharvold/curlybrace/issues/67">Aggregation pipeline builder</a><span>Building a pipeline, previewing each stage and saving it are out now; a confirmed <code>$out</code> / <code>$merge</code> run comes next.</span></li>
           </ul>
         </div>
         <div>
