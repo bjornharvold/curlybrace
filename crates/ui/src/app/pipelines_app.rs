@@ -17,12 +17,11 @@ impl AppState {
         match path {
             Ok(path) => {
                 let started = pipelines_store::load(&path, &persistence::back_up);
-                let seen = pipelines_store::DiskStamp::read(&path).unwrap_or_default();
                 let state = Self {
                     pipelines: started.settings,
                     pipelines_path: Some(path),
                     pipelines_guard: started.guard,
-                    pipelines_seen: seen,
+                    pipelines_seen: started.seen,
                     ..self
                 };
                 match started.recovery {

@@ -262,3 +262,25 @@ fn a_file_of_a_newer_version_is_neither_backed_up_nor_replaced() {
         PipelinesSaveError::NewerVersion.i18n_key()
     );
 }
+
+#[test]
+fn the_stamp_comes_from_the_bytes_load_parsed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pipelines.json");
+    save(&path, &sample()).unwrap();
+    let started = load(&path, &back_up);
+    assert_eq!(Ok(started.seen), DiskStamp::read(&path));
+    // The first save check passes with exactly that stamp.
+    let more = started
+        .settings
+        .saved(Uuid::new_v4(), "more", None, Vec::new(), 8, false)
+        .unwrap();
+    assert!(saved(&path, &started.guard, started.seen, &more).is_ok());
+}
+
+#[test]
+fn a_missing_file_starts_with_the_stamp_of_no_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let started = load(&dir.path().join("none.json"), &back_up);
+    assert_eq!(started.seen, DiskStamp::default());
+}

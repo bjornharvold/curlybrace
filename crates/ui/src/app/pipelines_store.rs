@@ -8,7 +8,7 @@ use super::connections::ConfigPath;
 use super::persistence::{
     BackupFn, PersistError, PersistGuard, Recovery, atomic_write, default_connections_path,
 };
-use super::settings_file::{self, Startup};
+use super::settings_file;
 use super::state::Banner;
 use curlybrace_core::saved_pipeline::SavedPipelines;
 use std::hash::{Hash, Hasher};
@@ -24,21 +24,39 @@ pub fn default_pipelines_path() -> ConfigPath {
     default_connections_path().map(|path| path.with_file_name(FILE_NAME))
 }
 
-/// The saved pipelines found at startup.
-pub type PipelinesStartup = Startup<SavedPipelines>;
+/// The saved pipelines found at startup, and the stamp of the very bytes they were parsed from
+/// (a second read could see another window's write and pair its stamp with the old list).
+#[derive(Debug, PartialEq)]
+pub struct PipelinesStartup {
+    pub settings: SavedPipelines,
+    pub guard: PersistGuard,
+    pub recovery: Option<Recovery>,
+    pub seen: DiskStamp,
+}
 
-/// Reads the file (see `settings_file::load` for the rules).
+/// Reads the file once (see `settings_file::load` for the rules).
 pub fn load(path: &Path, backup: BackupFn<'_>) -> PipelinesStartup {
-    if std::fs::read(path).is_ok_and(|bytes| is_newer(&bytes)) {
+    let read = std::fs::read(path);
+    let seen = read
+        .as_ref()
+        .map_or_else(|_| DiskStamp::default(), |bytes| DiskStamp::of(bytes));
+    if read.as_ref().is_ok_and(|bytes| is_newer(bytes)) {
         return PipelinesStartup {
             settings: SavedPipelines::default(),
             guard: PersistGuard::blocked(),
             recovery: Some(Recovery::PipelinesNewer),
+            seen,
         };
     }
-    settings_file::load(path, backup, "saved pipelines", parse, |backed_up| {
-        Recovery::Pipelines { backed_up }
-    })
+    let started = settings_file::load_read(path, read, backup, "saved pipelines", parse, |b| {
+        Recovery::Pipelines { backed_up: b }
+    });
+    PipelinesStartup {
+        settings: started.settings,
+        guard: started.guard,
+        recovery: started.recovery,
+        seen,
+    }
 }
 
 /// Whether the bytes are a JSON object written by a newer version of the format: such a file is
