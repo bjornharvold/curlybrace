@@ -324,6 +324,7 @@ contribute.
   the Shell tab already warn before a scan; finding misses in the queries your own apps send, and
   keeping them over time, is open.
 - **Inline editing** in the table and tree views ([#12](https://github.com/bjornharvold/curlybrace/issues/12)).
+- **Tabs and split view** ([#159](https://github.com/bjornharvold/curlybrace/issues/159)): several tabs per connection, two collections side by side, and the open tabs restored at launch.
 
 ### Later
 
@@ -344,6 +345,9 @@ contribute.
 - **Connection manager follow-ups:** remaining edit tabs ([#81](https://github.com/bjornharvold/curlybrace/issues/81)), start screen with recents
   ([#82](https://github.com/bjornharvold/curlybrace/issues/82)), nested folders ([#83](https://github.com/bjornharvold/curlybrace/issues/83)), export with secrets ([#84](https://github.com/bjornharvold/curlybrace/issues/84)).
 - **Platforms:** [Intel Mac](https://github.com/bjornharvold/curlybrace/issues/14), [Linux](https://github.com/bjornharvold/curlybrace/issues/15), [Windows](https://github.com/bjornharvold/curlybrace/issues/16).
+- **Everyday workflow:** a multi-document transaction runner with commit and rollback ([#160](https://github.com/bjornharvold/curlybrace/issues/160)), interface zoom and font size
+  ([#161](https://github.com/bjornharvold/curlybrace/issues/161)), built-in read-only sample data to try the app without a server ([#162](https://github.com/bjornharvold/curlybrace/issues/162)), pinned databases and collections
+  ([#163](https://github.com/bjornharvold/curlybrace/issues/163)), and a check for new releases ([#164](https://github.com/bjornharvold/curlybrace/issues/164), in-place update after signing).
 - **Trust and polish:** [Homebrew install](https://github.com/bjornharvold/curlybrace/issues/24) (blocked on
   signing), [inline table editing](https://github.com/bjornharvold/curlybrace/issues/12), [`ssh-agent` support](https://github.com/bjornharvold/curlybrace/issues/13), [TLS test containers](https://github.com/bjornharvold/curlybrace/issues/18),
   [real screenshots](https://github.com/bjornharvold/curlybrace/issues/20), [translations](https://github.com/bjornharvold/curlybrace/issues/21), [command palette](https://github.com/bjornharvold/curlybrace/issues/80).
