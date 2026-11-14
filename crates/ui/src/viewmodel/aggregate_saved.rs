@@ -4,7 +4,7 @@
 use super::aggregate::{AggregateState, Mode, PreviewState};
 use curlybrace_core::pipeline::{Stage, parse_pipeline_text, pipeline_text};
 use curlybrace_core::saved_pipeline::{
-    SavedError, SavedPipeline, SavedStage, same_name, validate_name,
+    SavedError, SavedPipeline, SavedStage, name_taken_in, validate_name,
 };
 use uuid::Uuid;
 
@@ -87,16 +87,23 @@ pub fn name_problem(
     if let Err(e) = validate_name(name) {
         return Some(e);
     }
-    let taken = entries
-        .iter()
-        .any(|p| Some(p.id) != except && same_name(&p.name, name));
-    (check_taken && taken).then_some(SavedError::NameTaken)
+    (check_taken && name_taken_in(entries, name, except)).then_some(SavedError::NameTaken)
 }
 
 fn to_saved(stages: &[Stage]) -> Vec<SavedStage> {
     stages
         .iter()
         .map(|s| SavedStage {
+            text: s.text.clone(),
+            enabled: s.enabled,
+        })
+        .collect()
+}
+
+fn from_saved(stages: &[SavedStage]) -> Vec<Stage> {
+    stages
+        .iter()
+        .map(|s| Stage {
             text: s.text.clone(),
             enabled: s.enabled,
         })
@@ -141,14 +148,7 @@ impl AggregateState {
     /// bumped, so an answer still in flight is stale; its slot stays taken until it arrives,
     /// as for any change. Nothing is sent here.
     pub fn opened_from(self, saved: &SavedPipeline) -> Self {
-        let stages: Vec<Stage> = saved
-            .stages
-            .iter()
-            .map(|s| Stage {
-                text: s.text.clone(),
-                enabled: s.enabled,
-            })
-            .collect();
+        let stages = from_saved(&saved.stages);
         let (keys, next_key) = self.keyed(Vec::new(), stages.len());
         let selected = Self::clamp(usize::MAX, stages.len());
         Self {

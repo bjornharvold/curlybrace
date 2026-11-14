@@ -85,6 +85,13 @@ pub fn same_name(a: &str, b: &str) -> bool {
     a.trim().to_lowercase() == b.trim().to_lowercase()
 }
 
+/// Whether a pipeline of `list` other than `except` already has this name, ignoring case and
+/// surrounding spaces. The one rule behind uniqueness, for a list that is not in a store.
+pub fn name_taken_in(list: &[SavedPipeline], name: &str, except: Option<Uuid>) -> bool {
+    list.iter()
+        .any(|p| Some(p.id) != except && same_name(&p.name, name))
+}
+
 #[derive(Deserialize)]
 struct Raw {
     #[serde(default = "first_version")]
@@ -184,9 +191,7 @@ impl SavedPipelines {
     /// Whether another pipeline of the connection (not `except`) already has this name,
     /// ignoring case and surrounding spaces.
     pub fn name_taken(&self, connection: Uuid, name: &str, except: Option<Uuid>) -> bool {
-        self.list(connection)
-            .iter()
-            .any(|p| Some(p.id) != except && same_name(&p.name, name))
+        name_taken_in(self.list(connection), name, except)
     }
 
     /// Saves `stages` under `name`. When the name is taken, `replace` overwrites that pipeline
