@@ -81,6 +81,7 @@
       "delete_title": "Delete saved pipeline",
       "error": {
         "empty_name": "Give the pipeline a name.",
+        "file_too_large": "The saved pipelines file would grow past 5 MB. Delete a saved pipeline first. Nothing was saved.",
         "invalid_text": "The text is not a valid pipeline yet. Fix it or switch back to stages before saving.",
         "name_taken": "Another saved pipeline already has this name.",
         "name_too_long": "The name is too long: use at most 80 characters.",

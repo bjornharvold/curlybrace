@@ -209,3 +209,28 @@ fn a_cleanup_that_cannot_be_written_is_reported_not_dropped() {
     assert!(app.state().pipelines.list(id).is_empty());
     assert!(app.state().banner.is_some(), "the failed write is shown");
 }
+
+#[test]
+fn a_list_too_big_for_the_file_is_refused_and_nothing_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Uuid::new_v4();
+    let (mut app, _events, _commands) = app_in(&dir, Vec::new());
+    app.state_mut()
+        .persist_pipelines(store_with(conn, "small"))
+        .unwrap();
+    let on_disk = std::fs::read(pipeline_file(&dir)).unwrap();
+    let before = app.state().pipelines.clone();
+    let big = (0..6).fold(before.clone(), |store, i| {
+        let stage = SavedStage {
+            text: "x".repeat(900_000),
+            enabled: true,
+        };
+        store
+            .saved(conn, &format!("big{i}"), None, vec![stage], 2, false)
+            .unwrap()
+    });
+    let result = app.state_mut().persist_pipelines(big);
+    assert_eq!(result, Err(pipelines_store::PipelinesSaveError::TooLarge));
+    assert_eq!(app.state().pipelines, before);
+    assert_eq!(std::fs::read(pipeline_file(&dir)).unwrap(), on_disk);
+}

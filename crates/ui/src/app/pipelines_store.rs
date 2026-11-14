@@ -43,9 +43,12 @@ fn parse(bytes: &[u8]) -> Result<SavedPipelines, PersistError> {
 
 /// Atomically writes the pipelines (pretty JSON, 0600).
 pub fn save(path: &Path, pipelines: &SavedPipelines) -> Result<(), PersistError> {
-    let bytes = serde_json::to_vec_pretty(pipelines)
-        .map_err(|_| PersistError::Write(std::io::ErrorKind::InvalidData))?;
-    atomic_write(path, &bytes)
+    atomic_write(path, &serialised(pipelines)?)
+}
+
+fn serialised(pipelines: &SavedPipelines) -> Result<Vec<u8>, PersistError> {
+    serde_json::to_vec_pretty(pipelines)
+        .map_err(|_| PersistError::Write(std::io::ErrorKind::InvalidData))
 }
 
 /// Why a change to the saved pipelines was not written.
@@ -53,6 +56,8 @@ pub fn save(path: &Path, pipelines: &SavedPipelines) -> Result<(), PersistError>
 pub enum PipelinesSaveError {
     /// The unusable original could not be backed up, so it must not be replaced.
     Blocked,
+    /// The file would pass [`MAX_FILE_BYTES`], which the next launch would not read back.
+    TooLarge,
     Persist(PersistError),
 }
 
@@ -61,6 +66,7 @@ impl PipelinesSaveError {
     pub fn i18n_key(&self) -> &'static str {
         match self {
             Self::Blocked => "aggregate.saved.blocked",
+            Self::TooLarge => "aggregate.saved.error.file_too_large",
             Self::Persist(e) => e.pipelines_i18n_key(),
         }
     }
@@ -70,7 +76,7 @@ impl PipelinesSaveError {
     pub fn banner(self) -> Banner {
         match self {
             Self::Blocked => Banner::Recovery(Recovery::Pipelines { backed_up: false }),
-            Self::Persist(e) => Banner::PipelinesPersist(e),
+            other => Banner::PipelinesPersist(other),
         }
     }
 }
@@ -82,5 +88,9 @@ pub fn saved(
     pipelines: &SavedPipelines,
 ) -> Result<(), PipelinesSaveError> {
     guard.check().map_err(|_| PipelinesSaveError::Blocked)?;
-    save(path, pipelines).map_err(PipelinesSaveError::Persist)
+    let bytes = serialised(pipelines).map_err(PipelinesSaveError::Persist)?;
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(PipelinesSaveError::TooLarge);
+    }
+    atomic_write(path, &bytes).map_err(PipelinesSaveError::Persist)
 }

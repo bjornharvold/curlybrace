@@ -1,6 +1,6 @@
 //! The saved pipelines file. Every file lives in a tempdir: nothing here may touch the real
 //! config directory.
-use super::persistence::{PersistError, Recovery, back_up};
+use super::persistence::{PersistError, PersistGuard, Recovery, back_up};
 use super::pipelines_store::{
     MAX_FILE_BYTES, PipelinesSaveError, default_pipelines_path, load, save, saved,
 };
@@ -176,4 +176,45 @@ fn a_save_failure_says_which_message_applies() {
         PipelinesSaveError::Blocked.i18n_key(),
         "aggregate.saved.blocked"
     );
+}
+
+/// `count` pipelines of one connection, each with `bytes` of stage text.
+fn heavy(count: usize, bytes: usize) -> SavedPipelines {
+    let conn = Uuid::new_v4();
+    (0..count).fold(SavedPipelines::default(), |store, i| {
+        let stage = SavedStage {
+            text: "x".repeat(bytes),
+            enabled: true,
+        };
+        store
+            .saved(conn, &format!("p{i}"), None, vec![stage], 1, false)
+            .unwrap()
+    })
+}
+
+#[test]
+fn a_write_past_the_file_cap_is_refused_and_the_file_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pipelines.json");
+    save(&path, &sample()).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    // Six pipelines under the 1 MB each limit, together over the 5 MB the next launch accepts.
+    let result = saved(&path, &PersistGuard::default(), &heavy(6, 900_000));
+    assert_eq!(result, Err(PipelinesSaveError::TooLarge));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        PipelinesSaveError::TooLarge.i18n_key(),
+        "aggregate.saved.error.file_too_large"
+    );
+}
+
+#[test]
+fn a_file_the_app_wrote_under_the_cap_loads_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pipelines.json");
+    let store = heavy(4, 900_000);
+    saved(&path, &PersistGuard::default(), &store).unwrap();
+    let started = load(&path, &back_up);
+    assert_eq!(started.recovery, None);
+    assert_eq!(started.settings, store);
 }
