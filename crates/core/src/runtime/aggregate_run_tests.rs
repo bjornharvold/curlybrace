@@ -43,9 +43,10 @@ async fn a_run_reaches_the_store_and_answers_with_the_target_count() {
         next(&mut h).await,
         Event::AggregateRan {
             session,
+            run: 4,
             ns: source,
             target,
-            outcome: Ok(3),
+            outcome: Ok(Some(3)),
         }
     );
     assert_eq!(store.written_pipelines(), vec![out_pipeline()]);
@@ -78,7 +79,7 @@ async fn the_target_follows_the_stage_forms() {
                 target, outcome, ..
             } => {
                 assert_eq!(target, expected);
-                assert_eq!(outcome, Ok(2));
+                assert_eq!(outcome, Ok(Some(2)));
             }
             other => panic!("expected AggregateRan, got {other:?}"),
         }
@@ -205,11 +206,13 @@ async fn a_client_timeout_is_an_unknown_outcome_never_a_plain_failure() {
     match next(&mut h).await {
         Event::AggregateRan {
             session: s,
+            run,
             ns,
             target,
             outcome,
         } => {
             assert_eq!(s, session);
+            assert_eq!(run, 4);
             assert_eq!(ns, mock_namespace());
             assert_eq!(target, Namespace::new("testdb", "dest"));
             assert_eq!(outcome, Err(CoreError::WriteOutcomeUnknown));
@@ -267,4 +270,71 @@ async fn a_preview_still_never_forwards_a_write_stage() {
     ));
     assert!(store.received_pipelines().is_empty());
     assert!(store.written_pipelines().is_empty());
+}
+
+/// A store whose write run succeeds and whose count of the target fails.
+struct CountFails(CoreError);
+
+#[async_trait::async_trait]
+impl DocumentStore for CountFails {
+    async fn list_databases(&self) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn list_collections(&self, _db: &str) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn find(&self, _ns: &Namespace, _q: &Query) -> Result<crate::store::Page> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn insert(&self, _ns: &Namespace, _doc: Document) -> Result<Bson> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn replace(&self, _ns: &Namespace, _id: &Bson, _doc: Document) -> Result<()> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn delete(&self, _ns: &Namespace, _id: &Bson) -> Result<()> {
+        Err(CoreError::Unsupported("unused".into()))
+    }
+    async fn ping(&self) -> Result<()> {
+        Ok(())
+    }
+    async fn estimated_count(&self, _ns: &Namespace) -> Result<u64> {
+        Err(self.0.clone())
+    }
+    async fn aggregate_write(
+        &self,
+        _ns: &Namespace,
+        _pipeline: Vec<Document>,
+        _max_time: Duration,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_run_stays_a_success_when_only_the_count_cannot_be_read() {
+    let store = CountFails(CoreError::Database("count".into()));
+    let (mut h, session) = connected_to(Arc::new(store), false, RuntimeConfig::default()).await;
+    h.tx.send(run_command(session, out_pipeline())).unwrap();
+    match next(&mut h).await {
+        Event::AggregateRan { outcome, run, .. } => {
+            assert_eq!(outcome, Ok(None));
+            assert_eq!(run, 4);
+        }
+        other => panic!("expected AggregateRan, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_lost_connection_while_counting_still_fails_the_command() {
+    let store = CountFails(CoreError::Unreachable);
+    let (mut h, session) = connected_to(Arc::new(store), false, RuntimeConfig::default()).await;
+    h.tx.send(run_command(session, out_pipeline())).unwrap();
+    assert!(matches!(
+        next(&mut h).await,
+        Event::Failed {
+            context: "aggregate_run",
+            ..
+        }
+    ));
 }

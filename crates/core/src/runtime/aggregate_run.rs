@@ -22,23 +22,30 @@ pub(super) fn target_namespace(source: &Namespace, pipeline: &[Document]) -> Nam
 
 /// Runs the pipeline and counts the target. A lost connection fails the command, so the runtime
 /// settles it by a ping (an interrupted write is then an unknown outcome). Every other failure
-/// of the pipeline, the store's shape refusal included, is the outcome, shown inline.
+/// of the pipeline, the store's shape refusal included, is the outcome, shown inline. A run that
+/// succeeded stays a success when only the count of its target cannot be read (`Ok(None)`).
 pub(super) async fn run(
     session: SessionId,
     store: &dyn DocumentStore,
     ns: Namespace,
     pipeline: Vec<Document>,
+    run: u64,
 ) -> Result<Event> {
     let target = target_namespace(&ns, &pipeline);
     let max_time = std::time::Duration::from_millis(AGGREGATE_RUN_MAX_TIME_MS);
     let outcome = match store.aggregate_write(&ns, pipeline, max_time).await {
-        Ok(()) => store.estimated_count(&target).await,
+        Ok(()) => match store.estimated_count(&target).await {
+            Ok(count) => Ok(Some(count)),
+            Err(error) if super::handlers::is_connection_error(&error) => Err(error),
+            Err(_) => Ok(None),
+        },
         Err(error) => Err(error),
     };
     match outcome {
         Err(error) if super::handlers::is_connection_error(&error) => Err(error),
         outcome => Ok(Event::AggregateRan {
             session,
+            run,
             ns,
             target,
             outcome,

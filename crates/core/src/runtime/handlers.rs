@@ -212,7 +212,10 @@ async fn run(
     };
     // A write run that outruns the client bound has an unknown outcome: answered, never pinged.
     let run_namespaces = match &command {
-        Command::AggregateRun { ns, pipeline, .. } => Some((
+        Command::AggregateRun {
+            ns, pipeline, run, ..
+        } => Some((
+            *run,
             ns.clone(),
             super::aggregate_run::target_namespace(ns, pipeline),
         )),
@@ -287,9 +290,10 @@ async fn run(
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
     }
-    if let (true, Some((ns, target))) = (timed_out, run_namespaces) {
+    if let (true, Some((run, ns, target))) = (timed_out, run_namespaces) {
         return Ok(Event::AggregateRan {
             session: id,
+            run,
             ns,
             target,
             outcome: Err(CoreError::WriteOutcomeUnknown),
@@ -420,9 +424,9 @@ async fn data_command(
                 outcome,
             }
         }
-        Command::AggregateRun { ns, pipeline, .. } => {
-            super::aggregate_run::run(session, &*store, ns, pipeline).await?
-        }
+        Command::AggregateRun {
+            ns, pipeline, run, ..
+        } => super::aggregate_run::run(session, &*store, ns, pipeline, run).await?,
         Command::Insert { ns, json, .. } => {
             service.insert_from_json(&ns, &json).await?;
             Event::Mutated { session, ns }
