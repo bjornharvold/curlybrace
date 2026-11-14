@@ -49,6 +49,8 @@ fn applied(draft: AggregateState, action: &AggregateAction) -> AggregateState {
         AggregateAction::EditText(text) => draft.with_text(text),
         AggregateAction::Refresh => draft,
         AggregateAction::Batch(actions) => actions.iter().fold(draft, applied),
+        // The saved-pipeline dialogs are the reducer's and have their own tests.
+        _ => draft,
     }
 }
 

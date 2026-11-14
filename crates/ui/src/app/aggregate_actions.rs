@@ -34,6 +34,22 @@ pub enum AggregateAction {
     /// The actions of one frame, applied in order; at most one preview is sent for all of them
     /// (see [`batch`]).
     Batch(Vec<AggregateAction>),
+    /// Save was clicked: opens the name dialog.
+    SaveClicked,
+    SaveNameEdited(String),
+    /// Save the draft under the dialog's name (asks to replace when the name is taken).
+    SaveConfirmed,
+    /// A saved pipeline was picked in the Open menu (asks first when the draft is modified).
+    OpenMenuPicked(Uuid),
+    /// Replace the draft with the pipeline the open prompt names.
+    OpenConfirmed,
+    RenameStarted(Uuid),
+    RenameEdited(String),
+    RenameConfirmed,
+    DeleteAsked(Uuid),
+    DeleteConfirmed,
+    /// Close whichever saved-pipeline dialog is open, changing nothing.
+    DialogCancelled,
 }
 
 impl AggregateAction {
@@ -64,6 +80,8 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::EditText(text) => (with_draft(state, draft.with_text(&text)), Vec::new()),
         AggregateAction::Refresh => previewed(state, draft),
         AggregateAction::Batch(actions) => batch(state, actions),
+        // The saved-pipeline actions come with the reducer.
+        _ => (state, Vec::new()),
     }
 }
 
