@@ -44,6 +44,7 @@ pub mod read_only_store;
 #[cfg(test)]
 mod read_only_store_tests;
 pub mod runtime;
+pub mod saved_pipeline;
 pub mod secrets;
 pub mod shape;
 pub mod shell;
