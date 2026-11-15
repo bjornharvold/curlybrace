@@ -9,7 +9,7 @@
 
 use bson::{Bson, Document};
 
-use super::agg_input::{input_reshapes, reshapes_documents};
+use super::agg_input::SortOrder;
 use super::agg_model::{
     AggHint, AggPlan, AggPlanOutcome, AggStage, AggSummary, ExplainVerbosity, InputPlan, ShardName,
 };
@@ -50,43 +50,64 @@ fn single(doc: &Document) -> Option<AggPlan> {
     from_planner(doc.get_document("queryPlanner").ok()?, stats)
 }
 
-/// The pipeline stages of `items`. `reshaped` says the documents already changed shape before the
-/// first of them (a `$group` folded into the input, or the shards' merge): from then on no index
-/// can order them, so a `$sort` is not a finding.
-fn parse_stage_list(items: &[Bson], mut reshaped: bool) -> Vec<ParsedStage> {
+/// The pipeline stages of `items`. `order` says what the stages before the first of them (the
+/// plan folded into the input, or the shards' merge) left of an index's chance to serve a `$sort`.
+fn parse_stage_list(items: &[Bson], mut order: SortOrder) -> Vec<ParsedStage> {
     items
         .iter()
         .filter_map(Bson::as_document)
-        .filter(|d| stage_operator(d).is_some_and(|name| !is_input_marker(name)))
         .filter_map(|d| {
-            let mut parsed = parse_stage(d)?;
-            if reshaped {
-                parsed.hints.retain(|h| *h != AggHint::InMemorySort);
-            }
-            let name = stage_operator(d)?;
-            reshaped = reshaped || reshapes_documents(name, d.get(name));
+            let (name, mut parsed) = parse_stage(d).filter(|(n, _)| !is_input_marker(n))?;
+            order.adjust(&mut parsed.hints);
+            order = order.after_stage(name, d.get(name));
             Some(parsed)
         })
         .collect()
 }
 
-fn cursor_input(items: &[Bson]) -> Option<ParsedInput> {
-    let cursor = items.iter().filter_map(Bson::as_document).find_map(|d| {
+/// The leading `$cursor` stage document: the plan under it and what the stage itself returned.
+fn cursor_stage(items: &[Bson]) -> Option<(&Document, &Document)> {
+    items.iter().filter_map(Bson::as_document).find_map(|d| {
         let name = stage_operator(d).filter(|n| is_input_marker(n))?;
-        d.get_document(name).ok()
-    })?;
-    let planner = cursor.get_document("queryPlanner").ok()?;
-    parse_input(planner, cursor.get_document("executionStats").ok())
+        Some((d, d.get_document(name).ok()?))
+    })
+}
+
+/// What the `$cursor` stage handed to the pipeline. With a `$group` folded into it that is the
+/// number of groups, not the documents the group read.
+fn cursor_output(stage: &Document, body: &Document) -> CursorOutput {
+    let stats = body.get_document("executionStats").ok();
+    let root = stats.and_then(|s| s.get_document("executionStages").ok());
+    CursorOutput {
+        n_returned: opt_count(stage, "nReturned")
+            .or_else(|| stats.and_then(|s| opt_count(s, "nReturned")))
+            .or_else(|| root.and_then(|r| opt_count(r, "nReturned"))),
+        millis: opt_count(stage, "executionTimeMillisEstimate")
+            .or_else(|| root.and_then(|r| opt_count(r, "executionTimeMillisEstimate"))),
+    }
+}
+
+/// The figures of the `$cursor` stage itself, as the pipeline's output when nothing follows it.
+#[derive(Default)]
+struct CursorOutput {
+    n_returned: Option<u64>,
+    millis: Option<u64>,
 }
 
 fn from_stages(items: &[Bson], stats: Option<&Document>) -> Option<AggPlan> {
-    let input = cursor_input(items);
-    let folded = input.as_ref().is_some_and(|i| {
-        let stages: Vec<&str> = i.plan.plan_stages.iter().map(String::as_str).collect();
-        input_reshapes(&stages)
+    let cursor = cursor_stage(items);
+    let input = cursor.and_then(|(_, body)| {
+        let planner = body.get_document("queryPlanner").ok()?;
+        parse_input(planner, body.get_document("executionStats").ok())
     });
-    let stages = parse_stage_list(items, folded);
-    (input.is_some() || !stages.is_empty()).then(|| assemble(input, stages, stats))
+    let order = input.as_ref().map_or(SortOrder::Indexable, |i| {
+        let stages: Vec<&str> = i.plan.plan_stages.iter().map(String::as_str).collect();
+        SortOrder::after_plan(&stages)
+    });
+    let stages = parse_stage_list(items, order);
+    let output = cursor.map(|(stage, body)| cursor_output(stage, body));
+    (input.is_some() || !stages.is_empty())
+        .then(|| assemble(input, stages, stats, output.unwrap_or_default()))
 }
 
 fn from_planner(planner: &Document, stats: Option<&Document>) -> Option<AggPlan> {
@@ -96,7 +117,8 @@ fn from_planner(planner: &Document, stats: Option<&Document>) -> Option<AggPlan>
         .and_then(|w| w.get_array("shards").ok());
     match shard_entries {
         Some(entries) => sharded_by_list(entries, stats),
-        None => parse_input(planner, stats).map(|input| assemble(Some(input), Vec::new(), stats)),
+        None => parse_input(planner, stats)
+            .map(|input| assemble(Some(input), Vec::new(), stats, CursorOutput::default())),
     }
 }
 
@@ -128,7 +150,13 @@ fn sharded_by_list(entries: &[Bson], stats: Option<&Document>) -> Option<AggPlan
                 ShardName::Index(_) => None,
             };
             let input = parse_input(entry, shard_stats)?;
-            Some((name, assemble(Some(input), Vec::new(), shard_stats)))
+            let plan = assemble(
+                Some(input),
+                Vec::new(),
+                shard_stats,
+                CursorOutput::default(),
+            );
+            Some((name, plan))
         })
         .collect();
     (!shards.is_empty()).then(|| combine(shards, Vec::new(), stats))
@@ -149,7 +177,7 @@ fn sharded_by_name(doc: &Document, shards: &Document) -> Option<AggPlan> {
         .ok()
         .and_then(|split| split.get_array("mergerPart").ok())
         // The merger runs after the shards' streams are merged: nothing there is index-ordered.
-        .map(|items| parse_stage_list(items, true))
+        .map(|items| parse_stage_list(items, SortOrder::Unindexable))
         .unwrap_or_default();
     (!plans.is_empty()).then(|| combine(plans, merger, doc.get_document("executionStats").ok()))
 }
@@ -167,10 +195,10 @@ fn max_of(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
     values.flatten().max()
 }
 
-fn sum_of(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
-    values.flatten().fold(None, |sum, n| {
-        Some(sum.map_or(n, |total: u64| total.saturating_add(n)))
-    })
+/// The sum of `values`, but only when every one of them is known: a total of the shards that
+/// happened to report is not the total.
+fn sum_of(mut values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
+    values.try_fold(0u64, |total, value| value.map(|n| total.saturating_add(n)))
 }
 
 fn verbosity(executed: bool) -> ExplainVerbosity {
@@ -180,11 +208,13 @@ fn verbosity(executed: bool) -> ExplainVerbosity {
     }
 }
 
-/// One plan from an input, the stages after it and the document-level statistics, if any.
+/// One plan from an input, the stages after it, the document-level statistics, if any, and what
+/// the `$cursor` stage itself returned.
 fn assemble(
     input: Option<ParsedInput>,
     stages: Vec<ParsedStage>,
     stats: Option<&Document>,
+    cursor: CursorOutput,
 ) -> AggPlan {
     let stat = |key: &str| stats.and_then(|s| opt_count(s, key));
     let last_returned = stages.last().and_then(|s| s.stage.n_returned);
@@ -192,21 +222,22 @@ fn assemble(
         |pick: fn(&InputPlan) -> Option<u64>| input.as_ref().and_then(|i| pick(&i.plan));
     let executed = stats.is_some()
         || input.as_ref().is_some_and(|i| i.has_stats)
+        || cursor.n_returned.is_some()
         || stages
             .iter()
             .any(|s| s.stage.n_returned.is_some() || s.stage.millis.is_some());
+    // What the pipeline returned: the last stage's output, else the `$cursor`'s own when nothing
+    // follows it. The input's count is the feed of a folded reducer, never the pipeline's output.
     let n_returned = stat("nReturned")
         .or(last_returned)
-        .or_else(|| match stages.is_empty() {
-            true => input_figure(|i| i.n_returned),
-            false => None,
-        });
+        .or_else(|| stages.is_empty().then_some(cursor.n_returned).flatten());
     let summary = AggSummary {
         verbosity_seen: verbosity(executed),
         total_millis: max_of(
             [
                 stat("executionTimeMillis"),
                 input.as_ref().and_then(|i| i.millis),
+                cursor.millis,
             ]
             .into_iter()
             .chain(stages.iter().map(|s| s.stage.millis)),

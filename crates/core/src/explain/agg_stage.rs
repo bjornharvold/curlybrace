@@ -5,10 +5,10 @@
 use bson::{Bson, Document};
 
 use super::agg_input::{
-    collscans_unfiltered, has_input_side_sort, has_nested_loop_lookup, input_returned,
+    collscans_unfiltered, has_nested_loop_lookup, input_returned, input_side_sort,
 };
 use super::agg_model::{AggHint, AggStage, InputPlan};
-use super::classify::{ACCESS_STAGES, is_inefficient, walk};
+use super::classify::{ACCESS_STAGES, is_eq_lookup, is_inefficient, walk};
 
 /// Most field names a stage detail lists.
 const DETAIL_KEYS: usize = 8;
@@ -128,10 +128,11 @@ fn stage_hints(name: &str, stage: &Document) -> Vec<AggHint> {
     hints
 }
 
-/// Reads one pipeline stage document. `None` for a document with no `$` operator.
-pub(super) fn parse_stage(stage: &Document) -> Option<ParsedStage> {
+/// Reads one pipeline stage document, with its operator. `None` for a document with no `$`
+/// operator.
+pub(super) fn parse_stage(stage: &Document) -> Option<(&str, ParsedStage)> {
     let name = stage_operator(stage)?;
-    Some(ParsedStage {
+    let parsed = ParsedStage {
         stage: AggStage {
             name: name.to_owned(),
             detail: stage_detail(name, stage.get(name)),
@@ -141,11 +142,17 @@ pub(super) fn parse_stage(stage: &Document) -> Option<ParsedStage> {
             millis: opt_count(stage, "executionTimeMillisEstimate"),
         },
         hints: stage_hints(name, stage),
-    })
+    };
+    Some((name, parsed))
 }
 
 /// The hint for an input that examined far more than it handed on. Only with execution figures.
+/// A pushed-down `$lookup` adds the joined collection's reads to the totals, and they cannot be
+/// told from the local side's, so a plan with one is not judged.
 pub(super) fn examined_hint(input: &InputPlan) -> Option<AggHint> {
+    if input.plan_stages.iter().any(|s| is_eq_lookup(s)) {
+        return None;
+    }
     let returned = input.n_returned?;
     input.keys_examined.or(input.docs_examined)?;
     is_inefficient(
@@ -171,13 +178,12 @@ pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Optio
     let mut hints = Vec::new();
     // A scan with no filter reads everything because the pipeline asks for everything: no index
     // would change that, so it is no finding (the call `classify` makes for a find, too).
-    let sorts_input = has_input_side_sort(winning);
-    if nodes.contains(&"COLLSCAN") && (sorts_input || !collscans_unfiltered(winning)) {
+    let sort_finding = input_side_sort(winning);
+    let index_could_sort = sort_finding == Some(AggHint::InMemorySort);
+    if nodes.contains(&"COLLSCAN") && (index_could_sort || !collscans_unfiltered(winning)) {
         hints.push(AggHint::CollectionScan);
     }
-    if sorts_input {
-        hints.push(AggHint::InMemorySort);
-    }
+    hints.extend(sort_finding);
     if has_nested_loop_lookup(winning) {
         hints.push(AggHint::LookupCollectionScan);
     }

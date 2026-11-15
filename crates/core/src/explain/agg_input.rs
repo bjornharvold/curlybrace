@@ -4,6 +4,7 @@
 
 use bson::{Bson, Document};
 
+use super::agg_model::AggHint;
 use super::agg_stage::opt_count;
 use super::classify::is_eq_lookup;
 
@@ -14,21 +15,80 @@ fn is_reducing(stage: &str) -> bool {
     stage.eq_ignore_ascii_case("group") || stage.eq_ignore_ascii_case("count")
 }
 
-/// Plan stages after which a `$sort` runs on documents no index describes any more. A `LIMIT` or
-/// `SKIP` is one: the server folds a leading `$limit`/`$skip` into the `$cursor` plan, and the
-/// `$sort` after it stays a pipeline stage that sorts what is left.
-const RESHAPING_STAGES: [&str; 7] = [
+/// Plan stages after which a `$sort` runs on documents no index describes any more. A `LIMIT` is
+/// one: the server folds a leading `$limit` into the `$cursor` plan, and the `$sort` after it
+/// stays a pipeline stage that sorts the few documents that are left. A `SKIP` is not: it hides
+/// the index from the sort the same way, but what the sort then orders is not small.
+const RESHAPING_STAGES: [&str; 6] = [
     "GROUP",
     "COUNT",
     "UNWIND",
     "EQ_LOOKUP",
     "EQ_LOOKUP_UNWIND",
     "LIMIT",
-    "SKIP",
 ];
 
+/// The plan stage a `$skip` folds into.
+const SKIP_STAGE: &str = "SKIP";
+
+/// What the stages before a `$sort` leave of its chance to be served by an index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SortOrder {
+    /// Nothing before the sort changes the documents or their count: an index could serve it.
+    Indexable,
+    /// A `$skip` came first: no index can serve the sort, yet it orders every document the skip
+    /// left, so the cost is real.
+    AfterSkip,
+    /// Reshaped or limited documents: the sort is not a finding.
+    Unindexable,
+}
+
+impl SortOrder {
+    /// The state after the plan stages folded into the `$cursor`.
+    pub(super) fn after_plan(plan_stages: &[&str]) -> Self {
+        if plan_stages.iter().any(|s| RESHAPING_STAGES.contains(s)) {
+            Self::Unindexable
+        } else if plan_stages.contains(&SKIP_STAGE) {
+            Self::AfterSkip
+        } else {
+            Self::Indexable
+        }
+    }
+
+    /// The state after the pipeline stage `name` (with its `body`).
+    pub(super) fn after_stage(self, name: &str, body: Option<&Bson>) -> Self {
+        match (name, self) {
+            ("$skip", Self::Indexable) => Self::AfterSkip,
+            (_, Self::Unindexable) => Self::Unindexable,
+            _ if reshapes_documents(name, body) => Self::Unindexable,
+            _ => self,
+        }
+    }
+
+    /// The hint a blocking sort raises here: none, the skip variant, or the plain one.
+    pub(super) fn sort_hint(self) -> Option<AggHint> {
+        match self {
+            Self::Indexable => Some(AggHint::InMemorySort),
+            Self::AfterSkip => Some(AggHint::InMemorySortAfterSkip),
+            Self::Unindexable => None,
+        }
+    }
+
+    /// `hints` with an in-memory sort finding turned into what this state says of it.
+    pub(super) fn adjust(self, hints: &mut Vec<AggHint>) {
+        if let Some(position) = hints.iter().position(|h| *h == AggHint::InMemorySort) {
+            match self.sort_hint() {
+                Some(hint) => hints[position] = hint,
+                None => {
+                    hints.remove(position);
+                }
+            }
+        }
+    }
+}
+
 /// Pipeline stages that change the shape of the documents so that no index can order them.
-const RESHAPING_OPERATORS: [&str; 32] = [
+const RESHAPING_OPERATORS: [&str; 31] = [
     "$group",
     "$unwind",
     "$addFields",
@@ -49,11 +109,9 @@ const RESHAPING_OPERATORS: [&str; 32] = [
     "$geoNear",
     "$mergeCursors",
     "$redact",
-    // A `$sort` after a `$limit` sorts only the few documents that are left, which is cheap. After
-    // a `$skip` it is not cheap, but no index can serve the sort without changing the result: the
-    // skipped documents are the first ones in the unsorted order.
+    // A `$sort` after a `$limit` sorts only the few documents that are left, which is cheap. (A
+    // `$skip` is handled by `SortOrder`: that sort is a finding, without the index promise.)
     "$limit",
-    "$skip",
     // What the server prints for the stages that desugar.
     "$_internalSetWindowFields",
     "$_internalDensify",
@@ -96,24 +154,27 @@ fn is_flag(value: &Bson) -> bool {
     }
 }
 
-/// Whether the plan stages of the input already reshape the documents, so a `$sort` after the
-/// input cannot be served by an index.
-pub(super) fn input_reshapes(plan_stages: &[&str]) -> bool {
-    plan_stages.iter().any(|s| RESHAPING_STAGES.contains(s))
+/// The finding for a `SORT` on the input side of the plan: one with no reshaping stage between it
+/// and the scan. A `SORT` above a `GROUP`, `UNWIND` or `EQ_LOOKUP` orders reshaped documents no
+/// index describes; one above a `SKIP` is the skip variant. `None` when there is no such sort.
+pub(super) fn input_side_sort(node: &Document) -> Option<AggHint> {
+    let kids = children(node);
+    let own = (node.get_str("stage") == Ok("SORT"))
+        .then(|| {
+            let mut below = Vec::new();
+            kids.iter().for_each(|k| collect_stages(k, &mut below));
+            SortOrder::after_plan(&below).sort_hint()
+        })
+        .flatten();
+    own.or_else(|| kids.into_iter().find_map(input_side_sort))
 }
 
-/// Whether the plan holds a `SORT` on the input side: one with no reshaping stage between it and
-/// the scan. A `SORT` above a `GROUP`, `UNWIND` or `EQ_LOOKUP` orders reshaped documents no
-/// index describes.
-pub(super) fn has_input_side_sort(node: &Document) -> bool {
-    fn reshaper_below(node: &Document) -> bool {
-        node.get_str("stage")
-            .is_ok_and(|s| RESHAPING_STAGES.contains(&s))
-            || children(node).into_iter().any(reshaper_below)
-    }
-    let kids = children(node);
-    let own = node.get_str("stage") == Ok("SORT") && !kids.iter().any(|k| reshaper_below(k));
-    own || kids.into_iter().any(has_input_side_sort)
+/// Every plan stage name at or under `node` that the plan walk visits.
+fn collect_stages<'a>(node: &'a Document, found: &mut Vec<&'a str>) {
+    found.extend(node.get_str("stage").ok());
+    children(node)
+        .into_iter()
+        .for_each(|child| collect_stages(child, found));
 }
 
 fn children(node: &Document) -> Vec<&Document> {
@@ -137,15 +198,7 @@ fn children(node: &Document) -> Vec<&Document> {
 pub(super) fn has_nested_loop_lookup(node: &Document) -> bool {
     let here = node.get_str("stage").is_ok_and(is_eq_lookup)
         && node.get_str("strategy") == Ok("NestedLoopJoin");
-    here || ["queryPlan", "inputStage"]
-        .iter()
-        .filter_map(|key| node.get_document(key).ok())
-        .any(has_nested_loop_lookup)
-        || node.get_array("inputStages").is_ok_and(|list| {
-            list.iter()
-                .filter_map(Bson::as_document)
-                .any(has_nested_loop_lookup)
-        })
+    here || children(node).into_iter().any(has_nested_loop_lookup)
 }
 
 /// Whether every collection scan of the plan has no filter (a missing or empty one): the scan

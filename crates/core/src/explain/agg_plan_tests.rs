@@ -394,6 +394,7 @@ fn hint_keys_are_stable_snake_case_codes() {
         AggHint::DiskSort,
         AggHint::ExaminedMuchMoreThanReturned,
         AggHint::LookupCollectionScan,
+        AggHint::InMemorySortAfterSkip,
     ]
     .iter()
     .map(|h| h.key())
@@ -405,7 +406,118 @@ fn hint_keys_are_stable_snake_case_codes() {
             "in_memory_sort",
             "disk_sort",
             "examined_much_more_than_returned",
-            "lookup_collection_scan"
+            "lookup_collection_scan",
+            "in_memory_sort_after_skip"
         ]
     );
+}
+
+// --- the summary's output count is the pipeline's, never the reducer's input ---
+
+// Captured from a MongoDB 9.0 server: a `$group` folded into the `$cursor`, then a `$sort`.
+const STAGES_GROUP_SORT: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_stages_group_sort_stats.json");
+
+fn group_sort_doc(keep_stages: usize) -> Document {
+    let mut doc = editor_json_to_doc(STAGES_GROUP_SORT).expect("fixture parses");
+    doc.get_array_mut("stages")
+        .expect("stages")
+        .truncate(keep_stages);
+    doc
+}
+
+fn plan_of(doc: &Document) -> AggPlan {
+    match parse_aggregate_explain(doc) {
+        AggPlanOutcome::Plan(p) => p,
+        AggPlanOutcome::NotUnderstood => panic!("not understood"),
+    }
+}
+
+#[test]
+fn a_folded_group_followed_by_a_stage_reports_that_stages_output() {
+    let p = plan_of(&group_sort_doc(2));
+    assert_eq!(p.input.as_ref().and_then(|i| i.n_returned), Some(5000));
+    assert_eq!(p.summary.n_returned, Some(5));
+}
+
+#[test]
+fn a_folded_group_alone_in_the_stages_reports_the_cursors_own_output_not_its_feed() {
+    // The same capture cut to its `$cursor` stage.
+    let p = plan_of(&group_sort_doc(1));
+    assert!(p.stages.is_empty());
+    assert_eq!(p.input.as_ref().and_then(|i| i.n_returned), Some(5000));
+    assert_eq!(p.summary.n_returned, Some(5), "the number of groups");
+}
+
+#[test]
+fn a_cursor_stage_without_figures_leaves_the_output_unknown_rather_than_the_feed() {
+    let mut doc = group_sort_doc(1);
+    let cursor = doc.get_array_mut("stages").expect("stages")[0]
+        .as_document_mut()
+        .expect("stage");
+    cursor.remove("nReturned");
+    let body = cursor.get_document_mut("$cursor").expect("cursor");
+    let stats = body.get_document_mut("executionStats").expect("stats");
+    stats.remove("nReturned");
+    stats
+        .get_document_mut("executionStages")
+        .expect("stages")
+        .remove("nReturned");
+    assert_eq!(plan_of(&doc).summary.n_returned, None);
+}
+
+// --- a partial sum is not a total ---
+
+fn three_shards(third: Document) -> Document {
+    let mut doc = fixture("sharded_stages");
+    doc.get_document_mut("shards")
+        .expect("shards")
+        .insert("shardC", third);
+    doc
+}
+
+#[test]
+fn a_shard_without_execution_stats_leaves_the_summed_figures_unknown() {
+    let planner_only = doc! { "stages": [ { "$cursor": { "queryPlanner": { "winningPlan": {
+    "stage": "COLLSCAN", "filter": { "a": 1 } } } } } ] };
+    let p = plan_of(&three_shards(planner_only));
+    assert_eq!(p.shards.len(), 3);
+    assert_eq!(p.summary.keys_examined, None);
+    assert_eq!(p.summary.docs_examined, None);
+    assert_eq!(
+        p.summary.total_millis,
+        Some(12),
+        "the slowest shard that reported"
+    );
+}
+
+#[test]
+fn every_shard_reporting_still_sums() {
+    let shard_a = fixture("sharded_stages")
+        .get_document("shards")
+        .and_then(|s| s.get_document("shardA"))
+        .expect("shardA")
+        .clone();
+    let p = plan_of(&three_shards(shard_a));
+    assert_eq!(p.summary.keys_examined, Some(1400));
+    assert_eq!(p.summary.docs_examined, Some(91_400));
+}
+
+#[test]
+fn a_listed_shard_without_its_stats_does_not_give_a_partial_total() {
+    let mut doc = fixture("sharded_winning_plan");
+    // Without the server's own total the figure can only come from adding the shards up.
+    doc.get_document_mut("executionStats")
+        .expect("stats")
+        .remove("totalDocsExamined");
+    let shards = doc
+        .get_document_mut("queryPlanner")
+        .and_then(|q| q.get_document_mut("winningPlan"))
+        .and_then(|w| w.get_array_mut("shards"))
+        .expect("shards");
+    shards.push(bson::Bson::Document(doc! { "shardName": "shardC",
+    "winningPlan": { "stage": "COLLSCAN", "filter": { "a": 1 } } }));
+    let p = plan_of(&doc);
+    assert_eq!(p.shards.len(), 3);
+    assert_eq!(p.summary.docs_examined, None);
 }

@@ -195,11 +195,55 @@ fn a_sort_after_a_plain_inclusion_projection_still_could() {
     ]));
 }
 
+fn hints_of(stages: Vec<Document>) -> Vec<AggHint> {
+    plan_of(&cursor_then(stages)).hints
+}
+
 #[test]
-fn a_sort_after_a_limit_or_a_skip_is_not_a_finding() {
-    for stage in [doc! { "$limit": 5 }, doc! { "$skip": 5 }] {
-        assert!(!has_in_memory_sort(vec![stage, sort_stage()]));
+fn a_sort_after_a_limit_is_not_a_finding() {
+    assert!(!has_in_memory_sort(vec![
+        doc! { "$limit": 5 },
+        sort_stage()
+    ]));
+}
+
+#[test]
+fn a_sort_after_a_skip_is_still_a_finding_without_the_index_promise() {
+    let hints = hints_of(vec![doc! { "$skip": 5 }, sort_stage()]);
+    assert_eq!(
+        hints,
+        [AggHint::CollectionScan, AggHint::InMemorySortAfterSkip],
+        "no index can serve it, but the sort is real"
+    );
+}
+
+#[test]
+fn a_reshaping_or_limiting_stage_after_the_skip_ends_the_finding() {
+    for stage in [
+        doc! { "$limit": 5 },
+        doc! { "$group": { "_id": "$a" } },
+        doc! { "$unwind": "$a" },
+    ] {
+        let hints = hints_of(vec![doc! { "$skip": 5 }, stage, sort_stage()]);
+        assert!(
+            !hints.contains(&AggHint::InMemorySortAfterSkip)
+                && !hints.contains(&AggHint::InMemorySort),
+            "{hints:?}"
+        );
     }
+}
+
+#[test]
+fn a_skip_after_a_reshaping_stage_does_not_bring_the_finding_back() {
+    let hints = hints_of(vec![
+        doc! { "$group": { "_id": "$a" } },
+        doc! { "$skip": 5 },
+        sort_stage(),
+    ]);
+    assert!(
+        !hints.contains(&AggHint::InMemorySortAfterSkip),
+        "{hints:?}"
+    );
 }
 
 #[test]
@@ -301,15 +345,68 @@ const MATCH_SORT: &str =
     include_str!("../../tests/fixtures/explain_aggregate/real_limit_sort_match_sort.json");
 
 #[test]
-fn a_sort_after_a_folded_limit_or_skip_raises_nothing() {
+fn a_sort_after_a_folded_limit_raises_nothing() {
     for (name, text) in [
         ("match+limit+sort", MATCH_LIMIT_SORT),
-        ("skip+sort", SKIP_SORT),
         ("limit+sort", LIMIT_SORT),
     ] {
         let p = plan_from_text(text);
         assert!(p.hints.is_empty(), "{name}: {:?}", p.hints);
     }
+}
+
+#[test]
+fn a_sort_after_a_folded_skip_sorts_what_is_left_in_memory() {
+    let p = plan_from_text(SKIP_SORT);
+    assert_eq!(p.hints, [AggHint::InMemorySortAfterSkip]);
+}
+
+#[test]
+fn a_sort_over_a_skip_in_the_plan_tree_is_the_skip_variant() {
+    let p = planned(doc! { "stage": "SORT", "inputStage": {
+    "stage": "SKIP", "inputStage": { "stage": "COLLSCAN", "filter": {} } } });
+    assert_eq!(p.hints, [AggHint::InMemorySortAfterSkip]);
+}
+
+// --- a $lookup's joined side is not the local plan ---
+
+#[test]
+fn a_nested_loop_on_the_joined_side_of_a_lookup_is_not_a_finding() {
+    let p = planned(doc! {
+        "stage": "EQ_LOOKUP",
+        "strategy": "IndexedLoopJoin",
+        "inputStages": [
+            { "stage": "COLLSCAN", "filter": {} },
+            { "stage": "EQ_LOOKUP", "strategy": "NestedLoopJoin", "inputStages": [
+                { "stage": "COLLSCAN", "filter": {} },
+                { "stage": "COLLSCAN", "filter": {} },
+            ] },
+        ],
+    });
+    assert!(p.hints.is_empty(), "{:?}", p.hints);
+}
+
+#[test]
+fn the_joined_collections_reads_do_not_make_a_healthy_join_look_wasteful() {
+    // The counters at the top add the joined collection's reads to the local side's.
+    let text = LOOKUP_GROUP
+        .replacen(
+            "\"totalKeysExamined\": 10000",
+            "\"totalKeysExamined\": 5000000",
+            1,
+        )
+        .replacen(
+            "\"totalDocsExamined\": 10000",
+            "\"totalDocsExamined\": 5000000",
+            1,
+        );
+    let p = plan_from_text(&text);
+    assert_eq!(p.summary.keys_examined, Some(5_000_000), "still reported");
+    assert!(
+        !p.hints.contains(&AggHint::ExaminedMuchMoreThanReturned),
+        "{:?}",
+        p.hints
+    );
 }
 
 #[test]

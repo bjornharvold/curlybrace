@@ -80,6 +80,8 @@ pub enum AggHint {
     ExaminedMuchMoreThanReturned,
     /// A `$lookup` that scanned the joined collection.
     LookupCollectionScan,
+    /// A blocking sort of the documents a `$skip` left: no index can serve it, the cost is real.
+    InMemorySortAfterSkip,
 }
 
 impl AggHint {
@@ -91,6 +93,7 @@ impl AggHint {
             Self::DiskSort => "disk_sort",
             Self::ExaminedMuchMoreThanReturned => "examined_much_more_than_returned",
             Self::LookupCollectionScan => "lookup_collection_scan",
+            Self::InMemorySortAfterSkip => "in_memory_sort_after_skip",
         }
     }
 }
