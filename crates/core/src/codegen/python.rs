@@ -7,6 +7,7 @@ use crate::codegen::escape::indent;
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::python_syntax::{PythonSyntax, quote};
+use crate::codegen::range::i64_arg;
 use crate::codegen::walk::{Syntax, lay_out, render, render_document, render_documents};
 use crate::store::{Namespace, Query};
 
@@ -85,10 +86,10 @@ impl Renderer for Python {
             args.push("sort=sort".into());
         }
         if query.skip > 0 {
-            args.push(format!("skip={}", query.skip));
+            args.push(format!("skip={}", i64_arg("skip", query.skip)?));
         }
         if query.limit > 0 {
-            args.push(format!("limit={}", query.limit));
+            args.push(format!("limit={}", i64_arg("limit", query.limit)?));
         }
         let coll = &options.collection_var;
         let call = if args.len() == 1 {

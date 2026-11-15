@@ -8,6 +8,7 @@ use bson::Document;
 
 use crate::codegen::Renderer;
 use crate::codegen::model::{CodeOptions, CodegenError};
+use crate::codegen::range::i64_arg;
 use crate::codegen::ruby_syntax::{RubySyntax, quote};
 use crate::codegen::walk::{render_document, render_documents};
 use crate::store::{Namespace, Query};
@@ -68,10 +69,10 @@ impl Renderer for Ruby {
             args.push("sort: sort".into());
         }
         if query.skip > 0 {
-            args.push(format!("skip: {}", query.skip));
+            args.push(format!("skip: {}", i64_arg("skip", query.skip)?));
         }
         if query.limit > 0 {
-            args.push(format!("limit: {}", query.limit));
+            args.push(format!("limit: {}", i64_arg("limit", query.limit)?));
         }
         let coll = &options.collection_var;
         let call = if args.is_empty() {

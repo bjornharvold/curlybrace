@@ -6,6 +6,7 @@ use crate::codegen::Renderer;
 use crate::codegen::escape::indent_lines;
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
+use crate::codegen::range::i64_arg;
 use crate::codegen::rust_syntax::{RustSyntax, quote};
 use crate::codegen::walk::{render_document, render_documents};
 use crate::store::{Namespace, Query};
@@ -55,11 +56,6 @@ impl Rust {
 const PRINT_CURSOR: &str =
     "while let Some(item) = cursor.try_next().await? {\n    println!(\"{item}\");\n}\n";
 
-/// `limit` is an `i64` in the Rust driver.
-fn limit_arg(value: u64) -> Result<i64, CodegenError> {
-    i64::try_from(value).map_err(|_| CodegenError::OutOfRange("limit"))
-}
-
 impl Renderer for Rust {
     fn find(
         &self,
@@ -88,10 +84,10 @@ impl Renderer for Rust {
             chain.push(".sort(sort)".into());
         }
         if query.skip > 0 {
-            chain.push(format!(".skip({})", query.skip));
+            chain.push(format!(".skip({})", i64_arg("skip", query.skip)?));
         }
         if query.limit > 0 {
-            chain.push(format!(".limit({})", limit_arg(query.limit)?));
+            chain.push(format!(".limit({})", i64_arg("limit", query.limit)?));
         }
         let lines: String = chain.iter().map(|c| format!("\n    {c}")).collect();
         body.push_str(&format!(

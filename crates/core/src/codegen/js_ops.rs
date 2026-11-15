@@ -5,6 +5,7 @@ use bson::Document;
 
 use crate::codegen::js_syntax::JsSyntax;
 use crate::codegen::model::CodegenError;
+use crate::codegen::range::js_arg;
 use crate::codegen::walk::{render_document, render_documents};
 use crate::store::Query;
 
@@ -60,10 +61,10 @@ impl JsOps<'_> {
             chain.push(".sort(sort)".into());
         }
         if query.skip > 0 {
-            chain.push(format!(".skip({})", query.skip));
+            chain.push(format!(".skip({})", js_arg("skip", query.skip)?));
         }
         if query.limit > 0 {
-            chain.push(format!(".limit({})", query.limit));
+            chain.push(format!(".limit({})", js_arg("limit", query.limit)?));
         }
         let coll = self.collection;
         let wait = self.await_prefix();

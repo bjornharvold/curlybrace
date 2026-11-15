@@ -6,6 +6,7 @@ use crate::codegen::Renderer;
 use crate::codegen::escape::indent_lines;
 use crate::codegen::go_syntax::{GoSyntax, quote};
 use crate::codegen::model::{CodeOptions, CodegenError};
+use crate::codegen::range::i64_arg;
 use crate::codegen::walk::{render_document, render_documents};
 use crate::store::{Namespace, Query};
 
@@ -48,11 +49,6 @@ fn check_names(options: &CodeOptions) -> Result<(), CodegenError> {
     Ok(())
 }
 
-/// `SetSkip` / `SetLimit` take `int64`.
-fn int_arg(name: &'static str, value: u64) -> Result<i64, CodegenError> {
-    i64::try_from(value).map_err(|_| CodegenError::OutOfRange(name))
-}
-
 const READ_RESULTS: &str = "if err != nil {\n\tlog.Fatal(err)\n}\nvar results []bson.M\nif err := cursor.All(context.TODO(), &results); err != nil {\n\tlog.Fatal(err)\n}\nfmt.Println(results)\n";
 
 impl Renderer for Go {
@@ -78,10 +74,10 @@ impl Renderer for Go {
             setters.push("SetSort(sort)".into());
         }
         if query.skip > 0 {
-            setters.push(format!("SetSkip({})", int_arg("skip", query.skip)?));
+            setters.push(format!("SetSkip({})", i64_arg("skip", query.skip)?));
         }
         if query.limit > 0 {
-            setters.push(format!("SetLimit({})", int_arg("limit", query.limit)?));
+            setters.push(format!("SetLimit({})", i64_arg("limit", query.limit)?));
         }
         let coll = &options.collection_var;
         if setters.is_empty() {

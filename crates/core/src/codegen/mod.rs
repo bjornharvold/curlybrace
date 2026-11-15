@@ -25,6 +25,7 @@ mod php;
 mod php_syntax;
 mod python;
 mod python_syntax;
+mod range;
 mod ruby;
 mod ruby_syntax;
 mod rust;
@@ -112,6 +113,8 @@ mod tests;
 mod tests_langs;
 #[cfg(test)]
 mod tests_lossy;
+#[cfg(test)]
+mod tests_range;
 #[cfg(test)]
 mod tests_review;
 #[cfg(test)]
