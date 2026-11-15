@@ -7,7 +7,9 @@ mod support;
 use std::time::Duration;
 
 use bson::{Document, doc};
+use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::{COUNT_CAP, PREVIEW_MAX_TIME_MS, Stage, count_of, count_pipeline};
+use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::{DocumentStore, Namespace};
 use support::{insert_labelled, local_enabled, local_mongo};
 
@@ -97,7 +99,16 @@ async fn a_count_that_outruns_its_time_limit_is_an_error_not_a_number() {
     let (dbs, client, store) = local_mongo().await;
     let ns = dbs.ns("orders");
     insert_labelled(&client, &ns, &orders()).await;
-    let slow = [r#"{"$match": {"$where": "sleep(20); true"}}"#];
+    // Slow without $where (refused inside an aggregation): a busy loop per document.
+    let slow = [
+        r#"{"$match": {"$expr": {"$function": {"body": "function() { var t = Date.now(); while (Date.now() - t < 20) {} return true; }", "args": [], "lang": "js"}}}}"#,
+    ];
     let outcome = count(&store, &ns, &slow, 0, COUNT_CAP, Duration::from_millis(50)).await;
-    assert!(outcome.is_err(), "{outcome:?}");
+    // The server's own time limit (MaxTimeMSExpired), not some other failure such as $where being
+    // disabled: that is what the handler maps to the card's "timed out".
+    assert_eq!(
+        outcome,
+        Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
+        "{outcome:?}"
+    );
 }
