@@ -142,6 +142,9 @@ pub struct AggregateView {
     /// What an explain would send, remembered between repaints (see `aggregate_explain_block`);
     /// keyed on its inputs, so it needs no reset.
     pub explain_memo: super::aggregate_explain_block::ExplainMemo,
+    /// What a Count stages click would send, remembered between repaints (see
+    /// `aggregate_counts_plan`); keyed on its inputs, so it needs no reset.
+    pub counts_memo: super::aggregate_counts_plan::CountsMemo,
     /// The Raw tab's own tree and page, apart from the preview's.
     pub raw_tree: TreeState,
     pub raw_page: PageCache,
