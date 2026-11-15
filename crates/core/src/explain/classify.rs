@@ -22,8 +22,14 @@ pub(crate) fn count(doc: Option<&Document>, key: &str) -> u64 {
     }
 }
 
+/// Whether a plan stage is a `$lookup` pushed into the plan (`EQ_LOOKUP`, or the variant that
+/// also unwinds the joined array).
+pub(crate) fn is_eq_lookup(stage: &str) -> bool {
+    matches!(stage, "EQ_LOOKUP" | "EQ_LOOKUP_UNWIND")
+}
+
 /// Every stage in the plan tree (pre-order), with the first index name found.
-fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<String>) {
+pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<String>) {
     if let Ok(stage) = node.get_str("stage") {
         stages.push(stage);
         if index.is_none() {
@@ -42,9 +48,16 @@ fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<St
         }
     }
     if let Ok(children) = node.get_array("inputStages") {
+        // A pushed-down `$lookup` (`EQ_LOOKUP`) lists the local side first and the joined
+        // collection's plan second: that one says nothing about how this collection is read.
+        let wanted = match node.get_str("stage") {
+            Ok(stage) if is_eq_lookup(stage) => 1,
+            _ => usize::MAX,
+        };
         children
             .iter()
             .filter_map(Bson::as_document)
+            .take(wanted)
             .for_each(|c| walk(c, stages, index));
     }
     // mongos: the merge stage on top, each shard's own plan under `shards[].winningPlan`.
@@ -59,7 +72,7 @@ fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<St
 
 /// Stages that read documents or index entries. A plan with none of them says nothing about
 /// whether an index served the query, so it is not judged.
-const ACCESS_STAGES: [&str; 15] = [
+pub(crate) const ACCESS_STAGES: [&str; 15] = [
     "COLLSCAN",
     "IXSCAN",
     "IDHACK",

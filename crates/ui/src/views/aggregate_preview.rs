@@ -8,7 +8,6 @@ use super::documents::show_mode_switcher;
 use super::error_label::show_error;
 use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
-use crate::theme::CONTROL_HEIGHT;
 use crate::viewmodel::ViewMode;
 use crate::viewmodel::aggregate::{AggregateState, Preview, PreviewError, PreviewState};
 use crate::viewmodel::aggregate_view::{AggregateView, preview_error_key, shown_preview};
@@ -16,34 +15,40 @@ use bson::Document;
 use curlybrace_core::pipeline::PREVIEW_LIMIT;
 use eframe::egui;
 
-/// Draws the pane for `draft`'s preview; the view's tree and mode are the pane's own.
-pub(super) fn show_preview(
+/// The preview's heading, drawn into the row the result tabs are in: the view modes, which
+/// stage it shows, how many documents. The view's tree and mode are the pane's own.
+pub(super) fn show_preview_heading(
     ui: &mut egui::Ui,
     draft: &AggregateState,
     view: &mut AggregateView,
     i18n: &I18n,
 ) {
-    let shown = shown_preview(&draft.preview);
-    ui.horizontal_wrapped(|ui| {
-        ui.set_min_height(CONTROL_HEIGHT);
-        view.mode = show_mode_switcher(ui, view.mode, i18n);
-        // A disabled stage has no output of its own: the preview skips it.
-        match draft.stages.get(draft.selected) {
-            Some(stage) if stage.enabled => {
-                let n = (draft.selected + 1).to_string();
-                ui.strong(i18n.t_with("aggregate.preview.heading", &[("n", &n)]));
-            }
-            Some(_) => {
-                ui.strong(i18n.t("aggregate.stage.disabled"));
-            }
-            None => {}
+    view.mode = show_mode_switcher(ui, view.mode, i18n);
+    // A disabled stage has no output of its own: the preview skips it.
+    match draft.stages.get(draft.selected) {
+        Some(stage) if stage.enabled => {
+            let n = (draft.selected + 1).to_string();
+            ui.strong(i18n.t_with("aggregate.preview.heading", &[("n", &n)]));
         }
-        if let Some(preview) = shown.filter(|p| !p.docs.is_empty()) {
-            ui.label(count_text(preview.docs.len(), i18n));
+        Some(_) => {
+            ui.strong(i18n.t("aggregate.stage.disabled"));
         }
-    });
+        None => {}
+    }
+    if let Some(preview) = shown_preview(&draft.preview).filter(|p| !p.docs.is_empty()) {
+        ui.label(count_text(preview.docs.len(), i18n));
+    }
+}
+
+/// The status lines and the documents under the heading.
+pub(super) fn show_preview_body(
+    ui: &mut egui::Ui,
+    draft: &AggregateState,
+    view: &mut AggregateView,
+    i18n: &I18n,
+) {
     status_lines(ui, draft, i18n);
-    match shown {
+    match shown_preview(&draft.preview) {
         Some(preview) if !preview.docs.is_empty() => show_docs(ui, &preview.docs, view, i18n),
         Some(_) => {
             ui.label(i18n.t("aggregate.preview.empty"));

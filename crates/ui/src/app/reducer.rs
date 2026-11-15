@@ -110,6 +110,9 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     if aggregate_actions::is_preview_event(&ev) {
         return aggregate_actions::on_event(state, ev);
     }
+    if super::aggregate_explain_actions::is_explain_event(&ev) {
+        return super::aggregate_explain_actions::on_event(state, ev);
+    }
     if aggregate_run_actions::is_run_event(&ev) {
         return aggregate_run_actions::on_event(state, ev);
     }
@@ -449,6 +452,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::ShellHistory { .. }
         | Event::ShellHistoryChanged { .. }
         | Event::AggregatePreviewed { .. }
+        | Event::AggregateExplained { .. }
         | Event::AggregateRan { .. } => (state, Vec::new()),
     }
 }

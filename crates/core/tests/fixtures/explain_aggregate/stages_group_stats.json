@@ -1,0 +1,51 @@
+{
+  "explainVersion": "1",
+  "stages": [
+    {
+      "$cursor": {
+        "queryPlanner": {
+          "namespace": "shop.orders",
+          "winningPlan": {
+            "stage": "FETCH",
+            "inputStage": {
+              "stage": "IXSCAN",
+              "indexName": "status_1",
+              "keyPattern": { "status": 1 },
+              "direction": "forward"
+            }
+          },
+          "rejectedPlans": []
+        },
+        "executionStats": {
+          "executionSuccess": true,
+          "nReturned": { "$numberLong": "1200" },
+          "executionTimeMillis": 14,
+          "totalKeysExamined": { "$numberLong": "1200" },
+          "totalDocsExamined": { "$numberLong": "1200" },
+          "executionStages": {
+            "stage": "FETCH",
+            "nReturned": { "$numberLong": "1200" },
+            "executionTimeMillisEstimate": 9,
+            "inputStage": {
+              "stage": "IXSCAN",
+              "nReturned": { "$numberLong": "1200" },
+              "keysExamined": { "$numberLong": "1200" }
+            }
+          }
+        }
+      },
+      "nReturned": { "$numberLong": "1200" },
+      "executionTimeMillisEstimate": 13
+    },
+    {
+      "$group": { "_id": "$customer", "total": { "$sum": "$amount" } },
+      "maxAccumulatorMemoryUsageBytes": { "total": { "$numberLong": "9600" } },
+      "totalOutputDataSizeBytes": { "$numberLong": "41000" },
+      "usedDisk": false,
+      "spills": { "$numberLong": "0" },
+      "nReturned": { "$numberLong": "300" },
+      "executionTimeMillisEstimate": 22
+    }
+  ],
+  "ok": 1
+}

@@ -56,6 +56,65 @@
       "timeout": "The preview took too long and was stopped. Showing the last result.",
       "write_not_last": "Stage {n}: {name} can only be the last stage."
     },
+    "explain": {
+      "button": "Explain",
+      "button_hint": "Ask the server how it would run the stages up to the selected one.",
+      "cost_note": "Runs the pipeline on the server, for at most {seconds} seconds.",
+      "disabled": {
+        "running": "An explain is already running.",
+        "text_not_applied": "Apply the edited text to the stages before explaining."
+      },
+      "error": {
+        "timeout": "The explain took too long and was stopped."
+      },
+      "figure": {
+        "docs": "{n} documents examined",
+        "keys": "{n} keys examined",
+        "millis": "{n} ms",
+        "returned": "{n} returned",
+        "separator": ", "
+      },
+      "group": {
+        "shard": "Shard {name}"
+      },
+      "hint": {
+        "collection_scan": "The server reads every document of the collection. An index on the fields you filter by could avoid that.",
+        "disk_sort": "A sort or group ran out of memory and spilled to disk, which is slow. Filter earlier, or sort on an indexed field.",
+        "examined_much_more_than_returned": "The server looked at many more documents than it passed on. A more selective index or an earlier $match would do less work.",
+        "in_memory_sort": "The sort happens in memory after the documents are read. An index in the sort order would avoid it.",
+        "in_memory_sort_after_skip": "The sort runs in memory on every document left after the skip. An index cannot serve it; move the $sort before the $skip if the result allows.",
+        "lookup_collection_scan": "A $lookup reads the whole joined collection for each lookup. An index on the foreign field would avoid that."
+      },
+      "hints": {
+        "heading": "What to look at"
+      },
+      "idle": "No plan yet. Explain asks the server for one.",
+      "input": {
+        "collscan": "Reads the whole collection (collection scan)",
+        "index": "Reads through index {index}",
+        "other": "Reads with {kind}",
+        "plan": "Server plan: {stages}"
+      },
+      "loading": "Asking the server for the plan...",
+      "not_understood": "This plan could not be read. See the Raw tab for what the server sent.",
+      "out_of_date": "Out of date",
+      "out_of_date_hint": "The pipeline or the measure setting changed after this plan was made. Explain again for a current one.",
+      "raw": {
+        "copy": "Copy JSON",
+        "none": "No explain yet."
+      },
+      "stage_with_detail": "{name} ({detail})",
+      "summary": "Summary: {figures}",
+      "summary_no_statistics": "The server returned no statistics.",
+      "summary_none": "Plan only: nothing was run, so there are no counts.",
+      "summary_partial": "Some shards did not report statistics, so the totals are left out.",
+      "tabs": {
+        "plan": "Plan",
+        "preview": "Preview",
+        "raw": "Raw"
+      },
+      "verbosity": "Run the pipeline to measure it"
+    },
     "mode": {
       "stages": "Stages",
       "text": "Text"
@@ -1119,6 +1178,7 @@
     "write_outcome_unknown": "The connection was interrupted while saving. The change may or may not have been applied; check the data before saving again."
   },
   "failures": {
+    "aggregate_explain": "Could not explain the pipeline",
     "aggregate_preview": "Could not preview the pipeline",
     "aggregate_run": "Could not run the pipeline",
     "bulk_cancel": "Could not cancel the bulk write",

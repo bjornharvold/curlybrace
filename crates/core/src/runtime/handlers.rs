@@ -13,6 +13,7 @@ use crate::read_only_store::ReadOnlyStore;
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
+use super::config::run_write_limit;
 use super::job_flag::JobFlag;
 use super::profiler_handlers::{
     profiler_db, profiler_failure, profiling_state, query_shapes, set_profiling_level,
@@ -210,6 +211,8 @@ async fn run(
         Command::AggregatePreview { request, .. } => Some(*request),
         _ => None,
     };
+    // And an aggregate explain: its timeout is an outcome too.
+    let explain_timeout = super::aggregate_explain::timeout_answer(id, &command);
     // A write run that outruns the client bound has an unknown outcome: answered, never pinged.
     let run_namespaces = match &command {
         Command::AggregateRun {
@@ -290,6 +293,9 @@ async fn run(
             request,
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
+    }
+    if let (true, Some(event)) = (timed_out, explain_timeout) {
+        return Ok(event);
     }
     if let (true, Some((run, ns, target))) = (timed_out, run_namespaces.clone()) {
         return Ok(Event::AggregateRan {
@@ -439,6 +445,15 @@ async fn data_command(
                 request,
                 outcome,
             }
+        }
+        Command::AggregateExplain {
+            request,
+            ns,
+            stages,
+            verbosity,
+            ..
+        } => {
+            super::aggregate_explain::run(session, &*store, request, ns, stages, verbosity).await?
         }
         Command::AggregateRun {
             ns, pipeline, run, ..
@@ -760,12 +775,6 @@ async fn test_connection(
 /// its index builds) can run for a long time and must not be cut off half-way; every other
 /// command keeps the short bound. An aggregate preview is cut off shortly after the server's own
 /// time limit, and never later than the short bound.
-pub(super) fn run_write_limit(config: &super::RuntimeConfig) -> std::time::Duration {
-    config
-        .index_build_timeout
-        .min(super::config::AGGREGATE_RUN_TIMEOUT)
-}
-
 pub(super) fn command_time_limit(
     config: &super::RuntimeConfig,
     command: &Command,
@@ -777,6 +786,9 @@ pub(super) fn command_time_limit(
         Command::AggregatePreview { .. } => config
             .command_timeout
             .min(super::config::AGGREGATE_PREVIEW_TIMEOUT),
+        Command::AggregateExplain { .. } => config
+            .command_timeout
+            .min(super::config::AGGREGATE_EXPLAIN_TIMEOUT),
         Command::AggregateRun { .. } => {
             run_write_limit(config)
                 + super::config::AGGREGATE_RUN_COUNT_TIMEOUT

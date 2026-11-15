@@ -87,6 +87,8 @@ pub struct AggregateState {
     pub saved: super::aggregate_saved::SavedUi,
     /// The write run's confirmation dialog and last outcome (see `aggregate_run`).
     pub run: super::aggregate_run::RunUi,
+    /// The explain of the enabled stages and the tab in view (see `aggregate_explain`).
+    pub explain: super::aggregate_explain::ExplainUi,
     /// What the draft says about its run, remembered between repaints (see
     /// `aggregate_run_availability`); keyed on the stages, mode and text, so it needs no reset.
     pub(super) run_shape: super::aggregate_run_availability::RunShapeMemo,
@@ -283,6 +285,7 @@ impl AggregateState {
             preview: PreviewState::Idle,
             queued: None,
             run: self.run.collection_changed(),
+            explain: self.explain.reset(),
             ..self
         }
         .changed()

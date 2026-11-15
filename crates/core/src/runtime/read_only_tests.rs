@@ -309,6 +309,13 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             ns: mock_namespace(),
             query: Query::default(),
         },
+        Command::AggregateExplain {
+            session,
+            request: 0,
+            ns: mock_namespace(),
+            stages: vec![bson::doc! { "$match": {} }],
+            verbosity: crate::explain::ExplainVerbosity::QueryPlanner,
+        },
         Command::ListIndexes {
             session,
             ns: mock_namespace(),
@@ -420,7 +427,15 @@ async fn reads_still_work_on_a_read_only_session() {
                     | Event::BulkCount { .. }
                     | Event::BulkSample { .. }
                     | Event::BulkCancelResult { .. }
-            ) || matches!(event, Event::ProfilingState { outcome: Ok(_), .. }),
+            ) || matches!(event, Event::ProfilingState { outcome: Ok(_), .. })
+                // The store here scripts no explain: the point is that it was asked, not refused.
+                || matches!(
+                    event,
+                    Event::AggregateExplained {
+                        outcome: Err(CoreError::Unsupported(_)),
+                        ..
+                    }
+                ),
             "{event:?}"
         );
     }
@@ -511,7 +526,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 49;
+const COMMAND_VARIANTS: usize = 50;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -541,6 +556,7 @@ fn classify(command: &Command) -> Class {
         | Command::ExplainFind { .. }
         | Command::GuardCheck { .. }
         | Command::AggregatePreview { .. }
+        | Command::AggregateExplain { .. }
         | Command::ListIndexes { .. }
         | Command::IndexHistory { .. }
         | Command::EstimatedCount { .. }

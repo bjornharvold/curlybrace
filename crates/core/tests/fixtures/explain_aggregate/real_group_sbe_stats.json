@@ -1,0 +1,164 @@
+{
+  "explainVersion": "2",
+  "queryPlanner": {
+    "namespace": "t.o",
+    "parsedQuery": {
+      "status": {
+        "$eq": "a"
+      }
+    },
+    "indexFilterSet": false,
+    "queryHash": "73CAFAB7",
+    "planCacheShapeHash": "73CAFAB7",
+    "planCacheKey": "569489DC",
+    "optimizationTimeMillis": 2,
+    "optimizationTimeMicros": 2959,
+    "optimizedPipeline": true,
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "queryPlan": {
+        "stage": "GROUP",
+        "planNodeId": 4,
+        "inputStage": {
+          "stage": "FETCH",
+          "planNodeId": 2,
+          "nss": "t.o",
+          "inputStage": {
+            "stage": "IXSCAN",
+            "planNodeId": 1,
+            "nss": "t.o",
+            "keyPattern": {
+              "status": 1
+            },
+            "indexName": "status_1",
+            "isMultiKey": false,
+            "multiKeyPaths": {
+              "status": []
+            },
+            "isUnique": false,
+            "isSparse": false,
+            "isPartial": false,
+            "indexVersion": 2,
+            "direction": "forward",
+            "indexBounds": {
+              "status": [
+                "[\"a\", \"a\"]"
+              ]
+            }
+          }
+        }
+      },
+      "slotBasedPlan": {
+        "slots": "$$RESULT=s12 env: { s5 = {\"status\" : 1} }",
+        "stages": "[4] project [s12 = newBsonObj(\"_id\", s11, \"n\", s9)] \n[4] group [s11] [s9 = _internalCount::accumulate(s9, 1)] spillSlots[s10] mergingExprs[_internalCount::merge(s10)] \n[4] project [s11 = (s8 ?: null)] \n[2] fetch s1 = seek, s6 = result, s7 = recordId, s4 = inSnapshotId, s2 = inIndexIdent, s3 = inIndexKey, s5 = inIndexKeyPattern [s8 = cust] @\"00000000-0000-4000-8000-000000000001\" \n[1] ixseek seekKeyLow = KS(3C610001) seekKeyHigh = KS(3C6100FE) [s3 = indexKey, s1 = recordId, s4 = snapshotId, s2 = indexIdent] [] @\"00000000-0000-4000-8000-000000000001\" @\"status_1\" forward "
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": 5,
+    "executionTimeMillis": 7,
+    "executionTimeMicros": 7170,
+    "totalKeysExamined": 5000,
+    "totalDocsExamined": 5000,
+    "executionStages": {
+      "stage": "project",
+      "planNodeId": 4,
+      "nReturned": 5,
+      "executionTimeMillisEstimate": 4,
+      "opens": 1,
+      "closes": 1,
+      "saveState": 0,
+      "restoreState": 0,
+      "isEOF": 1,
+      "projections": {
+        "12": "newBsonObj(\"_id\", s11, \"n\", s9) "
+      },
+      "inputStage": {
+        "stage": "group",
+        "planNodeId": 4,
+        "nReturned": 5,
+        "executionTimeMillisEstimate": 4,
+        "opens": 1,
+        "closes": 1,
+        "saveState": 0,
+        "restoreState": 0,
+        "isEOF": 1,
+        "groupBySlots": [
+          11
+        ],
+        "expressions": {
+          "9": "_internalCount::accumulate(s9, 1) ",
+          "initExprs": {
+            "9": null,
+            "mergingExprs": {
+              "10": "_internalCount::merge(s10) "
+            }
+          }
+        },
+        "usedDisk": false,
+        "spills": 0,
+        "spilledBytes": 0,
+        "spilledRecords": 0,
+        "spilledDataStorageSize": 0,
+        "peakTrackedMemBytes": 250,
+        "inputStage": {
+          "stage": "project",
+          "planNodeId": 4,
+          "nReturned": 5000,
+          "executionTimeMillisEstimate": 4,
+          "opens": 1,
+          "closes": 2,
+          "saveState": 0,
+          "restoreState": 0,
+          "isEOF": 1,
+          "projections": {
+            "11": "(s8 ?: null) "
+          },
+          "inputStage": {
+            "stage": "fetch",
+            "planNodeId": 2,
+            "nReturned": 5000,
+            "executionTimeMillisEstimate": 4,
+            "opens": 1,
+            "closes": 2,
+            "saveState": 0,
+            "restoreState": 0,
+            "isEOF": 1,
+            "numReads": 5000,
+            "inputStage": {
+              "stage": "ixseek",
+              "planNodeId": 1,
+              "nReturned": 5000,
+              "executionTimeMillisEstimate": 4,
+              "opens": 1,
+              "closes": 2,
+              "saveState": 0,
+              "restoreState": 0,
+              "isEOF": 1,
+              "indexName": "status_1",
+              "keysExamined": 5000,
+              "seeks": 1,
+              "numReads": 5001,
+              "indexKeySlot": 3,
+              "recordIdSlot": 1,
+              "snapshotIdSlot": 4,
+              "indexIdentSlot": 2,
+              "outputSlots": [],
+              "indexKeysToInclude": "00000000000000000000000000000000",
+              "seekKeyLow": "KS(3C610001) ",
+              "seekKeyHigh": "KS(3C6100FE) "
+            }
+          }
+        }
+      }
+    }
+  },
+  "peakTrackedMemBytes": 250,
+  "ok": 1
+}

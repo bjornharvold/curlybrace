@@ -1,0 +1,38 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "shop.orders",
+    "indexFilterSet": false,
+    "parsedQuery": { "customer": { "$eq": "c-17" } },
+    "queryHash": "1B2C3D4E",
+    "planCacheKey": "5F6A7B8C",
+    "optimizedPipeline": true,
+    "maxIndexedOrSolutionsReached": false,
+    "winningPlan": {
+      "stage": "PROJECTION_SIMPLE",
+      "transformBy": { "_id": 0, "customer": 1, "amount": 1 },
+      "inputStage": {
+        "stage": "FETCH",
+        "inputStage": {
+          "stage": "IXSCAN",
+          "keyPattern": { "customer": 1 },
+          "indexName": "customer_1",
+          "isMultiKey": false,
+          "direction": "forward"
+        }
+      }
+    },
+    "rejectedPlans": []
+  },
+  "command": {
+    "aggregate": "orders",
+    "pipeline": [
+      { "$match": { "customer": "c-17" } },
+      { "$project": { "_id": 0, "customer": 1, "amount": 1 } }
+    ],
+    "cursor": {},
+    "$db": "shop"
+  },
+  "serverInfo": { "host": "db1", "port": 27017, "version": "7.0.12" },
+  "ok": 1
+}

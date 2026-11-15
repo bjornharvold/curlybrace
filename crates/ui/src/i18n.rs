@@ -328,6 +328,7 @@ mod tests {
             "set_index_hidden",
             "set_index_ttl",
             "aggregate_preview",
+            "aggregate_explain",
         ] {
             assert!(!i.failure(c).starts_with('⟦'), "missing failures.{c}");
         }

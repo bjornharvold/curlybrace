@@ -1,0 +1,81 @@
+{
+  "mergeType": "mongos",
+  "splitPipeline": {
+    "shardsPart": [
+      { "$match": { "status": "open" } },
+      { "$group": { "_id": "$customer", "total": { "$sum": "$amount" } } }
+    ],
+    "mergerPart": [
+      { "$mergeCursors": { "sort": {}, "compareFields": [], "allowPartialResults": false } },
+      { "$group": { "_id": "$$ROOT._id", "total": { "$sum": "$$ROOT.total" } } }
+    ]
+  },
+  "shards": {
+    "shardA": {
+      "host": "shard-a.example.net:27018",
+      "stages": [
+        {
+          "$cursor": {
+            "queryPlanner": {
+              "namespace": "shop.orders",
+              "winningPlan": {
+                "stage": "FETCH",
+                "inputStage": {
+                  "stage": "IXSCAN",
+                  "indexName": "status_1",
+                  "keyPattern": { "status": 1 }
+                }
+              },
+              "rejectedPlans": []
+            },
+            "executionStats": {
+              "executionSuccess": true,
+              "nReturned": 700,
+              "executionTimeMillis": 6,
+              "totalKeysExamined": 700,
+              "totalDocsExamined": 700
+            }
+          },
+          "nReturned": 700,
+          "executionTimeMillisEstimate": 5
+        },
+        {
+          "$group": { "_id": "$customer", "total": { "$sum": "$amount" } },
+          "usedDisk": false,
+          "nReturned": 120,
+          "executionTimeMillisEstimate": 8
+        }
+      ]
+    },
+    "shardB": {
+      "host": "shard-b.example.net:27018",
+      "stages": [
+        {
+          "$cursor": {
+            "queryPlanner": {
+              "namespace": "shop.orders",
+              "winningPlan": { "stage": "COLLSCAN", "filter": { "status": { "$eq": "open" } }, "direction": "forward" },
+              "rejectedPlans": []
+            },
+            "executionStats": {
+              "executionSuccess": true,
+              "nReturned": 500,
+              "executionTimeMillis": 11,
+              "totalKeysExamined": 0,
+              "totalDocsExamined": 90000
+            }
+          },
+          "nReturned": 500,
+          "executionTimeMillisEstimate": 10
+        },
+        {
+          "$group": { "_id": "$customer", "total": { "$sum": "$amount" } },
+          "usedDisk": false,
+          "nReturned": 95,
+          "executionTimeMillisEstimate": 12
+        }
+      ]
+    }
+  },
+  "ok": 1
+}

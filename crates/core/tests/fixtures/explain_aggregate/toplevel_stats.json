@@ -1,0 +1,33 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "shop.orders",
+    "optimizedPipeline": true,
+    "winningPlan": {
+      "stage": "SORT",
+      "sortPattern": { "created": -1 },
+      "memLimit": 104857600,
+      "type": "simple",
+      "inputStage": {
+        "stage": "COLLSCAN",
+        "filter": { "total": { "$gt": 100 } },
+        "direction": "forward"
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": 12,
+    "executionTimeMillis": 380,
+    "totalKeysExamined": 0,
+    "totalDocsExamined": 250000,
+    "executionStages": {
+      "stage": "SORT",
+      "nReturned": 12,
+      "executionTimeMillisEstimate": 372,
+      "inputStage": { "stage": "COLLSCAN", "nReturned": 12, "docsExamined": 250000 }
+    }
+  },
+  "ok": 1
+}

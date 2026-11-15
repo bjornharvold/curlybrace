@@ -68,6 +68,42 @@ fn the_page_is_rebuilt_only_when_the_documents_change() {
 }
 
 #[test]
+fn a_shared_document_is_told_apart_by_its_pointer_not_by_its_content() {
+    let mut cache = PageCache::default();
+    let shared = Arc::new(doc! { "a": 1 });
+    let first = cache.of_shared(&shared).1;
+    assert_eq!(cache.of_shared(&Arc::clone(&shared)).1, first);
+    assert_eq!(cache.builds(), 1, "the same allocation is not rebuilt");
+    let (page, key) = cache.of_shared(&Arc::new(doc! { "a": 2 }));
+    assert_eq!(page.docs, vec![doc! { "a": 2 }]);
+    assert!(key != first);
+    assert_eq!(cache.builds(), 2);
+}
+
+#[test]
+fn the_cache_does_not_keep_the_shared_document_alive() {
+    let mut cache = PageCache::default();
+    let shared = Arc::new(doc! { "a": 1 });
+    let weak = Arc::downgrade(&shared);
+    cache.of_shared(&shared);
+    assert_eq!(
+        Arc::strong_count(&shared),
+        1,
+        "the cache holds no strong ref"
+    );
+    drop(shared);
+    assert!(weak.upgrade().is_none(), "the owner's drop frees the value");
+    assert_eq!(cache.builds(), 1);
+    let (page, _) = cache.of_shared(&Arc::new(doc! { "a": 1 }));
+    assert_eq!(page.docs, vec![doc! { "a": 1 }]);
+    assert_eq!(
+        cache.builds(),
+        2,
+        "a new allocation is rebuilt, never mistaken"
+    );
+}
+
+#[test]
 fn the_pane_shows_the_current_or_the_last_good_preview() {
     let preview = Preview {
         docs: vec![doc! { "a": 1 }],

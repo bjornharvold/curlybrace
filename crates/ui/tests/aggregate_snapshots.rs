@@ -76,3 +76,22 @@ fn aggregate_run_dialog_dark() {
         .mode(Mode::Dark)
         .snapshot("aggregate_run_dialog_dark");
 }
+
+// The Plan tab: the explain of `$match` + `$group` as a collection scan with measured figures
+// (light and dark).
+shot!(
+    aggregate_plan,
+    vec![],
+    support::explain_shots::aggregate_plan_tab
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn aggregate_plan_dark() {
+    if !snapshots_enabled("aggregate_plan_dark") {
+        return;
+    }
+    Shot::new(vec![], support::explain_shots::aggregate_plan_tab)
+        .mode(Mode::Dark)
+        .snapshot("aggregate_plan_dark");
+}

@@ -7,6 +7,7 @@ use bson::doc;
 
 use super::memory_store::InMemoryStore;
 use crate::error::CoreError;
+use crate::explain::ExplainVerbosity;
 use crate::store::{DocumentStore, Namespace};
 
 const LIMIT: Duration = Duration::from_secs(1);
@@ -88,6 +89,70 @@ async fn a_scripted_write_error_is_returned() {
         .await
         .unwrap_err();
     assert_eq!(err, CoreError::Database("boom".into()));
+}
+
+#[tokio::test]
+async fn an_explain_is_recorded_with_its_verbosity_and_answers_the_scripted_document() {
+    let store = InMemoryStore::new().with_aggregate_explain(doc! { "ok": 1, "stages": [] });
+    let pipeline = vec![doc! { "$match": { "a": 1 } }];
+    let planned = store
+        .aggregate_explain(
+            &ns(),
+            pipeline.clone(),
+            ExplainVerbosity::QueryPlanner,
+            LIMIT,
+        )
+        .await
+        .unwrap();
+    assert_eq!(planned.document, doc! { "ok": 1, "stages": [] });
+    assert!(planned.plan_only);
+    let executed = store
+        .aggregate_explain(
+            &ns(),
+            pipeline.clone(),
+            ExplainVerbosity::ExecutionStats,
+            LIMIT,
+        )
+        .await
+        .unwrap();
+    assert!(!executed.plan_only);
+    assert_eq!(
+        store.explained_pipelines(),
+        vec![
+            (pipeline.clone(), ExplainVerbosity::QueryPlanner),
+            (pipeline, ExplainVerbosity::ExecutionStats)
+        ]
+    );
+    assert!(store.received_pipelines().is_empty());
+}
+
+#[tokio::test]
+async fn an_unscripted_explain_is_unsupported() {
+    let err = InMemoryStore::new()
+        .aggregate_explain(
+            &ns(),
+            vec![doc! { "$match": {} }],
+            ExplainVerbosity::QueryPlanner,
+            LIMIT,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, CoreError::Unsupported(_)));
+}
+
+#[tokio::test]
+async fn an_explain_of_a_write_stage_is_refused_before_anything_is_recorded() {
+    let store = InMemoryStore::new().with_aggregate_explain(doc! { "ok": 1 });
+    let facet = doc! { "$facet": { "f": [ { "$out": "t" } ] } };
+    let lookup = doc! { "$lookup": { "from": "x", "pipeline": [ { "$merge": "t" } ], "as": "y" } };
+    for pipeline in [vec![doc! { "$out": "t" }], vec![facet], vec![lookup]] {
+        let err = store
+            .aggregate_explain(&ns(), pipeline, ExplainVerbosity::ExecutionStats, LIMIT)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::InvalidDocument(_)));
+    }
+    assert!(store.explained_pipelines().is_empty());
 }
 
 #[tokio::test]

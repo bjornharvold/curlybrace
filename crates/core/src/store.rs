@@ -12,6 +12,7 @@ use crate::bulk::{
 use crate::compare::diff::PathSegment;
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
+use crate::explain::ExplainVerbosity;
 use crate::indexes::IndexSpec;
 use crate::profile::ProfileEntry;
 
@@ -492,6 +493,22 @@ pub trait DocumentStore: Send + Sync {
     ) -> Result<Vec<Document>> {
         Err(CoreError::Unsupported(
             "this store cannot preview a pipeline".into(),
+        ))
+    }
+
+    /// Explains `pipeline` on `ns`: the server's plan of an aggregate. A read, so a read-only
+    /// connection may call it. Refuses a pipeline holding `$out` or `$merge` at any depth before
+    /// it reaches the server. `QueryPlanner` never runs the pipeline; `ExecutionStats` does, and
+    /// the server stops after `max_time`. The answer has `plan_only` set for `QueryPlanner`.
+    async fn aggregate_explain(
+        &self,
+        _ns: &Namespace,
+        _pipeline: Vec<Document>,
+        _verbosity: ExplainVerbosity,
+        _max_time: Duration,
+    ) -> Result<Explain> {
+        Err(CoreError::Unsupported(
+            "this store cannot explain a pipeline".into(),
         ))
     }
 

@@ -1,0 +1,154 @@
+{
+  "explainVersion": "1",
+  "stages": [
+    {
+      "$cursor": {
+        "queryPlanner": {
+          "namespace": "t.o",
+          "parsedQuery": {
+            "status": {
+              "$eq": "a"
+            }
+          },
+          "indexFilterSet": false,
+          "queryHash": "5D171ED7",
+          "planCacheShapeHash": "5D171ED7",
+          "planCacheKey": "F523CEA2",
+          "optimizationTimeMillis": 0,
+          "optimizationTimeMicros": 967,
+          "cursorType": "regular",
+          "maxIndexedOrSolutionsReached": false,
+          "maxIndexedAndSolutionsReached": false,
+          "maxScansToExplodeReached": false,
+          "prunedSimilarIndexes": false,
+          "winningPlan": {
+            "isCached": false,
+            "stage": "LIMIT",
+            "limitAmount": 5,
+            "inputStage": {
+              "stage": "FETCH",
+              "nss": "t.o",
+              "inputStage": {
+                "stage": "IXSCAN",
+                "nss": "t.o",
+                "keyPattern": {
+                  "status": 1
+                },
+                "indexName": "status_1",
+                "isMultiKey": false,
+                "multiKeyPaths": {
+                  "status": []
+                },
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexVersion": 2,
+                "direction": "forward",
+                "indexBounds": {
+                  "status": [
+                    "[\"a\", \"a\"]"
+                  ]
+                }
+              }
+            }
+          },
+          "rejectedPlans": []
+        },
+        "executionStats": {
+          "executionSuccess": true,
+          "nReturned": 5,
+          "executionTimeMillis": 2,
+          "executionTimeMicros": 2356,
+          "totalKeysExamined": 5,
+          "totalDocsExamined": 5,
+          "executionStages": {
+            "isCached": false,
+            "stage": "LIMIT",
+            "nReturned": 5,
+            "executionTimeMillisEstimate": 0,
+            "works": 6,
+            "advanced": 5,
+            "needTime": 0,
+            "needYield": 0,
+            "saveState": 2,
+            "restoreState": 1,
+            "isEOF": 1,
+            "limitAmount": 5,
+            "inputStage": {
+              "stage": "FETCH",
+              "nReturned": 5,
+              "executionTimeMillisEstimate": 0,
+              "works": 5,
+              "advanced": 5,
+              "needTime": 0,
+              "needYield": 0,
+              "saveState": 2,
+              "restoreState": 1,
+              "isEOF": 0,
+              "nss": "t.o",
+              "docsExamined": 5,
+              "alreadyHasObj": 0,
+              "inputStage": {
+                "stage": "IXSCAN",
+                "nReturned": 5,
+                "executionTimeMillisEstimate": 0,
+                "works": 5,
+                "advanced": 5,
+                "needTime": 0,
+                "needYield": 0,
+                "saveState": 2,
+                "restoreState": 1,
+                "isEOF": 0,
+                "nss": "t.o",
+                "keyPattern": {
+                  "status": 1
+                },
+                "indexName": "status_1",
+                "isMultiKey": false,
+                "multiKeyPaths": {
+                  "status": []
+                },
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexVersion": 2,
+                "direction": "forward",
+                "indexBounds": {
+                  "status": [
+                    "[\"a\", \"a\"]"
+                  ]
+                },
+                "keysExamined": 5,
+                "seeks": 1,
+                "dupsTested": 0,
+                "dupsDropped": 0,
+                "peakTrackedMemBytes": 0
+              }
+            }
+          }
+        }
+      },
+      "nReturned": 5,
+      "executionTimeMillisEstimate": 2
+    },
+    {
+      "$sort": {
+        "sortKey": {
+          "total": -1
+        }
+      },
+      "totalDataSizeSortedBytesEstimate": 922,
+      "usedDisk": false,
+      "spills": 0,
+      "spilledBytes": 0,
+      "spilledRecords": 0,
+      "spilledDataStorageSize": 0,
+      "nReturned": 5,
+      "executionTimeMillisEstimate": 2,
+      "peakTrackedMemBytes": 922
+    }
+  ],
+  "queryShapeHash": "AB5D96E2BB71FD0BB20F874080D25D7163064C2F5E5A894776D4586D54C79673",
+  "peakTrackedMemBytes": 922,
+  "ok": 1
+}

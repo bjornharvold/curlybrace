@@ -62,6 +62,9 @@ pub enum AggregateAction {
     /// Carried here, not as an `Input` of its own, because every arm of the reducer's `update`
     /// costs it a copy of the whole state on the stack, which is near the debug-build limit.
     Code(super::CodeAction),
+    /// The Explain section: running it, its verbosity and tab. Carried here for the same reason
+    /// as `Code`.
+    Explain(super::ExplainAction),
 }
 
 impl AggregateAction {
@@ -106,12 +109,19 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
     // Also before the draft is copied: the Copy as code dialog only reads it.
     let action = match action {
         AggregateAction::Code(code) => return super::code_export_actions::on_action(state, code),
+        // And the explain moves its own part of the draft out and back, never a copy of it.
+        AggregateAction::Explain(explain) => {
+            return super::aggregate_explain_actions::on_action(state, explain);
+        }
         other => other,
     };
     let draft = (*state.aggregate).clone();
     match action {
         // Handled above; listed so the match stays exhaustive and a new variant must be placed.
         AggregateAction::Code(code) => super::code_export_actions::on_action(state, code),
+        AggregateAction::Explain(explain) => {
+            super::aggregate_explain_actions::on_action(state, explain)
+        }
         AggregateAction::AddStage(name) => changed(state, draft.add_stage(&name)),
         AggregateAction::Remove(i) => changed(state, draft.remove(i)),
         AggregateAction::MoveUp(i) => changed(state, draft.move_up(i)),
@@ -231,7 +241,7 @@ fn previewed(state: AppState, draft: AggregateState) -> Out {
 
 /// The session and collection a preview can be sent for now: the active session when it is
 /// connected with a collection selected.
-fn target(state: &AppState) -> Option<(Uuid, Namespace)> {
+pub(super) fn target(state: &AppState) -> Option<(Uuid, Namespace)> {
     match (state.active, &state.status, state.selected_ns()) {
         (Some(session), ConnStatus::Connected, Some(ns)) => Some((session, ns.clone())),
         _ => None,

@@ -12,6 +12,7 @@ use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::Page;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::{Arc, Weak};
 
 /// How long the typing in a stage pauses before the edit is sent (and previewed).
 pub const EDIT_PAUSE_SECS: f64 = 0.6;
@@ -29,6 +30,12 @@ pub struct PendingEdit {
 #[derive(Clone, Debug, Default)]
 pub struct PageCache {
     built: Option<(Page, PageKey)>,
+    /// The shared document `built` was made from by `of_shared`; the next frame is told from this
+    /// one by the pointer, never by comparing the documents. Weak: the cache keeps the deep copy
+    /// in `built`, so the owner's document is freed when the owner lets go of it, while the
+    /// reserved allocation still rules out a new document reusing the address.
+    source: Option<Weak<Document>>,
+    builds: usize,
 }
 
 impl PageCache {
@@ -39,15 +46,45 @@ impl PageCache {
             .as_ref()
             .is_none_or(|(page, _)| page.docs.as_slice() != docs);
         if stale {
-            let page = Page {
-                docs: docs.to_vec(),
-                skip: 0,
-                has_more: false,
-            };
-            let key = page_key(&page);
-            self.built = Some((page, key));
+            self.source = None;
+            self.build(docs.to_vec());
         }
-        let (page, key) = self.built.as_ref().expect("built above");
+        self.shown()
+    }
+
+    /// The page of the one document `doc`, rebuilt only when `doc` is another allocation than the
+    /// one the page was built from: a repaint costs a pointer comparison, however big the
+    /// document is.
+    pub fn of_shared(&mut self, doc: &Arc<Document>) -> (&Page, PageKey) {
+        let stale = self
+            .source
+            .as_ref()
+            .is_none_or(|s| !s.ptr_eq(&Arc::downgrade(doc)));
+        if stale {
+            self.source = Some(Arc::downgrade(doc));
+            self.build(vec![Document::clone(doc)]);
+        }
+        self.shown()
+    }
+
+    /// How many times a page was built (not served from the cache) so far.
+    pub fn builds(&self) -> usize {
+        self.builds
+    }
+
+    fn build(&mut self, docs: Vec<Document>) {
+        let page = Page {
+            docs,
+            skip: 0,
+            has_more: false,
+        };
+        let key = page_key(&page);
+        self.built = Some((page, key));
+        self.builds += 1;
+    }
+
+    fn shown(&self) -> (&Page, PageKey) {
+        let (page, key) = self.built.as_ref().expect("built before it is shown");
         (page, *key)
     }
 }
@@ -102,6 +139,12 @@ pub struct AggregateView {
     /// Whether the Copy as code button is on, remembered between repaints (see
     /// `code_export_memo`); keyed on its inputs, so it needs no reset.
     pub code_block: super::code_export_memo::CodeBlockMemo,
+    /// What an explain would send, remembered between repaints (see `aggregate_explain_block`);
+    /// keyed on its inputs, so it needs no reset.
+    pub explain_memo: super::aggregate_explain_block::ExplainMemo,
+    /// The Raw tab's own tree and page, apart from the preview's.
+    pub raw_tree: TreeState,
+    pub raw_page: PageCache,
 }
 
 impl AggregateView {

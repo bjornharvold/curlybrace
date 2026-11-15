@@ -16,6 +16,7 @@ use crate::bulk::{
 };
 use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
+use crate::explain::ExplainVerbosity;
 use crate::indexes::IndexSpec;
 use crate::read_only_store::ReadOnlyStore;
 use crate::store::{
@@ -205,6 +206,19 @@ impl DocumentStore for RecordingStore {
     ) -> Result<Vec<Document>> {
         self.hit("aggregate_preview");
         Ok(vec![doc! { "via": "aggregate_preview" }])
+    }
+    async fn aggregate_explain(
+        &self,
+        _ns: &Namespace,
+        _pipeline: Vec<Document>,
+        verbosity: ExplainVerbosity,
+        _max_time: Duration,
+    ) -> Result<Explain> {
+        self.hit("aggregate_explain");
+        Ok(Explain {
+            document: doc! { "via": "aggregate_explain" },
+            plan_only: verbosity == ExplainVerbosity::QueryPlanner,
+        })
     }
     async fn aggregate_write(
         &self,
@@ -551,6 +565,24 @@ async fn read_only_store_forwards_aggregate_preview() {
         .unwrap();
     assert_eq!(out, vec![doc! { "via": "aggregate_preview" }]);
     assert_eq!(inner.count("aggregate_preview"), 1);
+}
+
+#[tokio::test]
+async fn read_only_store_forwards_aggregate_explain() {
+    // Locked on purpose: an explain is a read.
+    let (inner, _flag, store) = wrapped(true);
+    let out = store
+        .aggregate_explain(
+            &ns(),
+            vec![doc! { "$match": {} }],
+            ExplainVerbosity::ExecutionStats,
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out.document, doc! { "via": "aggregate_explain" });
+    assert!(!out.plan_only);
+    assert_eq!(inner.count("aggregate_explain"), 1);
 }
 
 #[tokio::test]

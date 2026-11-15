@@ -32,6 +32,12 @@ pub const BULK_COUNT_MAX_TIME: Duration = Duration::from_secs(10);
 pub const AGGREGATE_PREVIEW_TIMEOUT: Duration =
     Duration::from_millis(crate::pipeline::PREVIEW_MAX_TIME_MS + 2_000);
 
+/// Client-side bound of an aggregate explain: a little above the server-side `maxTimeMS`
+/// ([`crate::explain::AGGREGATE_EXPLAIN_MAX_TIME_MS`], the cost of `executionStats`), so the
+/// server's own timeout normally answers first. `command_timeout` still applies when shorter.
+pub const AGGREGATE_EXPLAIN_TIMEOUT: Duration =
+    Duration::from_millis(crate::explain::AGGREGATE_EXPLAIN_MAX_TIME_MS + 2_000);
+
 /// Client-side bound of an aggregate write run: a little above the server-side `maxTimeMS`
 /// ([`crate::pipeline::AGGREGATE_RUN_MAX_TIME_MS`]). Capped by `index_build_timeout`, the
 /// runtime's tunable for long-running commands (not by the short `command_timeout`).
@@ -147,4 +153,10 @@ impl std::fmt::Debug for RuntimeConfig {
             .field("history_path", &self.history_path)
             .finish_non_exhaustive()
     }
+}
+
+/// The bound of the write half of an aggregate run: the index-build bound, capped by
+/// [`AGGREGATE_RUN_TIMEOUT`].
+pub(super) fn run_write_limit(config: &RuntimeConfig) -> Duration {
+    config.index_build_timeout.min(AGGREGATE_RUN_TIMEOUT)
 }

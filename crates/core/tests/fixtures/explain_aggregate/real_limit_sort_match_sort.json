@@ -1,0 +1,145 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "t.o",
+    "parsedQuery": {
+      "status": {
+        "$eq": "a"
+      }
+    },
+    "indexFilterSet": false,
+    "queryHash": "0D56CC74",
+    "planCacheShapeHash": "0D56CC74",
+    "planCacheKey": "892B7CB8",
+    "optimizationTimeMillis": 0,
+    "optimizationTimeMicros": 71,
+    "optimizedPipeline": true,
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "SORT",
+      "sortPattern": {
+        "total": -1
+      },
+      "memLimit": 104857600,
+      "type": "simple",
+      "inputStage": {
+        "stage": "FETCH",
+        "nss": "t.o",
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nss": "t.o",
+          "keyPattern": {
+            "status": 1
+          },
+          "indexName": "status_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "status": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": 2,
+          "direction": "forward",
+          "indexBounds": {
+            "status": [
+              "[\"a\", \"a\"]"
+            ]
+          }
+        }
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": 5000,
+    "executionTimeMillis": 4,
+    "executionTimeMicros": 4260,
+    "totalKeysExamined": 5000,
+    "totalDocsExamined": 5000,
+    "executionStages": {
+      "isCached": false,
+      "stage": "SORT",
+      "nReturned": 5000,
+      "executionTimeMillisEstimate": 0,
+      "works": 10002,
+      "advanced": 5000,
+      "needTime": 5001,
+      "needYield": 0,
+      "saveState": 0,
+      "restoreState": 0,
+      "isEOF": 1,
+      "sortPattern": {
+        "total": -1
+      },
+      "memLimit": 104857600,
+      "type": "simple",
+      "totalDataSizeSorted": 522000,
+      "usedDisk": false,
+      "spills": 0,
+      "spilledRecords": 0,
+      "spilledBytes": 0,
+      "spilledDataStorageSize": 0,
+      "peakTrackedMemBytes": 522000,
+      "inputStage": {
+        "stage": "FETCH",
+        "nReturned": 5000,
+        "executionTimeMillisEstimate": 0,
+        "works": 5001,
+        "advanced": 5000,
+        "needTime": 0,
+        "needYield": 0,
+        "saveState": 0,
+        "restoreState": 0,
+        "isEOF": 1,
+        "nss": "t.o",
+        "docsExamined": 5000,
+        "alreadyHasObj": 0,
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nReturned": 5000,
+          "executionTimeMillisEstimate": 0,
+          "works": 5001,
+          "advanced": 5000,
+          "needTime": 0,
+          "needYield": 0,
+          "saveState": 0,
+          "restoreState": 0,
+          "isEOF": 1,
+          "nss": "t.o",
+          "keyPattern": {
+            "status": 1
+          },
+          "indexName": "status_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "status": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": 2,
+          "direction": "forward",
+          "indexBounds": {
+            "status": [
+              "[\"a\", \"a\"]"
+            ]
+          },
+          "keysExamined": 5000,
+          "seeks": 1,
+          "dupsTested": 0,
+          "dupsDropped": 0,
+          "peakTrackedMemBytes": 0
+        }
+      }
+    }
+  },
+  "queryShapeHash": "0FFFED1F9E8BB53E3EB60136AF90F21A16D244D78D9AE3C547777C792A41E98D",
+  "peakTrackedMemBytes": 522000,
+  "ok": 1
+}

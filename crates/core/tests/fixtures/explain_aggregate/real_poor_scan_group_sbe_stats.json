@@ -1,0 +1,147 @@
+{
+  "explainVersion": "2",
+  "queryPlanner": {
+    "namespace": "t.o",
+    "parsedQuery": {
+      "rare": {
+        "$eq": 1
+      }
+    },
+    "indexFilterSet": false,
+    "queryHash": "5128B1FC",
+    "planCacheShapeHash": "5128B1FC",
+    "planCacheKey": "9A4621BB",
+    "optimizationTimeMillis": 0,
+    "optimizationTimeMicros": 255,
+    "optimizedPipeline": true,
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "queryPlan": {
+        "stage": "GROUP",
+        "planNodeId": 3,
+        "inputStage": {
+          "stage": "COLLSCAN",
+          "planNodeId": 1,
+          "filter": {
+            "rare": {
+              "$eq": 1
+            }
+          },
+          "nss": "t.o",
+          "direction": "forward"
+        }
+      },
+      "slotBasedPlan": {
+        "slots": "$$RESULT=s8 env: {  }",
+        "stages": "[3] project [s8 = newBsonObj(\"_id\", s7, \"n\", s5)] \n[3] group [s7] [s5 = _internalCount::accumulate(s5, 1)] spillSlots[s6] mergingExprs[_internalCount::merge(s6)] \n[3] project [s7 = (s3 ?: null)] \n[1] filter {traverseF(s4, lambda(l2.0) { ((move(l2.0) == 1) ?: false) }, false)} \n[1] scan generic [s1 = record, s2 = recordId] [s3 = cust, s4 = rare] @\"00000000-0000-4000-8000-000000000001\" "
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": 1,
+    "executionTimeMillis": 3,
+    "executionTimeMicros": 3757,
+    "totalKeysExamined": 0,
+    "totalDocsExamined": 20000,
+    "executionStages": {
+      "stage": "project",
+      "planNodeId": 3,
+      "nReturned": 1,
+      "executionTimeMillisEstimate": 0,
+      "opens": 1,
+      "closes": 1,
+      "saveState": 0,
+      "restoreState": 0,
+      "isEOF": 1,
+      "projections": {
+        "8": "newBsonObj(\"_id\", s7, \"n\", s5) "
+      },
+      "inputStage": {
+        "stage": "group",
+        "planNodeId": 3,
+        "nReturned": 1,
+        "executionTimeMillisEstimate": 0,
+        "opens": 1,
+        "closes": 1,
+        "saveState": 0,
+        "restoreState": 0,
+        "isEOF": 1,
+        "groupBySlots": [
+          7
+        ],
+        "expressions": {
+          "5": "_internalCount::accumulate(s5, 1) ",
+          "initExprs": {
+            "5": null,
+            "mergingExprs": {
+              "6": "_internalCount::merge(s6) "
+            }
+          }
+        },
+        "usedDisk": false,
+        "spills": 0,
+        "spilledBytes": 0,
+        "spilledRecords": 0,
+        "spilledDataStorageSize": 0,
+        "peakTrackedMemBytes": 50,
+        "inputStage": {
+          "stage": "project",
+          "planNodeId": 3,
+          "nReturned": 10,
+          "executionTimeMillisEstimate": 0,
+          "opens": 1,
+          "closes": 2,
+          "saveState": 0,
+          "restoreState": 0,
+          "isEOF": 1,
+          "projections": {
+            "7": "(s3 ?: null) "
+          },
+          "inputStage": {
+            "stage": "filter",
+            "planNodeId": 1,
+            "nReturned": 10,
+            "executionTimeMillisEstimate": 0,
+            "opens": 1,
+            "closes": 2,
+            "saveState": 0,
+            "restoreState": 0,
+            "isEOF": 1,
+            "numTested": 20000,
+            "filter": "traverseF(s4, lambda(l2.0) { ((move(l2.0) == 1) ?: false) }, false) ",
+            "inputStage": {
+              "stage": "scan",
+              "planNodeId": 1,
+              "nReturned": 20000,
+              "executionTimeMillisEstimate": 0,
+              "opens": 1,
+              "closes": 1,
+              "saveState": 0,
+              "restoreState": 0,
+              "isEOF": 1,
+              "numReads": 20000,
+              "recordSlot": 1,
+              "recordIdSlot": 2,
+              "scanFieldNames": [
+                "cust",
+                "rare"
+              ],
+              "scanFieldSlots": [
+                3,
+                4
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "peakTrackedMemBytes": 50,
+  "ok": 1
+}
