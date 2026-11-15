@@ -102,6 +102,12 @@ pub struct AggregateView {
     /// Whether the Copy as code button is on, remembered between repaints (see
     /// `code_export_memo`); keyed on its inputs, so it needs no reset.
     pub code_block: super::code_export_memo::CodeBlockMemo,
+    /// What an explain would send, remembered between repaints (see `aggregate_explain_block`);
+    /// keyed on its inputs, so it needs no reset.
+    pub explain_memo: super::aggregate_explain_block::ExplainMemo,
+    /// The Raw tab's own tree and page, apart from the preview's.
+    pub raw_tree: TreeState,
+    pub raw_page: PageCache,
 }
 
 impl AggregateView {
