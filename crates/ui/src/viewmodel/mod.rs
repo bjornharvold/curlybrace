@@ -2,7 +2,7 @@
 pub mod admin_dialog;
 pub mod aggregate;
 pub mod aggregate_explain;
-mod aggregate_explain_block;
+pub mod aggregate_explain_block;
 pub mod aggregate_flight;
 mod aggregate_order;
 pub mod aggregate_run;
