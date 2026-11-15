@@ -34,6 +34,10 @@ pub struct InputPlan {
     pub stage_kind: String,
     /// The first index the plan reads, when it reads one.
     pub index: Option<String>,
+    /// Every stage of the winning plan on this collection's side, root first (`GROUP`,
+    /// `EQ_LOOKUP`, `PROJECTION_SIMPLE`, `FETCH`, `IXSCAN`, ...). It shows the pipeline stages the
+    /// server pushed down into the plan, which are absent from `AggPlan::stages`.
+    pub plan_stages: Vec<String>,
     pub keys_examined: Option<u64>,
     pub docs_examined: Option<u64>,
     pub n_returned: Option<u64>,

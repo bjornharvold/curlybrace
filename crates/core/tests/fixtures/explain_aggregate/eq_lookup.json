@@ -1,0 +1,53 @@
+{
+  "explainVersion": "2",
+  "queryPlanner": {
+    "namespace": "shop.orders",
+    "parsedQuery": {},
+    "indexFilterSet": false,
+    "queryHash": "0F20F9A9",
+    "optimizedPipeline": true,
+    "maxIndexedOrSolutionsReached": false,
+    "winningPlan": {
+      "isCached": false,
+      "queryPlan": {
+        "stage": "EQ_LOOKUP",
+        "planNodeId": 4,
+        "foreignCollection": "shop.customers",
+        "localField": "customerId",
+        "foreignField": "_id",
+        "asField": "customer",
+        "strategy": "IndexedLoopJoin",
+        "inputStages": [
+          {
+            "stage": "COLLSCAN",
+            "planNodeId": 1,
+            "filter": {},
+            "nss": "shop.orders",
+            "direction": "forward"
+          },
+          {
+            "stage": "FETCH",
+            "planNodeId": 3,
+            "nss": "shop.customers",
+            "inputStage": {
+              "stage": "IXSCAN",
+              "planNodeId": 2,
+              "nss": "shop.customers",
+              "keyPattern": { "_id": 1 },
+              "indexName": "_id_",
+              "isMultiKey": false,
+              "direction": "forward",
+              "indexBounds": {}
+            }
+          }
+        ]
+      },
+      "slotBasedPlan": {
+        "slots": "$$RESULT=s23 env: { }",
+        "stages": "[4] project [s23 = makeBsonObj(MakeObjSpec([customer = Set(0)], Open, NewObj, 0), s1, s22)]"
+      }
+    },
+    "rejectedPlans": []
+  },
+  "ok": 1
+}

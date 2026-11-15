@@ -37,6 +37,7 @@ fn fixture(name: &str) -> Document {
         "sharded_winning_plan" => {
             include_str!("../../tests/fixtures/explain_aggregate/sharded_winning_plan.json")
         }
+        "eq_lookup" => include_str!("../../tests/fixtures/explain_aggregate/eq_lookup.json"),
         "error_ok0" => include_str!("../../tests/fixtures/explain_aggregate/error_ok0.json"),
         "malformed" => include_str!("../../tests/fixtures/explain_aggregate/malformed.json"),
         other => panic!("unknown fixture {other}"),
@@ -204,6 +205,44 @@ fn a_pushed_down_group_in_the_slot_based_engine_still_shows_its_scan() {
         Some("COLLSCAN")
     );
     assert_eq!(p.hints, [AggHint::CollectionScan]);
+}
+
+#[test]
+fn a_pushed_down_lookup_keeps_the_local_side_and_ignores_the_joined_index() {
+    let p = plan("eq_lookup");
+    let input = p.input.as_ref().expect("input");
+    assert_eq!(input.stage_kind, "COLLSCAN");
+    assert_eq!(
+        input.index, None,
+        "the _id_ index belongs to the joined collection"
+    );
+    assert_eq!(input.plan_stages, ["EQ_LOOKUP", "COLLSCAN"]);
+    assert!(p.stages.is_empty());
+    assert_eq!(p.hints, [AggHint::CollectionScan]);
+}
+
+#[test]
+fn a_pushed_down_lookup_without_an_index_scans_the_joined_collection() {
+    let mut explain = fixture("eq_lookup");
+    let text = explain.to_string().replace("IndexedLoopJoin", "HashJoin");
+    explain = editor_json_to_doc(&text).expect("still parses");
+    let AggPlanOutcome::Plan(p) = parse_aggregate_explain(&explain) else {
+        panic!("expected a plan");
+    };
+    assert_eq!(
+        p.hints,
+        [AggHint::CollectionScan, AggHint::LookupCollectionScan]
+    );
+}
+
+#[test]
+fn the_plan_stages_list_what_the_server_pushed_down() {
+    let p = plan("sbe_group");
+    let input = p.input.as_ref().expect("input");
+    assert_eq!(
+        input.plan_stages,
+        ["GROUP", "PROJECTION_SIMPLE", "COLLSCAN"]
+    );
 }
 
 #[test]

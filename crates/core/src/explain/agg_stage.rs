@@ -153,6 +153,25 @@ pub(super) fn examined_hint(input: &InputPlan) -> Option<AggHint> {
     .then_some(AggHint::ExaminedMuchMoreThanReturned)
 }
 
+/// Whether a `$lookup` pushed into the plan (`EQ_LOOKUP`) joins without an index: its strategy is
+/// a hash join or a nested loop, each of which reads the joined collection whole.
+fn reads_joined_collection_whole(node: &Document) -> bool {
+    let here = node.get_str("stage") == Ok("EQ_LOOKUP")
+        && node
+            .get_str("strategy")
+            .is_ok_and(|strategy| strategy != "IndexedLoopJoin");
+    here || ["queryPlan", "inputStage"]
+        .iter()
+        .filter_map(|key| node.get_document(key).ok())
+        .any(reads_joined_collection_whole)
+        || node.get_array("inputStages").is_ok_and(|children| {
+            children
+                .iter()
+                .filter_map(Bson::as_document)
+                .any(reads_joined_collection_whole)
+        })
+}
+
 /// Reads the winning plan of `planner` (a `queryPlanner` document, or a shard entry that holds a
 /// `winningPlan`) with the counters of `stats`. `None` when there is no recognisable plan.
 pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Option<ParsedInput> {
@@ -172,11 +191,15 @@ pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Optio
     if nodes.contains(&"SORT") {
         hints.push(AggHint::InMemorySort);
     }
+    if reads_joined_collection_whole(winning) {
+        hints.push(AggHint::LookupCollectionScan);
+    }
     let figure = |key: &str| stats.and_then(|s| opt_count(s, key));
     Some(ParsedInput {
         plan: InputPlan {
             stage_kind,
             index,
+            plan_stages: nodes.iter().map(|s| (*s).to_owned()).collect(),
             keys_examined: figure("totalKeysExamined"),
             docs_examined: figure("totalDocsExamined"),
             n_returned: figure("nReturned"),

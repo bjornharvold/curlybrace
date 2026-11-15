@@ -42,9 +42,16 @@ pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mu
         }
     }
     if let Ok(children) = node.get_array("inputStages") {
+        // A pushed-down `$lookup` (`EQ_LOOKUP`) lists the local side first and the joined
+        // collection's plan second: that one says nothing about how this collection is read.
+        let wanted = match node.get_str("stage") {
+            Ok("EQ_LOOKUP") => 1,
+            _ => usize::MAX,
+        };
         children
             .iter()
             .filter_map(Bson::as_document)
+            .take(wanted)
             .for_each(|c| walk(c, stages, index));
     }
     // mongos: the merge stage on top, each shard's own plan under `shards[].winningPlan`.
