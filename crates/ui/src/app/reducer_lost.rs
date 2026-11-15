@@ -42,11 +42,8 @@ pub(super) fn connection_lost(
             .banner_owner()
             .is_some_and(|owner| Some(owner) != state.active)
     {
-        let code_export = code_export_without_failing(&state);
-        return AppState {
-            code_export,
-            ..state.failed(error)
-        };
+        let owned = dialog_is_of_failing_session(&state);
+        return dialog_closed_if(owned, state.failed(error));
     }
     let banner = Some(Banner::Failure {
         context,
@@ -57,30 +54,37 @@ pub(super) fn connection_lost(
         .then(|| state.ssh_endpoint.clone())
         .flatten();
     let banner_session = state.active;
-    let code_export = code_export_without_failing(&state);
-    AppState {
-        banner,
-        banner_session,
-        forget_target,
-        code_export,
-        ..state.failed(error)
-    }
+    let owned = dialog_is_of_failing_session(&state);
+    dialog_closed_if(
+        owned,
+        AppState {
+            banner,
+            banner_session,
+            forget_target,
+            ..state.failed(error)
+        },
+    )
 }
 
-/// The Copy as code state without its dialog when that was opened on the failing session (the
-/// active one while this runs, see `with_session`): its view is cleared with it. A dialog of
-/// another session, the one in view when a background session fails, stays.
-fn code_export_without_failing(state: &AppState) -> Box<crate::viewmodel::CodeExportUi> {
+/// Whether the Copy as code dialog was opened on the failing session (the active one while this
+/// runs, see `with_session`): its view is cleared with it. A dialog of another session, the one in
+/// view when a background session fails, stays. Asked before the view is cleared.
+fn dialog_is_of_failing_session(state: &AppState) -> bool {
     let failing = state.session_id();
-    let owned = state
+    state
         .code_export
         .dialog
         .as_ref()
-        .is_some_and(|dialog| dialog.session == failing);
-    match owned {
-        true => Box::new((*state.code_export).clone().closed()),
-        false => state.code_export.clone(),
+        .is_some_and(|dialog| dialog.session == failing)
+}
+
+/// `state` with the Copy as code dialog closed when `close`; the dialog is moved, not copied.
+fn dialog_closed_if(close: bool, mut state: AppState) -> AppState {
+    if close {
+        let ui = std::mem::take(&mut *state.code_export);
+        *state.code_export = ui.closed();
     }
+    state
 }
 
 /// `connection_lost`, plus a cancel of the session's running shell: `mongosh` holds its own

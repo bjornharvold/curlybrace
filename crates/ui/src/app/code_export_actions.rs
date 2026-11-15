@@ -56,15 +56,17 @@ pub(super) fn close_if_stale(state: &mut AppState) {
         .code_export
         .is_stale(state.session_id(), state.selected_ns());
     if !browsing || stale {
-        state.code_export = Box::new((*state.code_export).clone().closed());
+        let ui = std::mem::take(&mut *state.code_export);
+        *state.code_export = ui.closed();
     }
 }
 
 // Never inlined: `AppState` moves by value through the reducer, and its frames are near the
 // debug-build stack limit (see `reducer::on_event`).
 #[inline(never)]
-pub(super) fn on_action(state: AppState, action: CodeAction) -> Out {
-    let ui = (*state.code_export).clone();
+pub(super) fn on_action(mut state: AppState, action: CodeAction) -> Out {
+    // Moved out of the state (no copy of the dialog's text and request), and put back changed.
+    let ui = std::mem::take(&mut *state.code_export);
     let next = match action {
         CodeAction::Open(source) => match request(&state, source) {
             Some(request) => ui.opened_in(request, state.session_id()),
@@ -77,10 +79,7 @@ pub(super) fn on_action(state: AppState, action: CodeAction) -> Out {
         CodeAction::Copy => ui,
         CodeAction::Close => ui.closed(),
     };
-    let state = AppState {
-        code_export: Box::new(next),
-        ..state
-    };
+    *state.code_export = next;
     (state, Vec::new())
 }
 
