@@ -449,6 +449,8 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::ShellHistory { .. }
         | Event::ShellHistoryChanged { .. }
         | Event::AggregatePreviewed { .. }
+        // Not consumed yet: the UI side of the explain (slice 3b, task 2) routes it.
+        | Event::AggregateExplained { .. }
         | Event::AggregateRan { .. } => (state, Vec::new()),
     }
 }

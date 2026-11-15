@@ -210,6 +210,8 @@ async fn run(
         Command::AggregatePreview { request, .. } => Some(*request),
         _ => None,
     };
+    // And an aggregate explain: its timeout is an outcome too.
+    let explain_timeout = super::aggregate_explain::timeout_answer(id, &command);
     // A write run that outruns the client bound has an unknown outcome: answered, never pinged.
     let run_namespaces = match &command {
         Command::AggregateRun {
@@ -290,6 +292,9 @@ async fn run(
             request,
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
+    }
+    if let (true, Some(event)) = (timed_out, explain_timeout) {
+        return Ok(event);
     }
     if let (true, Some((run, ns, target))) = (timed_out, run_namespaces.clone()) {
         return Ok(Event::AggregateRan {
@@ -439,6 +444,15 @@ async fn data_command(
                 request,
                 outcome,
             }
+        }
+        Command::AggregateExplain {
+            request,
+            ns,
+            stages,
+            verbosity,
+            ..
+        } => {
+            super::aggregate_explain::run(session, &*store, request, ns, stages, verbosity).await?
         }
         Command::AggregateRun {
             ns, pipeline, run, ..
@@ -777,6 +791,9 @@ pub(super) fn command_time_limit(
         Command::AggregatePreview { .. } => config
             .command_timeout
             .min(super::config::AGGREGATE_PREVIEW_TIMEOUT),
+        Command::AggregateExplain { .. } => config
+            .command_timeout
+            .min(super::config::AGGREGATE_EXPLAIN_TIMEOUT),
         Command::AggregateRun { .. } => {
             run_write_limit(config)
                 + super::config::AGGREGATE_RUN_COUNT_TIMEOUT

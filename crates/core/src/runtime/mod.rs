@@ -25,6 +25,9 @@
 
 #[cfg(test)]
 mod admin_tests;
+mod aggregate_explain;
+#[cfg(test)]
+mod aggregate_explain_tests;
 mod aggregate_run;
 #[cfg(test)]
 mod aggregate_run_tests;
@@ -128,13 +131,13 @@ use tokio::sync::watch;
 
 use crate::connection::ConnectionConfig;
 use crate::error::{CoreError, Result};
-use crate::explain::Verdict;
+use crate::explain::{ExplainVerbosity, Verdict};
 use crate::guard::{GuardReport, GuardTarget};
 use crate::history::{ChartRange, HistoryDb, ShapeSummary};
 use crate::indexes::IndexSpec;
 use crate::secrets::SecretStore;
 use crate::store::{
-    CollectionIndex, DocumentStore, Namespace, Page, ProfilingState, Query, Topology,
+    CollectionIndex, DocumentStore, Explain, Namespace, Page, ProfilingState, Query, Topology,
 };
 use session::Session;
 
@@ -257,6 +260,19 @@ pub enum Command {
         request: u64,
         ns: Namespace,
         pipeline: Vec<Document>,
+    },
+    /// Explains `stages` (the pipeline of `pipeline::explain_pipeline`, no write stage, no preview
+    /// `$limit`) on `ns`. A read, allowed on a read-only connection; the store refuses a write
+    /// stage at any depth. Answered by [`Event::AggregateExplained`], whose `outcome` also
+    /// carries any failure or timeout. `ExecutionStats` runs the pipeline on the server for up to
+    /// [`crate::explain::AGGREGATE_EXPLAIN_MAX_TIME_MS`].
+    AggregateExplain {
+        session: SessionId,
+        /// Echoed by the answer.
+        request: u64,
+        ns: Namespace,
+        stages: Vec<Document>,
+        verbosity: ExplainVerbosity,
     },
     /// Runs `pipeline` (the last stage the single `$out`/`$merge`) on `ns` for real. A write:
     /// refused on a read-only connection. The UI sends it only after the typed confirmation.
@@ -653,6 +669,18 @@ pub enum Event {
         /// The `request` of the command this answers.
         request: u64,
         outcome: std::result::Result<Vec<Document>, CoreError>,
+    },
+    /// The answer to `AggregateExplain`. A failure, a refused write stage or a timeout is an
+    /// `Err` outcome; it is never an [`Event::Failed`], which raises a banner. The explain
+    /// document holds user data: it is parsed with `explain::parse_aggregate_explain` and shown,
+    /// never logged.
+    AggregateExplained {
+        session: SessionId,
+        /// The `request` of the command this answers.
+        request: u64,
+        ns: Namespace,
+        verbosity: ExplainVerbosity,
+        outcome: std::result::Result<Explain, CoreError>,
     },
     /// The answer to `AggregateRun`: `outcome` is the estimated document count of `target` after
     /// the run (`Ok(None)` when the run succeeded but the count could not be read). A pipeline or server failure is an `Err` outcome shown inline, never an
