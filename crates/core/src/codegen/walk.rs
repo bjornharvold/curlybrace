@@ -61,10 +61,10 @@ pub(crate) trait Syntax {
     fn pipeline(&self, items: &[String], depth: usize) -> String {
         self.array(items, depth)
     }
-    /// Whether a value was converted while writing (see `lossy`); languages that never
+    /// Which kinds of value were converted while writing (see `lossy`); languages that never
     /// convert keep the default.
-    fn converted(&self) -> bool {
-        false
+    fn converted(&self) -> Vec<crate::codegen::lossy::Converted> {
+        Vec::new()
     }
     fn empty_document(&self) -> String {
         "{}".into()

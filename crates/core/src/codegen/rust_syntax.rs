@@ -8,7 +8,7 @@ use std::cell::Cell;
 use bson::spec::BinarySubtype;
 
 use crate::codegen::escape::{braced_unicode_escape, double_quoted, float_text};
-use crate::codegen::lossy::Conversions;
+use crate::codegen::lossy::{Conversions, Converted};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
@@ -113,8 +113,8 @@ impl Syntax for RustSyntax {
         self.bson("bson::Bson::Null".into())
     }
 
-    fn converted(&self) -> bool {
-        self.converted.happened()
+    fn converted(&self) -> Vec<Converted> {
+        self.converted.kinds()
     }
 
     fn undefined(&self) -> String {
@@ -189,7 +189,7 @@ impl Syntax for RustSyntax {
 
     /// The `bson` crate cannot build a DBPointer; it becomes the `$ref` / `$id` document.
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::DbPointer);
         format!(
             "{{ \"$ref\": {}, \"$id\": {} }}",
             quote(namespace),

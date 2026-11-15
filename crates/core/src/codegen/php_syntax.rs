@@ -4,8 +4,8 @@
 
 use bson::spec::BinarySubtype;
 
-use crate::codegen::escape::{float_text, hex, single_or_double_quoted};
-use crate::codegen::lossy::Conversions;
+use crate::codegen::escape::{float_text, hex, single_or_double_quoted, uuid_text};
+use crate::codegen::lossy::{Conversions, Converted};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
@@ -97,12 +97,12 @@ impl Syntax for PhpSyntax {
 
     /// The library cannot build `undefined`; it is sent as null.
     fn undefined(&self) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::Undefined);
         "null".into()
     }
 
-    fn converted(&self) -> bool {
-        self.converted.happened()
+    fn converted(&self) -> Vec<Converted> {
+        self.converted.kinds()
     }
 
     fn object_id(&self, hex: &str) -> String {
@@ -116,7 +116,16 @@ impl Syntax for PhpSyntax {
         ))
     }
 
+    /// The library throws for a UUID binary that is not 16 bytes; it is written as generic
+    /// binary instead.
     fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> Result<String, CodegenError> {
+        let subtype = match subtype == BinarySubtype::Uuid && uuid_text(bytes).is_none() {
+            true => {
+                self.converted.mark(Converted::ShortUuid);
+                BinarySubtype::Generic
+            }
+            false => subtype,
+        };
         Ok(format!(
             "new MongoDB\\BSON\\Binary(hex2bin('{}'), {})",
             hex(bytes),
@@ -159,13 +168,13 @@ impl Syntax for PhpSyntax {
 
     /// The library cannot build the deprecated symbol type; it is a string.
     fn symbol(&self, text: &str) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::Symbol);
         quote(text)
     }
 
     /// Sent as the equivalent `$ref` / `$id` document.
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::DbPointer);
         format!(
             "['$ref' => {}, '$id' => {}]",
             quote(namespace),

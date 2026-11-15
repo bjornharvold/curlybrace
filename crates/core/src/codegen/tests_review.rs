@@ -3,7 +3,7 @@
 
 use bson::{Bson, doc};
 
-use super::lossy::NOTE;
+use super::lossy::{Converted, note};
 use super::*;
 
 fn ns() -> Namespace {
@@ -85,16 +85,17 @@ fn converting(kind: &str) -> Vec<(Language, &'static str)> {
 #[test]
 fn a_converted_value_adds_one_fixed_note_at_the_top_of_the_body() {
     let kinds = [
-        ("undefined", Bson::Undefined),
-        ("symbol", symbol()),
-        ("dbPointer", db_pointer()),
+        ("undefined", Bson::Undefined, Converted::Undefined),
+        ("symbol", symbol(), Converted::Symbol),
+        ("dbPointer", db_pointer(), Converted::DbPointer),
     ];
-    for (kind, value) in kinds {
+    for (kind, value, converted) in kinds {
+        let text = note(&[converted]).expect("a note");
         for (language, comment) in converting(kind) {
             for setup in [true, false] {
                 let out = render(language, value.clone(), setup);
-                let line = format!("{comment} {NOTE}\n");
-                assert_eq!(out.matches(NOTE).count(), 1, "{language:?} {kind} {setup}");
+                let line = format!("{comment} {text}\n");
+                assert_eq!(out.matches(&text).count(), 1, "{language:?} {kind} {setup}");
                 let at = out
                     .find(&line)
                     .unwrap_or_else(|| panic!("{language:?} {kind}"));

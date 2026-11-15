@@ -111,6 +111,8 @@ mod tests;
 #[cfg(test)]
 mod tests_langs;
 #[cfg(test)]
+mod tests_lossy;
+#[cfg(test)]
 mod tests_review;
 #[cfg(test)]
 mod tests_scripting;

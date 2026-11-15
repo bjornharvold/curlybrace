@@ -10,7 +10,7 @@ use bson::spec::BinarySubtype;
 use crate::codegen::escape::{
     Civil, base64, civil_from_millis, double_quoted, float_text, unicode_escape, uuid_text,
 };
-use crate::codegen::lossy::Conversions;
+use crate::codegen::lossy::{Conversions, Converted};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
@@ -201,12 +201,12 @@ impl Syntax for JsSyntax {
 
     /// The driver stores a JavaScript `undefined` as `null`.
     fn undefined(&self) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::Undefined);
         "undefined".into()
     }
 
-    fn converted(&self) -> bool {
-        self.converted.happened()
+    fn converted(&self) -> Vec<Converted> {
+        self.converted.kinds()
     }
 
     fn object_id(&self, hex: &str) -> String {
@@ -295,7 +295,7 @@ impl Syntax for JsSyntax {
 
     /// Written as a `DBRef`, which stores the `$ref` / `$id` document, not a DBPointer.
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::DbPointer);
         format!(
             "{}({}, {}(\"{id_hex}\"))",
             self.ctor("DBRef"),

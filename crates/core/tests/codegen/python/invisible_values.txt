@@ -8,7 +8,7 @@ client = MongoClient("<your connection string>")
 db = client["shop"]
 collection = db["orders"]
 
-# Note: undefined/symbol/DBPointer values cannot be written in this language and were converted.
+# Note: symbol/DBPointer values cannot be written in this language and were converted.
 pipeline = [
     {
         "$match": {

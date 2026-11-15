@@ -4,7 +4,8 @@
 
 use bson::spec::BinarySubtype;
 
-use crate::codegen::escape::{double_quoted, float_text, unicode_escape};
+use crate::codegen::escape::{double_quoted, float_text, unicode_escape, uuid_text};
+use crate::codegen::lossy::{Conversions, Converted};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
 
@@ -13,7 +14,18 @@ pub(crate) fn quote(text: &str) -> String {
     double_quoted(text, unicode_escape)
 }
 
-pub(crate) struct CsharpSyntax;
+pub(crate) struct CsharpSyntax {
+    /// A UUID binary of the wrong length was written as generic binary.
+    converted: Conversions,
+}
+
+impl CsharpSyntax {
+    pub(crate) fn new() -> Self {
+        Self {
+            converted: Conversions::default(),
+        }
+    }
+}
 
 fn byte_array(bytes: &[u8]) -> String {
     if bytes.is_empty() {
@@ -91,12 +103,25 @@ impl Syntax for CsharpSyntax {
         Ok(format!("new BsonDateTime({millis}L)"))
     }
 
+    /// The driver throws for a `UuidStandard` binary that is not 16 bytes; it is written as
+    /// generic binary instead.
     fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> Result<String, CodegenError> {
+        let subtype = match subtype == BinarySubtype::Uuid && uuid_text(bytes).is_none() {
+            true => {
+                self.converted.mark(Converted::ShortUuid);
+                BinarySubtype::Generic
+            }
+            false => subtype,
+        };
         Ok(format!(
             "new BsonBinaryData({}, {})",
             byte_array(bytes),
             subtype_text(subtype)
         ))
+    }
+
+    fn converted(&self) -> Vec<Converted> {
+        self.converted.kinds()
     }
 
     fn decimal128(&self, text: &str, _bytes: [u8; 16]) -> String {

@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use bson::spec::BinarySubtype;
 
 use crate::codegen::escape::{civil_from_millis, double_quoted, float_text, hex, x_or_u_escape};
-use crate::codegen::lossy::Conversions;
+use crate::codegen::lossy::{Conversions, Converted};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::Syntax;
 
@@ -90,12 +90,12 @@ impl Syntax for PythonSyntax {
     }
 
     fn undefined(&self) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::Undefined);
         "None".into()
     }
 
-    fn converted(&self) -> bool {
-        self.converted.happened()
+    fn converted(&self) -> Vec<Converted> {
+        self.converted.kinds()
     }
 
     fn object_id(&self, hex: &str) -> String {
@@ -183,13 +183,13 @@ impl Syntax for PythonSyntax {
 
     /// PyMongo cannot write the deprecated symbol type; it is sent as a string.
     fn symbol(&self, text: &str) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::Symbol);
         quote(text)
     }
 
     /// Written as a `DBRef`, which stores the `$ref` / `$id` document, not a DBPointer.
     fn db_pointer(&self, namespace: &str, id_hex: &str) -> String {
-        self.converted.mark();
+        self.converted.mark(Converted::DbPointer);
         let id = self.object_id(id_hex);
         self.call(
             "from bson.dbref import DBRef",

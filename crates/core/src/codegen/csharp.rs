@@ -4,6 +4,7 @@ use bson::Document;
 
 use crate::codegen::Renderer;
 use crate::codegen::csharp_syntax::{CsharpSyntax, quote};
+use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::walk::{render_document, render_documents};
 use crate::store::{Namespace, Query};
@@ -11,9 +12,10 @@ use crate::store::{Namespace, Query};
 pub(crate) struct Csharp;
 
 impl Csharp {
-    fn frame(ns: &Namespace, options: &CodeOptions, body: &str) -> String {
+    fn frame(ns: &Namespace, options: &CodeOptions, syn: &CsharpSyntax, body: &str) -> String {
+        let body = with_note(syn, "//", body.to_string());
         if !options.setup {
-            return body.to_string();
+            return body;
         }
         let (client, db, coll) = (
             &options.client_var,
@@ -40,7 +42,7 @@ impl Renderer for Csharp {
         query: &Query,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
-        let syn = CsharpSyntax;
+        let syn = CsharpSyntax::new();
         let mut body = format!(
             "var filter = {};\n",
             render_document(&syn, &query.filter, 0)?
@@ -72,7 +74,7 @@ impl Renderer for Csharp {
             "\nvar results = {}.Find(filter){lines};\nresults.ForEach(Console.WriteLine);\n",
             options.collection_var
         ));
-        Ok(Self::frame(ns, options, &body))
+        Ok(Self::frame(ns, options, &syn, &body))
     }
 
     fn aggregate(
@@ -81,11 +83,12 @@ impl Renderer for Csharp {
         stages: &[Document],
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
-        let pipeline = render_documents(&CsharpSyntax, stages, 0)?;
+        let syn = CsharpSyntax::new();
+        let pipeline = render_documents(&syn, stages, 0)?;
         let body = format!(
             "var pipeline = {pipeline};\n\nvar results = {}.Aggregate<BsonDocument>(pipeline).ToList();\nresults.ForEach(Console.WriteLine);\n",
             options.collection_var
         );
-        Ok(Self::frame(ns, options, &body))
+        Ok(Self::frame(ns, options, &syn, &body))
     }
 }
