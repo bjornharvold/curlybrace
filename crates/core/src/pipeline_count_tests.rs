@@ -145,3 +145,39 @@ fn anything_else_is_an_error() {
         );
     }
 }
+
+#[test]
+fn counting_every_stage_at_once_equals_counting_each_one() {
+    let cases: Vec<Vec<Stage>> = vec![
+        three(),
+        vec![
+            stage(r#"{"$match": {"a": 1}}"#),
+            disabled(r#"{"$group": {"_id": "$k"}}"#),
+            stage(r#"{"$sort": {"_id": 1}}"#),
+        ],
+        vec![stage(r#"{"$match": {}}"#), stage(r#"{"$out": "x"}"#)],
+        vec![
+            stage(r#"{"$match": {}}"#),
+            stage(r#"{"$merge": "x"}"#),
+            stage(r#"{"$sort": {"a": 1}}"#),
+        ],
+        vec![
+            stage(r#"{"$facet": {"f": [{"$out": "x"}]}}"#),
+            stage(r#"{"$limit": 1}"#),
+        ],
+        vec![
+            stage(r#"{"$match": {}}"#),
+            stage("{oops"),
+            stage(r#"{"$limit": 1}"#),
+        ],
+        vec![disabled(r#"{"$match": {}}"#), disabled("{oops")],
+        vec![disabled("{oops"), stage(r#"{"$match": {}}"#)],
+        Vec::new(),
+    ];
+    for stages in cases {
+        let each: Vec<_> = (0..stages.len())
+            .map(|upto| count_pipeline(&stages, upto, 10))
+            .collect();
+        assert_eq!(count_pipelines(&stages, 10), each, "{stages:?}");
+    }
+}

@@ -7,7 +7,7 @@ use super::aggregate::{AggregateState, Mode};
 use super::aggregate_view::AggregateView;
 use super::input_memo::InputMemo;
 use bson::Document;
-use curlybrace_core::pipeline::{COUNT_CAP, PipelineError, Stage, count_pipeline, pipeline_text};
+use curlybrace_core::pipeline::{COUNT_CAP, PipelineError, Stage, count_pipelines, pipeline_text};
 use std::sync::Arc;
 
 /// Why a stage gets no number.
@@ -73,19 +73,17 @@ pub fn count_plan(draft: &AggregateState, stages: &[Stage]) -> CountPlanOutcome 
     if !stages.iter().any(|s| s.enabled) {
         return Err(CountsBlock::Pipeline(PipelineError::Empty));
     }
-    let items: Vec<PlanItem> = stages
-        .iter()
+    let items: Vec<PlanItem> = count_pipelines(stages, COUNT_CAP)
+        .into_iter()
         .enumerate()
-        .filter(|(_, s)| s.enabled)
-        .map(
-            |(index, _)| match count_pipeline(stages, index, COUNT_CAP) {
-                Ok(pipeline) => PlanItem::Send { index, pipeline },
-                Err(error) => PlanItem::Skip {
-                    index,
-                    reason: reason_of(&error, index),
-                },
+        .filter(|(index, _)| stages[*index].enabled)
+        .map(|(index, built)| match built {
+            Ok(pipeline) => PlanItem::Send { index, pipeline },
+            Err(error) => PlanItem::Skip {
+                index,
+                reason: reason_of(&error, index),
             },
-        )
+        })
         .collect();
     match items.iter().any(|i| matches!(i, PlanItem::Send { .. })) {
         true => Ok(CountPlan { items }),

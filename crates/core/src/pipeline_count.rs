@@ -4,7 +4,7 @@
 use bson::{Bson, Document};
 
 use crate::error::{CoreError, Result};
-use crate::pipeline::{PipelineError, Stage, read_stages};
+use crate::pipeline::{PipelineError, Stage, parse_stage, read_parsed, read_stages};
 
 /// Documents a count looks at before it gives up and reports "at least".
 pub const COUNT_CAP: i64 = 100_000;
@@ -21,7 +21,46 @@ pub fn count_pipeline(
     upto: usize,
     cap: i64,
 ) -> std::result::Result<Vec<Document>, PipelineError> {
-    let (mut pipeline, not_run) = read_stages(stages, upto)?;
+    let (pipeline, not_run) = read_stages(stages, upto)?;
+    closed(stages, upto, cap, pipeline, not_run)
+}
+
+/// [`count_pipeline`] for every stage at once: entry `i` is exactly what
+/// `count_pipeline(stages, i, cap)` returns, but each stage's text is parsed once instead of
+/// once per later stage.
+pub fn count_pipelines(
+    stages: &[Stage],
+    cap: i64,
+) -> Vec<std::result::Result<Vec<Document>, PipelineError>> {
+    // `None`: disabled. `Some(None)`: enabled and not a stage.
+    let parsed: Vec<Option<Option<(String, Document)>>> = stages
+        .iter()
+        .map(|s| s.enabled.then(|| parse_stage(&s.text)))
+        .collect();
+    (0..stages.len())
+        .map(|upto| {
+            let mut prefix = Vec::new();
+            for (index, entry) in parsed.iter().enumerate().take(upto + 1) {
+                match entry {
+                    None => {}
+                    Some(None) => return Err(PipelineError::NotAStage { index }),
+                    Some(Some((name, doc))) => prefix.push((index, name.clone(), doc.clone())),
+                }
+            }
+            let (pipeline, not_run) = read_parsed(prefix)?;
+            closed(stages, upto, cap, pipeline, not_run)
+        })
+        .collect()
+}
+
+/// The read stages closed by `$limit` and `$count`; a dropped trailing write stage is an error.
+fn closed(
+    stages: &[Stage],
+    upto: usize,
+    cap: i64,
+    mut pipeline: Vec<Document>,
+    not_run: Vec<String>,
+) -> std::result::Result<Vec<Document>, PipelineError> {
     if let Some(name) = not_run.into_iter().next() {
         // `read_stages` drops a trailing write stage: that is the last enabled one in range.
         let index = stages

@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::pipeline_shape::{Ending, check_parsed};
 
-pub use crate::pipeline_count::{COUNT_CAP, count_of, count_pipeline};
+pub use crate::pipeline_count::{COUNT_CAP, count_of, count_pipeline, count_pipelines};
 pub use crate::pipeline_run::{
     AGGREGATE_RUN_MAX_TIME_MS, RunPlan, RunTarget, ensure_run_shape, run_pipeline, run_target,
 };
@@ -220,6 +220,14 @@ pub(crate) fn read_stages(
         let (name, doc) = parse_stage(&stage.text).ok_or(PipelineError::NotAStage { index })?;
         parsed.push((index, name, doc));
     }
+    read_parsed(parsed)
+}
+
+/// The rest of [`read_stages`] over enabled stages that are already parsed (with their position
+/// in the whole list): the shape check, the dropped trailing write stage, the emptiness check.
+pub(crate) fn read_parsed(
+    mut parsed: Vec<(usize, String, Document)>,
+) -> Result<(Vec<Document>, Vec<String>), PipelineError> {
     check_parsed(&parsed, Ending::Any)?;
     let mut not_run = Vec::new();
     if parsed.last().is_some_and(|(_, name, _)| is_write(name)) {
