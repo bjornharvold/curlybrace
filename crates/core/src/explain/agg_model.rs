@@ -65,6 +65,9 @@ pub struct AggSummary {
     pub n_returned: Option<u64>,
     pub keys_examined: Option<u64>,
     pub docs_examined: Option<u64>,
+    /// Some shards of a sharded plan did not report statistics, so the figures that would need
+    /// them are left out.
+    pub partial: bool,
 }
 
 /// Plain-language findings about a plan. [`AggHint::key`] names the i18n key suffix.

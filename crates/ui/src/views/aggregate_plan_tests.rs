@@ -187,6 +187,7 @@ fn execution_stats_without_figures_say_so_instead_of_claiming_nothing_ran() {
         n_returned: None,
         keys_examined: None,
         docs_examined: None,
+        partial: false,
     };
     assert_eq!(
         summary_text(&measured, &i18n),
@@ -196,6 +197,41 @@ fn execution_stats_without_figures_say_so_instead_of_claiming_nothing_ran() {
         i18n.t("aggregate.explain.summary_no_statistics"),
         i18n.t("aggregate.explain.summary_none")
     );
+}
+
+#[test]
+fn a_plan_with_unreported_shards_says_so_and_a_complete_one_does_not() {
+    let i18n = english();
+    let complete = plan("sharded");
+    assert_eq!(partial_text(&complete, &i18n), None);
+    let mut partial = complete;
+    partial.summary.partial = true;
+    assert_eq!(
+        partial_text(&partial, &i18n).as_deref(),
+        Some("Some shards did not report statistics, so the totals are left out.")
+    );
+}
+
+#[test]
+fn partial_without_any_figure_does_not_claim_the_server_returned_nothing() {
+    let i18n = english();
+    let mut p = plan("group_stats");
+    p.summary = AggSummary {
+        verbosity_seen: ExplainVerbosity::ExecutionStats,
+        total_millis: None,
+        n_returned: None,
+        keys_examined: None,
+        docs_examined: None,
+        partial: true,
+    };
+    assert_eq!(summary_text(&p, &i18n), "");
+    assert!(partial_text(&p, &i18n).is_some());
+}
+
+#[test]
+fn the_in_memory_sort_after_skip_hint_names_the_sort_and_the_remedy() {
+    let text = english().t("aggregate.explain.hint.in_memory_sort_after_skip");
+    assert!(text.contains("$sort before the $skip"), "{text}");
 }
 
 #[test]

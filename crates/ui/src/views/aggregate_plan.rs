@@ -86,12 +86,21 @@ pub(super) fn summary_text(plan: &AggPlan, i18n: &I18n) -> String {
         i18n,
     );
     match (figures.is_empty(), summary.verbosity_seen) {
+        // The partial note says why there are no figures: the server did return statistics.
+        (true, ExplainVerbosity::ExecutionStats) if summary.partial => String::new(),
         (false, _) => i18n.t_with("aggregate.explain.summary", &[("figures", &figures)]),
         (true, ExplainVerbosity::ExecutionStats) => {
             i18n.t("aggregate.explain.summary_no_statistics")
         }
         (true, ExplainVerbosity::QueryPlanner) => i18n.t("aggregate.explain.summary_none"),
     }
+}
+
+/// The note that some shards did not report, when the plan's totals are left out because of it.
+pub(super) fn partial_text(plan: &AggPlan, i18n: &I18n) -> Option<String> {
+    plan.summary
+        .partial
+        .then(|| i18n.t("aggregate.explain.summary_partial"))
 }
 
 /// The group title of a shard: the name the server gave it, else its position.
@@ -105,7 +114,13 @@ pub(super) fn shard_title(shard: &ShardName, i18n: &I18n) -> String {
 
 /// Draws `plan`; a sharded plan is one collapsible group per shard (open by default).
 pub(super) fn show_plan(ui: &mut egui::Ui, plan: &AggPlan, i18n: &I18n) {
-    ui.label(summary_text(plan, i18n));
+    let summary = summary_text(plan, i18n);
+    if !summary.is_empty() {
+        ui.label(summary);
+    }
+    if let Some(note) = partial_text(plan, i18n) {
+        ui.label(egui::RichText::new(note).small());
+    }
     for (position, (name, shard)) in plan.shards.iter().enumerate() {
         egui::CollapsingHeader::new(shard_title(name, i18n))
             .id_salt(("explain_shard", position))

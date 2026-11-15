@@ -82,7 +82,7 @@
         "disk_sort": "A sort or group ran out of memory and spilled to disk, which is slow. Filter earlier, or sort on an indexed field.",
         "examined_much_more_than_returned": "The server looked at many more documents than it passed on. A more selective index or an earlier $match would do less work.",
         "in_memory_sort": "The sort happens in memory after the documents are read. An index in the sort order would avoid it.",
-        "in_memory_sort_after_skip": "Sorts the documents left after the skip in memory; an index cannot serve this sort.",
+        "in_memory_sort_after_skip": "The sort runs in memory on every document left after the skip. An index cannot serve it; move the $sort before the $skip if the result allows.",
         "lookup_collection_scan": "A $lookup reads the whole joined collection for each lookup. An index on the foreign field would avoid that."
       },
       "hints": {
@@ -107,6 +107,7 @@
       "summary": "Summary: {figures}",
       "summary_no_statistics": "The server returned no statistics.",
       "summary_none": "Plan only: nothing was run, so there are no counts.",
+      "summary_partial": "Some shards did not report statistics, so the totals are left out.",
       "tabs": {
         "plan": "Plan",
         "preview": "Preview",

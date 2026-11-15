@@ -245,6 +245,7 @@ fn assemble(
         n_returned,
         keys_examined: stat("totalKeysExamined").or_else(|| input_figure(|i| i.keys_examined)),
         docs_examined: stat("totalDocsExamined").or_else(|| input_figure(|i| i.docs_examined)),
+        partial: false,
     };
     let mut hints = Vec::new();
     if let Some(parsed) = &input {
@@ -280,21 +281,30 @@ fn combine(
         || shards
             .iter()
             .any(|(_, p)| p.summary.verbosity_seen == ExplainVerbosity::ExecutionStats);
+    // The slowest of the shards that reported is an understatement when one did not.
+    let all_reported = shards
+        .iter()
+        .all(|(_, p)| p.summary.verbosity_seen == ExplainVerbosity::ExecutionStats);
     let summary = AggSummary {
         verbosity_seen: verbosity(executed),
         total_millis: stat("executionTimeMillis").or_else(|| {
-            max_of(
-                shards
-                    .iter()
-                    .map(|(_, p)| p.summary.total_millis)
-                    .chain(merger.iter().map(|s| s.stage.millis)),
-            )
+            all_reported
+                .then(|| {
+                    max_of(
+                        shards
+                            .iter()
+                            .map(|(_, p)| p.summary.total_millis)
+                            .chain(merger.iter().map(|s| s.stage.millis)),
+                    )
+                })
+                .flatten()
         }),
         n_returned: stat("nReturned").or_else(|| merger.last().and_then(|s| s.stage.n_returned)),
         keys_examined: stat("totalKeysExamined")
             .or_else(|| sum_of(shards.iter().map(|(_, p)| p.summary.keys_examined))),
         docs_examined: stat("totalDocsExamined")
             .or_else(|| sum_of(shards.iter().map(|(_, p)| p.summary.docs_examined))),
+        partial: executed && !all_reported,
     };
     let mut hints = Vec::new();
     for (_, plan) in &shards {

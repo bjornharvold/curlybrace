@@ -485,10 +485,10 @@ fn a_shard_without_execution_stats_leaves_the_summed_figures_unknown() {
     assert_eq!(p.summary.keys_examined, None);
     assert_eq!(p.summary.docs_examined, None);
     assert_eq!(
-        p.summary.total_millis,
-        Some(12),
-        "the slowest shard that reported"
+        p.summary.total_millis, None,
+        "the slowest shard that reported is an understatement"
     );
+    assert!(p.summary.partial);
 }
 
 #[test]
@@ -501,6 +501,7 @@ fn every_shard_reporting_still_sums() {
     let p = plan_of(&three_shards(shard_a));
     assert_eq!(p.summary.keys_examined, Some(1400));
     assert_eq!(p.summary.docs_examined, Some(91_400));
+    assert!(!p.summary.partial);
 }
 
 #[test]

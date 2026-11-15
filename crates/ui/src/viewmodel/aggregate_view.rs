@@ -12,7 +12,7 @@ use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::Page;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 /// How long the typing in a stage pauses before the edit is sent (and previewed).
 pub const EDIT_PAUSE_SECS: f64 = 0.6;
@@ -31,8 +31,10 @@ pub struct PendingEdit {
 pub struct PageCache {
     built: Option<(Page, PageKey)>,
     /// The shared document `built` was made from by `of_shared`; the next frame is told from this
-    /// one by the pointer, never by comparing the documents.
-    source: Option<Arc<Document>>,
+    /// one by the pointer, never by comparing the documents. Weak: the cache keeps the deep copy
+    /// in `built`, so the owner's document is freed when the owner lets go of it, while the
+    /// reserved allocation still rules out a new document reusing the address.
+    source: Option<Weak<Document>>,
     builds: usize,
 }
 
@@ -54,9 +56,12 @@ impl PageCache {
     /// one the page was built from: a repaint costs a pointer comparison, however big the
     /// document is.
     pub fn of_shared(&mut self, doc: &Arc<Document>) -> (&Page, PageKey) {
-        let stale = self.source.as_ref().is_none_or(|s| !Arc::ptr_eq(s, doc));
+        let stale = self
+            .source
+            .as_ref()
+            .is_none_or(|s| !s.ptr_eq(&Arc::downgrade(doc)));
         if stale {
-            self.source = Some(Arc::clone(doc));
+            self.source = Some(Arc::downgrade(doc));
             self.build(vec![Document::clone(doc)]);
         }
         self.shown()
