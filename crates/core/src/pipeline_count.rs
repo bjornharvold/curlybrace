@@ -30,7 +30,7 @@ pub fn count_pipeline(
             .take(upto.saturating_add(1))
             .filter(|(_, s)| s.enabled)
             .map(|(i, _)| i)
-            .last()
+            .next_back()
             .unwrap_or(upto);
         return Err(PipelineError::WriteStageNotLast { index, name });
     }

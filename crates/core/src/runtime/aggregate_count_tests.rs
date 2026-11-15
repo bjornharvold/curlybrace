@@ -32,10 +32,7 @@ fn counted_pipeline() -> Vec<Document> {
     count_pipeline(&stages, 0, COUNT_CAP).unwrap()
 }
 
-async fn counted(
-    h: &mut RuntimeHandle,
-    session: SessionId,
-) -> std::result::Result<u64, CoreError> {
+async fn counted(h: &mut RuntimeHandle, session: SessionId) -> std::result::Result<u64, CoreError> {
     match next(h).await {
         Event::AggregateCounted {
             session: s,
