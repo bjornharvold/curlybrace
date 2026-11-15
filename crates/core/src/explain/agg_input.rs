@@ -7,15 +7,18 @@ use bson::{Bson, Document};
 use super::agg_stage::opt_count;
 use super::classify::is_eq_lookup;
 
-/// Plan stages that hand on fewer documents than they read: their `nReturned` counts output
-/// groups, not what the scan passed on.
-const REDUCING_STAGES: [&str; 2] = ["GROUP", "COUNT"];
+/// Whether a plan stage hands on fewer documents than it reads: its `nReturned` counts output
+/// groups, not what the scan passed on. The plan tree names it `GROUP`, the slot-based execution
+/// tree `group`.
+fn is_reducing(stage: &str) -> bool {
+    stage.eq_ignore_ascii_case("group") || stage.eq_ignore_ascii_case("count")
+}
 
 /// Plan stages after which a `$sort` runs on documents no index describes any more.
 const RESHAPING_STAGES: [&str; 5] = ["GROUP", "COUNT", "UNWIND", "EQ_LOOKUP", "EQ_LOOKUP_UNWIND"];
 
 /// Pipeline stages that change the shape of the documents so that no index can order them.
-const RESHAPING_OPERATORS: [&str; 20] = [
+const RESHAPING_OPERATORS: [&str; 32] = [
     "$group",
     "$unwind",
     "$addFields",
@@ -36,6 +39,21 @@ const RESHAPING_OPERATORS: [&str; 20] = [
     "$geoNear",
     "$mergeCursors",
     "$redact",
+    // A `$limit` or `$skip` cuts the stream: no index serves a sort of what is left without
+    // changing the result, and sorting a few documents is cheap.
+    "$limit",
+    "$skip",
+    // What the server prints for the stages that desugar.
+    "$_internalSetWindowFields",
+    "$_internalDensify",
+    "$_internalSearchMongotRemote",
+    "$_internalSearchIdLookup",
+    "$vectorSearch",
+    "$sample",
+    "$search",
+    "$searchMeta",
+    "$listSessions",
+    "$documents",
 ];
 
 /// Whether a pipeline stage (`name` with its `body`) reshapes documents. A `$project` only does
@@ -49,8 +67,16 @@ pub(super) fn reshapes_documents(name: &str, body: Option<&Bson>) -> bool {
     RESHAPING_OPERATORS.contains(&name)
 }
 
+/// A plain inclusion/exclusion flag. The server prints a nested inclusion `{"a.b": 1}` as
+/// `{"a": {"b": true}}`, so a sub-document with no operator whose leaves are all flags is one.
 fn is_flag(value: &Bson) -> bool {
     match value {
+        Bson::Document(nested) => {
+            !nested.is_empty()
+                && nested
+                    .iter()
+                    .all(|(key, leaf)| !key.starts_with('$') && is_flag(leaf))
+        }
         Bson::Boolean(_) => true,
         Bson::Int32(n) => matches!(n, 0 | 1),
         Bson::Int64(n) => matches!(n, 0 | 1),
@@ -63,6 +89,20 @@ fn is_flag(value: &Bson) -> bool {
 /// input cannot be served by an index.
 pub(super) fn input_reshapes(plan_stages: &[&str]) -> bool {
     plan_stages.iter().any(|s| RESHAPING_STAGES.contains(s))
+}
+
+/// Whether the plan holds a `SORT` on the input side: one with no reshaping stage between it and
+/// the scan. A `SORT` above a `GROUP`, `UNWIND` or `EQ_LOOKUP` orders reshaped documents no
+/// index describes.
+pub(super) fn has_input_side_sort(node: &Document) -> bool {
+    fn reshaper_below(node: &Document) -> bool {
+        node.get_str("stage")
+            .is_ok_and(|s| RESHAPING_STAGES.contains(&s))
+            || children(node).into_iter().any(reshaper_below)
+    }
+    let kids = children(node);
+    let own = node.get_str("stage") == Ok("SORT") && !kids.iter().any(|k| reshaper_below(k));
+    own || kids.into_iter().any(has_input_side_sort)
 }
 
 fn children(node: &Document) -> Vec<&Document> {
@@ -110,16 +150,28 @@ pub(super) fn collscans_unfiltered(node: &Document) -> bool {
 /// How many documents the stage feeding a reducing stage returned, found in `execution` (an
 /// `executionStages` tree). `None` when there is no reducing stage or its input has no figure.
 fn feeding_returned(execution: &Document) -> Option<u64> {
-    let reducing = execution
-        .get_str("stage")
-        .is_ok_and(|s| REDUCING_STAGES.contains(&s));
-    if reducing {
-        let input = ["inputStage", "queryPlan"]
+    if execution.get_str("stage").is_ok_and(is_reducing) {
+        let input = ["inputStage", "queryPlan", "outerStage"]
             .iter()
             .find_map(|key| execution.get_document(key).ok())?;
         return opt_count(input, "nReturned");
     }
-    children(execution).into_iter().find_map(feeding_returned)
+    execution_children(execution)
+        .into_iter()
+        .find_map(feeding_returned)
+}
+
+/// The children of a node of an `executionStages` tree. The slot-based engine links a nested
+/// loop join through `outerStage` and `innerStage`.
+fn execution_children(node: &Document) -> Vec<&Document> {
+    let mut found: Vec<&Document> = ["queryPlan", "inputStage", "outerStage", "innerStage"]
+        .iter()
+        .filter_map(|key| node.get_document(key).ok())
+        .collect();
+    if let Ok(list) = node.get_array("inputStages") {
+        found.extend(list.iter().filter_map(Bson::as_document));
+    }
+    found
 }
 
 /// What the input handed on. Without a reducing stage that is the `nReturned` of `stats`. With
@@ -127,7 +179,7 @@ fn feeding_returned(execution: &Document) -> Option<u64> {
 /// figure comes from the stage that fed the reducer, and is `None` when it cannot be found.
 pub(super) fn input_returned(plan_stages: &[&str], stats: Option<&Document>) -> Option<u64> {
     let stats = stats?;
-    if !plan_stages.iter().any(|s| REDUCING_STAGES.contains(s)) {
+    if !plan_stages.iter().any(|s| is_reducing(s)) {
         return opt_count(stats, "nReturned");
     }
     feeding_returned(stats.get_document("executionStages").ok()?)

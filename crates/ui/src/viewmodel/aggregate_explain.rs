@@ -1,8 +1,10 @@
 //! The Explain section of the Aggregate tab: the plan the server gave for the enabled stages up
 //! to the selected one, and which of Preview | Plan | Raw the pane shows. Kept per session inside
 //! the draft (so it is parked and restored with it), never persisted. Every op returns a new
-//! state; nothing here talks to a server, and the explain document (user data) is never logged:
-//! `Debug` of a plan names its shape, not its content.
+//! state; nothing here talks to a server, and nothing here logs the explain document (user data).
+//! The `Debug` of `ExplainState` and `ExplainDone` names their shape, not the plan, the
+//! pipeline or the failure detail; types that hold a pipeline elsewhere (the aggregate state, the
+//! explain command) derive `Debug` and are not covered by that.
 use bson::Document;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{AggPlanOutcome, ExplainVerbosity, parse_aggregate_explain};

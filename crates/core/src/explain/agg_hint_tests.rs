@@ -6,8 +6,15 @@ use super::parse_aggregate_explain;
 use crate::ejson::editor_json_to_doc;
 use crate::explain::{AggHint, AggPlan, AggPlanOutcome};
 
-const GROUP_STATS: &str =
-    include_str!("../../tests/fixtures/explain_aggregate/group_over_ixscan_stats.json");
+// Captured from a MongoDB 9.0 server (20000 documents, an index on `status`).
+const GOOD_GROUP: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_group_sbe_stats.json");
+const POOR_GROUP: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_poor_scan_group_sbe_stats.json");
+const LOOKUP_GROUP: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_lookup_group_sbe_stats.json");
+const SORT_GROUP: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_sort_group_sbe_stats.json");
 const EQ_LOOKUP: &str = include_str!("../../tests/fixtures/explain_aggregate/eq_lookup.json");
 const TOPLEVEL_STATS: &str =
     include_str!("../../tests/fixtures/explain_aggregate/toplevel_stats.json");
@@ -23,37 +30,55 @@ fn plan_from_text(text: &str) -> AggPlan {
     plan_of(&editor_json_to_doc(text).expect("fixture parses"))
 }
 
-// --- ExaminedMuchMoreThanReturned over a folded $group ---
+// --- ExaminedMuchMoreThanReturned over a folded $group (real SBE output) ---
 
 #[test]
-fn a_group_folded_into_the_plan_does_not_make_a_good_scan_look_wasteful() {
-    let p = plan_from_text(GROUP_STATS);
+fn a_well_indexed_match_and_group_does_not_look_wasteful() {
+    let p = plan_from_text(GOOD_GROUP);
     let input = p.input.as_ref().expect("input");
-    assert_eq!(
-        input.n_returned,
-        Some(5000),
-        "what the scan handed to the group"
-    );
-    assert_eq!(p.summary.n_returned, Some(20), "the pipeline's own output");
+    assert_eq!(input.n_returned, Some(5000), "what the scan handed on");
+    assert_eq!(p.summary.n_returned, Some(5), "the pipeline's own output");
     assert!(p.hints.is_empty(), "{:?}", p.hints);
 }
 
 #[test]
-fn a_genuinely_poor_scan_under_a_group_still_raises_the_hint() {
-    let text = GROUP_STATS
-        .replace("\"nReturned\": 5000", "\"nReturned\": 10")
-        .replace("5000", "100000");
-    let p = plan_from_text(&text);
+fn a_poor_scan_under_a_group_raises_the_hint() {
+    let p = plan_from_text(POOR_GROUP);
+    assert_eq!(p.input.as_ref().and_then(|i| i.docs_examined), Some(20000));
     assert_eq!(p.input.as_ref().and_then(|i| i.n_returned), Some(10));
-    assert_eq!(p.hints, [AggHint::ExaminedMuchMoreThanReturned]);
+    assert_eq!(
+        p.hints,
+        [
+            AggHint::CollectionScan,
+            AggHint::ExaminedMuchMoreThanReturned
+        ]
+    );
 }
 
 #[test]
-fn a_group_whose_input_count_is_unknown_raises_no_hint() {
-    let text = GROUP_STATS.replace("\"nReturned\": 5000,", "");
+fn a_group_over_a_joined_input_reads_the_outer_reducer_not_the_joined_subplan() {
+    let p = plan_from_text(LOOKUP_GROUP);
+    assert_eq!(p.input.as_ref().and_then(|i| i.n_returned), Some(5000));
+    assert!(p.hints.is_empty(), "{:?}", p.hints);
+}
+
+#[test]
+fn a_group_in_a_shape_that_is_not_recognised_raises_no_hint() {
+    let text = POOR_GROUP.replace("\"stage\": \"group\"", "\"stage\": \"mystery\"");
     let p = plan_from_text(&text);
     assert_eq!(p.input.as_ref().and_then(|i| i.n_returned), None);
-    assert!(p.hints.is_empty(), "{:?}", p.hints);
+    assert!(
+        !p.hints.contains(&AggHint::ExaminedMuchMoreThanReturned),
+        "{:?}",
+        p.hints
+    );
+}
+
+#[test]
+fn an_uppercase_classic_style_group_stage_is_read_too() {
+    let text = POOR_GROUP.replace("\"stage\": \"group\"", "\"stage\": \"GROUP\"");
+    let p = plan_from_text(&text);
+    assert_eq!(p.input.as_ref().and_then(|i| i.n_returned), Some(10));
 }
 
 // --- $lookup strategies ---
@@ -168,7 +193,45 @@ fn a_sort_after_a_plain_projection_or_a_limit_still_could() {
         doc! { "$project": { "total": 1, "_id": 0 } },
         sort_stage()
     ]));
-    assert!(has_in_memory_sort(vec![doc! { "$limit": 5 }, sort_stage()]));
+}
+
+#[test]
+fn a_sort_after_a_limit_or_a_skip_is_not_a_finding() {
+    for stage in [doc! { "$limit": 5 }, doc! { "$skip": 5 }] {
+        assert!(!has_in_memory_sort(vec![stage, sort_stage()]));
+    }
+}
+
+#[test]
+fn a_nested_inclusion_projection_does_not_reshape_but_a_computed_one_does() {
+    // `{"a.b": 1}` is printed by the server as `{"a": {"b": true}}`.
+    assert!(has_in_memory_sort(vec![
+        doc! { "$project": { "a": { "b": true }, "_id": false } },
+        sort_stage()
+    ]));
+    assert!(!has_in_memory_sort(vec![
+        doc! { "$project": { "a": { "$literal": 1 } } },
+        sort_stage()
+    ]));
+}
+
+#[test]
+fn desugared_reshaping_stages_hide_the_sort_from_the_index() {
+    for name in [
+        "$_internalSetWindowFields",
+        "$_internalDensify",
+        "$_internalSearchMongotRemote",
+        "$_internalSearchIdLookup",
+        "$vectorSearch",
+        "$sample",
+    ] {
+        let mut stage = Document::new();
+        stage.insert(name, doc! {});
+        assert!(
+            !has_in_memory_sort(vec![stage, sort_stage()]),
+            "a sort after {name} cannot use an index"
+        );
+    }
 }
 
 #[test]
@@ -186,4 +249,42 @@ fn a_sort_after_a_group_folded_into_the_input_is_not_a_finding() {
 fn a_blocking_sort_in_the_input_plan_is_still_a_finding() {
     let p = plan_from_text(TOPLEVEL_STATS);
     assert!(p.hints.contains(&AggHint::InMemorySort));
+}
+
+// --- a SORT inside the pushed-down plan counts only on the input side ---
+
+fn planned(winning: Document) -> AggPlan {
+    plan_of(&doc! { "queryPlanner": { "winningPlan": winning }, "ok": 1 })
+}
+
+#[test]
+fn a_sort_feeding_a_group_is_a_finding_and_so_is_its_unfiltered_scan() {
+    let p = plan_from_text(SORT_GROUP);
+    assert!(p.hints.contains(&AggHint::InMemorySort), "{:?}", p.hints);
+    assert!(p.hints.contains(&AggHint::CollectionScan), "{:?}", p.hints);
+}
+
+#[test]
+fn a_sort_above_a_group_runs_on_reshaped_data_and_is_no_finding() {
+    // The server keeps a `$sort` after a `$group` as its own stage; this is the plan shape of a
+    // version that pushes it down (a SORT over the GROUP over the scan).
+    let p = planned(doc! { "stage": "SORT", "inputStage": {
+    "stage": "GROUP", "inputStage": { "stage": "COLLSCAN", "filter": {} } } });
+    assert!(p.hints.is_empty(), "{:?}", p.hints);
+}
+
+#[test]
+fn a_sort_above_a_lookup_or_unwind_is_no_finding_but_one_below_it_is() {
+    for reshaper in ["UNWIND", "EQ_LOOKUP", "EQ_LOOKUP_UNWIND"] {
+        let above = planned(doc! { "stage": "SORT", "inputStage": {
+        "stage": reshaper, "inputStage": { "stage": "COLLSCAN", "filter": {} } } });
+        assert!(above.hints.is_empty(), "{reshaper}: {:?}", above.hints);
+        let below = planned(doc! { "stage": reshaper, "inputStage": {
+        "stage": "SORT", "inputStage": { "stage": "COLLSCAN", "filter": {} } } });
+        assert!(
+            below.hints.contains(&AggHint::InMemorySort),
+            "{reshaper}: {:?}",
+            below.hints
+        );
+    }
 }

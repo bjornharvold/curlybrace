@@ -4,7 +4,9 @@
 
 use bson::{Bson, Document};
 
-use super::agg_input::{collscans_unfiltered, has_nested_loop_lookup, input_returned};
+use super::agg_input::{
+    collscans_unfiltered, has_input_side_sort, has_nested_loop_lookup, input_returned,
+};
 use super::agg_model::{AggHint, AggStage, InputPlan};
 use super::classify::{ACCESS_STAGES, is_inefficient, walk};
 
@@ -169,10 +171,11 @@ pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Optio
     let mut hints = Vec::new();
     // A scan with no filter reads everything because the pipeline asks for everything: no index
     // would change that, so it is no finding (the call `classify` makes for a find, too).
-    if nodes.contains(&"COLLSCAN") && (nodes.contains(&"SORT") || !collscans_unfiltered(winning)) {
+    let sorts_input = has_input_side_sort(winning);
+    if nodes.contains(&"COLLSCAN") && (sorts_input || !collscans_unfiltered(winning)) {
         hints.push(AggHint::CollectionScan);
     }
-    if nodes.contains(&"SORT") {
+    if sorts_input {
         hints.push(AggHint::InMemorySort);
     }
     if has_nested_loop_lookup(winning) {
