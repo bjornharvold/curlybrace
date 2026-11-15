@@ -130,7 +130,13 @@ fn an_unusable_name_shows_its_message_in_place_of_the_code_and_turns_copy_off() 
         let harness = open(code, size);
         let message = I18n::english().t_with(
             "codegen.error.invalid_name",
-            &[("field", &t("codegen.name.collection"))],
+            &[
+                ("field", &t("codegen.name.collection")),
+                (
+                    "max",
+                    &curlybrace_core::codegen::MAX_VARIABLE_NAME_LEN.to_string(),
+                ),
+            ],
         );
         let shown = harness.get_by_label(&message);
         assert_inside(size, "error message", shown.rect());

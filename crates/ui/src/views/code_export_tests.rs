@@ -197,7 +197,13 @@ fn an_unusable_name_replaces_the_code_and_turns_copy_off() {
     h.run_steps(3);
     let message = I18n::english().t_with(
         "codegen.error.invalid_name",
-        &[("field", &t("codegen.name.db"))],
+        &[
+            ("field", &t("codegen.name.db")),
+            (
+                "max",
+                &curlybrace_core::codegen::MAX_VARIABLE_NAME_LEN.to_string(),
+            ),
+        ],
     );
     h.get_by_label(&message);
     let preview_label = t("codegen.preview");

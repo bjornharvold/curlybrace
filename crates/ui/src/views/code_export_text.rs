@@ -3,7 +3,7 @@
 //! request's content, only which option or type it is about).
 use crate::I18n;
 use crate::viewmodel::NameField;
-use curlybrace_core::codegen::{CodegenError, Language};
+use curlybrace_core::codegen::{CodegenError, Language, MAX_VARIABLE_NAME_LEN};
 
 /// The i18n key of a language's name (a product name, kept as a key for translators).
 pub(super) fn language_label_key(language: Language) -> &'static str {
@@ -51,7 +51,11 @@ pub(super) fn error_text(error: &CodegenError, i18n: &I18n) -> String {
     match error {
         CodegenError::InvalidName(which) => {
             let field = i18n.t(name_label_key(field_named(which)));
-            i18n.t_with("codegen.error.invalid_name", &[("field", &field)])
+            let max = MAX_VARIABLE_NAME_LEN.to_string();
+            i18n.t_with(
+                "codegen.error.invalid_name",
+                &[("field", &field), ("max", &max)],
+            )
         }
         CodegenError::EmptyPipeline => i18n.t("codegen.error.empty_pipeline"),
         CodegenError::UnsupportedValue(kind) => {
@@ -97,6 +101,10 @@ mod tests {
         let name = error_text(&CodegenError::InvalidName("collection"), &i18n);
         assert!(name.contains(&i18n.t("codegen.name.collection")));
         assert!(!name.contains('{'), "{name}");
+        assert!(
+            name.contains(&MAX_VARIABLE_NAME_LEN.to_string()),
+            "the limit shown is the generator's own: {name}"
+        );
         assert_eq!(
             error_text(&CodegenError::EmptyPipeline, &i18n),
             i18n.t("codegen.error.empty_pipeline")

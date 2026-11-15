@@ -37,7 +37,7 @@ use bson::Document;
 use crate::pipeline::is_write;
 use crate::store::{Namespace, Query};
 
-pub use model::{CodeOptions, CodeRequest, CodegenError, Language};
+pub use model::{CodeOptions, CodeRequest, CodegenError, Language, MAX_VARIABLE_NAME_LEN};
 
 /// One language's snippet frame. Implementations get validated options and a
 /// request already cleaned by [`generate`] (never an empty pipeline).

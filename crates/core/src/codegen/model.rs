@@ -86,13 +86,14 @@ impl Default for CodeOptions {
     }
 }
 
-const MAX_NAME_LEN: usize = 41;
+/// The longest variable name the generator accepts.
+pub const MAX_VARIABLE_NAME_LEN: usize = 41;
 
 fn is_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     let first_ok = matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_');
     first_ok
-        && name.len() <= MAX_NAME_LEN
+        && name.len() <= MAX_VARIABLE_NAME_LEN
         && name != "_"
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
