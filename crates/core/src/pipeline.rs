@@ -193,6 +193,24 @@ pub fn preview_pipeline(
     upto: usize,
     limit: i64,
 ) -> Result<PreviewPlan, PipelineError> {
+    let (mut pipeline, not_run) = read_stages(stages, upto)?;
+    pipeline.push(bson::doc! { "$limit": limit });
+    Ok(PreviewPlan { pipeline, not_run })
+}
+
+/// Builds the read-only pipeline an aggregate explain sends: the enabled stages `0..=upto`, a
+/// trailing write stage dropped, a write stage anywhere else refused, and **no** preview
+/// `$limit` (the explain must describe the pipeline the author wrote).
+pub fn explain_pipeline(stages: &[Stage], upto: usize) -> Result<Vec<Document>, PipelineError> {
+    read_stages(stages, upto).map(|(pipeline, _)| pipeline)
+}
+
+/// The enabled stages `0..=upto` as documents, and the name of a trailing write stage that was
+/// dropped. Shared by the preview and the explain so both apply one rule.
+fn read_stages(
+    stages: &[Stage],
+    upto: usize,
+) -> Result<(Vec<Document>, Vec<String>), PipelineError> {
     let mut parsed: Vec<(usize, String, Document)> = Vec::new();
     for (index, stage) in stages.iter().enumerate().take(upto.saturating_add(1)) {
         if !stage.enabled {
@@ -211,14 +229,17 @@ pub fn preview_pipeline(
     if parsed.is_empty() {
         return Err(PipelineError::Empty);
     }
-    let mut pipeline: Vec<Document> = parsed.into_iter().map(|(_, _, d)| d).collect();
-    pipeline.push(bson::doc! { "$limit": limit });
-    Ok(PreviewPlan { pipeline, not_run })
+    let pipeline: Vec<Document> = parsed.into_iter().map(|(_, _, d)| d).collect();
+    Ok((pipeline, not_run))
 }
 
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "pipeline_explain_tests.rs"]
+mod explain_tests;
 
 /// The enabled stages exactly as a run would send them, with no preview `$limit`: for exporting
 /// a pipeline as code. A trailing `$out` / `$merge` is kept (a lone one too); a write stage

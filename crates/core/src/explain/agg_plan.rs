@@ -161,24 +161,28 @@ fn assemble(
 ) -> AggPlan {
     let stat = |key: &str| stats.and_then(|s| opt_count(s, key));
     let last_returned = stages.last().and_then(|s| s.stage.n_returned);
-    let input_figure = |pick: fn(&InputPlan) -> Option<u64>| {
-        input.as_ref().and_then(|i| pick(&i.plan))
-    };
+    let input_figure =
+        |pick: fn(&InputPlan) -> Option<u64>| input.as_ref().and_then(|i| pick(&i.plan));
     let executed = stats.is_some()
         || input.as_ref().is_some_and(|i| i.has_stats)
         || stages
             .iter()
             .any(|s| s.stage.n_returned.is_some() || s.stage.millis.is_some());
-    let n_returned = stat("nReturned").or(last_returned).or_else(|| match stages.is_empty() {
-        true => input_figure(|i| i.n_returned),
-        false => None,
-    });
+    let n_returned = stat("nReturned")
+        .or(last_returned)
+        .or_else(|| match stages.is_empty() {
+            true => input_figure(|i| i.n_returned),
+            false => None,
+        });
     let summary = AggSummary {
         verbosity_seen: verbosity(executed),
         total_millis: max_of(
-            [stat("executionTimeMillis"), input.as_ref().and_then(|i| i.millis)]
-                .into_iter()
-                .chain(stages.iter().map(|s| s.stage.millis)),
+            [
+                stat("executionTimeMillis"),
+                input.as_ref().and_then(|i| i.millis),
+            ]
+            .into_iter()
+            .chain(stages.iter().map(|s| s.stage.millis)),
         ),
         n_returned,
         keys_examined: stat("totalKeysExamined").or_else(|| input_figure(|i| i.keys_examined)),
@@ -191,11 +195,17 @@ fn assemble(
             extend_unique(&mut hints, examined_hint(&parsed.plan));
         }
     }
-    extend_unique(&mut hints, stages.iter().flat_map(|s| s.hints.iter().copied()));
+    extend_unique(
+        &mut hints,
+        stages.iter().flat_map(|s| s.hints.iter().copied()),
+    );
     AggPlan {
         summary,
         input: input.map(|i| i.plan),
-        stages: stages.into_iter().map(|s| s.stage).collect::<Vec<AggStage>>(),
+        stages: stages
+            .into_iter()
+            .map(|s| s.stage)
+            .collect::<Vec<AggStage>>(),
         shards: Vec::new(),
         hints,
     }
@@ -232,7 +242,10 @@ fn combine(
     for (_, plan) in &shards {
         extend_unique(&mut hints, plan.hints.iter().copied());
     }
-    extend_unique(&mut hints, merger.iter().flat_map(|s| s.hints.iter().copied()));
+    extend_unique(
+        &mut hints,
+        merger.iter().flat_map(|s| s.hints.iter().copied()),
+    );
     AggPlan {
         summary,
         input: None,

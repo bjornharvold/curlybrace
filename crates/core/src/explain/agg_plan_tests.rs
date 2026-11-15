@@ -3,8 +3,8 @@
 use bson::{Document, doc};
 
 use super::parse_aggregate_explain;
-use crate::explain::{AggHint, AggPlan, AggPlanOutcome, ExplainVerbosity};
 use crate::ejson::editor_json_to_doc;
+use crate::explain::{AggHint, AggPlan, AggPlanOutcome, ExplainVerbosity};
 
 fn fixture(name: &str) -> Document {
     let text = match name {
@@ -139,16 +139,25 @@ fn a_sharded_explain_has_one_plan_per_shard_and_the_merger_stages() {
     assert_eq!(shard_names, ["shardA", "shardB"]);
     assert_eq!(names(&p), ["$mergeCursors", "$group"]);
     let a = &p.shards[0].1;
-    assert_eq!(a.input.as_ref().map(|i| i.stage_kind.as_str()), Some("IXSCAN"));
+    assert_eq!(
+        a.input.as_ref().map(|i| i.stage_kind.as_str()),
+        Some("IXSCAN")
+    );
     assert!(a.hints.is_empty());
     let b = &p.shards[1].1;
     assert_eq!(
         b.hints,
-        [AggHint::CollectionScan, AggHint::ExaminedMuchMoreThanReturned]
+        [
+            AggHint::CollectionScan,
+            AggHint::ExaminedMuchMoreThanReturned
+        ]
     );
     assert_eq!(
         p.hints,
-        [AggHint::CollectionScan, AggHint::ExaminedMuchMoreThanReturned]
+        [
+            AggHint::CollectionScan,
+            AggHint::ExaminedMuchMoreThanReturned
+        ]
     );
     assert_eq!(p.summary.verbosity_seen, ExplainVerbosity::ExecutionStats);
     assert_eq!(p.summary.keys_examined, Some(700));
@@ -207,21 +216,31 @@ fn a_sharded_query_planner_form_lists_each_shard_with_its_own_figures() {
     let a_input = a.input.as_ref().expect("input");
     assert_eq!(a_input.index.as_deref(), Some("status_1"));
     assert_eq!(
-        (a_input.keys_examined, a_input.docs_examined, a_input.n_returned),
+        (
+            a_input.keys_examined,
+            a_input.docs_examined,
+            a_input.n_returned
+        ),
         (Some(700), Some(700), Some(400))
     );
     assert!(a.hints.is_empty());
     let b = &p.shards[1].1;
     assert_eq!(
         b.hints,
-        [AggHint::CollectionScan, AggHint::ExaminedMuchMoreThanReturned]
+        [
+            AggHint::CollectionScan,
+            AggHint::ExaminedMuchMoreThanReturned
+        ]
     );
     assert_eq!(p.summary.n_returned, Some(900));
     assert_eq!(p.summary.total_millis, Some(25));
     assert_eq!(p.summary.docs_examined, Some(40_700));
     assert_eq!(
         p.hints,
-        [AggHint::CollectionScan, AggHint::ExaminedMuchMoreThanReturned]
+        [
+            AggHint::CollectionScan,
+            AggHint::ExaminedMuchMoreThanReturned
+        ]
     );
 }
 

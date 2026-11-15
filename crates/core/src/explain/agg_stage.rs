@@ -53,7 +53,11 @@ pub(super) struct ParsedInput {
 }
 
 fn keys_text<'a>(keys: impl Iterator<Item = &'a String>) -> Option<String> {
-    let joined = keys.take(DETAIL_KEYS).cloned().collect::<Vec<_>>().join(", ");
+    let joined = keys
+        .take(DETAIL_KEYS)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
     (!joined.is_empty()).then_some(joined)
 }
 
