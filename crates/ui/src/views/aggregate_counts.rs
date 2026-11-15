@@ -27,6 +27,7 @@ pub fn counts_blocked(
         Err(CountsBlock::TextNotApplied) => {
             Some(i18n.t("aggregate.counts.disabled.text_not_applied"))
         }
+        Err(CountsBlock::TextMode) => Some(i18n.t("aggregate.counts.disabled.text_mode")),
         Err(CountsBlock::Nothing) => Some(i18n.t("aggregate.counts.disabled.nothing")),
         Ok(_) => None,
     }

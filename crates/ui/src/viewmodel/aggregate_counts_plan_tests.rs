@@ -108,7 +108,7 @@ fn nothing_enabled_or_nothing_countable_blocks_with_a_reason() {
 fn edited_text_that_is_not_applied_blocks_the_plan() {
     let d = draft().to_text().with_text("[]");
     assert_eq!(plan(&d), Err(CountsBlock::TextNotApplied));
-    assert!(plan(&draft().to_text()).is_ok());
+    assert_eq!(plan(&draft().to_text()), Err(CountsBlock::TextMode));
 }
 
 #[test]
@@ -125,4 +125,10 @@ fn a_repaint_with_nothing_changed_parses_nothing_and_a_change_asks_again() {
     let edited = selected.edit(0, "{ \"$match\": { \"a\": 1 } }");
     view.count_plan(&edited, &edited.stages);
     assert_eq!(view.count_plan_evaluations(), 2);
+}
+
+#[test]
+fn text_mode_is_not_counted_even_when_its_text_is_applied() {
+    let d = draft().to_text();
+    assert_eq!(plan(&d), Err(CountsBlock::TextMode));
 }

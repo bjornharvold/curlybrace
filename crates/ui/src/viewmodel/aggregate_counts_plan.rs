@@ -50,6 +50,8 @@ pub enum CountsBlock {
     Pipeline(PipelineError),
     /// The text of text mode holds edits the stages do not have yet.
     TextNotApplied,
+    /// Text mode: the counts are shown on the stage cards, which only the stage view has.
+    TextMode,
     /// Every enabled stage is one that cannot be counted.
     Nothing,
 }
@@ -67,8 +69,12 @@ fn reason_of(error: &PipelineError, index: usize) -> NotCounted {
 
 /// The plan for `stages` (the draft's stages with the typing applied), or why there is none.
 pub fn count_plan(draft: &AggregateState, stages: &[Stage]) -> CountPlanOutcome {
-    if draft.mode == Mode::Text && draft.text != pipeline_text(stages) {
-        return Err(CountsBlock::TextNotApplied);
+    if draft.mode == Mode::Text {
+        // The counts are drawn on the stage cards, which text mode does not show.
+        return Err(match draft.text != pipeline_text(stages) {
+            true => CountsBlock::TextNotApplied,
+            false => CountsBlock::TextMode,
+        });
     }
     if !stages.iter().any(|s| s.enabled) {
         return Err(CountsBlock::Pipeline(PipelineError::Empty));

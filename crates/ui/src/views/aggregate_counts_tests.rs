@@ -72,6 +72,11 @@ fn the_button_is_off_with_the_previews_reason_when_nothing_can_be_counted() {
         counts_blocked(&text, &text.stages, &view, &i18n),
         Some(i18n.t("aggregate.counts.disabled.text_not_applied"))
     );
+    let applied = draft().to_text();
+    assert_eq!(
+        counts_blocked(&applied, &applied.stages, &view, &i18n),
+        Some(i18n.t("aggregate.counts.disabled.text_mode"))
+    );
     let ok = draft();
     assert_eq!(counts_blocked(&ok, &ok.stages, &view, &i18n), None);
 }
