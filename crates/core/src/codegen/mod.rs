@@ -73,7 +73,7 @@ fn renderer(language: Language) -> &'static dyn Renderer {
 
 /// The stages to export: a trailing `$out` / `$merge` is dropped unless
 /// `keep_write` is set. An empty result is an error, never empty code.
-fn exported_stages(stages: &[Document], keep_write: bool) -> Result<Vec<Document>, CodegenError> {
+fn exported_stages(stages: &[Document], keep_write: bool) -> Result<&[Document], CodegenError> {
     let mut end = stages.len();
     if !keep_write {
         while end > 0 && stage_is_write(&stages[end - 1]) {
@@ -83,7 +83,7 @@ fn exported_stages(stages: &[Document], keep_write: bool) -> Result<Vec<Document
     if end == 0 {
         return Err(CodegenError::EmptyPipeline);
     }
-    Ok(stages[..end].to_vec())
+    Ok(&stages[..end])
 }
 
 fn stage_is_write(stage: &Document) -> bool {
@@ -102,7 +102,7 @@ pub fn generate(
         CodeRequest::Find { ns, query } => renderer.find(ns, query, &options),
         CodeRequest::Aggregate { ns, stages } => {
             let stages = exported_stages(stages, options.write_stage)?;
-            renderer.aggregate(ns, &stages, &options)
+            renderer.aggregate(ns, stages, &options)
         }
     }
 }

@@ -1,5 +1,7 @@
 //! Every language refuses a skip or limit it cannot carry, with the same labelled error.
 
+use bson::doc;
+
 use super::*;
 
 fn find(skip: u64, limit: u64) -> CodeRequest {
@@ -68,4 +70,19 @@ fn the_shells_refuse_a_number_beyond_javascript_precision() {
         let edge = run(language, JS_MAX, JS_MAX).expect("2^53 is exact");
         assert!(edge.contains("9007199254740992"), "{language:?}: {edge}");
     }
+}
+
+#[test]
+fn exported_stages_borrow_the_request_instead_of_copying_it() {
+    let stages = vec![doc! { "$match": { "a": 1_i32 } }, doc! { "$out": "target" }];
+    let kept = exported_stages(&stages, true).expect("kept");
+    assert!(std::ptr::eq(kept.as_ptr(), stages.as_ptr()));
+    assert_eq!(kept.len(), 2);
+    let dropped = exported_stages(&stages, false).expect("dropped");
+    assert!(std::ptr::eq(dropped.as_ptr(), stages.as_ptr()));
+    assert_eq!(dropped.len(), 1);
+    assert_eq!(
+        exported_stages(&stages[1..], false),
+        Err(CodegenError::EmptyPipeline)
+    );
 }
