@@ -316,6 +316,13 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             stages: vec![bson::doc! { "$match": {} }],
             verbosity: crate::explain::ExplainVerbosity::QueryPlanner,
         },
+        Command::AggregateCount {
+            session,
+            request: 0,
+            ns: mock_namespace(),
+            stage_index: 0,
+            pipeline: vec![bson::doc! { "$count": "n" }],
+        },
         Command::ListIndexes {
             session,
             ns: mock_namespace(),
@@ -427,6 +434,7 @@ async fn reads_still_work_on_a_read_only_session() {
                     | Event::BulkCount { .. }
                     | Event::BulkSample { .. }
                     | Event::BulkCancelResult { .. }
+                    | Event::AggregateCounted { .. }
             ) || matches!(event, Event::ProfilingState { outcome: Ok(_), .. })
                 // The store here scripts no explain: the point is that it was asked, not refused.
                 || matches!(
@@ -526,7 +534,7 @@ enum Class {
 }
 
 /// Every `Command` variant, no wildcard: a new variant does not compile until it is classified.
-const COMMAND_VARIANTS: usize = 50;
+const COMMAND_VARIANTS: usize = 51;
 
 fn classify(command: &Command) -> Class {
     match command {
@@ -557,6 +565,7 @@ fn classify(command: &Command) -> Class {
         | Command::GuardCheck { .. }
         | Command::AggregatePreview { .. }
         | Command::AggregateExplain { .. }
+        | Command::AggregateCount { .. }
         | Command::ListIndexes { .. }
         | Command::IndexHistory { .. }
         | Command::EstimatedCount { .. }

@@ -213,6 +213,8 @@ async fn run(
     };
     // And an aggregate explain: its timeout is an outcome too.
     let explain_timeout = super::aggregate_explain::timeout_answer(id, &command);
+    // And an aggregate count: a slow count says nothing about the server either.
+    let count_timeout = super::aggregate_count::timeout_answer(id, &command);
     // A write run that outruns the client bound has an unknown outcome: answered, never pinged.
     let run_namespaces = match &command {
         Command::AggregateRun {
@@ -295,6 +297,9 @@ async fn run(
         });
     }
     if let (true, Some(event)) = (timed_out, explain_timeout) {
+        return Ok(event);
+    }
+    if let (true, Some(event)) = (timed_out, count_timeout) {
         return Ok(event);
     }
     if let (true, Some((run, ns, target))) = (timed_out, run_namespaces.clone()) {
@@ -454,6 +459,16 @@ async fn data_command(
             ..
         } => {
             super::aggregate_explain::run(session, &*store, request, ns, stages, verbosity).await?
+        }
+        Command::AggregateCount {
+            request,
+            ns,
+            stage_index,
+            pipeline,
+            ..
+        } => {
+            super::aggregate_count::run(session, &*store, request, ns, stage_index, pipeline)
+                .await?
         }
         Command::AggregateRun {
             ns, pipeline, run, ..
@@ -783,7 +798,7 @@ pub(super) fn command_time_limit(
         Command::CreateIndex { .. } | Command::DuplicateCollection { .. } => {
             config.index_build_timeout
         }
-        Command::AggregatePreview { .. } => config
+        Command::AggregatePreview { .. } | Command::AggregateCount { .. } => config
             .command_timeout
             .min(super::config::AGGREGATE_PREVIEW_TIMEOUT),
         Command::AggregateExplain { .. } => config

@@ -453,6 +453,7 @@ fn on_session_event(state: AppState, ev: Event, background: bool) -> Out {
         | Event::ShellHistoryChanged { .. }
         | Event::AggregatePreviewed { .. }
         | Event::AggregateExplained { .. }
+        | Event::AggregateCounted { .. }
         | Event::AggregateRan { .. } => (state, Vec::new()),
     }
 }

@@ -37,6 +37,7 @@ impl Command {
             | Self::GuardCheck { .. }
             | Self::AggregatePreview { .. }
             | Self::AggregateExplain { .. }
+            | Self::AggregateCount { .. }
             | Self::Compare(_)
             | Self::Copy(_)
             | Self::TestConnection { .. }
@@ -73,6 +74,7 @@ impl Command {
             | Self::GuardCheck { request, .. }
             | Self::AggregatePreview { request, .. }
             | Self::AggregateExplain { request, .. }
+            | Self::AggregateCount { request, .. }
             | Self::BulkCount { request, .. }
             | Self::BulkSample { request, .. }
             | Self::SnapshotList { request }
@@ -93,6 +95,7 @@ impl Command {
             Self::GuardCheck { .. } => "guard_check",
             Self::AggregatePreview { .. } => "aggregate_preview",
             Self::AggregateExplain { .. } => "aggregate_explain",
+            Self::AggregateCount { .. } => "aggregate_count",
             Self::AggregateRun { .. } => "aggregate_run",
             Self::Insert { .. } => "insert",
             Self::Replace { .. } => "replace",
@@ -152,6 +155,7 @@ impl Command {
             | Self::GuardCheck { session, .. }
             | Self::AggregatePreview { session, .. }
             | Self::AggregateExplain { session, .. }
+            | Self::AggregateCount { session, .. }
             | Self::AggregateRun { session, .. }
             | Self::Insert { session, .. }
             | Self::Replace { session, .. }
@@ -213,6 +217,7 @@ impl Event {
             | Self::GuardChecked { session, .. }
             | Self::AggregatePreviewed { session, .. }
             | Self::AggregateExplained { session, .. }
+            | Self::AggregateCounted { session, .. }
             | Self::AggregateRan { session, .. }
             | Self::Mutated { session, .. }
             | Self::Indexes { session, .. }

@@ -25,6 +25,9 @@
 
 #[cfg(test)]
 mod admin_tests;
+mod aggregate_count;
+#[cfg(test)]
+mod aggregate_count_tests;
 mod aggregate_explain;
 #[cfg(test)]
 mod aggregate_explain_tests;
@@ -273,6 +276,20 @@ pub enum Command {
         ns: Namespace,
         stages: Vec<Document>,
         verbosity: ExplainVerbosity,
+    },
+    /// Counts the documents stage `stage_index` lets through: runs `pipeline` (the output of
+    /// `pipeline::count_pipeline`, which ends in `$limit` then `$count`) on `ns`. A read, allowed
+    /// on a read-only connection; the store refuses a write stage at any depth. Answered by
+    /// [`Event::AggregateCounted`], whose `outcome` also carries any failure or timeout. Kept
+    /// apart from `AggregatePreview` so a count never touches the preview page.
+    AggregateCount {
+        session: SessionId,
+        /// Echoed by the answer.
+        request: u64,
+        ns: Namespace,
+        /// The stage this count belongs to; echoed by the answer.
+        stage_index: usize,
+        pipeline: Vec<Document>,
     },
     /// Runs `pipeline` (the last stage the single `$out`/`$merge`) on `ns` for real. A write:
     /// refused on a read-only connection. The UI sends it only after the typed confirmation.
@@ -681,6 +698,17 @@ pub enum Event {
         ns: Namespace,
         verbosity: ExplainVerbosity,
         outcome: std::result::Result<Explain, CoreError>,
+    },
+    /// The answer to `AggregateCount`: the number of documents stage `stage_index` let through,
+    /// at most the cap of the pipeline (0 when none). A failure, a refused write stage, an
+    /// unreadable answer or a timeout is an `Err` outcome; it is never an [`Event::Failed`].
+    AggregateCounted {
+        session: SessionId,
+        /// The `request` of the command this answers.
+        request: u64,
+        ns: Namespace,
+        stage_index: usize,
+        outcome: std::result::Result<u64, CoreError>,
     },
     /// The answer to `AggregateRun`: `outcome` is the estimated document count of `target` after
     /// the run (`Ok(None)` when the run succeeded but the count could not be read). A pipeline or server failure is an `Err` outcome shown inline, never an
