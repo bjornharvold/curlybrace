@@ -1,0 +1,94 @@
+{
+  "explainVersion": "1",
+  "stages": [
+    {
+      "$cursor": {
+        "queryPlanner": {
+          "namespace": "t.o",
+          "parsedQuery": {},
+          "indexFilterSet": false,
+          "queryHash": "0F20F9A9",
+          "planCacheShapeHash": "0F20F9A9",
+          "planCacheKey": "8CEEBFD3",
+          "optimizationTimeMillis": 0,
+          "optimizationTimeMicros": 43,
+          "cursorType": "regular",
+          "maxIndexedOrSolutionsReached": false,
+          "maxIndexedAndSolutionsReached": false,
+          "maxScansToExplodeReached": false,
+          "prunedSimilarIndexes": false,
+          "winningPlan": {
+            "isCached": false,
+            "stage": "LIMIT",
+            "limitAmount": 5,
+            "inputStage": {
+              "stage": "COLLSCAN",
+              "nss": "t.o",
+              "direction": "forward"
+            }
+          },
+          "rejectedPlans": []
+        },
+        "executionStats": {
+          "executionSuccess": true,
+          "nReturned": 5,
+          "executionTimeMillis": 0,
+          "executionTimeMicros": 191,
+          "totalKeysExamined": 0,
+          "totalDocsExamined": 5,
+          "executionStages": {
+            "isCached": false,
+            "stage": "LIMIT",
+            "nReturned": 5,
+            "executionTimeMillisEstimate": 0,
+            "works": 6,
+            "advanced": 5,
+            "needTime": 0,
+            "needYield": 0,
+            "saveState": 2,
+            "restoreState": 1,
+            "isEOF": 1,
+            "limitAmount": 5,
+            "inputStage": {
+              "stage": "COLLSCAN",
+              "nReturned": 5,
+              "executionTimeMillisEstimate": 0,
+              "works": 5,
+              "advanced": 5,
+              "needTime": 0,
+              "needYield": 0,
+              "saveState": 2,
+              "restoreState": 1,
+              "isEOF": 0,
+              "nss": "t.o",
+              "direction": "forward",
+              "docsExamined": 5,
+              "seeks": 0
+            }
+          }
+        }
+      },
+      "nReturned": 5,
+      "executionTimeMillisEstimate": 0
+    },
+    {
+      "$sort": {
+        "sortKey": {
+          "total": -1
+        }
+      },
+      "totalDataSizeSortedBytesEstimate": 920,
+      "usedDisk": false,
+      "spills": 0,
+      "spilledBytes": 0,
+      "spilledRecords": 0,
+      "spilledDataStorageSize": 0,
+      "nReturned": 5,
+      "executionTimeMillisEstimate": 0,
+      "peakTrackedMemBytes": 920
+    }
+  ],
+  "queryShapeHash": "339003EEAC95B3D609711F4A6BDC72BF0ED2394A39BAC7D896A34E7FFD28EAEB",
+  "peakTrackedMemBytes": 920,
+  "ok": 1
+}

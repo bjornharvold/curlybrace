@@ -14,8 +14,18 @@ fn is_reducing(stage: &str) -> bool {
     stage.eq_ignore_ascii_case("group") || stage.eq_ignore_ascii_case("count")
 }
 
-/// Plan stages after which a `$sort` runs on documents no index describes any more.
-const RESHAPING_STAGES: [&str; 5] = ["GROUP", "COUNT", "UNWIND", "EQ_LOOKUP", "EQ_LOOKUP_UNWIND"];
+/// Plan stages after which a `$sort` runs on documents no index describes any more. A `LIMIT` or
+/// `SKIP` is one: the server folds a leading `$limit`/`$skip` into the `$cursor` plan, and the
+/// `$sort` after it stays a pipeline stage that sorts what is left.
+const RESHAPING_STAGES: [&str; 7] = [
+    "GROUP",
+    "COUNT",
+    "UNWIND",
+    "EQ_LOOKUP",
+    "EQ_LOOKUP_UNWIND",
+    "LIMIT",
+    "SKIP",
+];
 
 /// Pipeline stages that change the shape of the documents so that no index can order them.
 const RESHAPING_OPERATORS: [&str; 32] = [
@@ -39,8 +49,9 @@ const RESHAPING_OPERATORS: [&str; 32] = [
     "$geoNear",
     "$mergeCursors",
     "$redact",
-    // A `$limit` or `$skip` cuts the stream: no index serves a sort of what is left without
-    // changing the result, and sorting a few documents is cheap.
+    // A `$sort` after a `$limit` sorts only the few documents that are left, which is cheap. After
+    // a `$skip` it is not cheap, but no index can serve the sort without changing the result: the
+    // skipped documents are the first ones in the unsorted order.
     "$limit",
     "$skip",
     // What the server prints for the stages that desugar.

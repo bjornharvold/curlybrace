@@ -47,7 +47,7 @@
       },
       "slotBasedPlan": {
         "slots": "$$RESULT=s9 env: {  }",
-        "stages": "[4] project [s9 = newBsonObj(\"_id\", s8, \"n\", s6)] \n[4] group [s8] [s6 = _internalFirst::accumulate(s6, s3)] spillSlots[s7] mergingExprs[_internalFirst::merge(s7)] \n[4] project [s8 = (s4 ?: null)] \n[3] sort [s5] [asc] [s3, s4] \n[3] project [s5 = getSortKeyAsc(s3)] \n[1] scan generic [s1 = record, s2 = recordId] [s3 = amount, s4 = cust] @\"bd8f85d3-5081-47eb-aae9-8953e18c7248\" "
+        "stages": "[4] project [s9 = newBsonObj(\"_id\", s8, \"n\", s6)] \n[4] group [s8] [s6 = _internalFirst::accumulate(s6, s3)] spillSlots[s7] mergingExprs[_internalFirst::merge(s7)] \n[4] project [s8 = (s4 ?: null)] \n[3] sort [s5] [asc] [s3, s4] \n[3] project [s5 = getSortKeyAsc(s3)] \n[1] scan generic [s1 = record, s2 = recordId] [s3 = amount, s4 = cust] @\"00000000-0000-4000-8000-000000000001\" "
       }
     },
     "rejectedPlans": []

@@ -188,7 +188,7 @@ fn a_sort_after_a_stage_that_reshapes_documents_is_not() {
 }
 
 #[test]
-fn a_sort_after_a_plain_projection_or_a_limit_still_could() {
+fn a_sort_after_a_plain_inclusion_projection_still_could() {
     assert!(has_in_memory_sort(vec![
         doc! { "$project": { "total": 1, "_id": 0 } },
         sort_stage()
@@ -287,4 +287,40 @@ fn a_sort_above_a_lookup_or_unwind_is_no_finding_but_one_below_it_is() {
             below.hints
         );
     }
+}
+
+// --- a leading $limit / $skip the server folds into the $cursor (real output, MongoDB 9.0) ---
+
+const MATCH_LIMIT_SORT: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_limit_sort_match_limit_sort.json");
+const SKIP_SORT: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_limit_sort_skip_sort.json");
+const LIMIT_SORT: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_limit_sort_limit_sort.json");
+const MATCH_SORT: &str =
+    include_str!("../../tests/fixtures/explain_aggregate/real_limit_sort_match_sort.json");
+
+#[test]
+fn a_sort_after_a_folded_limit_or_skip_raises_nothing() {
+    for (name, text) in [
+        ("match+limit+sort", MATCH_LIMIT_SORT),
+        ("skip+sort", SKIP_SORT),
+        ("limit+sort", LIMIT_SORT),
+    ] {
+        let p = plan_from_text(text);
+        assert!(p.hints.is_empty(), "{name}: {:?}", p.hints);
+    }
+}
+
+#[test]
+fn a_plain_match_and_sort_on_an_unindexed_field_still_raises_the_in_memory_sort() {
+    let p = plan_from_text(MATCH_SORT);
+    assert!(p.hints.contains(&AggHint::InMemorySort), "{:?}", p.hints);
+}
+
+#[test]
+fn a_sort_over_a_limit_in_the_plan_tree_is_not_input_side() {
+    let p = planned(doc! { "stage": "SORT", "inputStage": {
+    "stage": "LIMIT", "inputStage": { "stage": "COLLSCAN", "filter": {} } } });
+    assert!(p.hints.is_empty(), "{:?}", p.hints);
 }

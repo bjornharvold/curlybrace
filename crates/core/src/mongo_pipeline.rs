@@ -189,7 +189,7 @@ mod tests {
         );
         let stats = aggregate_explain_command(
             &ns,
-            pipeline,
+            pipeline.clone(),
             ExplainVerbosity::ExecutionStats,
             Duration::from_millis(1_500),
         );
@@ -203,7 +203,18 @@ mod tests {
                 .get_document("explain")
                 .is_ok_and(|e| e.contains_key("allowDiskUse"))
         );
-        assert!(!format!("{stats:?}").contains("$out") && !format!("{stats:?}").contains("$merge"));
+        // The command adds no stage of its own to the pipeline (no write stage in particular),
+        // and a pipeline that ends in a write stage is refused before a command is built.
+        assert_eq!(
+            stats
+                .get_document("explain")
+                .and_then(|e| e.get_array("pipeline"))
+                .map(Vec::len),
+            Ok(pipeline.len())
+        );
+        let mut with_write = pipeline;
+        with_write.push(doc! { "$out": "target" });
+        assert!(ensure_read_only(&with_write).is_err());
     }
 
     #[test]

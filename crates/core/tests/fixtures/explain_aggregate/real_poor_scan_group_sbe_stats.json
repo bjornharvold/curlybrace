@@ -37,7 +37,7 @@
       },
       "slotBasedPlan": {
         "slots": "$$RESULT=s8 env: {  }",
-        "stages": "[3] project [s8 = newBsonObj(\"_id\", s7, \"n\", s5)] \n[3] group [s7] [s5 = _internalCount::accumulate(s5, 1)] spillSlots[s6] mergingExprs[_internalCount::merge(s6)] \n[3] project [s7 = (s3 ?: null)] \n[1] filter {traverseF(s4, lambda(l2.0) { ((move(l2.0) == 1) ?: false) }, false)} \n[1] scan generic [s1 = record, s2 = recordId] [s3 = cust, s4 = rare] @\"bd8f85d3-5081-47eb-aae9-8953e18c7248\" "
+        "stages": "[3] project [s8 = newBsonObj(\"_id\", s7, \"n\", s5)] \n[3] group [s7] [s5 = _internalCount::accumulate(s5, 1)] spillSlots[s6] mergingExprs[_internalCount::merge(s6)] \n[3] project [s7 = (s3 ?: null)] \n[1] filter {traverseF(s4, lambda(l2.0) { ((move(l2.0) == 1) ?: false) }, false)} \n[1] scan generic [s1 = record, s2 = recordId] [s3 = cust, s4 = rare] @\"00000000-0000-4000-8000-000000000001\" "
       }
     },
     "rejectedPlans": []
