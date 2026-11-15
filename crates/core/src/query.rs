@@ -54,6 +54,16 @@ pub fn parse_query(t: &QueryText) -> Result<Query> {
     })
 }
 
+/// Parses the query-bar text as typed, for code export: no default page size and no clamp. An
+/// empty or `0` limit means no limit (`0` is how [`Query`] says it), any other number is kept.
+/// The same text fails here exactly when [`parse_query`] fails.
+pub fn parse_export_query(t: &QueryText) -> Result<Query> {
+    Ok(Query {
+        limit: parse_u64("limit", &t.limit)?.unwrap_or(0),
+        ..parse_query(t)?
+    })
+}
+
 /// The query for the following page (`skip += limit`, saturating).
 pub fn next_page(q: &Query) -> Query {
     Query {
@@ -129,6 +139,71 @@ mod tests {
         assert_eq!(q.sort, Some(doc! {"a": -1}));
         assert_eq!(q.projection, Some(doc! {"a": 1}));
         assert_eq!((q.skip, q.limit), (7, 20));
+    }
+
+    fn limit_text(limit: &str) -> QueryText {
+        QueryText {
+            limit: limit.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_exported_query_carries_the_limit_as_typed() {
+        for (typed, expected) in [
+            ("", 0),
+            ("  ", 0),
+            ("0", 0),
+            ("1", 1),
+            ("5000", 5000),
+            (" 20 ", 20),
+        ] {
+            let q = parse_export_query(&limit_text(typed)).unwrap();
+            assert_eq!(q.limit, expected, "{typed:?}");
+        }
+        let huge = parse_export_query(&limit_text("18446744073709551615")).unwrap();
+        assert_eq!(huge.limit, u64::MAX);
+    }
+
+    #[test]
+    fn the_find_button_still_pages_and_clamps() {
+        for (typed, expected) in [("", PAGE_SIZE), ("0", 1), ("5000", MAX_LIMIT)] {
+            assert_eq!(parse_query(&limit_text(typed)).unwrap().limit, expected);
+        }
+    }
+
+    #[test]
+    fn an_exported_query_fails_on_the_same_text_as_the_find_button() {
+        for bad in ["-1", "x", "1.5", "99999999999999999999"] {
+            assert_invalid(&limit_text(bad));
+            assert!(
+                matches!(
+                    parse_export_query(&limit_text(bad)),
+                    Err(CoreError::InvalidJson(_))
+                ),
+                "{bad}"
+            );
+        }
+        let skip = QueryText {
+            skip: "-3".into(),
+            ..Default::default()
+        };
+        assert!(parse_export_query(&skip).is_err());
+        assert!(parse_export_query(&with_filter("[1]")).is_err());
+    }
+
+    #[test]
+    fn an_exported_query_keeps_the_other_fields_of_the_find_query() {
+        let text = QueryText {
+            filter: r#"{"a": 1}"#.into(),
+            sort: r#"{"a": -1}"#.into(),
+            projection: r#"{"a": 1}"#.into(),
+            skip: "7".into(),
+            limit: String::new(),
+        };
+        let exported = parse_export_query(&text).unwrap();
+        let found = parse_query(&text).unwrap();
+        assert_eq!(exported, Query { limit: 0, ..found });
     }
 
     #[test]

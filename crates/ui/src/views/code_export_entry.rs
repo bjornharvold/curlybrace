@@ -7,7 +7,7 @@ use crate::theme::{compact_text_button, gate, tonal_button};
 use crate::viewmodel::aggregate::AggregateState;
 use crate::viewmodel::code_export::{CodeBlock, stages_exported};
 use curlybrace_core::pipeline::Stage;
-use curlybrace_core::query::{QueryText, parse_query};
+use curlybrace_core::query::{QueryText, parse_export_query};
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
 /// Why the Aggregate tab has no code to offer, in words; `None` when it has.
@@ -22,7 +22,9 @@ pub fn aggregate_blocked(draft: &AggregateState, stages: &[Stage], i18n: &I18n) 
 
 /// Why the query bar has no code to offer (its text does not parse), in words.
 pub fn find_blocked(text: &QueryText, i18n: &I18n) -> Option<String> {
-    parse_query(text).err().map(|error| i18n.error(&error))
+    parse_export_query(text)
+        .err()
+        .map(|error| i18n.error(&error))
 }
 
 /// The Copy as code button; true when it was clicked while on. `blocked` is the reason it is

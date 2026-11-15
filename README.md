@@ -287,7 +287,9 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   connects with a placeholder connection string, so no credential is ever in it, and nothing is
   sent to the server (it works without a connection). The button is off, with the reason, when a
   stage or the query does not parse, when no stage is enabled, or when edited text has not been
-  applied. The preview's 20-document limit is never part of the code. The language and options are
+  applied. The preview's 20-document limit is never part of the code, and the query bar's code carries
+  the Limit as typed: an empty Limit (or 0) gives no limit, and the Find button's paging default and
+  1000 cap do not apply. The language and options are
   remembered until you quit.
 - Not yet: explain, undo of a run, and options such as collation, hint and `allowDiskUse`. The draft that is not saved is kept per open connection while the app runs.
 

@@ -8,7 +8,7 @@ use crate::app::state::AppState;
 use crate::viewmodel::{FindAction, NameField};
 use bson::doc;
 use curlybrace_core::codegen::{CodeOptions, CodeRequest, CodegenError, Language, generate};
-use curlybrace_core::query::parse_query;
+use curlybrace_core::query::parse_export_query;
 use curlybrace_core::runtime::Command;
 use curlybrace_core::store::Namespace;
 
@@ -81,7 +81,7 @@ fn it_opens_from_the_aggregate_tab_with_the_enabled_stages() {
 fn it_opens_from_the_query_bar_with_the_query_find_would_send() {
     let s = opened_find();
     let dialog = s.code_export.dialog.as_ref().expect("open");
-    let sent = parse_query(&s.find.text).unwrap();
+    let sent = parse_export_query(&s.find.text).unwrap();
     assert_eq!(
         dialog.request,
         CodeRequest::Find {
@@ -89,6 +89,22 @@ fn it_opens_from_the_query_bar_with_the_query_find_would_send() {
             query: sent
         }
     );
+}
+
+#[test]
+fn the_query_bar_code_carries_the_limit_as_typed_not_as_paged() {
+    for (typed, expected) in [("", 0), ("0", 0), ("5000", 5000), ("3", 3)] {
+        let mut s = with_filter(offline(), "{}");
+        s.find.text.limit = typed.into();
+        let s = act(s, CodeAction::Open(CodeSource::Find));
+        let dialog = s.code_export.dialog.as_ref().expect("open");
+        let CodeRequest::Find { query, .. } = &dialog.request else {
+            panic!("a find request");
+        };
+        assert_eq!(query.limit, expected, "{typed:?}");
+        let text = dialog.text.as_ref().expect("code");
+        assert_eq!(text.contains("limit"), expected > 0, "{typed:?}: {text}");
+    }
 }
 
 #[test]

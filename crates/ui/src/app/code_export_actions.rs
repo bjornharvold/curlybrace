@@ -7,7 +7,7 @@ use super::state::{AppState, Workspace};
 use crate::viewmodel::NameField;
 use crate::viewmodel::code_export::aggregate_stages;
 use curlybrace_core::codegen::{CodeRequest, Language};
-use curlybrace_core::query::parse_query;
+use curlybrace_core::query::parse_export_query;
 
 /// Where the code comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +38,7 @@ fn request(state: &AppState, source: CodeSource) -> Option<CodeRequest> {
         CodeSource::Aggregate => aggregate_stages(&state.aggregate)
             .ok()
             .map(|stages| CodeRequest::Aggregate { ns, stages }),
-        CodeSource::Find => parse_query(&state.find.text)
+        CodeSource::Find => parse_export_query(&state.find.text)
             .ok()
             .map(|query| CodeRequest::Find { ns, query }),
     }
