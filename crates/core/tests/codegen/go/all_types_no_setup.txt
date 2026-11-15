@@ -1,0 +1,59 @@
+pipeline := mongo.Pipeline{
+	bson.D{
+		{Key: "$match", Value: bson.D{
+			{Key: "double", Value: 1.5},
+			{Key: "wholeDouble", Value: 1.0},
+			{Key: "nan", Value: math.NaN()},
+			{Key: "posInf", Value: math.Inf(1)},
+			{Key: "negInf", Value: math.Inf(-1)},
+			{Key: "string", Value: "text"},
+			{Key: "int32", Value: int32(7)},
+			{Key: "int64", Value: int64(1099511627776)},
+			{Key: "bool", Value: true},
+			{Key: "null", Value: nil},
+			{Key: "undefined", Value: bson.Undefined{}},
+			{Key: "objectId", Value: bson.ObjectID{0x65, 0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x07, 0x18, 0x29, 0x3a, 0x4b}},
+			{Key: "date", Value: bson.DateTime(1709210096789)},
+			{Key: "dateBefore1970", Value: bson.DateTime(-86400000)},
+			{Key: "dateYear10000", Value: bson.DateTime(253402300800000)},
+			{Key: "decimal", Value: bson.NewDecimal128(0x3044000000000000, 0x000000000000000f) /* 1.5E+3 */},
+			{Key: "binary", Value: bson.Binary{Subtype: 0x00, Data: []byte{0x00, 0x01, 0x02, 0xff}}},
+			{Key: "uuid", Value: bson.Binary{Subtype: 0x04, Data: []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}}},
+			{Key: "userBinary", Value: bson.Binary{Subtype: 0x80, Data: []byte{0x09}}},
+			{Key: "regex", Value: bson.Regex{Pattern: "^a.*z$", Options: "i"}},
+			{Key: "timestamp", Value: bson.Timestamp{T: 1700000000, I: 3}},
+			{Key: "minKey", Value: bson.MinKey{}},
+			{Key: "maxKey", Value: bson.MaxKey{}},
+			{Key: "code", Value: bson.JavaScript("function () { return 1; }")},
+			{Key: "codeWithScope", Value: bson.CodeWithScope{Code: "x + 1", Scope: bson.D{{Key: "x", Value: int32(41)}}}},
+			{Key: "symbol", Value: bson.Symbol("sym")},
+			{Key: "dbPointer", Value: bson.DBPointer{DB: "shop.orders", Pointer: bson.ObjectID{0x65, 0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x07, 0x18, 0x29, 0x3a, 0x4b}}},
+			{Key: "emptyDoc", Value: bson.D{}},
+			{Key: "emptyArray", Value: bson.A{}},
+			{Key: "nested", Value: bson.D{
+				{Key: "a", Value: bson.D{
+					{Key: "b", Value: bson.A{
+						int32(1),
+						bson.A{int32(2), bson.A{int32(3)}},
+						bson.D{{Key: "c", Value: "d"}},
+					}},
+				}},
+			}},
+			{Key: "needs quoting", Value: int32(1)},
+			{Key: "dotted.key", Value: int32(2)},
+			{Key: "$dollar", Value: int32(3)},
+			{Key: "__proto__", Value: int32(4)},
+			{Key: "", Value: int32(5)},
+		}},
+	},
+}
+
+cursor, err := collection.Aggregate(context.TODO(), pipeline)
+if err != nil {
+	log.Fatal(err)
+}
+var results []bson.M
+if err := cursor.All(context.TODO(), &results); err != nil {
+	log.Fatal(err)
+}
+fmt.Println(results)

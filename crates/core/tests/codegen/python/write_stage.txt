@@ -1,0 +1,13 @@
+from pymongo import MongoClient
+
+client = MongoClient("<your connection string>")
+db = client["shop"]
+collection = db["orders"]
+
+pipeline = [
+    {"$match": {"status": "A"}},
+    {"$out": {"db": "shop", "coll": "archive"}},
+]
+
+results = list(collection.aggregate(pipeline))
+print(results)

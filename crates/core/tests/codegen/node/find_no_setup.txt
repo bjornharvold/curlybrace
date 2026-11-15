@@ -1,0 +1,12 @@
+const filter = { status: "A", qty: { $gt: 10 } };
+const projection = { name: 1, qty: 1, _id: 0 };
+const sort = { qty: -1, name: 1 };
+
+const results = await collection
+  .find(filter)
+  .project(projection)
+  .sort(sort)
+  .skip(20)
+  .limit(10)
+  .toArray();
+console.log(results);

@@ -1,0 +1,15 @@
+pipeline = [
+    {
+        "$match": {
+            "negativeZero": -0.0,
+            "int64Min": Int64(-9223372036854775808),
+            "int64Max": Int64(9223372036854775807),
+            "int32Min": -2147483648,
+            "int32Max": 2147483647,
+            "timestamp": Timestamp(3000000000, 4000000000),
+        },
+    },
+]
+
+results = list(collection.aggregate(pipeline))
+print(results)

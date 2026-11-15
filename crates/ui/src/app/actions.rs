@@ -166,7 +166,13 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
     if let FindAction::GuardCancel = action {
         return (super::guard_actions::dropped(state), Vec::new());
     }
+    // Pure and offline too: the dialog only reads the query bar.
+    if let FindAction::CopyAsCode = action {
+        let open = super::CodeAction::Open(super::CodeSource::Find);
+        return super::code_export_actions::on_action(state, open);
+    }
     gated(state, |s| match action {
+        FindAction::CopyAsCode => (s, Vec::new()),
         FindAction::Run(query) => super::guard_actions::run(s, query),
         FindAction::GuardRunAnyway => super::guard_actions::run_anyway(s),
         FindAction::SetAutomaticVerdict(_) | FindAction::SetGuard(_) | FindAction::GuardCancel => {

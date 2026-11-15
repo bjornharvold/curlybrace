@@ -1,0 +1,75 @@
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
+import org.bson.BsonDbPointer;
+import org.bson.BsonRegularExpression;
+import org.bson.BsonTimestamp;
+import org.bson.BsonUndefined;
+import org.bson.Document;
+import org.bson.types.Binary;
+import org.bson.types.Code;
+import org.bson.types.CodeWithScope;
+import org.bson.types.Decimal128;
+import org.bson.types.MaxKey;
+import org.bson.types.MinKey;
+import org.bson.types.ObjectId;
+import org.bson.types.Symbol;
+
+public class Main {
+    public static void main(String[] args) {
+        try (MongoClient client = MongoClients.create("<your connection string>")) {
+            MongoDatabase db = client.getDatabase("shop");
+            MongoCollection<Document> collection = db.getCollection("orders");
+
+            List<Document> pipeline = Arrays.asList(
+                new Document("$match", new Document("double", 1.5)
+                        .append("wholeDouble", 1.0)
+                        .append("nan", Double.NaN)
+                        .append("posInf", Double.POSITIVE_INFINITY)
+                        .append("negInf", Double.NEGATIVE_INFINITY)
+                        .append("string", "text")
+                        .append("int32", 7)
+                        .append("int64", 1099511627776L)
+                        .append("bool", true)
+                        .append("null", null)
+                        .append("undefined", new BsonUndefined())
+                        .append("objectId", new ObjectId("65a1b2c3d4e5f60718293a4b"))
+                        .append("date", new Date(1709210096789L))
+                        .append("dateBefore1970", new Date(-86400000L))
+                        .append("dateYear10000", new Date(253402300800000L))
+                        .append("decimal", Decimal128.parse("1.5E+3"))
+                        .append("binary", new Binary((byte) 0x00, new byte[] {(byte) 0x00, (byte) 0x01, (byte) 0x02, (byte) 0xff}))
+                        .append("uuid", new Binary((byte) 0x04, new byte[] {(byte) 0x00, (byte) 0x01, (byte) 0x02, (byte) 0x03, (byte) 0x04, (byte) 0x05, (byte) 0x06, (byte) 0x07, (byte) 0x08, (byte) 0x09, (byte) 0x0a, (byte) 0x0b, (byte) 0x0c, (byte) 0x0d, (byte) 0x0e, (byte) 0x0f}))
+                        .append("userBinary", new Binary((byte) 0x80, new byte[] {(byte) 0x09}))
+                        .append("regex", new BsonRegularExpression("^a.*z$", "i"))
+                        .append("timestamp", new BsonTimestamp(1700000000, 3))
+                        .append("minKey", new MinKey())
+                        .append("maxKey", new MaxKey())
+                        .append("code", new Code("function () { return 1; }"))
+                        .append("codeWithScope", new CodeWithScope("x + 1", new Document("x", 41)))
+                        .append("symbol", new Symbol("sym"))
+                        .append("dbPointer", new BsonDbPointer("shop.orders", new ObjectId("65a1b2c3d4e5f60718293a4b")))
+                        .append("emptyDoc", new Document())
+                        .append("emptyArray", Arrays.asList())
+                        .append("nested", new Document("a", new Document("b", Arrays.asList(
+                                    1,
+                                    Arrays.asList(2, Arrays.asList(3)),
+                                    new Document("c", "d")
+                                ))))
+                        .append("needs quoting", 1)
+                        .append("dotted.key", 2)
+                        .append("$dollar", 3)
+                        .append("__proto__", 4)
+                        .append("", 5))
+            );
+
+            List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+            System.out.println(results);
+        }
+    }
+}

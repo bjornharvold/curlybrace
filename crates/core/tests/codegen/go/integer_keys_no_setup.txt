@@ -1,0 +1,36 @@
+pipeline := mongo.Pipeline{
+	bson.D{
+		{Key: "$match", Value: bson.D{
+			{Key: "plain", Value: bson.D{
+				{Key: "b", Value: int32(1)},
+				{Key: "2", Value: int32(2)},
+				{Key: "1", Value: int32(3)},
+			}},
+			{Key: "inOrder", Value: bson.D{
+				{Key: "1", Value: int32(1)},
+				{Key: "2", Value: int32(2)},
+				{Key: "b", Value: int32(3)},
+			}},
+			{Key: "leadingZero", Value: bson.D{{Key: "01", Value: int32(1)}, {Key: "a", Value: int32(2)}}},
+			{Key: "nested", Value: bson.A{
+				bson.D{
+					{Key: "x", Value: bson.D{
+						{Key: "z", Value: int32(1)},
+						{Key: "10", Value: int32(2)},
+						{Key: "9", Value: int32(3)},
+					}},
+				},
+			}},
+		}},
+	},
+}
+
+cursor, err := collection.Aggregate(context.TODO(), pipeline)
+if err != nil {
+	log.Fatal(err)
+}
+var results []bson.M
+if err := cursor.All(context.TODO(), &results); err != nil {
+	log.Fatal(err)
+}
+fmt.Println(results)

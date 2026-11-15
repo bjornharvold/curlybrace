@@ -11,6 +11,7 @@ use crate::viewmodel::verdict::badge;
 use crate::viewmodel::{CollectionTab, copy_blocked};
 use crate::views::aggregate::{flush_typing, show_aggregate};
 use crate::views::aggregate_run::RunContext;
+use crate::views::code_export::show_code_dialog;
 use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::documents::{
     DocTarget, show_connection_header_with, show_documents_pending, show_documents_switchable,
@@ -32,6 +33,12 @@ pub(super) fn show_collection(
         ui.label(i18n.t("browser.select_collection"));
         return;
     }
+    // The Copy as code dialog belongs to both tabs; it copies to the clipboard itself.
+    out.extend(
+        show_code_dialog(ui.ctx(), &state.code_export, i18n)
+            .into_iter()
+            .map(|action| UiEvent::Input(Input::Aggregate(AggregateAction::Code(action)))),
+    );
     let connection = state.active_connection_label(i18n);
     let badge = state.active_badge();
     let picked = show_connection_header_with(ui, &connection, &badge, i18n, |ui| {

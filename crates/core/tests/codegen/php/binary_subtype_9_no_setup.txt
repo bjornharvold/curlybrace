@@ -1,0 +1,6 @@
+$pipeline = [
+    ['$match' => ['nine' => new MongoDB\BSON\Binary(hex2bin('010203'), 9)]],
+];
+
+$results = $collection->aggregate($pipeline)->toArray();
+print_r($results);

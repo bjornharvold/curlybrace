@@ -12,6 +12,9 @@ pub struct FindBarState {
     /// content (see [`super::findbar_more::more_open`]) until it is first shown open, which then
     /// sticks (see [`Self::more_settled`]). Clear drops the choice.
     pub more: Option<bool>,
+    /// Whether the text parses as typed for the Copy as code button, remembered between
+    /// repaints (see `code_export_memo`); keyed on the text, so it needs no reset.
+    pub export_memo: super::code_export_memo::FindExportMemo,
 }
 
 impl FindBarState {
@@ -41,6 +44,8 @@ pub enum FindAction {
     GuardRunAnyway,
     /// The guard's notice: drop it and the find it held back.
     GuardCancel,
+    /// Copy as code was clicked: opens the dialog for the query the Find button would send.
+    CopyAsCode,
 }
 
 /// A raw user gesture on the find bar, before validation.
@@ -52,6 +57,8 @@ pub enum FindIntent {
     ClearButton,
     PrevButton,
     NextButton,
+    /// The Copy as code button (only offered while the text parses).
+    CodeButton,
 }
 
 /// Chooses the intent for a frame; a button click wins over Enter.
@@ -75,6 +82,9 @@ pub fn resolve_find_intent(
         FindIntent::ClearButton => (FindBarState::default(), Some(FindAction::Clear)),
         FindIntent::PrevButton => (state.clone(), has_prev.then_some(FindAction::Prev)),
         FindIntent::NextButton => (state.clone(), has_next.then_some(FindAction::Next)),
+        // The bar's text stays as typed; the dialog reads it (and the button is off when it
+        // does not parse).
+        FindIntent::CodeButton => (state.clone(), Some(FindAction::CopyAsCode)),
     }
 }
 
@@ -109,6 +119,7 @@ mod tests {
             },
             last_error: Some(CoreError::InvalidJson("old".into())),
             more: None,
+            ..Default::default()
         }
     }
 
@@ -150,6 +161,7 @@ mod tests {
             },
             last_error: None,
             more: None,
+            ..Default::default()
         }
     }
 

@@ -1,0 +1,9 @@
+let pipeline = vec![
+    doc! { "$match": { "status": "A" } },
+    doc! { "$out": { "db": "shop", "coll": "archive" } },
+];
+
+let mut cursor = collection.aggregate(pipeline).await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}

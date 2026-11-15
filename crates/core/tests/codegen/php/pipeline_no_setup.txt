@@ -1,0 +1,29 @@
+$pipeline = [
+    [
+        '$match' => ['status' => ['$in' => ['A', 'B']], 'total' => ['$gte' => 100]],
+    ],
+    [
+        '$lookup' => [
+            'from' => 'customers',
+            'localField' => 'customerId',
+            'foreignField' => '_id',
+            'as' => 'customer',
+        ],
+    ],
+    [
+        '$group' => [
+            '_id' => '$customer.region',
+            'revenue' => ['$sum' => '$total'],
+            'orders' => ['$count' => (object) []],
+        ],
+    ],
+    [
+        '$facet' => [
+            'top' => [['$sort' => ['revenue' => -1]], ['$limit' => 5]],
+            'all' => [['$count' => 'n']],
+        ],
+    ],
+];
+
+$results = $collection->aggregate($pipeline)->toArray();
+print_r($results);

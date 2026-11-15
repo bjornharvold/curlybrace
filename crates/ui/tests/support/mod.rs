@@ -6,6 +6,7 @@
 pub mod actions;
 pub mod aggregate_shots;
 pub mod bulk_shots;
+pub mod code_export_shots;
 pub mod compare;
 pub mod compare_apply_states;
 pub mod compare_export_shots;

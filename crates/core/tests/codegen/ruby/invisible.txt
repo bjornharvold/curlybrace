@@ -1,0 +1,25 @@
+require 'mongo'
+
+client = Mongo::Client.new('<your connection string>')
+db = client.use('shop').database
+collection = db['orders']
+
+pipeline = [
+  {
+    '$match' => {
+      'bidi' => "user\u{202e}txt.exe \u{2066}x\u{2069}",
+      'zeroWidth' => "a\u{200b}b\u{200d}c\u{2060}d",
+      'bom' => "\u{feff}start",
+      'c1' => "next\u{85}line",
+      'softHyphen' => "co\u{ad}op",
+      'mongolian' => "a\u{180e}b",
+      'annotation' => "x\u{fff9}y\u{fffa}z\u{fffb}",
+      'tags' => "flag\u{e0001}\u{e0067}\u{e007f}",
+      'marks' => 'ok: 😀 café é 中文',
+      "k\u{202e}ey" => 1,
+    },
+  },
+]
+
+results = collection.aggregate(pipeline).to_a
+puts results.inspect

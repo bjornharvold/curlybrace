@@ -1,0 +1,30 @@
+use futures::TryStreamExt;
+use mongodb::Client;
+use mongodb::bson::{self, Document, doc};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::with_uri_str("<your connection string>").await?;
+    let db = client.database("shop");
+    let collection = db.collection::<Document>("orders");
+
+    let pipeline = vec![
+        doc! {
+            "$match": {
+                "negativeZero": -0.0,
+                "int64Min": -9223372036854775808_i64,
+                "int64Max": 9223372036854775807_i64,
+                "int32Min": -2147483648_i32,
+                "int32Max": 2147483647_i32,
+                "timestamp": bson::Timestamp { time: 3000000000, increment: 4000000000 },
+            },
+        },
+    ];
+
+    let mut cursor = collection.aggregate(pipeline).await?;
+    while let Some(item) = cursor.try_next().await? {
+        println!("{item}");
+    }
+
+    Ok(())
+}

@@ -1,0 +1,22 @@
+// Run with: mongosh "<your connection string>"
+const collection = db.getSiblingDB("shop").getCollection("orders");
+
+const pipeline = [
+  {
+    $match: {
+      bidi: "user\u202etxt.exe \u2066x\u2069",
+      zeroWidth: "a\u200bb\u200dc\u2060d",
+      bom: "\ufeffstart",
+      c1: "next\u0085line",
+      softHyphen: "co\u00adop",
+      mongolian: "a\u180eb",
+      annotation: "x\ufff9y\ufffaz\ufffb",
+      tags: "flag\udb40\udc01\udb40\udc67\udb40\udc7f",
+      marks: "ok: 😀 café é 中文",
+      "k\u202eey": 1,
+    },
+  },
+];
+
+const results = collection.aggregate(pipeline).toArray();
+printjson(results);

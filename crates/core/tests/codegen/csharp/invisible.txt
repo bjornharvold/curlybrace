@@ -1,0 +1,26 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+
+var client = new MongoClient("<your connection string>");
+var db = client.GetDatabase("shop");
+var collection = db.GetCollection<BsonDocument>("orders");
+
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument {
+            { "bidi", "user\u202etxt.exe \u2066x\u2069" },
+            { "zeroWidth", "a\u200bb\u200dc\u2060d" },
+            { "bom", "\ufeffstart" },
+            { "c1", "next\u0085line" },
+            { "softHyphen", "co\u00adop" },
+            { "mongolian", "a\u180eb" },
+            { "annotation", "x\ufff9y\ufffaz\ufffb" },
+            { "tags", "flag\udb40\udc01\udb40\udc67\udb40\udc7f" },
+            { "marks", "ok: 😀 café é 中文" },
+            { "k\u202eey", 1 },
+        } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

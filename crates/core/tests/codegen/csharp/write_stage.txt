@@ -1,0 +1,18 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+
+var client = new MongoClient("<your connection string>");
+var db = client.GetDatabase("shop");
+var collection = db.GetCollection<BsonDocument>("orders");
+
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument { { "status", "A" } } },
+    },
+    new BsonDocument {
+        { "$out", new BsonDocument { { "db", "shop" }, { "coll", "archive" } } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

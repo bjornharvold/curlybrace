@@ -8,6 +8,8 @@
 use bson::{Bson, Document};
 use serde_json::Value;
 
+use crate::pipeline_shape::{Ending, check_parsed};
+
 pub use crate::pipeline_run::{
     AGGREGATE_RUN_MAX_TIME_MS, RunPlan, RunTarget, ensure_run_shape, run_pipeline, run_target,
 };
@@ -199,24 +201,11 @@ pub fn preview_pipeline(
         let (name, doc) = parse_stage(&stage.text).ok_or(PipelineError::NotAStage { index })?;
         parsed.push((index, name, doc));
     }
+    check_parsed(&parsed, Ending::Any)?;
     let mut not_run = Vec::new();
     if parsed.last().is_some_and(|(_, name, _)| is_write(name)) {
         if let Some((_, name, _)) = parsed.pop() {
             not_run.push(name);
-        }
-    }
-    for (index, name, doc) in &parsed {
-        if is_write(name) {
-            return Err(PipelineError::WriteStageNotLast {
-                index: *index,
-                name: name.clone(),
-            });
-        }
-        if let Some(nested) = find_write_in_stage(doc) {
-            return Err(PipelineError::NestedWriteStage {
-                index: *index,
-                name: nested,
-            });
         }
     }
     if parsed.is_empty() {
@@ -230,3 +219,24 @@ pub fn preview_pipeline(
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
 mod tests;
+
+/// The enabled stages exactly as a run would send them, with no preview `$limit`: for exporting
+/// a pipeline as code. A trailing `$out` / `$merge` is kept (a lone one too); a write stage
+/// anywhere else is refused, and so is a stage that does not parse. Nothing enabled is `Empty`.
+pub fn export_stages(stages: &[Stage]) -> Result<Vec<Document>, PipelineError> {
+    let mut parsed: Vec<(usize, String, Document)> = Vec::new();
+    for (index, stage) in stages.iter().enumerate().filter(|(_, s)| s.enabled) {
+        let (name, doc) = parse_stage(&stage.text).ok_or(PipelineError::NotAStage { index })?;
+        parsed.push((index, name, doc));
+    }
+    check_parsed(&parsed, Ending::Any)?;
+    Ok(parsed.into_iter().map(|(_, _, doc)| doc).collect())
+}
+
+#[cfg(test)]
+#[path = "pipeline_export_tests.rs"]
+mod export_tests;
+
+#[cfg(test)]
+#[path = "pipeline_shape_tests.rs"]
+mod shape_tests;

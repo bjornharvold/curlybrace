@@ -1,0 +1,25 @@
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.bson.Document;
+import org.bson.types.Binary;
+
+public class Main {
+    public static void main(String[] args) {
+        try (MongoClient client = MongoClients.create("<your connection string>")) {
+            MongoDatabase db = client.getDatabase("shop");
+            MongoCollection<Document> collection = db.getCollection("orders");
+
+            List<Document> pipeline = Arrays.asList(
+                new Document("$match", new Document("nine", new Binary((byte) 0x09, new byte[] {(byte) 0x01, (byte) 0x02, (byte) 0x03})))
+            );
+
+            List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+            System.out.println(results);
+        }
+    }
+}

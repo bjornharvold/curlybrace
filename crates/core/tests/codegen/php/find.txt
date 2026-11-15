@@ -1,0 +1,19 @@
+<?php
+
+require 'vendor/autoload.php';
+
+$client = new MongoDB\Client('<your connection string>');
+$db = $client->selectDatabase('shop');
+$collection = $db->selectCollection('orders');
+
+$filter = ['status' => 'A', 'qty' => ['$gt' => 10]];
+$projection = ['name' => 1, 'qty' => 1, '_id' => 0];
+$sort = ['qty' => -1, 'name' => 1];
+
+$results = $collection->find($filter, [
+    'projection' => $projection,
+    'sort' => $sort,
+    'skip' => 20,
+    'limit' => 10,
+])->toArray();
+print_r($results);

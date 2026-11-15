@@ -1,0 +1,30 @@
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.bson.BsonTimestamp;
+import org.bson.Document;
+
+public class Main {
+    public static void main(String[] args) {
+        try (MongoClient client = MongoClients.create("<your connection string>")) {
+            MongoDatabase db = client.getDatabase("shop");
+            MongoCollection<Document> collection = db.getCollection("orders");
+
+            List<Document> pipeline = Arrays.asList(
+                new Document("$match", new Document("negativeZero", -0.0)
+                        .append("int64Min", -9223372036854775808L)
+                        .append("int64Max", 9223372036854775807L)
+                        .append("int32Min", -2147483648)
+                        .append("int32Max", 2147483647)
+                        .append("timestamp", new BsonTimestamp((int) 3000000000L, (int) 4000000000L)))
+            );
+
+            List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+            System.out.println(results);
+        }
+    }
+}

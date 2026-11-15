@@ -58,6 +58,10 @@ pub enum AggregateAction {
     RunConfirmed,
     /// The confirmation dialog was closed without running.
     RunDismissed,
+    /// The Copy as code dialog: opening it for the enabled stages, or one of its own actions.
+    /// Carried here, not as an `Input` of its own, because every arm of the reducer's `update`
+    /// costs it a copy of the whole state on the stack, which is near the debug-build limit.
+    Code(super::CodeAction),
 }
 
 impl AggregateAction {
@@ -99,8 +103,15 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         // dialog only, and the saved handler moves the draft rather than copy it.
         return super::aggregate_saved_actions::on_action(state, action);
     }
+    // Also before the draft is copied: the Copy as code dialog only reads it.
+    let action = match action {
+        AggregateAction::Code(code) => return super::code_export_actions::on_action(state, code),
+        other => other,
+    };
     let draft = (*state.aggregate).clone();
     match action {
+        // Handled above; listed so the match stays exhaustive and a new variant must be placed.
+        AggregateAction::Code(code) => super::code_export_actions::on_action(state, code),
         AggregateAction::AddStage(name) => changed(state, draft.add_stage(&name)),
         AggregateAction::Remove(i) => changed(state, draft.remove(i)),
         AggregateAction::MoveUp(i) => changed(state, draft.move_up(i)),

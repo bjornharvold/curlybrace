@@ -1,0 +1,17 @@
+pipeline := mongo.Pipeline{
+	bson.D{
+		{Key: "$match", Value: bson.D{
+			{Key: "nine", Value: bson.Binary{Subtype: 0x09, Data: []byte{0x01, 0x02, 0x03}}},
+		}},
+	},
+}
+
+cursor, err := collection.Aggregate(context.TODO(), pipeline)
+if err != nil {
+	log.Fatal(err)
+}
+var results []bson.M
+if err := cursor.All(context.TODO(), &results); err != nil {
+	log.Fatal(err)
+}
+fmt.Println(results)

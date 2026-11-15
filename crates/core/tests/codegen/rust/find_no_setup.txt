@@ -1,0 +1,14 @@
+let filter = doc! { "status": "A", "qty": { "$gt": 10_i32 } };
+let projection = doc! { "name": 1_i32, "qty": 1_i32, "_id": 0_i32 };
+let sort = doc! { "qty": -1_i32, "name": 1_i32 };
+
+let mut cursor = collection
+    .find(filter)
+    .projection(projection)
+    .sort(sort)
+    .skip(20)
+    .limit(10)
+    .await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}

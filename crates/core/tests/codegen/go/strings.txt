@@ -1,0 +1,53 @@
+// Uses the v2 driver: go.mongodb.org/mongo-driver/v2
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+func main() {
+	client, err := mongo.Connect(options.Client().ApplyURI("<your connection string>"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := client.Disconnect(context.TODO()); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	db := client.Database("shop")
+	collection := db.Collection("orders")
+
+	pipeline := mongo.Pipeline{
+		bson.D{
+			{Key: "$match", Value: bson.D{
+				{Key: "double quote", Value: "say \"hi\""},
+				{Key: "single quote", Value: "it's"},
+				{Key: "backslash", Value: "C:\\temp\\new"},
+				{Key: "newline", Value: "line1\nline2"},
+				{Key: "tab", Value: "a\tb"},
+				{Key: "control", Value: "nul\u0000 bell\u0007 del\u007f ls\u2028"},
+				{Key: "unicode", Value: "café 😀 é"},
+				{Key: "sigils", Value: "$var ${expr} #{ruby} %s %d {0} {name} `tick` ${`x`}"},
+				{Key: "regexWithSlash", Value: bson.Regex{Pattern: "a/b\"c", Options: "ix"}},
+			}},
+		},
+	}
+
+	cursor, err := collection.Aggregate(context.TODO(), pipeline)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var results []bson.M
+	if err := cursor.All(context.TODO(), &results); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(results)
+}

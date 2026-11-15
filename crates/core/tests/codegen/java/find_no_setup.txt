@@ -1,0 +1,11 @@
+Document filter = new Document("status", "A").append("qty", new Document("$gt", 10));
+Document projection = new Document("name", 1).append("qty", 1).append("_id", 0);
+Document sort = new Document("qty", -1).append("name", 1);
+
+List<Document> results = collection.find(filter)
+    .projection(projection)
+    .sort(sort)
+    .skip(20)
+    .limit(10)
+    .into(new ArrayList<>());
+System.out.println(results);

@@ -1,0 +1,14 @@
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument {
+            { "regex", new BsonRegularExpression("a\u202eb\u200bc\udb40\udc01", "i") },
+            { "code", new BsonJavaScript("x\u202e + \ufeff1 // \u00ad") },
+            { "scoped", new BsonJavaScriptWithScope("y\u2066", new BsonDocument { { "k\u200b", "v\udb40\udc7f" } }) },
+            { "symbol", BsonSymbolTable.Lookup("s\u202ey\udb40\udc01m") },
+            { "dbPointer", new BsonDbPointer("sh\u202eop.or\u200bders", new ObjectId("65a1b2c3d4e5f60718293a4b")) },
+        } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

@@ -1,0 +1,25 @@
+from bson.regex import Regex
+from pymongo import MongoClient
+
+client = MongoClient("<your connection string>")
+db = client["shop"]
+collection = db["orders"]
+
+pipeline = [
+    {
+        "$match": {
+            "double quote": "say \"hi\"",
+            "single quote": "it's",
+            "backslash": "C:\\temp\\new",
+            "newline": "line1\nline2",
+            "tab": "a\tb",
+            "control": "nul\x00 bell\x07 del\x7f ls\u2028",
+            "unicode": "café 😀 é",
+            "sigils": "$var ${expr} #{ruby} %s %d {0} {name} `tick` ${`x`}",
+            "regexWithSlash": Regex("a/b\"c", "ix"),
+        },
+    },
+]
+
+results = list(collection.aggregate(pipeline))
+print(results)

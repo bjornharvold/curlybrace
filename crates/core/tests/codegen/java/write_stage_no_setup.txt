@@ -1,0 +1,7 @@
+List<Document> pipeline = Arrays.asList(
+    new Document("$match", new Document("status", "A")),
+    new Document("$out", new Document("db", "shop").append("coll", "archive"))
+);
+
+List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+System.out.println(results);

@@ -1,0 +1,11 @@
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument { { "status", "A" } } },
+    },
+    new BsonDocument {
+        { "$out", new BsonDocument { { "db", "shop" }, { "coll", "archive" } } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

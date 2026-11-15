@@ -1,0 +1,59 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+
+var client = new MongoClient("<your connection string>");
+var db = client.GetDatabase("shop");
+var collection = db.GetCollection<BsonDocument>("orders");
+
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument {
+            { "double", 1.5 },
+            { "wholeDouble", 1.0 },
+            { "nan", double.NaN },
+            { "posInf", double.PositiveInfinity },
+            { "negInf", double.NegativeInfinity },
+            { "string", "text" },
+            { "int32", 7 },
+            { "int64", 1099511627776L },
+            { "bool", true },
+            { "null", BsonNull.Value },
+            { "undefined", BsonUndefined.Value },
+            { "objectId", new ObjectId("65a1b2c3d4e5f60718293a4b") },
+            { "date", new BsonDateTime(1709210096789L) },
+            { "dateBefore1970", new BsonDateTime(-86400000L) },
+            { "dateYear10000", new BsonDateTime(253402300800000L) },
+            { "decimal", Decimal128.Parse("1.5E+3") },
+            { "binary", new BsonBinaryData(new byte[] { 0x00, 0x01, 0x02, 0xff }, BsonBinarySubType.Binary) },
+            { "uuid", new BsonBinaryData(new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f }, BsonBinarySubType.UuidStandard) },
+            { "userBinary", new BsonBinaryData(new byte[] { 0x09 }, (BsonBinarySubType)0x80) },
+            { "regex", new BsonRegularExpression("^a.*z$", "i") },
+            { "timestamp", new BsonTimestamp(1700000000, 3) },
+            { "minKey", BsonMinKey.Value },
+            { "maxKey", BsonMaxKey.Value },
+            { "code", new BsonJavaScript("function () { return 1; }") },
+            { "codeWithScope", new BsonJavaScriptWithScope("x + 1", new BsonDocument { { "x", 41 } }) },
+            { "symbol", BsonSymbolTable.Lookup("sym") },
+            { "dbPointer", new BsonDbPointer("shop.orders", new ObjectId("65a1b2c3d4e5f60718293a4b")) },
+            { "emptyDoc", new BsonDocument() },
+            { "emptyArray", new BsonArray() },
+            { "nested", new BsonDocument {
+                { "a", new BsonDocument {
+                    { "b", new BsonArray {
+                        1,
+                        new BsonArray { 2, new BsonArray { 3 } },
+                        new BsonDocument { { "c", "d" } },
+                    } },
+                } },
+            } },
+            { "needs quoting", 1 },
+            { "dotted.key", 2 },
+            { "$dollar", 3 },
+            { "__proto__", 4 },
+            { "", 5 },
+        } },
+    },
+};
+
+var results = collection.Aggregate<BsonDocument>(pipeline).ToList();
+results.ForEach(Console.WriteLine);

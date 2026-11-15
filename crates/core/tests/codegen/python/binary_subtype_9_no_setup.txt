@@ -1,0 +1,4 @@
+pipeline = [{"$match": {"nine": Binary(bytes.fromhex("010203"), 9)}}]
+
+results = list(collection.aggregate(pipeline))
+print(results)

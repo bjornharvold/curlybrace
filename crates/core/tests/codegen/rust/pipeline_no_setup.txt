@@ -1,0 +1,31 @@
+let pipeline = vec![
+    doc! {
+        "$match": { "status": { "$in": ["A", "B"] }, "total": { "$gte": 100_i32 } },
+    },
+    doc! {
+        "$lookup": {
+            "from": "customers",
+            "localField": "customerId",
+            "foreignField": "_id",
+            "as": "customer",
+        },
+    },
+    doc! {
+        "$group": {
+            "_id": "$customer.region",
+            "revenue": { "$sum": "$total" },
+            "orders": { "$count": {} },
+        },
+    },
+    doc! {
+        "$facet": {
+            "top": [{ "$sort": { "revenue": -1_i32 } }, { "$limit": 5_i32 }],
+            "all": [{ "$count": "n" }],
+        },
+    },
+];
+
+let mut cursor = collection.aggregate(pipeline).await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}

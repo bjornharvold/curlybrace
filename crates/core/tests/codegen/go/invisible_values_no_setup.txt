@@ -1,0 +1,21 @@
+pipeline := mongo.Pipeline{
+	bson.D{
+		{Key: "$match", Value: bson.D{
+			{Key: "regex", Value: bson.Regex{Pattern: "a\u202eb\u200bc\U000e0001", Options: "i"}},
+			{Key: "code", Value: bson.JavaScript("x\u202e + \ufeff1 // \u00ad")},
+			{Key: "scoped", Value: bson.CodeWithScope{Code: "y\u2066", Scope: bson.D{{Key: "k\u200b", Value: "v\U000e007f"}}}},
+			{Key: "symbol", Value: bson.Symbol("s\u202ey\U000e0001m")},
+			{Key: "dbPointer", Value: bson.DBPointer{DB: "sh\u202eop.or\u200bders", Pointer: bson.ObjectID{0x65, 0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x07, 0x18, 0x29, 0x3a, 0x4b}}},
+		}},
+	},
+}
+
+cursor, err := collection.Aggregate(context.TODO(), pipeline)
+if err != nil {
+	log.Fatal(err)
+}
+var results []bson.M
+if err := cursor.All(context.TODO(), &results); err != nil {
+	log.Fatal(err)
+}
+fmt.Println(results)
