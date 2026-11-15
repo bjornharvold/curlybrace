@@ -126,3 +126,29 @@ fn debug_names_the_shape_and_never_the_document() {
     assert!(!text.contains("hunter2"), "{text}");
     assert!(!text.contains("private_field"), "{text}");
 }
+
+#[test]
+fn a_loading_state_prints_its_shape_never_the_pipeline() {
+    let sentinel = "SENTINEL_9f3a";
+    let secret = vec![doc! { "$match": { "email": sentinel } }];
+    let (loading, request, _) = ExplainUi::default().begun(secret);
+    let shown = format!("{loading:?}");
+    assert!(!shown.contains(sentinel), "{shown}");
+    assert!(shown.contains("Loading"), "{shown}");
+    let mut document = collscan();
+    document.insert("note", sentinel);
+    let done = loading.arrived(request, Ok(explained(document)));
+    let shown = format!("{done:?}");
+    assert!(!shown.contains(sentinel), "{shown}");
+    assert!(shown.contains("Done"), "{shown}");
+}
+
+#[test]
+fn a_failure_prints_its_kind_not_its_detail() {
+    let (ui, request) = loading();
+    let error = CoreError::InvalidDocument("SENTINEL_9f3a".into());
+    let failed = ui.arrived(request, Err(error));
+    let shown = format!("{failed:?}");
+    assert!(!shown.contains("SENTINEL_9f3a"), "{shown}");
+    assert!(shown.contains("Failed"), "{shown}");
+}

@@ -45,7 +45,7 @@ impl fmt::Debug for ExplainDone {
 }
 
 /// The explain request's progress.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub enum ExplainState {
     #[default]
     Idle,
@@ -59,6 +59,31 @@ pub enum ExplainState {
     Failed {
         reason: CoreError,
     },
+}
+
+/// Prints the variant and counts only: the pipeline under `Loading` holds the person's `$match`
+/// values, and a failure's detail text may name data.
+impl fmt::Debug for ExplainState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Idle => f.write_str("Idle"),
+            Self::Loading {
+                request,
+                verbosity,
+                for_draft,
+            } => f
+                .debug_struct("Loading")
+                .field("request", request)
+                .field("verbosity", verbosity)
+                .field("stages", &for_draft.len())
+                .finish(),
+            Self::Done(done) => f.debug_tuple("Done").field(done).finish(),
+            Self::Failed { reason } => f
+                .debug_struct("Failed")
+                .field("reason", &reason.i18n_key())
+                .finish(),
+        }
+    }
 }
 
 /// One session's explain: the state, the verbosity the next run uses and the tab in view.
@@ -109,27 +134,25 @@ impl ExplainUi {
     /// The answer to `request`. Only the one awaited counts; any other (older, or after a reset)
     /// changes nothing. A failure is kept in the pane, never raised as a banner.
     pub fn arrived(self, request: u64, outcome: Result<Explain, CoreError>) -> Self {
-        let ExplainState::Loading {
-            request: awaited,
-            verbosity,
-            for_draft,
-        } = &self.state
-        else {
-            return self;
-        };
-        if *awaited != request {
-            return self;
+        match self.state {
+            ExplainState::Loading {
+                request: awaited,
+                verbosity,
+                for_draft,
+            } if awaited == request => {
+                let state = match outcome {
+                    Ok(explain) => ExplainState::Done(Box::new(ExplainDone {
+                        plan: parse_aggregate_explain(&explain.document),
+                        raw: explain.document,
+                        verbosity,
+                        for_draft,
+                    })),
+                    Err(reason) => ExplainState::Failed { reason },
+                };
+                Self { state, ..self }
+            }
+            state => Self { state, ..self },
         }
-        let state = match outcome {
-            Ok(explain) => ExplainState::Done(Box::new(ExplainDone {
-                plan: parse_aggregate_explain(&explain.document),
-                raw: explain.document,
-                verbosity: *verbosity,
-                for_draft: for_draft.clone(),
-            })),
-            Err(reason) => ExplainState::Failed { reason },
-        };
-        Self { state, ..self }
     }
 
     /// The request that was awaited gave up without an answer (its connection was replaced):
