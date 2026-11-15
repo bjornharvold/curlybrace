@@ -1,0 +1,74 @@
+{
+  "queryPlanner": {
+    "mongosPlannerVersion": 1,
+    "winningPlan": {
+      "stage": "SHARD_MERGE",
+      "shards": [
+        {
+          "shardName": "shardA",
+          "connectionString": "shardA/a1.example.net:27018",
+          "serverInfo": { "host": "a1.example.net", "port": 27018, "version": "7.0.12" },
+          "namespace": "shop.orders",
+          "indexFilterSet": false,
+          "parsedQuery": { "status": { "$eq": "open" } },
+          "winningPlan": {
+            "stage": "SHARDING_FILTER",
+            "inputStage": {
+              "stage": "FETCH",
+              "inputStage": {
+                "stage": "IXSCAN",
+                "indexName": "status_1",
+                "keyPattern": { "status": 1 }
+              }
+            }
+          },
+          "rejectedPlans": []
+        },
+        {
+          "shardName": "shardB",
+          "connectionString": "shardB/b1.example.net:27018",
+          "namespace": "shop.orders",
+          "indexFilterSet": false,
+          "parsedQuery": { "status": { "$eq": "open" } },
+          "winningPlan": {
+            "stage": "SHARDING_FILTER",
+            "inputStage": { "stage": "COLLSCAN", "direction": "forward" }
+          },
+          "rejectedPlans": []
+        }
+      ]
+    }
+  },
+  "executionStats": {
+    "nReturned": 900,
+    "executionTimeMillis": 25,
+    "totalKeysExamined": 700,
+    "totalDocsExamined": 40700,
+    "executionStages": {
+      "stage": "SHARD_MERGE",
+      "nReturned": 900,
+      "executionTimeMillis": 25,
+      "shards": [
+        {
+          "shardName": "shardA",
+          "executionSuccess": true,
+          "nReturned": 400,
+          "executionTimeMillis": 7,
+          "totalKeysExamined": 700,
+          "totalDocsExamined": 700,
+          "executionStages": { "stage": "SHARDING_FILTER", "nReturned": 400 }
+        },
+        {
+          "shardName": "shardB",
+          "executionSuccess": true,
+          "nReturned": 500,
+          "executionTimeMillis": 25,
+          "totalKeysExamined": 0,
+          "totalDocsExamined": 40000,
+          "executionStages": { "stage": "SHARDING_FILTER", "nReturned": 500 }
+        }
+      ]
+    }
+  },
+  "ok": 1
+}

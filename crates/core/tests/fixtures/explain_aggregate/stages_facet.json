@@ -1,0 +1,31 @@
+{
+  "explainVersion": "1",
+  "stages": [
+    {
+      "$cursor": {
+        "queryPlanner": {
+          "namespace": "shop.orders",
+          "winningPlan": { "stage": "COLLSCAN", "direction": "forward" },
+          "rejectedPlans": []
+        }
+      }
+    },
+    {
+      "$facet": [
+        {
+          "tag": "byStatus",
+          "inputPipeline": [
+            { "$group": { "_id": "$status", "n": { "$sum": 1 } } }
+          ]
+        },
+        {
+          "tag": "recent",
+          "inputPipeline": [
+            { "$sort": { "sortKey": { "created": -1 }, "limit": 5 } }
+          ]
+        }
+      ]
+    }
+  ],
+  "ok": 1
+}

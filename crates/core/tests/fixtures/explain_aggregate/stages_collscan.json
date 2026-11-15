@@ -1,0 +1,46 @@
+{
+  "explainVersion": "1",
+  "stages": [
+    {
+      "$cursor": {
+        "queryPlanner": {
+          "namespace": "shop.orders",
+          "indexFilterSet": false,
+          "parsedQuery": { "status": { "$eq": "open" } },
+          "queryHash": "6A1C2D0B",
+          "planCacheKey": "F3E1A9C4",
+          "maxIndexedOrSolutionsReached": false,
+          "maxIndexedAndSolutionsReached": false,
+          "maxScansToExplodeReached": false,
+          "winningPlan": {
+            "stage": "COLLSCAN",
+            "filter": { "status": { "$eq": "open" } },
+            "direction": "forward"
+          },
+          "rejectedPlans": []
+        }
+      }
+    },
+    {
+      "$group": {
+        "_id": "$customer",
+        "total": { "$sum": "$amount" },
+        "orders": { "$sum": 1 }
+      }
+    },
+    { "$sort": { "sortKey": { "total": -1 } } }
+  ],
+  "serverInfo": { "host": "db1", "port": 27017, "version": "6.0.14" },
+  "serverParameters": { "internalQueryFacetBufferSizeBytes": 104857600 },
+  "command": {
+    "aggregate": "orders",
+    "pipeline": [
+      { "$match": { "status": "open" } },
+      { "$group": { "_id": "$customer", "total": { "$sum": "$amount" }, "orders": { "$sum": 1 } } },
+      { "$sort": { "total": -1 } }
+    ],
+    "cursor": {},
+    "$db": "shop"
+  },
+  "ok": 1
+}

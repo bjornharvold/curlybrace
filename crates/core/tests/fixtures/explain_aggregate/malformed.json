@@ -1,0 +1,9 @@
+{
+  "stages": [
+    { "$cursor": { "queryPlanner": { "namespace": "shop.orders", "winningPlan": "COLLSCAN" } } },
+    "not a stage",
+    { "nReturned": 3 },
+    { "$limit": { "weird": true }, "nReturned": "many", "executionTimeMillisEstimate": -4 }
+  ],
+  "ok": 1
+}

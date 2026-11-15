@@ -23,7 +23,7 @@ pub(crate) fn count(doc: Option<&Document>, key: &str) -> u64 {
 }
 
 /// Every stage in the plan tree (pre-order), with the first index name found.
-fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<String>) {
+pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<String>) {
     if let Ok(stage) = node.get_str("stage") {
         stages.push(stage);
         if index.is_none() {
@@ -59,7 +59,7 @@ fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<St
 
 /// Stages that read documents or index entries. A plan with none of them says nothing about
 /// whether an index served the query, so it is not judged.
-const ACCESS_STAGES: [&str; 15] = [
+pub(crate) const ACCESS_STAGES: [&str; 15] = [
     "COLLSCAN",
     "IXSCAN",
     "IDHACK",

@@ -1,0 +1,31 @@
+{
+  "explainVersion": "1",
+  "stages": [
+    {
+      "$cursor": {
+        "queryPlanner": {
+          "namespace": "shop.orders",
+          "indexFilterSet": false,
+          "parsedQuery": { "customer": { "$eq": "c-17" } },
+          "winningPlan": {
+            "stage": "FETCH",
+            "inputStage": {
+              "stage": "IXSCAN",
+              "keyPattern": { "customer": 1, "created": -1 },
+              "indexName": "customer_1_created_-1",
+              "isMultiKey": false,
+              "direction": "forward",
+              "indexBounds": {
+                "customer": ["[\"c-17\", \"c-17\"]"],
+                "created": ["[MaxKey, MinKey]"]
+              }
+            }
+          },
+          "rejectedPlans": []
+        }
+      }
+    },
+    { "$project": { "_id": 0, "customer": 1, "amount": 1 } }
+  ],
+  "ok": 1
+}

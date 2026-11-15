@@ -1,0 +1,32 @@
+{
+  "explainVersion": "1",
+  "stages": [
+    {
+      "$cursor": {
+        "queryPlanner": {
+          "namespace": "shop.events",
+          "winningPlan": { "stage": "COLLSCAN", "direction": "forward" },
+          "rejectedPlans": []
+        },
+        "executionStats": {
+          "executionSuccess": true,
+          "nReturned": 500000,
+          "executionTimeMillis": 1500,
+          "totalKeysExamined": 0,
+          "totalDocsExamined": 500000
+        }
+      },
+      "nReturned": 500000,
+      "executionTimeMillisEstimate": 1200
+    },
+    {
+      "$sort": { "sortKey": { "ts": 1 } },
+      "totalDataSizeSortedBytesEstimate": 150000000,
+      "usedDisk": true,
+      "spills": 3,
+      "nReturned": 500000,
+      "executionTimeMillisEstimate": 4100
+    }
+  ],
+  "ok": 1
+}

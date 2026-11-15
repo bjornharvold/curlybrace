@@ -1,0 +1,54 @@
+{
+  "explainVersion": "1",
+  "stages": [
+    {
+      "$cursor": {
+        "queryPlanner": {
+          "namespace": "shop.orders",
+          "winningPlan": { "stage": "COLLSCAN", "direction": "forward" },
+          "rejectedPlans": []
+        },
+        "executionStats": {
+          "executionSuccess": true,
+          "nReturned": 20,
+          "executionTimeMillis": 1,
+          "totalKeysExamined": 0,
+          "totalDocsExamined": 20
+        }
+      },
+      "nReturned": 20,
+      "executionTimeMillisEstimate": 0
+    },
+    {
+      "$lookup": {
+        "from": "customers",
+        "as": "customer",
+        "localField": "customerId",
+        "foreignField": "_id"
+      },
+      "totalDocsExamined": 20,
+      "totalKeysExamined": 20,
+      "collectionScans": 0,
+      "indexesUsed": ["_id_"],
+      "nReturned": 20,
+      "executionTimeMillisEstimate": 3
+    },
+    {
+      "$lookup": {
+        "from": "shipments",
+        "as": "shipments",
+        "localField": "_id",
+        "foreignField": "orderId"
+      },
+      "totalDocsExamined": 4000,
+      "totalKeysExamined": 0,
+      "collectionScans": 20,
+      "indexesUsed": [],
+      "nReturned": 20,
+      "executionTimeMillisEstimate": 40
+    },
+    { "$unwind": { "path": "$shipments" }, "nReturned": 31, "executionTimeMillisEstimate": 41 },
+    { "$limit": 10, "nReturned": 10, "executionTimeMillisEstimate": 41 }
+  ],
+  "ok": 1
+}
