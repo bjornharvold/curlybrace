@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::pipeline_shape::{Ending, check_parsed};
 
+pub use crate::pipeline_count::{COUNT_CAP, count_of, count_pipeline};
 pub use crate::pipeline_run::{
     AGGREGATE_RUN_MAX_TIME_MS, RunPlan, RunTarget, ensure_run_shape, run_pipeline, run_target,
 };
@@ -207,7 +208,7 @@ pub fn explain_pipeline(stages: &[Stage], upto: usize) -> Result<Vec<Document>, 
 
 /// The enabled stages `0..=upto` as documents, and the name of a trailing write stage that was
 /// dropped. Shared by the preview and the explain so both apply one rule.
-fn read_stages(
+pub(crate) fn read_stages(
     stages: &[Stage],
     upto: usize,
 ) -> Result<(Vec<Document>, Vec<String>), PipelineError> {

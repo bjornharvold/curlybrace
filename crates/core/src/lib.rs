@@ -39,6 +39,7 @@ pub mod mongo_store;
 mod mongo_write;
 mod mongo_write_fields;
 pub mod pipeline;
+mod pipeline_count;
 mod pipeline_run;
 mod pipeline_shape;
 pub mod profile;
