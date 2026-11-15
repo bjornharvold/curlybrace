@@ -109,6 +109,9 @@ pub struct AggPlan {
 /// What reading an explain document came to. An unknown shape is not an error: the Raw view
 /// still shows the document.
 #[derive(Clone, Debug, PartialEq)]
+// One outcome is held per explain, never in a collection: the size gap costs nothing, and an
+// unboxed `Plan(AggPlan)` keeps matching on it plain.
+#[allow(clippy::large_enum_variant)]
 pub enum AggPlanOutcome {
     Plan(AggPlan),
     NotUnderstood,
