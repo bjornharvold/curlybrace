@@ -2,7 +2,7 @@
 //! status), then the stage cards or the pipeline text, then the preview of the selected stage.
 //! Draws the draft it is given and returns what the person did; the reducer decides what happens.
 //! Typing in a stage is held in the view until it pauses, so a preview does not run per keystroke.
-use super::aggregate_preview::show_preview;
+use super::aggregate_explain::{explain_blocked, show_explain_button, show_results};
 use super::aggregate_run::{RunContext, show_run_button, show_run_dialog, show_run_status};
 use super::aggregate_saved::show_saved_toolbar;
 use super::aggregate_saved_dialogs::show_saved_dialog;
@@ -10,7 +10,7 @@ use super::aggregate_stage::show_stages;
 use super::aggregate_text::show_text;
 use super::code_export_entry::{aggregate_blocked, show_copy_code_button};
 use crate::I18n;
-use crate::app::{AggregateAction, CodeAction, CodeSource};
+use crate::app::{AggregateAction, CodeAction, CodeSource, ExplainAction};
 use crate::theme::{CONTROL_HEIGHT, Tone, chip, gate, segmented, tonal_button};
 use crate::viewmodel::aggregate::{AggregateState, Mode, PreviewState, STAGE_MENU};
 use crate::viewmodel::aggregate_view::{AggregateView, pipeline_error_message};
@@ -48,7 +48,8 @@ pub fn show_aggregate(
         Mode::Text => show_text(ui, draft, max_height, i18n),
     };
     ui.separator();
-    show_preview(ui, draft, view, i18n);
+    let typed = view.typed_stages(draft);
+    let results = show_results(ui, draft, view, &typed, i18n);
     // The dialogs are part of the tab's frame, so a typed stage edit that is still waiting is
     // applied before whatever they send (Save must save what was typed).
     let dialog = show_saved_dialog(ui.ctx(), draft, saved, i18n);
@@ -58,6 +59,7 @@ pub fn show_aggregate(
         .chain(edited)
         .chain(dialog)
         .chain(run_dialog)
+        .chain(results)
         .collect();
     let actions = with_due_edit(ui, view, actions);
     with_auto_refresh(draft, view, actions)
@@ -134,6 +136,8 @@ fn show_header(
         let saved_actions = show_saved_toolbar(ui, draft, saved, i18n);
         let blocked = aggregate_blocked(draft, &typed, view, i18n);
         let code = show_copy_code_button(ui, blocked.as_deref(), i18n);
+        let explain_blocked = explain_blocked(draft, &typed, view, i18n);
+        let explain = show_explain_button(ui, explain_blocked.as_deref(), i18n);
         let run_clicked = show_run_button(ui, &run.availability, i18n);
         let (tone, key) = status_chip(&draft.preview);
         chip(ui, tone, &i18n.t(key));
@@ -144,6 +148,7 @@ fn show_header(
             code.then_some(AggregateAction::Code(CodeAction::Open(
                 CodeSource::Aggregate,
             ))),
+            explain.then_some(AggregateAction::Explain(ExplainAction::Run)),
         ]
         .into_iter()
         .flatten()
