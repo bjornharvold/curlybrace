@@ -21,7 +21,7 @@ use crate::store::{Explain, Namespace};
 pub(crate) fn ensure_read_only(pipeline: &[Document]) -> Result<()> {
     match contains_write_stage(pipeline) {
         Some(stage) => Err(CoreError::InvalidDocument(format!(
-            "a preview cannot run the write stage {stage}"
+            "a read-only operation cannot run the write stage {stage}"
         ))),
         None => Ok(()),
     }
@@ -71,6 +71,8 @@ pub(crate) fn aggregate_explain_command(
             "aggregate": ns.collection.clone(),
             "pipeline": pipeline,
             "cursor": {},
+            // Like the preview: an executionStats run must not spill to disk.
+            "allowDiskUse": false,
         },
         "verbosity": verbosity.as_command_str(),
         "maxTimeMS": max_time_ms,
@@ -152,6 +154,10 @@ mod tests {
                 Err(CoreError::InvalidDocument(m)) => {
                     assert!(m.contains("$out") || m.contains("$merge"));
                     assert!(!m.contains("secret_target"));
+                    assert!(
+                        !m.contains("preview"),
+                        "the preview and the explain share it"
+                    );
                 }
                 other => panic!("expected a refusal, got {other:?}"),
             }
@@ -174,7 +180,12 @@ mod tests {
         assert_eq!(
             planned,
             doc! {
-                "explain": { "aggregate": "orders", "pipeline": pipeline.clone(), "cursor": {} },
+                "explain": {
+                    "aggregate": "orders",
+                    "pipeline": pipeline.clone(),
+                    "cursor": {},
+                    "allowDiskUse": false,
+                },
                 "verbosity": "queryPlanner",
                 "maxTimeMS": 10_000_i64,
             }
