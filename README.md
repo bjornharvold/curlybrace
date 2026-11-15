@@ -302,6 +302,14 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   connections. The button is off, with the reason, in the same cases as Preview and Copy as code
   and while an explain is running. A plan stays shown after you edit the pipeline, marked
   **Out of date**.
+- **Count stages** shows, on every stage card, how many documents that stage lets through: "N
+  documents", or "at least 100000 documents" when the count hit the cap. It runs only when you
+  click, one stage after another (never in parallel), each count a read bounded by a time limit
+  and the cap, so it works on read-only connections. A stage that fails or times out says so on
+  its card and the next one goes on; a stage that does not parse, or a `$out` / `$merge` stage and
+  the stages after it, is marked not counted and nothing that writes is ever sent. **Cancel
+  counting** stops after the count in progress. Editing the pipeline stops the counting and marks
+  the numbers **out of date**.
 - Not yet: undo of a run, and options such as collation, hint and `allowDiskUse`. The draft that is not saved is kept per open connection while the app runs.
 
 ## Roadmap
@@ -342,8 +350,7 @@ contribute.
 
 - **Aggregation builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): built: stage list and text mode, a
   read-only, time-bounded preview of the selected stage, and saved pipelines (save, open, rename
-  and delete per connection), a confirmed `$out` / `$merge` run, and Copy as code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)) and explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)). Later slices: per-stage
-  counts; options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
+  and delete per connection), a confirmed `$out` / `$merge` run, and Copy as code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)), explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) and per-stage counts. Later slices: options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
 
 ### In progress
 
