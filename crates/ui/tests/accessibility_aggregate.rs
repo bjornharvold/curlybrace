@@ -205,7 +205,7 @@ fn tab_walks_the_header_then_the_first_stage() {
         .focus();
     harness.run_steps(2);
     let mut order = vec![focused(&harness)];
-    for _ in 0..11 {
+    for _ in 0..12 {
         harness.key_press(egui::Key::Tab);
         harness.run_steps(2);
         order.push(focused(&harness));
@@ -218,6 +218,7 @@ fn tab_walks_the_header_then_the_first_stage() {
         t("aggregate.saved.save"),
         t("codegen.button"),
         t("aggregate.explain.button"),
+        t("aggregate.counts.button"),
         tn("aggregate.stage.enable_n", 1),
         tn("aggregate.stage.select_n", 1),
         tn("aggregate.stage.move_down_n", 1),

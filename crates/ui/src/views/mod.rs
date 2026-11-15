@@ -2,6 +2,7 @@
 pub mod admin_dialogs;
 pub mod aggregate;
 mod aggregate_complete;
+mod aggregate_counts;
 mod aggregate_explain;
 mod aggregate_plan;
 mod aggregate_preview;
