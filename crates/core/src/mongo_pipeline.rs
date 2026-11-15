@@ -71,8 +71,6 @@ pub(crate) fn aggregate_explain_command(
             "aggregate": ns.collection.clone(),
             "pipeline": pipeline,
             "cursor": {},
-            // Like the preview: an executionStats run must not spill to disk.
-            "allowDiskUse": false,
         },
         "verbosity": verbosity.as_command_str(),
         "maxTimeMS": max_time_ms,
@@ -184,7 +182,6 @@ mod tests {
                     "aggregate": "orders",
                     "pipeline": pipeline.clone(),
                     "cursor": {},
-                    "allowDiskUse": false,
                 },
                 "verbosity": "queryPlanner",
                 "maxTimeMS": 10_000_i64,
@@ -199,6 +196,14 @@ mod tests {
         assert_eq!(stats.get_str("verbosity"), Ok("executionStats"));
         assert_eq!(stats.get_i64("maxTimeMS"), Ok(1_500));
         assert!(!stats.contains_key("allPlansExecution"));
+        // The server default decides disk use: forbidding it would fail a run that spills.
+        assert!(!stats.contains_key("allowDiskUse"));
+        assert!(
+            !stats
+                .get_document("explain")
+                .is_ok_and(|e| e.contains_key("allowDiskUse"))
+        );
+        assert!(!format!("{stats:?}").contains("$out") && !format!("{stats:?}").contains("$merge"));
     }
 
     #[test]
