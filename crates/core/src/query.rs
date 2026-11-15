@@ -58,9 +58,10 @@ pub fn parse_query(t: &QueryText) -> Result<Query> {
 /// empty or `0` limit means no limit (`0` is how [`Query`] says it), any other number is kept.
 /// The same text fails here exactly when [`parse_query`] fails.
 pub fn parse_export_query(t: &QueryText) -> Result<Query> {
+    let base = parse_query(t)?;
     Ok(Query {
         limit: parse_u64("limit", &t.limit)?.unwrap_or(0),
-        ..parse_query(t)?
+        ..base
     })
 }
 
@@ -190,6 +191,19 @@ mod tests {
         };
         assert!(parse_export_query(&skip).is_err());
         assert!(parse_export_query(&with_filter("[1]")).is_err());
+    }
+
+    #[test]
+    fn an_exported_query_reports_the_first_error_the_find_button_reports() {
+        let text = QueryText {
+            filter: "{".into(),
+            limit: "x".into(),
+            ..Default::default()
+        };
+        let find = parse_query(&text).unwrap_err().to_string();
+        let export = parse_export_query(&text).unwrap_err().to_string();
+        assert_eq!(export, find);
+        assert!(!export.contains("limit"), "{export}");
     }
 
     #[test]
