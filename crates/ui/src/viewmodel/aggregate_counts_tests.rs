@@ -145,7 +145,10 @@ fn results_are_out_of_date_once_the_stages_differ_from_the_counted_ones() {
     let edited = d.clone().edit(0, "{ \"$match\": { \"a\": 1 } }");
     assert!(ui.is_out_of_date(&edited.stages));
     assert!(ui.is_out_of_date(&d.clone().toggle(2).stages));
-    assert!(!CountsUi::default().is_out_of_date(&d.stages), "nothing counted");
+    assert!(
+        !CountsUi::default().is_out_of_date(&d.stages),
+        "nothing counted"
+    );
     let _ = first;
 }
 
@@ -174,5 +177,8 @@ fn the_debug_text_names_no_pipeline_and_no_number() {
     let (ui, first) = started(&d);
     let (ui, _) = ui.answered(first.request, 0, Ok(123_456));
     let text = format!("{ui:?}");
-    assert!(!text.contains("123456") && !text.contains("$match"), "{text}");
+    assert!(
+        !text.contains("123456") && !text.contains("$match"),
+        "{text}"
+    );
 }

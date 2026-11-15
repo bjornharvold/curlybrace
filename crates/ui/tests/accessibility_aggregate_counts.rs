@@ -87,7 +87,11 @@ fn every_card_shows_its_count_at_both_sizes() {
         let at_least = I18n::english().t_with("aggregate.counts.at_least", &[("n", "100000")]);
         page.harness.get_by_label(&at_least);
         let four = I18n::english().t_with("aggregate.counts.many", &[("n", "4")]);
-        assert_eq!(page.harness.query_all_by_label(&four).count(), 2, "{size:?}");
+        assert_eq!(
+            page.harness.query_all_by_label(&four).count(),
+            2,
+            "{size:?}"
+        );
     }
 }
 

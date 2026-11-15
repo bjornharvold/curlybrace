@@ -152,7 +152,12 @@ impl CountsUi {
     /// A sequence for `plan` over `stages` (with their identities `keys`) starts: the old
     /// results are dropped, the stages that cannot be counted say so at once, and the first
     /// count is sent. A sequence that is running is not restarted.
-    pub fn begun(self, plan: CountPlan, stages: &[Stage], keys: &[u64]) -> (Self, Option<CountSend>) {
+    pub fn begun(
+        self,
+        plan: CountPlan,
+        stages: &[Stage],
+        keys: &[u64],
+    ) -> (Self, Option<CountSend>) {
         if self.is_running() {
             return (self, None);
         }
@@ -278,7 +283,10 @@ impl CountsUi {
         let Run::Running(r) = &self.run else {
             return None;
         };
-        match (r.index == index, r.queue.iter().skip(r.next).any(|q| q.index == index)) {
+        match (
+            r.index == index,
+            r.queue.iter().skip(r.next).any(|q| q.index == index),
+        ) {
             (true, _) => Some(Progress::Counting),
             (false, true) => Some(Progress::Waiting),
             (false, false) => None,

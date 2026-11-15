@@ -1,7 +1,7 @@
 //! Applies the actions of one frame of the Aggregate tab as one: the changes apply in order and at
 //! most one preview goes out for all of them.
-use super::aggregate_actions::{flushed, on_action, with_draft};
 use super::aggregate_actions::AggregateAction;
+use super::aggregate_actions::{flushed, on_action, with_draft};
 use super::reducer::Out;
 use super::state::AppState;
 use curlybrace_core::runtime::Command;

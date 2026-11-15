@@ -140,8 +140,12 @@ fn show_header(
         let explain_blocked = explain_blocked(draft, &typed, view, i18n);
         let explain = show_explain_button(ui, explain_blocked.as_deref(), i18n);
         let counts_blocked = counts_blocked(draft, &typed, view, i18n);
-        let counts =
-            show_counts_button(ui, draft.counts.is_running(), counts_blocked.as_deref(), i18n);
+        let counts = show_counts_button(
+            ui,
+            draft.counts.is_running(),
+            counts_blocked.as_deref(),
+            i18n,
+        );
         let run_clicked = show_run_button(ui, &run.availability, i18n);
         let (tone, key) = status_chip(&draft.preview);
         chip(ui, tone, &i18n.t(key));

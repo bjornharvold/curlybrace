@@ -27,8 +27,14 @@ pub enum NotCounted {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PlanItem {
     /// Count it with this pipeline (the stages up to it, `$limit`, `$count`).
-    Send { index: usize, pipeline: Vec<Document> },
-    Skip { index: usize, reason: NotCounted },
+    Send {
+        index: usize,
+        pipeline: Vec<Document>,
+    },
+    Skip {
+        index: usize,
+        reason: NotCounted,
+    },
 }
 
 /// What the plan is for: the enabled stages, in order.
@@ -71,13 +77,15 @@ pub fn count_plan(draft: &AggregateState, stages: &[Stage]) -> CountPlanOutcome 
         .iter()
         .enumerate()
         .filter(|(_, s)| s.enabled)
-        .map(|(index, _)| match count_pipeline(stages, index, COUNT_CAP) {
-            Ok(pipeline) => PlanItem::Send { index, pipeline },
-            Err(error) => PlanItem::Skip {
-                index,
-                reason: reason_of(&error, index),
+        .map(
+            |(index, _)| match count_pipeline(stages, index, COUNT_CAP) {
+                Ok(pipeline) => PlanItem::Send { index, pipeline },
+                Err(error) => PlanItem::Skip {
+                    index,
+                    reason: reason_of(&error, index),
+                },
             },
-        })
+        )
         .collect();
     match items.iter().any(|i| matches!(i, PlanItem::Send { .. })) {
         true => Ok(CountPlan { items }),

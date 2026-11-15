@@ -127,7 +127,9 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::Explain(explain) => {
             super::aggregate_explain_actions::on_action(state, explain)
         }
-        AggregateAction::Counts(counts) => super::aggregate_counts_actions::on_action(state, counts),
+        AggregateAction::Counts(counts) => {
+            super::aggregate_counts_actions::on_action(state, counts)
+        }
         AggregateAction::AddStage(name) => changed(state, draft.add_stage(&name)),
         AggregateAction::Remove(i) => changed(state, draft.remove(i)),
         AggregateAction::MoveUp(i) => changed(state, draft.move_up(i)),

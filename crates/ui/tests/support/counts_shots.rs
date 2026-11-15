@@ -68,11 +68,10 @@ pub fn two_counted_stages_draft() -> AggregateState {
 
 /// The Aggregate tab of a connected browser on `crm.customers` showing `draft`.
 pub fn tab_of(draft: AggregateState) -> impl Fn(&mut AppState) {
-    let draft = std::sync::Arc::new(draft);
     move |state| {
         browsing(ViewMode::Tree)(state);
         state.tab = CollectionTab::Aggregate;
-        state.aggregate = Box::new((*draft).clone());
+        state.aggregate = Box::new(draft.clone());
     }
 }
 

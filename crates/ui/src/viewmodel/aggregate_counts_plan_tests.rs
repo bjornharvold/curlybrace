@@ -97,10 +97,7 @@ fn nothing_enabled_or_nothing_countable_blocks_with_a_reason() {
         Err(CountsBlock::Pipeline(PipelineError::Empty))
     );
     let off = draft().toggle(0).toggle(1).toggle(2);
-    assert_eq!(
-        plan(&off),
-        Err(CountsBlock::Pipeline(PipelineError::Empty))
-    );
+    assert_eq!(plan(&off), Err(CountsBlock::Pipeline(PipelineError::Empty)));
     let broken = AggregateState::default()
         .add_stage("$match")
         .edit(0, "{ not json");

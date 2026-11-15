@@ -415,8 +415,8 @@ fn switching_to_another_session_ends_the_sequence() {
 fn an_answer_for_a_parked_session_lands_in_its_own_draft() {
     let (a, b) = (Uuid::from_u128(1), Uuid::from_u128(2));
     let draft = AggregateState::default().add_stage("$sort");
-    let plan = crate::viewmodel::aggregate_counts_plan::count_plan(&draft, &draft.stages)
-        .expect("a plan");
+    let plan =
+        crate::viewmodel::aggregate_counts_plan::count_plan(&draft, &draft.stages).expect("a plan");
     let (ui, send) = draft.counts.clone().begun(plan, &draft.stages, &draft.keys);
     let request = send.expect("sent").request;
     let mut draft_b = draft;
