@@ -17,7 +17,7 @@ fn collscan() -> Document {
     .expect("fixture parses")
 }
 
-fn pipeline() -> Fingerprint {
+fn pipeline() -> Vec<Document> {
     vec![doc! { "$match": { "status": "open" } }]
 }
 
@@ -45,9 +45,9 @@ fn the_awaited_answer_is_parsed_and_keeps_the_raw_document() {
     let (ui, request) = loading();
     let done = ui.arrived(request, Ok(explained(collscan())));
     let shown = done.done().expect("done");
-    assert!(matches!(shown.plan, AggPlanOutcome::Plan(_)));
-    assert_eq!(shown.raw, collscan());
-    assert_eq!(shown.for_draft, pipeline());
+    assert!(matches!(*shown.plan, AggPlanOutcome::Plan(_)));
+    assert_eq!(*shown.raw, collscan());
+    assert_eq!(&*shown.for_draft, pipeline().as_slice());
     assert_eq!(shown.verbosity, ExplainVerbosity::QueryPlanner);
 }
 
@@ -57,8 +57,8 @@ fn a_document_that_is_not_a_plan_is_not_understood_but_still_raw() {
     let bad = doc! { "ok": 0, "errmsg": "no" };
     let done = ui.arrived(request, Ok(explained(bad.clone())));
     let shown = done.done().expect("done");
-    assert_eq!(shown.plan, AggPlanOutcome::NotUnderstood);
-    assert_eq!(shown.raw, bad);
+    assert_eq!(*shown.plan, AggPlanOutcome::NotUnderstood);
+    assert_eq!(*shown.raw, bad);
 }
 
 #[test]
@@ -115,6 +115,35 @@ fn a_plan_is_out_of_date_once_the_pipeline_it_was_asked_for_differs() {
     let edited = vec![doc! { "$match": { "status": "closed" } }];
     assert!(done.is_out_of_date(Some(&edited)));
     assert!(done.is_out_of_date(None), "the draft no longer explains");
+}
+
+#[test]
+fn a_plan_is_out_of_date_once_the_measure_setting_differs_from_the_one_it_was_made_with() {
+    let (ui, request) = loading();
+    let done = ui.arrived(request, Ok(explained(collscan())));
+    let same = pipeline();
+    assert!(!done.is_out_of_date(Some(&same)));
+    let measured = done.with_verbosity(ExplainVerbosity::ExecutionStats);
+    assert!(
+        measured.is_out_of_date(Some(&same)),
+        "plan-only plan, measure now on"
+    );
+    let back = measured.with_verbosity(ExplainVerbosity::QueryPlanner);
+    assert!(
+        !back.is_out_of_date(Some(&same)),
+        "switching back makes it current again"
+    );
+}
+
+#[test]
+fn cloning_a_done_state_shares_the_plan_the_document_and_the_pipeline() {
+    let (ui, request) = loading();
+    let done = ui.arrived(request, Ok(explained(collscan())));
+    let copy = done.clone();
+    let (a, b) = (done.done().expect("done"), copy.done().expect("done"));
+    assert!(Arc::ptr_eq(&a.plan, &b.plan));
+    assert!(Arc::ptr_eq(&a.raw, &b.raw));
+    assert!(Arc::ptr_eq(&a.for_draft, &b.for_draft));
 }
 
 #[test]

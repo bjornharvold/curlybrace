@@ -15,6 +15,7 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{AggPlanOutcome, ExplainVerbosity};
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{Explain, Namespace};
+use std::sync::Arc;
 use uuid::Uuid;
 
 fn people() -> Namespace {
@@ -214,8 +215,8 @@ fn the_answer_is_shown_and_a_new_run_is_possible_after_it() {
     let (s, c) = ev(s, plan_answer(id, request));
     assert!(c.is_empty());
     let done = s.aggregate.explain.done().expect("done");
-    assert!(matches!(done.plan, AggPlanOutcome::Plan(_)));
-    assert_eq!(done.raw, plan_document());
+    assert!(matches!(*done.plan, AggPlanOutcome::Plan(_)));
+    assert_eq!(*done.raw, plan_document());
     let (s, again) = ran(s);
     assert!(again > request, "a newer number");
     assert!(s.aggregate.explain.awaits(again));
@@ -329,6 +330,22 @@ fn a_draft_edit_keeps_the_plan_and_makes_it_out_of_date() {
     )
     .expect("valid");
     assert!(s.aggregate.explain.is_out_of_date(Some(&now)));
+}
+
+#[test]
+fn an_ordinary_action_does_not_copy_the_plan_the_document_or_the_pipeline() {
+    let (s, id) = drafted();
+    let (s, request) = ran(s);
+    let (s, _) = ev(s, plan_answer(id, request));
+    let before = s.aggregate.explain.done().expect("done").clone();
+    let s = act(s, A::Select(0)).0;
+    let s = act(s, A::Toggle(1)).0;
+    let after = s.aggregate.explain.done().expect("still shown");
+    assert!(Arc::ptr_eq(&before.plan, &after.plan));
+    assert!(Arc::ptr_eq(&before.raw, &after.raw));
+    assert!(Arc::ptr_eq(&before.for_draft, &after.for_draft));
+    // Held by the state and by `before` only: no stray copy of the draft keeps one alive.
+    assert_eq!(Arc::strong_count(&before.raw), 2);
 }
 
 #[test]

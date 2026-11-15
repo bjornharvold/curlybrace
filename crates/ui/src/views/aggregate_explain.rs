@@ -15,7 +15,6 @@ use crate::viewmodel::aggregate::AggregateState;
 use crate::viewmodel::aggregate_explain::{ExplainDone, ExplainState, ResultTab};
 use crate::viewmodel::aggregate_view::AggregateView;
 use crate::viewmodel::code_export::CodeBlock;
-use bson::Document;
 use curlybrace_core::ejson::doc_to_view_json;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{AGGREGATE_EXPLAIN_MAX_TIME_MS, AggPlanOutcome, ExplainVerbosity};
@@ -154,7 +153,7 @@ fn show_state(ui: &mut egui::Ui, state: &ExplainState, i18n: &I18n) {
             ui.label(i18n.t("aggregate.explain.loading"));
         }
         ExplainState::Failed { reason } => show_failure(ui, reason, i18n),
-        ExplainState::Done(done) => match &done.plan {
+        ExplainState::Done(done) => match &*done.plan {
             AggPlanOutcome::Plan(plan) => show_plan(ui, plan, i18n),
             AggPlanOutcome::NotUnderstood => {
                 ui.label(i18n.t("aggregate.explain.not_understood"));
@@ -205,8 +204,7 @@ fn show_raw_json(ui: &mut egui::Ui, done: &ExplainDone, view: &mut AggregateView
     let AggregateView {
         raw_tree, raw_page, ..
     } = view;
-    let docs: &[Document] = std::slice::from_ref(&done.raw);
-    let (page, key) = raw_page.of(docs);
+    let (page, key) = raw_page.of_shared(&done.raw);
     raw_tree.synced_to(&key);
     raw_tree.read_only = true;
     raw_tree.projected = true;

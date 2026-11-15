@@ -112,6 +112,7 @@ fn every_hint_has_a_sentence_of_its_own() {
         AggHint::DiskSort,
         AggHint::ExaminedMuchMoreThanReturned,
         AggHint::LookupCollectionScan,
+        AggHint::InMemorySortAfterSkip,
     ];
     let mut texts: Vec<String> = hints
         .iter()

@@ -10,6 +10,7 @@ use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{AggPlanOutcome, ExplainVerbosity, parse_aggregate_explain};
 use curlybrace_core::store::Explain;
 use std::fmt;
+use std::sync::Arc;
 
 /// What the pane under the stages shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -24,15 +25,18 @@ pub enum ResultTab {
 }
 
 /// The pipeline an explain was asked for. A plan whose fingerprint differs from the pipeline the
-/// draft would send now is out of date: the draft was edited after the request.
-pub type Fingerprint = Vec<Document>;
+/// draft would send now is out of date: the draft was edited after the request. Shared, so that
+/// copying the draft for an ordinary action never copies the pipeline.
+pub type Fingerprint = Arc<[Document]>;
 
-/// A plan that arrived.
+/// A plan that arrived. Everything big is shared: cloning it (the draft is cloned for every
+/// ordinary action) bumps counts and copies nothing, and the Raw tab tells a repaint of the same
+/// document from a new one by the pointer.
 #[derive(Clone, PartialEq)]
 pub struct ExplainDone {
-    pub plan: AggPlanOutcome,
+    pub plan: Arc<AggPlanOutcome>,
     /// The explain document, for the Raw tab.
-    pub raw: Document,
+    pub raw: Arc<Document>,
     pub verbosity: ExplainVerbosity,
     pub for_draft: Fingerprint,
 }
@@ -40,7 +44,7 @@ pub struct ExplainDone {
 impl fmt::Debug for ExplainDone {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExplainDone")
-            .field("understood", &matches!(self.plan, AggPlanOutcome::Plan(_)))
+            .field("understood", &matches!(*self.plan, AggPlanOutcome::Plan(_)))
             .field("verbosity", &self.verbosity)
             .finish_non_exhaustive()
     }
@@ -117,14 +121,14 @@ impl ExplainUi {
 
     /// An explain of `pipeline` was sent under a new request number: the pane shows the Plan tab
     /// and waits for it. Returns the number and the verbosity sent.
-    pub fn begun(self, pipeline: Fingerprint) -> (Self, u64, ExplainVerbosity) {
+    pub fn begun(self, pipeline: impl Into<Fingerprint>) -> (Self, u64, ExplainVerbosity) {
         let request = self.request.wrapping_add(1);
         let verbosity = self.verbosity;
         let next = Self {
             state: ExplainState::Loading {
                 request,
                 verbosity,
-                for_draft: pipeline,
+                for_draft: pipeline.into(),
             },
             tab: ResultTab::Plan,
             request,
@@ -144,8 +148,8 @@ impl ExplainUi {
             } if awaited == request => {
                 let state = match outcome {
                     Ok(explain) => ExplainState::Done(Box::new(ExplainDone {
-                        plan: parse_aggregate_explain(&explain.document),
-                        raw: explain.document,
+                        plan: Arc::new(parse_aggregate_explain(&explain.document)),
+                        raw: Arc::new(explain.document),
                         verbosity,
                         for_draft,
                     })),
@@ -198,10 +202,12 @@ impl ExplainUi {
         }
     }
 
-    /// Whether the plan in view was asked for a pipeline other than `current`.
+    /// Whether the plan in view was asked for a pipeline other than `current`, or for a measure
+    /// setting other than the one selected now.
     pub fn is_out_of_date(&self, current: Option<&[Document]>) -> bool {
-        self.done()
-            .is_some_and(|done| current != Some(done.for_draft.as_slice()))
+        self.done().is_some_and(|done| {
+            current != Some(&*done.for_draft) || done.verbosity != self.verbosity
+        })
     }
 
     /// Whether `request` is the one awaited.

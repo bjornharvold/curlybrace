@@ -169,6 +169,7 @@ pub(super) fn hint_key(hint: AggHint) -> &'static str {
             "aggregate.explain.hint.examined_much_more_than_returned"
         }
         AggHint::LookupCollectionScan => "aggregate.explain.hint.lookup_collection_scan",
+        AggHint::InMemorySortAfterSkip => "aggregate.explain.hint.in_memory_sort_after_skip",
     }
 }
 

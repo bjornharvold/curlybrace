@@ -12,6 +12,7 @@ use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::Page;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// How long the typing in a stage pauses before the edit is sent (and previewed).
 pub const EDIT_PAUSE_SECS: f64 = 0.6;
@@ -29,6 +30,10 @@ pub struct PendingEdit {
 #[derive(Clone, Debug, Default)]
 pub struct PageCache {
     built: Option<(Page, PageKey)>,
+    /// The shared document `built` was made from by `of_shared`; the next frame is told from this
+    /// one by the pointer, never by comparing the documents.
+    source: Option<Arc<Document>>,
+    builds: usize,
 }
 
 impl PageCache {
@@ -39,15 +44,42 @@ impl PageCache {
             .as_ref()
             .is_none_or(|(page, _)| page.docs.as_slice() != docs);
         if stale {
-            let page = Page {
-                docs: docs.to_vec(),
-                skip: 0,
-                has_more: false,
-            };
-            let key = page_key(&page);
-            self.built = Some((page, key));
+            self.source = None;
+            self.build(docs.to_vec());
         }
-        let (page, key) = self.built.as_ref().expect("built above");
+        self.shown()
+    }
+
+    /// The page of the one document `doc`, rebuilt only when `doc` is another allocation than the
+    /// one the page was built from: a repaint costs a pointer comparison, however big the
+    /// document is.
+    pub fn of_shared(&mut self, doc: &Arc<Document>) -> (&Page, PageKey) {
+        let stale = self.source.as_ref().is_none_or(|s| !Arc::ptr_eq(s, doc));
+        if stale {
+            self.source = Some(Arc::clone(doc));
+            self.build(vec![Document::clone(doc)]);
+        }
+        self.shown()
+    }
+
+    /// How many times a page was built (not served from the cache) so far.
+    pub fn builds(&self) -> usize {
+        self.builds
+    }
+
+    fn build(&mut self, docs: Vec<Document>) {
+        let page = Page {
+            docs,
+            skip: 0,
+            has_more: false,
+        };
+        let key = page_key(&page);
+        self.built = Some((page, key));
+        self.builds += 1;
+    }
+
+    fn shown(&self) -> (&Page, PageKey) {
+        let (page, key) = self.built.as_ref().expect("built before it is shown");
         (page, *key)
     }
 }

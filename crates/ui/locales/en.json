@@ -82,6 +82,7 @@
         "disk_sort": "A sort or group ran out of memory and spilled to disk, which is slow. Filter earlier, or sort on an indexed field.",
         "examined_much_more_than_returned": "The server looked at many more documents than it passed on. A more selective index or an earlier $match would do less work.",
         "in_memory_sort": "The sort happens in memory after the documents are read. An index in the sort order would avoid it.",
+        "in_memory_sort_after_skip": "Sorts the documents left after the skip in memory; an index cannot serve this sort.",
         "lookup_collection_scan": "A $lookup reads the whole joined collection for each lookup. An index on the foreign field would avoid that."
       },
       "hints": {
@@ -97,7 +98,7 @@
       "loading": "Asking the server for the plan...",
       "not_understood": "This plan could not be read. See the Raw tab for what the server sent.",
       "out_of_date": "Out of date",
-      "out_of_date_hint": "The pipeline changed after this plan was made. Explain again for a current one.",
+      "out_of_date_hint": "The pipeline or the measure setting changed after this plan was made. Explain again for a current one.",
       "raw": {
         "copy": "Copy JSON",
         "none": "No explain yet."

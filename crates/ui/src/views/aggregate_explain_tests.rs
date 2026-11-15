@@ -4,7 +4,7 @@ use super::*;
 use crate::theme;
 use crate::viewmodel::aggregate_explain::ExplainUi;
 use crate::viewmodel::aggregate_explain_block::explain_request;
-use bson::doc;
+use bson::{Document, doc};
 use curlybrace_core::ejson::editor_json_to_doc;
 use curlybrace_core::store::Explain;
 use eframe::egui::accesskit::{Role, Toggled};
@@ -214,6 +214,26 @@ fn the_raw_tab_shows_the_document_and_offers_to_copy_it() {
     harness.run_steps(2);
     let copied = AggregateAction::Explain(ExplainAction::CopyRaw);
     assert!(harness.state().seen.contains(&copied));
+}
+
+#[test]
+fn repainting_the_raw_tab_does_not_rebuild_its_page() {
+    let draft = on_tab(explained(base(), collscan()), ResultTab::Raw);
+    let mut harness = open(draft);
+    harness.run_steps(5);
+    assert_eq!(harness.state().view.raw_page.builds(), 1);
+}
+
+#[test]
+fn a_plan_made_with_another_measure_setting_is_marked_out_of_date() {
+    let mark = t("aggregate.explain.out_of_date");
+    let mut draft = on_tab(explained(base(), collscan()), ResultTab::Plan);
+    assert!(open(draft.clone()).query_by_label(&mark).is_none());
+    draft.explain = draft
+        .explain
+        .with_verbosity(ExplainVerbosity::ExecutionStats);
+    let harness = open(draft);
+    harness.get_by_label(&mark);
 }
 
 #[test]
