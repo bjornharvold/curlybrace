@@ -5,6 +5,7 @@ pipeline = [
       'emptyUuid' => BSON::Binary.new([''].pack('H*'), :uuid),
       'oldUuid' => BSON::Binary.new(['000102030405060708090a0b0c0d0e0f'].pack('H*'), :uuid_old),
       'md5' => BSON::Binary.new(['000102030405060708090a0b0c0d0e0f'].pack('H*'), :md5),
+      'shortOldUuid' => BSON::Binary.new(['0102030405'].pack('H*'), :uuid_old),
       'shortUuid' => BSON::Binary.new(['0102030405'].pack('H*'), :uuid),
       'uuid' => BSON::Binary.new(['000102030405060708090a0b0c0d0e0f'].pack('H*'), :uuid),
     },

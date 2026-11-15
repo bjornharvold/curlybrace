@@ -4,7 +4,7 @@
 
 use bson::spec::BinarySubtype;
 
-use crate::codegen::escape::{float_text, hex, single_or_double_quoted, uuid_text};
+use crate::codegen::escape::{float_text, hex, is_uuid_kind, single_or_double_quoted, uuid_text};
 use crate::codegen::lossy::{Conversions, Converted};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
@@ -116,10 +116,10 @@ impl Syntax for PhpSyntax {
         ))
     }
 
-    /// The library throws for a UUID binary that is not 16 bytes; it is written as generic
-    /// binary instead.
+    /// The library throws for a UUID binary (subtype 3 or 4) that is not 16 bytes; it is written
+    /// as generic binary instead.
     fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> Result<String, CodegenError> {
-        let subtype = match subtype == BinarySubtype::Uuid && uuid_text(bytes).is_none() {
+        let subtype = match is_uuid_kind(subtype) && uuid_text(bytes).is_none() {
             true => {
                 self.converted.mark(Converted::ShortUuid);
                 BinarySubtype::Generic

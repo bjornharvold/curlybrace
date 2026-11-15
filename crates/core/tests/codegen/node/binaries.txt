@@ -14,6 +14,7 @@ async function main() {
           emptyUuid: new Binary(Buffer.from("", "base64"), 4),
           oldUuid: new Binary(Buffer.from("AAECAwQFBgcICQoLDA0ODw==", "base64"), 3),
           md5: new Binary(Buffer.from("AAECAwQFBgcICQoLDA0ODw==", "base64"), 5),
+          shortOldUuid: new Binary(Buffer.from("AQIDBAU=", "base64"), 3),
           shortUuid: new Binary(Buffer.from("AQIDBAU=", "base64"), 4),
           uuid: new UUID("00010203-0405-0607-0809-0a0b0c0d0e0f"),
         },

@@ -144,6 +144,7 @@ fn binaries() -> Document {
         "emptyUuid": binary(4, vec![]),
         "oldUuid": binary(3, (0..16).collect()),
         "md5": binary(5, (0..16).collect()),
+        "shortOldUuid": binary(3, vec![1, 2, 3, 4, 5]),
         "shortUuid": binary(4, vec![1, 2, 3, 4, 5]),
         "uuid": binary(4, (0..16).collect()),
     }

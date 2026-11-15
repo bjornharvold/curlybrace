@@ -175,6 +175,15 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// Whether the subtype is one of the UUID kinds (3 legacy, 4 standard), which a driver may refuse
+/// to build from a length other than 16 bytes.
+pub(crate) fn is_uuid_kind(subtype: bson::spec::BinarySubtype) -> bool {
+    matches!(
+        subtype,
+        bson::spec::BinarySubtype::Uuid | bson::spec::BinarySubtype::UuidOld
+    )
+}
+
 /// `8-4-4-4-12` text of 16 bytes, or `None` for any other length.
 pub(crate) fn uuid_text(bytes: &[u8]) -> Option<String> {
     if bytes.len() != 16 {

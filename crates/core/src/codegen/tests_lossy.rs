@@ -32,6 +32,13 @@ fn uuid(bytes: Vec<u8>) -> Bson {
     })
 }
 
+fn legacy_uuid(bytes: Vec<u8>) -> Bson {
+    Bson::Binary(Binary {
+        subtype: BinarySubtype::UuidOld,
+        bytes,
+    })
+}
+
 fn note_line(out: &str) -> Option<&str> {
     out.lines().find(|line| line.contains("Note:"))
 }
@@ -90,6 +97,29 @@ fn a_short_uuid_becomes_generic_binary_with_a_note_in_csharp_and_php() {
             let line = note_line(&out).expect("a note");
             assert!(line.contains("non-16-byte UUID"), "{line}");
         }
+    }
+}
+
+#[test]
+fn a_short_legacy_uuid_becomes_generic_binary_with_a_note_in_csharp_and_php() {
+    for (language, legacy, generic) in [
+        (
+            Language::CSharp,
+            "(BsonBinarySubType)0x03",
+            "BsonBinarySubType.Binary",
+        ),
+        (Language::Php, "), 3)", "), 0)"),
+    ] {
+        for bytes in [vec![], vec![1, 2, 3, 4, 5], (0..17).collect()] {
+            let out = render_all(language, vec![legacy_uuid(bytes)]);
+            assert!(!out.contains(legacy), "{language:?}: {out}");
+            assert!(out.contains(generic), "{language:?}: {out}");
+            let line = note_line(&out).expect("a note");
+            assert!(line.contains("non-16-byte UUID"), "{line}");
+        }
+        let kept = render_all(language, vec![legacy_uuid((0..16).collect())]);
+        assert!(kept.contains(legacy), "{language:?}: {kept}");
+        assert!(note_line(&kept).is_none(), "{kept}");
     }
 }
 

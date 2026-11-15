@@ -4,7 +4,7 @@
 
 use bson::spec::BinarySubtype;
 
-use crate::codegen::escape::{double_quoted, float_text, unicode_escape, uuid_text};
+use crate::codegen::escape::{double_quoted, float_text, is_uuid_kind, unicode_escape, uuid_text};
 use crate::codegen::lossy::{Conversions, Converted};
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, lay_out_with};
@@ -15,7 +15,7 @@ pub(crate) fn quote(text: &str) -> String {
 }
 
 pub(crate) struct CsharpSyntax {
-    /// A UUID binary of the wrong length was written as generic binary.
+    /// A UUID binary (subtype 3 or 4) of the wrong length was written as generic binary.
     converted: Conversions,
 }
 
@@ -104,9 +104,9 @@ impl Syntax for CsharpSyntax {
     }
 
     /// The driver throws for a `UuidStandard` binary that is not 16 bytes; it is written as
-    /// generic binary instead.
+    /// generic binary instead. The same holds for a legacy (subtype 3) UUID.
     fn binary(&self, subtype: BinarySubtype, bytes: &[u8]) -> Result<String, CodegenError> {
-        let subtype = match subtype == BinarySubtype::Uuid && uuid_text(bytes).is_none() {
+        let subtype = match is_uuid_kind(subtype) && uuid_text(bytes).is_none() {
             true => {
                 self.converted.mark(Converted::ShortUuid);
                 BinarySubtype::Generic

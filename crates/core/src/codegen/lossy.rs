@@ -13,7 +13,7 @@ pub(crate) enum Converted {
     Undefined,
     Symbol,
     DbPointer,
-    /// A subtype 4 binary that is not 16 bytes, written as generic binary.
+    /// A subtype 3 or 4 binary that is not 16 bytes, written as generic binary.
     ShortUuid,
 }
 

@@ -5,6 +5,7 @@ const pipeline = [
       emptyUuid: BinData(4, ""),
       oldUuid: BinData(3, "AAECAwQFBgcICQoLDA0ODw=="),
       md5: BinData(5, "AAECAwQFBgcICQoLDA0ODw=="),
+      shortOldUuid: BinData(3, "AQIDBAU="),
       shortUuid: BinData(4, "AQIDBAU="),
       uuid: UUID("00010203-0405-0607-0809-0a0b0c0d0e0f"),
     },

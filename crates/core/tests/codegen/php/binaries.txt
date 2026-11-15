@@ -14,6 +14,7 @@ $pipeline = [
             'emptyUuid' => new MongoDB\BSON\Binary(hex2bin(''), 0),
             'oldUuid' => new MongoDB\BSON\Binary(hex2bin('000102030405060708090a0b0c0d0e0f'), 3),
             'md5' => new MongoDB\BSON\Binary(hex2bin('000102030405060708090a0b0c0d0e0f'), 5),
+            'shortOldUuid' => new MongoDB\BSON\Binary(hex2bin('0102030405'), 0),
             'shortUuid' => new MongoDB\BSON\Binary(hex2bin('0102030405'), 0),
             'uuid' => new MongoDB\BSON\Binary(hex2bin('000102030405060708090a0b0c0d0e0f'), 4),
         ],
