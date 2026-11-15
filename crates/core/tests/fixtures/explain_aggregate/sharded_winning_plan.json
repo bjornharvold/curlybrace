@@ -32,7 +32,7 @@
           "parsedQuery": { "status": { "$eq": "open" } },
           "winningPlan": {
             "stage": "SHARDING_FILTER",
-            "inputStage": { "stage": "COLLSCAN", "direction": "forward" }
+            "inputStage": { "stage": "COLLSCAN", "filter": { "status": { "$eq": "open" } }, "direction": "forward" }
           },
           "rejectedPlans": []
         }

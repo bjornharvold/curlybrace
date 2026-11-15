@@ -95,14 +95,22 @@ impl AggHint {
     }
 }
 
+/// How a shard of a sharded plan is identified: by the name the server gave it, else by its
+/// 1-based position in the explain document (the UI words that, not the core).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShardName {
+    Named(String),
+    Index(usize),
+}
+
 /// The plan of an aggregate: the input, the stages after it, one plan per shard when sharded.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AggPlan {
     pub summary: AggSummary,
     pub input: Option<InputPlan>,
     pub stages: Vec<AggStage>,
-    /// `(shard name, its plan)`; empty on an unsharded server.
-    pub shards: Vec<(String, AggPlan)>,
+    /// `(shard, its plan)`; empty on an unsharded server.
+    pub shards: Vec<(ShardName, AggPlan)>,
     pub hints: Vec<AggHint>,
 }
 

@@ -4,7 +4,7 @@ use bson::{Document, doc};
 
 use super::parse_aggregate_explain;
 use crate::ejson::editor_json_to_doc;
-use crate::explain::{AggHint, AggPlan, AggPlanOutcome, ExplainVerbosity};
+use crate::explain::{AggHint, AggPlan, AggPlanOutcome, ExplainVerbosity, ShardName};
 
 fn fixture(name: &str) -> Document {
     let text = match name {
@@ -66,7 +66,11 @@ fn a_collection_scan_with_a_group_and_a_sort_in_the_old_stages_shape() {
     assert_eq!(names(&p), ["$group", "$sort"]);
     assert_eq!(p.stages[0].detail.as_deref(), Some("total, orders"));
     assert_eq!(p.stages[1].detail.as_deref(), Some("total"));
-    assert_eq!(p.hints, [AggHint::CollectionScan, AggHint::InMemorySort]);
+    assert_eq!(
+        p.hints,
+        [AggHint::CollectionScan],
+        "a sort after a group cannot use an index"
+    );
     assert_eq!(p.summary.verbosity_seen, ExplainVerbosity::QueryPlanner);
     assert_eq!(p.summary.n_returned, None);
     assert!(p.shards.is_empty());
@@ -136,8 +140,14 @@ fn a_facet_names_its_branches() {
 #[test]
 fn a_sharded_explain_has_one_plan_per_shard_and_the_merger_stages() {
     let p = plan("sharded_stages");
-    let shard_names: Vec<&str> = p.shards.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(shard_names, ["shardA", "shardB"]);
+    let shard_names: Vec<&ShardName> = p.shards.iter().map(|(n, _)| n).collect();
+    assert_eq!(
+        shard_names,
+        [
+            &ShardName::Named("shardA".into()),
+            &ShardName::Named("shardB".into())
+        ]
+    );
     assert_eq!(names(&p), ["$mergeCursors", "$group"]);
     let a = &p.shards[0].1;
     assert_eq!(
@@ -204,7 +214,11 @@ fn a_pushed_down_group_in_the_slot_based_engine_still_shows_its_scan() {
         p.input.as_ref().map(|i| i.stage_kind.as_str()),
         Some("COLLSCAN")
     );
-    assert_eq!(p.hints, [AggHint::CollectionScan]);
+    assert!(
+        p.hints.is_empty(),
+        "an unfiltered scan is no finding: {:?}",
+        p.hints
+    );
 }
 
 #[test]
@@ -218,20 +232,10 @@ fn a_pushed_down_lookup_keeps_the_local_side_and_ignores_the_joined_index() {
     );
     assert_eq!(input.plan_stages, ["EQ_LOOKUP", "COLLSCAN"]);
     assert!(p.stages.is_empty());
-    assert_eq!(p.hints, [AggHint::CollectionScan]);
-}
-
-#[test]
-fn a_pushed_down_lookup_without_an_index_scans_the_joined_collection() {
-    let mut explain = fixture("eq_lookup");
-    let text = explain.to_string().replace("IndexedLoopJoin", "HashJoin");
-    explain = editor_json_to_doc(&text).expect("still parses");
-    let AggPlanOutcome::Plan(p) = parse_aggregate_explain(&explain) else {
-        panic!("expected a plan");
-    };
-    assert_eq!(
-        p.hints,
-        [AggHint::CollectionScan, AggHint::LookupCollectionScan]
+    assert!(
+        p.hints.is_empty(),
+        "an unfiltered scan is no finding: {:?}",
+        p.hints
     );
 }
 
@@ -249,8 +253,14 @@ fn the_plan_stages_list_what_the_server_pushed_down() {
 fn a_sharded_query_planner_form_lists_each_shard_with_its_own_figures() {
     let p = plan("sharded_winning_plan");
     assert!(p.input.is_none());
-    let shard_names: Vec<&str> = p.shards.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(shard_names, ["shardA", "shardB"]);
+    let shard_names: Vec<&ShardName> = p.shards.iter().map(|(n, _)| n).collect();
+    assert_eq!(
+        shard_names,
+        [
+            &ShardName::Named("shardA".into()),
+            &ShardName::Named("shardB".into())
+        ]
+    );
     let a = &p.shards[0].1;
     let a_input = a.input.as_ref().expect("input");
     assert_eq!(a_input.index.as_deref(), Some("status_1"));

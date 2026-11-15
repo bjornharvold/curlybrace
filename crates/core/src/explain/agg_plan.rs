@@ -9,8 +9,9 @@
 
 use bson::{Bson, Document};
 
+use super::agg_input::{input_reshapes, reshapes_documents};
 use super::agg_model::{
-    AggHint, AggPlan, AggPlanOutcome, AggStage, AggSummary, ExplainVerbosity, InputPlan,
+    AggHint, AggPlan, AggPlanOutcome, AggStage, AggSummary, ExplainVerbosity, InputPlan, ShardName,
 };
 use super::agg_stage::{
     ParsedInput, ParsedStage, examined_hint, is_input_marker, opt_count, parse_input, parse_stage,
@@ -49,12 +50,23 @@ fn single(doc: &Document) -> Option<AggPlan> {
     from_planner(doc.get_document("queryPlanner").ok()?, stats)
 }
 
-fn parse_stage_list(items: &[Bson]) -> Vec<ParsedStage> {
+/// The pipeline stages of `items`. `reshaped` says the documents already changed shape before the
+/// first of them (a `$group` folded into the input, or the shards' merge): from then on no index
+/// can order them, so a `$sort` is not a finding.
+fn parse_stage_list(items: &[Bson], mut reshaped: bool) -> Vec<ParsedStage> {
     items
         .iter()
         .filter_map(Bson::as_document)
         .filter(|d| stage_operator(d).is_some_and(|name| !is_input_marker(name)))
-        .filter_map(parse_stage)
+        .filter_map(|d| {
+            let mut parsed = parse_stage(d)?;
+            if reshaped {
+                parsed.hints.retain(|h| *h != AggHint::InMemorySort);
+            }
+            let name = stage_operator(d)?;
+            reshaped = reshaped || reshapes_documents(name, d.get(name));
+            Some(parsed)
+        })
         .collect()
 }
 
@@ -69,7 +81,11 @@ fn cursor_input(items: &[Bson]) -> Option<ParsedInput> {
 
 fn from_stages(items: &[Bson], stats: Option<&Document>) -> Option<AggPlan> {
     let input = cursor_input(items);
-    let stages = parse_stage_list(items);
+    let folded = input.as_ref().is_some_and(|i| {
+        let stages: Vec<&str> = i.plan.plan_stages.iter().map(String::as_str).collect();
+        input_reshapes(&stages)
+    });
+    let stages = parse_stage_list(items, folded);
     (input.is_some() || !stages.is_empty()).then(|| assemble(input, stages, stats))
 }
 
@@ -97,15 +113,20 @@ fn shard_stats<'a>(stats: Option<&'a Document>, name: &str) -> Option<&'a Docume
 }
 
 fn sharded_by_list(entries: &[Bson], stats: Option<&Document>) -> Option<AggPlan> {
-    let shards: Vec<(String, AggPlan)> = entries
+    let shards: Vec<(ShardName, AggPlan)> = entries
         .iter()
         .filter_map(Bson::as_document)
         .enumerate()
         .filter_map(|(position, entry)| {
             let name = entry
                 .get_str("shardName")
-                .map_or_else(|_| format!("#{}", position + 1), str::to_owned);
-            let shard_stats = shard_stats(stats, &name);
+                .map_or(ShardName::Index(position + 1), |n| {
+                    ShardName::Named(n.to_owned())
+                });
+            let shard_stats = match &name {
+                ShardName::Named(n) => shard_stats(stats, n),
+                ShardName::Index(_) => None,
+            };
             let input = parse_input(entry, shard_stats)?;
             Some((name, assemble(Some(input), Vec::new(), shard_stats)))
         })
@@ -114,15 +135,21 @@ fn sharded_by_list(entries: &[Bson], stats: Option<&Document>) -> Option<AggPlan
 }
 
 fn sharded_by_name(doc: &Document, shards: &Document) -> Option<AggPlan> {
-    let plans: Vec<(String, AggPlan)> = shards
+    let plans: Vec<(ShardName, AggPlan)> = shards
         .iter()
-        .filter_map(|(name, value)| Some((name.clone(), single(value.as_document()?)?)))
+        .filter_map(|(name, value)| {
+            Some((
+                ShardName::Named(name.clone()),
+                single(value.as_document()?)?,
+            ))
+        })
         .collect();
     let merger = doc
         .get_document("splitPipeline")
         .ok()
         .and_then(|split| split.get_array("mergerPart").ok())
-        .map(|items| parse_stage_list(items))
+        // The merger runs after the shards' streams are merged: nothing there is index-ordered.
+        .map(|items| parse_stage_list(items, true))
         .unwrap_or_default();
     (!plans.is_empty()).then(|| combine(plans, merger, doc.get_document("executionStats").ok()))
 }
@@ -213,7 +240,7 @@ fn assemble(
 
 /// The plan of a sharded explain: the plans of its shards under the merger stages.
 fn combine(
-    shards: Vec<(String, AggPlan)>,
+    shards: Vec<(ShardName, AggPlan)>,
     merger: Vec<ParsedStage>,
     stats: Option<&Document>,
 ) -> AggPlan {
@@ -255,6 +282,9 @@ fn combine(
     }
 }
 
+#[cfg(test)]
+#[path = "agg_hint_tests.rs"]
+mod hint_tests;
 #[cfg(test)]
 #[path = "agg_plan_tests.rs"]
 mod tests;

@@ -5,7 +5,7 @@
       "$cursor": {
         "queryPlanner": {
           "namespace": "shop.orders",
-          "winningPlan": { "stage": "COLLSCAN", "direction": "forward" },
+          "winningPlan": { "stage": "COLLSCAN", "filter": { "status": { "$eq": "open" } }, "direction": "forward" },
           "rejectedPlans": []
         }
       }

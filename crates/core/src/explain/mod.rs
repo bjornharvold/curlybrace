@@ -1,6 +1,7 @@
 //! Index-miss detection: turns a server explain document into a typed [`Verdict`]
 //! (`classify`) and proposes an index for the query (`suggest`).
 
+mod agg_input;
 mod agg_model;
 mod agg_plan;
 mod agg_stage;
@@ -18,7 +19,7 @@ mod verdict_tests;
 
 pub use agg_model::{
     AGGREGATE_EXPLAIN_MAX_TIME_MS, AggHint, AggPlan, AggPlanOutcome, AggStage, AggSummary,
-    ExplainVerbosity, InputPlan,
+    ExplainVerbosity, InputPlan, ShardName,
 };
 pub use agg_plan::parse_aggregate_explain;
 pub use classify::classify;

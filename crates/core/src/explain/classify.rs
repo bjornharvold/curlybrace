@@ -22,6 +22,12 @@ pub(crate) fn count(doc: Option<&Document>, key: &str) -> u64 {
     }
 }
 
+/// Whether a plan stage is a `$lookup` pushed into the plan (`EQ_LOOKUP`, or the variant that
+/// also unwinds the joined array).
+pub(crate) fn is_eq_lookup(stage: &str) -> bool {
+    matches!(stage, "EQ_LOOKUP" | "EQ_LOOKUP_UNWIND")
+}
+
 /// Every stage in the plan tree (pre-order), with the first index name found.
 pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mut Option<String>) {
     if let Ok(stage) = node.get_str("stage") {
@@ -45,7 +51,7 @@ pub(crate) fn walk<'a>(node: &'a Document, stages: &mut Vec<&'a str>, index: &mu
         // A pushed-down `$lookup` (`EQ_LOOKUP`) lists the local side first and the joined
         // collection's plan second: that one says nothing about how this collection is read.
         let wanted = match node.get_str("stage") {
-            Ok("EQ_LOOKUP") => 1,
+            Ok(stage) if is_eq_lookup(stage) => 1,
             _ => usize::MAX,
         };
         children

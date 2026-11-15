@@ -4,6 +4,7 @@
 
 use bson::{Bson, Document};
 
+use super::agg_input::{collscans_unfiltered, has_nested_loop_lookup, input_returned};
 use super::agg_model::{AggHint, AggStage, InputPlan};
 use super::classify::{ACCESS_STAGES, is_inefficient, walk};
 
@@ -153,25 +154,6 @@ pub(super) fn examined_hint(input: &InputPlan) -> Option<AggHint> {
     .then_some(AggHint::ExaminedMuchMoreThanReturned)
 }
 
-/// Whether a `$lookup` pushed into the plan (`EQ_LOOKUP`) joins without an index: its strategy is
-/// a hash join or a nested loop, each of which reads the joined collection whole.
-fn reads_joined_collection_whole(node: &Document) -> bool {
-    let here = node.get_str("stage") == Ok("EQ_LOOKUP")
-        && node
-            .get_str("strategy")
-            .is_ok_and(|strategy| strategy != "IndexedLoopJoin");
-    here || ["queryPlan", "inputStage"]
-        .iter()
-        .filter_map(|key| node.get_document(key).ok())
-        .any(reads_joined_collection_whole)
-        || node.get_array("inputStages").is_ok_and(|children| {
-            children
-                .iter()
-                .filter_map(Bson::as_document)
-                .any(reads_joined_collection_whole)
-        })
-}
-
 /// Reads the winning plan of `planner` (a `queryPlanner` document, or a shard entry that holds a
 /// `winningPlan`) with the counters of `stats`. `None` when there is no recognisable plan.
 pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Option<ParsedInput> {
@@ -185,13 +167,15 @@ pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Optio
         .or_else(|| nodes.first().copied())?
         .to_owned();
     let mut hints = Vec::new();
-    if nodes.contains(&"COLLSCAN") {
+    // A scan with no filter reads everything because the pipeline asks for everything: no index
+    // would change that, so it is no finding (the call `classify` makes for a find, too).
+    if nodes.contains(&"COLLSCAN") && (nodes.contains(&"SORT") || !collscans_unfiltered(winning)) {
         hints.push(AggHint::CollectionScan);
     }
     if nodes.contains(&"SORT") {
         hints.push(AggHint::InMemorySort);
     }
-    if reads_joined_collection_whole(winning) {
+    if has_nested_loop_lookup(winning) {
         hints.push(AggHint::LookupCollectionScan);
     }
     let figure = |key: &str| stats.and_then(|s| opt_count(s, key));
@@ -202,7 +186,7 @@ pub(super) fn parse_input(planner: &Document, stats: Option<&Document>) -> Optio
             plan_stages: nodes.iter().map(|s| (*s).to_owned()).collect(),
             keys_examined: figure("totalKeysExamined"),
             docs_examined: figure("totalDocsExamined"),
-            n_returned: figure("nReturned"),
+            n_returned: input_returned(&nodes, stats),
         },
         hints,
         has_stats: stats.is_some(),
