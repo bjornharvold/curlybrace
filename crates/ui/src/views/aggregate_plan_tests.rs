@@ -1,7 +1,7 @@
 //! The Plan tab's texts on stored explain documents, and the tree drawn from them.
 use super::*;
 use curlybrace_core::ejson::editor_json_to_doc;
-use curlybrace_core::explain::{AggHint, AggPlanOutcome, parse_aggregate_explain};
+use curlybrace_core::explain::{AggHint, AggPlanOutcome, AggSummary, parse_aggregate_explain};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
@@ -155,11 +155,57 @@ fn a_collection_scan_is_drawn_with_its_hint_in_words() {
 fn a_sharded_plan_is_one_group_per_shard() {
     let sharded = plan("sharded");
     assert!(sharded.shards.len() >= 2, "the fixture has two shards");
-    let names: Vec<String> = sharded.shards.iter().map(|(n, _)| n.clone()).collect();
+    let names: Vec<ShardName> = sharded.shards.iter().map(|(n, _)| n.clone()).collect();
     let harness = drawn(sharded);
     let i18n = english();
     for name in names {
-        let title = i18n.t_with("aggregate.explain.group.shard", &[("name", &name)]);
-        harness.get_by_label(&title);
+        harness.get_by_label(&shard_title(&name, &i18n));
     }
+}
+
+#[test]
+fn a_shard_is_titled_by_its_name_or_else_its_position_through_the_same_key() {
+    let i18n = english();
+    assert_eq!(
+        shard_title(&ShardName::Named("shardA".into()), &i18n),
+        i18n.t_with("aggregate.explain.group.shard", &[("name", "shardA")])
+    );
+    assert_eq!(
+        shard_title(&ShardName::Index(2), &i18n),
+        i18n.t_with("aggregate.explain.group.shard", &[("name", "2")])
+    );
+}
+
+#[test]
+fn execution_stats_without_figures_say_so_instead_of_claiming_nothing_ran() {
+    let i18n = english();
+    let mut measured = plan("group_stats");
+    measured.summary = AggSummary {
+        verbosity_seen: ExplainVerbosity::ExecutionStats,
+        total_millis: None,
+        n_returned: None,
+        keys_examined: None,
+        docs_examined: None,
+    };
+    assert_eq!(
+        summary_text(&measured, &i18n),
+        i18n.t("aggregate.explain.summary_no_statistics")
+    );
+    assert_ne!(
+        i18n.t("aggregate.explain.summary_no_statistics"),
+        i18n.t("aggregate.explain.summary_none")
+    );
+}
+
+#[test]
+fn the_pushed_down_plan_stages_are_joined_with_the_separator_key() {
+    let i18n = english();
+    let mut input = plan("ixscan").input.expect("input");
+    input.plan_stages = vec!["FETCH".into(), "IXSCAN".into()];
+    assert_eq!(
+        input
+            .plan_stages
+            .join(&i18n.t("aggregate.explain.figure.separator")),
+        "FETCH, IXSCAN"
+    );
 }

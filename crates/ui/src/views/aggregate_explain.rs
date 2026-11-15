@@ -34,7 +34,9 @@ pub fn explain_blocked(
 ) -> Option<String> {
     match &*view.explain_request(draft, typed) {
         Err(CodeBlock::Pipeline(error)) => Some(pipeline_error_text(error, i18n)),
-        Err(CodeBlock::TextNotApplied) => Some(i18n.t("codegen.disabled.text_not_applied")),
+        Err(CodeBlock::TextNotApplied) => {
+            Some(i18n.t("aggregate.explain.disabled.text_not_applied"))
+        }
         Ok(_) if draft.explain.is_loading() => Some(i18n.t("aggregate.explain.disabled.running")),
         Ok(_) => None,
     }

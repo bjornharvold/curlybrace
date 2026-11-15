@@ -61,7 +61,8 @@
       "button_hint": "Ask the server how it would run the stages up to the selected one.",
       "cost_note": "Runs the pipeline on the server, for at most {seconds} seconds.",
       "disabled": {
-        "running": "An explain is already running."
+        "running": "An explain is already running.",
+        "text_not_applied": "Apply the edited text to the stages before explaining."
       },
       "error": {
         "timeout": "The explain took too long and was stopped."
@@ -103,6 +104,7 @@
       },
       "stage_with_detail": "{name} ({detail})",
       "summary": "Summary: {figures}",
+      "summary_no_statistics": "The server returned no statistics.",
       "summary_none": "Plan only: nothing was run, so there are no counts.",
       "tabs": {
         "plan": "Plan",

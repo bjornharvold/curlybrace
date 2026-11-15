@@ -263,6 +263,6 @@ fn the_explain_button_is_blocked_with_the_previews_reasons_and_while_one_runs() 
     let edited = ok.clone().to_text().with_text("[]");
     assert_eq!(
         explain_blocked(&edited, &edited.stages, &view, &i18n),
-        Some(t("codegen.disabled.text_not_applied"))
+        Some(t("aggregate.explain.disabled.text_not_applied"))
     );
 }

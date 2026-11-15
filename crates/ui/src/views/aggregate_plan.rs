@@ -3,7 +3,9 @@
 //! group per shard when the server answered per shard. Every text is an i18n key; counters the
 //! server did not report are left out rather than shown as zero.
 use crate::I18n;
-use curlybrace_core::explain::{AggHint, AggPlan, AggStage, InputPlan};
+use curlybrace_core::explain::{
+    AggHint, AggPlan, AggStage, ExplainVerbosity, InputPlan, ShardName,
+};
 use eframe::egui;
 
 /// The figures of one row; `None` is not reported.
@@ -83,19 +85,30 @@ pub(super) fn summary_text(plan: &AggPlan, i18n: &I18n) -> String {
         },
         i18n,
     );
-    match figures.is_empty() {
-        true => i18n.t("aggregate.explain.summary_none"),
-        false => i18n.t_with("aggregate.explain.summary", &[("figures", &figures)]),
+    match (figures.is_empty(), summary.verbosity_seen) {
+        (false, _) => i18n.t_with("aggregate.explain.summary", &[("figures", &figures)]),
+        (true, ExplainVerbosity::ExecutionStats) => {
+            i18n.t("aggregate.explain.summary_no_statistics")
+        }
+        (true, ExplainVerbosity::QueryPlanner) => i18n.t("aggregate.explain.summary_none"),
     }
+}
+
+/// The group title of a shard: the name the server gave it, else its position.
+pub(super) fn shard_title(shard: &ShardName, i18n: &I18n) -> String {
+    let name = match shard {
+        ShardName::Named(name) => name.clone(),
+        ShardName::Index(position) => position.to_string(),
+    };
+    i18n.t_with("aggregate.explain.group.shard", &[("name", &name)])
 }
 
 /// Draws `plan`; a sharded plan is one collapsible group per shard (open by default).
 pub(super) fn show_plan(ui: &mut egui::Ui, plan: &AggPlan, i18n: &I18n) {
     ui.label(summary_text(plan, i18n));
-    for (name, shard) in &plan.shards {
-        let title = i18n.t_with("aggregate.explain.group.shard", &[("name", name)]);
-        egui::CollapsingHeader::new(title)
-            .id_salt(("explain_shard", name))
+    for (position, (name, shard)) in plan.shards.iter().enumerate() {
+        egui::CollapsingHeader::new(shard_title(name, i18n))
+            .id_salt(("explain_shard", position))
             .default_open(true)
             .show(ui, |ui| show_body(ui, shard, false, i18n));
     }
@@ -127,7 +140,9 @@ fn show_input(ui: &mut egui::Ui, input: &InputPlan, i18n: &I18n) {
         &figures_text(Figures::of_input(input), i18n),
     );
     if input.plan_stages.len() > 1 {
-        let stages = input.plan_stages.join(", ");
+        let stages = input
+            .plan_stages
+            .join(&i18n.t("aggregate.explain.figure.separator"));
         ui.weak(i18n.t_with("aggregate.explain.input.plan", &[("stages", &stages)]));
     }
 }
