@@ -3,7 +3,8 @@
 use bson::Document;
 
 use super::config::AGGREGATE_RUN_COUNT_TIMEOUT;
-use super::handlers::{COMMAND_TIMEOUT_MESSAGE, bounded, is_connection_error, run_write_limit};
+use super::config::run_write_limit;
+use super::handlers::{COMMAND_TIMEOUT_MESSAGE, bounded, is_connection_error};
 use super::{Event, SessionId};
 use crate::error::{CoreError, Result};
 use crate::pipeline::{AGGREGATE_RUN_MAX_TIME_MS, run_target};

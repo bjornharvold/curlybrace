@@ -13,6 +13,7 @@ use crate::read_only_store::ReadOnlyStore;
 use crate::secrets::{SecretKind, secret_key};
 use crate::store::DocumentStore;
 
+use super::config::run_write_limit;
 use super::job_flag::JobFlag;
 use super::profiler_handlers::{
     profiler_db, profiler_failure, profiling_state, query_shapes, set_profiling_level,
@@ -774,12 +775,6 @@ async fn test_connection(
 /// its index builds) can run for a long time and must not be cut off half-way; every other
 /// command keeps the short bound. An aggregate preview is cut off shortly after the server's own
 /// time limit, and never later than the short bound.
-pub(super) fn run_write_limit(config: &super::RuntimeConfig) -> std::time::Duration {
-    config
-        .index_build_timeout
-        .min(super::config::AGGREGATE_RUN_TIMEOUT)
-}
-
 pub(super) fn command_time_limit(
     config: &super::RuntimeConfig,
     command: &Command,

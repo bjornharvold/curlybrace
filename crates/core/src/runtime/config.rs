@@ -154,3 +154,9 @@ impl std::fmt::Debug for RuntimeConfig {
             .finish_non_exhaustive()
     }
 }
+
+/// The bound of the write half of an aggregate run: the index-build bound, capped by
+/// [`AGGREGATE_RUN_TIMEOUT`].
+pub(super) fn run_write_limit(config: &RuntimeConfig) -> Duration {
+    config.index_build_timeout.min(AGGREGATE_RUN_TIMEOUT)
+}
