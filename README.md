@@ -291,7 +291,18 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   the Limit as typed: an empty Limit (or 0) gives no limit, and the Find button's paging default and
   1000 cap do not apply. The language and options are
   remembered until you quit.
-- Not yet: explain, undo of a run, and options such as collation, hint and `allowDiskUse`. The draft that is not saved is kept per open connection while the app runs.
+- **Explain** ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) asks the server how it
+  would run the enabled stages up to the selected one (a trailing `$out` or `$merge` is left out).
+  Under the stages, the tabs **Preview | Plan | Raw** switch between the documents, the plan as a
+  tree (the input and the index it reads, one row per stage with its counters and time, a
+  collapsible group per shard) with plain-language hints such as a collection scan or an in-memory
+  sort, and the explain document as the server sent it, which **Copy JSON** copies. By default
+  the server only plans and runs nothing; **Run the pipeline to measure it** also runs it, for at
+  most 10 seconds, to count keys and documents. It is a read, so it works on read-only
+  connections. The button is off, with the reason, in the same cases as Preview and Copy as code
+  and while an explain is running. A plan stays shown after you edit the pipeline, marked
+  **Out of date**.
+- Not yet: undo of a run, and options such as collation, hint and `allowDiskUse`. The draft that is not saved is kept per open connection while the app runs.
 
 ## Roadmap
 
@@ -331,7 +342,7 @@ contribute.
 
 - **Aggregation builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): built: stage list and text mode, a
   read-only, time-bounded preview of the selected stage, and saved pipelines (save, open, rename
-  and delete per connection), a confirmed `$out` / `$merge` run, and Copy as code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)). Later slices: explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) and per-stage
+  and delete per connection), a confirmed `$out` / `$merge` run, and Copy as code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)) and explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)). Later slices: per-stage
   counts; options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
 
 ### In progress
