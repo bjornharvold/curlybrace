@@ -38,7 +38,7 @@ pub fn show_findbar(
         open: more_open(state),
         hidden: hidden_count(&state.text),
     };
-    let blocked = find_blocked(&state.text, i18n);
+    let blocked = find_blocked(state, i18n);
     let row = query_row(
         ui,
         &mut state.text.filter,
@@ -231,6 +231,7 @@ mod tests {
             },
             last_error: Some(CoreError::InvalidJson("filter: x".into())),
             more: Some(true),
+            ..Default::default()
         };
         let before = s.clone();
         assert_eq!(run_frame(&mut s, true, true), None);

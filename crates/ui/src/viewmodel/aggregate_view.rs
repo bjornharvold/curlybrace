@@ -99,6 +99,9 @@ pub struct AggregateView {
     pub pending: Option<PendingEdit>,
     pub page: PageCache,
     pub statuses: StatusCache,
+    /// Whether the Copy as code button is on, remembered between repaints (see
+    /// `code_export_memo`); keyed on its inputs, so it needs no reset.
+    pub code_block: super::code_export_memo::CodeBlockMemo,
 }
 
 impl AggregateView {

@@ -132,7 +132,7 @@ fn show_header(
         });
         let refresh = refresh.clicked() && stages;
         let saved_actions = show_saved_toolbar(ui, draft, saved, i18n);
-        let blocked = aggregate_blocked(draft, &typed, i18n);
+        let blocked = aggregate_blocked(draft, &typed, view, i18n);
         let code = show_copy_code_button(ui, blocked.as_deref(), i18n);
         let run_clicked = show_run_button(ui, &run.availability, i18n);
         let (tone, key) = status_chip(&draft.preview);

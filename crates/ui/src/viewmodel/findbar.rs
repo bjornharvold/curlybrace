@@ -12,6 +12,9 @@ pub struct FindBarState {
     /// content (see [`super::findbar_more::more_open`]) until it is first shown open, which then
     /// sticks (see [`Self::more_settled`]). Clear drops the choice.
     pub more: Option<bool>,
+    /// Whether the text parses as typed for the Copy as code button, remembered between
+    /// repaints (see `code_export_memo`); keyed on the text, so it needs no reset.
+    pub export_memo: super::code_export_memo::FindExportMemo,
 }
 
 impl FindBarState {
@@ -116,6 +119,7 @@ mod tests {
             },
             last_error: Some(CoreError::InvalidJson("old".into())),
             more: None,
+            ..Default::default()
         }
     }
 
@@ -157,6 +161,7 @@ mod tests {
             },
             last_error: None,
             more: None,
+            ..Default::default()
         }
     }
 

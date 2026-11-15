@@ -5,26 +5,32 @@ use super::aggregate::pipeline_error_text;
 use crate::I18n;
 use crate::theme::{compact_text_button, gate, tonal_button};
 use crate::viewmodel::aggregate::AggregateState;
-use crate::viewmodel::code_export::{CodeBlock, stages_exported};
+use crate::viewmodel::aggregate_view::AggregateView;
+use crate::viewmodel::code_export::CodeBlock;
+use crate::viewmodel::findbar::FindBarState;
 use curlybrace_core::pipeline::Stage;
-use curlybrace_core::query::{QueryText, parse_export_query};
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
 /// Why the Aggregate tab has no code to offer, in words; `None` when it has.
 /// `stages` are the draft's own, or with the text still being typed applied.
-pub fn aggregate_blocked(draft: &AggregateState, stages: &[Stage], i18n: &I18n) -> Option<String> {
-    match stages_exported(draft, stages) {
-        Ok(_) => None,
-        Err(CodeBlock::Pipeline(error)) => Some(pipeline_error_text(&error, i18n)),
-        Err(CodeBlock::TextNotApplied) => Some(i18n.t("codegen.disabled.text_not_applied")),
+/// Asked every repaint, so the parsing behind it is remembered in `view` (see
+/// `viewmodel::code_export_memo`).
+pub fn aggregate_blocked(
+    draft: &AggregateState,
+    stages: &[Stage],
+    view: &AggregateView,
+    i18n: &I18n,
+) -> Option<String> {
+    match view.code_block(draft, stages)? {
+        CodeBlock::Pipeline(error) => Some(pipeline_error_text(&error, i18n)),
+        CodeBlock::TextNotApplied => Some(i18n.t("codegen.disabled.text_not_applied")),
     }
 }
 
 /// Why the query bar has no code to offer (its text does not parse), in words.
-pub fn find_blocked(text: &QueryText, i18n: &I18n) -> Option<String> {
-    parse_export_query(text)
-        .err()
-        .map(|error| i18n.error(&error))
+/// The parse is remembered in `state` between repaints.
+pub fn find_blocked(state: &FindBarState, i18n: &I18n) -> Option<String> {
+    state.export_error().map(|error| i18n.error(&error))
 }
 
 /// The Copy as code button; true when it was clicked while on. `blocked` is the reason it is

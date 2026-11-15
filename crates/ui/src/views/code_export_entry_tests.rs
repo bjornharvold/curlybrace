@@ -8,6 +8,7 @@ use crate::viewmodel::{FindAction, FindBarState};
 use crate::views::aggregate::show_aggregate;
 use crate::views::aggregate_run::RunContext;
 use crate::views::findbar::show_findbar;
+use curlybrace_core::query::QueryText;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
@@ -191,7 +192,7 @@ fn the_query_bar_button_is_off_with_the_parse_error_as_its_reason() {
     let label = t("codegen.button");
     let button = h.get_by_role_and_label(Role::Button, &label);
     assert!(button.accesskit_node().is_disabled());
-    let reason = find_blocked(&h.state().state.text, &I18n::english()).expect("does not parse");
+    let reason = find_blocked(&h.state().state, &I18n::english()).expect("does not parse");
     assert_eq!(button.accesskit_node().description(), Some(reason));
     button.click();
     h.run_steps(2);
@@ -250,4 +251,24 @@ fn the_icon_is_named_in_words_and_described_by_its_hint() {
         Some(t("codegen.button_hint"))
     );
     assert!(h.query_by_label(&t("codegen.button_icon")).is_none());
+}
+
+#[test]
+fn repaints_of_an_unchanged_tab_parse_the_stages_once() {
+    let mut h = tab(draft(&[("$match", r#"{ "$match": {} }"#)]));
+    h.run_steps(10);
+    assert_eq!(h.state().view.code_block_evaluations(), 1);
+    typing(&mut h, r#"{ "$match": { "a": 1 } }"#);
+    h.run_steps(5);
+    let after_typing = h.state().view.code_block_evaluations();
+    h.run_steps(10);
+    assert_eq!(h.state().view.code_block_evaluations(), after_typing);
+    assert!(after_typing >= 2, "the typed text is a new input");
+}
+
+#[test]
+fn repaints_of_an_unchanged_query_bar_parse_it_once() {
+    let mut h = bar(r#"{ "a": 1 }"#);
+    h.run_steps(10);
+    assert_eq!(h.state().state.export_error_evaluations(), 1);
 }

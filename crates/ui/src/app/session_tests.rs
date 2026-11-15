@@ -51,6 +51,7 @@ fn busy_view(n: i32) -> SessionView {
             },
             last_error: Some(CoreError::NotFound),
             more: None,
+            ..Default::default()
         },
         issued_query: Query {
             skip: 3 + n as u64,
