@@ -1,7 +1,7 @@
 //! Per-stage counts for the Aggregate tab's screenshots and layout tests: the pipeline of
 //! [`super::aggregate_shots::three_stage_draft`] counted stage by stage through the view model's
 //! own sequencer, so the cards show what the real app shows.
-use super::aggregate_shots::three_stage_draft;
+use super::aggregate_shots::{grouped_docs, three_stage_draft};
 use super::shots::browsing;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::COUNT_CAP;
@@ -48,6 +48,24 @@ pub fn counted_then_edited_draft() -> AggregateState {
     counted_draft().edit(2, "{\n  \"$sort\": { \"customers\": 1 }\n}")
 }
 
+/// Two compact stages, both counted, with the second previewed: every card and its count fit
+/// above the preview, which the three-stage draft's tall cards do not.
+pub fn two_counted_stages_draft() -> AggregateState {
+    let draft = AggregateState::default()
+        .add_stage("$match")
+        .add_stage("$group")
+        .edit(0, "{ \"$match\": { \"status\": \"active\" } }")
+        .edit(
+            1,
+            "{ \"$group\": { \"_id\": \"$city\", \"customers\": { \"$sum\": 1 } } }",
+        )
+        .select(1);
+    let (draft, sent) = draft.begin_preview();
+    let (request, _) = sent.expect("the fixture pipeline is valid");
+    let draft = draft.arrived(request, Ok(grouped_docs()));
+    counted(draft, vec![Ok(COUNT_CAP as u64), Ok(4)])
+}
+
 /// The Aggregate tab of a connected browser on `crm.customers` showing `draft`.
 pub fn tab_of(draft: AggregateState) -> impl Fn(&mut AppState) {
     let draft = std::sync::Arc::new(draft);
@@ -58,7 +76,7 @@ pub fn tab_of(draft: AggregateState) -> impl Fn(&mut AppState) {
     }
 }
 
-/// [`counted_draft`] in the Aggregate tab.
+/// [`two_counted_stages_draft`] in the Aggregate tab.
 pub fn aggregate_counts_tab(state: &mut AppState) {
-    tab_of(counted_draft())(state);
+    tab_of(two_counted_stages_draft())(state);
 }
