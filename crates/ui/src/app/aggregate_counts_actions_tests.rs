@@ -270,10 +270,16 @@ fn a_draft_change_ends_the_sequence_keeps_the_results_and_a_late_answer_changes_
         let (s, _) = act(s, change);
         assert!(!s.aggregate.counts.is_running());
         assert!(s.aggregate.counts.is_out_of_date(&s.aggregate.stages));
-        let before = s.aggregate.counts.clone();
+        let shown: Vec<_> = (0..s.aggregate.keys.len())
+            .map(|i| result_of(&s, i))
+            .collect();
         let (after, c) = ev(s, answer(id, second, 1, Ok(9)));
         assert!(c.is_empty(), "no next stage after a late answer");
-        assert_eq!(after.aggregate.counts, before);
+        assert!(!after.aggregate.counts.is_running());
+        let now: Vec<_> = (0..after.aggregate.keys.len())
+            .map(|i| result_of(&after, i))
+            .collect();
+        assert_eq!(now, shown, "the late answer is never a result");
     }
     let (s, _, _) = midway();
     let (s, _) = act(s, A::Edit(0, "{ \"$match\": { \"a\": 1 } }".into()));
@@ -448,4 +454,84 @@ fn an_answer_for_a_parked_session_lands_in_its_own_draft() {
         parked.counts.result_of(parked.keys[0]),
         Some(&StageCount::Exact(4))
     );
+}
+
+#[test]
+fn a_start_after_a_cancel_sends_nothing_until_the_old_count_answers() {
+    let (s, id) = drafted();
+    let (s, old) = started(s);
+    let (s, _) = counts(s, CountsAction::Cancel);
+    let (s, commands) = counts(s, CountsAction::Start);
+    assert!(commands.is_empty(), "two counts never run at once");
+    assert!(s.aggregate.counts.is_running(), "the start is waiting");
+    let (s, commands) = ev(s, answer(id, old, 0, Ok(77)));
+    let (request, stage) = one(&commands);
+    assert_eq!(stage, 0);
+    assert!(request > old);
+    assert!(s.aggregate.counts.awaits(request));
+    assert_eq!(result_of(&s, 0), None, "the old answer is never a result");
+}
+
+#[test]
+fn a_start_after_an_edit_waits_for_the_old_count_too() {
+    let (s, id) = drafted();
+    let (s, old) = started(s);
+    let (s, _) = act(s, A::Edit(0, "{ \"$match\": { \"a\": 1 } }".into()));
+    let (s, commands) = counts(s, CountsAction::Start);
+    assert!(commands.is_empty());
+    let (_, commands) = ev(s, answer(id, old, 0, Ok(1)));
+    assert_eq!(one(&commands).1, 0);
+}
+
+#[test]
+fn a_failed_old_count_releases_the_held_start_too() {
+    for error in [CoreError::Database("boom".into()), CoreError::Superseded] {
+        let (s, id) = drafted();
+        let (s, old) = started(s);
+        let (s, _) = counts(s, CountsAction::Cancel);
+        let (s, _) = counts(s, CountsAction::Start);
+        let (s, commands) = ev(s, failed_event(id, old, error.clone()));
+        let sends = sent(&commands);
+        assert_eq!(sends.len(), 1, "{error:?}");
+        assert_eq!(sends[0].1, 0);
+        assert_eq!(result_of(&s, 0), None);
+    }
+}
+
+#[test]
+fn a_late_answer_of_an_older_count_does_not_release_the_new_sequence_twice() {
+    let (s, id) = drafted();
+    let (s, old) = started(s);
+    let (s, _) = counts(s, CountsAction::Cancel);
+    let (s, _) = counts(s, CountsAction::Start);
+    let (s, commands) = ev(s, answer(id, old, 0, Ok(1)));
+    let (new, _) = one(&commands);
+    let (s, commands) = ev(s, answer(id, old, 0, Ok(2)));
+    assert!(commands.is_empty());
+    assert!(s.aggregate.counts.awaits(new));
+}
+
+#[test]
+fn losing_the_server_with_the_old_count_out_frees_the_slot() {
+    let (s, id) = drafted();
+    let (s, old) = started(s);
+    let (s, _) = counts(s, CountsAction::Cancel);
+    let (s, _) = counts(s, CountsAction::Start);
+    let (s, commands) = ev(s, failed_event(id, old, CoreError::Unreachable));
+    assert!(commands.is_empty(), "nothing is sent to a dead server");
+    assert!(!s.aggregate.counts.is_running(), "no stuck waiting state");
+}
+
+#[test]
+fn another_collection_frees_the_slot_of_the_old_count() {
+    let (s, _) = drafted();
+    let (s, _) = started(s);
+    let (s, _) = counts(s, CountsAction::Cancel);
+    let (s, _) = update(
+        s,
+        Input::Sidebar(SidebarAction::Open(Namespace::new("app", "orders"))),
+    );
+    let s = act(s, A::AddStage("$match".into())).0;
+    let (_, commands) = counts(s, CountsAction::Start);
+    assert_eq!(sent(&commands).len(), 1);
 }

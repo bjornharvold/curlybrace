@@ -171,6 +171,13 @@ fn answered(
         return (state, Vec::new());
     }
     let ui = std::mem::take(&mut state.aggregate.counts);
+    // The answer of a cancelled count frees the slot (and is never a result).
+    let (ui, held) = ui.released(request);
+    if held.is_some() {
+        let state = with_counts(state, ui);
+        let target = target(&state);
+        return sent(state, target, held);
+    }
     let Some(stage_index) = stage_index.or_else(|| ui.awaited_stage(request)) else {
         return (with_counts(state, ui), Vec::new());
     };
@@ -186,6 +193,18 @@ fn answered(
 fn failed(mut state: AppState, request: u64, error: CoreError) -> Out {
     match error {
         CoreError::Superseded | CoreError::Unreachable | CoreError::TlsHandshake => {
+            // A superseded count is gone from the server: the start held behind it goes out.
+            if error == CoreError::Superseded {
+                let (ui, held) = std::mem::take(&mut state.aggregate.counts).released(request);
+                if held.is_some() {
+                    let state = with_counts(state, ui);
+                    let target = target(&state);
+                    return sent(state, target, held);
+                }
+                state.aggregate.counts = ui;
+            }
+            // Nothing is out for the request any more: it ends the sequence awaiting it, or frees
+            // the slot it held (and the start held behind it ends: the connection is gone).
             let ui = std::mem::take(&mut state.aggregate.counts).given_up(request);
             (with_counts(state, ui), Vec::new())
         }

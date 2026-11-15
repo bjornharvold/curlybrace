@@ -75,6 +75,9 @@ enum Run {
     #[default]
     Idle,
     Running(Running),
+    /// A start held back behind the count still out on the server (see `CountsUi::lingering`):
+    /// its first count goes out when that one is released.
+    Held(Arc<[Queued]>),
 }
 
 /// A count to send: its request number, the stage it counts and the pipeline.
@@ -103,6 +106,10 @@ pub struct CountsUi {
     /// The newest request number given out; never reused, so a late answer never matches a newer
     /// sequence.
     request: u64,
+    /// A count that was cancelled (or whose sequence an edit ended) and may still be running on
+    /// the server. One count at a time holds even then: a new start is held back until this
+    /// request is released by its answer or failure, or by a loss or a reset.
+    lingering: Option<u64>,
 }
 
 impl PartialEq for CountsUi {
@@ -111,6 +118,8 @@ impl PartialEq for CountsUi {
             && self.results == other.results
             && self.counted_for == other.counted_for
             && self.running_request() == other.running_request()
+            && self.lingering == other.lingering
+            && self.is_running() == other.is_running()
     }
 }
 
@@ -128,12 +137,12 @@ impl CountsUi {
     fn running_request(&self) -> Option<u64> {
         match &self.run {
             Run::Running(r) => Some(r.request),
-            Run::Idle => None,
+            Run::Idle | Run::Held(_) => None,
         }
     }
 
     pub fn is_running(&self) -> bool {
-        matches!(self.run, Run::Running(_))
+        !matches!(self.run, Run::Idle)
     }
 
     /// Whether `request` is the count awaited.
@@ -151,7 +160,9 @@ impl CountsUi {
 
     /// A sequence for `plan` over `stages` (with their identities `keys`) starts: the old
     /// results are dropped, the stages that cannot be counted say so at once, and the first
-    /// count is sent. A sequence that is running is not restarted.
+    /// count is sent, unless a cancelled count is still out: then the start waits for it (every
+    /// card says so) and `released` sends the first count. A sequence that is running (or
+    /// waiting) is not restarted.
     pub fn begun(
         self,
         plan: CountPlan,
@@ -182,7 +193,36 @@ impl CountsUi {
             counted_for: Some(stages.into()),
             ..self
         };
-        fresh.sent_from(queue.into(), 0)
+        let queue: Arc<[Queued]> = queue.into();
+        match fresh.lingering {
+            Some(_) => (
+                Self {
+                    run: Run::Held(queue),
+                    ..fresh
+                },
+                None,
+            ),
+            None => fresh.sent_from(queue, 0),
+        }
+    }
+
+    /// The answer or failure of `request` arrived, whatever it says: when it is the cancelled
+    /// count still out, the slot is free and a held start sends its first count. Never a result.
+    pub fn released(self, request: u64) -> (Self, Option<CountSend>) {
+        if self.lingering != Some(request) {
+            return (self, None);
+        }
+        let freed = Self {
+            lingering: None,
+            ..self
+        };
+        match &freed.run {
+            Run::Held(queue) => {
+                let queue = queue.clone();
+                freed.sent_from(queue, 0)
+            }
+            _ => (freed, None),
+        }
     }
 
     /// The answer to the count of stage `stage_index` under `request`; any other is stale and
@@ -242,31 +282,48 @@ impl CountsUi {
         )
     }
 
-    /// The count awaited under `request` gave up without an answer (its connection was replaced,
-    /// or it was lost): the sequence ends, the results so far stay.
+    /// The count under `request` gave up without an answer (its connection was replaced, or it
+    /// was lost, or it could not be sent): nothing is out for it any more. A sequence awaiting it
+    /// ends and so does a start held behind it; the results so far stay.
     pub fn given_up(self, request: u64) -> Self {
-        match self.awaits(request) {
-            true => self.cancelled(),
-            false => self,
+        match (self.awaits(request), self.lingering == Some(request)) {
+            (true, _) => Self {
+                run: Run::Idle,
+                ..self
+            },
+            (_, true) => Self {
+                run: Run::Idle,
+                lingering: None,
+                ..self
+            },
+            _ => self,
         }
     }
 
     /// The sequence ends (Cancel, an edit, a session switch): nothing is awaited any more and an
-    /// answer still on its way is ignored; the results so far stay.
+    /// answer still on its way is ignored; the results so far stay. The count in flight may
+    /// still be running on the server: it is remembered (`lingering`) so a new start waits for it.
     pub fn cancelled(self) -> Self {
-        match self.run {
+        match &self.run {
             Run::Idle => self,
-            Run::Running(_) => Self {
+            Run::Held(_) => Self {
+                run: Run::Idle,
+                ..self
+            },
+            Run::Running(r) => Self {
+                lingering: Some(r.request),
                 run: Run::Idle,
                 ..self
             },
         }
     }
 
-    /// The counts no longer apply (another collection, a new connection): nothing is shown.
+    /// The counts no longer apply (another collection, a new connection): nothing is shown and
+    /// nothing is waited for (the old count's answer is stale whenever it comes).
     pub fn reset(self) -> Self {
         Self {
             run: Run::Idle,
+            lingering: None,
             results: Arc::from([]),
             counted_for: None,
             ..self
@@ -280,8 +337,15 @@ impl CountsUi {
 
     /// Whether the card at stage `index` is being counted or is waiting for its turn.
     pub fn progress_of(&self, index: usize) -> Option<Progress> {
-        let Run::Running(r) = &self.run else {
-            return None;
+        let r = match &self.run {
+            Run::Running(r) => r,
+            Run::Held(queue) => {
+                return queue
+                    .iter()
+                    .any(|q| q.index == index)
+                    .then_some(Progress::Waiting);
+            }
+            Run::Idle => return None,
         };
         match (
             r.index == index,

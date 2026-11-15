@@ -131,7 +131,9 @@ fn a_new_sequence_drops_the_old_results_and_never_reuses_a_request_number() {
     let (ui, first) = started(&d);
     let ui = ui.cancelled();
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    let (ui, again) = ui.begun(plan, &d.stages, &d.keys);
+    let (ui, held) = ui.begun(plan, &d.stages, &d.keys);
+    assert_eq!(held, None, "the cancelled count is still out");
+    let (ui, again) = ui.released(first.request);
     let again = again.expect("sent");
     assert!(again.request > first.request);
     assert_eq!(ui.result_of(d.keys[0]), None);
@@ -181,4 +183,89 @@ fn the_debug_text_names_no_pipeline_and_no_number() {
         !text.contains("123456") && !text.contains("$match"),
         "{text}"
     );
+}
+
+/// A sequence cancelled with its first count still out, and a new Start held back behind it.
+fn held_behind_the_cancelled(d: &AggregateState) -> (CountsUi, CountSend) {
+    let (ui, first) = started(d);
+    let plan = count_plan(d, &d.stages).expect("a plan");
+    let (ui, send) = ui.cancelled().begun(plan, &d.stages, &d.keys);
+    assert_eq!(send, None, "nothing goes out while the old count is out");
+    (ui, first)
+}
+
+#[test]
+fn a_start_after_a_cancel_waits_for_the_count_still_out() {
+    let d = draft();
+    let (ui, first) = held_behind_the_cancelled(&d);
+    assert!(ui.is_running(), "Cancel is offered for the held start");
+    assert!(!ui.awaits(first.request));
+    assert_eq!(ui.progress_of(0), Some(Progress::Waiting));
+    assert_eq!(ui.progress_of(2), Some(Progress::Waiting));
+}
+
+#[test]
+fn the_answer_of_the_old_count_releases_the_held_start_and_is_never_a_result() {
+    let d = draft();
+    let (ui, first) = held_behind_the_cancelled(&d);
+    let (ui, none) = ui.clone().answered(first.request, 0, Ok(99));
+    assert_eq!(none, None, "`answered` is for the count awaited only");
+    assert_eq!(ui.result_of(d.keys[0]), None);
+    let (ui, send) = ui.released(first.request);
+    let send = send.expect("stage 0 of the new sequence goes out");
+    assert_eq!(send.stage_index, 0);
+    assert!(send.request > first.request);
+    assert!(ui.awaits(send.request));
+    assert_eq!(ui.result_of(d.keys[0]), None);
+}
+
+#[test]
+fn another_request_releases_nothing() {
+    let d = draft();
+    let (ui, first) = held_behind_the_cancelled(&d);
+    let (same, none) = ui.clone().released(first.request + 7);
+    assert_eq!((same, none), (ui, None));
+}
+
+#[test]
+fn a_release_without_a_held_start_only_frees_the_slot() {
+    let d = draft();
+    let (ui, first) = started(&d);
+    let ui = ui.cancelled();
+    let (ui, none) = ui.released(first.request);
+    assert_eq!(none, None);
+    let plan = count_plan(&d, &d.stages).expect("a plan");
+    assert!(ui.begun(plan, &d.stages, &d.keys).1.is_some(), "free again");
+}
+
+#[test]
+fn cancelling_a_held_start_keeps_the_old_count_out() {
+    let d = draft();
+    let (ui, first) = held_behind_the_cancelled(&d);
+    let ui = ui.cancelled();
+    assert!(!ui.is_running());
+    let plan = count_plan(&d, &d.stages).expect("a plan");
+    let (ui, send) = ui.begun(plan, &d.stages, &d.keys);
+    assert_eq!(send, None, "still held behind the old count");
+    assert_eq!(ui.released(first.request).1.map(|s| s.stage_index), Some(0));
+}
+
+#[test]
+fn giving_up_the_old_count_frees_the_slot_and_ends_the_held_start() {
+    let d = draft();
+    let (ui, first) = held_behind_the_cancelled(&d);
+    let ui = ui.given_up(first.request);
+    assert!(!ui.is_running());
+    let plan = count_plan(&d, &d.stages).expect("a plan");
+    assert!(ui.begun(plan, &d.stages, &d.keys).1.is_some());
+}
+
+#[test]
+fn a_reset_forgets_the_count_still_out() {
+    let d = draft();
+    let (ui, _) = held_behind_the_cancelled(&d);
+    let ui = ui.reset();
+    assert!(!ui.is_running());
+    let plan = count_plan(&d, &d.stages).expect("a plan");
+    assert!(ui.begun(plan, &d.stages, &d.keys).1.is_some());
 }
