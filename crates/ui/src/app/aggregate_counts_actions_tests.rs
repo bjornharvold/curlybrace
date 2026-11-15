@@ -512,14 +512,27 @@ fn a_late_answer_of_an_older_count_does_not_release_the_new_sequence_twice() {
 }
 
 #[test]
-fn losing_the_server_with_the_old_count_out_frees_the_slot() {
+fn losing_the_server_with_the_old_count_out_fails_the_session_and_sends_nothing() {
+    for error in [CoreError::Unreachable, CoreError::TlsHandshake] {
+        let (s, id) = drafted();
+        let (s, old) = started(s);
+        let (s, _) = counts(s, CountsAction::Cancel);
+        let (s, _) = counts(s, CountsAction::Start);
+        let (s, commands) = ev(s, failed_event(id, old, error));
+        assert!(commands.is_empty(), "nothing is sent to a dead server");
+        assert_eq!(s.status, ConnStatus::Failed);
+        assert!(!s.aggregate.counts.is_running(), "no stuck waiting state");
+    }
+}
+
+#[test]
+fn losing_the_server_with_the_old_count_out_and_no_start_held_fails_the_session_too() {
     let (s, id) = drafted();
     let (s, old) = started(s);
     let (s, _) = counts(s, CountsAction::Cancel);
-    let (s, _) = counts(s, CountsAction::Start);
     let (s, commands) = ev(s, failed_event(id, old, CoreError::Unreachable));
-    assert!(commands.is_empty(), "nothing is sent to a dead server");
-    assert!(!s.aggregate.counts.is_running(), "no stuck waiting state");
+    assert!(commands.is_empty());
+    assert_eq!(s.status, ConnStatus::Failed);
 }
 
 #[test]

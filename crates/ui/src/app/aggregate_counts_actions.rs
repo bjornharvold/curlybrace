@@ -137,7 +137,8 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
 }
 
 /// The error of a count failure that says the server is gone, for the request its connected
-/// session still awaits; `None` for anything else (a late echo of an older request included).
+/// session still awaits or a cancelled count of it still out (its held start must not go out
+/// into the dead connection); `None` for anything else (a late echo of an older request included).
 fn lost_server(state: &AppState, ev: &Event) -> Option<CoreError> {
     let Event::RequestFailed {
         session,
@@ -152,7 +153,7 @@ fn lost_server(state: &AppState, ev: &Event) -> Option<CoreError> {
         true => Some(&*state.aggregate),
         false => state.parked.get(session).map(|v| &*v.aggregate),
     };
-    let awaited = draft.is_some_and(|d| d.counts.awaits(*request));
+    let awaited = draft.is_some_and(|d| d.counts.awaits(*request) || d.counts.lingers(*request));
     let connected = state.status_of(*session) == Some(ConnStatus::Connected);
     (awaited && connected).then(|| error.clone())
 }

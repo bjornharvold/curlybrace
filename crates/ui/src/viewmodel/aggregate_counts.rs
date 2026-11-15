@@ -150,6 +150,11 @@ impl CountsUi {
         self.running_request() == Some(request)
     }
 
+    /// Whether `request` is a cancelled count still out on the server.
+    pub fn lingers(&self, request: u64) -> bool {
+        self.lingering == Some(request)
+    }
+
     /// The stage the count under `request` is for, while it is the one awaited.
     pub fn awaited_stage(&self, request: u64) -> Option<usize> {
         match &self.run {
@@ -320,6 +325,8 @@ impl CountsUi {
 
     /// The counts no longer apply (another collection, a new connection): nothing is shown and
     /// nothing is waited for (the old count's answer is stale whenever it comes).
+    // Known and accepted: this forgets a cancelled count still out on the server too (the new
+    // collection's start is not held behind it); the server's own time limit bounds it.
     pub fn reset(self) -> Self {
         Self {
             run: Run::Idle,
