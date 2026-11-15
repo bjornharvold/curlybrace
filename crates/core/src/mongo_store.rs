@@ -15,6 +15,7 @@ use crate::bulk::{
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key};
 use crate::compare::keyset::{IndexInfo, index_serves_sort, keyset_filter};
 use crate::error::{CoreError, Result};
+use crate::explain::ExplainVerbosity;
 use crate::indexes::IndexSpec;
 use crate::store::{
     CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
@@ -431,6 +432,23 @@ impl DocumentStore for MongoStore {
             &self.client.database(&ns.db),
             ns,
             pipeline,
+            max_time,
+        )
+        .await
+    }
+
+    async fn aggregate_explain(
+        &self,
+        ns: &Namespace,
+        pipeline: Vec<Document>,
+        verbosity: ExplainVerbosity,
+        max_time: Duration,
+    ) -> Result<Explain> {
+        crate::mongo_pipeline::aggregate_explain(
+            &self.client.database(&ns.db),
+            ns,
+            pipeline,
+            verbosity,
             max_time,
         )
         .await

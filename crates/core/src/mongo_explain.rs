@@ -79,7 +79,10 @@ pub(crate) fn explain_criteria(db: &Database) -> Option<SelectionCriteria> {
     db.selection_criteria().cloned()
 }
 
-async fn run_explain(db: &Database, command: Document) -> mongodb::error::Result<Document> {
+pub(crate) async fn run_explain(
+    db: &Database,
+    command: Document,
+) -> mongodb::error::Result<Document> {
     db.run_command(command)
         .optional(explain_criteria(db), |action, c| {
             action.selection_criteria(c)

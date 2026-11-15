@@ -19,6 +19,7 @@ use super::query_eval::{check_filter, compare, matches, parse_sort, project};
 use crate::admin::{CollectionStats, DatabaseStats};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
+use crate::explain::ExplainVerbosity;
 use crate::indexes::{IndexOptions, IndexSpec};
 use crate::store::{
     CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
@@ -335,6 +336,16 @@ impl DocumentStore for InMemoryStore {
         max_time: Duration,
     ) -> Result<Vec<Document>> {
         self.run_aggregate(pipeline, max_time)
+    }
+
+    async fn aggregate_explain(
+        &self,
+        _ns: &Namespace,
+        pipeline: Vec<Document>,
+        verbosity: ExplainVerbosity,
+        _max_time: Duration,
+    ) -> Result<Explain> {
+        self.run_aggregate_explain(pipeline, verbosity)
     }
 
     async fn aggregate_write(
