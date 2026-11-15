@@ -65,6 +65,8 @@ pub enum AggregateAction {
     /// The Explain section: running it, its verbosity and tab. Carried here for the same reason
     /// as `Code`.
     Explain(super::ExplainAction),
+    /// The per-stage counts: Count stages and Cancel. Carried here for the same reason.
+    Counts(super::CountsAction),
 }
 
 impl AggregateAction {
@@ -113,6 +115,9 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::Explain(explain) => {
             return super::aggregate_explain_actions::on_action(state, explain);
         }
+        AggregateAction::Counts(counts) => {
+            return super::aggregate_counts_actions::on_action(state, counts);
+        }
         other => other,
     };
     let draft = (*state.aggregate).clone();
@@ -122,6 +127,7 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::Explain(explain) => {
             super::aggregate_explain_actions::on_action(state, explain)
         }
+        AggregateAction::Counts(counts) => super::aggregate_counts_actions::on_action(state, counts),
         AggregateAction::AddStage(name) => changed(state, draft.add_stage(&name)),
         AggregateAction::Remove(i) => changed(state, draft.remove(i)),
         AggregateAction::MoveUp(i) => changed(state, draft.move_up(i)),
@@ -132,7 +138,7 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::SetMode(mode) => set_mode(state, draft, mode),
         AggregateAction::EditText(text) => (with_draft(state, draft.with_text(&text)), Vec::new()),
         AggregateAction::Refresh => previewed(state, draft),
-        AggregateAction::Batch(actions) => batch(state, actions),
+        AggregateAction::Batch(actions) => super::aggregate_batch::batch(state, actions),
         // Listed one by one, so a new variant must be placed here and `Batch` can never fall
         // through to the saved-pipelines handler.
         run @ (AggregateAction::RunClicked
@@ -153,36 +159,6 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
             super::aggregate_saved_actions::on_action(state, saved)
         }
     }
-}
-
-/// Applies the actions of one frame in order. Each change still bumps the request, but only the
-/// preview of the request that is current afterwards is sent: the earlier ones would be stale on
-/// arrival, and each could run on the server for up to its time limit. When the last change was
-/// refused (shown as failed, nothing sent) no preview is sent at all.
-fn batch(state: AppState, actions: Vec<AggregateAction>) -> Out {
-    let (state, commands) =
-        actions
-            .into_iter()
-            .fold((state, Vec::new()), |(state, mut commands), action| {
-                let (next, more) = on_action(state, action);
-                commands.extend(more);
-                (next, commands)
-            });
-    let current = state.aggregate.request;
-    let (kept, unwanted): (Vec<_>, Vec<_>) = commands.into_iter().partition(
-        |c| !matches!(c, Command::AggregatePreview { request, .. } if *request != current),
-    );
-    // A preview sent for an intermediate change was dropped: its slot is free, and the
-    // current request, if it waited behind it, goes out in its place.
-    let state = unwanted.iter().fold(state, |state, c| match c {
-        Command::AggregatePreview { request, .. } => {
-            let draft = (*state.aggregate).clone().unsent(*request);
-            with_draft(state, draft)
-        }
-        _ => state,
-    });
-    let (state, flushed) = flushed(state);
-    (state, kept.into_iter().chain(flushed).collect())
 }
 
 /// `state` holding `draft` as the active session's Aggregate draft.
@@ -249,7 +225,7 @@ pub(super) fn target(state: &AppState) -> Option<(Uuid, Namespace)> {
 }
 
 /// Sends the preview that waited for the slot, when one is free and it still applies.
-fn flushed(state: AppState) -> Out {
+pub(super) fn flushed(state: AppState) -> Out {
     let target = target(&state);
     let ns = target.as_ref().map(|(_, ns)| ns);
     let (draft, send) = (*state.aggregate).clone().flushed(ns);
@@ -394,10 +370,6 @@ fn request_failed(state: AppState, request: u64, error: CoreError, release: bool
 #[cfg(test)]
 #[path = "aggregate_actions_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "aggregate_batch_tests.rs"]
-mod batch_tests;
 
 #[cfg(test)]
 #[path = "aggregate_flight_tests.rs"]

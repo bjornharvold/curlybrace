@@ -141,6 +141,14 @@ impl CountsUi {
         self.running_request() == Some(request)
     }
 
+    /// The stage the count under `request` is for, while it is the one awaited.
+    pub fn awaited_stage(&self, request: u64) -> Option<usize> {
+        match &self.run {
+            Run::Running(r) if r.request == request => Some(r.index),
+            _ => None,
+        }
+    }
+
     /// A sequence for `plan` over `stages` (with their identities `keys`) starts: the old
     /// results are dropped, the stages that cannot be counted say so at once, and the first
     /// count is sent. A sequence that is running is not restarted.
@@ -275,6 +283,11 @@ impl CountsUi {
             (false, true) => Some(Progress::Waiting),
             (false, false) => None,
         }
+    }
+
+    /// Whether both hold the very same results (a repaint or an ordinary action copies none).
+    pub fn shares_results_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.results, &other.results)
     }
 
     /// Whether the counts shown were made for stages other than `stages`.
