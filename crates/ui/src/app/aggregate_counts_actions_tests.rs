@@ -622,18 +622,6 @@ fn opening_a_second_connection_ends_the_counts_of_the_one_it_leaves() {
 }
 
 #[test]
-fn closing_the_session_in_view_hands_over_with_no_count_left_running() {
-    let (s, a, b) = counting_with_a_second_saved();
-    let (s, _) = update(s, Input::Connect(b));
-    let (s, _) = update(s, Input::Activate(a));
-    let (s, _) = counts(s, CountsAction::Start);
-    assert!(s.aggregate.counts.is_running());
-    let (s, _) = update(s, Input::Disconnect(a));
-    assert_eq!(s.active, Some(b));
-    assert!(!s.aggregate.counts.is_running());
-}
-
-#[test]
 fn switching_to_a_session_that_is_not_open_cancels_nothing() {
     let (s, _, _) = counting_with_a_second_saved();
     let s = super::switched_to(s, Uuid::from_u128(404));

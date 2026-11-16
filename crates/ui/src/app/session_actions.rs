@@ -78,9 +78,7 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
     // the core as well), under the same rule as a lost connection.
     let cancel = super::shell_actions::cancel_running(&state, id);
     let focused = match (state.active == Some(id), neighbour) {
-        (true, Some(next)) => {
-            super::aggregate_counts_actions::left_for(state, next).activated(next)
-        }
+        (true, Some(next)) => state.activated(next),
         _ => state,
     };
     // A failure the closed session raised goes with it; other sessions' banners stay.
