@@ -14,6 +14,7 @@ use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::explain::ExplainVerbosity;
 use crate::indexes::IndexSpec;
+use crate::pipeline::AppliedOptions;
 use crate::profile::ProfileEntry;
 
 /// How the connected MongoDB server is deployed, as its `hello` reply tells.
@@ -484,12 +485,13 @@ pub trait DocumentStore: Send + Sync {
     /// Runs `pipeline` on `ns` as a preview and returns its documents. A read, so a read-only
     /// connection may call it. Refuses a pipeline holding `$out` or `$merge` at any depth
     /// before it reaches the server; the caller bounds the size with its own `$limit` and the
-    /// server stops the work after `max_time`.
+    /// server stops the work after `options.max_time`. The store never spills to disk here,
+    /// whatever `options` says.
     async fn aggregate_preview(
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<Vec<Document>> {
         Err(CoreError::Unsupported(
             "this store cannot preview a pipeline".into(),
@@ -499,13 +501,14 @@ pub trait DocumentStore: Send + Sync {
     /// Explains `pipeline` on `ns`: the server's plan of an aggregate. A read, so a read-only
     /// connection may call it. Refuses a pipeline holding `$out` or `$merge` at any depth before
     /// it reaches the server. `QueryPlanner` never runs the pipeline; `ExecutionStats` does, and
-    /// the server stops after `max_time`. The answer has `plan_only` set for `QueryPlanner`.
+    /// the server stops after `options.max_time`. The answer has `plan_only` set for
+    /// `QueryPlanner`.
     async fn aggregate_explain(
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
         _verbosity: ExplainVerbosity,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<Explain> {
         Err(CoreError::Unsupported(
             "this store cannot explain a pipeline".into(),
@@ -514,12 +517,13 @@ pub trait DocumentStore: Send + Sync {
 
     /// Runs `pipeline` on `ns` for its effect: its last stage is the single `$out` or `$merge`.
     /// A write, so a read-only connection refuses it first. Refuses any other shape before it
-    /// reaches the server; the server stops the work after `max_time`.
+    /// reaches the server; the server stops the work after `options.max_time`. The store always
+    /// selects the primary, whatever `options` and the connection say.
     async fn aggregate_write(
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<()> {
         Err(CoreError::Unsupported(
             "this store cannot run a write pipeline".into(),

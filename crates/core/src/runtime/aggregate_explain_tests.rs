@@ -10,6 +10,7 @@ use bson::{Bson, Document, doc};
 use super::aggregate_tests::{connected_to, next};
 use super::*;
 use crate::explain::{AGGREGATE_EXPLAIN_MAX_TIME_MS, ExplainVerbosity};
+use crate::pipeline::AppliedOptions;
 use crate::store::{Explain, Namespace, Query};
 use crate::test_support::InMemoryStore;
 use crate::test_support::mock_objects::mock_namespace;
@@ -149,7 +150,7 @@ impl DocumentStore for ScriptedExplain {
         _ns: &Namespace,
         _pipeline: Vec<Document>,
         _verbosity: ExplainVerbosity,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<Explain> {
         match &self.error {
             Some(error) => Err(error.clone()),

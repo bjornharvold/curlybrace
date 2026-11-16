@@ -7,6 +7,7 @@ use super::handlers::{COMMAND_TIMEOUT_MESSAGE, is_connection_error};
 use super::{Command, Event, SessionId};
 use crate::error::{CoreError, Result};
 use crate::explain::{AGGREGATE_EXPLAIN_MAX_TIME_MS, ExplainVerbosity};
+use crate::pipeline::{AppliedOptions, Operation};
 use crate::store::{DocumentStore, Namespace};
 
 /// Explains `stages`. Every failure of the pipeline, the store's write-stage refusal included, is
@@ -22,8 +23,9 @@ pub(super) async fn run(
     verbosity: ExplainVerbosity,
 ) -> Result<Event> {
     let max_time = std::time::Duration::from_millis(AGGREGATE_EXPLAIN_MAX_TIME_MS);
+    let options = AppliedOptions::bounded(Operation::Explain, max_time);
     let outcome = match store
-        .aggregate_explain(&ns, stages, verbosity, max_time)
+        .aggregate_explain(&ns, stages, verbosity, &options)
         .await
     {
         Err(error) if is_connection_error(&error) => return Err(error),

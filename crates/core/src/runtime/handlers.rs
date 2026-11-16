@@ -441,7 +441,11 @@ async fn data_command(
             // not the pipeline's failure: it fails the command like any read's, so `run` settles
             // an interruption by a ping and the UI learns the server is gone.
             let max_time = std::time::Duration::from_millis(crate::pipeline::PREVIEW_MAX_TIME_MS);
-            let outcome = match store.aggregate_preview(&ns, pipeline, max_time).await {
+            let options = crate::pipeline::AppliedOptions::bounded(
+                crate::pipeline::Operation::Preview,
+                max_time,
+            );
+            let outcome = match store.aggregate_preview(&ns, pipeline, &options).await {
                 Err(error) if is_connection_error(&error) => return Err(error),
                 other => other,
             };

@@ -11,7 +11,8 @@ use bson::{Bson, Document, doc};
 use curlybrace_core::error::CoreError;
 use curlybrace_core::mongo_store::MongoStore;
 use curlybrace_core::pipeline::{
-    PREVIEW_LIMIT, PREVIEW_MAX_TIME_MS, PipelineError, Stage, preview_pipeline,
+    AppliedOptions, Operation, PREVIEW_LIMIT, PREVIEW_MAX_TIME_MS, PipelineError, Stage,
+    preview_pipeline,
 };
 use curlybrace_core::read_only_store::ReadOnlyStore;
 use curlybrace_core::store::{DocumentStore, Namespace};
@@ -19,6 +20,10 @@ use mongodb::Client;
 use support::{insert_labelled, local_enabled, local_mongo};
 
 const MAX_TIME: Duration = Duration::from_millis(PREVIEW_MAX_TIME_MS);
+
+fn bounded(d: Duration) -> AppliedOptions {
+    AppliedOptions::bounded(Operation::Preview, d)
+}
 
 fn stages(texts: &[&str]) -> Vec<Stage> {
     texts
@@ -40,7 +45,7 @@ fn orders() -> Vec<Document> {
 async fn preview(store: &dyn DocumentStore, ns: &Namespace, texts: &[&str]) -> Vec<Document> {
     let plan = preview_pipeline(&stages(texts), texts.len() - 1, PREVIEW_LIMIT).unwrap();
     store
-        .aggregate_preview(ns, plan.pipeline, MAX_TIME)
+        .aggregate_preview(ns, plan.pipeline, &bounded(MAX_TIME))
         .await
         .unwrap()
 }
@@ -156,7 +161,7 @@ async fn a_trailing_out_or_merge_is_not_run() {
         let plan = preview_pipeline(&stages(&texts), 1, PREVIEW_LIMIT).unwrap();
         assert_eq!(plan.not_run.len(), 1, "{write}");
         let docs = store
-            .aggregate_preview(&ns, plan.pipeline, MAX_TIME)
+            .aggregate_preview(&ns, plan.pipeline, &bounded(MAX_TIME))
             .await
             .unwrap();
         assert_eq!(docs.len(), 10, "{write}");
@@ -172,11 +177,11 @@ async fn a_trailing_out_or_merge_is_not_run() {
     let texts = ["{\"$match\": {}}", r#"{"$out": "existing"}"#];
     let plan = preview_pipeline(&stages(&texts), 1, PREVIEW_LIMIT).unwrap();
     store
-        .aggregate_preview(&ns, plan.pipeline, MAX_TIME)
+        .aggregate_preview(&ns, plan.pipeline, &bounded(MAX_TIME))
         .await
         .unwrap();
     let kept: Vec<Document> = store
-        .aggregate_preview(&target, vec![doc! { "$match": {} }], MAX_TIME)
+        .aggregate_preview(&target, vec![doc! { "$match": {} }], &bounded(MAX_TIME))
         .await
         .unwrap();
     assert_eq!(kept, vec![doc! { "_id": "keep" }]);
@@ -206,7 +211,7 @@ async fn a_nested_write_stage_is_refused_before_the_server() {
         // Forced straight into the store, the store still refuses before any server call.
         let pipeline = vec![serde_json::from_str::<Document>(text).unwrap()];
         let err = store
-            .aggregate_preview(&ns, pipeline, MAX_TIME)
+            .aggregate_preview(&ns, pipeline, &bounded(MAX_TIME))
             .await
             .unwrap_err();
         assert!(matches!(err, CoreError::InvalidDocument(_)), "{err:?}");
@@ -238,7 +243,7 @@ async fn max_time_expiry_is_the_timeout_error() {
         doc! { "$group": { "_id": null, "n": { "$sum": { "$size": "$cross" } } } },
     ];
     let err = store
-        .aggregate_preview(&ns, pipeline, Duration::from_millis(50))
+        .aggregate_preview(&ns, pipeline, &bounded(Duration::from_millis(50)))
         .await
         .unwrap_err();
     assert_eq!(err, CoreError::Database("timeout".into()));

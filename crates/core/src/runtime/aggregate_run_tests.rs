@@ -8,6 +8,7 @@ use bson::{Bson, Document, doc};
 
 use super::aggregate_tests::{connected_to, next};
 use super::*;
+use crate::pipeline::AppliedOptions;
 use crate::store::{Namespace, Query};
 use crate::test_support::InMemoryStore;
 use crate::test_support::mock_objects::mock_namespace;
@@ -240,7 +241,7 @@ impl DocumentStore for HangingWrite {
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<()> {
         std::future::pending().await
     }
@@ -362,7 +363,7 @@ impl DocumentStore for CountFails {
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<()> {
         Ok(())
     }

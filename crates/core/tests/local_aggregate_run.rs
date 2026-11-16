@@ -9,12 +9,18 @@ use std::time::Duration;
 
 use bson::{Document, doc};
 use curlybrace_core::error::CoreError;
-use curlybrace_core::pipeline::{AGGREGATE_RUN_MAX_TIME_MS, Stage, run_pipeline};
+use curlybrace_core::pipeline::{
+    AGGREGATE_RUN_MAX_TIME_MS, AppliedOptions, Operation, Stage, run_pipeline,
+};
 use curlybrace_core::read_only_store::ReadOnlyStore;
 use curlybrace_core::store::{DocumentStore, Namespace};
 use support::{insert_labelled, local_enabled, local_mongo};
 
 const MAX_TIME: Duration = Duration::from_millis(AGGREGATE_RUN_MAX_TIME_MS);
+
+fn bounded(d: Duration) -> AppliedOptions {
+    AppliedOptions::bounded(Operation::Run, d)
+}
 
 fn stages(texts: &[&str]) -> Vec<Stage> {
     texts
@@ -31,7 +37,7 @@ async fn all(store: &dyn DocumentStore, ns: &Namespace) -> Vec<Document> {
         .aggregate_preview(
             ns,
             vec![doc! { "$sort": { "_id": 1 } }, doc! { "$limit": 100 }],
-            Duration::from_secs(10),
+            &AppliedOptions::bounded(Operation::Preview, Duration::from_secs(10)),
         )
         .await
         .unwrap()
@@ -58,7 +64,7 @@ async fn out_replaces_the_target_and_merge_merges_and_the_source_is_untouched() 
     ]))
     .unwrap();
     store
-        .aggregate_write(&source, plan.pipeline, MAX_TIME)
+        .aggregate_write(&source, plan.pipeline, &bounded(MAX_TIME))
         .await
         .unwrap();
     assert_eq!(
@@ -85,7 +91,7 @@ async fn out_replaces_the_target_and_merge_merges_and_the_source_is_untouched() 
     ]))
     .unwrap();
     store
-        .aggregate_write(&source, plan.pipeline, MAX_TIME)
+        .aggregate_write(&source, plan.pipeline, &bounded(MAX_TIME))
         .await
         .unwrap();
     assert_eq!(
@@ -107,7 +113,7 @@ async fn out_replaces_the_target_and_merge_merges_and_the_source_is_untouched() 
     );
     let plan = run_pipeline(&stages(&[&text])).unwrap();
     store
-        .aggregate_write(&source, plan.pipeline, MAX_TIME)
+        .aggregate_write(&source, plan.pipeline, &bounded(MAX_TIME))
         .await
         .unwrap();
     assert_eq!(store.estimated_count(&elsewhere).await.unwrap(), 6);
@@ -133,7 +139,7 @@ async fn a_misshapen_run_and_a_locked_connection_never_write() {
         vec![doc! { "$out": "never_b" }, doc! { "$merge": "never_c" }],
     ] {
         let err = store
-            .aggregate_write(&source, pipeline, MAX_TIME)
+            .aggregate_write(&source, pipeline, &bounded(MAX_TIME))
             .await
             .unwrap_err();
         assert!(matches!(err, CoreError::InvalidDocument(_)), "{err:?}");
@@ -143,7 +149,7 @@ async fn a_misshapen_run_and_a_locked_connection_never_write() {
     let plan = run_pipeline(&stages(&[r#"{"$out": "never_d"}"#])).unwrap();
     assert_eq!(
         locked
-            .aggregate_write(&source, plan.pipeline, MAX_TIME)
+            .aggregate_write(&source, plan.pipeline, &bounded(MAX_TIME))
             .await,
         Err(CoreError::ReadOnly)
     );

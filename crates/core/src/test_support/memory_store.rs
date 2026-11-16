@@ -5,7 +5,6 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
-use std::time::Duration;
 
 use async_trait::async_trait;
 use bson::{Bson, Document, oid::ObjectId};
@@ -333,9 +332,9 @@ impl DocumentStore for InMemoryStore {
         &self,
         _ns: &Namespace,
         pipeline: Vec<Document>,
-        max_time: Duration,
+        options: &crate::pipeline::AppliedOptions,
     ) -> Result<Vec<Document>> {
-        self.run_aggregate(pipeline, max_time)
+        self.run_aggregate(pipeline, options)
     }
 
     async fn aggregate_explain(
@@ -343,18 +342,18 @@ impl DocumentStore for InMemoryStore {
         _ns: &Namespace,
         pipeline: Vec<Document>,
         verbosity: ExplainVerbosity,
-        _max_time: Duration,
+        options: &crate::pipeline::AppliedOptions,
     ) -> Result<Explain> {
-        self.run_aggregate_explain(pipeline, verbosity)
+        self.run_aggregate_explain(pipeline, verbosity, options)
     }
 
     async fn aggregate_write(
         &self,
         ns: &Namespace,
         pipeline: Vec<Document>,
-        _max_time: Duration,
+        options: &crate::pipeline::AppliedOptions,
     ) -> Result<()> {
-        self.run_aggregate_write(ns, pipeline)
+        self.run_aggregate_write(ns, pipeline, options)
     }
 
     /// Answers the same scripted document as `explain_find`, flagged plan-only.

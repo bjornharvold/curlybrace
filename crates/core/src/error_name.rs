@@ -58,6 +58,9 @@ pub(crate) fn variant_of(error: &CoreError) -> &'static str {
         CoreError::SnapshotOtherConnection => "SnapshotOtherConnection",
         CoreError::BulkCancelled => "BulkCancelled",
         CoreError::SnapshotDeleteFailed => "SnapshotDeleteFailed",
+        CoreError::HintNotFound => "HintNotFound",
+        CoreError::CollationRejected => "CollationRejected",
+        CoreError::ReadPreferenceUnavailable => "ReadPreferenceUnavailable",
     }
 }
 
@@ -79,6 +82,12 @@ mod tests {
             (CoreError::Unauthorized, "Unauthorized"),
             (CoreError::Unreachable, "Unreachable"),
             (CoreError::ReadOnly, "ReadOnly"),
+            (CoreError::HintNotFound, "HintNotFound"),
+            (CoreError::CollationRejected, "CollationRejected"),
+            (
+                CoreError::ReadPreferenceUnavailable,
+                "ReadPreferenceUnavailable",
+            ),
         ];
         for (error, name) in samples {
             assert_eq!(variant_of(&error), name);

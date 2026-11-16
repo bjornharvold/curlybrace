@@ -9,7 +9,7 @@ use bson::{Bson, Document, doc};
 
 use super::aggregate_tests::{connected_to, next};
 use super::*;
-use crate::pipeline::{COUNT_CAP, Stage, count_pipeline};
+use crate::pipeline::{AppliedOptions, COUNT_CAP, Stage, count_pipeline};
 use crate::store::{Namespace, Query};
 use crate::test_support::InMemoryStore;
 use crate::test_support::mock_objects::mock_namespace;
@@ -145,7 +145,7 @@ impl DocumentStore for ScriptedCount {
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<Vec<Document>> {
         match &self.error {
             Some(error) => Err(error.clone()),

@@ -1,15 +1,13 @@
 //! Scripted aggregate preview of the in-memory store: one canned answer, and a record of the
 //! pipelines that reached it (a refused pipeline is never recorded).
 
-use std::time::Duration;
-
 use bson::Document;
 
 use super::memory_store::{InMemoryStore, poisoned};
 use crate::error::{CoreError, Result};
 use crate::explain::ExplainVerbosity;
 use crate::mongo_pipeline::ensure_read_only;
-use crate::pipeline::ensure_run_shape;
+use crate::pipeline::{AppliedOptions, Operation, ensure_run_shape};
 use crate::store::{Explain, Namespace};
 
 /// What is scripted and what was received.
@@ -24,6 +22,8 @@ pub(super) struct AggregateScript {
     explain_answer: Option<Document>,
     /// Pipelines that reached `aggregate_explain` (not refused), with their verbosity.
     explained: Vec<(Vec<Document>, ExplainVerbosity)>,
+    /// The options each accepted call received, in call order.
+    options: Vec<(Operation, AppliedOptions)>,
 }
 
 impl InMemoryStore {
@@ -79,14 +79,26 @@ impl InMemoryStore {
             .unwrap_or_default()
     }
 
+    /// The options each preview, explain and write call received, in order, as the operation
+    /// that sends them: a count is a preview to the store, so it is recorded as `Preview`.
+    /// Refused calls are absent.
+    pub fn received_options(&self) -> Vec<(Operation, AppliedOptions)> {
+        self.aggregate
+            .lock()
+            .map(|script| script.options.clone())
+            .unwrap_or_default()
+    }
+
     pub(super) fn run_aggregate_explain(
         &self,
         pipeline: Vec<Document>,
         verbosity: ExplainVerbosity,
+        options: &AppliedOptions,
     ) -> Result<Explain> {
         ensure_read_only(&pipeline)?;
         let mut script = self.aggregate.lock().map_err(|_| poisoned())?;
         script.explained.push((pipeline, verbosity));
+        script.options.push((Operation::Explain, options.clone()));
         script
             .explain_answer
             .clone()
@@ -101,21 +113,24 @@ impl InMemoryStore {
         &self,
         ns: &Namespace,
         pipeline: Vec<Document>,
+        options: &AppliedOptions,
     ) -> Result<()> {
         ensure_run_shape(ns, &pipeline)?;
         let mut script = self.aggregate.lock().map_err(|_| poisoned())?;
         script.written.push(pipeline);
+        script.options.push((Operation::Run, options.clone()));
         script.write_error.clone().map_or(Ok(()), Err)
     }
 
     pub(super) fn run_aggregate(
         &self,
         pipeline: Vec<Document>,
-        _max_time: Duration,
+        options: &AppliedOptions,
     ) -> Result<Vec<Document>> {
         ensure_read_only(&pipeline)?;
         let mut script = self.aggregate.lock().map_err(|_| poisoned())?;
         script.received.push(pipeline);
+        script.options.push((Operation::Preview, options.clone()));
         Ok(script.answer.clone())
     }
 }

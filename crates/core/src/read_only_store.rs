@@ -19,6 +19,7 @@ use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::explain::ExplainVerbosity;
 use crate::indexes::IndexSpec;
+use crate::pipeline::AppliedOptions;
 use crate::store::{
     CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
     IndexStatus, IndexUsage, Namespace, Page, ProfileRead, ProfilingState, Query, Topology,
@@ -165,9 +166,9 @@ impl DocumentStore for ReadOnlyStore {
         &self,
         ns: &Namespace,
         pipeline: Vec<Document>,
-        max_time: Duration,
+        options: &AppliedOptions,
     ) -> Result<Vec<Document>> {
-        self.inner.aggregate_preview(ns, pipeline, max_time).await
+        self.inner.aggregate_preview(ns, pipeline, options).await
     }
 
     async fn aggregate_explain(
@@ -175,10 +176,10 @@ impl DocumentStore for ReadOnlyStore {
         ns: &Namespace,
         pipeline: Vec<Document>,
         verbosity: ExplainVerbosity,
-        max_time: Duration,
+        options: &AppliedOptions,
     ) -> Result<Explain> {
         self.inner
-            .aggregate_explain(ns, pipeline, verbosity, max_time)
+            .aggregate_explain(ns, pipeline, verbosity, options)
             .await
     }
 
@@ -186,10 +187,10 @@ impl DocumentStore for ReadOnlyStore {
         &self,
         ns: &Namespace,
         pipeline: Vec<Document>,
-        max_time: Duration,
+        options: &AppliedOptions,
     ) -> Result<()> {
         self.guard()?;
-        self.inner.aggregate_write(ns, pipeline, max_time).await
+        self.inner.aggregate_write(ns, pipeline, options).await
     }
 
     async fn create_index(&self, ns: &Namespace, spec: &IndexSpec) -> Result<()> {
