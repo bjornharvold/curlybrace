@@ -359,3 +359,49 @@ fn error_variants_are_stable_and_content_free() {
         assert_eq!(error.error_variant(), variant);
     }
 }
+
+#[test]
+fn unknown_keys_inside_a_hint_are_ignored() {
+    let named: PipelineOptions =
+        serde_json::from_value(json!({ "hint": { "name": "i", "future": true } })).expect("loads");
+    assert_eq!(named.hint, Some(HintOption::Name("i".into())));
+    let keyed: PipelineOptions =
+        serde_json::from_value(json!({ "hint": { "keys": { "a": 1 }, "future": [] } }))
+            .expect("loads");
+    assert_eq!(keyed.hint, Some(HintOption::Keys(doc! { "a": 1 })));
+}
+
+#[test]
+fn a_hint_must_be_exactly_a_name_or_keys() {
+    for bad in [
+        json!({ "hint": {} }),
+        json!({ "hint": { "future": 1 } }),
+        json!({ "hint": { "name": "i", "keys": { "a": 1 } } }),
+    ] {
+        assert!(
+            serde_json::from_value::<PipelineOptions>(bad.clone()).is_err(),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn a_load_error_never_quotes_the_offending_value() {
+    let secret = "zebra-secret";
+    for bad in [
+        json!({ "readPreference": secret }),
+        json!({ "maxTimeMS": secret }),
+        json!({ "comment": 5, "allowDiskUse": secret }),
+        json!({ "collation": { "locale": "en", "strength": secret } }),
+        json!({ "collation": { "locale": "en", "caseFirst": secret } }),
+        json!({ "collation": { "locale": secret } }),
+        json!({ "hint": { "name": secret, "keys": { "a": 1 } } }),
+        json!({ "comment": format!("{secret}\u{0}") }),
+    ] {
+        let error = serde_json::from_value::<PipelineOptions>(bad.clone()).expect_err("invalid");
+        assert!(!error.to_string().contains(secret), "{error}");
+        let text = serde_json::to_string(&bad).unwrap();
+        let from_text = serde_json::from_str::<PipelineOptions>(&text).expect_err("invalid");
+        assert!(!from_text.to_string().contains(secret), "{from_text}");
+    }
+}

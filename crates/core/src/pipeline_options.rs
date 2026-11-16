@@ -84,12 +84,32 @@ pub struct CollationOption {
     pub alternate: Option<Alternate>,
 }
 
-/// An index to force: by name, or by key pattern.
+/// An index to force: by name, or by key pattern. Loaded from an object holding `name` or
+/// `keys` (other keys are ignored, both at once is refused).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(try_from = "RawHint", rename_all = "camelCase")]
 pub enum HintOption {
     Name(String),
     Keys(Document),
+}
+
+/// The loaded shape of a [`HintOption`].
+#[derive(Deserialize)]
+struct RawHint {
+    name: Option<String>,
+    keys: Option<Document>,
+}
+
+impl TryFrom<RawHint> for HintOption {
+    type Error = String;
+
+    fn try_from(raw: RawHint) -> Result<Self, String> {
+        match (raw.name, raw.keys) {
+            (Some(name), None) => Ok(Self::Name(name)),
+            (None, Some(keys)) => Ok(Self::Keys(keys)),
+            _ => Err("a hint is a name or keys".into()),
+        }
+    }
 }
 
 /// The read preference mode of a read (tags and staleness are not offered).
@@ -138,8 +158,8 @@ impl OptionsError {
 
 /// The options of one aggregate. `default()` is "nothing set": it sends what every operation
 /// sent before options existed.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(try_from = "RawOptions", rename_all = "camelCase")]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PipelineOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collation: Option<CollationOption>,
@@ -167,6 +187,20 @@ struct RawOptions {
     max_time_ms: Option<u64>,
     comment: Option<String>,
     read_preference: Option<ReadPreferenceMode>,
+}
+
+/// Loading never repeats the value that was refused: serde's own messages quote it (an unknown
+/// variant, a wrong type), so any failure is one fixed message.
+impl<'de> Deserialize<'de> for PipelineOptions {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        RawOptions::deserialize(deserializer)
+            .map_err(|_| serde::de::Error::custom("the pipeline options are not valid"))
+            .and_then(|raw| {
+                PipelineOptions::try_from(raw).map_err(|e| {
+                    serde::de::Error::custom(format!("the pipeline options are not valid: {e}"))
+                })
+            })
+    }
 }
 
 impl TryFrom<RawOptions> for PipelineOptions {
