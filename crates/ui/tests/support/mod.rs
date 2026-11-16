@@ -16,6 +16,7 @@ pub mod compare_field_states;
 pub mod compare_multi_states;
 pub mod compare_states;
 pub mod copy_shots;
+pub mod counts_shots;
 pub mod db;
 pub mod explain_shots;
 pub mod export_flow;

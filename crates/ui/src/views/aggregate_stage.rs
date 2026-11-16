@@ -4,11 +4,13 @@
 //! status. Every control's accessible name carries the stage's position.
 use super::aggregate::{NO_DRAG_SCROLL, named_button};
 use super::aggregate_complete::completing_editor;
+use super::aggregate_counts::show_count_line;
 use crate::I18n;
 use crate::app::AggregateAction;
 use crate::theme::shape::{self, radius};
 use crate::theme::{CONTROL_HEIGHT, Tone, chip, current_ui};
 use crate::viewmodel::aggregate::AggregateState;
+use crate::viewmodel::aggregate_counts::CountsUi;
 use crate::viewmodel::aggregate_view::{AggregateView, StageStatus};
 use curlybrace_core::pipeline::Stage;
 use eframe::egui::{self, WidgetInfo, WidgetType};
@@ -25,6 +27,9 @@ struct Card<'a> {
     /// The stage whose output is previewed.
     selected: bool,
     last: usize,
+    /// The counts of the session, and whether they were made for other stages than these.
+    counts: &'a CountsUi,
+    counts_stale: bool,
 }
 
 /// The stage list in a scroll area at most `max_height` tall; the actions of the cards. Typing in
@@ -42,6 +47,7 @@ pub(super) fn show_stages(
     }
     let now = ui.input(|i| i.time);
     let last = draft.stages.len() - 1;
+    let counts_stale = view.counts_stale(draft);
     egui::ScrollArea::vertical()
         .id_salt("aggregate_stages")
         .scroll_source(NO_DRAG_SCROLL)
@@ -59,6 +65,8 @@ pub(super) fn show_stages(
                     stage,
                     selected: index == draft.selected,
                     last,
+                    counts: &draft.counts,
+                    counts_stale,
                 };
                 let shown = view.shown_text(index, &stage.text);
                 let (picked, typed) = show_card(ui, &card, (shown, &status), i18n);
@@ -90,6 +98,8 @@ fn show_card(
             let actions = card_header(ui, card, status, &n, i18n);
             let typed = stage_editor(ui, card.key, text, &n, i18n);
             status_line(ui, card.stage.enabled, status, i18n);
+            let line = (card.index, card.key, card.stage.enabled);
+            show_count_line(ui, card.counts, line, card.counts_stale, i18n);
             (actions, typed)
         })
         .inner

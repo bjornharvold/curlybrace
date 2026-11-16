@@ -142,6 +142,9 @@ pub struct AggregateView {
     /// What an explain would send, remembered between repaints (see `aggregate_explain_block`);
     /// keyed on its inputs, so it needs no reset.
     pub explain_memo: super::aggregate_explain_block::ExplainMemo,
+    /// What a Count stages click would send, remembered between repaints (see
+    /// `aggregate_counts_plan`); keyed on its inputs, so it needs no reset.
+    pub counts_memo: super::aggregate_counts_plan::CountsMemo,
     /// The Raw tab's own tree and page, apart from the preview's.
     pub raw_tree: TreeState,
     pub raw_page: PageCache,
@@ -171,6 +174,12 @@ impl AggregateView {
             at: now,
         });
         (Self { pending, ..self }, displaced)
+    }
+
+    /// Whether the counts shown were made for other stages than the typed ones: the same stages
+    /// the Count button and its plan use, so the marker shows while an edit still waits.
+    pub fn counts_stale(&self, draft: &AggregateState) -> bool {
+        draft.counts.is_out_of_date(&self.typed_stages(draft))
     }
 
     /// The stages of `draft` with the waiting stage text applied, as the edit will once it is

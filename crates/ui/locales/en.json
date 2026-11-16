@@ -44,6 +44,32 @@
   },
   "aggregate": {
     "add_stage": "Add stage",
+    "counts": {
+      "at_least": "at least {n} documents",
+      "button": "Count stages",
+      "button_hint": "Count the documents each enabled stage lets through, one stage at a time, up to {cap} each.",
+      "cancel": "Cancel counting",
+      "cancel_hint": "Stop after the count in progress. The numbers so far stay.",
+      "counting": "Counting...",
+      "disabled": {
+        "nothing": "No stage can be counted: every enabled stage is invalid or writes.",
+        "text_mode": "Switch to the stage view to see the counts.",
+        "text_not_applied": "Apply the edited text to the stages before counting."
+      },
+      "failed": "Could not count: {error}",
+      "many": "{n} documents",
+      "not_counted": {
+        "after_invalid": "Not counted: an earlier stage is not valid.",
+        "invalid": "Not counted: this stage is not valid.",
+        "nested_write": "Not counted: a stage up to here writes ($out or $merge) inside a sub-pipeline.",
+        "write_stage": "Not counted: this stage or an earlier one writes ($out or $merge)."
+      },
+      "one": "1 document",
+      "out_of_date": "out of date",
+      "out_of_date_hint": "The stages changed after this was counted.",
+      "timed_out": "Timed out: the server stopped counting.",
+      "waiting": "Waiting"
+    },
     "error": {
       "empty": "The pipeline has no enabled stages to preview.",
       "nested_write": "Stage {n}: {name} cannot be used inside a sub-pipeline of a preview.",
@@ -1178,6 +1204,7 @@
     "write_outcome_unknown": "The connection was interrupted while saving. The change may or may not have been applied; check the data before saving again."
   },
   "failures": {
+    "aggregate_count": "Could not count the stages",
     "aggregate_explain": "Could not explain the pipeline",
     "aggregate_preview": "Could not preview the pipeline",
     "aggregate_run": "Could not run the pipeline",

@@ -64,7 +64,10 @@ fn in_session(state: AppState, session: Uuid, action: SidebarAction) -> Out {
         | SidebarAction::Drop { .. } => sidebar(state, action),
         other => {
             let state = super::copy_actions::clicked(state, session, &other);
-            sidebar(state.activated(session), other)
+            sidebar(
+                super::aggregate_counts_actions::switched_to(state, session),
+                other,
+            )
         }
     }
 }

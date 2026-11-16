@@ -89,12 +89,20 @@ pub struct AggregateState {
     pub run: super::aggregate_run::RunUi,
     /// The explain of the enabled stages and the tab in view (see `aggregate_explain`).
     pub explain: super::aggregate_explain::ExplainUi,
+    /// The per-stage counts and the sequence that makes them (see `aggregate_counts`).
+    pub counts: super::aggregate_counts::CountsUi,
     /// What the draft says about its run, remembered between repaints (see
     /// `aggregate_run_availability`); keyed on the stages, mode and text, so it needs no reset.
     pub(super) run_shape: super::aggregate_run_availability::RunShapeMemo,
 }
 
 impl AggregateState {
+    /// `self` holding `counts`; the rest of the draft (its preview page included) is moved over
+    /// as it is, never cloned.
+    pub fn with_counts(self, counts: super::aggregate_counts::CountsUi) -> Self {
+        Self { counts, ..self }
+    }
+
     /// The highest valid selection for `len` stages.
     pub(super) fn clamp(i: usize, len: usize) -> usize {
         i.min(len.saturating_sub(1))
@@ -108,12 +116,13 @@ impl AggregateState {
     }
 
     /// The pipeline changed: an answer still in flight is stale, and so is the remembered
-    /// "modified" answer.
+    /// "modified" answer. A running count sequence ends (its results stay, marked out of date).
     pub(super) fn changed(self) -> Self {
         Self {
             request: self.request.wrapping_add(1),
             saved: self.saved.with_modified_forgotten(),
             run: self.run.dialog_closed(),
+            counts: self.counts.cancelled(),
             ..self
         }
     }
@@ -214,7 +223,12 @@ impl AggregateState {
         if selected == self.selected {
             return self;
         }
-        Self { selected, ..self }.changed()
+        // Counts do not depend on which stage is previewed: they go on.
+        let counts = self.counts.clone();
+        Self {
+            counts,
+            ..Self { selected, ..self }.changed()
+        }
     }
 
     /// Switches to text mode with the stages as one JSON array.
@@ -286,6 +300,7 @@ impl AggregateState {
             queued: None,
             run: self.run.collection_changed(),
             explain: self.explain.reset(),
+            counts: self.counts.reset(),
             ..self
         }
         .changed()

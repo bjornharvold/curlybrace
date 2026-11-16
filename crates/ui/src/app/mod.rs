@@ -5,9 +5,12 @@
 //! * `panels`: the thin egui layer
 mod actions;
 mod aggregate_actions;
+mod aggregate_batch;
 mod aggregate_run_actions;
 mod aggregate_saved_actions;
 pub use aggregate_actions::AggregateAction;
+mod aggregate_counts_actions;
+pub use aggregate_counts_actions::CountsAction;
 mod aggregate_explain_actions;
 pub use aggregate_explain_actions::ExplainAction;
 mod banner;

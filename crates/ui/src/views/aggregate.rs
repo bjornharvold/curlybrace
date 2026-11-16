@@ -2,6 +2,7 @@
 //! status), then the stage cards or the pipeline text, then the preview of the selected stage.
 //! Draws the draft it is given and returns what the person did; the reducer decides what happens.
 //! Typing in a stage is held in the view until it pauses, so a preview does not run per keystroke.
+use super::aggregate_counts::{counts_blocked, show_counts_button};
 use super::aggregate_explain::{explain_blocked, show_explain_button, show_results};
 use super::aggregate_run::{RunContext, show_run_button, show_run_dialog, show_run_status};
 use super::aggregate_saved::show_saved_toolbar;
@@ -138,6 +139,13 @@ fn show_header(
         let code = show_copy_code_button(ui, blocked.as_deref(), i18n);
         let explain_blocked = explain_blocked(draft, &typed, view, i18n);
         let explain = show_explain_button(ui, explain_blocked.as_deref(), i18n);
+        let counts_blocked = counts_blocked(draft, &typed, view, i18n);
+        let counts = show_counts_button(
+            ui,
+            draft.counts.is_running(),
+            counts_blocked.as_deref(),
+            i18n,
+        );
         let run_clicked = show_run_button(ui, &run.availability, i18n);
         let (tone, key) = status_chip(&draft.preview);
         chip(ui, tone, &i18n.t(key));
@@ -149,6 +157,7 @@ fn show_header(
                 CodeSource::Aggregate,
             ))),
             explain.then_some(AggregateAction::Explain(ExplainAction::Run)),
+            counts.map(AggregateAction::Counts),
         ]
         .into_iter()
         .flatten()

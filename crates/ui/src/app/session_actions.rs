@@ -40,8 +40,11 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
         epoch_counter: epoch,
         forget_confirm: None,
         workspace: Workspace::Browse,
-        ..cleared_for_connect(state.bulk_dropped_for(id, true).shell_reset_for(id), id)
-            .opened_with(id, view)
+        ..super::aggregate_counts_actions::left_for(
+            cleared_for_connect(state.bulk_dropped_for(id, true).shell_reset_for(id), id),
+            id,
+        )
+        .opened_with(id, view)
     };
     // A reconnect resets the shell: a run it still showed is cancelled first (see
     // `shell_actions::cancel_running`).
@@ -121,7 +124,10 @@ fn activate_in_browser(state: AppState, id: Uuid) -> AppState {
     // screen when it opened.
     AppState {
         workspace: Workspace::Browse,
-        ..super::aggregate_run_actions::dialog_closed(state).activated(id)
+        ..super::aggregate_counts_actions::switched_to(
+            super::aggregate_run_actions::dialog_closed(state),
+            id,
+        )
     }
 }
 

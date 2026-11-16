@@ -77,6 +77,25 @@ fn aggregate_run_dialog_dark() {
         .snapshot("aggregate_run_dialog_dark");
 }
 
+// The Aggregate tab with a count on both stage cards: the cap reached, then four documents (light
+// and dark).
+shot!(
+    aggregate_counts,
+    vec![],
+    support::counts_shots::aggregate_counts_tab
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn aggregate_counts_dark() {
+    if !snapshots_enabled("aggregate_counts_dark") {
+        return;
+    }
+    Shot::new(vec![], support::counts_shots::aggregate_counts_tab)
+        .mode(Mode::Dark)
+        .snapshot("aggregate_counts_dark");
+}
+
 // The Plan tab: the explain of `$match` + `$group` as a collection scan with measured figures
 // (light and dark).
 shot!(

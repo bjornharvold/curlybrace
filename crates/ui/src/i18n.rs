@@ -329,6 +329,7 @@ mod tests {
             "set_index_ttl",
             "aggregate_preview",
             "aggregate_explain",
+            "aggregate_count",
         ] {
             assert!(!i.failure(c).starts_with('⟦'), "missing failures.{c}");
         }
