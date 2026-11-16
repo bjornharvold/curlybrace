@@ -354,8 +354,8 @@ contribute.
 
 ### In progress
 
-- **Aggregation pipeline builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): the first slice (build a
-  pipeline stage by stage with a preview of each stage) and slice 2a (saved pipelines) are built; the confirmed `$out` / `$merge` run is next.
+- **Aggregation pipeline builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): everything above is built; what is left is options such as collation, hint and
+  `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
 
 ### Next
 
