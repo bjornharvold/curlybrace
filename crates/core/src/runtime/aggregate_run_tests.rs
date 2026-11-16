@@ -19,6 +19,7 @@ fn run_command(session: SessionId, pipeline: Vec<Document>) -> Command {
         ns: mock_namespace(),
         pipeline,
         run: 4,
+        options: crate::pipeline::PipelineOptions::default(),
     }
 }
 
@@ -198,6 +199,7 @@ async fn a_target_in_a_server_database_is_refused_before_anything_runs() {
         ns: Namespace::new("admin", "src"),
         pipeline: out_pipeline(),
         run: 5,
+        options: crate::pipeline::PipelineOptions::default(),
     })
     .unwrap();
     assert!(matches!(
@@ -314,6 +316,7 @@ async fn a_preview_still_never_forwards_a_write_stage() {
         request: 2,
         ns: mock_namespace(),
         pipeline: out_pipeline(),
+        options: crate::pipeline::PipelineOptions::default(),
     })
     .unwrap();
     assert!(matches!(
@@ -412,6 +415,7 @@ async fn a_count_outrunning_its_own_bound_leaves_the_success_without_a_count() {
         out_pipeline(),
         4,
         limits,
+        &crate::pipeline::PipelineOptions::default(),
     )
     .await
     .unwrap();
@@ -438,6 +442,7 @@ async fn the_write_bound_is_apart_from_the_count_bound() {
         out_pipeline(),
         4,
         limits,
+        &crate::pipeline::PipelineOptions::default(),
     )
     .await
     .unwrap();

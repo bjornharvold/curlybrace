@@ -64,6 +64,8 @@ fn run(state: AppState, ui: ExplainUi) -> Out {
         ns,
         stages,
         verbosity,
+        // 4b: the draft's options.
+        options: curlybrace_core::pipeline::PipelineOptions::default(),
     };
     (with_explain(state, ui), vec![command])
 }

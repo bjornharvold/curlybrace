@@ -21,6 +21,7 @@ fn count_command(session: SessionId, pipeline: Vec<Document>) -> Command {
         ns: mock_namespace(),
         stage_index: 2,
         pipeline,
+        options: crate::pipeline::PipelineOptions::default(),
     }
 }
 

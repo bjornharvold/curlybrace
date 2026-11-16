@@ -73,6 +73,8 @@ fn sent(state: AppState, target: Option<(Uuid, Namespace)>, send: Option<CountSe
         ns,
         stage_index: send.stage_index,
         pipeline: send.pipeline,
+        // 4b: the draft's options.
+        options: curlybrace_core::pipeline::PipelineOptions::default(),
     };
     (state, vec![command])
 }

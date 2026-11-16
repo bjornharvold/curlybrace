@@ -59,6 +59,7 @@ fn the_preview(commands: &[Command]) -> (Uuid, u64, Vec<Document>) {
                 request,
                 ns: sent,
                 pipeline,
+                ..
             },
         ] => {
             assert_eq!(*sent, ns());

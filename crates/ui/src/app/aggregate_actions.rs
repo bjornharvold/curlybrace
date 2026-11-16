@@ -255,6 +255,8 @@ fn preview_command(session: Uuid, request: u64, ns: Namespace, pipeline: Vec<Doc
         request,
         ns,
         pipeline,
+        // 4b: the draft's options.
+        options: curlybrace_core::pipeline::PipelineOptions::default(),
     }
 }
 

@@ -29,6 +29,7 @@ fn explain_command(session: SessionId, stages: Vec<Document>, v: ExplainVerbosit
         ns: mock_namespace(),
         stages,
         verbosity: v,
+        options: crate::pipeline::PipelineOptions::default(),
     }
 }
 

@@ -44,6 +44,7 @@ fn preview_command(session: SessionId, pipeline: Vec<Document>) -> Command {
         request: 9,
         ns: mock_namespace(),
         pipeline,
+        options: crate::pipeline::PipelineOptions::default(),
     }
 }
 
