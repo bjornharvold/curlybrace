@@ -187,10 +187,10 @@ fn answered(
 ) -> Out {
     // The answer of a cancelled count frees the slot (and is never a result), whatever collection
     // it was for: one cancelled before a collection change is still out.
-    let state = match released_and_sent(state, request) {
-        Ok(out) => return out,
-        Err(state) => state,
-    };
+    let (state, commands) = released_and_sent(state, request);
+    if let Some(commands) = commands {
+        return (state, commands);
+    }
     if ns != state.selected_ns() {
         return (state, Vec::new());
     }
@@ -205,17 +205,18 @@ fn answered(
 }
 
 /// The answer or failure of `request` frees the slot of a cancelled count still out: a start
-/// held behind it goes out now (`Ok`, with its command). Otherwise `Err` holds the state with the
-/// slot freed when it was that count's.
-fn released_and_sent(state: AppState, request: u64) -> Result<Out, AppState> {
+/// held behind it goes out now (its commands are then `Some`). The state returned has the slot
+/// freed when it was that count's.
+fn released_and_sent(state: AppState, request: u64) -> (AppState, Option<Vec<Command>>) {
     let (ui, held) = counts_of(&state).released(request);
     let state = with_counts(state, ui);
     match held {
         Some(_) => {
             let target = target(&state);
-            Ok(sent(state, target, held))
+            let (state, commands) = sent(state, target, held);
+            (state, Some(commands))
         }
-        None => Err(state),
+        None => (state, None),
     }
 }
 
@@ -228,8 +229,8 @@ fn failed(state: AppState, request: u64, error: CoreError) -> Out {
             // A superseded count is gone from the server: the start held behind it goes out.
             let state = match error == CoreError::Superseded {
                 true => match released_and_sent(state, request) {
-                    Ok(out) => return out,
-                    Err(state) => state,
+                    (state, Some(commands)) => return (state, commands),
+                    (state, None) => state,
                 },
                 false => state,
             };
