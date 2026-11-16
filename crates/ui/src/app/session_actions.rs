@@ -40,8 +40,11 @@ pub(super) fn connect(state: AppState, id: Uuid) -> Out {
         epoch_counter: epoch,
         forget_confirm: None,
         workspace: Workspace::Browse,
-        ..cleared_for_connect(state.bulk_dropped_for(id, true).shell_reset_for(id), id)
-            .opened_with(id, view)
+        ..super::aggregate_counts_actions::left_for(
+            cleared_for_connect(state.bulk_dropped_for(id, true).shell_reset_for(id), id),
+            id,
+        )
+        .opened_with(id, view)
     };
     // A reconnect resets the shell: a run it still showed is cancelled first (see
     // `shell_actions::cancel_running`).
@@ -75,7 +78,9 @@ pub(super) fn disconnect(state: AppState, id: Uuid) -> Out {
     // the core as well), under the same rule as a lost connection.
     let cancel = super::shell_actions::cancel_running(&state, id);
     let focused = match (state.active == Some(id), neighbour) {
-        (true, Some(next)) => state.activated(next),
+        (true, Some(next)) => {
+            super::aggregate_counts_actions::left_for(state, next).activated(next)
+        }
         _ => state,
     };
     // A failure the closed session raised goes with it; other sessions' banners stay.

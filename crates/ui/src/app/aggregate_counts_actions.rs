@@ -78,11 +78,22 @@ pub(super) fn cancelled(mut state: AppState) -> AppState {
     with_counts(state, ui.cancelled())
 }
 
-/// `state` with `id` active: the session in view loses its running counts when it is left.
+/// `state` with `id` active: the session in view loses its running counts when it is left. An
+/// id that is not an open session changes nothing, and nothing is cancelled for it.
 pub(super) fn switched_to(state: AppState, id: Uuid) -> AppState {
-    match state.active == Some(id) {
-        true => state,
-        false => cancelled(state).activated(id),
+    match state.is_open(id) {
+        true => left_for(state, id).activated(id),
+        false => state,
+    }
+}
+
+/// `state` with the counts of the session in view ended when `id` is about to replace it (a
+/// switch, a second connection opened, the session in view closed); `id` already in view leaves
+/// nothing behind. Call it right before the active session changes.
+pub(super) fn left_for(state: AppState, id: Uuid) -> AppState {
+    match state.active {
+        Some(current) if current != id => cancelled(state),
+        _ => state,
     }
 }
 

@@ -548,3 +548,55 @@ fn another_collection_frees_the_slot_of_the_old_count() {
     let (_, commands) = counts(s, CountsAction::Start);
     assert_eq!(sent(&commands).len(), 1);
 }
+
+/// Two saved connections: the first connected, drafted and counting; returns both ids.
+fn counting_with_a_second_saved() -> (AppState, Uuid, Uuid) {
+    let (cfg_a, cfg_b) = (
+        ConnectionConfig::new("a", "mongodb://localhost"),
+        ConnectionConfig::new("b", "mongodb://localhost"),
+    );
+    let (a, b) = (cfg_a.id, cfg_b.id);
+    let (s, _) = update(AppState::new(vec![cfg_a, cfg_b]), Input::Connect(a));
+    let epoch = s.epoch_counter;
+    let connected = Event::Connected {
+        session: a,
+        epoch,
+        topology: None,
+    };
+    let s = ev(s, connected).0;
+    let s = update(s, Input::Sidebar(SidebarAction::Open(people()))).0;
+    let s = ["$match", "$sort"]
+        .into_iter()
+        .fold(s, |s, name| act(s, A::AddStage(name.into())).0);
+    let (s, _) = started(s);
+    (s, a, b)
+}
+
+#[test]
+fn opening_a_second_connection_ends_the_counts_of_the_one_it_leaves() {
+    let (s, a, b) = counting_with_a_second_saved();
+    let (s, _) = update(s, Input::Connect(b));
+    assert_eq!(s.active, Some(b));
+    assert!(!s.parked[&a].aggregate.counts.is_running());
+}
+
+#[test]
+fn closing_the_session_in_view_hands_over_with_no_count_left_running() {
+    let (s, a, b) = counting_with_a_second_saved();
+    let (s, _) = update(s, Input::Connect(b));
+    let (s, _) = update(s, Input::Activate(a));
+    let (s, _) = counts(s, CountsAction::Start);
+    assert!(s.aggregate.counts.is_running());
+    let (s, _) = update(s, Input::Disconnect(a));
+    assert_eq!(s.active, Some(b));
+    assert!(!s.aggregate.counts.is_running());
+}
+
+#[test]
+fn switching_to_a_session_that_is_not_open_cancels_nothing() {
+    let (s, _, _) = counting_with_a_second_saved();
+    let s = super::switched_to(s, Uuid::from_u128(404));
+    assert!(s.aggregate.counts.is_running());
+    let (s, _) = update(s, Input::Activate(Uuid::from_u128(404)));
+    assert!(s.aggregate.counts.is_running());
+}
