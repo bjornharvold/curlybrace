@@ -11,6 +11,10 @@ use serde_json::Value;
 use crate::pipeline_shape::{Ending, check_parsed};
 
 pub use crate::pipeline_count::{COUNT_CAP, count_of, count_pipeline, count_pipelines};
+pub use crate::pipeline_options::{
+    Alternate, CaseFirst, CollationOption, HintOption, OptionsError, PipelineOptions,
+    ReadPreferenceMode, Strength,
+};
 pub use crate::pipeline_run::{
     AGGREGATE_RUN_MAX_TIME_MS, RunPlan, RunTarget, ensure_run_shape, run_pipeline, run_target,
 };
