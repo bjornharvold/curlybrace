@@ -97,6 +97,12 @@ pub struct AggregateState {
 }
 
 impl AggregateState {
+    /// `self` holding `counts`; the rest of the draft (its preview page included) is moved over
+    /// as it is, never cloned.
+    pub fn with_counts(self, counts: super::aggregate_counts::CountsUi) -> Self {
+        Self { counts, ..self }
+    }
+
     /// The highest valid selection for `len` stages.
     pub(super) fn clamp(i: usize, len: usize) -> usize {
         i.min(len.saturating_sub(1))

@@ -22,16 +22,22 @@ pub enum CountsAction {
     Cancel,
 }
 
-/// `state` holding `counts` in the active session's draft. The draft is edited in place, never
-/// copied: it may hold a whole preview page.
-fn with_counts(mut state: AppState, counts: CountsUi) -> AppState {
-    state.aggregate.counts = counts;
-    state
+/// A new `state` holding `counts` in the active session's draft. The draft is moved, not cloned
+/// (it may hold a whole preview page, shared by `Arc`): only its `counts` field is replaced.
+fn with_counts(state: AppState, counts: CountsUi) -> AppState {
+    AppState {
+        aggregate: Box::new(state.aggregate.with_counts(counts)),
+        ..state
+    }
 }
 
-pub(super) fn on_action(mut state: AppState, action: CountsAction) -> Out {
-    // Moved out of the state and put back changed: the results are not copied.
-    let ui = std::mem::take(&mut state.aggregate.counts);
+/// The counts of the active session's draft, copied (their results are shared by `Arc`).
+fn counts_of(state: &AppState) -> CountsUi {
+    state.aggregate.counts.clone()
+}
+
+pub(super) fn on_action(state: AppState, action: CountsAction) -> Out {
+    let ui = counts_of(&state);
     match action {
         CountsAction::Start => start(state, ui),
         CountsAction::Cancel => (with_counts(state, ui.cancelled()), Vec::new()),
@@ -53,12 +59,12 @@ fn start(state: AppState, ui: CountsUi) -> Out {
 
 /// `state` with `send` as the command for `target`. A count that cannot be sent (nowhere to send
 /// it) ends the sequence instead of leaving it waiting for an answer that cannot come.
-fn sent(mut state: AppState, target: Option<(Uuid, Namespace)>, send: Option<CountSend>) -> Out {
+fn sent(state: AppState, target: Option<(Uuid, Namespace)>, send: Option<CountSend>) -> Out {
     let Some(send) = send else {
         return (state, Vec::new());
     };
     let Some((session, ns)) = target else {
-        let ui = std::mem::take(&mut state.aggregate.counts).given_up(send.request);
+        let ui = counts_of(&state).given_up(send.request);
         return (with_counts(state, ui), Vec::new());
     };
     let command = Command::AggregateCount {
@@ -73,9 +79,9 @@ fn sent(mut state: AppState, target: Option<(Uuid, Namespace)>, send: Option<Cou
 
 /// `state` with the active session's counts ended, results kept: used when another session is
 /// brought into view.
-pub(super) fn cancelled(mut state: AppState) -> AppState {
-    let ui = std::mem::take(&mut state.aggregate.counts);
-    with_counts(state, ui.cancelled())
+pub(super) fn cancelled(state: AppState) -> AppState {
+    let ui = counts_of(&state).cancelled();
+    with_counts(state, ui)
 }
 
 /// `state` with `id` active: the session in view loses its running counts when it is left. An
@@ -173,7 +179,7 @@ fn lost_server(state: &AppState, ev: &Event) -> Option<CoreError> {
 /// applied to the active session's draft; the next stage's count goes out with it. An answer for
 /// another collection than the one in view is stale, whatever its number.
 fn answered(
-    mut state: AppState,
+    state: AppState,
     request: u64,
     ns: Option<&Namespace>,
     stage_index: Option<usize>,
@@ -182,16 +188,14 @@ fn answered(
     if ns != state.selected_ns() {
         return (state, Vec::new());
     }
-    let ui = std::mem::take(&mut state.aggregate.counts);
     // The answer of a cancelled count frees the slot (and is never a result).
-    let (ui, held) = ui.released(request);
-    if held.is_some() {
-        let state = with_counts(state, ui);
-        let target = target(&state);
-        return sent(state, target, held);
-    }
+    let state = match released_and_sent(state, request) {
+        Ok(out) => return out,
+        Err(state) => state,
+    };
+    let ui = counts_of(&state);
     let Some(stage_index) = stage_index.or_else(|| ui.awaited_stage(request)) else {
-        return (with_counts(state, ui), Vec::new());
+        return (state, Vec::new());
     };
     let (ui, send) = ui.answered(request, stage_index, outcome);
     let state = with_counts(state, ui);
@@ -199,25 +203,38 @@ fn answered(
     sent(state, target, send)
 }
 
+/// The answer or failure of `request` frees the slot of a cancelled count still out: a start
+/// held behind it goes out now (`Ok`, with its command). Otherwise `Err` holds the state with the
+/// slot freed when it was that count's.
+fn released_and_sent(state: AppState, request: u64) -> Result<Out, AppState> {
+    let (ui, held) = counts_of(&state).released(request);
+    let state = with_counts(state, ui);
+    match held {
+        Some(_) => {
+            let target = target(&state);
+            Ok(sent(state, target, held))
+        }
+        None => Err(state),
+    }
+}
+
 /// A count the runtime could not run (not connected, a lost connection settled by a ping): a lost
 /// or replaced connection ends the sequence (the session fails, or the answer belongs to a
 /// connection that is gone); any other error is that stage's failure and the next one goes on.
-fn failed(mut state: AppState, request: u64, error: CoreError) -> Out {
+fn failed(state: AppState, request: u64, error: CoreError) -> Out {
     match error {
         CoreError::Superseded | CoreError::Unreachable | CoreError::TlsHandshake => {
             // A superseded count is gone from the server: the start held behind it goes out.
-            if error == CoreError::Superseded {
-                let (ui, held) = std::mem::take(&mut state.aggregate.counts).released(request);
-                if held.is_some() {
-                    let state = with_counts(state, ui);
-                    let target = target(&state);
-                    return sent(state, target, held);
-                }
-                state.aggregate.counts = ui;
-            }
+            let state = match error == CoreError::Superseded {
+                true => match released_and_sent(state, request) {
+                    Ok(out) => return out,
+                    Err(state) => state,
+                },
+                false => state,
+            };
             // Nothing is out for the request any more: it ends the sequence awaiting it, or frees
             // the slot it held (and the start held behind it ends: the connection is gone).
-            let ui = std::mem::take(&mut state.aggregate.counts).given_up(request);
+            let ui = counts_of(&state).given_up(request);
             (with_counts(state, ui), Vec::new())
         }
         error => {
