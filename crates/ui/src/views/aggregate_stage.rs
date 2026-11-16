@@ -47,7 +47,7 @@ pub(super) fn show_stages(
     }
     let now = ui.input(|i| i.time);
     let last = draft.stages.len() - 1;
-    let counts_stale = draft.counts.is_out_of_date(&draft.stages);
+    let counts_stale = view.counts_stale(draft);
     egui::ScrollArea::vertical()
         .id_salt("aggregate_stages")
         .scroll_source(NO_DRAG_SCROLL)

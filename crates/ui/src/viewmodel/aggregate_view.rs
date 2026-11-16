@@ -176,6 +176,12 @@ impl AggregateView {
         (Self { pending, ..self }, displaced)
     }
 
+    /// Whether the counts shown were made for other stages than the typed ones: the same stages
+    /// the Count button and its plan use, so the marker shows while an edit still waits.
+    pub fn counts_stale(&self, draft: &AggregateState) -> bool {
+        draft.counts.is_out_of_date(&self.typed_stages(draft))
+    }
+
     /// The stages of `draft` with the waiting stage text applied, as the edit will once it is
     /// due (what a click would see after `flush_typing`); the draft's own stages when nothing
     /// waits or the waiting text changes nothing. Only the stage list is copied, never the
