@@ -139,14 +139,25 @@ pub(crate) fn asks_for_non_primary(o: &AppliedOptions) -> bool {
     matches!(o.read_preference, Some(mode) if mode != ReadPreferenceMode::Primary)
 }
 
+/// Whether a failed server selection says servers were available but none suited the criteria
+/// (the driver's own wording), as opposed to no server being reachable at all. Only the first is
+/// an unsatisfiable read preference; the second is a lost deployment and keeps its ordinary
+/// classification (`Unreachable`, `TlsHandshake`).
+pub(crate) fn selection_found_servers(message: &str) -> bool {
+    message.contains("None of the available servers suitable")
+}
+
 /// Classifies a driver error knowing what was sent: a missing hint, a refused collation and an
 /// unsatisfiable read preference have their own error, only when the matching option was sent.
-/// A failed server selection under a non-primary read preference is not a lost connection (the
-/// server may be fine, no member just matches), so it is decided before the ordinary
-/// classification. The server text is matched here and never kept.
+/// A failed server selection under a non-primary read preference is an unsatisfiable preference
+/// only when the driver says servers were available but none matched; a deployment that cannot
+/// be reached stays `Unreachable` or `TlsHandshake`, so the app learns the server is gone. The
+/// server text is matched here and never kept.
 pub(crate) fn classify_with(e: &mongodb::error::Error, o: &AppliedOptions) -> CoreError {
     match e.kind.as_ref() {
-        ErrorKind::ServerSelection { .. } if asks_for_non_primary(o) => {
+        ErrorKind::ServerSelection { message, .. }
+            if asks_for_non_primary(o) && selection_found_servers(message) =>
+        {
             CoreError::ReadPreferenceUnavailable
         }
         ErrorKind::Command(c) if c.code == CODE_BAD_VALUE => {

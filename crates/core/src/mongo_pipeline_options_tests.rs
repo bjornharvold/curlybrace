@@ -332,7 +332,7 @@ async fn selection_failure() -> Error {
 }
 
 #[tokio::test]
-async fn classify_with_maps_server_selection_only_for_a_non_primary_read_preference() {
+async fn a_deployment_that_is_down_stays_unreachable_whatever_the_read_preference() {
     let e = selection_failure().await;
     assert!(matches!(e.kind.as_ref(), ErrorKind::ServerSelection { .. }));
     let with = |mode: Option<ReadPreferenceMode>| AppliedOptions {
@@ -340,21 +340,26 @@ async fn classify_with_maps_server_selection_only_for_a_non_primary_read_prefere
         ..AppliedOptions::bounded(Operation::Preview, Duration::from_secs(1))
     };
     for mode in [
-        ReadPreferenceMode::Secondary,
-        ReadPreferenceMode::SecondaryPreferred,
-        ReadPreferenceMode::PrimaryPreferred,
-        ReadPreferenceMode::Nearest,
+        None,
+        Some(ReadPreferenceMode::Primary),
+        Some(ReadPreferenceMode::Secondary),
+        Some(ReadPreferenceMode::SecondaryPreferred),
+        Some(ReadPreferenceMode::PrimaryPreferred),
+        Some(ReadPreferenceMode::Nearest),
     ] {
-        assert_eq!(
-            classify_with(&e, &with(Some(mode))),
-            CoreError::ReadPreferenceUnavailable
-        );
+        assert_eq!(classify_with(&e, &with(mode)), CoreError::Unreachable);
     }
-    assert_eq!(classify_with(&e, &with(None)), CoreError::Unreachable);
-    assert_eq!(
-        classify_with(&e, &with(Some(ReadPreferenceMode::Primary))),
-        CoreError::Unreachable
-    );
+}
+
+#[test]
+fn only_a_selection_that_found_servers_is_an_unsatisfied_preference() {
+    let found = "Server selection timeout: None of the available servers suitable for criteria \
+                 ReadPreference { mode: Secondary }. Topology: { Type: ReplicaSetWithPrimary }";
+    let down = "Server selection timeout: No available servers. Topology: { Type: Unknown, \
+                Servers: [ { Address: a:1, Type: Unknown, Error: Kind: I/O error } ] }";
+    assert!(selection_found_servers(found));
+    assert!(!selection_found_servers(down));
+    assert!(!selection_found_servers(""));
 }
 
 #[test]
