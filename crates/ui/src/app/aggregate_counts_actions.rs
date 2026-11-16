@@ -185,14 +185,15 @@ fn answered(
     stage_index: Option<usize>,
     outcome: Result<u64, CoreError>,
 ) -> Out {
-    if ns != state.selected_ns() {
-        return (state, Vec::new());
-    }
-    // The answer of a cancelled count frees the slot (and is never a result).
+    // The answer of a cancelled count frees the slot (and is never a result), whatever collection
+    // it was for: one cancelled before a collection change is still out.
     let state = match released_and_sent(state, request) {
         Ok(out) => return out,
         Err(state) => state,
     };
+    if ns != state.selected_ns() {
+        return (state, Vec::new());
+    }
     let ui = counts_of(&state);
     let Some(stage_index) = stage_index.or_else(|| ui.awaited_stage(request)) else {
         return (state, Vec::new());

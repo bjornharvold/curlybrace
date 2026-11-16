@@ -91,13 +91,17 @@ impl AggregateState {
     /// The connection is gone or replaced: nothing is in flight on it any more, and the waiting
     /// preview belonged to it. The preview is stale (see `on_collection_changed`).
     pub fn on_connection_reset(self) -> Self {
-        Self {
+        let reset = Self {
             in_flight: None,
             queued: None,
             run: self.run.connection_reset(),
             ..self
         }
-        .on_collection_changed()
+        .on_collection_changed();
+        Self {
+            counts: reset.counts.connection_lost(),
+            ..reset
+        }
     }
 
     /// The previews sent so far for `request` were not wanted after all (a frame of several

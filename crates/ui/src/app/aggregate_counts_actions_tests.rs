@@ -536,16 +536,57 @@ fn losing_the_server_with_the_old_count_out_and_no_start_held_fails_the_session_
 }
 
 #[test]
-fn another_collection_frees_the_slot_of_the_old_count() {
-    let (s, _) = drafted();
-    let (s, _) = started(s);
+fn a_late_answer_of_a_closed_view_is_not_taken_for_the_reopened_sessions_count() {
+    let (s, id) = drafted();
+    let (s, old) = started(s);
+    let (s, _) = update(s, Input::Disconnect(id));
+    let (s, _) = update(s, Input::Connect(id));
+    let epoch = s.epoch_counter;
+    let connected = Event::Connected {
+        session: id,
+        epoch,
+        topology: None,
+    };
+    let s = ev(s, connected).0;
+    let s = update(s, Input::Sidebar(SidebarAction::Open(people()))).0;
+    let s = act(s, A::AddStage("$match".into())).0;
+    let (s, new) = started(s);
+    assert_ne!(new, old, "request numbers are never reused across views");
+    let (s, commands) = ev(s, failed_event(id, old, CoreError::Superseded));
+    assert!(commands.is_empty());
+    assert!(s.aggregate.counts.awaits(new), "the old failure is ignored");
+    let (s, commands) = ev(s, answer(id, old, 0, Ok(9)));
+    assert!(commands.is_empty());
+    assert!(s.aggregate.counts.awaits(new), "the old answer is ignored");
+}
+
+#[test]
+fn another_collection_holds_a_new_start_behind_the_old_count_still_out() {
+    let (s, id) = drafted();
+    let (s, old) = started(s);
     let (s, _) = counts(s, CountsAction::Cancel);
+    let orders = Namespace::new("app", "orders");
+    let (s, _) = update(s, Input::Sidebar(SidebarAction::Open(orders)));
+    let s = act(s, A::AddStage("$match".into())).0;
+    let (s, commands) = counts(s, CountsAction::Start);
+    assert!(sent(&commands).is_empty(), "two counts never run at once");
+    let (s, commands) = ev(s, answer(id, old, 0, Ok(3)));
+    assert_eq!(sent(&commands).len(), 1, "the old answer frees the slot");
+    assert_eq!(result_of(&s, 0), None, "and is never a result");
+}
+
+#[test]
+fn a_count_running_when_the_collection_changes_is_still_out_too() {
+    let (s, id) = drafted();
+    let (s, old) = started(s);
     let (s, _) = update(
         s,
         Input::Sidebar(SidebarAction::Open(Namespace::new("app", "orders"))),
     );
     let s = act(s, A::AddStage("$match".into())).0;
-    let (_, commands) = counts(s, CountsAction::Start);
+    let (s, commands) = counts(s, CountsAction::Start);
+    assert!(sent(&commands).is_empty());
+    let (_, commands) = ev(s, failed_event(id, old, CoreError::Database("x".into())));
     assert_eq!(sent(&commands).len(), 1);
 }
 

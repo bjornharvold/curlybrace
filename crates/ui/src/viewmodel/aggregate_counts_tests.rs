@@ -261,11 +261,39 @@ fn giving_up_the_old_count_frees_the_slot_and_ends_the_held_start() {
 }
 
 #[test]
-fn a_reset_forgets_the_count_still_out() {
+fn a_reset_keeps_the_count_still_out_and_drops_the_held_start() {
+    let d = draft();
+    let (ui, first) = held_behind_the_cancelled(&d);
+    let ui = ui.reset();
+    assert!(!ui.is_running());
+    assert!(ui.lingers(first.request));
+    let plan = count_plan(&d, &d.stages).expect("a plan");
+    let (ui, none) = ui.begun(plan, &d.stages, &d.keys);
+    assert_eq!(none, None, "a new start waits for the old count");
+    assert!(ui.released(first.request).1.is_some());
+}
+
+#[test]
+fn a_reset_while_counting_leaves_that_count_out() {
+    let d = draft();
+    let (ui, first) = started(&d);
+    assert!(ui.reset().lingers(first.request));
+}
+
+#[test]
+fn a_lost_connection_forgets_the_count_still_out() {
     let d = draft();
     let (ui, _) = held_behind_the_cancelled(&d);
-    let ui = ui.reset();
+    let ui = ui.connection_lost();
     assert!(!ui.is_running());
     let plan = count_plan(&d, &d.stages).expect("a plan");
     assert!(ui.begun(plan, &d.stages, &d.keys).1.is_some());
+}
+
+#[test]
+fn request_numbers_are_unique_across_fresh_counts() {
+    let d = draft();
+    let (_, first) = started(&d);
+    let (_, second) = started(&d);
+    assert_ne!(first.request, second.request);
 }

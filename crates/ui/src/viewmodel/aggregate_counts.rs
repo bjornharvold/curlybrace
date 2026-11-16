@@ -10,9 +10,15 @@ use curlybrace_core::pipeline::{COUNT_CAP, Stage};
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The count at which the server stopped looking: a result equal to it means "at least".
 pub const CAP: u64 = COUNT_CAP as u64;
+
+/// The request number the next count gets, for the whole process: a view that is dropped and
+/// built again (a closed session opened anew) starts with no memory of the numbers it gave out,
+/// and a late answer of one of them must never match a count of the new view.
+static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 
 /// What one stage's card says about its count.
 #[derive(Clone, PartialEq)]
@@ -103,8 +109,8 @@ pub struct CountsUi {
     results: Arc<[(u64, StageCount)]>,
     /// The stages the results were counted for; a draft that differs now makes them out of date.
     counted_for: Option<Arc<[Stage]>>,
-    /// The newest request number given out; never reused, so a late answer never matches a newer
-    /// sequence.
+    /// The newest request number given out; numbers come from one process-wide counter, so one is
+    /// never reused, not even by another view of the same session.
     request: u64,
     /// A count that was cancelled (or whose sequence an edit ended) and may still be running on
     /// the server. One count at a time holds even then: a new start is held back until this
@@ -264,7 +270,7 @@ impl CountsUi {
         let Some(entry) = queue.get(next) else {
             return (self, None);
         };
-        let request = self.request.wrapping_add(1);
+        let request = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed);
         let send = CountSend {
             request,
             stage_index: entry.index,
@@ -323,17 +329,25 @@ impl CountsUi {
         }
     }
 
-    /// The counts no longer apply (another collection, a new connection): nothing is shown and
-    /// nothing is waited for (the old count's answer is stale whenever it comes).
-    // Known and accepted: this forgets a cancelled count still out on the server too (the new
-    // collection's start is not held behind it); the server's own time limit bounds it.
+    /// The counts no longer apply (another collection): nothing is shown and nothing is
+    /// awaited. A count still out on the server (the one awaited, or one already cancelled) stays
+    /// remembered: a new start waits for its answer, so two counts never overlap.
     pub fn reset(self) -> Self {
+        let out = self.cancelled();
         Self {
             run: Run::Idle,
-            lingering: None,
             results: Arc::from([]),
             counted_for: None,
-            ..self
+            ..out
+        }
+    }
+
+    /// The connection is gone or replaced: nothing is out on it any more, so nothing is waited
+    /// for either.
+    pub fn connection_lost(self) -> Self {
+        Self {
+            lingering: None,
+            ..self.reset()
         }
     }
 
