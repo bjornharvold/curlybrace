@@ -132,3 +132,20 @@ fn text_mode_is_not_counted_even_when_its_text_is_applied() {
     let d = draft().to_text();
     assert_eq!(plan(&d), Err(CountsBlock::TextMode));
 }
+
+#[test]
+fn a_write_stage_first_is_reported_as_a_write_stage_not_as_invalid() {
+    let d = AggregateState::default()
+        .add_stage("$match")
+        .edit(0, "{ \"$out\": \"x\" }");
+    assert_eq!(
+        reason_of(
+            &count_pipelines(&d.stages, COUNT_CAP)[0]
+                .clone()
+                .unwrap_err(),
+            0
+        ),
+        NotCounted::WriteStage
+    );
+    assert_eq!(plan(&d), Err(CountsBlock::Nothing));
+}

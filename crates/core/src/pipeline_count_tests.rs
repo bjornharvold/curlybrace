@@ -181,3 +181,24 @@ fn counting_every_stage_at_once_equals_counting_each_one() {
         assert_eq!(count_pipelines(&stages, 10), each, "{stages:?}");
     }
 }
+
+#[test]
+fn a_write_stage_that_is_the_only_enabled_stage_is_refused_as_a_write_stage() {
+    let cases = [
+        (vec![stage(r#"{"$out": "x"}"#)], 0, "$out"),
+        (
+            vec![disabled(r#"{"$match": {}}"#), stage(r#"{"$merge": "x"}"#)],
+            1,
+            "$merge",
+        ),
+    ];
+    for (stages, index, name) in cases {
+        let upto = stages.len() - 1;
+        let want = Err(PipelineError::WriteStageNotLast {
+            index,
+            name: name.to_string(),
+        });
+        assert_eq!(count_pipeline(&stages, upto, 10), want, "{stages:?}");
+        assert_eq!(count_pipelines(&stages, 10)[upto], want, "{stages:?}");
+    }
+}
