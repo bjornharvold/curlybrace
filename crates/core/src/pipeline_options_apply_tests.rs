@@ -3,6 +3,7 @@ use std::time::Duration;
 use bson::doc;
 
 use super::*;
+use crate::pipeline_options::MAX_TIME_MS_CAP;
 use crate::pipeline_options::{
     Alternate, CaseFirst, CollationOption, HintOption, PipelineOptions, ReadPreferenceMode,
     Strength,
@@ -183,4 +184,29 @@ fn the_defaults_are_the_existing_constants() {
     assert_eq!(Operation::Count.default_max_time_ms(), 10_000);
     assert_eq!(Operation::Explain.default_max_time_ms(), 10_000);
     assert_eq!(Operation::Run.default_max_time_ms(), 60_000);
+}
+
+#[test]
+fn a_zero_or_oversized_time_never_means_no_limit() {
+    // Validation refuses these, but a value built by hand must not turn into `maxTimeMS: 0`
+    // (no limit) or go past the cap.
+    for op in ALL {
+        assert_eq!(
+            max_time(0).applied(op).max_time,
+            Duration::from_millis(1),
+            "{op:?}"
+        );
+        assert_eq!(
+            AppliedOptions::bounded(op, Duration::ZERO).max_time,
+            Duration::from_millis(1)
+        );
+        assert_eq!(
+            max_time(u64::MAX).applied(op).max_time,
+            Duration::from_millis(op.default_max_time_ms())
+        );
+        assert_eq!(
+            AppliedOptions::bounded(op, Duration::from_secs(3_600)).max_time,
+            Duration::from_millis(MAX_TIME_MS_CAP)
+        );
+    }
 }

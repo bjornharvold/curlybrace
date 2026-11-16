@@ -385,3 +385,26 @@ fn is_primary_is_only_the_primary_mode() {
         ReadPreferenceMode::Nearest
     ))));
 }
+
+#[test]
+fn the_driver_never_gets_a_zero_or_oversized_time_limit() {
+    for (ms, expected) in [(0_u64, 1_u64), (3_600_000, 60_000)] {
+        let applied = AppliedOptions {
+            max_time: Duration::from_millis(ms),
+            ..AppliedOptions::bounded(Operation::Run, Duration::from_secs(1))
+        };
+        let expected = Duration::from_millis(expected);
+        assert_eq!(read_options(&applied).max_time, Some(expected));
+        assert_eq!(write_options(&applied).max_time, Some(expected));
+        let command = aggregate_explain_command(
+            &Namespace::new("d", "c"),
+            vec![],
+            ExplainVerbosity::QueryPlanner,
+            &applied,
+        );
+        assert_eq!(
+            command.get_i64("maxTimeMS"),
+            Ok(i64::try_from(expected.as_millis()).unwrap())
+        );
+    }
+}

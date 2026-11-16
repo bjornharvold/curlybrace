@@ -14,6 +14,7 @@ use mongodb::options::{
 
 use crate::driver_error::classify_driver_error;
 use crate::error::CoreError;
+use crate::pipeline::clamped_time;
 use crate::pipeline::{
     Alternate, AppliedOptions, CaseFirst, CollationOption, HintOption, ReadPreferenceMode, Strength,
 };
@@ -87,7 +88,7 @@ pub(crate) fn read_criteria(o: &AppliedOptions) -> Option<SelectionCriteria> {
 pub(crate) fn read_options(o: &AppliedOptions) -> AggregateOptions {
     AggregateOptions::builder()
         .allow_disk_use(false)
-        .max_time(o.max_time)
+        .max_time(clamped_time(o.max_time))
         .collation(o.collation.as_ref().map(driver_collation))
         .hint(o.hint.as_ref().map(driver_hint))
         .comment(o.comment.clone().map(Bson::String))
@@ -99,7 +100,7 @@ pub(crate) fn read_options(o: &AppliedOptions) -> AggregateOptions {
 pub(crate) fn write_options(o: &AppliedOptions) -> AggregateOptions {
     AggregateOptions::builder()
         .allow_disk_use(o.allow_disk_use)
-        .max_time(o.max_time)
+        .max_time(clamped_time(o.max_time))
         .collation(o.collation.as_ref().map(driver_collation))
         .hint(o.hint.as_ref().map(driver_hint))
         .comment(o.comment.clone().map(Bson::String))

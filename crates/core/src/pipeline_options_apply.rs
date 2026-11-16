@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use crate::explain::AGGREGATE_EXPLAIN_MAX_TIME_MS;
 use crate::pipeline::{AGGREGATE_RUN_MAX_TIME_MS, PREVIEW_MAX_TIME_MS};
-use crate::pipeline_options::{CollationOption, HintOption, PipelineOptions, ReadPreferenceMode};
+use crate::pipeline_options::{
+    CollationOption, HintOption, MAX_TIME_MS_CAP, PipelineOptions, ReadPreferenceMode,
+};
 
 /// An operation that sends a pipeline to the server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,9 +58,10 @@ impl PipelineOptions {
     /// The options `op` sends.
     pub fn applied(&self, op: Operation) -> AppliedOptions {
         let default_ms = op.default_max_time_ms();
+        // At least 1 ms: a zero would reach the server as "no limit".
         let ms = self
             .max_time_ms
-            .map_or(default_ms, |set| set.min(default_ms));
+            .map_or(default_ms, |set| set.clamp(1, default_ms));
         AppliedOptions {
             max_time: Duration::from_millis(ms),
             collation: self.collation.clone(),
@@ -78,11 +81,20 @@ fn disk_use(op: Operation, set: Option<bool>) -> Option<bool> {
     }
 }
 
+/// `d` within 1 ms and the cap of an option: a zero would mean "no limit" to the server and a
+/// larger value would outlast every client bound. Every time limit sent goes through this.
+pub(crate) fn clamped_time(d: Duration) -> Duration {
+    d.clamp(
+        Duration::from_millis(1),
+        Duration::from_millis(MAX_TIME_MS_CAP),
+    )
+}
+
 impl AppliedOptions {
     /// No option of the person's, only a time bound: for callers with their own bound.
     pub fn bounded(op: Operation, max_time: Duration) -> Self {
         Self {
-            max_time,
+            max_time: clamped_time(max_time),
             collation: None,
             hint: None,
             allow_disk_use: disk_use(op, None),
