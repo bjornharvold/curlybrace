@@ -41,6 +41,7 @@ mod mongo_write_fields;
 pub mod pipeline;
 mod pipeline_count;
 pub mod pipeline_options;
+pub mod pipeline_options_apply;
 mod pipeline_run;
 mod pipeline_shape;
 pub mod profile;
