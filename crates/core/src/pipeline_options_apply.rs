@@ -41,17 +41,18 @@ impl Operation {
 }
 
 /// What one operation sends. Built only by [`PipelineOptions::applied`] or
-/// [`AppliedOptions::bounded`].
+/// [`AppliedOptions::bounded`]; the fields are crate-private, so no other crate can build one that
+/// breaks the rules of the policy (the store re-enforces the two safety rules regardless).
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppliedOptions {
-    pub max_time: Duration,
-    pub collation: Option<CollationOption>,
-    pub hint: Option<HintOption>,
+    pub(crate) max_time: Duration,
+    pub(crate) collation: Option<CollationOption>,
+    pub(crate) hint: Option<HintOption>,
     /// Preview and count: always `Some(false)`.
-    pub allow_disk_use: Option<bool>,
-    pub comment: Option<String>,
+    pub(crate) allow_disk_use: Option<bool>,
+    pub(crate) comment: Option<String>,
     /// The run: always `None` (the store pins the primary).
-    pub read_preference: Option<ReadPreferenceMode>,
+    pub(crate) read_preference: Option<ReadPreferenceMode>,
 }
 
 impl PipelineOptions {
