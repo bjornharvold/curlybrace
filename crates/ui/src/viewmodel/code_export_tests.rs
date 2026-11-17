@@ -1,5 +1,6 @@
 use super::*;
 use bson::doc;
+use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::query::{QueryText, parse_query};
 use curlybrace_core::store::Namespace;
 
@@ -24,6 +25,7 @@ fn aggregate_request() -> CodeRequest {
     CodeRequest::Aggregate {
         ns: ns(),
         stages: aggregate_stages(&draft(&[("$match", MATCH), ("$group", GROUP)])).unwrap(),
+        options: PipelineOptions::default(),
     }
 }
 
@@ -167,6 +169,7 @@ fn the_write_stage_option_changes_the_aggregate_text_only() {
     let request = CodeRequest::Aggregate {
         ns: ns(),
         stages: aggregate_stages(&draft(&[("$match", MATCH), ("$out", OUT)])).unwrap(),
+        options: PipelineOptions::default(),
     };
     let on = CodeExportUi::default().opened(request);
     assert!(on.clipboard_text().unwrap().contains("$out"));

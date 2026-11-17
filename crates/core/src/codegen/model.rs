@@ -3,6 +3,7 @@
 use bson::Document;
 
 use crate::codegen::keywords::is_reserved_name;
+use crate::pipeline_options::PipelineOptions;
 use crate::store::{Namespace, Query};
 
 /// A target language for generated driver code.
@@ -59,6 +60,9 @@ pub enum CodeRequest {
     Aggregate {
         ns: Namespace,
         stages: Vec<Document>,
+        /// The aggregate's options as set; the code carries them unless
+        /// [`CodeOptions::include_options`] is off.
+        options: PipelineOptions,
     },
 }
 
@@ -72,6 +76,8 @@ pub struct CodeOptions {
     pub collection_var: String,
     /// Export a trailing `$out` / `$merge` stage; when off it is dropped.
     pub write_stage: bool,
+    /// Render the aggregate's options; off gives the code of no options.
+    pub include_options: bool,
 }
 
 impl Default for CodeOptions {
@@ -82,6 +88,7 @@ impl Default for CodeOptions {
             db_var: "db".into(),
             collection_var: "collection".into(),
             write_stage: true,
+            include_options: true,
         }
     }
 }
@@ -144,6 +151,8 @@ pub enum CodegenError {
     KeyOrder,
     /// A number (by field name: `skip`, `limit`) too large for the language's integer type.
     OutOfRange(&'static str),
+    /// The aggregate options do not validate (never built by the UI, which blocks first).
+    InvalidOptions,
 }
 
 impl CodegenError {
@@ -155,6 +164,7 @@ impl CodegenError {
             CodegenError::UnsupportedValue(_) => "UnsupportedValue",
             CodegenError::KeyOrder => "KeyOrder",
             CodegenError::OutOfRange(_) => "OutOfRange",
+            CodegenError::InvalidOptions => "InvalidOptions",
         }
     }
 }
@@ -173,6 +183,7 @@ impl std::fmt::Display for CodegenError {
             CodegenError::OutOfRange(field) => {
                 write!(f, "the {field} is too large for this language")
             }
+            CodegenError::InvalidOptions => write!(f, "the aggregate options are not valid"),
         }
     }
 }

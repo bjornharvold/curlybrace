@@ -24,7 +24,11 @@ fn agg(
 ) -> Result<String, CodegenError> {
     generate(
         language,
-        &CodeRequest::Aggregate { ns: ns(), stages },
+        &CodeRequest::Aggregate {
+            ns: ns(),
+            stages,
+            options: crate::pipeline_options::PipelineOptions::default(),
+        },
         options,
     )
 }

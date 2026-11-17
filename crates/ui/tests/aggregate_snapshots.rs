@@ -115,6 +115,52 @@ fn aggregate_plan_dark() {
         .snapshot("aggregate_plan_dark");
 }
 
+// The Plan tab's follow-ups: an in-memory sort after a scan with the hint `status_1` set: Try an
+// index, Clear hint and the suggested index (light, dark and the small window).
+// The follow-ups sit under the plan, so these windows are taller than the standard one.
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn aggregate_plan_next() {
+    if !snapshots_enabled("aggregate_plan_next") {
+        return;
+    }
+    Shot::sized(
+        (1000.0, 900.0),
+        vec![],
+        support::explain_shots::aggregate_plan_next_tab,
+    )
+    .snapshot("aggregate_plan_next");
+}
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn aggregate_plan_next_dark() {
+    if !snapshots_enabled("aggregate_plan_next_dark") {
+        return;
+    }
+    Shot::sized(
+        (1000.0, 900.0),
+        vec![],
+        support::explain_shots::aggregate_plan_next_tab,
+    )
+    .mode(Mode::Dark)
+    .snapshot("aggregate_plan_next_dark");
+}
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn aggregate_plan_next_small() {
+    if !snapshots_enabled("aggregate_plan_next_small") {
+        return;
+    }
+    Shot::sized(
+        (800.0, 900.0),
+        vec![],
+        support::explain_shots::aggregate_plan_next_tab,
+    )
+    .snapshot("aggregate_plan_next_small");
+}
+
 // The Options section open on the three-stage pipeline: a collation, a hint, a time limit, a read
 // preference and one problem on the time limit (light, dark and the small window).
 shot!(

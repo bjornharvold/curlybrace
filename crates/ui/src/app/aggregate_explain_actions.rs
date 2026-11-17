@@ -4,6 +4,7 @@
 //! session, as any read's loss does. At most one explain is out per session: Explain does
 //! nothing while one waits, and an answer that is not for the newest request number is ignored.
 use super::aggregate_actions::target;
+use super::aggregate_plan_actions as plan;
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus};
 use crate::viewmodel::aggregate_explain::{ExplainUi, ResultTab};
@@ -22,6 +23,14 @@ pub enum ExplainAction {
     SelectTab(ResultTab),
     /// The view put the explain document on the clipboard; nothing changes.
     CopyRaw,
+    /// Set the index `name` as the hint (in Options) and explain again.
+    TryIndex(String),
+    /// Remove the hint and explain again.
+    ClearHint,
+    /// The view put the suggested index command on the clipboard; nothing changes.
+    CopyCreateIndex,
+    /// Open the index builder pre-filled with the suggested index.
+    CreateIndex,
 }
 
 /// `state` holding `explain` in the active session's draft. The draft is edited in place, never
@@ -41,7 +50,12 @@ pub(super) fn on_action(mut state: AppState, action: ExplainAction) -> Out {
             Vec::new(),
         ),
         ExplainAction::SelectTab(tab) => (with_explain(state, ui.with_tab(tab)), Vec::new()),
-        ExplainAction::CopyRaw => (with_explain(state, ui), Vec::new()),
+        ExplainAction::CopyRaw | ExplainAction::CopyCreateIndex => {
+            (with_explain(state, ui), Vec::new())
+        }
+        ExplainAction::TryIndex(name) => plan::try_index(with_explain(state, ui), name),
+        ExplainAction::ClearHint => plan::clear_hint(with_explain(state, ui)),
+        ExplainAction::CreateIndex => plan::create_index(with_explain(state, ui)),
     }
 }
 

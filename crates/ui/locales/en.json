@@ -87,6 +87,7 @@
       "button_hint": "Ask the server how it would run the stages up to the selected one.",
       "cost_note": "Runs the pipeline on the server, for at most {seconds} seconds.",
       "disabled": {
+        "no_connection": "Connect to a server to explain again.",
         "running": "An explain is already running.",
         "text_not_applied": "Apply the edited text to the stages before explaining."
       },
@@ -185,6 +186,16 @@
         "placeholder": "Text to find this pipeline in the server's logs"
       },
       "comment_sent_note": "The comment is sent to the server and shows in its logs and profiler.",
+      "explain": {
+        "clear_hint": "Clear hint",
+        "copy_create_index": "Copy command",
+        "create_index": "Create index...",
+        "create_index_read_only": "This connection is read-only. Copy the command to create the index elsewhere.",
+        "no_hint": "No hint",
+        "suggested": "Suggested index for the first $match and $sort",
+        "try_index": "Try an index",
+        "try_index_hint": "Sets this index as the hint in Options and explains again."
+      },
       "explain_timeout_set": "It took longer than the time limit you set in Options.",
       "hint": {
         "clear": "Clear",
@@ -561,6 +572,7 @@
     "error": {
       "empty_pipeline": "There is no stage to show code for. Turn the write stage back on or enable a stage.",
       "invalid_name": "The {field} is not a valid name for this language; use letters, digits and underscores, at most {max} characters, not starting with a digit, and not a reserved word. Give each variable its own name.",
+      "invalid_options": "The options have a problem. Fix them in Options before you copy code.",
       "key_order": "The mongosh shell lists numeric field names first, so this document's field order cannot be kept there. Pick another language.",
       "out_of_range": "The {field} is too large for this language.",
       "unsupported_value": "This language cannot write a value of type {type}."
@@ -583,6 +595,12 @@
       "db": "Database variable"
     },
     "note": "The code connects with a placeholder connection string. Nothing is sent to the server.",
+    "options": {
+      "include_options": "Include the pipeline's options",
+      "listed": "The code sets: {options}",
+      "read_preference_left_out": "This code writes with $out or $merge, which runs on the primary, so it leaves out the read preference.",
+      "separator": ", "
+    },
     "preview": "Code",
     "setup": "Include setup (imports and connection)",
     "title": "Copy as code",

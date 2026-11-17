@@ -3,6 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::agg_options::CodeAggOptions;
 use crate::codegen::js_ops::JsOps;
 use crate::codegen::js_syntax::{JsDialect, JsSyntax, quote};
 use crate::codegen::lossy::with_note;
@@ -61,10 +62,12 @@ impl Renderer for Mongosh {
         &self,
         ns: &Namespace,
         stages: &[Document],
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = JsSyntax::new(JsDialect::Mongosh);
-        let body = Self::ops(&syn, options).aggregate(stages)?;
+        let body = Self::ops(&syn, options).aggregate(stages, agg)?;
+        let body = agg.with_note("//", body);
         Ok(Self::frame(ns, options, Self::finish(&syn, body)?))
     }
 }

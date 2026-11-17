@@ -7,6 +7,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::agg_options::{CodeAggOptions, mode_words, plain_entries};
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::range::i64_arg;
 use crate::codegen::ruby_syntax::{RubySyntax, quote};
@@ -28,7 +29,37 @@ fn check_names(options: &CodeOptions) -> Result<(), CodegenError> {
     Ok(())
 }
 
+/// The Ruby driver's spelling of an option name: snake case symbols.
+fn option_symbol(name: &str) -> String {
+    match name {
+        "allowDiskUse" => "allow_disk_use".into(),
+        "maxTimeMS" => "max_time_ms".into(),
+        other => other.into(),
+    }
+}
+
 impl Ruby {
+    /// `collection.aggregate(pipeline, key: value, ..).to_a`; the read preference is set on a
+    /// handle derived in the call (`with(read: ..)`).
+    fn aggregate_call(agg: &CodeAggOptions, coll: &str) -> Result<String, CodegenError> {
+        let handle = match agg.read_preference {
+            Some(mode) => format!("{coll}.with(read: {{ mode: :{} }})", mode_words(mode).snake),
+            None => coll.to_string(),
+        };
+        let entries = plain_entries(&RubySyntax, agg, option_symbol, 1, None)?;
+        if entries.is_empty() {
+            return Ok(format!("{handle}.aggregate(pipeline).to_a"));
+        }
+        let lines: Vec<String> = entries
+            .iter()
+            .map(|(name, value)| format!("  {name}: {value}"))
+            .collect();
+        Ok(format!(
+            "{handle}.aggregate(\n  pipeline,\n{}\n).to_a",
+            lines.join(",\n")
+        ))
+    }
+
     fn frame(ns: &Namespace, options: &CodeOptions, body: &str) -> String {
         if !options.setup {
             return body.to_string();
@@ -89,14 +120,14 @@ impl Renderer for Ruby {
         &self,
         ns: &Namespace,
         stages: &[Document],
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;
         let pipeline = render_documents(&RubySyntax, stages, 0)?;
-        let body = format!(
-            "pipeline = {pipeline}\n\nresults = {}.aggregate(pipeline).to_a\nputs results.inspect\n",
-            options.collection_var
-        );
+        let call = Self::aggregate_call(agg, &options.collection_var)?;
+        let body = format!("pipeline = {pipeline}\n\nresults = {call}\nputs results.inspect\n");
+        let body = agg.with_note("#", body);
         Ok(Self::frame(ns, options, &body))
     }
 }

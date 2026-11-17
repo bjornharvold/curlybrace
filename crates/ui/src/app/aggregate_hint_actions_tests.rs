@@ -212,3 +212,21 @@ fn without_a_connection_the_list_fails_and_reopening_asks_again() {
     assert_eq!(s.aggregate.options_ui.hint.list, HintList::NotAsked);
     let _ = wanted;
 }
+
+#[test]
+fn retry_asks_again_after_the_list_failed() {
+    let mut s = connected();
+    s.status = ConnStatus::Disconnected;
+    let (mut s, _) = ask(s);
+    assert_eq!(s.aggregate.options_ui.hint.list, HintList::Failed);
+    s.status = ConnStatus::Connected;
+    let (s, commands) = update(s, Input::Aggregate(A::Options(O::HintListRetry)));
+    let asked = lists(&commands);
+    assert_eq!(asked.len(), 1, "one new read");
+    assert_eq!(
+        s.aggregate.options_ui.hint.list,
+        HintList::Loading {
+            request: asked[0].0
+        }
+    );
+}

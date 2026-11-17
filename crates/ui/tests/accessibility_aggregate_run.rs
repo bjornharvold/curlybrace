@@ -73,6 +73,7 @@ fn ready(badge: ConnectionBadge) -> RunContext {
     RunContext {
         availability: RunAvailability::Ready,
         badge,
+        ..RunContext::default()
     }
 }
 
@@ -129,6 +130,7 @@ fn run_off_for_a_read_only_connection_says_why_at_both_sizes() {
         let context = RunContext {
             availability: RunAvailability::Disabled(RunDisabled::ReadOnly),
             badge: ConnectionBadge::default(),
+            ..RunContext::default()
         };
         let harness = open(write_draft(RunUi::default()), context, size);
         let label = t("aggregate.run.button");

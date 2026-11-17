@@ -1,0 +1,21 @@
+pipeline := mongo.Pipeline{
+	bson.D{{Key: "$match", Value: bson.D{{Key: "status", Value: "A"}}}},
+	bson.D{{Key: "$sort", Value: bson.D{{Key: "total", Value: int32(-1)}}}},
+}
+
+opts := options.Aggregate().
+	SetCollation(&options.Collation{Locale: "en", CaseFirst: "upper", Strength: 2, NumericOrdering: true, Alternate: "shifted"}).
+	SetHint("status_1_total_-1").
+	SetAllowDiskUse(true).
+	SetCustom(bson.M{"maxTimeMS": int32(5000)}).
+	SetComment("nightly \"report\" 'q' \\ $x ${y} #{z} %s {0} \u202eend")
+
+cursor, err := collection.Clone(options.Collection().SetReadPreference(readpref.SecondaryPreferred())).Aggregate(context.TODO(), pipeline, opts)
+if err != nil {
+	log.Fatal(err)
+}
+var results []bson.M
+if err := cursor.All(context.TODO(), &results); err != nil {
+	log.Fatal(err)
+}
+fmt.Println(results)

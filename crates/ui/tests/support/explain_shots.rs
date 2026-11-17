@@ -11,6 +11,7 @@ use curlybrace_core::pipeline::{PipelineOptions, explain_pipeline};
 use curlybrace_core::store::Explain;
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::aggregate_explain::ResultTab;
+use curlybrace_ui::viewmodel::aggregate_options::OptionsEdit;
 use curlybrace_ui::viewmodel::{AggregateState, CollectionTab, ViewMode};
 
 /// The `executionStats` explain of `$match` + `$group` on `crm.customers`, as a server of the old
@@ -66,7 +67,9 @@ pub fn explain_document() -> Document {
 
 /// [`three_stage_draft`] with its explain answered and the Plan tab in view, measured.
 pub fn explained_draft() -> AggregateState {
-    let mut draft = three_stage_draft();
+    // The collection's indexes are known, as after the Options section listed them.
+    let mut draft = three_stage_draft()
+        .hint_edited(|list| list.from_names(vec!["status_1".into(), "city_1".into()]));
     let pipeline = explain_pipeline(&draft.stages, draft.selected).expect("valid pipeline");
     let (ui, request, _) = draft
         .explain
@@ -90,4 +93,66 @@ pub fn aggregate_plan_tab(state: &mut AppState) {
     browsing(ViewMode::Tree)(state);
     state.tab = CollectionTab::Aggregate;
     state.aggregate = Box::new(explained_draft());
+}
+
+/// A plan that sorts in memory after a collection scan, as a server without an index on the
+/// filter and sort fields would answer (plan only).
+fn sort_document() -> Document {
+    editor_json_to_doc(
+        r#"{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "crm.customers",
+    "winningPlan": {
+      "stage": "SORT",
+      "sortPattern": { "total": -1 },
+      "inputStage": {
+        "stage": "COLLSCAN",
+        "filter": { "status": { "$eq": "A" } },
+        "direction": "forward"
+      }
+    },
+    "rejectedPlans": []
+  },
+  "ok": 1
+}"#,
+    )
+    .expect("the canned explain parses")
+}
+
+/// `$match` + `$sort` explained as a scan with an in-memory sort, with the hint `status_1` set
+/// and the collection's indexes listed: the Plan tab shows Try an index, Clear hint and the
+/// suggested index.
+pub fn plan_next_draft() -> AggregateState {
+    let draft = AggregateState::default()
+        .add_stage("$match")
+        .edit(0, r#"{ "$match": { "status": "A" } }"#)
+        .add_stage("$sort")
+        .edit(1, r#"{ "$sort": { "total": -1 } }"#)
+        .options_edited(OptionsEdit::HintPicked("status_1".into()))
+        .options_applied()
+        .0
+        .hint_edited(|list| list.from_names(vec!["status_1".into(), "total_-1".into()]));
+    let options = draft.options.clone();
+    let pipeline = explain_pipeline(&draft.stages, draft.selected).expect("valid pipeline");
+    let (ui, request, _) = draft.explain.clone().begun(pipeline, &options);
+    let ui = ui
+        .arrived(
+            request,
+            Ok(Explain {
+                document: sort_document(),
+                plan_only: true,
+            }),
+        )
+        .with_tab(ResultTab::Plan);
+    let mut draft = draft;
+    draft.explain = ui;
+    draft
+}
+
+/// The Aggregate tab of a connected browser on `crm.customers` showing [`plan_next_draft`].
+pub fn aggregate_plan_next_tab(state: &mut AppState) {
+    browsing(ViewMode::Tree)(state);
+    state.tab = CollectionTab::Aggregate;
+    state.aggregate = Box::new(plan_next_draft());
 }

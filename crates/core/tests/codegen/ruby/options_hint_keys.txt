@@ -1,0 +1,15 @@
+require 'mongo'
+
+client = Mongo::Client.new('<your connection string>')
+db = client.use('shop').database
+collection = db['orders']
+
+pipeline = [{ '$match' => { 'status' => 'A' } }, { '$sort' => { 'total' => -1 } }]
+
+results = collection.with(read: { mode: :nearest }).aggregate(
+  pipeline,
+  collation: { 'locale' => 'fr_CA' },
+  hint: { 'status' => 1, 'total' => -1 },
+  allow_disk_use: false
+).to_a
+puts results.inspect

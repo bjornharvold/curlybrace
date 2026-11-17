@@ -3,11 +3,12 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::agg_options::{CodeAggOptions, mode_words, plain_entries};
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::php_syntax::{PhpSyntax, quote};
 use crate::codegen::range::i64_arg;
-use crate::codegen::walk::{render_document, render_documents};
+use crate::codegen::walk::{Syntax, render_document, render_documents};
 use crate::store::{Namespace, Query};
 
 pub(crate) struct Php;
@@ -93,15 +94,32 @@ impl Renderer for Php {
         &self,
         ns: &Namespace,
         stages: &[Document],
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;
         let syn = PhpSyntax::new();
         let pipeline = render_documents(&syn, stages, 0)?;
-        let body = format!(
-            "$pipeline = {pipeline};\n\n$results = ${}->aggregate($pipeline)->toArray();\nprint_r($results);\n",
-            options.collection_var
-        );
+        let coll = &options.collection_var;
+        let mut entries = plain_entries(&syn, agg, quote, 1, None)?;
+        if let Some(mode) = agg.read_preference {
+            let value = format!(
+                "new MongoDB\\Driver\\ReadPreference({})",
+                quote(mode_words(mode).camel)
+            );
+            entries.push((quote("readPreference"), value));
+        }
+        let body = if entries.is_empty() {
+            format!(
+                "$pipeline = {pipeline};\n\n$results = ${coll}->aggregate($pipeline)->toArray();\nprint_r($results);\n"
+            )
+        } else {
+            let options_array = syn.document(&entries, 0);
+            format!(
+                "$pipeline = {pipeline};\n\n$options = {options_array};\n\n$results = ${coll}->aggregate($pipeline, $options)->toArray();\nprint_r($results);\n"
+            )
+        };
+        let body = agg.with_note("//", body);
         Ok(Self::frame(ns, options, &syn, &body))
     }
 }

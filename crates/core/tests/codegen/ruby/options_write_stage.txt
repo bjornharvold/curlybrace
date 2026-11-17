@@ -1,0 +1,14 @@
+require 'mongo'
+
+client = Mongo::Client.new('<your connection string>')
+db = client.use('shop').database
+collection = db['orders']
+
+# Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.
+pipeline = [{ '$match' => { 'status' => 'A' } }, { '$out' => 'archive' }]
+
+results = collection.aggregate(
+  pipeline,
+  comment: 'archive'
+).to_a
+puts results.inspect

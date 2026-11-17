@@ -42,7 +42,7 @@ impl JavaSyntax {
         self.imports.borrow().iter().copied().collect()
     }
 
-    fn used(&self, class: &'static str) {
+    pub(crate) fn used(&self, class: &'static str) {
         self.imports.borrow_mut().insert(class);
     }
 }

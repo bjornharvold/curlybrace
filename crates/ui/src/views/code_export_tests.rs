@@ -5,6 +5,7 @@ use super::*;
 use crate::theme;
 use crate::viewmodel::code_export::CodeExportUi;
 use curlybrace_core::codegen::CodeRequest;
+use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::query::QueryText;
 use curlybrace_core::store::{Namespace, Query};
 use eframe::egui::accesskit::Role;
@@ -41,6 +42,7 @@ fn aggregate_request() -> CodeRequest {
             bson::doc! { "$match": { "status": "active" } },
             bson::doc! { "$out": "totals" },
         ],
+        options: PipelineOptions::default(),
     }
 }
 
@@ -51,6 +53,7 @@ fn apply(code: CodeExportUi, action: &CodeAction) -> CodeExportUi {
         CodeAction::SetSetup(setup) => code.setup_set(*setup),
         CodeAction::SetName(field, name) => code.name_set(*field, name.clone()),
         CodeAction::SetWriteStage(keep) => code.write_stage_set(*keep),
+        CodeAction::SetIncludeOptions(include) => code.include_options_set(*include),
         CodeAction::Close => code.closed(),
         CodeAction::Open(_) | CodeAction::Copy => code,
     }

@@ -1,0 +1,17 @@
+from pymongo import MongoClient, ReadPreference
+
+client = MongoClient("<your connection string>")
+db = client["shop"]
+collection = db["orders"]
+
+pipeline = [{"$match": {"status": "A"}}, {"$sort": {"total": -1}}]
+
+results = list(
+    collection.with_options(read_preference=ReadPreference.NEAREST).aggregate(
+        pipeline,
+        collation={"locale": "fr_CA"},
+        hint=[("status", 1), ("total", -1)],
+        allowDiskUse=False,
+    )
+)
+print(results)

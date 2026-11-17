@@ -1,0 +1,31 @@
+use futures::TryStreamExt;
+use mongodb::Client;
+use mongodb::bson::{Document, doc};
+use mongodb::options::{Collation, Hint, ReadPreference, SelectionCriteria};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::with_uri_str("<your connection string>").await?;
+    let db = client.database("shop");
+    let collection = db.collection::<Document>("orders");
+
+    let pipeline = vec![
+        doc! { "$match": { "status": "A" } },
+        doc! { "$sort": { "total": -1_i32 } },
+    ];
+
+    let mut cursor = collection
+        .aggregate(pipeline)
+        .collation(Collation::builder().locale("fr_CA").build())
+        .hint(Hint::Keys(doc! { "status": 1_i32, "total": -1_i32 }))
+        .allow_disk_use(false)
+        .selection_criteria(SelectionCriteria::ReadPreference(
+            ReadPreference::Nearest { options: None },
+        ))
+        .await?;
+    while let Some(item) = cursor.try_next().await? {
+        println!("{item}");
+    }
+
+    Ok(())
+}

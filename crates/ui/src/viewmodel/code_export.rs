@@ -189,7 +189,7 @@ impl CodeExportUi {
         })
     }
 
-    fn options_edited(self, change: impl FnOnce(CodeOptions) -> CodeOptions) -> Self {
+    pub(super) fn options_edited(self, change: impl FnOnce(CodeOptions) -> CodeOptions) -> Self {
         self.edited(|dialog| {
             let options = change(dialog.options.clone());
             dialog.with_options(options)
@@ -207,6 +207,7 @@ impl CodeExportUi {
         let options = dialog.options.clone().validated().unwrap_or(CodeOptions {
             setup: dialog.options.setup,
             write_stage: dialog.options.write_stage,
+            include_options: dialog.options.include_options,
             ..last.1
         });
         Self {

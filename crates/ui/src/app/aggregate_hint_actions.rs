@@ -47,6 +47,12 @@ pub(super) fn wanted(state: AppState) -> Out {
     (with_hint(state, |_| asked), vec![command])
 }
 
+/// The person asked to read a failed list again: it is forgotten and asked for as at first. A list
+/// that did not fail is left as it is.
+pub(super) fn retry(state: AppState) -> Out {
+    wanted(with_hint(state, HintListUi::retried))
+}
+
 fn names_of(indexes: &[CollectionIndex]) -> Vec<String> {
     indexes.iter().map(|i| i.spec.name.clone()).collect()
 }

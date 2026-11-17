@@ -4,6 +4,7 @@ use super::actions::{gated, mutation};
 use super::reducer::Out;
 use super::state::{AppState, Banner};
 use super::write_guard::{Guard, WriteKind};
+use crate::viewmodel::aggregate_hint_list::HintListUi;
 use crate::viewmodel::{BuilderEdit, IndexBuilderState, IndexWrite};
 use curlybrace_core::runtime::Command;
 use curlybrace_core::store::Namespace;
@@ -180,9 +181,17 @@ pub(super) fn write_finished(state: AppState, ns: &Namespace) -> AppState {
         return state;
     }
     let indexes = state.indexes.write_answered(true);
-    AppState {
+    let state = AppState {
         indexes,
         pending: None,
         ..state
+    };
+    // The collection has a new index: the aggregate's hint picker asks for the list again.
+    match state.selected_ns() == Some(ns) {
+        true => AppState {
+            aggregate: Box::new(state.aggregate.hint_edited(HintListUi::reset)),
+            ..state
+        },
+        false => state,
     }
 }

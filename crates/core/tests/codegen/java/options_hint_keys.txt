@@ -1,0 +1,31 @@
+import com.mongodb.ReadPreference;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Collation;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.bson.Document;
+
+public class Main {
+    public static void main(String[] args) {
+        try (MongoClient client = MongoClients.create("<your connection string>")) {
+            MongoDatabase db = client.getDatabase("shop");
+            MongoCollection<Document> collection = db.getCollection("orders");
+
+            List<Document> pipeline = Arrays.asList(
+                new Document("$match", new Document("status", "A")),
+                new Document("$sort", new Document("total", -1))
+            );
+
+            List<Document> results = collection.withReadPreference(ReadPreference.nearest()).aggregate(pipeline)
+                .collation(Collation.builder().locale("fr_CA").build())
+                .hint(new Document("status", 1).append("total", -1))
+                .allowDiskUse(false)
+                .into(new ArrayList<>());
+            System.out.println(results);
+        }
+    }
+}

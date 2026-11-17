@@ -62,8 +62,14 @@ fn open(draft: AggregateState) -> Harness<'static, Frame> {
         .build_ui_state(
             |ui, frame: &mut Frame| {
                 let typed = frame.view.typed_stages(&frame.draft).into_owned();
-                let actions =
-                    show_results(ui, &frame.draft, &mut frame.view, &typed, &I18n::english());
+                let actions = show_results(
+                    ui,
+                    &frame.draft,
+                    &mut frame.view,
+                    &typed,
+                    &RunContext::default(),
+                    &I18n::english(),
+                );
                 frame.seen.extend(actions);
             },
             Frame {

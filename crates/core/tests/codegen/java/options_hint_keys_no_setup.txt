@@ -1,0 +1,11 @@
+List<Document> pipeline = Arrays.asList(
+    new Document("$match", new Document("status", "A")),
+    new Document("$sort", new Document("total", -1))
+);
+
+List<Document> results = collection.withReadPreference(ReadPreference.nearest()).aggregate(pipeline)
+    .collation(Collation.builder().locale("fr_CA").build())
+    .hint(new Document("status", 1).append("total", -1))
+    .allowDiskUse(false)
+    .into(new ArrayList<>());
+System.out.println(results);

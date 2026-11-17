@@ -7,6 +7,7 @@
 //! deterministic and ends with a newline. Request content is never logged and
 //! never appears in an error.
 
+mod agg_options;
 mod csharp;
 mod csharp_syntax;
 mod escape;
@@ -15,7 +16,7 @@ mod go_syntax;
 mod java;
 mod java_syntax;
 mod js_ops;
-mod js_syntax;
+pub(crate) mod js_syntax;
 mod keywords;
 mod lossy;
 mod model;
@@ -30,12 +31,14 @@ mod ruby;
 mod ruby_syntax;
 mod rust;
 mod rust_syntax;
-mod walk;
+pub(crate) mod walk;
 
 use bson::Document;
 
 use crate::pipeline::is_write;
 use crate::store::{Namespace, Query};
+
+use agg_options::CodeAggOptions;
 
 pub use model::{CodeOptions, CodeRequest, CodegenError, Language, MAX_VARIABLE_NAME_LEN};
 
@@ -53,6 +56,7 @@ pub(crate) trait Renderer {
         &self,
         ns: &Namespace,
         stages: &[Document],
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError>;
 }
@@ -100,10 +104,26 @@ pub fn generate(
     let renderer = renderer(language);
     match request {
         CodeRequest::Find { ns, query } => renderer.find(ns, query, &options),
-        CodeRequest::Aggregate { ns, stages } => {
+        CodeRequest::Aggregate {
+            ns,
+            stages,
+            options: pipeline_options,
+        } => {
             let stages = exported_stages(stages, options.write_stage)?;
-            renderer.aggregate(ns, stages, &options)
+            let writes = stages.last().is_some_and(stage_is_write);
+            let agg = CodeAggOptions::of(pipeline_options, options.include_options, writes)?;
+            renderer.aggregate(ns, stages, &agg, &options)
         }
+    }
+}
+
+/// Whether the code for `request` ends with `$out` / `$merge` under `options`: the code then
+/// leaves the read preference out (the confirmed run reads on the primary).
+pub fn code_writes(request: &CodeRequest, options: &CodeOptions) -> bool {
+    match request {
+        CodeRequest::Find { .. } => false,
+        CodeRequest::Aggregate { stages, .. } => exported_stages(stages, options.write_stage)
+            .is_ok_and(|exported| exported.last().is_some_and(stage_is_write)),
     }
 }
 
@@ -113,6 +133,8 @@ mod tests;
 mod tests_langs;
 #[cfg(test)]
 mod tests_lossy;
+#[cfg(test)]
+mod tests_options;
 #[cfg(test)]
 mod tests_range;
 #[cfg(test)]

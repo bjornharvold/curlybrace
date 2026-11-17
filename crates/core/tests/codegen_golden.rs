@@ -9,6 +9,7 @@ use bson::oid::ObjectId;
 use bson::spec::BinarySubtype;
 use bson::{Binary, Bson, DateTime, Document, JavaScriptCodeWithScope, Regex, Timestamp, doc};
 use curlybrace_core::codegen::{CodeOptions, CodeRequest, CodegenError, Language, generate};
+use curlybrace_core::pipeline_options::PipelineOptions;
 
 use curlybrace_core::store::{Namespace, Query};
 
@@ -192,7 +193,11 @@ fn find_query() -> Query {
 }
 
 fn cases() -> Vec<(&'static str, CodeRequest)> {
-    let aggregate = |stages: Vec<Document>| CodeRequest::Aggregate { ns: ns(), stages };
+    let aggregate = |stages: Vec<Document>| CodeRequest::Aggregate {
+        ns: ns(),
+        stages,
+        options: PipelineOptions::default(),
+    };
     vec![
         ("all_types", aggregate(vec![doc! { "$match": all_types() }])),
         ("pipeline", aggregate(pipeline_stages())),

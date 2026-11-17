@@ -5,7 +5,9 @@
 //! what the person did; the reducer decides what happens.
 use super::aggregate::pipeline_error_text;
 use super::aggregate_plan::show_plan;
+use super::aggregate_plan_next::show_plan_next;
 use super::aggregate_preview::{show_preview_body, show_preview_heading};
+use super::aggregate_run::RunContext;
 use super::error_label::show_error;
 use super::json::show_json;
 use crate::I18n;
@@ -13,6 +15,7 @@ use crate::app::{AggregateAction, ExplainAction};
 use crate::theme::{CONTROL_HEIGHT, Tone, chip, gate, segmented, tonal_button};
 use crate::viewmodel::aggregate::AggregateState;
 use crate::viewmodel::aggregate_explain::{ExplainDone, ExplainState, ResultTab};
+use crate::viewmodel::aggregate_explain_block::ExplainRequest;
 use crate::viewmodel::aggregate_options_view::timeout_key;
 use crate::viewmodel::aggregate_view::AggregateView;
 use crate::viewmodel::code_export::CodeBlock;
@@ -33,13 +36,19 @@ pub fn explain_blocked(
     i18n: &I18n,
 ) -> Option<String> {
     match &*view.explain_request(draft, typed) {
-        Err(CodeBlock::Pipeline(error)) => Some(pipeline_error_text(error, i18n)),
-        Err(CodeBlock::TextNotApplied) => {
-            Some(i18n.t("aggregate.explain.disabled.text_not_applied"))
-        }
-        Err(CodeBlock::Options) => Some(i18n.t("aggregate.options.blocked")),
+        Err(block) => Some(explain_block_text(block, i18n)),
         Ok(_) if draft.explain.is_loading() => Some(i18n.t("aggregate.explain.disabled.running")),
         Ok(_) => None,
+    }
+}
+
+/// Why an explain request cannot be made, in words: the Explain button's reason, shared with the
+/// Plan tab's follow-ups.
+pub(super) fn explain_block_text(block: &CodeBlock, i18n: &I18n) -> String {
+    match block {
+        CodeBlock::Pipeline(error) => pipeline_error_text(error, i18n),
+        CodeBlock::TextNotApplied => i18n.t("aggregate.explain.disabled.text_not_applied"),
+        CodeBlock::Options => i18n.t("aggregate.options.blocked"),
     }
 }
 
@@ -66,6 +75,7 @@ pub(super) fn show_results(
     draft: &AggregateState,
     view: &mut AggregateView,
     typed: &[Stage],
+    context: &RunContext,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
     let tab = draft.explain.tab;
@@ -91,7 +101,7 @@ pub(super) fn show_results(
     });
     match tab {
         ResultTab::Preview => show_preview_body(ui, draft, view, i18n),
-        ResultTab::Plan => actions.extend(show_plan_tab(ui, draft, i18n)),
+        ResultTab::Plan => actions.extend(show_plan_tab(ui, draft, (&current, context), i18n)),
         ResultTab::Raw => actions.extend(show_raw_tab(ui, draft, view, i18n)),
     }
     actions
@@ -112,7 +122,12 @@ fn show_tabs(ui: &mut egui::Ui, tab: ResultTab, i18n: &I18n) -> Option<ResultTab
 }
 
 /// The verbosity toggle with the cost note beside it, and the plan or what stands in its place.
-fn show_plan_tab(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) -> Vec<AggregateAction> {
+fn show_plan_tab(
+    ui: &mut egui::Ui,
+    draft: &AggregateState,
+    (request, context): (&ExplainRequest, &RunContext),
+    i18n: &I18n,
+) -> Vec<AggregateAction> {
     let explain = &draft.explain;
     let mut actions = Vec::new();
     let mut measure = explain.verbosity == ExplainVerbosity::ExecutionStats;
@@ -132,7 +147,8 @@ fn show_plan_tab(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) -> Vec<
         .id_salt("explain_plan")
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            show_state(ui, &explain.state, &explain.options, i18n)
+            show_state(ui, &explain.state, &explain.options, i18n);
+            actions.extend(show_plan_next(ui, draft, (request, context), i18n));
         });
     actions
 }

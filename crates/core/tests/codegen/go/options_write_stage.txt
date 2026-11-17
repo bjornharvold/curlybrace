@@ -1,0 +1,46 @@
+// Uses the v2 driver: go.mongodb.org/mongo-driver/v2
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+func main() {
+	client, err := mongo.Connect(options.Client().ApplyURI("<your connection string>"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := client.Disconnect(context.TODO()); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	db := client.Database("shop")
+	collection := db.Collection("orders")
+
+	// Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: bson.D{{Key: "status", Value: "A"}}}},
+		bson.D{{Key: "$out", Value: "archive"}},
+	}
+
+	opts := options.Aggregate().
+		SetComment("archive")
+
+	cursor, err := collection.Aggregate(context.TODO(), pipeline, opts)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var results []bson.M
+	if err := cursor.All(context.TODO(), &results); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(results)
+}

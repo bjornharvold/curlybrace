@@ -50,6 +50,7 @@ fn open(draft: AggregateState, run: RunContext) -> Harness<'static, Frame> {
                     &RunContext {
                         availability: frame.run.availability.clone(),
                         badge: frame.run.badge,
+                        ..RunContext::default()
                     },
                     &I18n::english(),
                 );
@@ -69,7 +70,7 @@ fn open(draft: AggregateState, run: RunContext) -> Harness<'static, Frame> {
                             }
                             OptionsAction::Apply => draft.options_applied().0,
                             OptionsAction::Reset => draft.options_reset().0,
-                            OptionsAction::HintListWanted => draft,
+                            OptionsAction::HintListWanted | OptionsAction::HintListRetry => draft,
                         };
                     }
                 }

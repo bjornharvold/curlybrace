@@ -1,0 +1,15 @@
+<?php
+
+require 'vendor/autoload.php';
+
+$client = new MongoDB\Client('<your connection string>');
+$db = $client->selectDatabase('shop');
+$collection = $db->selectCollection('orders');
+
+// Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.
+$pipeline = [['$match' => ['status' => 'A']], ['$out' => 'archive']];
+
+$options = ['comment' => 'archive'];
+
+$results = $collection->aggregate($pipeline, $options)->toArray();
+print_r($results);

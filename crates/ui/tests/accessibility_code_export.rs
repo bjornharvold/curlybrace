@@ -3,6 +3,7 @@
 //! scrolls while Copy and Close stay in view, an unusable name shows its message in place of the
 //! code with Copy off, and focus starts on the language picker. Offline, no GPU.
 use curlybrace_core::codegen::{CodeOptions, CodeRequest, Language};
+use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::store::Namespace;
 use curlybrace_ui::I18n;
 use curlybrace_ui::theme;
@@ -29,6 +30,7 @@ fn long_pipeline() -> CodeRequest {
             .map(stage)
             .chain([bson::doc! { "$out": "totals" }])
             .collect(),
+        options: PipelineOptions::default(),
     }
 }
 
@@ -171,4 +173,46 @@ fn focus_starts_on_the_language_picker_and_the_language_is_shown() {
         picker.accesskit_node().value(),
         Some(t("codegen.language.go"))
     );
+}
+
+#[test]
+fn the_include_options_box_is_named_and_in_tab_order() {
+    let request = CodeRequest::Aggregate {
+        ns: Namespace::new("crm", "customers"),
+        stages: vec![bson::doc! { "$match": { "status": "active" } }],
+        options: PipelineOptions {
+            max_time_ms: Some(5000),
+            ..PipelineOptions::default()
+        },
+    };
+    let mut harness = open(CodeExportUi::default().opened(request), STANDARD);
+    let include = t("codegen.options.include_options");
+    let box_rect = rect_of(&harness, Role::CheckBox, &include);
+    assert_inside(STANDARD, &include, box_rect);
+    let wanted = [
+        t("codegen.language.label"),
+        t("codegen.setup"),
+        t("codegen.write_stage"),
+        include,
+        t("codegen.name.client"),
+        t("codegen.name.db"),
+        t("codegen.name.collection"),
+    ];
+    // Focus starts on the language picker; Tab walks the rest in reading order.
+    let mut seen = vec![wanted[0].clone()];
+    for _ in 0..12 {
+        harness.key_press(egui::Key::Tab);
+        harness.run_steps(2);
+        let label = harness
+            .root()
+            .children_recursive()
+            .find(|n| n.accesskit_node().is_focused())
+            .and_then(|n| n.accesskit_node().label());
+        if let Some(label) = label.filter(|l| wanted.contains(l)) {
+            if seen.last() != Some(&label) {
+                seen.push(label);
+            }
+        }
+    }
+    assert_eq!(seen[..wanted.len()], wanted[..], "tab order");
 }

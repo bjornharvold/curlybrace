@@ -271,8 +271,8 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   the server refuses or a read preference no member satisfies is reported in words (a read
   preference nobody satisfies can still answer as "took too long" before the driver's server
   selection wait ends). Saved pipelines keep their options (the file stays at version 1: an older
-  build opens it and drops the options only when it saves that pipeline again). Copy as code does
-  not include the options yet.
+  build opens it and drops the options only when it saves that pipeline again). Copy as code carries
+  the options as set (see below).
 - **Save** keeps the pipeline under a name; **Open** lists the saved pipelines of the connection
   (newest first, with the collection each was saved from) and replaces the draft with the one you
   pick; each item has **Rename** and **Delete** (Delete asks first). The header shows the name of
@@ -310,7 +310,14 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   applied. The preview's 20-document limit is never part of the code, and the query bar's code carries
   the Limit as typed: an empty Limit (or 0) gives no limit, and the Find button's paging default and
   1000 cap do not apply. The language and options are
-  remembered until you quit.
+  remembered until you quit. For a pipeline that sets options, an **Include the pipeline's
+  options** check (on by default) puts them in the code as the language spells them: an options
+  object in mongosh, Node.js and PHP, keyword arguments in Python and Ruby, a chain of setters in
+  Java, Go and Rust, an `AggregateOptions` object in C#. The read preference goes on a collection
+  handle derived in the call (Python, Java, C#, Go, Ruby) or is an option of the call (mongosh,
+  Node.js, PHP, Rust). Code that keeps a trailing `$out` or `$merge` leaves the read preference out
+  and says so in a comment, because the confirmed run always reads on the primary. Turned off, or
+  with no option set, the code is the code without options.
 - **Explain** ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) asks the server how it
   would run the enabled stages up to the selected one (a trailing `$out` or `$merge` is left out).
   Under the stages, the tabs **Preview | Plan | Raw** switch between the documents, the plan as a
@@ -321,7 +328,13 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   most 10 seconds, to count keys and documents. It is a read, so it works on read-only
   connections. The button is off, with the reason, in the same cases as Preview and Copy as code
   and while an explain is running. A plan stays shown after you edit the pipeline, marked
-  **Out of date**.
+  **Out of date**. When the plan reads the whole collection or sorts in memory, **Try an index**
+  picks one of the collection's indexes, sets it as the hint (visible in Options) and explains again
+  at the same setting, and **Clear hint** removes it. The plan also shows a **suggested index**
+  from the first `$match` and the `$sort` right after it (a pipeline that starts with `$sort`
+  counts too), with the draft's collation, as a `createIndex` command you can **Copy** or open
+  with **Create index...** in the index builder, pre-filled (off on a read-only connection;
+  production keeps its write confirmation). Nothing is built without that dialog.
 - **Count stages** shows, on every stage card, how many documents that stage lets through: "N
   documents", or "at least 100000 documents" when the count hit the cap. It runs only when you
   click, one stage after another (never in parallel), each count a read bounded by a time limit
@@ -330,7 +343,7 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   the stages after it, is marked not counted and nothing that writes is ever sent. **Cancel
   counting** stops after the count in progress. Editing the pipeline stops the counting and marks
   the numbers **out of date**.
-- Not yet: undo of a run, and options such as collation, hint and `allowDiskUse`. The draft that is not saved is kept per open connection while the app runs.
+- Not yet: undo of a run. The draft that is not saved is kept per open connection while the app runs.
 
 ## Roadmap
 
@@ -374,8 +387,7 @@ contribute.
 
 ### In progress
 
-- **Aggregation pipeline builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): everything above is built; what is left is the options in Copy as code and the explain's index hint picker
-  ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
+- **Options on the Browse find query** ([#75](https://github.com/bjornharvold/curlybrace/issues/75)): the aggregation builder is built, with its options; the same options on the find query are open.
 
 ### Next
 

@@ -1,0 +1,44 @@
+import com.mongodb.ReadPreference;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Collation;
+import com.mongodb.client.model.CollationAlternate;
+import com.mongodb.client.model.CollationCaseFirst;
+import com.mongodb.client.model.CollationStrength;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import org.bson.Document;
+
+public class Main {
+    public static void main(String[] args) {
+        try (MongoClient client = MongoClients.create("<your connection string>")) {
+            MongoDatabase db = client.getDatabase("shop");
+            MongoCollection<Document> collection = db.getCollection("orders");
+
+            List<Document> pipeline = Arrays.asList(
+                new Document("$match", new Document("status", "A")),
+                new Document("$sort", new Document("total", -1))
+            );
+
+            List<Document> results = collection.withReadPreference(ReadPreference.secondaryPreferred()).aggregate(pipeline)
+                .collation(Collation.builder()
+                    .locale("en")
+                    .collationStrength(CollationStrength.SECONDARY)
+                    .caseLevel(false)
+                    .collationCaseFirst(CollationCaseFirst.UPPER)
+                    .numericOrdering(true)
+                    .collationAlternate(CollationAlternate.SHIFTED)
+                    .build())
+                .hintString("status_1_total_-1")
+                .allowDiskUse(true)
+                .maxTime(5000, TimeUnit.MILLISECONDS)
+                .comment("nightly \"report\" 'q' \\ $x ${y} #{z} %s {0} \u202eend")
+                .into(new ArrayList<>());
+            System.out.println(results);
+        }
+    }
+}

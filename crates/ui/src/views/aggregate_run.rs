@@ -32,6 +32,13 @@ pub struct RunContext {
     pub availability: RunAvailability,
     /// The active connection's tag; the production chip rides in the dialog.
     pub badge: ConnectionBadge,
+    /// The active connection is read-only: Create index... is off with its reason.
+    pub read_only: bool,
+    /// The session has no live connection: what sends to the server (Try an index, Clear hint)
+    /// is off with its reason.
+    pub disconnected: bool,
+    /// The collection in view, for the suggested index command.
+    pub ns: Option<Namespace>,
 }
 
 /// The i18n key of the reason Run is off, for the reasons that have a fixed text.

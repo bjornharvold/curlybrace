@@ -8,6 +8,7 @@ use crate::app::state::AppState;
 use crate::viewmodel::{FindAction, NameField};
 use bson::doc;
 use curlybrace_core::codegen::{CodeOptions, CodeRequest, CodegenError, Language, generate};
+use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::query::parse_export_query;
 use curlybrace_core::runtime::Command;
 use curlybrace_core::store::Namespace;
@@ -71,6 +72,7 @@ fn it_opens_from_the_aggregate_tab_with_the_enabled_stages() {
         CodeRequest::Aggregate {
             ns: ns(),
             stages: vec![doc! { "$match": { "status": "active" } }],
+            options: PipelineOptions::default(),
         }
     );
     assert_eq!(dialog.language, Language::Mongosh);
