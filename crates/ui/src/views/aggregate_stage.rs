@@ -44,9 +44,19 @@ pub(super) fn show_stages(
     lead: impl FnOnce(&mut egui::Ui) -> Vec<AggregateAction>,
 ) -> Vec<AggregateAction> {
     if draft.stages.is_empty() {
-        let actions = lead(ui);
-        ui.label(i18n.t("aggregate.no_stages"));
-        return actions;
+        // The section scrolls here too: drawn outside a scroll area it would push the results
+        // out of a small window.
+        return egui::ScrollArea::vertical()
+            .id_salt("aggregate_stages")
+            .scroll_source(NO_DRAG_SCROLL)
+            .max_height(max_height)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                let actions = lead(ui);
+                ui.label(i18n.t("aggregate.no_stages"));
+                actions
+            })
+            .inner;
     }
     let now = ui.input(|i| i.time);
     let last = draft.stages.len() - 1;

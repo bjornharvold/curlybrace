@@ -7,11 +7,11 @@ mod support;
 use curlybrace_ui::I18n;
 use curlybrace_ui::app::CurlybraceApp;
 use curlybrace_ui::theme;
+use curlybrace_ui::viewmodel::AggregateState;
 use eframe::egui;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use support::options_shots::options_tab;
 use support::shots::{SHOT_SIZE, build_app};
 
 const SMALL: (f32, f32) = (800.0, 500.0);
@@ -26,13 +26,18 @@ struct Page {
 }
 
 fn page(size: (f32, f32)) -> Page {
+    page_of(size, support::options_shots::options_draft())
+}
+
+/// A page with `draft` in the Aggregate tab.
+fn page_of(size: (f32, f32), draft: AggregateState) -> Page {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .build()
         .expect("tokio runtime");
     let enter = rt.enter();
     let (mut app, dir) = build_app(vec![], None);
-    options_tab(app.state_mut());
+    support::counts_shots::tab_of(draft)(app.state_mut());
     let mut installed = false;
     let mut harness = Harness::builder()
         .with_size(egui::vec2(size.0, size.1))
@@ -143,6 +148,20 @@ fn at_1000x700_the_open_section_is_two_columns_and_nothing_overlaps() {
         &t("aggregate.options.hint.existing"),
     );
     assert!(hint.left() > locale.right(), "beside: {locale:?} {hint:?}");
+}
+
+#[test]
+fn an_empty_draft_with_the_section_open_keeps_the_result_tabs_in_the_window() {
+    let page = page_of(SMALL, AggregateState::default().options_toggled());
+    let preview = rect_of(
+        &page.harness,
+        Role::RadioButton,
+        &t("aggregate.explain.tabs.preview"),
+    );
+    assert!(
+        preview.bottom() <= SMALL.1,
+        "the result tabs are pushed out of the window: {preview:?}"
+    );
 }
 
 #[test]
