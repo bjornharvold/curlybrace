@@ -403,9 +403,9 @@ contribute.
 
 - **Beyond the basics:** Data Masking and Reschema ([#9](https://github.com/bjornharvold/curlybrace/issues/9)), SQL and MongoDB ([#10](https://github.com/bjornharvold/curlybrace/issues/10)), Task
   Scheduler ([#11](https://github.com/bjornharvold/curlybrace/issues/11)).
-- **Query and analysis:** aggregation builder follow-ups ([#67](https://github.com/bjornharvold/curlybrace/issues/67)), explain plans ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), schema analysis
+- **Query and analysis:** schema analysis
   ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)), query history ([#72](https://github.com/bjornharvold/curlybrace/issues/72)),
-  visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), query options ([#75](https://github.com/bjornharvold/curlybrace/issues/75)), an opt-in natural-language assistant
+  visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), query options on the find query ([#75](https://github.com/bjornharvold/curlybrace/issues/75)), an opt-in natural-language assistant
   ([#76](https://github.com/bjornharvold/curlybrace/issues/76)), data model diagrams ([#77](https://github.com/bjornharvold/curlybrace/issues/77)), a map view for geo fields ([#79](https://github.com/bjornharvold/curlybrace/issues/79)).
 - **Data in and out:** export ([#54](https://github.com/bjornharvold/curlybrace/issues/54)), import ([#55](https://github.com/bjornharvold/curlybrace/issues/55)), backup and restore ([#53](https://github.com/bjornharvold/curlybrace/issues/53)), test data
   generator ([#58](https://github.com/bjornharvold/curlybrace/issues/58)), GridFS ([#57](https://github.com/bjornharvold/curlybrace/issues/57)).
