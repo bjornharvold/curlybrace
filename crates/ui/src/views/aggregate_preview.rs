@@ -88,6 +88,12 @@ fn status_lines(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) {
                 PreviewError::Pipeline(e) => {
                     ui.colored_label(ui.visuals().error_fg_color, pipeline_error_text(e, i18n));
                 }
+                PreviewError::Options => {
+                    ui.colored_label(
+                        ui.visuals().error_fg_color,
+                        i18n.t("aggregate.options.blocked"),
+                    );
+                }
                 PreviewError::Core(e) => match preview_error_key(e) {
                     Some(key) => {
                         ui.colored_label(ui.visuals().error_fg_color, i18n.t(key));

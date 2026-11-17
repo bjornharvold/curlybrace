@@ -3,9 +3,11 @@
 use bson::Document;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::pipeline::{
-    PREVIEW_LIMIT, PipelineError, Stage, parse_pipeline_text, pipeline_text, preview_pipeline,
+    PREVIEW_LIMIT, PipelineError, PipelineOptions, Stage, parse_pipeline_text, pipeline_text,
+    preview_pipeline,
 };
 
+pub use super::aggregate_preview_state::{Preview, PreviewError, PreviewState};
 pub use super::aggregate_template::{STAGE_MENU, stage_template};
 
 /// Whether the pipeline is edited as a list of stage cards or as one JSON array.
@@ -14,48 +16,6 @@ pub enum Mode {
     #[default]
     Stages,
     Text,
-}
-
-/// The documents after the previewed stage, and the trailing write stages that were not run.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Preview {
-    pub docs: Vec<Document>,
-    pub not_run: Vec<String>,
-}
-
-/// Why a preview is not shown: the pipeline was refused before sending, or the server failed.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PreviewError {
-    Pipeline(PipelineError),
-    Core(CoreError),
-}
-
-/// The preview pane. `last` is the latest good preview, kept through a reload or a failure.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum PreviewState {
-    #[default]
-    Idle,
-    /// Request `AggregateState::request` is in flight.
-    Loading {
-        not_run: Vec<String>,
-        last: Option<Preview>,
-    },
-    Shown(Preview),
-    Failed {
-        error: PreviewError,
-        last: Option<Preview>,
-    },
-}
-
-impl PreviewState {
-    /// The latest good preview this state shows or keeps.
-    pub fn into_last(self) -> Option<Preview> {
-        match self {
-            Self::Idle => None,
-            Self::Shown(p) => Some(p),
-            Self::Loading { last, .. } | Self::Failed { last, .. } => last,
-        }
-    }
 }
 
 /// One session's Aggregate draft. Nothing here is persisted.
@@ -91,6 +51,10 @@ pub struct AggregateState {
     pub explain: super::aggregate_explain::ExplainUi,
     /// The per-stage counts and the sequence that makes them (see `aggregate_counts`).
     pub counts: super::aggregate_counts::CountsUi,
+    /// The applied options: what every preview, count, explain and run of this draft sends.
+    pub options: PipelineOptions,
+    /// The Options section: its form (typed text and problems) and whether it is open.
+    pub options_ui: super::aggregate_options_state::OptionsUi,
     /// What the draft says about its run, remembered between repaints (see
     /// `aggregate_run_availability`); keyed on the stages, mode and text, so it needs no reset.
     pub(super) run_shape: super::aggregate_run_availability::RunShapeMemo,

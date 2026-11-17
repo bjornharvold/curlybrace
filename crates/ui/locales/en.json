@@ -146,6 +146,21 @@
       "text": "Text"
     },
     "no_stages": "No stages yet. Add one from the Add stage menu.",
+    "options": {
+      "blocked": "Fix the options to preview, count, explain, run or copy this pipeline.",
+      "problem": {
+        "comment_control": "The comment cannot hold a newline, a tab or another control character.",
+        "comment_empty": "The comment is only spaces. Type a comment or clear the field.",
+        "comment_too_long": "The comment can be at most {max} characters.",
+        "hint_empty": "The hint is only spaces or holds a control character. Type an index name or clear the field.",
+        "hint_json": "The key pattern is not valid JSON.",
+        "hint_keys_invalid": "Each key needs 1, -1 or an index type such as text; $natural must be the only key.",
+        "hint_name_too_long": "An index name can be at most {max} characters.",
+        "locale_empty": "Type a locale, or turn the collation off.",
+        "locale_invalid": "This is not a locale. Use simple, or letters such as en or fr_CA, with an optional @collation=name.",
+        "max_time_range": "Type a whole number of milliseconds from 1 to {max}."
+      }
+    },
     "preview": {
       "capped": "Showing the first {limit} documents.",
       "count_many": "{n} documents.",
