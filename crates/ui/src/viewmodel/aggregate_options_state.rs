@@ -123,16 +123,30 @@ impl AggregateState {
     }
 
     /// The pane says the options block the preview, keeping the last good one; a preview that
-    /// waited for the slot is dropped, so the last valid options are not sent behind the
-    /// person's back.
-    pub fn preview_blocked(mut self) -> Self {
-        let last = std::mem::take(&mut self.preview).into_last();
+    /// waited for the slot is dropped and a running count sequence ends, so the last valid
+    /// options are not sent behind the person's back.
+    pub fn preview_blocked(self) -> Self {
+        let last = self.preview.into_last();
         Self {
             preview: PreviewState::Failed {
                 error: PreviewError::Options,
                 last,
             },
             queued: None,
+            counts: self.counts.cancelled(),
+            ..self
+        }
+    }
+
+    /// The hint list replaced by `f(list)`.
+    pub fn hint_edited(self, f: impl FnOnce(HintListUi) -> HintListUi) -> Self {
+        let OptionsUi { form, open, hint } = self.options_ui;
+        Self {
+            options_ui: OptionsUi {
+                form,
+                open,
+                hint: f(hint),
+            },
             ..self
         }
     }

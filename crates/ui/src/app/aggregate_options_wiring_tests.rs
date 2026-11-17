@@ -129,6 +129,18 @@ fn a_count_sequence_sends_the_options_it_began_with() {
 }
 
 #[test]
+fn a_blocking_apply_ends_a_running_count_sequence() {
+    let (s, commands) = act(optioned(), A::Counts(CountsAction::Start));
+    let first = counts_of(&commands);
+    assert_eq!(first.len(), 1);
+    let (s, _) = edit(s, OptionsEdit::MaxTime("abc".into()));
+    let (s, _) = act(s, A::Options(O::Apply));
+    assert!(!s.aggregate.counts.is_running(), "the sequence ends");
+    let (_, commands) = update(s, Input::Event(counted(first[0].0, first[0].1)));
+    assert!(counts_of(&commands).is_empty(), "no next stage is sent");
+}
+
+#[test]
 fn an_explain_carries_the_draft_options() {
     let (_, commands) = act(optioned(), A::Explain(ExplainAction::Run));
     assert_eq!(explains(&commands), [wanted()]);
