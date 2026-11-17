@@ -43,12 +43,24 @@ impl FindOperation {
 
 /// What one find operation sends. Built only by [`PipelineOptions::find_applied`]; the fields are
 /// crate-private, so no other crate can build one that breaks the policy.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct AppliedFindOptions {
     pub(crate) options: AppliedOptions,
     /// Whether a server-side time limit is sent (the find: only when the person set one).
     pub(crate) send_max_time: bool,
     op: FindOperation,
+}
+
+/// Shows which options are set and the operation, never their values: a comment or a hint is
+/// the person's text and must not reach a log through `{:?}`.
+impl std::fmt::Debug for AppliedFindOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppliedFindOptions")
+            .field("op", &self.op)
+            .field("send_max_time", &self.send_max_time)
+            .field("options", &self.options)
+            .finish()
+    }
 }
 
 impl PipelineOptions {

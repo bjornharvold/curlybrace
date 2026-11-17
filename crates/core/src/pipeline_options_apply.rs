@@ -55,7 +55,7 @@ pub enum MaxTimeEffect {
 /// What one operation sends. Built only by [`PipelineOptions::applied`] or
 /// [`AppliedOptions::bounded`]; the fields are crate-private, so no other crate can build one that
 /// breaks the rules of the policy (the store re-enforces the two safety rules regardless).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct AppliedOptions {
     pub(crate) max_time: Duration,
     pub(crate) collation: Option<CollationOption>,
@@ -65,6 +65,21 @@ pub struct AppliedOptions {
     pub(crate) comment: Option<String>,
     /// The run: always `None` (the store pins the primary).
     pub(crate) read_preference: Option<ReadPreferenceMode>,
+}
+
+/// Shows which options are set, never their values: a comment or a hint is the person's text and
+/// must not reach a log through `{:?}`.
+impl std::fmt::Debug for AppliedOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppliedOptions")
+            .field("max_time_ms", &self.max_time.as_millis())
+            .field("has_collation", &self.collation.is_some())
+            .field("has_hint", &self.hint.is_some())
+            .field("allow_disk_use", &self.allow_disk_use)
+            .field("has_comment", &self.comment.is_some())
+            .field("has_read_preference", &self.read_preference.is_some())
+            .finish()
+    }
 }
 
 impl PipelineOptions {

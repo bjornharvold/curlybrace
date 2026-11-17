@@ -195,3 +195,23 @@ fn next_and_prev_page_keep_the_options() {
     assert_eq!(next_page(&q).options, q.options);
     assert_eq!(prev_page(&q).options, q.options);
 }
+
+#[test]
+fn debug_output_never_carries_the_text_of_an_option() {
+    let options = PipelineOptions {
+        comment: Some("secret-comment".into()),
+        hint: Some(HintOption::Name("secret_hint_1".into())),
+        collation: Some(CollationOption {
+            locale: "secret-locale".into(),
+            ..collation()
+        }),
+        read_preference: Some(ReadPreferenceMode::SecondaryPreferred),
+        ..PipelineOptions::default()
+    };
+    let shown = format!("{:?}", options.find_applied(FindOperation::Find));
+    for text in ["secret-comment", "secret_hint_1", "secret-locale"] {
+        assert!(!shown.contains(text), "{shown}");
+    }
+    assert!(shown.contains("has_comment: true"), "{shown}");
+    assert!(shown.contains("has_hint: true"), "{shown}");
+}
