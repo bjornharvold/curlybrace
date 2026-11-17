@@ -79,7 +79,9 @@ pub(super) fn show_options_section(
     let mut gathered = Gathered::default();
     section_frame(ui).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        match ui.available_width() > TWO_COLUMNS_FROM {
+        // The window's width, not the pane's: the sidebar takes a share of it, and a pane of
+        // 700 pt in a 1000 pt window still has room for two columns.
+        match ui.ctx().screen_rect().width() > TWO_COLUMNS_FROM {
             true => {
                 ui.columns(2, |columns| {
                     show_collation(&mut columns[0], &draft.options_ui.form, &mut gathered, i18n);

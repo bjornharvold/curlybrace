@@ -22,8 +22,11 @@ pub(super) fn typed_field(
     problem: Option<String>,
 ) -> Typed {
     let mut buffer = text.to_string();
+    // A fixed id: the field keeps its focus when the controls around it change (the index list
+    // arrives while the hint is being typed).
     let options = FieldOptions {
         error: problem.as_deref(),
+        id: Some(egui::Id::new(("aggregate_option_field", label))),
         ..FieldOptions::default()
     };
     let response = outlined_field_opts(ui, label, &mut buffer, hint, options);
