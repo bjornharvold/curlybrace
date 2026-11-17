@@ -10,11 +10,14 @@ use crate::viewmodel::aggregate_hint_list::{HintListUi, is_hint_request};
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::CollectionIndex;
 
-/// `state` with the active draft's hint list replaced by `f(list)`; the list is moved, not cloned.
-fn with_hint(mut state: AppState, f: impl FnOnce(HintListUi) -> HintListUi) -> AppState {
-    let ui = &mut state.aggregate.options_ui;
-    ui.hint = f(std::mem::take(&mut ui.hint));
-    state
+/// `state` with the active draft's hint list replaced by `f(list)`; the draft is moved into its
+/// replacement, never cloned.
+fn with_hint(state: AppState, f: impl FnOnce(HintListUi) -> HintListUi) -> AppState {
+    let draft = *state.aggregate;
+    AppState {
+        aggregate: Box::new(draft.hint_edited(f)),
+        ..state
+    }
 }
 
 /// The section wants the list: nothing when it was asked for already; the Indexes tab's names
@@ -34,18 +37,14 @@ pub(super) fn wanted(state: AppState) -> Out {
         let names = names_of(&state.indexes.indexes);
         return (with_hint(state, |h| h.from_names(names)), Vec::new());
     }
-    let mut asked = 0;
-    let state = with_hint(state, |h| {
-        let (h, request) = h.requested();
-        asked = request;
-        h
-    });
+    // The list is small (its names are shared), so asking for the request number is a cheap copy.
+    let (asked, request) = state.aggregate.options_ui.hint.clone().requested();
     let command = Command::ListIndexes {
         session,
         ns,
-        request: asked,
+        request,
     };
-    (state, vec![command])
+    (with_hint(state, |_| asked), vec![command])
 }
 
 fn names_of(indexes: &[CollectionIndex]) -> Vec<String> {
