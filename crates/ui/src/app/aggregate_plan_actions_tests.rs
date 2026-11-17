@@ -6,6 +6,7 @@ use crate::app::reducer::{Input, Out, update};
 use crate::app::state::{AppState, Banner, ConnStatus};
 use crate::app::write_guard::{WriteKind, WriteWarningAction};
 use crate::app::{AggregateAction as A, ExplainAction, OptionsAction};
+use crate::viewmodel::aggregate::Mode;
 use crate::viewmodel::aggregate_options::OptionsEdit;
 use crate::viewmodel::{AggregateState, IndexesAction};
 use bson::Document;
@@ -189,6 +190,37 @@ fn try_index_does_nothing_while_the_form_is_blocked() {
         A::Options(OptionsAction::Edit(OptionsEdit::MaxTime("0".into()))),
     );
     assert!(s.aggregate.options_blocked());
+    let (s, commands) = try_index(s, "status_1");
+    assert!(commands.is_empty());
+    assert_eq!(s.aggregate.options.hint, None);
+}
+
+#[test]
+fn try_index_and_clear_hint_do_nothing_while_the_text_is_not_applied() {
+    let (s, _) = with_plan();
+    let mut draft = (*s.aggregate).clone();
+    draft.mode = Mode::Text;
+    draft.text = "[]".into();
+    let s = AppState {
+        aggregate: Box::new(draft),
+        ..s
+    };
+    let (s, commands) = try_index(s, "status_1");
+    assert!(commands.is_empty());
+    assert_eq!(s.aggregate.options.hint, None);
+    let (s, commands) = act(s, A::Explain(ExplainAction::ClearHint));
+    assert!(commands.is_empty());
+    assert_eq!(s.aggregate.options.hint, None);
+}
+
+#[test]
+fn try_index_does_nothing_while_the_pipeline_cannot_be_explained() {
+    let (s, _) = with_plan();
+    let broken = s.aggregate.clone().edit(0, "{");
+    let s = AppState {
+        aggregate: Box::new(broken),
+        ..s
+    };
     let (s, commands) = try_index(s, "status_1");
     assert!(commands.is_empty());
     assert_eq!(s.aggregate.options.hint, None);

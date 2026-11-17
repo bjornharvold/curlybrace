@@ -2,6 +2,7 @@
 //! their reasons, Copy command on the clipboard, Create index... off on a read-only connection.
 use super::*;
 use crate::theme;
+use crate::viewmodel::aggregate_explain_block::explain_request;
 use crate::viewmodel::aggregate_hint_list::HintListUi;
 use bson::{Document, doc};
 use curlybrace_core::ejson::editor_json_to_doc;
@@ -32,6 +33,13 @@ fn fixture(name: &str) -> Document {
     editor_json_to_doc(text).expect("fixture parses")
 }
 
+/// A draft with something to explain: two stages, the selected one the last.
+fn base() -> AggregateState {
+    AggregateState::default()
+        .add_stage("$match")
+        .add_stage("$sort")
+}
+
 fn pipeline() -> Vec<Document> {
     vec![
         doc! { "$match": { "status": "A" } },
@@ -41,7 +49,7 @@ fn pipeline() -> Vec<Document> {
 
 /// A draft whose Plan tab holds the plan of `fixture`; the index list is `list`.
 fn explained(name: &str, options: PipelineOptions, list: HintListUi) -> AggregateState {
-    let draft = AggregateState::default();
+    let draft = base();
     let (ui, request, _) = draft.explain.clone().begun(pipeline(), &options);
     let ui = ui.arrived(
         request,
@@ -85,7 +93,12 @@ fn harness(draft: AggregateState, context: RunContext) -> Harness<'static, Frame
                     theme::install(ui.ctx());
                     installed = true;
                 }
-                let actions = show_plan_next(ui, &f.draft, &f.context, &I18n::english());
+                let actions = show_plan_next(
+                    ui,
+                    &f.draft,
+                    (&explain_request(&f.draft, &f.draft.stages), &f.context),
+                    &I18n::english(),
+                );
                 let copied = ui.ctx().output(|o| {
                     o.commands
                         .iter()

@@ -3,23 +3,25 @@
 //! Copy command and Create index.... Draws what the view-model computed and returns what the
 //! person did; the reducer decides what happens. Off controls give their reason as their tooltip
 //! and their accessible description.
+use super::aggregate_explain::explain_block_text;
 use super::aggregate_run::RunContext;
 use crate::I18n;
 use crate::app::{AggregateAction, ExplainAction, OptionsAction};
 use crate::theme::{gate, text_button, tonal_button};
 use crate::viewmodel::aggregate::AggregateState;
+use crate::viewmodel::aggregate_explain_block::ExplainRequest;
 use crate::viewmodel::aggregate_hint_list::HintList;
-use crate::viewmodel::aggregate_plan_next::{PlanNext, plan_next};
+use crate::viewmodel::aggregate_plan_next::{PlanBlock, PlanNext, plan_next};
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
 /// The follow-ups under the plan; the actions of this frame.
 pub(super) fn show_plan_next(
     ui: &mut egui::Ui,
     draft: &AggregateState,
-    context: &RunContext,
+    (request, context): (&ExplainRequest, &RunContext),
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
-    let next = plan_next(draft, context.ns.as_ref(), !context.disconnected);
+    let next = plan_next(draft, context.ns.as_ref(), !context.disconnected, request);
     let mut actions = Vec::new();
     if next.try_index {
         show_try_row(ui, draft, &next, &mut actions, i18n);
@@ -30,7 +32,17 @@ pub(super) fn show_plan_next(
     actions
 }
 
-/// Gives an off control its reason: the tooltip and the accessible description.
+/// Why the follow-ups that send are off, in words.
+fn block_text(block: &PlanBlock, i18n: &I18n) -> String {
+    match block {
+        PlanBlock::Running => i18n.t("aggregate.explain.disabled.running"),
+        PlanBlock::NoConnection => i18n.t("aggregate.explain.disabled.no_connection"),
+        PlanBlock::Request(block) => explain_block_text(block, i18n),
+    }
+}
+
+/// Gives a control its reason: the tooltip and the accessible description. A disabled response
+/// never shows `on_hover_text`, so it gets the disabled tooltip instead.
 fn explained(ui: &egui::Ui, response: egui::Response, reason: Option<&str>) -> egui::Response {
     let Some(reason) = reason else {
         return response;
@@ -38,7 +50,10 @@ fn explained(ui: &egui::Ui, response: egui::Response, reason: Option<&str>) -> e
     let why = reason.to_string();
     ui.ctx()
         .accesskit_node_builder(response.id, |node| node.set_description(why));
-    response.on_hover_text(reason)
+    match response.enabled() {
+        true => response.on_hover_text(reason),
+        false => response.on_disabled_hover_text(reason),
+    }
 }
 
 /// Try an index (the combo) and Clear hint (only with a hint set).
@@ -49,7 +64,7 @@ fn show_try_row(
     actions: &mut Vec<AggregateAction>,
     i18n: &I18n,
 ) {
-    let blocked = next.blocked.map(|key| i18n.t(key));
+    let blocked = next.blocked.as_ref().map(|block| block_text(block, i18n));
     let hint = &draft.options_ui.hint;
     if hint.wants_list() {
         actions.push(AggregateAction::Options(OptionsAction::HintListWanted));

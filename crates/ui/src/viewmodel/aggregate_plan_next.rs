@@ -3,12 +3,26 @@
 //! reducer acts on the actions it names. The suggestion comes from the pipeline and the options
 //! the plan was made with (`ExplainDone`), never from a draft edited since.
 use super::aggregate::AggregateState;
+use super::aggregate_explain_block::ExplainRequest;
 use super::aggregate_options::keys_text;
+use super::code_export::CodeBlock;
 use curlybrace_core::explain::{
     AggHint, AggPlan, AggPlanOutcome, SuggestedIndex, create_index_command, suggest_for_pipeline,
 };
 use curlybrace_core::pipeline_options::HintOption;
 use curlybrace_core::store::Namespace;
+
+/// Why the controls that send are off: the reasons of the Explain button itself.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PlanBlock {
+    /// An explain is already out.
+    Running,
+    /// No connection to send it over.
+    NoConnection,
+    /// The explain request cannot be made: the options form has a problem, the text of text mode
+    /// is not applied, or the pipeline is not explainable.
+    Request(CodeBlock),
+}
 
 /// The follow-ups under a plan.
 #[derive(Clone, Debug, PartialEq)]
@@ -18,10 +32,8 @@ pub struct PlanNext {
     pub try_index: bool,
     /// The hint set now: its name, or its key pattern as text.
     pub current_hint: Option<String>,
-    /// Why the controls that send are off: `aggregate.explain.disabled.running` while an explain
-    /// is out, `aggregate.explain.disabled.no_connection` without a connection,
-    /// `aggregate.options.blocked` while the options form has a problem.
-    pub blocked: Option<&'static str>,
+    /// Why the controls that send are off (the Explain button's own reasons).
+    pub blocked: Option<PlanBlock>,
     pub suggested: Option<SuggestedIndex>,
     /// `create_index_command` of the suggestion, with the collation the plan was made with.
     pub command: Option<String>,
@@ -47,20 +59,24 @@ pub fn plan_wants_an_index(plan: &AggPlan) -> bool {
 }
 
 /// The follow-ups for `draft`'s Plan tab; all off unless it holds a plan (or a hint is set while
-/// the next plan is awaited).
-pub fn plan_next(draft: &AggregateState, ns: Option<&Namespace>, connected: bool) -> PlanNext {
+/// the next plan is awaited). `request` is what an explain would send now
+/// (`explain_request`), whose refusal is a reason the follow-ups that send are off too.
+pub fn plan_next(
+    draft: &AggregateState,
+    ns: Option<&Namespace>,
+    connected: bool,
+    request: &ExplainRequest,
+) -> PlanNext {
     let current_hint = draft.options.hint.as_ref().map(|hint| match hint {
         HintOption::Name(name) => name.clone(),
         HintOption::Keys(keys) => keys_text(keys),
     });
     let blocked = if draft.explain.is_loading() {
-        Some("aggregate.explain.disabled.running")
+        Some(PlanBlock::Running)
     } else if !connected {
-        Some("aggregate.explain.disabled.no_connection")
-    } else if draft.options_blocked() {
-        Some("aggregate.options.blocked")
+        Some(PlanBlock::NoConnection)
     } else {
-        None
+        request.as_ref().err().cloned().map(PlanBlock::Request)
     };
     let Some(done) = draft.explain.done() else {
         // No plan (an explain is out, or it failed): nothing is offered, but a hint that is set

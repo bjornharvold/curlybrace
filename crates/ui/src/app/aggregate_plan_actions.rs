@@ -11,16 +11,28 @@ use super::reducer::Out;
 use super::state::{AppState, ConnStatus};
 use super::{ExplainAction, OptionsAction};
 use crate::viewmodel::IndexBuilderState;
+use crate::viewmodel::aggregate_explain_block::{ExplainRequest, explain_request};
 use crate::viewmodel::aggregate_options::OptionsEdit;
 use crate::viewmodel::aggregate_plan_next::plan_next;
 
-/// Whether the controls that send are off (an explain is out, there is no connection, or the
-/// options form has a problem).
+/// What an explain would send now: the draft's own stages, as `Run` takes them.
+fn request_of(state: &AppState) -> ExplainRequest {
+    explain_request(&state.aggregate, &state.aggregate.stages)
+}
+
+/// Whether the controls that send are off (an explain is out, there is no connection, the
+/// options form has a problem, text mode holds unapplied edits or the pipeline is not
+/// explainable).
 fn blocked(state: &AppState) -> bool {
     let connected = state.status == ConnStatus::Connected;
-    plan_next(&state.aggregate, state.selected_ns(), connected)
-        .blocked
-        .is_some()
+    plan_next(
+        &state.aggregate,
+        state.selected_ns(),
+        connected,
+        &request_of(state),
+    )
+    .blocked
+    .is_some()
 }
 
 /// Sets the hint to the index `name` and explains again.
@@ -48,7 +60,7 @@ fn chained(state: AppState, edit: OptionsEdit) -> Out {
 /// Opens the index builder with the suggestion of the plan in view; nothing without one.
 pub(super) fn create_index(state: AppState) -> Out {
     open_with(state, |s, ns| {
-        let next = plan_next(&s.aggregate, Some(ns), true);
+        let next = plan_next(&s.aggregate, Some(ns), true, &request_of(s));
         let index = next.suggested?;
         let collation = s.aggregate.explain.done()?.options.collation.as_ref();
         Some(IndexBuilderState::from_suggested(
