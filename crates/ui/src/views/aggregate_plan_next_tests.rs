@@ -211,6 +211,23 @@ fn loading_and_failed_lists_say_so() {
 }
 
 #[test]
+fn a_failed_list_offers_a_retry_that_asks_again() {
+    let (waiting, request) = HintListUi::default().requested();
+    let failed = waiting.failed(request);
+    let mut h = harness(
+        explained("collscan", PipelineOptions::default(), failed),
+        context(false),
+    );
+    h.get_by_role_and_label(Role::Button, &t("common.retry"))
+        .click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().seen,
+        [AggregateAction::Options(OptionsAction::HintListRetry)]
+    );
+}
+
+#[test]
 fn try_is_off_with_the_reason_while_an_explain_runs() {
     let hinted = PipelineOptions {
         hint: Some(HintOption::Name("status_1".into())),

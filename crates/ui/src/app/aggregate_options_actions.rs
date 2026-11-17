@@ -25,11 +25,15 @@ pub enum OptionsAction {
     Reset,
     /// The open section shows the hint picker: read the collection's index names once.
     HintListWanted,
+    /// The index list could not be read: read it again.
+    HintListRetry,
 }
 
 pub(super) fn on_action(mut state: AppState, action: OptionsAction) -> Out {
-    if action == OptionsAction::HintListWanted {
-        return super::aggregate_hint_actions::wanted(state);
+    match action {
+        OptionsAction::HintListWanted => return super::aggregate_hint_actions::wanted(state),
+        OptionsAction::HintListRetry => return super::aggregate_hint_actions::retry(state),
+        _ => {}
     }
     // Moved out and put back changed, never cloned: this runs on every keystroke and the draft
     // may hold a whole preview page.
@@ -46,7 +50,9 @@ pub(super) fn on_action(mut state: AppState, action: OptionsAction) -> Out {
         }
         OptionsAction::Apply => applied(state, draft.options_applied()),
         OptionsAction::Reset => applied(state, draft.options_reset()),
-        OptionsAction::HintListWanted => (with_draft(state, draft), Vec::new()),
+        OptionsAction::HintListWanted | OptionsAction::HintListRetry => {
+            (with_draft(state, draft), Vec::new())
+        }
     }
 }
 

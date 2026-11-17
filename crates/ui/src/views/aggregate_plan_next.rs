@@ -66,6 +66,9 @@ fn show_try_row(
                     ui.visuals().error_fg_color,
                     i18n.t("aggregate.options.hint.list_failed"),
                 );
+                if text_button(ui, i18n.t("common.retry")).clicked() {
+                    actions.push(AggregateAction::Options(OptionsAction::HintListRetry));
+                }
             }
             HintList::Loaded(names) => {
                 let shown = next
