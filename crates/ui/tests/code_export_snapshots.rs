@@ -21,6 +21,19 @@ fn code_export_dialog() {
 
 #[test]
 #[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn code_export_dialog_options() {
+    if !snapshots_enabled("code_export_dialog_options") {
+        return;
+    }
+    Shot::new(
+        vec![],
+        support::code_export_shots::code_export_dialog_options,
+    )
+    .snapshot("code_export_dialog_options");
+}
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
 fn code_export_dialog_dark() {
     if !snapshots_enabled("code_export_dialog_dark") {
         return;

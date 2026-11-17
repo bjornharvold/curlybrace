@@ -25,6 +25,7 @@ pub mod bulk_undo;
 pub mod cell;
 pub mod code_export;
 pub mod code_export_memo;
+pub mod code_export_options;
 pub mod compare;
 pub mod connection_form;
 pub mod connection_list;

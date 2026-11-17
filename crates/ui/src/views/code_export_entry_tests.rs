@@ -272,3 +272,20 @@ fn repaints_of_an_unchanged_query_bar_parse_it_once() {
     h.run_steps(10);
     assert_eq!(h.state().state.export_error_evaluations(), 1);
 }
+
+#[test]
+fn the_aggregate_button_says_the_options_block_it() {
+    use crate::viewmodel::aggregate_options::OptionsEdit;
+    let blocked = draft(&[("$match", r#"{ "$match": {} }"#)])
+        .options_edited(OptionsEdit::Comment("   ".into()));
+    assert!(blocked.options_blocked());
+    let reason = t("aggregate.options.blocked");
+    let mut h = tab(blocked);
+    let label = t("codegen.button");
+    let button = h.get_by_role_and_label(Role::Button, &label);
+    assert!(button.accesskit_node().is_disabled());
+    assert_eq!(button.accesskit_node().description(), Some(reason));
+    button.click();
+    h.run_steps(2);
+    assert!(!h.state().seen.contains(&opens_aggregate_code()));
+}

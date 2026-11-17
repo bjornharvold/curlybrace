@@ -22,6 +22,7 @@ mod bulk_undo_steps;
 pub mod chart_legend;
 pub mod code_export;
 pub mod code_export_entry;
+mod code_export_options;
 mod code_export_text;
 pub mod collection_tabs;
 pub mod compare;

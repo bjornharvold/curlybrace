@@ -4,6 +4,7 @@
 //! code and turns Copy off. Enter copies, Escape closes, focus starts on the language picker.
 //! Draws what it is given and returns what the person did; Copy puts exactly the previewed text
 //! on the clipboard here, the reducer keeps the dialog's state.
+use super::code_export_options::{show_include_options, show_options_summary};
 use super::code_export_text::{error_text, language_label_key, name_label_key};
 use super::index_dialogs::focus_once;
 use super::tone_notice::tone_notice;
@@ -13,6 +14,7 @@ use crate::theme::{
     CONTROL_HEIGHT, Tone, filled_button, gate, modal_frame, text_button, typography,
 };
 use crate::viewmodel::code_export::{CodeDialog, CodeExportUi, NameField};
+use crate::viewmodel::code_export_options::{CodeOptionsView, code_options_view};
 use curlybrace_core::codegen::Language;
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
@@ -40,7 +42,11 @@ pub fn show_code_dialog(ctx: &egui::Context, code: &CodeExportUi, i18n: &I18n) -
             ui.set_width(width);
             ui.label(typography::dialog_title(ui, i18n.t("codegen.title")));
             ui.label(i18n.t("codegen.note"));
-            let mut own_enter = options_rows(ui, dialog, &mut actions, i18n);
+            let options_view = code_options_view(dialog);
+            let mut own_enter = options_rows(ui, dialog, options_view.as_ref(), &mut actions, i18n);
+            if let Some(view) = &options_view {
+                show_options_summary(ui, view, i18n);
+            }
             let max_height = (screen.height() - MODAL_CHROME).max(MIN_CODE_HEIGHT);
             show_code(ui, dialog, max_height, i18n);
             let controls = buttons(ui, dialog, i18n);
@@ -74,6 +80,7 @@ struct Controls {
 fn options_rows(
     ui: &mut egui::Ui,
     dialog: &CodeDialog,
+    view: Option<&CodeOptionsView>,
     actions: &mut Vec<CodeAction>,
     i18n: &I18n,
 ) -> Vec<egui::Id> {
@@ -96,6 +103,11 @@ fn options_rows(
             if write_box.changed() {
                 actions.push(CodeAction::SetWriteStage(keep));
             }
+        }
+        if let Some(view) = view {
+            let (action, id) = show_include_options(ui, view, i18n);
+            activating.push(id);
+            actions.extend(action);
         }
     });
     // The three fields share the row equally and start at the same height.
@@ -210,6 +222,7 @@ fn changes_options(action: &CodeAction) -> bool {
             | CodeAction::SetSetup(_)
             | CodeAction::SetName(..)
             | CodeAction::SetWriteStage(_)
+            | CodeAction::SetIncludeOptions(_)
     )
 }
 

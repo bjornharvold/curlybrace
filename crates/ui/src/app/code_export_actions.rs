@@ -7,7 +7,6 @@ use super::state::{AppState, Workspace};
 use crate::viewmodel::NameField;
 use crate::viewmodel::code_export::aggregate_stages;
 use curlybrace_core::codegen::{CodeRequest, Language};
-use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::query::parse_export_query;
 
 /// Where the code comes from.
@@ -27,6 +26,8 @@ pub enum CodeAction {
     SetSetup(bool),
     SetName(NameField, String),
     SetWriteStage(bool),
+    /// Whether the code carries the aggregate's options.
+    SetIncludeOptions(bool),
     /// The view put the previewed text on the clipboard; the dialog stays open.
     Copy,
     Close,
@@ -42,8 +43,7 @@ fn request(state: &AppState, source: CodeSource) -> Option<CodeRequest> {
                 .map(|stages| CodeRequest::Aggregate {
                     ns,
                     stages,
-                    // 4c Task 3: the draft's options
-                    options: PipelineOptions::default(),
+                    options: state.aggregate.options.clone(),
                 })
         }
         CodeSource::Find => parse_export_query(&state.find.text)
@@ -84,6 +84,7 @@ pub(super) fn on_action(mut state: AppState, action: CodeAction) -> Out {
         CodeAction::SetSetup(setup) => ui.setup_set(setup),
         CodeAction::SetName(field, name) => ui.name_set(field, name),
         CodeAction::SetWriteStage(keep) => ui.write_stage_set(keep),
+        CodeAction::SetIncludeOptions(include) => ui.include_options_set(include),
         CodeAction::Copy => ui,
         CodeAction::Close => ui.closed(),
     };
@@ -98,3 +99,7 @@ mod tests;
 #[cfg(test)]
 #[path = "code_export_scope_tests.rs"]
 mod scope_tests;
+
+#[cfg(test)]
+#[path = "code_export_options_tests.rs"]
+mod options_tests;

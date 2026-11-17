@@ -53,6 +53,7 @@ fn apply(code: CodeExportUi, action: &CodeAction) -> CodeExportUi {
         CodeAction::SetSetup(setup) => code.setup_set(*setup),
         CodeAction::SetName(field, name) => code.name_set(*field, name.clone()),
         CodeAction::SetWriteStage(keep) => code.write_stage_set(*keep),
+        CodeAction::SetIncludeOptions(include) => code.include_options_set(*include),
         CodeAction::Close => code.closed(),
         CodeAction::Open(_) | CodeAction::Copy => code,
     }

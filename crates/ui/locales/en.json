@@ -584,6 +584,11 @@
       "db": "Database variable"
     },
     "note": "The code connects with a placeholder connection string. Nothing is sent to the server.",
+    "options": {
+      "include_options": "Include the pipeline's options",
+      "listed": "The code sets: {options}",
+      "read_preference_left_out": "This code writes with $out or $merge, which runs on the primary, so it leaves out the read preference."
+    },
     "preview": "Code",
     "setup": "Include setup (imports and connection)",
     "title": "Copy as code",
