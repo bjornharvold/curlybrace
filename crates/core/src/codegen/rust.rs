@@ -50,32 +50,8 @@ impl Rust {
         } else {
             "{Document, doc}"
         };
-        let option_imports = if used.names.is_empty() {
-            String::new()
-        } else {
-            let names: Vec<&str> = used.names.iter().copied().collect();
-            let single = format!("use mongodb::options::{{{}}};\n", names.join(", "));
-            if single.len() <= IMPORT_WIDTH {
-                single
-            } else {
-                // rustfmt's wrapped form: names packed into lines up to the width.
-                let mut lines = String::new();
-                let mut line = String::new();
-                for name in &names {
-                    let piece = format!("{name},");
-                    if !line.is_empty() && 4 + line.len() + 1 + piece.len() > IMPORT_WIDTH {
-                        lines.push_str(&format!("    {line}\n"));
-                        line.clear();
-                    }
-                    if !line.is_empty() {
-                        line.push(' ');
-                    }
-                    line.push_str(&piece);
-                }
-                lines.push_str(&format!("    {line}\n"));
-                format!("use mongodb::options::{{\n{lines}}};\n")
-            }
-        };
+        let names: Vec<&str> = used.names.iter().copied().collect();
+        let option_imports = options_import(&names);
         let duration = if used.duration {
             "use std::time::Duration;\n"
         } else {
@@ -259,5 +235,73 @@ impl Rust {
             .map(|s| format!("\n            {s}"))
             .collect();
         format!(".collation(\n        Collation::builder(){lines}\n            .build(),\n    )")
+    }
+}
+
+/// `use mongodb::options::{..};` for `names` (nothing without names): on one line while that
+/// line fits the width (the newline does not count), else in rustfmt's wrapped form with the
+/// names packed into lines up to the width.
+fn options_import(names: &[&str]) -> String {
+    if names.is_empty() {
+        return String::new();
+    }
+    let single = format!("use mongodb::options::{{{}}};", names.join(", "));
+    if single.len() <= IMPORT_WIDTH {
+        return format!("{single}\n");
+    }
+    let mut lines = String::new();
+    let mut line = String::new();
+    for name in names {
+        let piece = format!("{name},");
+        if !line.is_empty() && 4 + line.len() + 1 + piece.len() > IMPORT_WIDTH {
+            lines.push_str(&format!("    {line}\n"));
+            line.clear();
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(&piece);
+    }
+    lines.push_str(&format!("    {line}\n"));
+    format!("use mongodb::options::{{\n{lines}}};\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `count` names of `len` characters, so the single line has a known width.
+    fn names_of(len: usize, count: usize) -> Vec<String> {
+        (0..count)
+            .map(|i| format!("{i:0>width$}", width = len))
+            .collect()
+    }
+
+    #[test]
+    fn a_use_line_of_exactly_the_width_stays_on_one_line() {
+        // "use mongodb::options::{" and "};" are 25 characters; one name fills the other 75.
+        let name = "N".repeat(IMPORT_WIDTH - 25);
+        let text = options_import(&[name.as_str()]);
+        assert_eq!(text.trim_end().len(), IMPORT_WIDTH);
+        assert_eq!(text.lines().count(), 1, "{text}");
+        let over = "N".repeat(IMPORT_WIDTH - 24);
+        assert!(options_import(&[over.as_str()]).lines().count() > 1);
+    }
+
+    #[test]
+    fn a_longer_import_wraps_into_lines_of_at_most_the_width() {
+        let owned = names_of(20, 8);
+        let names: Vec<&str> = owned.iter().map(String::as_str).collect();
+        let text = options_import(&names);
+        assert!(text.starts_with("use mongodb::options::{\n"), "{text}");
+        assert!(
+            text.lines().all(|line| line.len() <= IMPORT_WIDTH),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn no_names_no_import() {
+        assert_eq!(options_import(&[]), "");
     }
 }
