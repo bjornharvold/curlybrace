@@ -186,11 +186,14 @@ fn save_confirmed(
     if draft.text_is_invalid() {
         return failed(state, draft, "aggregate.saved.error.invalid_text");
     }
+    if draft.options_blocked() {
+        return failed(state, draft, "aggregate.saved.error.invalid_options");
+    }
     let result = state.pipelines.saved(
         conn,
         name,
         ns_hint(&state, conn, name, replace),
-        draft.as_saved_stages(),
+        draft.as_saved_draft(),
         now_unix(),
         replace,
     );
@@ -301,6 +304,10 @@ fn delete_confirmed(state: AppState, conn: Uuid, draft: AggregateState, id: Uuid
 #[cfg(test)]
 #[path = "aggregate_saved_actions_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "aggregate_saved_options_tests.rs"]
+mod options_tests;
 
 #[cfg(test)]
 #[path = "aggregate_saved_manage_tests.rs"]

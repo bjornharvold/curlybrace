@@ -871,6 +871,8 @@ mod pipelines_cleanup_tests;
 #[cfg(test)]
 mod pipelines_disk_tests;
 #[cfg(test)]
+mod pipelines_options_disk_tests;
+#[cfg(test)]
 mod pipelines_store_tests;
 #[cfg(test)]
 mod pipelines_wiring_tests;

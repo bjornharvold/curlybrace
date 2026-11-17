@@ -67,6 +67,7 @@ pub fn saved_three_stages() -> SavedPipeline {
         ns_hint: Some("crm.customers".into()),
         saved_unix: 1_700_000_000,
         stages,
+        options: Default::default(),
     }
 }
 
