@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.14.0](https://github.com/bjornharvold/curlybrace/compare/v0.13.0...v0.14.0) (2026-11-17)
+
+
+### Features
+
+* **aggregate:** add pipeline options to the core (slice 4a) ([#173](https://github.com/bjornharvold/curlybrace/issues/173)) ([cfaf28b](https://github.com/bjornharvold/curlybrace/commit/cfaf28bd4043b5377073bba48c3699fa1f4b0905))
+* **aggregate:** confirmed $out/$merge run with typed confirmation ([#168](https://github.com/bjornharvold/curlybrace/issues/168)) ([e18fdb9](https://github.com/bjornharvold/curlybrace/commit/e18fdb97f9c83ba279480a7c4deae6c932bef3a3))
+* **aggregate:** count the documents each stage lets through ([#171](https://github.com/bjornharvold/curlybrace/issues/171)) ([5736769](https://github.com/bjornharvold/curlybrace/commit/5736769f8e4ce9362e45b4e7ab23baaaccec86ef))
+* **aggregate:** explain a pipeline as a plan with hints ([#170](https://github.com/bjornharvold/curlybrace/issues/170)) ([2898cde](https://github.com/bjornharvold/curlybrace/commit/2898cde7f9deb813bc20d15787234f8c9713ab4c))
+* **aggregate:** options in copied code and index suggestions in the plan ([#175](https://github.com/bjornharvold/curlybrace/issues/175)) ([a0ccf97](https://github.com/bjornharvold/curlybrace/commit/a0ccf970d3f197e705aeade4333d1302ee6fd22f))
+* **aggregate:** options section, saved with pipelines (slice 4b) ([#174](https://github.com/bjornharvold/curlybrace/issues/174)) ([f00a72b](https://github.com/bjornharvold/curlybrace/commit/f00a72bd3142e303cde0ad959d24202597832f29))
+* **aggregate:** save and open named pipelines per connection ([#166](https://github.com/bjornharvold/curlybrace/issues/166)) ([81e939a](https://github.com/bjornharvold/curlybrace/commit/81e939a38dd51d1f35cd4a3fd71dd6803be4d1c9))
+* **codegen:** copy a pipeline or query as driver code in nine languages ([#169](https://github.com/bjornharvold/curlybrace/issues/169)) ([2e990e4](https://github.com/bjornharvold/curlybrace/commit/2e990e4e4fcf93df50aff00f7a6c107dad0dc2b8))
+
+
+### Bug Fixes
+
+* **test:** date the foreign-connection snapshot now so expiry cannot purge it ([#155](https://github.com/bjornharvold/curlybrace/issues/155)) ([5f01009](https://github.com/bjornharvold/curlybrace/commit/5f0100959e0696738ce68e7353613f245692120f))
+* **tests:** repair the failing local e2e and compare flows ([#177](https://github.com/bjornharvold/curlybrace/issues/177)) ([7a96c3c](https://github.com/bjornharvold/curlybrace/commit/7a96c3c4e5e879d9ffb08cb09fdd0bb79c034dc7))
+
 ## [0.13.0](https://github.com/bjornharvold/curlybrace/compare/v0.12.0...v0.13.0) (2026-11-13)
 
 
