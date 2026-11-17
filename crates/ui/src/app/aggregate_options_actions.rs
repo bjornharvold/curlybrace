@@ -29,31 +29,35 @@ pub enum OptionsAction {
     HintListRetry,
 }
 
-pub(super) fn on_action(mut state: AppState, action: OptionsAction) -> Out {
+pub(super) fn on_action(state: AppState, action: OptionsAction) -> Out {
     match action {
-        OptionsAction::HintListWanted => return super::aggregate_hint_actions::wanted(state),
-        OptionsAction::HintListRetry => return super::aggregate_hint_actions::retry(state),
-        _ => {}
-    }
-    // Moved out and put back changed, never cloned: this runs on every keystroke and the draft
-    // may hold a whole preview page.
-    let draft = std::mem::take(&mut *state.aggregate);
-    match action {
-        OptionsAction::Toggle => (with_draft(state, draft.options_toggled()), Vec::new()),
-        OptionsAction::Edit(edit) => {
+        OptionsAction::HintListWanted => super::aggregate_hint_actions::wanted(state),
+        OptionsAction::HintListRetry => super::aggregate_hint_actions::retry(state),
+        OptionsAction::Toggle => on_draft(state, |state, draft| {
+            (with_draft(state, draft.options_toggled()), Vec::new())
+        }),
+        OptionsAction::Edit(edit) => on_draft(state, |state, draft| {
             let applies = !edit.is_typing();
             let draft = draft.options_edited(edit);
             match applies {
                 true => applied(state, draft.options_applied()),
                 false => (with_draft(state, draft), Vec::new()),
             }
-        }
-        OptionsAction::Apply => applied(state, draft.options_applied()),
-        OptionsAction::Reset => applied(state, draft.options_reset()),
-        OptionsAction::HintListWanted | OptionsAction::HintListRetry => {
-            (with_draft(state, draft), Vec::new())
+        }),
+        OptionsAction::Apply => on_draft(state, |state, draft| {
+            applied(state, draft.options_applied())
+        }),
+        OptionsAction::Reset => {
+            on_draft(state, |state, draft| applied(state, draft.options_reset()))
         }
     }
+}
+
+/// `handle` with the draft moved out of `state` and put back changed by it, never cloned: this
+/// runs on every keystroke and the draft may hold a whole preview page.
+fn on_draft(mut state: AppState, handle: impl FnOnce(AppState, AggregateState) -> Out) -> Out {
+    let draft = std::mem::take(&mut *state.aggregate);
+    handle(state, draft)
 }
 
 /// What applying the form leads to: a new preview when the options changed or the block was
