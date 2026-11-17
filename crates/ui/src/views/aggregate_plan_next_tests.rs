@@ -263,6 +263,21 @@ fn try_is_off_with_the_reason_while_an_explain_runs() {
 }
 
 #[test]
+fn the_off_try_combo_shows_its_reason_as_a_tooltip_on_hover() {
+    let lost = RunContext {
+        disconnected: true,
+        ..context(false)
+    };
+    let mut h = harness(scan(), lost);
+    let label = t("aggregate.options.explain.try_index");
+    let combo = h.get_by_role_and_label(Role::ComboBox, &label);
+    assert!(combo.accesskit_node().is_disabled());
+    combo.hover();
+    h.run_steps(5);
+    h.get_by_label_contains(&t("aggregate.explain.disabled.no_connection"));
+}
+
+#[test]
 fn clear_hint_is_off_with_the_reason_while_disconnected() {
     let hinted = PipelineOptions {
         hint: Some(HintOption::Name("status_1".into())),
