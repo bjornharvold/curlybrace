@@ -6,7 +6,7 @@
 //!
 //! What these do not claim: that the first document row is on screen while the section is open in
 //! a small window. With More open alone it already is not at 800x500 (the measurements are in
-//! `the_first_row_is_off_a_500_point_window_with_more_open_before_any_option`).
+//! `the_first_row_with_more_open_is_no_lower_than_the_header_alone_puts_it`).
 mod support;
 
 use curlybrace_core::store::Query;
@@ -238,9 +238,12 @@ fn the_section_scrolls_and_never_exceeds_its_share() {
 }
 
 #[test]
-fn the_first_row_is_off_a_500_point_window_with_more_open_before_any_option() {
-    // A finding, kept as a measurement: with More open and no option anywhere the first document
-    // row is already below an 800x500 window, so no height share can keep it on screen there.
+fn the_first_row_with_more_open_is_no_lower_than_the_header_alone_puts_it() {
+    // A documented measurement, not a claim about the feature: with More open and no option set
+    // the first document row sits at about 556 points at 800x500, below that window. The header
+    // layout owns that, not the Query options section, so this only guards against the section
+    // making it worse: the row may move up if the header is fixed, never below the baseline.
+    const HEADER_ONLY_BASELINE: f32 = 557.0;
     let page = browse((800.0, 500.0), |state| {
         state.find = FindBarState {
             more: Some(true),
@@ -249,5 +252,6 @@ fn the_first_row_is_off_a_500_point_window_with_more_open_before_any_option() {
         state.issued_query = Query::default();
         state.page_query = Query::default();
     });
-    assert!(first_row_top(&page) > 500.0);
+    let top = first_row_top(&page);
+    assert!(top <= HEADER_ONLY_BASELINE, "the first row is at {top}");
 }
