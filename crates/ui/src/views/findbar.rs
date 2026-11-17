@@ -318,7 +318,10 @@ mod tests {
 
     #[test]
     fn renders_default_and_error_state_without_panicking() {
-        assert_eq!(run_frame(&mut FindBarState::default(), false, false), Vec::new());
+        assert_eq!(
+            run_frame(&mut FindBarState::default(), false, false),
+            Vec::new()
+        );
         let mut s = FindBarState {
             text: QueryText {
                 filter: "{ \"имя\": \"a b.c\" }".into(),
