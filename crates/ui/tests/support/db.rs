@@ -85,6 +85,26 @@ impl TestDb {
         block(&self.rt, coll.create_index(model)).expect("create_index");
     }
 
+    /// An index on `keys` (for example `{ total: -1 }`), under the default name.
+    pub fn create_index(&self, collection: &str, keys: Document) {
+        use mongodb::IndexModel;
+        let coll = self
+            .client
+            .database(&self.name)
+            .collection::<Document>(collection);
+        let model = IndexModel::builder().keys(keys).build();
+        block(&self.rt, coll.create_index(model)).expect("create_index");
+    }
+
+    /// The names of the indexes of `collection`, as the server lists them.
+    pub fn index_names(&self, collection: &str) -> Vec<String> {
+        let coll = self
+            .client
+            .database(&self.name)
+            .collection::<Document>(collection);
+        block(&self.rt, coll.list_index_names()).expect("list_index_names")
+    }
+
     /// `$set` on every document matching `filter` (a second client changing the data).
     pub fn set_fields(&self, collection: &str, filter: Document, fields: Document) {
         let coll = self
