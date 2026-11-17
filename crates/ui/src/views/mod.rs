@@ -59,6 +59,8 @@ pub mod indexes;
 pub mod json;
 mod json_highlight;
 pub mod metrics;
+mod options_form;
+mod options_form_collation;
 pub mod queries;
 pub mod queries_chart;
 pub mod queries_consent;
