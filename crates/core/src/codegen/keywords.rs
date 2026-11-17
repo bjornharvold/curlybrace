@@ -53,6 +53,11 @@ const RESERVED: &[&str] = &[
     // Java and C# entry points, C# subtype and scope classes, PHP's `hex2bin`.
     "Map", "NumberLong", "NumberDecimal", "BinData", "bytes", "float", "args",
     "BsonBinarySubType", "BsonJavaScriptWithScope", "hex2bin",
+    // Names the aggregate options' snippets use (read preference handles, collation builders,
+    // time units); the list is case-insensitive, so `hint` and `collation` are refused as well.
+    "ReadPreference", "Collation", "CollationStrength", "CollationCaseFirst", "CollationAlternate",
+    "TimeUnit", "AggregateOptions", "TimeSpan", "Hint", "SelectionCriteria", "Duration", "readpref",
+    "with_options",
 ];
 
 pub(crate) fn is_reserved_name(name: &str) -> bool {

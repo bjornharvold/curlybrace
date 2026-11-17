@@ -3,6 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::agg_options::CodeAggOptions;
 use crate::codegen::escape::indent_lines;
 use crate::codegen::go_syntax::{GoSyntax, quote};
 use crate::codegen::model::{CodeOptions, CodegenError};
@@ -98,6 +99,7 @@ impl Renderer for Go {
         &self,
         ns: &Namespace,
         stages: &[Document],
+        _agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;

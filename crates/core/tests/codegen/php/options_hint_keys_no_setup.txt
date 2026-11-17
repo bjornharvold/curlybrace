@@ -1,0 +1,11 @@
+$pipeline = [['$match' => ['status' => 'A']], ['$sort' => ['total' => -1]]];
+
+$options = [
+    'collation' => ['locale' => 'fr_CA'],
+    'hint' => ['status' => 1, 'total' => -1],
+    'allowDiskUse' => false,
+    'readPreference' => new MongoDB\Driver\ReadPreference('nearest'),
+];
+
+$results = $collection->aggregate($pipeline, $options)->toArray();
+print_r($results);

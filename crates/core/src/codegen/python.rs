@@ -3,6 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::agg_options::{CodeAggOptions, mode_upper_snake, plain_entries};
 use crate::codegen::escape::indent;
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
@@ -14,7 +15,14 @@ use crate::store::{Namespace, Query};
 pub(crate) struct Python;
 
 impl Python {
-    fn frame(ns: &Namespace, options: &CodeOptions, syn: &PythonSyntax, body: &str) -> String {
+    /// `read_preference`: the code names `ReadPreference`, so the import line lists it.
+    fn frame(
+        ns: &Namespace,
+        options: &CodeOptions,
+        syn: &PythonSyntax,
+        body: &str,
+        read_preference: bool,
+    ) -> String {
         let noted = with_note(syn, "#", body.to_string());
         let body = noted.as_str();
         if !options.setup {
@@ -34,7 +42,12 @@ impl Python {
         for line in &from {
             head.push_str(&format!("{line}\n"));
         }
-        head.push_str("from pymongo import MongoClient\n\n");
+        let pymongo = if read_preference {
+            "MongoClient, ReadPreference"
+        } else {
+            "MongoClient"
+        };
+        head.push_str(&format!("from pymongo import {pymongo}\n\n"));
         let (client, db, coll) = (
             &options.client_var,
             &options.db_var,
@@ -45,6 +58,38 @@ impl Python {
             quote(&ns.db),
             quote(&ns.collection),
         )
+    }
+
+    /// `list(collection.aggregate(pipeline, ..))`: options are keyword arguments, one per line
+    /// (the layout of `find`); the read preference is set on a handle derived in the call.
+    fn aggregate_call(
+        syn: &PythonSyntax,
+        agg: &CodeAggOptions,
+        coll: &str,
+    ) -> Result<String, CodegenError> {
+        let handle = match agg.read_preference {
+            Some(mode) => format!(
+                "{coll}.with_options(read_preference=ReadPreference.{})",
+                mode_upper_snake(mode)
+            ),
+            None => coll.to_string(),
+        };
+        let hint_keys = |keys: &Document| Self::sort_pairs(syn, keys);
+        let entries = plain_entries(syn, agg, |name| name.to_string(), 2, Some(&hint_keys))?;
+        if entries.is_empty() {
+            return Ok(match agg.read_preference {
+                Some(_) => format!("list(\n    {handle}.aggregate(pipeline)\n)"),
+                None => format!("list({handle}.aggregate(pipeline))"),
+            });
+        }
+        let unit = indent("    ", 2);
+        let lines: String = entries
+            .iter()
+            .map(|(name, value)| format!("{unit}{name}={value},\n"))
+            .collect();
+        Ok(format!(
+            "list(\n    {handle}.aggregate(\n{unit}pipeline,\n{lines}    )\n)"
+        ))
     }
 
     /// `sort` as PyMongo's list of `(field, direction)` pairs.
@@ -100,21 +145,27 @@ impl Renderer for Python {
             format!("list(\n    {coll}.find(\n{lines}    )\n)")
         };
         body.push_str(&format!("\nresults = {call}\nprint(results)\n"));
-        Ok(Self::frame(ns, options, &syn, &body))
+        Ok(Self::frame(ns, options, &syn, &body, false))
     }
 
     fn aggregate(
         &self,
         ns: &Namespace,
         stages: &[Document],
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = PythonSyntax::new();
         let pipeline = render_documents(&syn, stages, 0)?;
-        let coll = &options.collection_var;
-        let body = format!(
-            "pipeline = {pipeline}\n\nresults = list({coll}.aggregate(pipeline))\nprint(results)\n"
-        );
-        Ok(Self::frame(ns, options, &syn, &body))
+        let call = Self::aggregate_call(&syn, agg, &options.collection_var)?;
+        let body = format!("pipeline = {pipeline}\n\nresults = {call}\nprint(results)\n");
+        let body = agg.with_note("#", body);
+        Ok(Self::frame(
+            ns,
+            options,
+            &syn,
+            &body,
+            agg.read_preference.is_some(),
+        ))
     }
 }

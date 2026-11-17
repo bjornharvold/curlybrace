@@ -3,6 +3,7 @@
 //! scrolls while Copy and Close stay in view, an unusable name shows its message in place of the
 //! code with Copy off, and focus starts on the language picker. Offline, no GPU.
 use curlybrace_core::codegen::{CodeOptions, CodeRequest, Language};
+use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::store::Namespace;
 use curlybrace_ui::I18n;
 use curlybrace_ui::theme;
@@ -29,6 +30,7 @@ fn long_pipeline() -> CodeRequest {
             .map(stage)
             .chain([bson::doc! { "$out": "totals" }])
             .collect(),
+        options: PipelineOptions::default(),
     }
 }
 

@@ -3,6 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::agg_options::CodeAggOptions;
 use crate::codegen::csharp_syntax::{CsharpSyntax, quote};
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
@@ -81,6 +82,7 @@ impl Renderer for Csharp {
         &self,
         ns: &Namespace,
         stages: &[Document],
+        _agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = CsharpSyntax::new();

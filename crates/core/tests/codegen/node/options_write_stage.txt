@@ -1,0 +1,22 @@
+const { MongoClient } = require("mongodb");
+
+async function main() {
+  const client = new MongoClient("<your connection string>");
+  try {
+    await client.connect();
+    const db = client.db("shop");
+    const collection = db.collection("orders");
+
+    // Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.
+    const pipeline = [{ $match: { status: "A" } }, { $out: "archive" }];
+
+    const options = { comment: "archive" };
+
+    const results = await collection.aggregate(pipeline, options).toArray();
+    console.log(results);
+  } finally {
+    await client.close();
+  }
+}
+
+main().catch(console.error);

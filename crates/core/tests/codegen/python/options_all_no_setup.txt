@@ -1,0 +1,20 @@
+pipeline = [{"$match": {"status": "A"}}, {"$sort": {"total": -1}}]
+
+results = list(
+    collection.with_options(read_preference=ReadPreference.SECONDARY_PREFERRED).aggregate(
+        pipeline,
+        collation={
+            "locale": "en",
+            "strength": 2,
+            "caseLevel": False,
+            "caseFirst": "upper",
+            "numericOrdering": True,
+            "alternate": "shifted",
+        },
+        hint="status_1_total_-1",
+        allowDiskUse=True,
+        maxTimeMS=5000,
+        comment="nightly \"report\" 'q' \\ $x ${y} #{z} %s {0} \u202eend",
+    )
+)
+print(results)

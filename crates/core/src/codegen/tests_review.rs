@@ -14,6 +14,7 @@ fn aggregate_of(value: Bson) -> CodeRequest {
     CodeRequest::Aggregate {
         ns: ns(),
         stages: vec![doc! { "$match": { "v": value } }],
+        options: crate::pipeline_options::PipelineOptions::default(),
     }
 }
 

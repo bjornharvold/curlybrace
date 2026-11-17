@@ -7,7 +7,11 @@ fn ns() -> Namespace {
 }
 
 fn aggregate(stages: Vec<Document>) -> CodeRequest {
-    CodeRequest::Aggregate { ns: ns(), stages }
+    CodeRequest::Aggregate {
+        ns: ns(),
+        stages,
+        options: crate::pipeline_options::PipelineOptions::default(),
+    }
 }
 
 fn gen_agg(language: Language, stages: Vec<Document>, options: &CodeOptions) -> String {

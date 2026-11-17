@@ -5,6 +5,7 @@ use super::*;
 use crate::theme;
 use crate::viewmodel::code_export::CodeExportUi;
 use curlybrace_core::codegen::CodeRequest;
+use curlybrace_core::pipeline_options::PipelineOptions;
 use curlybrace_core::query::QueryText;
 use curlybrace_core::store::{Namespace, Query};
 use eframe::egui::accesskit::Role;
@@ -41,6 +42,7 @@ fn aggregate_request() -> CodeRequest {
             bson::doc! { "$match": { "status": "active" } },
             bson::doc! { "$out": "totals" },
         ],
+        options: PipelineOptions::default(),
     }
 }
 

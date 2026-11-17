@@ -66,6 +66,7 @@ pub(super) fn error_text(error: &CodegenError, i18n: &I18n) -> String {
             let field = i18n.t(option_label_key(which));
             i18n.t_with("codegen.error.out_of_range", &[("field", &field)])
         }
+        CodegenError::InvalidOptions => i18n.t("codegen.error.invalid_options"),
     }
 }
 

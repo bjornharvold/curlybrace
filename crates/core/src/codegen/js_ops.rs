@@ -3,9 +3,11 @@
 
 use bson::Document;
 
+use crate::codegen::agg_options::{CodeAggOptions, mode_camel, plain_entries};
 use crate::codegen::js_syntax::JsSyntax;
 use crate::codegen::model::CodegenError;
 use crate::codegen::range::js_arg;
+use crate::codegen::walk::Syntax;
 use crate::codegen::walk::{render_document, render_documents};
 use crate::store::Query;
 
@@ -25,12 +27,30 @@ impl JsOps<'_> {
         if self.awaited { "await " } else { "" }
     }
 
-    pub(crate) fn aggregate(&self, stages: &[Document]) -> Result<String, CodegenError> {
+    /// The aggregate; with options, an `options` object between the pipeline and the call (the
+    /// read preference is an option of the call in both the shell and the Node.js driver).
+    pub(crate) fn aggregate(
+        &self,
+        stages: &[Document],
+        agg: &CodeAggOptions,
+    ) -> Result<String, CodegenError> {
         let pipeline = render_documents(self.syn, stages, 0)?;
         let coll = self.collection;
         let wait = self.await_prefix();
+        let mut entries = plain_entries(self.syn, agg, |name| name.to_string(), 1, None)?;
+        if let Some(mode) = agg.read_preference {
+            let value = self.syn.string(mode_camel(mode));
+            entries.push(("readPreference".to_string(), value));
+        }
+        if entries.is_empty() {
+            return Ok(format!(
+                "const pipeline = {pipeline};\n\nconst results = {wait}{coll}.aggregate(pipeline).toArray();\n{}\n",
+                self.print
+            ));
+        }
+        let options = self.syn.document(&entries, 0);
         Ok(format!(
-            "const pipeline = {pipeline};\n\nconst results = {wait}{coll}.aggregate(pipeline).toArray();\n{}\n",
+            "const pipeline = {pipeline};\n\nconst options = {options};\n\nconst results = {wait}{coll}.aggregate(pipeline, options).toArray();\n{}\n",
             self.print
         ))
     }

@@ -15,7 +15,11 @@ fn agg(
 ) -> Result<String, CodegenError> {
     generate(
         language,
-        &CodeRequest::Aggregate { ns: ns(), stages },
+        &CodeRequest::Aggregate {
+            ns: ns(),
+            stages,
+            options: crate::pipeline_options::PipelineOptions::default(),
+        },
         options,
     )
 }
@@ -159,6 +163,7 @@ fn rust_wide_documents_raise_the_macro_recursion_limit() {
     let request = CodeRequest::Aggregate {
         ns: ns(),
         stages: vec![doc! { "$match": { "v": wide(60) } }],
+        options: crate::pipeline_options::PipelineOptions::default(),
     };
     let fragment = generate(Language::Rust, &request, &bare).unwrap();
     assert!(fragment.starts_with("// "), "{fragment}");
@@ -166,6 +171,7 @@ fn rust_wide_documents_raise_the_macro_recursion_limit() {
     let narrow = CodeRequest::Aggregate {
         ns: ns(),
         stages: vec![doc! { "$match": { "v": 1_i32 } }],
+        options: crate::pipeline_options::PipelineOptions::default(),
     };
     let fragment = generate(Language::Rust, &narrow, &bare).unwrap();
     assert!(!fragment.contains("recursion_limit"), "{fragment}");

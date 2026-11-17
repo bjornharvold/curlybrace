@@ -3,6 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::agg_options::CodeAggOptions;
 use crate::codegen::escape::indent_lines;
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
@@ -101,6 +102,7 @@ impl Renderer for Rust {
         &self,
         ns: &Namespace,
         stages: &[Document],
+        _agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = RustSyntax::new();

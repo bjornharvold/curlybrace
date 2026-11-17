@@ -1,0 +1,10 @@
+# Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.
+pipeline = [{"$match": {"status": "A"}}, {"$out": "archive"}]
+
+results = list(
+    collection.aggregate(
+        pipeline,
+        comment="archive",
+    )
+)
+print(results)

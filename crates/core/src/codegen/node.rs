@@ -3,6 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
+use crate::codegen::agg_options::CodeAggOptions;
 use crate::codegen::escape::indent_lines;
 use crate::codegen::js_ops::JsOps;
 use crate::codegen::js_syntax::{JsDialect, JsSyntax, quote};
@@ -80,10 +81,12 @@ impl Renderer for Node {
         &self,
         ns: &Namespace,
         stages: &[Document],
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = JsSyntax::new(JsDialect::Node);
-        let body = Self::ops(&syn, options).aggregate(stages)?;
+        let body = Self::ops(&syn, options).aggregate(stages, agg)?;
+        let body = agg.with_note("//", body);
         Ok(Self::frame(ns, options, &syn, &body))
     }
 }

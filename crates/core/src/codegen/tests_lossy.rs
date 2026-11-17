@@ -14,6 +14,7 @@ fn render_all(language: Language, values: Vec<Bson>) -> String {
     let request = CodeRequest::Aggregate {
         ns: Namespace::new("shop", "orders"),
         stages: vec![doc! { "$match": fields }],
+        options: crate::pipeline_options::PipelineOptions::default(),
     };
     generate(language, &request, &CodeOptions::default()).expect("generates")
 }

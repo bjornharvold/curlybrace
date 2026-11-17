@@ -1,0 +1,26 @@
+const { MongoClient } = require("mongodb");
+
+async function main() {
+  const client = new MongoClient("<your connection string>");
+  try {
+    await client.connect();
+    const db = client.db("shop");
+    const collection = db.collection("orders");
+
+    const pipeline = [{ $match: { status: "A" } }, { $sort: { total: -1 } }];
+
+    const options = {
+      collation: { locale: "fr_CA" },
+      hint: { status: 1, total: -1 },
+      allowDiskUse: false,
+      readPreference: "nearest",
+    };
+
+    const results = await collection.aggregate(pipeline, options).toArray();
+    console.log(results);
+  } finally {
+    await client.close();
+  }
+}
+
+main().catch(console.error);
