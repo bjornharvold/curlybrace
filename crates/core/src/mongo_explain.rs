@@ -13,7 +13,7 @@ use crate::mongo_store::{fetch_limit, skip_as_i64};
 use crate::store::{Explain, Namespace, Query};
 
 /// Server-side time limit of one explain, so a heavy scan cannot hold the connection.
-pub(crate) const EXPLAIN_MAX_TIME_MS: i64 = 2000;
+pub(crate) const EXPLAIN_MAX_TIME_MS: i64 = crate::query_options::FIND_EXPLAIN_MAX_TIME_MS as i64;
 
 /// Server error code `MaxTimeMSExpired`.
 const CODE_MAX_TIME_MS_EXPIRED: i32 = 50;

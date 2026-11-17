@@ -33,6 +33,7 @@ fn query() -> Query {
         projection: Some(doc! { "name": 1 }),
         skip: 50,
         limit: 50,
+        ..Query::default()
     }
 }
 

@@ -116,6 +116,7 @@ fn no_literal_value_survives() {
         projection: Some(doc! { "name": 1, "secret_field_value": 1 }),
         skip: 918273645,
         limit: 777,
+        ..Query::default()
     };
     let json = from_query(&q).json();
     for leak in [

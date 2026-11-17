@@ -63,6 +63,7 @@ pub(super) fn browsing(cfg: ConnectionConfig) -> (AppState, Uuid) {
         projection: None,
         skip: 20,
         limit: 5,
+        ..Query::default()
     };
     (s, id)
 }

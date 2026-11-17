@@ -52,6 +52,9 @@ pub struct Query {
     pub projection: Option<Document>,
     pub skip: u64,
     pub limit: u64,
+    /// Collation, hint, time limit, comment, read preference and disk use; the store applies
+    /// them through `find_applied`. Default: none.
+    pub options: crate::query_options::QueryOptions,
 }
 
 impl Default for Query {
@@ -62,6 +65,7 @@ impl Default for Query {
             projection: None,
             skip: 0,
             limit: PAGE_SIZE,
+            options: crate::query_options::QueryOptions::default(),
         }
     }
 }

@@ -14,6 +14,7 @@ fn full_query() -> Query {
         projection: Some(doc! { "status": 1 }),
         skip: 20,
         limit: 50,
+        ..Query::default()
     }
 }
 
