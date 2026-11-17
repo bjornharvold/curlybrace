@@ -323,7 +323,18 @@ async fn update_fields_matches_a_sub_document_id_literally() {
         ),
     ];
     let out = store.bulk_write(&ns, ops).await.unwrap();
-    assert_eq!(out, vec![Err(WriteFailure::Missing), Ok(())]);
+    // The operator-shaped id matches nothing. Servers before 9 answer that as `Missing`; mongod
+    // 9 trips an assertion of its express update path on the shape (code 9248801) and refuses
+    // the statement. Either way the op fails alone, never applies, and the next op still runs.
+    assert_eq!(out.len(), 2, "{out:?}");
+    assert!(
+        matches!(
+            out[0],
+            Err(WriteFailure::Missing | WriteFailure::Rejected(9_248_801))
+        ),
+        "{out:?}"
+    );
+    assert_eq!(out[1], Ok(()), "{out:?}");
     let docs = all_docs(&client, &ns).await;
     let mut values: Vec<(Bson, i32)> = docs
         .iter()
