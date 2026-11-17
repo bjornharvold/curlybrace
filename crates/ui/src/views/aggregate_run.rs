@@ -11,9 +11,11 @@ use crate::I18n;
 use crate::app::AggregateAction;
 use crate::theme::{Tone, filled_button, gate, modal_frame, text_button, tonal_button, typography};
 use crate::viewmodel::ConnectionBadge;
+use crate::viewmodel::aggregate_options_view::run_option_labels;
 use crate::viewmodel::aggregate_run::{
     CountState, RunAvailability, RunDialog, RunDisabled, RunStatus,
 };
+use curlybrace_core::pipeline::{PipelineOptions, ReadPreferenceMode};
 use curlybrace_core::store::Namespace;
 use eframe::egui;
 
@@ -124,6 +126,7 @@ pub fn show_run_status(ui: &mut egui::Ui, status: &RunStatus, i18n: &I18n) {
 pub fn show_run_dialog(
     ctx: &egui::Context,
     dialog: Option<&RunDialog>,
+    options: &PipelineOptions,
     badge: &ConnectionBadge,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
@@ -146,7 +149,7 @@ pub fn show_run_dialog(
                 .max_height(max_height)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    facts(ui, dialog, i18n);
+                    facts(ui, dialog, options, i18n);
                     confirmation(ui, dialog, i18n)
                 })
                 .inner;
@@ -161,7 +164,7 @@ pub fn show_run_dialog(
 }
 
 /// What the run reads, writes and does, in plain words.
-fn facts(ui: &mut egui::Ui, dialog: &RunDialog, i18n: &I18n) {
+fn facts(ui: &mut egui::Ui, dialog: &RunDialog, options: &PipelineOptions, i18n: &I18n) {
     let source = dotted(&dialog.source);
     let target = dotted(&dialog.target_ns());
     ui.label(i18n.t_with("aggregate.run.source", &[("source", &source)]));
@@ -177,8 +180,28 @@ fn facts(ui: &mut egui::Ui, dialog: &RunDialog, i18n: &I18n) {
         CountState::Unavailable => i18n.t("aggregate.run.count_unavailable"),
     };
     ui.label(count);
+    show_options_sent(ui, options, i18n);
     let irreversible = i18n.t("aggregate.run.irreversible");
     tone_notice(ui, Tone::Warning, &irreversible, true);
+}
+
+/// The options the run carries, and, when a read preference is set, that the run reads and writes
+/// on the primary anyway.
+fn show_options_sent(ui: &mut egui::Ui, options: &PipelineOptions, i18n: &I18n) {
+    let labels: Vec<String> = run_option_labels(options)
+        .into_iter()
+        .map(|key| i18n.t(key))
+        .collect();
+    if !labels.is_empty() {
+        let list = labels.join(", ");
+        ui.label(i18n.t_with("aggregate.options.run.applies", &[("options", &list)]));
+    }
+    let off_primary = options
+        .read_preference
+        .is_some_and(|mode| mode != ReadPreferenceMode::Primary);
+    if off_primary {
+        ui.label(i18n.t("aggregate.options.run.primary"));
+    }
 }
 
 /// The typed confirmation; the text typed this frame, and whether Enter confirmed a matching one.

@@ -90,7 +90,10 @@ fn literals(src: &str) -> Vec<String> {
 fn is_key_shaped(s: &str) -> bool {
     s.contains('.')
         && s.split('.').all(|part| {
-            !part.is_empty() && part.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         })
 }
 

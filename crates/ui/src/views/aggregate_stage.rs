@@ -32,7 +32,8 @@ struct Card<'a> {
     counts_stale: bool,
 }
 
-/// The stage list in a scroll area at most `max_height` tall; the actions of the cards. Typing in
+/// The stage list in a scroll area at most `max_height` tall, led by whatever `lead` draws (the
+/// Options section, which scrolls with the cards); the actions of the cards. Typing in
 /// a stage goes to `view` (sent once it pauses), not to the actions.
 pub(super) fn show_stages(
     ui: &mut egui::Ui,
@@ -40,10 +41,12 @@ pub(super) fn show_stages(
     view: &mut AggregateView,
     max_height: f32,
     i18n: &I18n,
+    lead: impl FnOnce(&mut egui::Ui) -> Vec<AggregateAction>,
 ) -> Vec<AggregateAction> {
     if draft.stages.is_empty() {
+        let actions = lead(ui);
         ui.label(i18n.t("aggregate.no_stages"));
-        return Vec::new();
+        return actions;
     }
     let now = ui.input(|i| i.time);
     let last = draft.stages.len() - 1;
@@ -54,7 +57,7 @@ pub(super) fn show_stages(
         .max_height(max_height)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            let mut actions = Vec::new();
+            let mut actions = lead(ui);
             view.statuses.keeping(&draft.keys);
             for (index, stage) in draft.stages.iter().enumerate() {
                 let key = draft.keys.get(index).copied().unwrap_or(index as u64);

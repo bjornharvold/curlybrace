@@ -9,6 +9,7 @@ pub mod aggregate_flight;
 pub mod aggregate_hint_list;
 pub mod aggregate_options;
 pub mod aggregate_options_state;
+pub mod aggregate_options_view;
 mod aggregate_order;
 mod aggregate_preview_state;
 pub mod aggregate_run;

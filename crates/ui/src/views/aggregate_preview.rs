@@ -10,9 +10,10 @@ use super::{json::show_json, table::show_table, tree::show_tree};
 use crate::I18n;
 use crate::viewmodel::ViewMode;
 use crate::viewmodel::aggregate::{AggregateState, Preview, PreviewError, PreviewState};
+use crate::viewmodel::aggregate_options_view::{options_status, timeout_key};
 use crate::viewmodel::aggregate_view::{AggregateView, preview_error_key, shown_preview};
 use bson::Document;
-use curlybrace_core::pipeline::PREVIEW_LIMIT;
+use curlybrace_core::pipeline::{Operation, PREVIEW_LIMIT, PipelineOptions};
 use eframe::egui;
 
 /// The preview's heading, drawn into the row the result tabs are in: the view modes, which
@@ -96,6 +97,7 @@ fn status_lines(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) {
                 }
                 PreviewError::Core(e) => match preview_error_key(e) {
                     Some(key) => {
+                        let key = timeout_key(&draft.options, Operation::Preview, key);
                         ui.colored_label(ui.visuals().error_fg_color, i18n.t(key));
                     }
                     None => show_error(ui, e, i18n),
@@ -106,6 +108,18 @@ fn status_lines(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) {
                 kept_line(ui, last.as_ref(), i18n);
             }
         }
+    }
+    if !matches!(draft.preview, PreviewState::Idle) {
+        options_lines(ui, &draft.options, i18n);
+    }
+}
+
+/// One line for the read preference and one for the hint, so a result shaped by options is
+/// visibly so.
+fn options_lines(ui: &mut egui::Ui, options: &PipelineOptions, i18n: &I18n) {
+    for (key, params) in options_status(options) {
+        let params: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        ui.weak(i18n.t_with(key, &params));
     }
 }
 

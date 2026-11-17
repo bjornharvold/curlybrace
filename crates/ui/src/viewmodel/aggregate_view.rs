@@ -134,6 +134,8 @@ pub struct AggregateView {
     /// `AggregateState::wants_auto_refresh`).
     pub auto_sent: Option<u64>,
     pub pending: Option<PendingEdit>,
+    /// When text was last typed into an options field and not applied yet (egui input time).
+    pub options_typed_at: Option<f64>,
     pub page: PageCache,
     pub statuses: StatusCache,
     /// Whether the Copy as code button is on, remembered between repaints (see
@@ -157,6 +159,7 @@ impl AggregateView {
         Self {
             mode: self.mode,
             pending: self.pending.clone(),
+            options_typed_at: self.options_typed_at,
             ..Self::default()
         }
     }

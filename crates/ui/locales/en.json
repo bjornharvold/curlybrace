@@ -147,7 +147,58 @@
     },
     "no_stages": "No stages yet. Add one from the Add stage menu.",
     "options": {
+      "allow_disk_use": {
+        "label": "Allow disk use",
+        "preview_note": "Applies to Explain and Run only. Previews and counts never spill to disk."
+      },
       "blocked": "Fix the options to preview, count, explain, run or copy this pipeline.",
+      "collation": {
+        "alternate": "Alternate",
+        "alternate_value": {
+          "non_ignorable": "Non-ignorable",
+          "shifted": "Shifted"
+        },
+        "case_first": "Case first",
+        "case_first_value": {
+          "lower": "Lower case first",
+          "off": "Off",
+          "upper": "Upper case first"
+        },
+        "case_level": "Case level",
+        "enabled": "Collation",
+        "locale": "Locale",
+        "locale_hint": "simple, or a locale such as en, de or fr_CA",
+        "locale_pick": "Common locales",
+        "numeric_ordering": "Numeric ordering",
+        "server_default": "Server default",
+        "strength": "Strength",
+        "strength_value": {
+          "1": "1: base letters",
+          "2": "2: and accents",
+          "3": "3: and case",
+          "4": "4: and punctuation",
+          "5": "5: identical"
+        }
+      },
+      "comment": {
+        "label": "Comment",
+        "placeholder": "Text to find this pipeline in the server's logs"
+      },
+      "comment_sent_note": "The comment is sent to the server and shows in its logs and profiler.",
+      "hint": {
+        "clear": "Clear",
+        "existing": "Existing indexes",
+        "label": "Hint",
+        "list_failed": "Could not list the indexes of this collection.",
+        "loading": "Listing indexes...",
+        "not_listed": "No index of this collection has this name.",
+        "placeholder": "Index name or key pattern"
+      },
+      "max_time": {
+        "clamped": "Previews, counts and explains still stop at {limit} s.",
+        "label": "Time limit (ms)",
+        "placeholder": "Default: {preview} s, runs {run} s"
+      },
       "problem": {
         "comment_control": "The comment cannot hold a newline, a tab or another control character.",
         "comment_empty": "The comment is only spaces. Type a comment or clear the field.",
@@ -159,6 +210,35 @@
         "locale_empty": "Type a locale, or turn the collation off.",
         "locale_invalid": "This is not a locale. Use simple, or letters such as en or fr_CA, with an optional @collation=name.",
         "max_time_range": "Type a whole number of milliseconds from 1 to {max}."
+      },
+      "read_preference": {
+        "label": "Read preference",
+        "value": {
+          "default": "Connection default",
+          "nearest": "nearest",
+          "primary": "primary",
+          "primary_preferred": "primaryPreferred",
+          "secondary": "secondary",
+          "secondary_preferred": "secondaryPreferred"
+        }
+      },
+      "reset": "Reset options",
+      "run": {
+        "applies": "This run sends these options: {options}",
+        "primary": "A run always reads and writes on the primary, whatever the read preference says."
+      },
+      "status": {
+        "hint": "hint: {name}",
+        "read_from": "Read from {mode}"
+      },
+      "timeout_set": "It took longer than the time limit you set in Options. The last result stays on screen.",
+      "toggle": "Options",
+      "toggle_count": "Options ({n})",
+      "toggle_hint": "Collation, index hint, disk use, time limit, comment and read preference for this pipeline",
+      "tri": {
+        "default": "Server default",
+        "off": "Off",
+        "on": "On"
       }
     },
     "preview": {
