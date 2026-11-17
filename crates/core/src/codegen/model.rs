@@ -76,7 +76,8 @@ pub struct CodeOptions {
     pub collection_var: String,
     /// Export a trailing `$out` / `$merge` stage; when off it is dropped.
     pub write_stage: bool,
-    /// Render the aggregate's options; off gives the code of no options.
+    /// Render the aggregate's or the query's options (`Query::options` of a find); off gives the
+    /// code of no options.
     pub include_options: bool,
 }
 
