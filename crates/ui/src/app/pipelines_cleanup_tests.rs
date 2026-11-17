@@ -25,7 +25,14 @@ fn app_with_two(dir: &tempfile::TempDir, cfg: ConnectionConfig, other: Uuid) -> 
     let id = cfg.id;
     let (mut app, _events, _commands) = app_in(dir, vec![cfg]);
     let both = store_with(id, "mine")
-        .saved(other, "theirs", None, stage(), 2, false)
+        .saved(
+            other,
+            "theirs",
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(stage()),
+            2,
+            false,
+        )
         .unwrap();
     app.state_mut().persist_pipelines(both).unwrap();
     app

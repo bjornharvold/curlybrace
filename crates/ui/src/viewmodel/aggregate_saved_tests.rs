@@ -12,7 +12,14 @@ fn two() -> AggregateState {
 fn opened() -> (AggregateState, SavedPipeline) {
     let conn = Uuid::new_v4();
     let store = SavedPipelines::default()
-        .saved(conn, "totals", None, two().as_saved_stages(), 1, false)
+        .saved(
+            conn,
+            "totals",
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(two().as_saved_stages()),
+            1,
+            false,
+        )
         .unwrap();
     let entry = store.list(conn)[0].clone();
     (AggregateState::default().opened_from(&entry), entry)

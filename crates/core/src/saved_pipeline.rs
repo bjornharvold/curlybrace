@@ -47,9 +47,10 @@ pub struct SavedDraft {
     pub options: PipelineOptions,
 }
 
-/// Stages alone, with no options: keeps every caller that predates options compiling.
-impl From<Vec<SavedStage>> for SavedDraft {
-    fn from(stages: Vec<SavedStage>) -> Self {
+impl SavedDraft {
+    /// A draft with these stages and no options. Named, not a `From`, so a save that means to keep
+    /// the options of an opened pipeline cannot lose them by passing bare stages.
+    pub fn stages_only(stages: Vec<SavedStage>) -> Self {
         Self {
             stages,
             options: PipelineOptions::default(),
@@ -224,11 +225,11 @@ impl SavedPipelines {
         connection: Uuid,
         name: &str,
         ns_hint: Option<String>,
-        content: impl Into<SavedDraft>,
+        content: SavedDraft,
         now_unix: i64,
         replace: bool,
     ) -> Result<Self, SavedError> {
-        let SavedDraft { stages, options } = content.into();
+        let SavedDraft { stages, options } = content;
         let name = validate_name(name)?;
         if stages.iter().map(|s| s.text.len()).sum::<usize>() > MAX_STAGE_BYTES {
             return Err(SavedError::TooLarge);

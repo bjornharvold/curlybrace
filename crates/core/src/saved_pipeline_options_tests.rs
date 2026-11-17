@@ -132,7 +132,14 @@ fn options_are_written_in_mongodb_spelling() {
 fn an_entry_without_options_writes_no_options_key() {
     let conn = Uuid::new_v4();
     let store = SavedPipelines::default()
-        .saved(conn, "plain", None, stages(), 1, false)
+        .saved(
+            conn,
+            "plain",
+            None,
+            SavedDraft::stages_only(stages()),
+            1,
+            false,
+        )
         .unwrap();
     let value = written(&store);
     let entry = value["connections"][conn.to_string()][0]
@@ -251,7 +258,14 @@ fn saved_keeps_the_options_and_replace_overwrites_them() {
         .unwrap();
     assert_eq!(first.list(conn)[0].options, every_option());
     let replaced = first
-        .saved(conn, "Totals", None, stages(), 2, true)
+        .saved(
+            conn,
+            "Totals",
+            None,
+            SavedDraft::stages_only(stages()),
+            2,
+            true,
+        )
         .unwrap();
     assert!(
         replaced.list(conn)[0].options.is_empty(),
@@ -281,8 +295,8 @@ fn saved_keeps_the_options_and_replace_overwrites_them() {
 }
 
 #[test]
-fn a_vec_of_stages_still_saves_with_no_options() {
-    let draft: SavedDraft = stages().into();
+fn stages_only_saves_with_no_options() {
+    let draft = SavedDraft::stages_only(stages());
     assert_eq!(draft.stages, stages());
     assert!(draft.options.is_empty());
 }

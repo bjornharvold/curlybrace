@@ -44,7 +44,14 @@ pub(super) fn stage() -> Vec<SavedStage> {
 
 pub(super) fn store_with(conn: Uuid, name: &str) -> SavedPipelines {
     SavedPipelines::default()
-        .saved(conn, name, None, stage(), 1, false)
+        .saved(
+            conn,
+            name,
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(stage()),
+            1,
+            false,
+        )
         .unwrap()
 }
 
@@ -226,7 +233,14 @@ fn a_list_too_big_for_the_file_is_refused_and_nothing_changes() {
             enabled: true,
         };
         store
-            .saved(conn, &format!("big{i}"), None, vec![stage], 2, false)
+            .saved(
+                conn,
+                &format!("big{i}"),
+                None,
+                curlybrace_core::saved_pipeline::SavedDraft::stages_only(vec![stage]),
+                2,
+                false,
+            )
             .unwrap()
     });
     let result = app.state_mut().persist_pipelines(big);
@@ -261,10 +275,14 @@ fn a_second_window_cannot_overwrite_what_the_first_saved() {
         .collect();
     assert_eq!(names, ["x"], "the window now shows what is on disk");
 
-    let retried = b
-        .state()
-        .pipelines
-        .saved(conn, "y", None, stage(), 2, false);
+    let retried = b.state().pipelines.saved(
+        conn,
+        "y",
+        None,
+        curlybrace_core::saved_pipeline::SavedDraft::stages_only(stage()),
+        2,
+        false,
+    );
     b.state_mut().persist_pipelines(retried.unwrap()).unwrap();
     let again = load(&pipeline_file(&dir), &persistence::back_up);
     assert!(again.settings.find_by_name(conn, "x").is_some());
@@ -283,10 +301,14 @@ fn a_window_keeps_saving_when_only_it_changes_the_file() {
     a.state_mut()
         .persist_pipelines(store_with(conn, "x"))
         .unwrap();
-    let more = a
-        .state()
-        .pipelines
-        .saved(conn, "y", None, stage(), 2, false);
+    let more = a.state().pipelines.saved(
+        conn,
+        "y",
+        None,
+        curlybrace_core::saved_pipeline::SavedDraft::stages_only(stage()),
+        2,
+        false,
+    );
     a.state_mut().persist_pipelines(more.unwrap()).unwrap();
     assert_eq!(a.state().pipelines.list(conn).len(), 2);
 }

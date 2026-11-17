@@ -41,8 +41,15 @@ fn saved_list(names: &[&str]) -> Vec<SavedPipeline> {
         .enumerate()
         .fold(SavedPipelines::default(), |all, (i, name)| {
             let hint = Some("crm.customers".to_string());
-            all.saved(Uuid::nil(), name, hint, stages.clone(), i as i64, false)
-                .expect("a usable name")
+            all.saved(
+                Uuid::nil(),
+                name,
+                hint,
+                curlybrace_core::saved_pipeline::SavedDraft::stages_only(stages.clone()),
+                i as i64,
+                false,
+            )
+            .expect("a usable name")
         });
     all.list(Uuid::nil()).to_vec()
 }

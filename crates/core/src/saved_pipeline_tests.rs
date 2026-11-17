@@ -13,7 +13,14 @@ fn one(text: &str) -> Vec<SavedStage> {
 
 fn with_name(store: &SavedPipelines, conn: Uuid, name: &str, now: i64) -> SavedPipelines {
     store
-        .saved(conn, name, None, one("{\"$match\": {}}"), now, false)
+        .saved(
+            conn,
+            name,
+            None,
+            SavedDraft::stages_only(one("{\"$match\": {}}")),
+            now,
+            false,
+        )
         .unwrap()
 }
 
@@ -70,7 +77,14 @@ fn a_name_that_only_differs_in_case_or_spaces_is_taken() {
     assert!(!store.name_taken(conn, "daily", None));
     assert!(!store.name_taken(Uuid::new_v4(), "daily totals", None));
     assert_eq!(
-        store.saved(conn, " daily TOTALS", None, one("x"), 2, false),
+        store.saved(
+            conn,
+            " daily TOTALS",
+            None,
+            SavedDraft::stages_only(one("x")),
+            2,
+            false
+        ),
         Err(SavedError::NameTaken)
     );
 }
@@ -92,7 +106,7 @@ fn replacing_keeps_the_id_and_updates_the_content() {
             conn,
             "TOTALS",
             Some("shop.orders".into()),
-            one("new"),
+            SavedDraft::stages_only(one("new")),
             20,
             true,
         )
@@ -112,7 +126,14 @@ fn replacing_keeps_the_id_and_updates_the_content() {
 fn replace_true_with_a_free_name_adds_a_new_pipeline() {
     let conn = Uuid::new_v4();
     let store = SavedPipelines::default()
-        .saved(conn, "fresh", None, one("x"), 1, true)
+        .saved(
+            conn,
+            "fresh",
+            None,
+            SavedDraft::stages_only(one("x")),
+            1,
+            true,
+        )
         .unwrap();
     assert_eq!(store.list(conn).len(), 1);
 }
@@ -157,7 +178,16 @@ fn the_newest_pipeline_comes_first() {
     );
     let names: Vec<&str> = store.list(conn).iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["new", "old"]);
-    let resaved = store.saved(conn, "old", None, one("y"), 3, true).unwrap();
+    let resaved = store
+        .saved(
+            conn,
+            "old",
+            None,
+            SavedDraft::stages_only(one("y")),
+            3,
+            true,
+        )
+        .unwrap();
     let names: Vec<&str> = resaved.list(conn).iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["old", "new"]);
 }
@@ -170,11 +200,29 @@ fn at_most_two_hundred_pipelines_per_connection() {
         store = with_name(&store, conn, &format!("p{n}"), n as i64);
     }
     assert_eq!(
-        store.saved(conn, "one too many", None, one("x"), 999, false),
+        store.saved(
+            conn,
+            "one too many",
+            None,
+            SavedDraft::stages_only(one("x")),
+            999,
+            false
+        ),
         Err(SavedError::TooMany)
     );
     // Replacing one is still fine, and another connection has its own room.
-    assert!(store.saved(conn, "p0", None, one("x"), 999, true).is_ok());
+    assert!(
+        store
+            .saved(
+                conn,
+                "p0",
+                None,
+                SavedDraft::stages_only(one("x")),
+                999,
+                true
+            )
+            .is_ok()
+    );
     assert!(with_name(&store, Uuid::new_v4(), "p0", 1).list(conn).len() == MAX_PER_CONNECTION);
 }
 
@@ -183,13 +231,13 @@ fn a_pipeline_over_one_megabyte_of_stage_text_is_refused() {
     let conn = Uuid::new_v4();
     let big = vec![stage(&"a".repeat(MAX_STAGE_BYTES / 2 + 1)); 2];
     assert_eq!(
-        SavedPipelines::default().saved(conn, "big", None, big, 1, false),
+        SavedPipelines::default().saved(conn, "big", None, SavedDraft::stages_only(big), 1, false),
         Err(SavedError::TooLarge)
     );
     let fits = vec![stage(&"a".repeat(MAX_STAGE_BYTES))];
     assert!(
         SavedPipelines::default()
-            .saved(conn, "fits", None, fits, 1, false)
+            .saved(conn, "fits", None, SavedDraft::stages_only(fits), 1, false)
             .is_ok()
     );
 }
@@ -250,13 +298,13 @@ fn the_store_round_trips_through_json() {
             conn,
             "ünï",
             Some("db.coll".into()),
-            vec![
+            SavedDraft::stages_only(vec![
                 stage("{\"$match\": {}}"),
                 SavedStage {
                     text: "{\"$limit\": 5}".into(),
                     enabled: false,
                 },
-            ],
+            ]),
             42,
             false,
         )

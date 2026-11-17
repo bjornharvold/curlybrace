@@ -28,7 +28,14 @@ fn two_windows(
     let theirs = b
         .state()
         .pipelines
-        .saved(other, "from b", None, stage(), 2, false)
+        .saved(
+            other,
+            "from b",
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(stage()),
+            2,
+            false,
+        )
         .unwrap();
     b.state_mut().persist_pipelines(theirs).unwrap();
     (a, b)
@@ -113,7 +120,14 @@ fn a_file_turned_to_garbage_is_backed_up_then_replaced_by_the_next_save() {
     let again = app
         .state()
         .pipelines
-        .saved(conn, "next", None, stage(), 2, false)
+        .saved(
+            conn,
+            "next",
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(stage()),
+            2,
+            false,
+        )
         .unwrap();
     app.state_mut().persist_pipelines(again).unwrap();
     let loaded = load(&pipeline_file(&dir), &persistence::back_up);
@@ -210,7 +224,14 @@ fn the_newer_file_block_lifts_when_the_file_becomes_version_one_but_reloads_firs
     let next = app
         .state()
         .pipelines
-        .saved(conn, "mine", None, stage(), 2, false)
+        .saved(
+            conn,
+            "mine",
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(stage()),
+            2,
+            false,
+        )
         .unwrap();
     app.state_mut().persist_pipelines(next).unwrap();
     let again = load(&pipeline_file(&dir), &persistence::back_up);

@@ -242,8 +242,15 @@ fn the_limits_map_to_their_own_messages() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = drafted(session_in(&dir, conn));
     s.pipelines = (0..200).fold(SavedPipelines::default(), |p, i| {
-        p.saved(conn, &format!("p{i}"), None, Vec::new(), 1, false)
-            .unwrap()
+        p.saved(
+            conn,
+            &format!("p{i}"),
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(Vec::new()),
+            1,
+            false,
+        )
+        .unwrap()
     });
     let s = saved_as(s, "one more");
     assert_eq!(
