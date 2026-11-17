@@ -253,6 +253,26 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   which stages were not run), and one anywhere else, including inside `$facet`, `$lookup` or
   `$unionWith`, is refused before anything is sent. So previews work on production connections
   without a confirmation, and on read-only connections.
+- **Options** (collapsed by default; the header button reads **Options (N)** while N are set) set
+  the pipeline's collation (a locale, strength, case level, case first, numeric ordering and
+  alternate), an index **hint** (a name, picked from the collection's indexes, or a key pattern
+  such as `{"status": 1}`), `allowDiskUse`, a time limit, a **comment** and a read preference. A
+  pick applies at once; typed text applies on Enter, when you leave the field or after a pause.
+  What each operation sends: collation, hint and comment go with every preview, count, explain and
+  run; `allowDiskUse` only with Explain and Run (previews and counts never spill to disk); the time
+  limit (1 to 60 000 ms) can only lower an operation's own bound (10 s for previews, counts and
+  explains, 60 s for runs), never raise it; the read preference goes with everything but the run,
+  which always reads and writes on the primary (the run dialog says so). The comment reaches the
+  server's logs and profiler, which the section says. An option that is not valid shows why under
+  its field and blocks preview, counts, explain, run and Copy as code until it is fixed (the last
+  good preview stays on screen). The preview names the read preference and the hint it used, a
+  timeout under a limit you set says so, the run dialog lists the options it sends, and counts and
+  the plan are marked out of date when the options change. A hint that names no index, a collation
+  the server refuses or a read preference no member satisfies is reported in words (a read
+  preference nobody satisfies can still answer as "took too long" before the driver's server
+  selection wait ends). Saved pipelines keep their options (the file stays at version 1: an older
+  build opens it and drops the options only when it saves that pipeline again). Copy as code does
+  not include the options yet.
 - **Save** keeps the pipeline under a name; **Open** lists the saved pipelines of the connection
   (newest first, with the collection each was saved from) and replaces the draft with the one you
   pick; each item has **Rename** and **Delete** (Delete asks first). The header shows the name of
@@ -350,12 +370,12 @@ contribute.
 
 - **Aggregation builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): built: stage list and text mode, a
   read-only, time-bounded preview of the selected stage, and saved pipelines (save, open, rename
-  and delete per connection), a confirmed `$out` / `$merge` run, and Copy as code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)), explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) and per-stage counts. Later slices: options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
+  and delete per connection), a confirmed `$out` / `$merge` run, and Copy as code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)), explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), per-stage counts and options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
 
 ### In progress
 
-- **Aggregation pipeline builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): everything above is built; what is left is options such as collation, hint and
-  `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
+- **Aggregation pipeline builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): everything above is built; what is left is the options in Copy as code and the explain's index hint picker
+  ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
 
 ### Next
 
