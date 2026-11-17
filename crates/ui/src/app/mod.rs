@@ -12,6 +12,7 @@ pub use aggregate_actions::AggregateAction;
 mod aggregate_counts_actions;
 pub use aggregate_counts_actions::CountsAction;
 mod aggregate_explain_actions;
+mod aggregate_plan_actions;
 pub use aggregate_explain_actions::ExplainAction;
 mod aggregate_hint_actions;
 mod aggregate_options_actions;

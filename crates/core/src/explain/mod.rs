@@ -5,6 +5,7 @@ mod agg_input;
 mod agg_model;
 mod agg_plan;
 mod agg_stage;
+mod agg_suggest;
 mod classify;
 #[cfg(test)]
 mod classify_sharded_tests;
@@ -22,6 +23,7 @@ pub use agg_model::{
     ExplainVerbosity, InputPlan, ShardName,
 };
 pub use agg_plan::parse_aggregate_explain;
+pub use agg_suggest::{create_index_command, suggest_for_pipeline};
 pub use classify::classify;
 pub(crate) use classify::{count, is_inefficient};
 pub use suggest::suggest;
