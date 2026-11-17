@@ -181,15 +181,17 @@ pub(super) fn write_finished(state: AppState, ns: &Namespace) -> AppState {
         return state;
     }
     let indexes = state.indexes.write_answered(true);
-    let mut state = AppState {
+    let state = AppState {
         indexes,
         pending: None,
         ..state
     };
     // The collection has a new index: the aggregate's hint picker asks for the list again.
-    if state.selected_ns() == Some(ns) {
-        let draft = std::mem::take(&mut *state.aggregate);
-        *state.aggregate = draft.hint_edited(HintListUi::reset);
+    match state.selected_ns() == Some(ns) {
+        true => AppState {
+            aggregate: Box::new(state.aggregate.hint_edited(HintListUi::reset)),
+            ..state
+        },
+        false => state,
     }
-    state
 }
