@@ -1,0 +1,20 @@
+List<Document> pipeline = Arrays.asList(
+    new Document("$match", new Document("status", "A")),
+    new Document("$sort", new Document("total", -1))
+);
+
+List<Document> results = collection.withReadPreference(ReadPreference.secondaryPreferred()).aggregate(pipeline)
+    .collation(Collation.builder()
+        .locale("en")
+        .collationStrength(CollationStrength.SECONDARY)
+        .caseLevel(false)
+        .collationCaseFirst(CollationCaseFirst.UPPER)
+        .numericOrdering(true)
+        .collationAlternate(CollationAlternate.SHIFTED)
+        .build())
+    .hintString("status_1_total_-1")
+    .allowDiskUse(true)
+    .maxTime(5000, TimeUnit.MILLISECONDS)
+    .comment("nightly \"report\" 'q' \\ $x ${y} #{z} %s {0} \u202eend")
+    .into(new ArrayList<>());
+System.out.println(results);

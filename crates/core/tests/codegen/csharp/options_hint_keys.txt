@@ -1,0 +1,23 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+
+var client = new MongoClient("<your connection string>");
+var db = client.GetDatabase("shop");
+var collection = db.GetCollection<BsonDocument>("orders");
+
+var pipeline = new[] {
+    new BsonDocument {
+        { "$match", new BsonDocument { { "status", "A" } } },
+    },
+    new BsonDocument { { "$sort", new BsonDocument { { "total", -1 } } } },
+};
+
+var options = new AggregateOptions
+{
+    Collation = new Collation("fr_CA"),
+    Hint = new BsonDocument { { "status", 1 }, { "total", -1 } },
+    AllowDiskUse = false,
+};
+
+var results = collection.WithReadPreference(ReadPreference.Nearest).Aggregate<BsonDocument>(pipeline, options).ToList();
+results.ForEach(Console.WriteLine);

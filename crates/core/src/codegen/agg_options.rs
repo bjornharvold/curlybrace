@@ -9,7 +9,10 @@ use bson::{Bson, Document};
 
 use crate::codegen::model::CodegenError;
 use crate::codegen::walk::{Syntax, render, render_document};
-use crate::pipeline_options::{CollationOption, HintOption, PipelineOptions, ReadPreferenceMode};
+use crate::pipeline_options::{
+    Alternate, CaseFirst, CollationOption, HintOption, PipelineOptions, ReadPreferenceMode,
+    Strength,
+};
 
 /// What the code sets.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -28,7 +31,6 @@ pub(crate) struct CodeAggOptions {
 /// text, so it is English).
 const LEFT_OUT_NOTE: &str = "Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.";
 
-#[allow(dead_code)] // `is_empty`, `has_call_options` and `mode_pascal` serve the builder languages
 impl CodeAggOptions {
     /// The options the code sets: nothing when `include` is off or nothing is set; the options
     /// must validate (the run would refuse them).
@@ -58,20 +60,6 @@ impl CodeAggOptions {
             read_preference: options.read_preference.filter(|_| !writes),
             read_preference_left_out: writes && options.read_preference.is_some(),
         })
-    }
-
-    /// Nothing to write and no note: the code is the code of no options.
-    pub(crate) fn is_empty(&self) -> bool {
-        !self.has_call_options() && self.read_preference.is_none() && !self.read_preference_left_out
-    }
-
-    /// Any of collation, hint, allowDiskUse, maxTimeMS or comment is set.
-    pub(crate) fn has_call_options(&self) -> bool {
-        self.collation.is_some()
-            || self.hint.is_some()
-            || self.allow_disk_use.is_some()
-            || self.max_time_ms.is_some()
-            || self.comment.is_some()
     }
 
     /// The fixed note line, with its comment marker (`//` or `#`).
@@ -119,7 +107,6 @@ pub(crate) fn mode_upper_snake(mode: ReadPreferenceMode) -> &'static str {
     }
 }
 
-#[allow(dead_code)] // used by the C# and Rust renderers
 pub(crate) fn mode_pascal(mode: ReadPreferenceMode) -> &'static str {
     match mode {
         ReadPreferenceMode::Primary => "Primary",
@@ -127,6 +114,35 @@ pub(crate) fn mode_pascal(mode: ReadPreferenceMode) -> &'static str {
         ReadPreferenceMode::Secondary => "Secondary",
         ReadPreferenceMode::SecondaryPreferred => "SecondaryPreferred",
         ReadPreferenceMode::Nearest => "Nearest",
+    }
+}
+
+/// A collation enum's member as `(PascalCase, UPPER_SNAKE)`: C# and Rust use the first, Java the
+/// second.
+pub(crate) type Words = (&'static str, &'static str);
+
+pub(crate) fn strength_words(strength: Strength) -> Words {
+    match strength {
+        Strength::Primary => ("Primary", "PRIMARY"),
+        Strength::Secondary => ("Secondary", "SECONDARY"),
+        Strength::Tertiary => ("Tertiary", "TERTIARY"),
+        Strength::Quaternary => ("Quaternary", "QUATERNARY"),
+        Strength::Identical => ("Identical", "IDENTICAL"),
+    }
+}
+
+pub(crate) fn case_first_words(case_first: CaseFirst) -> Words {
+    match case_first {
+        CaseFirst::Upper => ("Upper", "UPPER"),
+        CaseFirst::Lower => ("Lower", "LOWER"),
+        CaseFirst::Off => ("Off", "OFF"),
+    }
+}
+
+pub(crate) fn alternate_words(alternate: Alternate) -> Words {
+    match alternate {
+        Alternate::NonIgnorable => ("NonIgnorable", "NON_IGNORABLE"),
+        Alternate::Shifted => ("Shifted", "SHIFTED"),
     }
 }
 

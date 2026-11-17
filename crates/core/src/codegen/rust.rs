@@ -3,19 +3,33 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
-use crate::codegen::agg_options::CodeAggOptions;
+use std::collections::BTreeSet;
+
+use crate::codegen::agg_options::{
+    CodeAggOptions, alternate_words, case_first_words, mode_pascal, strength_words,
+};
 use crate::codegen::escape::indent_lines;
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::range::i64_arg;
 use crate::codegen::rust_syntax::{RustSyntax, quote};
 use crate::codegen::walk::{render_document, render_documents};
+use crate::pipeline_options::{CollationOption, HintOption, ReadPreferenceMode};
 use crate::store::{Namespace, Query};
+
+/// Longest single-line `use` before rustfmt would wrap the name list.
+const IMPORT_WIDTH: usize = 100;
 
 pub(crate) struct Rust;
 
 impl Rust {
-    fn frame(ns: &Namespace, options: &CodeOptions, syn: &RustSyntax, body: &str) -> String {
+    fn frame(
+        ns: &Namespace,
+        options: &CodeOptions,
+        syn: &RustSyntax,
+        body: &str,
+        used: &Used,
+    ) -> String {
         let limit = syn.recursion_limit();
         let noted = with_note(syn, "//", body.to_string());
         let body = noted.as_str();
@@ -36,6 +50,37 @@ impl Rust {
         } else {
             "{Document, doc}"
         };
+        let option_imports = if used.names.is_empty() {
+            String::new()
+        } else {
+            let names: Vec<&str> = used.names.iter().copied().collect();
+            let single = format!("use mongodb::options::{{{}}};\n", names.join(", "));
+            if single.len() <= IMPORT_WIDTH {
+                single
+            } else {
+                // rustfmt's wrapped form: names packed into lines up to the width.
+                let mut lines = String::new();
+                let mut line = String::new();
+                for name in &names {
+                    let piece = format!("{name},");
+                    if !line.is_empty() && 4 + line.len() + 1 + piece.len() > IMPORT_WIDTH {
+                        lines.push_str(&format!("    {line}\n"));
+                        line.clear();
+                    }
+                    if !line.is_empty() {
+                        line.push(' ');
+                    }
+                    line.push_str(&piece);
+                }
+                lines.push_str(&format!("    {line}\n"));
+                format!("use mongodb::options::{{\n{lines}}};\n")
+            }
+        };
+        let duration = if used.duration {
+            "use std::time::Duration;\n"
+        } else {
+            ""
+        };
         let (client, db, coll) = (
             &options.client_var,
             &options.db_var,
@@ -48,7 +93,7 @@ impl Rust {
             body.trim_end(),
         );
         format!(
-            "{attribute}use futures::TryStreamExt;\nuse mongodb::Client;\nuse mongodb::bson::{bson_import};\n\n#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {{\n{}\n}}\n",
+            "{attribute}use futures::TryStreamExt;\nuse mongodb::Client;\nuse mongodb::bson::{bson_import};\n{option_imports}{duration}\n#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {{\n{}\n}}\n",
             indent_lines(&inner, "    ", 1),
         )
     }
@@ -95,22 +140,121 @@ impl Renderer for Rust {
             "\nlet mut cursor = {}\n    .find(filter){lines}\n    .await?;\n{PRINT_CURSOR}",
             options.collection_var
         ));
-        Ok(Self::frame(ns, options, &syn, &body))
+        Ok(Self::frame(ns, options, &syn, &body, &Used::default()))
     }
 
     fn aggregate(
         &self,
         ns: &Namespace,
         stages: &[Document],
-        _agg: &CodeAggOptions,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = RustSyntax::new();
         let pipeline = render_documents(&syn, stages, 0)?;
-        let body = format!(
-            "let pipeline = {pipeline};\n\nlet mut cursor = {}.aggregate(pipeline).await?;\n{PRINT_CURSOR}",
-            options.collection_var
-        );
-        Ok(Self::frame(ns, options, &syn, &body))
+        let mut used = Used::default();
+        let setters = Self::option_setters(&syn, agg, &mut used)?;
+        let coll = &options.collection_var;
+        let call = if setters.is_empty() {
+            format!("{coll}.aggregate(pipeline).await?;")
+        } else {
+            let lines: String = setters.iter().map(|s| format!("\n    {s}")).collect();
+            format!("{coll}\n    .aggregate(pipeline){lines}\n    .await?;")
+        };
+        let body = format!("let pipeline = {pipeline};\n\nlet mut cursor = {call}\n{PRINT_CURSOR}");
+        let body = agg.with_note("//", body);
+        Ok(Self::frame(ns, options, &syn, &body, &used))
+    }
+}
+
+/// What the option setters name, so the frame can import it.
+#[derive(Default)]
+struct Used {
+    /// Names under `mongodb::options`.
+    names: BTreeSet<&'static str>,
+    duration: bool,
+}
+
+impl Rust {
+    /// The setters on the `aggregate` action, in the order collation, hint, allowDiskUse,
+    /// maxTimeMS, comment, read preference; a multi-line setter carries its own indent.
+    fn option_setters(
+        syn: &RustSyntax,
+        agg: &CodeAggOptions,
+        used: &mut Used,
+    ) -> Result<Vec<String>, CodegenError> {
+        let mut setters = Vec::new();
+        if let Some(collation) = &agg.collation {
+            used.names.insert("Collation");
+            setters.push(Self::collation(collation, used));
+        }
+        match &agg.hint {
+            Some(HintOption::Name(name)) => {
+                used.names.insert("Hint");
+                setters.push(format!(".hint(Hint::Name({}.to_string()))", quote(name)));
+            }
+            Some(HintOption::Keys(keys)) => {
+                used.names.insert("Hint");
+                let keys = render_document(syn, keys, 1)?;
+                setters.push(format!(".hint(Hint::Keys(doc! {keys}))"));
+            }
+            None => {}
+        }
+        if let Some(on) = agg.allow_disk_use {
+            setters.push(format!(".allow_disk_use({on})"));
+        }
+        if let Some(ms) = agg.max_time_ms {
+            used.duration = true;
+            setters.push(format!(".max_time(Duration::from_millis({ms}))"));
+        }
+        if let Some(comment) = &agg.comment {
+            setters.push(format!(".comment({})", quote(comment)));
+        }
+        if let Some(mode) = agg.read_preference {
+            used.names.insert("ReadPreference");
+            used.names.insert("SelectionCriteria");
+            let preference = match mode {
+                ReadPreferenceMode::Primary => "ReadPreference::Primary".to_string(),
+                other => format!("ReadPreference::{} {{ options: None }}", mode_pascal(other)),
+            };
+            setters.push(format!(
+                ".selection_criteria(SelectionCriteria::ReadPreference(\n        {preference},\n    ))"
+            ));
+        }
+        Ok(setters)
+    }
+
+    /// `.collation(Collation::builder()...build())`, one setter per line when there are several.
+    fn collation(collation: &CollationOption, used: &mut Used) -> String {
+        let mut setters = vec![format!(".locale({})", quote(&collation.locale))];
+        if let Some(strength) = collation.strength {
+            used.names.insert("CollationStrength");
+            let (word, _) = strength_words(strength);
+            setters.push(format!(".strength(CollationStrength::{word})"));
+        }
+        if let Some(on) = collation.case_level {
+            setters.push(format!(".case_level({on})"));
+        }
+        if let Some(case_first) = collation.case_first {
+            used.names.insert("CollationCaseFirst");
+            let (word, _) = case_first_words(case_first);
+            setters.push(format!(".case_first(CollationCaseFirst::{word})"));
+        }
+        if let Some(on) = collation.numeric_ordering {
+            setters.push(format!(".numeric_ordering({on})"));
+        }
+        if let Some(alternate) = collation.alternate {
+            used.names.insert("CollationAlternate");
+            let (word, _) = alternate_words(alternate);
+            setters.push(format!(".alternate(CollationAlternate::{word})"));
+        }
+        if setters.len() == 1 {
+            return format!(".collation(Collation::builder(){}.build())", setters[0]);
+        }
+        let lines: String = setters
+            .iter()
+            .map(|s| format!("\n            {s}"))
+            .collect();
+        format!(".collation(\n        Collation::builder(){lines}\n            .build(),\n    )")
     }
 }

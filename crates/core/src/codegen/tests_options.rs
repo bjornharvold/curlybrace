@@ -9,14 +9,8 @@ use crate::pipeline_options::{
     Strength,
 };
 
-/// Languages whose renderers spell the options.
-const RENDERING: [Language; 5] = [
-    Language::Mongosh,
-    Language::Node,
-    Language::Python,
-    Language::Php,
-    Language::Ruby,
-];
+/// Languages whose renderers spell the options (all nine).
+const RENDERING: [Language; 9] = Language::ALL;
 
 fn ns() -> Namespace {
     Namespace::new("shop", "orders")

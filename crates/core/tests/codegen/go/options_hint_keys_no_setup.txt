@@ -1,0 +1,22 @@
+pipeline := mongo.Pipeline{
+	bson.D{{Key: "$match", Value: bson.D{{Key: "status", Value: "A"}}}},
+	bson.D{{Key: "$sort", Value: bson.D{{Key: "total", Value: int32(-1)}}}},
+}
+
+opts := options.Aggregate().
+	SetCollation(&options.Collation{Locale: "fr_CA"}).
+	SetHint(bson.D{
+		{Key: "status", Value: int32(1)},
+		{Key: "total", Value: int32(-1)},
+	}).
+	SetAllowDiskUse(false)
+
+cursor, err := collection.Clone(options.Collection().SetReadPreference(readpref.Nearest())).Aggregate(context.TODO(), pipeline, opts)
+if err != nil {
+	log.Fatal(err)
+}
+var results []bson.M
+if err := cursor.All(context.TODO(), &results); err != nil {
+	log.Fatal(err)
+}
+fmt.Println(results)

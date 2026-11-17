@@ -1,0 +1,10 @@
+// Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.
+List<Document> pipeline = Arrays.asList(
+    new Document("$match", new Document("status", "A")),
+    new Document("$out", "archive")
+);
+
+List<Document> results = collection.aggregate(pipeline)
+    .comment("archive")
+    .into(new ArrayList<>());
+System.out.println(results);

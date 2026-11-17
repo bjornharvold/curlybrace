@@ -3,11 +3,14 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
-use crate::codegen::agg_options::CodeAggOptions;
+use crate::codegen::agg_options::{
+    CodeAggOptions, alternate_words, case_first_words, mode_camel, strength_words,
+};
 use crate::codegen::escape::indent_lines;
 use crate::codegen::java_syntax::{JavaSyntax, quote};
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::walk::{render_document, render_documents};
+use crate::pipeline_options::{CollationOption, HintOption};
 use crate::store::{Namespace, Query};
 
 pub(crate) struct Java;
@@ -101,15 +104,92 @@ impl Renderer for Java {
         &self,
         ns: &Namespace,
         stages: &[Document],
-        _agg: &CodeAggOptions,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = JavaSyntax::new();
         let pipeline = render_documents(&syn, stages, 0)?;
+        let handle = match agg.read_preference {
+            Some(mode) => {
+                syn.used("com.mongodb.ReadPreference");
+                format!(
+                    "{}.withReadPreference(ReadPreference.{}())",
+                    options.collection_var,
+                    mode_camel(mode)
+                )
+            }
+            None => options.collection_var.clone(),
+        };
+        let chain: String = Self::option_chain(&syn, agg)?
+            .iter()
+            .map(|setter| format!("\n    {setter}"))
+            .collect();
         let body = format!(
-            "List<Document> pipeline = {pipeline};\n\nList<Document> results = {}.aggregate(pipeline).into(new ArrayList<>());\nSystem.out.println(results);\n",
-            options.collection_var
+            "List<Document> pipeline = {pipeline};\n\nList<Document> results = {handle}.aggregate(pipeline){chain}{}.into(new ArrayList<>());\nSystem.out.println(results);\n",
+            if chain.is_empty() { "" } else { "\n    " }
         );
+        let body = agg.with_note("//", body);
         Ok(Self::frame(ns, options, &syn, &body))
+    }
+}
+
+impl Java {
+    /// The setters on the `AggregateIterable`, in the order collation, hint, allowDiskUse,
+    /// maxTimeMS, comment; a multi-line setter carries its own continuation indent.
+    fn option_chain(syn: &JavaSyntax, agg: &CodeAggOptions) -> Result<Vec<String>, CodegenError> {
+        let mut chain = Vec::new();
+        if let Some(collation) = &agg.collation {
+            chain.push(Self::collation(syn, collation));
+        }
+        match &agg.hint {
+            Some(HintOption::Name(name)) => chain.push(format!(".hintString({})", quote(name))),
+            Some(HintOption::Keys(keys)) => {
+                chain.push(format!(".hint({})", render_document(syn, keys, 1)?));
+            }
+            None => {}
+        }
+        if let Some(on) = agg.allow_disk_use {
+            chain.push(format!(".allowDiskUse({on})"));
+        }
+        if let Some(ms) = agg.max_time_ms {
+            syn.used("java.util.concurrent.TimeUnit");
+            chain.push(format!(".maxTime({ms}, TimeUnit.MILLISECONDS)"));
+        }
+        if let Some(comment) = &agg.comment {
+            chain.push(format!(".comment({})", quote(comment)));
+        }
+        Ok(chain)
+    }
+
+    /// `.collation(Collation.builder()...build())`, one setter per line when there are several.
+    fn collation(syn: &JavaSyntax, collation: &CollationOption) -> String {
+        syn.used("com.mongodb.client.model.Collation");
+        let mut setters = vec![format!(".locale({})", quote(&collation.locale))];
+        if let Some(strength) = collation.strength {
+            syn.used("com.mongodb.client.model.CollationStrength");
+            let (_, word) = strength_words(strength);
+            setters.push(format!(".collationStrength(CollationStrength.{word})"));
+        }
+        if let Some(on) = collation.case_level {
+            setters.push(format!(".caseLevel({on})"));
+        }
+        if let Some(case_first) = collation.case_first {
+            syn.used("com.mongodb.client.model.CollationCaseFirst");
+            let (_, word) = case_first_words(case_first);
+            setters.push(format!(".collationCaseFirst(CollationCaseFirst.{word})"));
+        }
+        if let Some(on) = collation.numeric_ordering {
+            setters.push(format!(".numericOrdering({on})"));
+        }
+        if let Some(alternate) = collation.alternate {
+            syn.used("com.mongodb.client.model.CollationAlternate");
+            let (_, word) = alternate_words(alternate);
+            setters.push(format!(".collationAlternate(CollationAlternate.{word})"));
+        }
+        if setters.len() == 1 {
+            return format!(".collation(Collation.builder(){}.build())", setters[0]);
+        }
+        let lines: String = setters.iter().map(|s| format!("\n        {s}")).collect();
+        format!(".collation(Collation.builder(){lines}\n        .build())")
     }
 }

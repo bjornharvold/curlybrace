@@ -1,0 +1,28 @@
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.bson.Document;
+
+public class Main {
+    public static void main(String[] args) {
+        try (MongoClient client = MongoClients.create("<your connection string>")) {
+            MongoDatabase db = client.getDatabase("shop");
+            MongoCollection<Document> collection = db.getCollection("orders");
+
+            // Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.
+            List<Document> pipeline = Arrays.asList(
+                new Document("$match", new Document("status", "A")),
+                new Document("$out", "archive")
+            );
+
+            List<Document> results = collection.aggregate(pipeline)
+                .comment("archive")
+                .into(new ArrayList<>());
+            System.out.println(results);
+        }
+    }
+}

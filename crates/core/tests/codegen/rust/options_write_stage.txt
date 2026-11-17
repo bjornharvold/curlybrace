@@ -1,0 +1,23 @@
+use futures::TryStreamExt;
+use mongodb::Client;
+use mongodb::bson::{Document, doc};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::with_uri_str("<your connection string>").await?;
+    let db = client.database("shop");
+    let collection = db.collection::<Document>("orders");
+
+    // Note: this pipeline writes with $out or $merge, which runs on the primary, so the read preference is left out.
+    let pipeline = vec![doc! { "$match": { "status": "A" } }, doc! { "$out": "archive" }];
+
+    let mut cursor = collection
+        .aggregate(pipeline)
+        .comment("archive")
+        .await?;
+    while let Some(item) = cursor.try_next().await? {
+        println!("{item}");
+    }
+
+    Ok(())
+}
