@@ -260,6 +260,17 @@ fn hint_list_wanted_from_the_find_bar_sends_one_list_indexes() {
 }
 
 #[test]
+fn hint_list_actions_while_disconnected_show_no_banner() {
+    for action in [FindAction::HintListWanted, FindAction::HintListRetry] {
+        let mut s = browsing();
+        s.status = super::super::state::ConnStatus::Disconnected;
+        let (s, commands) = act(s, action);
+        assert_eq!(s.banner, None);
+        assert!(commands.is_empty());
+    }
+}
+
+#[test]
 fn options_work_on_a_read_only_session() {
     let mut s = browsing();
     s.read_only = true;
