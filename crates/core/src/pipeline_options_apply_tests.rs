@@ -210,3 +210,32 @@ fn a_zero_or_oversized_time_never_means_no_limit() {
         );
     }
 }
+
+#[test]
+fn the_effect_of_a_time_limit_says_lowered_capped_or_unchanged() {
+    let none = PipelineOptions::default();
+    for op in ALL {
+        assert_eq!(none.max_time_effect(op), MaxTimeEffect::Unchanged);
+        assert_eq!(max_time(5_000).max_time_effect(op), MaxTimeEffect::Lowered);
+        assert_eq!(
+            max_time(op.default_max_time_ms()).max_time_effect(op),
+            MaxTimeEffect::Unchanged
+        );
+    }
+    // 30 s lowers the run (60 s) but is cut to the 10 s of every read.
+    for op in [Operation::Preview, Operation::Count, Operation::Explain] {
+        assert_eq!(max_time(30_000).max_time_effect(op), MaxTimeEffect::Capped);
+        assert_eq!(max_time(60_000).max_time_effect(op), MaxTimeEffect::Capped);
+    }
+    assert_eq!(
+        max_time(30_000).max_time_effect(Operation::Run),
+        MaxTimeEffect::Lowered
+    );
+    assert_eq!(
+        max_time(60_000).max_time_effect(Operation::Run),
+        MaxTimeEffect::Unchanged
+    );
+    // The effect agrees with what is sent.
+    let capped = max_time(30_000).applied(Operation::Preview);
+    assert_eq!(capped.max_time, Duration::from_secs(10));
+}

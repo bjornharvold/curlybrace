@@ -16,7 +16,7 @@ pub use crate::pipeline_options::{
     ReadPreferenceMode, Strength,
 };
 pub(crate) use crate::pipeline_options_apply::clamped_time;
-pub use crate::pipeline_options_apply::{AppliedOptions, Operation};
+pub use crate::pipeline_options_apply::{AppliedOptions, MaxTimeEffect, Operation};
 pub use crate::pipeline_run::{
     AGGREGATE_RUN_MAX_TIME_MS, RunPlan, RunTarget, ensure_run_shape, run_pipeline, run_target,
 };

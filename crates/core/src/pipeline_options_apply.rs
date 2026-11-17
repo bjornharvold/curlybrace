@@ -40,6 +40,18 @@ impl Operation {
     }
 }
 
+/// What an operation did with the time limit the person set, so the page can say so: a limit
+/// can only lower an operation's own bound, never raise it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaxTimeEffect {
+    /// Nothing set, or the value equals the operation's own bound.
+    Unchanged,
+    /// The value is below the bound and is the one sent.
+    Lowered,
+    /// The value is above the bound and was cut down to it ("previews stop at 10 s").
+    Capped,
+}
+
 /// What one operation sends. Built only by [`PipelineOptions::applied`] or
 /// [`AppliedOptions::bounded`]; the fields are crate-private, so no other crate can build one that
 /// breaks the rules of the policy (the store re-enforces the two safety rules regardless).
@@ -56,6 +68,16 @@ pub struct AppliedOptions {
 }
 
 impl PipelineOptions {
+    /// What `op` does with the time limit set here.
+    pub fn max_time_effect(&self, op: Operation) -> MaxTimeEffect {
+        let bound = op.default_max_time_ms();
+        match self.max_time_ms {
+            Some(set) if set < bound => MaxTimeEffect::Lowered,
+            Some(set) if set > bound => MaxTimeEffect::Capped,
+            _ => MaxTimeEffect::Unchanged,
+        }
+    }
+
     /// The options `op` sends.
     pub fn applied(&self, op: Operation) -> AppliedOptions {
         let default_ms = op.default_max_time_ms();
