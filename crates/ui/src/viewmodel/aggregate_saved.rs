@@ -233,7 +233,6 @@ impl AggregateState {
         let stages = from_saved(&saved.stages);
         let (keys, next_key) = self.keyed(Vec::new(), stages.len());
         let selected = Self::clamp(usize::MAX, stages.len());
-        let OptionsUi { open, hint, .. } = self.options_ui;
         Self {
             stages,
             keys,
@@ -246,8 +245,7 @@ impl AggregateState {
             options: saved.options.clone(),
             options_ui: OptionsUi {
                 form: OptionsForm::from_options(&saved.options),
-                open,
-                hint,
+                ..self.options_ui
             },
             saved: SavedUi {
                 opened: Some((saved.id, saved.name.clone())),

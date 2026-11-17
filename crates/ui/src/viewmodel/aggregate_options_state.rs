@@ -68,17 +68,17 @@ impl AggregateState {
 
     /// The section opened or closed; nothing else changes.
     pub fn options_toggled(self) -> Self {
-        let OptionsUi { form, open, hint } = self.options_ui;
+        let open = self.options_ui.open;
         // Opening again lets a list that could not be read be asked for again.
         let hint = match open {
-            true => hint,
-            false => hint.retried(),
+            true => self.options_ui.hint,
+            false => self.options_ui.hint.retried(),
         };
         Self {
             options_ui: OptionsUi {
-                form,
                 open: !open,
                 hint,
+                ..self.options_ui
             },
             ..self
         }
@@ -87,12 +87,10 @@ impl AggregateState {
     /// The form after `edit`. Only the form: whether the edit applies is the caller's call. The
     /// "modified" memo is forgotten, since a form with a problem counts as modified.
     pub fn options_edited(self, edit: OptionsEdit) -> Self {
-        let OptionsUi { form, open, hint } = self.options_ui;
         Self {
             options_ui: OptionsUi {
-                form: form.edited(edit),
-                open,
-                hint,
+                form: self.options_ui.form.edited(edit),
+                ..self.options_ui
             },
             saved: self.saved.with_modified_forgotten(),
             ..self
@@ -128,12 +126,10 @@ impl AggregateState {
 
     /// The form emptied (the section stays open) and applied.
     pub fn options_reset(self) -> (Self, Applied) {
-        let OptionsUi { open, hint, .. } = self.options_ui;
         Self {
             options_ui: OptionsUi {
                 form: OptionsForm::default(),
-                open,
-                hint,
+                ..self.options_ui
             },
             saved: self.saved.with_modified_forgotten(),
             ..self
@@ -170,12 +166,10 @@ impl AggregateState {
 
     /// The hint list replaced by `f(list)`.
     pub fn hint_edited(self, f: impl FnOnce(HintListUi) -> HintListUi) -> Self {
-        let OptionsUi { form, open, hint } = self.options_ui;
         Self {
             options_ui: OptionsUi {
-                form,
-                open,
-                hint: f(hint),
+                hint: f(self.options_ui.hint),
+                ..self.options_ui
             },
             ..self
         }
