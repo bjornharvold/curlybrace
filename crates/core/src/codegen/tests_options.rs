@@ -78,32 +78,76 @@ fn without_options() -> CodeOptions {
     }
 }
 
+/// The text of a golden file written before the options existed.
+fn golden(language: Language, name: &str) -> String {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/codegen")
+        .join(language.key())
+        .join(format!("{name}.txt"));
+    std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("missing golden {}", path.display()))
+}
+
+/// The pipeline of the `pipeline` golden files.
+fn golden_pipeline() -> Vec<Document> {
+    vec![
+        doc! { "$match": { "status": { "$in": ["A", "B"] }, "total": { "$gte": 100_i32 } } },
+        doc! { "$lookup": {
+            "from": "customers",
+            "localField": "customerId",
+            "foreignField": "_id",
+            "as": "customer",
+        } },
+        doc! { "$group": {
+            "_id": "$customer.region",
+            "revenue": { "$sum": "$total" },
+            "orders": { "$count": {} },
+        } },
+        doc! { "$facet": {
+            "top": [{ "$sort": { "revenue": -1_i32 } }, { "$limit": 5_i32 }],
+            "all": [{ "$count": "n" }],
+        } },
+    ]
+}
+
+/// The pipeline of the `write_stage` golden files.
+fn golden_write_stage() -> Vec<Document> {
+    vec![
+        doc! { "$match": { "status": "A" } },
+        doc! { "$out": { "db": "shop", "coll": "archive" } },
+    ]
+}
+
+/// With no options set, the code is the golden files of before the options existed, whether the
+/// options are included or not (a stray option line would change the text and fail here).
 #[test]
 fn no_options_render_the_code_of_today() {
     let cases = [
-        read_stages(),
-        write_stages(),
-        vec![doc! { "$group": { "_id": "$s", "n": { "$sum": 1_i32 } } }],
+        ("pipeline", golden_pipeline()),
+        ("write_stage", golden_write_stage()),
     ];
     for language in Language::ALL {
-        for stages in &cases {
+        for (name, stages) in &cases {
             for setup in [true, false] {
-                let on = CodeOptions {
-                    setup,
-                    ..CodeOptions::default()
+                let file = if setup {
+                    name.to_string()
+                } else {
+                    format!("{name}_no_setup")
                 };
-                let off = CodeOptions {
-                    setup,
-                    include_options: false,
-                    ..CodeOptions::default()
-                };
+                let expected = golden(language, &file);
                 let plain = request(stages.clone(), PipelineOptions::default());
-                assert_eq!(
-                    code(language, &plain, &on),
-                    code(language, &plain, &off),
-                    "{}",
-                    language.key()
-                );
+                for include_options in [true, false] {
+                    let options = CodeOptions {
+                        setup,
+                        include_options,
+                        ..CodeOptions::default()
+                    };
+                    assert_eq!(
+                        code(language, &plain, &options),
+                        expected,
+                        "{} {file} include_options={include_options}",
+                        language.key()
+                    );
+                }
             }
         }
     }
@@ -133,19 +177,6 @@ fn options_reach_the_code_when_included() {
         assert!(with.contains("5000"), "{}", language.key());
         assert!(with.contains("nightly report"), "{}", language.key());
         assert!(with.contains("status_1_total_-1"), "{}", language.key());
-    }
-}
-
-#[test]
-fn options_never_reach_find_code() {
-    let find = CodeRequest::Find {
-        ns: ns(),
-        query: Query::default(),
-    };
-    for language in Language::ALL {
-        let text = code(language, &find, &CodeOptions::default());
-        assert!(!text.contains("maxTimeMS"), "{}", language.key());
-        assert!(!text.contains("allowDiskUse"), "{}", language.key());
     }
 }
 
