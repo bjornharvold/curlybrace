@@ -221,7 +221,7 @@ fn max_time_takes_digits_from_1_to_60000() {
         "1.5",
         "-3",
         "ten",
-        " 5",
+        "   ",
         "99999999999999999999999",
     ] {
         assert_eq!(
@@ -230,6 +230,32 @@ fn max_time_takes_digits_from_1_to_60000() {
             "{bad}"
         );
     }
+}
+
+#[test]
+fn surrounding_spaces_are_ignored_for_the_time_limit_and_the_locale() {
+    let time = |text: &str| {
+        typed(
+            OptionsForm::default(),
+            vec![OptionsEdit::MaxTime(text.into())],
+        )
+    };
+    assert_eq!(parsed(&time("30 ")).max_time_ms, Some(30));
+    assert_eq!(parsed(&time("  45\t")).max_time_ms, Some(45));
+    assert_eq!(
+        time("3 0").problem(OptionField::MaxTime),
+        Some(OptionsError::MaxTimeRange),
+        "spaces inside are not a number"
+    );
+    let locale = typed(
+        OptionsForm::default(),
+        vec![
+            OptionsEdit::CollationOn(true),
+            OptionsEdit::Locale("  en_US ".into()),
+        ],
+    );
+    let collation = parsed(&locale).collation.expect("on");
+    assert_eq!(collation.locale, "en_US");
 }
 
 #[test]

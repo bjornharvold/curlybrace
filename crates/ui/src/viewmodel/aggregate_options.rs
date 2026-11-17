@@ -290,12 +290,14 @@ fn hint_of(text: &str) -> Result<Option<HintOption>, OptionsError> {
     }
 }
 
-/// Digits only, then the core's range; anything else is out of range.
+/// Digits only (spaces around them are ignored), then the core's range; anything else is out of
+/// range, text of only spaces included: nothing typed is silently dropped.
 fn max_time_of(text: &str) -> Result<Option<u64>, OptionsError> {
     if text.is_empty() {
         return Ok(None);
     }
-    let digits = text.bytes().all(|b| b.is_ascii_digit());
+    let text = text.trim();
+    let digits = !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
     let ms = text.parse::<u64>().ok().filter(|_| digits);
     match ms {
         Some(ms) if (1..=MAX_TIME_MS_CAP).contains(&ms) => Ok(Some(ms)),
