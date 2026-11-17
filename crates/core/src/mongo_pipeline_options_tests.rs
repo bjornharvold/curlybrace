@@ -266,9 +266,11 @@ fn collation_option() -> CollationOption {
 
 #[test]
 fn classify_with_maps_a_missing_hint_only_when_a_hint_was_sent() {
+    // The server's own text (MongoDB 9.0): it quotes the query, which is never kept.
     let e = command_error(
         2,
-        "error: Hint provided does not correspond to an existing index",
+        "error enumerating plans for query: ns=shop.orderTree: a $eq 1\nSort: {}\n planner \
+         returned error :: caused by :: hint provided does not correspond to an existing index",
     );
     assert_eq!(
         classify_with(&e, &options_with(true, false)),
@@ -293,8 +295,8 @@ fn classify_with_maps_a_missing_hint_only_when_a_hint_was_sent() {
 #[test]
 fn classify_with_maps_a_refused_collation_only_when_one_was_sent() {
     for text in [
-        "unknown collation: xx",
         "Field 'locale' is invalid in: { locale: \"xx\" }",
+        "Field 'locale' is invalid in: { locale: \"en-US\" }. Did you mean 'en_US'?",
     ] {
         let e = command_error(2, text);
         assert_eq!(
@@ -364,7 +366,10 @@ fn only_a_selection_that_found_servers_is_an_unsatisfied_preference() {
 
 #[test]
 fn classified_errors_hold_no_server_text() {
-    let e = command_error(2, "hint zebra-secret collation locale");
+    let e = command_error(
+        2,
+        "zebra-secret hint provided does not correspond to an existing index, field 'locale' is invalid",
+    );
     for options in [options_with(true, true), options_with(false, true)] {
         let classified = classify_with(&e, &options);
         assert!(!format!("{classified:?} {classified}").contains("zebra-secret"));
@@ -449,5 +454,24 @@ fn with_collation_strength(strength: Strength) -> PipelineOptions {
             ..collation()
         }),
         ..PipelineOptions::default()
+    }
+}
+
+#[test]
+fn an_unrelated_bad_value_mentioning_hint_or_collation_stays_a_database_error() {
+    for text in [
+        "the hint field of $lookup must be a string",
+        "unknown collation: xx",
+        "bad locale in $dateToString",
+        "Invalid $hint: hint is not allowed here",
+        "collation is not supported on a view",
+    ] {
+        let e = command_error(2, text);
+        for options in [options_with(true, true), options_with(true, false)] {
+            assert!(
+                matches!(classify_with(&e, &options), CoreError::Database(_)),
+                "{text}"
+            );
+        }
     }
 }

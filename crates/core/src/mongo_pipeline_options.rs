@@ -21,6 +21,13 @@ use crate::pipeline::{
 
 /// The server code of `BadValue`, which a refused hint or collation answers with.
 const CODE_BAD_VALUE: i32 = 2;
+/// The server's phrase (lowercased) for a hint that names no index, as MongoDB 9.0 words it:
+/// `... planner returned error :: caused by :: hint provided does not correspond to an existing
+/// index`. Matched whole so an unrelated `BadValue` that merely says "hint" is not taken for it.
+const HINT_NOT_FOUND_TEXT: &str = "hint provided does not correspond to an existing index";
+/// The server's phrase (lowercased) for an unknown collation locale, as MongoDB 9.0 words it:
+/// `Field 'locale' is invalid in: { locale: "xx" }`.
+const LOCALE_INVALID_TEXT: &str = "field 'locale' is invalid";
 
 pub(crate) fn driver_collation(c: &CollationOption) -> Collation {
     Collation::builder()
@@ -193,11 +200,9 @@ pub(crate) fn classify_with(e: &mongodb::error::Error, o: &AppliedOptions) -> Co
         }
         ErrorKind::Command(c) if c.code == CODE_BAD_VALUE => {
             let text = c.message.to_lowercase();
-            if o.hint.is_some() && text.contains("hint") {
+            if o.hint.is_some() && text.contains(HINT_NOT_FOUND_TEXT) {
                 CoreError::HintNotFound
-            } else if o.collation.is_some()
-                && (text.contains("collation") || text.contains("locale"))
-            {
+            } else if o.collation.is_some() && text.contains(LOCALE_INVALID_TEXT) {
                 CoreError::CollationRejected
             } else {
                 classify_driver_error(e)
