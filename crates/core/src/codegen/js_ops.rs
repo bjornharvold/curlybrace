@@ -3,7 +3,7 @@
 
 use bson::Document;
 
-use crate::codegen::agg_options::{CodeAggOptions, mode_camel, plain_entries};
+use crate::codegen::agg_options::{CodeAggOptions, mode_words, plain_entries};
 use crate::codegen::js_syntax::JsSyntax;
 use crate::codegen::model::CodegenError;
 use crate::codegen::range::js_arg;
@@ -39,7 +39,7 @@ impl JsOps<'_> {
         let wait = self.await_prefix();
         let mut entries = plain_entries(self.syn, agg, |name| name.to_string(), 1, None)?;
         if let Some(mode) = agg.read_preference {
-            let value = self.syn.string(mode_camel(mode));
+            let value = self.syn.string(mode_words(mode).camel);
             entries.push(("readPreference".to_string(), value));
         }
         if entries.is_empty() {

@@ -7,7 +7,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
-use crate::codegen::agg_options::{CodeAggOptions, mode_snake, plain_entries};
+use crate::codegen::agg_options::{CodeAggOptions, mode_words, plain_entries};
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::range::i64_arg;
 use crate::codegen::ruby_syntax::{RubySyntax, quote};
@@ -43,7 +43,7 @@ impl Ruby {
     /// handle derived in the call (`with(read: ..)`).
     fn aggregate_call(agg: &CodeAggOptions, coll: &str) -> Result<String, CodegenError> {
         let handle = match agg.read_preference {
-            Some(mode) => format!("{coll}.with(read: {{ mode: :{} }})", mode_snake(mode)),
+            Some(mode) => format!("{coll}.with(read: {{ mode: :{} }})", mode_words(mode).snake),
             None => coll.to_string(),
         };
         let entries = plain_entries(&RubySyntax, agg, option_symbol, 1, None)?;

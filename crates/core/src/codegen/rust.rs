@@ -6,7 +6,7 @@ use crate::codegen::Renderer;
 use std::collections::BTreeSet;
 
 use crate::codegen::agg_options::{
-    CodeAggOptions, alternate_words, case_first_words, mode_pascal, strength_words,
+    CodeAggOptions, alternate_words, case_first_words, mode_words, strength_words,
 };
 use crate::codegen::escape::indent_lines;
 use crate::codegen::lossy::with_note;
@@ -215,7 +215,10 @@ impl Rust {
             used.names.insert("SelectionCriteria");
             let preference = match mode {
                 ReadPreferenceMode::Primary => "ReadPreference::Primary".to_string(),
-                other => format!("ReadPreference::{} {{ options: None }}", mode_pascal(other)),
+                other => format!(
+                    "ReadPreference::{} {{ options: None }}",
+                    mode_words(other).pascal
+                ),
             };
             setters.push(format!(
                 ".selection_criteria(SelectionCriteria::ReadPreference(\n        {preference},\n    ))"

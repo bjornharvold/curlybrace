@@ -3,7 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
-use crate::codegen::agg_options::{CodeAggOptions, mode_pascal};
+use crate::codegen::agg_options::{CodeAggOptions, mode_words};
 use crate::codegen::escape::indent_lines;
 use crate::codegen::go_syntax::{GoSyntax, quote};
 use crate::codegen::model::{CodeOptions, CodegenError};
@@ -121,7 +121,7 @@ impl Renderer for Go {
             Some(mode) => format!(
                 "{}.Clone(options.Collection().SetReadPreference(readpref.{}()))",
                 options.collection_var,
-                mode_pascal(mode)
+                mode_words(mode).pascal
             ),
             None => options.collection_var.clone(),
         };

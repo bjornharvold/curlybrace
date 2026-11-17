@@ -3,7 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
-use crate::codegen::agg_options::{CodeAggOptions, mode_upper_snake, plain_entries};
+use crate::codegen::agg_options::{CodeAggOptions, mode_words, plain_entries};
 use crate::codegen::escape::indent;
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
@@ -70,7 +70,7 @@ impl Python {
         let handle = match agg.read_preference {
             Some(mode) => format!(
                 "{coll}.with_options(read_preference=ReadPreference.{})",
-                mode_upper_snake(mode)
+                mode_words(mode).upper_snake
             ),
             None => coll.to_string(),
         };

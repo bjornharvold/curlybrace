@@ -4,7 +4,7 @@ use bson::Document;
 
 use crate::codegen::Renderer;
 use crate::codegen::agg_options::{
-    CodeAggOptions, alternate_words, case_first_words, mode_pascal, strength_words,
+    CodeAggOptions, alternate_words, case_first_words, mode_words, strength_words,
 };
 use crate::codegen::csharp_syntax::{CsharpSyntax, quote};
 use crate::codegen::lossy::with_note;
@@ -94,7 +94,7 @@ impl Renderer for Csharp {
             Some(mode) => format!(
                 "{}.WithReadPreference(ReadPreference.{})",
                 options.collection_var,
-                mode_pascal(mode)
+                mode_words(mode).pascal
             ),
             None => options.collection_var.clone(),
         };

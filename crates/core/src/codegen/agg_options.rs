@@ -92,43 +92,42 @@ impl CodeAggOptions {
     }
 }
 
-pub(crate) fn mode_camel(mode: ReadPreferenceMode) -> &'static str {
-    match mode {
-        ReadPreferenceMode::Primary => "primary",
-        ReadPreferenceMode::PrimaryPreferred => "primaryPreferred",
-        ReadPreferenceMode::Secondary => "secondary",
-        ReadPreferenceMode::SecondaryPreferred => "secondaryPreferred",
-        ReadPreferenceMode::Nearest => "nearest",
-    }
+/// A read preference mode in each language's spelling.
+pub(crate) struct ModeWords {
+    /// `primaryPreferred`: the driver option strings, Node and Java.
+    pub camel: &'static str,
+    /// `primary_preferred`: Ruby symbols.
+    pub snake: &'static str,
+    /// `PRIMARY_PREFERRED`: Python's constants.
+    pub upper_snake: &'static str,
+    /// `PrimaryPreferred`: C#, Go and Rust.
+    pub pascal: &'static str,
 }
 
-pub(crate) fn mode_snake(mode: ReadPreferenceMode) -> &'static str {
-    match mode {
-        ReadPreferenceMode::Primary => "primary",
-        ReadPreferenceMode::PrimaryPreferred => "primary_preferred",
-        ReadPreferenceMode::Secondary => "secondary",
-        ReadPreferenceMode::SecondaryPreferred => "secondary_preferred",
-        ReadPreferenceMode::Nearest => "nearest",
-    }
-}
-
-pub(crate) fn mode_upper_snake(mode: ReadPreferenceMode) -> &'static str {
-    match mode {
-        ReadPreferenceMode::Primary => "PRIMARY",
-        ReadPreferenceMode::PrimaryPreferred => "PRIMARY_PREFERRED",
-        ReadPreferenceMode::Secondary => "SECONDARY",
-        ReadPreferenceMode::SecondaryPreferred => "SECONDARY_PREFERRED",
-        ReadPreferenceMode::Nearest => "NEAREST",
-    }
-}
-
-pub(crate) fn mode_pascal(mode: ReadPreferenceMode) -> &'static str {
-    match mode {
-        ReadPreferenceMode::Primary => "Primary",
-        ReadPreferenceMode::PrimaryPreferred => "PrimaryPreferred",
-        ReadPreferenceMode::Secondary => "Secondary",
-        ReadPreferenceMode::SecondaryPreferred => "SecondaryPreferred",
-        ReadPreferenceMode::Nearest => "Nearest",
+/// The one table of mode spellings.
+pub(crate) fn mode_words(mode: ReadPreferenceMode) -> ModeWords {
+    let (camel, snake, upper_snake, pascal) = match mode {
+        ReadPreferenceMode::Primary => ("primary", "primary", "PRIMARY", "Primary"),
+        ReadPreferenceMode::PrimaryPreferred => (
+            "primaryPreferred",
+            "primary_preferred",
+            "PRIMARY_PREFERRED",
+            "PrimaryPreferred",
+        ),
+        ReadPreferenceMode::Secondary => ("secondary", "secondary", "SECONDARY", "Secondary"),
+        ReadPreferenceMode::SecondaryPreferred => (
+            "secondaryPreferred",
+            "secondary_preferred",
+            "SECONDARY_PREFERRED",
+            "SecondaryPreferred",
+        ),
+        ReadPreferenceMode::Nearest => ("nearest", "nearest", "NEAREST", "Nearest"),
+    };
+    ModeWords {
+        camel,
+        snake,
+        upper_snake,
+        pascal,
     }
 }
 

@@ -4,7 +4,7 @@ use bson::Document;
 
 use crate::codegen::Renderer;
 use crate::codegen::agg_options::{
-    CodeAggOptions, alternate_words, case_first_words, mode_camel, strength_words,
+    CodeAggOptions, alternate_words, case_first_words, mode_words, strength_words,
 };
 use crate::codegen::escape::indent_lines;
 use crate::codegen::java_syntax::{JavaSyntax, quote};
@@ -115,7 +115,7 @@ impl Renderer for Java {
                 format!(
                     "{}.withReadPreference(ReadPreference.{}())",
                     options.collection_var,
-                    mode_camel(mode)
+                    mode_words(mode).camel
                 )
             }
             None => options.collection_var.clone(),

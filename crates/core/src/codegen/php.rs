@@ -3,7 +3,7 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
-use crate::codegen::agg_options::{CodeAggOptions, mode_camel, plain_entries};
+use crate::codegen::agg_options::{CodeAggOptions, mode_words, plain_entries};
 use crate::codegen::lossy::with_note;
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::php_syntax::{PhpSyntax, quote};
@@ -105,7 +105,7 @@ impl Renderer for Php {
         if let Some(mode) = agg.read_preference {
             let value = format!(
                 "new MongoDB\\Driver\\ReadPreference({})",
-                quote(mode_camel(mode))
+                quote(mode_words(mode).camel)
             );
             entries.push((quote("readPreference"), value));
         }
