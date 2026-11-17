@@ -95,7 +95,7 @@ fn segmented_sized<T: PartialEq + Copy>(
             vec2(item_width, height),
         );
         let is_selected = *value == selected;
-        let response = item_response(ui, item_rect, base_id.with(i), enabled(value));
+        let response = item_response(ui, item_rect, base_id.with(("segment", i)), enabled(value));
         response.widget_info(|| {
             WidgetInfo::selected(
                 WidgetType::RadioButton,
