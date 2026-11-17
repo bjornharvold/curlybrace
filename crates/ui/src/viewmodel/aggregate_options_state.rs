@@ -117,3 +117,7 @@ impl AggregateState {
 #[cfg(test)]
 #[path = "aggregate_options_state_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "aggregate_options_stale_tests.rs"]
+mod stale_tests;

@@ -13,6 +13,7 @@ use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::ejson::editor_json_to_doc;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{AggPlanOutcome, ExplainVerbosity};
+use curlybrace_core::pipeline::PipelineOptions;
 use curlybrace_core::runtime::{Command, Event};
 use curlybrace_core::store::{Explain, Namespace};
 use std::sync::Arc;
@@ -329,7 +330,11 @@ fn a_draft_edit_keeps_the_plan_and_makes_it_out_of_date() {
         &s.aggregate.stages,
     )
     .expect("valid");
-    assert!(s.aggregate.explain.is_out_of_date(Some(&now)));
+    assert!(
+        s.aggregate
+            .explain
+            .is_out_of_date(Some(&now), &PipelineOptions::default())
+    );
 }
 
 #[test]
@@ -375,7 +380,10 @@ fn the_tab_and_the_verbosity_are_kept_per_session() {
 fn an_answer_for_a_parked_session_lands_in_its_own_draft() {
     let (a, b) = (Uuid::from_u128(1), Uuid::from_u128(2));
     let (draft_b, _) = AggregateState::default().add_stage("$sort").begin_preview();
-    let (ui_b, request, _) = draft_b.explain.clone().begun(vec![doc! { "$sort": {} }]);
+    let (ui_b, request, _) = draft_b
+        .explain
+        .clone()
+        .begun(vec![doc! { "$sort": {} }], &PipelineOptions::default());
     let mut draft_b = draft_b;
     draft_b.explain = ui_b;
     let view_b = SessionView {

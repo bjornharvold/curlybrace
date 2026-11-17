@@ -2,6 +2,7 @@ use super::*;
 use crate::viewmodel::aggregate::AggregateState;
 use crate::viewmodel::aggregate_counts_plan::count_plan;
 use curlybrace_core::error::CoreError;
+use curlybrace_core::pipeline::PipelineOptions;
 
 fn text(count: StageCount) -> (String, bool) {
     count_text(&count, &I18n::english())
@@ -86,7 +87,8 @@ fn a_card_says_counting_or_waiting_while_the_sequence_runs_then_its_result() {
     let i18n = I18n::english();
     let d = draft();
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    let (ui, first) = CountsUi::default().begun(plan, &d.stages, &d.keys);
+    let (ui, first) =
+        CountsUi::default().begun(plan, &d.stages, &d.keys, &PipelineOptions::default());
     let first = first.expect("sent");
     let line = |ui: &CountsUi, i: usize| line_text(ui, (i, d.keys[i]), &i18n).map(|(t, _)| t);
     assert_eq!(line(&ui, 0), Some("Counting...".into()));

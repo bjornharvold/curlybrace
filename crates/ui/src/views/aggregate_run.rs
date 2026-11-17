@@ -41,6 +41,7 @@ fn disabled_key(reason: &RunDisabled) -> Option<&'static str> {
         RunDisabled::Busy => Some("aggregate.run.disabled.busy"),
         RunDisabled::OtherWrite => Some("aggregate.run.disabled.other_write"),
         RunDisabled::TextNotApplied => Some("aggregate.run.disabled.text_not_applied"),
+        RunDisabled::Options => Some("aggregate.options.blocked"),
         RunDisabled::Invalid(_) => None,
     }
 }

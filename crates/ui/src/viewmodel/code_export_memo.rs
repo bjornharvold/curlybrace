@@ -19,11 +19,16 @@ pub struct CodeKey {
     stages: Vec<Stage>,
     mode: Mode,
     text: Option<String>,
+    /// The options form has a problem (the answer is then `CodeBlock::Options`).
+    blocked: bool,
 }
 
 impl CodeKey {
-    fn is_of(&self, stages: &[Stage], mode: Mode, text: Option<&str>) -> bool {
-        self.stages == stages && self.mode == mode && self.text.as_deref() == text
+    fn is_of(&self, stages: &[Stage], mode: Mode, text: Option<&str>, blocked: bool) -> bool {
+        self.stages == stages
+            && self.mode == mode
+            && self.text.as_deref() == text
+            && self.blocked == blocked
     }
 }
 
@@ -35,12 +40,14 @@ impl AggregateView {
     /// or `None` when it has; the same answer as `stages_exported`, remembered between repaints.
     pub fn code_block(&self, draft: &AggregateState, stages: &[Stage]) -> Option<CodeBlock> {
         let text = (draft.mode == Mode::Text).then_some(draft.text.as_str());
+        let blocked = draft.options_blocked();
         self.code_block.answer(
-            |key| key.is_of(stages, draft.mode, text),
+            |key| key.is_of(stages, draft.mode, text, blocked),
             || CodeKey {
                 stages: stages.to_vec(),
                 mode: draft.mode,
                 text: text.map(str::to_string),
+                blocked,
             },
             |_| stages_exported(draft, stages).err(),
         )

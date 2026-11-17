@@ -13,6 +13,7 @@ mod aggregate_preview_state;
 pub mod aggregate_run;
 mod aggregate_run_availability;
 pub mod aggregate_saved;
+mod aggregate_stage_count;
 mod aggregate_template;
 pub mod aggregate_view;
 pub mod bulk_entry;

@@ -47,7 +47,10 @@ fn a_valid_change_applies_through_changed() {
     };
     let d = draft();
     let plan = count_plan(&d, &d.stages).expect("plan");
-    let (counts, _) = d.counts.clone().begun(plan, &d.stages, &d.keys);
+    let (counts, _) = d
+        .counts
+        .clone()
+        .begun(plan, &d.stages, &d.keys, &PipelineOptions::default());
     let run = d.run.clone().opened(dialog);
     let d = AggregateState {
         run,

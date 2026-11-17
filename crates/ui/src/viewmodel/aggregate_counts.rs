@@ -3,59 +3,19 @@
 //! the draft (so it is parked and restored with it), never persisted. Every op returns a new
 //! state; nothing here talks to a server. Pipelines and counts are user data: the `Debug` of
 //! every type here names variants and sizes only.
-use super::aggregate_counts_plan::{CountPlan, NotCounted, PlanItem};
+use super::aggregate_counts_plan::{CountPlan, PlanItem};
+pub use super::aggregate_stage_count::{CAP, StageCount};
 use bson::Document;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::pipeline::{COUNT_CAP, Stage};
-use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
+use curlybrace_core::pipeline::{PipelineOptions, Stage};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-
-/// The count at which the server stopped looking: a result equal to it means "at least".
-pub const CAP: u64 = COUNT_CAP as u64;
 
 /// The request number the next count gets, for the whole process: a view that is dropped and
 /// built again (a closed session opened anew) starts with no memory of the numbers it gave out,
 /// and a late answer of one of them must never match a count of the new view.
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
-
-/// What one stage's card says about its count.
-#[derive(Clone, PartialEq)]
-pub enum StageCount {
-    Exact(u64),
-    /// The cap was reached: there may be more.
-    AtLeast(u64),
-    /// The server (or the connection) failed for this stage.
-    Failed(CoreError),
-    NotCounted(NotCounted),
-    /// The server stopped the count at its time limit.
-    TimedOut,
-}
-
-impl StageCount {
-    /// The card's content for the server's answer to a count.
-    pub fn of(outcome: Result<u64, CoreError>) -> Self {
-        match outcome {
-            Ok(n) if n >= CAP => Self::AtLeast(n),
-            Ok(n) => Self::Exact(n),
-            Err(CoreError::Database(text)) if text == COMMAND_TIMEOUT_MESSAGE => Self::TimedOut,
-            Err(error) => Self::Failed(error),
-        }
-    }
-}
-
-impl fmt::Debug for StageCount {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Exact(_) => f.write_str("Exact"),
-            Self::AtLeast(_) => f.write_str("AtLeast"),
-            Self::Failed(error) => write!(f, "Failed({})", error.i18n_key()),
-            Self::NotCounted(reason) => write!(f, "NotCounted({reason:?})"),
-            Self::TimedOut => f.write_str("TimedOut"),
-        }
-    }
-}
 
 /// A stage waiting for its turn.
 struct Queued {
@@ -92,6 +52,8 @@ pub struct CountSend {
     pub request: u64,
     pub stage_index: usize,
     pub pipeline: Vec<Document>,
+    /// The options the sequence began with, whatever the draft says by now.
+    pub options: PipelineOptions,
 }
 
 /// Where a card stands in a running sequence.
@@ -109,6 +71,9 @@ pub struct CountsUi {
     results: Arc<[(u64, StageCount)]>,
     /// The stages the results were counted for; a draft that differs now makes them out of date.
     counted_for: Option<Arc<[Stage]>>,
+    /// The options the sequence began with and the results were counted with: every count of
+    /// the sequence sends these, and options that differ now make the results out of date.
+    options: Arc<PipelineOptions>,
     /// The newest request number given out; numbers come from one process-wide counter, so one is
     /// never reused, not even by another view of the same session.
     request: u64,
@@ -123,6 +88,7 @@ impl PartialEq for CountsUi {
         self.request == other.request
             && self.results == other.results
             && self.counted_for == other.counted_for
+            && self.options == other.options
             && self.running_request() == other.running_request()
             && self.lingering == other.lingering
             && self.is_running() == other.is_running()
@@ -169,9 +135,9 @@ impl CountsUi {
         }
     }
 
-    /// A sequence for `plan` over `stages` (with their identities `keys`) starts: the old
-    /// results are dropped, the stages that cannot be counted say so at once, and the first
-    /// count is sent, unless a cancelled count is still out: then the start waits for it (every
+    /// A sequence for `plan` over `stages` (with their identities `keys`) and the draft's
+    /// `options` starts: the old results are dropped, the stages that cannot be counted say so
+    /// at once, and the first count is sent, unless a cancelled count is still out: then the start waits for it (every
     /// card says so) and `released` sends the first count. A sequence that is running (or
     /// waiting) is not restarted.
     pub fn begun(
@@ -179,6 +145,7 @@ impl CountsUi {
         plan: CountPlan,
         stages: &[Stage],
         keys: &[u64],
+        options: &PipelineOptions,
     ) -> (Self, Option<CountSend>) {
         if self.is_running() {
             return (self, None);
@@ -202,6 +169,7 @@ impl CountsUi {
             run: Run::Idle,
             results: skipped.into(),
             counted_for: Some(stages.into()),
+            options: Arc::new(options.clone()),
             ..self
         };
         let queue: Arc<[Queued]> = queue.into();
@@ -275,6 +243,7 @@ impl CountsUi {
             request,
             stage_index: entry.index,
             pipeline: entry.pipeline.clone(),
+            options: (*self.options).clone(),
         };
         let run = Run::Running(Running {
             request,
@@ -383,9 +352,11 @@ impl CountsUi {
         Arc::ptr_eq(&self.results, &other.results)
     }
 
-    /// Whether the counts shown were made for stages other than `stages`.
-    pub fn is_out_of_date(&self, stages: &[Stage]) -> bool {
-        self.counted_for.as_ref().is_some_and(|c| **c != *stages)
+    /// Whether the counts shown were made for stages or options other than these.
+    pub fn is_out_of_date(&self, stages: &[Stage], options: &PipelineOptions) -> bool {
+        self.counted_for
+            .as_ref()
+            .is_some_and(|c| **c != *stages || *self.options != *options)
     }
 }
 

@@ -57,15 +57,15 @@ fn run(state: AppState, ui: ExplainUi) -> Out {
     else {
         return (with_explain(state, ui), Vec::new());
     };
-    let (ui, request, verbosity) = ui.begun(stages.clone());
+    let options = state.aggregate.options.clone();
+    let (ui, request, verbosity) = ui.begun(stages.clone(), &options);
     let command = Command::AggregateExplain {
         session,
         request,
         ns,
         stages,
         verbosity,
-        // 4b: the draft's options.
-        options: curlybrace_core::pipeline::PipelineOptions::default(),
+        options,
     };
     (with_explain(state, ui), vec![command])
 }

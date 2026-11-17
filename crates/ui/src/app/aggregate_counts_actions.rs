@@ -53,7 +53,12 @@ fn start(state: AppState, ui: CountsUi) -> Out {
     let (Some(target), Ok(plan), false) = (target(&state), plan, ui.is_running()) else {
         return (with_counts(state, ui), Vec::new());
     };
-    let (ui, send) = ui.begun(plan, &state.aggregate.stages, &state.aggregate.keys);
+    let (ui, send) = ui.begun(
+        plan,
+        &state.aggregate.stages,
+        &state.aggregate.keys,
+        &state.aggregate.options,
+    );
     sent(with_counts(state, ui), Some(target), send)
 }
 
@@ -73,8 +78,7 @@ fn sent(state: AppState, target: Option<(Uuid, Namespace)>, send: Option<CountSe
         ns,
         stage_index: send.stage_index,
         pipeline: send.pipeline,
-        // 4b: the draft's options.
-        options: curlybrace_core::pipeline::PipelineOptions::default(),
+        options: send.options,
     };
     (state, vec![command])
 }

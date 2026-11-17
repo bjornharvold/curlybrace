@@ -36,6 +36,7 @@ pub fn explain_blocked(
         Err(CodeBlock::TextNotApplied) => {
             Some(i18n.t("aggregate.explain.disabled.text_not_applied"))
         }
+        Err(CodeBlock::Options) => Some(i18n.t("aggregate.options.blocked")),
         Ok(_) if draft.explain.is_loading() => Some(i18n.t("aggregate.explain.disabled.running")),
         Ok(_) => None,
     }
@@ -69,7 +70,9 @@ pub(super) fn show_results(
     let tab = draft.explain.tab;
     let current = view.explain_request(draft, typed);
     let current_pipeline = current.as_ref().as_ref().ok().map(Vec::as_slice);
-    let out_of_date = draft.explain.is_out_of_date(current_pipeline);
+    let out_of_date = draft
+        .explain
+        .is_out_of_date(current_pipeline, &draft.options);
     let mut actions = Vec::new();
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(CONTROL_HEIGHT);

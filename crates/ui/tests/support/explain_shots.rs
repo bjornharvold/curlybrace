@@ -7,7 +7,7 @@ use super::shots::browsing;
 use bson::Document;
 use curlybrace_core::ejson::editor_json_to_doc;
 use curlybrace_core::explain::ExplainVerbosity;
-use curlybrace_core::pipeline::explain_pipeline;
+use curlybrace_core::pipeline::{PipelineOptions, explain_pipeline};
 use curlybrace_core::store::Explain;
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::aggregate_explain::ResultTab;
@@ -72,7 +72,7 @@ pub fn explained_draft() -> AggregateState {
         .explain
         .clone()
         .with_verbosity(ExplainVerbosity::ExecutionStats)
-        .begun(pipeline);
+        .begun(pipeline, &PipelineOptions::default());
     draft.explain = ui
         .arrived(
             request,

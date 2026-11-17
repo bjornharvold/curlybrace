@@ -46,6 +46,8 @@ pub struct CountPlan {
 /// Why the plan is empty-handed: the Count stages button is off with this reason.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CountsBlock {
+    /// The options form has a problem: nothing is sent until it is fixed.
+    Options,
     /// The preview's own reasons (no enabled stage).
     Pipeline(PipelineError),
     /// The text of text mode holds edits the stages do not have yet.
@@ -69,6 +71,9 @@ fn reason_of(error: &PipelineError, index: usize) -> NotCounted {
 
 /// The plan for `stages` (the draft's stages with the typing applied), or why there is none.
 pub fn count_plan(draft: &AggregateState, stages: &[Stage]) -> CountPlanOutcome {
+    if draft.options_blocked() {
+        return Err(CountsBlock::Options);
+    }
     if draft.mode == Mode::Text {
         // The counts are drawn on the stage cards, which text mode does not show.
         return Err(match draft.text != pipeline_text(stages) {
@@ -103,11 +108,16 @@ pub struct CountsKey {
     stages: Vec<Stage>,
     mode: Mode,
     text: Option<String>,
+    /// The options form has a problem (the answer is then `CountsBlock::Options`).
+    blocked: bool,
 }
 
 impl CountsKey {
-    fn is_of(&self, stages: &[Stage], mode: Mode, text: Option<&str>) -> bool {
-        self.stages == stages && self.mode == mode && self.text.as_deref() == text
+    fn is_of(&self, stages: &[Stage], mode: Mode, text: Option<&str>, blocked: bool) -> bool {
+        self.stages == stages
+            && self.mode == mode
+            && self.text.as_deref() == text
+            && self.blocked == blocked
     }
 }
 
@@ -115,16 +125,18 @@ impl CountsKey {
 pub type CountsMemo = InputMemo<CountsKey, Arc<CountPlanOutcome>>;
 
 impl AggregateView {
-    /// `count_plan`, remembered between repaints on the stages, mode and (in text mode) the
-    /// buffer.
+    /// `count_plan`, remembered between repaints on the stages, mode, whether the options form
+    /// is blocked and (in text mode) the buffer.
     pub fn count_plan(&self, draft: &AggregateState, stages: &[Stage]) -> Arc<CountPlanOutcome> {
         let text = (draft.mode == Mode::Text).then_some(draft.text.as_str());
+        let blocked = draft.options_blocked();
         self.counts_memo.answer(
-            |key| key.is_of(stages, draft.mode, text),
+            |key| key.is_of(stages, draft.mode, text, blocked),
             || CountsKey {
                 stages: stages.to_vec(),
                 mode: draft.mode,
                 text: text.map(str::to_string),
+                blocked,
             },
             |_| Arc::new(count_plan(draft, stages)),
         )

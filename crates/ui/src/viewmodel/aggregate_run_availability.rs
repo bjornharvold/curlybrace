@@ -34,6 +34,8 @@ pub enum RunDisabled {
     OtherWrite,
     /// The text-mode buffer was edited and not applied to the stages yet.
     TextNotApplied,
+    /// The options form has a problem: a run must send what the screen shows.
+    Options,
     /// The pipeline cannot be run as written.
     Invalid(PipelineError),
 }
@@ -152,6 +154,8 @@ impl AggregateState {
             _ if !env.has_collection => Some(RunDisabled::NoCollection),
             _ if env.other_write => Some(RunDisabled::OtherWrite),
             _ if !shape.text_applied => Some(RunDisabled::TextNotApplied),
+            // Asked fresh: the form changes with a keystroke, the memoised shape does not.
+            _ if self.options_blocked() => Some(RunDisabled::Options),
             _ => shape.plan_refusal(env),
         };
         match refusal {

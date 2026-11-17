@@ -3,6 +3,7 @@ use crate::I18n;
 use crate::viewmodel::aggregate::AggregateState;
 use bson::doc;
 use curlybrace_core::error::CoreError;
+use curlybrace_core::pipeline::PipelineOptions;
 
 #[test]
 fn a_typed_edit_waits_for_the_pause_then_is_taken_once() {
@@ -295,7 +296,12 @@ fn the_counts_are_out_of_date_as_soon_as_a_stage_is_typed_in() {
         .add_stage("$match")
         .edit(0, r#"{"$match": {}}"#);
     let plan = count_plan(&draft, &draft.stages).expect("a plan");
-    let (ui, _) = CountsUi::default().begun(plan, &draft.stages, &draft.keys);
+    let (ui, _) = CountsUi::default().begun(
+        plan,
+        &draft.stages,
+        &draft.keys,
+        &PipelineOptions::default(),
+    );
     let draft = draft.with_counts(ui);
     assert!(!AggregateView::default().counts_stale(&draft));
     let (typing, _) = AggregateView::default().edited(0, r#"{"$match": {"a": 1}}"#.into(), 1.0);

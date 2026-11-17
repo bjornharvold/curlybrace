@@ -1,6 +1,9 @@
 use super::*;
 use crate::viewmodel::aggregate::AggregateState;
+use crate::viewmodel::aggregate_counts_plan::NotCounted;
 use crate::viewmodel::aggregate_counts_plan::count_plan;
+use curlybrace_core::pipeline::PipelineOptions;
+use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 
 fn draft() -> AggregateState {
     AggregateState::default()
@@ -11,7 +14,8 @@ fn draft() -> AggregateState {
 
 fn started(d: &AggregateState) -> (CountsUi, CountSend) {
     let plan = count_plan(d, &d.stages).expect("a plan");
-    let (ui, send) = CountsUi::default().begun(plan, &d.stages, &d.keys);
+    let (ui, send) =
+        CountsUi::default().begun(plan, &d.stages, &d.keys, &PipelineOptions::default());
     (ui, send.expect("the first count is sent"))
 }
 
@@ -102,7 +106,9 @@ fn a_second_start_while_running_is_ignored() {
     let d = draft();
     let (ui, first) = started(&d);
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    let (again, send) = ui.clone().begun(plan, &d.stages, &d.keys);
+    let (again, send) = ui
+        .clone()
+        .begun(plan, &d.stages, &d.keys, &PipelineOptions::default());
     assert_eq!(send, None);
     assert_eq!(again, ui);
     assert!(again.awaits(first.request));
@@ -131,7 +137,7 @@ fn a_new_sequence_drops_the_old_results_and_never_reuses_a_request_number() {
     let (ui, first) = started(&d);
     let ui = ui.cancelled();
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    let (ui, held) = ui.begun(plan, &d.stages, &d.keys);
+    let (ui, held) = ui.begun(plan, &d.stages, &d.keys, &PipelineOptions::default());
     assert_eq!(held, None, "the cancelled count is still out");
     let (ui, again) = ui.released(first.request);
     let again = again.expect("sent");
@@ -143,12 +149,12 @@ fn a_new_sequence_drops_the_old_results_and_never_reuses_a_request_number() {
 fn results_are_out_of_date_once_the_stages_differ_from_the_counted_ones() {
     let d = draft();
     let (ui, first) = started(&d);
-    assert!(!ui.is_out_of_date(&d.stages));
+    assert!(!ui.is_out_of_date(&d.stages, &PipelineOptions::default()));
     let edited = d.clone().edit(0, "{ \"$match\": { \"a\": 1 } }");
-    assert!(ui.is_out_of_date(&edited.stages));
-    assert!(ui.is_out_of_date(&d.clone().toggle(2).stages));
+    assert!(ui.is_out_of_date(&edited.stages, &PipelineOptions::default()));
+    assert!(ui.is_out_of_date(&d.clone().toggle(2).stages, &PipelineOptions::default()));
     assert!(
-        !CountsUi::default().is_out_of_date(&d.stages),
+        !CountsUi::default().is_out_of_date(&d.stages, &PipelineOptions::default()),
         "nothing counted"
     );
     let _ = first;
@@ -162,7 +168,7 @@ fn a_reset_forgets_everything_and_keeps_the_numbering() {
     let reset = ui.reset();
     assert!(!reset.is_running());
     assert_eq!(reset.result_of(d.keys[0]), None);
-    assert!(!reset.is_out_of_date(&[]));
+    assert!(!reset.is_out_of_date(&[], &PipelineOptions::default()));
 }
 
 #[test]
@@ -189,7 +195,9 @@ fn the_debug_text_names_no_pipeline_and_no_number() {
 fn held_behind_the_cancelled(d: &AggregateState) -> (CountsUi, CountSend) {
     let (ui, first) = started(d);
     let plan = count_plan(d, &d.stages).expect("a plan");
-    let (ui, send) = ui.cancelled().begun(plan, &d.stages, &d.keys);
+    let (ui, send) = ui
+        .cancelled()
+        .begun(plan, &d.stages, &d.keys, &PipelineOptions::default());
     assert_eq!(send, None, "nothing goes out while the old count is out");
     (ui, first)
 }
@@ -235,7 +243,12 @@ fn a_release_without_a_held_start_only_frees_the_slot() {
     let (ui, none) = ui.released(first.request);
     assert_eq!(none, None);
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    assert!(ui.begun(plan, &d.stages, &d.keys).1.is_some(), "free again");
+    assert!(
+        ui.begun(plan, &d.stages, &d.keys, &PipelineOptions::default())
+            .1
+            .is_some(),
+        "free again"
+    );
 }
 
 #[test]
@@ -245,7 +258,7 @@ fn cancelling_a_held_start_keeps_the_old_count_out() {
     let ui = ui.cancelled();
     assert!(!ui.is_running());
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    let (ui, send) = ui.begun(plan, &d.stages, &d.keys);
+    let (ui, send) = ui.begun(plan, &d.stages, &d.keys, &PipelineOptions::default());
     assert_eq!(send, None, "still held behind the old count");
     assert_eq!(ui.released(first.request).1.map(|s| s.stage_index), Some(0));
 }
@@ -257,7 +270,11 @@ fn giving_up_the_old_count_frees_the_slot_and_ends_the_held_start() {
     let ui = ui.given_up(first.request);
     assert!(!ui.is_running());
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    assert!(ui.begun(plan, &d.stages, &d.keys).1.is_some());
+    assert!(
+        ui.begun(plan, &d.stages, &d.keys, &PipelineOptions::default())
+            .1
+            .is_some()
+    );
 }
 
 #[test]
@@ -268,7 +285,7 @@ fn a_reset_keeps_the_count_still_out_and_drops_the_held_start() {
     assert!(!ui.is_running());
     assert!(ui.lingers(first.request));
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    let (ui, none) = ui.begun(plan, &d.stages, &d.keys);
+    let (ui, none) = ui.begun(plan, &d.stages, &d.keys, &PipelineOptions::default());
     assert_eq!(none, None, "a new start waits for the old count");
     assert!(ui.released(first.request).1.is_some());
 }
@@ -287,7 +304,11 @@ fn a_lost_connection_forgets_the_count_still_out() {
     let ui = ui.connection_lost();
     assert!(!ui.is_running());
     let plan = count_plan(&d, &d.stages).expect("a plan");
-    assert!(ui.begun(plan, &d.stages, &d.keys).1.is_some());
+    assert!(
+        ui.begun(plan, &d.stages, &d.keys, &PipelineOptions::default())
+            .1
+            .is_some()
+    );
 }
 
 #[test]
