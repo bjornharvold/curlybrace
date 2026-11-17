@@ -73,8 +73,12 @@ pub(super) fn show_options_section(
     let reset = gathered
         .reset
         .then_some(AggregateAction::Options(OptionsAction::Reset));
+    let retry = gathered
+        .retry_hints
+        .then_some(AggregateAction::Options(OptionsAction::HintListRetry));
     wanted
         .into_iter()
+        .chain(retry)
         .chain(edits)
         .chain(apply)
         .chain(reset)

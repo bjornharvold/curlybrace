@@ -30,6 +30,8 @@ pub(super) struct SectionOutcome {
     pub enter: bool,
     /// The section is open and has no index list yet.
     pub wants_hints: bool,
+    /// Retry was clicked after the index list could not be read.
+    pub retry_hints: bool,
 }
 
 /// "Query options" or "Query options (N)" with the accent, named with its expanded state; true
@@ -116,6 +118,7 @@ pub(super) fn show_options_section(
         reset: gathered.reset,
         enter: gathered.enter,
         wants_hints: hints.wants_list(),
+        retry_hints: gathered.retry_hints,
     }
 }
 

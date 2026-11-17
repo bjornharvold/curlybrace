@@ -85,6 +85,7 @@ pub fn show_findbar_with(
         .wants_hints
         .then_some(FindAction::HintListWanted)
         .into_iter()
+        .chain(section.retry_hints.then_some(FindAction::HintListRetry))
         .collect();
     apply_section(state, section, row.toggled, more_out.toggled);
     if let Some(intent) = pick_intent(row.button, enter) {

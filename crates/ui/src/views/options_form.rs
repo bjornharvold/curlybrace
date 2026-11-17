@@ -27,6 +27,8 @@ pub(super) struct Gathered {
     pub reset: bool,
     /// Enter was pressed in a text field (a commit that is not just a focus loss).
     pub enter: bool,
+    /// Retry was clicked after the index list could not be read.
+    pub retry_hints: bool,
 }
 
 impl Gathered {

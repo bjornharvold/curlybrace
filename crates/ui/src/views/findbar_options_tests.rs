@@ -234,6 +234,17 @@ fn the_open_section_asks_for_the_hint_list_once() {
 }
 
 #[test]
+fn a_failed_hint_list_has_a_retry_that_asks_again() {
+    let (waiting, request) = HintListUi::default().requested();
+    let mut harness = open(shown(more_open()), waiting.failed(request), WIDE);
+    harness
+        .get_by_role_and_label(Role::Button, &t("common.retry"))
+        .click();
+    harness.run_steps(2);
+    assert!(harness.state().seen.contains(&FindAction::HintListRetry));
+}
+
+#[test]
 fn a_time_limit_above_thirty_seconds_says_finds_stop_there() {
     let long = shown(with_options(vec![OptionsEdit::MaxTime("45000".into())]));
     let harness = open(long, asked(), WIDE);

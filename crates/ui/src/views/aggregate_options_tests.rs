@@ -215,6 +215,23 @@ fn the_hint_list_says_loading_and_could_not_list() {
 }
 
 #[test]
+fn a_failed_hint_list_has_a_retry_that_asks_again() {
+    let (waiting, request) = HintListUi::default().requested();
+    let failed = waiting.failed(request);
+    let mut harness = open(with_names(shown(base()), failed), WIDE);
+    harness
+        .get_by_role_and_label(Role::Button, &t("common.retry"))
+        .click();
+    harness.run_steps(2);
+    assert!(
+        harness
+            .state()
+            .seen
+            .contains(&options(OptionsAction::HintListRetry))
+    );
+}
+
+#[test]
 fn a_name_not_among_the_listed_indexes_is_noted() {
     let typed = shown(base()).options_edited(OptionsEdit::HintText("nope_1".into()));
     let harness = open(with_names(typed, loaded(&["a_1"])), WIDE);
