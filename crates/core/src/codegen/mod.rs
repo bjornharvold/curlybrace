@@ -16,7 +16,7 @@ mod go_syntax;
 mod java;
 mod java_syntax;
 mod js_ops;
-mod js_syntax;
+pub(crate) mod js_syntax;
 mod keywords;
 mod lossy;
 mod model;
@@ -31,7 +31,7 @@ mod ruby;
 mod ruby_syntax;
 mod rust;
 mod rust_syntax;
-mod walk;
+pub(crate) mod walk;
 
 use bson::Document;
 

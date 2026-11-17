@@ -115,6 +115,30 @@ fn collation(locale: &str) -> CollationOption {
 }
 
 #[test]
+fn the_command_carries_every_collation_field() {
+    let full = CollationOption {
+        locale: "fr".into(),
+        strength: Some(Strength::Tertiary),
+        case_level: Some(false),
+        case_first: Some(crate::pipeline_options::CaseFirst::Off),
+        numeric_ordering: Some(true),
+        alternate: Some(crate::pipeline_options::Alternate::NonIgnorable),
+    };
+    let text = create_index_command(&index(), &ns(), Some(&full));
+    for part in [
+        r#"locale: "fr""#,
+        "strength: 3",
+        "caseLevel: false",
+        r#"caseFirst: "off""#,
+        "numericOrdering: true",
+        r#"alternate: "non-ignorable""#,
+    ] {
+        assert!(text.contains(part), "{part} missing from {text}");
+    }
+    assert!(!text.contains("null"), "{text}");
+}
+
+#[test]
 fn the_command_carries_the_collation_escaped() {
     let text = create_index_command(&index(), &ns(), Some(&collation("en")));
     assert_eq!(

@@ -4,7 +4,9 @@
 use bson::{Bson, Document};
 
 use super::suggest::suggest_from;
-use super::verdict::{SuggestedIndex, js_string};
+use super::verdict::SuggestedIndex;
+use crate::codegen::js_syntax::{JsDialect, JsSyntax};
+use crate::codegen::walk::render_document;
 use crate::pipeline_options::CollationOption;
 use crate::store::Namespace;
 
@@ -39,7 +41,8 @@ fn sort_of(stage: &Document) -> Option<Document> {
 
 /// `index.command(ns)` exactly without a collation; with one, the same command with
 /// `{ collation: { .. } }` as its options (an index serves a query's string comparisons only with
-/// the collation the query uses). Every string goes through `js_string`.
+/// the collation the query uses). The options are rendered by the shell's own renderer, so every
+/// string is escaped and no field can be dropped or turned into something else.
 pub fn create_index_command(
     index: &SuggestedIndex,
     ns: &Namespace,
@@ -48,34 +51,11 @@ pub fn create_index_command(
     let Some(collation) = collation else {
         return index.command(ns);
     };
-    let keys = index
-        .keys
-        .iter()
-        .map(|(field, dir)| format!("{}: {dir}", js_string(field)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let fields = collation
-        .to_document()
-        .iter()
-        .map(|(name, value)| format!("{name}: {}", js_value(value)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!(
-        "db.getSiblingDB({}).getCollection({}).createIndex({{ {keys} }}, {{ collation: {{ {fields} }} }})",
-        js_string(&ns.db),
-        js_string(&ns.collection)
-    )
-}
-
-/// A collation field value as JavaScript: its strings escaped, its numbers and flags bare.
-fn js_value(value: &Bson) -> String {
-    match value {
-        Bson::String(text) => js_string(text),
-        Bson::Int32(n) => n.to_string(),
-        Bson::Boolean(flag) => flag.to_string(),
-        // `CollationOption::to_document` writes nothing else.
-        _ => "null".to_string(),
-    }
+    let options = bson::doc! { "collation": collation.to_document() };
+    let syntax = JsSyntax::new(JsDialect::Mongosh);
+    let text = render_document(&syntax, &options, 0)
+        .expect("a collation is strings, numbers and flags, which always render");
+    index.command_with(ns, Some(&text))
 }
 
 #[cfg(test)]

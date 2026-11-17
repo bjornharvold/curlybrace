@@ -116,14 +116,21 @@ impl SuggestedIndex {
     /// database cannot index a stray collection there. Every name is rendered as an escaped
     /// string literal, so a name can never change what the pasted command does.
     pub fn command(&self, ns: &Namespace) -> String {
+        self.command_with(ns, None)
+    }
+
+    /// `command` with `options` (already rendered JavaScript, an object literal) as the second
+    /// argument of `createIndex`.
+    pub fn command_with(&self, ns: &Namespace, options: Option<&str>) -> String {
         let keys = self
             .keys
             .iter()
             .map(|(field, dir)| format!("{}: {dir}", js_string(field)))
             .collect::<Vec<_>>()
             .join(", ");
+        let options = options.map(|text| format!(", {text}")).unwrap_or_default();
         format!(
-            "db.getSiblingDB({}).getCollection({}).createIndex({{ {keys} }})",
+            "db.getSiblingDB({}).getCollection({}).createIndex({{ {keys} }}{options})",
             js_string(&ns.db),
             js_string(&ns.collection)
         )
