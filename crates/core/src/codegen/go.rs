@@ -3,13 +3,13 @@
 use bson::Document;
 
 use crate::codegen::Renderer;
-use crate::codegen::agg_options::{CodeAggOptions, case_first_words, mode_pascal};
+use crate::codegen::agg_options::{CodeAggOptions, mode_pascal};
 use crate::codegen::escape::indent_lines;
 use crate::codegen::go_syntax::{GoSyntax, quote};
 use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::range::i64_arg;
 use crate::codegen::walk::{Syntax, render, render_document, render_documents};
-use crate::pipeline_options::{Alternate, CaseFirst, CollationOption};
+use crate::pipeline_options::CollationOption;
 use crate::store::{Namespace, Query};
 
 pub(crate) struct Go;
@@ -177,10 +177,7 @@ impl Go {
             fields.push("CaseLevel: true".into());
         }
         if let Some(case_first) = collation.case_first {
-            fields.push(format!(
-                "CaseFirst: {}",
-                quote(&case_first_word(case_first))
-            ));
+            fields.push(format!("CaseFirst: {}", quote(case_first.word())));
         }
         if let Some(strength) = collation.strength {
             fields.push(format!("Strength: {}", u8::from(strength)));
@@ -189,21 +186,8 @@ impl Go {
             fields.push("NumericOrdering: true".into());
         }
         if let Some(alternate) = collation.alternate {
-            fields.push(format!("Alternate: {}", quote(&alternate_word(alternate))));
+            fields.push(format!("Alternate: {}", quote(alternate.word())));
         }
         format!("&options.Collation{{{}}}", fields.join(", "))
-    }
-}
-
-/// MongoDB's lowercase word for `caseFirst`.
-fn case_first_word(case_first: CaseFirst) -> String {
-    case_first_words(case_first).0.to_lowercase()
-}
-
-/// MongoDB's word for `alternate`.
-fn alternate_word(alternate: Alternate) -> String {
-    match alternate {
-        Alternate::NonIgnorable => "non-ignorable".into(),
-        Alternate::Shifted => "shifted".into(),
     }
 }

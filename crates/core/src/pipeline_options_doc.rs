@@ -4,6 +4,28 @@ use bson::{Bson, Document, doc};
 
 use crate::pipeline_options::{Alternate, CaseFirst, CollationOption, HintOption};
 
+impl CaseFirst {
+    /// MongoDB's word for the setting: the one the collation document and drivers that take a
+    /// string use.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Upper => "upper",
+            Self::Lower => "lower",
+            Self::Off => "off",
+        }
+    }
+}
+
+impl Alternate {
+    /// MongoDB's word for the setting.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::NonIgnorable => "non-ignorable",
+            Self::Shifted => "shifted",
+        }
+    }
+}
+
 impl CollationOption {
     /// The collation as MongoDB spells it: only the fields that are set, `strength` as an int32.
     pub fn to_document(&self) -> Document {
@@ -15,22 +37,13 @@ impl CollationOption {
             out.insert("caseLevel", case_level);
         }
         if let Some(case_first) = self.case_first {
-            let word = match case_first {
-                CaseFirst::Upper => "upper",
-                CaseFirst::Lower => "lower",
-                CaseFirst::Off => "off",
-            };
-            out.insert("caseFirst", word);
+            out.insert("caseFirst", case_first.word());
         }
         if let Some(numeric_ordering) = self.numeric_ordering {
             out.insert("numericOrdering", numeric_ordering);
         }
         if let Some(alternate) = self.alternate {
-            let word = match alternate {
-                Alternate::NonIgnorable => "non-ignorable",
-                Alternate::Shifted => "shifted",
-            };
-            out.insert("alternate", word);
+            out.insert("alternate", alternate.word());
         }
         out
     }

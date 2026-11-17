@@ -63,6 +63,24 @@ fn strength_is_an_int32() {
 }
 
 #[test]
+fn the_words_of_the_enums_are_the_ones_the_document_carries() {
+    for (case_first, alternate) in [
+        (CaseFirst::Upper, Alternate::NonIgnorable),
+        (CaseFirst::Lower, Alternate::Shifted),
+        (CaseFirst::Off, Alternate::Shifted),
+    ] {
+        let doc = CollationOption {
+            case_first: Some(case_first),
+            alternate: Some(alternate),
+            ..only_locale("en")
+        }
+        .to_document();
+        assert_eq!(doc.get_str("caseFirst"), Ok(case_first.word()));
+        assert_eq!(doc.get_str("alternate"), Ok(alternate.word()));
+    }
+}
+
+#[test]
 fn a_hint_is_a_string_or_its_keys() {
     assert_eq!(
         HintOption::Name("status_1".into()).to_bson(),
