@@ -311,7 +311,7 @@ pub fn click_action(f: &mut Fixture, action_key: &str) {
 /// Clicks "Review changes..." and waits for the dialog.
 #[track_caller]
 pub fn open_review(f: &mut Fixture) {
-    click_key(f, "compare.apply.pending.review");
+    click_key_scrolled(f, "compare.apply.pending.review");
     wait_until(&mut f.harness, "the review dialog", SHORT, |h| {
         h.state().state().compare.apply.review().is_some()
     });

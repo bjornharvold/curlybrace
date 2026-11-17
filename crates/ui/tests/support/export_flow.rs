@@ -1,6 +1,7 @@
 //! Gestures and a fake file dialog for the export flows. The native dialog is never opened:
 //! the app asks a [`FakePicker`], which answers with a path inside the test's temp directory.
 use super::actions::{click_key, wait_shows};
+use super::compare::click_key_scrolled;
 use super::fixture::Fixture;
 use super::wait::{SHORT, settle, wait_until};
 use curlybrace_ui::app::file_picker::FilePicker;
@@ -49,7 +50,7 @@ pub fn open_export(f: &mut Fixture, kind: ExportKind) {
         ExportKind::Plan => ("compare.export.open_plan", "compare.export.title.plan"),
         ExportKind::Report => ("compare.export.open_report", "compare.export.title.report"),
     };
-    click_key(f, button);
+    click_key_scrolled(f, button);
     let title = f.labels.t(title);
     wait_shows(f, &title);
 }
