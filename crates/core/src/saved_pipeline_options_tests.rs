@@ -152,6 +152,19 @@ fn unknown_keys_inside_options_are_ignored() {
 }
 
 #[test]
+fn a_key_pattern_written_with_doubles_loads_as_the_integers_the_form_reads_back() {
+    let conn = Uuid::new_v4();
+    let options = json!({"hint": {"keys": {"a": 1.0, "b": -1.0}}});
+    let store = load(&file(conn, entry(Some(options)))).unwrap();
+    let loaded = store.list(conn)[0].options.clone();
+    assert_eq!(
+        loaded.hint,
+        Some(HintOption::Keys(doc! { "a": 1, "b": -1 })),
+        "a whole-number direction is the same hint however the file spells it"
+    );
+}
+
+#[test]
 fn an_invalid_option_refuses_the_whole_file() {
     let conn = Uuid::new_v4();
     let bad = [

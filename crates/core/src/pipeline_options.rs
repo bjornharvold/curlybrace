@@ -331,8 +331,8 @@ fn validated_hint_name(name: &str) -> Result<String, OptionsError> {
     Ok(name.to_owned())
 }
 
-/// The key pattern with whole numbers as `Int32`, so a value read back from JSON (which widens
-/// them) equals the one typed.
+/// The key pattern with whole numbers (and the directions 1.0 and -1.0) as `Int32`, so a value read
+/// back from JSON (which widens them) equals the one typed.
 fn narrowed(keys: Document) -> Document {
     keys.into_iter()
         .map(|(key, value)| match value {
@@ -340,6 +340,8 @@ fn narrowed(keys: Document) -> Document {
                 Ok(small) => (key, Bson::Int32(small)),
                 Err(_) => (key, Bson::Int64(n)),
             },
+            // A direction written as 1.0 or -1.0 is the same hint as 1 or -1.
+            Bson::Double(d) if d == 1.0 || d == -1.0 => (key, Bson::Int32(d as i32)),
             other => (key, other),
         })
         .collect()

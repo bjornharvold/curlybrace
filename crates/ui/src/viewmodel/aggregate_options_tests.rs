@@ -55,6 +55,19 @@ fn from_options_round_trips_every_field() {
 }
 
 #[test]
+fn a_reopened_pipeline_is_not_a_change_whatever_numbers_its_file_used() {
+    let text = r#"{"version":1,"connections":{"00000000-0000-0000-0000-000000000001":[{
+        "id":"00000000-0000-0000-0000-000000000002","name":"n","saved_unix":1,
+        "stages":[],"options":{"hint":{"keys":{"a":1.0,"b":-1.0}}}}]}}"#;
+    let store: curlybrace_core::saved_pipeline::SavedPipelines =
+        serde_json::from_str(text).unwrap();
+    let conn = uuid::Uuid::from_u128(1);
+    let loaded = store.list(conn)[0].options.clone();
+    let form = OptionsForm::from_options(&loaded);
+    assert_eq!(parsed(&form), loaded, "the form reads back what was loaded");
+}
+
+#[test]
 fn an_empty_text_field_is_unset_and_blank_text_is_a_problem() {
     let blank = |edit| typed(OptionsForm::default(), vec![edit]);
     let hint = blank(OptionsEdit::HintText("   ".into()));
