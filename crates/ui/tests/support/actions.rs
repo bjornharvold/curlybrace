@@ -4,18 +4,35 @@ use super::screen::{H, dump};
 use super::sidebar::{click_sidebar_row, scroll_sidebar_until_shown};
 use super::wait::{SHORT, settle, wait_until};
 use curlybrace_ui::app::state::ConnStatus;
+use eframe::egui::accesskit::Role;
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT, Queryable};
 use std::time::Duration;
 
 /// Clicks the text box labelled `label`, replaces its content with `text`.
+///
+/// A label can also caption something that is not a box (a table column header), so the box is
+/// the text-input node with that label when there is one.
 pub fn fill(f: &mut Fixture, label: &str, text: &str) {
-    f.harness.get_by_label(label).click();
+    text_box(f, label).click();
     settle(&mut f.harness);
     f.harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
     settle(&mut f.harness);
-    f.harness.get_by_label(label).type_text(text);
+    text_box(f, label).type_text(text);
     settle(&mut f.harness);
+}
+
+/// The text-input node labelled `label`, else the only node with that label.
+fn text_box<'a>(f: &'a Fixture, label: &'a str) -> egui_kittest::Node<'a> {
+    f.harness
+        .query_all_by_label(label)
+        .find(|n| {
+            matches!(
+                n.accesskit_node().role(),
+                Role::TextInput | Role::MultilineTextInput
+            )
+        })
+        .unwrap_or_else(|| f.harness.get_by_label(label))
 }
 
 /// [`fill`] for the box whose caption is the i18n key `key`.

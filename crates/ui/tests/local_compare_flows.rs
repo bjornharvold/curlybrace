@@ -158,7 +158,7 @@ fn finding_duplicate_keys_lists_the_colliding_values() {
     let message = error_text(&f, &CoreError::CompareDuplicateKey);
     wait_shows(&mut f, &message);
 
-    click_key(&mut f, "compare.duplicates.find");
+    click_key_scrolled(&mut f, "compare.duplicates.find");
     let row = f.labels.t_with(
         "compare.duplicates.row",
         &[("key", "\"dup@example.com\""), ("count", "2")],

@@ -126,3 +126,42 @@ fn inline_tabs_take_only_their_labels_width_and_keep_roles_and_clicks() {
     assert_eq!(harness.state().reported, Some(1));
     assert_eq!(toggled(&harness, "Indexes"), Some(Toggled::True));
 }
+
+/// The ids of the accessibility nodes (a label's text runs included) of the widgets on screen.
+fn node_ids(harness: &Harness<'_, bool>) -> std::collections::HashSet<u64> {
+    harness
+        .root()
+        .children_recursive()
+        .map(|n| n.accesskit_node().id().0)
+        .collect()
+}
+
+/// A label that takes the place of the tabs gets the id the tabs were laid out under, and its
+/// text runs are derived from it: no tab may have the id of such a text run, or the tree sees one
+/// node change from a button to a text run (a consumer of the tree panics on that).
+#[test]
+fn a_label_taking_the_tabs_place_does_not_reuse_a_tab_id() {
+    let items = vec![(0u8, "Documents".to_owned()), (1u8, "Indexes".to_owned())];
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(400.0, 100.0))
+        .build_ui_state(
+            move |ui, show_tabs: &mut bool| {
+                if *show_tabs {
+                    tabs(ui, &items, 0);
+                } else {
+                    ui.label("Finished");
+                }
+            },
+            true,
+        );
+    harness.run();
+    let with_tabs = node_ids(&harness);
+    *harness.state_mut() = false;
+    harness.run();
+    let with_label = node_ids(&harness);
+    let shared: Vec<_> = with_tabs.intersection(&with_label).collect();
+    assert!(
+        shared.is_empty(),
+        "ids shared by tabs and a label: {shared:?}"
+    );
+}

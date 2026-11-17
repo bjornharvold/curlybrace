@@ -1,7 +1,7 @@
 //! Gestures of the Compare workspace, built from clicks only.
 use super::actions::{click_key, connect, fill_key, wait_shows};
 use super::db::TestDb;
-use super::fixture::Fixture;
+use super::fixture::{Fixture, WINDOW};
 use super::screen::{H, dump};
 use super::wait::{SHORT, settle, wait_until};
 use bson::{Document, doc};
@@ -11,6 +11,7 @@ use curlybrace_ui::app::compare::CompareAction;
 use curlybrace_ui::app::reducer::Input;
 use curlybrace_ui::viewmodel::compare::{EntryId, PairStatus, Pick, SessionPhase, StatusIcon};
 use eframe::egui::accesskit::Role;
+use eframe::egui::{Event, Modifiers, MouseWheelUnit, pos2, vec2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use std::time::Duration;
 
@@ -48,16 +49,52 @@ fn choose(f: &mut Fixture, side: Side, caption_key: &str, entry: &str) {
         .get_all_by_role_and_label(Role::ComboBox, &caption)
         .nth(nth)
         .unwrap_or_else(|| panic!("no {caption:?} box for {side:?}:\n{}", dump(&f.harness)));
-    let bottom = combo.rect().bottom();
+    let combo_rect = combo.rect();
     combo.click();
     settle(&mut f.harness);
     let option = f
         .harness
         .query_all_by_label(entry)
-        .find(|n| n.accesskit_node().role() != Role::ComboBox && n.rect().top() >= bottom)
+        .find(|n| {
+            // The popup entry hangs below its box; the sidebar lists the same names but sits
+            // beside the workspace, so it does not share the box's horizontal extent.
+            let r = n.rect();
+            n.accesskit_node().role() != Role::ComboBox
+                && r.top() >= combo_rect.bottom()
+                && r.left() < combo_rect.right()
+                && r.right() > combo_rect.left()
+        })
         .unwrap_or_else(|| panic!("no entry {entry:?}:\n{}", dump(&f.harness)));
     option.click();
     settle(&mut f.harness);
+}
+
+/// [`click_key`] for a control that may sit below the fold of the workspace (the run overview
+/// grows under the setup form): scrolls the workspace with the mouse wheel until the control is
+/// well inside the window, since a click outside the window reaches nothing.
+#[track_caller]
+pub fn click_key_scrolled(f: &mut Fixture, key: &str) {
+    const OVER_WORKSPACE: (f32, f32) = (600.0, 300.0);
+    const STEP: f32 = 200.0;
+    const MAX_STEPS: usize = 40;
+    let label = f.labels.t(key);
+    for _ in 0..MAX_STEPS {
+        if f.harness.get_by_label(&label).rect().bottom() <= WINDOW.1 - 40.0 {
+            break;
+        }
+        let input = f.harness.input_mut();
+        input.events.push(Event::PointerMoved(pos2(
+            OVER_WORKSPACE.0,
+            OVER_WORKSPACE.1,
+        )));
+        input.events.push(Event::MouseWheel {
+            unit: MouseWheelUnit::Point,
+            delta: vec2(0.0, -STEP),
+            modifiers: Modifiers::NONE,
+        });
+        settle(&mut f.harness);
+    }
+    click_key(f, key);
 }
 
 /// Picks `collection` of the test database on `side`.
@@ -274,7 +311,7 @@ pub fn click_action(f: &mut Fixture, action_key: &str) {
 /// Clicks "Review changes..." and waits for the dialog.
 #[track_caller]
 pub fn open_review(f: &mut Fixture) {
-    click_key(f, "compare.apply.pending.review");
+    click_key_scrolled(f, "compare.apply.pending.review");
     wait_until(&mut f.harness, "the review dialog", SHORT, |h| {
         h.state().state().compare.apply.review().is_some()
     });
