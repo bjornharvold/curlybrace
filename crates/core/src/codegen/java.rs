@@ -63,6 +63,7 @@ impl Renderer for Java {
         &self,
         ns: &Namespace,
         query: &Query,
+        _agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = JavaSyntax::new();

@@ -49,6 +49,7 @@ pub(crate) trait Renderer {
         &self,
         ns: &Namespace,
         query: &Query,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError>;
 
@@ -103,7 +104,11 @@ pub fn generate(
     let options = options.clone().validated()?;
     let renderer = renderer(language);
     match request {
-        CodeRequest::Find { ns, query } => renderer.find(ns, query, &options),
+        CodeRequest::Find { ns, query } => {
+            // Find code never writes, so the read preference is never left out.
+            let agg = CodeAggOptions::of(&query.options, options.include_options, false)?;
+            renderer.find(ns, query, &agg, &options)
+        }
         CodeRequest::Aggregate {
             ns,
             stages,
@@ -129,6 +134,8 @@ pub fn code_writes(request: &CodeRequest, options: &CodeOptions) -> bool {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_find_options;
 #[cfg(test)]
 mod tests_langs;
 #[cfg(test)]

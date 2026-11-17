@@ -1,0 +1,12 @@
+const filter = { status: "A" };
+const sort = { total: -1 };
+
+const results = await collection
+  .find(filter, { readPreference: "nearest" })
+  .sort(sort)
+  .limit(20)
+  .collation({ locale: "fr_CA" })
+  .hint({ status: 1, total: -1 })
+  .allowDiskUse(false)
+  .toArray();
+console.log(results);

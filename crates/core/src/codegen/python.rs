@@ -14,6 +14,15 @@ use crate::store::{Namespace, Query};
 
 pub(crate) struct Python;
 
+/// The keyword `Collection.find` takes for an option of MongoDB's name.
+fn find_keyword(name: &str) -> String {
+    match name {
+        "allowDiskUse" => "allow_disk_use".into(),
+        "maxTimeMS" => "max_time_ms".into(),
+        other => other.into(),
+    }
+}
+
 impl Python {
     /// `read_preference`: the code names `ReadPreference`, so the import line lists it.
     fn frame(
@@ -67,13 +76,7 @@ impl Python {
         agg: &CodeAggOptions,
         coll: &str,
     ) -> Result<String, CodegenError> {
-        let handle = match agg.read_preference {
-            Some(mode) => format!(
-                "{coll}.with_options(read_preference=ReadPreference.{})",
-                mode_words(mode).upper_snake
-            ),
-            None => coll.to_string(),
-        };
+        let handle = Self::handle(agg, coll);
         let hint_keys = |keys: &Document| Self::sort_pairs(syn, keys);
         let entries = plain_entries(syn, agg, |name| name.to_string(), 2, Some(&hint_keys))?;
         if entries.is_empty() {
@@ -90,6 +93,17 @@ impl Python {
         Ok(format!(
             "list(\n    {handle}.aggregate(\n{unit}pipeline,\n{lines}    )\n)"
         ))
+    }
+
+    /// The collection, or a handle derived from it that reads where the read preference says.
+    fn handle(agg: &CodeAggOptions, coll: &str) -> String {
+        match agg.read_preference {
+            Some(mode) => format!(
+                "{coll}.with_options(read_preference=ReadPreference.{})",
+                mode_words(mode).upper_snake
+            ),
+            None => coll.to_string(),
+        }
     }
 
     /// `sort` as PyMongo's list of `(field, direction)` pairs.
@@ -114,6 +128,7 @@ impl Renderer for Python {
         &self,
         ns: &Namespace,
         query: &Query,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = PythonSyntax::new();
@@ -136,16 +151,27 @@ impl Renderer for Python {
         if query.limit > 0 {
             args.push(format!("limit={}", i64_arg("limit", query.limit)?));
         }
+        let hint_keys = |keys: &Document| Self::sort_pairs(&syn, keys);
+        for (name, value) in plain_entries(&syn, agg, find_keyword, 2, Some(&hint_keys))? {
+            args.push(format!("{name}={value}"));
+        }
         let coll = &options.collection_var;
-        let call = if args.len() == 1 {
-            format!("list({coll}.find(filter))")
+        let handle = Self::handle(agg, coll);
+        let call = if args.len() == 1 && agg.read_preference.is_none() {
+            format!("list({handle}.find(filter))")
         } else {
             let unit = indent("    ", 2);
             let lines: String = args.iter().map(|a| format!("{unit}{a},\n")).collect();
-            format!("list(\n    {coll}.find(\n{lines}    )\n)")
+            format!("list(\n    {handle}.find(\n{lines}    )\n)")
         };
         body.push_str(&format!("\nresults = {call}\nprint(results)\n"));
-        Ok(Self::frame(ns, options, &syn, &body, false))
+        Ok(Self::frame(
+            ns,
+            options,
+            &syn,
+            &body,
+            agg.read_preference.is_some(),
+        ))
     }
 
     fn aggregate(

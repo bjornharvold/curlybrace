@@ -44,6 +44,7 @@ impl Renderer for Csharp {
         &self,
         ns: &Namespace,
         query: &Query,
+        _agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = CsharpSyntax::new();

@@ -69,6 +69,7 @@ impl Renderer for Go {
         &self,
         ns: &Namespace,
         query: &Query,
+        _agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;

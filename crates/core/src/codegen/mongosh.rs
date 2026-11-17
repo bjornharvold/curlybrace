@@ -51,10 +51,11 @@ impl Renderer for Mongosh {
         &self,
         ns: &Namespace,
         query: &Query,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = JsSyntax::new(JsDialect::Mongosh);
-        let body = Self::ops(&syn, options).find(query)?;
+        let body = Self::ops(&syn, options).find(query, agg)?;
         Ok(Self::frame(ns, options, Self::finish(&syn, body)?))
     }
 

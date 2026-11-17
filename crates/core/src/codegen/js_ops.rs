@@ -55,12 +55,15 @@ impl JsOps<'_> {
         ))
     }
 
-    pub(crate) fn find(&self, query: &Query) -> Result<String, CodegenError> {
+    /// The find; the options are cursor methods after the sort, skip and limit (in the order
+    /// collation, hint, allowDiskUse, maxTimeMS, comment, read preference), except in Node.js,
+    /// where the read preference is an option of the `find` call.
+    pub(crate) fn find(&self, query: &Query, agg: &CodeAggOptions) -> Result<String, CodegenError> {
         let mut out = format!(
             "const filter = {};\n",
             render_document(self.syn, &query.filter, 0)?
         );
-        let mut find_args = "filter";
+        let mut find_args = "filter".to_string();
         let mut chain: Vec<String> = Vec::new();
         if let Some(projection) = &query.projection {
             out.push_str(&format!(
@@ -70,7 +73,7 @@ impl JsOps<'_> {
             if self.project_method {
                 chain.push(".project(projection)".into());
             } else {
-                find_args = "filter, projection";
+                find_args = "filter, projection".to_string();
             }
         }
         if let Some(sort) = &query.sort {
@@ -85,6 +88,18 @@ impl JsOps<'_> {
         }
         if query.limit > 0 {
             chain.push(format!(".limit({})", js_arg("limit", query.limit)?));
+        }
+        for (name, value) in plain_entries(self.syn, agg, |name| name.to_string(), 1, None)? {
+            chain.push(format!(".{name}({value})"));
+        }
+        if let Some(mode) = agg.read_preference {
+            let word = self.syn.string(mode_words(mode).camel);
+            if self.awaited {
+                let entries = [("readPreference".to_string(), word)];
+                find_args = format!("{find_args}, {}", self.syn.document(&entries, 0));
+            } else {
+                chain.push(format!(".readPref({word})"));
+            }
         }
         let coll = self.collection;
         let wait = self.await_prefix();

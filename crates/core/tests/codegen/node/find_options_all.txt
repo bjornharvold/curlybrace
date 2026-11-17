@@ -1,0 +1,36 @@
+const { MongoClient } = require("mongodb");
+
+async function main() {
+  const client = new MongoClient("<your connection string>");
+  try {
+    await client.connect();
+    const db = client.db("shop");
+    const collection = db.collection("orders");
+
+    const filter = { status: "A" };
+    const sort = { total: -1 };
+
+    const results = await collection
+      .find(filter, { readPreference: "secondaryPreferred" })
+      .sort(sort)
+      .limit(20)
+      .collation({
+        locale: "en",
+        strength: 2,
+        caseLevel: false,
+        caseFirst: "upper",
+        numericOrdering: true,
+        alternate: "shifted",
+      })
+      .hint("status_1_total_-1")
+      .allowDiskUse(true)
+      .maxTimeMS(5000)
+      .comment("nightly \"report\" 'q' \\ $x ${y} #{z} %s {0} \u202eend")
+      .toArray();
+    console.log(results);
+  } finally {
+    await client.close();
+  }
+}
+
+main().catch(console.error);

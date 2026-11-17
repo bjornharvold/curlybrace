@@ -1,0 +1,13 @@
+const filter = { status: "A" };
+const sort = { total: -1 };
+
+const results = collection
+  .find(filter)
+  .sort(sort)
+  .limit(20)
+  .collation({ locale: "fr_CA" })
+  .hint({ status: 1, total: -1 })
+  .allowDiskUse(false)
+  .readPref("nearest")
+  .toArray();
+printjson(results);

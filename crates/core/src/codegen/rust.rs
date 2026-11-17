@@ -83,6 +83,7 @@ impl Renderer for Rust {
         &self,
         ns: &Namespace,
         query: &Query,
+        _agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = RustSyntax::new();
