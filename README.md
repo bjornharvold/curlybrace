@@ -51,6 +51,26 @@ between databases, and see how your indexes are used, without an account, a tria
   counts the ones that are set while it is closed. A query that would read the whole collection or sort in memory is
   explained before it runs, and you can run it anyway. Turn this off with **Warn before queries
   that would scan a collection**.
+- **Query options** ([#75](https://github.com/bjornharvold/curlybrace/issues/75)) sit behind
+  **More options**, in a section of their own that counts the options set: a **collation**, an index
+  **hint** (a name or a key pattern, with the collection's indexes to pick from), a **time limit**
+  (`maxTimeMS`), a **read preference**, a **comment** and **allow disk use**. They are part of the
+  query. They apply when you press **Find** (or Enter in any field of the bar), and paging and
+  every refresh keep the options the shown page was found with. Nothing is sent that you did not
+  set: with no option set the find is exactly what it was. The time limit only ever lowers: finds
+  stop at 30 s on their own, and a larger value is cut to that; the automatic index check and the
+  scan warning stop at 2 s. Allow disk use is sent as set (MongoDB 4.4 or later). The comment
+  reaches the server's logs and profiler by design. The line under the switches says which options
+  shaped the page ("Read from secondaryPreferred", "hint: status_1", "Collation: en", a lowered
+  time limit, disk use), with "Recent writes may not show yet." when it read from a node other than
+  the primary. A hint that names no index, a refused collation or a read preference no server
+  satisfies is said in the bar next to the options, as is a timeout under the limit you set; the
+  last page stays on screen. The automatic index check and the scan warning judge the query with its
+  options. Bulk update and delete, and copying the whole result of the query, are off while a
+  collation shaped the page (they match by the filter alone), with the reason shown; hand-picked
+  documents are not affected. **Copy as code** carries the options (see below). Query history
+  ([#72](https://github.com/bjornharvold/curlybrace/issues/72)) does not exist yet, so the options
+  are kept with the query while you work and in the code you copy, and are not stored.
 
 **Edit safely**
 - Insert, edit, clone and delete documents. Edits use canonical extended JSON, so `Int32` and
@@ -317,7 +337,12 @@ CURLYBRACE_LOG=warn "/Applications/Curlybrace.app/Contents/MacOS/curlybrace"
   handle derived in the call (Python, Java, C#, Go, Ruby) or is an option of the call (mongosh,
   Node.js, PHP, Rust). Code that keeps a trailing `$out` or `$merge` leaves the read preference out
   and says so in a comment, because the confirmed run always reads on the primary. Turned off, or
-  with no option set, the code is the code without options.
+  with no option set, the code is the code without options. The query bar's code carries its
+  options the same way with an **Include the query's options** check (cursor methods in mongosh and
+  Node.js, keyword arguments in Python and Ruby, setters in Java, Go and Rust, a `FindOptions` object
+  in C#, the options array in PHP); a find never writes, so its read preference is never left out.
+  Go v2 has no `maxTimeMS` option on `Find`, so the time limit there is a context deadline, and the
+  code says so.
 - **Explain** ([#69](https://github.com/bjornharvold/curlybrace/issues/69)) asks the server how it
   would run the enabled stages up to the selected one (a trailing `$out` or `$merge` is left out).
   Under the stages, the tabs **Preview | Plan | Raw** switch between the documents, the plan as a
@@ -384,10 +409,9 @@ contribute.
 - **Aggregation builder** ([#67](https://github.com/bjornharvold/curlybrace/issues/67)): built: stage list and text mode, a
   read-only, time-bounded preview of the selected stage, and saved pipelines (save, open, rename
   and delete per connection), a confirmed `$out` / `$merge` run, and Copy as code ([#73](https://github.com/bjornharvold/curlybrace/issues/73)), explain ([#69](https://github.com/bjornharvold/curlybrace/issues/69)), per-stage counts and options such as collation, hint and `allowDiskUse` ([#75](https://github.com/bjornharvold/curlybrace/issues/75)).
+- **Query options on the Browse find** ([#75](https://github.com/bjornharvold/curlybrace/issues/75)): built, the same options as the aggregation builder, applied to the page, paging, the index check and Copy as code.
 
 ### In progress
-
-- **Options on the Browse find query** ([#75](https://github.com/bjornharvold/curlybrace/issues/75)): the aggregation builder is built, with its options; the same options on the find query are open.
 
 ### Next
 
@@ -405,7 +429,7 @@ contribute.
   Scheduler ([#11](https://github.com/bjornharvold/curlybrace/issues/11)).
 - **Query and analysis:** schema analysis
   ([#70](https://github.com/bjornharvold/curlybrace/issues/70)), validation rules ([#71](https://github.com/bjornharvold/curlybrace/issues/71)), query history ([#72](https://github.com/bjornharvold/curlybrace/issues/72)),
-  visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), query options on the find query ([#75](https://github.com/bjornharvold/curlybrace/issues/75)), an opt-in natural-language assistant
+  visual query builder ([#74](https://github.com/bjornharvold/curlybrace/issues/74)), an opt-in natural-language assistant
   ([#76](https://github.com/bjornharvold/curlybrace/issues/76)), data model diagrams ([#77](https://github.com/bjornharvold/curlybrace/issues/77)), a map view for geo fields ([#79](https://github.com/bjornharvold/curlybrace/issues/79)).
 - **Data in and out:** export ([#54](https://github.com/bjornharvold/curlybrace/issues/54)), import ([#55](https://github.com/bjornharvold/curlybrace/issues/55)), backup and restore ([#53](https://github.com/bjornharvold/curlybrace/issues/53)), test data
   generator ([#58](https://github.com/bjornharvold/curlybrace/issues/58)), GridFS ([#57](https://github.com/bjornharvold/curlybrace/issues/57)).
