@@ -4,6 +4,7 @@
 //! Typing in a stage is held in the view until it pauses, so a preview does not run per keystroke.
 use super::aggregate_counts::{counts_blocked, show_counts_button};
 use super::aggregate_explain::{explain_blocked, show_explain_button, show_results};
+use super::aggregate_options::{show_options_section, show_options_toggle};
 use super::aggregate_run::{RunContext, show_run_button, show_run_dialog, show_run_status};
 use super::aggregate_saved::show_saved_toolbar;
 use super::aggregate_saved_dialogs::show_saved_dialog;
@@ -11,7 +12,7 @@ use super::aggregate_stage::show_stages;
 use super::aggregate_text::show_text;
 use super::code_export_entry::{aggregate_blocked, show_copy_code_button};
 use crate::I18n;
-use crate::app::{AggregateAction, CodeAction, CodeSource, ExplainAction};
+use crate::app::{AggregateAction, CodeAction, CodeSource, ExplainAction, OptionsAction};
 use crate::theme::{CONTROL_HEIGHT, Tone, chip, gate, segmented, tonal_button};
 use crate::viewmodel::aggregate::{AggregateState, Mode, PreviewState, STAGE_MENU};
 use crate::viewmodel::aggregate_view::{AggregateView, pipeline_error_message};
@@ -44,9 +45,10 @@ pub fn show_aggregate(
     let header = show_header(ui, draft, view, saved, run, i18n);
     show_run_status(ui, &draft.run.status, i18n);
     let max_height = ui.available_height() * EDITOR_SHARE;
+    let lead = |ui: &mut egui::Ui| show_options_section(ui, draft, i18n);
     let edited = match draft.mode {
-        Mode::Stages => show_stages(ui, draft, view, max_height, i18n),
-        Mode::Text => show_text(ui, draft, max_height, i18n),
+        Mode::Stages => show_stages(ui, draft, view, max_height, i18n, lead),
+        Mode::Text => show_text(ui, draft, max_height, i18n, lead),
     };
     ui.separator();
     let typed = view.typed_stages(draft);
@@ -54,7 +56,13 @@ pub fn show_aggregate(
     // The dialogs are part of the tab's frame, so a typed stage edit that is still waiting is
     // applied before whatever they send (Save must save what was typed).
     let dialog = show_saved_dialog(ui.ctx(), draft, saved, i18n);
-    let run_dialog = show_run_dialog(ui.ctx(), draft.run.dialog.as_ref(), &run.badge, i18n);
+    let run_dialog = show_run_dialog(
+        ui.ctx(),
+        draft.run.dialog.as_ref(),
+        &draft.options,
+        &run.badge,
+        i18n,
+    );
     let actions = header
         .into_iter()
         .chain(edited)
@@ -62,6 +70,12 @@ pub fn show_aggregate(
         .chain(run_dialog)
         .chain(results)
         .collect();
+    let now = ui.input(|i| i.time);
+    let (actions, left) = with_due_options(view, now, actions);
+    if let Some(left) = left {
+        ui.ctx()
+            .request_repaint_after(Duration::from_secs_f64(left));
+    }
     let actions = with_due_edit(ui, view, actions);
     with_auto_refresh(draft, view, actions)
 }
@@ -87,12 +101,55 @@ fn with_due_edit(
         .collect()
 }
 
-/// The waiting stage edit as an `Edit`, taken at once: the tab is being left, and the draft
-/// should hold what was typed rather than wait for the tab to be drawn again.
+/// Whether `action` is typed text of the options form.
+fn is_options_typing(action: &AggregateAction) -> bool {
+    matches!(action, AggregateAction::Options(OptionsAction::Edit(e)) if e.is_typing())
+}
+
+/// `actions` with the typed options text applied: committed text (an `Apply` among them) needs no
+/// wait, text typed this frame waits for the pause, and the text that waits is applied at once
+/// when another action follows. The typing of this frame comes first, then the `Apply` that is
+/// due, then the other actions, so they all see what was typed. Also the seconds until the
+/// text that still waits falls due.
+pub(super) fn with_due_options(
+    view: &mut AggregateView,
+    now: f64,
+    actions: Vec<AggregateAction>,
+) -> (Vec<AggregateAction>, Option<f64>) {
+    let (typing, others): (Vec<_>, Vec<_>) = actions.into_iter().partition(is_options_typing);
+    let committed = others
+        .iter()
+        .any(|a| matches!(a, AggregateAction::Options(OptionsAction::Apply)));
+    let mut next = std::mem::take(view);
+    if committed {
+        next = next.options_applied();
+    } else if !typing.is_empty() {
+        next = next.options_typed(now);
+    }
+    let force = others
+        .iter()
+        .any(|a| !matches!(a, AggregateAction::Options(_)));
+    let (next, due) = next.take_options_due(now, force);
+    *view = next;
+    let left = view.options_due_in(now);
+    let actions = typing
+        .into_iter()
+        .chain(due.then_some(AggregateAction::Options(OptionsAction::Apply)))
+        .chain(others)
+        .collect();
+    (actions, left)
+}
+
+/// The waiting typing as actions, taken at once: the tab is being left, and the draft should
+/// hold what was typed rather than wait for the tab to be drawn again. The stage edit and the
+/// options' `Apply` go together as one.
 pub fn flush_typing(view: &mut AggregateView) -> Option<AggregateAction> {
     let (next, due) = std::mem::take(view).take_due(f64::INFINITY, true);
+    let (next, apply) = next.take_options_due(f64::INFINITY, true);
     *view = next;
-    due.map(|(index, text)| AggregateAction::Edit(index, text))
+    let edit = due.map(|(index, text)| AggregateAction::Edit(index, text));
+    let apply = apply.then_some(AggregateAction::Options(OptionsAction::Apply));
+    AggregateAction::batched(edit.into_iter().chain(apply).collect())
 }
 
 /// A Refresh of an idle pane with stages to run in stages mode (text mode replaces them) (first display, another collection, a new
@@ -134,6 +191,7 @@ fn show_header(
             tonal_button(ui, i18n.t("aggregate.refresh"))
         });
         let refresh = refresh.clicked() && stages;
+        let options = show_options_toggle(ui, draft, i18n);
         let saved_actions = show_saved_toolbar(ui, draft, saved, i18n);
         let blocked = aggregate_blocked(draft, &typed, view, i18n);
         let code = show_copy_code_button(ui, blocked.as_deref(), i18n);
@@ -153,6 +211,7 @@ fn show_header(
             added.map(AggregateAction::AddStage),
             mode.map(AggregateAction::SetMode),
             refresh.then_some(AggregateAction::Refresh),
+            options,
             code.then_some(AggregateAction::Code(CodeAction::Open(
                 CodeSource::Aggregate,
             ))),

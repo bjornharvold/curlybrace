@@ -4,6 +4,7 @@
 //! date" mark), but answering means parsing every stage, so the answer is remembered on the
 //! inputs it was computed from (`InputMemo`): a repaint with nothing changed parses nothing.
 use super::aggregate::{AggregateState, Mode};
+use super::aggregate_options_state::OptionsGate;
 use super::aggregate_view::AggregateView;
 use super::code_export::CodeBlock;
 use super::input_memo::InputMemo;
@@ -19,6 +20,7 @@ pub type ExplainRequest = Result<Vec<Document>, CodeBlock>;
 /// request: the text-mode buffer must not hold edits the stages do not have yet, since the
 /// stages are what would be explained.
 pub fn explain_request(draft: &AggregateState, stages: &[Stage]) -> ExplainRequest {
+    draft.options_gate().check(CodeBlock::Options)?;
     let text_edited = draft.mode == Mode::Text && draft.text != pipeline_text(stages);
     if text_edited {
         return Err(CodeBlock::TextNotApplied);
@@ -33,14 +35,21 @@ pub struct ExplainKey {
     selected: usize,
     mode: Mode,
     text: Option<String>,
+    gate: OptionsGate,
 }
 
 impl ExplainKey {
-    fn is_of(&self, stages: &[Stage], selected: usize, mode: Mode, text: Option<&str>) -> bool {
+    fn is_of(
+        &self,
+        stages: &[Stage],
+        selected: usize,
+        (mode, text, gate): (Mode, Option<&str>, OptionsGate),
+    ) -> bool {
         self.stages == stages
             && self.selected == selected
             && self.mode == mode
             && self.text.as_deref() == text
+            && self.gate == gate
     }
 }
 
@@ -48,17 +57,19 @@ impl ExplainKey {
 pub type ExplainMemo = InputMemo<ExplainKey, Arc<ExplainRequest>>;
 
 impl AggregateView {
-    /// `explain_request`, remembered between repaints on the stages, selection, mode and (in
-    /// text mode) the buffer.
+    /// `explain_request`, remembered between repaints on the stages, selection, mode, whether
+    /// the options form is blocked and (in text mode) the buffer.
     pub fn explain_request(&self, draft: &AggregateState, stages: &[Stage]) -> Arc<ExplainRequest> {
         let text = (draft.mode == Mode::Text).then_some(draft.text.as_str());
+        let gate = draft.options_gate();
         self.explain_memo.answer(
-            |key| key.is_of(stages, draft.selected, draft.mode, text),
+            |key| key.is_of(stages, draft.selected, (draft.mode, text, gate)),
             || ExplainKey {
                 stages: stages.to_vec(),
                 selected: draft.selected,
                 mode: draft.mode,
                 text: text.map(str::to_string),
+                gate,
             },
             |_| Arc::new(explain_request(draft, stages)),
         )

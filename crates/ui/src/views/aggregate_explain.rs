@@ -13,12 +13,13 @@ use crate::app::{AggregateAction, ExplainAction};
 use crate::theme::{CONTROL_HEIGHT, Tone, chip, gate, segmented, tonal_button};
 use crate::viewmodel::aggregate::AggregateState;
 use crate::viewmodel::aggregate_explain::{ExplainDone, ExplainState, ResultTab};
+use crate::viewmodel::aggregate_options_view::timeout_key;
 use crate::viewmodel::aggregate_view::AggregateView;
 use crate::viewmodel::code_export::CodeBlock;
 use curlybrace_core::ejson::doc_to_view_json;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{AGGREGATE_EXPLAIN_MAX_TIME_MS, AggPlanOutcome, ExplainVerbosity};
-use curlybrace_core::pipeline::Stage;
+use curlybrace_core::pipeline::{Operation, PipelineOptions, Stage};
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use eframe::egui;
 
@@ -36,6 +37,7 @@ pub fn explain_blocked(
         Err(CodeBlock::TextNotApplied) => {
             Some(i18n.t("aggregate.explain.disabled.text_not_applied"))
         }
+        Err(CodeBlock::Options) => Some(i18n.t("aggregate.options.blocked")),
         Ok(_) if draft.explain.is_loading() => Some(i18n.t("aggregate.explain.disabled.running")),
         Ok(_) => None,
     }
@@ -69,7 +71,9 @@ pub(super) fn show_results(
     let tab = draft.explain.tab;
     let current = view.explain_request(draft, typed);
     let current_pipeline = current.as_ref().as_ref().ok().map(Vec::as_slice);
-    let out_of_date = draft.explain.is_out_of_date(current_pipeline);
+    let out_of_date = draft
+        .explain
+        .is_out_of_date(current_pipeline, &draft.options);
     let mut actions = Vec::new();
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(CONTROL_HEIGHT);
@@ -127,7 +131,9 @@ fn show_plan_tab(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) -> Vec<
     egui::ScrollArea::vertical()
         .id_salt("explain_plan")
         .auto_shrink([false, true])
-        .show(ui, |ui| show_state(ui, &explain.state, i18n));
+        .show(ui, |ui| {
+            show_state(ui, &explain.state, &explain.options, i18n)
+        });
     actions
 }
 
@@ -144,7 +150,7 @@ fn cost_note(i18n: &I18n) -> String {
     i18n.t_with("aggregate.explain.cost_note", &[("seconds", &seconds)])
 }
 
-fn show_state(ui: &mut egui::Ui, state: &ExplainState, i18n: &I18n) {
+fn show_state(ui: &mut egui::Ui, state: &ExplainState, options: &PipelineOptions, i18n: &I18n) {
     match state {
         ExplainState::Idle => {
             ui.label(i18n.t("aggregate.explain.idle"));
@@ -152,7 +158,7 @@ fn show_state(ui: &mut egui::Ui, state: &ExplainState, i18n: &I18n) {
         ExplainState::Loading { .. } => {
             ui.label(i18n.t("aggregate.explain.loading"));
         }
-        ExplainState::Failed { reason } => show_failure(ui, reason, i18n),
+        ExplainState::Failed { reason } => show_failure(ui, reason, options, i18n),
         ExplainState::Done(done) => match &*done.plan {
             AggPlanOutcome::Plan(plan) => show_plan(ui, plan, i18n),
             AggPlanOutcome::NotUnderstood => {
@@ -163,13 +169,15 @@ fn show_state(ui: &mut egui::Ui, state: &ExplainState, i18n: &I18n) {
 }
 
 /// Why no plan came: the timeout has words of its own, any other error is shown as such.
-fn show_failure(ui: &mut egui::Ui, reason: &CoreError, i18n: &I18n) {
+fn show_failure(ui: &mut egui::Ui, reason: &CoreError, options: &PipelineOptions, i18n: &I18n) {
     match reason {
         CoreError::Database(text) if text == COMMAND_TIMEOUT_MESSAGE => {
-            ui.colored_label(
-                ui.visuals().error_fg_color,
-                i18n.t("aggregate.explain.error.timeout"),
+            let key = timeout_key(
+                options,
+                Operation::Explain,
+                "aggregate.explain.error.timeout",
             );
+            ui.colored_label(ui.visuals().error_fg_color, i18n.t(key));
         }
         other => show_error(ui, other, i18n),
     }

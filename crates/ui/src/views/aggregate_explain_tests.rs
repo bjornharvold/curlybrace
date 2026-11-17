@@ -6,6 +6,7 @@ use crate::viewmodel::aggregate_explain::ExplainUi;
 use crate::viewmodel::aggregate_explain_block::explain_request;
 use bson::{Document, doc};
 use curlybrace_core::ejson::editor_json_to_doc;
+use curlybrace_core::pipeline::PipelineOptions;
 use curlybrace_core::store::Explain;
 use eframe::egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
@@ -39,7 +40,10 @@ fn base() -> AggregateState {
 /// `draft` with an explain of its own pipeline answered with `document`.
 fn explained(draft: AggregateState, document: Document) -> AggregateState {
     let pipeline = explain_request(&draft, &draft.stages).expect("valid");
-    let (ui, request, _) = draft.explain.clone().begun(pipeline);
+    let (ui, request, _) = draft
+        .explain
+        .clone()
+        .begun(pipeline, &PipelineOptions::default());
     let ui = ui.arrived(
         request,
         Ok(Explain {
@@ -184,7 +188,10 @@ fn a_document_that_is_not_a_plan_points_to_the_raw_tab() {
 fn waiting_and_failing_have_words_inline() {
     let mut loading = on_tab(base(), ResultTab::Plan);
     let pipeline = vec![doc! { "$match": {} }];
-    loading.explain = loading.explain.begun(pipeline).0;
+    loading.explain = loading
+        .explain
+        .begun(pipeline, &PipelineOptions::default())
+        .0;
     open(loading).get_by_label(&t("aggregate.explain.loading"));
 
     for (error, text) in [
@@ -198,7 +205,7 @@ fn waiting_and_failing_have_words_inline() {
         ),
     ] {
         let mut draft = on_tab(base(), ResultTab::Plan);
-        let (ui, request, _) = ExplainUi::default().begun(vec![]);
+        let (ui, request, _) = ExplainUi::default().begun(vec![], &PipelineOptions::default());
         draft.explain = ui.arrived(request, Err(error)).with_tab(ResultTab::Plan);
         open(draft).get_by_label(&text);
     }
@@ -275,7 +282,7 @@ fn the_explain_button_is_blocked_with_the_previews_reasons_and_while_one_runs() 
     let ok = base();
     assert_eq!(explain_blocked(&ok, &ok.stages, &view, &i18n), None);
     let mut running = ok.clone();
-    running.explain = running.explain.begun(vec![]).0;
+    running.explain = running.explain.begun(vec![], &PipelineOptions::default()).0;
     assert_eq!(
         explain_blocked(&running, &running.stages, &view, &i18n),
         Some(t("aggregate.explain.disabled.running"))

@@ -23,6 +23,7 @@ pub mod export_flow;
 pub mod fixture;
 pub mod guard_shots;
 pub mod indexes_shots;
+pub mod options_shots;
 pub mod production_shots;
 pub mod screen;
 pub mod shell_shots;

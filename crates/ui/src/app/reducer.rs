@@ -110,6 +110,9 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     if aggregate_actions::is_preview_event(&ev) {
         return aggregate_actions::on_event(state, ev);
     }
+    if super::aggregate_hint_actions::is_hint_list_event(&ev) {
+        return super::aggregate_hint_actions::on_event(state, ev);
+    }
     if super::aggregate_explain_actions::is_explain_event(&ev) {
         return super::aggregate_explain_actions::on_event(state, ev);
     }

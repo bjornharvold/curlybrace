@@ -68,7 +68,7 @@ pub enum Alternate {
 
 /// The collation an aggregate asks for; every field but the locale is the server's default when
 /// unset.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CollationOption {
     pub locale: String,
@@ -86,11 +86,34 @@ pub struct CollationOption {
 
 /// An index to force: by name, or by key pattern. Loaded from an object holding `name` or
 /// `keys` (other keys are ignored, both at once is refused).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "RawHint", rename_all = "camelCase")]
 pub enum HintOption {
     Name(String),
     Keys(Document),
+}
+
+/// Names the shape only: an index name or a key pattern is the person's data.
+impl std::fmt::Debug for HintOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Name(_) => f.write_str("Name(..)"),
+            Self::Keys(keys) => write!(f, "Keys({} keys)", keys.len()),
+        }
+    }
+}
+
+/// Names which fields are set, never a locale.
+impl std::fmt::Debug for CollationOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CollationOption")
+            .field("strength", &self.strength.is_some())
+            .field("case_level", &self.case_level.is_some())
+            .field("case_first", &self.case_first.is_some())
+            .field("numeric_ordering", &self.numeric_ordering.is_some())
+            .field("alternate", &self.alternate.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// The loaded shape of a [`HintOption`].
@@ -158,7 +181,7 @@ impl OptionsError {
 
 /// The options of one aggregate. `default()` is "nothing set": it sends what every operation
 /// sent before options existed.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PipelineOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -187,6 +210,21 @@ struct RawOptions {
     max_time_ms: Option<u64>,
     comment: Option<String>,
     read_preference: Option<ReadPreferenceMode>,
+}
+
+/// Names which options are set, never a value: a comment, a hint and a locale are the person's
+/// data, and this is printed by every type that holds the options.
+impl std::fmt::Debug for PipelineOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PipelineOptions")
+            .field("collation", &self.collation.is_some())
+            .field("hint", &self.hint.is_some())
+            .field("allow_disk_use", &self.allow_disk_use.is_some())
+            .field("max_time_ms", &self.max_time_ms.is_some())
+            .field("comment", &self.comment.is_some())
+            .field("read_preference", &self.read_preference.is_some())
+            .finish()
+    }
 }
 
 /// Loading never repeats the value that was refused: serde's own messages quote it (an unknown
@@ -331,8 +369,8 @@ fn validated_hint_name(name: &str) -> Result<String, OptionsError> {
     Ok(name.to_owned())
 }
 
-/// The key pattern with whole numbers as `Int32`, so a value read back from JSON (which widens
-/// them) equals the one typed.
+/// The key pattern with whole numbers (and the directions 1.0 and -1.0) as `Int32`, so a value read
+/// back from JSON (which widens them) equals the one typed.
 fn narrowed(keys: Document) -> Document {
     keys.into_iter()
         .map(|(key, value)| match value {
@@ -340,6 +378,8 @@ fn narrowed(keys: Document) -> Document {
                 Ok(small) => (key, Bson::Int32(small)),
                 Err(_) => (key, Bson::Int64(n)),
             },
+            // A direction written as 1.0 or -1.0 is the same hint as 1 or -1.
+            Bson::Double(d) if d == 1.0 || d == -1.0 => (key, Bson::Int32(d as i32)),
             other => (key, other),
         })
         .collect()
@@ -401,3 +441,7 @@ impl HintOption {
 #[cfg(test)]
 #[path = "pipeline_options_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "pipeline_options_debug_tests.rs"]
+mod debug_tests;

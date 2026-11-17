@@ -24,6 +24,7 @@ pub fn aggregate_blocked(
     match view.code_block(draft, stages)? {
         CodeBlock::Pipeline(error) => Some(pipeline_error_text(&error, i18n)),
         CodeBlock::TextNotApplied => Some(i18n.t("codegen.disabled.text_not_applied")),
+        CodeBlock::Options => Some(i18n.t("aggregate.options.blocked")),
     }
 }
 

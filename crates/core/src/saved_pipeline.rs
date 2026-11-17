@@ -4,6 +4,7 @@
 //! `tools::ToolSettings`. A pipeline is kept as the text of each stage, so what comes back is
 //! exactly what was typed. Pipelines can hold values from the user's data: nothing here logs
 //! a name or a stage, only [`SavedError::error_variant`] is meant for logs.
+use crate::pipeline_options::PipelineOptions;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -24,7 +25,9 @@ pub struct SavedStage {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A saved pipeline. `options` is additive and optional: absent when nothing is set, and an
+/// older build that does not know it ignores it (the file stays at version 1).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SavedPipeline {
     pub id: Uuid,
     pub name: String,
@@ -33,6 +36,26 @@ pub struct SavedPipeline {
     pub ns_hint: Option<String>,
     pub saved_unix: i64,
     pub stages: Vec<SavedStage>,
+    #[serde(default, skip_serializing_if = "PipelineOptions::is_empty")]
+    pub options: PipelineOptions,
+}
+
+/// What a save stores: the stages and the options of the draft.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SavedDraft {
+    pub stages: Vec<SavedStage>,
+    pub options: PipelineOptions,
+}
+
+impl SavedDraft {
+    /// A draft with these stages and no options. Named, not a `From`, so a save that means to keep
+    /// the options of an opened pipeline cannot lose them by passing bare stages.
+    pub fn stages_only(stages: Vec<SavedStage>) -> Self {
+        Self {
+            stages,
+            options: PipelineOptions::default(),
+        }
+    }
 }
 
 /// Why a change to the saved pipelines was refused.
@@ -47,6 +70,8 @@ pub enum SavedError {
     TooLarge,
     /// A file from a newer version of the format.
     Unsupported,
+    /// An option the loader would refuse (see `PipelineOptions::validated`).
+    InvalidOptions,
 }
 
 impl SavedError {
@@ -60,6 +85,7 @@ impl SavedError {
             Self::TooMany => "too_many",
             Self::TooLarge => "too_large",
             Self::Unsupported => "unsupported",
+            Self::InvalidOptions => "invalid_options",
         }
     }
 }
@@ -155,7 +181,7 @@ fn checked_list(list: Vec<SavedPipeline>) -> Result<Vec<SavedPipeline>, SavedErr
 }
 
 /// Every connection's saved pipelines, newest first.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "Raw")]
 pub struct SavedPipelines {
     version: u32,
@@ -194,7 +220,7 @@ impl SavedPipelines {
         name_taken_in(self.list(connection), name, except)
     }
 
-    /// Saves `stages` under `name`. When the name is taken, `replace` overwrites that pipeline
+    /// Saves `content` (stages, or stages with options) under `name`. When the name is taken, `replace` overwrites that pipeline
     /// (same id and name as stored, new content, moved to the front); without it the name is
     /// refused.
     pub fn saved(
@@ -202,10 +228,16 @@ impl SavedPipelines {
         connection: Uuid,
         name: &str,
         ns_hint: Option<String>,
-        stages: Vec<SavedStage>,
+        content: SavedDraft,
         now_unix: i64,
         replace: bool,
     ) -> Result<Self, SavedError> {
+        let SavedDraft { stages, options } = content;
+        // What the loader would refuse is refused here, so no file is written that the next start
+        // would back up and replace with an empty list. Values come back trimmed, as loaded.
+        let options = options
+            .validated()
+            .map_err(|_| SavedError::InvalidOptions)?;
         let name = validate_name(name)?;
         if stages.iter().map(|s| s.text.len()).sum::<usize>() > MAX_STAGE_BYTES {
             return Err(SavedError::TooLarge);
@@ -225,6 +257,7 @@ impl SavedPipelines {
             ns_hint,
             saved_unix: now_unix,
             stages,
+            options,
         };
         let rest = self
             .list(connection)
@@ -303,3 +336,7 @@ mod tests;
 #[cfg(test)]
 #[path = "saved_pipeline_load_tests.rs"]
 mod load_tests;
+
+#[cfg(test)]
+#[path = "saved_pipeline_options_tests.rs"]
+mod options_tests;

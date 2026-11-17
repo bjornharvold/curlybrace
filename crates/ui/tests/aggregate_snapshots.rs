@@ -114,3 +114,32 @@ fn aggregate_plan_dark() {
         .mode(Mode::Dark)
         .snapshot("aggregate_plan_dark");
 }
+
+// The Options section open on the three-stage pipeline: a collation, a hint, a time limit, a read
+// preference and one problem on the time limit (light, dark and the small window).
+shot!(
+    aggregate_options,
+    vec![],
+    support::options_shots::options_tab
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn aggregate_options_dark() {
+    if !snapshots_enabled("aggregate_options_dark") {
+        return;
+    }
+    Shot::new(vec![], support::options_shots::options_tab)
+        .mode(Mode::Dark)
+        .snapshot("aggregate_options_dark");
+}
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn aggregate_options_small() {
+    if !snapshots_enabled("aggregate_options_small") {
+        return;
+    }
+    Shot::sized((800.0, 500.0), vec![], support::options_shots::options_tab)
+        .snapshot("aggregate_options_small");
+}

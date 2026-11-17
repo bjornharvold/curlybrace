@@ -115,9 +115,14 @@ fn confirmed(state: AppState) -> Out {
     let plan = run_pipeline(&state.aggregate.stages)
         .ok()
         .filter(|p| p.target == dialog.target && p.stage == dialog.stage);
-    let Some(plan) = plan.filter(|_| same_source && dialog.is_confirmed()) else {
+    // The form may have changed since the dialog opened (typed text is not applied yet): a
+    // run sends what the screen shows, so one with a problem sends nothing.
+    let Some(plan) = plan
+        .filter(|_| same_source && dialog.is_confirmed() && !state.aggregate.options_hold_run())
+    else {
         return (state, Vec::new());
     };
+    let options = state.aggregate.options.clone();
     let run = state.aggregate.run.run.wrapping_add(1);
     let stage = plan.stage.clone();
     let (next, commands) = mutation(
@@ -130,8 +135,7 @@ fn confirmed(state: AppState) -> Out {
             ns,
             pipeline: plan.pipeline,
             run,
-            // 4b: the draft's options.
-            options: curlybrace_core::pipeline::PipelineOptions::default(),
+            options,
         },
     );
     match commands.is_empty() {

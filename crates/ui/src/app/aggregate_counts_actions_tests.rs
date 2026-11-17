@@ -12,7 +12,7 @@ use crate::viewmodel::{AggregateState, SidebarAction};
 use bson::{Document, doc};
 use curlybrace_core::connection::ConnectionConfig;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::pipeline::COUNT_CAP;
+use curlybrace_core::pipeline::{COUNT_CAP, PipelineOptions};
 use curlybrace_core::runtime::{COMMAND_TIMEOUT_MESSAGE, Command, Event};
 use curlybrace_core::store::Namespace;
 use uuid::Uuid;
@@ -269,7 +269,11 @@ fn a_draft_change_ends_the_sequence_keeps_the_results_and_a_late_answer_changes_
         let (s, id, second) = midway();
         let (s, _) = act(s, change);
         assert!(!s.aggregate.counts.is_running());
-        assert!(s.aggregate.counts.is_out_of_date(&s.aggregate.stages));
+        assert!(
+            s.aggregate
+                .counts
+                .is_out_of_date(&s.aggregate.stages, &PipelineOptions::default())
+        );
         let shown: Vec<_> = (0..s.aggregate.keys.len())
             .map(|i| result_of(&s, i))
             .collect();
@@ -304,7 +308,11 @@ fn cancel_ends_the_sequence_and_keeps_the_numbers_so_far() {
     assert!(c.is_empty());
     assert!(!s.aggregate.counts.is_running());
     assert_eq!(result_of(&s, 0), Some(StageCount::Exact(5)));
-    assert!(!s.aggregate.counts.is_out_of_date(&s.aggregate.stages));
+    assert!(
+        !s.aggregate
+            .counts
+            .is_out_of_date(&s.aggregate.stages, &PipelineOptions::default())
+    );
     let (_, c) = ev(s, answer(id, second, 1, Ok(2)));
     assert!(c.is_empty());
 }
@@ -423,7 +431,12 @@ fn an_answer_for_a_parked_session_lands_in_its_own_draft() {
     let draft = AggregateState::default().add_stage("$sort");
     let plan =
         crate::viewmodel::aggregate_counts_plan::count_plan(&draft, &draft.stages).expect("a plan");
-    let (ui, send) = draft.counts.clone().begun(plan, &draft.stages, &draft.keys);
+    let (ui, send) = draft.counts.clone().begun(
+        plan,
+        &draft.stages,
+        &draft.keys,
+        &PipelineOptions::default(),
+    );
     let request = send.expect("sent").request;
     let mut draft_b = draft;
     draft_b.counts = ui;

@@ -4,7 +4,7 @@
 use super::aggregate_shots::{grouped_docs, three_stage_draft};
 use super::shots::browsing;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::pipeline::COUNT_CAP;
+use curlybrace_core::pipeline::{COUNT_CAP, PipelineOptions};
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_ui::app::state::AppState;
 use curlybrace_ui::viewmodel::aggregate_counts_plan::count_plan;
@@ -13,7 +13,12 @@ use curlybrace_ui::viewmodel::{AggregateState, CollectionTab, ViewMode};
 /// `draft` counted: every enabled stage answered in order with the next of `outcomes`.
 pub fn counted(mut draft: AggregateState, outcomes: Vec<Result<u64, CoreError>>) -> AggregateState {
     let plan = count_plan(&draft, &draft.stages).expect("the fixture pipeline can be counted");
-    let (mut ui, mut send) = draft.counts.clone().begun(plan, &draft.stages, &draft.keys);
+    let (mut ui, mut send) = draft.counts.clone().begun(
+        plan,
+        &draft.stages,
+        &draft.keys,
+        &PipelineOptions::default(),
+    );
     for outcome in outcomes {
         let sent = send.expect("a count is waiting for this answer");
         (ui, send) = ui.answered(sent.request, sent.stage_index, outcome);

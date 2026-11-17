@@ -2,12 +2,14 @@
 //! looked like then, and the dialog that is open. Per session, kept through a lost connection
 //! like the draft. Every op returns a new state; nothing here touches a file.
 use super::aggregate::{AggregateState, Mode, PreviewState};
+use super::aggregate_options::OptionsForm;
+use super::aggregate_options_state::OptionsUi;
 use crate::I18n;
 use crate::app::pipelines_store::MAX_FILE_BYTES;
-use curlybrace_core::pipeline::{Stage, parse_pipeline_text, pipeline_text};
+use curlybrace_core::pipeline::{PipelineOptions, Stage, parse_pipeline_text, pipeline_text};
 use curlybrace_core::saved_pipeline::{
-    MAX_NAME_CHARS, MAX_PER_CONNECTION, MAX_STAGE_BYTES, SavedError, SavedPipeline, SavedStage,
-    name_taken_in, validate_name,
+    MAX_NAME_CHARS, MAX_PER_CONNECTION, MAX_STAGE_BYTES, SavedDraft, SavedError, SavedPipeline,
+    SavedStage, name_taken_in, validate_name,
 };
 use std::cell::Cell;
 use uuid::Uuid;
@@ -36,12 +38,14 @@ pub enum SavedDialog {
 }
 
 /// What a session knows about saved pipelines.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SavedUi {
     /// The pipeline the draft was opened from or last saved as: its id and name.
     pub opened: Option<(Uuid, String)>,
     /// The (text, enabled) list the draft is compared against for the "modified" mark.
     pub baseline: Option<Vec<SavedStage>>,
+    /// The options the draft is compared against, with `baseline`.
+    pub baseline_options: PipelineOptions,
     pub dialog: Option<SavedDialog>,
     /// Why the last confirm of the open dialog failed, as an i18n key. Shown inline in the
     /// dialog and cleared whenever the dialog changes.
@@ -111,6 +115,7 @@ pub fn saved_error_key(error: SavedError) -> &'static str {
         SavedError::TooMany => "aggregate.saved.error.too_many",
         SavedError::TooLarge => "aggregate.saved.error.too_large",
         SavedError::Unsupported => "aggregate.saved.error.unsupported",
+        SavedError::InvalidOptions => "aggregate.saved.error.invalid_options",
     }
 }
 
@@ -184,8 +189,17 @@ impl AggregateState {
         }
     }
 
+    /// What a save stores: `as_saved_stages` and the applied options.
+    pub fn as_saved_draft(&self) -> SavedDraft {
+        SavedDraft {
+            stages: self.as_saved_stages(),
+            options: self.options.clone(),
+        }
+    }
+
     /// Whether the draft differs from what was opened or saved, comparing text and enabled
-    /// flag per stage and ignoring stage keys. A draft that was never saved or opened is
+    /// flag per stage (ignoring stage keys) and the options. A form with a problem counts as
+    /// a change. A draft that was never saved or opened is
     /// modified exactly when it has stages: an empty draft has nothing to lose. Unparsable
     /// text-mode edits count as modified.
     pub fn is_modified(&self) -> bool {
@@ -201,13 +215,13 @@ impl AggregateState {
 
     /// The comparison itself, for `is_modified` to remember.
     pub(super) fn modified_uncached(&self) -> bool {
-        if self.text_is_invalid() {
+        if self.text_is_invalid() || self.options_blocked() {
             return true;
         }
         let current = self.as_saved_stages();
         match &self.saved.baseline {
-            Some(baseline) => *baseline != current,
-            None => !current.is_empty(),
+            Some(baseline) => *baseline != current || self.saved.baseline_options != self.options,
+            None => !current.is_empty() || !self.options.is_empty(),
         }
     }
 
@@ -228,9 +242,15 @@ impl AggregateState {
             text: String::new(),
             text_error: None,
             preview: PreviewState::Idle,
+            options: saved.options.clone(),
+            options_ui: OptionsUi {
+                form: OptionsForm::from_options(&saved.options),
+                ..self.options_ui
+            },
             saved: SavedUi {
                 opened: Some((saved.id, saved.name.clone())),
                 baseline: Some(saved.stages.clone()),
+                baseline_options: saved.options.clone(),
                 ..SavedUi::default()
             },
             ..self
@@ -241,10 +261,12 @@ impl AggregateState {
     /// The draft was saved as `name` (entry `id`): it is now that pipeline, unmodified.
     pub fn saved_as(self, id: Uuid, name: &str) -> Self {
         let baseline = Some(self.as_saved_stages());
+        let baseline_options = self.options.clone();
         Self {
             saved: SavedUi {
                 opened: Some((id, name.to_string())),
                 baseline,
+                baseline_options,
                 ..SavedUi::default()
             },
             ..self
@@ -298,6 +320,10 @@ impl AggregateState {
 #[cfg(test)]
 #[path = "aggregate_saved_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "aggregate_saved_options_tests.rs"]
+mod options_tests;
 
 #[cfg(test)]
 #[path = "aggregate_saved_memo_tests.rs"]

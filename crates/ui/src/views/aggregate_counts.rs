@@ -23,6 +23,7 @@ pub fn counts_blocked(
     i18n: &I18n,
 ) -> Option<String> {
     match &*view.count_plan(draft, typed) {
+        Err(CountsBlock::Options) => Some(i18n.t("aggregate.options.blocked")),
         Err(CountsBlock::Pipeline(error)) => Some(pipeline_error_text(error, i18n)),
         Err(CountsBlock::TextNotApplied) => {
             Some(i18n.t("aggregate.counts.disabled.text_not_applied"))

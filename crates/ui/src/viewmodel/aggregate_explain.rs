@@ -8,6 +8,7 @@
 use bson::Document;
 use curlybrace_core::error::CoreError;
 use curlybrace_core::explain::{AggPlanOutcome, ExplainVerbosity, parse_aggregate_explain};
+use curlybrace_core::pipeline::PipelineOptions;
 use curlybrace_core::store::Explain;
 use std::fmt;
 use std::sync::Arc;
@@ -39,6 +40,8 @@ pub struct ExplainDone {
     pub raw: Arc<Document>,
     pub verbosity: ExplainVerbosity,
     pub for_draft: Fingerprint,
+    /// The options it was asked with: options that differ now make the plan out of date.
+    pub options: PipelineOptions,
 }
 
 impl fmt::Debug for ExplainDone {
@@ -60,6 +63,7 @@ pub enum ExplainState {
         request: u64,
         verbosity: ExplainVerbosity,
         for_draft: Fingerprint,
+        options: PipelineOptions,
     },
     Done(Box<ExplainDone>),
     Failed {
@@ -68,7 +72,7 @@ pub enum ExplainState {
 }
 
 /// Prints the variant and counts only: the pipeline under `Loading` holds the person's `$match`
-/// values, and a failure's detail text may name data.
+/// values, the options their comment and hint, and a failure's detail text may name data.
 impl fmt::Debug for ExplainState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -77,6 +81,7 @@ impl fmt::Debug for ExplainState {
                 request,
                 verbosity,
                 for_draft,
+                ..
             } => f
                 .debug_struct("Loading")
                 .field("request", request)
@@ -100,6 +105,8 @@ pub struct ExplainUi {
     pub tab: ResultTab,
     /// The newest request number; an answer for any other is stale.
     pub request: u64,
+    /// The options the newest request was sent with: a failure of it is worded by these.
+    pub options: PipelineOptions,
 }
 
 impl Default for ExplainUi {
@@ -109,6 +116,7 @@ impl Default for ExplainUi {
             verbosity: ExplainVerbosity::QueryPlanner,
             tab: ResultTab::Preview,
             request: 0,
+            options: PipelineOptions::default(),
         }
     }
 }
@@ -119,9 +127,13 @@ impl ExplainUi {
         matches!(self.state, ExplainState::Loading { .. })
     }
 
-    /// An explain of `pipeline` was sent under a new request number: the pane shows the Plan tab
-    /// and waits for it. Returns the number and the verbosity sent.
-    pub fn begun(self, pipeline: impl Into<Fingerprint>) -> (Self, u64, ExplainVerbosity) {
+    /// An explain of `pipeline` with `options` was sent under a new request number: the pane
+    /// shows the Plan tab and waits for it. Returns the number and the verbosity sent.
+    pub fn begun(
+        self,
+        pipeline: impl Into<Fingerprint>,
+        options: &PipelineOptions,
+    ) -> (Self, u64, ExplainVerbosity) {
         let request = self.request.wrapping_add(1);
         let verbosity = self.verbosity;
         let next = Self {
@@ -129,9 +141,11 @@ impl ExplainUi {
                 request,
                 verbosity,
                 for_draft: pipeline.into(),
+                options: options.clone(),
             },
             tab: ResultTab::Plan,
             request,
+            options: options.clone(),
             ..self
         };
         (next, request, verbosity)
@@ -145,6 +159,7 @@ impl ExplainUi {
                 request: awaited,
                 verbosity,
                 for_draft,
+                options,
             } if awaited == request => {
                 let state = match outcome {
                     Ok(explain) => ExplainState::Done(Box::new(ExplainDone {
@@ -152,6 +167,7 @@ impl ExplainUi {
                         raw: Arc::new(explain.document),
                         verbosity,
                         for_draft,
+                        options,
                     })),
                     Err(reason) => ExplainState::Failed { reason },
                 };
@@ -202,11 +218,13 @@ impl ExplainUi {
         }
     }
 
-    /// Whether the plan in view was asked for a pipeline other than `current`, or for a measure
-    /// setting other than the one selected now.
-    pub fn is_out_of_date(&self, current: Option<&[Document]>) -> bool {
+    /// Whether the plan in view was asked for a pipeline or options other than `current` and
+    /// `options`, or for a measure setting other than the one selected now.
+    pub fn is_out_of_date(&self, current: Option<&[Document]>, options: &PipelineOptions) -> bool {
         self.done().is_some_and(|done| {
-            current != Some(&*done.for_draft) || done.verbosity != self.verbosity
+            current != Some(&*done.for_draft)
+                || done.verbosity != self.verbosity
+                || done.options != *options
         })
     }
 

@@ -16,6 +16,7 @@ pub(super) fn show_text(
     draft: &AggregateState,
     max_height: f32,
     i18n: &I18n,
+    lead: impl FnOnce(&mut egui::Ui) -> Vec<AggregateAction>,
 ) -> Vec<AggregateAction> {
     let mut buffer = draft.text.clone();
     let rows = draft
@@ -23,12 +24,13 @@ pub(super) fn show_text(
         .lines()
         .count()
         .clamp(*EDITOR_ROWS.start(), *EDITOR_ROWS.end());
-    let changed = egui::ScrollArea::vertical()
+    let (led, changed) = egui::ScrollArea::vertical()
         .id_salt("aggregate_text")
         .scroll_source(NO_DRAG_SCROLL)
         .max_height(max_height)
         .auto_shrink([false, true])
         .show(ui, |ui| {
+            let led = lead(ui);
             let response = ui.add(
                 egui::TextEdit::multiline(&mut buffer)
                     .id_salt("aggregate_pipeline_text")
@@ -40,7 +42,7 @@ pub(super) fn show_text(
             let name = i18n.t("aggregate.text.editor");
             ui.ctx()
                 .accesskit_node_builder(response.id, |node| node.set_label(name));
-            response.changed()
+            (led, response.changed())
         })
         .inner;
     match &draft.text_error {
@@ -60,8 +62,7 @@ pub(super) fn show_text(
             i18n.t("aggregate.text.disabled_lost"),
         );
     }
-    changed
-        .then_some(AggregateAction::EditText(buffer))
-        .into_iter()
+    led.into_iter()
+        .chain(changed.then_some(AggregateAction::EditText(buffer)))
         .collect()
 }

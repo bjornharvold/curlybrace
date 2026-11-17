@@ -2,6 +2,7 @@
 use super::*;
 use bson::doc;
 use curlybrace_core::ejson::editor_json_to_doc;
+use curlybrace_core::pipeline::PipelineOptions;
 
 fn explained(document: Document) -> Explain {
     Explain {
@@ -22,20 +23,20 @@ fn pipeline() -> Vec<Document> {
 }
 
 fn loading() -> (ExplainUi, u64) {
-    let (ui, request, _) = ExplainUi::default().begun(pipeline());
+    let (ui, request, _) = ExplainUi::default().begun(pipeline(), &PipelineOptions::default());
     (ui, request)
 }
 
 #[test]
 fn a_run_is_numbered_shows_the_plan_tab_and_waits() {
     let ui = ExplainUi::default().with_verbosity(ExplainVerbosity::ExecutionStats);
-    let (next, request, verbosity) = ui.begun(pipeline());
+    let (next, request, verbosity) = ui.begun(pipeline(), &PipelineOptions::default());
     assert_eq!(request, 1);
     assert_eq!(verbosity, ExplainVerbosity::ExecutionStats);
     assert_eq!(next.tab, ResultTab::Plan);
     assert!(next.is_loading());
     assert!(next.awaits(1));
-    let (again, second, _) = next.begun(pipeline());
+    let (again, second, _) = next.begun(pipeline(), &PipelineOptions::default());
     assert_eq!(second, 2, "a newer run is a newer number");
     assert!(!again.awaits(1), "the older answer is stale now");
 }
@@ -109,12 +110,18 @@ fn giving_up_frees_only_the_awaited_request() {
 #[test]
 fn a_plan_is_out_of_date_once_the_pipeline_it_was_asked_for_differs() {
     let (ui, request) = loading();
-    assert!(!ui.is_out_of_date(None), "nothing shown, nothing to mark");
+    assert!(
+        !ui.is_out_of_date(None, &PipelineOptions::default()),
+        "nothing shown, nothing to mark"
+    );
     let done = ui.arrived(request, Ok(explained(collscan())));
-    assert!(!done.is_out_of_date(Some(&pipeline())));
+    assert!(!done.is_out_of_date(Some(&pipeline()), &PipelineOptions::default()));
     let edited = vec![doc! { "$match": { "status": "closed" } }];
-    assert!(done.is_out_of_date(Some(&edited)));
-    assert!(done.is_out_of_date(None), "the draft no longer explains");
+    assert!(done.is_out_of_date(Some(&edited), &PipelineOptions::default()));
+    assert!(
+        done.is_out_of_date(None, &PipelineOptions::default()),
+        "the draft no longer explains"
+    );
 }
 
 #[test]
@@ -122,15 +129,15 @@ fn a_plan_is_out_of_date_once_the_measure_setting_differs_from_the_one_it_was_ma
     let (ui, request) = loading();
     let done = ui.arrived(request, Ok(explained(collscan())));
     let same = pipeline();
-    assert!(!done.is_out_of_date(Some(&same)));
+    assert!(!done.is_out_of_date(Some(&same), &PipelineOptions::default()));
     let measured = done.with_verbosity(ExplainVerbosity::ExecutionStats);
     assert!(
-        measured.is_out_of_date(Some(&same)),
+        measured.is_out_of_date(Some(&same), &PipelineOptions::default()),
         "plan-only plan, measure now on"
     );
     let back = measured.with_verbosity(ExplainVerbosity::QueryPlanner);
     assert!(
-        !back.is_out_of_date(Some(&same)),
+        !back.is_out_of_date(Some(&same), &PipelineOptions::default()),
         "switching back makes it current again"
     );
 }
@@ -160,7 +167,7 @@ fn debug_names_the_shape_and_never_the_document() {
 fn a_loading_state_prints_its_shape_never_the_pipeline() {
     let sentinel = "SENTINEL_9f3a";
     let secret = vec![doc! { "$match": { "email": sentinel } }];
-    let (loading, request, _) = ExplainUi::default().begun(secret);
+    let (loading, request, _) = ExplainUi::default().begun(secret, &PipelineOptions::default());
     let shown = format!("{loading:?}");
     assert!(!shown.contains(sentinel), "{shown}");
     assert!(shown.contains("Loading"), "{shown}");

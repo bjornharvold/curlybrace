@@ -2,14 +2,15 @@
 //! runtime's preview answers. A preview is a read: it is sent on read-only and production
 //! sessions alike, with no write confirmation, and its failures stay in the preview pane; only a
 //! server found gone also fails the session, as any read's loss does.
+pub(super) use super::aggregate_preview_send::{flushed, target};
+use super::aggregate_preview_send::{previewed, sent};
 use super::reducer::Out;
 use super::state::{AppState, ConnStatus};
 use crate::viewmodel::AggregateState;
 use crate::viewmodel::aggregate::Mode;
 use bson::Document;
 use curlybrace_core::error::CoreError;
-use curlybrace_core::runtime::{Command, Event};
-use curlybrace_core::store::Namespace;
+use curlybrace_core::runtime::Event;
 use uuid::Uuid;
 
 /// What the person does on the Aggregate tab of the active session.
@@ -67,6 +68,8 @@ pub enum AggregateAction {
     Explain(super::ExplainAction),
     /// The per-stage counts: Count stages and Cancel. Carried here for the same reason.
     Counts(super::CountsAction),
+    /// The Options section: its toggle, edits, Apply and Reset. Carried here for the same reason.
+    Options(super::OptionsAction),
 }
 
 impl AggregateAction {
@@ -118,6 +121,10 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         AggregateAction::Counts(counts) => {
             return super::aggregate_counts_actions::on_action(state, counts);
         }
+        // The options form moves the draft out and back too: a keystroke copies nothing.
+        AggregateAction::Options(options) => {
+            return super::aggregate_options_actions::on_action(state, options);
+        }
         other => other,
     };
     let draft = (*state.aggregate).clone();
@@ -129,6 +136,9 @@ pub(super) fn on_action(state: AppState, action: AggregateAction) -> Out {
         }
         AggregateAction::Counts(counts) => {
             super::aggregate_counts_actions::on_action(state, counts)
+        }
+        AggregateAction::Options(options) => {
+            super::aggregate_options_actions::on_action(state, options)
         }
         AggregateAction::AddStage(name) => changed(state, draft.add_stage(&name)),
         AggregateAction::Remove(i) => changed(state, draft.remove(i)),
@@ -194,69 +204,6 @@ fn set_mode(state: AppState, draft: AggregateState, mode: Mode) -> Out {
             next if next.request != state.aggregate.request => previewed(state, next),
             next => (with_draft(state, next), Vec::new()),
         },
-    }
-}
-
-/// Keeps `draft` and, when the active session is connected with a collection selected, starts
-/// its preview. A pipeline the preview refuses is shown as failed and sends nothing; without a
-/// session, a connection or a collection there is nothing to preview against and the draft is
-/// only kept.
-fn previewed(state: AppState, draft: AggregateState) -> Out {
-    let Some((session, ns)) = target(&state) else {
-        return (with_draft(state, draft), Vec::new());
-    };
-    let (draft, plan) = draft.begin_preview();
-    let (draft, send) = match plan {
-        Some((request, pipeline)) => draft.offered(request, ns.clone(), pipeline),
-        None => (draft, None),
-    };
-    let commands = send
-        .map(|(request, pipeline)| preview_command(session, request, ns, pipeline))
-        .into_iter()
-        .collect();
-    (with_draft(state, draft), commands)
-}
-
-/// The session and collection a preview can be sent for now: the active session when it is
-/// connected with a collection selected.
-pub(super) fn target(state: &AppState) -> Option<(Uuid, Namespace)> {
-    match (state.active, &state.status, state.selected_ns()) {
-        (Some(session), ConnStatus::Connected, Some(ns)) => Some((session, ns.clone())),
-        _ => None,
-    }
-}
-
-/// Sends the preview that waited for the slot, when one is free and it still applies.
-pub(super) fn flushed(state: AppState) -> Out {
-    let target = target(&state);
-    let ns = target.as_ref().map(|(_, ns)| ns);
-    let (draft, send) = (*state.aggregate).clone().flushed(ns);
-    sent(state, draft, target, send)
-}
-
-/// `state` holding `draft`, with `send` as the command for `target` (none without a target).
-fn sent(
-    state: AppState,
-    draft: AggregateState,
-    target: Option<(Uuid, Namespace)>,
-    send: Option<(u64, Vec<Document>)>,
-) -> Out {
-    let command = send
-        .zip(target)
-        .map(|((request, pipeline), (session, ns))| {
-            preview_command(session, request, ns, pipeline)
-        });
-    (with_draft(state, draft), command.into_iter().collect())
-}
-
-fn preview_command(session: Uuid, request: u64, ns: Namespace, pipeline: Vec<Document>) -> Command {
-    Command::AggregatePreview {
-        session,
-        request,
-        ns,
-        pipeline,
-        // 4b: the draft's options.
-        options: curlybrace_core::pipeline::PipelineOptions::default(),
     }
 }
 

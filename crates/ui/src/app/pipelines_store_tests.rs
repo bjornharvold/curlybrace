@@ -14,10 +14,10 @@ fn sample() -> SavedPipelines {
             Uuid::new_v4(),
             "totals",
             Some("shop.orders".into()),
-            vec![SavedStage {
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(vec![SavedStage {
                 text: r#"{"$match": {}}"#.into(),
                 enabled: true,
-            }],
+            }]),
             7,
             false,
         )
@@ -212,7 +212,14 @@ fn heavy(count: usize, bytes: usize) -> SavedPipelines {
             enabled: true,
         };
         store
-            .saved(conn, &format!("p{i}"), None, vec![stage], 1, false)
+            .saved(
+                conn,
+                &format!("p{i}"),
+                None,
+                curlybrace_core::saved_pipeline::SavedDraft::stages_only(vec![stage]),
+                1,
+                false,
+            )
             .unwrap()
     })
 }
@@ -302,7 +309,14 @@ fn the_stamp_comes_from_the_bytes_load_parsed() {
     // The first save check passes with exactly that stamp.
     let more = started
         .settings
-        .saved(Uuid::new_v4(), "more", None, Vec::new(), 8, false)
+        .saved(
+            Uuid::new_v4(),
+            "more",
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(Vec::new()),
+            8,
+            false,
+        )
         .unwrap();
     assert!(saved(&path, &started.guard, started.seen, &more).is_ok());
 }

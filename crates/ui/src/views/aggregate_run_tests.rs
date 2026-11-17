@@ -53,7 +53,13 @@ fn harness(frame: Frame, size: (f32, f32)) -> Harness<'static, Frame> {
                     .horizontal(|ui| show_run_button(ui, &f.availability, &i18n))
                     .inner;
                 show_run_status(ui, &f.run.status, &i18n);
-                let dialogs = show_run_dialog(ui.ctx(), f.run.dialog.as_ref(), &f.badge, &i18n);
+                let dialogs = show_run_dialog(
+                    ui.ctx(),
+                    f.run.dialog.as_ref(),
+                    &PipelineOptions::default(),
+                    &f.badge,
+                    &i18n,
+                );
                 for action in button.into_iter().chain(dialogs) {
                     if let AggregateAction::RunTyped(text) = &action {
                         f.run = std::mem::take(&mut f.run).typed(text.clone());

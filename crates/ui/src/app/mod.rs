@@ -13,6 +13,10 @@ mod aggregate_counts_actions;
 pub use aggregate_counts_actions::CountsAction;
 mod aggregate_explain_actions;
 pub use aggregate_explain_actions::ExplainAction;
+mod aggregate_hint_actions;
+mod aggregate_options_actions;
+pub use aggregate_options_actions::OptionsAction;
+mod aggregate_preview_send;
 mod banner;
 mod bulk_actions;
 mod code_export_actions;
@@ -867,6 +871,8 @@ mod file_picker_tests;
 mod pipelines_cleanup_tests;
 #[cfg(test)]
 mod pipelines_disk_tests;
+#[cfg(test)]
+mod pipelines_options_disk_tests;
 #[cfg(test)]
 mod pipelines_store_tests;
 #[cfg(test)]

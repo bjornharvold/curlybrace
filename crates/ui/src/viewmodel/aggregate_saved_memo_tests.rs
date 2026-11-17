@@ -10,7 +10,14 @@ fn opened() -> (AggregateState, SavedPipeline) {
         .add_stage("$match")
         .add_stage("$sort");
     let store = SavedPipelines::default()
-        .saved(conn, "totals", None, draft.as_saved_stages(), 1, false)
+        .saved(
+            conn,
+            "totals",
+            None,
+            curlybrace_core::saved_pipeline::SavedDraft::stages_only(draft.as_saved_stages()),
+            1,
+            false,
+        )
         .unwrap();
     let entry = store.list(conn)[0].clone();
     (AggregateState::default().opened_from(&entry), entry)

@@ -3,6 +3,7 @@
 //! were computed from (`InputMemo`), so a repaint with nothing changed parses nothing, and any
 //! change of the stages, the mode, the buffer or the query text asks again.
 use super::aggregate::{AggregateState, Mode};
+use super::aggregate_options_state::OptionsGate;
 use super::aggregate_view::AggregateView;
 use super::code_export::{CodeBlock, stages_exported};
 use super::findbar::FindBarState;
@@ -19,11 +20,15 @@ pub struct CodeKey {
     stages: Vec<Stage>,
     mode: Mode,
     text: Option<String>,
+    gate: OptionsGate,
 }
 
 impl CodeKey {
-    fn is_of(&self, stages: &[Stage], mode: Mode, text: Option<&str>) -> bool {
-        self.stages == stages && self.mode == mode && self.text.as_deref() == text
+    fn is_of(&self, stages: &[Stage], mode: Mode, text: Option<&str>, gate: OptionsGate) -> bool {
+        self.stages == stages
+            && self.mode == mode
+            && self.text.as_deref() == text
+            && self.gate == gate
     }
 }
 
@@ -35,12 +40,14 @@ impl AggregateView {
     /// or `None` when it has; the same answer as `stages_exported`, remembered between repaints.
     pub fn code_block(&self, draft: &AggregateState, stages: &[Stage]) -> Option<CodeBlock> {
         let text = (draft.mode == Mode::Text).then_some(draft.text.as_str());
+        let gate = draft.options_gate();
         self.code_block.answer(
-            |key| key.is_of(stages, draft.mode, text),
+            |key| key.is_of(stages, draft.mode, text, gate),
             || CodeKey {
                 stages: stages.to_vec(),
                 mode: draft.mode,
                 text: text.map(str::to_string),
+                gate,
             },
             |_| stages_exported(draft, stages).err(),
         )

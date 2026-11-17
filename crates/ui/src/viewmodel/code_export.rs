@@ -26,6 +26,8 @@ pub enum CodeBlock {
     Pipeline(PipelineError),
     /// The text-mode buffer was edited and not applied to the stages yet.
     TextNotApplied,
+    /// The options form has a problem: the code would not be what the screen shows.
+    Options,
 }
 
 /// The enabled stages of the draft exactly as a run would send them: the preview's `$limit` is
@@ -40,6 +42,7 @@ pub fn stages_exported(
     draft: &AggregateState,
     stages: &[Stage],
 ) -> Result<Vec<Document>, CodeBlock> {
+    draft.options_gate().check(CodeBlock::Options)?;
     let text_edited = draft.mode == Mode::Text && draft.text != pipeline_text(stages);
     if text_edited {
         return Err(CodeBlock::TextNotApplied);

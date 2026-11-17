@@ -205,7 +205,7 @@ fn tab_walks_the_header_then_the_first_stage() {
         .focus();
     harness.run_steps(2);
     let mut order = vec![focused(&harness)];
-    for _ in 0..12 {
+    for _ in 0..13 {
         harness.key_press(egui::Key::Tab);
         harness.run_steps(2);
         order.push(focused(&harness));
@@ -215,6 +215,7 @@ fn tab_walks_the_header_then_the_first_stage() {
         t("aggregate.mode.stages"),
         t("aggregate.mode.text"),
         t("aggregate.refresh"),
+        t("aggregate.options.toggle"),
         t("aggregate.saved.save"),
         t("codegen.button"),
         t("aggregate.explain.button"),
@@ -254,7 +255,8 @@ fn add_stage_adds_a_card_for_the_picked_name() {
 
 #[test]
 fn remove_and_move_change_the_cards() {
-    let mut harness = open(three_stages_shown());
+    // Taller than the standard window: the Options button makes the header one row longer.
+    let mut harness = open_sized(three_stages_shown(), (1000.0, 900.0));
     harness
         .get_by_role_and_label(Role::Button, &tn("aggregate.stage.move_down_n", 1))
         .click();

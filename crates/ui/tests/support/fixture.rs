@@ -67,6 +67,7 @@ fn launch(
     let handle = spawn_runtime_with_config(Some(store.clone()), None, Arc::new(|| {}), config);
     let app = CurlybraceApp::new(handle, curlybrace_ui::I18n::english(), saved, store)
         .with_config_path(Ok(config_path.clone()))
+        .with_pipelines_path(Ok(dir.path().join("pipelines.json")))
         .with_known_hosts_path(Some(known_hosts))
         .with_snapshot_dir(snapshot_dir)
         .with_host_key_requests(requests);
