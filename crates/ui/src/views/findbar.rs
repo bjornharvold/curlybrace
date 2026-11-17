@@ -39,11 +39,9 @@ pub fn show_findbar(
     has_prev: bool,
     has_next: bool,
     i18n: &I18n,
-) -> Option<FindAction> {
+) -> Vec<FindAction> {
     let no_list = HintListUi::default().unavailable();
     show_findbar_with(ui, state, (has_prev, has_next), &no_list, i18n)
-        .into_iter()
-        .next()
 }
 
 /// The find bar with the collection's index names for the Query options' hint picker (`hints`):
@@ -306,10 +304,10 @@ mod tests {
     use curlybrace_core::error::CoreError;
     use curlybrace_core::query::QueryText;
 
-    fn run_frame(state: &mut FindBarState, prev: bool, next: bool) -> Option<FindAction> {
+    fn run_frame(state: &mut FindBarState, prev: bool, next: bool) -> Vec<FindAction> {
         let ctx = egui::Context::default();
         let i18n = I18n::english();
-        let mut out = None;
+        let mut out = Vec::new();
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 out = show_findbar(ui, state, prev, next, &i18n);
@@ -320,7 +318,7 @@ mod tests {
 
     #[test]
     fn renders_default_and_error_state_without_panicking() {
-        assert_eq!(run_frame(&mut FindBarState::default(), false, false), None);
+        assert_eq!(run_frame(&mut FindBarState::default(), false, false), Vec::new());
         let mut s = FindBarState {
             text: QueryText {
                 filter: "{ \"имя\": \"a b.c\" }".into(),
@@ -332,7 +330,7 @@ mod tests {
             ..Default::default()
         };
         let before = s.clone();
-        assert_eq!(run_frame(&mut s, true, true), None);
+        assert_eq!(run_frame(&mut s, true, true), Vec::new());
         assert_eq!(s, before, "an idle frame must not change the state");
     }
 
