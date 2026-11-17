@@ -60,11 +60,11 @@ pub fn plan_next(draft: &AggregateState, ns: Option<&Namespace>) -> PlanNext {
         None
     };
     let Some(done) = draft.explain.done() else {
-        // An explain is out: nothing is offered, but a hint that is set stays clearable (off).
-        let hinted = draft.explain.is_loading() && current_hint.is_some();
+        // No plan (an explain is out, or it failed): nothing is offered, but a hint that is set
+        // stays reachable, so a hint that made the explain fail can be cleared.
         return PlanNext {
-            try_index: hinted,
-            current_hint: if hinted { current_hint } else { None },
+            try_index: current_hint.is_some(),
+            current_hint,
             blocked,
             ..PlanNext::off()
         };

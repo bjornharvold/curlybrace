@@ -185,6 +185,38 @@ fn a_running_explain_or_a_blocked_form_turns_try_off_with_its_reason() {
     );
 }
 
+/// A draft whose explain failed after `options` were sent with it.
+fn failed_with(options: PipelineOptions) -> AggregateState {
+    let draft = AggregateState::default();
+    let (ui, request, _) = draft.explain.clone().begun(pipeline(), &options);
+    let ui = ui.arrived(request, Err(curlybrace_core::error::CoreError::Unreachable));
+    AggregateState {
+        explain: ui,
+        options,
+        ..draft
+    }
+}
+
+#[test]
+fn a_failed_explain_keeps_clear_hint_reachable_when_a_hint_is_set() {
+    let hinted = PipelineOptions {
+        hint: Some(HintOption::Name("nope_1".into())),
+        ..PipelineOptions::default()
+    };
+    let next = plan_next(&failed_with(hinted), Some(&ns()));
+    assert!(next.try_index, "a bad hint must be clearable");
+    assert_eq!(next.current_hint.as_deref(), Some("nope_1"));
+    assert_eq!(next.suggested, None);
+    assert_eq!(next.blocked, None);
+}
+
+#[test]
+fn a_failed_explain_without_a_hint_offers_nothing() {
+    let next = plan_next(&failed_with(PipelineOptions::default()), Some(&ns()));
+    assert!(!next.try_index);
+    assert_eq!(next.current_hint, None);
+}
+
 #[test]
 fn the_current_hint_is_shown_by_name_or_keys() {
     let by_keys = PipelineOptions {
