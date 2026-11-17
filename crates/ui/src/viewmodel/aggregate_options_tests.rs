@@ -68,6 +68,42 @@ fn a_reopened_pipeline_is_not_a_change_whatever_numbers_its_file_used() {
 }
 
 #[test]
+fn no_debug_output_of_the_options_or_their_holders_shows_a_value() {
+    use crate::viewmodel::aggregate_explain::ExplainUi;
+    use crate::viewmodel::aggregate_options_state::OptionsUi;
+    const SECRET: &str = "s3cr3t-value";
+    let options = PipelineOptions {
+        collation: Some(CollationOption {
+            locale: format!("{SECRET}_x"),
+            strength: None,
+            case_level: None,
+            case_first: None,
+            numeric_ordering: None,
+            alternate: None,
+        }),
+        hint: Some(HintOption::Keys(doc! { SECRET: 1 })),
+        comment: Some(SECRET.into()),
+        ..PipelineOptions::default()
+    };
+    let form = OptionsForm::from_options(&options)
+        .edited(OptionsEdit::Comment(SECRET.into()))
+        .edited(OptionsEdit::MaxTime(SECRET.into()));
+    let (explain, _, _) = ExplainUi::default().begun(vec![doc! { "$match": {} }], &options);
+    let ui = OptionsUi {
+        form: form.clone(),
+        ..OptionsUi::default()
+    };
+    for shown in [
+        format!("{options:?}"),
+        format!("{form:?}"),
+        format!("{explain:?}"),
+        format!("{ui:?}"),
+    ] {
+        assert!(!shown.contains(SECRET), "{shown}");
+    }
+}
+
+#[test]
 fn an_empty_text_field_is_unset_and_blank_text_is_a_problem() {
     let blank = |edit| typed(OptionsForm::default(), vec![edit]);
     let hint = blank(OptionsEdit::HintText("   ".into()));

@@ -92,7 +92,7 @@ impl OptionsEdit {
 type Problems = Vec<(OptionField, OptionsError)>;
 
 /// The form as typed. `parsed` is recomputed by every op (never per frame).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct OptionsForm {
     pub collation_on: bool,
     pub locale: String,
@@ -107,6 +107,33 @@ pub struct OptionsForm {
     pub comment: String,
     pub read_preference: Option<ReadPreferenceMode>,
     parsed: Result<PipelineOptions, Problems>,
+}
+
+/// Names the shape, never what was typed: the locale, the hint, the time limit and the comment are
+/// the person's data, and the form is printed by every type that holds it.
+impl std::fmt::Debug for OptionsForm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let problems: Vec<&str> = self
+            .parsed()
+            .err()
+            .unwrap_or_default()
+            .iter()
+            .map(|(_, e)| e.error_variant())
+            .collect();
+        f.debug_struct("OptionsForm")
+            .field("collation_on", &self.collation_on)
+            .field(
+                "typed",
+                &[
+                    !self.locale.is_empty(),
+                    !self.hint_text.is_empty(),
+                    !self.max_time.is_empty(),
+                    !self.comment.is_empty(),
+                ],
+            )
+            .field("problems", &problems)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for OptionsForm {
