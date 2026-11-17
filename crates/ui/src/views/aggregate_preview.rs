@@ -122,7 +122,7 @@ fn status_lines(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) {
 /// One line for the read preference and one for the hint, so a result shaped by options is
 /// visibly so.
 fn options_lines(ui: &mut egui::Ui, options: &PipelineOptions, i18n: &I18n) {
-    for (key, params) in options_status(options) {
+    for (key, params) in options_status(options, i18n) {
         let params: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         ui.weak(i18n.t_with(key, &params));
     }

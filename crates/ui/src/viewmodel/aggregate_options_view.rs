@@ -3,6 +3,7 @@
 //! depend on the options. Pure and egui-free. Option values are user data: nothing here logs one.
 use super::aggregate_options::keys_text;
 use super::aggregate_view::{AggregateView, EDIT_PAUSE_SECS};
+use crate::I18n;
 use curlybrace_core::pipeline::{
     HintOption, MaxTimeEffect, Operation, PipelineOptions, ReadPreferenceMode,
 };
@@ -45,24 +46,13 @@ impl AggregateView {
     }
 }
 
-/// The MongoDB spelling of a read preference mode.
-fn mode_name(mode: ReadPreferenceMode) -> &'static str {
-    match mode {
-        ReadPreferenceMode::Primary => "primary",
-        ReadPreferenceMode::PrimaryPreferred => "primaryPreferred",
-        ReadPreferenceMode::Secondary => "secondary",
-        ReadPreferenceMode::SecondaryPreferred => "secondaryPreferred",
-        ReadPreferenceMode::Nearest => "nearest",
-    }
-}
-
 /// The lines under the preview that say a result was shaped by options: the read preference and
 /// the hint.
-pub fn options_status(options: &PipelineOptions) -> Vec<StatusLine> {
+pub fn options_status(options: &PipelineOptions, i18n: &I18n) -> Vec<StatusLine> {
     let mode = options.read_preference.map(|m| {
         (
             "aggregate.options.status.read_from",
-            vec![("mode", mode_name(m).to_string())],
+            vec![("mode", i18n.t(read_preference_key(Some(m))))],
         )
     });
     let hint = options.hint.as_ref().map(|hint| {

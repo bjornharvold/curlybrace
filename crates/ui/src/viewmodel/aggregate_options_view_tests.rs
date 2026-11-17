@@ -1,4 +1,5 @@
 use super::*;
+use crate::I18n;
 use bson::doc;
 use curlybrace_core::pipeline::{CollationOption, HintOption};
 
@@ -38,7 +39,7 @@ fn the_status_names_the_read_preference_and_the_hint() {
         hint: Some(HintOption::Name("status_1".into())),
         ..PipelineOptions::default()
     });
-    let lines = options_status(&by_name);
+    let lines = options_status(&by_name, &I18n::english());
     assert_eq!(
         lines,
         vec![
@@ -57,10 +58,10 @@ fn the_status_names_the_read_preference_and_the_hint() {
         ..PipelineOptions::default()
     };
     assert_eq!(
-        options_status(&by_keys)[0].1,
+        options_status(&by_keys, &I18n::english())[0].1,
         [("name", r#"{"a":1,"b":-1}"#.to_string())]
     );
-    assert!(options_status(&PipelineOptions::default()).is_empty());
+    assert!(options_status(&PipelineOptions::default(), &I18n::english()).is_empty());
 }
 
 #[test]
@@ -123,4 +124,18 @@ fn every_read_preference_has_a_key() {
     ];
     let keys: std::collections::BTreeSet<_> = modes.into_iter().map(read_preference_key).collect();
     assert_eq!(keys.len(), 6);
+}
+
+#[test]
+fn the_read_preference_in_the_status_is_the_translated_label() {
+    let locale = I18n::from_json(
+        r#"{"aggregate":{"options":{"read_preference":{"value":{"nearest":"le plus proche"}}}}}"#,
+    )
+    .expect("a locale");
+    let options = PipelineOptions {
+        read_preference: Some(ReadPreferenceMode::Nearest),
+        ..PipelineOptions::default()
+    };
+    let lines = options_status(&options, &locale);
+    assert_eq!(lines[0].1, [("mode", "le plus proche".to_string())]);
 }
