@@ -55,6 +55,10 @@ pub(super) fn record_typed(
     kind: VerdictKind,
     now: &dyn Fn() -> i64,
 ) {
+    // A verdict under a hint or a collation describes those options, not the query's shape.
+    if query.options.hint.is_some() || query.options.collation.is_some() {
+        return;
+    }
     let row = typed_observation(connection, ns, query, kind, now());
     let history = Arc::clone(history);
     // Detached on purpose: nothing waits for the recording.

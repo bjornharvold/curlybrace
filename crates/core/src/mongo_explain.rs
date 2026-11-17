@@ -9,7 +9,9 @@ use mongodb::error::ErrorKind;
 use mongodb::options::SelectionCriteria;
 
 use crate::error::Result;
+use crate::mongo_pipeline_options::{classify_with, explain_fields, read_criteria};
 use crate::mongo_store::{fetch_limit, skip_as_i64};
+use crate::query_options::{AppliedFindOptions, FindOperation};
 use crate::store::{Explain, Namespace, Query};
 
 /// Server-side time limit of one explain, so a heavy scan cannot hold the connection.
@@ -37,9 +39,14 @@ impl Verbosity {
 }
 
 /// The `explain` command for `q` on `ns`: the same find the query bar sends (filter, sort,
-/// projection, skip, and the `limit + 1` that `find` fetches), wrapped with the verbosity and
-/// the time limit.
-pub(crate) fn explain_command(ns: &Namespace, q: &Query, verbosity: Verbosity) -> Result<Document> {
+/// projection, skip, and the `limit + 1` that `find` fetches) plus the options `o` sends
+/// (collation, hint, disk use, comment), wrapped with the verbosity and the time limit.
+pub(crate) fn explain_command(
+    ns: &Namespace,
+    q: &Query,
+    verbosity: Verbosity,
+    o: &AppliedFindOptions,
+) -> Result<Document> {
     let skip = skip_as_i64(q)?;
     let mut find = doc! { "find": ns.collection.clone(), "filter": q.filter.clone() };
     if let Some(sort) = &q.sort {
@@ -54,10 +61,11 @@ pub(crate) fn explain_command(ns: &Namespace, q: &Query, verbosity: Verbosity) -
     if let Some(limit) = fetch_limit(q) {
         find.insert("limit", limit);
     }
+    find.extend(explain_fields(&o.options));
     Ok(doc! {
         "explain": find,
         "verbosity": verbosity.as_str(),
-        "maxTimeMS": EXPLAIN_MAX_TIME_MS,
+        "maxTimeMS": i64::try_from(o.options.max_time.as_millis()).unwrap_or(EXPLAIN_MAX_TIME_MS),
     })
 }
 
@@ -79,14 +87,12 @@ pub(crate) fn explain_criteria(db: &Database) -> Option<SelectionCriteria> {
     db.selection_criteria().cloned()
 }
 
-pub(crate) async fn run_explain(
-    db: &Database,
-    command: Document,
-) -> mongodb::error::Result<Document> {
-    run_explain_on(db, command, explain_criteria(db)).await
+/// Where an explain with `o` runs: the person's read preference when set, else the connection's.
+pub(crate) fn criteria_for(db: &Database, o: &AppliedFindOptions) -> Option<SelectionCriteria> {
+    read_criteria(&o.options).or_else(|| explain_criteria(db))
 }
 
-/// [`run_explain`] on the servers `criteria` selects (`None`: the driver's default for a command).
+/// Runs an explain on the servers `criteria` selects (`None`: the driver's default for a command).
 pub(crate) async fn run_explain_on(
     db: &Database,
     command: Document,
@@ -98,40 +104,46 @@ pub(crate) async fn run_explain_on(
 }
 
 /// Explains `q` with execution statistics; when the time limit expires, falls back to the plan
-/// alone (`plan_only`). Any other error is classified like every store error.
+/// alone (`plan_only`). Any other error is classified knowing the options that were sent.
 pub(crate) async fn explain_find(db: &Database, ns: &Namespace, q: &Query) -> Result<Explain> {
-    let stats = explain_command(ns, q, Verbosity::ExecutionStats)?;
-    match run_explain(db, stats).await {
+    let applied = q.options.find_applied(FindOperation::Explain);
+    let fail = |e: mongodb::error::Error| classify_with(&e, &applied.options);
+    let stats = explain_command(ns, q, Verbosity::ExecutionStats, &applied)?;
+    match run_explain_on(db, stats, criteria_for(db, &applied)).await {
         Ok(document) => Ok(Explain {
             document,
             plan_only: false,
         }),
         Err(e) if timed_out(&e) => {
-            let plan = explain_command(ns, q, Verbosity::QueryPlanner)?;
-            let document = run_explain(db, plan)
+            let plan = explain_command(ns, q, Verbosity::QueryPlanner, &applied)?;
+            let document = run_explain_on(db, plan, criteria_for(db, &applied))
                 .await
-                .map_err(|e| crate::driver_error::classify_driver_error(&e))?;
+                .map_err(fail)?;
             Ok(Explain {
                 document,
                 plan_only: true,
             })
         }
-        Err(e) => Err(crate::driver_error::classify_driver_error(&e)),
+        Err(e) => Err(fail(e)),
     }
 }
 
 /// Explains `q` with the plan alone: the server plans the find and never runs it.
 pub(crate) async fn explain_plan(db: &Database, ns: &Namespace, q: &Query) -> Result<Explain> {
-    let plan = explain_command(ns, q, Verbosity::QueryPlanner)?;
-    let document = run_explain(db, plan)
+    let applied = q.options.find_applied(FindOperation::PlanCheck);
+    let plan = explain_command(ns, q, Verbosity::QueryPlanner, &applied)?;
+    let document = run_explain_on(db, plan, criteria_for(db, &applied))
         .await
-        .map_err(|e| crate::driver_error::classify_driver_error(&e))?;
+        .map_err(|e| classify_with(&e, &applied.options))?;
     Ok(Explain {
         document,
         plan_only: true,
     })
 }
 
+#[cfg(test)]
+#[path = "mongo_explain_options_tests.rs"]
+mod options_tests;
 #[cfg(test)]
 #[path = "mongo_explain_tests.rs"]
 mod tests;

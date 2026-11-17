@@ -14,7 +14,7 @@ use super::memory_fields::update_fields;
 use super::memory_indexes::{self as idx, IndexMap, UsageMap};
 use super::memory_options::{self as opts, OptionsMap};
 use super::memory_profile::{self as prof, ProfileMap};
-use super::query_eval::{check_filter, compare, matches, parse_sort, project};
+use super::query_eval::{check_filter, matches};
 use crate::admin::{CollectionStats, DatabaseStats};
 use crate::compare::key::{KeySpec, KeyTuple, compare_tuples, extract_key, key_values};
 use crate::error::{CoreError, Result};
@@ -27,6 +27,8 @@ use crate::store::{
 };
 
 use super::memory_aggregate::AggregateScript;
+use super::memory_find::{FindScript, select};
+use crate::query_options::FindOperation;
 
 pub(super) type Collections = BTreeMap<(String, String), Vec<Document>>;
 
@@ -39,6 +41,7 @@ pub struct InMemoryStore {
     explains: Mutex<BTreeMap<(String, String), Document>>,
     pub(super) profiles: Mutex<ProfileMap>,
     pub(super) aggregate: Mutex<AggregateScript>,
+    pub(super) find: Mutex<FindScript>,
 }
 
 impl InMemoryStore {
@@ -66,6 +69,18 @@ impl InMemoryStore {
         self
     }
 
+    /// The explain scripted for `ns`; a store without one cannot explain.
+    pub(super) fn scripted_explain(&self, ns: &Namespace) -> Result<Explain> {
+        let scripted = self.explains.lock().map_err(|_| poisoned())?;
+        scripted
+            .get(&key(ns))
+            .map(|document| Explain {
+                document: document.clone(),
+                plan_only: false,
+            })
+            .ok_or_else(|| CoreError::Unsupported("this store cannot explain queries".into()))
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, Collections>> {
         self.data.lock().map_err(|_| poisoned())
     }
@@ -79,7 +94,7 @@ pub(super) fn poisoned() -> CoreError {
     CoreError::Database("in-memory store lock poisoned".into())
 }
 
-fn key(ns: &Namespace) -> (String, String) {
+pub(super) fn key(ns: &Namespace) -> (String, String) {
     (ns.db.clone(), ns.collection.clone())
 }
 
@@ -127,36 +142,6 @@ fn apply_op(docs: &mut Vec<Document>, op: WriteOp) -> WriteOutcome {
     Ok(())
 }
 
-/// Evaluates a query over `docs`. Fetches `limit + 1` rows to compute
-/// `has_more`; `limit == 0` means "no limit", as in MongoDB.
-fn select(docs: &[Document], q: &Query) -> Result<Page> {
-    check_filter(&q.filter)?;
-    let sort_keys = q.sort.as_ref().map(parse_sort).transpose()?;
-    let mut hits: Vec<&Document> = docs.iter().filter(|d| matches(d, &q.filter)).collect();
-    if let Some(keys) = &sort_keys {
-        hits.sort_by(|a, b| compare(a, b, keys));
-    }
-    let window = hits.into_iter().skip(q.skip as usize);
-    let (fetched, limit): (Vec<&Document>, usize) = match q.limit {
-        0 => (window.collect(), usize::MAX),
-        n => (window.take(n as usize + 1).collect(), n as usize),
-    };
-    let has_more = fetched.len() > limit;
-    let docs = fetched
-        .into_iter()
-        .take(limit)
-        .map(|d| match &q.projection {
-            Some(p) => project(d, p),
-            None => Ok(d.clone()),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(Page {
-        docs,
-        skip: q.skip,
-        has_more,
-    })
-}
-
 #[async_trait]
 impl DocumentStore for InMemoryStore {
     async fn list_databases(&self) -> Result<Vec<String>> {
@@ -176,6 +161,10 @@ impl DocumentStore for InMemoryStore {
     }
 
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page> {
+        self.note_find(FindOperation::Find, ns, q)?;
+        if let Some(error) = self.scripted_find_error()? {
+            return Err(error);
+        }
         let data = self.lock()?;
         select(data.get(&key(ns)).map_or(&[][..], Vec::as_slice), q)
     }
@@ -317,15 +306,9 @@ impl DocumentStore for InMemoryStore {
         Ok(usage.get(&key(ns)).cloned().unwrap_or_default())
     }
 
-    async fn explain_find(&self, ns: &Namespace, _q: &Query) -> Result<Explain> {
-        let scripted = self.explains.lock().map_err(|_| poisoned())?;
-        scripted
-            .get(&key(ns))
-            .map(|document| Explain {
-                document: document.clone(),
-                plan_only: false,
-            })
-            .ok_or_else(|| CoreError::Unsupported("this store cannot explain queries".into()))
+    async fn explain_find(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
+        self.note_find(FindOperation::Explain, ns, q)?;
+        self.scripted_explain(ns)
     }
 
     async fn aggregate_preview(
@@ -358,7 +341,8 @@ impl DocumentStore for InMemoryStore {
 
     /// Answers the same scripted document as `explain_find`, flagged plan-only.
     async fn explain_plan(&self, ns: &Namespace, q: &Query) -> Result<Explain> {
-        self.explain_find(ns, q).await.map(|explain| Explain {
+        self.note_find(FindOperation::PlanCheck, ns, q)?;
+        self.scripted_explain(ns).map(|explain| Explain {
             plan_only: true,
             ..explain
         })

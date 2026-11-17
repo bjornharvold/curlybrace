@@ -11,6 +11,7 @@ mod memory_aggregate_tests;
 #[cfg(test)]
 mod memory_bulk_tests;
 mod memory_fields;
+mod memory_find;
 mod memory_indexes;
 mod memory_options;
 mod memory_profile;
