@@ -141,6 +141,49 @@ fn a_blocking_apply_ends_a_running_count_sequence() {
 }
 
 #[test]
+fn ticking_the_collation_before_its_locale_keeps_the_preview_and_the_counts() {
+    let (s, commands) = act(drafted(), A::Counts(CountsAction::Start));
+    assert_eq!(counts_of(&commands).len(), 1);
+    let (s, commands) = edit(s, OptionsEdit::CollationOn(true));
+    assert!(
+        commands.is_empty(),
+        "nothing is sent for a collation without a locale"
+    );
+    assert!(s.aggregate.counts.is_running(), "the sequence goes on");
+    assert!(
+        !matches!(
+            s.aggregate.preview,
+            crate::viewmodel::aggregate::PreviewState::Failed { .. }
+        ),
+        "the preview is not replaced by the block"
+    );
+    assert!(s.aggregate.options.is_empty());
+}
+
+#[test]
+fn a_run_waits_for_the_locale_of_a_ticked_collation() {
+    let (s, _) = edit(drafted(), OptionsEdit::CollationOn(true));
+    assert_eq!(
+        s.run_availability(),
+        RunAvailability::Disabled(RunDisabled::Options)
+    );
+    let (s, _) = act(s, A::RunClicked);
+    assert!(s.aggregate.run.dialog.is_none());
+    let (s, _) = edit(s, OptionsEdit::Locale("en".into()));
+    let (s, _) = act(s, A::Options(O::Apply));
+    assert_eq!(s.run_availability(), RunAvailability::Ready);
+}
+
+#[test]
+fn confirm_refuses_a_run_while_the_collation_has_no_locale() {
+    let (s, _) = act(drafted(), A::RunClicked);
+    let (s, _) = act(s, A::RunTyped("dest".into()));
+    let (s, _) = edit(s, OptionsEdit::CollationOn(true));
+    let (_, commands) = act(s, A::RunConfirmed);
+    assert!(runs(&commands).is_empty());
+}
+
+#[test]
 fn an_explain_carries_the_draft_options() {
     let (_, commands) = act(optioned(), A::Explain(ExplainAction::Run));
     assert_eq!(explains(&commands), [wanted()]);

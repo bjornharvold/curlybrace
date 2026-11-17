@@ -106,6 +106,8 @@ pub struct OptionsForm {
     pub max_time: String,
     pub comment: String,
     pub read_preference: Option<ReadPreferenceMode>,
+    /// The locale was edited since the collation was ticked (see `locale_pending`).
+    locale_touched: bool,
     parsed: Result<PipelineOptions, Problems>,
 }
 
@@ -151,6 +153,7 @@ impl Default for OptionsForm {
             max_time: String::new(),
             comment: String::new(),
             read_preference: None,
+            locale_touched: false,
             parsed: Ok(PipelineOptions::default()),
         }
     }
@@ -181,6 +184,8 @@ impl OptionsForm {
                 .unwrap_or_default(),
             comment: options.comment.clone().unwrap_or_default(),
             read_preference: options.read_preference,
+            // A loaded collation always has a locale; without one nothing is pending.
+            locale_touched: false,
             parsed: Ok(options.clone()),
         }
         .reparsed()
@@ -189,11 +194,17 @@ impl OptionsForm {
     /// The form after `edit`.
     pub fn edited(self, edit: OptionsEdit) -> Self {
         let next = match edit {
+            // Ticking starts a locale that is still to be typed; unticking forgets the edit.
             OptionsEdit::CollationOn(collation_on) => Self {
                 collation_on,
+                locale_touched: false,
                 ..self
             },
-            OptionsEdit::Locale(locale) => Self { locale, ..self },
+            OptionsEdit::Locale(locale) => Self {
+                locale,
+                locale_touched: true,
+                ..self
+            },
             OptionsEdit::Strength(strength) => Self { strength, ..self },
             OptionsEdit::CaseLevel(case_level) => Self { case_level, ..self },
             OptionsEdit::CaseFirst(case_first) => Self { case_first, ..self },
@@ -235,10 +246,23 @@ impl OptionsForm {
 
     /// The problem of `field`, if it has one.
     pub fn problem(&self, field: OptionField) -> Option<OptionsError> {
-        self.parsed()
-            .err()?
-            .iter()
-            .find_map(|(f, e)| (*f == field).then_some(*e))
+        let found = self
+            .parsed()
+            .err()
+            .and_then(|all| all.iter().find_map(|(f, e)| (*f == field).then_some(*e)));
+        // A pending locale is no problem of the form, but the field says what to do.
+        found.or_else(|| {
+            (field == OptionField::Locale && self.locale_pending())
+                .then_some(OptionsError::LocaleEmpty)
+        })
+    }
+
+    /// The collation is ticked and its locale was never edited since: the person is about to type
+    /// it. Nothing is applied for it and nothing is blocked (the last preview and the counts
+    /// stay), but a run waits, since it would not carry the collation the screen shows. Once the
+    /// locale has been edited, empty again included, an empty locale is a problem.
+    pub fn locale_pending(&self) -> bool {
+        self.collation_on && self.locale.is_empty() && !self.locale_touched
     }
 
     /// Some field has a problem: nothing that sends a pipeline may go on.
@@ -264,7 +288,7 @@ fn field_of(error: OptionsError) -> OptionField {
 
 /// The collation the form asks for; none when it is off (its fields are then not looked at).
 fn collation_of(form: &OptionsForm) -> Result<Option<CollationOption>, OptionsError> {
-    if !form.collation_on {
+    if !form.collation_on || form.locale_pending() {
         return Ok(None);
     }
     let collation = CollationOption {

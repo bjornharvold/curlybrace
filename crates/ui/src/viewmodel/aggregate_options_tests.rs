@@ -149,6 +149,63 @@ fn collation_off_ignores_the_locale_and_its_fields() {
     );
 }
 
+// The rule for a collation that is ticked before its locale is typed: while the locale has never
+// been edited it is PENDING, not wrong: nothing is applied or blocked and the field only says what
+// to do. Once the person has edited the locale (typed, cleared it, or left the empty field), an
+// empty locale is a problem like any other.
+#[test]
+fn a_collation_ticked_before_its_locale_is_pending_not_blocked() {
+    let form = typed(OptionsForm::default(), vec![OptionsEdit::CollationOn(true)]);
+    assert!(!form.is_blocked());
+    assert!(form.locale_pending());
+    assert_eq!(parsed(&form).collation, None, "nothing to apply yet");
+    assert_eq!(
+        form.problem(OptionField::Locale),
+        Some(OptionsError::LocaleEmpty),
+        "the field still says what to do"
+    );
+}
+
+#[test]
+fn typing_a_locale_ends_the_pending_state() {
+    let form = typed(
+        OptionsForm::default(),
+        vec![
+            OptionsEdit::CollationOn(true),
+            OptionsEdit::Locale("en".into()),
+        ],
+    );
+    assert!(!form.locale_pending());
+    assert_eq!(parsed(&form).collation.expect("on").locale, "en");
+}
+
+#[test]
+fn a_locale_that_was_edited_and_is_empty_again_is_a_problem() {
+    let form = typed(
+        OptionsForm::default(),
+        vec![
+            OptionsEdit::CollationOn(true),
+            OptionsEdit::Locale("en".into()),
+            OptionsEdit::Locale(String::new()),
+        ],
+    );
+    assert!(form.is_blocked());
+    assert_eq!(
+        form.problem(OptionField::Locale),
+        Some(OptionsError::LocaleEmpty)
+    );
+    // Turning the collation off and on again starts over.
+    let again = typed(
+        form,
+        vec![
+            OptionsEdit::CollationOn(false),
+            OptionsEdit::CollationOn(true),
+        ],
+    );
+    assert!(!again.is_blocked());
+    assert!(again.locale_pending());
+}
+
 #[test]
 fn a_locale_problem_is_reported_on_the_locale_field() {
     let with = |locale: &str| {

@@ -117,8 +117,8 @@ fn confirmed(state: AppState) -> Out {
         .filter(|p| p.target == dialog.target && p.stage == dialog.stage);
     // The form may have changed since the dialog opened (typed text is not applied yet): a
     // run sends what the screen shows, so one with a problem sends nothing.
-    let Some(plan) =
-        plan.filter(|_| same_source && dialog.is_confirmed() && !state.aggregate.options_blocked())
+    let Some(plan) = plan
+        .filter(|_| same_source && dialog.is_confirmed() && !state.aggregate.options_hold_run())
     else {
         return (state, Vec::new());
     };

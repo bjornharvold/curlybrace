@@ -122,6 +122,12 @@ impl AggregateState {
         self.options_ui.form.is_blocked()
     }
 
+    /// A run must wait: the form has a problem, or a ticked collation still lacks its locale (a
+    /// run would not carry the collation the screen shows).
+    pub fn options_hold_run(&self) -> bool {
+        self.options_blocked() || self.options_ui.form.locale_pending()
+    }
+
     /// The pane says the options block the preview, keeping the last good one; a preview that
     /// waited for the slot is dropped and a running count sequence ends, so the last valid
     /// options are not sent behind the person's back.

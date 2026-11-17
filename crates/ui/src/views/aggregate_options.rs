@@ -191,7 +191,12 @@ fn show_collation(ui: &mut egui::Ui, form: &OptionsForm, g: &mut Gathered, i18n:
             &i18n.t("aggregate.options.collation.locale_hint"),
             problem(form, OptionField::Locale, i18n),
         );
+        let left = typed.commit;
         g.typed(typed, OptionsEdit::Locale);
+        // Leaving the empty field is an edit: from here on an empty locale is a problem.
+        if left && form.locale.is_empty() {
+            g.edits.push(OptionsEdit::Locale(String::new()));
+        }
         let current = COMMON_LOCALES
             .iter()
             .copied()

@@ -155,7 +155,7 @@ impl AggregateState {
             _ if env.other_write => Some(RunDisabled::OtherWrite),
             _ if !shape.text_applied => Some(RunDisabled::TextNotApplied),
             // Asked fresh: the form changes with a keystroke, the memoised shape does not.
-            _ if self.options_blocked() => Some(RunDisabled::Options),
+            _ if self.options_hold_run() => Some(RunDisabled::Options),
             _ => shape.plan_refusal(env),
         };
         match refusal {
