@@ -10,9 +10,9 @@ use crate::error::{CoreError, Result};
 use crate::explain::ExplainVerbosity;
 use crate::mongo_explain::{explain_criteria, run_explain_on};
 use crate::mongo_pipeline_options::{
-    classify_with, explain_fields, read_criteria, read_options, write_options,
+    classify_with, driver_max_time, explain_fields, read_criteria, read_options, write_options,
 };
-use crate::pipeline::{AppliedOptions, clamped_time, contains_write_stage, ensure_run_shape};
+use crate::pipeline::{AppliedOptions, contains_write_stage, ensure_run_shape};
 use crate::store::{Explain, Namespace};
 
 /// Refuses a pipeline holding `$out` or `$merge` at a stage position: the stage key itself, the
@@ -59,7 +59,7 @@ pub(crate) fn aggregate_explain_command(
     verbosity: ExplainVerbosity,
     options: &AppliedOptions,
 ) -> Document {
-    let max_time_ms = i64::try_from(clamped_time(options.max_time).as_millis()).unwrap_or(i64::MAX);
+    let max_time_ms = i64::try_from(driver_max_time(options).as_millis()).unwrap_or(i64::MAX);
     let mut inner = doc! {
         "aggregate": ns.collection.clone(),
         "pipeline": pipeline,

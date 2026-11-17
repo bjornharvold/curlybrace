@@ -1,9 +1,11 @@
 //! The driver side of aggregate options: what [`AppliedOptions`] become as `AggregateOptions`, as
 //! the fields of an explained aggregate, and how a server answer is read given what was sent.
 //!
-//! The two safety rules of the policy are enforced again here: a read never spills to disk and a
-//! write always selects the primary, whatever the applied options say. Server text is matched,
-//! never stored or echoed.
+//! The safety rules of the policy are enforced again here, whatever the applied options say: a
+//! preview or a count (`read_options`) never spills to disk, a run (`write_options`) always
+//! selects the primary, and every time limit is within 1 ms and the cap (`driver_max_time`).
+//! An explain and a run send `allowDiskUse` as set. Server text is matched, never stored or
+//! echoed.
 
 use bson::{Bson, Document};
 use mongodb::error::ErrorKind;
@@ -14,9 +16,9 @@ use mongodb::options::{
 
 use crate::driver_error::classify_driver_error;
 use crate::error::CoreError;
-use crate::pipeline::clamped_time;
 use crate::pipeline::{
-    Alternate, AppliedOptions, CaseFirst, CollationOption, HintOption, ReadPreferenceMode, Strength,
+    Alternate, AppliedOptions, CaseFirst, CollationOption, HintOption, ReadPreferenceMode,
+    Strength, clamped_time,
 };
 
 /// The server code of `BadValue`, which a refused hint or collation answers with.
@@ -28,6 +30,12 @@ const HINT_NOT_FOUND_TEXT: &str = "hint provided does not correspond to an exist
 /// The server's phrase (lowercased) for an unknown collation locale, as MongoDB 9.0 words it:
 /// `Field 'locale' is invalid in: { locale: "xx" }`.
 const LOCALE_INVALID_TEXT: &str = "field 'locale' is invalid";
+
+/// The server-side time limit sent for `o`: the one place the driver boundary clamps (the policy
+/// clamps when it builds the options, this guards a value built any other way).
+pub(crate) fn driver_max_time(o: &AppliedOptions) -> std::time::Duration {
+    clamped_time(o.max_time)
+}
 
 pub(crate) fn driver_collation(c: &CollationOption) -> Collation {
     Collation::builder()
@@ -95,7 +103,7 @@ pub(crate) fn read_criteria(o: &AppliedOptions) -> Option<SelectionCriteria> {
 pub(crate) fn read_options(o: &AppliedOptions) -> AggregateOptions {
     AggregateOptions::builder()
         .allow_disk_use(false)
-        .max_time(clamped_time(o.max_time))
+        .max_time(driver_max_time(o))
         .collation(o.collation.as_ref().map(driver_collation))
         .hint(o.hint.as_ref().map(driver_hint))
         .comment(o.comment.clone().map(Bson::String))
@@ -107,7 +115,7 @@ pub(crate) fn read_options(o: &AppliedOptions) -> AggregateOptions {
 pub(crate) fn write_options(o: &AppliedOptions) -> AggregateOptions {
     AggregateOptions::builder()
         .allow_disk_use(o.allow_disk_use)
-        .max_time(clamped_time(o.max_time))
+        .max_time(driver_max_time(o))
         .collation(o.collation.as_ref().map(driver_collation))
         .hint(o.hint.as_ref().map(driver_hint))
         .comment(o.comment.clone().map(Bson::String))
@@ -178,7 +186,15 @@ pub(crate) fn asks_for_non_primary(o: &AppliedOptions) -> bool {
 }
 
 /// Whether a failed server selection says servers were available but none suited the criteria
-/// (the driver's own wording), as opposed to no server being reachable at all. Only the first is
+/// (the driver's own wording), as opposed to no server being reachable at all.
+///
+/// This relies on the wording of `mongodb` 3.6.0 (`TopologyDescription::
+/// server_selection_timeout_error_message`): "Server selection timeout: None of the available
+/// servers suitable for criteria ..." against "... No available servers ...". The unit test
+/// `a_deployment_that_is_down_stays_unreachable_whatever_the_read_preference` pins the second
+/// wording with a real failed selection (`selection_failure`), and the replica-set container test
+/// `secondary_on_a_one_member_set_is_read_preference_unavailable` pins the first; a driver
+/// upgrade that rewords either fails one of them. Only the first is
 /// an unsatisfiable read preference; the second is a lost deployment and keeps its ordinary
 /// classification (`Unreachable`, `TlsHandshake`).
 pub(crate) fn selection_found_servers(message: &str) -> bool {

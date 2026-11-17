@@ -501,7 +501,8 @@ pub trait DocumentStore: Send + Sync {
     /// Explains `pipeline` on `ns`: the server's plan of an aggregate. A read, so a read-only
     /// connection may call it. Refuses a pipeline holding `$out` or `$merge` at any depth before
     /// it reaches the server. `QueryPlanner` never runs the pipeline; `ExecutionStats` does, and
-    /// the server stops after `options.max_time`. The answer has `plan_only` set for
+    /// the server stops after `options.max_time`. `allowDiskUse` is sent as the options set it (an
+    /// explain describes the plan of a run), unlike a preview. The answer has `plan_only` set for
     /// `QueryPlanner`.
     async fn aggregate_explain(
         &self,
