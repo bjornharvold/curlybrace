@@ -254,9 +254,8 @@ fn the_comment_note_says_it_reaches_the_server() {
 fn reset_empties_the_form() {
     let state = shown(with_options(vec![OptionsEdit::Comment("why".into())]));
     let mut harness = open(state, asked(), (1000.0, 1800.0));
-    harness
-        .get_by_role_and_label(Role::Button, &t("aggregate.options.reset"))
-        .click();
+    let reset = t("aggregate.options.reset");
+    harness.get_by_role_and_label(Role::Button, &reset).click();
     harness.run_steps(3);
     assert_eq!(harness.state().state.options.comment, "");
     assert_eq!(

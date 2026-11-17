@@ -20,6 +20,7 @@ pub mod counts_shots;
 pub mod db;
 pub mod explain_shots;
 pub mod export_flow;
+pub mod find_options_shots;
 pub mod fixture;
 pub mod guard_shots;
 pub mod indexes_shots;

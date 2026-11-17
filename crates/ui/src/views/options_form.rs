@@ -96,7 +96,9 @@ impl FormContext<'_> {
         match self.layout {
             FormLayout::Columns => add(ui),
             FormLayout::Wrapped => {
-                ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+                // Top down inside the cell, so a label sits above its control as in the columns.
+                let layout = egui::Layout::top_down(egui::Align::Min);
+                ui.allocate_ui_with_layout(egui::vec2(width, 0.0), layout, |ui| {
                     ui.add_enabled_ui(enabled, add);
                 });
             }
@@ -149,6 +151,13 @@ fn show_columns(
     }
 }
 
+/// A row that wraps its cells and lines them up by their tops, so a row is as tall as its
+/// tallest cell and no taller.
+fn wrapped_row(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true);
+    ui.with_layout(layout, add);
+}
+
 /// Three wrapping rows: the collation; the index list, hint, time limit, read preference and
 /// disk use; the comment, the notes and Reset.
 fn show_wrapped(
@@ -159,8 +168,8 @@ fn show_wrapped(
     g: &mut Gathered,
     i18n: &I18n,
 ) {
-    ui.horizontal_wrapped(|ui| show_collation(ui, form, g, cx, i18n));
-    ui.horizontal_wrapped(|ui| {
+    wrapped_row(ui, |ui| show_collation(ui, form, g, cx, i18n));
+    wrapped_row(ui, |ui| {
         show_hint_group(ui, form, hints, g, cx, i18n);
         cx.cell(ui, width::FIELD, true, |ui| {
             show_max_time(ui, form, g, cx, i18n)
@@ -172,14 +181,15 @@ fn show_wrapped(
             show_disk_use(ui, form, g, cx, i18n)
         });
     });
-    ui.horizontal_wrapped(|ui| {
+    wrapped_row(ui, |ui| {
         cx.cell(ui, width::COMMENT, true, |ui| {
             show_comment(ui, form, g, cx, i18n)
         });
-        show_notes(ui, form, cx, i18n);
         ui.add_space(shape::SPACE_1);
         g.reset |= text_button(ui, i18n.t("aggregate.options.reset")).clicked();
     });
+    // Whole lines under the rows: a note wrapped into what a row has left would be a tall sliver.
+    show_notes(ui, form, cx, i18n);
 }
 
 /// The hint, disk use, time limit, comment and read preference, then Reset.

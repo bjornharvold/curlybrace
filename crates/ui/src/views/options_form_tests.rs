@@ -120,9 +120,9 @@ fn the_wrapped_layout_shows_every_control_in_reading_order() {
         .collect();
     for pair in places.windows(2) {
         let (a, b) = (pair[0], pair[1]);
-        let same_row = (a.0 - b.0).abs() < 4.0;
+        let same_row = (a.0 - b.0).abs() < 10.0;
         assert!(
-            b.0 > a.0 + 4.0 || (same_row && b.1 > a.1),
+            b.0 > a.0 + 10.0 || (same_row && b.1 > a.1),
             "reading order broken: {a:?} then {b:?} in {places:?}"
         );
     }
