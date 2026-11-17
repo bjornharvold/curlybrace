@@ -105,6 +105,8 @@ pub struct ExplainUi {
     pub tab: ResultTab,
     /// The newest request number; an answer for any other is stale.
     pub request: u64,
+    /// The options the newest request was sent with: a failure of it is worded by these.
+    pub options: PipelineOptions,
 }
 
 impl Default for ExplainUi {
@@ -114,6 +116,7 @@ impl Default for ExplainUi {
             verbosity: ExplainVerbosity::QueryPlanner,
             tab: ResultTab::Preview,
             request: 0,
+            options: PipelineOptions::default(),
         }
     }
 }
@@ -142,6 +145,7 @@ impl ExplainUi {
             },
             tab: ResultTab::Plan,
             request,
+            options: options.clone(),
             ..self
         };
         (next, request, verbosity)

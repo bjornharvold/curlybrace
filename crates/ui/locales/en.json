@@ -185,6 +185,7 @@
         "placeholder": "Text to find this pipeline in the server's logs"
       },
       "comment_sent_note": "The comment is sent to the server and shows in its logs and profiler.",
+      "explain_timeout_set": "It took longer than the time limit you set in Options.",
       "hint": {
         "clear": "Clear",
         "existing": "Existing indexes",

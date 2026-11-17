@@ -97,7 +97,7 @@ fn status_lines(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) {
                 }
                 PreviewError::Core(e) => match preview_error_key(e) {
                     Some(key) => {
-                        let key = timeout_key(&draft.options, Operation::Preview, key);
+                        let key = timeout_key(&draft.sent_options, Operation::Preview, key);
                         ui.colored_label(ui.visuals().error_fg_color, i18n.t(key));
                     }
                     None => show_error(ui, e, i18n),
@@ -109,8 +109,13 @@ fn status_lines(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) {
             }
         }
     }
-    if !matches!(draft.preview, PreviewState::Idle) {
-        options_lines(ui, &draft.options, i18n);
+    // The options of what the pane shows; a preview that never succeeded names the ones asked for.
+    let named = match shown_preview(&draft.preview) {
+        Some(_) => Some(&draft.shown_options),
+        None => (!matches!(draft.preview, PreviewState::Idle)).then_some(&draft.sent_options),
+    };
+    if let Some(options) = named {
+        options_lines(ui, options, i18n);
     }
 }
 

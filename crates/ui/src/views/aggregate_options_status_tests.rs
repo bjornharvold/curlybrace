@@ -5,8 +5,8 @@ use super::tests::{base, open, t};
 use crate::I18n;
 use crate::theme;
 use crate::viewmodel::ConnectionBadge;
-use crate::viewmodel::aggregate::{AggregateState, Preview, PreviewError, PreviewState};
-use crate::viewmodel::aggregate_explain::{ExplainState, ExplainUi, ResultTab};
+use crate::viewmodel::aggregate::{AggregateState, PreviewError, PreviewState};
+use crate::viewmodel::aggregate_explain::ResultTab;
 use crate::viewmodel::aggregate_options::OptionsEdit;
 use crate::viewmodel::aggregate_run::{CountState, RunDialog};
 use crate::views::aggregate_run::show_run_dialog;
@@ -25,13 +25,19 @@ fn applied(draft: AggregateState, edit: OptionsEdit) -> AggregateState {
     draft.options_edited(edit).options_applied().0
 }
 
+/// `draft` previewed with its current options and answered with `outcome`.
+fn answered(
+    draft: AggregateState,
+    outcome: Result<Vec<bson::Document>, CoreError>,
+) -> AggregateState {
+    let (draft, sent) = draft.begin_preview();
+    let (request, _) = sent.expect("a valid pipeline is sent");
+    draft.arrived(request, outcome)
+}
+
 fn shown_with(options: Vec<OptionsEdit>) -> AggregateState {
-    let mut draft = options.into_iter().fold(base(), applied);
-    draft.preview = PreviewState::Shown(Preview {
-        docs: vec![doc! { "a": 1 }],
-        not_run: Vec::new(),
-    });
-    draft
+    let draft = options.into_iter().fold(base(), applied);
+    answered(draft, Ok(vec![doc! { "a": 1 }]))
 }
 
 #[test]
@@ -79,12 +85,39 @@ fn a_blocked_preview_says_why_and_keeps_the_last_result() {
 }
 
 fn timed_out(draft: AggregateState) -> AggregateState {
-    let mut draft = draft;
-    draft.preview = PreviewState::Failed {
-        error: PreviewError::Core(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
-        last: None,
-    };
-    draft
+    answered(
+        draft,
+        Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
+    )
+}
+
+#[test]
+fn a_failing_new_hint_leaves_the_last_good_preview_under_its_own_label() {
+    let good = shown_with(vec![OptionsEdit::HintText("old_1".into())]);
+    let failing = applied(good, OptionsEdit::HintText("new_1".into()));
+    let failed = answered(failing, Err(CoreError::Database("bad hint".into())));
+    let harness = open(failed, SIZE);
+    harness.get_by_label("hint: old_1");
+    assert!(harness.query_by_label("hint: new_1").is_none());
+}
+
+#[test]
+fn while_the_new_hint_loads_the_shown_preview_keeps_its_label() {
+    let good = shown_with(vec![OptionsEdit::HintText("old_1".into())]);
+    let (loading, _) = applied(good, OptionsEdit::HintText("new_1".into())).begin_preview();
+    assert!(matches!(loading.preview, PreviewState::Loading { .. }));
+    let harness = open(loading, SIZE);
+    harness.get_by_label("hint: old_1");
+    assert!(harness.query_by_label("hint: new_1").is_none());
+}
+
+#[test]
+fn a_preview_that_never_succeeded_is_labelled_with_the_options_asked_for() {
+    let fresh = AggregateState::default().add_stage("$match");
+    let draft = applied(fresh, OptionsEdit::HintText("new_1".into()));
+    let failed = answered(draft, Err(CoreError::Database("bad hint".into())));
+    let harness = open(failed, SIZE);
+    harness.get_by_label("hint: new_1");
 }
 
 #[test]
@@ -99,24 +132,52 @@ fn a_timeout_under_a_lowered_limit_says_you_set_it() {
     default.get_by_label(&t("aggregate.error.timeout"));
 }
 
+/// `draft` whose explain was sent with `sent` and failed with a timeout, the Plan tab in view.
+fn explain_timed_out(draft: AggregateState, sent: &PipelineOptions) -> AggregateState {
+    let (ui, request, _) = draft
+        .explain
+        .clone()
+        .begun(vec![doc! { "$match": {} }], sent);
+    let ui = ui.arrived(
+        request,
+        Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
+    );
+    let mut draft = draft;
+    draft.explain = ui.with_tab(ResultTab::Plan);
+    draft
+}
+
 #[test]
-fn a_timeout_of_the_explain_says_so_too() {
-    let plan_tab = |draft: AggregateState| {
-        let mut draft = draft;
-        draft.explain = ExplainUi {
-            state: ExplainState::Failed {
-                reason: CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into()),
-            },
-            tab: ResultTab::Plan,
-            ..ExplainUi::default()
-        };
-        draft
-    };
-    let lowered = plan_tab(applied(base(), OptionsEdit::MaxTime("500".into())));
-    let harness = open(lowered, SIZE);
-    harness.get_by_label(&t("aggregate.options.timeout_set"));
-    let harness = open(plan_tab(base()), SIZE);
+fn a_timeout_of_the_explain_under_a_lowered_limit_says_you_set_it() {
+    let lowered = applied(base(), OptionsEdit::MaxTime("500".into()));
+    let sent = lowered.options.clone();
+    let harness = open(explain_timed_out(lowered, &sent), SIZE);
+    harness.get_by_label(&t("aggregate.options.explain_timeout_set"));
+    let said = t("aggregate.options.explain_timeout_set");
+    assert!(
+        !said.contains("last result"),
+        "an explain has no last result"
+    );
+    let harness = open(explain_timed_out(base(), &PipelineOptions::default()), SIZE);
     harness.get_by_label(&t("aggregate.explain.error.timeout"));
+}
+
+#[test]
+fn the_explain_timeout_is_worded_by_the_options_it_was_sent_with() {
+    // Options changed after the request went out: the answer still follows what was sent.
+    let lowered = PipelineOptions {
+        max_time_ms: Some(500),
+        ..PipelineOptions::default()
+    };
+    let changed_later = applied(base(), OptionsEdit::MaxTime("9000".into()));
+    let harness = open(
+        explain_timed_out(changed_later, &PipelineOptions::default()),
+        SIZE,
+    );
+    harness.get_by_label(&t("aggregate.explain.error.timeout"));
+    let reset_later = base();
+    let harness = open(explain_timed_out(reset_later, &lowered), SIZE);
+    harness.get_by_label(&t("aggregate.options.explain_timeout_set"));
 }
 
 struct Dialog {

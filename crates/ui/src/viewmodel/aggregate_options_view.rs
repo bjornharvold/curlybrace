@@ -116,13 +116,17 @@ pub fn read_preference_key(mode: Option<ReadPreferenceMode>) -> &'static str {
 }
 
 /// The key of the message for a timeout of `op`: the person's own limit has words of its own
-/// when it lowered the operation's bound, otherwise `default_key`.
+/// when it lowered the operation's bound (an explain has no last result to keep), otherwise
+/// `default_key`.
 pub fn timeout_key(
     options: &PipelineOptions,
     op: Operation,
     default_key: &'static str,
 ) -> &'static str {
     match options.max_time_effect(op) {
+        MaxTimeEffect::Lowered if op == Operation::Explain => {
+            "aggregate.options.explain_timeout_set"
+        }
         MaxTimeEffect::Lowered => "aggregate.options.timeout_set",
         _ => default_key,
     }

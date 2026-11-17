@@ -132,7 +132,7 @@ fn show_plan_tab(ui: &mut egui::Ui, draft: &AggregateState, i18n: &I18n) -> Vec<
         .id_salt("explain_plan")
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            show_state(ui, &explain.state, &draft.options, i18n)
+            show_state(ui, &explain.state, &explain.options, i18n)
         });
     actions
 }

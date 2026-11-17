@@ -55,6 +55,11 @@ pub struct AggregateState {
     pub options: PipelineOptions,
     /// The Options section: its form (typed text and problems) and whether it is open.
     pub options_ui: super::aggregate_options_state::OptionsUi,
+    /// The options the newest preview request was sent with (what a failure or a timeout of it
+    /// answers for), and the options of the preview the pane shows or keeps (what its status
+    /// lines name), so an old result is never labelled with newer options.
+    pub sent_options: PipelineOptions,
+    pub shown_options: PipelineOptions,
     /// What the draft says about its run, remembered between repaints (see
     /// `aggregate_run_availability`); keyed on the stages, mode and text, so it needs no reset.
     pub(super) run_shape: super::aggregate_run_availability::RunShapeMemo,
@@ -288,6 +293,7 @@ impl AggregateState {
     /// idle (dropping the old documents), any other refusal is shown as `Failed`.
     pub fn begin_preview(self) -> (Self, Option<(u64, Vec<Document>)>) {
         let request = self.request.wrapping_add(1);
+        let sent_options = self.options.clone();
         let plan = preview_pipeline(&self.stages, self.selected, PREVIEW_LIMIT);
         let last = self.preview.clone().into_last();
         match plan {
@@ -299,6 +305,7 @@ impl AggregateState {
                 let next = Self {
                     preview,
                     request,
+                    sent_options,
                     ..self
                 };
                 (next, Some((request, plan.pipeline)))
@@ -337,17 +344,27 @@ impl AggregateState {
         let PreviewState::Loading { not_run, last } = &self.preview else {
             return self;
         };
-        let preview = match outcome {
-            Ok(docs) => PreviewState::Shown(Preview {
-                docs,
-                not_run: not_run.clone(),
-            }),
-            Err(error) => PreviewState::Failed {
-                error: PreviewError::Core(error),
-                last: last.clone(),
-            },
+        let (preview, shown_options) = match outcome {
+            Ok(docs) => (
+                PreviewState::Shown(Preview {
+                    docs,
+                    not_run: not_run.clone(),
+                }),
+                self.sent_options.clone(),
+            ),
+            Err(error) => (
+                PreviewState::Failed {
+                    error: PreviewError::Core(error),
+                    last: last.clone(),
+                },
+                self.shown_options.clone(),
+            ),
         };
-        Self { preview, ..self }
+        Self {
+            preview,
+            shown_options,
+            ..self
+        }
     }
 }
 
