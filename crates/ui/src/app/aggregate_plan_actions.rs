@@ -8,15 +8,17 @@ use super::aggregate_explain_actions::on_action as explain;
 use super::aggregate_options_actions::on_action as options;
 use super::index_write_actions::open_with;
 use super::reducer::Out;
-use super::state::AppState;
+use super::state::{AppState, ConnStatus};
 use super::{ExplainAction, OptionsAction};
 use crate::viewmodel::IndexBuilderState;
 use crate::viewmodel::aggregate_options::OptionsEdit;
 use crate::viewmodel::aggregate_plan_next::plan_next;
 
-/// Whether the controls that send are off (an explain is out, or the options form has a problem).
+/// Whether the controls that send are off (an explain is out, there is no connection, or the
+/// options form has a problem).
 fn blocked(state: &AppState) -> bool {
-    plan_next(&state.aggregate, state.selected_ns())
+    let connected = state.status == ConnStatus::Connected;
+    plan_next(&state.aggregate, state.selected_ns(), connected)
         .blocked
         .is_some()
 }
@@ -46,7 +48,7 @@ fn chained(state: AppState, edit: OptionsEdit) -> Out {
 /// Opens the index builder with the suggestion of the plan in view; nothing without one.
 pub(super) fn create_index(state: AppState) -> Out {
     open_with(state, |s, ns| {
-        let next = plan_next(&s.aggregate, Some(ns));
+        let next = plan_next(&s.aggregate, Some(ns), true);
         let index = next.suggested?;
         let collation = s.aggregate.explain.done()?.options.collation.as_ref();
         Some(IndexBuilderState::from_suggested(

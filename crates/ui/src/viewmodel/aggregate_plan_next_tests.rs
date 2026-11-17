@@ -62,7 +62,7 @@ fn collation(locale: &str) -> CollationOption {
 
 #[test]
 fn nothing_before_a_plan() {
-    let next = plan_next(&AggregateState::default(), Some(&ns()));
+    let next = plan_next(&AggregateState::default(), Some(&ns()), true);
     assert_eq!(
         next,
         PlanNext {
@@ -80,6 +80,7 @@ fn a_collection_scan_offers_try_and_the_suggestion() {
     let next = plan_next(
         &explained("collscan", PipelineOptions::default()),
         Some(&ns()),
+        true,
     );
     assert!(next.try_index);
     assert_eq!(next.blocked, None);
@@ -99,7 +100,7 @@ fn an_in_memory_sort_offers_them_too() {
         panic!("a plan");
     };
     assert!(plan_wants_an_index(plan), "{:?}", plan.hints);
-    let next = plan_next(&draft, Some(&ns()));
+    let next = plan_next(&draft, Some(&ns()), true);
     assert!(next.try_index);
     assert!(next.suggested.is_some());
 }
@@ -109,6 +110,7 @@ fn an_index_scan_offers_nothing_unless_a_hint_is_set() {
     let next = plan_next(
         &explained("ixscan", PipelineOptions::default()),
         Some(&ns()),
+        true,
     );
     assert!(!next.try_index);
     assert_eq!(next.suggested, None);
@@ -117,7 +119,7 @@ fn an_index_scan_offers_nothing_unless_a_hint_is_set() {
         hint: Some(HintOption::Name("status_1".into())),
         ..PipelineOptions::default()
     };
-    let next = plan_next(&explained("ixscan", hinted), Some(&ns()));
+    let next = plan_next(&explained("ixscan", hinted), Some(&ns()), true);
     assert!(next.try_index, "Clear hint must stay reachable");
     assert_eq!(next.current_hint.as_deref(), Some("status_1"));
     assert_eq!(next.suggested, None, "the plan does not want an index");
@@ -134,7 +136,7 @@ fn the_suggestion_comes_from_the_explained_pipeline_not_the_draft() {
         stages: edited.stages,
         ..draft
     };
-    let next = plan_next(&draft, Some(&ns()));
+    let next = plan_next(&draft, Some(&ns()), true);
     let keys = next.suggested.expect("a suggestion").keys;
     assert_eq!(keys[0].0, "status");
 }
@@ -151,7 +153,9 @@ fn the_command_uses_the_plan_s_collation() {
         options: PipelineOptions::default(),
         ..draft
     };
-    let command = plan_next(&draft, Some(&ns())).command.expect("a command");
+    let command = plan_next(&draft, Some(&ns()), true)
+        .command
+        .expect("a command");
     assert!(
         command.contains(r#"collation: { locale: "fr", strength: 2 }"#),
         "{command}"
@@ -168,7 +172,7 @@ fn a_running_explain_or_a_blocked_form_turns_try_off_with_its_reason() {
                 "0".into(),
             ));
     assert_eq!(
-        plan_next(&blocked, Some(&ns())).blocked,
+        plan_next(&blocked, Some(&ns()), true).blocked,
         Some("aggregate.options.blocked")
     );
     let (running, _, _) = draft
@@ -180,7 +184,7 @@ fn a_running_explain_or_a_blocked_form_turns_try_off_with_its_reason() {
         ..draft
     };
     assert_eq!(
-        plan_next(&busy, Some(&ns())).blocked,
+        plan_next(&busy, Some(&ns()), true).blocked,
         Some("aggregate.explain.disabled.running")
     );
 }
@@ -203,7 +207,7 @@ fn a_failed_explain_keeps_clear_hint_reachable_when_a_hint_is_set() {
         hint: Some(HintOption::Name("nope_1".into())),
         ..PipelineOptions::default()
     };
-    let next = plan_next(&failed_with(hinted), Some(&ns()));
+    let next = plan_next(&failed_with(hinted), Some(&ns()), true);
     assert!(next.try_index, "a bad hint must be clearable");
     assert_eq!(next.current_hint.as_deref(), Some("nope_1"));
     assert_eq!(next.suggested, None);
@@ -212,9 +216,36 @@ fn a_failed_explain_keeps_clear_hint_reachable_when_a_hint_is_set() {
 
 #[test]
 fn a_failed_explain_without_a_hint_offers_nothing() {
-    let next = plan_next(&failed_with(PipelineOptions::default()), Some(&ns()));
+    let next = plan_next(&failed_with(PipelineOptions::default()), Some(&ns()), true);
     assert!(!next.try_index);
     assert_eq!(next.current_hint, None);
+}
+
+#[test]
+fn a_lost_connection_turns_try_off_with_its_reason() {
+    let draft = explained("collscan", PipelineOptions::default());
+    assert_eq!(
+        plan_next(&draft, Some(&ns()), false).blocked,
+        Some("aggregate.explain.disabled.no_connection")
+    );
+    assert_eq!(plan_next(&draft, Some(&ns()), true).blocked, None);
+}
+
+#[test]
+fn a_running_explain_gives_its_reason_before_a_lost_connection() {
+    let draft = explained("collscan", PipelineOptions::default());
+    let (running, _, _) = draft
+        .explain
+        .clone()
+        .begun(pipeline(), &PipelineOptions::default());
+    let busy = AggregateState {
+        explain: running,
+        ..draft
+    };
+    assert_eq!(
+        plan_next(&busy, Some(&ns()), false).blocked,
+        Some("aggregate.explain.disabled.running")
+    );
 }
 
 #[test]
@@ -223,7 +254,7 @@ fn the_current_hint_is_shown_by_name_or_keys() {
         hint: Some(HintOption::Keys(doc! { "status": 1_i32, "total": -1_i32 })),
         ..PipelineOptions::default()
     };
-    let next = plan_next(&explained("collscan", by_keys), Some(&ns()));
+    let next = plan_next(&explained("collscan", by_keys), Some(&ns()), true);
     assert_eq!(
         next.current_hint,
         Some(crate::viewmodel::aggregate_options::keys_text(

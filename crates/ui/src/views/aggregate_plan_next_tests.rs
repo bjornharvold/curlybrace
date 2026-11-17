@@ -233,6 +233,29 @@ fn try_is_off_with_the_reason_while_an_explain_runs() {
 }
 
 #[test]
+fn clear_hint_is_off_with_the_reason_while_disconnected() {
+    let hinted = PipelineOptions {
+        hint: Some(HintOption::Name("status_1".into())),
+        ..PipelineOptions::default()
+    };
+    let lost = RunContext {
+        disconnected: true,
+        ..context(false)
+    };
+    let mut h = harness(explained("collscan", hinted, names()), lost);
+    let label = t("aggregate.options.explain.clear_hint");
+    let clear = h.get_by_role_and_label(Role::Button, &label);
+    assert!(clear.accesskit_node().is_disabled());
+    assert_eq!(
+        clear.accesskit_node().description(),
+        Some(t("aggregate.explain.disabled.no_connection"))
+    );
+    clear.click();
+    h.run_steps(2);
+    assert!(h.state().seen.is_empty());
+}
+
+#[test]
 fn copy_puts_the_command_on_the_clipboard() {
     let mut h = harness(scan(), context(false));
     h.get_by_role_and_label(

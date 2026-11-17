@@ -19,7 +19,8 @@ pub struct PlanNext {
     /// The hint set now: its name, or its key pattern as text.
     pub current_hint: Option<String>,
     /// Why the controls that send are off: `aggregate.explain.disabled.running` while an explain
-    /// is out, `aggregate.options.blocked` while the options form has a problem.
+    /// is out, `aggregate.explain.disabled.no_connection` without a connection,
+    /// `aggregate.options.blocked` while the options form has a problem.
     pub blocked: Option<&'static str>,
     pub suggested: Option<SuggestedIndex>,
     /// `create_index_command` of the suggestion, with the collation the plan was made with.
@@ -47,13 +48,15 @@ pub fn plan_wants_an_index(plan: &AggPlan) -> bool {
 
 /// The follow-ups for `draft`'s Plan tab; all off unless it holds a plan (or a hint is set while
 /// the next plan is awaited).
-pub fn plan_next(draft: &AggregateState, ns: Option<&Namespace>) -> PlanNext {
+pub fn plan_next(draft: &AggregateState, ns: Option<&Namespace>, connected: bool) -> PlanNext {
     let current_hint = draft.options.hint.as_ref().map(|hint| match hint {
         HintOption::Name(name) => name.clone(),
         HintOption::Keys(keys) => keys_text(keys),
     });
     let blocked = if draft.explain.is_loading() {
         Some("aggregate.explain.disabled.running")
+    } else if !connected {
+        Some("aggregate.explain.disabled.no_connection")
     } else if draft.options_blocked() {
         Some("aggregate.options.blocked")
     } else {

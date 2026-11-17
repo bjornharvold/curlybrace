@@ -4,7 +4,7 @@
 //! documents with their one-row toolbar. Kept dense so the data starts high on the window.
 use super::panels::UiEvent;
 use super::reducer::Input;
-use super::state::AppState;
+use super::state::{AppState, ConnStatus};
 use crate::I18n;
 use crate::app::AggregateAction;
 use crate::viewmodel::verdict::badge;
@@ -175,6 +175,7 @@ fn show_aggregate_tab(
         availability: state.run_availability(),
         badge: state.active_badge(),
         read_only: state.active_is_read_only(),
+        disconnected: state.status != ConnStatus::Connected,
         ns: state.selected_ns().cloned(),
     };
     let mut actions = ui

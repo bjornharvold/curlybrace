@@ -87,6 +87,7 @@
       "button_hint": "Ask the server how it would run the stages up to the selected one.",
       "cost_note": "Runs the pipeline on the server, for at most {seconds} seconds.",
       "disabled": {
+        "no_connection": "Connect to a server to explain again.",
         "running": "An explain is already running.",
         "text_not_applied": "Apply the edited text to the stages before explaining."
       },

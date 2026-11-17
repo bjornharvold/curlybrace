@@ -19,7 +19,7 @@ pub(super) fn show_plan_next(
     context: &RunContext,
     i18n: &I18n,
 ) -> Vec<AggregateAction> {
-    let next = plan_next(draft, context.ns.as_ref());
+    let next = plan_next(draft, context.ns.as_ref(), !context.disconnected);
     let mut actions = Vec::new();
     if next.try_index {
         show_try_row(ui, draft, &next, &mut actions, i18n);

@@ -3,7 +3,7 @@
 //! of it goes through while an explain runs, the form is blocked or the connection is read-only.
 use crate::app::index_write_tests::{browsing, shown, with_flags};
 use crate::app::reducer::{Input, Out, update};
-use crate::app::state::{AppState, Banner};
+use crate::app::state::{AppState, Banner, ConnStatus};
 use crate::app::write_guard::{WriteKind, WriteWarningAction};
 use crate::app::{AggregateAction as A, ExplainAction, OptionsAction};
 use crate::viewmodel::aggregate_options::OptionsEdit;
@@ -192,6 +192,20 @@ fn try_index_does_nothing_while_the_form_is_blocked() {
     let (s, commands) = try_index(s, "status_1");
     assert!(commands.is_empty());
     assert_eq!(s.aggregate.options.hint, None);
+}
+
+#[test]
+fn try_index_and_clear_hint_do_nothing_while_disconnected() {
+    let (s, _) = with_plan();
+    let s = AppState {
+        status: ConnStatus::Disconnected,
+        ..s
+    };
+    let (s, commands) = try_index(s, "status_1");
+    assert!(commands.is_empty());
+    assert_eq!(s.aggregate.options.hint, None);
+    let (_, commands) = act(s, A::Explain(ExplainAction::ClearHint));
+    assert!(commands.is_empty());
 }
 
 fn create_index(s: AppState) -> Out {
