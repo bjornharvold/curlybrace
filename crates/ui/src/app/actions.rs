@@ -176,6 +176,8 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
     }
     gated(state, |s| match action {
         FindAction::CopyAsCode => (s, Vec::new()),
+        FindAction::HintListWanted => super::aggregate_hint_actions::wanted(s),
+        FindAction::HintListRetry => super::aggregate_hint_actions::retry(s),
         FindAction::Run(query) => super::guard_actions::run(s, query),
         FindAction::GuardRunAnyway => super::guard_actions::run_anyway(s),
         FindAction::SetAutomaticVerdict(_) | FindAction::SetGuard(_) | FindAction::GuardCancel => {

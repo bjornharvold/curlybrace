@@ -28,10 +28,13 @@ pub fn aggregate_blocked(
     }
 }
 
-/// Why the query bar has no code to offer (its text does not parse), in words.
-/// The parse is remembered in `state` between repaints.
+/// Why the query bar has no code to offer (its text does not parse, or an option has a problem),
+/// in words. The parse is remembered in `state` between repaints.
 pub fn find_blocked(state: &FindBarState, i18n: &I18n) -> Option<String> {
-    state.export_error().map(|error| i18n.error(&error))
+    state
+        .export_error()
+        .map(|error| i18n.error(&error))
+        .or_else(|| state.find_code_block().map(|key| i18n.t(key)))
 }
 
 /// The Copy as code button; true when it was clicked while on. `blocked` is the reason it is

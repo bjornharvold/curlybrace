@@ -119,6 +119,8 @@ pub enum PasteBlock {
     EmptySelection,
     /// The documents come from a `system.*` collection, which is server-owned.
     SystemSource,
+    /// The result was found with a collation, which a copy of the whole result would not use.
+    CollatedResult,
     /// A kept or suggested target name is not valid. The dialog lets the user edit names, so this
     /// is only the safety net.
     InvalidName(NameProblem),

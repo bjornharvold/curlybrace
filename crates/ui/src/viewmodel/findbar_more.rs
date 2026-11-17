@@ -2,6 +2,7 @@
 //! always-visible Filter. Pure: whether it is open, how many of its fields hold a value, and
 //! whether a parse error just produced is about one of them.
 use super::findbar::FindBarState;
+use super::findbar_options::more_set_count;
 use curlybrace_core::query::{QueryText, parse_query};
 
 /// How many of the fields behind "More" hold something other than blanks.
@@ -25,9 +26,9 @@ pub(super) fn error_concerns_more(text: &QueryText) -> bool {
 }
 
 /// Whether the disclosure is open: the choice made (by the person, or by a failed run about a
-/// field behind it), else open while a field behind it holds a value.
+/// field behind it), else open while a field behind it holds a value or an option is set.
 pub fn more_open(state: &FindBarState) -> bool {
-    state.more.unwrap_or_else(|| hidden_count(&state.text) > 0)
+    state.more.unwrap_or_else(|| more_set_count(state) > 0)
 }
 
 impl FindBarState {

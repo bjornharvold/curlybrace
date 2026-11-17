@@ -1647,6 +1647,17 @@
       "title_collection_scan": "This query would read every document in the collection",
       "title_sort_not_covered": "This query would sort in memory instead of using an index"
     },
+    "options": {
+      "blocked": "Fix the query options to run or copy this query.",
+      "bulk_collation": "This page was found with a collation, and a bulk write matches without one. Clear the collation and find again to update or delete matching documents.",
+      "copy_collation": "This page was found with a collation, which a copy of the whole result would not use. Clear the collation and find again, or copy selected documents.",
+      "status": {
+        "collation": "Collation: {locale}",
+        "disk_use": "Disk use allowed",
+        "max_time": "Time limit: {ms} ms",
+        "secondary_note": "Recent writes may not show yet."
+      }
+    },
     "verdict": {
       "automatic": "Check index use automatically",
       "checking": "Checking how this query runs...",

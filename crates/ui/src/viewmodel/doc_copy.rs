@@ -122,6 +122,10 @@ pub fn clipboard_for(
     }
     let selection = match copy {
         DocCopy::Ids(ids) => DocSelection::ids(ids)?,
+        // The copy re-runs the filter and sort on its own, without the page's collation.
+        DocCopy::Result if query.options.collation.is_some() => {
+            return Err(PasteBlock::CollatedResult);
+        }
         DocCopy::Result => DocSelection::Query {
             filter: query.filter.clone(),
             sort: query.sort.clone(),
