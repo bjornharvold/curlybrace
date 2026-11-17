@@ -48,8 +48,7 @@ impl Gathered {
 pub(super) enum FormLayout {
     /// Collation on the left, the rest on the right above [`TWO_COLUMNS_FROM`], one column below.
     Columns,
-    /// Wrapping rows of labelled controls, in reading order (the query bar; wired in with it).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Wrapping rows of labelled controls, in reading order (the query bar).
     Wrapped,
 }
 
@@ -163,12 +162,20 @@ fn show_wrapped(
     ui.horizontal_wrapped(|ui| show_collation(ui, form, g, cx, i18n));
     ui.horizontal_wrapped(|ui| {
         show_hint_group(ui, form, hints, g, cx, i18n);
-        cx.cell(ui, width::FIELD, true, |ui| show_max_time(ui, form, g, cx, i18n));
-        cx.cell(ui, width::PICK, true, |ui| show_read_preference(ui, form, g, cx, i18n));
-        cx.cell(ui, width::FLAG, true, |ui| show_disk_use(ui, form, g, cx, i18n));
+        cx.cell(ui, width::FIELD, true, |ui| {
+            show_max_time(ui, form, g, cx, i18n)
+        });
+        cx.cell(ui, width::PICK, true, |ui| {
+            show_read_preference(ui, form, g, cx, i18n)
+        });
+        cx.cell(ui, width::FLAG, true, |ui| {
+            show_disk_use(ui, form, g, cx, i18n)
+        });
     });
     ui.horizontal_wrapped(|ui| {
-        cx.cell(ui, width::COMMENT, true, |ui| show_comment(ui, form, g, cx, i18n));
+        cx.cell(ui, width::COMMENT, true, |ui| {
+            show_comment(ui, form, g, cx, i18n)
+        });
         show_notes(ui, form, cx, i18n);
         ui.add_space(shape::SPACE_1);
         g.reset |= text_button(ui, i18n.t("aggregate.options.reset")).clicked();

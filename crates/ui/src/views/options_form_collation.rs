@@ -83,8 +83,12 @@ fn show_locale_and_flags(
     i18n: &I18n,
 ) {
     let on = form.collation_on;
-    cx.cell(ui, width::FIELD, on, |ui| show_locale(ui, form, g, cx, i18n));
-    cx.cell(ui, width::PICK, on, |ui| show_locale_pick(ui, form, g, cx, i18n));
+    cx.cell(ui, width::FIELD, on, |ui| {
+        show_locale(ui, form, g, cx, i18n)
+    });
+    cx.cell(ui, width::PICK, on, |ui| {
+        show_locale_pick(ui, form, g, cx, i18n)
+    });
     cx.cell(ui, width::PICK, on, |ui| {
         let all = [
             Strength::Primary,

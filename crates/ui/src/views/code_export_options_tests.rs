@@ -150,3 +150,43 @@ fn the_left_out_read_preference_is_explained() {
             .is_none()
     );
 }
+
+fn find_request(options: PipelineOptions) -> CodeRequest {
+    CodeRequest::Find {
+        ns: Namespace::new("crm", "customers"),
+        query: curlybrace_core::store::Query {
+            options,
+            ..curlybrace_core::store::Query::default()
+        },
+    }
+}
+
+#[test]
+fn find_code_with_options_shows_the_include_check_with_its_own_label() {
+    let mut h = harness(find_request(options()));
+    h.get_by_role_and_label(Role::CheckBox, &t("codegen.options.include_find_options"));
+    assert!(
+        h.query_by_role_and_label(Role::CheckBox, &t("codegen.options.include_options"))
+            .is_none()
+    );
+    h.get_by_role_and_label(Role::CheckBox, &t("codegen.options.include_find_options"))
+        .click();
+    h.run_steps(4);
+    assert_eq!(h.state().seen, [CodeAction::SetIncludeOptions(false)]);
+    // The read preference is named: find code never writes, so it is never left out.
+    let h = harness(find_request(options()));
+    assert!(
+        h.query_by_label(&t("codegen.options.read_preference_left_out"))
+            .is_none()
+    );
+    h.get_by_label_contains(&t("aggregate.options.read_preference.label"));
+}
+
+#[test]
+fn find_code_without_options_shows_no_check() {
+    let h = harness(find_request(PipelineOptions::default()));
+    assert!(
+        h.query_by_role_and_label(Role::CheckBox, &t("codegen.options.include_find_options"))
+            .is_none()
+    );
+}

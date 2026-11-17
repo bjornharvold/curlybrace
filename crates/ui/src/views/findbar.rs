@@ -1,14 +1,20 @@
 //! Find bar view: the Filter with Find / Clear / Previous / Next and the "More" toggle on one
-//! wrapping row, then, behind "More", Sort / Projection / Skip / Limit on another.
+//! wrapping row, then, behind "More", Sort / Projection / Skip / Limit and the Query options
+//! toggle on another, and the Query options section under it.
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
 use super::code_export_entry::{find_blocked, show_copy_code_icon};
-use super::findbar_more::{show_more_fields, show_more_toggle};
+use super::findbar_more::{MoreOutcome, show_more_fields, show_more_toggle};
+use super::findbar_options::{SectionOutcome, show_options_section};
 use crate::I18n;
 use crate::theme::{
     CONTROL_HEIGHT, filled_button, gate, outlined_field, text_button, tonal_button,
 };
-use crate::viewmodel::findbar_more::{hidden_count, more_open};
+use crate::viewmodel::aggregate_hint_list::HintListUi;
+use crate::viewmodel::findbar_more::more_open;
+use crate::viewmodel::findbar_options::{more_set_count, options_open, options_set_count};
 use crate::viewmodel::{FindBarState, FindIntent, pick_intent, resolve_find_intent};
+use curlybrace_core::error::CoreError;
+use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use eframe::egui::{self, vec2};
 
 pub use crate::viewmodel::FindAction;
@@ -25,7 +31,8 @@ const ROW_SLACK: f32 = 1.0;
 
 const KEY_FILTER: (&str, &str) = ("findbar.filter", "findbar.filter_hint");
 
-/// `has_prev` / `has_next` come from the caller (current skip > 0 / `Page::has_more`).
+/// `has_prev` / `has_next` come from the caller (current skip > 0 / `Page::has_more`). Without
+/// an index list for the Query options' hint picker (see [`show_findbar_with`]).
 pub fn show_findbar(
     ui: &mut egui::Ui,
     state: &mut FindBarState,
@@ -33,30 +40,101 @@ pub fn show_findbar(
     has_next: bool,
     i18n: &I18n,
 ) -> Option<FindAction> {
-    *state = state.more_settled();
+    let no_list = HintListUi::default().unavailable();
+    show_findbar_with(ui, state, (has_prev, has_next), &no_list, i18n)
+        .into_iter()
+        .next()
+}
+
+/// The find bar with the collection's index names for the Query options' hint picker (`hints`):
+/// the actions of this frame, the request for the list first when the open section lacks one.
+pub fn show_findbar_with(
+    ui: &mut egui::Ui,
+    state: &mut FindBarState,
+    (has_prev, has_next): (bool, bool),
+    hints: &HintListUi,
+    i18n: &I18n,
+) -> Vec<FindAction> {
+    *state = state.more_settled().options_settled();
     let more = MoreToggle {
         open: more_open(state),
-        hidden: hidden_count(&state.text),
+        hidden: more_set_count(state),
     };
     let blocked = find_blocked(state, i18n);
+    let options_off = state
+        .options_blocked()
+        .then(|| i18n.t("query.options.blocked"));
     let row = query_row(
         ui,
         &mut state.text.filter,
         (has_prev, has_next),
-        (more, blocked.as_deref()),
+        (more, blocked.as_deref(), options_off.as_deref()),
         i18n,
     );
-    let more_enter = more.open && show_more_fields(ui, &mut state.text, i18n);
-    if let Some(e) = &state.last_error {
-        super::error_label::show_error(ui, e, i18n);
+    let (more_out, section) = match more.open {
+        true => {
+            let toggle = (options_open(state), options_set_count(&state.options));
+            let more_out = show_more_fields(ui, &mut state.text, toggle, i18n);
+            (more_out, show_options_section(ui, state, hints, i18n))
+        }
+        false => (MoreOutcome::default(), SectionOutcome::default()),
+    };
+    show_error_line(ui, state, options_off.as_deref(), i18n);
+    let enter = row.enter || more_out.enter || section.enter;
+    let mut actions: Vec<FindAction> = section
+        .wants_hints
+        .then_some(FindAction::HintListWanted)
+        .into_iter()
+        .collect();
+    apply_section(state, section, row.toggled, more_out.toggled);
+    if let Some(intent) = pick_intent(row.button, enter) {
+        let (next, action) = resolve_find_intent(state, intent, has_prev, has_next);
+        *state = next;
+        actions.extend(action);
     }
-    if row.toggled {
-        *state = state.more_toggled();
+    actions
+}
+
+/// The edits of the Query options form, Reset, and the two disclosure clicks, applied in order.
+fn apply_section(state: &mut FindBarState, section: SectionOutcome, more: bool, options: bool) {
+    let mut next = std::mem::take(state);
+    for edit in section.edits {
+        next = next.options_edited(edit);
     }
-    let intent = pick_intent(row.button, row.enter || more_enter)?;
-    let (next, action) = resolve_find_intent(state, intent, has_prev, has_next);
+    if section.reset {
+        next = next.options_reset();
+    }
+    if more {
+        next = next.more_toggled();
+    }
+    if options {
+        next = next.options_toggled();
+    }
     *state = next;
-    action
+}
+
+/// The last error of the bar (the options' own timeout said as the person's limit), or why Find
+/// is off because of the options.
+fn show_error_line(
+    ui: &mut egui::Ui,
+    state: &FindBarState,
+    options_off: Option<&str>,
+    i18n: &I18n,
+) {
+    if let Some(e) = &state.last_error {
+        match (state.error_from_options, e) {
+            (true, CoreError::Database(text)) if text == COMMAND_TIMEOUT_MESSAGE => {
+                ui.colored_label(
+                    ui.visuals().error_fg_color,
+                    i18n.t("query.options.timeout_set"),
+                );
+            }
+            _ => super::error_label::show_error(ui, e, i18n),
+        }
+    }
+    if let Some(reason) = options_off {
+        ui.colored_label(ui.visuals().error_fg_color, reason);
+    }
 }
 
 /// The global "check index use automatically" box. The label is the box's accessible name; the
@@ -105,7 +183,7 @@ fn query_row(
     ui: &mut egui::Ui,
     filter: &mut String,
     (has_prev, has_next): (bool, bool),
-    (more, code_blocked): (MoreToggle, Option<&str>),
+    (more, code_blocked, find_off): (MoreToggle, Option<&str>, Option<&str>),
     i18n: &I18n,
 ) -> RowOutcome {
     let memory = ui.id().with("findbar_trailing_width");
@@ -123,7 +201,8 @@ fn query_row(
                 sized_field(ui, width, KEY_FILTER, filter, i18n)
             })
             .inner;
-        let (button, buttons_width) = buttons(ui, (has_prev, has_next), code_blocked, i18n);
+        let (button, buttons_width) =
+            buttons(ui, (has_prev, has_next), (code_blocked, find_off), i18n);
         let toggle = show_more_toggle(ui, more.open, more.hidden, i18n);
         let measured = buttons_width + toggle.rect.width() + ui.spacing().item_spacing.x;
         if trailing.is_none_or(|known| (known - measured).abs() > 0.5) {
@@ -170,18 +249,32 @@ pub(super) fn sized_field(
     response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
+/// Find; off with the reason as its tooltip and accessible description while the options have a
+/// problem.
+fn find_button(ui: &mut egui::Ui, off: Option<&str>, i18n: &I18n) -> egui::Response {
+    let label = i18n.t("findbar.run");
+    let Some(reason) = off else {
+        return filled_button(ui, label);
+    };
+    let response = gate(ui, false, |ui| filled_button(ui, label)).on_hover_text(reason);
+    let why = reason.to_string();
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_description(why));
+    response
+}
+
 /// Find, Clear, the `</>` Copy as code icon (off with the parse error as its reason), Previous
 /// and Next in the current row; the intent clicked and the width they took with the gap before each.
 fn buttons(
     ui: &mut egui::Ui,
     (has_prev, has_next): (bool, bool),
-    code_blocked: Option<&str>,
+    (code_blocked, find_off): (Option<&str>, Option<&str>),
     i18n: &I18n,
 ) -> (Option<FindIntent>, f32) {
     let gap = ui.spacing().item_spacing.x;
     let mut intent = None;
     let mut width = 0.0;
-    let run = filled_button(ui, i18n.t("findbar.run"));
+    let run = find_button(ui, find_off, i18n);
     let clear = tonal_button(ui, i18n.t("findbar.clear"));
     let code = show_copy_code_icon(ui, code_blocked, i18n);
     let prev = gate(ui, has_prev, |ui| text_button(ui, i18n.t("findbar.prev")));
@@ -194,7 +287,11 @@ fn buttons(
         (next, FindIntent::NextButton),
     ] {
         width += response.rect.width() + gap;
-        let usable = clicked != FindIntent::CodeButton || code_blocked.is_none();
+        let usable = match clicked {
+            FindIntent::CodeButton => code_blocked.is_none(),
+            FindIntent::RunButton => find_off.is_none(),
+            _ => true,
+        };
         if response.clicked() && usable {
             intent = Some(clicked);
         }

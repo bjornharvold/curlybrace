@@ -2,6 +2,7 @@
 //! hold a value while it is closed, and Sort / Projection / Skip / Limit on one wrapping row.
 //! Whether it is open is decided in `viewmodel::findbar_more` (pure, tested).
 use super::findbar::sized_field;
+use super::findbar_options::{TOGGLE_ROW_SHARE, show_options_toggle};
 use crate::I18n;
 use crate::theme::text_button;
 use curlybrace_core::query::QueryText;
@@ -38,9 +39,23 @@ pub fn show_more_toggle(
     response
 }
 
-/// Sort and Projection sharing what Skip and Limit leave of the row; true when Enter was
-/// pressed in one of the four.
-pub fn show_more_fields(ui: &mut egui::Ui, text: &mut QueryText, i18n: &I18n) -> bool {
+/// What the row behind "More" did this frame.
+#[derive(Default)]
+pub struct MoreOutcome {
+    /// Enter was pressed in one of the four fields.
+    pub enter: bool,
+    /// The Query options toggle was clicked.
+    pub toggled: bool,
+}
+
+/// Sort and Projection sharing what Skip, Limit and the Query options toggle leave of the row.
+/// `options` is whether the section is open and how many options are set.
+pub fn show_more_fields(
+    ui: &mut egui::Ui,
+    text: &mut QueryText,
+    (options_open, options_set): (bool, usize),
+    i18n: &I18n,
+) -> MoreOutcome {
     ui.horizontal_wrapped(|ui| {
         let json = json_width(ui.available_width(), ui.spacing().item_spacing.x);
         let mut enter = false;
@@ -48,13 +63,14 @@ pub fn show_more_fields(ui: &mut egui::Ui, text: &mut QueryText, i18n: &I18n) ->
         enter |= sized_field(ui, json, KEY_PROJECTION, &mut text.projection, i18n);
         enter |= sized_field(ui, NUMBER_FIELD_WIDTH, KEY_SKIP, &mut text.skip, i18n);
         enter |= sized_field(ui, NUMBER_FIELD_WIDTH, KEY_LIMIT, &mut text.limit, i18n);
-        enter
+        let toggled = show_options_toggle(ui, options_open, options_set, i18n);
+        MoreOutcome { enter, toggled }
     })
     .inner
 }
 
 /// Half of what the two number fields and the gaps leave, within the minimum and the row.
 fn json_width(available: f32, gap: f32) -> f32 {
-    let shared = (available - 2.0 * NUMBER_FIELD_WIDTH - 4.0 * gap) / 2.0;
+    let shared = (available - 2.0 * NUMBER_FIELD_WIDTH - TOGGLE_ROW_SHARE - 5.0 * gap) / 2.0;
     shared.max(JSON_FIELD_MIN_WIDTH).min(available)
 }

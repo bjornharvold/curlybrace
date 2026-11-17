@@ -15,12 +15,15 @@ pub struct CodeOptionsView {
     pub labels: Vec<&'static str>,
     /// A read preference is set and the code leaves it out because it writes.
     pub read_preference_left_out: bool,
+    /// The key of the check box's label: the aggregate's options, or the query's.
+    pub include_key: &'static str,
 }
 
-/// `None` for find code, and for a draft with no option set (there is nothing to include).
+/// `None` for a draft or a query with no option set (there is nothing to include).
 pub fn code_options_view(dialog: &CodeDialog) -> Option<CodeOptionsView> {
-    let CodeRequest::Aggregate { options, .. } = &dialog.request else {
-        return None;
+    let (options, include_key) = match &dialog.request {
+        CodeRequest::Aggregate { options, .. } => (options, "codegen.options.include_options"),
+        CodeRequest::Find { query, .. } => (&query.options, "codegen.options.include_find_options"),
     };
     if options.is_empty() {
         return None;
@@ -37,6 +40,7 @@ pub fn code_options_view(dialog: &CodeDialog) -> Option<CodeOptionsView> {
             Vec::new()
         },
         read_preference_left_out: left_out,
+        include_key,
     })
 }
 
