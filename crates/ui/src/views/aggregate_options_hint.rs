@@ -2,7 +2,7 @@
 //! "could not list" states), the field for a name or key pattern, and Clear. A name that is not
 //! among the listed indexes is a note, never a block: the server answers for it.
 use super::aggregate_options_fields::{pick_combo, typed_field};
-use super::options_form::{FormContext, FormLayout, Gathered, problem, width};
+use super::options_form::{FormContext, Gathered, problem, width};
 use crate::I18n;
 use crate::theme::text_button;
 use crate::viewmodel::aggregate_hint_list::{HintList, HintListUi};
@@ -44,11 +44,7 @@ pub(super) fn show_hint_group(
         && matches!(hints.list, HintList::Loaded(_))
         && !hints.names().iter().any(|n| n == typed_name)
     {
-        match cx.layout {
-            FormLayout::Columns | FormLayout::Wrapped => {
-                ui.weak(i18n.t("aggregate.options.hint.not_listed"));
-            }
-        }
+        ui.weak(i18n.t("aggregate.options.hint.not_listed"));
     }
 }
 
