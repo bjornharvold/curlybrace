@@ -14,14 +14,8 @@ use curlybrace_core::pipeline_options::{
 };
 use curlybrace_core::store::{Namespace, Query};
 
-/// Languages whose find renderers spell the options.
-const LANGUAGES: [Language; 5] = [
-    Language::Mongosh,
-    Language::Node,
-    Language::Python,
-    Language::Php,
-    Language::Ruby,
-];
+/// Every language spells the options.
+const LANGUAGES: [Language; 9] = Language::ALL;
 
 fn ns() -> Namespace {
     Namespace::new("shop", "orders")

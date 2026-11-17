@@ -10,14 +10,8 @@ use crate::pipeline_options::{
     Strength,
 };
 
-/// Languages whose find renderers spell the options so far.
-const RENDERING: [Language; 5] = [
-    Language::Mongosh,
-    Language::Node,
-    Language::Python,
-    Language::Php,
-    Language::Ruby,
-];
+/// Every language spells the options.
+const RENDERING: [Language; 9] = Language::ALL;
 
 fn ns() -> Namespace {
     Namespace::new("shop", "orders")
@@ -201,6 +195,24 @@ fn a_find_option_string_cannot_break_out_of_its_literal() {
             }
         }
     }
+}
+
+#[test]
+fn go_names_that_the_time_limit_deadline_declares_are_refused_only_with_a_time_limit() {
+    let clash = CodeOptions {
+        collection_var: "ctx".into(),
+        ..CodeOptions::default()
+    };
+    let timed = PipelineOptions {
+        max_time_ms: Some(500),
+        ..PipelineOptions::default()
+    };
+    assert_eq!(
+        generate(Language::Go, &find(timed), &clash),
+        Err(CodegenError::InvalidName("collection"))
+    );
+    // Without a time limit the name was always fine and stays so.
+    assert!(generate(Language::Go, &find(comment_only("x")), &clash).is_ok());
 }
 
 #[test]

@@ -44,7 +44,7 @@ impl Renderer for Csharp {
         &self,
         ns: &Namespace,
         query: &Query,
-        _agg: &CodeAggOptions,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = CsharpSyntax::new();
@@ -75,9 +75,11 @@ impl Renderer for Csharp {
         }
         chain.push(".ToList()".into());
         let lines: String = chain.iter().map(|c| format!("\n    {c}")).collect();
+        let entries = Self::option_entries(&syn, agg)?;
+        let (declaration, argument) = Self::options_declaration("FindOptions", &entries);
         body.push_str(&format!(
-            "\nvar results = {}.Find(filter){lines};\nresults.ForEach(Console.WriteLine);\n",
-            options.collection_var
+            "\n{declaration}var results = {}.Find(filter{argument}){lines};\nresults.ForEach(Console.WriteLine);\n",
+            Self::handle(agg, &options.collection_var)
         ));
         Ok(Self::frame(ns, options, &syn, &body))
     }
@@ -91,24 +93,9 @@ impl Renderer for Csharp {
     ) -> Result<String, CodegenError> {
         let syn = CsharpSyntax::new();
         let pipeline = render_documents(&syn, stages, 0)?;
-        let handle = match agg.read_preference {
-            Some(mode) => format!(
-                "{}.WithReadPreference(ReadPreference.{})",
-                options.collection_var,
-                mode_words(mode).pascal
-            ),
-            None => options.collection_var.clone(),
-        };
+        let handle = Self::handle(agg, &options.collection_var);
         let entries = Self::option_entries(&syn, agg)?;
-        let (declaration, argument) = if entries.is_empty() {
-            (String::new(), "")
-        } else {
-            let lines: String = entries.iter().map(|e| format!("    {e},\n")).collect();
-            (
-                format!("var options = new AggregateOptions\n{{\n{lines}}};\n\n"),
-                ", options",
-            )
-        };
+        let (declaration, argument) = Self::options_declaration("AggregateOptions", &entries);
         let body = format!(
             "var pipeline = {pipeline};\n\n{declaration}var results = {handle}.Aggregate<BsonDocument>(pipeline{argument}).ToList();\nresults.ForEach(Console.WriteLine);\n"
         );
@@ -118,7 +105,31 @@ impl Renderer for Csharp {
 }
 
 impl Csharp {
-    /// The property initializers of `AggregateOptions`, in the order collation, hint,
+    /// The collection, or a handle derived from it that reads where the read preference says.
+    fn handle(agg: &CodeAggOptions, coll: &str) -> String {
+        match agg.read_preference {
+            Some(mode) => format!(
+                "{coll}.WithReadPreference(ReadPreference.{})",
+                mode_words(mode).pascal
+            ),
+            None => coll.to_string(),
+        }
+    }
+
+    /// `var options = new <class> { .. };` and the argument that passes it; nothing when no
+    /// option is set.
+    fn options_declaration(class: &str, entries: &[String]) -> (String, &'static str) {
+        if entries.is_empty() {
+            return (String::new(), "");
+        }
+        let lines: String = entries.iter().map(|e| format!("    {e},\n")).collect();
+        (
+            format!("var options = new {class}\n{{\n{lines}}};\n\n"),
+            ", options",
+        )
+    }
+
+    /// The property initializers of `AggregateOptions` or `FindOptions`, in the order collation, hint,
     /// allowDiskUse, maxTimeMS, comment.
     fn option_entries(
         syn: &CsharpSyntax,

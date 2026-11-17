@@ -1,0 +1,28 @@
+let filter = doc! { "status": "A" };
+let sort = doc! { "total": -1_i32 };
+
+let mut cursor = collection
+    .find(filter)
+    .sort(sort)
+    .limit(20)
+    .collation(
+        Collation::builder()
+            .locale("en")
+            .strength(CollationStrength::Secondary)
+            .case_level(false)
+            .case_first(CollationCaseFirst::Upper)
+            .numeric_ordering(true)
+            .alternate(CollationAlternate::Shifted)
+            .build(),
+    )
+    .hint(Hint::Name("status_1_total_-1".to_string()))
+    .allow_disk_use(true)
+    .max_time(Duration::from_millis(5000))
+    .comment("nightly \"report\" 'q' \\ $x ${y} #{z} %s {0} \u{202e}end")
+    .selection_criteria(SelectionCriteria::ReadPreference(
+        ReadPreference::SecondaryPreferred { options: None },
+    ))
+    .await?;
+while let Some(item) = cursor.try_next().await? {
+    println!("{item}");
+}

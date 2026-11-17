@@ -14,19 +14,29 @@ use crate::store::{Namespace, Query};
 
 pub(crate) struct Go;
 
+/// The optional imports of a snippet.
+#[derive(Clone, Copy, Default)]
+struct Imports {
+    /// The read preference is set: the code names `readpref`.
+    readpref: bool,
+    /// The time limit is set: the code builds a context deadline.
+    time: bool,
+}
+
 impl Go {
     fn frame(
         ns: &Namespace,
         options: &CodeOptions,
         syn: &GoSyntax,
         body: &str,
-        readpref: bool,
+        imports: Imports,
     ) -> String {
         if !options.setup {
             return body.to_string();
         }
         let math = if syn.uses_math() { "\t\"math\"\n" } else { "" };
-        let readpref = if readpref {
+        let time = if imports.time { "\t\"time\"\n" } else { "" };
+        let readpref = if imports.readpref {
             "\t\"go.mongodb.org/mongo-driver/v2/mongo/readpref\"\n"
         } else {
             ""
@@ -37,7 +47,7 @@ impl Go {
             &options.collection_var,
         );
         format!(
-            "// Uses the v2 driver: go.mongodb.org/mongo-driver/v2\npackage main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n{math}\n\t\"go.mongodb.org/mongo-driver/v2/bson\"\n\t\"go.mongodb.org/mongo-driver/v2/mongo\"\n\t\"go.mongodb.org/mongo-driver/v2/mongo/options\"\n{readpref})\n\nfunc main() {{\n\t{client}, err := mongo.Connect(options.Client().ApplyURI(\"<your connection string>\"))\n\tif err != nil {{\n\t\tlog.Fatal(err)\n\t}}\n\tdefer func() {{\n\t\tif err := {client}.Disconnect(context.TODO()); err != nil {{\n\t\t\tlog.Fatal(err)\n\t\t}}\n\t}}()\n\n\t{db} := {client}.Database({})\n\t{coll} := {db}.Collection({})\n\n{}\n}}\n",
+            "// Uses the v2 driver: go.mongodb.org/mongo-driver/v2\npackage main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n{math}{time}\n\t\"go.mongodb.org/mongo-driver/v2/bson\"\n\t\"go.mongodb.org/mongo-driver/v2/mongo\"\n\t\"go.mongodb.org/mongo-driver/v2/mongo/options\"\n{readpref})\n\nfunc main() {{\n\t{client}, err := mongo.Connect(options.Client().ApplyURI(\"<your connection string>\"))\n\tif err != nil {{\n\t\tlog.Fatal(err)\n\t}}\n\tdefer func() {{\n\t\tif err := {client}.Disconnect(context.TODO()); err != nil {{\n\t\t\tlog.Fatal(err)\n\t\t}}\n\t}}()\n\n\t{db} := {client}.Database({})\n\t{coll} := {db}.Collection({})\n\n{}\n}}\n",
             quote(&ns.db),
             quote(&ns.collection),
             indent_lines(body.trim_end(), "\t", 1),
@@ -46,6 +56,24 @@ impl Go {
 }
 
 /// Package names the snippet imports; a variable of that name would shadow one.
+/// The names the time limit's context deadline declares, and the package it imports.
+const DEADLINE_NAMES: [&str; 3] = ["time", "ctx", "cancel"];
+
+/// A variable of one of the deadline's names would shadow it: refused, only when a time limit is
+/// set (otherwise those names were always fine).
+fn check_deadline_names(options: &CodeOptions) -> Result<(), CodegenError> {
+    for (which, name) in [
+        ("client", &options.client_var),
+        ("db", &options.db_var),
+        ("collection", &options.collection_var),
+    ] {
+        if DEADLINE_NAMES.contains(&name.as_str()) {
+            return Err(CodegenError::InvalidName(which));
+        }
+    }
+    Ok(())
+}
+
 const PACKAGE_NAMES: [&str; 7] = ["bson", "context", "fmt", "log", "math", "mongo", "readpref"];
 
 fn check_names(options: &CodeOptions) -> Result<(), CodegenError> {
@@ -62,14 +90,24 @@ fn check_names(options: &CodeOptions) -> Result<(), CodegenError> {
     Ok(())
 }
 
-const READ_RESULTS: &str = "if err != nil {\n\tlog.Fatal(err)\n}\nvar results []bson.M\nif err := cursor.All(context.TODO(), &results); err != nil {\n\tlog.Fatal(err)\n}\nfmt.Println(results)\n";
+/// Reads the cursor into `results` under the context `ctx`.
+fn read_results(ctx: &str) -> String {
+    format!(
+        "if err != nil {{\n\tlog.Fatal(err)\n}}\nvar results []bson.M\nif err := cursor.All({ctx}, &results); err != nil {{\n\tlog.Fatal(err)\n}}\nfmt.Println(results)\n"
+    )
+}
+
+/// What the code says where a time limit is a context deadline (v2 has no `maxTimeMS` option on
+/// `Find`); generated code is not UI text, so it is English.
+const DEADLINE_NOTE: &str =
+    "// The v2 driver has no maxTimeMS option on Find, so the time limit is a context deadline.";
 
 impl Renderer for Go {
     fn find(
         &self,
         ns: &Namespace,
         query: &Query,
-        _agg: &CodeAggOptions,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;
@@ -93,19 +131,34 @@ impl Renderer for Go {
         if query.limit > 0 {
             setters.push(format!("SetLimit({})", i64_arg("limit", query.limit)?));
         }
-        let coll = &options.collection_var;
-        if setters.is_empty() {
+        setters.extend(Self::option_setters(&syn, agg, false)?);
+        let coll = Self::handle(agg, &options.collection_var);
+        let ctx = if agg.max_time_ms.is_some() {
+            check_deadline_names(options)?;
+            "ctx"
+        } else {
+            "context.TODO()"
+        };
+        body.push('\n');
+        if let Some(ms) = agg.max_time_ms {
             body.push_str(&format!(
-                "\ncursor, err := {coll}.Find(context.TODO(), filter)\n"
+                "{DEADLINE_NOTE}\nctx, cancel := context.WithTimeout(context.TODO(), {ms}*time.Millisecond)\ndefer cancel()\n\n"
             ));
+        }
+        if setters.is_empty() {
+            body.push_str(&format!("cursor, err := {coll}.Find({ctx}, filter)\n"));
         } else {
             let chain: String = setters.iter().map(|s| format!(".\n\t{s}")).collect();
             body.push_str(&format!(
-                "\nopts := options.Find(){chain}\n\ncursor, err := {coll}.Find(context.TODO(), filter, opts)\n"
+                "opts := options.Find(){chain}\n\ncursor, err := {coll}.Find({ctx}, filter, opts)\n"
             ));
         }
-        body.push_str(READ_RESULTS);
-        Ok(Self::frame(ns, options, &syn, &body, false))
+        body.push_str(&read_results(ctx));
+        let imports = Imports {
+            readpref: agg.read_preference.is_some(),
+            time: agg.max_time_ms.is_some(),
+        };
+        Ok(Self::frame(ns, options, &syn, &body, imports))
     }
 
     fn aggregate(
@@ -118,15 +171,8 @@ impl Renderer for Go {
         check_names(options)?;
         let syn = GoSyntax::new();
         let pipeline = render_documents(&syn, stages, 0)?;
-        let handle = match agg.read_preference {
-            Some(mode) => format!(
-                "{}.Clone(options.Collection().SetReadPreference(readpref.{}()))",
-                options.collection_var,
-                mode_words(mode).pascal
-            ),
-            None => options.collection_var.clone(),
-        };
-        let setters = Self::option_setters(&syn, agg)?;
+        let handle = Self::handle(agg, &options.collection_var);
+        let setters = Self::option_setters(&syn, agg, true)?;
         let (declaration, argument) = if setters.is_empty() {
             (String::new(), "")
         } else {
@@ -134,23 +180,39 @@ impl Renderer for Go {
             (format!("opts := options.Aggregate(){chain}\n\n"), ", opts")
         };
         let body = format!(
-            "pipeline := {pipeline}\n\n{declaration}cursor, err := {handle}.Aggregate(context.TODO(), pipeline{argument})\n{READ_RESULTS}"
+            "pipeline := {pipeline}\n\n{declaration}cursor, err := {handle}.Aggregate(context.TODO(), pipeline{argument})\n{}",
+            read_results("context.TODO()")
         );
         let body = agg.with_note("//", body);
-        Ok(Self::frame(
-            ns,
-            options,
-            &syn,
-            &body,
-            agg.read_preference.is_some(),
-        ))
+        let imports = Imports {
+            readpref: agg.read_preference.is_some(),
+            time: false,
+        };
+        Ok(Self::frame(ns, options, &syn, &body, imports))
     }
 }
 
 impl Go {
-    /// The setters of `options.Aggregate()`, in the order collation, hint, allowDiskUse,
-    /// maxTimeMS, comment. v2 has no `SetMaxTime`, so the time limit goes through `SetCustom`.
-    fn option_setters(syn: &GoSyntax, agg: &CodeAggOptions) -> Result<Vec<String>, CodegenError> {
+    /// The collection, or a handle derived from it that reads where the read preference says.
+    fn handle(agg: &CodeAggOptions, coll: &str) -> String {
+        match agg.read_preference {
+            Some(mode) => format!(
+                "{coll}.Clone(options.Collection().SetReadPreference(readpref.{}()))",
+                mode_words(mode).pascal
+            ),
+            None => coll.to_string(),
+        }
+    }
+
+    /// The setters of `options.Aggregate()` or `options.Find()`, in the order collation, hint,
+    /// allowDiskUse, maxTimeMS, comment. v2 has no `SetMaxTime`: the aggregate's time limit goes
+    /// through `SetCustom` (`custom_time`); the find has no custom options and the caller turns
+    /// its time limit into a context deadline.
+    fn option_setters(
+        syn: &GoSyntax,
+        agg: &CodeAggOptions,
+        custom_time: bool,
+    ) -> Result<Vec<String>, CodegenError> {
         let mut setters = Vec::new();
         if let Some(collation) = &agg.collation {
             setters.push(format!("SetCollation({})", Self::collation(collation)));
@@ -161,7 +223,7 @@ impl Go {
         if let Some(on) = agg.allow_disk_use {
             setters.push(format!("SetAllowDiskUse({on})"));
         }
-        if let Some(ms) = agg.max_time_ms {
+        if let (true, Some(ms)) = (custom_time, agg.max_time_ms) {
             let value = syn.int32(ms);
             setters.push(format!("SetCustom(bson.M{{\"maxTimeMS\": {value}}})"));
         }

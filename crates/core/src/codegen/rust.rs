@@ -83,10 +83,11 @@ impl Renderer for Rust {
         &self,
         ns: &Namespace,
         query: &Query,
-        _agg: &CodeAggOptions,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = RustSyntax::new();
+        let mut used = Used::default();
         let mut body = format!(
             "let filter = doc! {};\n",
             render_document(&syn, &query.filter, 0)?
@@ -112,12 +113,13 @@ impl Renderer for Rust {
         if query.limit > 0 {
             chain.push(format!(".limit({})", i64_arg("limit", query.limit)?));
         }
+        chain.extend(Self::option_setters(&syn, agg, &mut used)?);
         let lines: String = chain.iter().map(|c| format!("\n    {c}")).collect();
         body.push_str(&format!(
             "\nlet mut cursor = {}\n    .find(filter){lines}\n    .await?;\n{PRINT_CURSOR}",
             options.collection_var
         ));
-        Ok(Self::frame(ns, options, &syn, &body, &Used::default()))
+        Ok(Self::frame(ns, options, &syn, &body, &used))
     }
 
     fn aggregate(
@@ -153,7 +155,7 @@ struct Used {
 }
 
 impl Rust {
-    /// The setters on the `aggregate` action, in the order collation, hint, allowDiskUse,
+    /// The setters on the `aggregate` or `find` action, in the order collation, hint, allowDiskUse,
     /// maxTimeMS, comment, read preference; a multi-line setter carries its own indent.
     fn option_setters(
         syn: &RustSyntax,
