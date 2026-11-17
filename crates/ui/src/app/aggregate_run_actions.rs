@@ -130,6 +130,8 @@ fn confirmed(state: AppState) -> Out {
             ns,
             pipeline: plan.pipeline,
             run,
+            // 4b: the draft's options.
+            options: curlybrace_core::pipeline::PipelineOptions::default(),
         },
     );
     match commands.is_empty() {

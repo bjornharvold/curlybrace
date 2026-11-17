@@ -164,6 +164,16 @@ pub enum CoreError {
     /// wrong server. Nothing was sent.
     #[error("snapshot: it belongs to another connection")]
     SnapshotOtherConnection,
+    /// An aggregate hint names no index on the collection. No name or key is carried.
+    #[error("the hint names no index on the collection")]
+    HintNotFound,
+    /// The server refused the collation of an aggregate. No server text is carried.
+    #[error("the server did not accept the collation")]
+    CollationRejected,
+    /// No server satisfies the read preference of an aggregate: a failed selection that is not a
+    /// lost connection.
+    #[error("no server matches the read preference")]
+    ReadPreferenceUnavailable,
 }
 
 /// Why a copy request was refused. Fixed variants only: a name is data and is never echoed.
@@ -253,6 +263,9 @@ impl CoreError {
             Self::SnapshotOtherConnection => "errors.snapshot_other_connection",
             Self::BulkCancelled => "errors.bulk_cancelled",
             Self::SnapshotDeleteFailed => "errors.snapshot_delete_failed",
+            Self::HintNotFound => "errors.hint_not_found",
+            Self::CollationRejected => "errors.collation_rejected",
+            Self::ReadPreferenceUnavailable => "errors.read_preference_unavailable",
         }
     }
 }
@@ -319,6 +332,9 @@ mod tests {
             CoreError::SnapshotOtherConnection,
             CoreError::BulkCancelled,
             CoreError::SnapshotDeleteFailed,
+            CoreError::HintNotFound,
+            CoreError::CollationRejected,
+            CoreError::ReadPreferenceUnavailable,
         ];
         let mut keys: Vec<_> = errors.iter().map(CoreError::i18n_key).collect();
         // Shares `Unreachable`'s copy: only compare can show it unresolved, and it has no ping.

@@ -426,13 +426,13 @@ impl DocumentStore for MongoStore {
         &self,
         ns: &Namespace,
         pipeline: Vec<Document>,
-        max_time: Duration,
+        options: &crate::pipeline::AppliedOptions,
     ) -> Result<Vec<Document>> {
         crate::mongo_pipeline::aggregate_preview(
             &self.client.database(&ns.db),
             ns,
             pipeline,
-            max_time,
+            options,
         )
         .await
     }
@@ -442,14 +442,14 @@ impl DocumentStore for MongoStore {
         ns: &Namespace,
         pipeline: Vec<Document>,
         verbosity: ExplainVerbosity,
-        max_time: Duration,
+        options: &crate::pipeline::AppliedOptions,
     ) -> Result<Explain> {
         crate::mongo_pipeline::aggregate_explain(
             &self.client.database(&ns.db),
             ns,
             pipeline,
             verbosity,
-            max_time,
+            options,
         )
         .await
     }
@@ -458,15 +458,10 @@ impl DocumentStore for MongoStore {
         &self,
         ns: &Namespace,
         pipeline: Vec<Document>,
-        max_time: Duration,
+        options: &crate::pipeline::AppliedOptions,
     ) -> Result<()> {
-        crate::mongo_pipeline::aggregate_write(
-            &self.client.database(&ns.db),
-            ns,
-            pipeline,
-            max_time,
-        )
-        .await
+        crate::mongo_pipeline::aggregate_write(&self.client.database(&ns.db), ns, pipeline, options)
+            .await
     }
 
     async fn profiling_level(&self, db: &str) -> Result<ProfilingState> {

@@ -288,6 +288,7 @@ fn bulk_write_commands(session: SessionId) -> Vec<Command> {
             ns: mock_namespace(),
             pipeline: vec![bson::doc! { "$out": "dest" }],
             run: 1,
+            options: crate::pipeline::PipelineOptions::default(),
         },
     ]
 }
@@ -315,6 +316,7 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             ns: mock_namespace(),
             stages: vec![bson::doc! { "$match": {} }],
             verbosity: crate::explain::ExplainVerbosity::QueryPlanner,
+            options: crate::pipeline::PipelineOptions::default(),
         },
         Command::AggregateCount {
             session,
@@ -322,6 +324,7 @@ fn read_commands(session: SessionId) -> Vec<Command> {
             ns: mock_namespace(),
             stage_index: 0,
             pipeline: vec![bson::doc! { "$count": "n" }],
+            options: crate::pipeline::PipelineOptions::default(),
         },
         Command::ListIndexes {
             session,

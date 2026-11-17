@@ -18,12 +18,16 @@ use crate::compare::key::{KeySpec, KeyTuple};
 use crate::error::{CoreError, Result};
 use crate::explain::ExplainVerbosity;
 use crate::indexes::IndexSpec;
+use crate::pipeline::{
+    AppliedOptions, CollationOption, HintOption, Operation, PipelineOptions, ReadPreferenceMode,
+};
 use crate::read_only_store::ReadOnlyStore;
 use crate::store::{
     CollectionIndex, CollectionKind, CollectionOptions, DocumentStore, DuplicateGroup, Explain,
     IndexStatus, IndexUsage, Namespace, Page, ProfileRead, ProfilingState, Query, Topology,
     WriteFailure, WriteOp, WriteOutcome,
 };
+use crate::test_support::InMemoryStore;
 use crate::test_support::mock_objects::mock_index_spec;
 
 /// Counts calls per method and answers every method with a non-default value, so a wrapper that
@@ -69,6 +73,10 @@ const WRITES: [&str; 19] = [
     "delete_many",
     "aggregate_write",
 ];
+
+fn opts() -> AppliedOptions {
+    AppliedOptions::bounded(Operation::Preview, Duration::from_secs(1))
+}
 
 fn ns() -> Namespace {
     Namespace::new("db", "c")
@@ -202,7 +210,7 @@ impl DocumentStore for RecordingStore {
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<Vec<Document>> {
         self.hit("aggregate_preview");
         Ok(vec![doc! { "via": "aggregate_preview" }])
@@ -212,7 +220,7 @@ impl DocumentStore for RecordingStore {
         _ns: &Namespace,
         _pipeline: Vec<Document>,
         verbosity: ExplainVerbosity,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<Explain> {
         self.hit("aggregate_explain");
         Ok(Explain {
@@ -224,7 +232,7 @@ impl DocumentStore for RecordingStore {
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<()> {
         self.hit("aggregate_write");
         Ok(())
@@ -438,7 +446,7 @@ async fn refused_writes(store: &dyn DocumentStore) -> [bool; WRITES.len()] {
         is_ro(store.delete_many(&ns(), &delete_req(), run()).await.err()),
         is_ro(
             store
-                .aggregate_write(&ns(), vec![doc! { "$out": "dest" }], Duration::from_secs(1))
+                .aggregate_write(&ns(), vec![doc! { "$out": "dest" }], &opts())
                 .await
                 .err(),
         ),
@@ -560,7 +568,7 @@ async fn read_only_store_forwards_aggregate_preview() {
     // Locked on purpose: a preview is a read.
     let (inner, _flag, store) = wrapped(true);
     let out = store
-        .aggregate_preview(&ns(), vec![doc! { "$limit": 1 }], Duration::from_secs(1))
+        .aggregate_preview(&ns(), vec![doc! { "$limit": 1 }], &opts())
         .await
         .unwrap();
     assert_eq!(out, vec![doc! { "via": "aggregate_preview" }]);
@@ -576,7 +584,7 @@ async fn read_only_store_forwards_aggregate_explain() {
             &ns(),
             vec![doc! { "$match": {} }],
             ExplainVerbosity::ExecutionStats,
-            Duration::from_secs(1),
+            &opts(),
         )
         .await
         .unwrap();
@@ -589,9 +597,7 @@ async fn read_only_store_forwards_aggregate_explain() {
 async fn a_locked_store_refuses_a_run_before_looking_at_it() {
     // A malformed pipeline still answers ReadOnly: the lock is decided first.
     let (inner, _flag, store) = wrapped(true);
-    let out = store
-        .aggregate_write(&ns(), Vec::new(), Duration::from_secs(1))
-        .await;
+    let out = store.aggregate_write(&ns(), Vec::new(), &opts()).await;
     assert_eq!(out, Err(CoreError::ReadOnly));
     assert_eq!(inner.count("aggregate_write"), 0);
 }
@@ -800,4 +806,67 @@ async fn statistics_are_forwarded_when_locked() {
     assert_eq!(store.database_stats("db").await.unwrap().collections, 3);
     assert_eq!(inner.count("collection_stats"), 1);
     assert_eq!(inner.count("database_stats"), 1);
+}
+
+#[tokio::test]
+async fn options_pass_through_unchanged() {
+    let options = PipelineOptions {
+        collation: Some(CollationOption {
+            locale: "en".into(),
+            strength: None,
+            case_level: None,
+            case_first: None,
+            numeric_ordering: Some(true),
+            alternate: None,
+        }),
+        hint: Some(HintOption::Name("by_a".into())),
+        comment: Some("why".into()),
+        read_preference: Some(ReadPreferenceMode::Secondary),
+        ..PipelineOptions::default()
+    };
+    let inner = Arc::new(
+        InMemoryStore::new()
+            .with_aggregate(vec![doc! { "n": 1 }])
+            .with_aggregate_explain(doc! { "ok": 1 }),
+    );
+    let locked = Arc::new(AtomicBool::new(true));
+    let store = ReadOnlyStore::wrap(inner.clone(), locked);
+    let preview = options.applied(Operation::Preview);
+    let explain = options.applied(Operation::Explain);
+    store
+        .aggregate_preview(&ns(), vec![doc! { "$limit": 1 }], &preview)
+        .await
+        .unwrap();
+    store
+        .aggregate_explain(
+            &ns(),
+            vec![doc! { "$match": {} }],
+            ExplainVerbosity::QueryPlanner,
+            &explain,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        inner.received_options(),
+        vec![(Operation::Preview, preview), (Operation::Explain, explain)]
+    );
+}
+
+#[tokio::test]
+async fn a_locked_store_refuses_a_run_that_carries_options_without_recording_it() {
+    let inner = Arc::new(InMemoryStore::new());
+    let store = ReadOnlyStore::wrap(inner.clone(), Arc::new(AtomicBool::new(true)));
+    let options = PipelineOptions {
+        comment: Some("c".into()),
+        ..PipelineOptions::default()
+    };
+    let out = store
+        .aggregate_write(
+            &ns(),
+            vec![doc! { "$out": "dest" }],
+            &options.applied(Operation::Run),
+        )
+        .await;
+    assert_eq!(out, Err(CoreError::ReadOnly));
+    assert!(inner.received_options().is_empty());
 }

@@ -216,7 +216,7 @@ fn the_matching_name_sends_exactly_one_run() {
     let pipeline = vec![bson::doc! { "$match": {} }, bson::doc! { "$out": "dest" }];
     assert!(matches!(
         commands.as_slice(),
-        [Command::AggregateRun { session, ns, pipeline: sent, run: 1 }]
+        [Command::AggregateRun { session, ns, pipeline: sent, run: 1, .. }]
             if *session == EMBEDDED_SESSION && *ns == people() && *sent == pipeline
     ));
     assert_eq!(s.aggregate.run.status, RunStatus::Running);

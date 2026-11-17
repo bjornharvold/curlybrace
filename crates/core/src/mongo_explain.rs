@@ -83,10 +83,17 @@ pub(crate) async fn run_explain(
     db: &Database,
     command: Document,
 ) -> mongodb::error::Result<Document> {
+    run_explain_on(db, command, explain_criteria(db)).await
+}
+
+/// [`run_explain`] on the servers `criteria` selects (`None`: the driver's default for a command).
+pub(crate) async fn run_explain_on(
+    db: &Database,
+    command: Document,
+    criteria: Option<SelectionCriteria>,
+) -> mongodb::error::Result<Document> {
     db.run_command(command)
-        .optional(explain_criteria(db), |action, c| {
-            action.selection_criteria(c)
-        })
+        .optional(criteria, |action, c| action.selection_criteria(c))
         .await
 }
 

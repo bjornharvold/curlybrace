@@ -8,12 +8,18 @@ use std::time::Duration;
 
 use bson::{Document, doc};
 use curlybrace_core::error::CoreError;
-use curlybrace_core::pipeline::{COUNT_CAP, PREVIEW_MAX_TIME_MS, Stage, count_of, count_pipeline};
+use curlybrace_core::pipeline::{
+    AppliedOptions, COUNT_CAP, Operation, PREVIEW_MAX_TIME_MS, Stage, count_of, count_pipeline,
+};
 use curlybrace_core::runtime::COMMAND_TIMEOUT_MESSAGE;
 use curlybrace_core::store::{DocumentStore, Namespace};
 use support::{insert_labelled, local_enabled, local_mongo};
 
 const MAX_TIME: Duration = Duration::from_millis(PREVIEW_MAX_TIME_MS);
+
+fn bounded(d: Duration) -> AppliedOptions {
+    AppliedOptions::bounded(Operation::Preview, d)
+}
 
 fn stages(texts: &[&str]) -> Vec<Stage> {
     texts
@@ -41,7 +47,11 @@ async fn count(
     max_time: Duration,
 ) -> curlybrace_core::error::Result<u64> {
     let pipeline = count_pipeline(&stages(texts), upto, cap).unwrap();
-    count_of(&store.aggregate_preview(ns, pipeline, max_time).await?)
+    count_of(
+        &store
+            .aggregate_preview(ns, pipeline, &bounded(max_time))
+            .await?,
+    )
 }
 
 #[tokio::test]

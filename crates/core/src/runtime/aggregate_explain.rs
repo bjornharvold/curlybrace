@@ -6,7 +6,8 @@ use bson::Document;
 use super::handlers::{COMMAND_TIMEOUT_MESSAGE, is_connection_error};
 use super::{Command, Event, SessionId};
 use crate::error::{CoreError, Result};
-use crate::explain::{AGGREGATE_EXPLAIN_MAX_TIME_MS, ExplainVerbosity};
+use crate::explain::ExplainVerbosity;
+use crate::pipeline::{Operation, PipelineOptions};
 use crate::store::{DocumentStore, Namespace};
 
 /// Explains `stages`. Every failure of the pipeline, the store's write-stage refusal included, is
@@ -20,10 +21,11 @@ pub(super) async fn run(
     ns: Namespace,
     stages: Vec<Document>,
     verbosity: ExplainVerbosity,
+    options: &PipelineOptions,
 ) -> Result<Event> {
-    let max_time = std::time::Duration::from_millis(AGGREGATE_EXPLAIN_MAX_TIME_MS);
+    let applied = options.applied(Operation::Explain);
     let outcome = match store
-        .aggregate_explain(&ns, stages, verbosity, max_time)
+        .aggregate_explain(&ns, stages, verbosity, &applied)
         .await
     {
         Err(error) if is_connection_error(&error) => return Err(error),

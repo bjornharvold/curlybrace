@@ -31,6 +31,9 @@ mod aggregate_count_tests;
 mod aggregate_explain;
 #[cfg(test)]
 mod aggregate_explain_tests;
+#[cfg(test)]
+mod aggregate_options_tests;
+mod aggregate_preview;
 mod aggregate_run;
 #[cfg(test)]
 mod aggregate_run_tests;
@@ -263,6 +266,7 @@ pub enum Command {
         request: u64,
         ns: Namespace,
         pipeline: Vec<Document>,
+        options: crate::pipeline::PipelineOptions,
     },
     /// Explains `stages` (the pipeline of `pipeline::explain_pipeline`, no write stage, no preview
     /// `$limit`) on `ns`. A read, allowed on a read-only connection; the store refuses a write
@@ -276,6 +280,7 @@ pub enum Command {
         ns: Namespace,
         stages: Vec<Document>,
         verbosity: ExplainVerbosity,
+        options: crate::pipeline::PipelineOptions,
     },
     /// Counts the documents stage `stage_index` lets through: runs `pipeline` (the output of
     /// `pipeline::count_pipeline`, which ends in `$limit` then `$count`) on `ns`. A read, allowed
@@ -290,6 +295,7 @@ pub enum Command {
         /// The stage this count belongs to; echoed by the answer.
         stage_index: usize,
         pipeline: Vec<Document>,
+        options: crate::pipeline::PipelineOptions,
     },
     /// Runs `pipeline` (the last stage the single `$out`/`$merge`) on `ns` for real. A write:
     /// refused on a read-only connection. The UI sends it only after the typed confirmation.
@@ -300,6 +306,7 @@ pub enum Command {
         pipeline: Vec<Document>,
         /// The UI's number of this run; the answer echoes it so a stale one can be ignored.
         run: u64,
+        options: crate::pipeline::PipelineOptions,
     },
     Insert {
         session: SessionId,

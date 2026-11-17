@@ -7,7 +7,7 @@ use bson::Document;
 use super::handlers::{COMMAND_TIMEOUT_MESSAGE, is_connection_error};
 use super::{Command, Event, SessionId};
 use crate::error::{CoreError, Result};
-use crate::pipeline::{PREVIEW_MAX_TIME_MS, count_of};
+use crate::pipeline::{Operation, PipelineOptions, count_of};
 use crate::store::{DocumentStore, Namespace};
 
 /// Counts with `pipeline`. Every failure of the pipeline (the store's write-stage refusal, a
@@ -21,9 +21,10 @@ pub(super) async fn run(
     ns: Namespace,
     stage_index: usize,
     pipeline: Vec<Document>,
+    options: &PipelineOptions,
 ) -> Result<Event> {
-    let max_time = std::time::Duration::from_millis(PREVIEW_MAX_TIME_MS);
-    let outcome = match store.aggregate_preview(&ns, pipeline, max_time).await {
+    let applied = options.applied(Operation::Count);
+    let outcome = match store.aggregate_preview(&ns, pipeline, &applied).await {
         Err(error) if is_connection_error(&error) => return Err(error),
         other => other.and_then(|docs| count_of(&docs)),
     };

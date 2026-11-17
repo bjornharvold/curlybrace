@@ -23,6 +23,7 @@ use super::tunneling::{
     AttemptCurrent, ConnectionCurrent, Currentness, SshSecretSource, open_tunnel_if_configured,
 };
 use super::{Command, Event, SessionId, Shared};
+use super::{aggregate_count, aggregate_explain, aggregate_preview, aggregate_run};
 
 /// The text of the `Database` error a client-side timeout becomes, shared by every handler that
 /// reports one.
@@ -207,14 +208,11 @@ async fn run(
         _ => None,
     };
     // And an aggregate preview: a slow pipeline says nothing about the server.
-    let preview_request = match &command {
-        Command::AggregatePreview { request, .. } => Some(*request),
-        _ => None,
-    };
+    let preview_timeout = aggregate_preview::timeout_answer(id, &command);
     // And an aggregate explain: its timeout is an outcome too.
-    let explain_timeout = super::aggregate_explain::timeout_answer(id, &command);
+    let explain_timeout = aggregate_explain::timeout_answer(id, &command);
     // And an aggregate count: a slow count says nothing about the server either.
-    let count_timeout = super::aggregate_count::timeout_answer(id, &command);
+    let count_timeout = aggregate_count::timeout_answer(id, &command);
     // A write run that outruns the client bound has an unknown outcome: answered, never pinged.
     let run_namespaces = match &command {
         Command::AggregateRun {
@@ -222,7 +220,7 @@ async fn run(
         } => Some((
             *run,
             ns.clone(),
-            super::aggregate_run::target_namespace(ns, pipeline),
+            aggregate_run::target_namespace(ns, pipeline),
         )),
         _ => None,
     };
@@ -252,7 +250,7 @@ async fn run(
         store.clone(),
         shared.history.clone(),
         max_continuous,
-        super::aggregate_run::RunLimits::new(&shared.config),
+        aggregate_run::RunLimits::new(&shared.config),
         command,
     );
     // Only the client-side bound counts as a possible black hole: a server-side time limit is
@@ -289,12 +287,8 @@ async fn run(
             outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
         });
     }
-    if let (true, Some(request)) = (timed_out, preview_request) {
-        return Ok(Event::AggregatePreviewed {
-            session: id,
-            request,
-            outcome: Err(CoreError::Database(COMMAND_TIMEOUT_MESSAGE.into())),
-        });
+    if let (true, Some(event)) = (timed_out, preview_timeout) {
+        return Ok(event);
     }
     if let (true, Some(event)) = (timed_out, explain_timeout) {
         return Ok(event);
@@ -374,7 +368,7 @@ async fn data_command(
     store: Arc<dyn DocumentStore>,
     history: Option<Arc<HistoryDb>>,
     max_continuous: i64,
-    run_limits: super::aggregate_run::RunLimits,
+    run_limits: aggregate_run::RunLimits,
     command: Command,
 ) -> Result<Event> {
     let service = DocumentService::new(store.clone());
@@ -434,45 +428,46 @@ async fn data_command(
             request,
             ns,
             pipeline,
+            options,
             ..
-        } => {
-            // Every failure of the pipeline, the store's write-stage refusal included, is the
-            // outcome: the preview pane shows it inline, never as a banner. A lost connection is
-            // not the pipeline's failure: it fails the command like any read's, so `run` settles
-            // an interruption by a ping and the UI learns the server is gone.
-            let max_time = std::time::Duration::from_millis(crate::pipeline::PREVIEW_MAX_TIME_MS);
-            let outcome = match store.aggregate_preview(&ns, pipeline, max_time).await {
-                Err(error) if is_connection_error(&error) => return Err(error),
-                other => other,
-            };
-            Event::AggregatePreviewed {
-                session,
-                request,
-                outcome,
-            }
-        }
+        } => aggregate_preview::run(session, &*store, request, ns, pipeline, &options).await?,
         Command::AggregateExplain {
             request,
             ns,
             stages,
             verbosity,
+            options,
             ..
         } => {
-            super::aggregate_explain::run(session, &*store, request, ns, stages, verbosity).await?
+            aggregate_explain::run(session, &*store, request, ns, stages, verbosity, &options)
+                .await?
         }
         Command::AggregateCount {
             request,
             ns,
             stage_index,
             pipeline,
+            options,
             ..
         } => {
-            super::aggregate_count::run(session, &*store, request, ns, stage_index, pipeline)
-                .await?
+            aggregate_count::run(
+                session,
+                &*store,
+                request,
+                ns,
+                stage_index,
+                pipeline,
+                &options,
+            )
+            .await?
         }
         Command::AggregateRun {
-            ns, pipeline, run, ..
-        } => super::aggregate_run::run(session, &*store, ns, pipeline, run, run_limits).await?,
+            ns,
+            pipeline,
+            run,
+            options,
+            ..
+        } => aggregate_run::run(session, &*store, ns, pipeline, run, run_limits, &options).await?,
         Command::Insert { ns, json, .. } => {
             service.insert_from_json(&ns, &json).await?;
             Event::Mutated { session, ns }

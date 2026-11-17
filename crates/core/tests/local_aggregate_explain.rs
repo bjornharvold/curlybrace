@@ -14,13 +14,17 @@ use curlybrace_core::explain::{
     AGGREGATE_EXPLAIN_MAX_TIME_MS, AggHint, AggPlan, AggPlanOutcome, ExplainVerbosity,
     parse_aggregate_explain,
 };
-use curlybrace_core::pipeline::{Stage, explain_pipeline};
+use curlybrace_core::pipeline::{AppliedOptions, Operation, Stage, explain_pipeline};
 use curlybrace_core::read_only_store::ReadOnlyStore;
 use curlybrace_core::store::{DocumentStore, Namespace};
 use mongodb::IndexModel;
 use support::{insert_labelled, local_enabled, local_mongo};
 
 const MAX_TIME: Duration = Duration::from_millis(AGGREGATE_EXPLAIN_MAX_TIME_MS);
+
+fn bounded(d: Duration) -> AppliedOptions {
+    AppliedOptions::bounded(Operation::Explain, d)
+}
 
 fn stages(texts: &[&str]) -> Vec<Stage> {
     texts
@@ -47,7 +51,7 @@ async fn plan_of(
 ) -> AggPlan {
     let pipeline = explain_pipeline(&stages(texts), texts.len() - 1).unwrap();
     let explain = store
-        .aggregate_explain(ns, pipeline, verbosity, MAX_TIME)
+        .aggregate_explain(ns, pipeline, verbosity, &bounded(MAX_TIME))
         .await
         .unwrap();
     assert_eq!(
@@ -190,7 +194,7 @@ async fn a_write_stage_is_refused_before_the_server_and_a_bad_stage_is_a_server_
             &ns,
             vec![doc! { "$match": {} }, doc! { "$out": "stolen" }],
             ExplainVerbosity::QueryPlanner,
-            MAX_TIME,
+            &bounded(MAX_TIME),
         )
         .await;
     assert!(matches!(out, Err(CoreError::InvalidDocument(_))), "{out:?}");
@@ -200,7 +204,7 @@ async fn a_write_stage_is_refused_before_the_server_and_a_bad_stage_is_a_server_
             &ns,
             vec![nested],
             ExplainVerbosity::ExecutionStats,
-            MAX_TIME,
+            &bounded(MAX_TIME),
         )
         .await;
     assert!(matches!(out, Err(CoreError::InvalidDocument(_))), "{out:?}");
@@ -216,7 +220,7 @@ async fn a_write_stage_is_refused_before_the_server_and_a_bad_stage_is_a_server_
             &ns,
             vec![doc! { "$grup": { "_id": 1 } }],
             ExplainVerbosity::QueryPlanner,
-            MAX_TIME,
+            &bounded(MAX_TIME),
         )
         .await;
     assert!(matches!(bad, Err(CoreError::Database(_))), "{bad:?}");

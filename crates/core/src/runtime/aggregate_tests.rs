@@ -10,6 +10,7 @@ use tokio::sync::Notify;
 
 use super::*;
 use crate::connection::ConnectionConfig;
+use crate::pipeline::AppliedOptions;
 use crate::store::{Namespace, Query};
 use crate::test_support::InMemoryStore;
 use crate::test_support::mock_objects::mock_namespace;
@@ -43,6 +44,7 @@ fn preview_command(session: SessionId, pipeline: Vec<Document>) -> Command {
         request: 9,
         ns: mock_namespace(),
         pipeline,
+        options: crate::pipeline::PipelineOptions::default(),
     }
 }
 
@@ -171,7 +173,7 @@ impl DocumentStore for GatedAggregate {
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<Vec<Document>> {
         self.started.notify_one();
         self.release.notified().await;
@@ -278,7 +280,7 @@ impl DocumentStore for FailingAggregate {
         &self,
         _ns: &Namespace,
         _pipeline: Vec<Document>,
-        _max_time: Duration,
+        _options: &AppliedOptions,
     ) -> Result<Vec<Document>> {
         Err(self.error.clone())
     }
