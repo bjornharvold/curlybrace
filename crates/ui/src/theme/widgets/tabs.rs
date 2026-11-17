@@ -73,7 +73,9 @@ fn tabs_row<T: PartialEq + Copy>(
         let rect = Rect::from_min_size(pos2(left, row.top()), vec2(width, CONTROL_HEIGHT));
         left += width;
         let is_selected = *value == selected;
-        let response = ui.interact(rect, base_id.with(i), Sense::click());
+        // Not `base_id.with(i)`: the widget laid out next gets `base_id` itself, and its text runs
+        // are `base_id.with(row)`, which would be the id of this tab.
+        let response = ui.interact(rect, base_id.with(("tab", i)), Sense::click());
         response.widget_info(|| {
             WidgetInfo::selected(
                 WidgetType::SelectableLabel,
