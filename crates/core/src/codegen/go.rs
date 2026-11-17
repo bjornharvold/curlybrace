@@ -55,7 +55,6 @@ impl Go {
     }
 }
 
-/// Package names the snippet imports; a variable of that name would shadow one.
 /// The names the time limit's context deadline declares, and the package it imports.
 const DEADLINE_NAMES: [&str; 3] = ["time", "ctx", "cancel"];
 
@@ -74,6 +73,7 @@ fn check_deadline_names(options: &CodeOptions) -> Result<(), CodegenError> {
     Ok(())
 }
 
+/// Package names the snippet imports; a variable of that name would shadow one.
 const PACKAGE_NAMES: [&str; 7] = ["bson", "context", "fmt", "log", "math", "mongo", "readpref"];
 
 fn check_names(options: &CodeOptions) -> Result<(), CodegenError> {
