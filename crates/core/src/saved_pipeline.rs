@@ -70,6 +70,8 @@ pub enum SavedError {
     TooLarge,
     /// A file from a newer version of the format.
     Unsupported,
+    /// An option the loader would refuse (see `PipelineOptions::validated`).
+    InvalidOptions,
 }
 
 impl SavedError {
@@ -83,6 +85,7 @@ impl SavedError {
             Self::TooMany => "too_many",
             Self::TooLarge => "too_large",
             Self::Unsupported => "unsupported",
+            Self::InvalidOptions => "invalid_options",
         }
     }
 }
@@ -230,6 +233,11 @@ impl SavedPipelines {
         replace: bool,
     ) -> Result<Self, SavedError> {
         let SavedDraft { stages, options } = content;
+        // What the loader would refuse is refused here, so no file is written that the next start
+        // would back up and replace with an empty list. Values come back trimmed, as loaded.
+        let options = options
+            .validated()
+            .map_err(|_| SavedError::InvalidOptions)?;
         let name = validate_name(name)?;
         if stages.iter().map(|s| s.text.len()).sum::<usize>() > MAX_STAGE_BYTES {
             return Err(SavedError::TooLarge);

@@ -295,6 +295,84 @@ fn saved_keeps_the_options_and_replace_overwrites_them() {
 }
 
 #[test]
+fn saved_refuses_options_the_loader_would_refuse() {
+    let conn = Uuid::new_v4();
+    let store = SavedPipelines::default();
+    let bad = [
+        PipelineOptions {
+            max_time_ms: Some(0),
+            ..PipelineOptions::default()
+        },
+        PipelineOptions {
+            max_time_ms: Some(120_000),
+            ..PipelineOptions::default()
+        },
+        PipelineOptions {
+            collation: Some(CollationOption {
+                locale: String::new(),
+                strength: None,
+                case_level: None,
+                case_first: None,
+                numeric_ordering: None,
+                alternate: None,
+            }),
+            ..PipelineOptions::default()
+        },
+        PipelineOptions {
+            hint: Some(HintOption::Keys(doc! {})),
+            ..PipelineOptions::default()
+        },
+        PipelineOptions {
+            comment: Some("   ".into()),
+            ..PipelineOptions::default()
+        },
+    ];
+    for options in bad {
+        let result = store.saved(
+            conn,
+            "totals",
+            None,
+            SavedDraft {
+                stages: stages(),
+                options,
+            },
+            1,
+            false,
+        );
+        assert_eq!(result, Err(SavedError::InvalidOptions));
+    }
+    assert!(store.list(conn).is_empty(), "nothing was stored");
+}
+
+#[test]
+fn saved_stores_the_validated_options_so_the_file_loads_back() {
+    let conn = Uuid::new_v4();
+    let padded = PipelineOptions {
+        comment: Some("  nightly  ".into()),
+        ..PipelineOptions::default()
+    };
+    let store = SavedPipelines::default()
+        .saved(
+            conn,
+            "totals",
+            None,
+            SavedDraft {
+                stages: stages(),
+                options: padded,
+            },
+            1,
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        store.list(conn)[0].options.comment.as_deref(),
+        Some("nightly")
+    );
+    let text = serde_json::to_string(&store).unwrap();
+    assert!(load(&text).is_ok());
+}
+
+#[test]
 fn stages_only_saves_with_no_options() {
     let draft = SavedDraft::stages_only(stages());
     assert_eq!(draft.stages, stages());
