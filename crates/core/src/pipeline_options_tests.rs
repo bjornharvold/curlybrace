@@ -111,6 +111,11 @@ fn bad_locales_are_refused() {
         "e",
         "en_",
         "en@collation=",
+        "en-US",
+        "de@colStrength=primary",
+        "en\tUS",
+        "en\u{0}",
+        " e n",
         "1en",
         long.as_str(),
     ] {

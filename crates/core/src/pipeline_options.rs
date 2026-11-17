@@ -275,6 +275,13 @@ fn validated_collation(collation: CollationOption) -> Result<CollationOption, Op
 }
 
 /// `simple`, or an ICU-style id: `^[A-Za-z]{2,8}(_[A-Za-z0-9]{2,8})*(@collation=[a-z]+)?$`.
+///
+/// This is the form MongoDB's collation locale list takes (`en_US`, `zh_Hant`,
+/// `de@collation=phonebook`). Checked against MongoDB 9.0, the server itself refuses the hyphenated
+/// BCP 47 form (`en-US`: "Did you mean 'en_US'?") and other ICU keywords (`de@colStrength=primary`),
+/// so accepting them here would only move the failure to a server error; strength and the other
+/// collation fields are separate options. The same server accepts `simple` together with them, so
+/// that combination is not refused either.
 fn is_locale(locale: &str) -> bool {
     if locale.chars().count() > MAX_LOCALE_CHARS {
         return false;
