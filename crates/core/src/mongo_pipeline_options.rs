@@ -108,14 +108,44 @@ pub(crate) fn write_options(o: &AppliedOptions) -> AggregateOptions {
         .build()
 }
 
+/// The collation as the server reads it, built field by field (a serialisation that could fail
+/// would drop the collation and run the explain un-collated).
+pub(crate) fn collation_document(c: &CollationOption) -> Document {
+    let mut out = Document::new();
+    out.insert("locale", c.locale.clone());
+    if let Some(strength) = c.strength {
+        out.insert("strength", i32::from(u8::from(strength)));
+    }
+    if let Some(on) = c.case_level {
+        out.insert("caseLevel", on);
+    }
+    if let Some(first) = c.case_first {
+        let name = match first {
+            CaseFirst::Upper => "upper",
+            CaseFirst::Lower => "lower",
+            CaseFirst::Off => "off",
+        };
+        out.insert("caseFirst", name);
+    }
+    if let Some(on) = c.numeric_ordering {
+        out.insert("numericOrdering", on);
+    }
+    if let Some(alternate) = c.alternate {
+        let name = match alternate {
+            Alternate::NonIgnorable => "non-ignorable",
+            Alternate::Shifted => "shifted",
+        };
+        out.insert("alternate", name);
+    }
+    out
+}
+
 /// The fields of `o` that go inside the `aggregate` of an explain command (the time limit and
 /// the verbosity stay outside it). Empty when `o` sets none.
 pub(crate) fn explain_fields(o: &AppliedOptions) -> Document {
     let mut fields = Document::new();
     if let Some(collation) = &o.collation {
-        if let Ok(document) = bson::to_document(&driver_collation(collation)) {
-            fields.insert("collation", document);
-        }
+        fields.insert("collation", collation_document(collation));
     }
     match &o.hint {
         Some(HintOption::Name(name)) => {

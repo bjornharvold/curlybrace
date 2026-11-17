@@ -408,3 +408,46 @@ fn the_driver_never_gets_a_zero_or_oversized_time_limit() {
         );
     }
 }
+
+#[test]
+fn the_explained_collation_is_built_field_by_field_and_never_dropped() {
+    let full = collation_document(&collation());
+    assert_eq!(
+        full,
+        doc! {
+            "locale": "de@collation=phonebook",
+            "strength": 2,
+            "caseLevel": true,
+            "caseFirst": "upper",
+            "numericOrdering": true,
+            "alternate": "shifted",
+        }
+    );
+    let bare = collation_document(&CollationOption {
+        locale: "en".into(),
+        strength: None,
+        case_level: None,
+        case_first: Some(CaseFirst::Off),
+        numeric_ordering: None,
+        alternate: Some(Alternate::NonIgnorable),
+    });
+    assert_eq!(
+        bare,
+        doc! { "locale": "en", "caseFirst": "off", "alternate": "non-ignorable" }
+    );
+    // Whatever the collation, the explain carries it.
+    for strength in [Strength::Primary, Strength::Identical] {
+        let o = applied(with_collation_strength(strength), Operation::Explain);
+        assert!(explain_fields(&o).contains_key("collation"));
+    }
+}
+
+fn with_collation_strength(strength: Strength) -> PipelineOptions {
+    PipelineOptions {
+        collation: Some(CollationOption {
+            strength: Some(strength),
+            ..collation()
+        }),
+        ..PipelineOptions::default()
+    }
+}
