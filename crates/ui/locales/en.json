@@ -185,6 +185,16 @@
         "placeholder": "Text to find this pipeline in the server's logs"
       },
       "comment_sent_note": "The comment is sent to the server and shows in its logs and profiler.",
+      "explain": {
+        "clear_hint": "Clear hint",
+        "copy_create_index": "Copy command",
+        "create_index": "Create index...",
+        "create_index_read_only": "This connection is read-only. Copy the command to create the index elsewhere.",
+        "no_hint": "No hint",
+        "suggested": "Suggested index for the first $match and $sort",
+        "try_index": "Try an index",
+        "try_index_hint": "Sets this index as the hint in Options and explains again."
+      },
       "explain_timeout_set": "It took longer than the time limit you set in Options.",
       "hint": {
         "clear": "Clear",

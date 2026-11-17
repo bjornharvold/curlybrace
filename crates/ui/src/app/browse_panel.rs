@@ -174,6 +174,8 @@ fn show_aggregate_tab(
     let run = RunContext {
         availability: state.run_availability(),
         badge: state.active_badge(),
+        read_only: state.active_is_read_only(),
+        ns: state.selected_ns().cloned(),
     };
     let mut actions = ui
         .push_id(("aggregate_tab", state.active), |ui| {

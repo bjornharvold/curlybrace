@@ -52,7 +52,7 @@ pub fn show_aggregate(
     };
     ui.separator();
     let typed = view.typed_stages(draft);
-    let results = show_results(ui, draft, view, &typed, i18n);
+    let results = show_results(ui, draft, view, &typed, run, i18n);
     // The dialogs are part of the tab's frame, so a typed stage edit that is still waiting is
     // applied before whatever they send (Save must save what was typed).
     let dialog = show_saved_dialog(ui.ctx(), draft, saved, i18n);

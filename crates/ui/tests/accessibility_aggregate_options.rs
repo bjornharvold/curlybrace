@@ -50,6 +50,7 @@ fn open(draft: AggregateState, run: RunContext) -> Harness<'static, Frame> {
                     &RunContext {
                         availability: frame.run.availability.clone(),
                         badge: frame.run.badge,
+                        ..RunContext::default()
                     },
                     &I18n::english(),
                 );

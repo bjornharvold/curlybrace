@@ -8,6 +8,7 @@ mod aggregate_options;
 mod aggregate_options_fields;
 mod aggregate_options_hint;
 mod aggregate_plan;
+mod aggregate_plan_next;
 mod aggregate_preview;
 pub mod aggregate_run;
 mod aggregate_saved;
