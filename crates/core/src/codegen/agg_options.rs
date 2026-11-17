@@ -15,7 +15,7 @@ use crate::pipeline_options::{
 };
 
 /// What the code sets.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub(crate) struct CodeAggOptions {
     pub collation: Option<CollationOption>,
     pub hint: Option<HintOption>,
@@ -25,6 +25,21 @@ pub(crate) struct CodeAggOptions {
     pub read_preference: Option<ReadPreferenceMode>,
     /// A read preference was set and left out because the code ends with a write stage.
     pub read_preference_left_out: bool,
+}
+
+/// Names which options are set, never their values: the comment is the person's text.
+impl std::fmt::Debug for CodeAggOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CodeAggOptions")
+            .field("collation", &self.collation.is_some())
+            .field("hint", &self.hint.is_some())
+            .field("allow_disk_use", &self.allow_disk_use.is_some())
+            .field("max_time_ms", &self.max_time_ms.is_some())
+            .field("comment", &self.comment.is_some())
+            .field("read_preference", &self.read_preference.is_some())
+            .field("read_preference_left_out", &self.read_preference_left_out)
+            .finish()
+    }
 }
 
 /// The note the code carries when the read preference was left out (generated code is not UI

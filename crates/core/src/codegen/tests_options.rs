@@ -314,6 +314,30 @@ fn an_option_string_cannot_break_out_of_its_literal() {
 }
 
 #[test]
+fn debug_names_what_is_set_and_never_the_comment_hint_or_locale() {
+    let options = PipelineOptions {
+        comment: Some("secret-comment".into()),
+        hint: Some(HintOption::Name("secret_index".into())),
+        collation: Some(CollationOption {
+            locale: "fr_CA".into(),
+            strength: None,
+            case_level: None,
+            case_first: None,
+            numeric_ordering: None,
+            alternate: None,
+        }),
+        max_time_ms: Some(1234),
+        ..PipelineOptions::default()
+    };
+    let agg = agg_options::CodeAggOptions::of(&options, true, false).expect("valid");
+    let shown = format!("{agg:?}");
+    for value in ["secret", "fr_CA", "1234"] {
+        assert!(!shown.contains(value), "{shown}");
+    }
+    assert!(shown.contains("comment: true"), "{shown}");
+}
+
+#[test]
 fn new_snippet_names_are_reserved() {
     for name in [
         "ReadPreference",
