@@ -42,9 +42,7 @@ pub fn stages_exported(
     draft: &AggregateState,
     stages: &[Stage],
 ) -> Result<Vec<Document>, CodeBlock> {
-    if draft.options_blocked() {
-        return Err(CodeBlock::Options);
-    }
+    draft.options_gate().check(CodeBlock::Options)?;
     let text_edited = draft.mode == Mode::Text && draft.text != pipeline_text(stages);
     if text_edited {
         return Err(CodeBlock::TextNotApplied);

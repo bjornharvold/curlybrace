@@ -41,7 +41,31 @@ pub enum Applied {
     Blocked,
 }
 
+/// Whether the options form lets the pipeline be sent: the one check behind the counts plan, the
+/// explain request and the code export, and the one input their remembered answers are keyed on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OptionsGate {
+    blocked: bool,
+}
+
+impl OptionsGate {
+    /// `Ok` when the form is usable, else `block`: the reason the operation reports.
+    pub fn check<E>(self, block: E) -> Result<(), E> {
+        match self.blocked {
+            true => Err(block),
+            false => Ok(()),
+        }
+    }
+}
+
 impl AggregateState {
+    /// The gate every operation that sends the pipeline asks first.
+    pub fn options_gate(&self) -> OptionsGate {
+        OptionsGate {
+            blocked: self.options_blocked(),
+        }
+    }
+
     /// The section opened or closed; nothing else changes.
     pub fn options_toggled(self) -> Self {
         let OptionsUi { form, open, hint } = self.options_ui;

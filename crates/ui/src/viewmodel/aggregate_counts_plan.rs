@@ -4,6 +4,7 @@
 //! remembered on the inputs it was computed from (`InputMemo`); a repaint with nothing changed
 //! parses nothing. Stage text is user data and is never logged here.
 use super::aggregate::{AggregateState, Mode};
+use super::aggregate_options_state::OptionsGate;
 use super::aggregate_view::AggregateView;
 use super::input_memo::InputMemo;
 use bson::Document;
@@ -71,9 +72,7 @@ fn reason_of(error: &PipelineError, index: usize) -> NotCounted {
 
 /// The plan for `stages` (the draft's stages with the typing applied), or why there is none.
 pub fn count_plan(draft: &AggregateState, stages: &[Stage]) -> CountPlanOutcome {
-    if draft.options_blocked() {
-        return Err(CountsBlock::Options);
-    }
+    draft.options_gate().check(CountsBlock::Options)?;
     if draft.mode == Mode::Text {
         // The counts are drawn on the stage cards, which text mode does not show.
         return Err(match draft.text != pipeline_text(stages) {
@@ -108,16 +107,15 @@ pub struct CountsKey {
     stages: Vec<Stage>,
     mode: Mode,
     text: Option<String>,
-    /// The options form has a problem (the answer is then `CountsBlock::Options`).
-    blocked: bool,
+    gate: OptionsGate,
 }
 
 impl CountsKey {
-    fn is_of(&self, stages: &[Stage], mode: Mode, text: Option<&str>, blocked: bool) -> bool {
+    fn is_of(&self, stages: &[Stage], mode: Mode, text: Option<&str>, gate: OptionsGate) -> bool {
         self.stages == stages
             && self.mode == mode
             && self.text.as_deref() == text
-            && self.blocked == blocked
+            && self.gate == gate
     }
 }
 
@@ -129,14 +127,14 @@ impl AggregateView {
     /// is blocked and (in text mode) the buffer.
     pub fn count_plan(&self, draft: &AggregateState, stages: &[Stage]) -> Arc<CountPlanOutcome> {
         let text = (draft.mode == Mode::Text).then_some(draft.text.as_str());
-        let blocked = draft.options_blocked();
+        let gate = draft.options_gate();
         self.counts_memo.answer(
-            |key| key.is_of(stages, draft.mode, text, blocked),
+            |key| key.is_of(stages, draft.mode, text, gate),
             || CountsKey {
                 stages: stages.to_vec(),
                 mode: draft.mode,
                 text: text.map(str::to_string),
-                blocked,
+                gate,
             },
             |_| Arc::new(count_plan(draft, stages)),
         )
