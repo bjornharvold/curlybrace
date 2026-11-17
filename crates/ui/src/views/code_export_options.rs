@@ -24,7 +24,8 @@ pub(super) fn show_include_options(
 pub(super) fn show_options_summary(ui: &mut egui::Ui, view: &CodeOptionsView, i18n: &I18n) {
     if !view.labels.is_empty() {
         let names: Vec<String> = view.labels.iter().map(|key| i18n.t(key)).collect();
-        let listed = i18n.t_with("codegen.options.listed", &[("options", &names.join(", "))]);
+        let joined = names.join(&i18n.t("codegen.options.separator"));
+        let listed = i18n.t_with("codegen.options.listed", &[("options", &joined)]);
         ui.label(listed);
     }
     if view.read_preference_left_out {

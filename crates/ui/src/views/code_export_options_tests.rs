@@ -127,7 +127,7 @@ fn the_summary_names_the_options_in_words() {
         t("aggregate.options.comment.label"),
         t("aggregate.options.read_preference.label"),
     ]
-    .join(", ");
+    .join(&t("codegen.options.separator"));
     let listed = I18n::english().t_with("codegen.options.listed", &[("options", &names)]);
     h.get_by_label(&listed);
 }
@@ -140,7 +140,7 @@ fn the_left_out_read_preference_is_explained() {
         t("aggregate.options.max_time.label"),
         t("aggregate.options.comment.label"),
     ]
-    .join(", ");
+    .join(&t("codegen.options.separator"));
     let listed = I18n::english().t_with("codegen.options.listed", &[("options", &names)]);
     h.get_by_label(&listed);
     let reads_only = harness(request(reads(), options()));
