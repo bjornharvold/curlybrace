@@ -262,6 +262,7 @@ impl AggregateState {
         Self {
             preview: PreviewState::Idle,
             queued: None,
+            options_ui: self.options_ui.hint_reset(),
             run: self.run.collection_changed(),
             explain: self.explain.reset(),
             counts: self.counts.reset(),

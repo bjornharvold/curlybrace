@@ -23,9 +23,14 @@ pub enum OptionsAction {
     Apply,
     /// Empty the form and apply it.
     Reset,
+    /// The open section shows the hint picker: read the collection's index names once.
+    HintListWanted,
 }
 
 pub(super) fn on_action(mut state: AppState, action: OptionsAction) -> Out {
+    if action == OptionsAction::HintListWanted {
+        return super::aggregate_hint_actions::wanted(state);
+    }
     // Moved out and put back changed, never cloned: this runs on every keystroke and the draft
     // may hold a whole preview page.
     let draft = std::mem::take(&mut *state.aggregate);
@@ -41,6 +46,7 @@ pub(super) fn on_action(mut state: AppState, action: OptionsAction) -> Out {
         }
         OptionsAction::Apply => applied(state, draft.options_applied()),
         OptionsAction::Reset => applied(state, draft.options_reset()),
+        OptionsAction::HintListWanted => (with_draft(state, draft), Vec::new()),
     }
 }
 

@@ -6,6 +6,7 @@ pub mod aggregate_counts_plan;
 pub mod aggregate_explain;
 pub mod aggregate_explain_block;
 pub mod aggregate_flight;
+pub mod aggregate_hint_list;
 pub mod aggregate_options;
 pub mod aggregate_options_state;
 mod aggregate_order;

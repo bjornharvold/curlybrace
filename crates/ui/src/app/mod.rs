@@ -13,6 +13,7 @@ mod aggregate_counts_actions;
 pub use aggregate_counts_actions::CountsAction;
 mod aggregate_explain_actions;
 pub use aggregate_explain_actions::ExplainAction;
+mod aggregate_hint_actions;
 mod aggregate_options_actions;
 pub use aggregate_options_actions::OptionsAction;
 mod aggregate_preview_send;

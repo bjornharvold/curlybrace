@@ -3,6 +3,7 @@
 //! the "modified" memo, the run dialog and a running count sequence react as for a stage edit.
 //! An invalid form blocks everything that sends a pipeline and leaves the last good preview.
 use super::aggregate::AggregateState;
+use super::aggregate_hint_list::HintListUi;
 use super::aggregate_options::{OptionsEdit, OptionsForm};
 use super::aggregate_preview_state::{PreviewError, PreviewState};
 
@@ -12,6 +13,18 @@ pub struct OptionsUi {
     pub form: OptionsForm,
     /// Whether the section is expanded.
     pub open: bool,
+    /// The collection's index names for the hint picker.
+    pub hint: HintListUi,
+}
+
+impl OptionsUi {
+    /// The hint list forgotten: the pipeline now runs against another collection.
+    pub fn hint_reset(self) -> Self {
+        Self {
+            hint: self.hint.reset(),
+            ..self
+        }
+    }
 }
 
 /// What applying the form did.
@@ -31,9 +44,18 @@ pub enum Applied {
 impl AggregateState {
     /// The section opened or closed; nothing else changes.
     pub fn options_toggled(self) -> Self {
-        let OptionsUi { form, open } = self.options_ui;
+        let OptionsUi { form, open, hint } = self.options_ui;
+        // Opening again lets a list that could not be read be asked for again.
+        let hint = match open {
+            true => hint,
+            false => hint.retried(),
+        };
         Self {
-            options_ui: OptionsUi { form, open: !open },
+            options_ui: OptionsUi {
+                form,
+                open: !open,
+                hint,
+            },
             ..self
         }
     }
@@ -41,11 +63,12 @@ impl AggregateState {
     /// The form after `edit`. Only the form: whether the edit applies is the caller's call. The
     /// "modified" memo is forgotten, since a form with a problem counts as modified.
     pub fn options_edited(self, edit: OptionsEdit) -> Self {
-        let OptionsUi { form, open } = self.options_ui;
+        let OptionsUi { form, open, hint } = self.options_ui;
         Self {
             options_ui: OptionsUi {
                 form: form.edited(edit),
                 open,
+                hint,
             },
             saved: self.saved.with_modified_forgotten(),
             ..self
@@ -81,11 +104,12 @@ impl AggregateState {
 
     /// The form emptied (the section stays open) and applied.
     pub fn options_reset(self) -> (Self, Applied) {
-        let open = self.options_ui.open;
+        let OptionsUi { open, hint, .. } = self.options_ui;
         Self {
             options_ui: OptionsUi {
                 form: OptionsForm::default(),
                 open,
+                hint,
             },
             saved: self.saved.with_modified_forgotten(),
             ..self
