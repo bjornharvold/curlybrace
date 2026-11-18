@@ -16,6 +16,17 @@ pub enum VerdictAction {
     CopySuggestion(String),
 }
 
+/// The height of the verdict's row: tall enough for the chip and the Why button, so the documents
+/// below never move when a verdict appears. A wrapping row that holds the verdict sets it as its
+/// row height before its first widget, so the controls beside the verdict are centred on it.
+pub fn verdict_row_height(ui: &egui::Ui) -> f32 {
+    ui.spacing()
+        .interact_size
+        .y
+        .max(theme::CHIP_HEIGHT)
+        .max(theme::CONTROL_HEIGHT)
+}
+
 /// Draws the row for `model` (an empty row of the same size for `None`) in the rest of the
 /// current row, or on the next line of a wrapping row when less than its minimum width is left.
 pub fn show_verdict_row(
@@ -23,16 +34,11 @@ pub fn show_verdict_row(
     model: Option<&BadgeModel>,
     i18n: &I18n,
 ) -> Option<VerdictAction> {
-    // Tall enough for the chip and the Why button, so the documents below never move when a verdict appears.
-    let height = ui
-        .spacing()
-        .interact_size
-        .y
-        .max(theme::CHIP_HEIGHT)
-        .max(theme::CONTROL_HEIGHT);
-    // At least a fixed width whatever the verdict says, so in a wrapping row (beside the
-    // checkboxes) whether the row wraps depends on the window, never on the verdict.
-    let width = ui.available_width().max(MIN_ROW_WIDTH);
+    let height = verdict_row_height(ui);
+    // What is left of the current row (not the whole row's width, which a wrapping layout also
+    // reports), at least a fixed width whatever the verdict says, so beside the checkboxes
+    // whether the row wraps depends on the window, never on the verdict.
+    let width = ui.available_size_before_wrap().x.max(MIN_ROW_WIDTH);
     let mut action = None;
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {

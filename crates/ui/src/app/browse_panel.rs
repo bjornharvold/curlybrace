@@ -22,7 +22,7 @@ use crate::views::findbar::{
 use crate::views::findbar_options::show_page_options_status;
 use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
 use crate::views::indexes::show_indexes;
-use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
+use crate::views::verdict_badge::{VerdictAction, show_verdict_row, verdict_row_height};
 use eframe::egui;
 
 pub(super) fn show_collection(
@@ -122,6 +122,17 @@ fn show_switches_and_verdict(
 ) {
     let actions = ui
         .horizontal_wrapped(|ui| {
+            // With the verdict's area in the row the switches are centred on it, not on top.
+            if state.explain_enabled() {
+                // The row's room is only as tall as its first widget until something taller
+                // has been placed, so the row is stretched first (a zero-width rect).
+                let height = verdict_row_height(ui);
+                ui.set_row_height(height);
+                ui.expand_to_include_rect(egui::Rect::from_min_size(
+                    ui.cursor().min,
+                    egui::vec2(0.0, height),
+                ));
+            }
             let switches = [
                 show_automatic_verdict(ui, state.explain_enabled(), i18n),
                 show_guard_setting(ui, state.guard_enabled(), i18n),
