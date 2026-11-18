@@ -16,7 +16,6 @@ fn assert_within(
 ) {
     let page = browse_page(size, find);
     let top = page.first_row_top();
-    eprintln!("{size:?}: the first document starts at y = {top} (budget {budget})");
     assert!(
         top <= budget,
         "{size:?}: the first document starts at y = {top} (budget {budget})"

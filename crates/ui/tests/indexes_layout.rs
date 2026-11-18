@@ -20,9 +20,11 @@ use support::shots::{SHOT_SIZE, build_app};
 /// connection + tabs (one row), the toggle with the toolbar and the Sampling disclosure (one
 /// row), the sampler's status (a text line: it does not fit beside them at this width) and the
 /// separator. Before the toolbar row was folded the heading started at y = 176.
-const LIST_BUDGET: f32 = 106.0;
+/// Measured 102 + 8: the margin covers a few points of font difference between macOS and Linux.
+const LIST_BUDGET: f32 = 110.0;
 /// The same at the smallest supported window, 800x500, where the toolbar wraps once more.
-const LIST_BUDGET_SMALL: f32 = 118.0;
+/// Measured 114 + 8 (same reason).
+const LIST_BUDGET_SMALL: f32 = 122.0;
 /// The smallest window the app is designed for.
 const SMALL: (f32, f32) = (800.0, 500.0);
 /// Everything right of this is in the tab, not the sidebar (points).
@@ -117,7 +119,6 @@ fn the_index_list_starts_within_the_budget_at_800x500() {
         .harness
         .get_by_role_and_label(Role::Label, &t("indexes.list_heading"))
         .rect();
-    eprintln!("800x500: the index list starts at y = {}", heading.top());
     assert!(
         heading.top() <= LIST_BUDGET_SMALL,
         "the index list starts at y = {} (budget {LIST_BUDGET_SMALL})",

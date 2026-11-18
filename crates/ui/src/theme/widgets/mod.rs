@@ -45,7 +45,7 @@ use std::sync::Arc;
 /// Height of buttons, segmented controls and outlined fields. A desktop-dense 28 pt (above
 /// WCAG 2.2's 24 pt minimum target; the app is driven by mouse and keyboard): the data is the
 /// point of the app, so chrome must not push it down the window.
-pub(crate) const CONTROL_HEIGHT: f32 = 28.0;
+pub const CONTROL_HEIGHT: f32 = 28.0;
 /// Height of a compact segmented control, for a heading row where height is scarce.
 pub(crate) const COMPACT_CONTROL_HEIGHT: f32 = 24.0;
 /// Width of the keyboard focus ring.
