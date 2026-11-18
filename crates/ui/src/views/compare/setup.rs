@@ -5,6 +5,7 @@ use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::theme::{gate, outlined_field, text_button, tonal_button};
 use crate::viewmodel::compare::{CompareState, Pick, SideForm};
+use crate::views::findbar_cell::field_row_height;
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::store::CollectionKind;
 use eframe::egui;
@@ -31,18 +32,24 @@ fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option
     let form = &state.setup;
     ui.strong(i18n.t("compare.pairs.defaults_title"));
     let width = column_width(ui.available_width(), ui.spacing().item_spacing.x);
+    // One height for the three columns, so they sit level whatever each holds above its box.
+    let heading = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
+    let height = heading + field_row_height(ui);
     let mut action = ui
         .horizontal_wrapped(|ui| {
-            let key = column(ui, width, |ui| {
+            let key = column(ui, width, height, |ui| {
                 // The room a side heading takes, so the key box lines up with the filters.
-                let heading = ui.text_style_height(&egui::TextStyle::Body);
-                ui.add_space(heading + ui.spacing().item_spacing.y);
+                ui.add_space(heading);
                 text_field(ui, "key", form_key(), &form.key_text, i18n)
             })
             .map(CompareAction::SetKey);
             [Side::Source, Side::Target]
                 .into_iter()
-                .map(|side| column(ui, width, |ui| show_filter(ui, side, form.side(side), i18n)))
+                .map(|side| {
+                    column(ui, width, height, |ui| {
+                        show_filter(ui, side, form.side(side), i18n)
+                    })
+                })
                 .fold(key, |action, shown| shown.or(action))
         })
         .inner;
@@ -73,12 +80,19 @@ fn column_width(available: f32, gap: f32) -> f32 {
 /// `add` in a box `width` wide, placed in the current row of a wrapping layout: it wraps to the
 /// next row when it does not fit (a `ui.vertical` cannot wrap, it takes the rest of the row and
 /// ran out of the window at 800 pt).
-fn column<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+/// `height` tall, so the boxes of one row are level.
+fn column<R>(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
     ui.allocate_ui_with_layout(
-        egui::vec2(width, 0.0),
+        egui::vec2(width, height),
         egui::Layout::top_down(egui::Align::Min),
         |ui| {
             ui.set_width(width);
+            ui.set_min_height(height);
             add(ui)
         },
     )

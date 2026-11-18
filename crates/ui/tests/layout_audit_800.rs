@@ -208,6 +208,13 @@ fn compare_setup_columns_share_one_row_at_1000x700() {
         filters[1].right() <= 1000.0,
         "{filters:?} run out of the window"
     );
+    // ... and level: the boxes share one top, as they did before the columns could wrap.
+    for filter in &filters {
+        assert!(
+            (filter.top() - key.top()).abs() < 1.0,
+            "the key {key:?} and the filter {filter:?} are not level"
+        );
+    }
 }
 
 fn two_connections() -> Vec<ConnectionConfig> {
