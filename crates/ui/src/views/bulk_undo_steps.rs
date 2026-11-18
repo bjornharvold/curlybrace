@@ -14,6 +14,12 @@ use curlybrace_core::snapshot::{RETENTION_SECS, UndoReport};
 use eframe::egui;
 
 const SAMPLES_MAX_HEIGHT: f32 = 360.0;
+/// What the undo confirmation needs besides its list of documents (heading, intro, the typed
+/// confirmation, the footer, the frame's margin), so the list shrinks on a short window and the
+/// footer stays on screen (points).
+const SAMPLES_CHROME_HEIGHT: f32 = 350.0;
+/// The list is never shorter than this (points): about one document.
+const SAMPLES_MIN_HEIGHT: f32 = 80.0;
 const SECS_PER_DAY: i64 = 24 * 60 * 60;
 
 /// Where the undo copy is kept, as said to the person; a fallback wording when the OS gives no
@@ -165,9 +171,10 @@ fn confirm_body(
 }
 
 fn samples(ui: &mut egui::Ui, undo: &UndoFlow, i18n: &I18n) {
+    let room = ui.ctx().screen_rect().height() - SAMPLES_CHROME_HEIGHT;
     egui::ScrollArea::vertical()
         .id_salt("bulk_undo_samples")
-        .max_height(SAMPLES_MAX_HEIGHT)
+        .max_height(room.clamp(SAMPLES_MIN_HEIGHT, SAMPLES_MAX_HEIGHT))
         .auto_shrink([false, true])
         .show(ui, |ui| {
             for doc in undo.preview_docs() {

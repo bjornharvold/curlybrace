@@ -16,8 +16,10 @@ const SMALL: egui::Vec2 = egui::vec2(800.0, 500.0);
 const BOTTOM_ROOM: f32 = 4.0;
 
 fn harness(prepare: impl FnOnce(&mut ConnectionsState)) -> Harness<'static, ConnectionsState> {
-    let mut state = ConnectionsState::default();
-    state.editing = true;
+    let mut state = ConnectionsState {
+        editing: true,
+        ..ConnectionsState::default()
+    };
     prepare(&mut state);
     let mut installed = false;
     let mut harness = Harness::builder()

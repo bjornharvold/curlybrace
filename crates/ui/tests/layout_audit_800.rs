@@ -33,6 +33,14 @@ struct Page {
 }
 
 fn page(connections: Vec<ConnectionConfig>, setup: impl FnOnce(&mut AppState)) -> Page {
+    page_sized(SMALL, connections, setup)
+}
+
+fn page_sized(
+    size: egui::Vec2,
+    connections: Vec<ConnectionConfig>,
+    setup: impl FnOnce(&mut AppState),
+) -> Page {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .build()
@@ -42,7 +50,7 @@ fn page(connections: Vec<ConnectionConfig>, setup: impl FnOnce(&mut AppState)) -
     setup(app.state_mut());
     let mut installed = false;
     let mut harness = Harness::builder()
-        .with_size(SMALL)
+        .with_size(size)
         .with_pixels_per_point(1.0)
         .build_state(
             move |ctx, app: &mut CurlybraceApp| {
@@ -172,6 +180,34 @@ fn audit_controls(name: &str, shown: Vec<(String, Rect)>) {
             );
         }
     }
+}
+
+/// At the standard window the key box and the two filter boxes of the Compare setup share one
+/// row (they wrap only when the room is short).
+#[test]
+fn compare_setup_columns_share_one_row_at_1000x700() {
+    let i18n = I18n::english();
+    let setup = compare_state(Through::Empty);
+    let page = page_sized(egui::vec2(1000.0, 700.0), two_connections(), setup);
+    let key = page
+        .harness
+        .get_by_role_and_label(Role::TextInput, &i18n.t("compare.setup.key"))
+        .rect();
+    let filters: Vec<Rect> = page
+        .harness
+        .query_all_by_role_and_label(Role::TextInput, &i18n.t("compare.setup.filter"))
+        .map(|node| node.rect())
+        .collect();
+    assert_eq!(filters.len(), 2, "one filter per side");
+    // Side by side: each starts right of the one before and all end inside the window.
+    assert!(
+        key.right() < filters[0].left() && filters[0].right() < filters[1].left(),
+        "the key {key:?} and the filters {filters:?} are not in one row"
+    );
+    assert!(
+        filters[1].right() <= 1000.0,
+        "{filters:?} run out of the window"
+    );
 }
 
 fn two_connections() -> Vec<ConnectionConfig> {

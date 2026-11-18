@@ -58,9 +58,14 @@ fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option
 /// The narrowest a key or filter box gets before the row wraps (points).
 const COLUMN_MIN_WIDTH: f32 = 200.0;
 
-/// A third of the row (less the gaps), at least [`COLUMN_MIN_WIDTH`] and at most the row.
+/// Room left at the end of the row so that three columns that fill it exactly do not wrap on
+/// rounding (points).
+const FIT_SLACK: f32 = 1.0;
+
+/// A third of the row (less the gaps and [`FIT_SLACK`]), at least [`COLUMN_MIN_WIDTH`] and at
+/// most the row.
 fn column_width(available: f32, gap: f32) -> f32 {
-    ((available - 2.0 * gap) / 3.0)
+    ((available - 2.0 * gap - FIT_SLACK) / 3.0)
         .max(COLUMN_MIN_WIDTH)
         .min(available)
 }
