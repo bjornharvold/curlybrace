@@ -132,9 +132,11 @@ fn audit_dialog(name: &str, base: Setup, page: &Page) {
 }
 
 /// The controls of the page `base` draws, built once per page for all the dialogs over it.
+/// The name and rect of each control of a page.
+type Controls = Vec<(String, Rect)>;
+
 fn behind_controls(base: Setup) -> Vec<(String, Rect)> {
-    static CACHE: std::sync::Mutex<Vec<(usize, Vec<(String, Rect)>)>> =
-        std::sync::Mutex::new(Vec::new());
+    static CACHE: std::sync::Mutex<Vec<(usize, Controls)>> = std::sync::Mutex::new(Vec::new());
     let key = base as usize;
     let mut cache = CACHE.lock().expect("the cache lock");
     if let Some((_, found)) = cache.iter().find(|(k, _)| *k == key) {
