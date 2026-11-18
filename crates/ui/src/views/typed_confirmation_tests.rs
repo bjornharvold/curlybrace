@@ -44,3 +44,31 @@ fn the_box_keeps_its_id_when_a_widget_above_it_appears_and_disappears() {
         assert_eq!(harness.state().id, before, "label above shown: {shown}");
     }
 }
+
+#[test]
+fn two_boxes_with_one_name_in_different_containers_get_different_ids() {
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(500.0, 400.0))
+        .build_ui_state(
+            |ui, ids: &mut Vec<egui::Id>| {
+                ids.clear();
+                for container in ["first", "second"] {
+                    ui.push_id(container, |ui| {
+                        let prompt = TypedConfirmation {
+                            instruction: "Type this text exactly:",
+                            required: "people",
+                            field_label: "Collection name",
+                            accessible_name: "Type the collection name people to confirm",
+                        };
+                        let mut text = String::new();
+                        ids.push(show_typed_confirmation(ui, &prompt, &mut text).id);
+                    });
+                }
+            },
+            Vec::new(),
+        );
+    harness.run();
+    let ids = harness.state();
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+}
