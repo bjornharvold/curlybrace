@@ -89,3 +89,36 @@ fn a_focused_buttons_ring_does_not_overlap_the_button_below_it() {
         "the ring {ring:?} overlaps the lower button {lower:?} by {overlap:?}: the row gap is too small"
     );
 }
+
+#[test]
+fn the_painted_ring_ends_where_ring_outer_says() {
+    use super::{Look, Ring, focus_ring};
+    use eframe::egui::{Color32, CornerRadius, Shape, pos2, vec2};
+    let control = Rect::from_min_size(pos2(50.0, 50.0), vec2(100.0, super::CONTROL_HEIGHT));
+    let harness = themed(300.0, (), move |ui, _: &mut ()| {
+        let look = Look {
+            layer: None,
+            focused: true,
+            enabled: true,
+        };
+        focus_ring(
+            ui.painter(),
+            control,
+            CornerRadius::same(8),
+            look,
+            Color32::GREEN,
+            Ring::Outside,
+        );
+    });
+    let painted = harness
+        .output()
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            Shape::Rect(r) if r.stroke.width > 0.0 => Some(r.rect.expand(r.stroke.width)),
+            _ => None,
+        })
+        .next()
+        .expect("the ring is painted");
+    assert_eq!(painted, ring_outer(control));
+}

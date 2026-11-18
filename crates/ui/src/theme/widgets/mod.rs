@@ -188,7 +188,6 @@ pub(crate) enum Ring {
 
 /// The rectangle an outside focus ring paints out to: the control's rect grown by the ring's
 /// offset and its width. The theme's row gap must leave at least this much below a control.
-#[cfg(test)]
 pub(crate) fn ring_outer(rect: Rect) -> Rect {
     rect.expand(f32::from(FOCUS_RING_OFFSET) + FOCUS_RING_WIDTH)
 }
@@ -218,7 +217,8 @@ pub(crate) fn focus_ring(
                 sw: radius.sw.saturating_add(offset),
                 se: radius.se.saturating_add(offset),
             };
-            let outer = rect.expand(f32::from(offset));
+            // The stroke is drawn outside this rect, so it ends at `ring_outer(rect)`.
+            let outer = ring_outer(rect).shrink(FOCUS_RING_WIDTH);
             painter.rect_stroke(outer, ring_radius, stroke, StrokeKind::Outside);
         }
     }

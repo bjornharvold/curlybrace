@@ -1,5 +1,5 @@
 //! Material 3 common buttons: filled (primary action), tonal (secondary) and text (low
-//! emphasis). Fully rounded, 40 dp tall, label in Roboto Medium; long labels are elided.
+//! emphasis). Fully rounded, 28 pt tall (`CONTROL_HEIGHT`), label in Roboto Medium; long labels are elided.
 use super::{
     CONTROL_HEIGHT, Look, Ring, disabled_container, disabled_content, focus_ring, medium_font,
     painter,

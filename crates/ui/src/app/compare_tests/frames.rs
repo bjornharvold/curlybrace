@@ -37,7 +37,7 @@ fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
     }
 }
 
-/// Tall enough for every panel of the restyled screens (40 dp buttons, cards, outlined fields).
+/// Tall enough for every panel of the restyled screens (28 pt buttons, cards, outlined fields).
 const SCREEN_HEIGHT: f32 = 2200.0;
 
 /// Everything drawn for `state` after the layout settled, and the action of the last frame.
