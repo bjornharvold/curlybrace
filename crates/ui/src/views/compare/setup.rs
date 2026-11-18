@@ -5,7 +5,7 @@ use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::theme::{gate, outlined_field, text_button, tonal_button};
 use crate::viewmodel::compare::{CompareState, Pick, SideForm};
-use crate::views::findbar_cell::field_row_height;
+use crate::views::findbar_cell::{field_cell, field_row_height};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::store::CollectionKind;
 use eframe::egui;
@@ -37,7 +37,7 @@ fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option
     let height = heading + field_row_height(ui);
     let mut action = ui
         .horizontal_wrapped(|ui| {
-            let key = column(ui, width, height, |ui| {
+            let key = field_cell(ui, width, height, |ui| {
                 // The room a side heading takes, so the key box lines up with the filters.
                 ui.add_space(heading);
                 text_field(ui, "key", form_key(), &form.key_text, i18n)
@@ -46,7 +46,7 @@ fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option
             [Side::Source, Side::Target]
                 .into_iter()
                 .map(|side| {
-                    column(ui, width, height, |ui| {
+                    field_cell(ui, width, height, |ui| {
                         show_filter(ui, side, form.side(side), i18n)
                     })
                 })
@@ -75,28 +75,6 @@ fn column_width(available: f32, gap: f32) -> f32 {
     ((available - 2.0 * gap - FIT_SLACK) / 3.0)
         .max(COLUMN_MIN_WIDTH)
         .min(available)
-}
-
-/// `add` in a box `width` wide, placed in the current row of a wrapping layout: it wraps to the
-/// next row when it does not fit (a `ui.vertical` cannot wrap, it takes the rest of the row and
-/// ran out of the window at 800 pt).
-/// `height` tall, so the boxes of one row are level.
-fn column<R>(
-    ui: &mut egui::Ui,
-    width: f32,
-    height: f32,
-    add: impl FnOnce(&mut egui::Ui) -> R,
-) -> R {
-    ui.allocate_ui_with_layout(
-        egui::vec2(width, height),
-        egui::Layout::top_down(egui::Align::Min),
-        |ui| {
-            ui.set_width(width);
-            ui.set_min_height(height);
-            add(ui)
-        },
-    )
-    .inner
 }
 
 fn show_filter(

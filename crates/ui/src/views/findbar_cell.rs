@@ -1,4 +1,4 @@
-//! The cell one field of the find bar sits in. An outlined field's label floats above its box, so
+//! The cell one field of the find bar (or one column of the Compare setup) sits in. An outlined field's label floats above its box, so
 //! a field needs a little more height than a control; giving every field of a wrapping row the
 //! same fixed-height cell, allocated at its final width up front, keeps the fields aligned and
 //! lets the row wrap between them.
@@ -22,6 +22,7 @@ pub(super) fn field_cell<R>(
     add: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
     ui.allocate_ui_with_layout(vec2(width, height), Layout::top_down(Align::Min), |ui| {
+        ui.set_width(width);
         ui.set_min_height(height);
         add(ui)
     })
