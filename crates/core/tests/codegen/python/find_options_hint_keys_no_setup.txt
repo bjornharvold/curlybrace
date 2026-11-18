@@ -1,0 +1,14 @@
+filter = {"status": "A"}
+sort = [("total", -1)]
+
+results = list(
+    collection.with_options(read_preference=ReadPreference.NEAREST).find(
+        filter,
+        sort=sort,
+        limit=20,
+        collation={"locale": "fr_CA"},
+        hint=[("status", 1), ("total", -1)],
+        allow_disk_use=False,
+    )
+)
+print(results)

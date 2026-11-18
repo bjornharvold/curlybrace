@@ -39,9 +39,14 @@ impl VerdictState {
     }
 }
 
-/// True when `a` and `b` are the same run: paging (`skip`) does not make a new one.
+/// True when `a` and `b` are the same run: paging (`skip`) does not make a new one, other options
+/// do (a verdict made under another hint or collation describes another plan).
 pub(super) fn same_run(a: &Query, b: &Query) -> bool {
-    a.filter == b.filter && a.sort == b.sort && a.projection == b.projection && a.limit == b.limit
+    a.filter == b.filter
+        && a.sort == b.sort
+        && a.projection == b.projection
+        && a.limit == b.limit
+        && a.options == b.options
 }
 
 /// The verdict to draw beside the page on screen. A finished verdict shows only over the page of

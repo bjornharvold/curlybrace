@@ -218,6 +218,7 @@ fn call(c: &Cursor<'_>, t: usize, db: Option<String>, receiver: Receiver) -> Out
                 projection,
                 skip: chained.skip,
                 limit: chained.limit,
+                ..Query::default()
             },
             range: c.tokens.get(t)?.start..chained.end,
         })

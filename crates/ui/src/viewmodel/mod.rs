@@ -39,6 +39,7 @@ pub mod doc_copy;
 pub mod editor;
 pub mod findbar;
 pub mod findbar_more;
+pub mod findbar_options;
 pub mod guard_notice;
 pub mod index_builder;
 mod index_builder_suggested;

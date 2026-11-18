@@ -51,6 +51,7 @@ pub fn parse_query(t: &QueryText) -> Result<Query> {
         limit: parse_u64("limit", &t.limit)?
             .unwrap_or(PAGE_SIZE)
             .clamp(1, MAX_LIMIT),
+        options: crate::query_options::QueryOptions::default(),
     })
 }
 

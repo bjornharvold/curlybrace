@@ -15,6 +15,17 @@ pub struct FindBarState {
     /// Whether the text parses as typed for the Copy as code button, remembered between
     /// repaints (see `code_export_memo`); keyed on the text, so it needs no reset.
     pub export_memo: super::code_export_memo::FindExportMemo,
+    /// The Query options form as typed (collation, hint, time limit, read preference, comment,
+    /// disk use); Find parses it once into the query's options.
+    pub options: super::aggregate_options::OptionsForm,
+    /// The choice for the Query options section; `None` follows the form (open while an option
+    /// is set) until it is first shown open, which then sticks (see [`Self::options_settled`]).
+    /// Clear drops the choice.
+    pub options_open: Option<bool>,
+    /// `last_error` is an answer to the options a find carried (a missing hint, a refused
+    /// collation, an unsatisfiable read preference, or a timeout under the person's own limit):
+    /// editing the form or finding again drops it.
+    pub error_from_options: bool,
 }
 
 impl FindBarState {
@@ -22,6 +33,7 @@ impl FindBarState {
     pub fn cleared_error(&self) -> Self {
         Self {
             last_error: None,
+            error_from_options: false,
             ..self.clone()
         }
     }
@@ -46,6 +58,11 @@ pub enum FindAction {
     GuardCancel,
     /// Copy as code was clicked: opens the dialog for the query the Find button would send.
     CopyAsCode,
+    /// The Query options section is open and wants the collection's index names for its hint
+    /// picker (asked once; the Indexes tab's list is used when it holds this collection).
+    HintListWanted,
+    /// The person asked to read a hint list that failed again.
+    HintListRetry,
 }
 
 /// A raw user gesture on the find bar, before validation.
@@ -88,12 +105,14 @@ pub fn resolve_find_intent(
     }
 }
 
-/// Parses the bar text. On failure returns a new state carrying the error with the text
-/// untouched, so the user can fix what they typed; an error about a field behind "More" opens
-/// it, so the field and its message are on screen together.
+/// Parses the bar text and the options. On failure returns a new state carrying the error with
+/// the text untouched, so the user can fix what they typed; an error about a field behind "More"
+/// opens it, so the field and its message are on screen together. The text is checked first; a
+/// form with a problem sends nothing and opens More and the Query options section, where each
+/// problem is told under its field.
 #[allow(clippy::result_large_err)] // signature mandated: Err carries the full new state
 pub fn submit_find(state: &FindBarState) -> Result<Query, FindBarState> {
-    parse_query(&state.text).map_err(|e| {
+    let query = parse_query(&state.text).map_err(|e| {
         let more = match error_concerns_more(&state.text) {
             true => Some(true),
             false => state.more,
@@ -103,7 +122,20 @@ pub fn submit_find(state: &FindBarState) -> Result<Query, FindBarState> {
             more,
             ..state.clone()
         }
-    })
+    })?;
+    match state.options.parsed() {
+        Ok(options) if !state.options_blocked() => Ok(Query {
+            options: options.clone(),
+            ..query
+        }),
+        _ => Err(FindBarState {
+            last_error: None,
+            error_from_options: false,
+            more: Some(true),
+            options_open: Some(true),
+            ..state.clone()
+        }),
+    }
 }
 
 #[cfg(test)]

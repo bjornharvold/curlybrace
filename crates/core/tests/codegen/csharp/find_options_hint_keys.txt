@@ -1,0 +1,22 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+
+var client = new MongoClient("<your connection string>");
+var db = client.GetDatabase("shop");
+var collection = db.GetCollection<BsonDocument>("orders");
+
+var filter = new BsonDocument { { "status", "A" } };
+var sort = new BsonDocument { { "total", -1 } };
+
+var options = new FindOptions
+{
+    Collation = new Collation("fr_CA"),
+    Hint = new BsonDocument { { "status", 1 }, { "total", -1 } },
+    AllowDiskUse = false,
+};
+
+var results = collection.WithReadPreference(ReadPreference.Nearest).Find(filter, options)
+    .Sort(sort)
+    .Limit(20)
+    .ToList();
+results.ForEach(Console.WriteLine);

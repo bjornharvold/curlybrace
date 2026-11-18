@@ -62,12 +62,34 @@ fn no_options_no_view() {
 }
 
 #[test]
-fn find_code_has_no_options_view() {
+fn find_code_without_options_has_no_options_view() {
     let find = CodeRequest::Find {
         ns: ns(),
         query: Query::default(),
     };
     assert_eq!(code_options_view(&dialog(find)), None);
+}
+
+#[test]
+fn find_code_with_options_has_a_view_with_the_find_label_and_never_leaves_the_read_preference_out()
+{
+    let find = CodeRequest::Find {
+        ns: ns(),
+        query: Query {
+            options: every_option(),
+            ..Query::default()
+        },
+    };
+    let view = code_options_view(&dialog(find)).expect("a view");
+    assert_eq!(view.include_key, "codegen.options.include_find_options");
+    assert!(!view.read_preference_left_out);
+    assert_eq!(view.labels.len(), 6, "{:?}", view.labels);
+    let aggregate_view =
+        code_options_view(&dialog(aggregate(read_stages(), every_option()))).expect("a view");
+    assert_eq!(
+        aggregate_view.include_key,
+        "codegen.options.include_options"
+    );
 }
 
 #[test]

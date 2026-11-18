@@ -7,6 +7,12 @@ fn ns() -> Namespace {
     Namespace::new("db", "orders")
 }
 
+/// What an explain sends when no option is set.
+fn plain(q: &Query) -> crate::query_options::AppliedFindOptions {
+    q.options
+        .find_applied(crate::query_options::FindOperation::Explain)
+}
+
 fn full_query() -> Query {
     Query {
         filter: doc! { "status": "open" },
@@ -14,12 +20,19 @@ fn full_query() -> Query {
         projection: Some(doc! { "status": 1 }),
         skip: 20,
         limit: 50,
+        ..Query::default()
     }
 }
 
 #[test]
 fn command_wraps_the_find_with_verbosity_and_time_limit() {
-    let cmd = explain_command(&ns(), &full_query(), Verbosity::ExecutionStats).unwrap();
+    let cmd = explain_command(
+        &ns(),
+        &full_query(),
+        Verbosity::ExecutionStats,
+        &plain(&full_query()),
+    )
+    .unwrap();
     assert_eq!(cmd.get_str("verbosity").unwrap(), "executionStats");
     assert_eq!(cmd.get_i64("maxTimeMS").unwrap(), EXPLAIN_MAX_TIME_MS);
     assert_eq!(EXPLAIN_MAX_TIME_MS, 2000);
@@ -28,7 +41,13 @@ fn command_wraps_the_find_with_verbosity_and_time_limit() {
 
 #[test]
 fn command_puts_filter_sort_projection_skip_limit_in_the_inner_find() {
-    let cmd = explain_command(&ns(), &full_query(), Verbosity::ExecutionStats).unwrap();
+    let cmd = explain_command(
+        &ns(),
+        &full_query(),
+        Verbosity::ExecutionStats,
+        &plain(&full_query()),
+    )
+    .unwrap();
     let find = cmd.get_document("explain").unwrap();
     assert_eq!(find.get_str("find").unwrap(), "orders");
     assert_eq!(
@@ -51,7 +70,7 @@ fn command_omits_absent_sort_projection_skip_and_unlimited_limit() {
         limit: 0,
         ..Query::default()
     };
-    let cmd = explain_command(&ns(), &q, Verbosity::QueryPlanner).unwrap();
+    let cmd = explain_command(&ns(), &q, Verbosity::QueryPlanner, &plain(&q)).unwrap();
     assert_eq!(cmd.get_str("verbosity").unwrap(), "queryPlanner");
     let find = cmd.get_document("explain").unwrap();
     assert_eq!(find.get_document("filter").unwrap(), &doc! {});
@@ -66,7 +85,7 @@ fn command_rejects_a_skip_beyond_the_wire_range() {
         skip: u64::MAX,
         ..Query::default()
     };
-    assert!(explain_command(&ns(), &q, Verbosity::ExecutionStats).is_err());
+    assert!(explain_command(&ns(), &q, Verbosity::ExecutionStats, &plain(&q)).is_err());
 }
 
 #[test]
@@ -104,7 +123,13 @@ async fn explain_without_a_read_preference_sets_none_and_so_uses_the_default() {
 
 #[test]
 fn plan_only_command_carries_query_planner_verbosity_and_the_time_limit() {
-    let cmd = explain_command(&ns(), &full_query(), Verbosity::QueryPlanner).unwrap();
+    let cmd = explain_command(
+        &ns(),
+        &full_query(),
+        Verbosity::QueryPlanner,
+        &plain(&full_query()),
+    )
+    .unwrap();
     assert_eq!(cmd.get_str("verbosity").unwrap(), "queryPlanner");
     assert_eq!(cmd.get_i64("maxTimeMS").unwrap(), EXPLAIN_MAX_TIME_MS);
 }

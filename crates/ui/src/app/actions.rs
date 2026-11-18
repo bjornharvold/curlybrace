@@ -174,8 +174,17 @@ pub(super) fn find(state: AppState, action: FindAction) -> Out {
         let open = super::CodeAction::Open(super::CodeSource::Find);
         return super::code_export_actions::on_action(state, open);
     }
+    // The index list for the hint picker: without a connection it is "could not list", not a
+    // banner (the same as the aggregate section).
+    match action {
+        FindAction::HintListWanted => return super::aggregate_hint_actions::wanted(state),
+        FindAction::HintListRetry => return super::aggregate_hint_actions::retry(state),
+        _ => {}
+    }
     gated(state, |s| match action {
-        FindAction::CopyAsCode => (s, Vec::new()),
+        FindAction::CopyAsCode | FindAction::HintListWanted | FindAction::HintListRetry => {
+            (s, Vec::new())
+        }
         FindAction::Run(query) => super::guard_actions::run(s, query),
         FindAction::GuardRunAnyway => super::guard_actions::run_anyway(s),
         FindAction::SetAutomaticVerdict(_) | FindAction::SetGuard(_) | FindAction::GuardCancel => {

@@ -46,10 +46,27 @@ fn request(state: &AppState, source: CodeSource) -> Option<CodeRequest> {
                     options: state.aggregate.options.clone(),
                 })
         }
-        CodeSource::Find => parse_export_query(&state.find.text)
-            .ok()
-            .map(|query| CodeRequest::Find { ns, query }),
+        CodeSource::Find => find_request(state, ns),
     }
+}
+
+/// The find the query bar would send, as code: its text and its options. Nothing while either
+/// does not parse (the button is off).
+fn find_request(state: &AppState, ns: curlybrace_core::store::Namespace) -> Option<CodeRequest> {
+    let options = state
+        .find
+        .options
+        .parsed()
+        .ok()
+        .filter(|_| !state.find.options_blocked())?;
+    let query = parse_export_query(&state.find.text).ok()?;
+    Some(CodeRequest::Find {
+        ns,
+        query: curlybrace_core::store::Query {
+            options: options.clone(),
+            ..query
+        },
+    })
 }
 
 /// `state` with the dialog closed when it no longer belongs to what is in view: another session,

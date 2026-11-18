@@ -1,0 +1,29 @@
+<?php
+
+require 'vendor/autoload.php';
+
+$client = new MongoDB\Client('<your connection string>');
+$db = $client->selectDatabase('shop');
+$collection = $db->selectCollection('orders');
+
+$filter = ['status' => 'A'];
+$sort = ['total' => -1];
+
+$results = $collection->find($filter, [
+    'sort' => $sort,
+    'limit' => 20,
+    'collation' => [
+        'locale' => 'en',
+        'strength' => 2,
+        'caseLevel' => false,
+        'caseFirst' => 'upper',
+        'numericOrdering' => true,
+        'alternate' => 'shifted',
+    ],
+    'hint' => 'status_1_total_-1',
+    'allowDiskUse' => true,
+    'maxTimeMS' => 5000,
+    'comment' => "nightly \"report\" 'q' \\ \$x \${y} #{z} %s {0} \u{202e}end",
+    'readPreference' => new MongoDB\Driver\ReadPreference('secondaryPreferred'),
+])->toArray();
+print_r($results);

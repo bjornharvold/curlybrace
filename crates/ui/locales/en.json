@@ -596,6 +596,7 @@
     },
     "note": "The code connects with a placeholder connection string. Nothing is sent to the server.",
     "options": {
+      "include_find_options": "Include the query's options",
       "include_options": "Include the pipeline's options",
       "listed": "The code sets: {options}",
       "read_preference_left_out": "This code writes with $out or $merge, which runs on the primary, so it leaves out the read preference.",
@@ -1646,6 +1647,27 @@
       "setting_hint": "Before running a query, the app asks the server for its query plan and warns you if it would scan the whole collection, and you can still run it anyway.",
       "title_collection_scan": "This query would read every document in the collection",
       "title_sort_not_covered": "This query would sort in memory instead of using an index"
+    },
+    "options": {
+      "blocked": "Fix the query options to run or copy this query.",
+      "bulk_collation": "This page was found with a collation, and a bulk write matches without one. Clear the collation and find again to update or delete matching documents.",
+      "comment_placeholder": "Text to find this query in the server's logs",
+      "copy_collation": "This page was found with a collation, which a copy of the whole result would not use. Clear the collation and find again, or copy selected documents.",
+      "disk_use_note": "Lets a large sort spill to disk on the server (MongoDB 4.4 or later).",
+      "max_time": {
+        "clamped": "Finds still stop at {limit} s.",
+        "placeholder": "Default: none; finds stop at {limit} s"
+      },
+      "status": {
+        "collation": "Collation: {locale}",
+        "disk_use": "Disk use allowed",
+        "max_time": "Time limit: {ms} ms",
+        "secondary_note": "Recent writes may not show yet."
+      },
+      "timeout_set": "The query took longer than the time limit you set in Query options. The last results stay on screen.",
+      "toggle": "Query options",
+      "toggle_count": "Query options ({n})",
+      "toggle_hint": "Collation, index hint, time limit, read preference, comment and disk use for this query"
     },
     "verdict": {
       "automatic": "Check index use automatically",

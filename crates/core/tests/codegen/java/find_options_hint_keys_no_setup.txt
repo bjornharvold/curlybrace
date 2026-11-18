@@ -1,0 +1,11 @@
+Document filter = new Document("status", "A");
+Document sort = new Document("total", -1);
+
+List<Document> results = collection.withReadPreference(ReadPreference.nearest()).find(filter)
+    .sort(sort)
+    .limit(20)
+    .collation(Collation.builder().locale("fr_CA").build())
+    .hint(new Document("status", 1).append("total", -1))
+    .allowDiskUse(false)
+    .into(new ArrayList<>());
+System.out.println(results);

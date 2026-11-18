@@ -6,16 +6,19 @@ use crate::theme::{FieldOptions, outlined_field_opts};
 use crate::viewmodel::aggregate_options::Tri;
 use eframe::egui::{self, WidgetInfo, WidgetType};
 
-/// What a text field did this frame: the new text, and whether it was committed (Enter, or the
-/// focus left it).
+/// What a text field did this frame: the new text, whether it was committed (Enter, or the focus
+/// left it), and whether Enter was what ended it.
 pub(super) struct Typed {
     pub text: Option<String>,
     pub commit: bool,
+    pub enter: bool,
 }
 
-/// A single-line field named `label`, with `problem` (already in words) under it.
+/// A single-line field named `label` of the form `scope`, with `problem` (already in words)
+/// under it.
 pub(super) fn typed_field(
     ui: &mut egui::Ui,
+    scope: &str,
     label: &str,
     text: &str,
     hint: &str,
@@ -26,13 +29,15 @@ pub(super) fn typed_field(
     // arrives while the hint is being typed).
     let options = FieldOptions {
         error: problem.as_deref(),
-        id: Some(egui::Id::new(("aggregate_option_field", label))),
+        id: Some(egui::Id::new(("option_field", scope, label))),
         ..FieldOptions::default()
     };
     let response = outlined_field_opts(ui, label, &mut buffer, hint, options);
+    let commit = response.lost_focus();
     Typed {
         text: response.changed().then_some(buffer),
-        commit: response.lost_focus(),
+        commit,
+        enter: commit && ui.input(|i| i.key_pressed(egui::Key::Enter)),
     }
 }
 
@@ -40,6 +45,7 @@ pub(super) fn typed_field(
 /// label is drawn above it.
 pub(super) fn pick_combo<T: Copy + PartialEq>(
     ui: &mut egui::Ui,
+    scope: &str,
     id: &str,
     label: &str,
     current: T,
@@ -52,7 +58,7 @@ pub(super) fn pick_combo<T: Copy + PartialEq>(
         .unwrap_or_default();
     let mut picked = None;
     ui.label(label);
-    let combo = egui::ComboBox::from_id_salt(("aggregate_option", id))
+    let combo = egui::ComboBox::from_id_salt(("option", scope, id))
         .selected_text(shown)
         .show_ui(ui, |ui| {
             for (value, text) in choices {
@@ -79,6 +85,7 @@ fn tri_key(value: Tri) -> &'static str {
 /// A Server default | On | Off combo named `label`.
 pub(super) fn tri_combo(
     ui: &mut egui::Ui,
+    scope: &str,
     id: &str,
     label: &str,
     value: Tri,
@@ -88,5 +95,5 @@ pub(super) fn tri_combo(
         .into_iter()
         .map(|v| (v, i18n.t(tri_key(v))))
         .collect();
-    pick_combo(ui, id, label, value, &choices)
+    pick_combo(ui, scope, id, label, value, &choices)
 }

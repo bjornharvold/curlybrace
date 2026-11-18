@@ -637,14 +637,7 @@ fn data_failed(state: AppState, context: &'static str, error: CoreError) -> AppS
             context,
             error,
         ),
-        "find" => failure(
-            AppState {
-                loading_page: false,
-                ..state
-            },
-            context,
-            error,
-        ),
+        "find" => super::find_options_actions::failed(state, error),
         "insert" | "replace" if editor_matches(&state, state.pending.as_ref()) => {
             let editor = state.editor.map(|e| EditorState {
                 error: Some(error),

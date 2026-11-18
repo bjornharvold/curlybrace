@@ -13,7 +13,7 @@ pub(super) fn show_include_options(
     i18n: &I18n,
 ) -> (Option<CodeAction>, egui::Id) {
     let mut include = view.include;
-    let response = ui.checkbox(&mut include, i18n.t("codegen.options.include_options"));
+    let response = ui.checkbox(&mut include, i18n.t(view.include_key));
     let action = response
         .changed()
         .then_some(CodeAction::SetIncludeOptions(include));

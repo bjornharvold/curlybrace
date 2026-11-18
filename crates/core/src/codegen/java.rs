@@ -63,6 +63,7 @@ impl Renderer for Java {
         &self,
         ns: &Namespace,
         query: &Query,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = JavaSyntax::new();
@@ -91,11 +92,12 @@ impl Renderer for Java {
         if query.limit > 0 {
             chain.push(format!(".limit({})", int_arg("limit", query.limit)?));
         }
+        chain.extend(Self::option_chain(&syn, agg)?);
         chain.push(".into(new ArrayList<>())".into());
         let lines: String = chain.iter().map(|c| format!("\n    {c}")).collect();
         body.push_str(&format!(
             "\nList<Document> results = {}.find(filter){lines};\nSystem.out.println(results);\n",
-            options.collection_var
+            Self::handle(&syn, agg, &options.collection_var)
         ));
         Ok(Self::frame(ns, options, &syn, &body))
     }
@@ -109,17 +111,7 @@ impl Renderer for Java {
     ) -> Result<String, CodegenError> {
         let syn = JavaSyntax::new();
         let pipeline = render_documents(&syn, stages, 0)?;
-        let handle = match agg.read_preference {
-            Some(mode) => {
-                syn.used("com.mongodb.ReadPreference");
-                format!(
-                    "{}.withReadPreference(ReadPreference.{}())",
-                    options.collection_var,
-                    mode_words(mode).camel
-                )
-            }
-            None => options.collection_var.clone(),
-        };
+        let handle = Self::handle(&syn, agg, &options.collection_var);
         let chain: String = Self::option_chain(&syn, agg)?
             .iter()
             .map(|setter| format!("\n    {setter}"))
@@ -134,7 +126,21 @@ impl Renderer for Java {
 }
 
 impl Java {
-    /// The setters on the `AggregateIterable`, in the order collation, hint, allowDiskUse,
+    /// The collection, or a handle derived from it that reads where the read preference says.
+    fn handle(syn: &JavaSyntax, agg: &CodeAggOptions, coll: &str) -> String {
+        match agg.read_preference {
+            Some(mode) => {
+                syn.used("com.mongodb.ReadPreference");
+                format!(
+                    "{coll}.withReadPreference(ReadPreference.{}())",
+                    mode_words(mode).camel
+                )
+            }
+            None => coll.to_string(),
+        }
+    }
+
+    /// The setters on the `AggregateIterable` or `FindIterable`, in the order collation, hint, allowDiskUse,
     /// maxTimeMS, comment; a multi-line setter carries its own continuation indent.
     fn option_chain(syn: &JavaSyntax, agg: &CodeAggOptions) -> Result<Vec<String>, CodegenError> {
         let mut chain = Vec::new();

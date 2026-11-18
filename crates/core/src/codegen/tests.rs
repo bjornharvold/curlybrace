@@ -404,6 +404,7 @@ fn find_options_are_omitted_when_unset() {
             projection: None,
             skip: 0,
             limit: 0,
+            ..Query::default()
         },
     };
     let options = CodeOptions {

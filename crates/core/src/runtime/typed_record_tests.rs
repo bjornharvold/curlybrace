@@ -261,3 +261,69 @@ fn typed_observation_is_value_free_and_counts_misses_by_verdict() {
         );
     }
 }
+
+fn explain_with(session: SessionId, options: crate::pipeline_options::PipelineOptions) -> Command {
+    Command::ExplainFind {
+        session,
+        ns: mock_namespace(),
+        query: Query {
+            options,
+            ..typed_query()
+        },
+    }
+}
+
+#[tokio::test]
+async fn a_hinted_or_collated_verdict_records_no_shape() {
+    use crate::pipeline_options::{CollationOption, HintOption, PipelineOptions};
+    let collation = CollationOption {
+        locale: "en".into(),
+        strength: None,
+        case_level: None,
+        case_first: None,
+        numeric_ordering: None,
+        alternate: None,
+    };
+    let hinted = PipelineOptions {
+        hint: Some(HintOption::Keys(bson::doc! { "email": 1 })),
+        ..PipelineOptions::default()
+    };
+    let collated = PipelineOptions {
+        collation: Some(collation),
+        ..PipelineOptions::default()
+    };
+    for options in [hinted, collated] {
+        let store = InMemoryStore::new().with_explain(&mock_namespace(), collscan());
+        let mut setup = connected(store, false).await;
+        setup
+            .h
+            .tx
+            .send(explain_with(setup.session, options))
+            .unwrap();
+        let Event::Explain { outcome, .. } = next(&mut setup.h).await else {
+            panic!("expected Explain");
+        };
+        assert!(outcome.is_ok(), "the verdict itself is still answered");
+        assert!(nothing_recorded(&setup).await);
+    }
+}
+
+#[tokio::test]
+async fn a_plain_verdict_still_records_its_shape() {
+    use crate::pipeline_options::PipelineOptions;
+    // Options that do not change the plan's meaning (comment, time limit) keep the recording.
+    let store = InMemoryStore::new().with_explain(&mock_namespace(), collscan());
+    let mut setup = connected(store, false).await;
+    let options = PipelineOptions {
+        comment: Some("why".into()),
+        max_time_ms: Some(900),
+        ..PipelineOptions::default()
+    };
+    setup
+        .h
+        .tx
+        .send(explain_with(setup.session, options))
+        .unwrap();
+    assert!(matches!(next(&mut setup.h).await, Event::Explain { .. }));
+    assert_eq!(recorded(&setup).await.len(), 1);
+}

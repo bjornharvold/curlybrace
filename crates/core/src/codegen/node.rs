@@ -70,10 +70,11 @@ impl Renderer for Node {
         &self,
         ns: &Namespace,
         query: &Query,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         let syn = JsSyntax::new(JsDialect::Node);
-        let body = Self::ops(&syn, options).find(query)?;
+        let body = Self::ops(&syn, options).find(query, agg)?;
         Ok(Self::frame(ns, options, &syn, &body))
     }
 

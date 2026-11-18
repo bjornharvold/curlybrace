@@ -9,6 +9,7 @@ use crate::codegen::model::{CodeOptions, CodegenError};
 use crate::codegen::php_syntax::{PhpSyntax, quote};
 use crate::codegen::range::i64_arg;
 use crate::codegen::walk::{Syntax, render_document, render_documents};
+use crate::pipeline_options::ReadPreferenceMode;
 use crate::store::{Namespace, Query};
 
 pub(crate) struct Php;
@@ -32,6 +33,13 @@ fn check_names(options: &CodeOptions) -> Result<(), CodegenError> {
 }
 
 impl Php {
+    fn read_preference(mode: ReadPreferenceMode) -> String {
+        format!(
+            "new MongoDB\\Driver\\ReadPreference({})",
+            quote(mode_words(mode).camel)
+        )
+    }
+
     fn frame(ns: &Namespace, options: &CodeOptions, syn: &PhpSyntax, body: &str) -> String {
         let noted = with_note(syn, "//", body.to_string());
         let body = noted.as_str();
@@ -56,6 +64,7 @@ impl Renderer for Php {
         &self,
         ns: &Namespace,
         query: &Query,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;
@@ -78,6 +87,15 @@ impl Renderer for Php {
         }
         if query.limit > 0 {
             args.push(format!("'limit' => {}", i64_arg("limit", query.limit)?));
+        }
+        for (name, value) in plain_entries(&syn, agg, quote, 1, None)? {
+            args.push(format!("{name} => {value}"));
+        }
+        if let Some(mode) = agg.read_preference {
+            args.push(format!(
+                "'readPreference' => {}",
+                Self::read_preference(mode)
+            ));
         }
         let coll = &options.collection_var;
         let call = if args.is_empty() {
@@ -103,11 +121,7 @@ impl Renderer for Php {
         let coll = &options.collection_var;
         let mut entries = plain_entries(&syn, agg, quote, 1, None)?;
         if let Some(mode) = agg.read_preference {
-            let value = format!(
-                "new MongoDB\\Driver\\ReadPreference({})",
-                quote(mode_words(mode).camel)
-            );
-            entries.push((quote("readPreference"), value));
+            entries.push((quote("readPreference"), Self::read_preference(mode)));
         }
         let body = if entries.is_empty() {
             format!(

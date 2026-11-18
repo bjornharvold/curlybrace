@@ -193,21 +193,7 @@ impl DocumentStore for MongoStore {
     }
 
     async fn find(&self, ns: &Namespace, q: &Query) -> Result<Page> {
-        let collection = self.collection(ns);
-        let skip = skip_as_i64(q)?;
-        let mut action = collection.find(q.filter.clone()).skip(skip);
-        if let Some(limit) = fetch_limit(q) {
-            action = action.limit(limit);
-        }
-        if let Some(sort) = &q.sort {
-            action = action.sort(sort.clone());
-        }
-        if let Some(projection) = &q.projection {
-            action = action.projection(projection.clone());
-        }
-        let cursor = action.await.map_err(db_err)?;
-        let docs: Vec<Document> = cursor.try_collect().await.map_err(db_err)?;
-        Ok(build_page(docs, q))
+        crate::mongo_find::find(&self.collection(ns), q).await
     }
 
     async fn insert(&self, ns: &Namespace, doc: Document) -> Result<Bson> {

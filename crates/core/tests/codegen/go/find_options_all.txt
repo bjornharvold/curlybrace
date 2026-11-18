@@ -1,0 +1,54 @@
+// Uses the v2 driver: go.mongodb.org/mongo-driver/v2
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+)
+
+func main() {
+	client, err := mongo.Connect(options.Client().ApplyURI("<your connection string>"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := client.Disconnect(context.TODO()); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	db := client.Database("shop")
+	collection := db.Collection("orders")
+
+	filter := bson.D{{Key: "status", Value: "A"}}
+	sort := bson.D{{Key: "total", Value: int32(-1)}}
+
+	// The v2 driver has no maxTimeMS option on Find, so the time limit is a context deadline.
+	ctx, cancel := context.WithTimeout(context.TODO(), 5000*time.Millisecond)
+	defer cancel()
+
+	opts := options.Find().
+		SetSort(sort).
+		SetLimit(20).
+		SetCollation(&options.Collation{Locale: "en", CaseFirst: "upper", Strength: 2, NumericOrdering: true, Alternate: "shifted"}).
+		SetHint("status_1_total_-1").
+		SetAllowDiskUse(true).
+		SetComment("nightly \"report\" 'q' \\ $x ${y} #{z} %s {0} \u202eend")
+
+	cursor, err := collection.Clone(options.Collection().SetReadPreference(readpref.SecondaryPreferred())).Find(ctx, filter, opts)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var results []bson.M
+	if err := cursor.All(ctx, &results); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(results)
+}

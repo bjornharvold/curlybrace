@@ -37,6 +37,7 @@ pub fn paste_block_key(block: PasteBlock) -> &'static str {
         PasteBlock::TooManyDocuments => "copy.paste_blocked.too_many_documents",
         PasteBlock::EmptySelection => "copy.paste_blocked.empty_selection",
         PasteBlock::SystemSource => SYSTEM_SOURCE_BLOCKED_KEY,
+        PasteBlock::CollatedResult => "query.options.copy_collation",
         PasteBlock::InvalidName(_) => "copy.paste_blocked.invalid_name",
     }
 }

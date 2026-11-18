@@ -16,7 +16,10 @@ use crate::views::collection_tabs::show_collection_tabs;
 use crate::views::documents::{
     DocTarget, show_connection_header_with, show_documents_pending, show_documents_switchable,
 };
-use crate::views::findbar::{FindAction, show_automatic_verdict, show_findbar, show_guard_setting};
+use crate::views::findbar::{
+    FindAction, show_automatic_verdict, show_findbar_with, show_guard_setting,
+};
+use crate::views::findbar_options::show_page_options_status;
 use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
 use crate::views::indexes::show_indexes;
 use crate::views::verdict_badge::{VerdictAction, show_verdict_row};
@@ -60,9 +63,13 @@ pub(super) fn show_collection(
         CollectionTab::Documents => {}
     }
     let (has_prev, has_next) = state.paging();
-    if let Some(action) = show_findbar(ui, &mut state.find, has_prev, has_next, i18n) {
-        out.push(UiEvent::Input(Input::Find(action)));
-    }
+    let hints = &state.aggregate.options_ui.hint;
+    let actions = show_findbar_with(ui, &mut state.find, (has_prev, has_next), hints, i18n);
+    out.extend(
+        actions
+            .into_iter()
+            .map(|action| UiEvent::Input(Input::Find(action))),
+    );
     show_switches_and_verdict(ui, state, i18n, out);
     show_guard(ui, state, i18n, out);
     let target = DocTarget {
@@ -120,6 +127,7 @@ fn show_switches_and_verdict(
                 show_guard_setting(ui, state.guard_enabled(), i18n),
             ];
             show_verdict(ui, state, i18n);
+            show_page_options_status(ui, &state.page_query.options, i18n);
             switches
         })
         .inner;

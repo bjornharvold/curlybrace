@@ -39,13 +39,18 @@ fn option_symbol(name: &str) -> String {
 }
 
 impl Ruby {
+    /// The collection, or a handle derived from it that reads where the read preference says.
+    fn handle(agg: &CodeAggOptions, coll: &str) -> String {
+        match agg.read_preference {
+            Some(mode) => format!("{coll}.with(read: {{ mode: :{} }})", mode_words(mode).snake),
+            None => coll.to_string(),
+        }
+    }
+
     /// `collection.aggregate(pipeline, key: value, ..).to_a`; the read preference is set on a
     /// handle derived in the call (`with(read: ..)`).
     fn aggregate_call(agg: &CodeAggOptions, coll: &str) -> Result<String, CodegenError> {
-        let handle = match agg.read_preference {
-            Some(mode) => format!("{coll}.with(read: {{ mode: :{} }})", mode_words(mode).snake),
-            None => coll.to_string(),
-        };
+        let handle = Self::handle(agg, coll);
         let entries = plain_entries(&RubySyntax, agg, option_symbol, 1, None)?;
         if entries.is_empty() {
             return Ok(format!("{handle}.aggregate(pipeline).to_a"));
@@ -82,6 +87,7 @@ impl Renderer for Ruby {
         &self,
         ns: &Namespace,
         query: &Query,
+        agg: &CodeAggOptions,
         options: &CodeOptions,
     ) -> Result<String, CodegenError> {
         check_names(options)?;
@@ -105,12 +111,15 @@ impl Renderer for Ruby {
         if query.limit > 0 {
             args.push(format!("limit: {}", i64_arg("limit", query.limit)?));
         }
-        let coll = &options.collection_var;
+        for (name, value) in plain_entries(&syn, agg, option_symbol, 1, None)? {
+            args.push(format!("{name}: {value}"));
+        }
+        let handle = Self::handle(agg, &options.collection_var);
         let call = if args.is_empty() {
-            format!("{coll}.find(filter).to_a")
+            format!("{handle}.find(filter).to_a")
         } else {
             let lines: Vec<String> = args.iter().map(|a| format!("  {a}")).collect();
-            format!("{coll}.find(\n  filter,\n{}\n).to_a", lines.join(",\n"))
+            format!("{handle}.find(\n  filter,\n{}\n).to_a", lines.join(",\n"))
         };
         body.push_str(&format!("\nresults = {call}\nputs results.inspect\n"));
         Ok(Self::frame(ns, options, &body))

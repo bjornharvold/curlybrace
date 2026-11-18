@@ -31,6 +31,7 @@ mod mongo_bulk_cancel;
 mod mongo_bulk_preview;
 mod mongo_collection_options;
 mod mongo_explain;
+mod mongo_find;
 mod mongo_indexes;
 mod mongo_pipeline;
 mod mongo_pipeline_options;
@@ -48,7 +49,10 @@ mod pipeline_run;
 mod pipeline_shape;
 pub mod profile;
 pub mod query;
+pub mod query_options;
 pub mod read_only_store;
+#[cfg(test)]
+mod read_only_store_find_tests;
 #[cfg(test)]
 mod read_only_store_tests;
 pub mod runtime;

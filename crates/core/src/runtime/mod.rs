@@ -67,6 +67,8 @@ mod epoch_tests;
 #[cfg(test)]
 mod explain_tests;
 #[cfg(test)]
+mod find_options_tests;
+#[cfg(test)]
 mod guard_tests;
 mod handlers;
 #[cfg(test)]

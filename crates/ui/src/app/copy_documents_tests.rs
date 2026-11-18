@@ -84,6 +84,7 @@ fn copying_the_result_stores_filter_and_sort_of_the_shown_query_not_the_page() {
         projection: Some(doc! { "n": 1 }),
         skip: 50,
         limit: 50,
+        ..Query::default()
     };
     let s = copy(open_collection("orders", query), DocCopy::Result);
     assert_eq!(

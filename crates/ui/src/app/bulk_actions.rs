@@ -166,7 +166,7 @@ fn open(state: AppState, kind: BulkKind) -> Out {
                 return unchanged(AppState { banner, ..s });
             }
             BulkEntry::Available => {}
-            BulkEntry::Projected | BulkEntry::Busy => return unchanged(s),
+            BulkEntry::Projected | BulkEntry::Collated | BulkEntry::Busy => return unchanged(s),
         }
         let Some(ns) = s.selected_ns().cloned() else {
             return unchanged(s);
@@ -201,23 +201,6 @@ fn open(state: AppState, kind: BulkKind) -> Out {
         };
         (with_bulk(s, bulk), vec![command])
     })
-}
-
-impl AppState {
-    /// Whether a bulk flow may be opened now, and if not, why. `Open` and the documents toolbar
-    /// both go through here: read-only first, then a projected page, then a flow or a write
-    /// already in the way.
-    pub fn bulk_entry(&self) -> BulkEntry {
-        if self.active_is_read_only() {
-            BulkEntry::ReadOnly
-        } else if self.page_is_projected() {
-            BulkEntry::Projected
-        } else if self.bulk.is_some() || self.pending.is_some() || self.write_warning.is_some() {
-            BulkEntry::Busy
-        } else {
-            BulkEntry::Available
-        }
-    }
 }
 
 /// The next request id, and the state that counted it.

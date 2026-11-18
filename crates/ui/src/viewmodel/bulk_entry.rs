@@ -12,6 +12,8 @@ pub enum BulkEntry {
     ReadOnly,
     /// The displayed page holds partial documents (a projection).
     Projected,
+    /// The displayed page was found with a collation, which a bulk write would not use.
+    Collated,
     /// Another bulk flow is open, or a write is parked or in flight.
     Busy,
 }
@@ -27,6 +29,7 @@ impl BulkEntry {
             Self::Available => None,
             Self::ReadOnly => Some(READ_ONLY_REASON_KEY),
             Self::Projected => Some("bulk.projected_reason"),
+            Self::Collated => Some("query.options.bulk_collation"),
             Self::Busy => Some("bulk.busy_reason"),
         }
     }

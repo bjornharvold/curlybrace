@@ -189,6 +189,7 @@ fn find_query() -> Query {
         projection: Some(doc! { "name": 1_i32, "qty": 1_i32, "_id": 0_i32 }),
         skip: 20,
         limit: 10,
+        ..Query::default()
     }
 }
 

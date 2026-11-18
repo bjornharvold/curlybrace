@@ -79,7 +79,7 @@ fn without_options() -> CodeOptions {
 }
 
 /// The text of a golden file written before the options existed.
-fn golden(language: Language, name: &str) -> String {
+pub(super) fn golden(language: Language, name: &str) -> String {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/codegen")
         .join(language.key())
@@ -268,7 +268,7 @@ fn invalid_options_are_refused_without_their_value() {
 }
 
 /// Each renderer's own string literal function, the only door for option text.
-fn quoted(language: Language, text: &str) -> String {
+pub(super) fn quoted(language: Language, text: &str) -> String {
     use crate::codegen::{
         csharp_syntax, go_syntax, java_syntax, js_syntax, php_syntax, python_syntax, ruby_syntax,
         rust_syntax,
