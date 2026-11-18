@@ -48,6 +48,7 @@ pub mod documents;
 pub mod editor;
 pub mod error_label;
 pub mod findbar;
+mod findbar_cell;
 pub mod findbar_more;
 pub mod findbar_options;
 pub mod guard_notice;

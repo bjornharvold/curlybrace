@@ -16,10 +16,10 @@ use support::shots::{SHOT_SIZE, browsing, build_app};
 
 /// Where the first document row may start at most (points from the window's top). The header
 /// above it is: connection + tabs (one row), the Filter row (one row: Copy as code is an icon),
-/// the switches with the verdict's reserved row (it wraps at this width), the toolbar (two rows
+/// the switches with the verdict beside them (one row at this width), the toolbar (two rows
 /// at this width) and the table's column header. Before the dense layout the first row started at
-/// about y = 633.
-const FIRST_ROW_BUDGET: f32 = 300.0;
+/// about y = 633. The budget is shared with `browse_header_budgets.rs`.
+const FIRST_ROW_BUDGET: f32 = support::browse_page::CLOSED_1000;
 
 struct Page {
     harness: Harness<'static, CurlybraceApp>,

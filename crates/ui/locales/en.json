@@ -1239,7 +1239,8 @@
     "edit": "Edit",
     "header": "Document {n}",
     "insert": "Insert document",
-    "select_all_result": "Select all documents of the query",
+    "select_all_result": "Select all",
+    "select_all_result_hint": "Select every document the query matches, on all pages, not only this one",
     "select_row": "Select document {n}",
     "selection_hint": "Tick documents to copy them."
   },
@@ -1643,7 +1644,7 @@
       "cancel": "Cancel",
       "checking": "Checking how the query runs…",
       "run_anyway": "Run anyway",
-      "setting": "Warn before queries that would scan a collection",
+      "setting": "Warn before full scans",
       "setting_hint": "Before running a query, the app asks the server for its query plan and warns you if it would scan the whole collection, and you can still run it anyway.",
       "title_collection_scan": "This query would read every document in the collection",
       "title_sort_not_covered": "This query would sort in memory instead of using an index"
@@ -1670,7 +1671,8 @@
       "toggle_hint": "Collation, index hint, time limit, read preference, comment and disk use for this query"
     },
     "verdict": {
-      "automatic": "Check index use automatically",
+      "automatic": "Check index use",
+      "automatic_hint": "Check index use automatically: explain each query and show whether an index serves it",
       "checking": "Checking how this query runs...",
       "copy": "Copy index command",
       "plan_only": "Estimated from the query plan only; the server returned no execution counts.",

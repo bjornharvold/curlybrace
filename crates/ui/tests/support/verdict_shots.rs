@@ -9,6 +9,11 @@ use curlybrace_ui::viewmodel::ViewMode;
 /// chip, with the "why" details closed.
 pub fn collection_scan(state: &mut AppState) {
     browsing(ViewMode::Tree)(state);
+    show_collection_scan_verdict(state);
+}
+
+/// The collection-scan verdict for whatever page the state shows, nothing else touched.
+pub fn show_collection_scan_verdict(state: &mut AppState) {
     state.verdict = VerdictState::Ready {
         query: state.page_query.clone(),
         verdict: scan_verdict(),

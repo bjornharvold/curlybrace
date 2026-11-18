@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 /// Side padding of an option's label; tight enough that "Browse | Compare | Shell" fits the
 /// sidebar's default width in full.
-const SEGMENT_PADDING: f32 = 10.0;
+pub(crate) const SEGMENT_PADDING: f32 = 10.0;
 
 /// Options of equal width (the widest label's, shrunk to fit the available width, labels then
 /// elided). Each option is a radio button for accessibility, with its selected state. Returns

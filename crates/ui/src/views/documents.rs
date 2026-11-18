@@ -143,7 +143,7 @@ fn show_documents_in(
 }
 
 /// The documents toolbar in one wrapping row: the mode switcher (when offered), Insert,
-/// "Update matching" and "Delete matching", then "Select all documents of the query", "Clear
+/// "Update matching" and "Delete matching", then "Select all" (the whole query), "Clear
 /// selection" and Copy. When a write action is off, the reason is a visible line under the row
 /// (and the buttons' hover text), so the state is never colour or hover alone. A read-only
 /// connection shows its reason once for all three. Without `actions` (no page) everything after

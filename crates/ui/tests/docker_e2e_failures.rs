@@ -25,6 +25,18 @@ macro_rules! test_name {
     }};
 }
 
+/// The accessible name of the secured connection's button: "Connect {name}" since the row names
+/// which connection it connects.
+fn connect_label(f: &Fixture) -> String {
+    f.labels
+        .t_with("connections.connect_named", &[("name", SECURED_NAME)])
+}
+
+fn click_connect(f: &mut Fixture) {
+    let label = connect_label(f);
+    f.click_text(&label);
+}
+
 /// The saved connection's name in the secured fixture (`auth_fixture`).
 const SECURED_NAME: &str = "secured";
 
@@ -76,7 +88,7 @@ fn wrong_password_shows_the_auth_error_banner_in_time() {
     let Some(mut f) = auth_fixture(test_name!(), "definitely-wrong") else {
         return;
     };
-    click_key(&mut f, "connections.connect");
+    click_connect(&mut f);
     let headline = f.labels.i18n().failure("connect");
     let detail = f.labels.i18n().error(&CoreError::AuthFailed);
     wait_until(&mut f.harness, "auth failure banner", FAILURE_BOUND, |h| {
@@ -97,7 +109,7 @@ fn wrong_password_shows_the_auth_error_banner_in_time() {
     ));
     assert!(
         f.harness
-            .query_all_by_label(&f.labels.t("connections.connect"))
+            .query_all_by_label(&connect_label(&f))
             .next()
             .is_some(),
         "back on the connections screen"
@@ -110,7 +122,7 @@ fn the_right_password_connects_to_the_same_secured_server() {
     let Some(mut f) = auth_fixture(test_name!(), ROOT_PASSWORD) else {
         return;
     };
-    click_key(&mut f, "connections.connect");
+    click_connect(&mut f);
     wait_until(&mut f.harness, "connected", FAILURE_BOUND, |h| {
         h.state().state().status == ConnStatus::Connected
     });

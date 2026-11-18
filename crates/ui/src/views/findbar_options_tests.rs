@@ -290,8 +290,9 @@ fn section_extent(harness: &Harness<'static, Frame>) -> f32 {
 
 #[test]
 fn the_section_scrolls_within_its_share_of_the_window() {
-    // The frame, its margins and the reason line around the scrolling part.
-    const AROUND: f32 = 64.0;
+    // The frame, its margins and the reason line around the scrolling part, and the room the
+    // floating labels' overhang gives the Limit field's cell under its box.
+    const AROUND: f32 = 72.0;
     for size in [SMALL, WIDE, (1000.0, 1400.0)] {
         let state = shown(with_options(vec![OptionsEdit::CollationOn(true)]));
         let harness = open(state, asked(), size);

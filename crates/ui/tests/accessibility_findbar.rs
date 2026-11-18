@@ -8,7 +8,7 @@ use eframe::egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
-const LABEL: &str = "Check index use automatically";
+const LABEL: &str = "Check index use";
 
 struct Frame {
     automatic: bool,
@@ -52,6 +52,22 @@ fn the_checkbox_has_its_label_and_state_and_no_missing_key_marker() {
 }
 
 #[test]
+fn the_short_label_comes_with_the_full_sentence_as_description_and_hover_text() {
+    let i18n = I18n::english();
+    let mut harness = open(true);
+    let label = i18n.t("query.verdict.automatic");
+    let checkbox = harness.get_by_role_and_label(Role::CheckBox, &label);
+    let hint = i18n.t("query.verdict.automatic_hint");
+    assert_eq!(
+        checkbox.accesskit_node().description().as_deref(),
+        Some(hint.as_str())
+    );
+    checkbox.hover();
+    harness.run_steps(30);
+    harness.get_by_label(&hint);
+}
+
+#[test]
 fn clicking_reports_the_opposite_setting() {
     let mut harness = open(true);
     harness.get_by_role_and_label(Role::CheckBox, LABEL).click();
@@ -70,7 +86,7 @@ mod guard_setting {
     use egui_kittest::Harness;
     use egui_kittest::kittest::{NodeT, Queryable};
 
-    const LABEL: &str = "Warn before queries that would scan a collection";
+    const LABEL: &str = "Warn before full scans";
 
     struct Frame {
         guard: bool,
@@ -107,6 +123,22 @@ mod guard_setting {
             }
             assert!(labels.iter().all(|l| !l.contains('\u{27e6}')), "{labels:?}");
         }
+    }
+
+    #[test]
+    fn the_short_label_comes_with_the_full_sentence_as_description_and_hover_text() {
+        let i18n = I18n::english();
+        let mut harness = open(true);
+        let label = i18n.t("query.guard.setting");
+        let checkbox = harness.get_by_role_and_label(Role::CheckBox, &label);
+        let hint = i18n.t("query.guard.setting_hint");
+        assert_eq!(
+            checkbox.accesskit_node().description().as_deref(),
+            Some(hint.as_str())
+        );
+        checkbox.hover();
+        harness.run_steps(30);
+        harness.get_by_label(&hint);
     }
 
     #[test]
