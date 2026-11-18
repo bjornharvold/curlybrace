@@ -138,8 +138,16 @@ fn queries_view(
     let Some(ns) = state.ns.as_ref() else {
         return ui.horizontal_wrapped(toggle).inner;
     };
-    let (queries, toggled) =
-        show_queries_led(ui, &state.queries, ns, read_only, i18n, now_secs, toggle);
+    let busy = state.writing.is_some() || state.has_prompt();
+    let (queries, toggled) = show_queries_led(
+        ui,
+        &state.queries,
+        ns,
+        (read_only, busy),
+        i18n,
+        now_secs,
+        toggle,
+    );
     queries.map(IndexesAction::Queries).or(toggled)
 }
 

@@ -83,7 +83,9 @@ pub enum QueriesAction {
     AskDisable,
     ConfirmDisable,
     /// Open the index builder with the suggestion of the row whose shape has this hash.
-    CreateIndex { hash: String },
+    CreateIndex {
+        hash: String,
+    },
 }
 
 /// What the Queries view holds for the collection it was opened on.

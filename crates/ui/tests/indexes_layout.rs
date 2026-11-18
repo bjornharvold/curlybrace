@@ -12,7 +12,7 @@ use curlybrace_ui::theme;
 use eframe::egui;
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use support::indexes_shots::{indexes_tab, queries_view};
 use support::shots::{SHOT_SIZE, build_app};
 
@@ -145,4 +145,31 @@ fn in_the_queries_view_the_toggle_shares_the_row_with_range_and_refresh() {
     let harness = &page.harness;
     same_row(harness, "indexes.queries.view_queries", "indexes.range_day");
     same_row(harness, "indexes.range_day", "indexes.refresh");
+}
+
+#[test]
+fn queries_rows_with_create_fit_at_800x500() {
+    let page = page_at(SMALL, queries_view);
+    let harness = &page.harness;
+    let i18n = I18n::english();
+    let create = i18n.t_with(
+        "indexes.queries.create_index_n",
+        &[("position", "1"), ("total", "3")],
+    );
+    let first = harness.get_by_role_and_label(Role::Button, &create).rect();
+    assert!(
+        first.bottom() < SMALL.1,
+        "the first row's Create index {first:?} is on screen"
+    );
+    for node in harness.root().children_recursive() {
+        let rect = node.rect();
+        let named = node.accesskit_node().label().is_some();
+        if named && rect.width() > 0.0 && rect.left() > TAB_LEFT {
+            assert!(
+                rect.right() <= SMALL.0,
+                "{:?} {rect:?} is past the right edge",
+                node.accesskit_node().label()
+            );
+        }
+    }
 }

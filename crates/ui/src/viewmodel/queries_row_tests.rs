@@ -93,11 +93,7 @@ fn last_run_ignores_empty_buckets() {
 fn no_bucket_ran_means_no_last_run() {
     let none = summary("email", VerdictKind::CollectionScan, Vec::new());
     assert_eq!(last_run_secs(&none), None);
-    let empty = summary(
-        "email",
-        VerdictKind::CollectionScan,
-        vec![bucket(1_000, 0)],
-    );
+    let empty = summary("email", VerdictKind::CollectionScan, vec![bucket(1_000, 0)]);
     assert_eq!(last_run_secs(&empty), None);
 }
 
