@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/bjornharvold/curlybrace/compare/v0.15.0...v0.16.0) (2026-11-18)
+
+
+### Features
+
+* **browse:** a denser Browse header, PR A ([#180](https://github.com/bjornharvold/curlybrace/issues/180)) ([e7915ab](https://github.com/bjornharvold/curlybrace/commit/e7915abf40cdba169e4a256707b9e97bc93a8b26))
+* **theme:** denser Browse header, 28 pt controls and 4 pt row gap ([#182](https://github.com/bjornharvold/curlybrace/issues/182)) ([a7211c1](https://github.com/bjornharvold/curlybrace/commit/a7211c1abddc73469774cccebd5779db60826003))
+
 ## [0.15.0](https://github.com/bjornharvold/curlybrace/compare/v0.14.0...v0.15.0) (2026-11-18)
 
 
