@@ -23,8 +23,8 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use support::find_options_shots::find_options_page;
 
 /// Where the first document row may start at most with the section closed (points from the top),
-/// the budget of `browse_layout.rs` with More closed.
-const FIRST_ROW_BUDGET: f32 = 300.0;
+/// the budget of `browse_header_budgets.rs` with More closed.
+const FIRST_ROW_BUDGET: f32 = support::browse_page::CLOSED_1000;
 /// What the frame of the section, its margins and the lines around it add to its scrolling part.
 const AROUND: f32 = 64.0;
 /// One row of the page's header, rounded up.

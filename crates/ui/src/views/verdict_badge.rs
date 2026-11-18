@@ -27,6 +27,13 @@ pub fn verdict_row_height(ui: &egui::Ui) -> f32 {
         .max(theme::CONTROL_HEIGHT)
 }
 
+/// Whether the verdict's row fits on the current row of a wrapping layout beside `beside` points
+/// of other controls (and the gap after them), judged from the row's width before anything is
+/// drawn, so a row can be made tall enough for the verdict only when the verdict will sit on it.
+pub fn fits_beside(ui: &egui::Ui, beside: f32) -> bool {
+    ui.available_width() >= beside + ui.spacing().item_spacing.x + MIN_ROW_WIDTH
+}
+
 /// Draws the row for `model` (an empty row of the same size for `None`) in the rest of the
 /// current row, or on the next line of a wrapping row when less than its minimum width is left.
 pub fn show_verdict_row(

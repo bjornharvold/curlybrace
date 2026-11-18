@@ -16,6 +16,7 @@ fn assert_within(
 ) {
     let page = browse_page(size, find);
     let top = page.first_row_top();
+    eprintln!("{size:?}: the first document starts at y = {top} (budget {budget})");
     assert!(
         top <= budget,
         "{size:?}: the first document starts at y = {top} (budget {budget})"
@@ -23,31 +24,26 @@ fn assert_within(
 }
 
 #[test]
-#[ignore = "red until Task A5"]
 fn more_closed_1000x700() {
     assert_within(SIZE_1000, bar(false, None), CLOSED_1000);
 }
 
 #[test]
-#[ignore = "red until Task A5"]
 fn more_open_1000x700() {
     assert_within(SIZE_1000, bar(true, Some(false)), MORE_1000);
 }
 
 #[test]
-#[ignore = "red until Task A5"]
 fn more_and_query_options_open_1000x700() {
     assert_within(SIZE_1000, bar(true, Some(true)), MORE_AND_OPTIONS_1000);
 }
 
 #[test]
-#[ignore = "red until Task A5"]
 fn more_closed_800x500() {
     assert_within(SIZE_800, bar(false, None), CLOSED_800);
 }
 
 #[test]
-#[ignore = "red until Task A5"]
 fn more_open_800x500() {
     assert_within(SIZE_800, bar(true, Some(false)), MORE_800);
 }

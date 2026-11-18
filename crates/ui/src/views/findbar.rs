@@ -161,7 +161,7 @@ pub fn show_guard_setting(ui: &mut egui::Ui, guard: bool, i18n: &I18n) -> Option
 
 /// `text` as the hover text and the accessible description of `response`: the label is kept
 /// short, so the full sentence is what a screen reader and a hover give.
-fn described(ui: &egui::Ui, response: egui::Response, text: String) -> egui::Response {
+pub(super) fn described(ui: &egui::Ui, response: egui::Response, text: String) -> egui::Response {
     let description = text.clone();
     ui.ctx()
         .accesskit_node_builder(response.id, |node| node.set_description(description));

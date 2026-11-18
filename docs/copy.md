@@ -19,9 +19,10 @@ another) without leaving the app. The short version is in the
 
 - **In the sidebar**, select databases or collections with Cmd/Ctrl-click, Shift-click or the
   keyboard. Select one database, or collections of one database.
-- **In the documents pane**, tick documents with their checkboxes. **Select all documents of the
-  query** copies the whole result, not only the page shown. The filter and sort are the ones in
-  place when you copy, and a projection is ignored, so full documents are copied.
+- **In the documents pane**, tick documents with their checkboxes. **Select all** selects every
+  document the query matches, on all pages, so Copy copies the whole result, not only the page
+  shown. The filter and sort are the ones in place when you copy, and a projection is ignored, so
+  full documents are copied.
 
 Then right-click and choose **Copy** (the entry names what is copied, for example "Copy 2
 collections"), or press Cmd/Ctrl+C in the sidebar.
@@ -129,9 +130,9 @@ Paste (and Copy) are disabled with the reason shown, when:
 
 ## Limits
 
-- **Hand-picked documents are capped at 10,000.** Beyond that, use **Select all documents of the
-  query**.
-- **"Select all documents of the query" matches with the simple collation**, so its results (and
+- **Hand-picked documents are capped at 10,000.** Beyond that, use **Select all**, which selects
+  the whole query.
+- **"Select all" matches with the simple collation**, so its results (and
   the preview's counts) can differ from the browse view on collections with a case-insensitive
   collation. The copy reads by `_id` order, which has to use the same collation on both sides.
 - **No snapshot consistency.** The source is read as the copy goes, so writes to it during the copy
