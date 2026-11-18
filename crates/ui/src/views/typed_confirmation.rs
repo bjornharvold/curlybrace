@@ -27,9 +27,17 @@ pub fn show_typed_confirmation(
 ) -> Response {
     ui.label(prompt.instruction);
     ui.add(egui::Label::new(RichText::new(prompt.required).strong().monospace()).selectable(true));
+    // A fixed id from the prompt, not from the position: a notice that appears above the box
+    // must not give it a new id and drop its focus and its editor state mid-typing.
+    let id = egui::Id::new(("typed_confirmation", prompt.accessible_name));
     let options = FieldOptions {
+        id: Some(id),
         accessible_name: Some(prompt.accessible_name),
         ..FieldOptions::default()
     };
     outlined_field_opts(ui, prompt.field_label, text, "", options)
 }
+
+#[cfg(test)]
+#[path = "typed_confirmation_tests.rs"]
+mod tests;
