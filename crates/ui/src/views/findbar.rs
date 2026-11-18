@@ -144,19 +144,28 @@ pub fn show_automatic_verdict(
 ) -> Option<FindAction> {
     let mut checked = automatic;
     let response = ui.checkbox(&mut checked, i18n.t("query.verdict.automatic"));
+    let response = described(ui, response, i18n.t("query.verdict.automatic_hint"));
     response
         .changed()
         .then_some(FindAction::SetAutomaticVerdict(checked))
 }
 
-/// The global "warn before queries that would scan a collection" box; the tooltip says what the
-/// check costs. Same shape as [`show_automatic_verdict`].
+/// The global "warn before full scans" box; the tooltip and the accessible description say what
+/// the check does and costs. Same shape as [`show_automatic_verdict`].
 pub fn show_guard_setting(ui: &mut egui::Ui, guard: bool, i18n: &I18n) -> Option<FindAction> {
     let mut checked = guard;
-    let response = ui
-        .checkbox(&mut checked, i18n.t("query.guard.setting"))
-        .on_hover_text(i18n.t("query.guard.setting_hint"));
+    let response = ui.checkbox(&mut checked, i18n.t("query.guard.setting"));
+    let response = described(ui, response, i18n.t("query.guard.setting_hint"));
     response.changed().then_some(FindAction::SetGuard(checked))
+}
+
+/// `text` as the hover text and the accessible description of `response`: the label is kept
+/// short, so the full sentence is what a screen reader and a hover give.
+fn described(ui: &egui::Ui, response: egui::Response, text: String) -> egui::Response {
+    let description = text.clone();
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_description(description));
+    response.on_hover_text(text)
 }
 
 /// What the "More" toggle shows: whether the fields behind it are open and how many hold a

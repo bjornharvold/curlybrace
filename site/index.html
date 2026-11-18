@@ -324,7 +324,7 @@
         </div>
         <div>
           <dt>Warned before a query scans the collection</dt>
-          <dd>Every query shows a verdict badge, such as &ldquo;Collection scan: no index used&rdquo;, with the reason and a suggested index. Before the query bar or the Shell tab sends a query that would read a whole collection or sort in memory, the app asks the server for a plan only, without running the query, and offers <b>Run anyway</b> or <b>Cancel</b>. On a production connection it asks at any size; on others only for collections over 1,000 documents. The setting &ldquo;Warn before queries that would scan a collection&rdquo; is on by default. If the plan cannot be had, the query just runs. The Shell tab reads plain <code>db.collection.find</code>, <code>count</code>, <code>update</code> and <code>delete</code> calls and says &ldquo;not checked&rdquo; for anything it cannot read.</dd>
+          <dd>Every query shows a verdict badge, such as &ldquo;Collection scan: no index used&rdquo;, with the reason and a suggested index. Before the query bar or the Shell tab sends a query that would read a whole collection or sort in memory, the app asks the server for a plan only, without running the query, and offers <b>Run anyway</b> or <b>Cancel</b>. On a production connection it asks at any size; on others only for collections over 1,000 documents. The setting &ldquo;Warn before full scans&rdquo; is on by default. If the plan cannot be had, the query just runs. The Shell tab reads plain <code>db.collection.find</code>, <code>count</code>, <code>update</code> and <code>delete</code> calls and says &ldquo;not checked&rdquo; for anything it cannot read.</dd>
         </div>
         <div>
           <dt>A shell tab that runs your own mongosh</dt>

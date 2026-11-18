@@ -49,8 +49,8 @@ between databases, and see how your indexes are used, without an account, a tria
 - Query bar with filter, sort, projection, skip and limit. Bad input shows an error and keeps your
   previous results on screen. Sort, projection, skip and limit sit behind **More options**, which
   counts the ones that are set while it is closed. A query that would read the whole collection or sort in memory is
-  explained before it runs, and you can run it anyway. Turn this off with **Warn before queries
-  that would scan a collection**.
+  explained before it runs, and you can run it anyway. Turn this off with **Warn before full
+  scans**.
 - **Query options** ([#75](https://github.com/bjornharvold/curlybrace/issues/75)) sit behind
   **More options**, in a section of their own that counts the options set: a **collation**, an index
   **hint** (a name or a key pattern, with the collection's indexes to pick from), a **time limit**
