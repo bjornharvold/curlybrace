@@ -53,7 +53,8 @@ pub fn show_index_miss(
     let count = model.findings.len().to_string();
     let title = i18n.t_with(title_key(model.findings.len()), &[("count", &count)]);
     announced(ui, Tone::Warning, Announce::Alert, &title, |ui| {
-        // Snug rows: the notice shares the tab with the editor, History and the output.
+        // Snug rows: the notice shares the tab with the editor, History and the output, so a
+        // focused button's ring may touch the line below. // ring-gap-exempt: snug by design
         ui.spacing_mut().item_spacing.y = 0.0;
         let buttons = ui
             .horizontal_wrapped(|ui| {

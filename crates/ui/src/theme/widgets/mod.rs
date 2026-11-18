@@ -51,7 +51,7 @@ pub(crate) const COMPACT_CONTROL_HEIGHT: f32 = 24.0;
 /// Width of the keyboard focus ring.
 const FOCUS_RING_WIDTH: f32 = 2.0;
 /// Gap between a widget and its focus ring, so the ring stays visible on a `primary` fill.
-const FOCUS_RING_OFFSET: u8 = 2;
+const FOCUS_RING_OFFSET: u8 = 1;
 /// Material's disabled opacities: content 38%, container 12% of `on_surface`.
 const DISABLED_CONTENT_PERCENT: u32 = 38;
 const DISABLED_CONTAINER_PERCENT: u32 = 12;
@@ -189,7 +189,12 @@ pub(crate) enum Ring {
 /// The rectangle an outside focus ring paints out to: the control's rect grown by the ring's
 /// offset and its width. The theme's row gap must leave at least this much below a control.
 pub(crate) fn ring_outer(rect: Rect) -> Rect {
-    rect.expand(f32::from(FOCUS_RING_OFFSET) + FOCUS_RING_WIDTH)
+    rect.expand(ring_extent())
+}
+
+/// How far an outside focus ring reaches beyond its control: the offset plus the stroke width.
+pub(crate) fn ring_extent() -> f32 {
+    f32::from(FOCUS_RING_OFFSET) + FOCUS_RING_WIDTH
 }
 
 /// The 2 dp `primary` ring drawn while a widget holds focus, placed as `ring` says.
