@@ -88,6 +88,7 @@ pub mod tool_settings;
 mod tools_actions;
 mod tools_app;
 pub mod tools_state;
+mod verdict_create;
 pub mod write_guard;
 
 use crate::I18n;
@@ -921,6 +922,9 @@ mod queries_create_tests;
 
 #[cfg(test)]
 mod queries_test_support;
+
+#[cfg(test)]
+mod verdict_create_tests;
 
 #[cfg(test)]
 mod queries_tests;

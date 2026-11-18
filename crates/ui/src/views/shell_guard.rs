@@ -5,7 +5,7 @@
 //! Cancel takes the first focus, so a stray Enter never runs the script the notice warned about.
 use super::guard_notice::{Announce, GuardNoticeAction, announced, on_container};
 use super::index_dialogs::focus_once;
-use super::verdict_badge::{VerdictAction, reason_line, show_suggestion};
+use super::verdict_badge::{CreateIndex, VerdictAction, reason_line, show_suggestion};
 use crate::I18n;
 use crate::theme::{ROW_GAP, Tone, filled_button, tonal_button};
 use crate::viewmodel::shell_guard_notice::{
@@ -124,8 +124,9 @@ fn show_finding(
         .warn
         .suggestion
         .as_deref()
-        .and_then(|command| show_suggestion(ui, command, i18n))
-        .map(|VerdictAction::CopySuggestion(command)| GuardNoticeAction::Copy(command))
+        .and_then(|command| show_suggestion(ui, command, CreateIndex::Hidden, i18n))
+        .and_then(VerdictAction::copied)
+        .map(GuardNoticeAction::Copy)
 }
 
 /// Run anyway and Cancel. Cancel is the one with the first focus and the filled look.

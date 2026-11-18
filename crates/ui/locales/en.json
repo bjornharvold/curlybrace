@@ -1679,6 +1679,8 @@
       "automatic_hint": "Check index use automatically: explain each query and show whether an index serves it",
       "checking": "Checking how this query runs...",
       "copy": "Copy index command",
+      "create_index": "Create index...",
+      "create_index_read_only": "This connection is read-only. Copy the command to create the index elsewhere.",
       "plan_only": "Estimated from the query plan only; the server returned no execution counts.",
       "reason_collscan": "The query reads every document in the collection because no index fits its filter.",
       "reason_empty_collection": "The collection is empty, so there is nothing to scan.",

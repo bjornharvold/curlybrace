@@ -23,7 +23,7 @@ use crate::views::findbar_options::show_page_options_status;
 use crate::views::guard_notice::{GuardNoticeAction, show_guard_notice};
 use crate::views::indexes::show_indexes;
 use crate::views::verdict_badge::{
-    VerdictAction, fits_beside, show_verdict_row, verdict_row_height,
+    CreateIndex, VerdictAction, fits_beside, show_verdict_row, verdict_row_height,
 };
 use eframe::egui;
 
@@ -148,15 +148,17 @@ fn show_switches_and_verdict(
                 show_guard_setting(ui, state.guard_enabled(), i18n),
             ];
             remember_switches_width(ui, memory, known, start);
-            show_verdict(ui, state, i18n);
+            let created = show_verdict(ui, state, i18n);
             show_page_options_status(ui, &state.page_query.options, i18n);
-            switches
+            (switches, created)
         })
         .inner;
+    let (switches, created) = actions;
     out.extend(
-        actions
+        switches
             .into_iter()
             .flatten()
+            .chain(created)
             .map(|action| UiEvent::Input(Input::Find(action))),
     );
 }
@@ -192,14 +194,35 @@ fn show_guard(ui: &mut egui::Ui, state: &AppState, i18n: &I18n, out: &mut Vec<Ui
 }
 
 /// The index verdict of the current run in its fixed-size area (reserved whenever explain is
-/// on, so nothing shifts); its copy button goes to the clipboard here.
-fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) {
+/// on, so nothing shifts); its copy button goes to the clipboard here, and Create index... goes
+/// to the reducer, which opens the index builder.
+fn show_verdict(ui: &mut egui::Ui, state: &AppState, i18n: &I18n) -> Option<FindAction> {
     if !state.explain_enabled() {
-        return;
+        return None;
     }
     let model = badge(&super::explain_actions::shown(state), state.selected_ns());
-    if let Some(VerdictAction::CopySuggestion(text)) = show_verdict_row(ui, model.as_ref(), i18n) {
-        ui.ctx().copy_text(text);
+    match show_verdict_row(ui, model.as_ref(), create_index_state(state), i18n) {
+        Some(VerdictAction::CopySuggestion(text)) => {
+            ui.ctx().copy_text(text);
+            None
+        }
+        Some(VerdictAction::CreateIndex) => Some(FindAction::CreateSuggestedIndex),
+        None => None,
+    }
+}
+
+/// Whether Create index... works: not on a read-only connection, and not while an index write,
+/// an index prompt or a parked write warning is open.
+fn create_index_state(state: &AppState) -> CreateIndex {
+    if state.active_is_read_only() {
+        CreateIndex::ReadOnly
+    } else if state.indexes.writing.is_some()
+        || state.indexes.has_prompt()
+        || state.write_warning.is_some()
+    {
+        CreateIndex::Busy
+    } else {
+        CreateIndex::On
     }
 }
 
