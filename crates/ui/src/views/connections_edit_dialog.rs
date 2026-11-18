@@ -2,6 +2,7 @@
 //! To URI, the validation error and the Cancel / Save footer.
 use super::connections::{ConnectionAction, ConnectionsState, TestState};
 use super::connections_edit::{show_fields, text_row};
+use super::dialog_body::body_max_height;
 use super::error_label::show_error;
 use crate::I18n;
 use crate::app::tools_state::ToolsState;
@@ -16,8 +17,10 @@ use eframe::egui;
 const DIALOG_WIDTH: f32 = 720.0;
 const BODY_MAX_HEIGHT: f32 = 460.0;
 /// What the dialog needs besides the scrolling body (title, result lines, footer, padding), so
-/// the body shrinks on a short window and the footer stays on screen.
-const CHROME_HEIGHT: f32 = 270.0;
+/// the body shrinks on a short window and the footer stays on screen. It was 270 with 32 pt
+/// buttons and 6 pt row gaps; with 28 pt and 4 pt the worst case of
+/// `tests/connections_edit_layout.rs` still ends 27 pt above the bottom of an 800x500 window.
+const CHROME_HEIGHT: f32 = 256.0;
 const BODY_MIN_HEIGHT: f32 = 160.0;
 /// Room the folder drop-down keeps beside the folder field.
 const FOLDER_COMBO_WIDTH: f32 = 160.0;
@@ -95,7 +98,7 @@ pub(super) fn show_edit_dialog(
 
 /// The body's height: [`BODY_MAX_HEIGHT`], less on a window too short for it.
 fn body_height(ctx: &egui::Context) -> f32 {
-    (ctx.screen_rect().height() - CHROME_HEIGHT).clamp(BODY_MIN_HEIGHT, BODY_MAX_HEIGHT)
+    body_max_height(ctx, CHROME_HEIGHT, BODY_MIN_HEIGHT, BODY_MAX_HEIGHT)
 }
 
 /// `Modal::should_close` also fires on a backdrop click; only Escape (with no popup open, and

@@ -6,8 +6,10 @@ use eframe::egui::{
     style::{Selection, WidgetVisuals},
 };
 
-/// Vertical gap between rows (horizontal gaps stay on the 8 pt grid).
-const ROW_GAP: f32 = 6.0;
+/// Vertical gap between rows (horizontal gaps stay on the 8 pt grid). A focused control's ring
+/// reaches 3 pt below it (offset 1 + width 2), so 4 pt leaves 1 pt of margin and rings never touch
+/// the next row (`density_tests`).
+pub(crate) const ROW_GAP: f32 = 4.0;
 
 /// Interaction overlays from Material's state-layer spec.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

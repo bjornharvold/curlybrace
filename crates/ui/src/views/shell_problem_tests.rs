@@ -82,7 +82,9 @@ fn under_the_editor_the_first_problem_of_the_whole_script_is_shown_with_its_plac
     let editor = h.get_by_role_and_label(Role::MultilineTextInput, &editor_label);
     assert!(
         line.rect().top() >= editor.rect().bottom(),
-        "under the editor"
+        "under the editor: line {:?}, editor {:?}",
+        line.rect(),
+        editor.rect()
     );
     // It is information only: nothing to press.
     assert_eq!(line.accesskit_node().role(), Role::Label);

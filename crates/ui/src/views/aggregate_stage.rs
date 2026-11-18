@@ -146,7 +146,7 @@ fn card_header(
     let i = card.index;
     let params = [("n", n)];
     ui.horizontal_wrapped(|ui| {
-        // One row height for every control, so the checkbox, the title and the 32 pt buttons
+        // One row height for every control, so the checkbox, the title and the 28 pt buttons
         // share a centre line instead of hanging from the top.
         ui.spacing_mut().interact_size.y = CONTROL_HEIGHT;
         let toggled = enable_box(

@@ -139,7 +139,7 @@ fn the_why_button_is_a_theme_button_and_the_row_height_does_not_depend_on_it() {
     assert_eq!(
         why,
         Some(theme::CONTROL_HEIGHT),
-        "Why is a 40 dp theme button, not egui's"
+        "Why is a theme button of the control height, not egui's"
     );
     assert!(
         (tall - short).abs() < 0.5 && (tall - empty).abs() < 0.5,

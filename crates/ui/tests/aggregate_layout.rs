@@ -18,8 +18,12 @@ use support::shots::{SHOT_SIZE, build_app};
 const SMALL: (f32, f32) = (800.0, 500.0);
 /// Where the preview heading may start at most at 1000x700 (points from the window's top).
 /// Above it: connection + tabs (one row), the tab's header row, the stage list (at most half of
-/// the room left) and the separator. It measures at about y = 410.
-const PREVIEW_BUDGET: f32 = 440.0;
+/// the room left) and the separator. It measures at about y = 412.
+/// Measured 412 + 8: the margin covers a few points of font difference between macOS and Linux.
+const PREVIEW_BUDGET: f32 = 420.0;
+/// The same at 800x500, where the preview must leave room for documents under its heading.
+/// Measured 328 + 12 (same reason).
+const PREVIEW_BUDGET_SMALL: f32 = 340.0;
 
 struct Page {
     harness: Harness<'static, CurlybraceApp>,
@@ -165,6 +169,20 @@ fn the_preview_starts_within_the_budget() {
     assert!(
         heading.top() <= PREVIEW_BUDGET,
         "the preview starts at y = {} (budget {PREVIEW_BUDGET})",
+        heading.top()
+    );
+}
+
+#[test]
+fn the_preview_starts_within_the_budget_at_800x500() {
+    let page = page(SMALL);
+    let heading = page
+        .harness
+        .get_by_role_and_label(Role::Label, &tn("aggregate.preview.heading", 2))
+        .rect();
+    assert!(
+        heading.top() <= PREVIEW_BUDGET_SMALL,
+        "the preview starts at y = {} (budget {PREVIEW_BUDGET_SMALL})",
         heading.top()
     );
 }

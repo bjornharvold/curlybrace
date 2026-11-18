@@ -5,6 +5,7 @@ use crate::I18n;
 use crate::app::compare::CompareAction;
 use crate::theme::{gate, outlined_field, text_button, tonal_button};
 use crate::viewmodel::compare::{CompareState, Pick, SideForm};
+use crate::views::findbar_cell::{field_cell, field_row_height};
 use curlybrace_core::compare::protocol::Side;
 use curlybrace_core::store::CollectionKind;
 use eframe::egui;
@@ -31,18 +32,24 @@ fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option
     let form = &state.setup;
     ui.strong(i18n.t("compare.pairs.defaults_title"));
     let width = column_width(ui.available_width(), ui.spacing().item_spacing.x);
+    // One height for the three columns, so they sit level whatever each holds above its box.
+    let heading = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
+    let height = heading + field_row_height(ui);
     let mut action = ui
         .horizontal_wrapped(|ui| {
-            let key = column(ui, width, |ui| {
+            let key = field_cell(ui, width, height, |ui| {
                 // The room a side heading takes, so the key box lines up with the filters.
-                let heading = ui.text_style_height(&egui::TextStyle::Body);
-                ui.add_space(heading + ui.spacing().item_spacing.y);
+                ui.add_space(heading);
                 text_field(ui, "key", form_key(), &form.key_text, i18n)
             })
             .map(CompareAction::SetKey);
             [Side::Source, Side::Target]
                 .into_iter()
-                .map(|side| column(ui, width, |ui| show_filter(ui, side, form.side(side), i18n)))
+                .map(|side| {
+                    field_cell(ui, width, height, |ui| {
+                        show_filter(ui, side, form.side(side), i18n)
+                    })
+                })
                 .fold(key, |action, shown| shown.or(action))
         })
         .inner;
@@ -58,19 +65,16 @@ fn show_defaults(ui: &mut egui::Ui, state: &CompareState, i18n: &I18n) -> Option
 /// The narrowest a key or filter box gets before the row wraps (points).
 const COLUMN_MIN_WIDTH: f32 = 200.0;
 
-/// A third of the row (less the gaps), at least [`COLUMN_MIN_WIDTH`] and at most the row.
+/// Room left at the end of the row so that three columns that fill it exactly do not wrap on
+/// rounding (points).
+const FIT_SLACK: f32 = 1.0;
+
+/// A third of the row (less the gaps and [`FIT_SLACK`]), at least [`COLUMN_MIN_WIDTH`] and at
+/// most the row.
 fn column_width(available: f32, gap: f32) -> f32 {
-    ((available - 2.0 * gap) / 3.0)
+    ((available - 2.0 * gap - FIT_SLACK) / 3.0)
         .max(COLUMN_MIN_WIDTH)
         .min(available)
-}
-
-fn column<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    ui.vertical(|ui| {
-        ui.set_width(width);
-        add(ui)
-    })
-    .inner
 }
 
 fn show_filter(

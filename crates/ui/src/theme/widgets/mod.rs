@@ -17,6 +17,8 @@ mod tabs;
 #[cfg(test)]
 mod control_tests;
 #[cfg(test)]
+mod density_tests;
+#[cfg(test)]
 mod widgets_tests;
 
 pub use button::{
@@ -40,15 +42,16 @@ use eframe::egui::{
 };
 use std::sync::Arc;
 
-/// Height of buttons, segmented controls and outlined fields. A desktop-dense 32 pt: the data
-/// is the point of the app, so chrome must not push it down the window.
-pub(crate) const CONTROL_HEIGHT: f32 = 32.0;
+/// Height of buttons, segmented controls and outlined fields. A desktop-dense 28 pt (above
+/// WCAG 2.2's 24 pt minimum target; the app is driven by mouse and keyboard): the data is the
+/// point of the app, so chrome must not push it down the window.
+pub const CONTROL_HEIGHT: f32 = 28.0;
 /// Height of a compact segmented control, for a heading row where height is scarce.
 pub(crate) const COMPACT_CONTROL_HEIGHT: f32 = 24.0;
 /// Width of the keyboard focus ring.
 const FOCUS_RING_WIDTH: f32 = 2.0;
 /// Gap between a widget and its focus ring, so the ring stays visible on a `primary` fill.
-const FOCUS_RING_OFFSET: u8 = 2;
+const FOCUS_RING_OFFSET: u8 = 1;
 /// Material's disabled opacities: content 38%, container 12% of `on_surface`.
 const DISABLED_CONTENT_PERCENT: u32 = 38;
 const DISABLED_CONTAINER_PERCENT: u32 = 12;
@@ -183,6 +186,17 @@ pub(crate) enum Ring {
     Inside,
 }
 
+/// The rectangle an outside focus ring paints out to: the control's rect grown by the ring's
+/// offset and its width. The theme's row gap must leave at least this much below a control.
+pub(crate) fn ring_outer(rect: Rect) -> Rect {
+    rect.expand(ring_extent())
+}
+
+/// How far an outside focus ring reaches beyond its control: the offset plus the stroke width.
+pub(crate) fn ring_extent() -> f32 {
+    f32::from(FOCUS_RING_OFFSET) + FOCUS_RING_WIDTH
+}
+
 /// The 2 dp `primary` ring drawn while a widget holds focus, placed as `ring` says.
 pub(crate) fn focus_ring(
     painter: &Painter,
@@ -208,7 +222,8 @@ pub(crate) fn focus_ring(
                 sw: radius.sw.saturating_add(offset),
                 se: radius.se.saturating_add(offset),
             };
-            let outer = rect.expand(f32::from(offset));
+            // The stroke is drawn outside this rect, so it ends at `ring_outer(rect)`.
+            let outer = ring_outer(rect).shrink(FOCUS_RING_WIDTH);
             painter.rect_stroke(outer, ring_radius, stroke, StrokeKind::Outside);
         }
     }

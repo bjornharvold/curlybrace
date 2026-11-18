@@ -5,6 +5,7 @@
 //! `CopyDialog::can_confirm` the reducer repeats.
 use super::connection_badge::show_badge;
 use super::copy_progress::show_progress;
+use super::dialog_body::body_max_height;
 use super::tone_notice::tone_notice;
 use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
 use super::write_warning::focus_cancel_unless_focused;
@@ -22,6 +23,12 @@ use eframe::egui;
 
 const MODAL_WIDTH: f32 = 620.0;
 const COUNTS_MAX_HEIGHT: f32 = 200.0;
+/// What the dialog needs besides its scrolling middle (the header with the production notice, the
+/// blocked note and the buttons, the frame's margin), so the middle shrinks on a short window
+/// and the buttons stay on screen (points).
+const CHROME_HEIGHT: f32 = 250.0;
+/// The middle is never shorter than this (points), even on a window too short for the rest.
+const BODY_MIN_HEIGHT: f32 = 120.0;
 const POLICIES: [(ConflictPolicy, &str); 3] = [
     (ConflictPolicy::Skip, "copy.dialog.policy.skip"),
     (ConflictPolicy::Overwrite, "copy.dialog.policy.overwrite"),
@@ -102,6 +109,27 @@ fn show_body(
 ) -> Option<CopyInput> {
     ui.set_width(MODAL_WIDTH);
     show_header(ui, context, i18n);
+    let production = context.production;
+    // Scrolls inside the window; the header above and the buttons below stay on screen.
+    let body_max = body_max_height(ui.ctx(), CHROME_HEIGHT, BODY_MIN_HEIGHT, f32::INFINITY);
+    let (input, typing) = egui::ScrollArea::vertical()
+        .id_salt("copy_body")
+        .max_height(body_max)
+        .auto_shrink([false, true])
+        .show(ui, |ui| show_middle(ui, dialog, production, i18n))
+        .inner;
+    let buttons = show_buttons(ui, dialog, production, typing, i18n);
+    input.or(buttons)
+}
+
+/// The policy, the names, the options, the counts and the typed confirmation; the input made and
+/// whether a box holds the keyboard focus.
+fn show_middle(
+    ui: &mut egui::Ui,
+    dialog: &CopyDialog,
+    production: bool,
+    i18n: &I18n,
+) -> (Option<CopyInput>, bool) {
     let choosing = matches!(dialog.phase, CopyPhase::Editing);
     let mut input = None;
     let mut typing = false;
@@ -113,10 +141,8 @@ fn show_body(
         input = input.take().or(show_options(ui, dialog, i18n));
     });
     show_counts(ui, dialog, i18n);
-    let production = context.production;
     let (typed, typing_word) = show_confirmation(ui, dialog, production, choosing, i18n);
-    let buttons = show_buttons(ui, dialog, production, typing || typing_word, i18n);
-    input.or(typed).or(buttons)
+    (input.or(typed), typing || typing_word)
 }
 
 fn show_header(ui: &mut egui::Ui, context: &Context, i18n: &I18n) {

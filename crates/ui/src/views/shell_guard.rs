@@ -7,7 +7,7 @@ use super::guard_notice::{Announce, GuardNoticeAction, announced, on_container};
 use super::index_dialogs::focus_once;
 use super::verdict_badge::{VerdictAction, reason_line, show_suggestion};
 use crate::I18n;
-use crate::theme::{Tone, filled_button, tonal_button};
+use crate::theme::{ROW_GAP, Tone, filled_button, tonal_button};
 use crate::viewmodel::shell_guard_notice::{
     FindingModel, IndexMissModel, index_miss_model, title_key, unchecked_key,
 };
@@ -18,8 +18,13 @@ use eframe::egui::{self, accesskit};
 const SMALL_WINDOW: f32 = 500.0;
 /// The findings area is one row tall in a small window (points); more scroll. One body line
 /// (about 18) and a sliver of the next, so the area reads as scrollable; it must leave the
-/// notice no taller than the syntax notice (two rows with a 6 pt row gap).
-const FINDINGS_MIN_HEIGHT: f32 = 22.0;
+/// notice no taller than the syntax notice, which is two rows and one [`ROW_GAP`]. The rows
+/// measure [`SYNTAX_ROWS_HEIGHT`], so the area is that plus the gap (22 with the old 6 pt gap,
+/// 20 with the 4 pt one: leaving it at 22 made the index notice 2 pt taller than the syntax
+/// notice at 800x500).
+const FINDINGS_MIN_HEIGHT: f32 = SYNTAX_ROWS_HEIGHT + ROW_GAP;
+/// The two rows of the syntax notice, without the gap between them (points).
+const SYNTAX_ROWS_HEIGHT: f32 = 16.0;
 /// ... and grows by this share of the window height above [`SMALL_WINDOW`] ...
 const FINDINGS_GROWTH: f32 = 0.4;
 /// ... up to this (points).
@@ -48,7 +53,8 @@ pub fn show_index_miss(
     let count = model.findings.len().to_string();
     let title = i18n.t_with(title_key(model.findings.len()), &[("count", &count)]);
     announced(ui, Tone::Warning, Announce::Alert, &title, |ui| {
-        // Snug rows: the notice shares the tab with the editor, History and the output.
+        // Snug rows: the notice shares the tab with the editor, History and the output, so a
+        // focused button's ring may touch the line below. // ring-gap-exempt: snug by design
         ui.spacing_mut().item_spacing.y = 0.0;
         let buttons = ui
             .horizontal_wrapped(|ui| {
