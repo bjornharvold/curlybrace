@@ -679,17 +679,29 @@ fn a_narrow_status_row_wraps_onto_a_second_line() {
     assert!(top(&last) > top(&first), "the buttons stayed on one line");
 }
 
+/// With 28 pt controls the facts of the index fit inside the smallest supported window (800x500).
 #[test]
-fn the_facts_stay_reachable_by_scrolling_at_the_smallest_window() {
-    let mut h = indexes_in(false, egui::vec2(800.0, 500.0));
+fn the_facts_are_on_screen_at_the_smallest_window() {
+    let h = indexes_in(false, egui::vec2(800.0, 500.0));
+    let top = h
+        .get_by_label(&t("indexes.uses_since_restart"))
+        .rect()
+        .top();
+    assert!(top < 500.0, "the facts start below the fold ({top})");
+}
+
+/// In a window shorter than that they are below the fold and scrolling brings them into view.
+#[test]
+fn the_facts_stay_reachable_by_scrolling_in_a_short_window() {
+    let mut h = indexes_in(false, egui::vec2(800.0, 400.0));
     let facts = t("indexes.uses_since_restart");
     let before = h.get_by_label(&facts).rect().top();
-    assert!(before > 500.0, "the facts start below the fold ({before})");
+    assert!(before > 400.0, "the facts start below the fold ({before})");
     h.get_by_label(&facts).scroll_to_me();
     h.run_steps(4);
     let after = h.get_by_label(&facts).rect().top();
     assert!(
-        after < 500.0,
+        after < 400.0,
         "scrolling brings the facts into view ({after})"
     );
 }

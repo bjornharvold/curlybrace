@@ -20,6 +20,7 @@ mod scheme_tests;
 mod semantic_tests;
 
 pub use fonts::{MEDIUM_FAMILY, SYMBOLS_FAMILY, font_definitions};
+pub(crate) use install::ROW_GAP;
 pub use install::{StateLayer, current, current_ui, install, state_layer, visuals_for};
 pub use scheme::{Mode, Scheme, Tone, ToneColors, scheme};
 pub use semantic::{ChartColors, JsColors, JsonColors, chart_colors, js_colors, json_colors};

@@ -20,7 +20,11 @@ use support::shots::{SHOT_SIZE, build_app};
 /// connection + tabs (one row), the toggle with the toolbar and the Sampling disclosure (one
 /// row), the sampler's status (a text line: it does not fit beside them at this width) and the
 /// separator. Before the toolbar row was folded the heading started at y = 176.
-const LIST_BUDGET: f32 = 120.0;
+const LIST_BUDGET: f32 = 106.0;
+/// The same at the smallest supported window, 800x500, where the toolbar wraps once more.
+const LIST_BUDGET_SMALL: f32 = 118.0;
+/// The smallest window the app is designed for.
+const SMALL: (f32, f32) = (800.0, 500.0);
 /// Everything right of this is in the tab, not the sidebar (points).
 const TAB_LEFT: f32 = 300.0;
 
@@ -31,6 +35,10 @@ struct Page {
 }
 
 fn page(prepare: fn(&mut AppState)) -> Page {
+    page_at((SHOT_SIZE.0, SHOT_SIZE.1), prepare)
+}
+
+fn page_at(size: (f32, f32), prepare: fn(&mut AppState)) -> Page {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .build()
@@ -40,7 +48,7 @@ fn page(prepare: fn(&mut AppState)) -> Page {
     prepare(app.state_mut());
     let mut installed = false;
     let mut harness = Harness::builder()
-        .with_size(egui::vec2(SHOT_SIZE.0, SHOT_SIZE.1))
+        .with_size(egui::vec2(size.0, size.1))
         .with_pixels_per_point(1.0)
         .build_state(
             move |ctx, app: &mut CurlybraceApp| {
@@ -99,6 +107,25 @@ fn the_index_list_starts_within_the_budget() {
         heading.top() <= LIST_BUDGET,
         "the index list starts at y = {} (budget {LIST_BUDGET})",
         heading.top()
+    );
+}
+
+#[test]
+fn the_index_list_starts_within_the_budget_at_800x500() {
+    let page = page_at(SMALL, indexes_tab);
+    let heading = page
+        .harness
+        .get_by_role_and_label(Role::Label, &t("indexes.list_heading"))
+        .rect();
+    eprintln!("800x500: the index list starts at y = {}", heading.top());
+    assert!(
+        heading.top() <= LIST_BUDGET_SMALL,
+        "the index list starts at y = {} (budget {LIST_BUDGET_SMALL})",
+        heading.top()
+    );
+    assert!(
+        heading.bottom() < SMALL.1,
+        "the heading {heading:?} is on screen"
     );
 }
 

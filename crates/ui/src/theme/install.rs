@@ -9,7 +9,7 @@ use eframe::egui::{
 /// Vertical gap between rows (horizontal gaps stay on the 8 pt grid). 4 pt is exactly the room a
 /// focused control's ring needs below it (offset 2 + width 2), so rings never overlap the next row
 /// (`density_tests`).
-const ROW_GAP: f32 = 4.0;
+pub(crate) const ROW_GAP: f32 = 4.0;
 
 /// Interaction overlays from Material's state-layer spec.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

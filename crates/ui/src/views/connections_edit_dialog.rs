@@ -16,8 +16,10 @@ use eframe::egui;
 const DIALOG_WIDTH: f32 = 720.0;
 const BODY_MAX_HEIGHT: f32 = 460.0;
 /// What the dialog needs besides the scrolling body (title, result lines, footer, padding), so
-/// the body shrinks on a short window and the footer stays on screen.
-const CHROME_HEIGHT: f32 = 270.0;
+/// the body shrinks on a short window and the footer stays on screen. It was 270 with 32 pt
+/// buttons and 6 pt row gaps; with 28 pt and 4 pt the worst case of
+/// `tests/connections_edit_layout.rs` still ends 27 pt above the bottom of an 800x500 window.
+const CHROME_HEIGHT: f32 = 256.0;
 const BODY_MIN_HEIGHT: f32 = 160.0;
 /// Room the folder drop-down keeps beside the folder field.
 const FOLDER_COMBO_WIDTH: f32 = 160.0;
