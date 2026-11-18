@@ -18,8 +18,6 @@ use eframe::egui::{self, WidgetInfo, WidgetType};
 /// and scrolls inside, so the first document row stays on screen in a small window.
 pub const OPTIONS_MAX_HEIGHT_SHARE: f32 = 0.35;
 pub const OPTIONS_MIN_HEIGHT: f32 = 140.0;
-/// What the toggle takes of the More row ("Query options (N)" and the gap before it).
-pub const TOGGLE_ROW_SHARE: f32 = 170.0;
 
 /// What the section's controls did this frame.
 #[derive(Default)]
@@ -34,14 +32,14 @@ pub(super) struct SectionOutcome {
     pub retry_hints: bool,
 }
 
-/// "Query options" or "Query options (N)" with the accent, named with its expanded state; true
-/// when it was clicked.
+/// "Query options" or "Query options (N)" with the accent, named with its expanded state; its
+/// response (clicked when it was clicked, its rect for the row to measure).
 pub(super) fn show_options_toggle(
     ui: &mut egui::Ui,
     open: bool,
     count: usize,
     i18n: &I18n,
-) -> bool {
+) -> egui::Response {
     let label = match count {
         0 => i18n.t("query.options.toggle"),
         n => i18n.t_with("query.options.toggle_count", &[("n", &n.to_string())]),
@@ -52,7 +50,7 @@ pub(super) fn show_options_toggle(
     }
     .on_hover_text(i18n.t("query.options.toggle_hint"));
     response.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, open, label.clone()));
-    response.clicked()
+    response
 }
 
 /// What the find bar tells the shared form: its own notes and the find's time bound.

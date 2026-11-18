@@ -3,12 +3,11 @@
 //! toggle on another, and the Query options section under it.
 //! Intent resolution lives in `viewmodel::findbar` (pure, tested).
 use super::code_export_entry::{find_blocked, show_copy_code_icon};
+use super::findbar_cell::{field_cell, field_row_height};
 use super::findbar_more::{MoreOutcome, show_more_fields, show_more_toggle};
 use super::findbar_options::{SectionOutcome, show_options_section};
 use crate::I18n;
-use crate::theme::{
-    CONTROL_HEIGHT, filled_button, gate, outlined_field, text_button, tonal_button,
-};
+use crate::theme::{filled_button, gate, outlined_field, text_button, tonal_button};
 use crate::viewmodel::aggregate_hint_list::HintListUi;
 use crate::viewmodel::findbar_more::more_open;
 use crate::viewmodel::findbar_options::{more_set_count, options_open, options_set_count};
@@ -187,19 +186,16 @@ fn query_row(
 ) -> RowOutcome {
     let memory = ui.id().with("findbar_trailing_width");
     let trailing = ui.data(|d| d.get_temp::<f32>(memory));
-    // The Filter's label sticks out above its box; mirrored below, the box is centred in the
-    // row, and so are the buttons, which then line up with the box.
-    let overhang = ui.text_style_height(&egui::TextStyle::Small) / 2.0;
+    // The Filter's label sticks out above its box; the row is as tall as the box plus that
+    // overhang mirrored below, so the box is centred in the row, and so are the buttons, which
+    // then line up with the box.
+    let row_height = field_row_height(ui);
     ui.horizontal_wrapped(|ui| {
-        let row_height = CONTROL_HEIGHT + 2.0 * overhang;
         ui.set_row_height(row_height);
         let width = filter_width(ui.available_width(), trailing.unwrap_or(TRAILING_GUESS));
-        let enter = ui
-            .vertical(|ui| {
-                ui.set_min_height(row_height);
-                sized_field(ui, width, KEY_FILTER, filter, i18n)
-            })
-            .inner;
+        let enter = field_cell(ui, width, row_height, |ui| {
+            sized_field(ui, width, KEY_FILTER, filter, i18n)
+        });
         let (button, buttons_width) =
             buttons(ui, (has_prev, has_next), (code_blocked, find_off), i18n);
         let toggle = show_more_toggle(ui, more.open, more.hidden, i18n);
