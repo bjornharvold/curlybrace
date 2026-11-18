@@ -24,6 +24,7 @@ pub(super) fn on_action(state: AppState, action: QueriesAction) -> Out {
         QueriesAction::CancelEnable => cancel(state),
         QueriesAction::ConfirmEnable => confirm(state, PROFILER_LEVEL_ON),
         QueriesAction::ConfirmDisable => confirm(state, PROFILER_LEVEL_OFF),
+        QueriesAction::CreateIndex { hash } => super::queries_create::create_index(state, &hash),
     }
 }
 

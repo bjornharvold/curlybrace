@@ -69,6 +69,7 @@ pub mod persistence;
 mod pipelines_app;
 pub mod pipelines_store;
 mod queries_actions;
+mod queries_create;
 pub mod reducer;
 mod reducer_dispatch;
 mod reducer_lost;
@@ -914,6 +915,9 @@ mod index_write_tests;
 
 #[cfg(test)]
 mod queries_failure_tests;
+
+#[cfg(test)]
+mod queries_create_tests;
 
 #[cfg(test)]
 mod queries_test_support;
