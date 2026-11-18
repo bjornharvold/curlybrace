@@ -2,7 +2,7 @@
 //! the profiler of its database and the consent step before the profiler is switched.
 //! Pure and egui-free; the updaters return new values.
 use curlybrace_core::error::CoreError;
-use curlybrace_core::explain::{VerdictKind, js_string};
+use curlybrace_core::explain::{SuggestedIndex, VerdictKind, js_string};
 use curlybrace_core::history::{ChartRange, ShapeSource, ShapeSummary, is_miss};
 use curlybrace_core::runtime::ProfilerStatus;
 use curlybrace_core::shape::{Shape, suggest_for_shape};
@@ -237,6 +237,8 @@ impl QueriesState {
 /// One shape of the list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct QueryRow {
+    /// The shape's hash: identifies the row for actions.
+    pub hash: String,
     pub shape_json: String,
     pub source: ShapeSource,
     pub executions: u64,
@@ -249,6 +251,10 @@ pub struct QueryRow {
     pub latest: VerdictKind,
     /// A ready-to-copy `createIndex` command, for a shape that missed an index only.
     pub suggestion: Option<String>,
+    /// The same index as data, for the index builder; `Some` exactly when `suggestion` is.
+    pub suggested: Option<SuggestedIndex>,
+    /// Start (Unix seconds) of the newest bucket of the range that ran the shape.
+    pub last_run_secs: Option<i64>,
 }
 
 /// The shapes of `state` as rows, misses first: latest severity, then most misses, then slowest;
@@ -267,7 +273,9 @@ pub fn rows(state: &QueriesState, ns: &Namespace) -> Vec<QueryRow> {
 }
 
 fn row_of(summary: &ShapeSummary, ns: &Namespace) -> QueryRow {
+    let suggested = suggested_of(summary);
     QueryRow {
+        hash: summary.hash.clone(),
         shape_json: summary.shape_json.clone(),
         source: summary.source,
         executions: summary.executions,
@@ -275,20 +283,36 @@ fn row_of(summary: &ShapeSummary, ns: &Namespace) -> QueryRow {
         max_millis: summary.max_millis,
         worst: summary.worst,
         latest: summary.latest,
-        suggestion: suggestion_of(summary, ns),
+        suggestion: suggested.as_ref().map(|s| s.command(ns)),
+        suggested,
+        last_run_secs: last_run_secs(summary),
     }
+}
+
+/// The start of the newest bucket that ran the shape; `None` when no bucket did.
+pub fn last_run_secs(summary: &ShapeSummary) -> Option<i64> {
+    summary
+        .buckets
+        .iter()
+        .filter(|b| b.executions > 0)
+        .map(|b| b.start_secs)
+        .max()
 }
 
 /// The advice for a shape that misses an index now; a neutral or good one (an index created since
 /// included) needs none, and a shape that cannot be read back is shown without.
-fn suggestion_of(summary: &ShapeSummary, ns: &Namespace) -> Option<String> {
+fn suggested_of(summary: &ShapeSummary) -> Option<SuggestedIndex> {
     if !is_miss(summary.latest) {
         return None;
     }
     let shape = Shape::from_json(&summary.shape_json).ok()?;
-    suggest_for_shape(&shape).map(|s| s.command(ns))
+    suggest_for_shape(&shape)
 }
 
 #[cfg(test)]
 #[path = "queries_tests.rs"]
 mod queries_tests;
+
+#[cfg(test)]
+#[path = "queries_row_tests.rs"]
+mod queries_row_tests;
