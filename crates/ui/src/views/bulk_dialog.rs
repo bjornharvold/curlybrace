@@ -16,6 +16,11 @@ use crate::viewmodel::{BulkFlow, BulkKind, BulkStep, ConnectionBadge, UndoStep};
 use eframe::egui;
 
 const MODAL_WIDTH: f32 = 640.0;
+/// What the dialog needs besides its scrolling body (the heading, the footer, the frame's margin),
+/// so the body scrolls on a short window and the footer stays on screen (points).
+const CHROME_HEIGHT: f32 = 190.0;
+/// The body is never shorter than this (points), even on a window too short for the rest.
+const BODY_MIN_HEIGHT: f32 = 120.0;
 
 /// Draws the dialog for `flow` on the connection named `connection`; returns what the person
 /// did this frame, if anything.
@@ -32,7 +37,13 @@ pub fn show_bulk_dialog(
         .show(ctx, |ui| {
             ui.set_width(MODAL_WIDTH);
             heading(ui, flow, badge, i18n);
-            let edit = body(ui, flow, connection, i18n);
+            let body_max = (ctx.screen_rect().height() - CHROME_HEIGHT).max(BODY_MIN_HEIGHT);
+            let edit = egui::ScrollArea::vertical()
+                .id_salt("bulk_body")
+                .max_height(body_max)
+                .auto_shrink([false, true])
+                .show(ui, |ui| body(ui, flow, connection, i18n))
+                .inner;
             let navigation = footer(ui, flow, i18n);
             action = navigation.or(edit);
         });

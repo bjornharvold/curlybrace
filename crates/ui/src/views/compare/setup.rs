@@ -65,11 +65,18 @@ fn column_width(available: f32, gap: f32) -> f32 {
         .min(available)
 }
 
+/// `add` in a box `width` wide, placed in the current row of a wrapping layout: it wraps to the
+/// next row when it does not fit (a `ui.vertical` cannot wrap, it takes the rest of the row and
+/// ran out of the window at 800 pt).
 fn column<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    ui.vertical(|ui| {
-        ui.set_width(width);
-        add(ui)
-    })
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            add(ui)
+        },
+    )
     .inner
 }
 
