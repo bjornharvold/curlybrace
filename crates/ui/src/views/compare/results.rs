@@ -231,10 +231,15 @@ struct RowLine<'a> {
     current: bool,
 }
 
+/// The shortest a row's key may be (points).
+const ROW_KEY_MIN_HEIGHT: f32 = 24.0;
+
 /// One row: its checkbox, then its key as a selectable monospace line (click opens the detail).
 fn show_row(ui: &mut egui::Ui, line: &RowLine<'_>, i18n: &I18n) -> Option<CompareAction> {
     let label = key_label(&line.row.key);
     ui.horizontal(|ui| {
+        // The key is a click target: at least WCAG 2.2's 24 pt tall (egui's default is 23).
+        ui.spacing_mut().interact_size.y = ROW_KEY_MIN_HEIGHT;
         let toggled = row_checkbox(ui, line.ticked, line.enabled, &label);
         let text = egui::RichText::new(&label).monospace();
         let response = ui.selectable_label(line.current, text);

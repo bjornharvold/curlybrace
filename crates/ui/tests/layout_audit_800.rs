@@ -128,8 +128,21 @@ fn audit(name: &str, page: &Page) {
 /// overlaps another or runs past the right edge. A dialog's body may scroll, so its fields and
 /// check boxes can lie outside the window and their unclipped rects overlap the footer's.
 fn audit_dialog(name: &str, base: Setup, page: &Page) {
-    let behind = controls(&self::page(two_connections(), base));
-    audit_dialog_against(name, &behind, page);
+    audit_dialog_against(name, &behind_controls(base), page);
+}
+
+/// The controls of the page `base` draws, built once per page for all the dialogs over it.
+fn behind_controls(base: Setup) -> Vec<(String, Rect)> {
+    static CACHE: std::sync::Mutex<Vec<(usize, Vec<(String, Rect)>)>> =
+        std::sync::Mutex::new(Vec::new());
+    let key = base as usize;
+    let mut cache = CACHE.lock().expect("the cache lock");
+    if let Some((_, found)) = cache.iter().find(|(k, _)| *k == key) {
+        return found.clone();
+    }
+    let built = controls(&page(two_connections(), base));
+    cache.push((key, built.clone()));
+    built
 }
 
 fn audit_dialog_against(name: &str, behind: &[(String, Rect)], page: &Page) {
@@ -341,12 +354,9 @@ fn compare_setup() {
 
 #[test]
 fn compare_results() {
-    // The key of a result row is a 23 pt table-row button, not a toolbar control: left out.
-    let result_rows = |label: &str| matches!(label, "Button 1" | "Button 2");
-    audit_without(
+    audit(
         "compare results",
         &page(two_connections(), compare_state(Through::Results)),
-        result_rows,
     );
 }
 
