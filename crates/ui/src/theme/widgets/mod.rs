@@ -17,6 +17,8 @@ mod tabs;
 #[cfg(test)]
 mod control_tests;
 #[cfg(test)]
+mod density_tests;
+#[cfg(test)]
 mod widgets_tests;
 
 pub use button::{
@@ -40,9 +42,10 @@ use eframe::egui::{
 };
 use std::sync::Arc;
 
-/// Height of buttons, segmented controls and outlined fields. A desktop-dense 32 pt: the data
-/// is the point of the app, so chrome must not push it down the window.
-pub(crate) const CONTROL_HEIGHT: f32 = 32.0;
+/// Height of buttons, segmented controls and outlined fields. A desktop-dense 28 pt (above
+/// WCAG 2.2's 24 pt minimum target; the app is driven by mouse and keyboard): the data is the
+/// point of the app, so chrome must not push it down the window.
+pub(crate) const CONTROL_HEIGHT: f32 = 28.0;
 /// Height of a compact segmented control, for a heading row where height is scarce.
 pub(crate) const COMPACT_CONTROL_HEIGHT: f32 = 24.0;
 /// Width of the keyboard focus ring.
@@ -181,6 +184,13 @@ pub(crate) enum Ring {
     /// On the rect's inner edge, for widgets that take the full available width: anything
     /// outside them would fall outside the parent's clip rect (a side panel, a scroll area).
     Inside,
+}
+
+/// The rectangle an outside focus ring paints out to: the control's rect grown by the ring's
+/// offset and its width. The theme's row gap must leave at least this much below a control.
+#[cfg(test)]
+pub(crate) fn ring_outer(rect: Rect) -> Rect {
+    rect.expand(f32::from(FOCUS_RING_OFFSET) + FOCUS_RING_WIDTH)
 }
 
 /// The 2 dp `primary` ring drawn while a widget holds focus, placed as `ring` says.

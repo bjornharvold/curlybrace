@@ -1,5 +1,5 @@
-//! The sidebar's Refresh is the theme's compact text button (32 pt, the theme's control height; pill), not egui's small
-//! button, in both sidebar layouts; its name and action are unchanged.
+//! The sidebar's Refresh is the theme's compact text button (the theme's 28 pt control height;
+//! pill), not egui's small button, in both sidebar layouts; its name and action are unchanged.
 use curlybrace_ui::I18n;
 use curlybrace_ui::theme;
 use curlybrace_ui::viewmodel::SidebarState;
@@ -7,6 +7,9 @@ use curlybrace_ui::views::sidebar::{SidebarAction, show_sidebar, show_sidebar_bo
 use eframe::egui::{self, accesskit::Role};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+
+/// The theme's control height (`CONTROL_HEIGHT`, crate private).
+const CONTROL_HEIGHT: f32 = 28.0;
 
 type Seen = Vec<SidebarAction>;
 
@@ -41,7 +44,7 @@ fn refresh_is_a_theme_button_in_both_layouts_and_still_refreshes() {
     for body in [false, true] {
         let mut harness = harness(body);
         let refresh = harness.get_by_role_and_label(Role::Button, &label);
-        assert_eq!(refresh.rect().height(), 32.0, "body: {body}");
+        assert_eq!(refresh.rect().height(), CONTROL_HEIGHT, "body: {body}");
         refresh.click();
         harness.run_steps(3);
         assert_eq!(
