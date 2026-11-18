@@ -4,7 +4,8 @@ const GAP: f32 = 8.0;
 
 #[test]
 fn at_1000_both_json_fields_keep_their_minimum_and_the_row_is_one_row() {
-    for toggle in [134.0, 150.0] {
+    // 134: "Query options"; 156: its widest form, "Query options (9)" (154.8 measured for 2).
+    for toggle in [134.0, 156.0] {
         let json = json_width(703.0, GAP, toggle);
         assert!(
             json >= JSON_FIELD_MIN_WIDTH - 0.5,

@@ -108,3 +108,16 @@ fn at_800x500_the_row_wraps_to_two_aligned_rows_inside_the_panel() {
         );
     }
 }
+
+#[test]
+fn setting_an_option_never_moves_the_first_document_row() {
+    for width in [900.0, 940.0, 980.0, 996.0, 1000.0, 1100.0] {
+        let size = (width, SIZE_1000.1);
+        let plain = browse_page(size, bar(true, Some(false))).first_row_top();
+        let set = browse_page(size, with_two_options).first_row_top();
+        assert!(
+            (plain - set).abs() <= 0.5,
+            "width {width}: the first row starts at {plain} with no option set, {set} with two"
+        );
+    }
+}

@@ -32,6 +32,14 @@ pub(super) struct SectionOutcome {
     pub retry_hints: bool,
 }
 
+/// The toggle's label: "Query options", or "Query options (N)" while `count` options are set.
+pub(super) fn options_toggle_text(count: usize, i18n: &I18n) -> String {
+    match count {
+        0 => i18n.t("query.options.toggle"),
+        n => i18n.t_with("query.options.toggle_count", &[("n", &n.to_string())]),
+    }
+}
+
 /// "Query options" or "Query options (N)" with the accent, named with its expanded state; its
 /// response (clicked when it was clicked, its rect for the row to measure).
 pub(super) fn show_options_toggle(
@@ -40,10 +48,7 @@ pub(super) fn show_options_toggle(
     count: usize,
     i18n: &I18n,
 ) -> egui::Response {
-    let label = match count {
-        0 => i18n.t("query.options.toggle"),
-        n => i18n.t_with("query.options.toggle_count", &[("n", &n.to_string())]),
-    };
+    let label = options_toggle_text(count, i18n);
     let response = match count {
         0 => tonal_button(ui, label.clone()),
         _ => filled_button(ui, label.clone()),
