@@ -12,10 +12,6 @@ use uuid::Uuid;
 
 const A: Uuid = Uuid::from_u128(0xA);
 
-/// How far the text box's rect may reach below the scroll area around it (points): egui's text
-/// edit margin is 2 pt above and below the text.
-const EDITOR_CLIP_TOLERANCE: f32 = 4.0;
-
 /// The Shell tab drawn around `shell`.
 fn tab(shell: ShellState) -> Harness<'static, ShellState> {
     let i18n = I18n::english();
@@ -84,10 +80,8 @@ fn under_the_editor_the_first_problem_of_the_whole_script_is_shown_with_its_plac
     let line = h.get_by_label(&expected);
     let editor_label = I18n::english().t("shell.editor_label");
     let editor = h.get_by_role_and_label(Role::MultilineTextInput, &editor_label);
-    // The editor's accessibility rect is its unclipped text box, which can reach past the scroll
-    // area that shows it by less than the text box's own vertical margin.
     assert!(
-        line.rect().top() >= editor.rect().bottom() - EDITOR_CLIP_TOLERANCE,
+        line.rect().top() >= editor.rect().bottom(),
         "under the editor: line {:?}, editor {:?}",
         line.rect(),
         editor.rect()

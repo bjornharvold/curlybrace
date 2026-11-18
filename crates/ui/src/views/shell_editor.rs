@@ -178,6 +178,9 @@ fn remember_seen(
     });
 }
 
+/// The vertical margin egui's text edit keeps around its rows (2 pt above and below).
+const TEXT_BOX_MARGIN_Y: f32 = 4.0;
+
 /// The highlighted text box itself, in its scroll area.
 fn text_box(
     ui: &mut egui::Ui,
@@ -193,12 +196,16 @@ fn text_box(
         let job = cached_highlight(ui.ctx(), cache, text.as_str(), &font, &colors, wrap_width);
         ui.fonts(|f| f.layout_job((*job).clone()))
     };
-    let rows =
-        ((height / ui.text_style_height(&egui::TextStyle::Monospace)) as usize).max(MIN_ROWS);
+    // The text box adds its own vertical margin to its rows, so the rows that fit are counted
+    // from the height without it: the box then never reaches past the scroll area around it.
+    let rows = (((height - TEXT_BOX_MARGIN_Y) / ui.text_style_height(&egui::TextStyle::Monospace))
+        as usize)
+        .max(MIN_ROWS);
     let placeholder = i18n.t("shell.editor_placeholder");
     let output = egui::ScrollArea::vertical()
         .id_salt(id.with("scroll"))
         .max_height(height)
+        .min_scrolled_height(height)
         .auto_shrink([false, true])
         .show(ui, |ui| {
             egui::TextEdit::multiline(buffer)

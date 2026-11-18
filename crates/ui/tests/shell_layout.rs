@@ -123,7 +123,8 @@ fn with_the_panel_open_the_output_keeps_its_minimum_and_the_editor_stays_usable(
 
 /// Closed, the layout is the one from before the panel existed: the editor takes 45% of the
 /// height below the toolbar (at least 120 points), measured on the text box, which sits a few
-/// points inside its scroll area.
+/// points inside its scroll area and ends up to one monospace row short of it (the box holds a
+/// whole number of rows).
 #[test]
 fn with_the_panel_closed_the_editor_takes_its_usual_share() {
     for size in [SMALL, COMMON] {
@@ -131,11 +132,14 @@ fn with_the_panel_closed_the_editor_takes_its_usual_share() {
         let below_toolbar = size.y - PANEL_MARGIN - l.editor_top;
         let expected = (below_toolbar * 0.45).max(120.0);
         assert!(
-            (l.editor - expected).abs() <= 10.0,
+            (l.editor - expected).abs() <= 10.0 + MONOSPACE_ROW,
             "{size:?}: {l:?} vs {expected}"
         );
     }
 }
+
+/// One row of the editor's monospace text (points).
+const MONOSPACE_ROW: f32 = 13.0;
 
 /// The harness's bottom margin (points).
 const PANEL_MARGIN: f32 = 8.0;
@@ -269,8 +273,8 @@ fn after_a_finished_run_text_mode_gets_no_less_room_than_before_the_mode_switch(
 }
 
 /// How much shorter the index notice may leave the output than the syntax notice (points): the
-/// two differ by about one row gap.
-const NOTICE_SLACK: f32 = 4.0;
+/// tight bound the test always had, a point of rounding.
+const NOTICE_SLACK: f32 = 1.0;
 
 /// One small text row, with its item spacing (points).
 const LINE_ROW: f32 = 24.0;
@@ -330,8 +334,9 @@ fn index_miss_report() -> curlybrace_core::guard::GuardReport {
 /// The index notice (two findings and an unchecked line) after a finished run, History open:
 /// the editor stays usable and the output is no shorter than under the syntax notice, the
 /// tallest notice the tab had before. With 28 pt controls both notices leave the output more than
-/// its usual minimum even at 800x500 (160 and 162 points), so at both sizes the output keeps its
-/// minimum; at 800x500 it is also within a row gap of what the syntax notice leaves.
+/// its usual minimum even at 800x500, so at both sizes the output keeps its minimum; at 800x500
+/// it is also no more than a point shorter than under the syntax notice (the findings minimum
+/// follows `ROW_GAP`, see `FINDINGS_MIN_HEIGHT`).
 #[test]
 fn the_index_notice_keeps_the_output_as_tall_as_the_syntax_notice_does() {
     for size in [SMALL, COMMON] {
