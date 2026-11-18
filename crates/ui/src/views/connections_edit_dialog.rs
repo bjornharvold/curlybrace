@@ -2,6 +2,7 @@
 //! To URI, the validation error and the Cancel / Save footer.
 use super::connections::{ConnectionAction, ConnectionsState, TestState};
 use super::connections_edit::{show_fields, text_row};
+use super::dialog_body::body_max_height;
 use super::error_label::show_error;
 use crate::I18n;
 use crate::app::tools_state::ToolsState;
@@ -97,7 +98,7 @@ pub(super) fn show_edit_dialog(
 
 /// The body's height: [`BODY_MAX_HEIGHT`], less on a window too short for it.
 fn body_height(ctx: &egui::Context) -> f32 {
-    (ctx.screen_rect().height() - CHROME_HEIGHT).clamp(BODY_MIN_HEIGHT, BODY_MAX_HEIGHT)
+    body_max_height(ctx, CHROME_HEIGHT, BODY_MIN_HEIGHT, BODY_MAX_HEIGHT)
 }
 
 /// `Modal::should_close` also fires on a backdrop click; only Escape (with no popup open, and

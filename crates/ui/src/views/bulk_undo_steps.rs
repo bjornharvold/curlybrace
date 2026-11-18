@@ -2,6 +2,7 @@
 //! report says about undoing, and the undo's own screens (preview with the typed confirmation,
 //! running, report). Each draws the flow it is given and reports the edit as a [`BulkAction`].
 use super::bulk_dialog::describe;
+use super::dialog_body::body_max_height;
 use super::index_dialogs::focus_once;
 use super::tone_notice::tone_notice;
 use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
@@ -171,10 +172,14 @@ fn confirm_body(
 }
 
 fn samples(ui: &mut egui::Ui, undo: &UndoFlow, i18n: &I18n) {
-    let room = ui.ctx().screen_rect().height() - SAMPLES_CHROME_HEIGHT;
     egui::ScrollArea::vertical()
         .id_salt("bulk_undo_samples")
-        .max_height(room.clamp(SAMPLES_MIN_HEIGHT, SAMPLES_MAX_HEIGHT))
+        .max_height(body_max_height(
+            ui.ctx(),
+            SAMPLES_CHROME_HEIGHT,
+            SAMPLES_MIN_HEIGHT,
+            SAMPLES_MAX_HEIGHT,
+        ))
         .auto_shrink([false, true])
         .show(ui, |ui| {
             for doc in undo.preview_docs() {

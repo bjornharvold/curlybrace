@@ -5,6 +5,7 @@
 //! `CopyDialog::can_confirm` the reducer repeats.
 use super::connection_badge::show_badge;
 use super::copy_progress::show_progress;
+use super::dialog_body::body_max_height;
 use super::tone_notice::tone_notice;
 use super::typed_confirmation::{TypedConfirmation, show_typed_confirmation};
 use super::write_warning::focus_cancel_unless_focused;
@@ -110,7 +111,7 @@ fn show_body(
     show_header(ui, context, i18n);
     let production = context.production;
     // Scrolls inside the window; the header above and the buttons below stay on screen.
-    let body_max = (ui.ctx().screen_rect().height() - CHROME_HEIGHT).max(BODY_MIN_HEIGHT);
+    let body_max = body_max_height(ui.ctx(), CHROME_HEIGHT, BODY_MIN_HEIGHT, f32::INFINITY);
     let (input, typing) = egui::ScrollArea::vertical()
         .id_salt("copy_body")
         .max_height(body_max)
