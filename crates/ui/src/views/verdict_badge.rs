@@ -49,7 +49,9 @@ pub fn show_verdict_row(
     let mut action = None;
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
-        ui.set_min_height(height);
+        // The area occupies its whole width even when empty (an allocation only advances by what
+        // is drawn), so what follows it does not move when a verdict appears.
+        ui.set_min_size(egui::vec2(width, height));
         action = model.and_then(|model| show_row(ui, model, i18n));
     });
     action
