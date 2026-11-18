@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/bjornharvold/curlybrace/compare/v0.14.0...v0.15.0) (2026-11-18)
+
+
+### Features
+
+* **query:** options on the Browse find query ([#178](https://github.com/bjornharvold/curlybrace/issues/178)) ([e0cb431](https://github.com/bjornharvold/curlybrace/commit/e0cb431cc7b018cf9d6dc2a0cc8a6b4cb53224e3))
+
 ## [0.14.0](https://github.com/bjornharvold/curlybrace/compare/v0.13.0...v0.14.0) (2026-11-17)
 
 
