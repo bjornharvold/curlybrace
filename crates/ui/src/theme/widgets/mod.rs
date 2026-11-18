@@ -27,6 +27,8 @@ pub use chip::{CHIP_HEIGHT, chip};
 pub use modal::modal_frame;
 pub use outlined_field::{FieldOptions, outlined_field, outlined_field_opts, outlined_field_with};
 pub use pill::{PILL_HEIGHT, pill, pill_row};
+#[cfg(test)]
+pub(crate) use segmented::SEGMENT_PADDING;
 pub use segmented::{segmented, segmented_hinted, segmented_hinted_compact, segmented_where};
 pub use tabs::{tabs, tabs_inline};
 
