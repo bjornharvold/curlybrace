@@ -25,11 +25,11 @@ use crate::views::indexes::show_indexes;
 use crate::views::verdict_badge::{
     VerdictAction, fits_beside, show_verdict_row, verdict_row_height,
 };
-
-/// What the two switches take of a row (English labels, with the gap between them), for deciding
-/// before they are drawn whether the verdict shares their row.
-const SWITCHES_WIDTH: f32 = 290.0;
 use eframe::egui;
+
+/// What the two switches take of a row (English labels, with the gap between them) until a frame
+/// has measured them, for deciding before they are drawn whether the verdict shares their row.
+const SWITCHES_GUESS: f32 = 280.0;
 
 pub(super) fn show_collection(
     ui: &mut egui::Ui,
@@ -130,7 +130,9 @@ fn show_switches_and_verdict(
         .horizontal_wrapped(|ui| {
             // With the verdict's area beside them the switches are centred on it, not on top;
             // when it wraps to a line of its own the switches' row stays as short as they are.
-            if state.explain_enabled() && fits_beside(ui, SWITCHES_WIDTH) {
+            let memory = ui.id().with("switches_width");
+            let known = ui.data(|d| d.get_temp::<f32>(memory));
+            if state.explain_enabled() && fits_beside(ui, known.unwrap_or(SWITCHES_GUESS)) {
                 // The row's room is only as tall as its first widget until something taller
                 // has been placed, so the row is stretched first (a zero-width rect).
                 let height = verdict_row_height(ui);
@@ -140,10 +142,12 @@ fn show_switches_and_verdict(
                     egui::vec2(0.0, height),
                 ));
             }
+            let start = ui.cursor().min;
             let switches = [
                 show_automatic_verdict(ui, state.explain_enabled(), i18n),
                 show_guard_setting(ui, state.guard_enabled(), i18n),
             ];
+            remember_switches_width(ui, memory, known, start);
             show_verdict(ui, state, i18n);
             show_page_options_status(ui, &state.page_query.options, i18n);
             switches
@@ -155,6 +159,21 @@ fn show_switches_and_verdict(
             .flatten()
             .map(|action| UiEvent::Input(Input::Find(action))),
     );
+}
+
+/// Stores what the switches took of the row (from `start` to the cursor, less the gap after
+/// them) for the next frame's decision, and repeats this frame when it was not what the decision
+/// assumed. Nothing is stored when they wrapped onto another line: that width is not theirs.
+fn remember_switches_width(ui: &egui::Ui, memory: egui::Id, known: Option<f32>, start: egui::Pos2) {
+    let end = ui.cursor().min;
+    if (end.y - start.y).abs() > 1.0 {
+        return;
+    }
+    let measured = end.x - start.x - ui.spacing().item_spacing.x;
+    if known.is_none_or(|was| (was - measured).abs() > 0.5) {
+        ui.data_mut(|d| d.insert_temp(memory, measured));
+        ui.ctx().request_discard("switches measured");
+    }
 }
 
 /// The index-miss guard's notice under the switches (nothing unless a Run is being checked or
