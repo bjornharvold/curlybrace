@@ -12,12 +12,15 @@ pub enum VerdictKind {
     InefficientIndex,
     NoFilter,
     EmptyCollection,
+    /// An index serves the query, but its keys are in the wrong order: a range comes before an
+    /// exact match. Persisted as `field_order`; an older build reads the code as neutral.
+    FieldOrder,
 }
 
 impl VerdictKind {
     /// Every variant, in declaration order. `index` is an exhaustive match, so adding a variant
     /// without extending this list (and `index`) fails to compile or trips the check below.
-    pub(crate) const ALL: [VerdictKind; 7] = [
+    pub(crate) const ALL: [VerdictKind; 8] = [
         Self::IndexUsed,
         Self::CoveredByIndex,
         Self::CollectionScan,
@@ -25,6 +28,7 @@ impl VerdictKind {
         Self::InefficientIndex,
         Self::NoFilter,
         Self::EmptyCollection,
+        Self::FieldOrder,
     ];
 
     #[cfg(test)]
@@ -37,17 +41,18 @@ impl VerdictKind {
             Self::InefficientIndex => 4,
             Self::NoFilter => 5,
             Self::EmptyCollection => 6,
+            Self::FieldOrder => 7,
         }
     }
     /// How bad the verdict is; higher is worse. Order, best to worst:
     /// `NoFilter` = `EmptyCollection` (0, neutral: nothing an index could fix) <
-    /// `IndexUsed` = `CoveredByIndex` (1) < `InefficientIndex` (2) < `SortNotCovered` (3) <
-    /// `CollectionScan` (4).
+    /// `IndexUsed` = `CoveredByIndex` (1) < `InefficientIndex` = `FieldOrder` (2) <
+    /// `SortNotCovered` (3) < `CollectionScan` (4).
     pub fn severity(self) -> u8 {
         match self {
             Self::NoFilter | Self::EmptyCollection => 0,
             Self::IndexUsed | Self::CoveredByIndex => 1,
-            Self::InefficientIndex => 2,
+            Self::InefficientIndex | Self::FieldOrder => 2,
             Self::SortNotCovered => 3,
             Self::CollectionScan => 4,
         }
@@ -64,6 +69,7 @@ impl VerdictKind {
             Self::InefficientIndex => "inefficient_index",
             Self::NoFilter => "no_filter",
             Self::EmptyCollection => "empty_collection",
+            Self::FieldOrder => "field_order",
         }
     }
 

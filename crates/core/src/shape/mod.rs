@@ -24,6 +24,7 @@ use crate::error::CoreError;
 
 pub(crate) use normalize::operation_kind;
 pub use normalize::{from_profile_command, from_query};
+pub(crate) use suggest::field_order_for_shape;
 pub use suggest::suggest_for_shape;
 
 pub(crate) const PLACEHOLDER: &str = "?";

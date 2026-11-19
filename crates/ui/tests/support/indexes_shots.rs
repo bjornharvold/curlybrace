@@ -172,3 +172,24 @@ pub fn queries_view(state: &mut AppState) {
         .with_view(IndexesView::Queries)
         .with_queries(queries);
 }
+
+/// The Queries view with a shape served by an index whose keys are in the wrong order next to a
+/// good one: the "Index field order" chip, its misses and the suggested index.
+pub fn queries_view_field_order(state: &mut AppState) {
+    indexes_tab(state);
+    let queries = QueriesState::default()
+        .with_profiling(ProfilingView::Known(ProfilingState {
+            level: 2,
+            slow_ms: 100,
+        }))
+        .with_status(ProfilerStatus::Reading { databases: 1 })
+        .with_shapes(vec![
+            shape_summary("createdAt", VerdictKind::FieldOrder, Some(4)),
+            shape_summary("customerId", VerdictKind::IndexUsed, None),
+        ]);
+    state.indexes = state
+        .indexes
+        .clone()
+        .with_view(IndexesView::Queries)
+        .with_queries(queries);
+}

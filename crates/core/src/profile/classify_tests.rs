@@ -1,6 +1,22 @@
+use super::ProfileEntry;
 use super::entry_tests::entry;
-use super::{ProfileEntry, classify_entry};
 use crate::explain::VerdictKind;
+use crate::shape::Shape;
+
+/// A shape with a filter on one field (`true`) or an empty one: all these tests need of a shape
+/// is whether it has a filter, and neither matches the plan summaries' keys.
+pub(super) fn shape(has_filter: bool) -> Shape {
+    let json = if has_filter {
+        r#"{"filter":{"zz":"?"}}"#
+    } else {
+        r#"{"filter":{}}"#
+    };
+    Shape::from_json(json).expect("a valid shape")
+}
+
+pub(super) fn classify_entry(entry: &ProfileEntry, has_filter: bool) -> VerdictKind {
+    super::classify_entry(entry, &shape(has_filter))
+}
 
 #[test]
 fn collscan_is_collection_scan() {

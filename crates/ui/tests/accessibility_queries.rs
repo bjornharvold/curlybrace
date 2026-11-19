@@ -209,6 +209,28 @@ fn rows_show_icon_and_words_and_each_text_has_a_copy_button() {
 }
 
 #[test]
+fn field_order_row_title_and_suggestion() {
+    let state = known(2).with_shapes(vec![summary("status", VerdictKind::FieldOrder, 5)]);
+    let mut harness = open(state, false);
+    assert_shows(
+        &harness,
+        &[
+            "\u{26a0} Index field order".to_string(),
+            "5 misses".to_string(),
+            t("query.verdict.suggestion"),
+            "createIndex".to_string(),
+        ],
+    );
+    let i18n = I18n::english();
+    let copy = i18n.t_with(
+        "indexes.queries.copy_suggestion",
+        &[("position", "1"), ("total", "1")],
+    );
+    click(&mut harness, &copy);
+    assert!(harness.state().copied[0].contains("createIndex"));
+}
+
+#[test]
 fn n_rows_have_n_distinct_copy_labels() {
     let shapes = ["a", "b", "c", "d"]
         .map(|f| summary(f, VerdictKind::CollectionScan, 3))

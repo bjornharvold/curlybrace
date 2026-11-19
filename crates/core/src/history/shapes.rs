@@ -114,7 +114,10 @@ pub struct ShapeSummary {
 pub fn is_miss(kind: VerdictKind) -> bool {
     matches!(
         kind,
-        VerdictKind::CollectionScan | VerdictKind::SortNotCovered | VerdictKind::InefficientIndex
+        VerdictKind::CollectionScan
+            | VerdictKind::SortNotCovered
+            | VerdictKind::InefficientIndex
+            | VerdictKind::FieldOrder
     )
 }
 

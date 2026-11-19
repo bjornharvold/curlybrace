@@ -42,6 +42,7 @@ fn badge_for_each_kind_has_distinct_title_and_tone() {
         (VerdictKind::InefficientIndex, Tone::Warn),
         (VerdictKind::NoFilter, Tone::Neutral),
         (VerdictKind::EmptyCollection, Tone::Neutral),
+        (VerdictKind::FieldOrder, Tone::Warn),
     ];
     let mut titles = Vec::new();
     for (kind, tone) in kinds {
@@ -54,6 +55,33 @@ fn badge_for_each_kind_has_distinct_title_and_tone() {
     unique.sort_unstable();
     unique.dedup();
     assert_eq!(unique.len(), titles.len(), "{titles:?}");
+}
+
+#[test]
+fn field_order_badge_is_a_warning_with_reasons() {
+    let mut v = verdict(VerdictKind::FieldOrder);
+    v.reasons = vec![
+        Reason::new("field_order")
+            .with_param("index", "a_1_b_1")
+            .with_param("range", "a")
+            .with_param("field", "b"),
+    ];
+    v.suggestion = Some(SuggestedIndex {
+        keys: vec![("b".into(), 1), ("a".into(), 1)],
+    });
+    let m = badge(&ready(v), Some(&orders())).expect("a badge");
+    assert_eq!(m.tone, Tone::Warn);
+    assert_eq!(m.title_key, "query.verdict.title_field_order");
+    assert!(m.suggestion.is_some_and(|c| c.contains("createIndex")));
+    assert_eq!(m.reasons[0].key, "field_order");
+    assert_eq!(
+        reason_text_key("field_order"),
+        Some("query.verdict.reason_field_order")
+    );
+    assert_eq!(
+        reason_text_key("field_order_sort"),
+        Some("query.verdict.reason_field_order_sort")
+    );
 }
 
 #[test]

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::explain::{VerdictKind, worst};
 use crate::history::{ShapeKey, ShapeObservation, ShapeSource, is_miss};
-use crate::profile::{ProfileEntry, classify_entry, entry_has_filter, is_own_traffic};
+use crate::profile::{ProfileEntry, classify_entry, is_own_traffic};
 use crate::shape::from_profile_command;
 
 /// What one (shape, bucket) cell has seen so far.
@@ -55,7 +55,7 @@ pub fn fold_entries(
         let Some(shape) = from_profile_command(&entry.op, &entry.command) else {
             continue;
         };
-        let kind = classify_entry(entry, entry_has_filter(entry));
+        let kind = classify_entry(entry, &shape);
         let bucket = entry.ts_secs - entry.ts_secs.rem_euclid(bucket_secs);
         let key = (
             host.to_owned(),

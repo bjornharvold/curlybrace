@@ -3,6 +3,8 @@
 
 mod classify;
 #[cfg(test)]
+mod classify_field_order_tests;
+#[cfg(test)]
 mod classify_tests;
 mod entry;
 #[cfg(test)]

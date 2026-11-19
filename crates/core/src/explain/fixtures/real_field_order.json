@@ -1,0 +1,287 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "test.orders",
+    "parsedQuery": {
+      "$and": [
+        {
+          "status": {
+            "$eq": "a"
+          }
+        },
+        {
+          "createdAt": {
+            "$gt": {
+              "$numberInt": "2"
+            }
+          }
+        }
+      ]
+    },
+    "indexFilterSet": false,
+    "queryHash": "8AA1D073",
+    "planCacheShapeHash": "8AA1D073",
+    "planCacheKey": "B0FC3A2A",
+    "optimizationTimeMillis": {
+      "$numberInt": "0"
+    },
+    "optimizationTimeMicros": {
+      "$numberInt": "161"
+    },
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "FETCH",
+        "nss": "test.orders",
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nss": "test.orders",
+          "keyPattern": {
+            "createdAt": {
+              "$numberInt": "1"
+            },
+            "status": {
+              "$numberInt": "1"
+            }
+          },
+          "indexName": "createdAt_1_status_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "createdAt": [],
+            "status": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": {
+            "$numberInt": "2"
+          },
+          "direction": "forward",
+          "indexBounds": {
+            "createdAt": [
+              "(2, inf]"
+            ],
+            "status": [
+              "[\"a\", \"a\"]"
+            ]
+          }
+        }
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": {
+      "$numberInt": "3"
+    },
+    "executionTimeMillis": {
+      "$numberInt": "0"
+    },
+    "executionTimeMicros": {
+      "$numberInt": "731"
+    },
+    "totalKeysExamined": {
+      "$numberInt": "7"
+    },
+    "totalDocsExamined": {
+      "$numberInt": "3"
+    },
+    "executionStages": {
+      "isCached": false,
+      "stage": "LIMIT",
+      "nReturned": {
+        "$numberInt": "3"
+      },
+      "executionTimeMillisEstimate": {
+        "$numberInt": "0"
+      },
+      "works": {
+        "$numberInt": "8"
+      },
+      "advanced": {
+        "$numberInt": "3"
+      },
+      "needTime": {
+        "$numberInt": "4"
+      },
+      "needYield": {
+        "$numberInt": "0"
+      },
+      "saveState": {
+        "$numberInt": "0"
+      },
+      "restoreState": {
+        "$numberInt": "0"
+      },
+      "isEOF": {
+        "$numberInt": "1"
+      },
+      "limitAmount": {
+        "$numberInt": "51"
+      },
+      "inputStage": {
+        "stage": "FETCH",
+        "nReturned": {
+          "$numberInt": "3"
+        },
+        "executionTimeMillisEstimate": {
+          "$numberInt": "0"
+        },
+        "works": {
+          "$numberInt": "8"
+        },
+        "advanced": {
+          "$numberInt": "3"
+        },
+        "needTime": {
+          "$numberInt": "4"
+        },
+        "needYield": {
+          "$numberInt": "0"
+        },
+        "saveState": {
+          "$numberInt": "0"
+        },
+        "restoreState": {
+          "$numberInt": "0"
+        },
+        "isEOF": {
+          "$numberInt": "1"
+        },
+        "nss": "test.orders",
+        "docsExamined": {
+          "$numberInt": "3"
+        },
+        "alreadyHasObj": {
+          "$numberInt": "0"
+        },
+        "inputStage": {
+          "stage": "IXSCAN",
+          "nReturned": {
+            "$numberInt": "3"
+          },
+          "executionTimeMillisEstimate": {
+            "$numberInt": "0"
+          },
+          "works": {
+            "$numberInt": "8"
+          },
+          "advanced": {
+            "$numberInt": "3"
+          },
+          "needTime": {
+            "$numberInt": "4"
+          },
+          "needYield": {
+            "$numberInt": "0"
+          },
+          "saveState": {
+            "$numberInt": "0"
+          },
+          "restoreState": {
+            "$numberInt": "0"
+          },
+          "isEOF": {
+            "$numberInt": "1"
+          },
+          "nss": "test.orders",
+          "keyPattern": {
+            "createdAt": {
+              "$numberInt": "1"
+            },
+            "status": {
+              "$numberInt": "1"
+            }
+          },
+          "indexName": "createdAt_1_status_1",
+          "isMultiKey": false,
+          "multiKeyPaths": {
+            "createdAt": [],
+            "status": []
+          },
+          "isUnique": false,
+          "isSparse": false,
+          "isPartial": false,
+          "indexVersion": {
+            "$numberInt": "2"
+          },
+          "direction": "forward",
+          "indexBounds": {
+            "createdAt": [
+              "(2, inf]"
+            ],
+            "status": [
+              "[\"a\", \"a\"]"
+            ]
+          },
+          "keysExamined": {
+            "$numberInt": "7"
+          },
+          "seeks": {
+            "$numberInt": "5"
+          },
+          "dupsTested": {
+            "$numberInt": "0"
+          },
+          "dupsDropped": {
+            "$numberInt": "0"
+          },
+          "peakTrackedMemBytes": {
+            "$numberInt": "0"
+          }
+        }
+      }
+    }
+  },
+  "queryShapeHash": "27AA460DE86F64BB5AC913EFF3EF4D09CD45CC4E5E6FCFF5884817F8E061B2E3",
+  "command": {
+    "find": "orders",
+    "filter": {
+      "status": "a",
+      "createdAt": {
+        "$gt": {
+          "$numberInt": "2"
+        }
+      }
+    },
+    "limit": {
+      "$numberLong": "51"
+    },
+    "$db": "test"
+  },
+  "serverInfo": {
+    "host": "localhost",
+    "port": {
+      "$numberInt": "27017"
+    },
+    "version": "9.0.8",
+    "gitVersion": "0000000000000000000000000000000000000000"
+  },
+  "serverParameters": {
+    "internalQueryFacetMaxOutputDocSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": {
+      "$numberInt": "104857600"
+    },
+    "internalQueryProhibitBlockingMergeOnMongoS": {
+      "$numberInt": "0"
+    },
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": {
+      "$numberInt": "1"
+    }
+  },
+  "ok": {
+    "$numberDouble": "1.0"
+  }
+}

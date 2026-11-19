@@ -1,0 +1,64 @@
+{
+  "op": "query",
+  "ns": "test.range_first",
+  "isFromPriorityPortConnection": false,
+  "command": {
+    "find": "range_first",
+    "filter": {
+      "status": "a",
+      "createdAt": {
+        "$gt": {
+          "$numberInt": "2"
+        }
+      }
+    },
+    "$db": "test"
+  },
+  "opid": {
+    "$numberInt": "320518"
+  },
+  "keysExamined": {
+    "$numberInt": "7"
+  },
+  "docsExamined": {
+    "$numberInt": "3"
+  },
+  "nBatches": {
+    "$numberInt": "1"
+  },
+  "cursorExhausted": true,
+  "numYield": {
+    "$numberInt": "0"
+  },
+  "nreturned": {
+    "$numberInt": "3"
+  },
+  "planCacheShapeHash": "8AA1D073",
+  "queryHash": "8AA1D073",
+  "planCacheKey": "B0FC3A2A",
+  "queryShapeHash": "27C83FF97C018C549082E6CBF8FC6F1B84CFC7E7A6171C8CA509CC27ADF31A80",
+  "queryFramework": "classic",
+  "planRanker": "none",
+  "responseLength": {
+    "$numberInt": "280"
+  },
+  "protocol": "op_msg",
+  "millis": {
+    "$numberInt": "0"
+  },
+  "micros": {
+    "$numberInt": "914"
+  },
+  "planSummary": "IXSCAN { createdAt: 1, status: 1 }",
+  "planningTimeMicros": {
+    "$numberInt": "183"
+  },
+  "ts": {
+    "$date": {
+      "$numberLong": "1795060672073"
+    }
+  },
+  "client": "127.0.0.1",
+  "appName": "myapp",
+  "user": ""
+}

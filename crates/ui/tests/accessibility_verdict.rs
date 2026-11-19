@@ -246,6 +246,36 @@ fn the_inefficient_reason_carries_its_counts() {
 }
 
 #[test]
+fn field_order_badge_reads_icon_title_and_reason() {
+    let reason = Reason::new("field_order")
+        .with_param("index", "createdAt_1_status_1")
+        .with_param("range", "createdAt")
+        .with_param("field", "status");
+    let sort_reason = Reason::new("field_order_sort")
+        .with_param("index", "createdAt_1_name_1")
+        .with_param("range", "createdAt")
+        .with_param("field", "name");
+    let mut harness = open(&ready(verdict(
+        VerdictKind::FieldOrder,
+        vec![reason, sort_reason],
+        true,
+    )));
+    assert_shows(&harness, &["\u{26a0} Index field order", "Why"]);
+    expand(&mut harness);
+    assert_shows(
+        &harness,
+        &[
+            "The index createdAt_1_status_1 puts createdAt, a range, before status, an exact match.",
+            "The index createdAt_1_name_1 puts createdAt, a range, before the sort field name, so the server sorts in memory.",
+            "Suggested index",
+            COMMAND,
+        ],
+    );
+    harness.get_by_role_and_label(Role::Button, "Copy index command");
+    harness.get_by_role_and_label(Role::Button, "Create index...");
+}
+
+#[test]
 fn neutral_tones_show_their_reasons() {
     for (kind, key, title, reason) in [
         (VerdictKind::NoFilter, "no_filter", "No filter", "no filter"),

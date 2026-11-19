@@ -235,6 +235,24 @@ fn queries_view_dark() {
         .snapshot("queries_view_dark");
 }
 
+// A shape whose index puts a range before an exact match: the "Index field order" chip.
+shot!(
+    queries_view_field_order_light,
+    vec![],
+    support::indexes_shots::queries_view_field_order
+);
+
+#[test]
+#[ignore = "needs a GPU: set CURLYBRACE_SNAPSHOTS=1"]
+fn queries_view_field_order_dark() {
+    if !snapshots_enabled("queries_view_field_order_dark") {
+        return;
+    }
+    Shot::new(vec![], support::indexes_shots::queries_view_field_order)
+        .mode(Mode::Dark)
+        .snapshot("queries_view_field_order_dark");
+}
+
 shot!(
     index_drop_confirm,
     vec![],
