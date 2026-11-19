@@ -32,7 +32,7 @@ use super::super::sampler::{
     pass_deadline, pause_reason, resume_point, rotated,
 };
 use super::fold_entries;
-use super::mark_clock::move_back_if_ahead;
+use super::mark_clock::{move_back_if_ahead, without_future};
 use crate::error::CoreError;
 use crate::error_name::variant_of;
 use crate::history::retention::RAW_RETENTION_SECS;
@@ -341,13 +341,12 @@ async fn poll_db(ctx: &Ctx<'_>, db: &str, marks: &mut Marks) -> Result<DbOutcome
         )
         .await
         {
-            Ok(read) => read,
+            Ok(read) => without_future(read),
             Err(error) => return skipped_or_fatal(error),
         };
         marks.observe_host(db, &read.host);
         let mark = marks.get_or_floor(db, ctx.floor);
-        let (h, c) = (ctx.history, ctx.connection);
-        if move_back_if_ahead(h, c, db, mark.ts_millis, &read, marks).await? {
+        if move_back_if_ahead(ctx.floor, db, mark.ts_millis, &read, marks) {
             continue;
         }
         missed |= record_gap_if_lost(ctx, db, &mark, &read, marks).await?;

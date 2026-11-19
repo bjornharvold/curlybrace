@@ -1,6 +1,7 @@
-//! A watermark ahead of the server's own clock (a skewed or restored clock, a profile copied from
-//! another server) would make every read return nothing for ever. The poller moves it back to
-//! the server's time, taken from the `hello` of the read, and trusts nothing before that.
+//! A watermark ahead of the server's own clock (a clock set back, a restored or copied profile)
+//! would make every read return nothing until real time catches up. The poller moves it back to
+//! the server's time, taken from the `hello` of the read, and never counts an entry stamped
+//! later than that time (it can only be one already counted): nothing is read twice.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,7 +40,8 @@ fn entry(ts_millis: i64) -> ProfileEntry {
     }
 }
 
-fn store(entries: Vec<ProfileEntry>) -> InMemoryStore {
+/// A server whose clock reads `server_now` and whose profile holds `entries`.
+fn store_at(entries: Vec<ProfileEntry>, server_now: i64) -> InMemoryStore {
     let ns = Namespace {
         db: "shop".into(),
         collection: "orders".into(),
@@ -48,7 +50,11 @@ fn store(entries: Vec<ProfileEntry>) -> InMemoryStore {
         .with_docs(&ns, vec![doc! { "a": 1 }])
         .with_profiling_level("shop", 1)
         .with_profile("shop", entries)
-        .with_profile_server_now("shop", SERVER_NOW)
+        .with_profile_server_now("shop", server_now)
+}
+
+fn store(entries: Vec<ProfileEntry>) -> InMemoryStore {
+    store_at(entries, SERVER_NOW)
 }
 
 fn history_with_mark(ts_millis: i64) -> Arc<HistoryDb> {
@@ -67,6 +73,7 @@ fn history_with_mark(ts_millis: i64) -> Arc<HistoryDb> {
     Arc::new(history)
 }
 
+/// One poll with a fresh poller, as after a restart (the mark comes from the history).
 async fn poll(store: &InMemoryStore, history: &Arc<HistoryDb>) -> ProfilerStatus {
     let cfg = SamplerConfig {
         command_timeout: Duration::from_secs(5),
@@ -81,36 +88,45 @@ async fn poll(store: &InMemoryStore, history: &Arc<HistoryDb>) -> ProfilerStatus
 
 fn executions(history: &HistoryDb) -> u64 {
     history
-        .shapes_for(CONN, "shop", "orders", ChartRange::Day, NOW_SECS + 600)
+        .shapes_for(CONN, "shop", "orders", ChartRange::Day, NOW_SECS + 7_200)
         .unwrap()
         .iter()
         .map(|s| s.executions)
         .sum()
 }
 
+const FLOOR: i64 = 1_000;
+
 #[test]
 fn a_mark_within_tolerance_is_kept() {
     let now = 1_700_000_000_000;
     let edge = now + MARK_AHEAD_TOLERANCE_MS;
-    assert_eq!(clamp_ahead(now, Some(now)), (now, false));
-    assert_eq!(clamp_ahead(edge, Some(now)), (edge, false));
-    assert_eq!(
-        clamp_ahead(now - HOUR_MS, Some(now)),
-        (now - HOUR_MS, false)
-    );
+    assert_eq!(clamp_ahead(now, Some(now), FLOOR), (now, false));
+    assert_eq!(clamp_ahead(edge, Some(now), FLOOR), (edge, false));
+    let past = now - HOUR_MS;
+    assert_eq!(clamp_ahead(past, Some(now), FLOOR), (past, false));
 }
 
 #[test]
 fn a_mark_far_ahead_is_moved_to_server_now() {
     let now = 1_700_000_000_000;
     let past_edge = now + MARK_AHEAD_TOLERANCE_MS + 1;
-    assert_eq!(clamp_ahead(past_edge, Some(now)), (now, true));
-    assert_eq!(clamp_ahead(now + HOUR_MS, Some(now)), (now, true));
+    assert_eq!(clamp_ahead(past_edge, Some(now), FLOOR), (now, true));
+    assert_eq!(clamp_ahead(now + HOUR_MS, Some(now), FLOOR), (now, true));
 }
 
 #[test]
 fn no_server_time_keeps_the_mark() {
-    assert_eq!(clamp_ahead(i64::MAX, None), (i64::MAX, false));
+    assert_eq!(clamp_ahead(i64::MAX, None, FLOOR), (i64::MAX, false));
+}
+
+#[test]
+fn a_bogus_past_server_time_never_drops_the_mark_below_the_floor() {
+    let floor = 1_699_000_000_000;
+    let mark = 1_700_000_000_000;
+    assert_eq!(clamp_ahead(mark, Some(0), floor), (floor, true));
+    // Already at the floor: nothing to move, so no loop.
+    assert_eq!(clamp_ahead(floor, Some(0), floor), (floor, false));
 }
 
 #[tokio::test]
@@ -124,20 +140,34 @@ async fn a_clamped_mark_reports_no_missed_entries() {
 }
 
 #[tokio::test]
-async fn the_clamp_is_persisted_with_the_next_page() {
-    let history = history_with_mark(SERVER_NOW + HOUR_MS);
-    poll(&store(vec![entry(SERVER_NOW + 5_000)]), &history).await;
-    // The stored mark followed the page, not the old position an hour ahead.
-    let stored = history.profile_mark(CONN, "shop").unwrap();
-    assert_eq!(stored, Some(SERVER_NOW + 5_000));
+async fn an_entry_counted_before_the_clock_went_back_is_not_counted_again() {
+    let later = SERVER_NOW + HOUR_MS;
+    let history = Arc::new(HistoryDb::open_in_memory().unwrap());
+    // The clock was an hour ahead: the entry was stamped then and counted.
+    poll(&store_at(vec![entry(later)], later), &history).await;
+    assert_eq!(executions(&history), 1);
+    // The clock is set back; the same entry is still in the profile. Polled twice (a restart
+    // each time): it must stay counted once.
+    let reset = store_at(vec![entry(later)], SERVER_NOW);
+    poll(&reset, &history).await;
+    poll(&reset, &history).await;
+    assert_eq!(executions(&history), 1);
 }
 
 #[tokio::test]
-async fn the_clamp_is_persisted_even_when_nothing_was_read() {
-    let history = history_with_mark(SERVER_NOW + HOUR_MS);
-    poll(&store(Vec::new()), &history).await;
-    let stored = history.profile_mark(CONN, "shop").unwrap();
-    assert_eq!(stored, Some(SERVER_NOW));
+async fn a_server_time_of_zero_or_the_far_past_recounts_nothing_and_ends() {
+    let history = Arc::new(HistoryDb::open_in_memory().unwrap());
+    let entries = vec![entry(SERVER_NOW - 5_000), entry(SERVER_NOW - 4_000)];
+    poll(&store_at(entries.clone(), SERVER_NOW), &history).await;
+    assert_eq!(executions(&history), 2);
+    for broken_clock in [0, 86_400_000, 1_000_000_000_000] {
+        let broken = store_at(entries.clone(), broken_clock);
+        for _ in 0..2 {
+            let status = poll(&broken, &history).await;
+            assert_eq!(status, ProfilerStatus::Reading { databases: 1 });
+        }
+        assert_eq!(executions(&history), 2, "clock {broken_clock}");
+    }
 }
 
 #[tokio::test]
