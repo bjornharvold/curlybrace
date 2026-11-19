@@ -215,7 +215,7 @@ fn field_order_row_title_and_suggestion() {
     assert_shows(
         &harness,
         &[
-            "\u{26a0} Index field order".to_string(),
+            "\u{26a0} Index fields in the wrong order".to_string(),
             "5 misses".to_string(),
             t("query.verdict.suggestion"),
             "createIndex".to_string(),

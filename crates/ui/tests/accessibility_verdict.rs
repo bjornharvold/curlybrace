@@ -251,28 +251,52 @@ fn field_order_badge_reads_icon_title_and_reason() {
         .with_param("index", "createdAt_1_status_1")
         .with_param("range", "createdAt")
         .with_param("field", "status");
-    let sort_reason = Reason::new("field_order_sort")
-        .with_param("index", "createdAt_1_name_1")
-        .with_param("range", "createdAt")
-        .with_param("field", "name");
+    // Both reasons together are what classify gives a wide range-first scan.
+    let wide = Reason::new("inefficient")
+        .with_param("examined", 5000)
+        .with_param("returned", 3);
     let mut harness = open(&ready(verdict(
         VerdictKind::FieldOrder,
-        vec![reason, sort_reason],
+        vec![reason, wide],
         true,
     )));
-    assert_shows(&harness, &["\u{26a0} Index field order", "Why"]);
+    assert_shows(
+        &harness,
+        &["\u{26a0} Index fields in the wrong order", "Why"],
+    );
     expand(&mut harness);
     assert_shows(
         &harness,
         &[
-            "The index createdAt_1_status_1 puts createdAt, a range, before status, an exact match.",
-            "The index createdAt_1_name_1 puts createdAt, a range, before the sort field name, so the server sorts in memory.",
+            "The index createdAt_1_status_1 puts createdAt, a range condition, before status, an exact match.",
+            "examined 5000 entries to return 3 documents",
             "Suggested index",
             COMMAND,
         ],
     );
     harness.get_by_role_and_label(Role::Button, "Copy index command");
     harness.get_by_role_and_label(Role::Button, "Create index...");
+}
+
+#[test]
+fn a_blocking_sort_after_a_range_adds_the_sort_field_order_reason() {
+    let sort_reason = Reason::new("field_order_sort")
+        .with_param("index", "createdAt_1_name_1")
+        .with_param("range", "createdAt")
+        .with_param("field", "name");
+    let mut harness = open(&ready(verdict(
+        VerdictKind::SortNotCovered,
+        vec![Reason::new("sort_blocking"), sort_reason],
+        true,
+    )));
+    expand(&mut harness);
+    assert_shows(
+        &harness,
+        &[
+            "The sort cannot use an index",
+            "The index createdAt_1_name_1 puts createdAt, a range condition, before the sort field name, so the server sorts in memory.",
+        ],
+    );
 }
 
 #[test]

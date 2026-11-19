@@ -235,7 +235,7 @@ fn queries_view_dark() {
         .snapshot("queries_view_dark");
 }
 
-// A shape whose index puts a range before an exact match: the "Index field order" chip.
+// A shape whose index puts a range before an exact match: the "Index fields in the wrong order" chip.
 shot!(
     queries_view_field_order_light,
     vec![],
