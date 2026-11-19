@@ -198,18 +198,21 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     let Some(session) = ev.session() else {
         return (state, Vec::new());
     };
-    state.with_session(session, |s| match (s.status == ConnStatus::Connected, ev) {
-        (
-            true,
-            Event::AggregateRan {
-                run,
-                target,
-                outcome,
-                ..
-            },
-        ) => ran(s, run, target, outcome),
-        (true, Event::Failed { error, .. }) => command_failed(s, error),
-        _ => (s, Vec::new()),
+    let owner = super::tab_routing::owner_of(&state, session, &ev);
+    state.with_session_tab(session, owner, |s| {
+        match (s.status == ConnStatus::Connected, ev) {
+            (
+                true,
+                Event::AggregateRan {
+                    run,
+                    target,
+                    outcome,
+                    ..
+                },
+            ) => ran(s, run, target, outcome),
+            (true, Event::Failed { error, .. }) => command_failed(s, error),
+            _ => (s, Vec::new()),
+        }
     })
 }
 

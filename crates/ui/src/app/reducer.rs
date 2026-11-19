@@ -177,7 +177,10 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
             // Inside `with_session` the active session is the event's own, so whether the person
             // is looking at it must be read before.
             let background = state.active != Some(session);
-            state.with_session(session, |s| on_session_event(s, ev, background))
+            // An answer to a parked tab's request goes to that tab, not to the current one.
+            let owner = super::tab_routing::owner_of(&state, session, &ev);
+            let ev = super::tab_routing::unnumbered(ev);
+            state.with_session_tab(session, owner, |s| on_session_event(s, ev, background))
         }
         (_, None) => (state, Vec::new()),
     }
@@ -481,16 +484,6 @@ fn numbered_read_failed(
     error: CoreError,
     background: bool,
 ) -> Out {
-    // A find, an explain and an estimated count are numbered since the tab model (the number
-    // routes their answers), but their failures are handled as the bare `Failed` they were.
-    if matches!(context, "find" | "explain_find" | "estimated_count") {
-        let failed = Event::Failed {
-            session,
-            context,
-            error,
-        };
-        return on_session_event(state, failed, background);
-    }
     // The shapes read is numbered on its own and fails inline, never as a banner.
     if context == "query_shapes" {
         // Only a lost server still takes the connection-lost path, like any numbered

@@ -121,11 +121,16 @@ impl IndexesState {
         }
     }
 
-    /// The same state after the server answered request `request` (current or stale).
+    /// The same state after the server answered request `request` (current or stale). A number
+    /// this state never sent (an answer that reached it for another tab's request) proves
+    /// nothing about what it asked, so it leaves the mark alone.
     pub fn answered_request(self, request: u64) -> Self {
-        Self {
-            answered: self.answered.max(request),
-            ..self
+        match request <= self.request {
+            true => Self {
+                answered: self.answered.max(request),
+                ..self
+            },
+            false => self,
         }
     }
 

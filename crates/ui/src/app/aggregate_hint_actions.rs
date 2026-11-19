@@ -75,7 +75,8 @@ pub(super) fn on_event(state: AppState, ev: Event) -> Out {
     let Some(session) = ev.session() else {
         return (state, Vec::new());
     };
-    state.with_session(session, |s| {
+    let owner = super::tab_routing::owner_of(&state, session, &ev);
+    state.with_session_tab(session, owner, |s| {
         if s.status != ConnStatus::Connected {
             return (s, Vec::new());
         }
