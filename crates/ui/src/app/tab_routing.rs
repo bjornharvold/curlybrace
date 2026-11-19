@@ -227,12 +227,8 @@ pub(super) fn owner_of(state: &AppState, session: Uuid, ev: &Event) -> Option<Ta
             return written_from(state, session);
         }
     }
-    // The current tab has the first claim on a profiler answer it is itself waiting for.
     if profiler_db(ev).is_some() || is_profiling_failure(ev) {
-        let current = numbers_of(state, session, None);
-        if current.is_some_and(|n| awaits_profiling(n.profiling(), ev)) {
-            return None;
-        }
+        return profiler_owner(state, session, ev);
     }
     state.tabs.of_session(session).into_iter().find(|tab| {
         state
@@ -240,6 +236,48 @@ pub(super) fn owner_of(state: &AppState, session: Uuid, ev: &Event) -> Option<Ta
             .get(tab)
             .is_some_and(|view| view.awaits(ev))
     })
+}
+
+/// Who a profiler answer or failure is for. `ProfilingState` does not say whether it answers a
+/// read or a change, so the holders of a change (`Write`) claim it first and then the holders of a
+/// read; within each, the session's current tab goes before the parked ones. The failure of a
+/// command is a read's (a change fails as a write, see `written_from`). `None`: the current tab.
+fn profiler_owner(state: &AppState, session: Uuid, ev: &Event) -> Option<TabId> {
+    let kinds: &[fn(Option<&InFlight>) -> bool] = match profiler_db(ev) {
+        Some(_) => &[is_write, is_read],
+        None => &[is_read],
+    };
+    let db = profiler_db(ev);
+    let on_db = |held: Option<&InFlight>| match (held, db) {
+        (Some(InFlight::Read(d) | InFlight::Write(d)), Some(db)) => d == db,
+        (Some(_), None) => true,
+        _ => false,
+    };
+    for kind in kinds {
+        let holds = |held: Option<&InFlight>| kind(held) && on_db(held);
+        let current = numbers_of(state, session, None);
+        if current.is_some_and(|n| holds(n.profiling())) {
+            return None;
+        }
+        let parked = state.tabs.of_session(session).into_iter().find(|tab| {
+            state
+                .parked_tabs
+                .get(tab)
+                .is_some_and(|view| holds(view.indexes.queries.in_flight.as_ref()))
+        });
+        if parked.is_some() {
+            return parked;
+        }
+    }
+    None
+}
+
+fn is_write(held: Option<&InFlight>) -> bool {
+    matches!(held, Some(InFlight::Write(_)))
+}
+
+fn is_read(held: Option<&InFlight>) -> bool {
+    matches!(held, Some(InFlight::Read(_)))
 }
 
 /// The database a `ProfilingState` answer is for.
@@ -385,6 +423,9 @@ mod aggregate_tests;
 #[cfg(test)]
 #[path = "tab_background_tests.rs"]
 mod background_tests;
+#[cfg(test)]
+#[path = "tab_claims_tests.rs"]
+mod claims_tests;
 #[cfg(test)]
 #[path = "tab_routing_events_tests.rs"]
 mod events_tests;

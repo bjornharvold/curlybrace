@@ -1,6 +1,6 @@
 //! The answers of a session that is NOT the one in front find their tab too (#159): the write in
 //! flight of a background session lives in that session's parked view, not in the foreground.
-use crate::app::reducer::{Input, update};
+use crate::app::reducer::Input;
 use crate::app::state::{AppState, ConnStatus, Pending};
 use crate::app::tabs::TabId;
 use crate::app::tabs::test_support::{act, ev, orders, parked, two_tabs, with_second_session};
@@ -108,13 +108,47 @@ fn a_failed_run_of_a_background_sessions_parked_tab_does_not_stay_running() {
 
 #[test]
 fn a_background_sessions_failure_leaves_the_session_in_front_alone() {
-    let (s, a, _, b) = background_writer(|_, _| {});
-    let in_front_page = s.page.as_ref().map(|p| p.docs.len());
+    let t = two_tabs();
+    let (s, _) = act(t.s, t.second, Input::Doc(DocAction::Insert));
+    let text = parked(&s, t.second)
+        .editor
+        .as_ref()
+        .expect("an editor")
+        .text
+        .clone();
+    let (s, _) = act(
+        s,
+        t.second,
+        Input::Editor(EditorAction::Save {
+            original_id: None,
+            text,
+        }),
+    );
+    let (s, b, _) = with_second_session(s);
+    let (ns, page) = (
+        s.selected_ns().cloned(),
+        s.page.as_ref().map(|p| p.docs.len()),
+    );
     let s = ev(
         s,
-        failed(a, "insert", CoreError::Database("refused".into())),
+        failed(t.a, "insert", CoreError::Database("refused".into())),
     );
+    // The failure was A's parked tab's own: its editor shows it, so no banner is raised.
+    assert!(
+        parked(&s, t.second)
+            .editor
+            .as_ref()
+            .is_some_and(|e| e.error.is_some())
+    );
+    assert_eq!(
+        s.banner, None,
+        "nothing was shown over the session in front"
+    );
+    // The session in front is exactly what it was.
     assert_eq!(s.active, Some(b));
-    assert_eq!(s.page.as_ref().map(|p| p.docs.len()), in_front_page);
-    let _ = update(s, Input::DismissBanner);
+    assert_eq!(s.selected_ns().cloned(), ns);
+    assert_eq!(s.page.as_ref().map(|p| p.docs.len()), page);
+    assert!(s.pending.is_none() && s.editor.is_none());
+    // And A's current tab took nothing.
+    assert!(s.parked[&t.a].editor.is_none());
 }

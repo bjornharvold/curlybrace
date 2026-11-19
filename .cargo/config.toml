@@ -1,2 +1,11 @@
 [resolver]
 incompatible-rust-versions = "fallback"
+
+# A debug build of the reducer moves a large state by value through deep event paths, and the
+# deepest test (a late lost connection with a prompt open) needs about 2 MiB of the 2 MiB default
+# test-thread stack. Test threads honour this variable; 8 MiB is rustc's own default stack, so
+# nothing is shrunk. It reaches `cargo test` and `cargo run`, never a binary started directly (the
+# release app). A value already set in the environment wins. The explicit-stack regression tests in
+# `tab_stack_tests.rs` build their own threads and do not read it.
+[env]
+RUST_MIN_STACK = "8388608"

@@ -172,8 +172,10 @@ impl AppState {
         indexes.map_or((None, None), |i| (i.sampler, i.queries.status.clone()))
     }
 
-    /// `tab` closed. A parked tab just goes; the current tab is replaced by the session's first
-    /// other tab, and a session's only tab stays (closing it would leave no view to show).
+    /// `tab` closed. A parked tab just goes; the current tab is replaced by its right neighbour in
+    /// the strip, else its left one (one with a parked view), and a session's only tab stays
+    /// (closing it would leave no view to show). Closing the current tab re-enters this once, for
+    /// the same tab now parked, which then just goes.
     pub fn tab_closed(self, tab: TabId) -> AppState {
         let Some(session) = self.tabs.owner.get(&tab).copied() else {
             return self;
