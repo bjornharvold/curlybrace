@@ -475,6 +475,16 @@ fn numbered_read_failed(
     error: CoreError,
     background: bool,
 ) -> Out {
+    // A find, an explain and an estimated count are numbered since the tab model (the number
+    // routes their answers), but their failures are handled as the bare `Failed` they were.
+    if matches!(context, "find" | "explain_find" | "estimated_count") {
+        let failed = Event::Failed {
+            session,
+            context,
+            error,
+        };
+        return on_session_event(state, failed, background);
+    }
     // The shapes read is numbered on its own and fails inline, never as a banner.
     if context == "query_shapes" {
         // Only a lost server still takes the connection-lost path, like any numbered
@@ -714,6 +724,9 @@ pub(super) fn forget_finished(state: AppState, result: Result<(), PersistError>)
 #[path = "reducer_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "reducer_request_failed_tests.rs"]
+mod reducer_request_failed_tests;
 #[cfg(test)]
 #[path = "tab_characterisation_tests.rs"]
 mod tab_characterisation_tests;

@@ -458,7 +458,7 @@ fn stale_answers_transcript_is_unchanged() {
 }
 
 /// Connects `a` and opens `app.users` on a first page, through the reducer.
-fn browsing_one() -> (AppState, Uuid, Vec<Command>) {
+pub(super) fn browsing_one() -> (AppState, Uuid, Vec<Command>) {
     let (mut state, ids) = connections(&["a"]);
     let a = ids[0];
     let mut sent = Vec::new();
