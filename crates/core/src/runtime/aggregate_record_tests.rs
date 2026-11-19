@@ -14,7 +14,7 @@ use crate::connection::ConnectionConfig;
 use crate::explain::{AggPlanOutcome, ExplainVerbosity, VerdictKind, parse_aggregate_explain};
 use crate::history::{ChartRange, HistoryDb, ShapeSource, ShapeSummary};
 use crate::log_capture::{RECORDS, capture, records_mentioning};
-use crate::pipeline::{HintOption, PipelineOptions};
+use crate::pipeline::{CollationOption, HintOption, PipelineOptions};
 use crate::shape::{Shape, from_profile_command};
 use crate::store::Namespace;
 use crate::test_support::InMemoryStore;
@@ -279,7 +279,7 @@ async fn the_recording_holds_no_literal() {
 }
 
 #[tokio::test]
-async fn a_pipeline_not_starting_with_match_or_sort_is_not_recorded() {
+async fn a_pipeline_not_starting_with_match_is_not_recorded() {
     let mut setup = connected(scripted()).await;
     let lead_group = vec![doc! { "$group": { "_id": "$city" } }];
     assert!(explained(&mut setup, lead_group, PipelineOptions::default()).await);
@@ -295,6 +295,36 @@ async fn a_hint_or_collation_records_nothing() {
     };
     assert!(explained(&mut setup, stages(), hinted).await);
     assert!(nothing_recorded(&setup).await);
+}
+
+#[tokio::test]
+async fn a_collation_records_nothing() {
+    let mut setup = connected(scripted()).await;
+    let collated = PipelineOptions {
+        collation: Some(CollationOption {
+            locale: "en".into(),
+            strength: None,
+            case_level: None,
+            case_first: None,
+            numeric_ordering: None,
+            alternate: None,
+        }),
+        ..PipelineOptions::default()
+    };
+    assert!(explained(&mut setup, stages(), collated).await);
+    assert!(nothing_recorded(&setup).await);
+}
+
+#[tokio::test]
+async fn other_options_still_record() {
+    let mut setup = connected(scripted()).await;
+    let options = PipelineOptions {
+        allow_disk_use: Some(true),
+        max_time_ms: Some(2_000),
+        ..PipelineOptions::default()
+    };
+    assert!(explained(&mut setup, stages(), options).await);
+    assert_eq!(recorded(&setup).await.len(), 1);
 }
 
 #[tokio::test]

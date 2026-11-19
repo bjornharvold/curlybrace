@@ -365,7 +365,7 @@ pub(super) fn record_pipeline(history: &Arc<HistoryDb>, session: SessionId, ns: 
 - [ ] Failing tests:
   - `an_explained_match_pipeline_is_recorded_as_typed`;
   - `the_pipeline_shape_equals_the_profiler_shape_of_the_same_pipeline` (same hash as `from_profile_command`);
-  - `a_pipeline_not_starting_with_match_or_sort_is_not_recorded`;
+  - `a_pipeline_not_starting_with_match_is_not_recorded` (only a leading `$match` is recorded; a `$sort` alone gives no shape);
   - `a_hint_or_collation_records_nothing`;
   - `a_failed_explain_records_nothing`;
   - `a_sharded_plan_records_nothing`;

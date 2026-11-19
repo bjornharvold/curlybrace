@@ -35,21 +35,23 @@ pub(super) async fn run(
     };
     let options = &options;
     let applied = options.applied(Operation::Explain);
+    // The stage list is copied only when there is a history to record into.
+    let to_record = history.map(|history| (history, stages.clone()));
     let outcome = match store
-        .aggregate_explain(&ns, stages.clone(), verbosity, &applied)
+        .aggregate_explain(&ns, stages, verbosity, &applied)
         .await
     {
         Err(error) if is_connection_error(&error) => return Err(error),
         other => other,
     };
     // Only a successful explain says anything about the pipeline; recording is detached.
-    if let (Ok(explain), Some(history)) = (&outcome, history) {
+    if let (Ok(explain), Some((history, stages))) = (&outcome, &to_record) {
         let now = crate::clock::now_secs;
         record_pipeline(
             history,
             session,
             &ns,
-            &stages,
+            stages,
             options,
             &explain.document,
             &now,
